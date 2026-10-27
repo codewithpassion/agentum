@@ -12,8 +12,10 @@ import {
   TableRow,
   TextRun,
 } from "docx";
+import { ExportError } from "./error";
 import {
   assetLoader,
+  bindAssets,
   bound,
   documentInput,
   escapeHTML,
@@ -106,7 +108,7 @@ async function htmlNode(
           } as Record<string, string>
         )[n.type ?? ""];
   if (!tag) {
-    throw new Error("export_unmapped_document_node");
+    throw new ExportError("export_unmapped_document_node");
   }
   let attrs = "";
   if (n.type === "orderedList") {
@@ -128,10 +130,8 @@ export function shell(body: string, css = printCSS) {
   bound(new TextEncoder().encode(html), limits.output);
   return html;
 }
-export async function documentPrintHTML(
-  snapshot: Uint8Array,
-  assets: OwnAssets
-) {
+export async function documentPrintHTML(snapshot: Uint8Array, port: OwnAssets) {
+  const assets = bindAssets(port);
   const json = documentInput(snapshot, assets),
     warnings: Warning[] = [];
   return {
@@ -179,7 +179,16 @@ async function runs(n: JSONContent, load: LoadAsset): Promise<Inline[]> {
     return [run];
   }
   return (
-    await Promise.all((n.content ?? []).map((c) => runs(c, load)))
+    await Promise.all(
+      (n.content ?? []).map((c) =>
+        runs(
+          n.type === "codeBlock"
+            ? { ...c, marks: [...(c.marks ?? []), { type: "code" }] }
+            : c,
+          load
+        )
+      )
+    )
   ).flat();
 }
 interface BlockContext {
@@ -308,7 +317,8 @@ async function blocks(
     }),
   ];
 }
-export async function documentDOCX(snapshot: Uint8Array, assets: OwnAssets) {
+export async function documentDOCX(snapshot: Uint8Array, port: OwnAssets) {
+  const assets = bindAssets(port);
   const json = documentInput(snapshot, assets),
     warnings: Warning[] = [],
     lists = new WeakMap<JSONContent, string>();

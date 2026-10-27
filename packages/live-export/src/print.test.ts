@@ -16,7 +16,7 @@ test("Chrome prints representative document and exactly two slide pages without 
       requests.push(route.request().url());
       return route.abort();
     });
-    const document = await documentPrintHTML(docFixture(), assets);
+    const document = await documentPrintHTML(docFixture(100), assets);
     await page.setContent(document.value);
     await page.emulateMedia({ media: "print" });
     expect(await page.locator("h1").textContent()).toContain("résumé");
@@ -38,8 +38,15 @@ test("Chrome prints representative document and exactly two slide pages without 
       printBackground: true,
     });
     expect(docPDF.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(
+      docPDF.toString("latin1").match(/\/Type \/Page\b/g)?.length
+    ).toBeGreaterThan(1);
     const deck = await deckPrintHTML(deckFixture(), assets);
     await page.setContent(deck.value);
+    expect(await page.locator("svg ellipse").count()).toBe(1);
+    expect(await page.locator("svg ellipse").getAttribute("fill")).toBe(
+      "#3b82f6"
+    );
     const boxes = await page.locator(".slide").evaluateAll((elements) =>
       elements.map((e) => ({
         after: getComputedStyle(e).breakAfter,

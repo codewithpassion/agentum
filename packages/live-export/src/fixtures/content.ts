@@ -28,29 +28,33 @@ function chunk(name: string, data: Uint8Array) {
   v.setUint32(b.length - 4, crc(b.subarray(4, b.length - 4)));
   return b;
 }
-const header = new Uint8Array(13);
-new DataView(header.buffer).setUint32(0, 1);
-new DataView(header.buffer).setUint32(4, 1);
-header[8] = 8;
-header[9] = 6;
-export const png = new Uint8Array([
-  137,
-  80,
-  78,
-  71,
-  13,
-  10,
-  26,
-  10,
-  ...chunk("IHDR", header),
-  ...chunk("IDAT", zlibSync(new Uint8Array([0, 20, 100, 220, 255]))),
-  ...chunk("IEND", new Uint8Array()),
-]);
+export function pngFor(width: number, height: number, raw: Uint8Array) {
+  const header = new Uint8Array(13),
+    view = new DataView(header.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  header[8] = 8;
+  header[9] = 6;
+  return new Uint8Array([
+    137,
+    80,
+    78,
+    71,
+    13,
+    10,
+    26,
+    10,
+    ...chunk("IHDR", header),
+    ...chunk("IDAT", zlibSync(raw, { level: 0 })),
+    ...chunk("IEND", new Uint8Array()),
+  ]);
+}
+export const png = pngFor(1, 1, new Uint8Array([0, 20, 100, 220, 255]));
 export const assets: OwnAssets = {
   paths: new Set(["/files/image"]),
   read: async () => ({ bytes: png, mime: "image/png" }),
 };
-export function docFixture() {
+export function docFixture(extraParagraphs = 0) {
   const doc = new Doc(),
     live = new LiveDocument(doc, { ownBlobUrls: assets.paths });
   live.import(
@@ -154,6 +158,15 @@ export function docFixture() {
             type: "codeBlock",
           },
           { attrs: { intent: "Awaiting data" }, type: "pending" },
+          ...Array.from({ length: extraParagraphs }, (_unused, index) => ({
+            content: [
+              {
+                text: `Pagination paragraph ${index}: a representative line of document text.`,
+                type: "text",
+              },
+            ],
+            type: "paragraph",
+          })),
         ],
         type: "doc",
       },
@@ -170,6 +183,11 @@ export function deckFixture() {
     deck = new Deck(doc, richTextCodec, {
       ownsBlob: (p) => assets.paths.has(p),
     });
+  deck.setTheme({
+    colors: { accent: "#3b82f6" },
+    fonts: { body: "Calibri" },
+    sizes: { body: "24px" },
+  });
   const slide: SlideData = {
     background: "#ffffff",
     duration: "100",
@@ -242,6 +260,25 @@ export function deckFixture() {
     order: "a0",
     transition: "fade",
   };
+  slide.elements.push(
+    {
+      id: "g",
+      order: "a5",
+      parent: "s",
+      props: { h: "100", w: "200", x: "100", y: "400" },
+      style: {},
+      type: "group",
+    },
+    {
+      id: "gc",
+      order: "a0",
+      parent: "g",
+      props: { h: "40", w: "100", x: "10", y: "20" },
+      style: {},
+      text: [{ attrs: {}, children: ["Grouped"], tag: "p" }],
+      type: "text",
+    }
+  );
   deck.addSlide(slide);
   deck.addSlide({
     ...slide,

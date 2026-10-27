@@ -8,6 +8,11 @@ import { base64 } from "../input";
 import { assets, deckFixture, docFixture } from "./content";
 export default {
   async fetch() {
+    Object.defineProperty(globalThis, "fetch", {
+      value: () => {
+        throw new Error("Export attempted network access");
+      },
+    });
     const doc = docFixture(),
       deck = deckFixture();
     const word = await documentDOCX(doc, assets),

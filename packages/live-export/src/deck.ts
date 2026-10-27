@@ -6,8 +6,10 @@ import {
 } from "@repo/live-deck";
 import pptxgen from "pptxgenjs";
 import { shell } from "./document";
+import { ExportError } from "./error";
 import {
   assetLoader,
+  bindAssets,
   bound,
   deckInput,
   escapeHTML,
@@ -30,7 +32,7 @@ function pageSize(page: DeckPage) {
       (v) => Number.isFinite(v) && v >= 96 && v <= 4096
     )
   ) {
-    throw new Error("export_page_size");
+    throw new ExportError("export_page_size");
   }
   return { ...page };
 }
@@ -177,7 +179,12 @@ function traversal(slide: SlideData, page: DeckPage) {
     for (const element of orderedElements(slide, parent)) {
       const rect = box(element, b);
       result.push({ box: rect, element });
-      if (element.type === "group" && element.props.flow !== "flow") {
+      if (
+        element.type === "group" &&
+        element.props.flow !== "flow" &&
+        rect.w > 0 &&
+        rect.h > 0
+      ) {
         visit(element.id, rect);
       }
     }
@@ -188,13 +195,17 @@ function traversal(slide: SlideData, page: DeckPage) {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Explicit per-element Office mapping with structured omission warnings.
 export async function deckPPTX(
   snapshot: Uint8Array,
-  assets: OwnAssets,
+  port: OwnAssets,
   requestedPage: DeckPage = defaultPage
 ) {
   const page = pageSize(requestedPage);
+  const assets = bindAssets(port);
   const scene = deckInput(snapshot, assets),
     warnings: Warning[] = [],
     load = assetLoader(assets);
+  if (!scene.slides.length) {
+    throw new ExportError("export_empty_deck");
+  }
   const pptx = new pptxgen();
   pptx.defineLayout({
     height: page.height / PX,
@@ -223,8 +234,12 @@ export async function deckPPTX(
         );
         continue;
       }
+      if (b.w <= 0 || b.h <= 0) {
+        warn(warnings, "empty_geometry", path, "Non-positive box omitted.");
+        continue;
+      }
       if (e.type === "group") {
-        if (b.rotate) {
+        if (b.rotate !== 0) {
           warn(
             warnings,
             "group_rotation",
@@ -232,10 +247,6 @@ export async function deckPPTX(
             "Group rotation omitted; child coordinates remain local offsets."
           );
         }
-        continue;
-      }
-      if (b.w <= 0 || b.h <= 0) {
-        warn(warnings, "empty_geometry", path, "Non-positive box omitted.");
         continue;
       }
       const opts = {
@@ -291,7 +302,10 @@ export async function deckPPTX(
           fill: {
             color: color(e.style["background-color"], "FFFFFF"),
             transparency:
-              e.style["background-color"] === "transparent" ? 100 : 0,
+              !e.style["background-color"] ||
+              e.style["background-color"] === "transparent"
+                ? 100
+                : 0,
           },
           line: {
             color: color(e.style["border-color"], "111827"),
@@ -325,7 +339,7 @@ export async function deckPPTX(
     outputType: "uint8array",
   });
   if (!(value instanceof Uint8Array)) {
-    throw new Error("export_pptx_output");
+    throw new ExportError("export_pptx_output");
   }
   bound(value, limits.output);
   return { value, warnings };
@@ -333,13 +347,17 @@ export async function deckPPTX(
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Explicit per-element safe static mapping.
 export async function deckPrintHTML(
   snapshot: Uint8Array,
-  assets: OwnAssets,
+  port: OwnAssets,
   requestedPage: DeckPage = defaultPage
 ) {
   const page = pageSize(requestedPage);
+  const assets = bindAssets(port);
   const scene = deckInput(snapshot, assets),
     warnings: Warning[] = [],
     load = assetLoader(assets);
+  if (!scene.slides.length) {
+    throw new ExportError("export_empty_deck");
+  }
   let body = "";
   for (const slide of scene.slides) {
     warningsFor(slide, warnings);
@@ -354,8 +372,17 @@ export async function deckPrintHTML(
     let elements = "";
     for (const { element: e, box: b } of traversal(slide, page)) {
       const path = `${slide.id}/${e.id}`;
+      if (e.props.flow === "flow") {
+        warn(
+          warnings,
+          "flow_unsupported",
+          path,
+          "Static export omits the flow element and its descendants; explicit pinned geometry is required."
+        );
+        continue;
+      }
       if (e.type === "group") {
-        if (b.rotate) {
+        if (b.rotate !== 0) {
           warn(
             warnings,
             "group_rotation",
@@ -363,28 +390,25 @@ export async function deckPrintHTML(
             "Group rotation omitted; children retain local offsets."
           );
         }
-        if (Object.keys(e.style).length) {
-          warn(
-            warnings,
-            "group_style",
-            path,
-            "Group styles do not inherit into children in static exports."
-          );
-        }
         continue;
       }
-      if (e.props.flow && e.props.flow !== "pinned") {
-        warn(
-          warnings,
-          "flow_unsupported",
-          path,
-          "Static export requires pinned geometry; element omitted."
-        );
+      if (b.w <= 0 || b.h <= 0) {
+        warn(warnings, "empty_geometry", path, "Non-positive box omitted.");
         continue;
       }
       const style = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;transform:rotate(${b.rotate}deg);${Object.entries(
         e.style
       )
+        .filter(
+          ([key]) =>
+            e.type !== "shape" ||
+            ![
+              "background-color",
+              "border-color",
+              "border-width",
+              "border-radius",
+            ].includes(key)
+        )
         .map(([k, v]) => `${k}:${v}`)
         .join(";")}`;
       let content = "";
@@ -404,14 +428,19 @@ export async function deckPrintHTML(
         }
         content = `<table>${content}</table>`;
       } else if (e.type === "shape") {
-        const shape = e.props.shape ?? "rect";
+        const fill = escapeHTML(e.style["background-color"] ?? "transparent"),
+          stroke = escapeHTML(
+            e.style["border-color"] ?? e.style.color ?? "#111827"
+          ),
+          width = Number.parseFloat(e.style["border-width"] ?? "1");
+        const common = `fill="${fill}" stroke="${stroke}" stroke-width="${width}"`;
         const shapes: Record<string, string> = {
-          ellipse: '<div class="ellipse"></div>',
-          line: "<hr>",
-          rect: '<div class="rect"></div>',
-          triangle: '<div class="triangle"></div>',
+          ellipse: `<ellipse cx="${b.w / 2}" cy="${b.h / 2}" rx="${Math.max(0, (b.w - width) / 2)}" ry="${Math.max(0, (b.h - width) / 2)}" ${common}/>`,
+          line: `<line x1="0" y1="0" x2="${b.w}" y2="${b.h}" ${common}/>`,
+          rect: `<rect x="${width / 2}" y="${width / 2}" width="${Math.max(0, b.w - width)}" height="${Math.max(0, b.h - width)}" ${common}/>`,
+          triangle: `<polygon points="${b.w / 2},${width} ${b.w - width},${b.h - width} ${width},${b.h - width}" ${common}/>`,
         };
-        content = shapes[shape] ?? shapes.rect ?? "";
+        content = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${b.w} ${b.h}" width="100%" height="100%">${shapes[e.props.shape ?? "rect"] ?? ""}</svg>`;
       } else {
         warn(
           warnings,
@@ -425,6 +454,6 @@ export async function deckPrintHTML(
     }
     body += `<section class="slide" style="background:${escapeHTML(slide.background)}">${elements}</section>`;
   }
-  const css = `@page{size:${page.width / 96}in ${page.height / 96}in;margin:0}*{box-sizing:border-box}body{margin:0;font:24px Arial,sans-serif}.slide{position:relative;width:${page.width}px;height:${page.height}px;overflow:hidden;break-after:page;page-break-after:always}.slide:last-child{break-after:auto;page-break-after:auto}.element{position:absolute;overflow:hidden;white-space:pre-wrap}p{margin:0}img,table{width:100%;height:100%}img{object-fit:fill}table{border-collapse:collapse}td{border:1px solid #888;vertical-align:top}.rect,.ellipse,.triangle{width:100%;height:100%;background:inherit;border:inherit}.ellipse{border-radius:50%}.triangle{clip-path:polygon(50% 0,100% 100%,0 100%)}hr{border:0;border-top:1px solid currentColor}`;
+  const css = `@page{size:${page.width / 96}in ${page.height / 96}in;margin:0}*{box-sizing:border-box}body{margin:0;font:24px ${Object.values(scene.theme.fonts)[0] ?? "Arial"},sans-serif}.slide{position:relative;width:${page.width}px;height:${page.height}px;overflow:hidden;break-after:page;page-break-after:always}.slide:last-child{break-after:auto;page-break-after:auto}.element{position:absolute;overflow:hidden;white-space:pre-wrap;border:0 solid transparent}p{margin:0}img,table{width:100%;height:100%}img{object-fit:fill}table{border-collapse:collapse}td{border:1px solid #888;vertical-align:top}.rect,.ellipse,.triangle{width:100%;height:100%;background:inherit;border:inherit}.ellipse{border-radius:50%}.triangle{clip-path:polygon(50% 0,100% 100%,0 100%)}hr{border:0;border-top:1px solid currentColor}`;
   return { value: shell(body, css), warnings };
 }
