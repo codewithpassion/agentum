@@ -51,7 +51,8 @@ export const guestAgentPolicy =
     if (
       !artifact ||
       selected !== input.agentId ||
-      agent?.runtime !== "cloud" ||
+      !agent ||
+      !["cloud", "machine", "managed"].includes(agent.runtime) ||
       !(await ready(agent.model, grant.workspaceId))
     ) {
       throw guestUnavailable();

@@ -40,11 +40,7 @@ test("real MCP transport lists only artifact tools, rejects unknown tools and fo
     const listed = (await connection.client.listTools()).tools.map(
       (tool) => tool.name
     );
-    expect(listed).toEqual([
-      "document_read",
-      "document_comment",
-      "document_comments",
-    ]);
+    expect(listed).toEqual(["document_read", "document_comments"]);
     const read = await connection.client.callTool({
       arguments: { artifactId },
       name: "document_read",
@@ -174,4 +170,65 @@ test("a role loss during read IO withholds the returned artifact data", async ()
   } finally {
     await connection.close();
   }
+});
+
+test("commenter gets explicit receipt-backed document/deck comment ports without edit or handoff", async () => {
+  await Promise.all(
+    (["document", "deck"] as const).map(async (kind) => {
+      const h = ports();
+      let calls = 0;
+      const current = { ...scope, kind, role: "commenter" as const };
+      const connection = await connectClient(
+        createGuestMcpServer({
+          authorize: () => Promise.resolve(current),
+          comments: () => {
+            calls += 1;
+            return Promise.resolve({
+              thread: {
+                anchor: null,
+                answeredAt: "now",
+                artifactId,
+                comments: [],
+                id: "thread",
+                quote: null,
+                resolvedAt: null,
+                resolvedBy: null,
+                toAgent: true,
+              },
+            });
+          },
+          deck: {
+            read: () => Promise.reject(new Error("not used")),
+            write: () => Promise.reject(new Error("direct forbidden")),
+          },
+          live: h.live,
+          scope: current,
+        })
+      );
+      try {
+        const names = (await connection.client.listTools()).tools.map(
+          (tool) => tool.name
+        );
+        expect(names).toContain(`${kind}_comment`);
+        expect(names).not.toContain("document_edit");
+        expect(names).not.toContain("deck_write");
+        expect(
+          (
+            await connection.client.callTool({
+              arguments: {
+                answered: true,
+                artifactId,
+                body: "Answer",
+                threadId: "thread",
+              },
+              name: `${kind}_comment`,
+            })
+          ).isError
+        ).not.toBe(true);
+        expect(calls).toBe(1);
+      } finally {
+        await connection.close();
+      }
+    })
+  );
 });

@@ -72,6 +72,9 @@ export interface GuestRunCoreDeps {
 const supported = new Set([
   "document_read",
   "document_comments",
+  "document_comment",
+  "deck_comments",
+  "deck_comment",
   "document_edit",
   "deck_read",
   "deck_write",

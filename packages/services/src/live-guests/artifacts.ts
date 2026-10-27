@@ -99,6 +99,9 @@ export const createGuestArtifacts = (deps: {
       input: GuestCredential,
       body: { body: string; threadId?: string; anchor?: CommentAnchor }
     ) {
+      if ("toAgent" in body && body.toAgent) {
+        throw denied();
+      }
       const { grant, resolved, at, threadId } = await prepareComment(
         input,
         body
@@ -209,6 +212,7 @@ export const createGuestArtifacts = (deps: {
       await current(input);
       return { grant, kind: row.kind, title: row.title };
     },
+    prepareComment,
     async resolve(input: GuestCredential, threadId: string) {
       const grant = await current(input, true);
       const [thread] = await deps.db

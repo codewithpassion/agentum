@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
+import { createScopedGuestComments } from "@repo/services/live-guests/scoped-comments";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { ZodError } from "zod";
 import { type Composed, compose } from "./compose";
@@ -55,6 +56,15 @@ export class GuestRun extends DurableObject<Env> {
     const composed = this.composed();
     const { runs, requests } = composed.services;
     const rpc = guestRunRpc(this.env, composed);
+    const comments = createScopedGuestComments({
+      ...composed,
+      events: composed.services.events,
+      guestsOff: () =>
+        Boolean(
+          (this.env as Env & { LIVE_GUESTS_OFF?: string }).LIVE_GUESTS_OFF
+        ),
+      runs,
+    });
     return createGuestRunCore({
       claim: async (id) => {
         try {
@@ -67,8 +77,10 @@ export class GuestRun extends DurableObject<Env> {
           throw error;
         }
       },
-      complete: (id, text) =>
-        runs.completeRun(SYSTEM_PRINCIPAL, id, { status: "done", text }),
+      complete: async (id, text) => {
+        await comments.answer(SYSTEM_PRINCIPAL, id, text);
+        await runs.completeRun(SYSTEM_PRINCIPAL, id, { status: "done", text });
+      },
       execution: (id) => runs.guestExecution(SYSTEM_PRINCIPAL, id),
       heartbeat: async (id) => {
         await runs.heartbeatRun(SYSTEM_PRINCIPAL, id, { leaseMs: 120_000 });

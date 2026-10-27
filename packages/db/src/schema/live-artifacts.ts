@@ -330,3 +330,38 @@ export const artifactMentionDeliveries = sqliteTable(
     index("artifact_mention_deliveries_pending_idx").on(t.completedAt, t.id),
   ]
 );
+
+/** Atomically committed with a guest addressed comment, charged run and provenance. */
+export const guestCommentRuns = sqliteTable("guest_comment_runs", {
+  artifactId: text("artifact_id")
+    .notNull()
+    .references(() => artifacts.id),
+  commentId: text("comment_id")
+    .notNull()
+    .references(() => artifactComments.id),
+  runId: text("run_id")
+    .primaryKey()
+    .references(() => runs.id),
+  threadId: text("thread_id")
+    .notNull()
+    .references(() => artifactCommentThreads.id),
+  workspaceId: workspaceId().references(() => workspaces.id),
+});
+/** Idempotent scoped agent comment effects. Insert and reply/answered update commit together. */
+export const guestCommentEffects = sqliteTable(
+  "guest_comment_effects",
+  {
+    callId: text("call_id").notNull(),
+    commentId: text("comment_id").references(() => artifactComments.id),
+    fingerprint: text("fingerprint").notNull(),
+    id: id(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => artifactCommentThreads.id),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [uniqueIndex("guest_comment_effect_run_call").on(t.runId, t.callId)]
+);

@@ -35,5 +35,5 @@ export const guestRuntimeOptions = (input: {
     ? createDurableGuestRuntime(input.runner)
     : undefined,
   guestRuntimeReady: (runtime: string) =>
-    Boolean(input.runner) && runtime === "cloud",
+    Boolean(input.runner) && ["cloud", "machine", "managed"].includes(runtime),
 });

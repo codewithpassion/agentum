@@ -225,6 +225,13 @@
       "when": 1793104142324,
       "tag": "0031_large_nightmare",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1793136632558,
+      "tag": "0032_lovely_lake",
+      "breakpoints": true
     }
   ]
 }

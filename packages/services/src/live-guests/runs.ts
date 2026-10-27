@@ -2,7 +2,7 @@
  * HTTP rotation/open logging remains the adapter's responsibility. */
 
 import { guestUnavailable } from "../runs/guest-scope.ts";
-import type { StartRunInput } from "../runs/types.ts";
+import type { StartRunInput, StartRunOptions } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import type { createGuestAccessReader } from "./access.ts";
 
@@ -16,12 +16,14 @@ export const createGuestRunStarter = (deps: {
     sessionToken: string;
     run: StartRunInput;
     sessionId?: string;
+    alongside?: StartRunOptions["alongside"];
   }) {
     const grant = await deps.access.resolve(input);
     if (!(grant && deps.runs)) {
       throw guestUnavailable();
     }
     return deps.runs.startForGuest(grant, input.run, {
+      alongside: input.alongside,
       guestSessionToken: input.sessionToken,
       offerLater: true,
       sessionId: input.sessionId,

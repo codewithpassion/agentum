@@ -1019,7 +1019,7 @@ export const createRunsService = ({
   const startForGuest = async (
     rawGrant: GuestGrant,
     rawInput: StartRunInput,
-    options: Pick<StartRunOptions, "offerLater" | "sessionId"> & {
+    options: Pick<StartRunOptions, "offerLater" | "sessionId" | "alongside"> & {
       guestSessionToken?: string;
     } = {}
   ): Promise<StartResult> => {

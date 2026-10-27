@@ -28,5 +28,5 @@ test("guest execution: HTTP cap/start, durable recovery, signed MCP and suggesti
   }
   expect(
     JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}").checks
-  ).toBeGreaterThanOrEqual(15);
-}, 120_000);
+  ).toBeGreaterThanOrEqual(80);
+}, 240_000);
