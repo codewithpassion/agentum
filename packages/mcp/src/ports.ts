@@ -206,7 +206,7 @@ export interface ArtifactPublished {
 }
 
 export interface ArtifactVersionInfo {
-  authorKind: "user" | "agent";
+  authorKind: "user" | "agent" | "guest";
   createdAt: string;
   message: string | null;
   number: number;
