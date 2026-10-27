@@ -9,18 +9,38 @@ export interface Resource {
 
 /**
  * Whether `principal` may perform `action` on `resource`. Every service method
- * calls this before it touches data. In v1 the rule is workspace isolation: the
- * `system` principal (the in-process minute tick) passes, and every other
- * principal passes only inside its own workspace. Later versions will look at
- * `action` too.
+ * calls this before it touches data. The system principal is trusted in-process.
+ * Scoped run principals receive only guarded lifecycle/session/request actions;
+ * artifact operations require their separate current-provenance boundary.
+ * Every other principal remains confined to its workspace.
  */
 export const can = (
   principal: Principal,
-  _action: string,
+  action: string,
   resource: Resource
 ): boolean => {
   if (principal.kind === "system") {
     return true;
+  }
+  if (principal.kind === "run" && principal.scopeArtifactId) {
+    const ownRun =
+      resource.kind === "run" &&
+      resource.id === principal.runId &&
+      [
+        "runs.read",
+        "runs.cancel",
+        "runs.ingest",
+        "runs.heartbeat",
+        "runs.complete",
+      ].includes(action);
+    const guardedRead = [
+      "sessions.read",
+      "requests.read",
+      "requests.write",
+    ].includes(action);
+    if (!(ownRun || guardedRead)) {
+      return false;
+    }
   }
   return principal.workspaceId === resource.workspaceId;
 };

@@ -39,6 +39,8 @@ export type Principal =
       agentId: string;
       /** Set when the run is a dry run: it reads and thinks, and skips every write. Absent means false. */
       dryRun?: boolean;
+      /** Derived from the stored run by bearer authentication, never token claims. */
+      scopeArtifactId?: string;
     }
   | { kind: "machine"; workspaceId: string; machineId: string }
   | {
@@ -326,6 +328,9 @@ export const createPrincipalResolver = ({
     return {
       agentId,
       dryRun: result.dryRun,
+      ...(result.scopeArtifactId
+        ? { scopeArtifactId: result.scopeArtifactId }
+        : {}),
       kind: "run",
       runId,
       workspaceId,

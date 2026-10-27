@@ -286,6 +286,9 @@ export interface RunsServiceOptions {
   /** Registers the echo runtime for agents whose runtime is `fake`. */
   devFakeRuntime: boolean;
   gateways: readonly Gateway[];
+  /** Separate bounded executor; never replaces the ordinary member adapter.
+   * Production admission still requires guestRuntimeReady and current policy. */
+  guestAdapter?: RuntimeAdapter;
   /** Only enable runtimes enforcing scoped tools, service checks and owner approval routing. */
   guestRuntimeReady?: (runtime: string) => boolean;
   /** Emergency switch read at every scoped operation; absent means off. */
@@ -381,6 +384,7 @@ const refuseForeignRequest = (
 export const createRunsService = ({
   adapters,
   authorizeGuestGrant,
+  guestAdapter,
   guestRuntimeReady,
   guestsOff,
   people,
@@ -568,7 +572,8 @@ export const createRunsService = ({
     // A dry run is on the cloud runtime for good, even when its agent moves.
     return {
       adapter: agent
-        ? adapterByKind.get(run.dryRun ? "cloud" : agent.runtime)
+        ? (run.scopeArtifactId && guestAdapter) ||
+          adapterByKind.get(run.dryRun ? "cloud" : agent.runtime)
         : undefined,
       agent,
     };
@@ -744,7 +749,8 @@ export const createRunsService = ({
       }
       if (
         scopeArtifactId &&
-        (session.origin !== "artifact" ||
+        (session.private ||
+          session.origin !== "artifact" ||
           session.externalKey !== scopeArtifactId)
       ) {
         throw guestUnavailable();
@@ -980,6 +986,7 @@ export const createRunsService = ({
       (guestsOff?.() ?? true) ||
       Date.parse(grant.expiresAt) <= clock.now().getTime() ||
       grant.role === "viewer" ||
+      input.session.private === true ||
       input.session.origin !== "artifact" ||
       input.session.externalKey !== grant.artifactId ||
       input.input.fileIds.length ||
@@ -991,7 +998,7 @@ export const createRunsService = ({
       id: input.agentId,
       workspaceId: grant.workspaceId,
     });
-    const adapter = agent && adapterByKind.get(agent.runtime);
+    const adapter = agent && (guestAdapter ?? adapterByKind.get(agent.runtime));
     if (
       agent?.status !== "active" ||
       !adapter ||
@@ -1769,7 +1776,8 @@ export const createRunsService = ({
       workspaceId: run.workspaceId,
     });
     return agent
-      ? adapterByKind.get(run.dryRun ? "cloud" : agent.runtime)
+      ? (run.scopeArtifactId && guestAdapter) ||
+          adapterByKind.get(run.dryRun ? "cloud" : agent.runtime)
       : undefined;
   };
 

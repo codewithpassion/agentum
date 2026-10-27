@@ -276,6 +276,7 @@ export const guestRoutes = (
     const result = await handler.execute({
       composed,
       credential,
+      defer: (work) => c.executionCtx.waitUntil(work),
       env: c.env,
       grant: rotated.grant,
       request: c.req.raw,

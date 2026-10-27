@@ -242,7 +242,7 @@ export const egressRoutes = ({
       now: clock.now(),
       token,
     });
-    return result.ok ? result.claims : null;
+    return result.ok && !result.scopeArtifactId ? result.claims : null;
   };
 
   const denied = (

@@ -2,7 +2,7 @@
  * Fetch with credentials: same-origin and Origin on mutations; serialize cookie
  * rotating HTTP requests (a concurrent use of an old credential is refused).
  * Guest image URLs are the artifact-scoped guestUrl, canonical document state
- * retains /files/:id. There is no guest run/approval/export endpoint.
+ * retains /files/:id. Guest asks remain unavailable until a restricted execution adapter is composed. No guest approval/export endpoint exists.
  */
 import { z } from "zod";
 import {
@@ -10,6 +10,16 @@ import {
   type GuestGrant,
   type LiveJoinResult,
 } from "./live.ts";
+export const guestAskSchema = z.strictObject({
+  agentId: z.string().min(1).max(200).optional(),
+  requestId: z.string().min(1).max(200),
+  text: z.string().trim().min(1).max(16_000),
+});
+export interface GuestAskResult {
+  runId: string;
+  sessionId: string;
+  status: string;
+}
 export const guestVerifySchema = z.strictObject({ code: z.string().max(100) });
 export const guestCommentSchema = z.strictObject({
   anchor: commentAnchorSchema.optional(),
@@ -40,6 +50,7 @@ export const guestEndpoints = {
   artifact: (
     id: string,
     action:
+      | "ask"
       | "open"
       | "join"
       | "rotate"

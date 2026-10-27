@@ -1,5 +1,6 @@
 import { runs } from "@repo/db/schema/runs";
 import { and, eq } from "drizzle-orm";
+import { requireOrdinaryMachineRun } from "../runs/guest-scope.ts";
 import type { RunRecord, RuntimeAdapter } from "../runs/types.ts";
 import type { ManagedPollerPort } from "./types.ts";
 
@@ -30,6 +31,7 @@ export const createManagedRuntime = ({
     }
   },
   dispatch: async (db, run) => {
+    requireOrdinaryMachineRun(run);
     await db
       .update(runs)
       .set({ status: "offered" })
@@ -45,6 +47,7 @@ export const createManagedRuntime = ({
   },
   kind: "managed",
   resume: async (run) => {
+    requireOrdinaryMachineRun(run);
     await poller.kick(run.id);
   },
 });

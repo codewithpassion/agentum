@@ -390,6 +390,15 @@ export const mcpRoutes = ({
     const { parsedBody, request } = body;
 
     const composed = c.get("composed");
+    if (principal.kind === "run" && principal.scopeArtifactId) {
+      // No ordinary ports are constructed. Scoped room mutations and durable
+      // transport remain unsupported, so no scoped production tools are mounted.
+      await composed.services.runs.authorizeScopedRun(
+        principal,
+        principal.runId
+      );
+      return forbidden();
+    }
     // The computer tools are for a run whose agent has a computer attached.
     const computer = await resolveRunComputer(composed.services, principal);
     // The browser is on for every run unless its agent's map unplugged it.

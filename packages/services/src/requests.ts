@@ -88,7 +88,12 @@ export const createRequestsService = ({
   events,
   runs,
   secrets,
+  guestPresence,
 }: {
+  guestPresence?: (scope: {
+    artifactId: string;
+    workspaceId: string;
+  }) => Promise<boolean>;
   atomic: Atomic;
   clock: Clock;
   db: Database;
@@ -290,6 +295,29 @@ export const createRequestsService = ({
       writer(principal, run);
     }
     if (run.scopeArtifactId) {
+      return true;
+    }
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, run.sessionId),
+          eq(sessions.workspaceId, run.workspaceId)
+        )
+      )
+      .limit(1);
+    if (
+      session?.origin === "artifact" &&
+      session.externalKey &&
+      (!guestPresence ||
+        (await guestPresence({
+          artifactId: session.externalKey,
+          workspaceId: run.workspaceId,
+        })))
+    ) {
+      // Conservative for all tools: no tool-name taxonomy can miss an outbound
+      // connector write. Missing trusted presence wiring also requires approval.
       return true;
     }
     // The ask keys include the platform tools a switch covers (SWITCH_COVERS).
