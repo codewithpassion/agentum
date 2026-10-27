@@ -27,3 +27,4 @@ Dom asked on 27 Oct 2026 to clear the nits the SK.5 review left (`docs/reviews/t
 - 2026-10-27: added at Dom's request (clear review nits).
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 2 fix rounds; merged.
+- 2026-10-27: on staging: the two pending-only p5-loop skills deleted in the UI, gone after reload. N.1 to N.4 deployed to production (d23c5cb9).
