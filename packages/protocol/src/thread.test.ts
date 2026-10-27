@@ -486,13 +486,48 @@ test("a reload mid-run continues with live frames and a new version", () => {
 });
 
 test("a card inserted before an open delta keeps the delta in place", () => {
-  let messages = applyFrame([], {
+  let messages = applyFrame([], frame(toolCall("1", "t1")));
+  messages = applyFrame(messages, {
     frame: "delta",
     messageKey: "k",
     runId: "r1",
     text: "Working",
   });
-  messages = applyFrame(messages, frame(published("1", 1)));
+  messages = applyFrame(
+    messages,
+    frame(published("2", 1, { toolCallId: "t1" }))
+  );
+  expect(messages[0]?.parts.map((part) => part.type)).toEqual([
+    "tool-call",
+    "artifact",
+    "text",
+  ]);
+  messages = applyFrame(messages, {
+    frame: "delta",
+    messageKey: "k",
+    runId: "r1",
+    text: "Working on it",
+  });
+  messages = applyFrame(
+    messages,
+    frame(event("3", "message.assistant", { text: "Finished" }))
+  );
+  expect(messages[0]?.parts).toEqual([
+    expect.objectContaining({ type: "tool-call" }),
+    card(1, "t1"),
+    { text: "Finished", type: "text" },
+  ]);
+});
+
+test("a late tool call inserted before an open delta keeps the delta in place", () => {
+  let messages = applyFrame([], frame(published("1", 1, { toolCallId: "t1" })));
+  messages = applyFrame(messages, {
+    frame: "delta",
+    messageKey: "k",
+    runId: "r1",
+    text: "Working",
+  });
+  messages = applyFrame(messages, frame(toolCall("2", "t1")));
   messages = applyFrame(messages, {
     frame: "delta",
     messageKey: "k",
@@ -500,8 +535,9 @@ test("a card inserted before an open delta keeps the delta in place", () => {
     text: "Working on it",
   });
   expect(messages[0]?.parts).toEqual([
+    expect.objectContaining({ type: "tool-call" }),
+    card(1, "t1"),
     { text: "Working on it", type: "text" },
-    card(1),
   ]);
 });
 

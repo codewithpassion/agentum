@@ -157,7 +157,9 @@ const artifactPart = (
     kind: payload.kind,
     title: payload.title,
     toolCallId:
-      typeof payload.toolCallId === "string" ? payload.toolCallId : null,
+      typeof payload.toolCallId === "string" && payload.toolCallId !== ""
+        ? payload.toolCallId
+        : null,
     type: "artifact",
     version: payload.version,
     versionId: payload.versionId,
