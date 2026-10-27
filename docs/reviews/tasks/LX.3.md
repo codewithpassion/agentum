@@ -50,3 +50,11 @@ Validation on this combined branch:
 - Explicit type generation from the existing `.env.example` (no environment file/value writes), then `bunx turbo run typecheck --only`: **11/11 package typechecks pass**. Formatting/lint and boundary lint pass. No root suite or build was repeated for this bounded integration because the controller is already running the combined-main root suite.
 
 This followup remains local to the implementation branch; it was not merged into main, pushed, deployed or tested with real email/providers. The fullapp signing-key gate is unchanged.
+
+## Independent integrated review — 2026-10-28
+
+Reviewed checkout `e17376d5c7fd10e3c460da2221e421c7e33aab31`, including `526b0bdb`, `20cd59e5`, integration `f581181d` and LX.4 remediation `0cf58ea1`. No new P1/P2 finding in the reviewed LX.3 paths. This is a bounded review, not phase acceptance.
+
+Read the repository instructions and live-artifacts PRD R4.3–R4.5. Inspected the mounted selection/MessagePort/`ui/message` path, host-derived artifact/version, untrusted DOM metadata, current membership and credential/role checks, shared RunsService persistence, preview refusal, atomic mention intent and tenant-joined delivery with current directory/access checks, five-claim leases and exact-token acknowledgement. Email remains bounded at-least-once attempt processing; ambiguous send/ack can duplicate and exhausted attempts need attention. No real mail was sent.
+
+Independent focused service run passed 35 tests / 190 assertions across element asks, shared asks, mentions and exports. The captured EMAIL adapter and mounted browser/route tests are recorded with the LX.4 review below. The fullapp signing-key, real provider, guest embed and staging gates remain open; no blanket phase acceptance is implied.
