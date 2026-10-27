@@ -1,22 +1,22 @@
 import { expect, test } from "bun:test";
-import { build, spawn } from "bun";
+import { spawn } from "bun";
 
 test("Deck authority: two clients, guarded tools, hostile ingress, presenter races and lifecycle in workerd", async () => {
-  const built = await build({
-    entrypoints: [`${import.meta.dir}/fixtures/worker.ts`],
-    external: ["cloudflare:workers"],
-    target: "browser",
+  const bundler = spawn(["bun", `${import.meta.dir}/fixtures/bundle-room.ts`], {
+    stderr: "pipe",
+    stdout: "pipe",
   });
-  if (!built.success) {
-    throw new Error(built.logs.join("\n"));
-  }
-  const [output] = built.outputs;
-  if (!output) {
-    throw new Error("Missing worker bundle");
+  const [script, errors, bundleCode] = await Promise.all([
+    new Response(bundler.stdout).text(),
+    new Response(bundler.stderr).text(),
+    bundler.exited,
+  ]);
+  if (bundleCode !== 0) {
+    throw new Error(errors);
   }
   const child = spawn(["node", `${import.meta.dir}/fixtures/deck-runner.mjs`], {
     stderr: "pipe",
-    stdin: new Blob([await output.text()]),
+    stdin: new Blob([script]),
     stdout: "pipe",
   });
   const [stdout, stderr, code] = await Promise.all([
