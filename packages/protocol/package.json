@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./artifacts": "./src/artifacts.ts",
     "./attachments": "./src/attachments.ts",
     "./computer": "./src/computer.ts",
     "./library": "./src/library.ts",
