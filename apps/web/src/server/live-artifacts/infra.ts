@@ -120,6 +120,13 @@ export const productionLiveInfra = (
         (entry) => entry.kind === "guest"
       ),
     identity: async (principal) => {
+      if (principal.kind === "run" && principal.scopeArtifactId) {
+        const execution = await composed().services.runs.guestExecution(
+          SYSTEM_PRINCIPAL,
+          principal.runId
+        );
+        return { color: "#8b5cf6", name: execution.name };
+      }
       if (principal.kind === "run") {
         const agent = await composed().services.agents.get(
           principal,

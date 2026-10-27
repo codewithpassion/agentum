@@ -11,8 +11,10 @@ import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { slackMessages, slackThreads } from "@repo/db/schema/slack";
 import { and, asc, eq, gt, or } from "drizzle-orm";
+import { ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
@@ -40,6 +42,11 @@ export interface SlackSendOptions {
   db: Database;
   events: EventsService;
   fetch: SlackFetch;
+  outbound?: (
+    principal: Principal,
+    key: string,
+    input: unknown
+  ) => Promise<void>;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
 }
@@ -69,6 +76,7 @@ export const createSlackSendService = ({
   events,
   fetch: slackFetch,
   secretsKey,
+  outbound,
 }: SlackSendOptions) => {
   const agentClient = createAgentClients({
     db,
@@ -316,6 +324,26 @@ export const createSlackSendService = ({
     await atomic(statements);
   };
 
+  const approveSend = async (
+    principal: Principal,
+    run: RunPrincipal,
+    input: unknown
+  ) => {
+    if (!outbound) {
+      const [room] = await db
+        .select({ origin: sessions.origin })
+        .from(runs)
+        .innerJoin(sessions, eq(sessions.id, runs.sessionId))
+        .where(
+          and(eq(runs.id, run.runId), eq(runs.workspaceId, run.workspaceId))
+        )
+        .limit(1);
+      if (room?.origin === "artifact") {
+        throw new ForbiddenError("slack.outboundUnavailable");
+      }
+    }
+    await outbound?.(principal, "harbourmaster/slack_send", input);
+  };
   const send = async (
     principal: Principal,
     input: SendInput
@@ -355,6 +383,11 @@ export const createSlackSendService = ({
       ? convertMentions(text, await linkedPeople(db, client, app))
       : { notes: [], text };
 
+    await approveSend(principal, run, {
+      channel: channelId,
+      text: postedText,
+      ...(input.threadTs ? { threadTs: input.threadTs } : {}),
+    });
     const posted = await withRetry(clock, () =>
       client.postMessage({
         channel: channelId,

@@ -1,7 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { artifacts } from "@repo/db/schema/artifacts";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
@@ -652,4 +654,141 @@ test("a per-tool ask rule gates only its own key, and an allow rule beats a cove
       toolKey: "harbourmaster/bash",
     })
   ).toBe(false);
+});
+
+const outboundFixture = async () => {
+  const runId = await start();
+  const run = await loadRun(db, runId);
+  if (!run) {
+    throw new Error("Missing run");
+  }
+  await db.insert(artifacts).values({
+    audience: "private",
+    createdAt: new Date(now).toISOString(),
+    createdById: "u1",
+    createdByKind: "user",
+    id: "source",
+    kind: "document",
+    ownerUserId: "u1",
+    title: "Source",
+    updatedAt: new Date(now).toISOString(),
+    workspaceId: "w1",
+  });
+  await db
+    .update(sessions)
+    .set({ externalKey: "source", origin: "artifact", private: false })
+    .where(eq(sessions.id, run.sessionId));
+  let present = false;
+  const service = createRequestsService({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    events,
+    guestPresence: () => Promise.resolve(present),
+    runs,
+    runTokenKey: Buffer.alloc(32, 7).toString("base64"),
+    secrets: {
+      maskerFor: () =>
+        Promise.resolve(createMasker({ NAME: "granted-value-123" })),
+    },
+  });
+  return {
+    join: () => {
+      present = true;
+    },
+    principal: { agentId, kind: "run" as const, runId, workspaceId: "w1" },
+    service,
+  };
+};
+test("outbound checks current trusted room presence and consumes exact member approval once", async () => {
+  const f = await outboundFixture();
+  const input = { channel: "C1", text: "hello" };
+  await f.service.requireOutbound(f.principal, "slack/send", input);
+  f.join();
+  await expect(
+    f.service.requireOutbound(f.principal, "slack/send", input)
+  ).rejects.toThrow("Needs you");
+  const [pending] = await f.service.listPending(user);
+  expect(pending?.kind).toBe("approval");
+  if (!pending) {
+    throw new Error("Missing approval");
+  }
+  await f.service.answer(user, {
+    answer: { decision: "always_allow" },
+    requestId: pending.id,
+    via: "web",
+  });
+  const results = await Promise.allSettled([
+    f.service.requireOutbound(f.principal, "slack/send", input),
+    f.service.requireOutbound(f.principal, "slack/send", input),
+  ]);
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  await expect(
+    f.service.requireOutbound(f.principal, "slack/send", input)
+  ).rejects.toThrow("Needs you");
+});
+test("a displayed/redacted approval cannot authorize a different outbound payload", async () => {
+  const f = await outboundFixture();
+  f.join();
+  const input = { channel: "C1", text: "granted-value-123" };
+  const receipt = await f.service.open(f.principal, {
+    input,
+    kind: "approval",
+    runId: f.principal.runId,
+    toolKey: "slack/send",
+    toolName: "send",
+    toolUseId: "native-approval",
+  });
+  await f.service.answer(user, {
+    answer: { decision: "allow_once" },
+    requestId: receipt.id,
+    via: "web",
+  });
+  await expect(
+    f.service.requireOutbound(f.principal, "slack/send", {
+      channel: "C1",
+      text: "[secret:NAME]",
+    })
+  ).rejects.toThrow("Needs you");
+  await f.service.requireOutbound(f.principal, "slack/send", input);
+  await db
+    .update(artifacts)
+    .set({ deletedAt: new Date(now).toISOString() })
+    .where(eq(artifacts.id, "source"));
+  await expect(
+    f.service.requireOutbound(f.principal, "slack/send", input)
+  ).rejects.toThrow("sourceUnavailable");
+});
+
+test("forging an outbound receipt id cannot substitute a harmless approval display", async () => {
+  const f = await outboundFixture();
+  f.join();
+  const malicious = { channel: "C1", text: "unapproved disclosure" };
+  const attempted = await f.service.open(f.principal, {
+    input: malicious,
+    kind: "approval",
+    runId: f.principal.runId,
+    toolKey: "slack/send",
+    toolName: "send",
+    toolUseId: "learn-binding",
+  });
+  if (!("effectBinding" in attempted.display)) {
+    throw new Error("Missing server binding");
+  }
+  const forged = await f.service.open(f.principal, {
+    input: { effect: { channel: "C1", text: "harmless" } },
+    kind: "approval",
+    runId: f.principal.runId,
+    toolKey: "slack/send",
+    toolName: "send",
+    toolUseId: `outbound:${attempted.display.effectBinding}`,
+  });
+  await f.service.answer(user, {
+    answer: { decision: "allow_once" },
+    requestId: forged.id,
+    via: "web",
+  });
+  await expect(
+    f.service.requireOutbound(f.principal, "slack/send", malicious)
+  ).rejects.toThrow("outboundReceipt");
 });

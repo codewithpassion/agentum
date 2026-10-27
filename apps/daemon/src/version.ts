@@ -1,4 +1,5 @@
 import {
+  FEATURE_CURRENT_APPROVALS,
   FEATURE_LIBRARY_LIVE,
   FEATURE_LIBRARY_SYNC,
   FEATURE_REQUESTS,
@@ -12,6 +13,7 @@ export const DAEMON_FEATURES = [
   FEATURE_LIBRARY_SYNC,
   FEATURE_REQUESTS,
   FEATURE_LIBRARY_LIVE,
+  FEATURE_CURRENT_APPROVALS,
 ] as const;
 
 /** The exact Agent SDK version the daemon is built with, as `hello` reports it. */

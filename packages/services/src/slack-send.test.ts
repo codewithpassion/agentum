@@ -160,6 +160,7 @@ const refusalOf = (promise: Promise<unknown>): Promise<unknown> =>
     (error: unknown) => error
   );
 
+let outboundRefused = false;
 beforeEach(async () => {
   db = migrated();
   calls = [];
@@ -263,12 +264,17 @@ beforeEach(async () => {
     put: () => Promise.resolve(),
   };
   events = createEventsService({ blobs, db });
+  outboundRefused = false;
   service = createSlackSendService({
     atomic: sqliteAtomic(db),
     clock,
     db,
     events,
     fetch: slackFetch,
+    outbound: () =>
+      outboundRefused
+        ? Promise.reject(new Error("member approval required"))
+        : Promise.resolve(),
     secretsKey: SECRETS_KEY,
   });
 });
@@ -720,4 +726,15 @@ test("converts @name in a thread reply", async () => {
     text: `Hi <@${ANN_USER}>`,
     thread_ts: first.ts,
   });
+});
+
+test("direct Slack effect cannot bypass the current outbound approval boundary", async () => {
+  outboundRefused = true;
+  await expect(
+    service.send(runPrincipal, {
+      text: "Held external effect",
+      to: "C0GENERAL",
+    })
+  ).rejects.toThrow("member approval required");
+  expect(callsTo("chat.postMessage")).toHaveLength(0);
 });

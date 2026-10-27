@@ -12,6 +12,7 @@ import type { Context } from "hono";
 import { artifactTestBrowser } from "../browser-run.ts";
 import { readCappedBody } from "../mcp/body.ts";
 import { OAuthVerificationUnavailableError } from "../mcp/clerk-oauth.ts";
+import { guestMcpServer } from "../mcp/guest-server";
 import {
   LOCAL_HOSTNAMES,
   mcpOrigin,
@@ -235,6 +236,10 @@ const clientNotApproved = (
   );
 };
 
+const rpcId = (body: unknown) =>
+  isRecord(body) ? String(body.id ?? "") : undefined;
+const handlerBody = (body: unknown) =>
+  body === undefined || body === null ? undefined : { parsedBody: body };
 export const mcpRoutes = ({
   clientName,
   defer = defaultDefer,
@@ -391,13 +396,19 @@ export const mcpRoutes = ({
 
     const composed = c.get("composed");
     if (principal.kind === "run" && principal.scopeArtifactId) {
-      // No ordinary ports are constructed. Scoped room mutations and durable
-      // transport remain unsupported, so no scoped production tools are mounted.
-      await composed.services.runs.authorizeScopedRun(
+      const server = await guestMcpServer({
+        composed,
         principal,
-        principal.runId
+        guestsOff: () =>
+          Boolean(
+            (c.env as Env & { LIVE_GUESTS_OFF?: string }).LIVE_GUESTS_OFF
+          ),
+        toolCallId: rpcId(parsedBody),
+      });
+      return createMcpHandler(() => server, options).fetch(
+        request,
+        handlerBody(parsedBody)
       );
-      return forbidden();
     }
     // The computer tools are for a run whose agent has a computer attached.
     const computer = await resolveRunComputer(composed.services, principal);

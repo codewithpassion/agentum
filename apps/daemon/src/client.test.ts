@@ -228,7 +228,12 @@ describe("connection", () => {
       agents: [],
       capabilities: { agentSdk: "none", container: false },
       daemonVersion: DAEMON_VERSION,
-      features: ["library-sync", "requests", "library-live"],
+      features: [
+        "library-sync",
+        "requests",
+        "library-live",
+        "current-approvals",
+      ],
       type: "hello",
     });
 

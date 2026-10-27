@@ -134,7 +134,7 @@ describe("claim", () => {
     const { calls, fetch } = recordingFetch(() => jsonResponse(fixture));
     await makeApi(fetch).claim();
     expect(firstCall(calls).headers["x-daemon-features"]).toBe(
-      "library-sync,requests,library-live"
+      "library-sync,requests,library-live,current-approvals"
     );
   });
 

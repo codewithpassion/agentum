@@ -123,6 +123,8 @@ import {
   type LiveExportsService,
   type PrintPDF,
 } from "@repo/services/live-exports";
+import type { GuestRunnerPort } from "@repo/services/live-guests/durable-runtime";
+import { createGuestRunAccess } from "@repo/services/live-guests/run-access";
 import {
   createMachinesService,
   type MachinesService,
@@ -257,6 +259,7 @@ import { browserRunDriver, exportPrintPDF } from "./browser-run.ts";
 import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
+import { guestRuntimeOptions } from "./guest-runtime-options";
 import { libraryNotifier } from "./library-notifier.ts";
 import { liveArtifactMutations } from "./live-artifacts/artifact-mutations";
 import {
@@ -317,6 +320,7 @@ export interface Infra {
   github?: GithubSkillFetcher;
   /** `GITHUB_TOKEN`, optional. Raises GitHub's rate limit; without it the fetcher is unauthenticated. */
   githubToken?: string;
+  guestRunner?: GuestRunnerPort;
   guests?: (input: GuestComposition) => ReturnType<typeof guestService>;
   guestsOff?: () => boolean;
   /** Whether a user is in a Clerk org right now, with no cache. Live link calls need it; without it they are refused. */
@@ -447,6 +451,7 @@ export type ComposeEnv = Pick<
   | "GITHUB_TOKEN"
   | "MACHINE_RELAY"
   | "MANAGED_POLLER"
+  | "GUEST_RUN"
   | "PI_RUN"
   | "PUBLIC_BASE_URL"
   | "RUN_TOKEN_KEY"
@@ -670,7 +675,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
-    github: infra.github && skillsStoreGithub(infra.github),
+    github: skillsGithub(infra.github),
     githubToken: infra.githubToken,
     library,
     onDeleted: ({ skillId, workspaceId }) =>
@@ -758,6 +763,12 @@ export const composeWith = ({
     db,
     devFakeRuntime: infra.devFakeRuntime,
     gateways,
+    ...guestRuntimeOptions({
+      db,
+      managedKeys,
+      modelKeys,
+      runner: guestRunnerFor(infra),
+    }),
     guestsOff: infra.guestsOff,
     library,
     people: infra.people,
@@ -782,6 +793,7 @@ export const composeWith = ({
     events,
     guestPresence: infra.live?.guestPresence,
     runs,
+    runTokenKey: infra.runTokenKey,
     secrets,
   });
   const artifactApp = createAppGrantsService({
@@ -818,6 +830,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    forceApproval: requests.requiresGuestApproval,
     mailbox: infra.mailbox,
     memberDirectory: infra.memberDirectory,
     requests,
@@ -919,6 +932,7 @@ export const composeWith = ({
     db,
     events,
     fetch: connectorFetch,
+    outbound: requests.requireOutbound,
     secretsKey: infra.secretsKey,
   });
   const slackHistory = createSlackHistoryService({
@@ -1011,6 +1025,12 @@ export const composeWith = ({
   const liveArtifacts = infra.live
     ? withLiveMaintenance(
         createLiveArtifactsWithAsk({
+          scopedRunAccess: createGuestRunAccess({
+            clock: infra.clock,
+            db,
+            guestsOff: infra.guestsOff ?? (() => true),
+            runs,
+          }),
           ...infra.live,
           artifacts,
           atomic: infra.atomic,
@@ -1069,7 +1089,7 @@ export const composeWith = ({
         atomic: infra.atomic,
         clock: infra.clock,
         db,
-        services: { events, liveArtifacts },
+        services: { events, liveArtifacts, runs },
       }),
       liveRoom: infra.live?.roomFor,
       machines,
@@ -1142,6 +1162,12 @@ export const compose = (
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),
       // An unset secret reads as an empty string: GitHub then sees no credential.
       githubToken: env.GITHUB_TOKEN || undefined,
+      guestRunner: env.GUEST_RUN
+        ? {
+            cancel: (runId) => env.GUEST_RUN.getByName(runId).cancel(runId),
+            start: (runId) => env.GUEST_RUN.getByName(runId).start(runId),
+          }
+        : undefined,
       guests: (input) => guestService(env, input),
       guestsOff: () =>
         Boolean(
@@ -1209,3 +1235,11 @@ const withLiveMaintenance = (
       };
     },
   });
+
+const skillsGithub = (github: Infra["github"]) =>
+  github && skillsStoreGithub(github);
+
+const guestRunnerFor = (infra: Infra) =>
+  infra.runTokenKey && infra.publicBaseUrl && infra.live
+    ? infra.guestRunner
+    : undefined;

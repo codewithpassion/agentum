@@ -38,6 +38,7 @@ let principal: {
   runId: string;
 };
 let now: number;
+let trustedGuestsPresent: boolean;
 let calls: string[];
 let drafts: OutgoingDraft[];
 let resumed: number;
@@ -63,6 +64,7 @@ beforeEach(async () => {
   db = migrated();
   now = Date.parse("2026-10-27T00:00:00Z");
   calls = [];
+  trustedGuestsPresent = false;
   drafts = [];
   resumed = 0;
   serial = 0;
@@ -179,6 +181,7 @@ beforeEach(async () => {
     clock,
     db,
     events,
+    forceApproval: () => Promise.resolve(trustedGuestsPresent),
     mailbox,
     memberDirectory: async (email, org) =>
       email === "member@example.com" && org === "org" ? "u" : null,
@@ -513,4 +516,26 @@ test("an outside reply is held with the existing external thread and ask rules d
     await mail.reply(principal, threadId, draft(["outside@example.com"]))
   ).toMatchObject({ status: "held", threadId });
   expect(heldThread).toBe("external-thread");
+});
+
+test("a guest joining forces held mail despite an existing recipient allow rule", async () => {
+  await mail.send(principal, draft(["outside@example.com"]));
+  await answer("always_allow");
+  calls = [];
+  trustedGuestsPresent = true;
+  expect(
+    await mail.send(principal, draft(["outside@example.com"]))
+  ).toMatchObject({ status: "held" });
+  expect(calls).toEqual(["hold"]);
+  const pending = await requests.listPending(user);
+  const receipt = pending.find((item) => item.status === "pending");
+  if (!receipt) {
+    throw new Error("Missing held mail approval");
+  }
+  await requests.answer(user, {
+    answer: { decision: "allow_once" },
+    requestId: receipt.id,
+    via: "web",
+  });
+  expect(calls).toEqual(["hold", expect.stringContaining("release:")]);
 });

@@ -177,13 +177,9 @@ export interface ManagedGateway {
 const CONFLICT = 409;
 const DESCRIPTION_MAX_LENGTH = 2048;
 
-/**
- * Both toolsets are set to `always_allow` explicitly. The agent toolset
- * defaults that way, but an `mcp_toolset` left bare comes back from the API as
- * `always_ask` (verified 2026-08-20) - which would park every session in
- * `requires_action` waiting for a human to approve `post_message`, with nobody
- * watching. There is no human in this loop, so nothing may ask one.
- */
+/** Ordinary sessions retain explicit defaults. Artifact sessions pass the
+ * wildcard and keep all native/MCP calls behind provider confirmations, even
+ * if a guest joins after the remote session was configured. */
 const permissive = {
   enabled: true,
   permission_policy: { type: "always_allow" as const },
@@ -200,15 +196,23 @@ const configsFor = <Name extends string>(toolNames: readonly Name[]) =>
       }
     : {};
 
-const mcpToolset = (name: string, askNames: readonly string[]) => ({
-  default_config: permissive,
+const mcpToolset = (
+  name: string,
+  askNames: readonly string[],
+  force = false
+) => ({
+  default_config: force
+    ? { enabled: true, permission_policy: { type: "always_ask" as const } }
+    : permissive,
   mcp_server_name: name,
   ...configsFor(askNames),
   type: "mcp_toolset" as const,
 });
 
-const agentToolset = (askNames: readonly AgentToolName[]) => ({
-  default_config: permissive,
+const agentToolset = (askNames: readonly AgentToolName[], force = false) => ({
+  default_config: force
+    ? { enabled: true, permission_policy: { type: "always_ask" as const } }
+    : permissive,
   ...configsFor(askNames),
   type: AGENT_TOOLSET as "agent_toolset_20260401",
 });
@@ -282,9 +286,13 @@ const toolsFor = (
 ) => {
   const asks = askNamesFor(mcpServers, askKeys);
   return [
-    agentToolset(asks.agent),
+    agentToolset(asks.agent, askKeys.includes("*")),
     ...mcpServers.map((server) =>
-      mcpToolset(server.name, asks.servers.get(server.name) ?? [])
+      mcpToolset(
+        server.name,
+        asks.servers.get(server.name) ?? [],
+        askKeys.includes("*")
+      )
     ),
     customTool(ASK_USER_TOOL),
     ...(desktop

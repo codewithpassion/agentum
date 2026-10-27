@@ -202,6 +202,12 @@ export interface LiveArtifactsDeps extends LiveInteractionPorts {
     principal: Extract<Principal, { kind: "user" | "run" }>
   ) => Promise<{ name: string; color: string }>;
   rooms: LiveRoomsPort;
+  /** Exact current guest provenance, never member delegation or envelope claims. */
+  scopedRunAccess?: (
+    principal: Extract<Principal, { kind: "run" }>,
+    artifactId: string,
+    write?: boolean
+  ) => Promise<{ role: "commenter" | "editor" }>;
   ticketKey: string;
 }
 
@@ -808,6 +814,30 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     }
     return { member, row };
   };
+  const requireUnscoped = async (principal: Principal, action: string) => {
+    if (
+      principal.kind === "run" &&
+      (await runContext(principal)).run.scopeArtifactId
+    ) {
+      throw new ForbiddenError(action);
+    }
+  };
+  const refreshRunMember = async (
+    member: Extract<Member, { kind: "run" }>,
+    run: { scopeArtifactId: string | null; dryRun: boolean }
+  ) => {
+    if (run.scopeArtifactId) {
+      if (!deps.scopedRunAccess) {
+        throw new ForbiddenError("liveArtifacts.scope");
+      }
+      await deps.scopedRunAccess(member, run.scopeArtifactId);
+    }
+    return {
+      ...member,
+      dryRun: run.dryRun,
+      ...(run.scopeArtifactId ? { scopeArtifactId: run.scopeArtifactId } : {}),
+    };
+  };
   const shared = { ...deps, access, authorOf, event, now, participantId };
   return {
     ...createCommentsModule(shared),
@@ -923,6 +953,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       principal: Principal,
       input: { artifactId: string; cursor?: string; limit?: number }
     ) {
+      await requireUnscoped(principal, "liveArtifacts.embedSources");
       const { row } = await access(principal, input.artifactId);
       if (row.kind !== "deck") {
         throw invalid("Artifact is not a deck");
@@ -943,6 +974,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       principal: Principal,
       raw: EnsureDeckCellInput
     ): Promise<EnsureDeckCellResult> {
+      await requireUnscoped(principal, "liveArtifacts.ensureDeckCell");
       const input = ensureDeckCellInputSchema.parse(raw);
       const { member, row } = await access(principal, input.artifactId, true);
       if (row.kind !== "deck" || !rooms.ensureDeckCell) {
@@ -1003,6 +1035,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       principal: Principal,
       input: { artifactId: string; url: string }
     ) {
+      await requireUnscoped(principal, "liveArtifacts.importImage");
       const { row } = await access(principal, input.artifactId, true);
       if (row.kind !== "document" || !deps.externalImageFetch) {
         throw invalid("External image import is unavailable");
@@ -1082,7 +1115,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         ) {
           throw new ForbiddenError("liveArtifacts.runEnded");
         }
-        return { ...member, dryRun: run.dryRun };
+        return refreshRunMember(member, run);
       }
       if (member.apiKey) {
         const { apiKeys } = await import("@repo/db/schema/api-keys");
@@ -1392,6 +1425,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       principal: Principal,
       input: { artifactId: string; body: Blob; name: string }
     ) {
+      await requireUnscoped(principal, "liveArtifacts.uploadImage");
       const { row } = await access(principal, input.artifactId, true);
       if (!(deps.files && rooms.registerImage)) {
         throw invalid("Image storage is unavailable");
@@ -1438,6 +1472,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       principal: Principal,
       input: DocumentSnapshot & { artifactId: string }
     ) {
+      await requireUnscoped(principal, "liveArtifacts.checkpoint");
       const { member, row } = await access(principal, input.artifactId, true);
       checkSnapshot(input, row.kind);
       if (rooms.checkpointCanonical) {
@@ -1538,6 +1573,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       principal: Principal,
       input: { artifactId: string; version: number; requestId?: string }
     ) {
+      await requireUnscoped(principal, "liveArtifacts.restore");
       const { member, row } = await access(
         principal,
         input.artifactId,

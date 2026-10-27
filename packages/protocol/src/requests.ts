@@ -29,6 +29,7 @@ export const questionDisplaySchema = z.strictObject({
 export type QuestionDisplay = z.infer<typeof questionDisplaySchema>;
 
 export const approvalDisplaySchema = z.strictObject({
+  effectBinding: z.string().optional(),
   input: z
     .json()
     .refine(

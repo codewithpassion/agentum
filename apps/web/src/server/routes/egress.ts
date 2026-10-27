@@ -333,6 +333,18 @@ export const egressRoutes = ({
       body = read.bytes;
     }
 
+    await c
+      .get("composed")
+      .services.requests.requireOutbound(
+        { ...claims, kind: "run" },
+        "network/egress",
+        {
+          method,
+          url,
+          headers: Object.fromEntries(upstreamHeaders(c.req.raw, matches)),
+          body: body ? [...body] : [],
+        }
+      );
     const sent = await exchange({
       fetchImpl,
       init: {

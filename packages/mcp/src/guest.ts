@@ -12,6 +12,7 @@ export interface GuestToolScope {
   role: "commenter" | "editor";
 }
 export const guestTools = (deps: {
+  supported?: readonly string[];
   scope: GuestToolScope;
   /** Must consult current run/provenance, session, switches and member role. */
   authorize: (artifactId: string, write: boolean) => Promise<GuestToolScope>;
@@ -41,6 +42,7 @@ export const guestTools = (deps: {
     }).filter((tool) => tool.name !== "deck_write" || Boolean(write));
   }
   return definitions
+    .filter((tool) => !deps.supported || deps.supported.includes(tool.name))
     .filter(
       (tool) =>
         deps.scope.role === "editor" ||

@@ -315,6 +315,14 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
     createApprovalGate({
       api,
       log: runLog,
+      needsApproval: claim.currentApprovals
+        ? (key) => {
+            if (!api.needsApproval) {
+              return Promise.reject(new Error("Current approval API required"));
+            }
+            return api.needsApproval(key, abortController.signal);
+          }
+        : undefined,
       rules,
       serverKeys: Object.keys(claim.mcpServers),
       signal: abortController.signal,
@@ -367,9 +375,9 @@ export const executeRun = (deps: ExecuteRunDeps): RunExecution => {
       thinking: { display: "summarized", type: "adaptive" },
       // A claim without `toolRules` comes from a Worker that predates requests,
       // so such a run keeps its ungated bypassPermissions.
-      ...(claim.toolRules === undefined
+      ...(claim.toolRules === undefined && !claim.currentApprovals
         ? {}
-        : gateOptions(approvalGate(claim.toolRules))),
+        : gateOptions(approvalGate(claim.toolRules ?? []))),
       ...(budget === undefined ? {} : { maxBudgetUsd: budget }),
       ...(resume === undefined ? {} : { resume }),
     };

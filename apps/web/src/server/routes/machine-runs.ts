@@ -10,6 +10,7 @@ import {
   DAEMON_FEATURES_HEADER,
   eventsRequestSchema,
   eventsResponseSchema,
+  FEATURE_CURRENT_APPROVALS,
   FEATURE_LIBRARY_LIVE,
   FEATURE_LIBRARY_SYNC,
   FEATURE_REQUESTS,
@@ -108,6 +109,10 @@ export const machineRunRoutes = () => {
             FEATURE_LIBRARY_SYNC
           ),
           // Likewise the ask tools, so an older daemon keeps bypassPermissions.
+          currentApprovalsForDaemon: hasDaemonFeature(
+            c.req.header(DAEMON_FEATURES_HEADER),
+            FEATURE_CURRENT_APPROVALS
+          ),
           requestsForDaemon: hasDaemonFeature(
             c.req.header(DAEMON_FEATURES_HEADER),
             FEATURE_REQUESTS
@@ -158,6 +163,23 @@ export const machineRunRoutes = () => {
         .get("composed")
         .services.runs.completeRun(principal, runId, body.data);
       return c.json({});
+    })
+  );
+
+  routes.post(
+    "/:runId/needs-approval",
+    withMachine(async ({ c, principal, runId }) => {
+      const body = z
+        .strictObject({ toolKey: z.string().min(1).max(200) })
+        .parse(await readJson(c));
+      return c.json({
+        required: await c
+          .get("composed")
+          .services.requests.needsApproval(principal, {
+            runId,
+            toolKey: body.toolKey,
+          }),
+      });
     })
   );
 

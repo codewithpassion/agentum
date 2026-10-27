@@ -84,6 +84,7 @@ export interface ApprovalGate {
 export interface ApprovalGateOptions {
   api: Pick<RunApi, "createRequest" | "waitRequest">;
   log: (message: string) => void;
+  needsApproval?: (toolKey: string) => Promise<boolean>;
   random?: () => number;
   /** The claim's `toolRules`: tool keys that wait for a person. */
   rules: readonly string[];
@@ -290,7 +291,15 @@ export const createApprovalGate = (
   const decide = async (call: ToolCall): Promise<Verdict | undefined> => {
     const asks = isAskUserCall("machine", call.name);
     const key = toolKey({ name: call.name, runtime: "machine", serverKeys });
-    if (!(asks || asking.has(key))) {
+    let required = asking.has(key);
+    if (options.needsApproval && !asks) {
+      try {
+        required = await options.needsApproval(key);
+      } catch {
+        return { kind: "deny", reason: REASONS.unavailable };
+      }
+    }
+    if (!(asks || required)) {
       return;
     }
     const signal =

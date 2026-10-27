@@ -728,7 +728,11 @@ test("an earlier artifact run cannot resume the newly selected agent's runtime s
     })
     .where(eq(sessions.id, started.sessionId))
     .run();
-  const claimed = await claim("m1", started.runId);
+  const claimed = await runs.claimRunForMachine(machine("m1"), started.runId, {
+    currentApprovalsForDaemon: true,
+    platformUrl: PLATFORM,
+    requestsForDaemon: true,
+  });
   expect(claimed.session).toEqual({
     id: started.sessionId,
     runtimeMachineId: null,

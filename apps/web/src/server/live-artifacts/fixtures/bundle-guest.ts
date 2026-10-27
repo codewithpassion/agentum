@@ -8,7 +8,7 @@ const built = await build({
   // The combined codec graph includes HTML entity decoding. Resolve Worker
   // exports instead of the browser DOM implementation, as production does.
   conditions: ["workerd"],
-  entrypoints: [`${import.meta.dir}/guest.ts`],
+  entrypoints: [`${import.meta.dir}/${process.argv[2] ?? "guest"}.ts`],
   external: ["cloudflare:workers", "node:*"],
   plugins: [
     {

@@ -6,6 +6,7 @@ import {
   mailThreads,
 } from "@repo/db/schema/mail";
 import { runRequests } from "@repo/db/schema/requests";
+import { sessions as artifactSessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { MAIL_SEND_TOOL, mailToolKey } from "@repo/db/shared";
@@ -72,7 +73,9 @@ export const createMailOutbound = ({
   requests,
   mailbox,
   memberDirectory,
+  forceApproval,
 }: {
+  forceApproval?: (principal: Principal, runId: string) => Promise<boolean>;
   db: Database;
   atomic: Atomic;
   clock: Clock;
@@ -291,26 +294,35 @@ export const createMailOutbound = ({
         )
       );
     const allowed = new Set(rules.map((rule) => rule.toolKey));
+    const [source] = await db
+      .select({ origin: artifactSessions.origin })
+      .from(artifactSessions)
+      .where(eq(artifactSessions.id, run.sessionId))
+      .limit(1);
+    const force = forceApproval
+      ? await forceApproval(principal, run.id)
+      : source?.origin === "artifact";
     const unallowed = outside.find(
       (recipient) => !allowed.has(mailToolKey(recipient))
     );
+    const heldRecipient = unallowed ?? (force ? outside[0] : undefined);
     const adapter = port();
     const result = await sendDraft(
       adapter,
       ref,
       draft,
       thread,
-      Boolean(unallowed)
+      Boolean(heldRecipient)
     );
     const { message, storedThread } = await indexDelivery({
       box,
       draft,
-      held: Boolean(unallowed),
+      held: Boolean(heldRecipient),
       result,
       run,
       thread,
     });
-    if (!unallowed) {
+    if (!heldRecipient) {
       await announce(
         message,
         { ...storedThread, sessionId: run.sessionId },
@@ -343,7 +355,7 @@ export const createMailOutbound = ({
         },
         kind: "approval",
         runId: run.id,
-        toolKey: mailToolKey(unallowed),
+        toolKey: mailToolKey(heldRecipient),
         toolName: MAIL_SEND_TOOL,
         toolUseId: `mail:${message.id}`,
       });

@@ -2,6 +2,7 @@ import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { taskFolderPath } from "@repo/db/shared";
 import {
   and,
@@ -91,6 +92,20 @@ const claimLibrary = async (
  * one winner, because a single UPDATE is atomic. The token is signed before
  * the write, so a signing failure leaves the run untouched.
  */
+const assertCurrentApprovalProtocol = async (
+  db: Database,
+  run: RunRecord,
+  supported?: boolean
+) => {
+  const [session] = await db
+    .select({ origin: sessions.origin })
+    .from(sessions)
+    .where(eq(sessions.id, run.sessionId))
+    .limit(1);
+  if (session?.origin === "artifact" && !supported) {
+    throw new ForbiddenError("runs.currentApprovalsRequired");
+  }
+};
 export const claimForMachine = async (
   deps: MachineClaimDeps,
   principal: Principal,
@@ -98,6 +113,7 @@ export const claimForMachine = async (
   options: {
     libraryForDaemon?: boolean;
     libraryLiveForDaemon?: boolean;
+    currentApprovalsForDaemon?: boolean;
     requestsForDaemon?: boolean;
     platformUrl: string;
   }
@@ -126,6 +142,11 @@ export const claimForMachine = async (
     throw new ForbiddenError(CLAIM_ACTION);
   }
 
+  await assertCurrentApprovalProtocol(
+    db,
+    run,
+    supportsCurrentApprovals(options)
+  );
   const now = deps.now();
   const runToken = await deps.signToken({
     agentId: run.agentId,
@@ -314,6 +335,7 @@ export const claimForMachine = async (
       workspaceId: claimedRun.workspaceId,
     },
     runToken,
+    ...currentApprovalClaim(options.currentApprovalsForDaemon),
     ...daemonRules(toolRules),
     session: {
       id: session.id,
@@ -326,3 +348,13 @@ export const claimForMachine = async (
 
 const daemonRules = (toolRules: string[] | undefined) =>
   toolRules ? { toolRules } : {};
+
+const currentApprovalClaim = (supported?: boolean) =>
+  supported ? { currentApprovals: true as const } : {};
+
+const supportsCurrentApprovals = (options: {
+  currentApprovalsForDaemon?: boolean;
+  requestsForDaemon?: boolean;
+}) =>
+  options.currentApprovalsForDaemon === true &&
+  options.requestsForDaemon === true;
