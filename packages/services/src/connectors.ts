@@ -707,7 +707,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: z.input<typeof unassignInputSchema>
   ): Promise<{ removed: boolean }> => {
-    const user = requireAssigner(principal, UNASSIGN_ACTION);
+    const user = requireUser(principal, UNASSIGN_ACTION);
     const parsed = unassignInputSchema.parse(input);
     authorize(user, UNASSIGN_ACTION, {
       id: parsed.connectorId,

@@ -187,6 +187,66 @@ describe("tool lists", () => {
   });
 });
 
+describe("audit of calls other paths handle", () => {
+  test("assign_skill with a write key writes an admin.action event naming the key", async () => {
+    const { key, secret } = await mintKey("write");
+    const agent = await call(secret, "create_agent", {
+      model: "fake",
+      name: "Support",
+      runtime: "managed",
+    });
+    const agentId = (
+      agent.structuredContent as unknown as { agent: { id: string } }
+    ).agent.id;
+    const skill = await call(secret, "create_skill", {
+      files: [
+        {
+          content: "---\nname: shout\ndescription: Shouts.\n---\n\n# shout\n",
+          path: "SKILL.md",
+        },
+      ],
+      message: "First version",
+      name: "shout",
+    });
+    expect(skill.isError).toBeFalsy();
+    const { skillId } = (
+      skill.structuredContent as { version: { skillId: string } }
+    ).version;
+
+    const assigned = await call(secret, "assign_skill", {
+      agent: agentId,
+      skillId,
+    });
+    expect(assigned.isError).toBeFalsy();
+
+    const audited = db
+      .select()
+      .from(events)
+      .all()
+      .filter(
+        (row) =>
+          row.type === "admin.action" &&
+          JSON.parse(row.payload ?? "{}").tool === "assign_skill"
+      );
+    expect(audited).toHaveLength(1);
+    expect(audited[0]).toMatchObject({ actorId: key.id, actorKind: "api_key" });
+    expect(JSON.parse(audited[0]?.payload ?? "{}")).toMatchObject({ skillId });
+  });
+});
+
+describe("a bad secret name", () => {
+  test("create_secret says what is wrong with the name", async () => {
+    const { secret } = await mintKey("admin");
+    const result = await call(secret, "create_secret", {
+      mode: "env",
+      name: "OPENAI-KEY",
+      value: SECRET_VALUE,
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain("letters, digits and underscores");
+  });
+});
+
 describe("the setup flow with an admin key", () => {
   test("creates an agent, a granted proxy secret, a thread, a code and a desk key, then revokes the key", async () => {
     const { secret: token } = await mintKey("admin");

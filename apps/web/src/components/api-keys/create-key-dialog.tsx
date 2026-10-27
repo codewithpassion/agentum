@@ -92,8 +92,9 @@ export function CreateKeyDialog({
         <DialogHeader>
           <DialogTitle>Create API key</DialogTitle>
           <DialogDescription>
-            Read keys can list and read. Write keys can also send messages. Desk
-            keys are for another app's desk panel and work only on the desk API.
+            Read keys can list and read. Write keys can also send messages and
+            create or change agents. Desk keys are for another app's desk panel
+            and work only on the desk API.
             {isAdmin
               ? " Admin keys can also set up secrets, machines and keys."
               : ""}

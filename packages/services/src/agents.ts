@@ -226,6 +226,22 @@ export const agentUpdateSchema = z
   );
 export type AgentUpdateInput = z.input<typeof agentUpdateSchema>;
 
+/** `input` with `patch` set on top of the agent's runtime config, when there is a patch. */
+const withConfigPatch = (
+  input: AgentUpdateInput,
+  current: AgentRecord,
+  patch: Record<string, boolean | number | string> | undefined
+): AgentUpdateInput =>
+  patch
+    ? { ...input, runtimeConfig: { ...current.runtimeConfig, ...patch } }
+    : input;
+
+/** Why an update wrote no row: the agent is gone, or a guarded config changed. */
+const unsavedAgent = (patch: object | undefined): ServiceError =>
+  patch
+    ? new ServiceError("conflict", "The agent changed, try again")
+    : new ServiceError("not_found", "Agent not found");
+
 const toRecord = (row: AgentRow): AgentRecord => ({
   computerMachineId: row.computerMachineId,
   createdAt: row.createdAt,
@@ -676,13 +692,22 @@ export const createAgentsService = ({
   const saveAgent = async (
     id: string,
     workspaceId: string,
-    values: AgentValues
+    values: AgentValues,
+    expectedRuntimeConfig?: string
   ): Promise<AgentRow | undefined> => {
     try {
       const [row] = await db
         .update(agents)
         .set(values)
-        .where(and(eq(agents.id, id), eq(agents.workspaceId, workspaceId)))
+        .where(
+          and(
+            eq(agents.id, id),
+            eq(agents.workspaceId, workspaceId),
+            expectedRuntimeConfig === undefined
+              ? undefined
+              : eq(agents.runtimeConfig, expectedRuntimeConfig)
+          )
+        )
         .returning();
       return row;
     } catch (error) {
@@ -731,19 +756,30 @@ export const createAgentsService = ({
     }
   };
 
+  /**
+   * `options.runtimeConfigPatch` sets single keys of the runtime config on top
+   * of the stored one. The write then fails with a conflict when another
+   * change to the config landed since it was read.
+   */
   const update = async (
     principal: Principal,
     id: string,
-    input: AgentUpdateInput
+    input: AgentUpdateInput,
+    options: {
+      runtimeConfigPatch?: Record<string, boolean | number | string>;
+    } = {}
   ): Promise<AgentRecord> => {
     const user = requireUser(principal, AGENT_UPDATE);
-    const parsed = agentUpdateSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, AGENT_UPDATE, { kind: AGENT_KIND, workspaceId });
     const current = await findAgent(db, { id, workspaceId });
     if (!current) {
       throw new ServiceError("not_found", "Agent not found");
     }
+    const { runtimeConfigPatch } = options;
+    const parsed = agentUpdateSchema.parse(
+      withConfigPatch(input, current, runtimeConfigPatch)
+    );
     await assertAgentPatch(current, parsed);
 
     const slug = parsed.slug ?? current.slug;
@@ -763,9 +799,14 @@ export const createAgentsService = ({
       slug,
       soul: parsed.soul ?? current.soul,
     };
-    const row = await saveAgent(id, workspaceId, values);
+    const row = await saveAgent(
+      id,
+      workspaceId,
+      values,
+      runtimeConfigPatch && JSON.stringify(current.runtimeConfig)
+    );
     if (!row) {
-      throw new ServiceError("not_found", "Agent not found");
+      throw unsavedAgent(runtimeConfigPatch);
     }
 
     await events.append({

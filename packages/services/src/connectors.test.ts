@@ -941,3 +941,20 @@ test("an admin key may remove a connector", async () => {
   await service.remove(adminKey, { connectorId: connector.id });
   expect(await service.list(dom)).toEqual([]);
 });
+
+test("a write key assigns a connector but cannot unassign it", async () => {
+  const connector = await addHeaderConnector();
+  const writeKey: Principal = {
+    apiKey: { access: "write", id: "k1" },
+    kind: "user",
+    userId: "user_dom",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  const input = { agentId: agent.id, connectorId: connector.id };
+  await service.assign(writeKey, input);
+  await expect(service.unassign(writeKey, input)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  expect(await service.assignments(dom, { agentId: agent.id })).toHaveLength(1);
+});
