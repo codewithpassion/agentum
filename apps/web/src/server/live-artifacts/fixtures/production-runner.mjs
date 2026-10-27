@@ -41,10 +41,10 @@ let runtime = new Miniflare(convertV4MiniflareOptions(options));
 let passed = 0;
 const check = (condition, message) => {
   assert.ok(condition, message);
-  passed++;
+  passed += 1;
 };
 try {
-  const db = await runtime.getD1Database("DB");
+  let db = await runtime.getD1Database("DB");
   const migrations = resolve(
     import.meta.dirname,
     "../../../../../../packages/db/migrations"
@@ -93,10 +93,11 @@ try {
     "Content-Type": "application/json",
   };
   let rpcId = 0;
-  const mcp = async (name, args) => {
+  const mcp = async (name, args, requestId) => {
+    rpcId += 1;
     const r = await runtime.dispatchFetch("http://localhost/mcp", {
       body: JSON.stringify({
-        id: ++rpcId,
+        id: requestId ?? rpcId,
         jsonrpc: "2.0",
         method: "tools/call",
         params: { arguments: args, name },
@@ -135,7 +136,7 @@ try {
     "real room loaded R2 checkpoint"
   );
   const target = read.blocks.find((b) => b.text === "Hello human words here.");
-  const edit = await mcp("document_edit", {
+  const editInput = {
     artifactId: created.artifactId,
     ops: [
       {
@@ -145,7 +146,15 @@ try {
       },
     ],
     summary: "Fixture edit",
-  });
+  };
+  const edit = await mcp("document_edit", editInput);
+  const editRequestId = rpcId;
+  const repeat = await mcp("document_edit", editInput, editRequestId);
+  check(
+    repeat.changeId === edit.changeId && repeat.revision === edit.revision,
+    "same tool call replays the durable room result"
+  );
+
   check(edit.revision > read.revision, "MCP edit advanced room");
   const persisted = await (
     await runtime.dispatchFetch(
@@ -156,6 +165,73 @@ try {
   check(
     persisted.markdown.includes("Agent edited actual room."),
     "R2/DB checkpoint roundtrip"
+  );
+  const image = new FormData();
+  image.set(
+    "file",
+    new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])], {
+      type: "image/png",
+    }),
+    "own.png"
+  );
+  const uploadRequest = new Request(
+    `http://localhost/api/live-artifacts/${created.artifactId}/images`,
+    {
+      body: image,
+      headers: { Authorization: `Bearer ${token}`, Origin: "http://localhost" },
+      method: "POST",
+    }
+  );
+  const upload = await runtime.dispatchFetch(uploadRequest.url, {
+    body: await uploadRequest.arrayBuffer(),
+    headers: uploadRequest.headers,
+    method: "POST",
+  });
+  check(
+    upload.status === 201,
+    `authorized raster upload persisted: ${upload.status} ${await upload.clone().text()}`
+  );
+  const uploaded = await upload.json();
+  const policy = await (
+    await runtime.dispatchFetch(
+      `http://localhost/api/live-artifacts/${created.artifactId}/policy`,
+      { headers }
+    )
+  ).json();
+  check(
+    policy.ownBlobUrls.includes(uploaded.url),
+    "own blob policy durable before upload response"
+  );
+  check(
+    policy.agentChanges.some(
+      (change) => change.name === "Fixture Agent" && change.text.length > 0
+    ),
+    "authoritative persisted origin ranges exposed"
+  );
+  const stranger = await mcp("artifact_create", {
+    kind: "document",
+    title: "Other document",
+  });
+  const otherPolicy = await (
+    await runtime.dispatchFetch(
+      `http://localhost/api/live-artifacts/${stranger.artifactId}/policy`,
+      { headers }
+    )
+  ).json();
+  check(
+    !otherPolicy.ownBlobUrls.includes(uploaded.url),
+    "image ownership is exact artifact scope"
+  );
+  const markdown = await (
+    await runtime.dispatchFetch(
+      `http://localhost/api/live-artifacts/${created.artifactId}/markdown`,
+      { headers }
+    )
+  ).json();
+  check(
+    markdown.filename.endsWith(".md") &&
+      markdown.markdown === persisted.markdown,
+    "persisted browser markdown contract"
   );
   const versions = await db
     .prepare("SELECT count(*) as n FROM artifact_versions WHERE artifact_id=?")
@@ -175,6 +251,105 @@ try {
     { headers, method: "POST" }
   );
   check(checkpoint.ok, "clean checkpoint acknowledgement is idempotent");
+  await db.exec(
+    "CREATE TRIGGER fixture_fail_checkpoint BEFORE INSERT ON artifact_versions WHEN NEW.artifact_id='" +
+      created.artifactId +
+      "' AND NEW.number=3 BEGIN SELECT RAISE(ABORT,'fixture checkpoint DB failure'); END;"
+  );
+  let failed = false;
+  try {
+    await mcp("document_edit", {
+      artifactId: created.artifactId,
+      ops: [
+        {
+          content: {
+            markdown: `Crash retry survives.\n\n![own](${uploaded.url})`,
+          },
+          op: "insert",
+        },
+      ],
+      summary: "Crash retry",
+    });
+  } catch {
+    failed = true;
+  }
+  check(
+    failed,
+    "actual DB failure after room mutation and R2 writes is surfaced"
+  );
+  const old = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/persisted/${created.artifactId}`,
+      { headers }
+    )
+  ).json();
+  check(
+    old.markdown === persisted.markdown,
+    "failed publication leaves current DB pointer unchanged"
+  );
+  await db.exec("DROP TRIGGER fixture_fail_checkpoint;");
+  await runtime.dispose();
+  runtime = new Miniflare(convertV4MiniflareOptions(options));
+  db = await runtime.getD1Database("DB");
+  const retry = await runtime.dispatchFetch(
+    `http://localhost/fixture/checkpoint/${created.artifactId}`,
+    { headers, method: "POST" }
+  );
+  check(retry.ok, "durable pending checkpoint retries after runtime restart");
+  const repaired = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/persisted/${created.artifactId}`,
+      { headers }
+    )
+  ).json();
+  check(
+    repaired.markdown.includes("Crash retry survives."),
+    "retry commits frozen room state to R2 and DB"
+  );
+  persisted.markdown = repaired.markdown;
+  const repairedVersions = await db
+    .prepare("SELECT count(*) as n FROM artifact_versions WHERE artifact_id=?")
+    .bind(created.artifactId)
+    .first();
+  check(
+    repairedVersions.n === 3,
+    "crash retry creates exactly one checkpoint version"
+  );
+  const bucket = await runtime.getR2Bucket("FILES");
+  const publishedFiles = await db
+    .prepare(
+      "SELECT f.path,f.sha256 FROM artifact_version_files f JOIN artifacts a ON a.current_version_id=f.version_id WHERE a.id=?"
+    )
+    .bind(created.artifactId)
+    .all();
+  const imageFile = publishedFiles.results.find((file) =>
+    file.path.startsWith("images/")
+  );
+  check(
+    Boolean(imageFile),
+    "checkpoint publishes owned images with static artifact files"
+  );
+  const htmlFile = publishedFiles.results.find(
+    (file) => file.path === "index.html"
+  );
+  const html = await (
+    await bucket.get(`w1/artifact-blobs/${htmlFile.sha256}`)
+  ).text();
+  check(
+    html.includes(`src="${imageFile.path}"`) && !html.includes('src="/files/'),
+    "checkpoint HTML uses version-owned images for read-only link viewers"
+  );
+  const delta = await mcp("document_read", {
+    artifactId: created.artifactId,
+    sinceRev: read.revision,
+  });
+  check(
+    delta.blocks.length > 0 &&
+      delta.blocks.some((block) =>
+        block.text.includes("Crash retry survives.")
+      ),
+    "chunked outline history survives room restart"
+  );
   response = await runtime.dispatchFetch(
     `http://localhost/fixture/join/${created.artifactId}`,
     { headers, method: "POST" }
@@ -185,16 +360,84 @@ try {
     headers: { Upgrade: "websocket" },
   });
   check(denied.status === 401, "ticket without real credential denied");
-  const socket = await runtime.dispatchFetch(socketUrl, {
-    headers: { Authorization: `Bearer ${token}`, Upgrade: "websocket" },
+  const tcpUrl = new URL(
+    `${admission.roomUrl}?ticket=${encodeURIComponent(admission.ticket)}`,
+    await runtime.ready
+  );
+  tcpUrl.protocol = "ws:";
+  const socket = new WebSocket(tcpUrl, {
+    headers: { Authorization: `Bearer ${token}` },
   });
-  check(socket.status === 101, "authenticated initial request accepted");
-  socket.webSocket.accept();
+  let closeDetail;
+  const closed = new Promise((resolveClose) =>
+    socket.addEventListener(
+      "close",
+      (event) => {
+        closeDetail = {
+          at: Date.now(),
+          code: event.code,
+          reason: event.reason,
+        };
+        resolveClose(true);
+      },
+      { once: true }
+    )
+  );
+  const status = await new Promise((resolveStatus) => {
+    socket.addEventListener("open", () => resolveStatus(101), { once: true });
+    socket.addEventListener("error", () => resolveStatus(403), { once: true });
+  });
+  check(status === 101, "authenticated initial TCP request accepted");
   const replay = await runtime.dispatchFetch(socketUrl, {
     headers: { Authorization: `Bearer ${token}`, Upgrade: "websocket" },
   });
   check(replay.status === 403, "room replay consumed durably");
-  socket.webSocket.close();
+  const beforeDelete = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/diagnostics/${created.artifactId}`
+    )
+  ).text();
+  await db.batch([
+    db
+      .prepare("UPDATE artifacts SET deleted_at=? WHERE id=?")
+      .bind(new Date().toISOString(), created.artifactId),
+    db
+      .prepare(
+        "INSERT INTO artifact_room_invalidations (id,workspace_id,artifact_id,created_at) VALUES ('invalidation-crash','w1',?,?)"
+      )
+      .bind(created.artifactId, new Date().toISOString()),
+  ]);
+  const didClose = await Promise.race([
+    closed,
+    new Promise((resolveTimeout) =>
+      setTimeout(() => resolveTimeout(false), 4500)
+    ),
+  ]);
+  const diagnostic = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/diagnostics/${created.artifactId}`
+    )
+  ).text();
+  check(
+    didClose ||
+      socket.readyState === WebSocket.CLOSING ||
+      socket.readyState === WebSocket.CLOSED,
+    `durable refresh closes revoked socket within five seconds without request waitUntil: ${diagnostic}, before ${beforeDelete}, state ${socket.readyState}, close ${JSON.stringify(closeDetail)}`
+  );
+  await new Promise((resolveAlarm) => setTimeout(resolveAlarm, 2500));
+  const outbox = await db
+    .prepare(
+      "SELECT completed_at FROM artifact_room_invalidations WHERE id='invalidation-crash'"
+    )
+    .first();
+  check(
+    Boolean(outbox.completed_at),
+    "durable maintenance alarm acknowledges committed invalidation outbox"
+  );
+  await db
+    .prepare("UPDATE artifacts SET deleted_at=NULL WHERE id=?")
+    .bind(created.artifactId)
+    .run();
   await runtime.dispose();
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   const recovered = await (
@@ -206,6 +449,20 @@ try {
   check(
     recovered.markdown === persisted.markdown,
     "R2 D1 persistence across runtime restart"
+  );
+  const large = await (
+    await runtime.dispatchFetch("http://localhost/fixture/large", {
+      headers,
+      method: "POST",
+    })
+  ).json();
+  check(
+    large.chars === 5_000_000,
+    "actual service R2/DB to room five-million-character document"
+  );
+  check(
+    large.limits.largest < 512 * 1024,
+    "large wrapper history uses chunks rather than oversized metadata rows"
   );
   console.log(JSON.stringify({ passed }));
 } finally {

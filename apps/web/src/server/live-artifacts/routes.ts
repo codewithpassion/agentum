@@ -64,8 +64,42 @@ export const liveRoomRoutes = (deps: RouteDeps = defaults) =>
     }
   });
 
+const imageForm = async (request: Request) => {
+  const body = await readCappedBody(request, 8 * 1024 * 1024 + 65_536);
+  if (!body.ok) {
+    return body;
+  }
+  const form = await new Request(request.url, {
+    body: body.bytes,
+    headers: request.headers,
+    method: "POST",
+  })
+    .formData()
+    .catch(() => null);
+  const file = form?.get("file");
+  if (!(file instanceof File)) {
+    return {
+      error: "Expected multipart field file",
+      ok: false as const,
+      status: 400 as const,
+    };
+  }
+  return { file, ok: true as const };
+};
 export const liveImageRoutes = () =>
   new Hono<AppEnv>()
+    .onError((error, c) => {
+      if (isForbiddenError(error)) {
+        return c.json({ error: "Forbidden" }, 403);
+      }
+      if (isServiceError(error)) {
+        return c.json(
+          { error: error.message },
+          error.code === "not_found" ? 404 : 400
+        );
+      }
+      throw error;
+    })
     .get("/api/live-artifacts/:artifactId/policy", async (c) => {
       const composed = c.get("composed");
       const principal = await authenticateRoomRequest(
@@ -76,11 +110,10 @@ export const liveImageRoutes = () =>
       if (!principal) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const result = await requiredLive(composed.services).ownBlobUrls(
-        principal,
-        { artifactId: c.req.param("artifactId") }
-      );
-      return c.json({ ownBlobUrls: result.urls }, 200, {
+      const result = await requiredLive(composed.services).policy(principal, {
+        artifactId: c.req.param("artifactId"),
+      });
+      return c.json(result, 200, {
         "Cache-Control": "no-store",
       });
     })
@@ -122,42 +155,15 @@ export const liveImageRoutes = () =>
       if (!live) {
         return c.json({ error: "Unavailable" }, 503);
       }
-      try {
-        const body = await readCappedBody(c.req.raw, 8 * 1024 * 1024 + 65_536);
-        if (!body.ok) {
-          return c.json({ error: body.error }, body.status);
-        }
-        const form = await new Request(c.req.url, {
-          body: body.bytes,
-          headers: c.req.raw.headers,
-          method: "POST",
-        }).formData();
-        const file = form.get("file");
-        if (!(file instanceof File)) {
-          return c.json({ error: "Expected multipart field file" }, 400);
-        }
-        await c.env.LIVE_ARTIFACT_MAINTENANCE.getByName("maintenance").start();
-        return c.json(
-          {
-            ...(await live.uploadImage(principal, {
-              artifactId: c.req.param("artifactId"),
-              body: file,
-              name: file.name,
-            })),
-            alt: file.name,
-          },
-          201
-        );
-      } catch (error) {
-        if (isForbiddenError(error)) {
-          return c.json({ error: "Forbidden" }, 403);
-        }
-        if (isServiceError(error)) {
-          return c.json(
-            { error: error.message },
-            error.code === "not_found" ? 404 : 400
-          );
-        }
-        throw error;
+      const form = await imageForm(c.req.raw);
+      if (!form.ok) {
+        return c.json({ error: form.error }, form.status);
       }
+      await c.env.LIVE_ARTIFACT_MAINTENANCE.getByName("maintenance").start();
+      const result = await live.uploadImage(principal, {
+        artifactId: c.req.param("artifactId"),
+        body: form.file,
+        name: form.file.name,
+      });
+      return c.json({ ...result, alt: form.file.name }, 201);
     });

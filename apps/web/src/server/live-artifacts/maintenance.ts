@@ -14,7 +14,13 @@ export class LiveArtifactMaintenance extends DurableObject<Env> {
   override async alarm() {
     await this.ctx.storage.setAlarm(Date.now() + 2000);
     const live = requiredLive(compose(this.env, false).services);
-    for (const sweep of [live.retryInvalidations, live.retryDispatches]) {
+    const sweeps = [live.retryInvalidations, live.retryDispatches];
+    const lastTick = await this.ctx.storage.get<number>("checkpointTick");
+    if (lastTick === undefined || lastTick + 60_000 <= Date.now()) {
+      sweeps.push(live.retryCheckpoints);
+      await this.ctx.storage.put("checkpointTick", Date.now());
+    }
+    for (const sweep of sweeps) {
       let cursor: string | undefined;
       do {
         // biome-ignore lint/performance/noAwaitInLoops: durable pagination must finish a page before using its cursor.

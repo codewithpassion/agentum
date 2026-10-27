@@ -1,3 +1,4 @@
+import { createClerkClient } from "@clerk/backend";
 import {
   type Block,
   DocumentError,
@@ -11,11 +12,15 @@ import type {
   DocumentReadResult,
 } from "@repo/mcp/tools/live";
 import type { LiveOperationOrigin } from "@repo/protocol/live";
+import { commentAnchorSchema } from "@repo/protocol/live";
 import type { DocumentSnapshot } from "@repo/services/live-artifacts/service";
+import type { SpeakerRoom } from "@repo/services/speaker-envelope";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
-import { applyUpdate, Doc } from "yjs";
+import { applyUpdate, Doc, encodeStateAsUpdate, XmlElement } from "yjs";
 import { type Composed, compose } from "../compose";
+import { resolveDocumentAnchor } from "./anchors";
 import { ArtifactRoom as Room } from "./artifact-room";
+import { type AgentRange, insertedRanges } from "./attribution";
 import { authenticateRoomRequest, freshMember } from "./auth";
 import { roomName } from "./namespace";
 import { findBlock, translateOperation } from "./operations";
@@ -27,7 +32,106 @@ interface Credential {
   expiresAt: number;
   principal?: Principal;
   request?: { url: string; headers: [string, string][] };
+  session?: { id: string; userId: string; workspaceId: string };
 }
+const resolveSession = async (
+  env: Env,
+  composed: Composed,
+  sessionRef: NonNullable<Credential["session"]>
+) => {
+  const session = await createClerkClient({
+    secretKey: env.CLERK_SECRET_KEY,
+  }).sessions.getSession(sessionRef.id);
+  if (
+    session.userId !== sessionRef.userId ||
+    session.status !== "active" ||
+    session.expireAt <= Date.now()
+  ) {
+    return null;
+  }
+  return freshMember(env, composed, sessionRef.workspaceId, sessionRef.userId);
+};
+const resolveCredential = async (
+  env: Env,
+  composed: Composed,
+  credential: Credential | undefined
+): Promise<Principal | null> => {
+  if (!credential || credential.expiresAt <= Date.now()) {
+    return null;
+  }
+  if (credential.session) {
+    return resolveSession(env, composed, credential.session);
+  }
+  if (credential.request) {
+    return authenticateRoomRequest(
+      env,
+      composed,
+      new Request(credential.request.url, {
+        headers: credential.request.headers,
+      })
+    );
+  }
+  const { principal } = credential;
+  if (!principal) {
+    return null;
+  }
+  const refreshed = await requiredLive(
+    composed.services
+  ).refreshTrustedPrincipal(principal);
+  if (refreshed.kind === "user") {
+    const member = await freshMember(
+      env,
+      composed,
+      refreshed.workspaceId,
+      refreshed.userId
+    );
+    return member
+      ? { ...refreshed, isAdmin: refreshed.apiKey ? false : member.isAdmin }
+      : null;
+  }
+  return refreshed;
+};
+const storeCredential = async (
+  ctx: DurableObjectState,
+  env: Env,
+  principal: Principal,
+  request: Request
+) => {
+  const authorizationRef = crypto.randomUUID();
+  const headers: [string, string][] = [];
+  for (const name of ["authorization", "cookie"]) {
+    const value = request.headers.get(name);
+    if (value) {
+      headers.push([name, value]);
+    }
+  }
+  const url = new URL(request.url);
+  url.search = "";
+  await ctx.storage.put(`credential:${authorizationRef}`, {
+    expiresAt: Date.now() + 15 * 60_000,
+    request: { headers, url: url.toString() },
+  } satisfies Credential);
+  if (!request.headers.has("Authorization") && principal.kind === "user") {
+    const auth = (
+      await createClerkClient({
+        secretKey: env.CLERK_SECRET_KEY,
+      }).authenticateRequest(request)
+    ).toAuth();
+    if (!auth?.sessionId || auth.userId !== principal.userId) {
+      throw new Error("Invalid authenticated session");
+    }
+    await ctx.storage.put(`credential:${authorizationRef}`, {
+      expiresAt: Date.now() + 15 * 60_000,
+      session: {
+        id: auth.sessionId,
+        userId: principal.userId,
+        workspaceId: principal.workspaceId,
+      },
+    } satisfies Credential);
+  }
+  await ctx.storage.put(`actor:${participant(principal)}`, authorizationRef);
+  return authorizationRef;
+};
 const participant = (principal: Principal) => {
   if (principal.kind === "user") {
     return `u:${principal.userId}`;
@@ -36,6 +140,49 @@ const participant = (principal: Principal) => {
     return `a:${principal.agentId}:${principal.runId}`;
   }
   return "";
+};
+const trialOperation = (live: LiveDocument, engineOp: Operation): Operation => {
+  const trialOp = structuredClone(engineOp);
+  if ("ifRev" in trialOp) {
+    let id: string | undefined;
+    if ("blockId" in trialOp) {
+      id = trialOp.blockId;
+    } else if ("target" in trialOp && "blockId" in trialOp.target) {
+      id = trialOp.target.blockId;
+    }
+    if (id) {
+      trialOp.ifRev = live.read().blocks.find((b) => b.id === id)?.revision;
+    }
+  }
+
+  return trialOp;
+};
+const translateBatch = (
+  live: LiveDocument,
+  revisions: Record<string, number>,
+  ops: DocumentOperation[],
+  origin: LiveOperationOrigin
+) => {
+  const translated: Operation[] = [];
+  for (const op of ops) {
+    const target = op.target && "blockId" in op.target ? op.target : undefined;
+    if (
+      target &&
+      "ifRev" in target &&
+      target.ifRev !== revisions[target.blockId]
+    ) {
+      throw new DocumentError(
+        "guard_mismatch",
+        live.read().blocks.find((b) => b.id === target.blockId)
+      );
+    }
+    const engineOp = translateOperation(live, op);
+    translated.push(engineOp);
+    const trialOp = trialOperation(live, engineOp);
+    live.apply([trialOp], origin);
+  }
+
+  return translated;
 };
 const ticketKey = (env: Env) =>
   env.ARTIFACT_VIEW_KEY ? `artifact-room:${env.ARTIFACT_VIEW_KEY}` : "";
@@ -58,35 +205,7 @@ export class ArtifactRoom extends Room {
     const live = () => requiredLive(get().services);
     const resolve = async (ref: string): Promise<Principal | null> => {
       const credential = await ctx.storage.get<Credential>(`credential:${ref}`);
-      if (!credential || credential.expiresAt <= Date.now()) {
-        return null;
-      }
-      if (credential.request) {
-        return authenticateRoomRequest(
-          env,
-          get(),
-          new Request(credential.request.url, {
-            headers: credential.request.headers,
-          })
-        );
-      }
-      const { principal } = credential;
-      if (!principal) {
-        return null;
-      }
-      const refreshed = await live().refreshTrustedPrincipal(principal);
-      if (refreshed.kind === "user") {
-        const member = await freshMember(
-          env,
-          get(),
-          refreshed.workspaceId,
-          refreshed.userId
-        );
-        return member
-          ? { ...refreshed, isAdmin: refreshed.apiKey ? false : member.isAdmin }
-          : null;
-      }
-      return refreshed;
+      return resolveCredential(env, get(), credential);
     };
     const authorize: ArtifactRoomService["authorize"] = async (
       scope,
@@ -112,6 +231,10 @@ export class ArtifactRoom extends Room {
           return null;
         }
         const identity = await live().roomIdentity(principal, scope.artifactId);
+        await ctx.storage.put(
+          `actorRole:${identity.participantId}`,
+          identity.role
+        );
         if (identity.kind !== subject.kind) {
           return null;
         }
@@ -140,23 +263,11 @@ export class ArtifactRoom extends Room {
             artifactId: scope.artifactId,
             ticket,
           });
-          authorizationRef = crypto.randomUUID();
-          const headers: [string, string][] = [];
-          for (const name of ["authorization", "cookie"]) {
-            const value = context.request.headers.get(name);
-            if (value) {
-              headers.push([name, value]);
-            }
-          }
-          const url = new URL(context.request.url);
-          url.search = "";
-          await ctx.storage.put(`credential:${authorizationRef}`, {
-            expiresAt: Date.now() + 15 * 60_000,
-            request: { headers, url: url.toString() },
-          } satisfies Credential);
-          await ctx.storage.put(
-            `actor:${participant(principal)}`,
-            authorizationRef
+          authorizationRef = await storeCredential(
+            ctx,
+            env,
+            principal,
+            context.request
           );
         } else {
           ({ authorizationRef } = context);
@@ -169,6 +280,16 @@ export class ArtifactRoom extends Room {
             ticket,
           });
         }
+        const credential = await ctx.storage.get<Credential>(
+          `credential:${authorizationRef}`
+        );
+        if (!credential) {
+          return null;
+        }
+        await ctx.storage.put(`credential:${authorizationRef}`, {
+          ...credential,
+          expiresAt: Date.now() + 15 * 60_000,
+        });
         return authorize(scope, {
           authorizationRef,
           kind: principal.kind === "user" ? "member" : "agent",
@@ -207,24 +328,25 @@ export class ArtifactRoom extends Room {
           );
         }
         const store = new RoomStorage(ctx.storage);
-        const origins = input.origins.map((origin) => {
-          const record = store.get<{ revision: number }>(
-            `change:${origin.changeId}`
-          );
-          const metadata = store.get<{ summary: string; revFrom: number }>(
-            `productionChange:${origin.changeId}`
-          );
-          if (!(record && metadata)) {
-            throw new Error("Missing durable change provenance");
-          }
-          return { ...origin, ...metadata, revTo: record.revision };
-        });
+        const origins = input.origins
+          .map((origin) => {
+            const record = store.get<{ revision: number }>(
+              `change:${origin.changeId}`
+            );
+            const metadata = store.get<{ summary: string; revFrom: number }>(
+              `productionChange:${origin.changeId}`
+            );
+            if (!(record && metadata)) {
+              throw new Error("Missing durable change provenance");
+            }
+            return { ...origin, ...metadata, revTo: record.revision };
+          })
+          .filter((origin) => origin.revTo > origin.revFrom);
         const result = await live().durableCheckpoint(principal, {
           ...scope,
           ...input,
           origins,
         });
-        await ctx.storage.delete("currentRestore");
         return result;
       },
     };
@@ -252,13 +374,21 @@ export class ArtifactRoom extends Room {
     snapshot: DocumentSnapshot;
     versionId: string;
     byParticipant: string;
+    requestId?: string;
   }) {
-    let requestId = await this.state.storage.get<string>("currentRestore");
+    let requestId =
+      input.requestId ??
+      (await this.state.storage.get<string>("currentRestore"));
     if (!requestId) {
       requestId = crypto.randomUUID();
       await this.state.storage.put("currentRestore", requestId);
     }
     return super.restore({ ...input, requestId });
+  }
+  override async checkpoint() {
+    const result = await super.checkpoint();
+    await this.state.storage.delete("currentRestore");
+    return result;
   }
   private async snapshotController() {
     await super.read();
@@ -304,33 +434,63 @@ export class ArtifactRoom extends Room {
     }
     const store = new RoomStorage(this.state.storage);
     const history =
-      store.get<Array<{ revision: number; blocks: Block[] }>>(
-        "productionHistory"
+      store.get<Array<{ revision: number; bytes: number }>>(
+        "productionHistoryIndex"
       ) ?? [];
-    if (!history.some((h) => h.revision === result.revision)) {
-      history.push({
-        blocks: result.content.blocks,
-        revision: result.revision,
-      });
-      store.put("productionHistory", history.slice(-100));
+    if (!history.some((entry) => entry.revision === result.revision)) {
+      const bytes = new TextEncoder().encode(
+        JSON.stringify({
+          blocks: result.content.blocks,
+          revision: result.revision,
+        })
+      );
+      if (bytes.length <= 32 * 1024 * 1024) {
+        this.state.storage.transactionSync(() => {
+          store.write("outline", String(result.revision), bytes);
+          history.push({ bytes: bytes.length, revision: result.revision });
+          while (
+            history.length > 100 ||
+            history.reduce((total, entry) => total + entry.bytes, 0) >
+              32 * 1024 * 1024
+          ) {
+            const removed = history.shift();
+            if (removed) {
+              store.remove("outline", String(removed.revision));
+            }
+          }
+          store.put("productionHistoryIndex", history);
+        });
+      }
     }
+    const historical = (revision: number) =>
+      history.some((entry) => entry.revision === revision)
+        ? (JSON.parse(
+            new TextDecoder().decode(store.read("outline", String(revision)))
+          ) as { revision: number; blocks: Block[] })
+        : undefined;
     const chosen =
       input.atRev === undefined || input.atRev === result.revision
         ? result.content
-        : history.find((h) => h.revision === input.atRev);
+        : historical(input.atRev);
     if (!chosen) {
       throw new DocumentError("revision_gone");
     }
     const older =
-      input.sinceRev === undefined
-        ? undefined
-        : history.find((h) => h.revision === input.sinceRev);
+      input.sinceRev === undefined ? undefined : historical(input.sinceRev);
     if (
       input.sinceRev !== undefined &&
       !older &&
       input.sinceRev !== result.revision
     ) {
       throw new DocumentError("revision_gone");
+    }
+    const deletedBlockIds: string[] = [];
+    if (older) {
+      for (const block of older.blocks) {
+        if (!chosen.blocks.some((current) => current.id === block.id)) {
+          deletedBlockIds.push(block.id);
+        }
+      }
     }
     return {
       blocks: chosen.blocks
@@ -351,13 +511,131 @@ export class ArtifactRoom extends Room {
           text: b.text,
           type: b.type,
         })),
-      deletedBlockIds:
-        older?.blocks
-          .filter((b) => !chosen.blocks.some((current) => current.id === b.id))
-          .map((b) => b.id) ?? [],
+      deletedBlockIds,
       present: result.present,
       revision: chosen.revision,
     };
+  }
+  async askPresence(
+    participantId: string
+  ): Promise<Pick<SpeakerRoom, "present" | "where">> {
+    await super.refresh();
+    const present = await super.presence();
+    const sessions = this.state
+      .getWebSockets()
+      .map(
+        (socket) =>
+          socket.deserializeAttachment() as {
+            participantId: string;
+            role: string;
+            expires: number;
+            present: import("@repo/protocol/live").AwarenessEntry | null;
+            receivedAt?: number;
+          }
+      )
+      .filter((session) => session.expires > Date.now())
+      .sort((a, b) => (b.receivedAt ?? 0) - (a.receivedAt ?? 0));
+    const sender = sessions.find(
+      (session) => session.participantId === participantId
+    );
+    const { live } = await this.snapshotController();
+    try {
+      const where = this.selectionLocation(live, sender?.present?.cursor);
+      const roster = await Promise.all(
+        present
+          .filter((entry) => entry.id !== participantId)
+          .map(async (entry) => ({
+            id:
+              entry.kind === "member"
+                ? entry.id.slice(2)
+                : (entry.id.split(":")[1] ?? entry.id),
+            kind: entry.kind,
+            name: entry.name,
+            role:
+              sessions.find((session) => session.participantId === entry.id)
+                ?.role ??
+              (await this.state.storage.get<string>(`actorRole:${entry.id}`)) ??
+              "viewer",
+            where: this.selectionLocation(live, entry.cursor),
+          }))
+      );
+      return { present: roster, where };
+    } finally {
+      live.destroy();
+      live.doc.destroy();
+    }
+  }
+  private selectionLocation(
+    live: LiveDocument,
+    cursor: import("@repo/protocol/live").AwarenessEntry["cursor"]
+  ): SpeakerRoom["where"] {
+    if (!cursor) {
+      return;
+    }
+    try {
+      let { type } = live.resolve(cursor.head);
+      let blockId: string | undefined;
+      while (type) {
+        if (
+          type instanceof XmlElement &&
+          typeof type.getAttribute("id") === "string"
+        ) {
+          blockId = type.getAttribute("id");
+          break;
+        }
+        if (!type.parent) {
+          break;
+        }
+        type = type.parent;
+      }
+      let selected = resolveDocumentAnchor(live, {
+        detached: false,
+        end: cursor.head,
+        kind: "document",
+        start: cursor.anchor,
+      });
+      if (selected.anchor.detached) {
+        selected = resolveDocumentAnchor(live, {
+          detached: false,
+          end: cursor.anchor,
+          kind: "document",
+          start: cursor.head,
+        });
+      }
+      return { blockId, selection: selected.quote?.slice(0, 8192) };
+    } catch {
+      return {};
+    }
+  }
+  async agentChanges(): Promise<AgentRange[]> {
+    const { live } = await this.snapshotController();
+    const store = new RoomStorage(this.state.storage);
+    try {
+      const records = this.state.storage.sql
+        .exec<{ key: string; value: string }>(
+          "SELECT key,value FROM room_meta WHERE key LIKE 'productionChange:%'"
+        )
+        .toArray()
+        .map((row) => ({
+          ...(JSON.parse(row.value) as { name?: string; createdAt?: string }),
+          id: row.key.slice("productionChange:".length),
+        }))
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+        .slice(0, 50);
+      return records.flatMap((record) => {
+        const change = store.get<{ reverted?: unknown }>(`change:${record.id}`);
+        if (!change || change.reverted) {
+          return [];
+        }
+        return insertedRanges(live, store.read("change", record.id), {
+          id: record.id,
+          name: record.name ?? "Agent",
+        });
+      });
+    } finally {
+      live.destroy();
+      live.doc.destroy();
+    }
   }
   async documentAnchor(input: {
     quote: string;
@@ -377,7 +655,9 @@ export class ArtifactRoom extends Room {
       if (start < 0) {
         start = block.text.indexOf(input.quote);
       }
-      return live.anchor(block.id, start, start + input.quote.length);
+      return commentAnchorSchema.parse(
+        live.anchor(block.id, start, start + input.quote.length)
+      );
     } finally {
       live.destroy();
       live.doc.destroy();
@@ -405,38 +685,7 @@ export class ArtifactRoom extends Room {
       summary,
     });
     try {
-      const translated: Operation[] = [];
-      for (const op of ops) {
-        const target =
-          op.target && "blockId" in op.target ? op.target : undefined;
-        if (
-          target &&
-          "ifRev" in target &&
-          target.ifRev !== meta.blockRevisions[target.blockId]
-        ) {
-          throw new DocumentError(
-            "guard_mismatch",
-            live.read().blocks.find((b) => b.id === target.blockId)
-          );
-        }
-        const engineOp = translateOperation(live, op);
-        translated.push(engineOp);
-        const trialOp = structuredClone(engineOp);
-        if ("ifRev" in trialOp) {
-          let id: string | undefined;
-          if ("blockId" in trialOp) {
-            id = trialOp.blockId;
-          } else if ("target" in trialOp && "blockId" in trialOp.target) {
-            id = trialOp.target.blockId;
-          }
-          if (id) {
-            trialOp.ifRev = live
-              .read()
-              .blocks.find((b) => b.id === id)?.revision;
-          }
-        }
-        live.apply([trialOp], origin);
-      }
+      const translated = translateBatch(live, meta.blockRevisions, ops, origin);
       const result = await this.edit(translated, origin, summary);
       await this.documentRead({});
       return { ok: true as const, ...result };
@@ -501,13 +750,20 @@ export class ArtifactRoom extends Room {
     if (!scope || current.workspaceId !== scope.workspaceId) {
       throw new Error("Wrong workspace");
     }
-    await live.roomIdentity(current, scope.artifactId);
+    const identity = await live.roomIdentity(current, scope.artifactId);
+    await this.state.storage.put(
+      `actorName:${participant(current)}`,
+      identity.name
+    );
     const ref = crypto.randomUUID();
     await this.state.storage.put(`credential:${ref}`, {
       expiresAt: Date.now() + 15 * 60_000,
       principal: current,
     } satisfies Credential);
     await this.state.storage.put(`actor:${participant(current)}`, ref);
+    if (identity.role === "owner" || identity.role === "editor") {
+      await this.state.storage.put("checkpointActor", ref);
+    }
     return ref;
   }
   async edit(ops: Operation[], origin: LiveOperationOrigin, summary: string) {
@@ -515,6 +771,10 @@ export class ArtifactRoom extends Room {
     new RoomStorage(this.state.storage).put(
       `productionChange:${origin.changeId}`,
       {
+        createdAt: new Date().toISOString(),
+        name: await this.state.storage.get<string>(
+          `actorName:${origin.participantId}`
+        ),
         ...new RoomStorage(this.state.storage).get<Record<string, unknown>>(
           `productionChange:${origin.changeId}`
         ),
@@ -523,6 +783,36 @@ export class ArtifactRoom extends Room {
       }
     );
     return this.applyAgentOps(ops, origin);
+  }
+  async checkpointCanonical(snapshot: DocumentSnapshot) {
+    const { live, meta } = await this.snapshotController();
+    try {
+      const bytes = encodeStateAsUpdate(live.doc);
+      if (
+        meta.revision !== snapshot.revision ||
+        bytes.length !== snapshot.state.length ||
+        !bytes.every((byte, i) => byte === snapshot.state[i])
+      ) {
+        throw new Error("Checkpoint must match the current authoritative room");
+      }
+    } finally {
+      live.destroy();
+      live.doc.destroy();
+    }
+    return this.checkpoint();
+  }
+  async checkpointIfDue() {
+    const store = new RoomStorage(this.state.storage);
+    const meta = store.get<{ dirtySince: number | null }>("state");
+    const pending = store.get<{ retryAt?: number }>("pending");
+    if (
+      pending ||
+      (meta?.dirtySince !== null &&
+        meta?.dirtySince !== undefined &&
+        meta.dirtySince + 300_000 <= Date.now())
+    ) {
+      await super.checkpoint();
+    }
   }
   private async scheduleRefresh() {
     if (!this.state.getWebSockets().length) {
@@ -547,6 +837,11 @@ export class ArtifactRoom extends Room {
   ) {
     try {
       await super.webSocketMessage(socket, message);
+      const attachment = socket.deserializeAttachment() as Record<
+        string,
+        unknown
+      >;
+      socket.serializeAttachment({ ...attachment, receivedAt: Date.now() });
     } finally {
       await this.scheduleRefresh();
     }
