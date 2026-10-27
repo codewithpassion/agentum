@@ -33,6 +33,7 @@ import { Route as AppQaIndexRouteImport } from './routes/_app/qa.index'
 import { Route as AppQaQuestionIdRouteImport } from './routes/_app/qa.$questionId'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings.index'
 import { Route as AppSettingsApiKeysRouteImport } from './routes/_app/settings.api-keys'
+import { Route as AppSettingsArtifactsRouteImport } from './routes/_app/settings.artifacts'
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings.connected-apps'
 import { Route as AppSettingsConnectorsRouteImport } from './routes/_app/settings.connectors'
 import { Route as AppSettingsMachinesRouteImport } from './routes/_app/settings.machines'
@@ -162,6 +163,11 @@ const AppSettingsApiKeysRoute = AppSettingsApiKeysRouteImport.update({
   path: '/api-keys',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsArtifactsRoute = AppSettingsArtifactsRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsConnectedAppsRoute =
   AppSettingsConnectedAppsRouteImport.update({
     id: '/connected-apps',
@@ -232,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/agents/new': typeof AppAgentsNewRoute
   '/qa/$questionId': typeof AppQaQuestionIdRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/settings/artifacts': typeof AppSettingsArtifactsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/connectors': typeof AppSettingsConnectorsRoute
   '/settings/machines': typeof AppSettingsMachinesRoute
@@ -265,6 +272,7 @@ export interface FileRoutesByTo {
   '/agents/new': typeof AppAgentsNewRoute
   '/qa/$questionId': typeof AppQaQuestionIdRoute
   '/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/settings/artifacts': typeof AppSettingsArtifactsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/connectors': typeof AppSettingsConnectorsRoute
   '/settings/machines': typeof AppSettingsMachinesRoute
@@ -301,6 +309,7 @@ export interface FileRoutesById {
   '/_app/agents/new': typeof AppAgentsNewRoute
   '/_app/qa/$questionId': typeof AppQaQuestionIdRoute
   '/_app/settings/api-keys': typeof AppSettingsApiKeysRoute
+  '/_app/settings/artifacts': typeof AppSettingsArtifactsRoute
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/_app/settings/connectors': typeof AppSettingsConnectorsRoute
   '/_app/settings/machines': typeof AppSettingsMachinesRoute
@@ -337,6 +346,7 @@ export interface FileRouteTypes {
     | '/agents/new'
     | '/qa/$questionId'
     | '/settings/api-keys'
+    | '/settings/artifacts'
     | '/settings/connected-apps'
     | '/settings/connectors'
     | '/settings/machines'
@@ -370,6 +380,7 @@ export interface FileRouteTypes {
     | '/agents/new'
     | '/qa/$questionId'
     | '/settings/api-keys'
+    | '/settings/artifacts'
     | '/settings/connected-apps'
     | '/settings/connectors'
     | '/settings/machines'
@@ -405,6 +416,7 @@ export interface FileRouteTypes {
     | '/_app/agents/new'
     | '/_app/qa/$questionId'
     | '/_app/settings/api-keys'
+    | '/_app/settings/artifacts'
     | '/_app/settings/connected-apps'
     | '/_app/settings/connectors'
     | '/_app/settings/machines'
@@ -598,6 +610,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsApiKeysRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/artifacts': {
+      id: '/_app/settings/artifacts'
+      path: '/artifacts'
+      fullPath: '/settings/artifacts'
+      preLoaderRoute: typeof AppSettingsArtifactsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/connected-apps': {
       id: '/_app/settings/connected-apps'
       path: '/connected-apps'
@@ -666,6 +685,7 @@ declare module '@tanstack/react-router' {
 
 interface AppSettingsRouteChildren {
   AppSettingsApiKeysRoute: typeof AppSettingsApiKeysRoute
+  AppSettingsArtifactsRoute: typeof AppSettingsArtifactsRoute
   AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
   AppSettingsConnectorsRoute: typeof AppSettingsConnectorsRoute
   AppSettingsMachinesRoute: typeof AppSettingsMachinesRoute
@@ -677,6 +697,7 @@ interface AppSettingsRouteChildren {
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsApiKeysRoute: AppSettingsApiKeysRoute,
+  AppSettingsArtifactsRoute: AppSettingsArtifactsRoute,
   AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
   AppSettingsConnectorsRoute: AppSettingsConnectorsRoute,
   AppSettingsMachinesRoute: AppSettingsMachinesRoute,
