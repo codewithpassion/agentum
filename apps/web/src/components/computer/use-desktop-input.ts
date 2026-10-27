@@ -32,6 +32,11 @@ import {
   type TouchState,
 } from "./desktop-touch.ts";
 
+/** Phone layout: below the md breakpoint, where the touch gestures apply. */
+const isPhoneWidth = (): boolean =>
+  typeof window !== "undefined" &&
+  !window.matchMedia("(min-width: 768px)").matches;
+
 const touchPoint = (event: ReactPointerEvent<HTMLElement>): TouchPoint => ({
   x: event.clientX,
   y: event.clientY,
@@ -154,6 +159,11 @@ export function useDesktopInput({
   useEffect(() => {
     if (!enabled) {
       pressedRef.current.clear();
+      touchRef.current = initialTouchState;
+      if (longPressRef.current !== null) {
+        clearTimeout(longPressRef.current);
+        longPressRef.current = null;
+      }
     }
   }, [enabled]);
 
@@ -361,7 +371,7 @@ export function useDesktopInput({
       if (!enabledRef.current) {
         return;
       }
-      if (event.pointerType === "touch") {
+      if (event.pointerType === "touch" && isPhoneWidth()) {
         if (panningRef.current) {
           return;
         }
@@ -375,7 +385,9 @@ export function useDesktopInput({
         if (touchRef.current.phase === "pending") {
           longPressRef.current = setTimeout(() => {
             longPressRef.current = null;
-            feedTouch({ type: "longpress" });
+            if (enabledRef.current) {
+              feedTouch({ type: "longpress" });
+            }
           }, LONG_PRESS_MS);
         }
         return;
@@ -397,7 +409,7 @@ export function useDesktopInput({
       if (!enabledRef.current) {
         return;
       }
-      if (event.pointerType === "touch") {
+      if (event.pointerType === "touch" && isPhoneWidth()) {
         feedTouch({
           id: event.pointerId,
           point: touchPoint(event),
@@ -418,7 +430,7 @@ export function useDesktopInput({
       if (!enabledRef.current) {
         return;
       }
-      if (event.pointerType === "touch") {
+      if (event.pointerType === "touch" && isPhoneWidth()) {
         clearLongPress();
         feedTouch({ id: event.pointerId, type: "up" });
         return;

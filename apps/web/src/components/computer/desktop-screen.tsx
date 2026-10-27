@@ -40,6 +40,8 @@ function ZoomButton({
     <Button
       aria-pressed={zoom === level}
       onClick={choose}
+      onMouseDown={keepFocus}
+      onPointerDown={keepFocus}
       size="sm"
       type="button"
       variant={zoom === level ? "secondary" : "outline"}
@@ -105,6 +107,8 @@ function TouchBar({
           <Button
             aria-pressed={panning}
             onClick={onPan}
+            onMouseDown={keepFocus}
+            onPointerDown={keepFocus}
             size="sm"
             type="button"
             variant={panning ? "secondary" : "outline"}
@@ -335,7 +339,7 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
   const { releaseButtons } = input;
 
   const focusKeyboard = useCallback(
-    () => input.keyboard.ref.current?.focus(),
+    () => input.keyboard.ref.current?.focus({ preventScroll: true }),
     [input.keyboard.ref]
   );
   const sendKey = useCallback(
@@ -428,7 +432,9 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
             {...input.surface}
             className={cn(
               "absolute inset-0 select-none",
-              panning ? "touch-pan-x touch-pan-y" : "touch-none",
+              panning
+                ? "max-md:touch-pan-x max-md:touch-pan-y md:touch-none"
+                : "touch-none",
               inControl ? "cursor-default" : "cursor-not-allowed"
             )}
             data-testid="desktop-frame"
