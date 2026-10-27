@@ -8,12 +8,15 @@ import { connectSearchSchema } from "#/components/connectors/connect-search";
 import { DeleteConnectorDialog } from "#/components/connectors/delete-connector-dialog";
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -150,22 +153,25 @@ function ConnectorRow({
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{connector.name}</TableCell>
-      <TableCell
-        className="max-w-48 truncate font-mono text-muted-foreground text-xs"
+      <ResponsiveCell className="font-medium" label="Name">
+        {connector.name}
+      </ResponsiveCell>
+      <ResponsiveCell
+        className="font-mono text-muted-foreground text-xs md:max-w-48 md:truncate"
+        label="URL"
         title={connector.url}
       >
         {connector.url}
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Auth">
         <Badge variant="outline">{AUTH_LABEL[connector.authKind]}</Badge>
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Status">
         <Badge variant={connector.status === "ok" ? "default" : "secondary"}>
           {STATUS_LABEL[connector.status]}
         </Badge>
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Tools">
         <div className="flex flex-col gap-1">
           <span>{connector.tools.length}</span>
           {toolNames.length > 0 && (
@@ -177,16 +183,18 @@ function ConnectorRow({
             </span>
           )}
         </div>
-      </TableCell>
-      <TableCell>{connector.callTimeoutSeconds} s</TableCell>
-      <TableCell className="text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell label="Time limit">
+        {connector.callTimeoutSeconds} s
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Your credential">
         {connector.authKind === "oauth" ? (
           <OAuthCredential connector={connector} />
         ) : (
           credentialLabel(connector)
         )}
-      </TableCell>
-      <TableCell className="text-right">
+      </ResponsiveCell>
+      <ResponsiveActions className="text-right">
         <div className="flex justify-end gap-2">
           {connector.authKind === "header" ? (
             <Button onClick={paste} size="sm" variant="outline">
@@ -203,7 +211,7 @@ function ConnectorRow({
             Delete
           </Button>
         </div>
-      </TableCell>
+      </ResponsiveActions>
     </TableRow>
   );
 }
@@ -309,7 +317,7 @@ function ConnectorsPage() {
           No connectors yet. Add one by URL.
         </p>
       ) : (
-        <Table>
+        <ResponsiveTable>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -336,7 +344,7 @@ function ConnectorsPage() {
               />
             ))}
           </TableBody>
-        </Table>
+        </ResponsiveTable>
       )}
       <p className="mt-6 text-muted-foreground text-sm">
         Paste a credential as an agent from the agent&apos;s Connectors tab.

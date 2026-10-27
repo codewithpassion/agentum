@@ -1,8 +1,12 @@
 import { formatDistanceToNow } from "date-fns";
 import { useCallback } from "react";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { TableCell, TableRow } from "#/components/ui/table";
+import { TableRow } from "#/components/ui/table";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import {
   canAddComputerRole,
@@ -56,14 +60,16 @@ export function MachineRow({
 
   return (
     <TableRow>
-      <TableCell>
-        <span className="font-medium">{machine.name}</span>
-        {machine.singleUser ? (
-          <p className="text-muted-foreground text-sm">shared user</p>
-        ) : null}
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-col gap-1">
+      <ResponsiveCell label="Name">
+        <div>
+          <span className="font-medium">{machine.name}</span>
+          {machine.singleUser ? (
+            <p className="text-muted-foreground text-sm">shared user</p>
+          ) : null}
+        </div>
+      </ResponsiveCell>
+      <ResponsiveCell label="Roles">
+        <div className="flex flex-col gap-1 max-md:items-end">
           {roleRows(machine).map((row) => (
             <div className="flex flex-wrap items-center gap-2" key={row.role}>
               <span>{row.label}</span>
@@ -76,12 +82,12 @@ export function MachineRow({
             </div>
           ))}
         </div>
-      </TableCell>
-      <TableCell className="text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Last seen">
         {lastSeen(machine)}
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-end gap-2">
+      </ResponsiveCell>
+      <ResponsiveActions>
+        <div className="flex items-center justify-end gap-2 max-md:flex-wrap max-md:justify-start">
           {canAddComputerRole(machine) ? (
             <Button onClick={handleAddComputer} size="sm" variant="outline">
               Add computer role
@@ -93,7 +99,7 @@ export function MachineRow({
             </Button>
           ) : null}
         </div>
-      </TableCell>
+      </ResponsiveActions>
     </TableRow>
   );
 }

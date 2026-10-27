@@ -8,11 +8,17 @@ import {
   useMemo,
   useState,
 } from "react";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
 import { toolAccessLabel } from "#/components/connectors/allowed-tools";
 import { AllowedToolsDialog } from "#/components/connectors/allowed-tools-dialog";
 import { connectHref } from "#/components/connectors/connect-link";
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
@@ -20,9 +26,7 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -176,21 +180,24 @@ function AssignedConnectorRow({
 
   return (
     <TableRow>
-      <TableCell className="font-medium">
+      <ResponsiveCell className="font-medium" label="Name">
         <div className="flex flex-col gap-1.5">
           <span>{connector.name}</span>
           {credentials}
         </div>
-      </TableCell>
-      <TableCell className="font-mono text-muted-foreground text-xs">
+      </ResponsiveCell>
+      <ResponsiveCell
+        className="font-mono text-muted-foreground text-xs"
+        label="URL"
+      >
         {connector.url}
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Status">
         <Badge variant={connector.status === "ok" ? "default" : "destructive"}>
           {connector.status}
         </Badge>
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Credential mode">
         <NativeSelect
           aria-label="Credential mode"
           onChange={handleModeChange}
@@ -202,8 +209,8 @@ function AssignedConnectorRow({
             </NativeSelectOption>
           ))}
         </NativeSelect>
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Tools">
         <div className="flex flex-col items-start gap-1.5">
           <span className="text-muted-foreground text-xs">
             {toolAccessLabel(assignment.allowedTools, connector.tools)}
@@ -212,12 +219,18 @@ function AssignedConnectorRow({
             Choose tools
           </Button>
         </div>
-      </TableCell>
-      <TableCell className="text-right">
-        <Button onClick={handleRemove} size="sm" variant="outline">
+      </ResponsiveCell>
+      <ResponsiveActions className="text-right">
+        <ConfirmButton
+          description={`Remove ${connector.name} from this agent? It can be added again later.`}
+          onConfirm={handleRemove}
+          size="sm"
+          title="Remove connector?"
+          variant="outline"
+        >
           Remove
-        </Button>
-      </TableCell>
+        </ConfirmButton>
+      </ResponsiveActions>
     </TableRow>
   );
 }
@@ -401,7 +414,7 @@ export function ConnectorsPanel({ agent }: AgentPanelProps) {
           No connectors assigned yet.
         </p>
       ) : (
-        <Table>
+        <ResponsiveTable>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -427,7 +440,7 @@ export function ConnectorsPanel({ agent }: AgentPanelProps) {
               />
             ))}
           </TableBody>
-        </Table>
+        </ResponsiveTable>
       )}
       <div className="flex flex-col gap-2">
         <p className="font-medium text-sm">Add a connector</p>

@@ -1,11 +1,15 @@
 import { isPendingProposal } from "@repo/db/shared";
 import { type ReactNode, useCallback } from "react";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -83,36 +87,49 @@ function TriggerRow({
         <Button onClick={toggle} size="sm" variant="outline">
           {paused ? "Resume" : "Pause"}
         </Button>{" "}
-        <Button onClick={revoke} size="sm" variant="outline">
+        <ConfirmButton
+          description={`Revoke "${trigger.name}"? Its URL token stops working and cannot be restored.`}
+          onConfirm={revoke}
+          size="sm"
+          title="Revoke trigger?"
+          variant="outline"
+        >
           Revoke
-        </Button>
+        </ConfirmButton>
       </>
     );
   }
 
   return (
     <TableRow>
-      <TableCell className="font-medium">
-        <div>{trigger.name}</div>
-        {pending ? (
-          <div className="font-normal text-muted-foreground text-xs">
-            Proposed by {trigger.agentName}
-          </div>
-        ) : null}
-      </TableCell>
-      {showAgent ? <TableCell>{trigger.agentName}</TableCell> : null}
-      <TableCell className="font-mono text-muted-foreground text-xs">
+      <ResponsiveCell className="font-medium" label="Name">
+        <div>
+          <div>{trigger.name}</div>
+          {pending ? (
+            <div className="font-normal text-muted-foreground text-xs">
+              Proposed by {trigger.agentName}
+            </div>
+          ) : null}
+        </div>
+      </ResponsiveCell>
+      {showAgent ? (
+        <ResponsiveCell label="Agent">{trigger.agentName}</ResponsiveCell>
+      ) : null}
+      <ResponsiveCell
+        className="font-mono text-muted-foreground text-xs"
+        label="Token"
+      >
         {pending ? "none yet" : `${trigger.tokenPrefix}…`}
-      </TableCell>
-      <TableCell className="text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Last fired">
         {lastFiredLabel(trigger.lastFiredAt)}
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Status">
         <Badge variant={label === "active" ? "default" : "secondary"}>
           {label}
         </Badge>
-      </TableCell>
-      <TableCell className="text-right">{actions}</TableCell>
+      </ResponsiveCell>
+      <ResponsiveActions className="text-right">{actions}</ResponsiveActions>
     </TableRow>
   );
 }
@@ -133,7 +150,7 @@ export function TriggerTable({
   triggers: readonly TriggerRecord[];
 }) {
   return (
-    <Table>
+    <ResponsiveTable>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
@@ -159,6 +176,6 @@ export function TriggerTable({
           />
         ))}
       </TableBody>
-    </Table>
+    </ResponsiveTable>
   );
 }

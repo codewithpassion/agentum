@@ -4,12 +4,16 @@ import { formatDistanceToNow } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
 import { CreateKeyDialog } from "#/components/api-keys/create-key-dialog";
 import { SecretDialog } from "#/components/api-keys/secret-dialog";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -58,11 +62,16 @@ function ApiKeyRow({
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{keyRecord.name}</TableCell>
-      <TableCell className="font-mono text-muted-foreground text-xs">
+      <ResponsiveCell className="font-medium" label="Name">
+        {keyRecord.name}
+      </ResponsiveCell>
+      <ResponsiveCell
+        className="font-mono text-muted-foreground text-xs"
+        label="Key"
+      >
         {keyRecord.prefix}…
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Access">
         <Badge
           variant={
             keyRecord.access === "read" || keyRecord.access === "desk"
@@ -72,22 +81,28 @@ function ApiKeyRow({
         >
           {keyRecord.access}
         </Badge>
-      </TableCell>
-      <TableCell className="text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Last used">
         {lastUsed(keyRecord)}
-      </TableCell>
-      <TableCell>
+      </ResponsiveCell>
+      <ResponsiveCell label="Status">
         <Badge variant={active ? "default" : "secondary"}>
           {active ? "active" : "revoked"}
         </Badge>
-      </TableCell>
-      <TableCell className="text-right">
+      </ResponsiveCell>
+      <ResponsiveActions className="text-right">
         {active ? (
-          <Button onClick={revoke} size="sm" variant="outline">
+          <ConfirmButton
+            description={`"${keyRecord.name}" stops working at once. Anything using it, such as an MCP client, loses access. This cannot be undone.`}
+            onConfirm={revoke}
+            size="sm"
+            title="Revoke API key?"
+            variant="outline"
+          >
             Revoke
-          </Button>
+          </ConfirmButton>
         ) : null}
-      </TableCell>
+      </ResponsiveActions>
     </TableRow>
   );
 }
@@ -145,7 +160,7 @@ function ApiKeysPage() {
           No API keys yet. Create one to connect an MCP client.
         </p>
       ) : (
-        <Table>
+        <ResponsiveTable>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -167,7 +182,7 @@ function ApiKeysPage() {
               />
             ))}
           </TableBody>
-        </Table>
+        </ResponsiveTable>
       )}
       <div className="mt-8 flex flex-col gap-2">
         <h2 className="font-heading text-foreground text-xl">Use a key</h2>

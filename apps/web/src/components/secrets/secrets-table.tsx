@@ -1,11 +1,15 @@
 import { formatDistanceToNow } from "date-fns";
 import { useCallback } from "react";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
-  Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -40,18 +44,22 @@ function SecretRow({
 
   return (
     <TableRow>
-      <TableCell className="font-mono text-xs">{secret.name}</TableCell>
-      <TableCell>
+      <ResponsiveCell className="font-mono text-xs" label="Name">
+        {secret.name}
+      </ResponsiveCell>
+      <ResponsiveCell label="Mode">
         <Badge variant={secret.mode === "proxy" ? "default" : "outline"}>
           {secret.mode}
         </Badge>
-      </TableCell>
-      <TableCell className="text-muted-foreground">{hostsOf(secret)}</TableCell>
-      <TableCell className="text-muted-foreground">
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Hosts">
+        {hostsOf(secret)}
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Updated">
         {formatDistanceToNow(new Date(secret.updatedAt), { addSuffix: true })}
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex flex-wrap justify-end gap-2">
+      </ResponsiveCell>
+      <ResponsiveActions>
+        <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
           <Button onClick={replace} size="sm" variant="outline">
             Replace value
           </Button>
@@ -64,11 +72,17 @@ function SecretRow({
               Edit hosts
             </Button>
           )}
-          <Button onClick={remove} size="sm" variant="outline">
+          <ConfirmButton
+            description={`${secret.name} will be deleted. Agents that were granted it will lose access on their next run.`}
+            onConfirm={remove}
+            size="sm"
+            title={`Delete ${secret.name}?`}
+            variant="outline"
+          >
             Delete
-          </Button>
+          </ConfirmButton>
         </div>
-      </TableCell>
+      </ResponsiveActions>
     </TableRow>
   );
 }
@@ -95,7 +109,7 @@ export function SecretsTable({
   }
 
   return (
-    <Table>
+    <ResponsiveTable>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
@@ -119,6 +133,6 @@ export function SecretsTable({
           />
         ))}
       </TableBody>
-    </Table>
+    </ResponsiveTable>
   );
 }
