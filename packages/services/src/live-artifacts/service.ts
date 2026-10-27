@@ -305,11 +305,14 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       .orderBy(asc(identity))
       // biome-ignore lint/suspicious/noUnnecessaryConditions: exact authorization calls omit discovery pagination.
       .limit(page?.limit ?? 2_147_483_647);
-    return files
-      .map(
-        (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
-      )
-      .filter((source) => parseEmbedSource(source) !== null);
+    const sources = files.map(
+      (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
+    );
+    // Discovery cursors advance over raw rows, including non-embeddable paths.
+    // Filtering before computing the continuation could hide later valid rows.
+    return page
+      ? sources
+      : sources.filter((source) => parseEmbedSource(source) !== null);
   };
   const event = (
     member: PublicationActor,
@@ -900,7 +903,9 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       });
       return {
         next: sources.length > limit ? sources[limit - 1] : undefined,
-        sources: sources.slice(0, limit),
+        sources: sources
+          .slice(0, limit)
+          .filter((source) => parseEmbedSource(source) !== null),
       };
     },
     async ensureDeckCell(

@@ -273,6 +273,13 @@ try {
     FROM artifact_version_files,n WHERE version_id=(SELECT current_version_id FROM artifacts WHERE id=?) AND path='pages/chart.html'`)
     .bind(embedPage.artifactId)
     .run();
+  // A non-embeddable HTML-like filename must not end discovery prematurely.
+  await db
+    .prepare(`INSERT INTO artifact_version_files (workspace_id,version_id,path,sha256,size,content_type)
+    SELECT workspace_id,version_id,'!ineligible.HTML',sha256,size,content_type FROM artifact_version_files
+    WHERE version_id=(SELECT current_version_id FROM artifacts WHERE id=?) AND path='pages/chart.html'`)
+    .bind(embedPage.artifactId)
+    .run();
   const discovered = new Set();
   let cursor;
   do {
