@@ -3,9 +3,9 @@ id: LD.4
 title: Guarded deck MCP tools and scene adapter
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [LD.0, LD.2, L.5]
-branch: null
+branch: t3/deck-mcp-read-write-tools
 lane: deck-tools
 executor: codex
 ---
@@ -17,3 +17,5 @@ Implement deck_read/deck_write strict MCP tools and an executable adapter over t
 ## Log
 
 - 2026-10-27: Started isolated deck tool/scene integration in parallel with document production wiring and deck editor components. Commit substantial tasks and verify focused/root checks.
+
+- 2026-10-27: Merged fe990bc0 tools/real scene adapter;16 focused tests and implementation root checks pass. Independent guard/atomicity review pending. Runtime registration and deck room/service remain integration gates.
