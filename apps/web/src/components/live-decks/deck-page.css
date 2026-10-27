@@ -1,0 +1,48 @@
+.live-deck-page {
+  min-height: 100dvh;
+  padding: 12px;
+  color: #172033;
+  background: #f1f3f7;
+}
+.live-deck-page > header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  padding: 12px;
+}
+.live-deck-page > aside,
+.live-deck-page > section {
+  padding: 16px;
+  margin-top: 12px;
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+.live-deck-page > aside label,
+.live-deck-page > aside textarea {
+  display: block;
+}
+.live-deck-page > aside textarea {
+  width: 100%;
+  min-height: 80px;
+}
+.live-deck-page > aside button,
+.live-deck-page > section button,
+.live-deck-page > header a,
+.live-deck-page > div[role="alert"] button {
+  min-height: 40px;
+  padding: 8px;
+  margin: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+}
+.live-deck-page > aside select {
+  max-width: 100%;
+  min-height: 40px;
+}
+@media (max-width: 640px) {
+  .live-deck-page {
+    padding: 4px;
+  }
+}
