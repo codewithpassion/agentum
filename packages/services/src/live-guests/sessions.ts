@@ -1,6 +1,5 @@
-/** Session lifecycle for already-authenticated guests. Initial sign-in remains
- * absent until durable OTP challenge and abuse-limit persistence is available.
- * No route or runtime composes this module.
+/** Session lifecycle after OTP sign-in from auth.ts. No route or runtime
+ * composes this module until phase 3 integration is explicitly enabled.
  */
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";

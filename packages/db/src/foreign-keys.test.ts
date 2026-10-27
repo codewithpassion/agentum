@@ -1108,6 +1108,7 @@ test("live tables enforce parent foreign keys, guest grants and active uniquenes
         expires_at: NOW,
         guest_id: "g1",
         id: "c1",
+        invite_id: "i1",
         workspace_id: "w1",
       },
     ],

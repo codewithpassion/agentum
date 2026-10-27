@@ -135,7 +135,9 @@
     "./live-guests/invitations": "./src/live-guests/invitations.ts",
     "./live-guests/sessions": "./src/live-guests/sessions.ts",
     "./live-artifacts/ask": "./src/live-artifacts/ask.ts",
-    "./live-artifacts/factory": "./src/live-artifacts/factory.ts"
+    "./live-artifacts/factory": "./src/live-artifacts/factory.ts",
+    "./live-guests/auth": "./src/live-guests/auth.ts",
+    "./live-guests/service": "./src/live-guests/service.ts"
   },
   "scripts": {
     "test": "bun test",

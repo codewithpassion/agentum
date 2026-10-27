@@ -85,19 +85,65 @@ export const guestCodes = sqliteTable(
   {
     attempts: integer("attempts").notNull().default(0),
     codeHash: text("code_hash").notNull(),
+    consumedAt: text("consumed_at"),
     createdAt: createdAt(),
     expiresAt: text("expires_at").notNull(),
     guestId: text("guest_id")
       .notNull()
       .references(() => guestIdentities.id),
     id: id(),
+    inviteId: text("invite_id")
+      .notNull()
+      .references(() => guestInvites.id),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [
     index("guest_codes_guest_idx").on(t.guestId),
+    index("guest_codes_invite_idx").on(
+      t.workspaceId,
+      t.inviteId,
+      t.createdAt,
+      t.id
+    ),
+    uniqueIndex("guest_codes_active_invite_unique")
+      .on(t.workspaceId, t.inviteId)
+      .where(sql`${t.consumedAt} IS NULL`),
     check(
       "guest_codes_attempts",
       sql`${t.attempts} >= 0 AND ${t.attempts} <= 5`
+    ),
+  ]
+);
+
+/** Durable fixed-window send reservations, charged together with the OTP/audit.
+ * Subjects are keyed hashes; IP/email values never appear in this ledger. */
+export const guestAuthRateBuckets = sqliteTable(
+  "guest_auth_rate_buckets",
+  {
+    count: integer("count").notNull().default(0),
+    expiresAt: text("expires_at").notNull(),
+    id: id(),
+    kind: text("kind", { enum: ["invite", "email", "ip_prefix"] }).notNull(),
+    limit: integer("limit").notNull(),
+    subjectHash: text("subject_hash").notNull(),
+    windowStart: integer("window_start").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("guest_auth_rate_bucket_unique").on(
+      t.workspaceId,
+      t.kind,
+      t.subjectHash,
+      t.windowStart
+    ),
+    index("guest_auth_rate_bucket_expiry_idx").on(t.expiresAt),
+    check(
+      "guest_auth_rate_bucket_count",
+      sql`${t.count} >= 0 AND ${t.limit} > 0 AND ${t.count} <= ${t.limit}`
+    ),
+    check(
+      "guest_auth_rate_bucket_kind",
+      sql`${t.kind} IN ('invite', 'email', 'ip_prefix')`
     ),
   ]
 );

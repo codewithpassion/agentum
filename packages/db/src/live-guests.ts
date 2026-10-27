@@ -1,6 +1,6 @@
 /** Read-side guest authentication queries. All references are tenant-joined,
  * including foreign keys: the L.1 foreign keys themselves are not composite.
- * No writes until the durable challenge/rate-limit/outbox schema is available.
+ * Mutations return unexecuted statements for the service atomic write.
  */
 import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";

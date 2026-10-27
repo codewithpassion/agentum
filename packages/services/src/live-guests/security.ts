@@ -84,3 +84,46 @@ export const guestSessionCookie = (
 };
 export const clearGuestSessionCookie = (): string =>
   `${GUEST_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
+
+/** Private keyed abuse-ledger subjects. Keep the pepper stable for at least the
+ * longest active rate window; rotating it requires retiring existing windows.
+ */
+export const createGuestRateHasher = async (
+  pepper: Uint8Array<ArrayBuffer>
+) => {
+  if (pepper.byteLength < 32) {
+    throw new Error(
+      "A private guest code pepper of at least 32 bytes is required"
+    );
+  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    pepper,
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign"]
+  );
+  return async (input: {
+    workspaceId: string;
+    kind: string;
+    seconds: number;
+    subject: string;
+  }) =>
+    toBase64Url(
+      new Uint8Array(
+        await crypto.subtle.sign(
+          "HMAC",
+          key,
+          encoder.encode(
+            JSON.stringify([
+              "guest-rate-v1",
+              input.workspaceId,
+              input.kind,
+              input.seconds,
+              input.subject,
+            ])
+          )
+        )
+      )
+    );
+};
