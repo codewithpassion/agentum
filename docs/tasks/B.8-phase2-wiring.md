@@ -3,9 +3,9 @@ id: B.8
 title: Phase 2 wiring and bindings
 milestone: B
 size: M
-status: todo
+status: in_progress
 depends_on: [A.6, B.2, B.3, B.4, B.5, B.6]
-branch: null
+branch: task/B.8-phase2-wiring
 lane: worker
 executor: claude
 ---
@@ -28,6 +28,9 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 - B.3: `APP_STORE` binding in three places, the `v7` `new_sqlite_classes: ["AppStore"]` migration, and the `server.ts` export.
 - B.5: set `Infra.appStore` to `appStorePort(env.APP_STORE)` in `compose.ts`.
 - B.4: replace the stub tool catalog in `artifactGrants` with the real connector and platform catalog; `promote` returns `{status:"promoted"} | {status:"waiting"}`.
+- B.6: the call and storage routes are already in `artifactRoutes`, so nothing new to mount for them. Supply `Infra.isOrgMember` (uncached `clerkOrgMemberCheckFresh`) and `Infra.toolRunner` in `compose.ts`. Rate limiting reuses `SHARE_OPEN_LIMIT` with `call:` and `storage:` prefixes.
+- Scope addition: enforce argument limits (B.4's `<tool>#<json>` grant rows) on member calls (B.5) and live calls (B.6) before a tool runs, refusing with the same refusal path, with tests.
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

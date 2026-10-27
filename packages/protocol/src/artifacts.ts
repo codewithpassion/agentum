@@ -832,6 +832,22 @@ export const shareCallInputSchema = z.strictObject({
 });
 export type ShareCallInput = z.infer<typeof shareCallInputSchema>;
 
+/**
+ * A link viewer's storage request. Only `get` and `list` on the shared area
+ * run; `set` and `delete` parse so that the route can answer them with 403.
+ */
+export const shareStorageInputSchema = z
+  .object({
+    key: z.string().min(1).optional(),
+    op: z.enum(["get", "list", "set", "delete"]),
+    prefix: z.string().optional(),
+  })
+  .refine((value) => value.op !== "get" || value.key !== undefined, {
+    message: "get needs a key",
+    path: ["key"],
+  });
+export type ShareStorageInput = z.infer<typeof shareStorageInputSchema>;
+
 export const shareCallResponseSchema = z.strictObject({
   result: z.unknown(),
 });

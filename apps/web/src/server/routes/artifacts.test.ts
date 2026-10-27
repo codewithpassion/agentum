@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { artifactGrants } from "@repo/db/schema/artifacts";
 import { migrated } from "@repo/db/test-db";
+import { ArtifactCallError } from "@repo/services/artifacts/calls";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
@@ -31,6 +33,11 @@ let owner: User;
 let artifactId: string;
 let versionId: string;
 let linksOff: boolean;
+let testDb: ReturnType<typeof migrated>;
+let toolRuns: unknown[];
+let toolError: Error | null;
+let storeData: Map<string, string>;
+const TOOL = "xero/list_invoices";
 
 const infra = (db: ReturnType<typeof migrated>): Infra => {
   const store = new Map<string, string>();
@@ -47,6 +54,26 @@ const infra = (db: ReturnType<typeof migrated>): Infra => {
     },
     clock: systemClock,
     devFakeRuntime: false,
+    appStore: {
+      delete: async () => undefined,
+      get: (_scope, key) => Promise.resolve(storeData.get(key) ?? null),
+      list: (_scope, prefix) =>
+        Promise.resolve(
+          [...storeData]
+            .filter(([key]) => key.startsWith(prefix))
+            .map(([key, value]) => ({ key, value }))
+        ),
+      set: async () => undefined,
+    },
+    isOrgMember: () => Promise.resolve(true),
+    toolRunner: {
+      run: (input) => {
+        toolRuns.push(input);
+        return toolError
+          ? Promise.reject(toolError)
+          : Promise.resolve({ result: { total: 42 } });
+      },
+    },
     fileBlobs: {
       delete: async () => undefined,
       get: async () => null,
@@ -89,7 +116,11 @@ beforeEach(async () => {
   session = OWNER;
   limit = null;
   limitKeys = [];
+  toolRuns = [];
+  toolError = null;
+  storeData = new Map([["stats", '{"total":3}']]);
   const db = migrated();
+  testDb = db;
   composed = composeWith({
     allowedOrgIds: ["org_a", "org_b"],
     db,
@@ -288,5 +319,198 @@ describe("GET /api/artifacts/:id/download", () => {
     expect(
       (await request(`/api/artifacts/${artifactId}/download`)).status
     ).toBe(401);
+  });
+});
+
+const newLiveLink = async () => {
+  testDb
+    .insert(artifactGrants)
+    .values({
+      createdAt: new Date().toISOString(),
+      id: crypto.randomUUID(),
+      kind: "tool",
+      status: "approved",
+      target: TOOL,
+      versionId,
+      workspaceId: owner.workspaceId,
+    })
+    .run();
+  const share = await composed.services.artifactShares.createShare(owner, {
+    artifactId,
+    dataMode: "live",
+    liveTools: [TOOL],
+  });
+  return { id: share.id, token: share.url.slice(`${ORIGIN}/s/`.length) };
+};
+
+const post = (
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {}
+) =>
+  request(path, {
+    body: typeof body === "string" ? body : JSON.stringify(body),
+    headers: { "Content-Type": "application/json", ...headers },
+    method: "POST",
+  });
+
+const call = (token: string, body: unknown, headers = {}) =>
+  post(`/api/share/${token}/call`, body, headers);
+
+describe("POST /api/share/:token/call", () => {
+  it("runs a live link's tool without a session and answers { result }", async () => {
+    session = null;
+    const { token } = await newLiveLink();
+    const res = await call(
+      token,
+      { arguments: { month: "2026-09" }, tool: TOOL },
+      { "CF-Connecting-IP": "203.0.113.9" }
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ result: { total: 42 } });
+    expect(toolRuns).toEqual([
+      {
+        agentId: null,
+        arguments: { month: "2026-09" },
+        toolKey: TOOL,
+        userId: "user_a",
+        workspaceId: owner.workspaceId,
+      },
+    ]);
+  });
+
+  it("answers 403 for a snapshot link and for a tool outside the link, and runs nothing", async () => {
+    const snapshot = await newLink();
+    const live = await newLiveLink();
+    const [one, two] = await Promise.all([
+      call(snapshot.token, { tool: TOOL }),
+      call(live.token, { tool: "xero/get_invoice" }),
+    ]);
+    expect([one.status, two.status]).toEqual([403, 403]);
+    expect(toolRuns).toHaveLength(0);
+  });
+
+  it("answers 404 with one body for revoked, unknown and malformed links", async () => {
+    const live = await newLiveLink();
+    await composed.services.artifactShares.revokeShare(owner, {
+      shareId: live.id,
+    });
+    const responses = await Promise.all(
+      [live.token, "hm_share_unknown", "junk"].map((t) =>
+        call(t, { tool: TOOL })
+      )
+    );
+    expect(responses.map((res) => res.status)).toEqual([404, 404, 404]);
+    const bodies = await Promise.all(responses.map((res) => res.json()));
+    expect(bodies).toEqual(responses.map(() => UNAVAILABLE));
+    expect(toolRuns).toHaveLength(0);
+  });
+
+  it("answers 400 for a body that is not a call", async () => {
+    const { token } = await newLiveLink();
+    const bodies = ["not json", {}, { tool: "" }, { tool: TOOL, extra: 1 }];
+    const responses = await Promise.all(
+      bodies.map((body) => call(token, body))
+    );
+    expect(responses.map((res) => res.status)).toEqual([400, 400, 400, 400]);
+  });
+
+  it("answers 429 from the flood guard under its own keys", async () => {
+    limit = ({ key }) => {
+      limitKeys.push(key);
+      return Promise.resolve({ success: false });
+    };
+    const { token } = await newLiveLink();
+    const res = await call(
+      token,
+      { tool: TOOL },
+      {
+        "CF-Connecting-IP": "203.0.113.9",
+      }
+    );
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("60");
+    expect(limitKeys).toContain("call:ip:203.0.113.0/24");
+    expect(limitKeys.every((key) => key.startsWith("call:"))).toBe(true);
+    expect(limitKeys.join(" ")).not.toContain(token);
+    expect(toolRuns).toHaveLength(0);
+  });
+
+  it("answers 429 above 10 calls a minute from one visitor", async () => {
+    const { token } = await newLiveLink();
+    const ip = { "CF-Connecting-IP": "203.0.113.9" };
+    const statuses: number[] = [];
+    for (let index = 0; index < 11; index += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: the calls must land in order
+      statuses.push((await call(token, { tool: TOOL }, ip)).status);
+    }
+    expect(statuses.slice(0, 10).every((status) => status === 200)).toBe(true);
+    expect(statuses[10]).toBe(429);
+    expect(toolRuns).toHaveLength(10);
+  });
+
+  it("answers 502 without detail when the tool fails", async () => {
+    toolError = new ArtifactCallError("needs_auth", "Connect Xero for dom");
+    const original = console.error;
+    console.error = () => undefined;
+    const { token } = await newLiveLink();
+    const res = await call(token, { tool: TOOL });
+    console.error = original;
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(await res.json())).not.toContain("Xero");
+  });
+});
+
+describe("POST /api/share/:token/storage", () => {
+  const storage = (token: string, body: unknown, headers = {}) =>
+    post(`/api/share/${token}/storage`, body, headers);
+
+  it("reads the shared area for a link viewer without a session", async () => {
+    session = null;
+    const { token } = await newLink();
+    const got = await storage(token, { key: "stats", op: "get" });
+    expect(got.status).toBe(200);
+    expect(await got.json()).toEqual({ result: { value: { total: 3 } } });
+    const listed = await storage(token, { op: "list", prefix: "st" });
+    expect(await listed.json()).toEqual({ result: { keys: ["stats"] } });
+  });
+
+  it("answers 403 to every write", async () => {
+    const { token } = await newLiveLink();
+    const responses = await Promise.all(
+      ["set", "delete"].map((op) =>
+        storage(token, { key: "stats", op, value: 1 })
+      )
+    );
+    expect(responses.map((res) => res.status)).toEqual([403, 403]);
+  });
+
+  it("answers 404 with one body for dead links, writes included", async () => {
+    const live = await newLiveLink();
+    await composed.services.artifactShares.revokeShare(owner, {
+      shareId: live.id,
+    });
+    const responses = await Promise.all([
+      storage(live.token, { op: "list" }),
+      storage(live.token, { key: "stats", op: "set" }),
+      storage("hm_share_unknown", { op: "list" }),
+    ]);
+    expect(responses.map((res) => res.status)).toEqual([404, 404, 404]);
+    const bodies = await Promise.all(responses.map((res) => res.json()));
+    expect(bodies).toEqual(responses.map(() => UNAVAILABLE));
+  });
+
+  it("answers 400 for a bad body and 429 from the flood guard", async () => {
+    const { token } = await newLink();
+    expect((await storage(token, { op: "get" })).status).toBe(400);
+    expect((await storage(token, "nope")).status).toBe(400);
+    limit = ({ key }) => {
+      limitKeys.push(key);
+      return Promise.resolve({ success: false });
+    };
+    const res = await storage(token, { op: "list" });
+    expect(res.status).toBe(429);
+    expect(limitKeys.every((key) => key.startsWith("storage:"))).toBe(true);
   });
 });
