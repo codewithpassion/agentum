@@ -31,7 +31,11 @@ export const createDeckPorts = ({
       read: (input) =>
         guarded(async () => {
           const { stub, identity } = await room(input.artifactId);
-          return stub.deckRead(input, identity);
+          const outcome = await stub.deckReadOutcome(input, identity);
+          if (!outcome.ok) {
+            throw new ToolError(outcome.code, outcome.message);
+          }
+          return outcome.result;
         }),
       write: (input) =>
         guarded(async () => {
@@ -57,15 +61,18 @@ export const createDeckPorts = ({
             status: "Editing deck",
           });
           try {
-            const result = await stub.deckWrite(input, {
+            const outcome = await stub.deckWriteOutcome(input, {
               changeId,
               mode: "direct",
               participantId: identity.participantId,
               runId: principal.runId,
               toolCallId: callId,
             });
+            if (!outcome.ok) {
+              throw new ToolError(outcome.code, outcome.message);
+            }
             await stub.checkpoint();
-            return result;
+            return outcome.result;
           } finally {
             await stub.setAgentPresence(null);
           }

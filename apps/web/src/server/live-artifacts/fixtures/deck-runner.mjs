@@ -214,6 +214,45 @@ try {
     props.get("x") === "40" && props.get("y") === "70",
     "independent concurrent properties survive room admission"
   );
+  const moveA = await syncReplica(one),
+    moveB = await syncReplica(two);
+  const va = Y.encodeStateVector(moveA),
+    vb = Y.encodeStateVector(moveB);
+  moveA.getMap("slides").get("s2").set("order", "a3");
+  moveB.getMap("slides").get("s2").set("order", "a4");
+  const makeSlide = (order) =>
+    new Y.Map(
+      Object.entries({
+        background: "#fff",
+        duration: "0",
+        elements: new Y.Map(),
+        layout: new Y.Map(),
+        notes: new Y.Text(),
+        order,
+        transition: "none",
+      })
+    );
+  moveA.getMap("slides").set("concurrentA", makeSlide("a5"));
+  moveB.getMap("slides").set("concurrentB", makeSlide("a6"));
+  one.ws.send(update(Y.encodeStateAsUpdate(moveA, va)));
+  two.ws.send(update(Y.encodeStateAsUpdate(moveB, vb)));
+  await pause(100);
+  const moved = await call("/deck-read");
+  check(
+    moved.deck.order.filter((id) => id === "s2").length === 1 &&
+      moved.deck.order.includes("concurrentA") &&
+      moved.deck.order.includes("concurrentB"),
+    "concurrent slide moves leave one copy and independent slides both survive"
+  );
+  moveA.destroy();
+  moveB.destroy();
+  const duplicateRevision = (await call("/snapshot")).revision;
+  one.ws.send(update(Y.encodeStateAsUpdate(a, av)));
+  await pause(60);
+  check(
+    (await call("/snapshot")).revision === duplicateRevision,
+    "duplicate original Yjs updates do not create revisions or checkpoints"
+  );
   const read = await call("/deck-read");
   const current = await syncReplica(two),
     vec = Y.encodeStateVector(current);
@@ -260,6 +299,56 @@ try {
     calls.meta.origins.some((o) => o.changeId === "guarded"),
     "guarded result and provenance durable"
   );
+  const human = await syncReplica(two),
+    hv = Y.encodeStateVector(human);
+  human
+    .getMap("slides")
+    .get("s1")
+    .get("elements")
+    .get("s1e1")
+    .get("props")
+    .set("y", "80");
+  two.ws.send(update(Y.encodeStateAsUpdate(human, hv)));
+  await pause(60);
+  await call("/revert", { id: "guarded" });
+  const undone = await call("/deck-read");
+  check(
+    undone.slides.find((v) => v.id === "s1").html.includes('prop-x="20"') &&
+      undone.slides.find((v) => v.id === "s1").html.includes('prop-y="80"'),
+    "scoped deck revert removes agent edits and preserves later human property"
+  );
+  human.destroy();
+  const compactRead = await call("/deck-read");
+  const large = await syncReplica(two),
+    lv = Y.encodeStateVector(large);
+  large
+    .getMap("slides")
+    .get("s1")
+    .get("notes")
+    .insert(0, "n".repeat(1_050_000));
+  two.ws.send(update(Y.encodeStateAsUpdate(large, lv)));
+  await pause(180);
+  check(
+    (await call("/stats")).meta.generation > 1,
+    "room compacts actual large accepted delta"
+  );
+  const compactSlide = compactRead.slides.find((v) => v.id === "s2");
+  const compactWrite = await call("/deck-write", {
+    changeId: "after-compaction",
+    ops: [
+      {
+        html: compactSlide.html.replace('duration="0"', 'duration="1"'),
+        op: "write",
+        revision: compactSlide.revision,
+        slideId: "s2",
+      },
+    ],
+  });
+  check(
+    compactWrite.applied.length === 1,
+    "opaque observations remain usable across durable compaction"
+  );
+  large.destroy();
   const newest = await call("/deck-read");
   const invalid = await runtime.dispatchFetch(
     "http://room.test/deck-write?room=test",
@@ -316,6 +405,7 @@ try {
     control(two, "acquire", { build: 0, slideId: "s2" }),
   ]);
   check(lease.ok !== race.ok, "only one concurrent presenter lease wins");
+  const ownerId = lease.ok ? "owner" : "editor";
   const owner = lease.ok ? one : two,
     other = lease.ok ? two : one,
     winner = lease.ok ? lease : race;
@@ -355,7 +445,6 @@ try {
       ),
     "other client receives presenter position"
   );
-  const ownerId = lease.ok ? "owner" : "editor";
   await controls(`role:${ownerId}`, "viewer");
   await call("/refresh");
   await pause(100);
@@ -363,8 +452,9 @@ try {
     other.messages
       .filter((m) => typeof m === "string")
       .map(JSON.parse)
-      .at(-1).type !== "bad",
-    "refresh delivered"
+      .filter((m) => m.type === "presentation")
+      .at(-1).position === null,
+    "permission refresh clears trusted spotlight"
   );
   check(
     (await control(other, "acquire", { build: 0, slideId: "s1" })).ok,
@@ -442,6 +532,35 @@ try {
   await call("/alarm");
   await pause(60);
   check(exp.closed, "connection expiry enforced by alarm");
+  await controls("deck", true, "lease-expiry");
+  await controls("slides", [slide("s1", "a0")], "lease-expiry");
+  const ep1 = await connect(await ticket({}, "lease-expiry"), "lease-expiry"),
+    ep2 = await connect(
+      await ticket({ participantId: "second" }, "lease-expiry"),
+      "lease-expiry"
+    );
+  const expiredLease = await control(ep1, "acquire", {
+    build: 0,
+    slideId: "s1",
+  });
+  check(expiredLease.ok, "expiry fixture acquires real lease");
+  await pause(15_100);
+  check(
+    !(await control(ep1, "renew", { leaseId: expiredLease.leaseId })).ok,
+    "expired lease cannot be renewed"
+  );
+  const replacement = await control(ep2, "acquire", {
+    build: 0,
+    slideId: "s1",
+  });
+  check(replacement.ok, "lease expiry frees ownership for another client");
+  ep2.ws.close();
+  await pause(80);
+  check(
+    (await control(ep1, "acquire", { build: 0, slideId: "s1" })).ok,
+    "disconnect releases presenter without waiting for expiry"
+  );
+  ep1.ws.close();
   a.destroy();
   b.destroy();
   current.destroy();

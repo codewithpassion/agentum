@@ -13,8 +13,13 @@ const id = z.string().min(1).max(200);
 const revision = z.string().min(1).max(200);
 const html = z.string().max(2_000_000);
 export const deckReadInputSchema = z.strictObject({
-  artifactId: z.uuid(),
-  slideIds: z.array(id).min(1).max(500).optional(),
+  artifactId: z.uuid().describe("The live deck artifact id."),
+  slideIds: z
+    .array(id)
+    .min(1)
+    .max(500)
+    .optional()
+    .describe("Select stable slide IDs; omit to read every slide."),
 });
 export const deckOperationSchema = z.discriminatedUnion("op", [
   z.strictObject({ html, op: z.literal("write"), revision, slideId: id }),
@@ -36,8 +41,14 @@ export const deckOperationSchema = z.discriminatedUnion("op", [
   }),
 ]);
 export const deckWriteInputSchema = z.strictObject({
-  artifactId: z.uuid(),
-  ops: z.array(deckOperationSchema).min(1).max(100),
+  artifactId: z.uuid().describe("The live deck artifact id."),
+  ops: z
+    .array(deckOperationSchema)
+    .min(1)
+    .max(100)
+    .describe(
+      "An atomic ordered batch of guarded slide, order or theme operations."
+    ),
 });
 export type DeckReadInput = z.infer<typeof deckReadInputSchema>;
 export type DeckWriteInput = z.infer<typeof deckWriteInputSchema>;

@@ -19,9 +19,12 @@ const inputs = {
   checkpoint: { artifactId, revision: 1, state: [1] },
   comment: { artifactId, body: "Hi" },
   convertDoc: { artifactId },
+  createDeck: { slides: [], title: "Deck" },
   createDocument: { title: "Doc" },
+  history: { artifactId },
   invalidateAccess: { artifactId },
   join: { artifactId },
+  open: { artifactId },
   recordChange: {
     artifactId,
     revFrom: 1,

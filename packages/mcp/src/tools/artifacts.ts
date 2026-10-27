@@ -103,7 +103,13 @@ export const artifactCreateInputSchema = z.strictObject({
     .describe(
       "Initial live document markdown; omit for an empty document. Only for kind document."
     ),
-  slides: z.array(z.string().max(2_000_000)).max(500).optional(),
+  slides: z
+    .array(z.string().max(2_000_000))
+    .max(500)
+    .optional()
+    .describe(
+      "Initial constrained HTML slides, only for kind deck; omit for an empty deck."
+    ),
   title: z
     .string()
     .trim()
