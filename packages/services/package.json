@@ -128,7 +128,12 @@
     "./wiki/suggestions": "./src/wiki/suggestions.ts",
     "./live-artifacts/access-lifecycle": "./src/live-artifacts/access-lifecycle.ts",
     "./live-artifacts/ports": "./src/live-artifacts/ports.ts",
-    "./live-artifacts/service": "./src/live-artifacts/service.ts"
+    "./live-artifacts/service": "./src/live-artifacts/service.ts",
+    "./live-guests/access": "./src/live-guests/access.ts",
+    "./live-guests/ports": "./src/live-guests/ports.ts",
+    "./live-guests/security": "./src/live-guests/security.ts",
+    "./live-guests/invitations": "./src/live-guests/invitations.ts",
+    "./live-guests/sessions": "./src/live-guests/sessions.ts"
   },
   "scripts": {
     "test": "bun test",

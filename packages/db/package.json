@@ -13,7 +13,8 @@
     "./schema/*": "./src/schema/*.ts",
     "./map": "./src/map.ts",
     "./shared": "./src/shared.ts",
-    "./test-db": "./src/test-db.ts"
+    "./test-db": "./src/test-db.ts",
+    "./live-guests": "./src/live-guests.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",
