@@ -8,7 +8,7 @@ export const rich = [
   node("p", [
     "Unicode 👩🏽‍🚀 é 中文 <&> \r\n\t",
     node("br"),
-    node("strong", ["bold"]),
+    node("strong", ["bold", node("em", [" and italic"])]),
     node("em", ["italic"]),
     node("u", ["underline"]),
     node("s", ["strike"]),

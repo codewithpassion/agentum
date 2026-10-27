@@ -303,3 +303,73 @@ test("unsupported shared document blocks and attributes fail closed in real Yjs"
     expect(encodeStateAsUpdate(doc)).toEqual(bytes);
   }
 });
+
+test("independent rich-text and table-cell edits converge with original Yjs types", () => {
+  const left = new Deck(new Doc(), codec);
+  left.addSlide(slide());
+  const replica = new Doc();
+  applyUpdate(replica, encodeStateAsUpdate(left.doc));
+  const right = new Deck(replica, codec);
+  const leftText = (left.textFragment("s", "text").get(0) as XmlElement).get(
+    0
+  ) as XmlText;
+  const rightCell = (
+    right.cellFragment("s", "table", "0:0").get(0) as XmlElement
+  ).get(0) as XmlText;
+  const leftId = leftText._item?.id;
+  const cellId = rightCell._item?.id;
+  leftText.insert(0, "left ", { bold: {} });
+  rightCell.insert(0, "right ", { italic: {} });
+  const leftUpdate = encodeStateAsUpdate(
+    left.doc,
+    encodeStateVector(right.doc)
+  );
+  const rightUpdate = encodeStateAsUpdate(
+    right.doc,
+    encodeStateVector(left.doc)
+  );
+  left.applyUpdate(rightUpdate);
+  right.applyUpdate(leftUpdate);
+  expect(left.read("s").slide).toEqual(right.read("s").slide);
+  const mergedText = (right.textFragment("s", "text").get(0) as XmlElement).get(
+    0
+  ) as XmlText;
+  const mergedCell = (
+    left.cellFragment("s", "table", "0:0").get(0) as XmlElement
+  ).get(0) as XmlText;
+  expect(mergedText._item?.id).toEqual(leftId);
+  expect(mergedCell._item?.id).toEqual(cellId);
+  expect(mergedText.toDelta()[0]?.attributes?.bold).toEqual({});
+  expect(mergedCell.toDelta()[0]?.attributes?.italic).toEqual({});
+});
+
+test("Unicode scalar samples survive production Yjs and HTML interchange unchanged", () => {
+  // Cover every Unicode plane, combining text, RTL, line endings and XML boundary values.
+  const samples = ["\t\n\r", "é שָׁלוֹם العربية", "<&>\"'", "\ud7ff\ue000\ufffd"];
+  for (let plane = 1; plane <= 16; plane += 1) {
+    samples.push(
+      String.fromCodePoint(
+        plane * 65_536,
+        plane * 65_536 + 1234,
+        plane * 65_536 + 65_535
+      )
+    );
+  }
+  for (const text of samples) {
+    const data = slide();
+    data.elements = [
+      {
+        id: "text",
+        order: "a0",
+        parent: "s",
+        props: {},
+        style: {},
+        text: [node("p", [text])],
+        type: "text",
+      },
+    ];
+    const deck = new Deck(new Doc(), codec);
+    deck.addSlide(data);
+    expect(parseSlide(deck.readHtml("s").html, codec)).toEqual(data);
+  }
+});

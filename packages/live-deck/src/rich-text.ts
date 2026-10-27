@@ -202,28 +202,51 @@ function parseNodes(nodes: (Node | string)[]): PMNode[] {
   };
   return visit(nodes, [], 0);
 }
-function render(node: PMNode): Node | string {
-  if (node.isText) {
-    let result: Node | string = node.text ?? "";
-    for (const mark of [...node.marks].reverse()) {
-      const tag =
-        Object.keys(marks).find((key) => marks[key] === mark.type.name) ??
-        reject();
-      const attributes: Record<string, string> = {};
-      if (tag === "a") {
-        Object.assign(attributes, {
-          href: mark.attrs.href,
-          rel: mark.attrs.rel,
-          target: mark.attrs.target,
-        });
-      }
-      if (tag === "span") {
-        attributes.style = `color: ${mark.attrs.color}`;
-      }
-      result = { attrs: attributes, children: [result], tag };
-    }
-    return result;
+function markNode(mark: PMMark): Node {
+  const tag =
+    Object.keys(marks).find((key) => marks[key] === mark.type.name) ?? reject();
+  const attributes: Record<string, string> = {};
+  if (tag === "a") {
+    Object.assign(attributes, {
+      href: mark.attrs.href,
+      rel: mark.attrs.rel,
+      target: mark.attrs.target,
+    });
   }
+  if (tag === "span") {
+    attributes.style = `color: ${mark.attrs.color}`;
+  }
+  return { attrs: attributes, children: [], tag };
+}
+/** Group adjacent runs by their common mark prefix, like the shared DOM serializer. */
+function renderChildren(node: PMNode): (Node | string)[] {
+  const result: (Node | string)[] = [];
+  let active: readonly PMMark[] = [];
+  let containers: (Node | string)[][] = [result];
+  for (const child of node.children) {
+    const next = child.isText ? child.marks : [];
+    let common = 0;
+    while (
+      common < active.length &&
+      common < next.length &&
+      active[common]?.eq(next[common] ?? reject())
+    ) {
+      common += 1;
+    }
+    containers = containers.slice(0, common + 1);
+    for (const mark of next.slice(common)) {
+      const wrapper = markNode(mark);
+      containers.at(-1)?.push(wrapper);
+      containers.push(wrapper.children);
+    }
+    containers
+      .at(-1)
+      ?.push(child.isText ? (child.text ?? reject()) : render(child));
+    active = next;
+  }
+  return result;
+}
+function render(node: PMNode): Node {
   const tag = nodeTag(node.type.name);
   const attributes: Record<string, string> = {};
   if (node.attrs.id !== null && node.attrs.id !== undefined) {
@@ -238,11 +261,7 @@ function render(node: PMNode): Node | string {
       attributes["data-checked"] = String(node.attrs.checked);
     }
   }
-  const children: (Node | string)[] = [];
-  for (const child of node.children) {
-    children.push(render(child));
-  }
-  return { attrs: attributes, children, tag };
+  return { attrs: attributes, children: renderChildren(node), tag };
 }
 /** Check raw Yjs before PM can discard unknown attributes or marks. */
 function validateRaw(source: XmlFragment) {
