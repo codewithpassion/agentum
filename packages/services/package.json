@@ -123,7 +123,8 @@
     "./tasks/service": "./src/tasks/service.ts",
     "./tasks/status-band": "./src/tasks/status-band.ts",
     "./skills-store/github": "./src/skills-store/github.ts",
-    "./wiki/suggestions": "./src/wiki/suggestions.ts"
+    "./wiki/suggestions": "./src/wiki/suggestions.ts",
+    "./live-artifacts/service": "./src/live-artifacts/service.ts"
   },
   "scripts": {
     "test": "bun test",
