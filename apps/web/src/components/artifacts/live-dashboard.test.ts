@@ -270,21 +270,28 @@ describe("live dashboard, signed-in member", () => {
 });
 
 describe("live dashboard, share link", () => {
-  test("a live link reads the tool, and storage is refused with a clear error", async () => {
+  test("a link reads the tool and the shared note, and the viewer area is refused", async () => {
     const page = await loadPage({
       calls: {
         callTool: () => Promise.resolve({ result: { orders: [{ id: 1 }] } }),
+        storageGet: ({ key }) =>
+          Promise.resolve({ value: key === "note" ? "Ship on Friday" : null }),
+        storageList: () => Promise.resolve({ keys: [] }),
         viewer: "link",
       },
     }).settled();
     expect(page.orders).toBe("1 orders");
-    expect(page.status).toBe("Shared links can't use app storage.");
+    expect(page["team-note"]).toBe("Ship on Friday");
+    expect(page.status).toBe("Shared links can read only the shared area.");
+    expect(page.visits).toBeUndefined();
   });
 
   test("a snapshot link's tool call is refused with the link's own message", async () => {
     const page = await loadPage({
       calls: {
         callTool: () => Promise.reject(new LinkCallError(403)),
+        storageGet: () => Promise.resolve({ value: null }),
+        storageList: () => Promise.resolve({ keys: [] }),
         viewer: "link",
       },
     }).settled();

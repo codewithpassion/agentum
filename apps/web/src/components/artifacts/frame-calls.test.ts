@@ -220,6 +220,8 @@ describe("error mapping", () => {
     test(`link status ${status}`, async () => {
       const calls: FrameCalls = {
         callTool: () => Promise.reject(new LinkCallError(status)),
+        storageGet: () => Promise.resolve({ value: null }),
+        storageList: () => Promise.resolve({ keys: [] }),
         viewer: "link",
       };
       const caught = await rejection(
@@ -232,36 +234,87 @@ describe("error mapping", () => {
 });
 
 describe("link viewer", () => {
-  test("tools go to the link port and storage is refused untouched", async () => {
-    const seen: unknown[] = [];
-    const calls: FrameCalls = {
-      callTool: (input) => {
-        seen.push(input);
-        return Promise.resolve({ result: "hi" });
-      },
-      viewer: "link",
-    };
-    const h = handlersOf({ calls });
+  const seen: unknown[] = [];
+  const makeCalls = (): Extract<FrameCalls, { viewer: "link" }> => ({
+    callTool: (input) => {
+      seen.push(["tool", input]);
+      return Promise.resolve({ result: "hi" });
+    },
+    storageGet: (input) => {
+      seen.push(["get", input]);
+      return Promise.resolve({ value: { n: 1 } });
+    },
+    storageList: (input) => {
+      seen.push(["list", input]);
+      return Promise.resolve({ keys: ["a", "b"] });
+    },
+    viewer: "link",
+  });
+
+  test("tools go to the link port", async () => {
+    seen.length = 0;
+    const h = handlersOf({ calls: makeCalls() });
     expect(await run(h, "tools/call", { name: "t" })).toEqual({
       content: [{ text: "hi", type: "text" }],
       structuredContent: "hi",
     });
-    expect(seen).toEqual([{ arguments: undefined, tool: "t" }]);
-    const params: Record<string, unknown> = {
-      "storage/delete": { key: "k", scope: "viewer" },
-      "storage/get": { key: "k", scope: "viewer" },
-      "storage/list": { scope: "viewer" },
-      "storage/set": { key: "k", scope: "viewer", value: 1 },
-    };
-    const caughtAll = await Promise.all(
-      Object.entries(params).map(([method, p]) => rejection(run(h, method, p)))
-    );
-    expect(caughtAll).toHaveLength(4);
-    for (const caught of caughtAll) {
+    expect(seen).toEqual([["tool", { arguments: undefined, tool: "t" }]]);
+  });
+
+  test("the shared area can be read and listed", async () => {
+    seen.length = 0;
+    const h = handlersOf({ calls: makeCalls() });
+    expect(
+      await run(h, "storage/get", { key: "note", scope: "shared" })
+    ).toEqual({ value: { n: 1 } });
+    expect(
+      await run(h, "storage/list", { prefix: "n", scope: "shared" })
+    ).toEqual({ keys: ["a", "b"] });
+    expect(seen).toEqual([
+      ["get", { key: "note" }],
+      ["list", { prefix: "n" }],
+    ]);
+  });
+
+  test("the viewer area is refused for reads, and writes are refused in both", async () => {
+    seen.length = 0;
+    const h = handlersOf({ calls: makeCalls() });
+    const reads = await Promise.all([
+      rejection(run(h, "storage/get", { key: "k", scope: "viewer" })),
+      rejection(run(h, "storage/list", { scope: "viewer" })),
+    ]);
+    for (const caught of reads) {
       expect(caught.code).toBe(BRIDGE_ERROR.denied);
-      expect(caught.message).toBe("Shared links can't use app storage.");
+      expect(caught.message).toBe(
+        "Shared links can read only the shared area."
+      );
     }
-    expect(seen).toHaveLength(1);
+    const writes = await Promise.all(
+      ["viewer", "shared"].flatMap((scope) => [
+        rejection(run(h, "storage/set", { key: "k", scope, value: 1 })),
+        rejection(run(h, "storage/delete", { key: "k", scope })),
+      ])
+    );
+    for (const caught of writes) {
+      expect(caught.code).toBe(BRIDGE_ERROR.denied);
+      expect(caught.message).toBe("Shared links can't change app storage.");
+    }
+    expect(seen).toHaveLength(0);
+  });
+
+  test("a storage failure on the link route maps like a tool failure", async () => {
+    const h = handlersOf({
+      calls: {
+        ...makeCalls(),
+        storageGet: () => Promise.reject(new LinkCallError(429)),
+        viewer: "link",
+      },
+    });
+    const caught = await rejection(
+      run(h, "storage/get", { key: "k", scope: "shared" })
+    );
+    expect(caught.code).toBe(BRIDGE_ERROR.failed);
+    expect(caught.message).toBe("Too many calls. Try again shortly.");
   });
 });
 
@@ -411,6 +464,36 @@ describe("linkCallsFromFetch", () => {
       expect(await status(linkCallsFromFetch("t", fetchFn))).toBe(code);
     });
   }
+
+  test("storage reads post to the storage route and unwrap the result", async () => {
+    const results = [{ n: 1 }, null, ["a", "b"], "not a list"];
+    const { fetchFn, seen } = makeFetch(() =>
+      Response.json({ result: results.shift() })
+    );
+    const calls = linkCallsFromFetch("t", fetchFn);
+    expect(await calls.storageGet({ key: "k" })).toEqual({ value: { n: 1 } });
+    expect(await calls.storageGet({ key: "k" })).toEqual({ value: null });
+    expect(await calls.storageList({ prefix: "p" })).toEqual({
+      keys: ["a", "b"],
+    });
+    await expect(calls.storageList({})).rejects.toMatchObject({ status: 502 });
+    expect(seen.map((entry) => entry.url)).toEqual(
+      new Array(4).fill("/api/share/t/storage")
+    );
+    expect(seen.map((entry) => entry.init?.body)).toEqual([
+      '{"key":"k","op":"get"}',
+      '{"key":"k","op":"get"}',
+      '{"op":"list","prefix":"p"}',
+      '{"op":"list"}',
+    ]);
+  });
+
+  test("a refused storage read throws the status", async () => {
+    const { fetchFn } = makeFetch(() => new Response("{}", { status: 403 }));
+    await expect(
+      linkCallsFromFetch("t", fetchFn).storageGet({ key: "k" })
+    ).rejects.toMatchObject({ status: 403 });
+  });
 
   test("network failure is status 0", async () => {
     const fetchFn = (() =>

@@ -224,6 +224,25 @@ describe("manifest", () => {
     ).toBe(false);
   });
 
+  test("accepts html, htm and md entries only", () => {
+    for (const [entry, ok] of [
+      ["index.html", true],
+      ["page.HTM", true],
+      ["index.md", true],
+      ["logo.svg", false],
+      ["data.xml", false],
+      ["app.js", false],
+      ["index.html.js", false],
+    ] as const) {
+      expect(
+        artifactManifestSchema.safeParse({
+          entry,
+          files: { [entry]: file },
+        }).success
+      ).toBe(ok);
+    }
+  });
+
   test("rejects bad paths", () => {
     for (const path of [
       "../x.js",

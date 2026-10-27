@@ -4,8 +4,8 @@
 // The iframe is sandboxed without `allow-same-origin`, so its origin is
 // opaque: messages from it carry `origin: "null"` and replies must target
 // "*". The only trust anchor is `event.source`, compared with the iframe's
-// `contentWindow`. The first `ui/initialize` from that window that carries
-// the frame's one-time nonce gets a reply with one transferred MessagePort. Everything after that goes through the port.
+// `contentWindow`. The first `ui/initialize` from that window gets a reply with
+// one transferred MessagePort. Everything after that goes through the port.
 // Navigating the iframe kills the port with its document, so the frame can
 // never post data to a page that replaced the artifact.
 
@@ -27,6 +27,13 @@ export const BRIDGE_ERROR = {
 
 /** How long after an iframe `load` a fresh `ui/initialize` may still arrive. */
 export const INITIALIZE_GRACE_MS = 2000;
+
+/**
+ * The page retries `ui/initialize` every 250 ms until it gets the reply, so
+ * repeats can already be in flight when the reply goes out. For this long
+ * after an accepted initialize, further ones are ignored.
+ */
+export const INITIALIZE_REPEAT_WINDOW_MS = 1000;
 
 export type BridgeMethod = BridgeMessage["method"];
 
@@ -84,11 +91,10 @@ export interface FrameBridgeOptions {
   /** The iframe's `contentWindow`, read on every message. */
   getTarget: () => (BridgeTarget & object) | null;
   graceMs?: number;
-  /**
-   * The value the iframe URL fragment carries. It buys one port: the first
-   * `ui/initialize` that carries it takes it, and it is spent after that.
-   */
+  /** The value the iframe URL fragment carries, fixed for the bridge's life. */
   nonce: string;
+  /** Clock in ms, for the repeat window. Defaults to `Date.now`. */
+  now?: () => number;
   /** Called when the iframe left its page without a fresh `ui/initialize`. */
   onBlank: () => void;
   /** Called when the page reports a size. */
@@ -147,6 +153,7 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       return { port1: channel.port1, port2: channel.port2 };
     });
   const graceMs = options.graceMs ?? INITIALIZE_GRACE_MS;
+  const now = options.now ?? Date.now;
 
   let port: BridgePort | null = null;
   let blanked = false;
@@ -156,12 +163,10 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
   // zero, waits out a grace period before it blanks.
   let initializesSinceLoad = 0;
   let timer: unknown = null;
-  // The nonce works once. The page retries `ui/initialize` every 250 ms until
-  // it hears back, so repeats are expected and ignored. A page that learned
-  // the nonce (it sits in the URL the artifact itself loaded) and navigates
-  // the iframe elsewhere cannot use it again: that load never initializes, and
-  // the frame blanks. The cost is that a page reloading itself blanks too.
-  let nonceSpent = false;
+  // A second initialize is a repeat unless the iframe has loaded a document
+  // since the accepted one and the repeat window is over.
+  let acceptedAt = Number.NEGATIVE_INFINITY;
+  let loadedSinceAccept = true;
   let linkPending = false;
 
   const stopTimer = () => {
@@ -300,6 +305,7 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       if (blanked || disposed) {
         return;
       }
+      loadedSinceAccept = true;
       // The port stays: an initialize that came just before this `load` belongs
       // to this document. A navigation kills the old port by itself.
       if (initializesSinceLoad > 0) {
@@ -330,12 +336,21 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       // Any page in the iframe can send this message, since every sandboxed
       // document shares the opaque origin. Only the page that got the nonce
       // from the frame's URL fragment may take the port.
-      if (nonceSpent || message.params.nonce !== nonce) {
+      if (message.params.nonce !== nonce) {
         return;
       }
-      nonceSpent = true;
+      const isRepeat =
+        port !== null &&
+        (!loadedSinceAccept ||
+          now() - acceptedAt < INITIALIZE_REPEAT_WINDOW_MS);
+      if (isRepeat) {
+        return;
+      }
+      acceptedAt = now();
+      loadedSinceAccept = false;
       initializesSinceLoad += 1;
       stopTimer();
+      closePort();
       const channel = createChannel();
       const next = channel.port1;
       port = next;

@@ -168,6 +168,25 @@ interface VersionDraft {
 }
 
 const invalid = (message: string) => new ServiceError("invalid", message);
+const hasUtf16Bom = (bytes: Uint8Array): boolean =>
+  bytes.byteLength >= 2 &&
+  ((bytes[0] === 0xff && bytes[1] === 0xfe) ||
+    (bytes[0] === 0xfe && bytes[1] === 0xff));
+
+/**
+ * The content route reads HTML as UTF-8 to inject the bridge, and a browser
+ * lets a UTF-16 byte order mark override the header, so such a page would run
+ * without it.
+ */
+const checkEncoding = (file: { bytes: Uint8Array; path: string }): void => {
+  if (
+    contentTypeForPath(file.path).startsWith("text/html") &&
+    hasUtf16Bom(file.bytes)
+  ) {
+    throw invalid(`${file.path} must be UTF-8, not UTF-16`);
+  }
+};
+
 const notFound = () => new ServiceError("not_found", "Artifact not found");
 
 const toHex = (buffer: ArrayBuffer): string =>
@@ -477,7 +496,7 @@ export const createArtifactsService = ({
       raw = loaded.files;
       sourceLibraryPath = loaded.folder;
     }
-    const entryChecked = artifactPathSchema.safeParse(entry);
+    const entryChecked = artifactManifestSchema.shape.entry.safeParse(entry);
     if (!entryChecked.success) {
       throw invalid(
         `entry: ${entryChecked.error.issues[0]?.message ?? "invalid path"}`
@@ -496,6 +515,7 @@ export const createArtifactsService = ({
       if (file.bytes.byteLength > ARTIFACT_FILE_MAX_BYTES) {
         throw invalid(`${file.path} is over ${ARTIFACT_FILE_MAX_BYTES} bytes`);
       }
+      checkEncoding(file);
     }
     const total = raw.reduce((sum, file) => sum + file.bytes.byteLength, 0);
     if (total > ARTIFACT_MAX_BYTES) {

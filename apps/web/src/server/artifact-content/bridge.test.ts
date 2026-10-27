@@ -109,7 +109,7 @@ const makeEnv = (
     framed?: boolean;
     hash?: string;
     history?: unknown;
-    location?: { pathname: string; search: string };
+    location?: Record<string, unknown>;
     withObserver?: boolean;
   } = {}
 ) => {
@@ -192,13 +192,17 @@ const makeEnv = (
   const harbourmaster = win.harbourmaster as HarbourmasterApi;
 
   return {
-    click: (target: unknown): FakeClickEvent => {
+    click: (
+      target: unknown,
+      extra: Record<string, unknown> = {}
+    ): FakeClickEvent => {
       const event: FakeClickEvent = {
         defaultPrevented: false,
         preventDefault: () => {
           event.defaultPrevented = true;
         },
         target,
+        ...extra,
       };
       for (const listener of documentListeners.get("click") ?? []) {
         listener(event);
@@ -590,27 +594,80 @@ describe("bridge nonce", () => {
     });
   });
 
-  test("the nonce is removed from the address, other fragment parts stay", () => {
-    const urls: unknown[] = [];
-    const history = {
-      replaceState: (_state: unknown, _title: string, url: string) => {
-        urls.push(url);
-      },
-    };
-    // The harness builds the window itself, so give it history and a path.
+  test("the nonce stays in the address", () => {
+    const urls: string[] = [];
     const env = makeEnv({
-      hash: "#x=1&hm=abc123",
-      history,
-      location: { pathname: "/p", search: "?q=1" },
+      hash: "#hm=abc123",
+      history: {
+        replaceState: (_s: unknown, _t: string, url: string) => {
+          urls.push(url);
+        },
+      },
     });
     expect(initParams(env).nonce).toBe("abc123");
-    expect(urls).toEqual(["/p?q=1#x=1"]);
-    makeEnv({
-      hash: "#hm=abc123",
-      history,
-      location: { pathname: "/p", search: "" },
+    expect(urls).toEqual([]);
+  });
+
+  describe("on clicks to other pages of the artifact", () => {
+    const here = `${FOLDER}index.html#hm=abc123`;
+    const setupClick = (hash = "#hm=abc123") => {
+      const assigned: string[] = [];
+      const env = makeEnv({
+        hash,
+        location: {
+          assign: (url: string) => {
+            assigned.push(url);
+          },
+          href: `${FOLDER}index.html${hash}`,
+        },
+      });
+      return { assigned, env };
+    };
+
+    test("carry the nonce to the next page, keeping a fragment", () => {
+      const { assigned, env } = setupClick();
+      connect(env);
+      const plain = env.click(link(`${FOLDER}page2.html`));
+      expect(plain.defaultPrevented).toBe(true);
+      const withFragment = env.click(link(`${FOLDER}page2.html#top`));
+      expect(withFragment.defaultPrevented).toBe(true);
+      expect(assigned).toEqual([
+        `${FOLDER}page2.html#hm=abc123`,
+        `${FOLDER}page2.html#top&hm=abc123`,
+      ]);
     });
-    expect(urls.at(-1)).toBe("/p");
+
+    test("leave alone: same-document anchors, links that carry it already, modifier clicks, other targets, downloads, a page with no nonce", () => {
+      const { assigned, env } = setupClick();
+      connect(env);
+      const cases: Record<string, unknown>[] = [
+        link(`${FOLDER}index.html#section`),
+        link(here),
+        link(`${FOLDER}page2.html#x&hm=abc123`),
+        { ...link(`${FOLDER}p.html`), target: "_blank" },
+        { ...link(`${FOLDER}p.html`), hasAttribute: () => true },
+      ];
+      for (const anchor of cases) {
+        expect(env.click(anchor).defaultPrevented).toBe(false);
+      }
+      for (const extra of [
+        { ctrlKey: true },
+        { metaKey: true },
+        { button: 1 },
+      ]) {
+        expect(env.click(link(`${FOLDER}p.html`), extra).defaultPrevented).toBe(
+          false
+        );
+      }
+      expect(assigned).toEqual([]);
+
+      const bare = setupClick("");
+      connect(bare.env);
+      expect(bare.env.click(link(`${FOLDER}p.html`)).defaultPrevented).toBe(
+        false
+      );
+      expect(bare.assigned).toEqual([]);
+    });
   });
 
   test("no hash, a hash without hm, or an empty nonce sends no nonce key", () => {

@@ -215,7 +215,7 @@ const serveFile = async (
   }
   const contentType = contentTypeForPath(filePath);
   const isHtml = contentType.startsWith("text/html");
-  const etag = isHtml ? `"${file.sha256}.b"` : `"${file.sha256}"`;
+  const etag = isHtml ? `"${file.sha256}.b2"` : `"${file.sha256}"`;
   if (etagMatches(request.headers.get("If-None-Match"), etag)) {
     return notModified(etag);
   }

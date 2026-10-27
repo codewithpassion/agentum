@@ -48,9 +48,11 @@ export interface MemberCalls {
   }) => Promise<unknown>;
 }
 
-/** A share link holder. Only tools exist. */
+/** A share link holder: tools, and reads of the shared storage area. */
 export interface LinkCalls {
   callTool: (input: CallToolInput) => Promise<{ result?: unknown }>;
+  storageGet: (input: { key: string }) => Promise<StorageGetResult>;
+  storageList: (input: { prefix?: string }) => Promise<StorageListResult>;
 }
 
 export type FrameCalls =
@@ -147,9 +149,16 @@ export function createCallHandlers(options: {
 
   const requireMember = (): MemberCalls => {
     if (calls.viewer === "link") {
-      throw denied("Shared links can't use app storage.");
+      throw denied("Shared links can't change app storage.");
     }
     return calls;
+  };
+
+  /** A link holder reads the shared area and nothing else. */
+  const refuseOtherArea = (scope: ArtifactStorageScope): void => {
+    if (scope !== "shared") {
+      throw denied("Shared links can read only the shared area.");
+    }
   };
 
   return {
@@ -158,11 +167,20 @@ export function createCallHandlers(options: {
       return {};
     }),
     "storage/get": guarded(async ({ params }) => {
-      const { value } = await requireMember().storageGet(params);
+      if (calls.viewer === "link") {
+        refuseOtherArea(params.scope);
+        return { value: (await calls.storageGet({ key: params.key })).value };
+      }
+      const { value } = await calls.storageGet(params);
       return { value };
     }),
     "storage/list": guarded(async ({ params }) => {
-      const { keys } = await requireMember().storageList(params);
+      if (calls.viewer === "link") {
+        refuseOtherArea(params.scope);
+        const { keys } = await calls.storageList({ prefix: params.prefix });
+        return { keys };
+      }
+      const { keys } = await calls.storageList(params);
       return { keys };
     }),
     "storage/set": guarded(async ({ params }) => {
@@ -256,37 +274,61 @@ export function linkCallsFromFetch(
   token: string,
   fetchFn: typeof fetch = fetch
 ): LinkCalls {
+  const post = async (path: string, payload: object): Promise<unknown> => {
+    let response: Response;
+    try {
+      response = await fetchFn(
+        `/api/share/${encodeURIComponent(token)}/${path}`,
+        {
+          body: JSON.stringify(payload),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      );
+    } catch (error) {
+      throw new LinkCallError(0, { cause: error });
+    }
+    if (response.status !== 200) {
+      throw new LinkCallError(response.status);
+    }
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      throw new LinkCallError(502, { cause: error });
+    }
+    const parsed = shareCallResponseSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new LinkCallError(502);
+    }
+    return parsed.data.result;
+  };
+
   return {
-    callTool: async ({ arguments: args, tool }) => {
-      let response: Response;
-      try {
-        response = await fetchFn(
-          `/api/share/${encodeURIComponent(token)}/call`,
-          {
-            body: JSON.stringify(
-              args === undefined ? { tool } : { arguments: args, tool }
-            ),
-            headers: { "content-type": "application/json" },
-            method: "POST",
-          }
-        );
-      } catch (error) {
-        throw new LinkCallError(0, { cause: error });
-      }
-      if (response.status !== 200) {
-        throw new LinkCallError(response.status);
-      }
-      let body: unknown;
-      try {
-        body = await response.json();
-      } catch (error) {
-        throw new LinkCallError(502, { cause: error });
-      }
-      const parsed = shareCallResponseSchema.safeParse(body);
-      if (!parsed.success) {
+    callTool: async ({ arguments: args, tool }) => ({
+      result: await post(
+        "call",
+        args === undefined ? { tool } : { arguments: args, tool }
+      ),
+    }),
+    storageGet: async ({ key }) => {
+      const result = await post("storage", { key, op: "get" });
+      return { value: (result ?? null) as StorageGetResult["value"] };
+    },
+    storageList: async ({ prefix }) => {
+      const result = await post(
+        "storage",
+        prefix === undefined ? { op: "list" } : { op: "list", prefix }
+      );
+      if (
+        !(
+          Array.isArray(result) &&
+          result.every((key) => typeof key === "string")
+        )
+      ) {
         throw new LinkCallError(502);
       }
-      return { result: parsed.data.result };
+      return { keys: result as string[] };
     },
   };
 }

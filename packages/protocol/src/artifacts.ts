@@ -77,9 +77,15 @@ export const artifactManifestFileSchema = z.strictObject({
 export type ArtifactManifestFile = z.infer<typeof artifactManifestFileSchema>;
 
 /** The file tree of one version. `entry` is a key of `files`. */
+/** Entry files the content route serves as a page, with the bridge in it. */
+const ARTIFACT_ENTRY_PATTERN = /\.(?:html?|md)$/i;
+
 export const artifactManifestSchema = z
   .strictObject({
-    entry: artifactPathSchema,
+    entry: artifactPathSchema.refine(
+      (path) => ARTIFACT_ENTRY_PATTERN.test(path),
+      { message: "entry must be an .html, .htm or .md file" }
+    ),
     files: z.record(artifactPathSchema, artifactManifestFileSchema),
   })
   .superRefine((manifest, ctx) => {

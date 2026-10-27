@@ -124,37 +124,19 @@ export const BRIDGE_JS = `(function () {
     contentFolder = null;
   }
 
-  // The viewer puts a one-time nonce in the fragment as "#hm=<nonce>". The
-  // script takes it and removes it from the address, so the page's own scripts
-  // and its router don't see it. The route injects this script before the
-  // first element, so it runs ahead of the page's scripts. The frame honours
-  // the nonce once, and this script's initialize is the first to reach it.
+  // The viewer puts a nonce in the fragment as "#hm=<nonce>" and accepts a
+  // port only from a page that sends it back. It stays in the address, so a
+  // reload keeps it, and clicks on links inside the artifact carry it to the
+  // next page (below). It is defence in depth, not a secret: this page's own
+  // scripts can read it. The grants are what limit a page.
   function readNonce() {
     try {
       var parts = String(window.location.hash || "").slice(1).split("&");
-      var found = null;
-      var rest = [];
       for (var i = 0; i < parts.length; i += 1) {
-        if (found === null && parts[i].indexOf("hm=") === 0 && parts[i].length > 3) {
-          found = parts[i].slice(3);
-        } else if (parts[i] !== "") {
-          rest.push(parts[i]);
+        if (parts[i].indexOf("hm=") === 0 && parts[i].length > 3) {
+          return parts[i].slice(3);
         }
       }
-      if (found !== null) {
-        try {
-          window.history.replaceState(
-            null,
-            "",
-            window.location.pathname +
-              window.location.search +
-              (rest.length > 0 ? "#" + rest.join("&") : "")
-          );
-        } catch (_error) {
-          // The address keeps the fragment.
-        }
-      }
-      return found;
     } catch (_error) {
       // No location to read, so no nonce.
     }
@@ -475,6 +457,37 @@ export const BRIDGE_JS = `(function () {
     return null;
   }
 
+  // A click on a link to another page of this artifact loads a new document,
+  // and the frame lets that page in only if its address has the nonce.
+  function carryNonce(event, anchor, href) {
+    if (
+      nonce === null ||
+      event.defaultPrevented ||
+      event.button > 0 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.altKey ||
+      (anchor.target && anchor.target !== "_self") ||
+      (typeof anchor.hasAttribute === "function" &&
+        anchor.hasAttribute("download"))
+    ) {
+      return;
+    }
+    var target = new URL(href);
+    var here = String(window.location.href || "").split("#")[0];
+    if (target.href.split("#")[0] === here) {
+      return;
+    }
+    var fragment = target.hash.slice(1);
+    if (fragment.split("&").indexOf("hm=" + nonce) >= 0) {
+      return;
+    }
+    target.hash = (fragment === "" ? "" : fragment + "&") + "hm=" + nonce;
+    event.preventDefault();
+    window.location.assign(target.href);
+  }
+
   if (contentFolder !== null) {
     try {
       document.addEventListener(
@@ -489,7 +502,11 @@ export const BRIDGE_JS = `(function () {
               return;
             }
             var href = new URL(anchor.href).href;
-            if (!isHttpUrl(href) || href.indexOf(contentFolder) === 0) {
+            if (!isHttpUrl(href)) {
+              return;
+            }
+            if (href.indexOf(contentFolder) === 0) {
+              carryNonce(event, anchor, href);
               return;
             }
             event.preventDefault();

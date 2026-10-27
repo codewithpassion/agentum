@@ -272,6 +272,59 @@ describe("R1.4 limits and validation", () => {
     });
   });
 
+  test("an entry that is not html, htm or md is refused", async () => {
+    for (const entry of ["logo.svg", "data.xml", "app.js"]) {
+      // biome-ignore lint/performance/noAwaitInLoops: each refusal builds its own harness
+      await expectInvalidCreate({
+        entry,
+        files: [{ path: entry, text: "x" }],
+        kind: "page",
+        title: "T",
+      });
+    }
+  });
+
+  test("an html file with a UTF-16 byte order mark is refused, UTF-8 is not", async () => {
+    for (const header of [
+      [0xff, 0xfe, 0x3c, 0x00],
+      [0xfe, 0xff, 0x00, 0x3c],
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: each refusal builds its own harness
+      await expectInvalidCreate({
+        files: [
+          {
+            base64: Buffer.from(header).toString("base64"),
+            path: "index.html",
+          },
+        ],
+        kind: "page",
+        title: "T",
+      });
+    }
+    await expectInvalidCreate({
+      files: [
+        { path: "index.html", text: "<p>ok</p>" },
+        {
+          base64: Buffer.from([0xff, 0xfe, 0x3c, 0x00]).toString("base64"),
+          path: "other.htm",
+        },
+      ],
+      kind: "page",
+      title: "T",
+    });
+    const h = harness();
+    await h.service.create(principals.owner, {
+      files: [
+        {
+          base64: Buffer.from([0xef, 0xbb, 0xbf, 0x3c]).toString("base64"),
+          path: "index.html",
+        },
+      ],
+      kind: "page",
+      title: "T",
+    });
+  });
+
   test("duplicate paths are refused", async () => {
     await expectInvalidCreate({
       files: [

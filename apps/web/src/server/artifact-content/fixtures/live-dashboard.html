@@ -27,11 +27,11 @@
       try {
         const orders = await hm.tools.call("shop/list_orders", { days: 7 });
         show("orders", `${orders.structuredContent.orders.length} orders`);
+        const note = await hm.storage.get("note", "shared");
+        show("team-note", note ?? "No note");
         const seen = (await hm.storage.get("visits")) ?? 0;
         await hm.storage.set("visits", seen + 1);
         show("visits", `Visit ${seen + 1}`);
-        const note = await hm.storage.get("note", "shared");
-        show("team-note", note ?? "No note");
         show("status", "Live");
       } catch (error) {
         show("status", error.message);
