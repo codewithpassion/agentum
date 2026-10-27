@@ -286,8 +286,17 @@ Phase 2 adds live calls through the bridge, modelled on MCP Apps and on Claude's
 - The version declares grants in `harbourmaster.json`: which connector tools and platform read tools it may call, and with which argument limits.
 - The page sends `tools/call` to the frame over the bridge's `MessageChannel` port. The frame calls `artifacts.callTool` over tRPC as the signed-in viewer (`workspaceProcedure`). The service checks the grant list, runs the tool through the existing credentials path with the viewer's own credential (`credentials.resolve` in `packages/services/src/credentials.ts:591`), and returns the scrubbed result.
 - Only `readOnlyHint` tools can be granted in phase 2. A grant that a version adds or widens needs a person's approval, through the propose and approve flow skills already use.
-- Link viewers never trigger a call with anyone's rights. The bridge answers `tools/call` from a link viewer with an error. This is the main exfiltration path, so it is a requirement (R2.6), not a default.
-- Phase 2 can add "owner-scoped published queries": a person approves one named read query that runs as them on a schedule and writes a data file into a new version. That keeps the owner's rights on the server and the result as a snapshot.
+- Link viewers get what the share allows (Dom's decision, 27 Oct 2026). The person who creates a link picks its data mode: `snapshot` (the default) or `live`. A snapshot link answers every `tools/call` with an error, so its viewers see only the data files in the version. A live link lets anyone holding it run a fixed list of read-only tools with the artifact owner's rights. This is the main exfiltration path, so the live mode carries the safeguards below as requirements (R2.6 and R2.10 to R2.15), not as defaults.
+
+Live links, in detail:
+
+- Only the artifact's owner can create a live link, because the calls use the owner's connections. An admin who isn't the owner can create snapshot links only. Nobody lends another person's rights.
+- The share row records who granted it (`granted_by`) and the exact tool keys it may call (`live_tools`, in the `<serverKey>/<tool>` form of `packages/protocol/src/requests.ts`). The list is a subset of the version's declared grants and holds only tools with `readOnlyHint`. A later version that declares more tools widens no existing link.
+- Every call is checked at call time, with no cache: the link isn't revoked or expired, the workspace switch is on, `granted_by` is still the owner and still a member of an allowed org, the tool is in `live_tools` and in the current version's grants, and the rate limits hold. Revoking the link therefore stops the next call at once.
+- Calls run through the existing credentials path in `user` mode on behalf of `granted_by` (`credentials.resolve`, `packages/services/src/credentials.ts:591`). Results pass the event scrubber (`packages/services/src/events/scrub.ts`) and a size cap before they reach the page. Keys never leave the server.
+- Rate limits per link: 60 calls a minute, 1,000 a day, and 10 a minute per visitor hash. They are tighter than the share-open limit.
+- Every call, allowed or refused, writes an `artifact_views` row with surface `live_call`, the tool key, the outcome and the same IP prefix, place and browser fields as an open. The owner sees them in the link's access log.
+- A live link must have an expiry, 30 days at most. That is a design choice to bound how long the owner's rights are out, not one of Dom's stated rules.
 
 ### 5. Server parts for micro apps (phase 2)
 
@@ -318,13 +327,13 @@ Share model:
 |---|---|---|---|
 | `private` | The owner, and workspace admins | 1 | Default for artifacts from `ui` and private sessions. |
 | `workspace` | Every member of the workspace's Clerk org | 1 | Same gate as `workspaceProcedure`. |
-| Link | Anyone with the URL, no sign-in | 1 | On top of either audience. Many links per artifact, each with its own expiry, optional version pin, revocable. |
+| Link | Anyone with the URL, no sign-in | 1 | On top of either audience. Many links per artifact, each with its own expiry, optional version pin, revocable. From phase 2 each link is `snapshot` or `live` (section 4). |
 | `people` | Named people, by email | 4 | Email one-time code through the existing `EMAIL` binding, or a Clerk account outside the org. |
 | `public` | Anyone, listed in a public gallery, indexable | 4 | Workspace admin only. |
 
 Rules:
 
-- The owner and workspace admins (`isAdmin`, from Clerk `org:admin`, `workspaces.ts`) change the audience, create links and revoke links. Members see the list of links on artifacts they can open.
+- The owner and workspace admins (`isAdmin`, from Clerk `org:admin`, `workspaces.ts`) change the audience, create links and revoke links (Dom's decision, 27 Oct 2026). Only the owner creates a live link. Members see the list of links on artifacts they can open.
 - Agents can't change audience or create links in phase 1. Phase 4 can add an `artifact_share` tool that always waits for a person's approval.
 - Each workspace has a link-sharing switch, on by default, that only admins change. Turning it off blocks every existing link at once without deleting them, as Claude's org switch does. An environment variable `ARTIFACT_LINKS_OFF` blocks links everywhere, as an emergency stop.
 - A link token is `hm_share_` plus 32 random bytes in base64url, and view tokens start `hm_view_`. The prefix matters: the event redactor already replaces any `hm_<kind>_<16+ chars>` string with `[redacted]` (`packages/services/src/events/redact.ts:35`), so a token that slips into a tool result or event is scrubbed anyway, and the bearer resolver already refuses unknown `hm_` prefixes (`workspaces.ts:325-333`). D1 stores its SHA-256 for lookup (`hashToken`, `crypto.ts:171`) and an AES-GCM copy under `SECRETS_KEY` (`encryptSecret`, `crypto.ts:123`) so the owner can copy the link again later. The token is never logged or put in events.
@@ -380,7 +389,7 @@ Framed viewer `/a/$artifactId`. A 44 px top bar: title (renameable by the owner)
 
 Version history. A sheet listing versions newest first: number, author, message, time, task link, with View and Restore. Restore asks to confirm and says it creates a new version.
 
-Share dialog. On desktop a dialog, on phones a full-width bottom sheet capped to the viewport, per MB.1's dialog rules (`docs/tasks/MB.1-mobile-shell-global.md`). It has an audience switch (Private, Workspace), the list of data files in the current version, a "Create link" form (expiry, follow latest or pin this version), and the link list: created by, created, expires, opens, last opened, Copy, Revoke. Revoke asks to confirm, after the audit incident where a one-tap revoke deleted a desk key (`docs/reviews/mobile-audit/report.md`, "Incident").
+Share dialog. On desktop a dialog, on phones a full-width bottom sheet capped to the viewport, per MB.1's dialog rules (`docs/tasks/MB.1-mobile-shell-global.md`). It has an audience switch (Private, Workspace), the list of data files in the current version, a "Create link" form (expiry, follow latest or pin this version), and the link list: created by, created, expires, opens, last opened, Copy, Revoke. From phase 2 the link form also has a data choice: "Snapshot only" (preselected) or "Live, using my connections", with tool checkboxes, none ticked, and a warning: "Anyone with this link can run these tools as you until it expires or you revoke it. Every call is logged." Live links show a "Live as <owner>" badge. Revoke asks to confirm, after the audit incident where a one-tap revoke deleted a desk key (`docs/reviews/mobile-audit/report.md`, "Incident").
 
 Access log. A tab on the artifact page: time, link or member, place, network, browser, outcome, with a filter by link. Phones get stacked rows.
 
@@ -396,7 +405,7 @@ Workspace setting. Settings gains an "Artifacts" section with the link-sharing s
 | A flagged phishing artifact gets the app's host blocklisted | Only members create links, agents can't, links expire and can be switched off; a Safe Browsing or mail-filter flag is a trigger to move content to its own domain (section 3). |
 | Phishing through shared links (the claude.ai FakeAgent case) | Content can't navigate the frame or run top-level; the frame always shows workspace, owner and "user-generated and unverified"; `noindex` everywhere; no downloads from the sandbox; only members create links; agents can't; links expire; the workspace switch and `ARTIFACT_LINKS_OFF` stop them all. A report button comes in phase 4. |
 | A prompt-injected agent publishes a page that asks for credentials | Agents can't create links, so the page reaches only members, inside the labelled frame. `form-action 'none'`, the path-scoped `connect-src`, no `allow-modals` and no popups keep typed data inside the page. |
-| Data exfiltration from a dashboard | Phase 1 has no live data. Phase 2 tool calls use the viewer's own rights, read-only tools only, grant changes need approval, and link viewers get no calls. Residual: CSP doesn't cover every channel (WebRTC, DNS prefetch, popups), so grants, not CSP, are the boundary. |
+| Data exfiltration from a dashboard | Phase 1 has no live data. In phase 2 members' calls use their own rights. Link viewers get calls only on a live link, which only the owner creates, with a fixed list of read-only tools, rate limits, a required expiry, a per-call log and instant revocation. Grant changes need approval. Residual: CSP doesn't cover every channel (WebRTC, DNS prefetch, popups), so grants, not CSP, are the boundary. |
 | A shared link leaks further than intended | Expiry, revocation, the access log with places and networks, and dead-link opens recorded. |
 | Abuse of public links (scraping, load) | A Workers Rate Limiting binding on `/api/share/:token/open`, per token and per IP prefix. Content responses for one version are cacheable. |
 | Cost | R2 storage at the existing bucket, a per-workspace artifact quota of 1 GB like `LIBRARY_MAX_BYTES`, Browser Run time per `artifact_test` (billed beyond included hours, `wrangler.jsonc` comment), and Dynamic Workers within the included 1,000 per month at this scale. |
@@ -452,13 +461,17 @@ Index on `(workspace_id, updated_at)`.
 | version_id | nullable: null follows the current version |
 | expires_at, revoked_at, revoked_by | |
 | open_count, last_opened_at | updated on each open |
+| data_mode | `snapshot` (default) or `live`, phase 2 |
+| granted_by | Clerk user id of the owner who made a live link, null for snapshot |
+| live_tools | JSON array of tool keys a live link may call, null for snapshot |
 
 `artifact_views`
 
 | Column | Notes |
 |---|---|
 | id, workspace_id, artifact_id, version_id, share_id, created_at | |
-| surface, outcome | see section 6 |
+| surface, outcome | see section 6; phase 2 adds surface `live_call` and outcomes `refused`, `rate_limited`, `error` |
+| tool_key | nullable, set for `live_call` rows |
 | user_id | nullable |
 | ip_prefix, visitor_hash | never a full IP |
 | country, region, city, asn, as_org | from `request.cf` |
@@ -509,6 +522,7 @@ All in the main Worker, in a new artifacts route file mounted once in `apps/web/
 - `GET /a/<uuid>/c/<token>/<path>`: the file, or the entry for an empty path, with the headers of section 3 on every status. 401 for a bad or expired token or a token for another artifact, 404 for a missing path, 302 to `/a/<uuid>` for a top-level open with a member or link token, 403 for `Service-Worker: script`. Skips `clerkMiddleware()`.
 - `GET /a/<uuid>/c/<token>/_hm/bridge.js` and `_hm/doc.html`: platform files under the same headers.
 - `OPTIONS` and `* /a/<uuid>/c/<token>/api/*`: phase 2 app server parts.
+- `POST /api/share/:token/call` (phase 2, public, rate limited): `{ tool, arguments }` from the share frame for a live link. Response 200: `{ result }`, scrubbed. 403 `{ error }` for a tool outside the link or a snapshot link, 429 above the limits, 404 for a dead link.
 - Every other response from the app gets `frame-ancestors 'none'`. `/a/<uuid>` and `/s/<token>` also get `Referrer-Policy: no-referrer`.
 
 ### Bridge (phase 1 subset, MCP Apps names)
@@ -576,7 +590,13 @@ Sharing and the log
 - R2.3 App storage is per app, with a per-viewer area and a shared area, capped at 20 MB, reachable only through `HM`.
 - R2.4 An agent's app version is `proposed` until `artifact_promote`; a version that adds grants, secrets or hosts waits for a person in Needs you.
 - R2.5 A page calls a granted read-only tool through the bridge, and it runs with the signed-in viewer's own credential.
-- R2.6 A link viewer's `tools/call`, storage write or server call that needs a person's rights is refused.
+- R2.6 On a snapshot link, a link viewer's `tools/call`, storage write or server call that needs a person's rights is refused.
+- R2.10 Only the artifact owner can create a live link; the share records `granted_by` and `live_tools`, and `live_tools` accepts only read-only tools the current version declares.
+- R2.11 A live link's call runs with `granted_by`'s credentials only while `granted_by` is the owner and a member of an allowed org; otherwise it is refused.
+- R2.12 After a live link is revoked or expires, the next call is refused, with no caching in between.
+- R2.13 A live link's calls are limited to 60 a minute and 1,000 a day per link and 10 a minute per visitor; above that they answer `rate_limited`.
+- R2.14 Every live call, allowed or refused, writes one `artifact_views` row with the tool key and outcome.
+- R2.15 The share dialog shows the data mode as a choice with snapshot preselected, lists the tools with none ticked, and shows a warning naming whose rights the link uses before it creates a live link; a live link requires an expiry of at most 30 days.
 - R2.7 People can pin an artifact to the sidebar and as a desk tile.
 - R2.8 Before R2.1 ships, a review checks the subdomain triggers of section 3 against phase 2's apps and records the answer.
 - R2.9 A person can hand an artifact to another agent, which may then update it.
@@ -664,11 +684,11 @@ The web lane (A.8 to A.10) is the critical path. 11 tasks, 4 on Codex (A.2, A.3,
 - 27 Oct 2026, Dom: artifacts live on the app's origin under `/a/<uuid>`, with the content under that path. No separate content domain in phase 1 or 2. A subdomain comes later only if a trigger in section 3 fires.
 - 27 Oct 2026, Dom: the default audience follows the session. Artifacts from web chat and Slack DMs start private to the person who opened the session, and the rest start workspace-wide.
 - 27 Oct 2026, Dom: the access log keeps rows for 12 months, with IPv4 /24 and IPv6 /48 prefixes and a daily-salted visitor hash, and never a full IP.
+- 27 Oct 2026, Dom: the owner and workspace admins create and revoke links. Agents never create links in phase 1. A workspace switch for link sharing is on by default.
+- 27 Oct 2026, Dom: from phase 2, the person who creates a link chooses per link between snapshot only and live with the owner's rights. The live option records who granted it and which tools it may call, shows a warning in the share dialog, is rate limited, logs every call in the access log and stops at once on revoke (section 4).
+- 27 Oct 2026, Dom: agent versions of pages, docs and dashboards go live at once, and restore undoes a bad one. App versions that ask for new grants wait for a person.
+- 27 Oct 2026, Dom: artifacts get 1 GB of storage per workspace, and no copy goes into the library.
 
 ## Open questions for Dom
 
-1. Who may create links. Recommended: the owner and workspace admins, never agents in phase 1, with a workspace switch that is on by default. The alternative is any member, as with desk keys today (X.2 log).
-2. Live data for link viewers in phase 2. Recommended: none. Link viewers see snapshot data only, and live calls run only for signed-in members with their own rights. Owner-scoped data for link viewers goes through a person-approved scheduled query that writes a snapshot.
-3. Agent versions. Recommended: page, doc and dashboard versions go live at once, as on claude.ai, and restore undoes a bad one. App versions with new grants wait for a person.
-4. Library mirror. Recommended: no copy of artifact files in the library. Agents publish from their task folder, and a "Save to library" action can come later.
-5. Storage quota. Recommended: 1 GB of artifact bytes per workspace, like the library.
+None at the moment. Phase 2 starts with a spike on Dynamic Workers and Durable Object Facets and the subdomain review (R2.8), which may raise new ones.
