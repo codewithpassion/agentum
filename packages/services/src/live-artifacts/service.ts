@@ -851,7 +851,21 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         images: images.rows,
       });
     } catch (error) {
-      await images.cleanup();
+      // A lost transaction acknowledgement must not delete accepted ownership.
+      // If the DB is unavailable this read fails closed, preserving staged bytes.
+      const [committed] = await db
+        .select({ id: artifacts.id })
+        .from(artifacts)
+        .where(
+          and(
+            eq(artifacts.id, row.id),
+            eq(artifacts.workspaceId, row.workspaceId)
+          )
+        )
+        .limit(1);
+      if (!committed) {
+        await images.cleanup();
+      }
       throw error;
     }
   };

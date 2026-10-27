@@ -387,3 +387,34 @@ test("ownership write failure rejects content and deletes staged file bytes", as
   ).rejects.toThrow("ownership storage");
   expect(h.state()).toEqual(before);
 });
+
+test("lost commit acknowledgement preserves already accepted image rows, bytes and ownership", async () => {
+  const h = setup();
+  h.deps.atomic = async (statements) => {
+    await h.atomic(statements);
+    throw new Error("lost commit acknowledgement");
+  };
+  await expect(
+    createLiveArtifactsService(h.deps).createDocument(principals.owner, {
+      markdown: "![image](https://images.example.test/photo)",
+      title: "Accepted before lost ack",
+    })
+  ).rejects.toThrow("lost commit acknowledgement");
+  const [created] = h.db.select().from(artifacts).all();
+  const [file] = h.db.select().from(files).all();
+  if (!(created && file)) {
+    throw new Error("Missing committed ownership");
+  }
+  expect(h.blobs.objects.has(file.r2Key)).toBe(true);
+  expect(
+    (await h.service.ownBlobUrls(principals.owner, { artifactId: created.id }))
+      .urls
+  ).toEqual([`/files/${file.id}`]);
+  expect(
+    (
+      await h.service.exportMarkdown(principals.owner, {
+        artifactId: created.id,
+      })
+    ).markdown
+  ).toContain(`/files/${file.id}`);
+});
