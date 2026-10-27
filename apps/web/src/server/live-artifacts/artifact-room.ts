@@ -484,7 +484,13 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (!this.deckTools || input.artifactId !== this.meta.scope.artifactId) {
         throw new Error("Deck required");
       }
-      return this.deckTools.read(input);
+      await this.refreshPolicy();
+      return {
+        ...(await this.deckTools.read(input)),
+        embedSources: [...this.policy].filter((source) =>
+          source.startsWith("artifact:")
+        ),
+      };
     });
   }
   deckWrite(input: DeckWriteInput, origin: LiveOperationOrigin) {

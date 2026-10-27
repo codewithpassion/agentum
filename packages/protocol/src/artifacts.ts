@@ -23,6 +23,13 @@ import { z } from "zod";
  */
 export const viewTokenClaimsSchema = z.strictObject({
   artifactId: z.uuid(),
+  /** Deck embeds bind the top-level page to an exact manifest file. */
+  embedFile: z
+    .strictObject({
+      path: z.string().min(1).max(1024),
+      sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    })
+    .optional(),
   expiresAt: z.int().positive(),
   shareId: z.string().min(1).optional(),
   userId: z.string().min(1).optional(),

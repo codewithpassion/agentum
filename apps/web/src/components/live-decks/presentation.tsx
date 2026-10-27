@@ -31,6 +31,21 @@ export function DeckPresentation({
   const nextRef = useRef<() => void>(() => undefined);
   const root = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = stage.current;
+    if (!element) {
+      return;
+    }
+    const resize = () =>
+      element.style.setProperty(
+        "--ld-deck-scale",
+        String(element.getBoundingClientRect().width / 960)
+      );
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    resize();
+    return () => observer.disconnect();
+  }, []);
   const current = useRef(ports);
   current.current = ports;
   const following = spotlight && !!ports.presentation && !broadcast;
@@ -315,7 +330,9 @@ export function DeckPresentation({
         <DeckScene
           deck={ports.deck}
           effect={effect}
+          interactiveEmbeds
           ownsBlob={ports.ownsBlob}
+          resolveEmbed={ports.resolveEmbed}
           slide={slide}
           visible={visible}
         />

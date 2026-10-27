@@ -22,6 +22,7 @@ import type {
   RoomSnapshot,
 } from "../ports";
 import { RoomStorage } from "../storage";
+import { embedContentFetch } from "./embed-content";
 
 const scope = {
   artifactId: "12345678-1234-4123-8123-123456789abc",
@@ -292,6 +293,9 @@ interface FixtureEnv {
 export default {
   async fetch(request: Request, env: FixtureEnv) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/a/") || url.pathname === "/embed-url") {
+      return embedContentFetch(request);
+    }
     const stub = env.ROOM.getByName(url.searchParams.get("room") ?? "test");
     if (request.headers.get("Upgrade")) {
       return stub.fetch(request);

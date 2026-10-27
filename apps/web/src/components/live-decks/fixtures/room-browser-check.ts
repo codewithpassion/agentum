@@ -12,7 +12,10 @@ import { build } from "vite";
 import { Doc } from "yjs";
 import { emptySlide, newElement } from "../model";
 
-const deck = new Deck(new Doc(), richTextCodec);
+const embedSource = `artifact:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:${"a".repeat(64)}:chart.html`;
+const deck = new Deck(new Doc(), richTextCodec, {
+  ownsBlob: (path) => path === embedSource,
+});
 deck.setTheme({ colors: {}, fonts: {}, sizes: {} });
 for (const id of ["opening", "closing"]) {
   const slide = emptySlide(deck);
@@ -29,6 +32,16 @@ for (const id of ["opening", "closing"]) {
     shape.props["build-order"] = "1";
     shape.props["build-trigger"] = "click";
     deck.addElement(id, shape);
+    const embedded = newElement(deck.read(id).slide, "embed");
+    embedded.id = "sandbox-chart";
+    Object.assign(embedded.props, {
+      h: "160",
+      src: embedSource,
+      w: "250",
+      x: "650",
+      y: "300",
+    });
+    deck.addElement(id, embedded);
     const table = newElement(deck.read(id).slide, "table");
     table.id = "table";
     table.props.y = "290";
@@ -47,6 +60,7 @@ deck.doc.destroy();
 const output = await mkdtemp(join(tmpdir(), "ld6-room-browser-"));
 try {
   const worker = await bundle({
+    conditions: ["workerd"],
     entrypoints: [
       resolve(
         import.meta.dir,
@@ -74,6 +88,7 @@ try {
       stderr: "inherit",
       stdin: new Blob([
         JSON.stringify({
+          embedSource,
           output,
           script: await worker.outputs[0].text(),
           slides,

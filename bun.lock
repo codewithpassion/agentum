@@ -149,6 +149,7 @@
       "name": "@repo/live-deck",
       "dependencies": {
         "@repo/live-doc": "workspace:*",
+        "@repo/protocol": "workspace:*",
         "fractional-indexing": "^3.2.0",
         "saxes": "^6.0.0",
         "yjs": "^13.6.27",

@@ -5,6 +5,7 @@ import { build } from "bun";
 const PLAYWRIGHT = /^@cloudflare\/playwright$/;
 const ANY_FILE = /.*/;
 const built = await build({
+  conditions: ["workerd"],
   entrypoints: [`${import.meta.dir}/production.ts`],
   external: ["cloudflare:workers", "node:*"],
   plugins: [

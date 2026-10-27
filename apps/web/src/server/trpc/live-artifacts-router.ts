@@ -88,6 +88,11 @@ export const createLiveArtifactsRouter = (
       .mutation(({ ctx, input }) =>
         service(ctx).createDocument(ctx.principal, input)
       ),
+    embedSources: workspaceProcedure
+      .input(z.strictObject(artifact))
+      .query(({ ctx, input }) =>
+        service(ctx).embedSources(ctx.principal, input)
+      ),
     ensureDeckCell: workspaceProcedure
       .input(ensureDeckCellInputSchema)
       .mutation(({ ctx, input }) =>
@@ -139,6 +144,11 @@ export const createLiveArtifactsRouter = (
     resolve: workspaceProcedure
       .input(z.strictObject({ threadId: id }))
       .mutation(({ ctx, input }) => service(ctx).resolve(ctx.principal, input)),
+    resolveEmbed: workspaceProcedure
+      .input(z.strictObject({ ...artifact, source: z.string().max(1200) }))
+      .query(({ ctx, input }) =>
+        service(ctx).resolveEmbed(ctx.principal, input)
+      ),
     restore: workspaceProcedure
       .input(
         z.strictObject({

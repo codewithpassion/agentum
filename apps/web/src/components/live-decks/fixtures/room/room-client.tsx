@@ -21,6 +21,10 @@ async function call(path: string, input: object = {}): Promise<unknown> {
   }
   return response.json();
 }
+const resolveEmbed = async (source: string) =>
+  z
+    .object({ contentUrl: z.string(), expiresAt: z.string() })
+    .parse(await call("/embed-url", { source }));
 function NetworkDeck() {
   const [room, setRoom] = useState<TicketedDeckRoom>();
   const [error, setError] = useState<string>();
@@ -133,6 +137,7 @@ function NetworkDeck() {
                     publishPresence: room.publishPresence,
                     state: "synced",
                   },
+                  resolveEmbed,
                   role: room.role,
                   selfId: room.selfId,
                   upload: () =>

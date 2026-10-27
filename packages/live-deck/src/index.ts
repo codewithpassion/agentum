@@ -1,3 +1,5 @@
+import { parseEmbedSource } from "@repo/protocol/deck";
+
 import { generateKeyBetween as fractionalKeyBetween } from "fractional-indexing";
 import { SaxesParser } from "saxes";
 import {
@@ -64,7 +66,8 @@ export type ElementType =
   | "table"
   | "icon"
   | "connector"
-  | "group";
+  | "group"
+  | "embed";
 export interface ElementData {
   cells?: Record<string, Node[]>;
   id: string;
@@ -101,8 +104,10 @@ const orderPattern = orderGrammar;
 export const LIMITS = {
   bytes: 2_000_000,
   cells: 4000,
+  deckEmbeds: 128,
   depth: 16,
   elements: 200,
+  embeds: 16,
   nodes: 20_000,
   sceneBytes: 16_000_000,
   slides: 500,
@@ -120,6 +125,7 @@ export interface Section {
 }
 export interface DeckOptions {
   maxObservations?: number;
+  /** Exact authorized image paths and immutable embed file identities from the host policy. */
   ownsBlob?: (path: string) => boolean;
 }
 const defaultTheme: Theme = { colors: {}, fonts: {}, sizes: {} };
@@ -209,6 +215,7 @@ const types = new Set([
   "icon",
   "connector",
   "group",
+  "embed",
 ]);
 const propGrammars: Record<string, RegExp> = {
   "align-self": alignGrammar,
@@ -231,7 +238,7 @@ const propGrammars: Record<string, RegExp> = {
   rotate: coordinateGrammar,
   rows: dimensionGrammar,
   shape: shapeGrammar,
-  src: blobGrammar,
+  src: /^(?:\/files\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*|artifact:[0-9a-f-]{36}:[A-Za-z0-9_-]{1,80}:[0-9a-f]{64}:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_.-]+)*\.html)$/,
   to: idGrammar,
   "to-anchor": anchorGrammar,
   w: coordinateGrammar,
@@ -385,6 +392,9 @@ function validateSlide(slide: SlideData) {
   }
   if (tableCells(slide) > LIMITS.cells) {
     fail(path, "table cell limit exceeded");
+  }
+  if (slide.elements.filter((e) => e.type === "embed").length > LIMITS.embeds) {
+    fail(path, "embed limit exceeded");
   }
   validateGroups(slide, path);
 }
@@ -833,8 +843,9 @@ export class Deck {
       this.trackChange(event);
     }
   };
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Track both coarse legacy guards and per-key embed guards, including replacement tombstones.
   private trackChange(event: YYEvent<YAbstractType<unknown>>) {
-    const [sid, area, eid] = event.path;
+    const [sid, area, eid, field] = event.path;
     if (typeof sid !== "string") {
       for (const key of event.changes.keys.keys()) {
         this.bump(`${key}:root`);
@@ -844,9 +855,15 @@ export class Deck {
     if (area === "elements") {
       if (typeof eid === "string") {
         this.bump(`${sid}:element:${eid}`);
+        for (const key of event.changes.keys.keys()) {
+          this.bump(
+            `${sid}:element:${eid}:${typeof field === "string" ? `${field}:` : ""}${key}`
+          );
+        }
       } else {
         for (const key of event.changes.keys.keys()) {
           this.bump(`${sid}:element:${key}`);
+          this.bump(`${sid}:element:${key}:root`);
         }
       }
     } else if (area === "layout") {
@@ -1697,6 +1714,7 @@ export class Deck {
       fail("/slides", "slide limit");
     }
     let totalCells = 0;
+    let totalEmbeds = 0;
     for (const id of this.slides.keys()) {
       const raw = map(this.slides.get(id), `/slide/${id}`);
       keys(
@@ -1728,6 +1746,7 @@ export class Deck {
         }
       }
       const slide = this.snapshot(id);
+      totalEmbeds += slide.elements.filter((e) => e.type === "embed").length;
       totalCells += slide.elements.reduce(
         (sum, e) =>
           sum +
@@ -1736,6 +1755,9 @@ export class Deck {
             : 0),
         0
       );
+    }
+    if (totalEmbeds > LIMITS.deckEmbeds) {
+      fail("/slides", "deck embed limit exceeded");
     }
     if (totalCells > LIMITS.cells) {
       fail("/slides", "deck table cell limit");
@@ -1774,6 +1796,66 @@ export class Deck {
     }
     return layout;
   }
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Merge independent embed keys while preserving same-key and ABA human edits.
+  private mergeEmbed(
+    observed: ElementData,
+    desired: ElementData,
+    current: ElementData,
+    unchanged: (key: string) => boolean,
+    result: WriteResult
+  ): ElementData {
+    const next = structuredClone(current);
+    const prefix = `element:${current.id}`;
+    for (const field of ["parent", "order"] as const) {
+      if (observed[field] === desired[field]) {
+        continue;
+      }
+      if (
+        !unchanged(`${prefix}:${field}`) ||
+        observed[field] !== current[field]
+      ) {
+        result.skipped.push({
+          id: current.id,
+          reason: `${field} changed since read`,
+        });
+      } else {
+        next[field] = desired[field];
+        result.applied.push(`${current.id}:${field}`);
+      }
+    }
+    for (const area of ["props", "style"] as const) {
+      for (const key of new Set([
+        ...Object.keys(observed[area]),
+        ...Object.keys(desired[area]),
+      ])) {
+        if (observed[area][key] === desired[area][key]) {
+          continue;
+        }
+        if (
+          !(
+            unchanged(`${prefix}:${area}`) &&
+            unchanged(`${prefix}:${area}:${key}`)
+          ) ||
+          observed[area][key] !== current[area][key]
+        ) {
+          result.skipped.push({
+            id: current.id,
+            reason: `${area}:${key} changed since read`,
+          });
+        } else {
+          const value = desired[area][key];
+          if (value === undefined) {
+            delete next[area][key];
+          } else {
+            next[area][key] = value;
+          }
+          result.applied.push(`${current.id}:${area}:${key}`);
+        }
+      }
+    }
+    return next;
+  }
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Guarded writes validate the complete merged scene before the single commit.
   write(id: string, html: string, observed: Observation | string): WriteResult {
     const desired = parseSlide(html, this.codec);
     const token = typeof observed === "string" ? observed : observed.revision;
@@ -1804,6 +1886,16 @@ export class Deck {
         b = wanted.get(eid),
         c = now.get(eid);
       if (canonical(a) === canonical(b)) {
+        continue;
+      }
+      if (
+        a?.type === "embed" &&
+        b?.type === "embed" &&
+        c?.type === "embed" &&
+        unchanged(`element:${eid}:root`) &&
+        unchanged(`element:${eid}:type`)
+      ) {
+        merged.set(eid, this.mergeEmbed(a, b, c, unchanged, result));
         continue;
       }
       if (!unchanged(`element:${eid}`) || canonical(a) !== canonical(c)) {
@@ -1982,6 +2074,16 @@ function newClientId(): number {
 }
 
 function validateElementProps(element: ElementData, path: string) {
+  if (element.type === "embed") {
+    if (!parseEmbedSource(element.props.src)) {
+      fail(
+        `${path}/@prop-src`,
+        "embed requires an immutable artifact HTML file reference"
+      );
+    }
+  } else if (element.props.src && !blobGrammar.test(element.props.src)) {
+    fail(`${path}/@prop-src`, "image requires an artifact-owned blob");
+  }
   const owners: Record<string, ElementType> = {
     alt: "image",
     cols: "table",
@@ -1990,10 +2092,13 @@ function validateElementProps(element: ElementData, path: string) {
     icon: "icon",
     rows: "table",
     shape: "shape",
-    src: "image",
+
     to: "connector",
     "to-anchor": "connector",
   };
+  if (element.props.src && !["image", "embed"].includes(element.type)) {
+    fail(`${path}/@prop-src`, "src only allowed on images and embeds");
+  }
   for (const key of Object.keys(element.props)) {
     if (owners[key] && owners[key] !== element.type) {
       fail(`${path}/@prop-${key}`, `property only allowed on ${owners[key]}`);

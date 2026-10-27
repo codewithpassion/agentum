@@ -178,6 +178,8 @@ function content(element: ElementData, slide: SlideData): string {
   switch (element.type) {
     case "text":
       return text(element.text ?? []);
+    case "embed":
+      return `<div role="note">Sandboxed embed unavailable in static export. Open the live deck as an authorized member.</div>`;
     case "image":
       return `<img src="${escapeHtml(props.src ?? "")}" alt="${escapeHtml(props.alt ?? "")}" style="width:100%;height:100%;object-fit:contain">`;
     case "table":

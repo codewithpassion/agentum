@@ -635,3 +635,42 @@ describe("content route: other statuses", () => {
     expectContentHeaders(res, folder(tok));
   });
 });
+
+it("embed view tokens bind exact HTML identity and refuse alternate pages and hash substitution", async () => {
+  const { get, objects } = setup();
+  const tok = await token({
+    embedFile: { path: "sub/page.html", sha256: sha("d") },
+  });
+  const good = await get(urlFor(tok, "sub/page.html"));
+  expect(good.status).toBe(200);
+  expect(await good.text()).toContain("_hm/bridge.js");
+  expect(good.headers.get("Content-Security-Policy")).toContain(
+    "sandbox allow-scripts allow-forms"
+  );
+  expect((await get(urlFor(tok, "index.html"))).status).toBe(404);
+  expect((await get(urlFor(tok))).status).toBe(404);
+  expect((await get(urlFor(tok, "_hm/doc.html"))).status).toBe(404);
+  expect((await get(urlFor(tok, "app.js"))).status).toBe(200);
+  expect(
+    (
+      await get(urlFor(tok, "app.js"), {
+        headers: { "Sec-Fetch-Dest": "iframe" },
+      })
+    ).status
+  ).toBe(404);
+  const wrong = await token({
+    embedFile: { path: "sub/page.html", sha256: sha("a") },
+  });
+  expect((await get(urlFor(wrong, "sub/page.html"))).status).toBe(404);
+  objects.set(
+    `${WORKSPACE}/artifact-manifests/${VERSION}.json`,
+    manifestJson({
+      ...PAGE,
+      files: {
+        ...PAGE.files,
+        "sub/page.html": { body: "changed", sha: sha("f") },
+      },
+    })
+  );
+  expect((await get(urlFor(tok, "sub/page.html"))).status).toBe(404);
+});

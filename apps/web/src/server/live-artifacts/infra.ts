@@ -1,4 +1,6 @@
 import { createClerkClient } from "@clerk/backend";
+import { artifactContentPath } from "@repo/protocol/artifacts";
+import { signViewToken } from "@repo/services/artifacts/view-token";
 import { ForbiddenError } from "@repo/services/authz";
 import { ServiceError } from "@repo/services/errors";
 import type { LiveAskDeps } from "@repo/services/live-artifacts/ask";
@@ -47,6 +49,32 @@ export const productionLiveInfra = (
       },
     },
     content: {
+      embedUrl: async (source, scope, userId) => {
+        if (!env.ARTIFACT_VIEW_KEY) {
+          throw new Error("Artifact viewing is unavailable");
+        }
+        const expiresAt = Math.floor(Date.now() / 1000) + 300;
+        const token = await signViewToken(
+          {
+            artifactId: source.artifactId,
+            embedFile: { path: source.path, sha256: source.sha256 },
+            expiresAt,
+            userId,
+            versionId: source.versionId,
+            viewer: "member",
+            workspaceId: scope.workspaceId,
+          },
+          env.ARTIFACT_VIEW_KEY
+        );
+        return {
+          contentUrl: artifactContentPath({
+            artifactId: source.artifactId,
+            path: source.path,
+            token,
+          }),
+          expiresAt: new Date(expiresAt * 1000).toISOString(),
+        };
+      },
       ...documentContent(async (scope) =>
         scope
           ? new Set(

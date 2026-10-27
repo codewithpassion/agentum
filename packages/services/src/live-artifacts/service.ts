@@ -28,6 +28,7 @@ import {
   type EnsureDeckCellInput,
   type EnsureDeckCellResult,
   ensureDeckCellInputSchema,
+  parseEmbedSource,
 } from "@repo/protocol/deck";
 import type { LiveJoinResult } from "@repo/protocol/live";
 import {
@@ -81,6 +82,11 @@ export interface LiveContentCodec {
     title: string;
     slides?: string[];
   }) => Promise<DocumentSnapshot>;
+  embedUrl?: (
+    source: NonNullable<ReturnType<typeof parseEmbedSource>>,
+    scope: LiveRoomScope,
+    userId: string
+  ) => Promise<{ contentUrl: string; expiresAt: string }>;
   exportDeck?: (
     snapshot: DocumentSnapshot,
     scope: LiveRoomScope
@@ -254,6 +260,47 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       db,
     });
   const { access, memberOf, runContext } = createLiveAccess(deps);
+  // Workspace-visible static pages only: every deck member may read these sources.
+  // Private pages and apps with privileged bridge grants require a separate sharing contract.
+  const embedSources = async (workspaceId: string) => {
+    const files = await db
+      .select({
+        artifactId: artifacts.id,
+        path: artifactVersionFiles.path,
+        sha256: artifactVersionFiles.sha256,
+        versionId: artifactVersions.id,
+      })
+      .from(artifacts)
+      .innerJoin(
+        artifactVersions,
+        and(
+          eq(artifactVersions.artifactId, artifacts.id),
+          eq(artifactVersions.workspaceId, artifacts.workspaceId)
+        )
+      )
+      .innerJoin(
+        artifactVersionFiles,
+        and(
+          eq(artifactVersionFiles.versionId, artifactVersions.id),
+          eq(artifactVersionFiles.workspaceId, artifacts.workspaceId)
+        )
+      )
+      .where(
+        and(
+          eq(artifacts.workspaceId, workspaceId),
+          eq(artifacts.audience, "workspace"),
+          eq(artifacts.kind, "page"),
+          isNull(artifacts.deletedAt),
+          eq(artifactVersions.status, "published")
+        )
+      )
+      .limit(2000);
+    return files
+      .map(
+        (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
+      )
+      .filter((source) => parseEmbedSource(source) !== null);
+  };
   const event = (
     member: Member,
     row: Row,
@@ -818,6 +865,13 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       }
       return persist(member, row, input, false, from, input);
     },
+    async embedSources(principal: Principal, input: { artifactId: string }) {
+      const { row } = await access(principal, input.artifactId);
+      if (row.kind !== "deck") {
+        throw invalid("Artifact is not a deck");
+      }
+      return { sources: await embedSources(row.workspaceId) };
+    },
     async ensureDeckCell(
       principal: Principal,
       raw: EnsureDeckCellInput
@@ -902,9 +956,12 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         `${row.workspaceId}/live-artifacts/${row.id}/images.json`
       );
       return {
-        urls: manifest
-          ? (JSON.parse(new TextDecoder().decode(manifest.bytes)) as string[])
-          : [],
+        urls: [
+          ...(manifest
+            ? (JSON.parse(new TextDecoder().decode(manifest.bytes)) as string[])
+            : []),
+          ...(row.kind === "deck" ? await embedSources(row.workspaceId) : []),
+        ],
       };
     },
     async policy(principal: Principal, input: { artifactId: string }) {
@@ -965,6 +1022,30 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         throw new ForbiddenError("liveArtifacts.credentialRequired");
       }
       return member;
+    },
+    async resolveEmbed(
+      principal: Principal,
+      input: { artifactId: string; source: string }
+    ) {
+      const { row, member } = await access(principal, input.artifactId);
+      if (row.kind !== "deck" || member.kind !== "user" || !content.embedUrl) {
+        throw invalid("Member embed viewing unavailable");
+      }
+      const source = parseEmbedSource(input.source);
+      if (
+        !(
+          source && (await embedSources(row.workspaceId)).includes(input.source)
+        )
+      ) {
+        throw invalid(
+          "Embed source is not an authorized published artifact file"
+        );
+      }
+      return content.embedUrl(
+        source,
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        member.userId
+      );
     },
     async retryCheckpoints(
       principal: Principal,
@@ -1112,7 +1193,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       ) {
         throw invalid("Invalid image manifest");
       }
-      return { ownBlobUrls: urls, ranges };
+      return {
+        ownBlobUrls: [...urls, ...(await embedSources(scope.workspaceId))],
+        ranges,
+      };
     },
     async roomRegisterImage(
       principal: Principal,
