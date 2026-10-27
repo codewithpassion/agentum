@@ -2,18 +2,21 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   type CapturedChange,
+  DocumentError,
   LiveDocument,
   type Operation,
 } from "@repo/live-doc";
 import {
   type AwarenessEntry,
   awarenessEntrySchema,
+  type CommentAnchor,
   type LiveOperationOrigin,
 } from "@repo/protocol/live";
 import { verifyRoomTicket } from "@repo/services/live-artifacts/ticket";
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import * as Y from "yjs";
+import { guardAnchoredWords, resolveDocumentAnchor } from "./anchors";
 import type {
   ArtifactRoomEnv,
   RestoreProvenance,
@@ -39,10 +42,12 @@ interface Session extends RoomIdentity {
 }
 interface Metadata {
   baseSequence: number;
+  blockRevisions: Record<string, number>;
   dirtySince: number | null;
   generation: number;
   nextAwarenessId: number;
   origins: LiveOperationOrigin[];
+  ownBlobUrls: string[];
   restores: RestoreProvenance[];
   revision: number;
   scope: RoomScope;
@@ -57,7 +62,7 @@ interface PendingSave {
 }
 interface ChangeRecord {
   origin: LiveOperationOrigin;
-  reverted?: number;
+  reverted?: { revision: number; byParticipant: string };
   revision: number;
 }
 interface AgentState {
@@ -107,7 +112,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private meta!: Metadata;
   private live!: LiveDocument;
   private policy = new Set<string>();
-  private initialized = false;
+  private initialization: Promise<void> | undefined;
   private tail: Promise<unknown> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: ArtifactRoomEnv) {
@@ -116,23 +121,26 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   }
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const result = this.tail.then(async () => {
-      await this.initialize();
+      await this.ensureInitialized();
       return fn();
     });
     this.tail = result.catch(() => undefined);
     return result;
   }
-  private async initialize() {
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: instance state changes after asynchronous initialization.
-    if (this.initialized) {
-      return;
+  private async ensureInitialized() {
+    this.initialization ??= this.initialize();
+    try {
+      await this.initialization;
+    } catch (error) {
+      this.initialization = undefined;
+      throw error;
     }
+  }
+  private async initialize() {
     const saved = this.store.get<Metadata>("state");
     if (saved) {
       this.meta = saved;
-      this.policy = new Set(
-        await this.env.ARTIFACT_ROOM_SERVICE.ownBlobUrls(saved.scope)
-      );
+      this.policy = new Set(saved.ownBlobUrls);
       this.recover();
     } else {
       const initial = await this.env.ARTIFACT_ROOM_SERVICE.open(
@@ -152,10 +160,14 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       });
       this.meta = {
         baseSequence: 0,
+        blockRevisions: Object.fromEntries(
+          this.live.read().blocks.map((b) => [b.id, b.revision])
+        ),
         dirtySince: null,
         generation: 1,
         nextAwarenessId: 1,
         origins: [],
+        ownBlobUrls: [...this.policy],
         restores: [],
         revision: initial.revision,
         scope: {
@@ -170,7 +182,15 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         this.store.put("state", this.meta);
       });
     }
-    this.initialized = true;
+  }
+  private async refreshPolicy() {
+    const urls = await this.env.ARTIFACT_ROOM_SERVICE.ownBlobUrls(
+      this.meta.scope
+    );
+    this.policy = new Set(urls);
+    this.live.options.ownBlobUrls = this.policy;
+    this.meta.ownBlobUrls = urls;
+    this.store.put("state", this.meta);
   }
   private recover() {
     const doc = new Y.Doc({ gc: false });
@@ -281,7 +301,17 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     if (!claims) {
       throw new Error("Invalid ticket");
     }
-    const current = await this.authorize(claims);
+    const current = await this.env.ARTIFACT_ROOM_SERVICE.admit(
+      this.meta.scope,
+      token
+    );
+    if (
+      !current ||
+      current.participantId !== claims.participantId ||
+      current.kind !== claims.kind
+    ) {
+      throw new Error("Access denied");
+    }
     // A pre-downgrade ticket must fail, even if it remains cryptographically valid.
     if (current.role !== claims.role) {
       throw new Error("Stale ticket role");
@@ -423,10 +453,23 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           default:
             throw new Error("Unsupported protocol");
         }
-      } catch {
-        this.close(socket, "Rejected message");
+      } catch (error) {
+        this.rejectMessage(socket, error);
       }
     });
+  }
+  private rejectMessage(socket: WebSocket, error: unknown) {
+    try {
+      socket.send(
+        JSON.stringify({
+          message: error instanceof DocumentError ? error.code : String(error),
+          type: "error",
+        })
+      );
+    } catch {
+      /* socket may already be closed */
+    }
+    this.close(socket, "Rejected message");
   }
   private async receiveSync(
     socket: WebSocket,
@@ -442,14 +485,14 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       socket.send(syncFrame(1, Y.encodeStateAsUpdate(this.live.doc, bytes)));
     } else if (kind === 1 || kind === 2) {
       if (!writable(state)) {
-        throw new Error("Read only");
+        return; // Viewers still complete the normal Yjs read/sync handshake.
       }
       await this.mutate(
         (trial) =>
           trial.applyUpdate(bytes, {
             participantId: state.participantId,
           }),
-        { participantId: state.participantId }
+        { agent: state.kind === "agent", participantId: state.participantId }
       );
     } else {
       throw new Error("Invalid sync type");
@@ -534,28 +577,62 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private async mutate<T>(
     action: (trial: LiveDocument) => T,
     origin: object,
-    persist?: (result: T, revision: number, full: Uint8Array) => void
+    persist?: (result: T, revision: number, full: Uint8Array) => void,
+    guardComments = false
   ): Promise<T> {
+    await this.refreshPolicy();
+    const protect =
+      guardComments ||
+      "mode" in origin ||
+      "revertChangeId" in origin ||
+      ("agent" in origin && origin.agent === true);
+    const ranges = protect
+      ? await this.env.ARTIFACT_ROOM_SERVICE.protectedRanges(this.meta.scope)
+      : [];
     const doc = new Y.Doc({ gc: false });
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.live.doc));
     const trial = new LiveDocument(doc, {
       ownBlobUrls: this.policy,
+      protectedRanges: () => ranges,
       revision: this.meta.revision,
     });
     try {
       const vector = Y.encodeStateVector(doc);
       const result = action(trial);
+      if (protect) {
+        guardAnchoredWords(this.live, trial, ranges);
+      }
       const full = Y.encodeStateAsUpdate(doc);
       if (full.length > MAX_DOCUMENT_BYTES) {
         throw new Error("Document exceeds 8 MiB");
       }
       const update = Y.encodeStateAsUpdate(doc, vector);
       const { revision } = trial.read();
+      const previousBlocks = new Map(
+        this.live.read().blocks.map((b) => [b.id, b])
+      );
+      const blockRevisions = Object.fromEntries(
+        trial.read().blocks.map((b) => {
+          const old = previousBlocks.get(b.id);
+          const unchanged =
+            old &&
+            old.hash === b.hash &&
+            old.index === b.index &&
+            old.parentId === b.parentId;
+          return [
+            b.id,
+            unchanged
+              ? (this.meta.blockRevisions[b.id] ?? old.revision)
+              : revision,
+          ];
+        })
+      );
       const previous = structuredClone(this.meta);
       try {
         this.ctx.storage.transactionSync(() => {
           this.meta.sequence += 1;
           this.meta.revision = revision;
+          this.meta.blockRevisions = blockRevisions;
           this.meta.updateBytes += update.length;
           this.meta.dirtySince ??= Date.now();
           this.store.write("update", String(this.meta.sequence), update);
@@ -599,9 +676,68 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       doc.destroy();
     }
   }
+  private outline() {
+    const outline = this.live.read();
+    return {
+      ...outline,
+      blocks: outline.blocks.map((b) => ({
+        ...b,
+        revision: this.meta.blockRevisions[b.id] ?? b.revision,
+      })),
+    };
+  }
+  /** Forks have a revision seed, while guards refer to persisted per-block room revisions.
+   * Validate the real revision first, then translate only that guard into the disposable fork.
+   * Hashes and ordered-batch validation remain the engine's responsibility.
+   */
+  private trialOperations(ops: Operation[], trial: LiveDocument): Operation[] {
+    const blocks = new Map(this.outline().blocks.map((b) => [b.id, b]));
+    const trialBlocks = new Map(trial.read().blocks.map((b) => [b.id, b]));
+    return ops.map((op) => {
+      let id: string | undefined;
+      if ("target" in op && !("find" in op.target)) {
+        id = op.target.blockId;
+      } else if ("blockId" in op && "ifRev" in op) {
+        id = op.blockId;
+      }
+      if (!(id && "ifRev" in op)) {
+        return op;
+      }
+      const block = blocks.get(id);
+      if (!block) {
+        throw new DocumentError("block_gone");
+      }
+      if (op.ifRev !== block.revision) {
+        throw new DocumentError("guard_mismatch", block);
+      }
+      return { ...op, ifRev: trialBlocks.get(id)?.revision };
+    }) as Operation[];
+  }
+  resolveAnchor(anchor: CommentAnchor) {
+    return this.exclusive(async () => resolveDocumentAnchor(this.live, anchor));
+  }
+  guardAgentSnapshot(input: { snapshot: RoomSnapshot; runId: string }) {
+    return this.exclusive(async () => {
+      if (input.snapshot.state.length > MAX_DOCUMENT_BYTES) {
+        throw new Error("Document exceeds 8 MiB");
+      }
+      const ranges = await this.env.ARTIFACT_ROOM_SERVICE.protectedRanges(
+        this.meta.scope
+      );
+      const doc = new Y.Doc({ gc: false });
+      Y.applyUpdate(doc, input.snapshot.state);
+      const candidate = new LiveDocument(doc, { ownBlobUrls: this.policy });
+      try {
+        guardAnchoredWords(this.live, candidate, ranges);
+      } finally {
+        candidate.destroy();
+        doc.destroy();
+      }
+    });
+  }
   read(view: "outline" | "markdown" = "outline") {
     return this.exclusive(async () => ({
-      content: view === "markdown" ? this.live.markdown() : this.live.read(),
+      content: view === "markdown" ? this.live.markdown() : this.outline(),
       present: this.currentPresence(),
       revision: this.meta.revision,
     }));
@@ -617,7 +753,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         return { changeId: origin.changeId, revision: prior.revision };
       }
       const result = await this.mutate(
-        (trial) => trial.capture(ops, origin),
+        (trial) => trial.capture(this.trialOperations(ops, trial), origin),
         origin,
         (captured, revision) => {
           this.store.write("before", origin.changeId, captured.change.before);
@@ -637,23 +773,24 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         throw new Error("Unknown change");
       }
       if (record.reverted !== undefined) {
-        return { revision: record.reverted };
+        return record.reverted;
       }
       const change: CapturedChange = {
         before: this.store.read("before", changeId),
         changeId,
         update: this.store.read("change", changeId),
       };
-      return this.mutate(
+      const result = await this.mutate(
         (trial) => trial.revert(change, { participantId: byParticipant }),
-        { participantId: byParticipant },
+        { participantId: byParticipant, revertChangeId: changeId },
         (_result, revision) => {
           this.store.put(`change:${changeId}`, {
             ...record,
-            reverted: revision,
+            reverted: { byParticipant, revision },
           });
         }
       );
+      return { ...result, byParticipant };
     });
   }
   restore(input: RestoreProvenance & { snapshot: RoomSnapshot }) {
@@ -664,6 +801,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       });
       if (current.role !== "owner") {
         throw new Error("Owner required");
+      }
+      if (input.snapshot.state.length > MAX_DOCUMENT_BYTES) {
+        throw new Error("Document exceeds 8 MiB");
       }
       const key = `restore:${input.requestId}`;
       const prior = this.store.get<RestoreProvenance & { revision: number }>(
@@ -790,15 +930,16 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   }
   refresh(participantId?: string) {
     return this.exclusive(async () => {
-      this.policy = new Set(
-        await this.env.ARTIFACT_ROOM_SERVICE.ownBlobUrls(this.meta.scope)
-      );
-      this.live.options.ownBlobUrls = this.policy;
       await Promise.all(
         this.ctx
           .getWebSockets()
           .map((socket) => this.refreshSocket(socket, participantId))
       );
+      try {
+        await this.refreshPolicy();
+      } catch {
+        /* policy outage cannot block access invalidation; mutations refresh it again */
+      }
       const agent = this.store.get<AgentState>("agent");
       if (agent && (!participantId || agent.entry.id === participantId)) {
         try {

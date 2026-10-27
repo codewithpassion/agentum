@@ -29,8 +29,8 @@ function boot() {
       durableObjects: {
         ROOM: { className: "TestArtifactRoom", useSQLite: true },
       },
-      isolatedResourcePersistencePath: directory,
       modules: true,
+      resourcePersistencePath: directory,
       script,
     })
   );
@@ -331,7 +331,7 @@ try {
     reader.ws.send(update(Y.encodeStateAsUpdate(replica)));
     await pause(30);
     check(
-      reader.closed && (await call("/read")).content === goodContent,
+      !reader.closed && (await call("/read")).content === goodContent,
       `${role} cannot write`
     );
   }
@@ -360,8 +360,8 @@ try {
   expiring.ws.send(awareness(1, 1, {}));
   await pause(150);
   check(
-    expiring.closed,
-    `connection expiration alarm ${JSON.stringify(await call("/stats"))}`
+    (await call("/stats")).sockets === 0,
+    "connection expiration alarm removes server sockets"
   );
   // Restart-safe captured agent edits and monotonic authoritative revisions.
   const before = await call("/read");
@@ -400,11 +400,63 @@ try {
       (await call("/read")).content.includes("Human Hello"),
     "selective revert survives restart and retains human edit"
   );
-  const reverted = await call("/revert", { id: "persisted" });
+  await runtime.dispose();
+  runtime = boot();
+  const reverted = await call("/revert", {
+    byParticipant: "another-owner",
+    id: "persisted",
+  });
+  check(
+    reverted.byParticipant === "owner",
+    "idempotent revert preserves original actor across restart"
+  );
   check(
     reverted.revision === (await call("/read")).revision,
     "revert idempotency"
   );
+  const currentOutline = (await call("/outline")).content;
+  const heading = currentOutline.blocks.find((b) => b.type === "heading");
+  await call("/ops", {
+    ops: [
+      {
+        attrs: { level: 2 },
+        blockId: heading.id,
+        ifHash: heading.hash,
+        ifRev: heading.revision,
+        op: "set",
+      },
+    ],
+    origin: origin("guard-after-restart"),
+  });
+  check(
+    (await call("/read")).content.startsWith("## Fixture"),
+    "persisted per-block guard revisions survive unrelated edits and restart"
+  );
+  const anchor = await call("/anchor", { word: "Hello" });
+  check(
+    (await call("/resolve-anchor", { anchor })).quote === "Hello",
+    "anchor adapter resolves live relative positions"
+  );
+  const paragraphBlock = (await call("/outline")).content.blocks.find((b) =>
+    b.text.includes("Hello")
+  );
+  await fails("/ops", {
+    ops: [
+      {
+        ifHash: paragraphBlock.hash,
+        ifRev: paragraphBlock.revision,
+        op: "delete",
+        target: { blockId: paragraphBlock.id },
+      },
+    ],
+    origin: origin("protected-delete"),
+  });
+  await fails("/guard-snapshot");
+  check(
+    (await call("/read")).content.includes("Hello"),
+    "agent operations and snapshots refuse anchored-word deletion"
+  );
+  await controls("ranges", []);
   // Restore applied once, then DB save failure, then restart/checkpoint retry with provenance.
   const restore = await call("/restore", {
     byParticipant: "owner",
@@ -467,6 +519,30 @@ try {
   check(
     (await call("/read", {}, "large")).content.includes("x".repeat(1_000_000)),
     "multi-chunk generation recovers after restart"
+  );
+  await call("/seed", { markdown: "z".repeat(5 * 1024 * 1024) }, "five-mb");
+  const five = await call("/stats", {}, "five-mb");
+  check(
+    five.chunks.find((c) => c.kind === "snapshot").n >= 10,
+    "5 MiB document stored below SQLite row limit"
+  );
+  // A persisted due deadline triggers periodic checkpoint after a restart.
+  await call(
+    "/ops",
+    {
+      ops: [{ content: { text: "periodic" }, op: "insert" }],
+      origin: origin("periodic"),
+    },
+    "periodic"
+  );
+  await call("/checkpoint-due", {}, "periodic");
+  await runtime.dispose();
+  runtime = boot();
+  await call("/alarm", {}, "periodic");
+  check(
+    (await call("/stats", {}, "periodic")).fixture.saved?.origins[0]
+      .changeId === "periodic",
+    "five-minute checkpoint deadline survives restart"
   );
   // Count-based compaction without reaching the byte threshold.
   for (let i = 0; i < 500; i += 1) {

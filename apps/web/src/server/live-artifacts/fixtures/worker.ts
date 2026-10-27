@@ -6,7 +6,10 @@ import type {
   LiveOperationOrigin,
   RoomTicketClaims,
 } from "@repo/protocol/live";
-import { signRoomTicket } from "@repo/services/live-artifacts/ticket";
+import {
+  signRoomTicket,
+  verifyRoomTicket,
+} from "@repo/services/live-artifacts/ticket";
 import * as Y from "yjs";
 import { ArtifactRoom } from "../artifact-room";
 import type {
@@ -53,6 +56,13 @@ export class TestArtifactRoom extends ArtifactRoom {
         JSON.stringify(value)
       );
     const service: ArtifactRoomService = {
+      admit: async (roomScope, token) => {
+        const claims = await verifyRoomTicket(token, key, {
+          ...roomScope,
+          nowSeconds: Math.floor(Date.now() / 1000),
+        });
+        return claims ? service.authorize(roomScope, claims) : null;
+      },
       authorize: async (_scope, subject) => {
         put("authCalls", (get<number>("authCalls") ?? 0) + 1);
         if (get<boolean>("deleted")) {
@@ -66,6 +76,7 @@ export class TestArtifactRoom extends ArtifactRoom {
         }
         return {
           ...subject,
+          authorizationRef: `fixture:${subject.participantId}`,
           color: "#123456",
           name: `Trusted ${subject.participantId}`,
           role: role ?? (subject.kind === "agent" ? "editor" : "owner"),
@@ -73,6 +84,13 @@ export class TestArtifactRoom extends ArtifactRoom {
       },
       open: async () => ({ ...scope, ...initial() }),
       ownBlobUrls: async () => ["/files/own-image.png"],
+      protectedRanges: async () =>
+        get<
+          Array<{
+            start: import("@repo/protocol/live").RelativePositionJSON;
+            end: import("@repo/protocol/live").RelativePositionJSON;
+          }>
+        >("ranges") ?? [],
       save: async (_scope, input) => {
         put("saveCalls", (get<number>("saveCalls") ?? 0) + 1);
         if (get<boolean>("failSave")) {
@@ -152,6 +170,10 @@ export class TestArtifactRoom extends ArtifactRoom {
       ),
       meta: new RoomStorage(this.fixture.storage).get("state"),
       pending: new RoomStorage(this.fixture.storage).get("pending"),
+      socketStates: this.fixture.getWebSockets().map((s) => ({
+        ready: s.readyState,
+        state: s.deserializeAttachment(),
+      })),
       sockets: this.fixture
         .getWebSockets()
         .filter(
@@ -183,6 +205,48 @@ export class TestArtifactRoom extends ArtifactRoom {
       snapshot,
       versionId: "seed",
     });
+  }
+  async protectWord(word: string) {
+    await this.read();
+    const store = new RoomStorage(this.fixture.storage);
+    const meta = store.get<{
+      generation: number;
+      sequence: number;
+      baseSequence: number;
+      revision: number;
+    }>("state");
+    if (!meta) {
+      throw new Error("Uninitialized");
+    }
+    const doc = new Y.Doc({ gc: false });
+    Y.applyUpdate(doc, store.read("snapshot", String(meta.generation)));
+    for (let i = meta.baseSequence + 1; i <= meta.sequence; i += 1) {
+      Y.applyUpdate(doc, store.read("update", String(i)));
+    }
+    const live = new LiveDocument(doc, { revision: meta.revision });
+    const block = live.read().blocks.find((b) => b.text.includes(word));
+    if (!block) {
+      throw new Error("Word not found");
+    }
+    const anchor = live.anchor(
+      block.id,
+      block.text.indexOf(word),
+      block.text.indexOf(word) + word.length
+    );
+    live.destroy();
+    doc.destroy();
+    this.control("ranges", [anchor]);
+    return JSON.parse(
+      JSON.stringify(anchor)
+    ) as import("@repo/protocol/live").CommentAnchor;
+  }
+  makeCheckpointDue() {
+    const store = new RoomStorage(this.fixture.storage);
+    const meta = store.get<Record<string, unknown>>("state");
+    if (!meta) {
+      throw new Error("Uninitialized");
+    }
+    store.put("state", { ...meta, dirtySince: Date.now() - 300_001 });
   }
   /** Roll back a half-written generation in real DO SQLite. */
   interruptedGeneration() {
@@ -239,6 +303,23 @@ export default {
             input.entry as AwarenessEntry | null
           );
           break;
+        case "/anchor":
+          result = await stub.protectWord(input.word as string);
+          break;
+        case "/resolve-anchor":
+          result = await stub.resolveAnchor(
+            input.anchor as import("@repo/protocol/live").CommentAnchor
+          );
+          break;
+        case "/guard-snapshot":
+          result = await stub.guardAgentSnapshot({
+            runId: "run",
+            snapshot: initial(),
+          });
+          break;
+        case "/checkpoint-due":
+          result = await stub.makeCheckpointDue();
+          break;
         case "/presence":
           result = await stub.presence();
           break;
@@ -249,7 +330,10 @@ export default {
           );
           break;
         case "/revert":
-          result = await stub.revert(input.id as string, "owner");
+          result = await stub.revert(
+            input.id as string,
+            (input.byParticipant as string) ?? "owner"
+          );
           break;
         case "/restore":
           result = await stub.restore({
