@@ -30,7 +30,8 @@ export interface LiveAskPort {
 }
 /** Room must scope UndoManager to change origin, preserve later human edits and
  * reject operations deleting anchored words. changeId is the idempotency key:
- * retry after a DB failure must return the same successful result. */
+ * retry after a DB failure must return the same successful revision and original
+ * byParticipant, even when the retry is requested by another authorized actor. */
 export interface LiveChangePort {
   revert: (
     scope: LiveRoomScope,
@@ -42,7 +43,7 @@ export interface LiveChangePort {
       revTo: number;
       byParticipant: string;
     }
-  ) => Promise<{ revision: number }>;
+  ) => Promise<{ revision: number; byParticipant: string }>;
 }
 export interface LiveInteractionPorts {
   anchors: LiveAnchorPort;
