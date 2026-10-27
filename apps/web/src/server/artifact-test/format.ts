@@ -12,10 +12,8 @@ const MAX_LISTED = 20;
 const MAX_ENTRY_CHARS = 300;
 const MAX_LINKS_LISTED = 20;
 
-const redact = redactText;
-
 const clip = (text: string, limit: number): string => {
-  const flat = redact(text).replace(/\s+/g, " ").trim();
+  const flat = redactText(text).replace(/\s+/g, " ").trim();
   return flat.length > limit ? `${flat.slice(0, limit)}...` : flat;
 };
 
@@ -82,7 +80,7 @@ export const formatArtifactTestResult = (
       result.badResponses,
       (response) => `${response.status} ${clip(response.url, MAX_ENTRY_CHARS)}`
     ),
-    `Page text${snapshot.textTruncated ? " (cut)" : ""}:\n${redact(snapshot.text) || "(empty)"}`,
+    `Page text${snapshot.textTruncated ? " (cut)" : ""}:\n${redactText(snapshot.text) || "(empty)"}`,
   ];
   if (snapshot.links.length > 0) {
     const links = snapshot.links

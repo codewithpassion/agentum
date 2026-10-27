@@ -65,7 +65,8 @@ describe("formatArtifactTestResult", () => {
   });
 
   test("never prints a view token", () => {
-    const token = "hm_view_abcdefghijklmnop.signaturepart";
+    const token =
+      "hm_view_abcdefghijklmnop.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
     const text = formatArtifactTestResult(
       base({
         badResponses: [
@@ -75,11 +76,13 @@ describe("formatArtifactTestResult", () => {
       })
     );
     expect(text).not.toContain("hm_view_");
+    expect(text).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
     expect(text).toContain("[redacted]");
   });
 
   test("never prints a token from the title, errors, request URLs, page text or links", () => {
-    const token = "hm_view_abcdefghijklmnop.signaturepart";
+    const token =
+      "hm_view_abcdefghijklmnop.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
     const text = formatArtifactTestResult(
       base({
         failedRequests: [
@@ -99,6 +102,7 @@ describe("formatArtifactTestResult", () => {
       })
     );
     expect(text).not.toContain("hm_view_");
+    expect(text).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
   });
 
   test("caps each list and long entries", () => {
