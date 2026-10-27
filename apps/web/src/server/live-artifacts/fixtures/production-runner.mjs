@@ -639,6 +639,78 @@ try {
     importedImage.url.startsWith("/files/") && externalImageRequests === 1,
     "external image returns only own blob canonical URL"
   );
+  const beforeMarkdownFetches = externalImageRequests;
+  const markdownImage = await mcp("artifact_create", {
+    kind: "document",
+    markdown:
+      "![one](https://public-images.example.com/markdown)\n\n![two][photo]\n\n[photo]: https://public-images.example.com/markdown",
+    title: "Imported Markdown image",
+  });
+  check(
+    externalImageRequests === beforeMarkdownFetches + 1,
+    "Markdown creation deduplicates image transport before acceptance"
+  );
+  const markdownPolicy = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/policy/${markdownImage.artifactId}`,
+      { headers }
+    )
+  ).json();
+  check(
+    markdownPolicy.urls.length === 1 &&
+      markdownPolicy.urls[0].startsWith("/files/"),
+    "creation commits canonical owned image manifest"
+  );
+  const markdownExport = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/persisted/${markdownImage.artifactId}`,
+      { headers }
+    )
+  ).json();
+  check(
+    markdownExport.markdown.includes(markdownPolicy.urls[0]) &&
+      !markdownExport.markdown.includes("public-images.example.com"),
+    "production codec checkpoint never accepts external image URL"
+  );
+  const ownedFile = await db
+    .prepare("SELECT r2_key FROM files WHERE id=?")
+    .bind(markdownPolicy.urls[0].slice(7))
+    .first();
+  check(
+    Boolean(
+      ownedFile &&
+        (await runtime
+          .getR2Bucket("FILES")
+          .then((imageBucket) => imageBucket.get(ownedFile.r2_key)))
+    ),
+    "Markdown image file row and actual R2 bytes exist before accepted content"
+  );
+  const staticImageDoc = await mcp("artifact_create", {
+    entry: "index.md",
+    files: [
+      {
+        path: "index.md",
+        text: "![converted](https://public-images.example.com/converted)",
+      },
+    ],
+    kind: "doc",
+    title: "Static external image",
+  });
+  const convertedImageResponse = await runtime.dispatchFetch(
+    `http://localhost/fixture/convert/${staticImageDoc.artifactId}`,
+    { method: "POST" }
+  );
+  check(
+    convertedImageResponse.ok,
+    "real static doc conversion with captured external image"
+  );
+  const convertedImage = await convertedImageResponse.json();
+  const convertedPolicy = convertedImage.policy;
+  check(
+    convertedPolicy.urls.length === 1 &&
+      convertedPolicy.urls[0] !== markdownPolicy.urls[0],
+    "conversion owns a distinct stored file scoped to the new artifact"
+  );
   const importedPolicy = await (
     await runtime.dispatchFetch(
       `http://localhost/api/live-artifacts/${created.artifactId}/policy`,

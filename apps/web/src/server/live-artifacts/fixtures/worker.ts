@@ -15,6 +15,7 @@ import {
 } from "@repo/services/live-artifacts/ticket";
 import * as Y from "yjs";
 import { ArtifactRoom } from "../artifact-room";
+import { documentContent } from "../content";
 import type {
   ArtifactRoomEnv,
   ArtifactRoomService,
@@ -136,6 +137,7 @@ export class TestArtifactRoom extends ArtifactRoom {
         };
         put(`saved:${input.checkpointId}`, result);
         put("saved", { ...input, state: input.state.length });
+        put("checkpoint-state", [...input.state]);
         if (get<boolean>("failAfterSave")) {
           put("failAfterSave", false);
           throw new Error("Acknowledgement lost");
@@ -150,6 +152,27 @@ export class TestArtifactRoom extends ArtifactRoom {
     });
     this.fixture = ctx;
     put("starts", (get<number>("starts") ?? 0) + 1);
+  }
+  fixtureValue(name: string): unknown {
+    const [row] = this.fixture.storage.sql
+      .exec<{ value: string }>("SELECT value FROM fixture WHERE key=?", name)
+      .toArray();
+    return row ? JSON.parse(row.value) : null;
+  }
+  storeImage(path: string, bytes: number[]) {
+    this.control(`image:${path}`, bytes);
+    const urls = (this.fixtureValue("urls") ?? []) as string[];
+    this.control("urls", [...new Set([...urls, path])]);
+    return { alt: "Captured image", url: path };
+  }
+  async checkpointMarkdown() {
+    const state = this.fixtureValue("checkpoint-state") as number[] | null;
+    if (!state) {
+      throw new Error("No persisted checkpoint");
+    }
+    return documentContent(
+      new Set((this.fixtureValue("urls") ?? []) as string[])
+    ).exportDocument({ revision: 0, state: Uint8Array.from(state) });
   }
   triggerAlarm() {
     return this.alarm();
@@ -294,13 +317,54 @@ export class TestArtifactRoom extends ArtifactRoom {
 interface FixtureEnv {
   ROOM: DurableObjectNamespace<TestArtifactRoom>;
 }
+/** Explicit captured image leaf: stored SQLite bytes and ownership precede acknowledgement.
+ * Production fetch/R2 authorization is exercised separately by production.test.ts. */
+async function fixtureImage(request: Request, env: FixtureEnv, url: URL) {
+  if (url.pathname.startsWith("/files/")) {
+    const [, , room] = url.pathname.split("/");
+    const bytes = (await env.ROOM.getByName(room ?? "test").fixtureValue(
+      `image:${url.pathname}`
+    )) as number[] | null;
+    return bytes
+      ? new Response(Uint8Array.from(bytes), {
+          headers: { "Content-Type": "image/png" },
+        })
+      : new Response("Missing", { status: 404 });
+  }
+  const stub = env.ROOM.getByName(url.searchParams.get("room") ?? "test");
+  if (url.pathname === "/fixture-image") {
+    const path = `/files/${url.searchParams.get("room")}/${crypto.randomUUID()}`;
+    let bytes: Uint8Array;
+    if (request.headers.get("Content-Type") === "application/json") {
+      const input = (await request.json()) as { url: string };
+      if (input.url !== "https://public-images.example.com/captured.png") {
+        return new Response("Uncaptured image refused", { status: 400 });
+      }
+      bytes = Uint8Array.from(
+        atob(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+        ),
+        (c) => c.charCodeAt(0)
+      );
+    } else {
+      bytes = new Uint8Array(await request.arrayBuffer());
+    }
+    return Response.json(await stub.storeImage(path, [...bytes]));
+  }
+  return null;
+}
+const fixtureRoomName = (url: URL) => url.searchParams.get("room") ?? "test";
 export default {
   async fetch(request: Request, env: FixtureEnv) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/a/") || url.pathname === "/embed-url") {
       return embedContentFetch(request);
     }
-    const stub = env.ROOM.getByName(url.searchParams.get("room") ?? "test");
+    const imageResponse = await fixtureImage(request, env, url);
+    if (imageResponse) {
+      return imageResponse;
+    }
+    const stub = env.ROOM.getByName(fixtureRoomName(url));
     if (request.headers.get("Upgrade")) {
       return stub.fetch(request);
     }
@@ -349,6 +413,9 @@ export default {
             kind: "member",
             participantId: "owner",
           });
+          break;
+        case "/checkpoint-markdown":
+          result = await stub.checkpointMarkdown();
           break;
         case "/snapshot": {
           const snapshot = await stub.authoritativeSnapshot();

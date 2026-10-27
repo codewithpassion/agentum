@@ -30,11 +30,22 @@ const target = (value: string) => {
 };
 export async function fetchExternalImage(
   value: string,
-  fetcher: ImageFetch
+  fetcher: ImageFetch,
+  limits?: { deadline: number; signal: AbortSignal; maxBytes: number }
 ): Promise<Blob> {
   let url = target(value);
-  const deadline = Date.now() + 10_000;
-  const signal = AbortSignal.timeout(10_000);
+  const deadline = Math.min(
+    Date.now() + 10_000,
+    limits ? limits.deadline : Date.now() + 10_000
+  );
+  const signal = limits
+    ? AbortSignal.any([
+        limits.signal,
+        AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+      ])
+    : AbortSignal.timeout(10_000);
+  const maxBytes = Math.min(MAX_BYTES, limits ? limits.maxBytes : MAX_BYTES);
+  signal.throwIfAborted();
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     // biome-ignore lint/performance/noAwaitInLoops: redirects must be validated before the next request.
     const response = await fetcher(url.href, {
@@ -74,12 +85,12 @@ export async function fetchExternalImage(
           "image/avif",
         ].includes(type ?? "")
       ) ||
-      Number(response.headers.get("Content-Length")) > MAX_BYTES
+      Number(response.headers.get("Content-Length")) > maxBytes
     ) {
       await response.body?.cancel();
       throw refused();
     }
-    return readImage(response.body, type, signal);
+    return readImage(response.body, type, signal, maxBytes);
   }
   throw refused();
 }
@@ -87,7 +98,8 @@ export async function fetchExternalImage(
 const readImage = async (
   stream: ReadableStream<Uint8Array>,
   type: string | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  maxBytes: number
 ): Promise<Blob> => {
   const reader = stream.getReader();
   const chunks: Uint8Array<ArrayBuffer>[] = [];
@@ -105,7 +117,7 @@ const readImage = async (
         break;
       }
       size += chunk.value.byteLength;
-      if (size > MAX_BYTES) {
+      if (size > maxBytes) {
         throw refused();
       }
       chunks.push(new Uint8Array(chunk.value));

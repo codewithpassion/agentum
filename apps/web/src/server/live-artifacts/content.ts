@@ -1,6 +1,7 @@
 // DOM-free serialization of the validated shared schema. No markdown HTML parser
 // or browser DOM is involved in checkpoint publication.
 import { LiveDocument } from "@repo/live-doc";
+import { fromMarkdown, markdownImageUrls } from "@repo/live-doc/schema";
 import type {
   LiveContentCodec,
   LiveRoomScope,
@@ -126,10 +127,25 @@ export const documentContent = (
         close(live);
       }
     },
-    async importMarkdown(markdown) {
-      const live = await load();
+    async importMarkdown(markdown, options) {
+      const replacements = new Map<string, string>();
+      if (options) {
+        for (const url of markdownImageUrls(markdown)) {
+          // biome-ignore lint/performance/noAwaitInLoops: sequential resolution bounds aggregate memory and deduplicates URLs.
+          replacements.set(url, await options.resolveImage(url));
+        }
+      }
+      const ownBlobUrls = new Set(replacements.values());
+      const live = replacements.size
+        ? new LiveDocument(new Doc({ gc: false }), { ownBlobUrls })
+        : await load(undefined, options?.scope);
       try {
-        live.import({ markdown }, {});
+        live.import(
+          replacements.size
+            ? { json: fromMarkdown(markdown, { ownBlobUrls }, replacements) }
+            : { markdown },
+          {}
+        );
         return { revision: 0, state: encodeStateAsUpdate(live.doc) };
       } finally {
         close(live);

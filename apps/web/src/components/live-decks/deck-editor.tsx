@@ -111,7 +111,13 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
   useEffect(() => {
     current.current.provider.publishPresence({
       pointer: undefined,
-      selection,
+      selection: selection.filter(
+        (id) =>
+          resolved &&
+          current.current.deck
+            .read(resolved)
+            .slide.elements.some((element) => element.id === id)
+      ),
       slideId: resolved || undefined,
     });
   }, [resolved, selection]);
@@ -447,6 +453,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                 )) {
                   ungroupSelection(deck, resolved, e.id);
                 }
+                setSelection([]);
               })
             )
           }
@@ -678,7 +685,10 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
           <div
             className="ld-stage"
             onPointerLeave={() =>
-              ports.provider.publishPresence({ selection, slideId: resolved })
+              ports.provider.publishPresence({
+                selection: where().elementIds,
+                slideId: resolved,
+              })
             }
             onPointerMove={(event) => {
               if (Date.now() - lastPointer.current < 50) {
@@ -691,7 +701,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                   x: ((event.clientX - rect.left) * 960) / rect.width,
                   y: ((event.clientY - rect.top) * 960) / rect.width,
                 },
-                selection,
+                selection: where().elementIds,
                 slideId: resolved,
               });
             }}
