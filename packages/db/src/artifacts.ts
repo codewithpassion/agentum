@@ -14,6 +14,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import type { Statement } from "./atomic.ts";
 import type { Database } from "./database.ts";
 import {
   artifactPins,
@@ -412,3 +413,32 @@ export const filesByVersionIds = async (
   }
   return grouped;
 };
+
+/**
+ * Append after ALL candidate file inserts in the same atomic publication.
+ * SQLite serializes writers; this sees committed competitors plus our own rows.
+ * Reuse an existing NOT NULL constraint as an assertion (no schema migration).
+ * On overflow the whole batch/transaction fails, including pointers and events.
+ */
+export const artifactQuotaGuard = (
+  db: Database,
+  workspaceId: string,
+  versionId: string,
+  maxBytes: number
+): Statement =>
+  db
+    .update(artifactVersions)
+    .set({
+      totalBytes: sql`case when (
+      select coalesce(sum(blobs.size), 0) from (
+        select max(size) as size from artifact_version_files
+        where workspace_id = ${workspaceId} group by sha256
+      ) as blobs
+    ) > ${maxBytes} then null else ${artifactVersions.totalBytes} end`,
+    })
+    .where(
+      and(
+        eq(artifactVersions.workspaceId, workspaceId),
+        eq(artifactVersions.id, versionId)
+      )
+    );
