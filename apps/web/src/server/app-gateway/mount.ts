@@ -92,9 +92,10 @@ const withinLimit = async (
     return true;
   }
   const ip = c.req.header("CF-Connecting-IP");
+  const prefix = ip ? truncateIp(ip) : null;
   const keys = [
     `api:link:${claims.shareId}`,
-    ...(ip ? [`api:ip:${truncateIp(ip)}`] : []),
+    ...(prefix ? [`api:ip:${prefix}`] : []),
   ];
   const results = await Promise.all(keys.map((key) => limiter.limit({ key })));
   return results.every((result) => result.success);

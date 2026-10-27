@@ -175,6 +175,13 @@ describe("app gateway route: flood guard and headers", () => {
     expect(t.limited).toEqual(["api:link:s1"]);
   });
 
+  test("a link holder with an address is also counted per IP prefix", async () => {
+    const t = setup();
+    t.ports.share.state = { dataMode: "live", ok: true };
+    await t.call(link, { headers: { "CF-Connecting-IP": "203.0.113.9" } });
+    expect(t.limited).toEqual(["api:link:s1", "api:ip:203.0.113.0/24"]);
+  });
+
   test("a member is not counted", async () => {
     const t = setup(false, false);
     expect((await t.call({})).status).toBe(200);
