@@ -7,6 +7,7 @@ import {
   isPasteChord,
   isReleaseChord,
   keydownToKeys,
+  PHONE_KEYS,
   packActions,
   toDesktopButton,
   toDesktopPoint,
@@ -445,5 +446,23 @@ describe("packActions", () => {
     ]);
     expect(batches.map((batch) => batch.length)).not.toContain(0);
     expect(batches.length).toBeGreaterThan(1);
+  });
+});
+
+describe("PHONE_KEYS", () => {
+  test("every button sends keys the desktop accepts", () => {
+    expect(PHONE_KEYS.map((entry) => entry.keys)).toEqual([
+      "Return",
+      "BackSpace",
+      "Escape",
+      "Tab",
+      "Left",
+      "Up",
+      "Down",
+      "Right",
+    ]);
+    for (const entry of PHONE_KEYS) {
+      expect(entry.keys).toMatch(SENDABLE_KEYS);
+    }
   });
 });
