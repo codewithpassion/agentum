@@ -3,7 +3,7 @@ id: A.11
 title: Phase 1 staging deploy and check
 milestone: A
 size: M
-status: in_progress
+status: done
 depends_on: [A.14]
 branch: task/A.11-staging-check
 lane: staging
@@ -32,3 +32,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at c814222, review clean after 2 fix rounds; staging deployed, migration 0024 applied; R1.36 and Safari left for Dom; findings: CF Web Analytics beacon in artifacts, workspace name is org id, staging cron registered; merged.
