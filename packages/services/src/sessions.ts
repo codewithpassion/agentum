@@ -6,8 +6,10 @@
  */
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
+import { artifacts } from "@repo/db/schema/artifacts";
 import { events as eventRows } from "@repo/db/schema/events";
 import { inboxThreads } from "@repo/db/schema/inbox";
+import { artifactMembers } from "@repo/db/schema/live-artifacts";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
@@ -185,12 +187,21 @@ export const visibleSessions = async (
   return and(
     eq(sessions.workspaceId, reader.workspaceId),
     reader.kind === "run" ? eq(sessions.agentId, reader.agentId) : undefined,
-    opener === null
-      ? and(ne(sessions.origin, "ui"), eq(sessions.private, false))
-      : or(
-          and(ne(sessions.origin, "ui"), eq(sessions.private, false)),
-          eq(sessions.actorId, opener)
-        )
+    or(
+      and(
+        ne(sessions.origin, "artifact"),
+        opener === null
+          ? and(ne(sessions.origin, "ui"), eq(sessions.private, false))
+          : or(
+              and(ne(sessions.origin, "ui"), eq(sessions.private, false)),
+              eq(sessions.actorId, opener)
+            )
+      ),
+      and(
+        eq(sessions.origin, "artifact"),
+        sql`exists (select 1 from ${artifacts} where ${artifacts.id} = ${sessions.externalKey} and ${artifacts.workspaceId} = ${sessions.workspaceId} and ${artifacts.deletedAt} is null and (${artifacts.audience} = 'workspace' or ${artifacts.ownerUserId} = ${opener} or ${reader.kind === "user" && reader.isAdmin === true} or exists (select 1 from ${artifactMembers} where ${artifactMembers.artifactId} = ${artifacts.id} and ${artifactMembers.workspaceId} = ${artifacts.workspaceId} and ${artifactMembers.principalKind} = 'user' and ${artifactMembers.userId} = ${opener} and ${artifactMembers.revokedAt} is null and (${artifactMembers.expiresAt} is null or ${artifactMembers.expiresAt} > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))))`
+      )
+    )
   );
 };
 
