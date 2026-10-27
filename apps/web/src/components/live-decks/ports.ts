@@ -25,6 +25,12 @@ export interface DeckEditorPorts {
   comment: (where: DeckWhere) => Promise<void>;
   /** Trusted local replica constructed with the production richTextCodec. */
   deck: Deck;
+  /** Serialize missing-cell initialization in the authority, then admit its state. */
+  ensureCell: (
+    slideId: string,
+    elementId: string,
+    key: string
+  ) => Promise<void>;
   history: () => Promise<void>;
   ownsBlob: (path: string) => boolean;
   participants: readonly DeckParticipant[];

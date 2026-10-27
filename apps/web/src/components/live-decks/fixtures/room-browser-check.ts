@@ -25,11 +25,19 @@ for (const id of ["opening", "closing"]) {
     const shape = newElement(deck.read(id).slide, "shape");
     shape.id = "box";
     shape.props.x = "480";
+    shape.props["build-in"] = "fade";
+    shape.props["build-order"] = "1";
+    shape.props["build-trigger"] = "click";
     deck.addElement(id, shape);
     const table = newElement(deck.read(id).slide, "table");
     table.id = "table";
     table.props.y = "290";
     table.props.h = "180";
+    if (table.cells) {
+      table.cells = Object.fromEntries(
+        Object.entries(table.cells).filter(([key]) => key !== "0:0")
+      );
+    }
     deck.addElement(id, table);
   }
 }

@@ -117,6 +117,14 @@ export function LiveDeckPage({
                   ask: (where) => select("ask", where),
                   comment: (where) => select("comment", where),
                   deck: room.deck,
+                  ensureCell: async (slideId, elementId, key) => {
+                    const result = await services.ensureCell(
+                      slideId,
+                      elementId,
+                      key
+                    );
+                    await room.applyAuthority(result.state);
+                  },
                   history: async () => {
                     setVersions(await services.history());
                   },

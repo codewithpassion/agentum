@@ -605,6 +605,26 @@ export class TicketedDeckRoom {
       this.publishPresence(location);
     });
   }
+  /** Service RPC state uses the same validated ingress as WebSocket updates. */
+  applyAuthority(state: readonly number[]): Promise<void> {
+    const admitted = this.receiving.then(async () => {
+      if (this.lifecycle.disposed) {
+        throw new Error("Room disconnected");
+      }
+      if (!(await this.refreshPolicy())) {
+        throw new Error("Room disconnected");
+      }
+      this.applying = true;
+      try {
+        this.deck.applyUpdate(Uint8Array.from(state));
+      } finally {
+        this.applying = false;
+      }
+      this.publishPolicy();
+    });
+    this.receiving = admitted.catch((cause: unknown) => this.fail(cause));
+    return admitted;
+  }
   async refreshOwnership() {
     await this.refreshPolicy();
     this.publishPolicy();

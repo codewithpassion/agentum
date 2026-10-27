@@ -5,6 +5,8 @@ const pathSchema = z.string().regex(/^\/files\/[A-Za-z0-9][A-Za-z0-9/_\-.]*$/);
 export function deckServices(artifactId: string) {
   const requests = new Map<number, string>();
   return {
+    ensureCell: (slideId: string, elementId: string, key: string) =>
+      liveApi.ensureDeckCell.mutate({ artifactId, elementId, key, slideId }),
     history: () => liveApi.history.query({ artifactId }),
     open: () => liveApi.open.query({ artifactId }),
     async policy() {

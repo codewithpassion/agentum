@@ -149,7 +149,7 @@ export interface SceneProps {
   deck: Deck;
   editable?: boolean;
   effect?: (element: ElementData) => CSSProperties;
-  ensureCell?: (elementId: string, key: string) => void;
+  ensureCell?: (elementId: string, key: string) => Promise<void>;
   gesture?: (phase: "start" | "end") => void;
   hidePointers?: boolean;
   onActiveText?: (editor: Editor) => void;
@@ -423,6 +423,10 @@ function DeckTableCell({
   cellKey: string;
 }) {
   const [active, setActive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const latest = useRef(scene);
+  latest.current = scene;
   if (!scene.editable) {
     return <RichNodes nodes={element.cells?.[cellKey] ?? []} />;
   }
@@ -436,15 +440,40 @@ function DeckTableCell({
       />
     );
   }
-  const activate = () => {
-    if (!element.cells?.[cellKey]) {
-      scene.ensureCell?.(element.id, cellKey);
+  const activate = async () => {
+    if (busy) {
+      return;
     }
-    setActive(true);
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (!element.cells?.[cellKey]) {
+        if (!scene.ensureCell) {
+          throw new Error("Cell initialization is unavailable");
+        }
+        await scene.ensureCell(element.id, cellKey);
+      }
+      const { current } = latest;
+      if (!current.editable) {
+        throw new Error("Editing permission changed");
+      }
+      const cells = current.deck
+        .read(current.slide.id)
+        .slide.elements.find((entry) => entry.id === element.id)?.cells;
+      if (!cells?.[cellKey]) {
+        throw new Error("Shared cell initialization was not confirmed");
+      }
+      setActive(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not open cell");
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     // biome-ignore lint/a11y/useSemanticElements: Cell preview contains rich paragraph/list blocks that cannot be children of a button.
     <div
+      aria-disabled={busy}
       aria-label={`Edit table cell ${cellKey}`}
       onClick={activate}
       onKeyDown={(event) => {
@@ -458,6 +487,8 @@ function DeckTableCell({
       tabIndex={0}
     >
       <RichNodes nodes={element.cells?.[cellKey] ?? []} />
+      {busy === true && <span role="status">Preparing shared cell…</span>}
+      {Boolean(error) && <span role="alert">{error}</span>}
     </div>
   );
 }

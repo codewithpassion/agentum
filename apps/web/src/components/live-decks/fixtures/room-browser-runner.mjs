@@ -1,6 +1,6 @@
 /** biome-ignore-all lint/suspicious/noUnnecessaryConditions: Network proxy callbacks observe state changed by later browser actions. */
 /** biome-ignore-all lint/performance/noAwaitInLoops: Ordered real network browser acceptance. */
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { chromium, expect } from "@playwright/test";
@@ -220,10 +220,17 @@ try {
         .poll(async () => JSON.stringify(await scene(bob)))
         .toContain("Split paragraph");
     }
+    await Promise.all(
+      pages.map((page) =>
+        page
+          .getByRole("button", { exact: true, name: "Edit table cell 0:0" })
+          .click()
+      )
+    );
     for (const page of pages) {
-      await page
-        .getByRole("button", { exact: true, name: "Edit table cell 0:0" })
-        .click();
+      await expect(
+        page.locator('.ld-stage [data-element-id="table"] .tiptap')
+      ).toBeVisible();
     }
     const fragmentIds = await Promise.all(
       pages.map((page) =>
@@ -332,6 +339,17 @@ try {
     await expect(
       bob.getByRole("button", { exact: true, name: "Leave presenter" })
     ).toBeVisible();
+    await alice.evaluate(() =>
+      Reflect.get(window, "deckRoom").presentToEveryone({
+        build: 1,
+        slideId: "opening",
+      })
+    );
+    await expect
+      .poll(() =>
+        bob.evaluate(() => Reflect.get(window, "deckRoom").presentation?.build)
+      )
+      .toBe(1);
     await bob
       .getByRole("button", { exact: true, name: "Leave presenter" })
       .click();
@@ -424,6 +442,28 @@ try {
       await context.close();
     }
   }
+} catch (cause) {
+  let index = 0;
+  for (const context of browser.contexts()) {
+    for (const page of context.pages()) {
+      const dump = await page
+        .evaluate(() => Reflect.get(window, "deckDump")?.())
+        .catch(() => null);
+      if (dump) {
+        const path = join(evidence, `failed-scene-${index}.json`);
+        await writeFile(path, JSON.stringify(dump));
+        console.error(`Failed scene: ${path}`);
+      }
+      await page
+        .screenshot({
+          fullPage: true,
+          path: join(evidence, `failed-${index}.png`),
+        })
+        .catch(() => undefined);
+      index += 1;
+    }
+  }
+  throw cause;
 } finally {
   console.log(`Screenshots: ${evidence}`);
   await browser.close();

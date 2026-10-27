@@ -106,6 +106,20 @@ function Fixture() {
       record(`comment:${JSON.stringify(where)}`);
     },
     deck: decks[index] ?? first,
+    ensureCell: async (slideId, elementId, key) => {
+      // Isolated component authority; product routes use the actual room RPC.
+      if (
+        !first
+          .read(slideId)
+          .slide.elements.find((element) => element.id === elementId)?.cells?.[
+          key
+        ]
+      ) {
+        first.setCell(slideId, elementId, key, [
+          { attrs: {}, children: [], tag: "p" },
+        ]);
+      }
+    },
     history: async () => {
       record("history");
     },

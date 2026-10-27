@@ -109,6 +109,19 @@ function NetworkDeck() {
                       new Error("Comments require authenticated app service")
                     ),
                   deck: room.deck,
+                  ensureCell: async (slideId, elementId, key) => {
+                    const result = z
+                      .object({ state: z.array(z.number()) })
+                      .parse(
+                        await call("/ensure-deck-cell", {
+                          elementId,
+                          key,
+                          participantId: participant,
+                          slideId,
+                        })
+                      );
+                    await room.applyAuthority(result.state);
+                  },
                   history: async () => {
                     await call("/checkpoint");
                   },

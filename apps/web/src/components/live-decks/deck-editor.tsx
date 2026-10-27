@@ -690,13 +690,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                     deck={ports.deck}
                     editable={editable}
                     ensureCell={(id, key) =>
-                      perform(() =>
-                        commands.run((deck) =>
-                          deck.setCell(resolved, id, key, [
-                            { attrs: {}, children: [], tag: "p" },
-                          ])
-                        )
-                      )
+                      current.current.ensureCell(resolved, id, key)
                     }
                     gesture={(phase) => commands.gesture(phase)}
                     hidePointers={hidePointers}

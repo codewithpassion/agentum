@@ -100,3 +100,26 @@ Screenshots are in `/tmp/ld6-browser-evidence-kMBgTt`. The original-binding dire
 same-empty-cell regression also passes. This rules out competing initialization
 for the reproduced stable-binding failure. The full structural test remains
 intentionally active and failing until controller's core resolution lands.
+
+## Serialized sparse-cell integration
+
+Merged backend `f1808116`. `DeckEditorPorts.ensureCell` is mandatory for editable
+hosts. The component no longer calls local setCell to allocate a sparse cell.
+It awaits the actual typed `liveArtifacts.ensureDeckCell` mutation, validates and
+merges its returned state through the provider's serialized authority ingress,
+rechecks current edit permission and confirms the existing cell before binding.
+The scene surfaces initialization failures and stays noneditable while pending.
+Both authoritative-image and ensure-cell RPC states use production core admission.
+
+Actual two-browser `--without-structural` run with cell 0:0 OMITTED from the seed
+passed at both viewports: simultaneous first opens received identical new
+fragment IDs (desktop `1033726276:0`, mobile `756728168:0`), then concurrent typing
+and own undo/redo preserved the peer. Screenshots:
+`/tmp/ld6-browser-evidence-xQlBKa`; log `/tmp/ld6-room-sparse.log`.
+
+Controller core `1f30cc5f` admitted the captured list transform but the expanded
+structural regression produced a legitimate boundary transfer of length 2 after
+splitListItem. Captured encoded state + metadata:
+`/tmp/ld6-structural-regression-xsrmjU/scene.json`. The original-binding direct
+same-cell regression passes. Full structural admission remains with controller;
+no core edits or validator bypass were authored here.

@@ -260,3 +260,20 @@ test("role loss during pending native presentation admission rejects completion 
   expect(client.room.presentation).toBeNull();
   expect(client.failure()).toContain("permissions");
 });
+
+test("service authority snapshots validate before binding and never echo to the room", async () => {
+  const client = await connect();
+  session(client.socket);
+  client.socket.receive(sync(checkpoint()));
+  await tick();
+  const before = client.socket.sent.length;
+  await client.room.applyAuthority([...checkpoint()]);
+  expect(client.socket.sent.length).toBe(before);
+  const invalid = new Doc();
+  invalid.getMap("forged").set("invalid", true);
+  await expect(
+    client.room.applyAuthority([...encodeStateAsUpdate(invalid)])
+  ).rejects.toThrow("unknown root");
+  expect(client.room.document.getMap("forged").size).toBe(0);
+  invalid.destroy();
+});
