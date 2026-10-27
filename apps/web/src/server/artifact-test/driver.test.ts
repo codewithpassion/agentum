@@ -42,7 +42,6 @@ const fakeBrowser = (options: FakeOptions = {}): ArtifactTestBrowser => ({
           title: "Page",
           url: "https://app.test/a/1/c/hm_view_x.y/index.html",
         }),
-      title: () => Promise.resolve("Page"),
     };
     return Promise.resolve({
       close: () => {

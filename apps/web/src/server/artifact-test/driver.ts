@@ -55,7 +55,6 @@ export interface ArtifactTestPage {
   screenshot: () => Promise<Uint8Array>;
   settle: (milliseconds: number) => Promise<void>;
   snapshot: () => Promise<RawSnapshot>;
-  title: () => Promise<string>;
 }
 
 export interface ArtifactTestSession {
@@ -97,7 +96,8 @@ const errorMessage = (error: unknown): string =>
  * settle, and return the console errors and warnings (CSP violations are
  * console errors in Chromium), failed requests, 4xx/5xx responses, the page
  * title, a text snapshot and a PNG. A navigation that fails or times out is
- * reported in `loadError` and the rest is still collected from what rendered.
+ * reported in `loadError` and the rest is collected from what rendered. If the
+ * page can't be read at all afterwards, the call throws.
  */
 export const runArtifactTest = async ({
   browser,
@@ -141,8 +141,7 @@ export const runArtifactTest = async ({
     }
     await session.page.settle(SETTLE_MS);
 
-    const [title, snapshot, screenshot] = await Promise.all([
-      session.page.title(),
+    const [snapshot, screenshot] = await Promise.all([
       session.page.snapshot(),
       session.page.screenshot(),
     ]);
@@ -153,7 +152,7 @@ export const runArtifactTest = async ({
       loadError,
       screenshot,
       snapshot: buildSnapshot(snapshot),
-      title,
+      title: snapshot.title,
       viewport,
     };
   } finally {

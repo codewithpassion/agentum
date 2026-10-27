@@ -151,7 +151,6 @@ const artifactTestPage = (page: Page): ArtifactTestPage => ({
     await page.waitForTimeout(milliseconds);
   },
   snapshot: async () => await readPage(page),
-  title: async () => await page.title(),
 });
 
 /**
@@ -164,7 +163,13 @@ export const artifactTestBrowser = (
 ): ArtifactTestBrowser => ({
   open: async (viewport) => {
     const browser = await launch(endpoint(binding));
-    const page = await browser.newPage({ viewport });
+    let page: Page;
+    try {
+      page = await browser.newPage({ viewport });
+    } catch (error) {
+      await browser.close();
+      throw error;
+    }
     page.setDefaultTimeout(ACTION_TIMEOUT_MS);
     return {
       close: async () => {

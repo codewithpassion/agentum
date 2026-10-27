@@ -78,6 +78,29 @@ describe("formatArtifactTestResult", () => {
     expect(text).toContain("[redacted]");
   });
 
+  test("never prints a token from the title, errors, request URLs, page text or links", () => {
+    const token = "hm_view_abcdefghijklmnop.signaturepart";
+    const text = formatArtifactTestResult(
+      base({
+        failedRequests: [
+          {
+            method: "GET",
+            reason: token,
+            url: `https://app.test/c/${token}/a.js`,
+          },
+        ],
+        loadError: `navigating to /c/${token}`,
+        snapshot: {
+          ...base().snapshot,
+          links: [{ href: `https://app.test/c/${token}/`, text: "next" }],
+          text: `shown ${token}`,
+        },
+        title: `Report ${token}`,
+      })
+    );
+    expect(text).not.toContain("hm_view_");
+  });
+
   test("caps each list and long entries", () => {
     const consoleEntries = Array.from({ length: 50 }, (_, index) => ({
       level: "error" as const,

@@ -1,3 +1,4 @@
+import { redactText } from "@repo/services/events/scrub";
 import { ARTIFACT_TEST_VIEWPORTS, type ArtifactTestResult } from "./driver.ts";
 
 /**
@@ -11,10 +12,7 @@ const MAX_LISTED = 20;
 const MAX_ENTRY_CHARS = 300;
 const MAX_LINKS_LISTED = 20;
 
-/** Same shape the event redactor scrubs (`hm_<kind>_<16+ chars>`). */
-const TOKEN = /hm_[a-z]+_[A-Za-z0-9_.-]{16,}/g;
-
-const redact = (text: string): string => text.replace(TOKEN, "[redacted]");
+const redact = redactText;
 
 const clip = (text: string, limit: number): string => {
   const flat = redact(text).replace(/\s+/g, " ").trim();
@@ -93,6 +91,9 @@ export const formatArtifactTestResult = (
         (link) =>
           `- ${clip(link.text, 80) || "(no text)"} -> ${clip(link.href, 200)}`
       );
+    if (snapshot.links.length > MAX_LINKS_LISTED) {
+      links.push(`- ... and ${snapshot.links.length - MAX_LINKS_LISTED} more`);
+    }
     parts.push(`Links (${snapshot.links.length}):\n${links.join("\n")}`);
   }
   return truncateBytes(parts.join("\n\n"), maxBytes);
