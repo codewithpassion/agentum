@@ -1,6 +1,4 @@
 import type { ArtifactCard } from "@repo/protocol/artifacts";
-import { AppWindow, BookOpen, FileText, LayoutDashboard } from "lucide-react";
-import type { ComponentType } from "react";
 import { elapsedText } from "#/components/desk/desk-logic.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { cn } from "#/lib/utils.ts";
@@ -10,16 +8,7 @@ import {
   byLine,
   thumbnailSrc,
 } from "./artifacts-logic.ts";
-
-const KIND_ICONS: Record<
-  ArtifactCard["kind"],
-  ComponentType<{ className?: string }>
-> = {
-  app: AppWindow,
-  dashboard: LayoutDashboard,
-  doc: BookOpen,
-  page: FileText,
-};
+import { KIND_ICONS } from "./kind-icons.ts";
 
 export interface ArtifactCardViewProps {
   card: ArtifactCard;

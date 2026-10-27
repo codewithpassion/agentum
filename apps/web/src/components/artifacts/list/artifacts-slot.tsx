@@ -1,26 +1,13 @@
-import type { ArtifactKind } from "@repo/db/shared";
 import type { ArtifactCard } from "@repo/protocol/artifacts";
-import {
-  AppWindow,
-  BookOpen,
-  FileText,
-  LayoutDashboard,
-  type LucideIcon,
-} from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { SlotCard } from "#/components/task/slots.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { artifactHref, audienceBadges } from "./artifacts-logic.ts";
+import { KIND_ICONS } from "./kind-icons.ts";
 
 /** How often the artifacts slot reads the list again while the run is going. */
 export const ARTIFACTS_REFRESH_MS = 5000;
-
-const KIND_ICONS: Record<ArtifactKind, LucideIcon> = {
-  app: AppWindow,
-  dashboard: LayoutDashboard,
-  doc: BookOpen,
-  page: FileText,
-};
 
 /** The rows of the slot, one link per artifact. Renders nothing for no cards. */
 export function ArtifactSlotRows({
@@ -111,9 +98,9 @@ export function ArtifactsSlot({
       )}
       <ArtifactSlotRows cards={cards} />
       {more ? (
-        <a className="text-muted-foreground text-sm" href="/artifacts">
+        <Link className="text-muted-foreground text-sm" to="/artifacts">
           and more in Artifacts
-        </a>
+        </Link>
       ) : null}
     </SlotCard>
   );

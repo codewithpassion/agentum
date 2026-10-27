@@ -32,6 +32,10 @@ import {
 const id = "2f6c1c5e-8a52-4f6e-9d57-3f2a7d9b1c10";
 const now = "2026-10-27T10:00:00.000Z";
 
+test("list input rejects an empty runId", () => {
+  expect(artifactsListInputSchema.safeParse({ runId: "" }).success).toBe(false);
+});
+
 const cases: [
   string,
   { safeParse: (v: unknown) => { success: boolean } },
@@ -42,7 +46,7 @@ const cases: [
     "list",
     artifactsListInputSchema,
     { kind: "page", madeBy: "agent", runId: "run1", shared: true },
-    { kind: "video", runId: "" },
+    { kind: "video" },
   ],
   ["get", artifactsGetInputSchema, { artifactId: id }, { artifactId: "nope" }],
   ["versions", artifactsVersionsInputSchema, { artifactId: id }, {}],
