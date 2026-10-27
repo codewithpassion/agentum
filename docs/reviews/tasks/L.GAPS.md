@@ -1,5 +1,7 @@
 # L.GAPS — image ingestion, guest embeds and complete discovery
 
+**Correction:** the original three-host image implementation did not close R1.9. The earlier statement that all three implementation gaps were closed was incorrect. Broader ingestion remains open until its transport boundary and consumers are validated; see the follow-up evidence below.
+
 Implementation on 2026-10-28 against the three unassigned gaps in `L.A.md` and live-artifacts PRD R1.9/R4.5. This file records local implementation evidence, not all-phase or deployed acceptance. The initial checkout did not contain this review file.
 
 ## Implemented consumers and boundaries
@@ -32,7 +34,7 @@ No migrations, suggestions core/panel, restricted runtime, room staging or next0
 
 ## Still external acceptance
 
-This closes the three local implementation gaps; it does not certify the PRD's signed/deployed scenarios. Real Clerk/member and guest identity flows, live upstream image-provider availability and redirects under deployed networking, staging guest revoke/expiry latency and hibernation, real agents and each runtime/approval path, real mail, deployed Browser Run/export quotas, target Office fidelity and the complete product acceptance matrices in L.7/L.8/L.9/LD.6/LG.4/LX.2/LX.3 remain external. LG.5 and LX.5 integrations remain owned by their assigned agents and are not certified here. The fixed supported image-host policy is an explicit product limitation; arbitrary public-host ingestion is not claimed.
+The original implementation closed the guest embed and discovery gaps locally; the three-host image restriction left R1.9 open. It does not certify the PRD's signed/deployed scenarios. Real Clerk/member and guest identity flows, live upstream image-provider availability and redirects under deployed networking, staging guest revoke/expiry latency and hibernation, real agents and each runtime/approval path, real mail, deployed Browser Run/export quotas, target Office fidelity and the complete product acceptance matrices in L.7/L.8/L.9/LD.6/LG.4/LX.2/LX.3 remain external. LG.5 and LX.5 integrations remain owned by their assigned agents and are not certified here. The fixed supported image-host policy is an explicit product limitation; arbitrary public-host ingestion is not claimed.
 
 ## Independent merged-main review (2026-10-28)
 
@@ -45,3 +47,11 @@ Discovery advances on raw ordered keyset rows before filtering; the member consu
 Independent checks after frozen dependency installation: focused services 48 tests / 213 assertions; web editor, content routes, actual workerd guest and production composition 71 tests / 745 assertions; document browser fixture passed at 1280×800 and 390×844. The production-assets guest browser invocation could not run because this checkout had no built `dist/client/assets`; the self-contained bundled guest browser fixture was run separately as recorded below. Initial attempts before dependency installation failed on missing packages. No root suite was run. No migration-history probe, environment or secret request, provider call, real send, deployment, push or PR was made. LG.5 production runtime remains a separate active gate, as do signed/deployed identity, upstream provider and staging acceptance.
 
 The self-contained combined `/g` browser run did **not** complete: it timed out at `browser-runner.mjs:538` waiting for load state during the suggestion decision/reload scenario (exit 1). It reached earlier guest embed and suggestion interactions, but this is not a passing combined-consumer regression and needs a rerun/investigation. Fixture Clerk lookup returned its expected blocked-provider 503; this review does not attribute the timeout to that response without further evidence.
+
+## Combined guest consumer timeout follow-up
+
+Merged current main `203e5244` (including review `da0f014f` and the guest suggestions integration) into this implementation worktree before reproduction. Built assets with `bun run build`, then ran `cd apps/web && bun src/components/guests/browser-check.ts --production-assets`. The original test reproduced the 30-second `networkidle` timeout after the deliberately refused deck suggestion decision. Instrumentation at failure showed one unfinished `decide-suggestion` request and **no held or pending guest-cookie locks**. It did not show an unfinished Clerk request.
+
+`GuestHttp.response` threw on a non-OK response without disposing its body. It now awaits body cancellation while still inside the existing host-wide queue/browser lock. A regression test holds cancellation open and proves the next queued rotation cannot run until disposal completes. No queue, lock, role check, decision assertion, network-idle wait, reload, accepted-byte comparison or revoke assertion was removed. Timeout diagnostics retain only action names/timings and lock state, not cookie/token values.
+
+Validation: `cd apps/web && bun test src/components/guests/http.test.ts` passes 2 tests / 8 assertions. After rebuilding assets, `cd apps/web && bun src/components/guests/browser-check.ts --production-assets` passes **62** combined document/deck, desktop/phone, role, suggestion accept/reject/persistence/downgrade and embed/revocation scenarios. The same fixture-generated Clerk 503 messages remain in that passing run; they are not the demonstrated cause of this timeout. These are local captured-provider identities, not signed/deployed acceptance.
