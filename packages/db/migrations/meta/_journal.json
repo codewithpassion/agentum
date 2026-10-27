@@ -204,6 +204,13 @@
       "when": 1793094715819,
       "tag": "0028_chemical_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1793095788093,
+      "tag": "0029_fast_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }
