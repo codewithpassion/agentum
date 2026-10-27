@@ -550,3 +550,100 @@ test("port duplicates repair missing D1 rows and backend bodies join to index st
   ).toMatchObject({ body: { text: "Full backend body" }, status: "received" });
   expect(db.select().from(runRows).all()).toHaveLength(1);
 });
+const sentMail = async (rfcMessageId: string | null = "bare-id") => {
+  await service.receive(message());
+  const thread = db.select().from(mailThreads).get();
+  await db.insert(mailMessages).values({
+    ccAddresses: "[]",
+    createdAt: now,
+    direction: "out",
+    externalMessageId: "out-uuid",
+    fromAddress: "{}",
+    id: "out",
+    rfcMessageId,
+    snippet: "",
+    status: "sent",
+    subject: "Help",
+    threadId: thread?.id ?? "",
+    toAddresses: '["recipient@example.net"]',
+    workspaceId: "w",
+  });
+};
+const outRow = () =>
+  db.select().from(mailMessages).where(eq(mailMessages.id, "out")).get();
+const system: Principal = { kind: "system" };
+test("a bounced event marks the sent mail bounced with the reason, once", async () => {
+  await sentMail();
+  const report = {
+    messageId: "bare-id",
+    reason: "550 5.1.1 User unknown",
+    status: "bounced",
+  } as const;
+  await service.recordUndelivered(system, report);
+  await service.recordUndelivered(system, report);
+  expect(outRow()?.status).toBe("bounced");
+  expect(outRow()?.lastError).toBe("550 5.1.1 User unknown");
+  const written = db
+    .select()
+    .from(eventRows)
+    .all()
+    .filter((e) => e.type === "mail.bounced");
+  expect(written).toHaveLength(1);
+  expect(written[0]?.agentId).toBe("a");
+});
+test("a failed event marks the sent mail failed", async () => {
+  await sentMail();
+  await service.recordUndelivered(system, {
+    messageId: "bare-id",
+    reason: "delivery_failed",
+    status: "failed",
+  });
+  expect(outRow()?.status).toBe("failed");
+  expect(outRow()?.lastError).toBe("delivery_failed");
+  expect(
+    db
+      .select()
+      .from(eventRows)
+      .all()
+      .filter((e) => e.type === "mail.failed")
+  ).toHaveLength(1);
+});
+test("an event matches a bracketed stored id, and a later failed event does not undo a bounce", async () => {
+  await sentMail("<bare-id>");
+  await service.recordUndelivered(system, {
+    messageId: "bare-id",
+    reason: "gone",
+    status: "bounced",
+  });
+  await service.recordUndelivered(system, {
+    messageId: "bare-id",
+    reason: "other",
+    status: "failed",
+  });
+  expect(outRow()?.status).toBe("bounced");
+});
+test("an event for an unknown id changes nothing", async () => {
+  await sentMail();
+  await service.recordUndelivered(system, {
+    messageId: "someone-else",
+    reason: "gone",
+    status: "bounced",
+  });
+  expect(outRow()?.status).toBe("sent");
+  expect(
+    db
+      .select()
+      .from(eventRows)
+      .all()
+      .filter((e) => e.type === "mail.bounced")
+  ).toHaveLength(0);
+});
+test("only the system principal records an undelivered mail", async () => {
+  await expect(
+    service.recordUndelivered(user, {
+      messageId: "bare-id",
+      reason: "x",
+      status: "bounced",
+    })
+  ).rejects.toThrow();
+});

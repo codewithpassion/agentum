@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import type { MiddlewareHandler } from "hono/types";
 import { compose } from "./server/compose.ts";
+import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -178,8 +179,21 @@ const email: EmailExportedHandler<Env> = async (message, env) => {
   );
 };
 
+/**
+ * Email Sending events for outbound agent mail, from the queue the sending
+ * domain's subscription feeds. Bounces and failures mark the sent mail.
+ */
+const queue: ExportedHandlerQueueHandler<Env, unknown> = async (batch, env) => {
+  const { services } = compose(env, import.meta.env.DEV);
+  await handleMailEvents(batch.messages, {
+    record: (report) =>
+      services.mail.recordUndelivered(SYSTEM_PRINCIPAL, report),
+  });
+};
+
 export default {
   email,
   fetch: app.fetch,
+  queue,
   scheduled,
 } satisfies ExportedHandler<Env>;
