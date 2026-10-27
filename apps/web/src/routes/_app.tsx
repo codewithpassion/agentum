@@ -52,7 +52,7 @@ function AppLayout() {
         needsYouCount={needsYouCount ?? 0}
         openQaCount={openQaCount ?? 0}
       />
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         {/* Desktop keeps this bar. On phones the menu button lives in the
             site header instead, so there is one bar. */}
         <div className="hidden h-12 items-center border-border border-b px-4 md:flex">

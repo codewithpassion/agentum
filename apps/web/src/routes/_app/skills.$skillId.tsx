@@ -116,7 +116,7 @@ function SkillPage() {
     <section className="mx-auto flex max-w-5xl flex-col gap-6">
       <header className="flex flex-col gap-2">
         <Link
-          className="text-muted-foreground text-sm hover:text-foreground"
+          className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center text-muted-foreground text-sm hover:text-foreground"
           to="/skills"
         >
           All skills

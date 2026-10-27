@@ -45,7 +45,7 @@ export function RecentTasksCard({
       )}
       <div className="border-border border-t px-4 py-2.5">
         <Link
-          className="text-sm underline-offset-4 hover:underline"
+          className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center text-sm underline-offset-4 hover:underline"
           search={{ agent: agentId }}
           to="/desk"
         >

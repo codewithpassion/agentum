@@ -7,6 +7,7 @@ import {
   isConflict,
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
+import { ReplyBar } from "#/components/thread/reply-bar.tsx";
 import { TaskThread } from "#/components/thread/task-thread.tsx";
 import {
   applyThreadFrame,
@@ -287,7 +288,11 @@ export function TaskPage({ initial }: { initial: TaskView }) {
         data-testid="task-facts"
       >
         <Fact label="agent">
-          <Link params={{ agentId: task.agent.id }} to="/agents/$agentId">
+          <Link
+            className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+            params={{ agentId: task.agent.id }}
+            to="/agents/$agentId"
+          >
             {task.agent.name}
           </Link>
         </Fact>
@@ -321,7 +326,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
             thread={mailThread}
           />
           <ActionLog entries={log} />
-          <SlotCard testId="slot-thread" title="Thread">
+          <SlotCard id="task-thread" testId="slot-thread" title="Thread">
             <TaskThread
               answer={answer}
               messages={thread.messages}
@@ -332,6 +337,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
           </SlotCard>
         </div>
       </div>
+      <ReplyBar targetId="task-thread" />
     </section>
   );
 }

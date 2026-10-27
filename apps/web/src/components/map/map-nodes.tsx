@@ -92,7 +92,7 @@ export function TriggerNode({ data }: NodeProps<TriggerFlowNode>) {
         <div className="truncate font-semibold text-[13px] text-foreground leading-tight">
           {data.label}
         </div>
-        <div className="truncate text-[11.5px] text-muted-foreground leading-tight">
+        <div className="truncate text-[11.5px] text-muted-foreground leading-tight max-md:text-[12px]">
           {data.detail}
         </div>
       </div>
@@ -127,7 +127,7 @@ function PortChip({
     [agentId, onUnplug, port]
   );
   return (
-    <span className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 text-[10.5px] text-muted-foreground leading-4">
+    <span className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 text-[10.5px] text-muted-foreground leading-4 max-md:text-[12px]">
       {port.label}
       {editor && agentId !== null ? (
         <button
@@ -204,7 +204,7 @@ export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
         <div className="truncate font-semibold text-[13px] text-foreground leading-tight">
           {data.label}
         </div>
-        <div className="truncate text-[11.5px] text-muted-foreground leading-tight">
+        <div className="truncate text-[11.5px] text-muted-foreground leading-tight max-md:text-[12px]">
           {data.statusText}
         </div>
         {data.ports.length > 0 && (
@@ -218,7 +218,7 @@ export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
               />
             ))}
             {hiddenPorts > 0 && (
-              <span className="rounded border border-border px-1.5 text-[10.5px] text-muted-foreground leading-4">
+              <span className="rounded border border-border px-1.5 text-[10.5px] text-muted-foreground leading-4 max-md:text-[12px]">
                 +{hiddenPorts}
               </span>
             )}
@@ -290,7 +290,7 @@ export function OutputNode({ data }: NodeProps<OutputFlowNode>) {
         <div className="truncate font-semibold text-[13px] text-foreground leading-tight">
           {data.label}
         </div>
-        <div className="truncate text-[11.5px] text-muted-foreground leading-tight">
+        <div className="truncate text-[11.5px] text-muted-foreground leading-tight max-md:text-[12px]">
           {data.detail}
         </div>
       </div>

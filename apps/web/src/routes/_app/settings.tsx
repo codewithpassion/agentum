@@ -11,7 +11,7 @@ function SettingsLayout() {
     <div className="flex flex-col gap-8 md:flex-row">
       <nav
         aria-label="Settings"
-        className="-mx-4 flex gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:mx-0 md:w-56 md:shrink-0 md:flex-col md:gap-6 md:overflow-visible md:px-0"
+        className="flex flex-wrap gap-1 md:w-56 md:shrink-0 md:flex-col md:flex-nowrap md:gap-6"
       >
         {settingsNav.map((group) => (
           <div
