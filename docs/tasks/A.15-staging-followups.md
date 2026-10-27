@@ -3,7 +3,7 @@ id: A.15
 title: Phase 1 staging follow-ups (analytics beacon, workspace name, staging cron)
 milestone: A
 size: S
-status: in_progress
+status: done
 depends_on: [A.11]
 branch: task/A.15-staging-followups
 lane: worker-content
@@ -23,3 +23,4 @@ Findings from A.11's staging check (`docs/reviews/tasks/A.11.md`). Integration b
 
 ## Log
 - 2026-10-27: planned from A.11's findings and dispatched (controller).
+- 2026-10-27: ready at 6bb4dd3, review clean after 0 fix rounds; no-transform on content, workspace name from Clerk org, staging crons empty; beacon check after next staging deploy; merged.
