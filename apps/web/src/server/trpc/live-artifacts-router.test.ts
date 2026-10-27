@@ -15,6 +15,19 @@ const artifactId = crypto.randomUUID();
 const inputs = {
   answered: { threadId: "thread" },
   ask: { artifactId, text: "hello", via: "artifact_thread" },
+  askElement: {
+    artifactId,
+    element: {
+      html: "<p>x</p>",
+      path: "index.html",
+      selector: "p",
+      tag: "p",
+      text: "x",
+    },
+    requestId: "request",
+    text: "why",
+    versionId: "v1",
+  },
   changes: { artifactId },
   checkpoint: { artifactId, revision: 1, state: [1] },
   comment: { artifactId, body: "Hi" },
@@ -30,6 +43,7 @@ const inputs = {
   history: { artifactId },
   invalidateAccess: { artifactId },
   join: { artifactId },
+  mentionMember: { artifactId, email: "member@example.com" },
   open: { artifactId },
   recordChange: {
     artifactId,
@@ -146,6 +160,12 @@ test("strict ask/comment schemas reject client speaker, roster, presence, select
     "workspaceId",
   ]) {
     // biome-ignore lint/performance/noAwaitInLoops: each forbidden field must fail before service call
+    await expect(
+      caller.askElement({
+        ...inputs.askElement,
+        [field]: "forged",
+      } as typeof inputs.askElement)
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
       caller.ask({ ...inputs.ask, [field]: "forged" } as typeof inputs.ask)
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });

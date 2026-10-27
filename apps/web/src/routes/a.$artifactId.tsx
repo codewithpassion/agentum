@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AccessLog } from "#/components/artifacts/access-log.tsx";
 import { ArtifactFrame } from "#/components/artifacts/artifact-frame.tsx";
+import { ElementAskViewer } from "#/components/artifacts/element-ask-viewer.tsx";
 import { ShareDialog } from "#/components/artifacts/share-dialog.tsx";
 import { HandToDialog } from "#/components/artifacts/viewer/hand-to-dialog.tsx";
 import { VersionHistorySheet } from "#/components/artifacts/viewer/version-history-sheet.tsx";
@@ -136,6 +137,10 @@ function StaticArtifactViewerPage() {
   const [waitingVersionId, setWaitingVersionId] = useState<string | null>(null);
   const [tab, setTab] = useState<"artifact" | "log">("artifact");
 
+  const Frame =
+    detail.kind === "page" || detail.kind === "dashboard"
+      ? ElementAskViewer
+      : ArtifactFrame;
   const currentNumber = detail.currentVersion.number;
   const shownNumber = shownVersionNumber(detail, v);
   // The shown version's files other than its entry, for the share dialog.
@@ -371,7 +376,7 @@ function StaticArtifactViewerPage() {
             </p>
           ) : null}
           {open.status === "ready" ? (
-            <ArtifactFrame
+            <Frame
               className="h-full w-full"
               contentUrl={open.opened.contentUrl}
               interactive

@@ -1,6 +1,7 @@
 import { Deck } from "@repo/live-deck";
 import { richTextCodec } from "@repo/live-deck/rich-text";
 import { createDeckCheckpoint } from "@repo/mcp/tools/deck-scene";
+import { parseEmbedSource } from "@repo/protocol/deck";
 import type {
   LiveContentCodec,
   LiveRoomScope,
@@ -16,7 +17,10 @@ export const deckContent = (
   const load = async (state: Uint8Array, scope: LiveRoomScope) => {
     const urls = await policy(scope);
     const deck = new Deck(new Doc({ gc: false }), richTextCodec, {
-      ownsBlob: (path) => urls.has(path),
+      // Checkpoint HTML renders only a placeholder, never the embedded source.
+      // Admission remains the room's job; a later source revocation must not
+      // block publishing accepted edits or loading a checkpoint for removal.
+      ownsBlob: (path) => urls.has(path) || parseEmbedSource(path) !== null,
     });
     try {
       deck.applyUpdate(state);

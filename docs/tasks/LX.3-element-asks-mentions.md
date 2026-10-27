@@ -3,9 +3,9 @@ id: LX.3
 title: Element asks and member mention notifications
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [L.4, L.9]
-branch: null
+branch: t3/element-asks-member-mentions
 lane: artifact-interactions
 executor: codex
 ---
@@ -17,3 +17,5 @@ Complete R4.3 page/dashboard element selection and agent questions through the e
 ## Log
 
 - 2026-10-27: Dispatched for authorized parallel phase4 implementation.
+
+- 2026-10-28: Merged 526b0bdb/20cd59e5 through integration merge f581181d, preserving embed sandbox shell and fixing guest fixture workerd bundling. Combined checks and independent review pending.

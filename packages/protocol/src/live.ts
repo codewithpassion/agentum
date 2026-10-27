@@ -6,6 +6,7 @@ import {
   ROOM_TICKET_SECONDS,
 } from "@repo/db/shared";
 import { z } from "zod";
+import { pageElementSchema } from "./element-ask.ts";
 
 const id = z.string().min(1).max(200);
 const kind = z.enum(["member", "guest", "agent"]);
@@ -96,6 +97,12 @@ export const speakerLocationSchema = z.strictObject({
   blockId: id.optional(),
   elementId: id.optional(),
   elementIds: z.array(id).max(200).optional(),
+  pageElement: pageElementSchema
+    .extend({
+      source: z.literal("untrusted_artifact_dom"),
+      versionId: z.string().min(1).max(200),
+    })
+    .optional(),
   selection: z.string().max(8192).optional(),
   slideId: id.optional(),
   slideNumber: z.int().positive().optional(),
@@ -112,7 +119,7 @@ export const speakerEnvelopeSchema = z.strictObject({
     artifact: z
       .strictObject({
         id: z.uuid(),
-        kind: z.enum(LIVE_KINDS),
+        kind: z.enum([...LIVE_KINDS, "page", "dashboard"]),
         title: z.string().max(500),
       })
       .optional(),

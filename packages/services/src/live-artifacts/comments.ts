@@ -15,6 +15,7 @@ import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
+import { mentionStatements } from "./mentions.ts";
 import {
   canComment,
   type InteractionContext,
@@ -366,6 +367,7 @@ export const createCommentsModule = (ctx: InteractionContext) => {
           [
             ...threadStatements(row, input, threadId, anchor, quote),
             insertComment,
+            ...mentionStatements(ctx, comment, row.id),
             ...(input.toAgent
               ? [
                   db.insert(artifactAskDispatches).values({

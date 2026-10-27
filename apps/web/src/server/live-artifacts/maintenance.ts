@@ -14,7 +14,11 @@ export class LiveArtifactMaintenance extends DurableObject<Env> {
   override async alarm() {
     await this.ctx.storage.setAlarm(Date.now() + 2000);
     const live = requiredLive(compose(this.env, false).services);
-    const sweeps = [live.retryInvalidations, live.retryDispatches];
+    const sweeps = [
+      live.retryInvalidations,
+      live.retryDispatches,
+      live.retryMentions,
+    ];
     const lastTick = await this.ctx.storage.get<number>("checkpointTick");
     if (lastTick === undefined || lastTick + 60_000 <= Date.now()) {
       sweeps.push(live.retryCheckpoints);

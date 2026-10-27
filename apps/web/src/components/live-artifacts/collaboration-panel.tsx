@@ -1,6 +1,7 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Panel controls capture their trusted record IDs. */
 
 import type { LiveCommentThread } from "@repo/protocol/live";
+import { readableMentions } from "@repo/protocol/member-mentions";
 import type { Editor } from "@tiptap/core";
 import {
   type ReactNode,
@@ -28,6 +29,7 @@ import { resolveRelative } from "./editor-binding";
 import type { EditorSelection } from "./editor-ports";
 import { ToolButton } from "./editor-toolbar";
 import { type LiveOutputs, liveApi } from "./live-api";
+import { MemberMention } from "./member-mention";
 import type { TicketedRoom } from "./room-provider";
 import { useAgentAttachment } from "./use-agent-attachment";
 
@@ -59,6 +61,12 @@ export function CollaborationPanel({
   const [busy, setBusy] = useState(false);
   const [revertId, setRevertId] = useState<string>();
   const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => {
+    if (window.location.hash.startsWith("#comment-")) {
+      setTab("comments");
+      setMobileOpen(true);
+    }
+  }, []);
   const canComment = room.role !== "viewer";
   const canEdit = room.role === "owner" || room.role === "editor";
   const pageCounts = useRef({ changes: 1, threads: 1 });
@@ -445,6 +453,14 @@ function CommentForm({
           value={body}
         />
       </label>
+      <MemberMention
+        artifactId={artifactId}
+        disabled={busy}
+        onInsert={(token) => {
+          setBody((old) => `${old}${old ? " " : ""}${token} `);
+          setRequestId(crypto.randomUUID());
+        }}
+      />
       {!threadId && (
         <label>
           <input
@@ -525,7 +541,11 @@ export function CommentThread({
     }
   };
   return (
-    <article aria-label="Comment thread" className="live-comment-thread">
+    <article
+      aria-label="Comment thread"
+      className="live-comment-thread"
+      id={`comment-${thread.id}`}
+    >
       {Boolean(thread.quote) && <blockquote>{thread.quote}</blockquote>}
       {thread.anchor?.kind === "document" && !detached && editor !== null && (
         <ToolButton
@@ -568,7 +588,7 @@ export function CommentThread({
               `${comment.authorKind} ${comment.authorId}`}
           </b>
           <time>{comment.createdAt}</time>
-          <p>{comment.body}</p>
+          <p>{readableMentions(comment.body)}</p>
         </div>
       ))}
       {canComment && !thread.resolvedAt && (

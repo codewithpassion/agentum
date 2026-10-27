@@ -1,3 +1,4 @@
+import { findVersionById, versionFiles } from "@repo/db/artifacts";
 import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import {
@@ -6,6 +7,10 @@ import {
   artifactCommentThreads,
 } from "@repo/db/schema/live-artifacts";
 import { sessions } from "@repo/db/schema/sessions";
+import {
+  type ElementAskInput,
+  elementAskInputSchema,
+} from "@repo/protocol/element-ask";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -84,7 +89,7 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
       false,
       false
     );
-    if (row.kind !== "document" && row.kind !== "deck") {
+    if (!["document", "deck", "page", "dashboard"].includes(row.kind)) {
       throw missing();
     }
     canComment(role);
@@ -102,7 +107,7 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
       false,
       false
     );
-    if (row.kind !== "document" && row.kind !== "deck") {
+    if (!["document", "deck", "page", "dashboard"].includes(row.kind)) {
       throw missing();
     }
     const [found] = await db
@@ -128,6 +133,37 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
         }
       : null;
   };
+  const askRoom = async (
+    scope: LiveRoomScope,
+    member: Extract<Principal, { kind: "user" }>,
+    kind: string,
+    input: { elementAsk?: ElementAskInput; via: string }
+  ) => {
+    if ((kind === "page" || kind === "dashboard") && !input.elementAsk) {
+      throw invalid("Select an element in the artifact to ask about it");
+    }
+    const room: Pick<SpeakerRoom, "where" | "present"> = input.elementAsk
+      ? {
+          present: [],
+          where: {
+            pageElement: {
+              ...input.elementAsk.element,
+              source: "untrusted_artifact_dom" as const,
+              versionId: input.elementAsk.versionId,
+            },
+          },
+        }
+      : await deps.presence(scope, member);
+    if (
+      input.via === "ask_agent" &&
+      !room.where?.pageElement &&
+      !room.where?.selection &&
+      !room.where?.slideId
+    ) {
+      throw invalid("No current selection");
+    }
+    return room;
+  };
   const start = async (
     principal: Principal,
     input: {
@@ -137,6 +173,7 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
       via: "artifact_thread" | "ask_agent" | "comment";
       threadId?: string;
       requestId?: string;
+      elementAsk?: ElementAskInput;
     }
   ) => {
     const { member, row } = await context(principal, input.artifactId);
@@ -170,16 +207,17 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
       workspaceId: agent.workspaceId,
     });
     const scope = { artifactId: row.id, workspaceId: row.workspaceId };
-    const room = await deps.presence(scope, member);
-    if (
-      input.via === "ask_agent" &&
-      !room.where?.selection &&
-      !room.where?.slideId
-    ) {
-      throw invalid("No current selection");
-    }
+    const room = await askRoom(scope, member, row.kind, input);
     const identity = await deps.identity(member);
     const current = await context(member, row.id);
+    if (
+      input.elementAsk &&
+      current.row.currentVersionId !== input.elementAsk.versionId
+    ) {
+      throw invalid(
+        "The selected version changed. Reload and select the element again."
+      );
+    }
     const text = buildSpeakerEnvelope(
       {
         actor: { id: member.userId, kind: "user" },
@@ -190,7 +228,7 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
         ...room,
         artifact: {
           id: row.id,
-          kind: row.kind as "document" | "deck",
+          kind: row.kind as "document" | "deck" | "page" | "dashboard",
           title: row.title,
         },
         where: input.threadId
@@ -286,6 +324,64 @@ export const createLiveAskService = (deps: LiveAskDeps) => {
   return {
     ask: async (principal: Principal, input: LiveAskInput) =>
       start(principal, liveAskInputSchema.parse(input)),
+    askElement: async (principal: Principal, raw: ElementAskInput) => {
+      const input = elementAskInputSchema.parse(raw);
+      const { member, row } = await context(principal, input.artifactId);
+      if (row.kind !== "page" && row.kind !== "dashboard") {
+        throw missing();
+      }
+      const fresh = await deps.resolveMember(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        member.userId
+      );
+      if (
+        !fresh ||
+        fresh.userId !== member.userId ||
+        fresh.workspaceId !== member.workspaceId
+      ) {
+        throw new ForbiddenError("liveArtifacts.askElement");
+      }
+      const version = await findVersionById(
+        db,
+        row.workspaceId,
+        input.versionId
+      );
+      if (
+        !version ||
+        version.artifactId !== row.id ||
+        version.status !== "published" ||
+        row.currentVersionId !== version.id
+      ) {
+        throw invalid(
+          "The selected version changed. Reload and select the element again."
+        );
+      }
+      const files = await versionFiles(db, row.workspaceId, version.id);
+      if (
+        !files.some(
+          (file) =>
+            file.path === input.element.path &&
+            file.contentType.split(";")[0] === "text/html"
+        )
+      ) {
+        throw invalid("The selected page is not in this artifact version");
+      }
+      // Preserve credential restrictions from the authenticated caller. Fresh membership
+      // is an additional gate, never a replacement credential with broader rights.
+      return start(
+        {
+          ...member,
+          isAdmin: member.isAdmin === true && fresh.isAdmin === true,
+        },
+        {
+          artifactId: row.id,
+          elementAsk: input,
+          requestId: `element:${input.requestId}`,
+          text: input.text,
+          via: "ask_agent",
+        }
+      );
+    },
     retryCommentAsk: async (
       principal: Principal,
       input: { artifactId: string; threadId: string; commentId: string }

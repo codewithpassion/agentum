@@ -17,6 +17,8 @@
     "./thread": "./src/thread.ts",
     "./guest": "./src/guest.ts",
     "./live": "./src/live.ts",
+    "./member-mentions": "./src/member-mentions.ts",
+    "./element-ask": "./src/element-ask.ts",
     "./deck": "./src/deck.ts"
   },
   "scripts": {

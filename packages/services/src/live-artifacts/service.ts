@@ -35,7 +35,7 @@ import {
   commentAnchorSchema,
   type LiveOperationOrigin,
 } from "@repo/protocol/live";
-import { and, asc, eq, gt, inArray, isNull, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, like, type SQL } from "drizzle-orm";
 import { ulid } from "ulidx";
 import {
   blobKey,
@@ -154,6 +154,7 @@ export interface LiveRoomsPort {
       byParticipant: string;
     }
   ) => Promise<DocumentSnapshot>;
+  retainedDeckEmbeds?: (scope: LiveRoomScope) => Promise<string[]>;
   saveRestored?: (
     scope: LiveRoomScope
   ) => Promise<{ versionId: string; revision: number }>;
@@ -242,7 +243,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const { access, memberOf, runContext } = createLiveAccess(deps);
   // Workspace-visible static pages only: every deck member may read these sources.
   // Private pages and apps with privileged bridge grants require a separate sharing contract.
-  const embedSources = async (workspaceId: string) => {
+  const embedSources = async (
+    workspaceId: string,
+    exact?: NonNullable<ReturnType<typeof parseEmbedSource>>
+  ) => {
     const files = await db
       .select({
         artifactId: artifacts.id,
@@ -271,10 +275,18 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           eq(artifacts.audience, "workspace"),
           eq(artifacts.kind, "page"),
           isNull(artifacts.deletedAt),
-          eq(artifactVersions.status, "published")
+          eq(artifactVersions.status, "published"),
+          like(artifactVersionFiles.path, "%.html"),
+          ...(exact
+            ? [
+                eq(artifacts.id, exact.artifactId),
+                eq(artifactVersions.id, exact.versionId),
+                eq(artifactVersionFiles.path, exact.path),
+                eq(artifactVersionFiles.sha256, exact.sha256),
+              ]
+            : [])
         )
-      )
-      .limit(2000);
+      );
     return files
       .map(
         (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
@@ -860,7 +872,8 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       if (row.kind !== "deck") {
         throw invalid("Artifact is not a deck");
       }
-      return { sources: await embedSources(row.workspaceId) };
+      // Discovery may be bounded; authorization and room policy never use this slice.
+      return { sources: (await embedSources(row.workspaceId)).slice(0, 2000) };
     },
     async ensureDeckCell(
       principal: Principal,
@@ -950,7 +963,15 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           ...(manifest
             ? (JSON.parse(new TextDecoder().decode(manifest.bytes)) as string[])
             : []),
-          ...(row.kind === "deck" ? await embedSources(row.workspaceId) : []),
+          ...(row.kind === "deck"
+            ? [
+                ...(await embedSources(row.workspaceId)).slice(0, 2000),
+                ...((await rooms.retainedDeckEmbeds?.({
+                  artifactId: row.id,
+                  workspaceId: row.workspaceId,
+                })) ?? []),
+              ]
+            : []),
         ],
       };
     },
@@ -1024,7 +1045,8 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       const source = parseEmbedSource(input.source);
       if (
         !(
-          source && (await embedSources(row.workspaceId)).includes(input.source)
+          source &&
+          (await embedSources(row.workspaceId, source)).includes(input.source)
         )
       ) {
         throw invalid(
