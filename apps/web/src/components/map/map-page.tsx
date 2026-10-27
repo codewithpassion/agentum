@@ -403,7 +403,7 @@ export function MapPage() {
     [editor, deleteWire, plug, unplug]
   );
 
-  const { cancelPick, clearPick, pickTool, picked, selectNode } = useTapToPlug({
+  const { clearPick, pickTool, picked, selectNode } = useTapToPlug({
     boardRef,
     plug,
     select: setSelectedKey,
@@ -443,7 +443,7 @@ export function MapPage() {
         onAnswer={answer}
         onChanged={reload}
         onClose={closeInspector}
-        touch={touch}
+        touch={isMobile ? touch : undefined}
       />
     );
   return (
@@ -478,7 +478,7 @@ export function MapPage() {
             ref={boardRef}
           >
             {picked === null ? null : (
-              <PickBanner item={picked} onCancel={cancelPick} />
+              <PickBanner item={picked} onCancel={clearPick} />
             )}
             <div
               className="h-[min(70vh,640px)] overflow-hidden rounded-xl border border-border"

@@ -63,7 +63,7 @@ export function MapInspectorPane({
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
   onChanged: () => void;
   onClose: () => void;
-  touch: TouchActions;
+  touch?: TouchActions;
 }) {
   const agentId = agentIdForProfile(graph, node);
   const {

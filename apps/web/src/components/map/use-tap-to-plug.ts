@@ -17,11 +17,11 @@ export function useTapToPlug({
   select: (key: string | null) => void;
 }) {
   const [picked, setPicked] = useState<PaletteItem | null>(null);
-  /** Picking brings the map into view, since the palette sits below it on a phone. */
+  /** On a phone the palette sits below the map, so picking brings the map into view. */
   const pickTool = useCallback(
     (item: PaletteItem | null) => {
       setPicked(item);
-      if (item !== null) {
+      if (item !== null && window.matchMedia("(max-width: 767px)").matches) {
         boardRef.current?.scrollIntoView({
           behavior: "smooth",
           block: "start",
@@ -43,5 +43,5 @@ export function useTapToPlug({
     },
     [picked, plug, select]
   );
-  return { cancelPick: clearPick, clearPick, picked, pickTool, selectNode };
+  return { clearPick, picked, pickTool, selectNode };
 }
