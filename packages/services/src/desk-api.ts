@@ -90,6 +90,14 @@ const DESK_RUN_STATUS: Record<RunStatus, DeskRunStatus> = {
   waiting: "waiting",
 };
 
+/** The longest `error` the desk shows; C4 asks for a short message. */
+const ERROR_MAX = 300;
+
+const shortError = (error: string | null): string | null =>
+  error !== null && error.length > ERROR_MAX
+    ? `${error.slice(0, ERROR_MAX - 1)}…`
+    : error;
+
 export type { NeedsYouItem } from "./desk.ts";
 
 export const createDeskApiService = ({
@@ -284,13 +292,15 @@ export const createDeskApiService = ({
     member: UserPrincipal,
     runId: string
   ): Promise<DeskRun> => {
-    if (!(await canSeeRun(member, idString.parse(runId)))) {
+    // An id no run can have is just an unknown run. `getRun` hides runs in
+    // sessions the member cannot see.
+    if (!idString.safeParse(runId).success) {
       throw new ServiceError("not_found", "Run not found");
     }
     const run = await runs.getRun(member, runId);
     const status = DESK_RUN_STATUS[run.status];
     return {
-      error: status === "failed" ? run.error : null,
+      error: status === "failed" ? shortError(run.error) : null,
       reply: status === "finished" ? run.resultText : null,
       runId: run.id,
       sessionId: run.sessionId,

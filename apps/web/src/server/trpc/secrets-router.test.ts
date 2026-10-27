@@ -4,6 +4,7 @@ import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
+import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
@@ -146,4 +147,31 @@ test("grants are set and read per agent", async () => {
   await expect(
     caller.secrets.setGrants({ agentId: agent.id, secretIds: ["nope"] })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("an invalid name answers the UI with the validation message", async () => {
+  const services = composed();
+  const response = await fetchRequestHandler({
+    createContext: () =>
+      buildContext({
+        composed: services,
+        session: { orgId: "org_a", userId: "user_1" },
+      }),
+    endpoint: "/api/trpc",
+    req: new Request("http://test/api/trpc/secrets.create", {
+      body: JSON.stringify({
+        mode: "env",
+        name: "OPENAI-API-KEY",
+        value: VALUE,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }),
+    router: appRouter,
+  });
+  const body = (await response.json()) as { error: { message: string } };
+  expect(response.status).toBe(400);
+  expect(body.error.message).toBe(
+    "A name is letters, digits and underscores, and does not start with a digit"
+  );
 });

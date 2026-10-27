@@ -559,6 +559,40 @@ test("readRun maps status and hides the reply until the run is done", async () =
   });
 });
 
+test("readRun maps offered, waiting and cancelled", async () => {
+  const runId = await start();
+  const expected = [
+    ["offered", "queued"],
+    ["waiting", "waiting"],
+    ["cancelled", "cancelled"],
+  ] as const;
+  for (const [status, mapped] of expected) {
+    // biome-ignore lint/performance/noAwaitInLoops: each status is set and read in turn
+    await db.update(runRows).set({ status }).where(eq(runRows.id, runId));
+    expect(await desk.readRun(member, runId)).toMatchObject({
+      reply: null,
+      status: mapped,
+    });
+  }
+});
+
+test("readRun shortens a long error", async () => {
+  const runId = await start();
+  await db
+    .update(runRows)
+    .set({ error: "x".repeat(5000), status: "failed" })
+    .where(eq(runRows.id, runId));
+  const run = await desk.readRun(member, runId);
+  expect(run.error?.length).toBeLessThanOrEqual(300);
+  expect(run.error?.startsWith("xxx")).toBe(true);
+});
+
+test("readRun answers not found for a run id over 200 characters", async () => {
+  await expect(desk.readRun(member, "r".repeat(201))).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+
 test("readRun refuses another member's run and unknown runs", async () => {
   const runId = await start();
   members.set("eli@example.com|org1", "u2");
