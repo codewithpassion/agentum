@@ -3,7 +3,7 @@ id: MB.7
 title: "Mobile: computer takeover with touch and the phone keyboard"
 milestone: MB
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/MB.7-mobile-computer-takeover
 lane: computer
@@ -27,3 +27,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 ## Log
 - 2026-10-27: added from the mobile audit.
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 1 fix round; merged. Live desktop and real phone keyboard not tested (computer offline).

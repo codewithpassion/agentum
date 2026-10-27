@@ -1,4 +1,11 @@
-import { type ChangeEvent, useCallback, useId, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type CSSProperties,
+  useCallback,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "#/components/ui/button.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
@@ -7,12 +14,126 @@ import {
   readRemoteClipboard,
   writeRemoteClipboard,
 } from "./desktop-clipboard.ts";
-import { DESKTOP_SCREEN } from "./desktop-input.ts";
+import { DESKTOP_SCREEN, PHONE_KEYS } from "./desktop-input.ts";
 import { canTakeOver, controllerLabel, notLiveText } from "./desktop-status.ts";
 import { useDesktopInput } from "./use-desktop-input.ts";
 import { useDesktopScreen } from "./use-desktop-screen.ts";
 
 const NOTE_MAX_CHARS = 2000;
+const ZOOM_LEVELS = [1, 2, 3] as const;
+
+/** Keeps the phone keyboard open: a tap on these buttons must not take focus. */
+const keepFocus = (event: { preventDefault: () => void }) =>
+  event.preventDefault();
+
+function ZoomButton({
+  level,
+  onZoom,
+  zoom,
+}: {
+  level: number;
+  onZoom: (zoom: number) => void;
+  zoom: number;
+}) {
+  const choose = useCallback(() => onZoom(level), [level, onZoom]);
+  return (
+    <Button
+      aria-pressed={zoom === level}
+      onClick={choose}
+      onMouseDown={keepFocus}
+      onPointerDown={keepFocus}
+      size="sm"
+      type="button"
+      variant={zoom === level ? "secondary" : "outline"}
+    >
+      {level}x
+    </Button>
+  );
+}
+
+function KeyButton({
+  keys,
+  label,
+  onKey,
+}: {
+  keys: string;
+  label: string;
+  onKey: (keys: string) => void;
+}) {
+  const press = useCallback(() => onKey(keys), [keys, onKey]);
+  return (
+    <Button
+      onClick={press}
+      onMouseDown={keepFocus}
+      onPointerDown={keepFocus}
+      size="sm"
+      type="button"
+      variant="outline"
+    >
+      {label}
+    </Button>
+  );
+}
+
+/** Phone-only tools: the keyboard, the keys it lacks, zoom and pan. Hidden from md up. */
+function TouchBar({
+  onKey,
+  onKeyboard,
+  onPan,
+  onZoom,
+  panning,
+  zoom,
+}: {
+  onKey: (keys: string) => void;
+  onKeyboard: () => void;
+  onPan: () => void;
+  onZoom: (zoom: number) => void;
+  panning: boolean;
+  zoom: number;
+}) {
+  return (
+    <div
+      className="flex flex-col gap-2 md:hidden"
+      data-testid="desktop-touch-bar"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={onKeyboard} size="sm" type="button">
+          Keyboard
+        </Button>
+        {ZOOM_LEVELS.map((level) => (
+          <ZoomButton key={level} level={level} onZoom={onZoom} zoom={zoom} />
+        ))}
+        {zoom > 1 ? (
+          <Button
+            aria-pressed={panning}
+            onClick={onPan}
+            onMouseDown={keepFocus}
+            onPointerDown={keepFocus}
+            size="sm"
+            type="button"
+            variant={panning ? "secondary" : "outline"}
+          >
+            Pan
+          </Button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {PHONE_KEYS.map((entry) => (
+          <KeyButton
+            key={entry.keys}
+            keys={entry.keys}
+            label={entry.label}
+            onKey={onKey}
+          />
+        ))}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Tap to click, hold for right click, drag to move with the button down,
+        two fingers to scroll. Turn Pan on to move around a zoomed screen.
+      </p>
+    </div>
+  );
+}
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "The request failed";
@@ -175,6 +296,8 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
   const inControl = status?.youHaveControl === true;
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [panning, setPanning] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -208,11 +331,28 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
   const input = useDesktopInput({
     enabled: inControl,
     onPaste: pasteText,
+    panning,
     sendInput,
     surface: surfaceRef,
   });
 
   const { releaseButtons } = input;
+
+  const focusKeyboard = useCallback(
+    () => input.keyboard.ref.current?.focus({ preventScroll: true }),
+    [input.keyboard.ref]
+  );
+  const sendKey = useCallback(
+    (keys: string) => sendInput([{ keys, type: "key" }]),
+    [sendInput]
+  );
+  const changeZoom = useCallback((level: number) => {
+    setZoom(level);
+    if (level === 1) {
+      setPanning(false);
+    }
+  }, []);
+  const togglePan = useCallback(() => setPanning((value) => !value), []);
 
   const take = useCallback(
     () =>
@@ -274,58 +414,69 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
       </div>
       <div
         className={cn(
-          "relative w-full overflow-hidden rounded-lg border bg-muted",
+          "overflow-auto rounded-lg border bg-muted md:overflow-hidden",
           input.keyboardFocused && inControl && "ring-2 ring-ring"
         )}
-        style={{
-          aspectRatio: `${String(DESKTOP_SCREEN.width)} / ${String(DESKTOP_SCREEN.height)}`,
-        }}
+        data-testid="desktop-viewport"
       >
         <div
-          {...input.surface}
-          className={cn(
-            "absolute inset-0 touch-none select-none",
-            inControl ? "cursor-default" : "cursor-not-allowed"
-          )}
-          data-testid="desktop-frame"
-          ref={surfaceRef}
+          className="relative max-md:w-(--desktop-zoom) md:w-full"
+          style={
+            {
+              "--desktop-zoom": `${String(zoom * 100)}%`,
+              aspectRatio: `${String(DESKTOP_SCREEN.width)} / ${String(DESKTOP_SCREEN.height)}`,
+            } as CSSProperties
+          }
         >
-          <canvas
-            aria-label="Remote desktop"
+          <div
+            {...input.surface}
             className={cn(
-              "pointer-events-none size-full object-contain",
-              hasFrame ? "" : "invisible",
-              notLive !== null && "opacity-40"
+              "absolute inset-0 select-none",
+              panning
+                ? "max-md:touch-pan-x max-md:touch-pan-y md:touch-none"
+                : "touch-none",
+              inControl ? "cursor-default" : "cursor-not-allowed"
             )}
-            height={DESKTOP_SCREEN.height}
-            ref={canvasRef}
-            width={DESKTOP_SCREEN.width}
+            data-testid="desktop-frame"
+            ref={surfaceRef}
+          >
+            <canvas
+              aria-label="Remote desktop"
+              className={cn(
+                "pointer-events-none size-full object-contain",
+                hasFrame ? "" : "invisible",
+                notLive !== null && "opacity-40"
+              )}
+              height={DESKTOP_SCREEN.height}
+              ref={canvasRef}
+              width={DESKTOP_SCREEN.width}
+            />
+            {live ? null : (
+              <div
+                className="absolute inset-0 flex items-center justify-center p-6 text-center text-muted-foreground text-sm"
+                data-testid="desktop-placeholder"
+                role="status"
+              >
+                {notLive ?? "Connecting to the desktop…"}
+              </div>
+            )}
+          </div>
+          <textarea
+            aria-label="Desktop keyboard"
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            className="absolute top-0 left-0 size-px resize-none overflow-hidden border-0 p-0 text-[16px] opacity-0"
+            onBlur={input.keyboard.onBlur}
+            onFocus={input.keyboard.onFocus}
+            onKeyDown={input.keyboard.onKeyDown}
+            onPaste={input.keyboard.onPaste}
+            readOnly={!inControl}
+            ref={input.keyboard.ref}
+            spellCheck={false}
+            tabIndex={-1}
           />
-          {live ? null : (
-            <div
-              className="absolute inset-0 flex items-center justify-center p-6 text-center text-muted-foreground text-sm"
-              data-testid="desktop-placeholder"
-              role="status"
-            >
-              {notLive ?? "Connecting to the desktop…"}
-            </div>
-          )}
         </div>
-        <textarea
-          aria-label="Desktop keyboard"
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
-          className="absolute top-0 left-0 size-px resize-none overflow-hidden border-0 p-0 opacity-0"
-          onBlur={input.keyboard.onBlur}
-          onFocus={input.keyboard.onFocus}
-          onKeyDown={input.keyboard.onKeyDown}
-          onPaste={input.keyboard.onPaste}
-          readOnly={!inControl}
-          ref={input.keyboard.ref}
-          spellCheck={false}
-          tabIndex={-1}
-        />
       </div>
 
       {error === null ? null : (
@@ -343,6 +494,17 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
           {notice}
         </p>
       )}
+
+      {inControl ? (
+        <TouchBar
+          onKey={sendKey}
+          onKeyboard={focusKeyboard}
+          onPan={togglePan}
+          onZoom={changeZoom}
+          panning={panning}
+          zoom={zoom}
+        />
+      ) : null}
 
       {inControl ? (
         <ControlBar busy={busy} onCopy={copyFromRemote} onHandBack={handBack} />
