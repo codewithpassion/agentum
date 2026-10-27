@@ -94,6 +94,23 @@ app.get("/fixture/policy/:id", async (c) => {
     })
   );
 });
+app.post("/fixture/convert/:id", async (c) => {
+  const member = {
+    isAdmin: false,
+    kind: "user" as const,
+    userId: "u1",
+    via: "session" as const,
+    workspaceId: "w1",
+  };
+  const live = requiredLive(c.get("composed").services);
+  const result = await live.convertDoc(member, {
+    artifactId: c.req.param("id"),
+  });
+  return c.json({
+    ...result,
+    policy: await live.ownBlobUrls(member, { artifactId: result.artifactId }),
+  });
+});
 app.post("/fixture/import-image/:id", async (c) =>
   c.json(
     await requiredLive(c.get("composed").services).importImage(

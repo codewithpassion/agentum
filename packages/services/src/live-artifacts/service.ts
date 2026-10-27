@@ -11,6 +11,7 @@ import {
   artifactVersionFiles,
   artifactVersions,
 } from "@repo/db/schema/artifacts";
+import { files as imageFiles } from "@repo/db/schema/files";
 import {
   artifactCommentThreads,
   artifactLiveChanges,
@@ -68,6 +69,7 @@ import { createChangesModule } from "./changes.ts";
 import { createCommentsModule } from "./comments.ts";
 import { fetchExternalImage, type ImageFetch } from "./external-image.ts";
 import { imageMime } from "./image-mime.ts";
+import { type ImportImageRow, stageImportImages } from "./import-images.ts";
 import type { LiveInteractionPorts } from "./ports.ts";
 
 export type {
@@ -112,7 +114,13 @@ export interface LiveContentCodec {
     snapshot: DocumentSnapshot,
     scope?: LiveRoomScope
   ) => Promise<{ markdown: string; html: string }>;
-  importMarkdown: (markdown: string) => Promise<DocumentSnapshot>;
+  importMarkdown: (
+    markdown: string,
+    options?: {
+      scope: LiveRoomScope;
+      resolveImage: (url: string) => Promise<string>;
+    }
+  ) => Promise<DocumentSnapshot>;
   loadDeck?: (
     state: Uint8Array,
     scope: LiveRoomScope
@@ -191,7 +199,8 @@ export interface LiveRoomsPort {
 export interface LiveArtifactsDeps extends LiveInteractionPorts {
   artifacts: Pick<ArtifactsService, "readFile" | "setAudience" | "remove">;
   atomic: Atomic;
-  blobs: Pick<LibraryBlobs, "get" | "put">;
+  blobs: Pick<LibraryBlobs, "get" | "put"> &
+    Partial<Pick<LibraryBlobs, "delete">>;
   clock: Clock;
   content: LiveContentCodec;
   db: Database;
@@ -201,6 +210,7 @@ export interface LiveArtifactsDeps extends LiveInteractionPorts {
   identity: (
     principal: Extract<Principal, { kind: "user" | "run" }>
   ) => Promise<{ name: string; color: string }>;
+  imageBlobs?: Pick<import("../files.ts").FileBlobs, "put" | "delete">;
   rooms: LiveRoomsPort;
   /** Exact current guest provenance, never member delegation or envelope claims. */
   scopedRunAccess?: (
@@ -260,6 +270,24 @@ const checkSnapshot = (snapshot: DocumentSnapshot, kind = "document") => {
     throw invalid("Invalid document state or revision");
   }
 };
+
+function validateDocumentInput(
+  member: Member,
+  input: { title: string; markdown?: string }
+) {
+  if (readOnly(member) || (member.kind === "run" && member.scopeArtifactId)) {
+    throw new ForbiddenError("liveArtifacts.create");
+  }
+  if (!input.title.trim() || input.title.length > 120) {
+    throw invalid("Title must be 1 to 120 characters");
+  }
+  if (
+    new TextEncoder().encode(input.markdown ?? "").byteLength >
+    LIVE_DOC_MAX_BYTES
+  ) {
+    throw invalid("Markdown exceeds document size limit");
+  }
+}
 
 export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const { db, atomic, blobs, clock, events, rooms, content } = deps;
@@ -445,7 +473,8 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const checkpointImages = async (
     row: Row,
     html: string,
-    baseBytes: number
+    baseBytes: number,
+    importedImages: ImportImageRow[] = []
   ) => {
     const urls = [
       ...new Set(
@@ -463,6 +492,12 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     const { files: fileRows } = await import("@repo/db/schema/files");
     const rows = await Promise.all(
       urls.map(async (url) => {
+        const staged = importedImages.find(
+          (image) => image.id === url.slice(7)
+        );
+        if (staged) {
+          return staged;
+        }
         const [file] = await db
           .select()
           .from(fileRows)
@@ -518,7 +553,11 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     }
     return { files, html: renderedHtml };
   };
-  const checkpointFiles = async (row: Row, snapshot: DocumentSnapshot) => {
+  const checkpointFiles = async (
+    row: Row,
+    snapshot: DocumentSnapshot,
+    importedImages: ImportImageRow[] = []
+  ) => {
     const exportContent =
       row.kind === "deck" ? content.exportDeck : content.exportDocument;
     if (!exportContent) {
@@ -534,7 +573,8 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       rendered.html,
       snapshot.state.byteLength +
         encoder.encode(rendered.markdown).length +
-        encoder.encode(rendered.html).length
+        encoder.encode(rendered.html).length,
+      importedImages
     );
     return [
       { bytes: new Uint8Array(snapshot.state), path: "state.ydoc" },
@@ -546,6 +586,8 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         : []),
     ];
   };
+  const creationImageStatements = (images: ImportImageRow[] = []) =>
+    images.length ? [db.insert(imageFiles).values(images)] : [];
   const persist = async (
     member: PublicationActor,
     row: Row,
@@ -566,6 +608,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           revTo: number;
         }
       >;
+    },
+    creation?: {
+      images: ImportImageRow[];
+      authorize: () => Promise<void>;
     }
   ): Promise<LivePublishResult> => {
     checkSnapshot(snapshot, row.kind);
@@ -580,7 +626,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       }
     }
     const number = await nextVersion(row, snapshot.revision, initial);
-    const raw = await checkpointFiles(row, snapshot);
+    const raw = await checkpointFiles(row, snapshot, creation?.images);
     if (
       raw.length > ARTIFACT_MAX_FILES ||
       raw.some((file) => file.bytes.byteLength > ARTIFACT_FILE_MAX_BYTES) ||
@@ -631,6 +677,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     };
     const statements: Statement[] = [
       ...creationStatements(member, row, payload, initial),
+      ...creationImageStatements(creation?.images),
       db.insert(artifactVersions).values({
         artifactId: row.id,
         authorId: publicationAuthor(member).id,
@@ -696,6 +743,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       quotaStatement(row.workspaceId, versionId),
     ];
     try {
+      await creation?.authorize();
       await atomic(statements);
     } catch (error) {
       rethrowArtifactQuotaError(error);
@@ -755,12 +803,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     convertedFromId?: string
   ): Promise<LivePublishResult> => {
     const member = memberOf(principal);
-    if (readOnly(member)) {
-      throw new ForbiddenError("liveArtifacts.create");
-    }
-    if (!input.title.trim() || input.title.length > 120) {
-      throw invalid("Title must be 1 to 120 characters");
-    }
+    validateDocumentInput(member, input);
     const context = member.kind === "run" ? await runContext(member) : null;
     if (context?.run.scopeArtifactId) {
       throw new ForbiddenError("liveArtifacts.scope");
@@ -772,9 +815,45 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         throw invalid("Only static docs can be converted");
       }
     }
-    const snapshot = await content.importMarkdown(input.markdown ?? "");
     const row = documentRow(member, input.title, context, source);
-    return await persist(member, row, snapshot, true);
+    const authorizeCreation = async () => {
+      memberOf(principal);
+      if (member.kind === "run") {
+        const current = await runContext(member);
+        if (current.run.scopeArtifactId) {
+          throw new ForbiddenError("liveArtifacts.scope");
+        }
+      }
+      if (convertedFromId) {
+        await access(member, convertedFromId, true, false, false);
+      }
+    };
+    const images = stageImportImages({
+      authorize: authorizeCreation,
+      clock,
+      fetcher: deps.externalImageFetch,
+      fileBlobs: deps.imageBlobs,
+      manifests: blobs,
+      member,
+      scope: { artifactId: row.id, workspaceId: row.workspaceId },
+    });
+    try {
+      const snapshot = await content.importMarkdown(input.markdown ?? "", {
+        resolveImage: images.resolve,
+        scope: { artifactId: row.id, workspaceId: row.workspaceId },
+      });
+      await images.publishOwnership();
+      return await persist(member, row, snapshot, true, undefined, undefined, {
+        authorize: async () => {
+          await authorizeCreation();
+          images.checkDeadline();
+        },
+        images: images.rows,
+      });
+    } catch (error) {
+      await images.cleanup();
+      throw error;
+    }
   };
 
   const publicationActor = async (
