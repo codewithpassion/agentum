@@ -1,15 +1,19 @@
 /** biome-ignore-all lint/suspicious/noUnnecessaryConditions: Core string dictionaries omit optional keys at runtime; DOM refs can be null between mounts. */
 /** biome-ignore-all lint/performance/noJsxPropsBind: Component event handlers capture the current validated scene and role; descendants are not memoized. */
 import { type ElementData, generateKeyBetween } from "@repo/live-deck";
+import { THEME_COLORS } from "@repo/live-doc/schema";
 import type { Editor } from "@tiptap/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { alignmentPatches, transformPatches } from "./geometry";
 import { DeckInspector } from "./inspector";
 import {
   DeckCommands,
   emptySlide,
+  groupSelection,
   newElement,
   newId,
   patchNotes,
+  ungroupSelection,
 } from "./model";
 import {
   canEditDeck,
@@ -30,11 +34,13 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
   const [grid, setGrid] = useState(false);
   const [hidePointers, setHidePointers] = useState(false);
   const [following, setFollowing] = useState<string | null>(null);
+  const [followPresentation, setFollowPresentation] = useState(true);
   const [presentation, setPresentation] = useState<PresentationPosition | null>(
     null
   );
   const [error, setError] = useState("");
   const [activeText, setActiveText] = useState<Editor | null>(null);
+  const [link, setLink] = useState("");
   const [uploading, setUploading] = useState(false);
   const [stageWidth, setStageWidth] = useState(960);
   const stage = useRef<HTMLDivElement>(null);
@@ -103,16 +109,20 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
     }
   }, [following, ports.participants, ports.deck]);
   useEffect(() => {
-    ports.provider.publishPresence({
+    current.current.provider.publishPresence({
+      pointer: undefined,
       selection,
       slideId: resolved || undefined,
     });
-  }, [ports.provider, resolved, selection]);
+  }, [resolved, selection]);
   useEffect(() => {
-    if (ports.presentation) {
+    if (ports.presentation && followPresentation) {
       setPresentation(ports.presentation);
     }
-  }, [ports.presentation]);
+    if (!ports.presentation) {
+      setFollowPresentation(true);
+    }
+  }, [ports.presentation, followPresentation]);
   const select = (id: string, additive: boolean) => {
     setFollowing(null);
     setSelection((previous) => {
@@ -155,29 +165,19 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
   const transform = (id: string, patch: Record<string, string>) =>
     perform(() =>
       commands.run((deck) => {
-        // Read the current props at dispatch time so unrelated concurrent keys survive.
-        const element = deck
-          .read(resolved)
-          .slide.elements.find((e) => e.id === id);
-        if (element) {
-          deck.updateElement(resolved, id, {
-            props: { ...element.props, ...patch },
-          });
-        }
+        deck.updateElements(
+          resolved,
+          transformPatches(deck.read(resolved).slide, id, patch, selection)
+        );
       })
     );
-  const align = (axis: "x" | "y") =>
+  const align = (axis: "x" | "y", mode: "start" | "center" | "end" = "start") =>
     perform(() =>
       commands.run((deck) => {
-        const elements = deck
-          .read(resolved)
-          .slide.elements.filter((e) => selection.includes(e.id));
-        const value = Math.min(
-          ...elements.map((e) => Number(e.props[axis] ?? 0))
+        deck.updateElements(
+          resolved,
+          alignmentPatches(deck.read(resolved).slide, selection, axis, mode)
         );
-        for (const e of elements) {
-          deck.setElementKey(resolved, e.id, "props", axis, String(value));
-        }
       })
     );
   const duplicateSlide = () => {
@@ -252,6 +252,11 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
         >
           Present
         </button>
+        {!!ports.presentation && !followPresentation && (
+          <button onClick={() => setFollowPresentation(true)} type="button">
+            Follow presentation
+          </button>
+        )}
         <button onClick={() => ports.history().catch(report)} type="button">
           Version history
         </button>
@@ -404,9 +409,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
           onClick={() =>
             perform(() =>
               commands.run((deck) => {
-                const group = newElement(deck.read(resolved).slide, "group");
-                deck.groupElements(resolved, group, selection);
-                setSelection([group.id]);
+                setSelection([groupSelection(deck, resolved, selection)]);
               })
             )
           }
@@ -422,7 +425,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                 for (const e of selected.filter(
                   (item) => item.type === "group"
                 )) {
-                  deck.ungroupElements(resolved, e.id);
+                  ungroupSelection(deck, resolved, e.id);
                 }
               })
             )
@@ -444,6 +447,41 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
           type="button"
         >
           Align top
+        </button>
+        <button
+          disabled={selected.length < 2}
+          onClick={() => align("x", "center")}
+          type="button"
+        >
+          Align center
+        </button>
+        <button
+          disabled={selected.length < 2}
+          onClick={() => align("x", "end")}
+          type="button"
+        >
+          Align right
+        </button>
+        <button
+          disabled={selected.length < 2}
+          onClick={() => align("y", "center")}
+          type="button"
+        >
+          Align middle
+        </button>
+        <button
+          disabled={selected.length < 2}
+          onClick={() => align("y", "end")}
+          type="button"
+        >
+          Align bottom
+        </button>
+        <button
+          disabled={!selection.length}
+          onClick={() => setSelection([])}
+          type="button"
+        >
+          Clear selection
         </button>
         <button
           onClick={() =>
@@ -470,6 +508,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
           Redo scene
         </button>
         {!!activeText &&
+          !activeText.isDestroyed &&
           ["bold", "italic", "underline", "strike", "code"].map((mark) => (
             <button
               key={mark}
@@ -479,7 +518,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
               {mark}
             </button>
           ))}
-        {!!activeText && (
+        {!!activeText && !activeText.isDestroyed && (
           <>
             <button
               onClick={() =>
@@ -497,6 +536,45 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
             >
               Numbered list
             </button>
+            <button
+              onClick={() => activeText.chain().focus().toggleTaskList().run()}
+              type="button"
+            >
+              Task list
+            </button>
+            <label>
+              Text link
+              <input
+                aria-label="Text link"
+                onChange={(event) => setLink(event.target.value)}
+                value={link}
+              />
+            </label>
+            <button
+              onClick={() =>
+                activeText.chain().focus().setLink({ href: link }).run()
+              }
+              type="button"
+            >
+              Apply text link
+            </button>
+            <label>
+              Text color
+              <select
+                aria-label="Text color"
+                defaultValue=""
+                onChange={(event) =>
+                  activeText.chain().focus().setColor(event.target.value).run()
+                }
+              >
+                <option value="">Choose color</option>
+                {THEME_COLORS.map((color) => (
+                  <option key={color} value={color}>
+                    {color}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button onClick={() => activeText.commands.undo()} type="button">
               Undo text
             </button>
@@ -506,7 +584,10 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
           </>
         )}
       </fieldset>
-      <div className={`ld-workspace ${grid ? "ld-grid-mode" : ""}`}>
+      <div
+        className={`ld-workspace ${grid ? "ld-grid-mode" : ""}`}
+        onWheel={() => setFollowing(null)}
+      >
         <nav aria-label="Slides" className="ld-strip">
           {ids.map((id, index) => {
             const item = ports.deck.read(id).slide;
@@ -560,6 +641,19 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
           })}
         </nav>
         <main className="ld-main">
+          <details className="ld-layers">
+            <summary>Elements and layers</summary>
+            {slide?.elements.map((element) => (
+              <button
+                aria-pressed={selection.includes(element.id)}
+                key={element.id}
+                onClick={(event) => select(element.id, event.shiftKey)}
+                type="button"
+              >
+                {element.type}: {element.id}
+              </button>
+            ))}
+          </details>
           <div
             className="ld-stage"
             onPointerLeave={() =>
@@ -604,6 +698,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                         )
                       )
                     }
+                    gesture={(phase) => commands.gesture(phase)}
                     hidePointers={hidePointers}
                     onActiveText={setActiveText}
                     ownsBlob={ports.ownsBlob}
@@ -671,7 +766,10 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
       </div>
       {!!presentation && (
         <DeckPresentation
-          close={() => setPresentation(null)}
+          close={() => {
+            setPresentation(null);
+            setFollowPresentation(false);
+          }}
           initial={presentation}
           ports={ports}
           report={report}

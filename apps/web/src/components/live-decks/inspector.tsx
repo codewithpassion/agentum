@@ -1,7 +1,7 @@
 /** biome-ignore-all lint/suspicious/noUnnecessaryConditions: Core dictionaries have optional keys at runtime despite their string index signature. */
 /** biome-ignore-all lint/performance/noJsxPropsBind: Component event handlers capture the current validated scene and role; descendants are not memoized. */
 import type { ElementData, SlideData } from "@repo/live-deck";
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import type { DeckCommands } from "./model";
 import type { DeckEditorPorts } from "./ports";
 
@@ -19,6 +19,8 @@ export function Field({
   type?: string;
 }) {
   const id = useId();
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
   return (
     <label className="ld-field" htmlFor={id}>
       {label}
@@ -39,9 +41,19 @@ export function Field({
         <input
           aria-label={label}
           id={id}
-          onChange={(event) => change(event.target.value)}
+          onBlur={() => {
+            if (draft !== value) {
+              change(draft);
+            }
+          }}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
           type={type}
-          value={value}
+          value={draft}
         />
       )}
     </label>
@@ -217,6 +229,48 @@ export function DeckInspector({
                 value={first.props[key] ?? "2"}
               />
             ))}
+          {first.type === "table" && (
+            <div>
+              {(["rows", "cols"] as const).map((dimension) => (
+                <button
+                  disabled={Number(first.props[dimension]) <= 1}
+                  key={dimension}
+                  onClick={() =>
+                    perform(() =>
+                      commands.run((deck) => {
+                        const element = deck
+                          .read(slide.id)
+                          .slide.elements.find((e) => e.id === first.id);
+                        if (!element) {
+                          return;
+                        }
+                        const count = Number(element.props[dimension]) - 1;
+                        const cells = Object.fromEntries(
+                          Object.entries(element.cells ?? {}).filter(
+                            ([key]) =>
+                              Number(
+                                key.split(":")[dimension === "rows" ? 0 : 1]
+                              ) < count
+                          )
+                        );
+                        deck.updateElement(slide.id, element.id, {
+                          cells,
+                          props: {
+                            ...element.props,
+                            [dimension]: String(count),
+                          },
+                        });
+                      })
+                    )
+                  }
+                  type="button"
+                >
+                  Delete last {dimension === "rows" ? "row" : "column"} and its
+                  cells
+                </button>
+              ))}
+            </div>
+          )}
           {first.type === "connector" &&
             ["from", "to"].map((key) => (
               <Field

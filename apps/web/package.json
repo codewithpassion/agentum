@@ -40,6 +40,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@repo/db": "workspace:*",
     "@repo/library-sync": "workspace:*",
+    "@repo/live-deck": "workspace:*",
     "@repo/live-doc": "workspace:*",
     "@repo/mailbox": "workspace:*",
     "@repo/mcp": "workspace:*",
@@ -93,8 +94,7 @@
     "vaul": "^1.1.2",
     "y-protocols": "^1.0.7",
     "yjs": "13.6.33",
-    "zod": "^4.6.5",
-    "@repo/live-deck": "workspace:*"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.64.0",

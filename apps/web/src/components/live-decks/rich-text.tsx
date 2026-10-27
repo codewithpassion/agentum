@@ -42,13 +42,16 @@ export function DeckRichText({
   fragment,
   editable,
   onActive,
+  autofocus = false,
 }: {
   fragment: XmlFragment;
   editable: boolean;
   onActive?: (editor: Editor) => void;
+  autofocus?: boolean;
 }) {
   const editor = useEditor(
     {
+      autofocus: autofocus ? "end" : false,
       editable,
       editorProps: { attributes: { "aria-label": "Slide rich text" } },
       extensions: deckTextExtensions(fragment),

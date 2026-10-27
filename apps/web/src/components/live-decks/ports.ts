@@ -46,4 +46,5 @@ export interface DeckEditorPorts {
 }
 export const canEditDeck = (ports: DeckEditorPorts) =>
   (ports.role === "owner" || ports.role === "editor") &&
-  ports.provider.state === "synced";
+  ports.provider.state === "synced" &&
+  ports.deck.doc.getMap("meta").has("theme");

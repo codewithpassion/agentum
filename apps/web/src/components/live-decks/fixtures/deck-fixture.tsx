@@ -14,11 +14,13 @@ import type {
   PresentationPosition,
 } from "../ports";
 
+const owned = new Set<string>();
 const decks = [
-  new Deck(new Doc(), richTextCodec),
-  new Deck(new Doc(), richTextCodec),
+  new Deck(new Doc(), richTextCodec, { ownsBlob: (path) => owned.has(path) }),
+  new Deck(new Doc(), richTextCodec, { ownsBlob: (path) => owned.has(path) }),
 ] as const;
 const [first, other] = decks;
+first.setTheme({ colors: {}, fonts: {}, sizes: {} });
 const slide = emptySlide(first);
 slide.id = "opening";
 slide.duration = "100";
@@ -32,13 +34,27 @@ const shape = newElement(first.read(slide.id).slide, "shape");
 shape.id = "blue_box";
 shape.props.x = "480";
 shape.props["build-in"] = "rise";
+shape.props["build-out"] = "fade";
 shape.props["build-trigger"] = "click";
 shape.props["build-order"] = "1";
 first.addElement(slide.id, shape);
 const table = newElement(first.read(slide.id).slide, "table");
 table.id = "data_table";
 table.props.y = "280";
+table.props["build-in"] = "fade";
+table.props["build-trigger"] = "withPrevious";
+table.props["build-order"] = "1";
 first.addElement(slide.id, table);
+const icon = newElement(first.read(slide.id).slide, "icon");
+icon.id = "timed_icon";
+icon.props.x = "800";
+icon.props.y = "320";
+icon.props.w = "80";
+icon.props.h = "80";
+icon.props["build-in"] = "scale";
+icon.props["build-trigger"] = "afterPrevious";
+icon.props["build-order"] = "2";
+first.addElement(slide.id, icon);
 const second = emptySlide(first);
 second.id = "closing";
 second.transition = "magic";
@@ -72,7 +88,6 @@ const roster: DeckParticipant[] = [
   { color: "#3b82f6", id: "alice", kind: "member", name: "Alice" },
   { color: "#10b981", id: "bob", kind: "member", name: "Bob" },
 ];
-const owned = new Set<string>();
 function Fixture() {
   const [role, setRole] = useState<DeckEditorPorts["role"]>("editor");
   const [participants, setParticipants] = useState(roster);
@@ -113,7 +128,14 @@ function Fixture() {
     role: index === 0 ? role : "editor",
     selfId: roster[index]?.id ?? "alice",
     upload: async (file) => {
-      const path = `/files/fixture_${owned.size}`;
+      const response = await fetch("/fixture/upload", {
+        body: file,
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error("Fixture upload failed");
+      }
+      const { path } = (await response.json()) as { path: string };
       owned.add(path);
       record(`upload:${file.name}`);
       return { path };

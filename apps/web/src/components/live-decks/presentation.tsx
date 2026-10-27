@@ -22,7 +22,10 @@ export function DeckPresentation({
   const [presenter, setPresenter] = useState(false);
   const [broadcast, setBroadcast] = useState(false);
   const [spotlight, setSpotlight] = useState(true);
+  const [finishedBuild, setFinishedBuild] = useState("");
+  const nextRef = useRef<() => void>(() => undefined);
   const root = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const current = useRef(ports);
   current.current = ports;
   const ids = ports.deck.ids();
@@ -30,6 +33,16 @@ export function DeckPresentation({
   const slide = slideId ? ports.deck.read(slideId).slide : null;
   const steps = slide ? buildSteps(slide) : [];
   const index = slideId ? ids.indexOf(slideId) : 0;
+  useEffect(() => {
+    if (
+      broadcast &&
+      ((ports.role !== "editor" && ports.role !== "owner") ||
+        ports.provider.state !== "synced")
+    ) {
+      setBroadcast(false);
+      current.current.presentToEveryone(null).catch(report);
+    }
+  }, [broadcast, ports.role, ports.provider.state, report]);
   const navigate = useCallback(
     (destination: PresentationPosition) => {
       setPosition(destination);
@@ -49,6 +62,14 @@ export function DeckPresentation({
       navigate({ build: 0, slideId: ids[index + 1] as string });
     }
   }, [slideId, position.build, steps.length, navigate, ids, index]);
+  nextRef.current = next;
+  const fullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(report);
+    } else {
+      root.current?.requestFullscreen().catch(report);
+    }
+  }, [report]);
   const end = useCallback(() => {
     if (broadcast) {
       current.current.presentToEveryone(null).catch(report);
@@ -63,14 +84,42 @@ export function DeckPresentation({
       setPosition(ports.presentation);
     }
   }, [ports.presentation, spotlight]);
+  const nextTrigger = steps[position.build]?.[0]?.trigger;
+  const positionKey = `${slideId}:${position.build}`;
+  const duration = Number(slide?.duration ?? 350);
   useEffect(() => {
-    const step = steps[position.build];
-    if (step?.[0]?.props["build-trigger"] !== "afterPrevious") {
+    if (!positionKey || nextTrigger !== "afterPrevious") {
       return;
     }
-    const timer = setTimeout(next, Math.max(1, Number(slide?.duration ?? 350)));
+    const timer = setTimeout(() => nextRef.current(), Math.max(1, duration));
     return () => clearTimeout(timer);
-  }, [steps, position.build, slide?.duration, next]);
+  }, [nextTrigger, duration, positionKey]);
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setFinishedBuild(positionKey),
+      Math.max(1, duration)
+    );
+    return () => clearTimeout(timer);
+  }, [positionKey, duration]);
+  const transition = slide?.transition;
+  useEffect(() => {
+    if (
+      !(slideId && stage.current) ||
+      transition === "none" ||
+      transition === "magic"
+    ) {
+      return;
+    }
+    const from =
+      transition === "push"
+        ? { opacity: 0, transform: "translateX(100%)" }
+        : { opacity: 0 };
+    const animation = stage.current.animate(
+      [from, { opacity: 1, transform: "translateX(0)" }],
+      { duration, easing: "ease-out" }
+    );
+    return () => animation.cancel();
+  }, [slideId, transition, duration]);
   useEffect(() => {
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Explicit keyboard bindings share the same presentation navigation state.
     const key = (event: KeyboardEvent) => {
@@ -116,11 +165,7 @@ export function DeckPresentation({
         navigate({ build: 0, slideId: ids.at(-1) as string });
       }
       if (event.key.toLowerCase() === "f") {
-        if (document.fullscreenElement) {
-          document.exitFullscreen().catch(report);
-        } else {
-          root.current?.requestFullscreen().catch(report);
-        }
+        fullscreen();
       }
       if (event.key === "Escape") {
         end();
@@ -128,7 +173,17 @@ export function DeckPresentation({
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [next, navigate, position, ids, index, slideId, ports.deck, report, end]);
+  }, [
+    next,
+    navigate,
+    position,
+    ids,
+    index,
+    slideId,
+    ports.deck,
+    fullscreen,
+    end,
+  ]);
   if (!slide) {
     return (
       <button onClick={end} type="button">
@@ -136,28 +191,39 @@ export function DeckPresentation({
       </button>
     );
   }
-  const stepIndex = (e: ElementData) =>
-    steps.findIndex((step) => step.some((item) => item.id === e.id));
-  const visible = (e: ElementData) => {
-    const step = stepIndex(e);
-    return (
-      step < 0 ||
-      (e.props["build-in"]
-        ? position.build > step
-        : !(e.props["build-out"] && position.build > step))
-    );
+  const eventFor = (element: ElementData) =>
+    steps
+      .slice(0, position.build)
+      .flat()
+      .filter((event) => event.elementId === element.id)
+      .at(-1);
+  const visible = (element: ElementData) => {
+    const event = eventFor(element);
+    if (!event) {
+      return !element.props["build-in"];
+    }
+    if (event.phase === "in") {
+      return true;
+    }
+    const active = steps[position.build - 1]?.includes(event);
+    return !!active && finishedBuild !== positionKey;
   };
-  const effect = (e: ElementData): CSSProperties => {
-    const step = stepIndex(e);
-    const effectName = e.props["build-in"];
-    return step === position.build - 1 && effectName
-      ? { animation: `ld-${effectName} ${slide.duration}ms both` }
-      : {};
+  const effect = (element: ElementData): CSSProperties => {
+    const event = eventFor(element);
+    if (!(event && steps[position.build - 1]?.includes(event))) {
+      return {};
+    }
+    return {
+      animation: `ld-${event.effect} ${slide.duration}ms both${event.phase === "out" ? " reverse" : ""}`,
+    };
   };
   const upcoming = ids[index + 1];
   return (
     <div className="ld-presentation" ref={root}>
       <nav aria-label="Presentation controls">
+        <button onClick={fullscreen} type="button">
+          Fullscreen (F)
+        </button>
         <button onClick={next} type="button">
           Next build / slide
         </button>
@@ -165,6 +231,10 @@ export function DeckPresentation({
           Presenter notes
         </button>
         <button
+          disabled={
+            (ports.role !== "owner" && ports.role !== "editor") ||
+            ports.provider.state !== "synced"
+          }
           onClick={() => {
             const value = !broadcast;
             ports
@@ -186,8 +256,9 @@ export function DeckPresentation({
         </button>
       </nav>
       <div
-        className={`ld-present-stage ld-transition-${slide.transition}`}
-        key={slide.transition === "magic" ? "magic" : slide.id}
+        className="ld-present-stage"
+        data-transition={slide.transition}
+        ref={stage}
         style={{ animationDuration: `${slide.duration}ms` }}
       >
         <DeckScene

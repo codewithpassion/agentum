@@ -4,12 +4,15 @@ import { richTextCodec } from "@repo/live-deck/rich-text";
 import { Editor } from "@tiptap/core";
 import { Window } from "happy-dom";
 import { Doc, encodeStateAsUpdate, encodeStateVector } from "yjs";
+import { scenePoint, transformPatches } from "./geometry";
 import {
   buildSteps,
   DeckCommands,
   emptySlide,
+  groupSelection,
   newElement,
   patchNotes,
+  ungroupSelection,
 } from "./model";
 import type { DeckEditorPorts } from "./ports";
 import { deckTextExtensions } from "./rich-text";
@@ -53,6 +56,7 @@ afterAll(() => {
 });
 function fixture() {
   const deck = new Deck(new Doc(), richTextCodec);
+  deck.setTheme({ colors: {}, fonts: {}, sizes: {} });
   const slide = emptySlide(deck);
   deck.addSlide(slide);
   const text = newElement(slide, "text");
@@ -141,7 +145,9 @@ test("actual Tiptap bindings merge independent text and table cell edits through
     expect(
       f.remote.read(f.slide.id).slide.elements.find((e) => e.id === f.table.id)
         ?.cells?.["0:0"]
-    ).toEqual(richTextCodec.serialize(cell));
+    ).toEqual(
+      richTextCodec.serialize(cell).filter((node) => typeof node !== "string")
+    );
     const before = b.getText();
     a.commands.undo();
     f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
@@ -254,6 +260,138 @@ test("build order makes withPrevious share a click and afterPrevious a timed ste
     expect(buildSteps(slide)).toHaveLength(1);
     second.props["build-trigger"] = "afterPrevious";
     expect(buildSteps(slide)).toHaveLength(2);
+  } finally {
+    f.destroy();
+  }
+});
+
+test("group/ungroup and resize keep scene positions, connectors and shared fragments", () => {
+  const f = fixture();
+  try {
+    const fragment = f.deck.textFragment(f.slide.id, f.text.id);
+    const before = f.deck.read(f.slide.id).slide;
+    const textBefore = scenePoint(
+      before,
+      before.elements.find(
+        (e) => e.id === f.text.id
+      ) as import("@repo/live-deck").ElementData
+    );
+    let groupId = "";
+    f.commands.run((deck) => {
+      groupId = groupSelection(deck, f.slide.id, [f.text.id, f.table.id]);
+    });
+    const grouped = f.deck.read(f.slide.id).slide;
+    expect(
+      scenePoint(
+        grouped,
+        grouped.elements.find(
+          (e) => e.id === f.text.id
+        ) as import("@repo/live-deck").ElementData
+      )
+    ).toEqual(textBefore);
+    f.commands.gesture("start");
+    f.commands.run((deck) =>
+      deck.updateElements(
+        f.slide.id,
+        transformPatches(
+          deck.read(f.slide.id).slide,
+          groupId,
+          { h: "320", w: "640" },
+          [groupId]
+        )
+      )
+    );
+    f.commands.run((deck) =>
+      deck.setElementKey(f.slide.id, groupId, "props", "x", "100")
+    );
+    f.commands.gesture("end");
+    f.commands.undo.undo();
+    expect(
+      f.deck.read(f.slide.id).slide.elements.find((e) => e.id === groupId)
+        ?.props.w
+    ).toBe("320");
+    f.commands.run((deck) => ungroupSelection(deck, f.slide.id, groupId));
+    const after = f.deck.read(f.slide.id).slide;
+    expect(
+      scenePoint(
+        after,
+        after.elements.find(
+          (e) => e.id === f.text.id
+        ) as import("@repo/live-deck").ElementData
+      )
+    ).toEqual(textBefore);
+    expect(f.deck.textFragment(f.slide.id, f.text.id)).toBe(fragment);
+    f.deck.validate();
+  } finally {
+    f.destroy();
+  }
+});
+test("simultaneous slide moves and independent theme/layout keys converge without duplicate slides", () => {
+  const f = fixture();
+  try {
+    const second = emptySlide(f.deck);
+    f.deck.addSlide(second);
+    const third = emptySlide(f.deck);
+    f.deck.addSlide(third);
+    f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
+    f.commands.run((deck) => {
+      deck.moveSlide(f.slide.id, second.id, third.id);
+      deck.setTheme({ colors: { primary: "#ef4444" }, fonts: {}, sizes: {} });
+      deck.updateSlide(second.id, {
+        layout: { ...second.layout, gap: "20px" },
+      });
+    });
+    f.remote.moveSlide(f.slide.id, third.id, null);
+    f.remote.setTheme({ colors: {}, fonts: {}, sizes: { body: "32px" } });
+    f.remote.updateSlide(second.id, {
+      layout: { ...second.layout, padding: "40px" },
+    });
+    f.deck.applyUpdate(encodeStateAsUpdate(f.remote.doc));
+    f.remote.applyUpdate(encodeStateAsUpdate(f.deck.doc));
+    expect(f.deck.ids()).toEqual(f.remote.ids());
+    expect(new Set(f.deck.ids()).size).toBe(3);
+    expect(f.deck.theme()).toEqual({
+      colors: { primary: "#ef4444" },
+      fonts: {},
+      sizes: { body: "32px" },
+    });
+    expect(f.deck.read(second.id).slide.layout).toMatchObject({
+      gap: "20px",
+      padding: "40px",
+    });
+    f.ports.provider.state = "rejected";
+    expect(() => f.commands.run((deck) => deck.deleteSlide(second.id))).toThrow(
+      "synchronized"
+    );
+  } finally {
+    f.destroy();
+  }
+});
+test("entrance and exit are separate events and withPrevious batches entrances before exits", () => {
+  const f = fixture();
+  try {
+    const { slide } = f.deck.read(f.slide.id);
+    const [a, b] = slide.elements;
+    if (!(a && b)) {
+      throw new Error("fixture missing");
+    }
+    a.props = {
+      ...a.props,
+      "build-in": "fade",
+      "build-order": "1",
+      "build-out": "left",
+      "build-trigger": "click",
+    };
+    b.props = {
+      ...b.props,
+      "build-in": "rise",
+      "build-order": "1",
+      "build-trigger": "withPrevious",
+    };
+    const steps = buildSteps(slide);
+    expect(steps).toHaveLength(2);
+    expect(steps[0]?.map((event) => event.phase)).toEqual(["in", "in"]);
+    expect(steps[1]?.[0]?.phase).toBe("out");
   } finally {
     f.destroy();
   }
