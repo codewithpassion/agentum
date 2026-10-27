@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { ArtifactThreadPart } from "@repo/protocol/artifacts";
 import type { EventFrame } from "@repo/protocol/stream";
 import {
   applyFrame,
@@ -333,4 +334,191 @@ test("a late pending frame does not reopen an answered request", () => {
     status: "pending",
   });
   expect(after[0]?.parts[0]).toMatchObject({ status: "answered" });
+});
+
+const A1 = "11111111-1111-4111-8111-111111111111";
+const A2 = "22222222-2222-4222-8222-222222222222";
+const published = (
+  id: string,
+  version: number,
+  extra: Record<string, unknown> = {},
+  runId: string | null = "r1"
+): ThreadEvent =>
+  event(
+    id,
+    "artifact.published",
+    {
+      artifactId: A1,
+      kind: "page",
+      runId,
+      sessionId: "s1",
+      title: "Report",
+      version,
+      versionId: `v${version}`,
+      ...extra,
+    },
+    runId
+  );
+const card = (
+  version: number,
+  toolCallId: string | null = null
+): ArtifactThreadPart => ({
+  artifactId: A1,
+  kind: "page",
+  title: "Report",
+  toolCallId,
+  type: "artifact",
+  version,
+  versionId: `v${version}`,
+});
+const toolCall = (id: string, toolUseId: string): ThreadEvent =>
+  event(id, "tool.call", { input: {}, name: "artifact_create", toolUseId });
+const toolResult = (id: string, toolUseId: string): ThreadEvent =>
+  event(id, "tool.result", { ok: true, output: "done", toolUseId });
+const types = (events: readonly ThreadEvent[]) =>
+  foldThread(events)[0]?.parts.map((part) => part.type);
+
+test("an artifact card follows the tool call that made it", () => {
+  const events = [
+    toolCall("1", "t1"),
+    toolCall("2", "t2"),
+    published("3", 1, { toolCallId: "t1" }),
+    toolResult("4", "t1"),
+    toolResult("5", "t2"),
+  ];
+  const parts = foldThread(events)[0]?.parts;
+  expect(types(events)).toEqual(["tool-call", "artifact", "tool-call"]);
+  expect(parts?.[1]).toEqual(card(1, "t1"));
+});
+
+test("without a tool call id the card sits at the event's position", () => {
+  expect(
+    types([
+      event("1", "message.assistant", { text: "Making it" }),
+      published("2", 1),
+      event("3", "message.assistant", { text: "Done" }),
+    ])
+  ).toEqual(["text", "artifact", "text"]);
+  expect(
+    types([toolCall("1", "t1"), published("2", 1, { toolCallId: "gone" })])
+  ).toEqual(["tool-call", "artifact"]);
+});
+
+test("a second version updates the card instead of adding one", () => {
+  const messages = foldThread([
+    toolCall("1", "t1"),
+    published("2", 1, { toolCallId: "t1" }),
+    toolCall("3", "t2"),
+    published("4", 2, { toolCallId: "t2" }),
+  ]);
+  const cards = messages[0]?.parts.filter((part) => part.type === "artifact");
+  expect(cards).toEqual([card(2, "t2")]);
+  expect(messages[0]?.parts.map((part) => part.type)).toEqual([
+    "tool-call",
+    "artifact",
+    "tool-call",
+  ]);
+});
+
+test("a late older version does not roll the card back", () => {
+  const messages = foldThread([published("1", 2), published("2", 1)]);
+  expect(messages[0]?.parts).toEqual([card(2)]);
+});
+
+test("different artifacts and different runs get their own cards", () => {
+  const messages = foldThread([
+    toolCall("1", "t1"),
+    published("2", 1, { toolCallId: "t1" }),
+    published("3", 1, { artifactId: A2 }),
+    published("4", 1, {}, "r2"),
+  ]);
+  expect(
+    messages.map((m) => m.parts.filter((p) => p.type === "artifact").length)
+  ).toEqual([2, 1]);
+  // Two cards from one tool call stay in event order after it.
+  const both = foldThread([
+    toolCall("1", "t1"),
+    published("2", 1, { toolCallId: "t1" }),
+    published("3", 1, { artifactId: A2, toolCallId: "t1" }),
+  ]);
+  expect(
+    both[0]?.parts.map((p) => (p.type === "artifact" ? p.artifactId : p.type))
+  ).toEqual(["tool-call", A1, A2]);
+});
+
+test("live frames fold the same as replay and replayed ids are no-ops", () => {
+  const events = [
+    toolCall("1", "t1"),
+    published("2", 1, { toolCallId: "t1" }),
+    toolResult("3", "t1"),
+  ];
+  let live: ReturnType<typeof foldThread> = [];
+  for (const entry of events) {
+    live = applyFrame(live, frame(entry));
+  }
+  expect(live).toEqual(foldThread(events));
+  expect(applyFrame(live, frame(events[1] as ThreadEvent))).toBe(live);
+});
+
+test("a reload mid-run continues with live frames and a new version", () => {
+  const before = [
+    event("1", "run.started"),
+    toolCall("2", "t1"),
+    published("3", 1, { toolCallId: "t1" }),
+    toolResult("4", "t1"),
+  ];
+  // The browser reloads: stored history folds, the stream replays the tail
+  // and then sends a new version live.
+  let messages = foldThread(before);
+  messages = applyFrame(messages, frame(before[3] as ThreadEvent));
+  messages = applyFrame(
+    messages,
+    frame(published("5", 2, { toolCallId: "t2" }))
+  );
+  messages = applyFrame(messages, frame(event("6", "run.finished")));
+  expect(messages).toHaveLength(1);
+  expect(messages[0]?.status).toBe("done");
+  expect(messages[0]?.parts.map((part) => part.type)).toEqual([
+    "tool-call",
+    "artifact",
+  ]);
+  expect(messages[0]?.parts[1]).toEqual(card(2, "t2"));
+});
+
+test("a card inserted before an open delta keeps the delta in place", () => {
+  let messages = applyFrame([], {
+    frame: "delta",
+    messageKey: "k",
+    runId: "r1",
+    text: "Working",
+  });
+  messages = applyFrame(messages, frame(published("1", 1)));
+  messages = applyFrame(messages, {
+    frame: "delta",
+    messageKey: "k",
+    runId: "r1",
+    text: "Working on it",
+  });
+  expect(messages[0]?.parts).toEqual([
+    { text: "Working on it", type: "text" },
+    card(1),
+  ]);
+});
+
+test("a card that arrives before its tool call ends up after the call", () => {
+  const parts = foldThread([
+    published("1", 1, { toolCallId: "t1" }),
+    toolCall("2", "t1"),
+  ])[0]?.parts.map((part) => part.type);
+  expect(parts).toEqual(["tool-call", "artifact"]);
+});
+
+test("a malformed or truncated payload never crashes the fold", () => {
+  const messages = foldThread([
+    event("1", "artifact.published", { title: "no ids" }),
+    { ...published("2", 1), payloadRef: "blob" },
+  ]);
+  expect(messages.flatMap((m) => m.parts.map((p) => p.type))).toEqual([
+    "placeholder",
+  ]);
 });

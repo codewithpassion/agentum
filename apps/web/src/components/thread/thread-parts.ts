@@ -60,6 +60,9 @@ const assistantContent = (part: ThreadPart): Content[] => {
   if (part.type === "request") {
     return [{ data: { requestId: part.requestId }, type: "data-request" }];
   }
+  if (part.type === "artifact") {
+    return [{ data: part, type: "data-artifact" }];
+  }
   if (part.type === "placeholder") {
     return [{ text: PLACEHOLDER_TEXT, type: "text" }];
   }

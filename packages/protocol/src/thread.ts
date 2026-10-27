@@ -1,5 +1,9 @@
 // Written from Harbourmaster's event contract; no trueforge code is adapted.
 import type { EventType, RequestStatus, RunStatus } from "@repo/db/shared";
+import {
+  type ArtifactThreadPart,
+  artifactThreadPartSchema,
+} from "@repo/protocol/artifacts";
 import { extractAttachmentMarkers } from "@repo/protocol/attachments";
 import {
   type ApprovalDisplay,
@@ -51,6 +55,7 @@ export type ThreadPart =
   // Markers contain runtime paths, not file ids. Resolving them needs the UI's file lookup.
   | { type: "attachment"; path: string }
   | RequestPart
+  | ArtifactThreadPart
   | { type: "placeholder"; eventId: string; eventType: EventType };
 
 export interface ThreadMessage {
@@ -144,6 +149,67 @@ const requestPart = (payload: Record<string, unknown>): RequestPart | null => {
   return null;
 };
 
+const artifactPart = (
+  payload: Record<string, unknown>
+): ArtifactThreadPart | null => {
+  const part = artifactThreadPartSchema.safeParse({
+    artifactId: payload.artifactId,
+    kind: payload.kind,
+    title: payload.title,
+    toolCallId:
+      typeof payload.toolCallId === "string" ? payload.toolCallId : null,
+    type: "artifact",
+    version: payload.version,
+    versionId: payload.versionId,
+  });
+  return part.success ? part.data : null;
+};
+
+/** Where a new artifact card goes: after the tool call that made it and the cards already there, else at the end. */
+const artifactIndex = (
+  parts: ThreadPart[],
+  toolCallId: string | null
+): number => {
+  const tool =
+    toolCallId === null
+      ? -1
+      : parts.findIndex(
+          (item) => item.type === "tool-call" && item.toolUseId === toolCallId
+        );
+  if (tool < 0) {
+    return parts.length;
+  }
+  let index = tool + 1;
+  while (parts[index]?.type === "artifact") {
+    index += 1;
+  }
+  return index;
+};
+
+const addArtifact = (
+  message: ThreadMessage,
+  part: ArtifactThreadPart,
+  cursor: Cursor
+): void => {
+  const existing = message.parts.findIndex(
+    (item) => item.type === "artifact" && item.artifactId === part.artifactId
+  );
+  const current = message.parts[existing];
+  if (current?.type === "artifact") {
+    // One card per artifact and run. A later version replaces it in place and
+    // an older one arriving late is dropped.
+    if (part.version >= current.version) {
+      message.parts[existing] = part;
+    }
+    return;
+  }
+  const index = artifactIndex(message.parts, part.toolCallId);
+  message.parts.splice(index, 0, part);
+  if (cursor.open && index <= cursor.open.start) {
+    cursor.open.start += 1;
+  }
+};
+
 const settle = (
   parts: ThreadPart[],
   requestId: unknown,
@@ -161,7 +227,11 @@ const settle = (
       : part
   );
 
-const applyTool = (message: ThreadMessage, event: ThreadEvent): void => {
+const applyTool = (
+  message: ThreadMessage,
+  event: ThreadEvent,
+  cursor: Cursor
+): void => {
   const { payload, type } = event;
   if (typeof payload.toolUseId !== "string") {
     return;
@@ -182,7 +252,16 @@ const applyTool = (message: ThreadMessage, event: ThreadEvent): void => {
       toolUseId: payload.toolUseId,
       type: "tool-call",
     };
-    message.parts.push(tool);
+    // A card whose tool call arrives after it goes after the call.
+    const card = message.parts.findIndex(
+      (part) =>
+        part.type === "artifact" && part.toolCallId === payload.toolUseId
+    );
+    const at = card < 0 ? message.parts.length : card;
+    message.parts.splice(at, 0, tool);
+    if (cursor.open && at <= cursor.open.start) {
+      cursor.open.start += 1;
+    }
   }
   if (type === "tool.call") {
     tool.name = typeof payload.name === "string" ? payload.name : null;
@@ -232,7 +311,12 @@ const applyPayload = (
   } else if (type === "message.reasoning" && typeof payload.text === "string") {
     addReasoning(message, payload.text, cursor);
   } else if (type === "tool.call" || type === "tool.result") {
-    applyTool(message, event);
+    applyTool(message, event, cursor);
+  } else if (type === "artifact.published") {
+    const part = artifactPart(payload);
+    if (part) {
+      addArtifact(message, part, cursor);
+    }
   } else if (type === "request.opened") {
     const part = requestPart(payload);
     if (
@@ -356,6 +440,7 @@ const isRelevant = (event: EventFrame | null): boolean =>
   event.type.startsWith("message.") ||
   event.type.startsWith("tool.") ||
   event.type.startsWith("request.") ||
+  event.type === "artifact.published" ||
   eventStatus[event.type] !== undefined ||
   "truncated" in event;
 
