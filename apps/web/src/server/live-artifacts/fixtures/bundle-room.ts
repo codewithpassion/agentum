@@ -1,6 +1,7 @@
 import { build } from "bun";
 
 const built = await build({
+  conditions: ["workerd"],
   entrypoints: [`${import.meta.dir}/worker.ts`],
   external: ["cloudflare:workers"],
   target: "browser",

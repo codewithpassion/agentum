@@ -287,6 +287,41 @@ const serveVersion = (
   return serveFile(manifest, path, path, fetchFile, request);
 };
 
+const allowsEmbedFile = (
+  claims: ViewTokenClaims,
+  manifest: ArtifactManifest,
+  path: string,
+  destination: string | undefined
+): boolean => {
+  if (claims.embedFile) {
+    if (
+      ["iframe", "frame", "document"].includes(destination ?? "") &&
+      path !== claims.embedFile.path
+    ) {
+      return false;
+    }
+    const file = manifest.files[claims.embedFile.path];
+    if (
+      !file ||
+      file.sha256 !== claims.embedFile.sha256 ||
+      !contentTypeForPath(claims.embedFile.path).startsWith("text/html")
+    ) {
+      return false;
+    }
+    // Relative assets remain scoped to the signed version; alternate HTML pages are refused.
+    if (
+      path !== claims.embedFile.path &&
+      contentTypeForPath(path).startsWith("text/html")
+    ) {
+      return false;
+    }
+    if (path === "" || path === DOC_PATH) {
+      return false;
+    }
+  }
+  return true;
+};
+
 /**
  * Everything but the headers: the refusals in order, then the file. Fills
  * `csp` as soon as the URL parses so the wrapper can scope the CSP to the
@@ -381,6 +416,16 @@ const respond = async (
   const manifest = await readManifest(manifestObject);
   if (!manifest) {
     return textResponse(SERVER_ERROR, "Bad manifest");
+  }
+  if (
+    !allowsEmbedFile(
+      claims,
+      manifest,
+      parsed.path,
+      c.req.header("Sec-Fetch-Dest")
+    )
+  ) {
+    return notFound();
   }
   return serveVersion(
     manifest,

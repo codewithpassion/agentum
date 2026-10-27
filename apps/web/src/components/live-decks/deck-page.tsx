@@ -124,6 +124,9 @@ export function LiveDeckPage({
                   ask: (where) => select("ask", where),
                   comment: (where) => select("comment", where),
                   deck: room.deck,
+                  embedSources: [...room.policy.ownBlobUrls].filter((source) =>
+                    source.startsWith("artifact:")
+                  ),
                   ensureCell: async (slideId, elementId, key) => {
                     const result = await services.ensureCell(
                       slideId,
@@ -143,6 +146,7 @@ export function LiveDeckPage({
                     publishPresence: room.publishPresence,
                     state: "synced",
                   },
+                  resolveEmbed: services.resolveEmbed,
                   role: room.role,
                   selfId: room.selfId,
                   upload: async (file) => {

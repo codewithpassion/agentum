@@ -1,3 +1,4 @@
+import { parseEmbedSource } from "@repo/protocol/deck";
 import { z } from "zod";
 import { liveApi } from "../live-artifacts/live-api";
 
@@ -11,8 +12,22 @@ export function deckServices(artifactId: string) {
     open: () => liveApi.open.query({ artifactId }),
     async policy() {
       const result = await liveApi.ownBlobUrls.query({ artifactId });
-      return new Set(z.array(pathSchema).parse(result.urls));
+      return new Set(
+        z
+          .array(
+            z
+              .string()
+              .refine(
+                (path) =>
+                  pathSchema.safeParse(path).success ||
+                  parseEmbedSource(path) !== null
+              )
+          )
+          .parse(result.urls)
+      );
     },
+    resolveEmbed: (source: string) =>
+      liveApi.resolveEmbed.query({ artifactId, source }),
     async restore(version: number) {
       const requestId = requests.get(version) ?? crypto.randomUUID();
       requests.set(version, requestId);
