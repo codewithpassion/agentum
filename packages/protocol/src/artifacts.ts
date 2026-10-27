@@ -32,6 +32,14 @@ export const viewTokenClaimsSchema = z.strictObject({
     })
     .optional(),
   expiresAt: z.int().positive(),
+  guestEmbed: z
+    .strictObject({
+      deckId: z.uuid(),
+      guestId: z.string().min(1),
+      memberId: z.string().min(1),
+      sessionId: z.string().min(1),
+    })
+    .optional(),
   shareId: z.string().min(1).optional(),
   userId: z.string().min(1).optional(),
   versionId: z.string().min(1),

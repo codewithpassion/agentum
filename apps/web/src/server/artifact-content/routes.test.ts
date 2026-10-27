@@ -674,3 +674,62 @@ it("embed view tokens bind exact HTML identity and refuse alternate pages and ha
   );
   expect((await get(urlFor(tok, "sub/page.html"))).status).toBe(404);
 });
+
+it("guest embed capabilities fail closed without a current grant gate and never cache content", async () => {
+  const store = makeBucket(PAGE);
+  const tok = await token({
+    embedFile: { path: "index.html", sha256: sha("a") },
+    guestEmbed: {
+      deckId: OTHER_ARTIFACT,
+      guestId: "g1",
+      memberId: "m1",
+      sessionId: "gs1",
+    },
+    userId: undefined,
+    viewer: "link",
+  });
+  const closed = setup();
+  expect((await closed.get(urlFor(tok, "index.html"))).status).toBe(403);
+  expect(closed.reads).toHaveLength(0);
+  let allowed = true;
+  const app = new Hono<AppEnv>();
+  mountArtifactContentRoutes(app, {
+    authorizeGuestEmbed: async () => {
+      await Promise.resolve();
+      return allowed;
+    },
+    bucket: () => store.bucket,
+    nowSeconds: () => NOW,
+    viewKey: () => KEY,
+    workspaceId: () => WORKSPACE,
+  });
+  const opened = await app.request(
+    `${ORIGIN}${urlFor(tok, "index.html")}`,
+    {},
+    {} as Env
+  );
+  expect(opened.status).toBe(200);
+  expect(opened.headers.get("Cache-Control")).toBe("no-store, no-transform");
+  expect(
+    (
+      await app.request(
+        `${ORIGIN}${urlFor(tok, "sub/page.html")}`,
+        {},
+        {} as Env
+      )
+    ).status
+  ).toBe(404);
+  allowed = false;
+  for (const path of ["index.html", "app.js", "_hm/bridge.js"]) {
+    // biome-ignore lint/performance/noAwaitInLoops: exercise each revoked subresource independently.
+    const response = await app.request(
+      `${ORIGIN}${urlFor(tok, path)}`,
+      {},
+      {} as Env
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "no-store, no-transform"
+    );
+  }
+});

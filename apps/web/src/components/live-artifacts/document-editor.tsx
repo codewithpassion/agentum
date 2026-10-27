@@ -91,6 +91,7 @@ export function DocumentEditor(ports: DocumentEditorPorts) {
       {editor !== null && (
         <EditorToolbar
           editor={editor}
+          importImage={ports.importImage ? upload : undefined}
           participants={participants}
           report={report}
           upload={upload}

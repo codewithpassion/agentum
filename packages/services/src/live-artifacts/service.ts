@@ -36,7 +36,17 @@ import {
   commentAnchorSchema,
   type LiveOperationOrigin,
 } from "@repo/protocol/live";
-import { and, asc, eq, gt, inArray, isNull, like, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  like,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import {
   blobKey,
@@ -56,6 +66,7 @@ import { createLiveAccess } from "./access.ts";
 import { createAccessLifecycle } from "./access-lifecycle.ts";
 import { createChangesModule } from "./changes.ts";
 import { createCommentsModule } from "./comments.ts";
+import { fetchExternalImage, type ImageFetch } from "./external-image.ts";
 import { imageMime } from "./image-mime.ts";
 import type { LiveInteractionPorts } from "./ports.ts";
 
@@ -185,6 +196,7 @@ export interface LiveArtifactsDeps extends LiveInteractionPorts {
   content: LiveContentCodec;
   db: Database;
   events: Pick<EventsService, "insertStatement">;
+  externalImageFetch?: ImageFetch;
   files?: Pick<import("../files.ts").FilesService, "upload">;
   identity: (
     principal: Extract<Principal, { kind: "user" | "run" }>
@@ -259,8 +271,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   // Private pages and apps with privileged bridge grants require a separate sharing contract.
   const embedSources = async (
     workspaceId: string,
-    exact?: NonNullable<ReturnType<typeof parseEmbedSource>>
+    exact?: NonNullable<ReturnType<typeof parseEmbedSource>>,
+    page?: { cursor?: string; limit: number }
   ) => {
+    const identity = sql<string>`'artifact:' || ${artifacts.id} || ':' || ${artifactVersions.id} || ':' || ${artifactVersionFiles.sha256} || ':' || ${artifactVersionFiles.path}`;
     const files = await db
       .select({
         artifactId: artifacts.id,
@@ -291,6 +305,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           isNull(artifacts.deletedAt),
           eq(artifactVersions.status, "published"),
           like(artifactVersionFiles.path, "%.html"),
+          page?.cursor ? gt(identity, page.cursor) : undefined,
           ...(exact
             ? [
                 eq(artifacts.id, exact.artifactId),
@@ -300,12 +315,18 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
               ]
             : [])
         )
-      );
-    return files
-      .map(
-        (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
       )
-      .filter((source) => parseEmbedSource(source) !== null);
+      .orderBy(asc(identity))
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: exact authorization calls omit discovery pagination.
+      .limit(page?.limit ?? 2_147_483_647);
+    const sources = files.map(
+      (f) => `artifact:${f.artifactId}:${f.versionId}:${f.sha256}:${f.path}`
+    );
+    // Discovery cursors advance over raw rows, including non-embeddable paths.
+    // Filtering before computing the continuation could hide later valid rows.
+    return page
+      ? sources
+      : sources.filter((source) => parseEmbedSource(source) !== null);
   };
   const event = (
     member: PublicationActor,
@@ -898,13 +919,25 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       }
       return persist(member, row, input, false, from, input);
     },
-    async embedSources(principal: Principal, input: { artifactId: string }) {
+    async embedSources(
+      principal: Principal,
+      input: { artifactId: string; cursor?: string; limit?: number }
+    ) {
       const { row } = await access(principal, input.artifactId);
       if (row.kind !== "deck") {
         throw invalid("Artifact is not a deck");
       }
-      // Discovery may be bounded; authorization and room policy never use this slice.
-      return { sources: (await embedSources(row.workspaceId)).slice(0, 2000) };
+      const limit = Math.min(500, Math.max(1, input.limit ?? 200));
+      const sources = await embedSources(row.workspaceId, undefined, {
+        cursor: input.cursor,
+        limit: limit + 1,
+      });
+      return {
+        next: sources.length > limit ? sources[limit - 1] : undefined,
+        sources: sources
+          .slice(0, limit)
+          .filter((source) => parseEmbedSource(source) !== null),
+      };
     },
     async ensureDeckCell(
       principal: Principal,
@@ -965,6 +998,22 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           )
         )
         .orderBy(asc(artifactVersions.number));
+    },
+    async importImage(
+      principal: Principal,
+      input: { artifactId: string; url: string }
+    ) {
+      const { row } = await access(principal, input.artifactId, true);
+      if (row.kind !== "document" || !deps.externalImageFetch) {
+        throw invalid("External image import is unavailable");
+      }
+      const body = await fetchExternalImage(input.url, deps.externalImageFetch);
+      // Reauthorize after network I/O and use the same ownership registration as uploads.
+      return this.uploadImage(principal, {
+        artifactId: row.id,
+        body,
+        name: "Imported image",
+      });
     },
     async open(principal: Principal, input: { artifactId: string }) {
       const { row, role } = await access(principal, input.artifactId);

@@ -12,6 +12,14 @@ export function deckServices(artifactId: string) {
     open: () => liveApi.open.query({ artifactId }),
     async policy() {
       const result = await liveApi.ownBlobUrls.query({ artifactId });
+      let cursor: string | undefined;
+      const discovered: string[] = [];
+      do {
+        // biome-ignore lint/performance/noAwaitInLoops: sequential keyset pagination.
+        const page = await liveApi.embedSources.query({ artifactId, cursor });
+        discovered.push(...page.sources);
+        cursor = page.next;
+      } while (cursor);
       return new Set(
         z
           .array(
@@ -23,7 +31,7 @@ export function deckServices(artifactId: string) {
                   parseEmbedSource(path) !== null
               )
           )
-          .parse(result.urls)
+          .parse([...result.urls, ...discovered])
       );
     },
     resolveEmbed: (source: string) =>

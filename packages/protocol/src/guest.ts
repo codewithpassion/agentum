@@ -63,6 +63,7 @@ export const guestEndpoints = {
       | "resolve"
       | "policy"
       | "images"
+      | "embed"
       | "ensure-deck-cell"
       | "room"
       | "session"

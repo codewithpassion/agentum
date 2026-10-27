@@ -1,8 +1,12 @@
 // biome-ignore-all lint/performance/noBarrelFile: fixture Worker entry exports.
+import { createDeckCheckpoint } from "@repo/mcp/tools/deck-scene";
 import { createLiveGuestsService } from "@repo/services/live-guests/service";
+import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { Hono } from "hono";
+import { mountArtifactContentRoutes } from "../../artifact-content/routes";
 import { compose } from "../../compose";
 import type { AppEnv } from "../../routes/groups";
+import { guestEmbeds } from "../guest-embeds";
 import { guestEmailAdapter } from "../guest-infra";
 import { guestRoutes } from "../guest-routes";
 import { roomStub } from "../namespace";
@@ -60,6 +64,13 @@ const guests = (composed: ReturnType<typeof get>) => {
   return composed.services.liveGuests();
 };
 const app = new Hono<AppEnv>();
+mountArtifactContentRoutes(app, {
+  authorizeGuestEmbed: (claims, env) =>
+    guestEmbeds(env, get(env)).authorize(claims),
+  bucket: (env) => env.FILES,
+  viewKey: (env) => env.ARTIFACT_VIEW_KEY,
+  workspaceId: (claims) => claims.workspaceId,
+});
 app.route(
   "/",
   guestRoutes({
@@ -90,15 +101,59 @@ app.post("/fixture/create", async (c) => {
     kind?: "document" | "deck";
   }>();
   let artifact: { artifactId: string };
+  let embedSource: string | undefined;
   if (artifactId) {
     artifact = { artifactId };
   } else if (kind === "deck") {
-    artifact = await requiredLive(composed.services).createDeck(owner, {
-      slides: [
-        '<slide id="s1" order="a0" background="#fff" transition="none" duration="0"><element id="table" type="table" parent="s1" order="a0" prop-rows="2" prop-cols="2" prop-x="0" prop-y="0" prop-w="300" prop-h="200"></element></slide>',
+    const page = await composed.services.artifacts.create(owner, {
+      entry: "chart.html",
+      files: [
+        {
+          path: "chart.html",
+          text: "<!doctype html><html><body><h1>Guest scoped embed</h1></body></html>",
+        },
       ],
+      kind: "page",
+      title: "Shared embed",
+    });
+    await composed.services.artifacts.setAudience(
+      owner,
+      page.artifactId,
+      "workspace"
+    );
+    const file = await composed.services.artifacts.readFile(owner, {
+      artifactId: page.artifactId,
+      path: "chart.html",
+    });
+    embedSource = `artifact:${page.artifactId}:${page.versionId}:${[...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(file.text)))].map((b) => b.toString(16).padStart(2, "0")).join("")}:chart.html`;
+    const tableSlide =
+      '<slide id="s1" order="a0" background="#fff" transition="none" duration="0"><element id="table" type="table" parent="s1" order="a0" prop-rows="2" prop-cols="2" prop-x="0" prop-y="0" prop-w="300" prop-h="200"></element></slide>';
+    artifact = await requiredLive(composed.services).createDeck(owner, {
+      slides: [tableSlide],
       title: "Guest deck",
     });
+    const embeddedSlide = tableSlide.replace(
+      "</slide>",
+      `<element id="embed" type="embed" parent="s1" order="a1" prop-src="${embedSource}" prop-x="320" prop-y="0" prop-w="400" prop-h="240"></element></slide>`
+    );
+    // Seed an accepted checkpoint before the first room open; all later guest
+    // reads use the actual production room and current grant checks.
+    await requiredLive(composed.services).durableCheckpoint(
+      SYSTEM_PRINCIPAL,
+      {
+        artifactId: artifact.artifactId,
+        checkpointId: crypto.randomUUID(),
+        origins: [],
+        restores: [],
+        revision: 1,
+        state: createDeckCheckpoint(
+          { slides: [embeddedSlide], title: "Guest deck" },
+          (path) => path === embedSource
+        ),
+        workspaceId: owner.workspaceId,
+      },
+      owner
+    );
   } else {
     artifact = await requiredLive(composed.services).createDocument(owner, {
       markdown: "# Hello\n\nShared text",
@@ -111,7 +166,7 @@ app.post("/fixture/create", async (c) => {
     expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
     role,
   });
-  return c.json({ ...artifact, ...invitation, mail });
+  return c.json({ ...artifact, ...invitation, embedSource, mail });
 });
 app.get("/fixture/diagnostics/:id", async (c) => {
   const stub = await roomStub(c.env.ARTIFACT_ROOM, {

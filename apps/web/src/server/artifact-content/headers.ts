@@ -24,6 +24,7 @@ export interface ContentCspInput {
    * only that prefix. Null when the URL didn't parse, so no folder is allowed.
    */
   contentBase: string | null;
+  noStore?: boolean;
 }
 
 /**
@@ -72,7 +73,12 @@ export const withContentHeaders = (
   // `no-transform` stops Cloudflare Web Analytics' automatic setup from
   // injecting its beacon into the page (Web Analytics FAQ, "automatic setup is
   // not working": https://developers.cloudflare.com/web-analytics/faq/).
-  headers.set("Cache-Control", "private, max-age=300, no-transform");
+  headers.set(
+    "Cache-Control",
+    input.noStore
+      ? "no-store, no-transform"
+      : "private, max-age=300, no-transform"
+  );
   headers.set("Access-Control-Allow-Origin", "*");
   headers.delete("Access-Control-Allow-Credentials");
   headers.delete("Service-Worker-Allowed");

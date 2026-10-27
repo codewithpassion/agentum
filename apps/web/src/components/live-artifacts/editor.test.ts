@@ -560,3 +560,37 @@ test("caret filtering uses assigned awareness ID and preserves a remote ID equal
   expect(replica.ports.document.clientID).toBe(documentId);
   expect(replica.ports.provider.awareness.clientID).toBe(101);
 });
+
+test("URL insertion waits for owned storage and never admits an external URL into the editor", async () => {
+  const { editor, ports, allowed } = setup();
+  text(editor, "before");
+  let finish!: (value: { url: string; alt: string }) => void;
+  ports.importImage = () =>
+    new Promise((resolve) => {
+      finish = resolve;
+    });
+  const pending = uploadEditorImage(
+    editor,
+    "https://images.unsplash.com/photo",
+    ports,
+    allowed
+  );
+  expect(JSON.stringify(editor.getJSON())).not.toContain("https:");
+  finish({ alt: "Imported", url: "/files/imported" });
+  await pending;
+  expect(JSON.stringify(editor.getJSON())).toContain("/files/imported");
+  expect(allowed.has("/files/imported")).toBe(true);
+  ports.importImage = async () => ({
+    alt: "bad",
+    url: "https://images.unsplash.com/photo",
+  });
+  await expect(
+    uploadEditorImage(
+      editor,
+      "https://images.unsplash.com/photo",
+      ports,
+      allowed
+    )
+  ).rejects.toThrow("invalid owned image");
+  expect(JSON.stringify(editor.getJSON())).not.toContain("https:");
+});

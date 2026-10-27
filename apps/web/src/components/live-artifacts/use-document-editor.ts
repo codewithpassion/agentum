@@ -88,7 +88,7 @@ export function useDocumentEditor(
   return {
     editor,
     revision,
-    upload: async (file: File) => {
+    upload: async (file: File | string) => {
       if (editor) {
         await uploadEditorImage(editor, file, current.current.ports, allowed);
       }

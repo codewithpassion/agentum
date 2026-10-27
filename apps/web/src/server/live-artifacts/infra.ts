@@ -18,7 +18,13 @@ import { requiredLive } from "./required";
 export interface LiveInfra
   extends Pick<
       LiveArtifactsDeps,
-      "anchors" | "changes" | "content" | "identity" | "rooms" | "ticketKey"
+      | "anchors"
+      | "changes"
+      | "content"
+      | "externalImageFetch"
+      | "identity"
+      | "rooms"
+      | "ticketKey"
     >,
     Pick<LiveAskDeps, "presence" | "resolveMember"> {
   guestPresence?: (scope: {
@@ -107,6 +113,7 @@ export const productionLiveInfra = (
           : new Set()
       ),
     },
+    externalImageFetch: fetch,
     guestPresence: async (scope) =>
       (await (await stub(scope)).askPresence("")).present.some(
         (entry) => entry.kind === "guest"

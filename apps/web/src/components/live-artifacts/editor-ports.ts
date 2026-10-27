@@ -49,6 +49,7 @@ export interface DocumentEditorPorts {
   document: Doc;
   history?: HistoryPort;
   imageUrl?: (path: string) => string | undefined;
+  importImage?: (url: string) => Promise<{ url: string; alt: string }>;
   onAskAgent?: (selection: EditorSelection) => void;
   onCommentSelection: (selection: EditorSelection) => void;
   onEditorReady?: (editor: Editor | null) => void;

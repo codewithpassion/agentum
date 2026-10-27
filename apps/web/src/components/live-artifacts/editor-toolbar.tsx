@@ -41,15 +41,18 @@ export function EditorToolbar({
   editor,
   participants,
   upload,
+  importImage,
   report,
 }: {
   editor: Editor;
   participants: readonly TrustedParticipant[];
+  importImage?: (url: string) => Promise<void>;
   upload: (file: File) => Promise<void>;
   report: (error: unknown) => void;
 }) {
   const linkId = useId();
   const dateId = useId();
+  const [imageUrl, setImageUrl] = useState("");
   const [link, setLink] = useState("");
   const [date, setDate] = useState("");
   return (
@@ -223,6 +226,28 @@ export function EditorToolbar({
             </fieldset>
           </Group>
           <Group label="Insert">
+            {importImage !== undefined && (
+              <label>
+                Image URL
+                <input
+                  aria-label="Image URL"
+                  onChange={(event) => setImageUrl(event.target.value)}
+                  placeholder="HTTPS image from Unsplash, Wikimedia or Pexels"
+                  type="url"
+                  value={imageUrl}
+                />
+                <ToolButton
+                  disabled={!imageUrl}
+                  onClick={() => {
+                    importImage(imageUrl)
+                      .then(() => setImageUrl(""))
+                      .catch(report);
+                  }}
+                >
+                  Insert image URL
+                </ToolButton>
+              </label>
+            )}
             <label className="live-upload">
               Upload image
               <input
