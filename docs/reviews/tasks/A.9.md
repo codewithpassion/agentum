@@ -11,7 +11,7 @@ Resolution: the task says to add the filter when A.1's schema lacks it, and `Art
 
 Fix commit dcaa2bd: nits fixed (shared `KIND_ICONS`, router `Link` in the slot's "and more" line, a separate protocol test for an empty `runId`).
 
-Round 2: the reviewer could not start, because the session hit the concurrent subagent limit (20). The fix commit is a small refactor, and `bun run check && bun run test && bun run build` pass on it. Treat round 2 as not independently reviewed.
+Round 2 (opus, dcaa2bd, fix commit only): clean. One cosmetic nit left: the standalone `runId` test sits before the `cases` table in `artifacts-api.test.ts`. The controller has told A.2 to filter `artifacts.list` on `runId`.
 
 ## Browser check
 
