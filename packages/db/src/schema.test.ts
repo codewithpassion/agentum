@@ -39,6 +39,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "artifact_live_changes",
     "artifact_members",
     "artifact_pins",
+    "artifact_room_invalidations",
     "artifact_shares",
     "artifact_version_files",
     "artifact_versions",
@@ -107,7 +108,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(68);
+  expect(tables.length).toBe(69);
 
   for (const table of tables) {
     const column = client
