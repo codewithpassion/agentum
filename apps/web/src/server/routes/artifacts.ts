@@ -63,10 +63,12 @@ const sha256Hex = async (text: string): Promise<string> =>
  * Calls and storage reads use `SHARE_CALL_LIMIT` (120 a minute), above the
  * exact live call limits (60 a minute and 1,000 a day per link, 10 a minute
  * per visitor), which the service counts from the access log, so those decide.
+ * The `calllog` scope caps how many guard refusals get a log row (see
+ * `recordRefused`).
  */
 const withinLimits = async (
   c: Context<AppEnv>,
-  scope: "call" | "open" | "storage",
+  scope: "call" | "calllog" | "open" | "storage",
   token: string,
   ip: string | null
 ): Promise<boolean> => {
@@ -117,6 +119,39 @@ const requestInfo = (c: Context<AppEnv>, ip: string | null) => ({
   userAgent: c.req.header("User-Agent") ?? null,
 });
 
+/**
+ * Writes the `live_call` row of a call that was refused before the service
+ * (R2.14). A guard refusal is by definition a flood, so its rows are capped
+ * with a second count under the `calllog` scope (120 a minute per token and per
+ * IP prefix): a flood cannot turn into unbounded lookups and inserts. A failed
+ * write is logged and never changes the answer.
+ */
+const recordRefused = async (
+  c: Context<AppEnv>,
+  token: string,
+  ip: string | null,
+  reason: "rate_limited" | "refused",
+  capped: boolean
+): Promise<void> => {
+  try {
+    if (capped && !(await withinLimits(c, "calllog", token, ip))) {
+      return;
+    }
+    await c
+      .get("composed")
+      .services.artifactShares.recordRefusedCall(
+        token,
+        reason,
+        requestInfo(c, ip)
+      );
+  } catch (error) {
+    console.error(
+      "Refused live call not logged",
+      error instanceof Error ? error.name : "unknown"
+    );
+  }
+};
+
 /** The `version` query parameter: absent is the current version, junk is a 400. */
 const versionOf = (c: Context<AppEnv>): number | undefined | "bad" => {
   const raw = c.req.query("version");
@@ -164,13 +199,7 @@ export const artifactRoutes = (deps: ArtifactRoutesDeps): Hono<AppEnv> => {
     const ip = c.req.header("CF-Connecting-IP") ?? null;
     const noStore = { "Cache-Control": "no-store" };
     if (!(await withinLimits(c, "call", token, ip))) {
-      await c
-        .get("composed")
-        .services.artifactShares.recordRefusedCall(
-          token,
-          "rate_limited",
-          requestInfo(c, ip)
-        );
+      await recordRefused(c, token, ip, "rate_limited", true);
       return c.json({ error: "Too many requests." }, TOO_MANY, {
         ...noStore,
         "Retry-After": RETRY_AFTER_SECONDS,
@@ -181,13 +210,7 @@ export const artifactRoutes = (deps: ArtifactRoutesDeps): Hono<AppEnv> => {
       text.length <= MAX_CALL_BODY_BYTES ? parseJson(text) : null
     );
     if (!body.success) {
-      await c
-        .get("composed")
-        .services.artifactShares.recordRefusedCall(
-          token,
-          "refused",
-          requestInfo(c, ip)
-        );
+      await recordRefused(c, token, ip, "refused", false);
       return c.json({ error: "Bad request." }, BAD_REQUEST, noStore);
     }
     const result = await c

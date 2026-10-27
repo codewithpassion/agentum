@@ -71,8 +71,8 @@
     // Any non-empty value turns every share-link open off in this environment.
     "ARTIFACT_LINKS_OFF": ""
   },
-  // Share-link opens (artifact links). Counted per key: the route calls it
-  // once per token and once per IP prefix. Each environment has its own namespace.
+  // Artifact link flood guards (opens, then calls and storage reads below). Counted
+  // per key: the route calls them once per token and once per IP prefix. Each environment has its own namespace.
   "ratelimits": [
     {
       "name": "SHARE_OPEN_LIMIT",
@@ -157,7 +157,7 @@
         // Any non-empty value turns every share-link open off in this environment.
         "ARTIFACT_LINKS_OFF": ""
       },
-      // Share-link opens (artifact links). Counted per key: the route calls it
+      // Artifact link flood guards (opens, then calls and storage reads). Counted per key: the route calls them
       // once per token and once per IP prefix. Each environment has its own namespace.
       "ratelimits": [
         {
@@ -222,7 +222,7 @@
           // Any non-empty value turns every share-link open off in this environment.
           "ARTIFACT_LINKS_OFF": ""
         },
-        // Share-link opens (artifact links). Counted per key: the route calls it
+        // Artifact link flood guards (opens, then calls and storage reads). Counted per key: the route calls them
         // once per token and once per IP prefix. Each environment has its own namespace.
         "ratelimits": [
           {

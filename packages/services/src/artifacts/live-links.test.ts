@@ -459,12 +459,20 @@ describe("calls refused before the service (R2.14)", () => {
     expect(runs).toHaveLength(0);
   });
 
-  test("a bad body writes a refused row, and keeps the tool when it is known", async () => {
+  test("a bad body writes a refused row, which counts toward the limits", async () => {
     const link = await liveLink();
-    await service.recordRefusedCall(link.token, "refused", request(), LIST);
+    await service.recordRefusedCall(link.token, "refused", request());
     expect(viewsOf(link.id)).toMatchObject([
-      { outcome: "refused", toolKey: LIST },
+      { outcome: "refused", toolKey: null },
     ]);
+    // Same as a refused tool: a link holder spends the visitor's 10 a minute with junk.
+    for (let index = 0; index < 9; index += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: rows land in order
+      await service.recordRefusedCall(link.token, "refused", request());
+    }
+    expect(
+      await service.callLink(link.token, { tool: LIST }, request())
+    ).toEqual({ ok: false, reason: "rate_limited" });
   });
 
   test("a dead link keeps its own outcome", async () => {
@@ -491,7 +499,7 @@ describe("calls refused before the service (R2.14)", () => {
     expect(db.select().from(artifactViews).all()).toHaveLength(0);
   });
 
-  test("a refused row does not count toward the limits", async () => {
+  test("a rate_limited row does not count toward the limits", async () => {
     const link = await liveLink();
     for (let index = 0; index < 20; index += 1) {
       // biome-ignore lint/performance/noAwaitInLoops: rows land in order

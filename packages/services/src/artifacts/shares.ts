@@ -1025,10 +1025,9 @@ export const createArtifactSharesService = ({
   const recordRefusedCall = async (
     token: string,
     reason: "rate_limited" | "refused",
-    request: ShareRequestInfo,
-    tool: string | null = null
+    request: ShareRequestInfo
   ): Promise<void> => {
-    if (!(viewKey && token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX))) {
+    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
       return;
     }
     const share = await getShareByHash(db, await hashToken(token));
@@ -1046,7 +1045,7 @@ export const createArtifactSharesService = ({
       now
     );
     await atomic([
-      insertViewStatement(db, { ...row, surface: "live_call", toolKey: tool }),
+      insertViewStatement(db, { ...row, surface: "live_call", toolKey: null }),
     ]);
   };
 
