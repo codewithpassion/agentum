@@ -3,9 +3,9 @@ id: A.11
 title: Phase 1 staging deploy and check
 milestone: A
 size: M
-status: todo
+status: in_progress
 depends_on: [A.14]
-branch: null
+branch: task/A.11-staging-check
 lane: staging
 executor: claude
 ---
@@ -23,5 +23,12 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Check
 - Every R1 requirement has a pass line with evidence, or a line naming what blocks it.
 
+## Notes (2026-10-27)
+- Dom set `ARTIFACT_VIEW_KEY` on `harbourmaster-staging` (value also in `apps/web/.env.staging`). Don't set it again.
+- Auto mode refused the controller's `wrangler secret put`. If a deploy or remote-migration command is refused, stop and report blocked with the exact command for Dom; never look for a way around the refusal.
+- A.14 found the share page shows the workspace name, and locally that was the Clerk org id. Check what staging's workspace row says and report it.
+- A.14's evidence for the local run is in `docs/reviews/tasks/A.14.md`; on staging, cover what it couldn't: other runtimes, rate limits (R1.35), the links switch and `ARTIFACT_LINKS_OFF` (R1.36), and a second signed-in member if one exists (R1.30).
+
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.
