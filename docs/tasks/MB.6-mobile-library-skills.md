@@ -1,6 +1,6 @@
 ---
 id: MB.6
-title: Mobile: library file panel and skills index
+title: "Mobile: library file panel and skills index"
 milestone: MB
 size: S
 status: todo

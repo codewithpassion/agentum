@@ -1,6 +1,6 @@
 ---
 id: MB.4
-title: Mobile: task thread, inbox, desk cards and request cards
+title: "Mobile: task thread, inbox, desk cards and request cards"
 milestone: MB
 size: M
 status: todo

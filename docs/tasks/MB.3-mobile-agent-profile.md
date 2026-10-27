@@ -1,6 +1,6 @@
 ---
 id: MB.3
-title: Mobile: agent profile page and its sheets
+title: "Mobile: agent profile page and its sheets"
 milestone: MB
 size: M
 status: todo

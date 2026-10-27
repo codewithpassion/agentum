@@ -1,6 +1,6 @@
 ---
 id: MB.1
-title: Mobile: app shell, global form sizes, dialog and sheet limits, touch targets
+title: "Mobile: app shell, global form sizes, dialog and sheet limits, touch targets"
 milestone: MB
 size: M
 status: todo

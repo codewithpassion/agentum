@@ -1,6 +1,6 @@
 ---
 id: MB.2
-title: Mobile: tables as cards on phones, confirm before remove and revoke
+title: "Mobile: tables as cards on phones, confirm before remove and revoke"
 milestone: MB
 size: M
 status: todo

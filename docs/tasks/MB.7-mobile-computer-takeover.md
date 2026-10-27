@@ -1,6 +1,6 @@
 ---
 id: MB.7
-title: Mobile: computer takeover with touch and the phone keyboard
+title: "Mobile: computer takeover with touch and the phone keyboard"
 milestone: MB
 size: M
 status: todo

@@ -1,6 +1,6 @@
 ---
 id: MB.5
-title: Mobile: map editor and inspector with touch
+title: "Mobile: map editor and inspector with touch"
 milestone: MB
 size: M
 status: todo
