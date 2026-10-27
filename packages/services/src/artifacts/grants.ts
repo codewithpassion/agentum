@@ -628,6 +628,7 @@ export const createArtifactGrantsService = ({
         artifactId: artifact.id,
         now: clock.now().toISOString(),
         versionId: version.id,
+        versionNumber: version.number,
       }),
     ]);
     await announcePromoted(artifact, version, actor);
@@ -709,8 +710,10 @@ export const createArtifactGrantsService = ({
           artifactId: artifact.id,
           now: clock.now().toISOString(),
           versionId: version.id,
+          versionNumber: version.number,
         }),
       ]);
+      await announcePromoted(artifact, version, await actorOf(principal));
       return { status: "promoted", version: version.number };
     }
     if (version.status !== "proposed") {
@@ -737,6 +740,12 @@ export const createArtifactGrantsService = ({
     );
     if (waiting) {
       return waiting;
+    }
+    if (!(await newerThanCurrent(artifact, version))) {
+      throw new ServiceError(
+        "conflict",
+        `Version ${version.number} is older than the live version`
+      );
     }
     await goLiveVersion(artifact, version, await actorOf(principal));
     return { status: "promoted", version: version.number };

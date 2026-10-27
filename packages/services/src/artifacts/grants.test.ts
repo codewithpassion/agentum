@@ -777,3 +777,30 @@ test("a go-live that stopped after publishing is finished by the next promote", 
   ).toEqual({ status: "promoted", version: 2 });
   expect(await currentVersion()).toBe("v2");
 });
+
+test("promoting a version older than the live one is refused, also after a stale card", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  const waiting = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  if (waiting.status !== "waiting") {
+    throw new Error("expected waiting");
+  }
+  await addVersion("v3", 3);
+  await record("v3", { tools: [{ tool: "linear/get_issue" }] });
+  await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v3",
+  });
+  await requests.answer(owner, {
+    answer: { decision: "allow_once" },
+    requestId: waiting.requestId,
+    via: "web",
+  });
+  await expect(
+    service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(await currentVersion()).toBe("v3");
+});

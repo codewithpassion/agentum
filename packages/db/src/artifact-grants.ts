@@ -202,14 +202,29 @@ export const claimProposedVersion = async (
   return rows.length > 0;
 };
 
+/**
+ * Points the artifact at a version, but only when that version is newer than
+ * the current one, so two versions going live together cannot leave the older
+ * one current.
+ */
 export const setCurrentVersionStatement = (
   db: Database,
-  query: { artifactId: string; now: string; versionId: string }
+  query: {
+    artifactId: string;
+    now: string;
+    versionId: string;
+    versionNumber: number;
+  }
 ) =>
   db
     .update(artifacts)
     .set({ currentVersionId: query.versionId, updatedAt: query.now })
-    .where(eq(artifacts.id, query.artifactId));
+    .where(
+      and(
+        eq(artifacts.id, query.artifactId),
+        sql`(${artifacts.currentVersionId} is null or (select ${artifactVersions.number} from ${artifactVersions} where ${artifactVersions.id} = ${artifacts.currentVersionId}) < ${query.versionNumber})`
+      )
+    );
 
 export const setHandedToStatement = (
   db: Database,
