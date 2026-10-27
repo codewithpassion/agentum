@@ -185,6 +185,8 @@ export const productionLiveInfra = (
         await room.registerActor(input.principal);
         return room.restoreAuthorized(input);
       },
+      retainedDeckEmbeds: async (scope) =>
+        (await stub(scope)).retainedDeckEmbeds(),
       saveRestored: async (scope) => (await stub(scope)).checkpoint(),
       snapshot: async (scope) => (await stub(scope)).authoritativeSnapshot(),
       suspend: async (scope, id) => (await stub(scope)).suspend(id),

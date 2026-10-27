@@ -256,6 +256,21 @@ try {
     ).slides[0].html.includes('type="embed"'),
     "actual production room accepts guarded embed HTML"
   );
+  // Catalog growth must not revoke an already admitted exact file identity.
+  await db
+    .prepare(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<2001)
+    INSERT INTO artifact_version_files (workspace_id,version_id,path,sha256,size,content_type)
+    SELECT workspace_id,version_id,'000-' || printf('%04d',n.x) || '.html',sha256,size,content_type
+    FROM artifact_version_files,n WHERE version_id=(SELECT current_version_id FROM artifacts WHERE id=?) AND path='pages/chart.html'`)
+    .bind(embedPage.artifactId)
+    .run();
+  const grownCatalog = await mcp("deck_read", {
+    artifactId: deckCreated.artifactId,
+  });
+  check(
+    grownCatalog.embedSources.includes(embedSource),
+    "source remains admitted beyond 2000 eligible files"
+  );
   const resolved = await runtime.dispatchFetch(
     `http://localhost/fixture/embed/${deckCreated.artifactId}`,
     { body: JSON.stringify({ source: embedSource }), method: "POST" }
@@ -275,6 +290,12 @@ try {
       .includes("sandbox allow-scripts allow-forms"),
     "embed keeps production CSP sandbox"
   );
+  await db
+    .prepare(
+      "DELETE FROM artifact_version_files WHERE version_id=(SELECT current_version_id FROM artifacts WHERE id=?) AND path LIKE '000-%'"
+    )
+    .bind(embedPage.artifactId)
+    .run();
   for (const bad of [
     "https://evil.test",
     embedSource.replace(/:[a-f0-9]{64}:/, `:${"f".repeat(64)}:`),
@@ -310,6 +331,56 @@ try {
     { body: JSON.stringify({ source: embedSource }), method: "POST" }
   );
   check(!revokedEmbed.ok, "private source cannot mint embed content URL");
+  const retainedPolicy = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/policy/${deckCreated.artifactId}`,
+      { headers }
+    )
+  ).json();
+  check(
+    retainedPolicy.urls.includes(embedSource),
+    "member policy retains admitted unavailable reference for reload and editing"
+  );
+  const restrictedRead = await mcp("deck_read", {
+    artifactId: deckCreated.artifactId,
+  });
+  await mcp("deck_write", {
+    artifactId: deckCreated.artifactId,
+    ops: [
+      {
+        html: restrictedRead.slides[0].html.replace(
+          'prop-x="350"',
+          'prop-x="351"'
+        ),
+        op: "write",
+        revision: restrictedRead.slides[0].revision,
+        slideId: "s1",
+      },
+    ],
+  });
+  const removable = await mcp("deck_read", {
+    artifactId: deckCreated.artifactId,
+  });
+  await mcp("deck_write", {
+    artifactId: deckCreated.artifactId,
+    ops: [
+      {
+        html: removable.slides[0].html.replace(
+          /<element\b[^>]*id="embedded"[^>]*>[\s\S]*?<\/element>/,
+          ""
+        ),
+        op: "write",
+        revision: removable.slides[0].revision,
+        slideId: "s1",
+      },
+    ],
+  });
+  check(
+    !(
+      await mcp("deck_read", { artifactId: deckCreated.artifactId })
+    ).slides[0].html.includes('id="embedded"'),
+    "restricted source can be edited and removed without restoring source access"
+  );
   await db
     .prepare("UPDATE artifacts SET audience='workspace' WHERE id=?")
     .bind(embedPage.artifactId)
@@ -340,6 +411,45 @@ try {
     )
     .bind(embedPage.artifactId)
     .run();
+  const readd = await mcp("deck_read", { artifactId: deckCreated.artifactId });
+  await mcp("deck_write", {
+    artifactId: deckCreated.artifactId,
+    ops: [
+      {
+        html: readd.slides[0].html.replace("</slide>", `${embedHTML}</slide>`),
+        op: "write",
+        revision: readd.slides[0].revision,
+        slideId: "s1",
+      },
+    ],
+  });
+  await db
+    .prepare("UPDATE artifacts SET deleted_at=? WHERE id=?")
+    .bind(now, embedPage.artifactId)
+    .run();
+  const deletedRead = await mcp("deck_read", {
+    artifactId: deckCreated.artifactId,
+  });
+  await mcp("deck_write", {
+    artifactId: deckCreated.artifactId,
+    ops: [
+      {
+        html: deletedRead.slides[0].html.replace(
+          /<element\b[^>]*id="embedded"[^>]*>[\s\S]*?<\/element>/,
+          ""
+        ),
+        op: "write",
+        revision: deletedRead.slides[0].revision,
+        slideId: "s1",
+      },
+    ],
+  });
+  check(
+    !(
+      await mcp("deck_read", { artifactId: deckCreated.artifactId })
+    ).slides[0].html.includes('id="embedded"'),
+    "deleted source can be removed and checkpointed"
+  );
   const deckJoin = await (
     await runtime.dispatchFetch(
       `http://localhost/fixture/join/${deckCreated.artifactId}`,

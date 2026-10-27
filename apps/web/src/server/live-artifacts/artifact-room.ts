@@ -17,6 +17,7 @@ import {
   ensureDeckCellInputSchema,
   PRESENTER_LEASE_MS,
   type PresentationResult,
+  parseEmbedSource,
   presentationControlSchema,
   type TrustedPresentationPosition,
 } from "@repo/protocol/deck";
@@ -242,7 +243,11 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     const urls = await this.env.ARTIFACT_ROOM_SERVICE.ownBlobUrls(
       this.meta.scope
     );
-    this.policy = new Set(urls);
+    // Accepted scene references remain valid opaque placeholders when a source
+    // is deleted/restricted. This grants no content access: resolveEmbed checks
+    // current source permission independently. Never retain unadmitted catalog entries.
+    const retained = this.acceptedEmbedReferences();
+    this.policy = new Set([...urls, ...retained]);
     if (!this.deck) {
       this.live.options.ownBlobUrls = this.policy;
     }
@@ -728,6 +733,22 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       }
     }
     socket.send(JSON.stringify(result));
+  }
+  private acceptedEmbedReferences(): string[] {
+    return this.deck
+      ? this.deck.ids().flatMap((id) =>
+          this.requiredDeck()
+            .read(id)
+            .slide.elements.flatMap((element) =>
+              element.type === "embed" && parseEmbedSource(element.props.src)
+                ? [element.props.src as string]
+                : []
+            )
+        )
+      : [];
+  }
+  retainedDeckEmbeds() {
+    return this.exclusive(() => this.acceptedEmbedReferences());
   }
   roomKind() {
     return this.exclusive(() => this.meta.kind ?? "document");

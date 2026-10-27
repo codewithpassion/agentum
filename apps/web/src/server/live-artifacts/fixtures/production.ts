@@ -82,6 +82,18 @@ app.route(
     verifyOAuthToken: () => async () => null,
   })
 );
+app.get("/fixture/policy/:id", async (c) => {
+  const composed = c.get("composed");
+  const principal = await authenticateRoomRequest(c.env, composed, c.req.raw);
+  if (!principal) {
+    return c.text("Unauthorized", 401);
+  }
+  return c.json(
+    await requiredLive(composed.services).ownBlobUrls(principal, {
+      artifactId: c.req.param("id"),
+    })
+  );
+});
 app.post("/fixture/embed/:id", async (c) => {
   const input = await c.req.json<{ source: string }>();
   return c.json(

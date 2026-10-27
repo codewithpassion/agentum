@@ -156,6 +156,42 @@ async function syncReplica(client) {
 
 try {
   runtime = boot();
+  const embedRoom = "revoked-embed";
+  const embedSource = `artifact:11111111-1111-4111-8111-111111111111:version:${"a".repeat(64)}:chart.html`;
+  await controls("deck", true, embedRoom);
+  await controls("slides", [slide("s1", "a0")], embedRoom);
+  await controls("urls", [embedSource], embedRoom);
+  const cleanEmbedState = await call("/snapshot", {}, embedRoom);
+  const beforeEmbed = await call("/deck-read", {}, embedRoom);
+  await call(
+    "/deck-write",
+    {
+      ops: [
+        {
+          html: beforeEmbed.slides[0].html.replace(
+            "</slide>",
+            `<element id="embedded" type="embed" parent="s1" order="a2" prop-src="${embedSource}" prop-x="0" prop-y="0" prop-w="100" prop-h="100"></element></slide>`
+          ),
+          op: "write",
+          revision: beforeEmbed.slides[0].revision,
+          slideId: "s1",
+        },
+      ],
+    },
+    embedRoom
+  );
+  await controls("urls", [], embedRoom);
+  await call(
+    "/deck-restore",
+    { requestId: "remove-revoked", state: cleanEmbedState.state },
+    embedRoom
+  );
+  check(
+    !(await call("/deck-read", {}, embedRoom)).slides[0].html.includes(
+      'id="embedded"'
+    ),
+    "owner restore removes an unavailable embedded source"
+  );
   await controls("deck", true);
   await controls("slides", [slide("s1", "a0"), slide("s2", "a1")]);
   await call("/snapshot");
