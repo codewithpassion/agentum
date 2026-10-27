@@ -3,9 +3,9 @@ id: L.4a
 title: Live service core persistence and room tickets
 milestone: L
 size: M
-status: in_progress
+status: review
 depends_on: [L.1]
-branch: null
+branch: t3/live-artifacts-service
 lane: services
 executor: codex
 ---
@@ -21,3 +21,5 @@ Follow the full design in docs/v3/live-artifacts-prd.md and parent L.4 requireme
 - 2026-10-27: Split from incomplete L.4 implementation to keep each delegate deliverable concrete.
 
 - 2026-10-27: Merged partial 6198644b ticket crypto helper only. Service factory/persistence remains unimplemented; Sol assigned remaining core slice. Task stays in_progress. Delegate root test was not finished at handoff; no full-suite success claimed.
+
+- 2026-10-27: Complete core 8fdc8e70 merged, 118 affected tests and full root suite/build/check passed. Independent persistence/authorization review starts.

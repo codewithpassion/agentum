@@ -3,7 +3,7 @@ id: L.4b
 title: Live comments and agent change history
 milestone: L
 size: M
-status: todo
+status: in_progress
 depends_on: [L.4a]
 branch: null
 lane: services
@@ -19,3 +19,5 @@ Follow the full design in docs/v3/live-artifacts-prd.md and parent L.4 requireme
 ## Log
 
 - 2026-10-27: Split from incomplete L.4 implementation to keep each delegate deliverable concrete.
+
+- 2026-10-27: Sol dispatched comments and change history against merged core factory.
