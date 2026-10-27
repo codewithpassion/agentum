@@ -46,6 +46,10 @@ import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
 import { signRoomTicket } from "./ticket.ts";
 
+export interface LivePublishResult extends PublishResult {
+  revision: number;
+}
+
 export interface DocumentSnapshot {
   revision: number;
   state: Uint8Array;
@@ -281,6 +285,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     type:
       | "artifact.created"
       | "artifact.published"
+      | "artifact.restored"
       | "artifact.live_checkpoint",
     payload: Record<string, unknown>
   ) =>
@@ -311,8 +316,9 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     member: Member,
     row: Row,
     snapshot: DocumentSnapshot,
-    initial = false
-  ): Promise<PublishResult> => {
+    initial = false,
+    restoredFrom?: number
+  ): Promise<LivePublishResult> => {
     checkSnapshot(snapshot);
     const number = await nextVersion(row, snapshot.revision, initial);
     const rendered = await content.exportDocument(snapshot);
@@ -361,7 +367,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       artifactId: row.id,
       kind: row.kind,
       revision: snapshot.revision,
-      runId: row.runId,
+      runId: authorOf(member).runId,
       sessionId: row.sessionId,
       title: row.title,
       version: number,
@@ -415,6 +421,14 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
             eq(artifacts.workspaceId, row.workspaceId)
           )
         ),
+      ...(restoredFrom === undefined
+        ? []
+        : [
+            event(member, row, "artifact.restored", {
+              ...payload,
+              fromVersion: restoredFrom,
+            }),
+          ]),
       event(member, row, "artifact.live_checkpoint", payload),
       event(member, row, "artifact.published", payload),
     ];
@@ -431,6 +445,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       artifactId: row.id,
       bytes: totalBytes,
       files: files.length,
+      revision: snapshot.revision,
       version: number,
       versionId,
     };
@@ -474,7 +489,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     principal: Principal,
     input: { title: string; markdown?: string },
     convertedFromId?: string
-  ): Promise<PublishResult> => {
+  ): Promise<LivePublishResult> => {
     const member = memberOf(principal);
     if (readOnly(member)) {
       throw new ForbiddenError("liveArtifacts.create");
@@ -624,7 +639,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           versionId: version.id,
         }
       );
-      return await persist(member, row, restored);
+      return await persist(member, row, restored, false, version.number);
     },
     async setAudience(
       principal: Principal,

@@ -247,6 +247,7 @@ describe("live artifacts persistence", () => {
       ...encode("Changed", 4),
     });
     expect(saved.version).toBe(2);
+    expect(saved.revision).toBe(4);
     expect(h.db.select().from(artifacts).get()?.liveRoomRev).toBe(4);
     expect(
       (
@@ -289,6 +290,7 @@ describe("live artifacts persistence", () => {
       version: 1,
     });
     expect(restored.version).toBe(3);
+    expect(restored.revision).toBe(10);
     expect(h.restores).toEqual([
       {
         byParticipant: "u:u1",
@@ -298,6 +300,17 @@ describe("live artifacts persistence", () => {
       },
     ]);
     expect(h.db.select().from(artifacts).get()?.liveRoomRev).toBe(10);
+    const audit = h.db
+      .select()
+      .from(events)
+      .where(eq(events.type, "artifact.restored"))
+      .get();
+    expect(audit?.actorId).toBe("u1");
+    expect(JSON.parse(audit?.payload ?? "{}")).toMatchObject({
+      fromVersion: 1,
+      revision: 10,
+      version: 3,
+    });
     expect(
       (
         await h.artifacts.readFile(principals.owner, {
@@ -608,6 +621,25 @@ describe("live authorization and tickets", () => {
       "not_found"
     );
     expect(h.counts()).toEqual(before);
+  });
+
+  test("checkpoint audit names the writing run rather than the creating run", async () => {
+    const h = setup();
+    const doc = await h.service.createDocument(principals.agentOne, {
+      title: "Agent doc",
+    });
+    await h.service.checkpoint(principals.agentOneInUi, {
+      artifactId: doc.artifactId,
+      ...encode("Updated", 1),
+    });
+    const audit = h.db
+      .select()
+      .from(events)
+      .where(eq(events.type, "artifact.published"))
+      .all();
+    expect(
+      audit.map((event) => JSON.parse(event.payload ?? "{}").runId)
+    ).toEqual(["r-shared", "r-ui"]);
   });
 
   test("foreign agent, run and current-version parents are refused", async () => {
