@@ -312,6 +312,7 @@ body {
 @media (pointer: coarse) {
   button:not([role="switch"], [role="checkbox"], [role="radio"]),
   a[data-slot="button"],
+  a[class~="group/button"],
   [role="button"],
   [data-slot="select-trigger"],
   [data-sidebar="menu-button"] {
@@ -330,8 +331,8 @@ body {
     min-height: 2.5rem;
   }
 
-  /* Links styled with buttonVariants() carry no data-slot, so a caller adds
-     pointer-coarse:min-h-10 itself. */
+  /* a[class~="group/button"] catches links styled with buttonVariants(),
+     which carry no data-slot. */
 
   [role="switch"],
   [role="checkbox"] {
