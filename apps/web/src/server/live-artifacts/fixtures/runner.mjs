@@ -291,6 +291,13 @@ try {
     ),
     "trusted agent broadcast"
   );
+  observer.messages.length = 0;
+  observer.ws.send(new Uint8Array([3]));
+  await pause(40);
+  check(
+    presences(observer).some((p) => p.state?.user?.id === "agent"),
+    "awareness query includes active agent"
+  );
   await call("/agent", { entry: null });
   await pause(20);
   check(
@@ -528,11 +535,28 @@ try {
       (await call("/read")).revision === restore.revision,
     "restore retry after failed save does not restore twice"
   );
+  const retryDeadline = (await call("/stats")).pending.retryAt;
+  await call("/agent", { entry: agent });
+  check(
+    (await call("/stats")).pending.retryAt === retryDeadline,
+    "activity preserves pending retry deadline"
+  );
+  await call("/ops", {
+    ops: [{ content: { text: "later dirty" }, op: "insert" }],
+    origin: origin("later-dirty"),
+  });
+  const laterDeadline = (await call("/stats")).meta.dirtySince;
+  await runtime.dispose();
+  runtime = boot();
   await controls("failSave", false);
   await controls("failAfterSave", true);
   await fails("/checkpoint");
   const committed = (await call("/stats")).fixture.saved;
   const acknowledged = await call("/checkpoint");
+  check(
+    (await call("/stats")).meta.dirtySince === laterDeadline,
+    "acknowledgement preserves first later dirty deadline after restart"
+  );
   check(
     acknowledged.revision === committed.revision &&
       !(await call("/stats")).pending,

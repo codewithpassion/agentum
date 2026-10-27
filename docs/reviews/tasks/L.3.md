@@ -98,3 +98,7 @@ Actual R2/DB save must be idempotent by checkpoint ID and reconcile restore prov
 ### Checks
 
 `bun install --frozen-lockfile` passed. The unmodified real Miniflare/workerd fixture passed (1 test, 43.63 s); its focused adversarial scenarios include malformed candidates, awareness spoofing, ticket replay and renewal, role changes, interrupted generation, recovery and ambiguous checkpoint acknowledgement. A second run with the temporary awareness-query probe passed (1 test, 42.84 s); the probe asserted the defective omission and was removed. The two checkpoint scheduling findings above are code-path reproductions, not separately timed workerd experiments. The initial fixture attempt failed because workspace dependencies were absent; installation resolved it. No production adapters, staging, product files, push, PR or deployment were changed.
+
+## Controller remediation
+
+Pending checkpoint retry deadlines are persisted and only advanced by an actual save attempt; activity scheduling reuses the stored deadline. Freezing a pending snapshot clears the first-dirty timestamp atomically, so later edits establish their own persisted deadline, which acknowledgement does not reset. Awareness query replies include unexpired stored agent presence. The real workerd fixture now verifies activity does not postpone retries, later dirty timestamps survive restart and acknowledgement, and queries recover the active agent. All fixture scenarios passed (41.89 seconds). Combined root validation is running. Production adapter gates remain L.7.

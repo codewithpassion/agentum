@@ -59,6 +59,7 @@ interface PendingSave {
   checkpointId: string;
   origins: LiveOperationOrigin[];
   restores: RestoreProvenance[];
+  retryAt: number;
   revision: number;
 }
 interface ChangeRecord {
@@ -274,8 +275,13 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     ) {
       times.push(this.meta.dirtySince + CHECKPOINT_MS);
     }
-    if (this.store.get<PendingSave>("pending")) {
-      times.push(Date.now() + RETRY_MS);
+    const pending = this.store.get<PendingSave>("pending");
+    if (pending) {
+      if (!pending.retryAt) {
+        pending.retryAt = Date.now() + RETRY_MS;
+        this.store.put("pending", pending);
+      }
+      times.push(pending.retryAt);
     }
     if (times.length) {
       await this.ctx.storage.setAlarm(
@@ -562,6 +568,10 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     );
   }
   private sendPresence(socket: WebSocket) {
+    const agent = this.store.get<AgentState>("agent");
+    if (agent && agent.expires > Date.now()) {
+      socket.send(presenceFrame(agent.awarenessId, agent.clock, agent.entry));
+    }
     for (const peer of this.ctx.getWebSockets()) {
       const other = session(peer);
       if (other.present && other.expires > Date.now()) {
@@ -995,6 +1005,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         checkpointId: crypto.randomUUID(),
         origins: [...this.meta.origins],
         restores: [...this.meta.restores],
+        retryAt: Date.now() + RETRY_MS,
         revision: this.meta.revision,
       };
       const { state } = this.snapshot();
@@ -1002,8 +1013,13 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       this.ctx.storage.transactionSync(() => {
         this.store.write("checkpoint", created.checkpointId, state);
         this.store.put("pending", pending);
+        this.meta.dirtySince = null;
+        this.store.put("state", this.meta);
       });
     }
+    // Set a retry deadline only when attempting a save, never on activity.
+    pending.retryAt = Date.now() + RETRY_MS;
+    this.store.put("pending", pending);
     // pending is intentionally retained on every failure, including after a remote commit.
     const result = await this.env.ARTIFACT_ROOM_SERVICE.save(this.meta.scope, {
       ...pending,
@@ -1019,8 +1035,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       this.meta.origins = this.meta.origins.filter(
         (o) => !pending.origins.some((p) => p.changeId === o.changeId)
       );
-      this.meta.dirtySince =
-        this.meta.revision === pending.revision ? null : Date.now();
+      if (this.meta.revision === pending.revision) {
+        this.meta.dirtySince = null;
+      }
       this.store.put("state", this.meta);
       this.store.put("pending", null);
       this.store.put("lastCheckpoint", result);
