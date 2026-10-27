@@ -6,7 +6,10 @@ import {
   createGuestArtifacts,
   type GuestCredential,
 } from "@repo/services/live-guests/artifacts";
-import { createGuestAsk } from "@repo/services/live-guests/ask";
+import {
+  createGuestAsk,
+  createGuestAskSelection,
+} from "@repo/services/live-guests/ask";
 import { createGuestImages } from "@repo/services/live-guests/images";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { z } from "zod";
@@ -170,6 +173,32 @@ export const guestActions: Record<
       return result;
     },
     method: "POST",
+  },
+  "ask-availability": {
+    execute: async ({ composed, env, credential, grant }) => {
+      try {
+        const selected = await createGuestAskSelection({
+          db: composed.db,
+          guests: await requiredGuests(composed),
+        })(credential, {});
+        await composed.services.runs.guestReadiness(
+          selected.grant,
+          selected.agent.id
+        );
+        const room = await (
+          await roomStub(env.ARTIFACT_ROOM, grant)
+        ).guestAskPresence(credential.sessionToken);
+        return {
+          agent: selected.agent,
+          available: true,
+          role: selected.grant.role,
+          where: room.where,
+        };
+      } catch {
+        return { available: false, role: grant.role };
+      }
+    },
+    method: "GET",
   },
   comment: {
     execute: async ({ env, composed, credential, request }) =>

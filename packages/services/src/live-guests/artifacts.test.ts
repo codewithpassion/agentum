@@ -189,11 +189,11 @@ test("guest transcript selects only the exact non-private artifact-origin sessio
   ]);
   await h.db.insert(events).values([
     {
-      actorId: "u1",
-      actorKind: "user",
+      actorId: "g1",
+      actorKind: "guest",
       createdAt: "2026-10-27T00:00:00.000Z",
       id: "event-artifact",
-      payload: '{"text":"Visible"}',
+      payload: '{"text":"Visible","actorDisplay":{"name":"Forged owner"}}',
       sessionId: "guest-artifact-thread",
       type: "message.user",
       workspaceId: "w1",
@@ -212,6 +212,9 @@ test("guest transcript selects only the exact non-private artifact-origin sessio
   expect(
     (await h.service.transcript(h.credential)).events.map((event) => event.id)
   ).toEqual(["event-artifact"]);
+  expect(
+    (await h.service.transcript(h.credential)).events[0]?.actorDisplay
+  ).toEqual({ name: "Guest" });
   await h.db
     .update(sessions)
     .set({ private: true })

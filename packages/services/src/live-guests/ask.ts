@@ -12,18 +12,9 @@ import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import type { GuestCredential } from "./artifacts.ts";
 import type { LiveGuestsService } from "./service.ts";
 
-export const createGuestAsk =
-  (deps: {
-    db: Database;
-    guests: Pick<LiveGuestsService, "resolve" | "details" | "startRun">;
-    runs: Pick<RunsService, "offerQueuedRun">;
-    /** An authenticated room lookup, never submitted awareness/roster. */
-    presence: (
-      credential: GuestCredential
-    ) => Promise<Pick<SpeakerRoom, "present" | "where">>;
-  }) =>
-  async (credential: GuestCredential, raw: unknown) => {
-    const input = guestAskSchema.parse(raw);
+export const createGuestAskSelection =
+  (deps: { db: Database; guests: Pick<LiveGuestsService, "resolve"> }) =>
+  async (credential: GuestCredential, input: { agentId?: string }) => {
     const grant = await deps.guests.resolve(credential);
     if (!grant || grant.role === "viewer") {
       throw guestUnavailable();
@@ -62,7 +53,7 @@ export const createGuestAsk =
       throw guestUnavailable();
     }
     const [agent] = await deps.db
-      .select({ id: agents.id })
+      .select({ id: agents.id, name: agents.name })
       .from(agents)
       .where(
         and(
@@ -75,6 +66,24 @@ export const createGuestAsk =
     if (!agent) {
       throw guestUnavailable();
     }
+    return { agent, artifact, grant, session };
+  };
+
+export const createGuestAsk =
+  (deps: {
+    db: Database;
+    guests: Pick<LiveGuestsService, "resolve" | "details" | "startRun">;
+    runs: Pick<RunsService, "offerQueuedRun">;
+    /** An authenticated room lookup, never submitted awareness/roster. */
+    presence: (
+      credential: GuestCredential
+    ) => Promise<Pick<SpeakerRoom, "present" | "where">>;
+  }) =>
+  async (credential: GuestCredential, raw: unknown) => {
+    const input = guestAskSchema.parse(raw);
+    const { agent, artifact, grant, session } = await createGuestAskSelection(
+      deps
+    )(credential, input);
     const details = await deps.guests.details(credential);
     const room = await deps.presence(credential);
     const current = await deps.guests.resolve(credential);

@@ -91,3 +91,10 @@ label {
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+.guest-ask textarea {
+  width: 100%;
+  min-height: 6rem;
+}
+.guest-content section {
+  overflow-wrap: anywhere;
+}

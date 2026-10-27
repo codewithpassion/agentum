@@ -80,6 +80,7 @@ export function guestServices(artifactId: string) {
         expiresAt: string;
         recheckAfterMs?: number;
       }>(endpoint("embed"), { source }),
+    stream: guestEndpoints.stream(artifactId),
     async upload(file: File) {
       const form = new FormData();
       form.append("file", file);

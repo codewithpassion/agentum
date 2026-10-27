@@ -55,6 +55,7 @@ export const guestEndpoints = {
       | "decide-suggestion"
       | "invitations"
       | "ask"
+      | "ask-availability"
       | "open"
       | "join"
       | "rotate"
@@ -123,6 +124,7 @@ export interface GuestLandingResult {
 }
 export interface GuestSessionEvent {
   actor: { id: string; kind: import("@repo/db/shared").EventActorKind };
+  actorDisplay?: { name: string };
   agentId: string | null;
   createdAt: string;
   id: string;
@@ -142,4 +144,12 @@ export interface GuestSessionResult {
 export interface GuestSuggestionsResult {
   items: LiveSuggestion[];
   mode: boolean;
+}
+
+/** Server-selected agent and authenticated room location, never caller overrides. */
+export interface GuestAskAvailability {
+  agent?: { id: string; name: string };
+  available: boolean;
+  role: GuestGrant["role"];
+  where?: import("./live.ts").SpeakerEnvelope["harbourmaster_turn"]["where"];
 }

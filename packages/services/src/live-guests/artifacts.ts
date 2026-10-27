@@ -18,6 +18,7 @@ import type { GuestThread } from "@repo/protocol/guest";
 import type { CommentAnchor, GuestGrant } from "@repo/protocol/live";
 import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
+import { resolveActorDisplays } from "../actor-display.ts";
 import { hashToken } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
 import {
@@ -355,7 +356,10 @@ export const createGuestArtifacts = (deps: {
         })
       );
       await current(input);
-      return { events, sessionId: session.id };
+      return {
+        events: await resolveActorDisplays(deps.db, undefined, events),
+        sessionId: session.id,
+      };
     },
   };
 };

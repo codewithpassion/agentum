@@ -213,6 +213,28 @@ test("only trusted server presence enters roster and selection asks await canoni
   );
   await confirmation;
   expect(acknowledged).toBe(true);
+  // The editor cursor plugin clears local cursor on blur/remote updates. The
+  // explicit attachment must still be the room's canonical outgoing context.
+  room.awareness.setLocalStateField("cursor", null);
+  const outgoing = socket.sent.at(-1) as Uint8Array;
+  const decoder = createDecoder(outgoing);
+  expect(readVarUint(decoder)).toBe(1);
+  const payload = createDecoder(readVarUint8Array(decoder));
+  readVarUint(payload);
+  readVarUint(payload);
+  readVarUint(payload);
+  expect(JSON.parse(readVarString(payload))).toEqual({
+    cursor: { anchor: selection.start, head: selection.end },
+  });
+  room.clearSelection();
+  const cleared = createDecoder(socket.sent.at(-1) as Uint8Array);
+  readVarUint(cleared);
+  const clearedPayload = createDecoder(readVarUint8Array(cleared));
+  readVarUint(clearedPayload);
+  readVarUint(clearedPayload);
+  readVarUint(clearedPayload);
+  expect(JSON.parse(readVarString(clearedPayload))).toEqual({});
+
   server.destroy();
 });
 test("renewed JSON does not enter binary decoder; errors close and fresh connection discards rejected local edits", async () => {
