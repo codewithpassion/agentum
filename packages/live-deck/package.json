@@ -1,0 +1,21 @@
+{
+  "name": "@repo/live-deck",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fractional-indexing": "^3.2.0",
+    "saxes": "^6.0.0",
+    "yjs": "^13.6.27"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  }
+}
