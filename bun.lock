@@ -133,12 +133,14 @@
     "packages/live-deck": {
       "name": "@repo/live-deck",
       "dependencies": {
+        "@repo/live-doc": "workspace:*",
         "fractional-indexing": "^3.2.0",
         "saxes": "^6.0.0",
         "yjs": "^13.6.27",
       },
       "devDependencies": {
         "@types/bun": "latest",
+        "miniflare": "5.20261012.0-beta",
         "typescript": "^5.9.2",
       },
     },
