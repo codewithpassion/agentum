@@ -6,6 +6,7 @@ import {
 import type { ThreadMessage } from "@repo/protocol/thread";
 import { useCallback, useMemo, useRef } from "react";
 import { createAttachmentAdapter } from "./attachment-adapter.ts";
+import { threadAuthorLabels } from "./thread-authors.ts";
 import { toThreadMessageLike } from "./thread-parts.ts";
 import { fileIdsOfAppend, textOfAppend } from "./thread-send.ts";
 
@@ -29,11 +30,14 @@ export interface ThreadEditInput extends ThreadSendInput {
  */
 export const useTaskThreadRuntime = ({
   messages,
+  multiPerson = false,
   onEdit,
   onError,
   onSend,
 }: {
   messages: readonly ThreadMessage[];
+  /** Trusted session/presence adapter can show authors before a second person speaks. */
+  multiPerson?: boolean;
   onEdit: (input: ThreadEditInput) => Promise<void>;
   onError: (cause: unknown) => void;
   onSend: (input: ThreadSendInput) => Promise<void>;
@@ -93,9 +97,18 @@ export const useTaskThreadRuntime = ({
     [onEdit, onError]
   );
 
+  const authorLabels = useMemo(
+    () => threadAuthorLabels(messages, multiPerson),
+    [messages, multiPerson]
+  );
+  const convertMessage = useCallback(
+    (message: ThreadMessage) =>
+      toThreadMessageLike(message, authorLabels.get(message.id)),
+    [authorLabels]
+  );
   const runtime = useExternalStoreRuntime<ThreadMessage>({
     adapters: { attachments: adapter },
-    convertMessage: toThreadMessageLike,
+    convertMessage,
     isRunning: false,
     messages,
     onEdit: handleEdit,

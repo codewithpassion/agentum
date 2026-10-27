@@ -5,6 +5,7 @@ import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 import { FileChips } from "./file-chips.tsx";
+import { ThreadAuthor } from "./thread-author.tsx";
 import { useThreadEnv } from "./thread-context.tsx";
 
 const ID_SEPARATOR = "\u0000";
@@ -13,6 +14,9 @@ const ID_SEPARATOR = "\u0000";
 export function UserMessageContainer() {
   const aui = useAui();
   const { edited, editableId, files } = useThreadEnv();
+  const authorLabel = useAuiState(
+    (state) => state.message.metadata.custom.authorLabel
+  );
   const id = useAuiState((state) => state.message.id);
   const text = useAuiState((state) =>
     state.message.content
@@ -31,6 +35,7 @@ export function UserMessageContainer() {
     <MessagePrimitive.Root data-role="user">
       <Message align="end">
         <MessageContent>
+          <ThreadAuthor label={authorLabel} />
           {text === "" ? null : (
             <Bubble align="end">
               <BubbleContent className="whitespace-pre-wrap">

@@ -13,8 +13,23 @@ import {
 } from "@repo/protocol/requests";
 import type { EventFrame, StreamFrame } from "@repo/protocol/stream";
 
+/** Server-resolved, browser-safe presentation; never copied from message payloads.
+ * Adapters resolve name from the authenticated actor's user/guest display data.
+ * Do not include email or other private profile fields.
+ */
+export interface ThreadActorDisplay {
+  name: string;
+}
+
+type ThreadActor = EventFrame["actor"];
+export type ThreadFrame = StreamFrame & {
+  actorDisplay?: ThreadActorDisplay;
+};
+
 /** Structural input accepts stored event records without importing server modules. */
 export interface ThreadEvent {
+  actor?: ThreadActor;
+  actorDisplay?: ThreadActorDisplay;
   createdAt: string;
   id: string;
   payload: Record<string, unknown>;
@@ -59,6 +74,8 @@ export type ThreadPart =
   | { type: "placeholder"; eventId: string; eventType: EventType };
 
 export interface ThreadMessage {
+  actor?: ThreadActor;
+  actorDisplay?: ThreadActorDisplay;
   /** Live-only frames have no timestamp; the first stored event fills it in. */
   createdAt: string | null;
   id: string;
@@ -455,10 +472,18 @@ const isLateDelta = (
   ((current !== undefined && terminal(current.status)) ||
     cursor?.finished === frame.messageKey);
 
+const userAttribution = (
+  actor: ThreadActor,
+  display: ThreadActorDisplay | undefined
+): Pick<ThreadMessage, "actor" | "actorDisplay"> => ({
+  actor: { ...actor },
+  ...(display ? { actorDisplay: { name: display.name } } : {}),
+});
+
 /** Fold one frame immutably. Only stored event ids participate in replay detection. */
 export const applyFrame = (
   messages: ThreadMessage[],
-  frame: StreamFrame
+  frame: ThreadFrame
 ): ThreadMessage[] => {
   const previous = stateOf(messages);
   if (
@@ -489,6 +514,7 @@ export const applyFrame = (
     const parts = userParts(event);
     // run.queued precedes message.user in storage; insert before its assistant shell.
     next.splice(index < 0 ? next.length : index, 0, {
+      ...userAttribution(event.actor, frame.actorDisplay),
       createdAt: event.createdAt,
       id: event.id,
       parts,
@@ -529,7 +555,8 @@ export const foldThread = (events: readonly ThreadEvent[]): ThreadMessage[] => {
   let messages: ThreadMessage[] = [];
   for (const event of events) {
     const base = {
-      actor: { id: "stored", kind: "agent" as const },
+      actor: event.actor ?? { id: "stored", kind: "system" as const },
+      actorDisplay: event.actorDisplay,
       createdAt: event.createdAt,
       frame: "event" as const,
       id: event.id,
@@ -547,6 +574,13 @@ export const foldThread = (events: readonly ThreadEvent[]): ThreadMessage[] => {
           >["payload"],
         };
     messages = applyFrame(messages, frame);
+    if (!event.actor && event.type === "message.user") {
+      const message = messages.find((item) => item.id === event.id);
+      if (message) {
+        message.actor = undefined;
+        message.actorDisplay = undefined;
+      }
+    }
   }
   return messages;
 };
