@@ -75,21 +75,8 @@ export const productionLiveInfra = (
           "Member",
       };
     },
-    presence: async (scope, member) => {
-      const present = await (await stub(scope)).presence();
-      const sender = present.find((p) => p.id === `u:${member.userId}`);
-      return {
-        present: present
-          .filter((p) => p.id !== sender?.id)
-          .map((p) => ({
-            id: p.id,
-            kind: p.kind,
-            name: p.name,
-            role: "participant",
-          })),
-        where: undefined,
-      };
-    },
+    presence: async (scope, member) =>
+      (await stub(scope)).askPresence(`u:${member.userId}`),
     resolveMember: (scope, userId) =>
       freshMember(env, composed(), scope.workspaceId, userId),
     roomFor: async (principal, artifactId) => {
@@ -108,6 +95,13 @@ export const productionLiveInfra = (
       return room;
     },
     rooms: {
+      agentChanges: async (scope) => (await stub(scope)).agentChanges(),
+      checkpointCanonical: async (scope, input) => {
+        const room = await stub(scope);
+        await room.registerActor(input.principal);
+        return room.checkpointCanonical(input);
+      },
+      checkpointIfDue: async (scope) => (await stub(scope)).checkpointIfDue(),
       refresh: async (scope, participantId, id) =>
         (await stub(scope)).completeInvalidation(participantId, id),
       registerImage: async (scope, fileId) =>

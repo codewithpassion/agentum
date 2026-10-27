@@ -18,6 +18,7 @@ import {
 import {
   ARTIFACT_FILE_MAX_BYTES,
   ARTIFACT_MAX_BYTES,
+  ARTIFACT_MAX_FILES,
   LIVE_DOC_MAX_BYTES,
   ROOM_CONNECTION_MINUTES,
   ROOM_TICKET_SECONDS,
@@ -28,7 +29,7 @@ import {
   commentAnchorSchema,
   type LiveOperationOrigin,
 } from "@repo/protocol/live";
-import { and, eq, isNull, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, type SQL } from "drizzle-orm";
 import { ulid } from "ulidx";
 import {
   blobKey,
@@ -90,6 +91,20 @@ export interface LiveRoomScope {
 
 /** Restore must apply state as one live change and return its new, monotonic revision. */
 export interface LiveRoomsPort {
+  agentChanges?: (scope: LiveRoomScope) => Promise<
+    Array<{
+      id: string;
+      name: string;
+      start: import("@repo/protocol/live").RelativePositionJSON;
+      end: import("@repo/protocol/live").RelativePositionJSON;
+      text: string;
+    }>
+  >;
+  checkpointCanonical?: (
+    scope: LiveRoomScope,
+    input: DocumentSnapshot & { principal: Principal }
+  ) => Promise<{ versionId: string; revision: number }>;
+  checkpointIfDue?: (scope: LiveRoomScope) => Promise<void>;
   /** Recheck current DB access for one participant, or every connection if omitted. */
   refresh: (
     scope: LiveRoomScope,
@@ -101,6 +116,7 @@ export interface LiveRoomsPort {
     scope: LiveRoomScope,
     input: {
       principal?: Principal;
+      requestId?: string;
       snapshot: DocumentSnapshot;
       versionId: string;
       byParticipant: string;
@@ -290,6 +306,108 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       versionId: prior.id,
     };
   };
+  const creationStatements = (
+    member: Member,
+    row: Row,
+    payload: Record<string, unknown>,
+    initial: boolean
+  ) =>
+    initial
+      ? [
+          db.insert(artifacts).values(row),
+          event(member, row, "artifact.created", payload),
+        ]
+      : [];
+  const restoredStatements = (
+    member: Member,
+    row: Row,
+    payload: Record<string, unknown>,
+    from: number | undefined
+  ) =>
+    from === undefined
+      ? []
+      : [
+          event(member, row, "artifact.restored", {
+            ...payload,
+            fromVersion: from,
+          }),
+        ];
+  const checkpointImages = async (
+    row: Row,
+    html: string,
+    baseBytes: number
+  ) => {
+    const urls = [
+      ...new Set(
+        [...html.matchAll(/src="(\/files\/[A-Za-z0-9_-]+)"/g)].flatMap(
+          (match) => (typeof match[1] === "string" ? [match[1]] : [])
+        )
+      ),
+    ];
+    if (!urls.length) {
+      return { files: [] as Array<{ path: string; bytes: Uint8Array }>, html };
+    }
+    if (urls.length + 3 > ARTIFACT_MAX_FILES) {
+      throw invalid("Checkpoint has too many image files");
+    }
+    const { files: fileRows } = await import("@repo/db/schema/files");
+    const rows = await Promise.all(
+      urls.map(async (url) => {
+        const [file] = await db
+          .select()
+          .from(fileRows)
+          .where(
+            and(
+              eq(fileRows.id, url.slice(7)),
+              eq(fileRows.workspaceId, row.workspaceId)
+            )
+          )
+          .limit(1);
+        if (!file) {
+          throw missing();
+        }
+        return file;
+      })
+    );
+    if (
+      rows.reduce((total, file) => total + file.size, baseBytes) >
+      ARTIFACT_MAX_BYTES
+    ) {
+      throw invalid("Checkpoint exceeds artifact file limits");
+    }
+    const suffixes: Record<string, string> = {
+      "image/avif": "avif",
+      "image/gif": "gif",
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+    const files = await Promise.all(
+      rows.map(async (file) => {
+        const suffix = suffixes[file.mime];
+        if (!suffix) {
+          throw invalid("Invalid checkpoint image");
+        }
+        const blob = await blobs.get(file.r2Key);
+        if (!blob || blob.bytes.length !== file.size) {
+          throw missing();
+        }
+        return {
+          bytes: blob.bytes,
+          path: `images/${file.id}.${suffix}`,
+          url: `/files/${file.id}`,
+        };
+      })
+    );
+    let renderedHtml = html;
+    for (const file of files) {
+      renderedHtml = renderedHtml.replaceAll(
+        `src="${file.url}"`,
+        `src="${file.path}"`
+      );
+    }
+    return { files, html: renderedHtml };
+  };
   const persist = async (
     member: Member,
     row: Row,
@@ -329,10 +447,18 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       workspaceId: row.workspaceId,
     });
     const encoder = new TextEncoder();
+    const images = await checkpointImages(
+      row,
+      rendered.html,
+      snapshot.state.byteLength +
+        encoder.encode(rendered.markdown).length +
+        encoder.encode(rendered.html).length
+    );
     const raw = [
       { bytes: new Uint8Array(snapshot.state), path: "state.ydoc" },
       { bytes: encoder.encode(rendered.markdown), path: "index.md" },
-      { bytes: encoder.encode(rendered.html), path: "index.html" },
+      { bytes: encoder.encode(images.html), path: "index.html" },
+      ...images.files,
     ];
     if (
       raw.some((file) => file.bytes.byteLength > ARTIFACT_FILE_MAX_BYTES) ||
@@ -346,7 +472,9 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         ...file,
         contentType: contentTypeForPath(file.path),
         sha256: [
-          ...new Uint8Array(await crypto.subtle.digest("SHA-256", file.bytes)),
+          ...new Uint8Array(
+            await crypto.subtle.digest("SHA-256", new Uint8Array(file.bytes))
+          ),
         ]
           .map((byte) => byte.toString(16).padStart(2, "0"))
           .join(""),
@@ -380,12 +508,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       versionId,
     };
     const statements: Statement[] = [
-      ...(initial
-        ? [
-            db.insert(artifacts).values(row),
-            event(member, row, "artifact.created", payload),
-          ]
-        : []),
+      ...creationStatements(member, row, payload, initial),
       db.insert(artifactVersions).values({
         artifactId: row.id,
         authorId: authorOf(member).id,
@@ -427,14 +550,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
             eq(artifacts.workspaceId, row.workspaceId)
           )
         ),
-      ...(restoredFrom === undefined
-        ? []
-        : [
-            event(member, row, "artifact.restored", {
-              ...payload,
-              fromVersion: restoredFrom,
-            }),
-          ]),
+      ...restoredStatements(member, row, payload, restoredFrom),
       event(member, row, "artifact.live_checkpoint", payload),
       event(member, row, "artifact.published", payload),
       ...(checkpoint
@@ -630,6 +746,22 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           : [],
       };
     },
+    async policy(principal: Principal, input: { artifactId: string }) {
+      const { row } = await access(principal, input.artifactId);
+      const manifest = await blobs.get(
+        `${row.workspaceId}/live-artifacts/${row.id}/images.json`
+      );
+      const ownBlobUrls: string[] = manifest
+        ? JSON.parse(new TextDecoder().decode(manifest.bytes))
+        : [];
+      const agentChanges = rooms.agentChanges
+        ? await rooms.agentChanges({
+            artifactId: row.id,
+            workspaceId: row.workspaceId,
+          })
+        : [];
+      return { agentChanges, ownBlobUrls };
+    },
     /** Revalidate a trusted in-process caller, never a ticket-derived identity. */
     async refreshTrustedPrincipal(principal: Principal) {
       const member = memberOf(principal);
@@ -672,6 +804,45 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         throw new ForbiddenError("liveArtifacts.credentialRequired");
       }
       return member;
+    },
+    async retryCheckpoints(
+      principal: Principal,
+      input: { cursor?: string; limit?: number } = {}
+    ) {
+      if (principal.kind !== "system") {
+        throw new ForbiddenError("liveArtifacts.checkpointTick");
+      }
+      const limit = Math.min(100, Math.max(1, input.limit ?? 100));
+      const rows = await db
+        .select({
+          artifactId: artifacts.id,
+          workspaceId: artifacts.workspaceId,
+        })
+        .from(artifacts)
+        .where(
+          and(
+            eq(artifacts.kind, "document"),
+            isNull(artifacts.deletedAt),
+            input.cursor ? gt(artifacts.id, input.cursor) : undefined
+          )
+        )
+        .orderBy(asc(artifacts.id))
+        .limit(limit + 1);
+      let completed = 0;
+      for (const scope of rows.slice(0, limit)) {
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: bound memory and isolate failed room retries.
+          await rooms.checkpointIfDue?.(scope);
+          completed += 1;
+        } catch {
+          /* Each room retains its pending checkpoint for the next attempt. */
+        }
+      }
+      return {
+        attempted: Math.min(rows.length, limit),
+        completed,
+        ...(rows.length > limit ? { next: rows[limit - 1]?.artifactId } : {}),
+      };
     },
     async roomIdentity(principal: Principal, artifactId: string) {
       const { member, role } = await access(principal, artifactId);
@@ -868,6 +1039,28 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     ) {
       const { member, row } = await access(principal, input.artifactId, true);
       checkSnapshot(input);
+      if (rooms.checkpointCanonical) {
+        const result = await rooms.checkpointCanonical(
+          { artifactId: row.id, workspaceId: row.workspaceId },
+          { ...input, principal: member }
+        );
+        const saved = await findVersionById(
+          db,
+          row.workspaceId,
+          result.versionId
+        );
+        if (!saved || saved.artifactId !== row.id) {
+          throw missing();
+        }
+        return {
+          artifactId: row.id,
+          bytes: saved.totalBytes,
+          files: saved.fileCount,
+          revision: result.revision,
+          version: saved.number,
+          versionId: saved.id,
+        };
+      }
       if (member.kind === "run") {
         await deps.anchors.guardAgentSnapshot(
           { artifactId: row.id, workspaceId: row.workspaceId },
@@ -944,7 +1137,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     },
     async restore(
       principal: Principal,
-      input: { artifactId: string; version: number }
+      input: { artifactId: string; version: number; requestId?: string }
     ) {
       const { member, row } = await access(
         principal,
@@ -958,7 +1151,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         row.id,
         input.version
       );
-      if (version?.status !== "published") {
+      if (version === null) {
+        throw missing();
+      }
+      if (version.status !== "published") {
         throw missing();
       }
       const file = (await versionFiles(db, row.workspaceId, version.id)).find(
@@ -979,6 +1175,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         {
           byParticipant: participantId(member),
           principal: member,
+          requestId: input.requestId,
           snapshot,
           versionId: version.id,
         }

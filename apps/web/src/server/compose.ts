@@ -253,6 +253,7 @@ import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { libraryNotifier } from "./library-notifier.ts";
+import { liveArtifactMutations } from "./live-artifacts/artifact-mutations";
 import { type LiveInfra, productionLiveInfra } from "./live-artifacts/infra";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
@@ -971,6 +972,22 @@ export const composeWith = ({
     requests,
     runs,
   });
+  const liveArtifacts = infra.live
+    ? withLiveMaintenance(
+        createLiveArtifactsWithAsk({
+          ...infra.live,
+          artifacts,
+          atomic: infra.atomic,
+          blobs: libraryBlobs,
+          clock: infra.clock,
+          db,
+          events,
+          files,
+          runs,
+        }),
+        infra.live.wake
+      )
+    : undefined;
   return {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -988,7 +1005,7 @@ export const composeWith = ({
       artifactPins,
       artifactShares,
       artifactStorage,
-      artifacts,
+      artifacts: liveArtifactMutations(artifacts, liveArtifacts),
       browser,
       connectorOAuth,
       connectors,
@@ -1001,22 +1018,7 @@ export const composeWith = ({
       library,
       libraryAccess,
       libraryLinks,
-      liveArtifacts: infra.live
-        ? withLiveMaintenance(
-            createLiveArtifactsWithAsk({
-              ...infra.live,
-              artifacts,
-              atomic: infra.atomic,
-              blobs: libraryBlobs,
-              clock: infra.clock,
-              db,
-              events,
-              files,
-              runs,
-            }),
-            infra.live.wake
-          )
-        : undefined,
+      liveArtifacts,
       liveRoom: infra.live?.roomFor,
       machines,
       mail: { ...mail, ...mailOutbound },
@@ -1114,6 +1116,24 @@ export const compose = (
   return composed;
 };
 
+const LIVE_WAKE_METHODS = new Set<PropertyKey>([
+  "createDocument",
+  "convertDoc",
+  "join",
+  "restore",
+  "invalidateAccess",
+  "setAudience",
+  "remove",
+  "comment",
+  "resolve",
+  "answered",
+  "ask",
+  "selectAgent",
+  "retryCommentAsk",
+  "revertChange",
+  "recordChange",
+  "uploadImage",
+]);
 const withLiveMaintenance = (
   service: LiveArtifactsWithAsk,
   wake: () => Promise<void>
@@ -1121,7 +1141,7 @@ const withLiveMaintenance = (
   new Proxy(service, {
     get(target, key, receiver) {
       const method = Reflect.get(target, key, receiver);
-      if (typeof method !== "function") {
+      if (typeof method !== "function" || !LIVE_WAKE_METHODS.has(key)) {
         return method;
       }
       return async (...args: unknown[]) => {

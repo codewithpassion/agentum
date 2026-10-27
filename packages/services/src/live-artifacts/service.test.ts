@@ -1698,3 +1698,191 @@ test("concurrent revert and resolve finalize one audit and preserve the original
   } = await h.service.threads(principals.owner, { artifactId });
   expect(thread?.resolvedBy).toBe(`u:${resolutions[0]?.actorId}`);
 });
+
+describe("production checkpoint reconciliation", () => {
+  test("stable checkpoint IDs survive DB failure, lost acknowledgement and service recreation", async () => {
+    const h = setup();
+    const created = await h.create();
+    const input = {
+      ...encode("Persisted after retry", 7),
+      artifactId: created.artifactId,
+      checkpointId: crypto.randomUUID(),
+      origins: [],
+      restores: [],
+      workspaceId: "w1",
+    };
+    let fail = true;
+    const service = createLiveArtifactsService({
+      ...h.deps,
+      atomic: async (statements) => {
+        if (fail) {
+          fail = false;
+          throw new Error("DB unavailable after R2 writes");
+        }
+        await h.atomic(statements);
+      },
+    });
+    await expect(
+      service.durableCheckpoint(principals.owner, input)
+    ).rejects.toThrow("DB unavailable");
+    expect(
+      (
+        await h.service.exportMarkdown(principals.owner, {
+          artifactId: created.artifactId,
+        })
+      ).revision
+    ).toBe(0);
+    const saved = await service.durableCheckpoint(principals.owner, input);
+    const recreated = createLiveArtifactsService(h.deps);
+    expect(await recreated.durableCheckpoint(principals.owner, input)).toEqual(
+      saved
+    );
+    expect(
+      h.db
+        .select()
+        .from(artifactVersions)
+        .where(eq(artifactVersions.artifactId, created.artifactId))
+        .all()
+    ).toHaveLength(2);
+    expect(
+      h.db
+        .select()
+        .from(events)
+        .where(eq(events.type, "artifact.live_checkpoint"))
+        .all()
+    ).toHaveLength(2);
+    await expect(
+      recreated.durableCheckpoint(principals.owner, {
+        ...input,
+        state: encode("different", 7).state,
+      })
+    ).rejects.toThrow("Checkpoint state collision");
+    expect(
+      (
+        await recreated.exportMarkdown(principals.owner, {
+          artifactId: created.artifactId,
+        })
+      ).markdown
+    ).toBe("Persisted after retry");
+  });
+  test("restore provenance and stable agent origins commit with checkpoint exactly once", async () => {
+    const h = setup();
+    const created = await h.create();
+    const input = {
+      ...encode("restored snapshot", 4),
+      artifactId: created.artifactId,
+      checkpointId: crypto.randomUUID(),
+      origins: [
+        {
+          changeId: "durable-change",
+          mode: "direct" as const,
+          participantId: "a:a1:r-shared",
+          revFrom: 0,
+          revTo: 3,
+          runId: "r-shared",
+          summary: "Change",
+          toolCallId: "tool",
+        },
+      ],
+      restores: [
+        {
+          byParticipant: "u:u1",
+          requestId: "restore1",
+          versionId: created.versionId,
+        },
+      ],
+      workspaceId: "w1",
+    };
+    const saved = await h.service.durableCheckpoint(principals.owner, input);
+    expect(
+      await createLiveArtifactsService(h.deps).durableCheckpoint(
+        principals.owner,
+        input
+      )
+    ).toEqual(saved);
+    expect(
+      h.db
+        .select()
+        .from(events)
+        .where(eq(events.type, "artifact.restored"))
+        .all()
+    ).toHaveLength(1);
+    const changes = await h.service.changes(principals.owner, {
+      artifactId: created.artifactId,
+    });
+    expect(changes.items).toHaveLength(1);
+    expect(changes.items[0]?.id).toBe("durable-change");
+    await expect(
+      h.service.durableCheckpoint(principals.stranger, {
+        ...input,
+        checkpointId: crypto.randomUUID(),
+        revision: 8,
+      })
+    ).rejects.toThrow();
+  });
+  test("image uploads authorize before storage and publish exact artifact ownership before acknowledgement", async () => {
+    const h = setup();
+    const created = await h.create();
+    let uploaded = 0;
+    const service = createLiveArtifactsService({
+      ...h.deps,
+      files: {
+        upload: async () => {
+          await Promise.resolve();
+          uploaded += 1;
+          return {
+            createdAt: NOW,
+            id: "image1",
+            mime: "image/png",
+            name: "image.png",
+            runId: null,
+            size: 12,
+            source: "upload",
+          };
+        },
+      },
+      rooms: {
+        ...h.deps.rooms,
+        registerImage: async (scope, id) => {
+          await Promise.resolve();
+          expect(scope.artifactId).toBe(created.artifactId);
+          expect(id).toBe("image1");
+          throw new Error("Policy persistence failed");
+        },
+      },
+    });
+    const image = new Blob(
+      [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])],
+      { type: "image/png" }
+    );
+    await expect(
+      service.uploadImage(principals.keyReader, {
+        artifactId: created.artifactId,
+        body: image,
+        name: "x.png",
+      })
+    ).rejects.toThrow();
+    expect(uploaded).toBe(0);
+    await expect(
+      service.uploadImage(principals.owner, {
+        artifactId: created.artifactId,
+        body: new Blob(["<svg>hostile</svg>"]),
+        name: "x.png",
+      })
+    ).rejects.toThrow("Upload a PNG");
+    expect(uploaded).toBe(0);
+    await expect(
+      service.uploadImage(principals.owner, {
+        artifactId: created.artifactId,
+        body: image,
+        name: "x.png",
+      })
+    ).rejects.toThrow("Policy persistence failed");
+    expect(uploaded).toBe(1);
+    expect(
+      await service.ownBlobUrls(principals.owner, {
+        artifactId: created.artifactId,
+      })
+    ).toEqual({ urls: [] });
+  });
+});

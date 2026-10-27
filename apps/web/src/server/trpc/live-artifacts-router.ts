@@ -95,6 +95,9 @@ export const createLiveArtifactsRouter = (
       .query(({ ctx, input }) =>
         service(ctx).ownBlobUrls(ctx.principal, input)
       ),
+    policy: workspaceProcedure
+      .input(z.strictObject(artifact))
+      .query(({ ctx, input }) => service(ctx).policy(ctx.principal, input)),
     recordChange: workspaceProcedure
       .input(
         z.strictObject({
@@ -116,7 +119,11 @@ export const createLiveArtifactsRouter = (
       .mutation(({ ctx, input }) => service(ctx).resolve(ctx.principal, input)),
     restore: workspaceProcedure
       .input(
-        z.strictObject({ ...artifact, version: z.number().int().positive() })
+        z.strictObject({
+          ...artifact,
+          requestId: id.optional(),
+          version: z.number().int().positive(),
+        })
       )
       .mutation(({ ctx, input }) => service(ctx).restore(ctx.principal, input)),
     retryCommentAsk: workspaceProcedure

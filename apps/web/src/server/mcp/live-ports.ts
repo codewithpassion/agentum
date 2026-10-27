@@ -83,6 +83,26 @@ export const createLivePorts = ({
     }
   };
   const thread = (value: unknown) => value as LiveCommentThread;
+  const loadThread = async (
+    artifactId: string,
+    threadId: string | undefined
+  ) => {
+    let cursor: string | undefined;
+    do {
+      // biome-ignore lint/performance/noAwaitInLoops: follow the authorized page cursor.
+      const page = await service().threads(principal, {
+        artifactId,
+        cursor,
+        limit: 100,
+      });
+      const found = page.items.find((t) => t.id === threadId);
+      if (found) {
+        return thread(found);
+      }
+      cursor = page.next;
+    } while (cursor);
+    throw new ToolError("not_found", "Thread not found");
+  };
   return {
     comment: (input) =>
       guarded(() =>
@@ -106,25 +126,12 @@ export const createLivePorts = ({
               threadId: input.threadId,
               toAgent: input.to === "agent",
             });
-            const page = await service().threads(principal, {
-              artifactId: input.artifactId,
-              limit: 100,
-            });
-            const found = page.items.find((t) => t.id === comment.threadId);
-            if (!found) {
-              throw new ToolError("not_found", "Thread not found");
-            }
-            return { comment, thread: thread(found) };
+            return {
+              comment,
+              thread: await loadThread(input.artifactId, comment.threadId),
+            };
           }
-          const page = await service().threads(principal, {
-            artifactId: input.artifactId,
-            limit: 100,
-          });
-          const found = page.items.find((t) => t.id === input.threadId);
-          if (!found) {
-            throw new ToolError("not_found", "Thread not found");
-          }
-          return { thread: thread(found) };
+          return { thread: await loadThread(input.artifactId, input.threadId) };
         })
       ),
     comments: (input) =>
@@ -168,8 +175,15 @@ export const createLivePorts = ({
             input.artifactId
           );
           const callId = toolCallId ?? crypto.randomUUID();
-          const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(`${principal.runId}:${callId}`)));
-          const changeId = [...digest].map(b => b.toString(16).padStart(2,"0")).join("");
+          const digest = new Uint8Array(
+            await crypto.subtle.digest(
+              "SHA-256",
+              new TextEncoder().encode(`${principal.runId}:${callId}`)
+            )
+          );
+          const changeId = [...digest]
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
           const result = await stub.documentEdit(
             input.ops,
             {
