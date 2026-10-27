@@ -6,6 +6,7 @@ import type {
   LiveRoomScope,
 } from "@repo/services/live-artifacts/service";
 import { Doc, encodeStateAsUpdate } from "yjs";
+import { renderDeckCheckpoint } from "./deck-render";
 
 export const deckContent = (
   policy: (scope: LiveRoomScope) => Promise<ReadonlySet<string>>
@@ -55,12 +56,15 @@ export const deckContent = (
               ),
               path: "deck.json",
             },
-            ...slides.map((s) => ({
-              bytes: encoder.encode(s.html),
-              path: `slides/${s.id}.html`,
-            })),
+            {
+              bytes: encoder.encode(slides.map((s) => s.html).join("\n")),
+              path: "slides.html",
+            },
           ],
-          html: `<!doctype html><html><head><meta charset="utf-8"></head><body><p>Open this deck in Harbourmaster.</p></body></html>`,
+          html: renderDeckCheckpoint(
+            deck.ids().map((id) => deck.read(id).slide),
+            String(deck.doc.getMap("meta").get("title") ?? "")
+          ),
           markdown: slides.map((s) => s.html).join("\n\n"),
         };
       } finally {

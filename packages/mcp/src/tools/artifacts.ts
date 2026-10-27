@@ -351,7 +351,7 @@ export const artifactTools = (
 ): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
-    description: `Creates a live document with kind document and optional markdown; use document_read/document_edit afterwards, never artifact_update. The person wins; fill pending blocks with guarded updates and never force retries. Static creation: publishes a new artifact (a page, doc or dashboard) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath (usually your task folder). The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one. A new app version from an agent is proposed, not live, until artifact_promote. artifact_test opens the proposed version.`,
+    description: `Creates a collaborative deck with kind deck and optional constrained HTML slides (then use deck_read/deck_write), or a live document with kind document and optional markdown; use document_read/document_edit afterwards, never artifact_update. The person wins; fill pending blocks with guarded updates and never force retries. Static creation: publishes a new artifact (a page, doc or dashboard) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath (usually your task folder). The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one. A new app version from an agent is proposed, not live, until artifact_promote. artifact_test opens the proposed version.`,
     inputSchema: artifactCreateInputSchema,
     name: "artifact_create",
     run: async (input) => {

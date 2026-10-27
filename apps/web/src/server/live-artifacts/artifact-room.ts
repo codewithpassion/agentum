@@ -51,6 +51,7 @@ interface Session extends RoomIdentity {
   clock: number;
   expires: number;
   present: AwarenessEntry | null;
+  rate?: { at: number; messages: number; bytes: number };
 }
 interface PresenterLease {
   awarenessId: number;
@@ -136,6 +137,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private deck?: Deck;
   private deckTools?: DeckSceneAdapter;
   private deckCall?: {
+    digest: string;
     input: DeckWriteInput;
     origin: LiveOperationOrigin;
     before: number;
@@ -295,9 +297,19 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
             throw new Error("Guarded tool context required");
           }
           this.store.put(`deckCall:${call.origin.changeId}`, {
-            input: JSON.stringify(call.input),
-            result,
+            digest: call.digest,
           });
+          this.store.write(
+            "deckResult",
+            call.origin.changeId,
+            new TextEncoder().encode(JSON.stringify(result))
+          );
+          this.store.write(
+            "before",
+            call.origin.changeId,
+            Y.encodeStateAsUpdate(this.doc)
+          );
+          this.store.write("change", call.origin.changeId, update);
           this.meta.origins.push(call.origin);
           this.store.put(`change:${call.origin.changeId}`, {
             origin: call.origin,
@@ -388,17 +400,31 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (!this.deckTools || input.artifactId !== this.meta.scope.artifactId) {
         throw new Error("Deck required");
       }
-      const prior = this.store.get<{ input: string; result: unknown }>(
+      const digest = [
+        ...new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(JSON.stringify(input))
+          )
+        ),
+      ]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      const prior = this.store.get<{ digest: string }>(
         `deckCall:${origin.changeId}`
       );
       if (prior) {
-        if (prior.input !== JSON.stringify(input)) {
+        if (prior.digest !== digest) {
           throw new Error("Tool call ID collision");
         }
-        return prior.result as import("@repo/mcp/tools/deck").DeckWriteResult;
+        return JSON.parse(
+          new TextDecoder().decode(
+            this.store.read("deckResult", origin.changeId)
+          )
+        ) as import("@repo/mcp/tools/deck").DeckWriteResult;
       }
       await this.refreshPolicy();
-      this.deckCall = { before: this.meta.revision, input, origin };
+      this.deckCall = { before: this.meta.revision, digest, input, origin };
       let result: import("@repo/mcp/tools/deck").DeckWriteResult;
       try {
         result = await this.deckTools.write(input);
@@ -786,6 +812,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           this.close(socket, "Expired");
           return;
         }
+        this.checkDeckRate(state, message);
         // Also fail closed on messages while a durable refresh is being retried.
         const current = await this.authorize(state);
         state = { ...state, ...current };
@@ -847,8 +874,30 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     );
     await this.schedule();
   }
+  private checkDeckRate(state: Session, message: string | ArrayBuffer) {
+    if (!this.deck) {
+      return;
+    }
+    const now = Date.now();
+    const rate =
+      state.rate && state.rate.at + 10_000 > now
+        ? state.rate
+        : { at: now, bytes: 0, messages: 0 };
+    rate.messages += 1;
+    rate.bytes +=
+      typeof message === "string"
+        ? new TextEncoder().encode(message).length
+        : message.byteLength;
+    state.rate = rate;
+    if (rate.messages > 1000 || rate.bytes > 32_000_000) {
+      throw new Error("Deck message rate exceeded");
+    }
+  }
   private rejectMessage(socket: WebSocket, error: unknown) {
     let message = "Rejected message";
+    if (error instanceof Error && error.message.startsWith("/")) {
+      message = error.message.slice(0, 4096);
+    }
     if (error instanceof DocumentError) {
       message = error.code;
     } else if (
@@ -1210,6 +1259,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (record.reverted !== undefined) {
         return record.reverted;
       }
+      if (this.deck) {
+        return this.revertDeck(changeId, byParticipant, record);
+      }
       const change: CapturedChange = {
         before: this.store.read("before", changeId),
         changeId,
@@ -1227,6 +1279,38 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       );
       return { ...result, byParticipant };
     });
+  }
+  private async revertDeck(
+    changeId: string,
+    byParticipant: string,
+    record: ChangeRecord
+  ) {
+    await this.refreshPolicy();
+    const doc = new Y.Doc({ gc: false });
+    let undo: Y.UndoManager | undefined;
+    try {
+      Y.applyUpdate(doc, this.store.read("before", changeId));
+      const tracked = {};
+      undo = new Y.UndoManager(
+        [doc.getMap("meta"), doc.getMap("slides"), doc.getMap("sections")],
+        { captureTimeout: 0, trackedOrigins: new Set([tracked]) }
+      );
+      Y.applyUpdate(doc, this.store.read("change", changeId), tracked);
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.doc), "current");
+      const vector = Y.encodeStateVector(doc);
+      undo.undo();
+      this.commitDeck(Y.encodeStateAsUpdate(doc, vector), (revision) =>
+        this.store.put(`change:${changeId}`, {
+          ...record,
+          reverted: { byParticipant, revision },
+        })
+      );
+      await this.schedule();
+      return { byParticipant, revision: this.meta.revision };
+    } finally {
+      undo?.destroy();
+      doc.destroy();
+    }
   }
   restore(input: RestoreProvenance & { snapshot: RoomSnapshot }) {
     return this.exclusive(async () => {
@@ -1349,6 +1433,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         }),
         expires: Date.now() + AGENT_MS,
       };
+      if (this.deck) {
+        this.validateDeckPresence(agent.entry);
+      }
       this.store.put("agent", agent);
       this.broadcast(
         presenceFrame(agent.awarenessId, agent.clock, agent.entry)
