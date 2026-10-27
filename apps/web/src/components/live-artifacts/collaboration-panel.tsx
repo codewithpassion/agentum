@@ -31,6 +31,7 @@ import { ToolButton } from "./editor-toolbar";
 import { type LiveOutputs, liveApi } from "./live-api";
 import { MemberMention } from "./member-mention";
 import type { TicketedRoom } from "./room-provider";
+import { Suggestions } from "./suggestions";
 import { useAgentAttachment } from "./use-agent-attachment";
 
 const messageOf = (cause: unknown) =>
@@ -138,6 +139,7 @@ export function CollaborationPanel({
     agents.find((agent) => agent.id === session?.agentId)?.name ?? "Agent";
   return (
     <PanelFrame onOpenChange={setMobileOpen} open={mobileOpen}>
+      <Suggestions artifactId={artifactId} canEdit={canEdit} />
       <nav aria-label="Collaboration panels">
         {(["agent", "comments", "changes"] as const).map((name) => (
           <ToolButton

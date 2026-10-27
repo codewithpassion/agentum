@@ -21,6 +21,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import { AgentComposer, AgentTranscript } from "../live-artifacts/agent-thread";
 import { type LiveOutputs, liveApi } from "../live-artifacts/live-api";
+import { Suggestions } from "../live-artifacts/suggestions";
 import type { DeckWhere } from "./ports";
 import type { TicketedDeckRoom } from "./room-provider";
 
@@ -95,6 +96,7 @@ export function DeckCollaboration({
   const where = intent?.where;
   return (
     <DeckPanelFrame intent={intent}>
+      <Suggestions artifactId={artifactId} canEdit={canEdit} />
       {Boolean(error) && <p role="alert">{error}</p>}
       <label>
         Agent
