@@ -3,7 +3,7 @@ id: B.4
 title: Grants, propose and promote, pins and hand-to
 milestone: B
 size: L
-status: in_progress
+status: done
 depends_on: [A.1, B.1]
 branch: task/B.4-grants-promote-pins
 lane: services-grants
@@ -32,3 +32,4 @@ Dom asked to move phase 2 work up, so this runs beside A.2 instead of after it. 
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at ef9d094, review clean after 6 fix rounds (restore fix ef9d094 not re-reviewed, tested); createArtifactsService needs grants: artifactGrants; merged.
