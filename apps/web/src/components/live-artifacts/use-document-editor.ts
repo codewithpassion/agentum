@@ -5,6 +5,7 @@ import {
   createDocumentEditor,
   uploadEditorImage,
 } from "./editor-binding";
+import { EditorImagePolicy } from "./editor-image-policy";
 import { canEdit, type DocumentEditorPorts } from "./editor-ports";
 
 export function useDocumentEditor(
@@ -15,13 +16,11 @@ export function useDocumentEditor(
   current.current = { ports, report };
   const { document: ydoc, provider } = ports;
   const policyState = useMemo(
-    () => ({ document: ydoc, urls: new Set<string>() }),
+    () => ({ document: ydoc, policy: new EditorImagePolicy() }),
     [ydoc]
   );
-  const allowed = policyState.urls;
-  for (const url of ports.policy.ownBlobUrls ?? []) {
-    allowed.add(url);
-  }
+  policyState.policy.update(ports.policy.ownBlobUrls);
+  const allowed = policyState.policy.uploads;
   const [editor, setEditor] = useState<Editor | null>(null);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -32,10 +31,8 @@ export function useDocumentEditor(
         document: ydoc,
         policy: {
           get ownBlobUrls() {
-            return new Set([
-              ...(current.current.ports.policy.ownBlobUrls ?? []),
-              ...allowed,
-            ]);
+            policyState.policy.update(current.current.ports.policy.ownBlobUrls);
+            return policyState.policy.ownBlobUrls;
           },
         },
         provider,
@@ -77,7 +74,7 @@ export function useDocumentEditor(
       instance.off("transaction", update);
       instance.destroy();
     };
-  }, [ydoc, provider, allowed]);
+  }, [ydoc, provider, allowed, policyState]);
   useEffect(() => {
     editor?.setEditable(canEdit(ports.role));
   }, [editor, ports.role]);

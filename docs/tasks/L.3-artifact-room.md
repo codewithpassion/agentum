@@ -3,7 +3,7 @@ id: L.3
 title: Realtime artifact room
 milestone: L
 size: L
-status: review
+status: done
 depends_on: [L.1, L.2]
 branch: t3/implement-artifact-room
 lane: worker
@@ -21,3 +21,5 @@ executor: codex
 - 2026-10-27: Sol dispatched room using merged engine and reviewed spike. Must use connection-unique awareness IDs, authoritative validation before Yjs update application and fresh authorization at admission/renewal; service durable invalidation fix is underway separately.
 
 - 2026-10-27: Merged bounded room 4b859af2; independent security/persistence review pending. Production adapters and staging remain gates.
+
+- 2026-10-27: Room lifecycle findings fixed c26ac311 and independently accepted3ec17146; combined main root validation passed. Production L.7 and staging L.10 remain separate gates.

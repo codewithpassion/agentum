@@ -73,3 +73,27 @@ Final merged-main command evidence:
 - `bun run test`: exit 0; **11/11 workspace tasks successful without cache**, plus **284 root script tests** passing. Services: **3,138 pass**; web: **3,286 pass / one existing skip**; live-deck: **36 pass**. All reported suites had zero failures; computer Go tests also passed. This run includes the final composed landing-name regression and the merged document-room/shared-codec fixtures.
 
 No guest execution or external side effect is enabled by this delivery. The remaining phase 3 work is runtime/route/room/daily-cap integration and real EMAIL adaptation, not a missing OTP persistence backend. Keep those integrations gated until their phase acceptance.
+
+## Independent backend review — 2026-10-27
+
+Reviewed backend commit `0bb7caa754c54c38e0e4531454797a8ff9239632` as merged in checkout `617cdfc1ffc02b5084c09542309ff836bda2bf06`. **Verdict: changes requested (P2 availability/recovery).** This is a backend review, not phase 3 acceptance.
+
+### Finding: failed delivery and expired grants prevent a normal re-invite (P2)
+
+`invitations.ts` commits the guest identity, grant, hashed invite token and audit before calling `sendInvitation`. If the sender rejects before delivery, `invite` rejects without returning the member ID or token; only the token hash remains in the database. A retry for the same address and artifact fails `artifact_members_guest_unique` because the grant is still unrevoked. The same partial unique index considers an expired grant active, so a new invite with a future expiry also fails after the old one expires. The owner can recover only by discovering and revoking the old grant before inviting again; the service has no resend/reissue operation. The same failed-delivery retry problem applies to named member grants. This makes a transient email failure or ordinary expiry prevent the requested invitation flow, and the committed audit alone does not establish delivery.
+
+Reproduction on the real migrated SQLite database: configure `sendInvitation` to reject, invite an outsider with a future expiry, observe rejection and one persisted member and invite, retry the same invitation and observe a uniqueness failure; advance the clock beyond the grant expiry and retry with a new future expiry, which also fails. An independent temporary test ran this sequence successfully (1 pass, 5 assertions); it was removed after the probe. Fix by providing a safe reissue/retry path and handling expired grants without losing audit history; account for ambiguous sender failures and avoid storing plaintext credentials indefinitely.
+
+### Evidence and boundaries
+
+Read CLAUDE.md, the LG.0 task and prior report, PRD section 9 and R3.1–7/12–13, current guest schemas and migration 0029, and service/query transaction guards. The read paths tenant-join parent references and require explicit current guest grants; scanner landing has no writes; OTP hashes use a private pepper and challenge/invite/workspace/identity binding. Session cookies are host-scoped and separate from Principal; rotation and OTP consumption use guarded atomic writes. Audit and invalidation writes share the role/revoke transaction. Migration 0029 deliberately removes unbound legacy challenges and preserves parent data.
+
+After `bun install --frozen-lockfile`, `bun run --cwd packages/services test src/live-guests` passed 25 tests (1,151 assertions), including concurrent correct replay, 20 wrong attempts, concurrent rotation/revocation, supersession, rate caps, forged parents, switches and rollback probes. `bun run --cwd packages/db test` passed 85 tests (397 assertions), including the real migration upgrade with foreign keys enabled. The initial test attempts could not load dependencies before installation; both reruns passed. These are local migrated SQLite tests, not a deployed D1 concurrency or email delivery test.
+
+The backend supplies ports and persisted limits only. Guest routes, real email adapter, per-request cookie handling on ordinary routes, daily runtime charging, and socket admission/revalidation/closure are not wired here; consequently R3.2, R3.5–7 and R3.13 are not established end-to-end by these results. Emergency-switch checks are in-process callbacks, and actual route/socket enforcement remains an integration gate. No production service, task, route, or schema was changed during this review.
+
+## Controller invitation recovery remediation
+
+Inviting an already granted address now atomically revokes the previous unrevoked grant (including expired grants), records its revocation, enqueues room invalidation, and inserts the new grant, invitation hash and invitation audit. Old invitation links/challenges cease authorizing through their revoked grant; no plaintext credential is retained. An owner can repeat the normal invitation operation after failed or ambiguous email delivery, or expiry. Named-member grants follow the same recovery path. Delivery errors remain explicit, and durable automatic email retry is not claimed. The optimistic grant mutation and unique new grant abort competing stale replacements atomically.
+
+The real migrated-DB suite now has 28 tests/1166 assertions passing, including failed/ambiguous sender results, replacement-token validity and old-token refusal, expired guest renewal, named-member retry and concurrent reissues retaining only one live grant/token. Root `bun run check`, `bun run test`, and `bun run build` passed on combined main with the recovery fix. The client bundle scan found no `drizzle`.

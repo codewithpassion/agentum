@@ -3,9 +3,9 @@ id: L.8
 title: Document editor and presence
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [L.2, L.7]
-branch: null
+branch: t3/real-client-integration
 lane: web
 executor: codex
 ---
@@ -19,3 +19,5 @@ executor: codex
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
 
 - 2026-10-27: Starting real artifact route/provider and editor integration together with L.9 panels, separate from server L.7.
+
+- 2026-10-27: Merged4d852d19 client route/provider; actual two-profile workerd checks pass at desktop/phone. Full-app mount/API and distinct-member real-agent/staging remain gates.

@@ -199,6 +199,51 @@ export const createGuestInvitations = (deps: {
     }
     return guestId;
   };
+  const replaceGrant = async (
+    user: User,
+    artifactId: string,
+    identity: { guestId: string | null; userId: string | null },
+    statements: Statement[],
+    createdAt: string
+  ) => {
+    const [previous] = await db
+      .select()
+      .from(artifactMembers)
+      .where(
+        and(
+          eq(artifactMembers.workspaceId, user.workspaceId),
+          eq(artifactMembers.artifactId, artifactId),
+          identity.guestId
+            ? eq(artifactMembers.guestId, identity.guestId)
+            : eq(artifactMembers.userId, identity.userId ?? ""),
+          isNull(artifactMembers.revokedAt)
+        )
+      )
+      .limit(1);
+    if (!previous) {
+      return false;
+    }
+    // Rotate credentials by replacing the grant, retaining old invitation/audit
+    // history. The CAS and new unique grant are committed in one batch.
+    statements.push(
+      guestMemberMutation(db, {
+        before: previous,
+        revokedAt: createdAt,
+        revokedBy: user.userId,
+        role: previous.role,
+      }),
+      event(user, "artifact.member_revoked", {
+        artifactId,
+        memberId: previous.id,
+      }),
+      roomInvalidationStatement(
+        deps,
+        { artifactId, workspaceId: user.workspaceId },
+        previous.guestId ? `g:${previous.guestId}` : `u:${previous.userId}`
+      )
+    );
+    return true;
+  };
   const checkWorkspace = async (
     workspaceId: string,
     isNamed: boolean,
@@ -283,6 +328,13 @@ export const createGuestInvitations = (deps: {
       const guestId = named
         ? null
         : await prepareGuest(email, user.workspaceId, createdAt, statements);
+      const replaced = await replaceGrant(
+        user,
+        row.id,
+        { guestId, userId: named ? named.userId : null },
+        statements,
+        createdAt
+      );
       statements.push(
         db.insert(artifactMembers).values({
           agentRunsPerDay: cap,
@@ -324,6 +376,9 @@ export const createGuestInvitations = (deps: {
       );
       const inviterName = await deps.inviterName(user);
       await atomic(statements);
+      if (replaced) {
+        await deps.invalidations.trigger();
+      }
       // Explicit sender failure propagates; never claim delivery succeeded.
       await deps.email.sendInvitation({
         artifactTitle: row.title,

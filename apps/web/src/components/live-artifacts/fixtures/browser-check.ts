@@ -149,6 +149,21 @@ try {
     await page
       .getByRole("button", { exact: true, name: "Restore Original" })
       .click();
+    await page.evaluate(() =>
+      Reflect.get(window, "editorFixture").setRole("viewer")
+    );
+    await expect(
+      page.getByRole("button", { exact: true, name: "Confirm restore" })
+    ).toHaveCount(0);
+    await page.evaluate(() =>
+      Reflect.get(window, "editorFixture").setRole("owner")
+    );
+    await expect(
+      page.getByRole("button", { exact: true, name: "Confirm restore" })
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { exact: true, name: "Restore Original" })
+      .click();
     await page
       .getByRole("button", { exact: true, name: "Confirm restore" })
       .click();
@@ -296,7 +311,7 @@ try {
       .getByRole("button", { exact: true, name: "Close history" })
       .click();
     await page.evaluate(() =>
-      Reflect.get(window, "editorFixture").setRole("editor")
+      Reflect.get(window, "editorFixture").setRole("owner")
     );
     await expect(editor).toHaveAttribute("contenteditable", "true");
     await expect(alice.locator("summary")).toHaveCount(5);

@@ -13,6 +13,8 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition,
+  yCursorPlugin,
+  yCursorPluginKey,
   ySyncPluginKey,
   yUndoPluginKey,
   yXmlFragmentToProseMirrorRootNode,
@@ -239,6 +241,22 @@ export function createDocumentEditor(
       });
     },
   };
+  // y-tiptap defaults to comparing awareness IDs with Y.Doc.clientID. The
+  // room assigns an independent awareness ID, so explicitly exclude that ID.
+  const RoomCaret = CollaborationCaret.extend({
+    addProseMirrorPlugins() {
+      return (this.parent?.() ?? []).map((plugin) =>
+        plugin.spec.key === yCursorPluginKey
+          ? yCursorPlugin(awareness, {
+              awarenessStateFilter: (_documentId, clientId) =>
+                clientId !== ports.provider.awareness.clientID,
+              cursorBuilder: (user) => this.options.render(user),
+              selectionBuilder: (user) => this.options.selectionRender(user),
+            })
+          : plugin
+      );
+    },
+  });
   const editor = new Editor({
     editable: canEdit(ports.role),
     editorProps: {
@@ -259,7 +277,7 @@ export function createDocumentEditor(
           ),
         },
       }),
-      CollaborationCaret.configure({ provider: caretProvider, user: {} }),
+      RoomCaret.configure({ provider: caretProvider, user: {} }),
       agentDecorations(),
       BlockDragHandles,
       Extension.create({

@@ -27,6 +27,7 @@ import {
   pinToast,
   togglePinned,
 } from "#/components/artifacts/viewer/viewer-menu-model.ts";
+import { LiveDocumentPage } from "#/components/live-artifacts/document-page";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -94,6 +95,21 @@ type OpenState =
   | { opened: ArtifactsOpenOutput; status: "ready" };
 
 function ArtifactViewerPage() {
+  const { detail } = Route.useLoaderData();
+  const { artifactId } = Route.useParams();
+  if (detail.kind === "document") {
+    return (
+      <LiveDocumentPage
+        artifactId={artifactId}
+        key={artifactId}
+        title={detail.title}
+      />
+    );
+  }
+  return <StaticArtifactViewerPage />;
+}
+
+function StaticArtifactViewerPage() {
   const { detail, versions } = Route.useLoaderData();
   const { v } = Route.useSearch();
   const { artifactId } = Route.useParams();

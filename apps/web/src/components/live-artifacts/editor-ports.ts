@@ -1,5 +1,6 @@
 import type { ContentPolicy } from "@repo/live-doc/schema";
 import type { RelativePositionJSON } from "@repo/protocol/live";
+import type { Editor } from "@tiptap/core";
 import type { ReactNode } from "react";
 import type { Awareness } from "y-protocols/awareness";
 import type { Doc } from "yjs";
@@ -49,6 +50,7 @@ export interface DocumentEditorPorts {
   history: HistoryPort;
   onAskAgent: (selection: EditorSelection) => void;
   onCommentSelection: (selection: EditorSelection) => void;
+  onEditorReady?: (editor: Editor | null) => void;
   policy: ContentPolicy;
   provider: PresencePort;
   role: EditorRole;

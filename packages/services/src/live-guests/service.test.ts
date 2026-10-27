@@ -52,6 +52,7 @@ const setup = () => {
   let date = new Date(NOW);
   let deliveryFails = false;
   let directoryFails = false;
+  let emailFails = false;
   const clock = { now: () => date, sleep: () => Promise.resolve() };
   const service = createGuestInvitations({
     atomic: h.atomic,
@@ -75,7 +76,9 @@ const setup = () => {
       },
       sendInvitation: (mail) => {
         emails.push(mail);
-        return Promise.resolve();
+        return emailFails
+          ? Promise.reject(new Error("email unavailable"))
+          : Promise.resolve();
       },
     },
     events: h.events,
@@ -117,6 +120,9 @@ const setup = () => {
     service,
     setDate: (value: string) => {
       date = new Date(value);
+    },
+    setEmailFailure: (value: boolean) => {
+      emailFails = value;
     },
     setOff: (value: boolean) => {
       off = value;
@@ -480,4 +486,79 @@ describe("guest credentials", () => {
     };
     expect(typeCheck).toBeFunction();
   });
+});
+
+test("failed or ambiguous delivery and expired grants can be safely reissued", async () => {
+  const h = setup();
+  h.setEmailFailure(true);
+  await expect(h.invite()).rejects.toThrow("email unavailable");
+  const oldToken = new URL(h.emails[0]?.url ?? "").pathname.slice(3);
+  h.setEmailFailure(false);
+  const replacement = await h.invite();
+  expect(await h.reader.invitation("w1", oldToken)).toBeNull();
+  const token = new URL(h.emails[1]?.url ?? "").pathname.slice(3);
+  expect((await h.reader.invitation("w1", token))?.role).toBe("editor");
+  expect(
+    h.db
+      .select()
+      .from(artifactMembers)
+      .all()
+      .filter((m) => !m.revokedAt)
+  ).toHaveLength(1);
+  expect(h.db.select().from(artifactRoomInvalidations).all()).toHaveLength(1);
+  h.setDate("2026-10-29T00:00:00.000Z");
+  const renewed = await h.service.invite(principals.owner, {
+    artifactId: h.artifactId,
+    email: "client@example.com",
+    expiresAt: "2026-10-30T00:00:00.000Z",
+    role: "viewer",
+  });
+  expect(renewed.memberId).not.toBe(replacement.memberId);
+  expect(await h.reader.invitation("w1", token)).toBeNull();
+  const rows = h.db.select().from(artifactMembers).all();
+  expect(rows.filter((m) => !m.revokedAt)).toHaveLength(1);
+  expect(rows.find((m) => m.id === renewed.memberId)?.role).toBe("viewer");
+});
+
+test("named invitations can be retried after email failure", async () => {
+  const h = setup();
+  const input = {
+    artifactId: h.artifactId,
+    email: "member@example.com",
+    role: "editor" as const,
+  };
+  h.setEmailFailure(true);
+  await expect(h.service.invite(principals.owner, input)).rejects.toThrow(
+    "email unavailable"
+  );
+  h.setEmailFailure(false);
+  await h.service.invite(principals.owner, input);
+  expect(
+    h.db
+      .select()
+      .from(artifactMembers)
+      .all()
+      .filter((m) => !m.revokedAt)
+  ).toHaveLength(1);
+  expect(h.db.select().from(guestInvites).all()).toHaveLength(0);
+});
+
+test("concurrent reissues retain one grant and only its token remains usable", async () => {
+  const h = setup();
+  await h.invite();
+  const outcomes = await Promise.allSettled([h.invite(), h.invite()]);
+  expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);
+  expect(
+    h.db
+      .select()
+      .from(artifactMembers)
+      .all()
+      .filter((m) => !m.revokedAt)
+  ).toHaveLength(1);
+  const invitations = await Promise.all(
+    h.emails.map((mail) =>
+      h.reader.invitation("w1", new URL(mail.url).pathname.slice(3))
+    )
+  );
+  expect(invitations.filter(Boolean)).toHaveLength(1);
 });

@@ -1,5 +1,5 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Small editor controls capture the command and its current selection. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -23,6 +23,11 @@ export function EditorHistory({
   const [busy, setBusy] = useState(false);
   const [versions, setVersions] = useState<readonly Checkpoint[]>([]);
   const [confirm, setConfirm] = useState<string | null>(null);
+  useEffect(() => {
+    if (!editable) {
+      setConfirm(null);
+    }
+  }, [editable]);
   const load = async () => {
     setOpen(true);
     setBusy(true);
@@ -35,6 +40,9 @@ export function EditorHistory({
     }
   };
   const restore = async (id: string) => {
+    if (!editable) {
+      return;
+    }
     setBusy(true);
     try {
       await port.restore(id);
@@ -98,7 +106,7 @@ export function EditorHistory({
                     Restore {version.label}
                   </ToolButton>
                 )}
-                {confirm === version.id && (
+                {editable && confirm === version.id && (
                   <div>
                     <p>Restore this checkpoint for everyone?</p>
                     <ToolButton
