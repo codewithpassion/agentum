@@ -149,6 +149,21 @@ try {
     await page
       .getByRole("button", { exact: true, name: "Restore Original" })
       .click();
+    await page.evaluate(() =>
+      Reflect.get(window, "editorFixture").setRole("viewer")
+    );
+    await expect(
+      page.getByRole("button", { exact: true, name: "Confirm restore" })
+    ).toHaveCount(0);
+    await page.evaluate(() =>
+      Reflect.get(window, "editorFixture").setRole("editor")
+    );
+    await expect(
+      page.getByRole("button", { exact: true, name: "Confirm restore" })
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { exact: true, name: "Restore Original" })
+      .click();
     await page
       .getByRole("button", { exact: true, name: "Confirm restore" })
       .click();

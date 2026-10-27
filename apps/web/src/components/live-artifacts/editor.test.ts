@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { sanitizeJSON } from "@repo/live-doc/schema";
 import type { Editor } from "@tiptap/core";
 import { Window } from "happy-dom";
 import { Awareness } from "y-protocols/awareness";
@@ -19,6 +20,7 @@ import {
   trustedAwareness,
   uploadEditorImage,
 } from "./editor-binding";
+import { EditorImagePolicy } from "./editor-image-policy";
 import type { DocumentEditorPorts } from "./editor-ports";
 
 const window = new Window();
@@ -494,4 +496,26 @@ test("case changes handle Unicode expansion while preserving formatting and own 
   );
   editor.commands.undo();
   expect(editor.getText()).toBe("straße café");
+});
+
+test("authoritative image policy removes stale URLs and reconciles local uploads", () => {
+  const policy = new EditorImagePolicy();
+  const image = {
+    content: [{ attrs: { src: "/files/a.png" }, type: "image" }],
+    type: "doc",
+  };
+  policy.update(["/files/a.png"]);
+  expect(JSON.stringify(sanitizeJSON(image, policy))).toContain("/files/a.png");
+  policy.update([]);
+  expect(JSON.stringify(sanitizeJSON(image, policy))).not.toContain(
+    "/files/a.png"
+  );
+  policy.uploads.add("/files/a.png");
+  policy.update([]);
+  expect(JSON.stringify(sanitizeJSON(image, policy))).toContain("/files/a.png");
+  policy.update(["/files/a.png"]);
+  policy.update([]);
+  expect(JSON.stringify(sanitizeJSON(image, policy))).not.toContain(
+    "/files/a.png"
+  );
 });
