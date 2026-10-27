@@ -355,3 +355,26 @@ export function buildPalette(input: {
     },
   ];
 }
+
+/** The agents a trigger can be wired to by tap, which are the ones a drawn wire would accept. */
+export function connectChoices(
+  graph: EditGraph,
+  triggerKey: string
+): { key: string; label: string }[] {
+  return graph.nodes
+    .filter((node) => isValidTriggerConnection(graph, triggerKey, node.key))
+    .map((node) => ({ key: node.key, label: node.label }));
+}
+
+/** The configured wires a trigger's "Delete wire" buttons act on, with the edge id the canvas uses. */
+export function deletableWiresFrom(
+  graph: EditGraph,
+  triggerKey: string
+): { edgeId: string; label: string }[] {
+  return graph.wires
+    .filter((wire) => wire.from === triggerKey && isDeletableWire(graph, wire))
+    .map((wire) => ({
+      edgeId: `${wire.kind}:${wire.from}:${wire.to}`,
+      label: labelOf(graph, wire.to),
+    }));
+}

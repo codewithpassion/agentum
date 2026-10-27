@@ -15,6 +15,7 @@ import type {
 } from "#/integrations/trpc/types";
 import { agentIdForProfile } from "./inspector-logic.ts";
 import { MapInspector } from "./map-inspector.tsx";
+import type { TouchActions } from "./map-inspector-touch.tsx";
 
 type MapGraphView = RouterOutputs["map"]["graph"];
 
@@ -53,6 +54,7 @@ export function MapInspectorPane({
   onAnswer,
   onChanged,
   onClose,
+  touch,
 }: {
   editor: boolean;
   graph: MapGraphView;
@@ -61,6 +63,7 @@ export function MapInspectorPane({
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
   onChanged: () => void;
   onClose: () => void;
+  touch: TouchActions;
 }) {
   const agentId = agentIdForProfile(graph, node);
   const {
@@ -107,6 +110,7 @@ export function MapInspectorPane({
       profile={data}
       profileAgentId={agentId}
       profileError={error}
+      touch={touch}
     />
   );
 }

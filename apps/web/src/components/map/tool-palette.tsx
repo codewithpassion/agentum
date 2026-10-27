@@ -26,9 +26,21 @@ const loadPalette = async (): Promise<PaletteSection[]> => {
   return buildPalette({ connectors, machines, skills });
 };
 
-/** A tool that can be dragged onto an agent. It stays draggable when it needs setup. */
-function PaletteChip({ item }: { item: PaletteItem }) {
+/** A tool that can be dragged onto an agent, or tapped and then dropped on one by a tap. It stays draggable when it needs setup. */
+function PaletteChip({
+  item,
+  onPick,
+  picked,
+}: {
+  item: PaletteItem;
+  onPick: (item: PaletteItem | null) => void;
+  picked: boolean;
+}) {
   const { tool } = item;
+  const handleClick = useCallback(
+    () => onPick(picked ? null : item),
+    [item, onPick, picked]
+  );
   const onDragStart = useCallback(
     (event: DragEvent<HTMLButtonElement>) => {
       event.dataTransfer.setData(TOOL_MIME, encodeTool(tool));
@@ -39,9 +51,11 @@ function PaletteChip({ item }: { item: PaletteItem }) {
   return (
     <div className="flex items-center gap-2">
       <button
-        className={CHIP}
+        aria-pressed={picked}
+        className={`${CHIP} ${picked ? "border-primary bg-primary/10" : ""}`}
         data-testid={`palette-${item.key}`}
         draggable
+        onClick={handleClick}
         onDragStart={onDragStart}
         type="button"
       >
@@ -61,7 +75,15 @@ function PaletteChip({ item }: { item: PaletteItem }) {
   );
 }
 
-function PaletteSectionView({ section }: { section: PaletteSection }) {
+function PaletteSectionView({
+  onPick,
+  pickedKey,
+  section,
+}: {
+  onPick: (item: PaletteItem | null) => void;
+  pickedKey: string | null;
+  section: PaletteSection;
+}) {
   const { empty, items, title } = section;
   return (
     <div className="flex flex-col gap-2">
@@ -69,7 +91,12 @@ function PaletteSectionView({ section }: { section: PaletteSection }) {
         {title}
       </h3>
       {items.map((item) => (
-        <PaletteChip item={item} key={item.key} />
+        <PaletteChip
+          item={item}
+          key={item.key}
+          onPick={onPick}
+          picked={item.key === pickedKey}
+        />
       ))}
       {items.length === 0 && empty !== null ? (
         <p className="text-muted-foreground text-xs">
@@ -85,9 +112,13 @@ function PaletteSectionView({ section }: { section: PaletteSection }) {
 
 function PaletteBody({
   error,
+  onPick,
+  pickedKey,
   sections,
 }: {
   error: string | null;
+  onPick: (item: PaletteItem | null) => void;
+  pickedKey: string | null;
   sections: PaletteSection[] | null;
 }) {
   if (sections === null) {
@@ -97,12 +128,23 @@ function PaletteBody({
     return <p className="text-muted-foreground text-xs">Loading tools…</p>;
   }
   return sections.map((section) => (
-    <PaletteSectionView key={section.title} section={section} />
+    <PaletteSectionView
+      key={section.title}
+      onPick={onPick}
+      pickedKey={pickedKey}
+      section={section}
+    />
   ));
 }
 
 /** The tools a map editor can drop onto agents, fetched on the desk poll interval. */
-export function ToolPalette() {
+export function ToolPalette({
+  onPick,
+  pickedKey,
+}: {
+  onPick: (item: PaletteItem | null) => void;
+  pickedKey: string | null;
+}) {
   const { data, error } = usePolledQuery(
     loadPalette,
     null,
@@ -115,7 +157,8 @@ export function ToolPalette() {
     >
       <h2 className="font-semibold text-sm">Tools</h2>
       <p className="mb-3 text-muted-foreground text-xs">
-        Drag a tool onto an agent to plug it in.
+        Drag a tool onto an agent to plug it in, or tap a tool and then tap an
+        agent.
       </p>
       {error === null ? null : (
         <p className="mb-2 text-destructive text-xs" role="alert">
@@ -123,7 +166,12 @@ export function ToolPalette() {
         </p>
       )}
       <div className="flex flex-col gap-4">
-        <PaletteBody error={error} sections={data} />
+        <PaletteBody
+          error={error}
+          onPick={onPick}
+          pickedKey={pickedKey}
+          sections={data}
+        />
       </div>
     </aside>
   );

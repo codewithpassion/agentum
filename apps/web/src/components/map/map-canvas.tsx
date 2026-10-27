@@ -36,6 +36,17 @@ type MapGraphView = RouterOutputs["map"]["graph"];
 
 const FIT_OPTIONS = { duration: 200, padding: 0.15 } as const;
 
+/**
+ * On a phone, fitting the whole graph into the canvas makes the nodes
+ * unreadable, so the fit stops at this zoom and the person pans instead.
+ */
+const PHONE_FIT_OPTIONS = { ...FIT_OPTIONS, minZoom: 0.7 } as const;
+
+const fitOptions = () =>
+  window.matchMedia("(max-width: 767px)").matches
+    ? PHONE_FIT_OPTIONS
+    : FIT_OPTIONS;
+
 /** How long a drag settles before its positions are saved. */
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -203,6 +214,8 @@ export function MapCanvas({
   );
   const edges = useMemo(() => toFlowEdges(graph, editor), [graph, editor]);
   const theme = usePageTheme();
+  // The canvas only mounts once the map has loaded in the browser, so the width is known.
+  const [initialFit] = useState(fitOptions);
 
   const handleNodeClick = useCallback(
     (_event: unknown, node: MapFlowNode) => onSelect(node.id),
@@ -260,7 +273,7 @@ export function MapCanvas({
       edgeTypes={edgeTypes}
       elementsSelectable
       fitView
-      fitViewOptions={FIT_OPTIONS}
+      fitViewOptions={initialFit}
       isValidConnection={isValidConnection}
       maxZoom={1.5}
       minZoom={0.3}
@@ -286,7 +299,7 @@ export function MapCanvas({
 export function FitViewButton() {
   const { fitView } = useReactFlow();
   const handleClick = useCallback(() => {
-    fitView(FIT_OPTIONS);
+    fitView(fitOptions());
   }, [fitView]);
   return (
     <Button onClick={handleClick} size="sm" type="button" variant="outline">

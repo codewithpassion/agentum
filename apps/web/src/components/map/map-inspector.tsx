@@ -29,6 +29,11 @@ import {
   wiresInto,
 } from "./inspector-logic.ts";
 import { AgentEditor } from "./map-inspector-editor.tsx";
+import {
+  PluggedRemoveList,
+  type TouchActions,
+  TriggerWireControls,
+} from "./map-inspector-touch.tsx";
 import { agentIdOf, initialsOf } from "./map-logic.ts";
 
 const CHIP = "rounded-full border border-border px-2 py-0.5 text-xs";
@@ -451,6 +456,8 @@ export interface MapInspectorProps {
   /** The agent whose profile the node shows: its own, or the one a trigger starts. */
   profileAgentId?: string | null;
   profileError: string | null;
+  /** The tap controls for wires and plugged tools, shown in the editor. */
+  touch?: TouchActions;
 }
 
 /** The panel beside the map that describes the selected node. */
@@ -467,6 +474,7 @@ export function MapInspector({
   profile,
   profileAgentId = null,
   profileError,
+  touch,
 }: MapInspectorProps) {
   const agentId = agentIdOf(node.key);
   const editing: EditorState | null =
@@ -529,9 +537,23 @@ export function MapInspector({
             profileError={profileError}
           />
         ) : null}
+        {node.kind === "agent" && editing !== null && touch !== undefined ? (
+          <PluggedRemoveList
+            actions={touch}
+            agentId={agentId ?? ""}
+            ports={node.ports}
+          />
+        ) : null}
         {node.kind === "trigger" ? (
           <>
             <TriggerBody graph={graph} node={node} profile={profile} />
+            {editing !== null && touch !== undefined ? (
+              <TriggerWireControls
+                actions={touch}
+                graph={graph}
+                triggerKey={node.key}
+              />
+            ) : null}
             {editing !== null && profileAgentId !== null ? (
               <EditableProfile
                 editor={editing}
