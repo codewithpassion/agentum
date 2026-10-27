@@ -3,7 +3,7 @@ id: A.6
 title: Wiring, share route, thumbnail, tick and bindings
 milestone: A
 size: L
-status: in_progress
+status: done
 depends_on: [A.2, A.3, A.4, A.5, A.12]
 branch: task/A.6-wiring
 lane: worker
@@ -43,3 +43,4 @@ More refinements (2026-10-27, after A.2, A.3, A.4, A.8 merged)
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 0468eb2, review clean after 1 fix round; needs ARTIFACT_VIEW_KEY secret per environment; merged.

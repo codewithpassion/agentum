@@ -455,6 +455,16 @@ export const artifactVersionSchema = z.strictObject({
   createdAt: timestampSchema,
   entry: z.string(),
   fileCount: z.int().nonnegative(),
+  // Filled by `artifacts.versions`: the files of that version.
+  files: z
+    .array(
+      z.strictObject({
+        contentType: z.string(),
+        path: z.string(),
+        size: z.int().nonnegative(),
+      })
+    )
+    .optional(),
   hasThumbnail: z.boolean(),
   id: idSchema,
   message: z.string(),

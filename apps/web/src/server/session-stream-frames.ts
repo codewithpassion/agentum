@@ -16,6 +16,7 @@ export const STREAM_EVENT_TYPES = [
   "message.reasoning",
   "tool.call",
   "tool.result",
+  "artifact.published",
   "run.queued",
   "run.started",
   "run.waiting",
