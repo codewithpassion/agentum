@@ -531,7 +531,7 @@ test("a waiting promote leaves the run running", async () => {
   expect(run?.status).toBe("running");
 });
 
-test("allowing the card decides its grants and the next promote goes live", async () => {
+test("allowing the card decides its grants and takes the version live", async () => {
   await addVersion("v2", 2);
   await record("v2", { hosts: ["files.example.com"] });
   const waiting = await service.promote(runPrincipal, {
@@ -546,17 +546,21 @@ test("allowing the card decides its grants and the next promote goes live", asyn
     requestId: waiting.requestId,
     via: "web",
   });
+  // No promote call needed: the answer carries the version forward.
+  expect(await versionStatus("v2")).toBe("published");
+  expect(await currentVersion()).toBe("v2");
+  expect(await eventTypes()).toContain("artifact.promoted");
+  const [grant] = await service.list(owner, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  expect(grant).toMatchObject({ decidedBy: "u1", status: "approved" });
   expect(
     await service.promote(runPrincipal, {
       artifactId: ARTIFACT,
       versionId: "v2",
     })
   ).toEqual({ status: "promoted", version: 2 });
-  const [grant] = await service.list(owner, {
-    artifactId: ARTIFACT,
-    versionId: "v2",
-  });
-  expect(grant).toMatchObject({ decidedBy: "u1", status: "approved" });
   expect(await db.select().from(runRequests)).toHaveLength(1);
 });
 
@@ -575,10 +579,10 @@ test("denying the card rejects the version", async () => {
     requestId: waiting.requestId,
     via: "web",
   });
+  expect(await versionStatus("v2")).toBe("rejected");
   await expect(
     service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
   ).rejects.toMatchObject({ code: "conflict" });
-  expect(await versionStatus("v2")).toBe("rejected");
 });
 
 test("a card answered by someone who cannot decide is a conflict, not a new card", async () => {
@@ -591,12 +595,15 @@ test("a card answered by someone who cannot decide is a conflict, not a new card
   if (waiting.status !== "waiting") {
     throw new Error("expected waiting");
   }
-  await requests.answer(owner, {
-    answer: { decision: "allow_once" },
-    requestId: waiting.requestId,
-    via: "web",
-  });
-  await db.update(runRequests).set({ answeredBy: "u9" });
+  // Answered by someone else, written straight in: no answer event fires.
+  await db
+    .update(runRequests)
+    .set({
+      answer: JSON.stringify({ decision: "allow_once" }),
+      answeredBy: "u9",
+      status: "answered",
+    })
+    .where(eq(runRequests.id, waiting.requestId));
   await expect(
     service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
   ).rejects.toMatchObject({ code: "conflict" });

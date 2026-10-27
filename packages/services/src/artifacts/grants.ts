@@ -29,18 +29,21 @@ import {
   setHandedToStatement,
 } from "@repo/db/artifact-grants";
 import type { Atomic } from "@repo/db/atomic";
+import { runRequests } from "@repo/db/schema/requests";
 import type { ArtifactGrantKind, ArtifactGrantStatus } from "@repo/db/shared";
 import {
   artifactsDecideGrantInputSchema,
   artifactsHandToInputSchema,
   artifactsPromoteInputSchema,
 } from "@repo/protocol/artifacts";
+import { and, eq } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
+import { isPromoteApproval } from "../mail/approval.ts";
 import type { RequestsService } from "../requests.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Clock } from "../runs/types.ts";
@@ -526,6 +529,31 @@ export const createArtifactGrantsService = ({
     return opened.id;
   };
 
+  const goLive = async (
+    artifact: ArtifactRow,
+    version: { id: string; number: number },
+    actor: Awaited<ReturnType<typeof actorOf>>
+  ) => {
+    await atomic(
+      promoteStatements(db, {
+        artifactId: artifact.id,
+        now: clock.now().toISOString(),
+        versionId: version.id,
+      })
+    );
+    await events.append({
+      ...actor,
+      payload: {
+        artifactId: artifact.id,
+        title: artifact.title,
+        version: version.number,
+        versionId: version.id,
+      },
+      type: "artifact.promoted",
+      workspaceId: artifact.workspaceId,
+    });
+  };
+
   /**
    * Makes a proposed app version current. With every grant approved it goes
    * live. With some pending, a run gets a Needs you request and `waiting`; a
@@ -596,25 +624,7 @@ export const createArtifactGrantsService = ({
         status: "waiting",
       };
     }
-    const now = clock.now().toISOString();
-    await atomic(
-      promoteStatements(db, {
-        artifactId: artifact.id,
-        now,
-        versionId: version.id,
-      })
-    );
-    await events.append({
-      ...(await actorOf(principal)),
-      payload: {
-        artifactId: artifact.id,
-        title: artifact.title,
-        version: version.number,
-        versionId: version.id,
-      },
-      type: "artifact.promoted",
-      workspaceId: artifact.workspaceId,
-    });
+    await goLive(artifact, version, await actorOf(principal));
     return { status: "promoted", version: version.number };
   };
 
@@ -657,6 +667,81 @@ export const createArtifactGrantsService = ({
       workspaceId: artifact.workspaceId,
     });
   };
+
+  /** The answered promote card an event is about, with its proposed version and artifact. */
+  const answeredCard = async (event: {
+    payload: Record<string, unknown>;
+    workspaceId: string;
+  }) => {
+    const { requestId } = event.payload;
+    if (typeof requestId !== "string") {
+      return null;
+    }
+    const [card] = await db
+      .select()
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.id, requestId),
+          eq(runRequests.workspaceId, event.workspaceId)
+        )
+      );
+    if (!(card && isPromoteApproval(card))) {
+      return null;
+    }
+    const [, versionId] = card.toolUseId.split(":");
+    const version = versionId
+      ? await findVersionById(db, {
+          id: versionId,
+          workspaceId: card.workspaceId,
+        })
+      : null;
+    const artifact = version
+      ? await findArtifact(db, {
+          id: version.artifactId,
+          workspaceId: card.workspaceId,
+        })
+      : null;
+    return artifact && version?.status === "proposed"
+      ? { artifact, card, version }
+      : null;
+  };
+
+  // A person's answer on the card decides the grants it listed, and an allow
+  // takes the version live, so the answer carries the version forward even when
+  // the run that asked has ended. The listener never fails the answer.
+  events.onAppend(async (event) => {
+    if (event.type !== "request.answered") {
+      return;
+    }
+    const target = await answeredCard(event);
+    if (!target) {
+      return;
+    }
+    const { artifact, card, version } = target;
+    const rows = await listGrants(db, {
+      versionId: version.id,
+      workspaceId: artifact.workspaceId,
+    });
+    const pending = rows.filter((row) => row.status === "pending");
+    if (pending.length === 0 || rows.some((row) => row.status === "rejected")) {
+      return;
+    }
+    try {
+      await applyCardAnswer(artifact, card, pending);
+    } catch (error) {
+      // A denial or a non-owner's answer is a conflict the next promote reports.
+      if (error instanceof ServiceError) {
+        return;
+      }
+      throw error;
+    }
+    if (artifact.kind === "app") {
+      await goLive(artifact, version, {
+        actor: { id: card.answeredBy ?? "system", kind: "user" },
+      });
+    }
+  });
 
   return { decideGrant, handTo, list, promote, recordVersionGrants };
 };
