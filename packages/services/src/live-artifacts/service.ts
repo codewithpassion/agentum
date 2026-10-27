@@ -54,6 +54,7 @@ import { createLiveAccess } from "./access.ts";
 import { createAccessLifecycle } from "./access-lifecycle.ts";
 import { createChangesModule } from "./changes.ts";
 import { createCommentsModule } from "./comments.ts";
+import { imageMime } from "./image-mime.ts";
 import type { LiveInteractionPorts } from "./ports.ts";
 
 export type {
@@ -172,6 +173,14 @@ export interface LiveArtifactsDeps extends LiveInteractionPorts {
 }
 
 export type Member = Extract<Principal, { kind: "user" | "run" }>;
+/** Frozen attribution for accepted room state, never an authorization identity. */
+export interface GuestPublicationActor {
+  artifactId: string;
+  guestId: string;
+  kind: "guest";
+  workspaceId: string;
+}
+type PublicationActor = Member | GuestPublicationActor;
 export type Row = NonNullable<Awaited<ReturnType<typeof findArtifact>>>;
 const IMAGE_FILE_PATH = /^\/files\/[A-Za-z0-9_-]+$/;
 const missing = () =>
@@ -196,6 +205,11 @@ const authorOf = (member: Member) =>
         runId: member.runId,
       };
 
+const publicationAuthor = (actor: PublicationActor) =>
+  actor.kind === "guest"
+    ? { agentId: null, id: actor.guestId, kind: "guest" as const, runId: null }
+    : authorOf(actor);
+
 const checkSnapshot = (snapshot: DocumentSnapshot, kind = "document") => {
   if (
     !Number.isSafeInteger(snapshot.revision) ||
@@ -208,40 +222,6 @@ const checkSnapshot = (snapshot: DocumentSnapshot, kind = "document") => {
   }
 };
 
-const imageMime = async (body: Blob) => {
-  const head = new Uint8Array(await body.slice(0, 32).arrayBuffer());
-  const ascii = new TextDecoder().decode(head);
-  let mime: string | null = null;
-  if (
-    head[0] === 137 &&
-    ascii.slice(1, 4) === "PNG" &&
-    head[4] === 13 &&
-    head[5] === 10 &&
-    head[6] === 26 &&
-    head[7] === 10
-  ) {
-    mime = "image/png";
-  }
-  if (head[0] === 255 && head[1] === 216 && head[2] === 255) {
-    mime = "image/jpeg";
-  }
-  if (ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a")) {
-    mime = "image/gif";
-  }
-  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") {
-    mime = "image/webp";
-  }
-  if (
-    ascii.slice(4, 8) === "ftyp" &&
-    ["avif", "avis"].includes(ascii.slice(8, 12))
-  ) {
-    mime = "image/avif";
-  }
-  if (!mime) {
-    throw invalid("Upload a PNG, JPEG, GIF, WebP or AVIF image");
-  }
-  return mime;
-};
 export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const { db, atomic, blobs, clock, events, rooms, content } = deps;
   if (!deps.ticketKey.trim()) {
@@ -255,7 +235,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     });
   const { access, memberOf, runContext } = createLiveAccess(deps);
   const event = (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     type:
       | "artifact.created"
@@ -272,10 +252,13 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   ) =>
     events.insertStatement(
       {
-        actor: { id: authorOf(member).id, kind: authorOf(member).kind },
-        agentId: authorOf(member).agentId,
+        actor: {
+          id: publicationAuthor(member).id,
+          kind: publicationAuthor(member).kind,
+        },
+        agentId: publicationAuthor(member).agentId,
         payload,
-        runId: authorOf(member).runId,
+        runId: publicationAuthor(member).runId,
         sessionId: row.sessionId,
         type,
         workspaceId: member.workspaceId,
@@ -334,7 +317,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     };
   };
   const creationStatements = (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     payload: Record<string, unknown>,
     initial: boolean
@@ -346,7 +329,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         ]
       : [];
   const restoredStatements = (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     payload: Record<string, unknown>,
     from: number | undefined
@@ -464,7 +447,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     ];
   };
   const persist = async (
-    member: Member,
+    member: PublicationActor,
     row: Row,
     snapshot: DocumentSnapshot,
     initial = false,
@@ -540,7 +523,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       artifactId: row.id,
       kind: row.kind,
       revision: snapshot.revision,
-      runId: authorOf(member).runId,
+      runId: publicationAuthor(member).runId,
       sessionId: row.sessionId,
       title: row.title,
       version: number,
@@ -550,9 +533,9 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       ...creationStatements(member, row, payload, initial),
       db.insert(artifactVersions).values({
         artifactId: row.id,
-        authorId: authorOf(member).id,
-        authorKind: authorOf(member).kind,
-        authorRunId: authorOf(member).runId,
+        authorId: publicationAuthor(member).id,
+        authorKind: publicationAuthor(member).kind,
+        authorRunId: publicationAuthor(member).runId,
         createdAt: now(),
         entry: "index.html",
         fileCount: files.length,
@@ -644,8 +627,8 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       audience: source?.audience ?? defaultAudience(context?.session ?? null),
       convertedFromId: source?.id ?? null,
       createdAt: at,
-      createdById: authorOf(member).id,
-      createdByKind: authorOf(member).kind,
+      createdById: publicationAuthor(member).id,
+      createdByKind: publicationAuthor(member).kind,
       currentVersionId: null,
       deletedAt: null,
       deletedBy: null,
@@ -697,7 +680,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
   const publicationActor = async (
     principal: Principal,
     scope: LiveRoomScope,
-    acceptedActor?: Principal
+    acceptedActor?: Principal | GuestPublicationActor
   ) => {
     if (!acceptedActor) {
       return access(principal, scope.artifactId, true);
@@ -707,7 +690,11 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     if (principal.kind !== "system") {
       throw new ForbiddenError("liveArtifacts.durablePublication");
     }
-    const member = memberOf(acceptedActor);
+    const member =
+      acceptedActor.kind === "guest" ? acceptedActor : memberOf(acceptedActor);
+    if (member.kind === "guest" && member.artifactId !== scope.artifactId) {
+      throw missing();
+    }
     const [row] = await db
       .select()
       .from(artifacts)
@@ -773,7 +760,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
             }
           >;
         },
-      acceptedActor?: Principal
+      acceptedActor?: Principal | GuestPublicationActor
     ) {
       const { member, row } = await publicationActor(
         principal,
@@ -803,7 +790,10 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       const restored = input.restores.at(-1);
       let from: number | undefined;
       if (restored) {
-        if (restored.byParticipant !== participantId(member)) {
+        if (
+          member.kind === "guest" ||
+          restored.byParticipant !== participantId(member)
+        ) {
           throw new ForbiddenError("liveArtifacts.restoreActor");
         }
         const source = await findVersionById(

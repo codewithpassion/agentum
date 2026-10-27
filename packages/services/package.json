@@ -138,6 +138,9 @@
     "./live-artifacts/ask": "./src/live-artifacts/ask.ts",
     "./live-artifacts/factory": "./src/live-artifacts/factory.ts",
     "./live-guests/auth": "./src/live-guests/auth.ts",
+    "./live-guests/http-scope": "./src/live-guests/http-scope.ts",
+    "./live-guests/artifacts": "./src/live-guests/artifacts.ts",
+    "./live-guests/images": "./src/live-guests/images.ts",
     "./live-guests/service": "./src/live-guests/service.ts"
   },
   "scripts": {

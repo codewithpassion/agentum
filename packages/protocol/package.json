@@ -15,6 +15,7 @@
     "./skills": "./src/skills.ts",
     "./stream": "./src/stream.ts",
     "./thread": "./src/thread.ts",
+    "./guest": "./src/guest.ts",
     "./live": "./src/live.ts",
     "./deck": "./src/deck.ts"
   },

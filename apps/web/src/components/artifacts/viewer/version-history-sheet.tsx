@@ -57,7 +57,7 @@ function VersionRow({
         </time>
       </div>
       <p className="text-muted-foreground text-xs">
-        {version.authorKind === "agent" ? "Agent" : "Person"}
+        {{ agent: "Agent", guest: "Guest", user: "Person" }[version.authorKind]}
         {version.message ? `: ${version.message}` : ""}
       </p>
       {version.authorRunId ? (

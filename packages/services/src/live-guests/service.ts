@@ -5,6 +5,7 @@ import { createGuestAuthService, type GuestAuthDeps } from "./auth.ts";
 import { createGuestInvitations } from "./invitations.ts";
 import { createGuestRunStarter } from "./runs.ts";
 import { createGuestSessionLifecycle } from "./sessions.ts";
+import { createGuestSwitch } from "./switch.ts";
 
 type InvitationDeps = Parameters<typeof createGuestInvitations>[0];
 export interface LiveGuestsDeps extends Omit<InvitationDeps, "inviterName"> {
@@ -28,6 +29,7 @@ export const createLiveGuestsService = async (deps: LiveGuestsDeps) => {
   const sessions = createGuestSessionLifecycle(deps);
   return {
     ...invitations,
+    setEnabled: createGuestSwitch(deps),
     ...auth,
     ...sessions,
     async invitation(workspaceId: string, token: string) {

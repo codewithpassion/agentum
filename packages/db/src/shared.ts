@@ -750,7 +750,7 @@ export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 export const ARTIFACT_AUDIENCES = ["private", "workspace"] as const;
 export type ArtifactAudience = (typeof ARTIFACT_AUDIENCES)[number];
 
-export const ARTIFACT_AUTHOR_KINDS = ["user", "agent"] as const;
+export const ARTIFACT_AUTHOR_KINDS = ["user", "agent", "guest"] as const;
 export type ArtifactAuthorKind = (typeof ARTIFACT_AUTHOR_KINDS)[number];
 
 /** Phase 2: an agent's app version starts `proposed` until promoted, `rejected` when a person says no. */

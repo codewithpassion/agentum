@@ -221,3 +221,41 @@ export const guestSessionRotationGuard = (
         eq(guestIdentities.workspaceId, input.workspaceId)
       )
     );
+
+/** Write-time authorization assertion on the non-null artifact title. This is
+ * intentionally a no-op on success; a competing revoke/expiry rolls back the
+ * entire guest mutation rather than leaving a comment/file without authority. */
+export const guestArtifactWriteGuard = (
+  db: Database,
+  input: {
+    workspaceId: string;
+    artifactId: string;
+    guestId: string;
+    tokenHash: string;
+    at: string;
+    role: string;
+  }
+) =>
+  db
+    .update(artifacts)
+    .set({
+      title: sql`CASE WHEN EXISTS (
+  SELECT 1 FROM guest_sessions s
+  JOIN guest_identities g ON g.id = s.guest_id AND g.workspace_id = s.workspace_id
+  JOIN artifact_members m ON m.guest_id = g.id AND m.workspace_id = g.workspace_id
+  JOIN workspaces w ON w.id = m.workspace_id
+  WHERE s.workspace_id = ${input.workspaceId} AND s.token_hash = ${input.tokenHash}
+    AND s.guest_id = ${input.guestId} AND s.expires_at > ${input.at}
+    AND m.artifact_id = ${input.artifactId} AND m.principal_kind = 'guest'
+    AND m.user_id IS NULL AND m.revoked_at IS NULL AND m.expires_at > ${input.at}
+    AND m.role = ${input.role} AND m.role IN ('commenter', 'editor')
+    AND w.live_guests_enabled = 1
+    AND ${artifacts.deletedAt} IS NULL AND ${artifacts.kind} IN ('document', 'deck')
+  ) THEN ${artifacts.title} ELSE NULL END`,
+    })
+    .where(
+      and(
+        eq(artifacts.id, input.artifactId),
+        eq(artifacts.workspaceId, input.workspaceId)
+      )
+    );

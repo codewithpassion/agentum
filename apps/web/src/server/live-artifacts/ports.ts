@@ -56,7 +56,8 @@ export interface ArtifactRoomService {
    * on retries; never derive it from browser inputs or mutable retry-time state. */
   prepareCheckpoint?: (
     scope: RoomScope,
-    restores: RestoreProvenance[]
+    restores: RestoreProvenance[],
+    acceptedIdentity?: RoomIdentity
   ) => Promise<string>;
   /** Current active document comment ranges, resolved inside the serialized agent mutation. */
   protectedRanges: (

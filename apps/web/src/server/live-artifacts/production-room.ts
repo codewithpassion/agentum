@@ -13,7 +13,13 @@ import type {
 } from "@repo/mcp/tools/live";
 import type { LiveOperationOrigin } from "@repo/protocol/live";
 import { commentAnchorSchema } from "@repo/protocol/live";
-import type { DocumentSnapshot } from "@repo/services/live-artifacts/service";
+import type {
+  DocumentSnapshot,
+  GuestPublicationActor,
+} from "@repo/services/live-artifacts/service";
+import { verifyRoomTicket } from "@repo/services/live-artifacts/ticket";
+import { createGuestArtifacts } from "@repo/services/live-guests/artifacts";
+import { GUEST_COOKIE } from "@repo/services/live-guests/security";
 import type { SpeakerRoom } from "@repo/services/speaker-envelope";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { applyUpdate, Doc, XmlElement } from "yjs";
@@ -30,6 +36,7 @@ import { RoomStorage } from "./storage";
 
 interface Credential {
   expiresAt: number;
+  guest?: { sessionId: string; artifactId: string; workspaceId: string };
   principal?: Principal;
   request?: { url: string; headers: [string, string][] };
   session?: { id: string; userId: string; workspaceId: string };
@@ -208,6 +215,63 @@ export class ArtifactRoom extends Room {
       const credential = await ctx.storage.get<Credential>(`credential:${ref}`);
       return resolveCredential(env, get(), credential);
     };
+    const guestAccess = () =>
+      createGuestArtifacts({
+        ...get(),
+        guestsOff: () =>
+          Boolean((env as Env & { LIVE_GUESTS_OFF?: string }).LIVE_GUESTS_OFF),
+      });
+    const guestIdentity = async (ref: string, scope: RoomScope) => {
+      const credential = await ctx.storage.get<Credential>(`credential:${ref}`);
+      if (
+        !credential?.guest ||
+        credential.expiresAt <= Date.now() ||
+        credential.guest.artifactId !== scope.artifactId ||
+        credential.guest.workspaceId !== scope.workspaceId
+      ) {
+        return null;
+      }
+      const grant = await guestAccess().resolveReference(credential.guest);
+      return grant
+        ? {
+            authorizationRef: ref,
+            color: "#059669",
+            kind: "guest" as const,
+            name: "Guest",
+            participantId: `g:${grant.guestId}`,
+            role: grant.role,
+          }
+        : null;
+    };
+    const authorizeGuest = async (
+      ref: string,
+      scope: RoomScope,
+      subject: Parameters<ArtifactRoomService["authorize"]>[1]
+    ) => {
+      const identity = await guestIdentity(ref, scope);
+      if (identity?.participantId !== subject.participantId) {
+        return null;
+      }
+      if (identity.role === "editor") {
+        const credential = await ctx.storage.get<Credential>(
+          `credential:${ref}`
+        );
+        const grant = credential?.guest
+          ? await guestAccess().resolveReference(credential.guest)
+          : null;
+        if (!grant) {
+          return null;
+        }
+        await ctx.storage.put(`acceptedActor:${ref}`, {
+          artifactId: grant.artifactId,
+          guestId: grant.guestId,
+          kind: "guest",
+          workspaceId: grant.workspaceId,
+        } satisfies GuestPublicationActor);
+        await ctx.storage.put("checkpointActor", ref);
+      }
+      return identity;
+    };
     const authorize: ArtifactRoomService["authorize"] = async (
       scope,
       subject
@@ -221,6 +285,9 @@ export class ArtifactRoom extends Room {
       try {
         if ((await ctx.storage.list({ prefix: "accessFence:" })).size) {
           return null;
+        }
+        if (subject.kind === "guest") {
+          return authorizeGuest(ref, scope, subject);
         }
         const principal = await resolve(ref);
         if (
@@ -248,8 +315,68 @@ export class ArtifactRoom extends Room {
         return null;
       }
     };
+    const admitGuest: ArtifactRoomService["admit"] = async (
+      scope,
+      ticket,
+      context
+    ) => {
+      let ref: string;
+      if ("request" in context) {
+        const cookies =
+          context.request.headers
+            .get("Cookie")
+            ?.split(";")
+            .map((v) => v.trim()) ?? [];
+        const matches = cookies.filter((v) => v.startsWith(`${GUEST_COOKIE}=`));
+        if (matches.length !== 1) {
+          return null;
+        }
+        const sessionToken = matches[0]?.slice(GUEST_COOKIE.length + 1) ?? "";
+        const row = await guestAccess().sessionReference({
+          ...scope,
+          sessionToken,
+        });
+        if (!row) {
+          return null;
+        }
+        ref = crypto.randomUUID();
+        await ctx.storage.put(`credential:${ref}`, {
+          expiresAt: Date.now() + 900_000,
+          guest: { ...scope, sessionId: row.sessionId },
+        } satisfies Credential);
+      } else {
+        ref = context.authorizationRef;
+      }
+      const identity = await guestIdentity(ref, scope);
+      const claims = await verifyRoomTicket(ticket, ticketKey(env), {
+        ...scope,
+        nowSeconds: Math.floor(Date.now() / 1000),
+      });
+      if (
+        !(identity && claims) ||
+        claims.kind !== "guest" ||
+        claims.participantId !== identity.participantId ||
+        claims.role !== identity.role
+      ) {
+        return null;
+      }
+      await ctx.storage.put(`actor:${identity.participantId}`, ref);
+      return authorize(scope, identity);
+    };
     const service: ArtifactRoomService = {
       admit: async (scope, ticket, context) => {
+        if (
+          ("request" in context &&
+            new URL(context.request.url).pathname.startsWith("/api/guest/")) ||
+          ("authorizationRef" in context &&
+            (
+              await ctx.storage.get<Credential>(
+                `credential:${context.authorizationRef}`
+              )
+            )?.guest)
+        ) {
+          return admitGuest(scope, ticket, context);
+        }
         let authorizationRef: string;
         let principal: Principal | null;
         if ("request" in context) {
@@ -315,14 +442,18 @@ export class ArtifactRoom extends Room {
         }
         return (await live().roomPolicy(SYSTEM_PRINCIPAL, scope)).ownBlobUrls;
       },
-      prepareCheckpoint: async (scope, restores) => {
-        const ref = restores.at(-1)
-          ? await ctx.storage.get<string>(
-              `actor:${restores.at(-1)?.byParticipant}`
-            )
-          : await ctx.storage.get<string>("checkpointActor");
+      prepareCheckpoint: async (scope, restores, acceptedIdentity) => {
+        const ref =
+          acceptedIdentity?.authorizationRef ??
+          (restores.at(-1)
+            ? await ctx.storage.get<string>(
+                `actor:${restores.at(-1)?.byParticipant}`
+              )
+            : await ctx.storage.get<string>("checkpointActor"));
         const actor = ref
-          ? await ctx.storage.get<Principal>(`acceptedActor:${ref}`)
+          ? await ctx.storage.get<Principal | GuestPublicationActor>(
+              `acceptedActor:${ref}`
+            )
           : undefined;
         if (
           !actor ||
@@ -339,7 +470,9 @@ export class ArtifactRoom extends Room {
         if (!input.publicationReceipt) {
           throw new Error("Missing frozen checkpoint provenance");
         }
-        const actor: Principal = JSON.parse(input.publicationReceipt);
+        const actor: Principal | GuestPublicationActor = JSON.parse(
+          input.publicationReceipt
+        );
         if (
           actor.kind === "system" ||
           actor.workspaceId !== scope.workspaceId

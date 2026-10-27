@@ -71,6 +71,7 @@ interface Metadata {
   nextAwarenessId: number;
   origins: LiveOperationOrigin[];
   ownBlobUrls: string[];
+  publicationReceipt?: string;
   restores: RestoreProvenance[];
   revision: number;
   scope: RoomScope;
@@ -330,7 +331,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   /** Validate isolated candidate; atomic durable commit precedes authority/broadcast. */
   private commitDeck(
     update: Uint8Array,
-    persist?: (revision: number, full: Uint8Array) => void
+    persist?: (revision: number, full: Uint8Array) => void,
+    publicationReceipt?: string
   ) {
     const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
       ownsBlob: (path) => this.policy.has(path),
@@ -355,6 +357,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           this.meta.sequence += 1;
           this.meta.revision += 1;
           this.meta.dirtySince ??= Date.now();
+          this.meta.publicationReceipt = publicationReceipt;
           this.meta.updateBytes += update.length;
           this.store.write("update", String(this.meta.sequence), update);
         }
@@ -1074,15 +1077,24 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       if (!writable(state)) {
         return; // Viewers still complete the normal Yjs read/sync handshake.
       }
+      const publicationReceipt =
+        await this.env.ARTIFACT_ROOM_SERVICE.prepareCheckpoint?.(
+          this.meta.scope,
+          [],
+          state
+        );
       if (this.deck) {
         await this.refreshPolicy();
-        this.commitDeck(bytes);
+        this.commitDeck(bytes, undefined, publicationReceipt);
         await this.schedule();
       } else {
         await this.mutate(
           (trial) =>
             trial.applyUpdate(bytes, { participantId: state.participantId }),
-          { agent: state.kind === "agent", participantId: state.participantId }
+          { agent: state.kind === "agent", participantId: state.participantId },
+          undefined,
+          false,
+          publicationReceipt
         );
       }
     } else {
@@ -1176,7 +1188,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     action: (trial: LiveDocument) => T,
     origin: object,
     persist?: (result: T, revision: number, full: Uint8Array) => void,
-    guardComments = false
+    guardComments = false,
+    publicationReceipt?: string
   ): Promise<T> {
     await this.refreshPolicy();
     const protect =
@@ -1235,6 +1248,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           this.meta.ownBlobUrls = [...this.policy];
           this.meta.updateBytes += update.length;
           this.meta.dirtySince ??= Date.now();
+          this.meta.publicationReceipt = publicationReceipt;
           this.store.write("update", String(this.meta.sequence), update);
           persist?.(result, revision, full);
           if (
@@ -1663,10 +1677,11 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     if (!pending) {
       const restores = [...this.meta.restores];
       const publicationReceipt =
-        await this.env.ARTIFACT_ROOM_SERVICE.prepareCheckpoint?.(
+        this.meta.publicationReceipt ??
+        (await this.env.ARTIFACT_ROOM_SERVICE.prepareCheckpoint?.(
           this.meta.scope,
           restores
-        );
+        ));
       pending = {
         checkpointId: crypto.randomUUID(),
         origins: [...this.meta.origins],

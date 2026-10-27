@@ -12,6 +12,7 @@ import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
 import { compose } from "./server/compose.ts";
 import { frameGuard } from "./server/frame-guard.ts";
+import { guestRoutes } from "./server/live-artifacts/guest-routes";
 import {
   liveImageRoutes,
   liveRoomRoutes,
@@ -68,6 +69,7 @@ mountArtifactContentRoutes(app, {
   workspaceId: (claims) => claims.workspaceId,
 });
 
+app.route("/", guestRoutes());
 app.route("/", liveRoomRoutes());
 app.use("*", clerkMiddleware());
 
