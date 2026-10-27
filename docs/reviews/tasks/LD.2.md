@@ -52,3 +52,15 @@ The ignored web `.env` was initialized from its example only if absent; existing
 ## Integration gates
 
 Room and editor owners must inject the production codec, use shared editor extensions with the deck subset enforced, and route every untrusted editor/update/checkpoint through Deck admission. `parse` operates on trusted attached local editor types; it is not a substitute for `Deck.applyUpdate` on network input. Keep authorization, serialized authority admission, own-blob ownership, checkpoint persistence/broadcast and rejected-client resynchronization in the room/service lane. Render validated values using platform components; do not use agent HTML with innerHTML. Browser/editor/service/MCP wiring and staging acceptance remain separate gates; this leaf makes no phase-completion claim.
+
+## Independent review — 27 October 2026
+
+Reviewed merged main `3668697d` (handoff `5722fc90`; checkout `d58284ea`) against LD.2, LD.0, L.2 and PRD §5/R2.5. Verdict: **accepted for the bounded codec leaf; no severity-rated findings**. This is not phase 2 product acceptance.
+
+The adapter imports the actual live-doc `schema` and pinned y-tiptap bindings through the narrow bridge; its tag mapping is not a second schema. Raw XML node kinds, content matches, attributes and text deltas are checked before projection, including unknown and hashed marks, hidden mark keys and embeds. Projected values and canonical input are checked again. The merge's sole core change escapes CR as `&#13;`. The focused suite exercises shared-schema output, safe links, CSS restrictions, Unicode and XML interchange, invalid parse and binary admission atomicity, original Yjs IDs, independent text/table-cell convergence and actual bundled Miniflare/workerd execution without a DOM.
+
+Independent temporary probe: parse `a\r\nb`, try a span with `style="color: #3b82f6; color: red"`, and compare encoded bytes and update-event count after rejection; format a character with `link: {href: "/ok", target: "_blank", rel: "noopener noreferrer", secret: "x"}` and require serialization to throw; serialize and parse the rich slide fixture and require both `&#13;` and deep equality. All passed. These checks sample the boundary; they do not prove every possible Yjs history.
+
+`bun install --frozen-lockfile --ignore-scripts --network-concurrency 1` passed after the initial test could not resolve absent dependencies. `bun run --cwd packages/live-deck test` passed **36 tests, 389 assertions**, including actual workerd; `bun run --cwd packages/live-deck typecheck` passed. No root suite was rerun for this review.
+
+Direct codec reconciliation retains existing types and relative positions in the tested in-place edit; core whole-text and cell replacement explicitly clears changed fragments before parsing, so that stronger identity guarantee does not extend to those paths. Original admitted editor updates preserve their CRDT identities. Room/editor integration must inject the codec and enforce the subset and authenticated serialized admission, persistence, broadcast and rejected-client resynchronization; service/MCP, browser and staging acceptance remain separate gates.
