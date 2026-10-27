@@ -516,6 +516,7 @@ try {
     requestId: "restore-once",
     versionId: "version-old",
   });
+  await controls("publicationActor", "original-actor");
   await controls("failSave", true);
   await fails("/checkpoint");
   const { pending } = await call("/stats");
@@ -548,10 +549,19 @@ try {
   const laterDeadline = (await call("/stats")).meta.dirtySince;
   await runtime.dispose();
   runtime = boot();
+  check(
+    (await call("/stats")).pending.publicationReceipt === "original-actor",
+    "frozen snapshot atomically contains original actor receipt"
+  );
+  await controls("publicationActor", "later-actor");
   await controls("failSave", false);
   await controls("failAfterSave", true);
   await fails("/checkpoint");
   const committed = (await call("/stats")).fixture.saved;
+  check(
+    committed.publicationReceipt === "original-actor",
+    "retry after restart cannot reattribute frozen checkpoint to a later actor"
+  );
   const acknowledged = await call("/checkpoint");
   check(
     (await call("/stats")).meta.dirtySince === laterDeadline,

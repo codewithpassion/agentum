@@ -51,6 +51,13 @@ export interface ArtifactRoomService {
   ) => Promise<RoomScope & RoomSnapshot & { kind?: "document" | "deck" }>;
   /** URLs verified as this artifact/workspace's own blobs; never accept a browser policy. */
   ownBlobUrls: (scope: RoomScope) => Promise<string[]>;
+  /** Capture trusted publication provenance before freezing a checkpoint. The
+   * opaque receipt is persisted atomically with the frozen snapshot and reused
+   * on retries; never derive it from browser inputs or mutable retry-time state. */
+  prepareCheckpoint?: (
+    scope: RoomScope,
+    restores: RestoreProvenance[]
+  ) => Promise<string>;
   /** Current active document comment ranges, resolved inside the serialized agent mutation. */
   protectedRanges: (
     scope: RoomScope
@@ -59,12 +66,13 @@ export interface ArtifactRoomService {
   >;
   /** Idempotent by checkpointId. Reconcile a service restore save that already committed.
    * Atomically persist revision, provenance/events and attribution; acknowledge only after commit.
-   * Background saves must resolve an authorized principal, not impersonate a workspace ID.
+   * Background saves consume trusted durable provenance for accepted edits; fresh operations still require current authorization.
    */
   save: (
     scope: RoomScope,
     input: RoomSnapshot & {
       checkpointId: string;
+      publicationReceipt?: string;
       restores: RestoreProvenance[];
       origins: LiveOperationOrigin[];
     }
