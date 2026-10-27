@@ -25,9 +25,9 @@ import type { Database } from "@repo/db";
 import {
   approvedToolTargets,
   type ConnectorCallRow,
+  callableConnectors,
   findArtifactAccess,
   findVersionStatus,
-  workspaceConnectors,
 } from "@repo/db/artifact-calls";
 import type {
   ArtifactsCallToolInput,
@@ -84,6 +84,15 @@ const cachedToolsSchema = z.array(
   z.object({ name: z.string(), readOnly: z.boolean().default(false) })
 );
 
+const cachedTools = (json: string): z.infer<typeof cachedToolsSchema> => {
+  try {
+    const parsed = cachedToolsSchema.safeParse(JSON.parse(json));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+};
+
 /** `xero/list_invoices` as server key and tool name, or null. */
 const splitToolKey = (
   toolKey: string
@@ -101,6 +110,12 @@ const notGranted = (): ArtifactCallError =>
   );
 
 export interface ToolRunInput {
+  /**
+   * The agent whose connector list gives the server keys: the artifact's
+   * maker, as a run builds its keys over its own agent's connectors. Null for
+   * an artifact a person made.
+   */
+  agentId: string | null;
   arguments: Record<string, unknown>;
   /** `<serverKey>/<tool>`. */
   toolKey: string;
@@ -116,31 +131,49 @@ export interface ToolRunner {
 /** The connector and tool a granted key names, when the tool is read-only. */
 const findReadOnlyTool = async (
   db: Database,
-  workspaceId: string,
-  toolKey: string
+  input: Pick<ToolRunInput, "agentId" | "toolKey" | "workspaceId">
 ): Promise<{
   connector: ConnectorCallRow;
   toolName: string;
 }> => {
-  const parts = splitToolKey(toolKey);
+  const parts = splitToolKey(input.toolKey);
   if (!parts) {
     throw notGranted();
   }
-  const rows = await workspaceConnectors(db, workspaceId);
+  const rows = await callableConnectors(db, {
+    agentId: input.agentId,
+    workspaceId: input.workspaceId,
+  });
   const keys = connectorServerKeys(rows.map(({ name }) => name));
   const connector = rows[keys.indexOf(parts.serverKey)];
   if (!connector) {
     throw notGranted();
   }
-  const tools = cachedToolsSchema.safeParse(JSON.parse(connector.tools));
-  const tool = tools.success
-    ? tools.data.find(({ name }) => name === parts.toolName)
-    : undefined;
+  const tool = cachedTools(connector.tools).find(
+    ({ name }) => name === parts.toolName
+  );
   if (!tool?.readOnly) {
     throw notGranted();
   }
   return { connector, toolName: parts.toolName };
 };
+
+/** A refusal by the connector means the viewer must connect again, anything else is a failed call. */
+const toCallError = (
+  error: unknown,
+  connectorName: string
+): ArtifactCallError =>
+  error instanceof McpUnauthorizedError
+    ? new ArtifactCallError(
+        "needs_auth",
+        `Connect ${connectorName} again to use this artifact.`,
+        { cause: error }
+      )
+    : new ArtifactCallError(
+        "failed",
+        `${connectorName} could not complete the call.`,
+        { cause: error }
+      );
 
 /** The scrubbed result, or `too_large`. */
 const scrubbed = (raw: Record<string, unknown>): ArtifactsCallToolOutput => {
@@ -164,47 +197,70 @@ export const createToolRunner = ({
 }: {
   /** The MCP `tools/call` client, replaceable in tests. */
   callTool?: typeof callMcpTool;
-  credentials: Pick<CredentialsService, "resolveUser">;
+  credentials: Pick<CredentialsService, "refresh" | "resolveUser">;
   db: Database;
   fetch?: Fetcher;
 }): ToolRunner => {
-  const send = async (
+  const attempt = (
     resolution: Extract<Resolution, { ok: true }>,
-    connectorName: string,
+    header: { name: string; value: string } | undefined,
     toolName: string,
     args: Record<string, unknown>
+  ): Promise<Record<string, unknown>> =>
+    callTool(
+      resolution.connector.url,
+      {
+        fetchImpl,
+        header,
+        timeoutMs: resolution.connector.callTimeoutSeconds * 1000,
+      },
+      { arguments: args, name: toolName }
+    );
+
+  /**
+   * One try, and when the connector refuses the login, one refresh and a
+   * second try, as the connector proxy does.
+   */
+  const send = async (
+    resolution: Extract<Resolution, { ok: true }>,
+    input: ToolRunInput,
+    connectorName: string,
+    toolName: string
   ): Promise<Record<string, unknown>> => {
     try {
-      return await callTool(
-        resolution.connector.url,
-        {
-          fetchImpl,
-          header: resolution.credential?.header,
-          timeoutMs: resolution.connector.callTimeoutSeconds * 1000,
-        },
-        { arguments: args, name: toolName }
+      return await attempt(
+        resolution,
+        resolution.credential?.header,
+        toolName,
+        input.arguments
       );
     } catch (error) {
-      throw error instanceof McpUnauthorizedError
-        ? new ArtifactCallError(
-            "needs_auth",
-            `Connect ${connectorName} again to use this artifact.`,
-            { cause: error }
-          )
-        : new ArtifactCallError(
-            "failed",
-            `${connectorName} could not complete the call.`,
-            { cause: error }
-          );
+      if (!(error instanceof McpUnauthorizedError && resolution.credential)) {
+        throw toCallError(error, connectorName);
+      }
+      const refreshed = await credentials.refresh({
+        credentialId: resolution.credential.id,
+        seenVersion: resolution.credential.version,
+        workspaceId: input.workspaceId,
+      });
+      if (!refreshed.ok) {
+        throw refreshed.reason === "retry"
+          ? new ArtifactCallError("failed", "Try again in a moment.")
+          : toCallError(error, connectorName);
+      }
+      return await attempt(
+        resolution,
+        refreshed.credential.header,
+        toolName,
+        input.arguments
+      ).catch((second: unknown) => {
+        throw toCallError(second, connectorName);
+      });
     }
   };
 
   const run = async (input: ToolRunInput): Promise<ArtifactsCallToolOutput> => {
-    const { connector, toolName } = await findReadOnlyTool(
-      db,
-      input.workspaceId,
-      input.toolKey
-    );
+    const { connector, toolName } = await findReadOnlyTool(db, input);
     const resolution = await credentials.resolveUser({
       connectorId: connector.id,
       userId: input.userId,
@@ -221,9 +277,7 @@ export const createToolRunner = ({
         ? notGranted()
         : new ArtifactCallError("failed", "Try again in a moment.");
     }
-    return scrubbed(
-      await send(resolution, connector.name, toolName, input.arguments)
-    );
+    return scrubbed(await send(resolution, input, connector.name, toolName));
   };
   return { run };
 };
@@ -281,6 +335,7 @@ export const createArtifactCallsService = ({
       throw notGranted();
     }
     return await runner.run({
+      agentId: artifact.agentId,
       arguments: input.arguments ?? {},
       toolKey: input.tool,
       userId,

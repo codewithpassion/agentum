@@ -7,7 +7,7 @@ import {
   artifacts,
   artifactVersions,
 } from "./schema/artifacts.ts";
-import { connectors } from "./schema/connectors.ts";
+import { agentConnectors, connectors } from "./schema/connectors.ts";
 import type { ArtifactAudience, ArtifactVersionStatus } from "./shared.ts";
 
 export interface ArtifactAccessRow {
@@ -90,23 +90,40 @@ export interface ConnectorCallRow {
 }
 
 /**
- * Every connector of the workspace in creation order. The order gives the
- * server keys, so the same list always maps `<serverKey>/<tool>` to the same
- * connector.
+ * The connectors a `<serverKey>/<tool>` key can name, in the order that gives
+ * the keys. A run builds its keys over its agent's assigned connectors in
+ * assignment order, so an artifact made by an agent uses that list, and one
+ * made by a person uses every connector of the workspace in creation order.
  */
-export const workspaceConnectors = async (
+export const callableConnectors = async (
   db: Database,
-  workspaceId: string
-): Promise<ConnectorCallRow[]> =>
-  await db
-    .select({
-      callTimeoutSeconds: connectors.callTimeoutSeconds,
-      headerName: connectors.headerName,
-      id: connectors.id,
-      name: connectors.name,
-      tools: connectors.tools,
-      url: connectors.url,
-    })
-    .from(connectors)
-    .where(eq(connectors.workspaceId, workspaceId))
-    .orderBy(asc(connectors.createdAt), asc(connectors.id));
+  query: { agentId: string | null; workspaceId: string }
+): Promise<ConnectorCallRow[]> => {
+  const columns = {
+    callTimeoutSeconds: connectors.callTimeoutSeconds,
+    headerName: connectors.headerName,
+    id: connectors.id,
+    name: connectors.name,
+    tools: connectors.tools,
+    url: connectors.url,
+  };
+  if (query.agentId === null) {
+    return await db
+      .select(columns)
+      .from(connectors)
+      .where(eq(connectors.workspaceId, query.workspaceId))
+      .orderBy(asc(connectors.createdAt), asc(connectors.id));
+  }
+  return await db
+    .select(columns)
+    .from(agentConnectors)
+    .innerJoin(connectors, eq(connectors.id, agentConnectors.connectorId))
+    .where(
+      and(
+        eq(agentConnectors.agentId, query.agentId),
+        eq(agentConnectors.workspaceId, query.workspaceId),
+        eq(connectors.workspaceId, query.workspaceId)
+      )
+    )
+    .orderBy(asc(agentConnectors.createdAt), asc(agentConnectors.connectorId));
+};

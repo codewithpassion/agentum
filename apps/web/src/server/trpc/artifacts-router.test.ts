@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ArtifactCallError } from "@repo/services/artifacts/calls";
 import type { Context } from "./context.ts";
 import { appRouter } from "./router.ts";
 
@@ -67,4 +68,36 @@ test("the merged router exposes both halves under artifacts", () => {
     appRouter.artifacts.createShare;
   expect(list).toBeDefined();
   expect(createShare).toBeDefined();
+});
+
+test("callTool maps the call errors to tRPC codes", async () => {
+  const expected = {
+    failed: "BAD_GATEWAY",
+    needs_auth: "PRECONDITION_FAILED",
+    not_granted: "FORBIDDEN",
+    too_large: "PAYLOAD_TOO_LARGE",
+  } as const;
+  await Promise.all(
+    Object.entries(expected).map(([code, trpcCode]) => {
+      const failing = appRouter.createCaller({
+        principal,
+        services: {
+          artifactCalls: {
+            callTool: () =>
+              Promise.reject(
+                new ArtifactCallError(code as keyof typeof expected, "no")
+              ),
+          },
+        },
+      } as unknown as Context);
+      return expect(
+        failing.artifacts.callTool({
+          artifactId,
+          tool: "x/y",
+          versionId: "x",
+        }),
+        code
+      ).rejects.toMatchObject({ code: trpcCode });
+    })
+  );
 });

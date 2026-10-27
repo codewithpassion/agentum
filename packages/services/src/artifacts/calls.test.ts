@@ -1,14 +1,19 @@
 import { describe, expect, test } from "bun:test";
+import { agents } from "@repo/db/schema/agents";
 import {
   artifactGrants,
   artifacts,
   artifactVersions,
 } from "@repo/db/schema/artifacts";
-import { connectors } from "@repo/db/schema/connectors";
+import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { type callMcpTool, McpUnauthorizedError } from "../connectors/mcp.ts";
-import type { CredentialsService, Resolution } from "../credentials.ts";
+import type {
+  CredentialsService,
+  Refreshed,
+  Resolution,
+} from "../credentials.ts";
 import type { Principal } from "../workspaces.ts";
 import {
   type ArtifactCallErrorCode,
@@ -47,6 +52,9 @@ const setup = (
     result?: Record<string, unknown>;
     resolve?: (userId: string) => Resolution;
     throws?: unknown;
+    /** The first connector call is refused with a 401, the retry works. */
+    unauthorizedOnce?: boolean;
+    refresh?: Refreshed;
   } = {}
 ) => {
   const db = migrated();
@@ -141,8 +149,26 @@ const setup = (
     .run();
 
   const seen: Seen[] = [];
+  const unauthorized: number[] = [];
   const resolveUserCalls: string[] = [];
-  const credentials: Pick<CredentialsService, "resolveUser"> = {
+  const refreshCalls: number[] = [];
+  const credentials: Pick<CredentialsService, "refresh" | "resolveUser"> = {
+    refresh: () => {
+      refreshCalls.push(1);
+      return Promise.resolve(
+        options.refresh ?? {
+          credential: {
+            expiresAt: null,
+            header: { name: "Authorization", value: "Bearer fresh" },
+            id: "cred",
+            ownerId: "x",
+            ownerKind: "user",
+            version: 2,
+          },
+          ok: true,
+        }
+      );
+    },
     resolveUser: (input) => {
       resolveUserCalls.push(input.userId);
       return Promise.resolve(
@@ -154,7 +180,10 @@ const setup = (
                 callTimeoutSeconds: 30,
                 id: input.connectorId,
                 name: "Xero",
-                url: "https://mcp.example.com/mcp",
+                url:
+                  input.connectorId === "c2"
+                    ? "https://b.example.com/mcp"
+                    : "https://mcp.example.com/mcp",
               },
               credential: {
                 expiresAt: null,
@@ -179,6 +208,10 @@ const setup = (
     if (options.throws) {
       return Promise.reject(options.throws);
     }
+    if (options.unauthorizedOnce && seen.length === unauthorized.length) {
+      unauthorized.push(1);
+      return Promise.reject(new McpUnauthorizedError(null));
+    }
     seen.push({
       args: toolCall.arguments,
       header: clientOptions.header,
@@ -192,6 +225,7 @@ const setup = (
   const runner = createToolRunner({ callTool, credentials, db });
   return {
     db,
+    refreshCalls,
     resolveUserCalls,
     seen,
     service: createArtifactCallsService({ db, runner }),
@@ -396,5 +430,87 @@ describe("callTool as a member (R2.5)", () => {
     expect(
       await codeOf(service.callTool(run, call("xero/list_invoices")))
     ).toBe("Not allowed: call an artifact tool");
+  });
+
+  test("a refused login is refreshed once and the call retried", async () => {
+    const { refreshCalls, seen, service } = setup({ unauthorizedOnce: true });
+    const out = await service.callTool(member("v"), call("xero/list_invoices"));
+    expect(out.result).toBeDefined();
+    expect(refreshCalls).toHaveLength(1);
+    expect(seen.map((s) => s.header?.value)).toEqual(["Bearer fresh"]);
+  });
+
+  test("a login that cannot be refreshed gives needs_auth", async () => {
+    const { service } = setup({
+      refresh: {
+        cause: "needs_auth",
+        connectPath: "/connect/c1?as=user",
+        ok: false,
+        ownerId: "v",
+        ownerKind: "user",
+        reason: "needs_auth",
+      },
+      unauthorizedOnce: true,
+    });
+    expect(
+      await codeOf(service.callTool(member("v"), call("xero/list_invoices")))
+    ).toBe("needs_auth");
+  });
+
+  test("a malformed tool list in the connector row refuses instead of crashing", async () => {
+    const { db, service } = setup();
+    db.update(connectors).set({ tools: "{nope" }).run();
+    expect(
+      await codeOf(service.callTool(member("v"), call("xero/list_invoices")))
+    ).toBe("not_granted");
+  });
+
+  test("server keys follow the making agent's connectors, so same-named connectors do not swap", async () => {
+    const { db, seen, service } = setup();
+    db.insert(connectors)
+      .values({
+        authKind: "header",
+        createdAt: "2026-10-28T00:00:00.000Z",
+        createdBy: "owner",
+        id: "c2",
+        name: "Xero",
+        status: "ok",
+        tools: TOOLS,
+        url: "https://b.example.com/mcp",
+        workspaceId: "w1",
+      })
+      .run();
+    db.insert(agents)
+      .values({
+        createdAt: NOW,
+        createdBy: "owner",
+        id: "ag1",
+        instructions: "",
+        model: "m",
+        name: "A",
+        runtime: "fake",
+        runtimeConfig: "{}",
+        slug: "a",
+        status: "active",
+        workspaceId: "w1",
+      })
+      .run();
+    db.insert(agentConnectors)
+      .values({
+        agentId: "ag1",
+        connectorId: "c2",
+        createdAt: NOW,
+        workspaceId: "w1",
+      })
+      .run();
+    // Made by a person: the first Xero in the workspace.
+    await service.callTool(member("v"), call("xero/list_invoices"));
+    // Made by the agent that was assigned only the second Xero.
+    db.update(artifacts).set({ agentId: "ag1" }).run();
+    await service.callTool(member("v"), call("xero/list_invoices"));
+    expect(seen.map((s) => s.url)).toEqual([
+      "https://mcp.example.com/mcp",
+      "https://b.example.com/mcp",
+    ]);
   });
 });

@@ -1,16 +1,17 @@
 import { expect, test } from "bun:test";
 import {
   approvedToolTargets,
+  callableConnectors,
   findArtifactAccess,
   findVersionStatus,
-  workspaceConnectors,
 } from "./artifact-calls.ts";
+import { agents } from "./schema/agents.ts";
 import {
   artifactGrants,
   artifacts,
   artifactVersions,
 } from "./schema/artifacts.ts";
-import { connectors } from "./schema/connectors.ts";
+import { agentConnectors, connectors } from "./schema/connectors.ts";
 import { workspaces } from "./schema/workspaces.ts";
 import { migrated } from "./test-db.ts";
 
@@ -133,7 +134,7 @@ test("approvedToolTargets returns only approved tool grants of the version", asy
   ).toEqual([]);
 });
 
-test("workspaceConnectors lists the workspace's connectors in creation order", async () => {
+test("callableConnectors lists the workspace's connectors in creation order", async () => {
   const db = seed();
   const row = (id: string, name: string, createdAt: string, ws = "w1") => ({
     authKind: "none" as const,
@@ -152,7 +153,55 @@ test("workspaceConnectors lists the workspace's connectors in creation order", a
       row("c3", "Elsewhere", NOW, "w2"),
     ])
     .run();
-  const rows = await workspaceConnectors(db, "w1");
+  const rows = await callableConnectors(db, {
+    agentId: null,
+    workspaceId: "w1",
+  });
   expect(rows.map((r) => r.id)).toEqual(["c1", "c2"]);
   expect(rows[0]?.tools).toBe("[]");
+});
+
+test("callableConnectors for an agent lists its assigned connectors in assignment order", async () => {
+  const db = seed();
+  db.insert(agents)
+    .values({
+      createdAt: NOW,
+      createdBy: "u1",
+      id: "ag1",
+      instructions: "",
+      model: "m",
+      name: "A",
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: "a",
+      status: "active",
+      workspaceId: "w1",
+    })
+    .run();
+  const row = (id: string) => ({
+    authKind: "none" as const,
+    createdAt: NOW,
+    createdBy: "u1",
+    id,
+    name: "Xero",
+    status: "ok" as const,
+    url: `https://${id}.example.com/mcp`,
+    workspaceId: "w1",
+  });
+  db.insert(connectors)
+    .values([row("c1"), row("c2")])
+    .run();
+  db.insert(agentConnectors)
+    .values({
+      agentId: "ag1",
+      connectorId: "c2",
+      createdAt: NOW,
+      workspaceId: "w1",
+    })
+    .run();
+  const rows = await callableConnectors(db, {
+    agentId: "ag1",
+    workspaceId: "w1",
+  });
+  expect(rows.map((r) => r.id)).toEqual(["c2"]);
 });
