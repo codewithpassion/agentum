@@ -1594,3 +1594,39 @@ test("refresh acknowledgement failure retries the same scope without repeating m
       .all()
   ).toHaveLength(1);
 });
+
+test("invalidation pagination can pass failed entries without starving later work", async () => {
+  const h = setup();
+  const { artifactId } = await h.create();
+  h.deps.rooms.refresh = () => Promise.reject(new Error("offline"));
+  await expect(
+    h.service.invalidateAccess(principals.owner, {
+      artifactId,
+      participantId: "one",
+    })
+  ).rejects.toThrow();
+  await expect(
+    h.service.invalidateAccess(principals.owner, {
+      artifactId,
+      participantId: "two",
+    })
+  ).rejects.toThrow();
+  const first = await h.service.retryInvalidations(
+    { kind: "system" },
+    { limit: 1 }
+  );
+  expect(first.attempted).toBe(1);
+  expect(first.completed).toBe(0);
+  expect(first.next).toBeDefined();
+  h.deps.rooms.refresh = () => Promise.resolve();
+  expect(
+    await h.service.retryInvalidations(
+      { kind: "system" },
+      { cursor: first.next, limit: 1 }
+    )
+  ).toEqual({ attempted: 1, completed: 1 });
+  expect(await h.service.retryInvalidations({ kind: "system" })).toEqual({
+    attempted: 1,
+    completed: 1,
+  });
+});

@@ -1,7 +1,7 @@
 import { artifacts } from "@repo/db/schema/artifacts";
 import { artifactRoomInvalidations as invalidations } from "@repo/db/schema/live-artifacts";
 import type { ArtifactAudience } from "@repo/db/shared";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
 import type { Principal } from "../workspaces.ts";
@@ -114,19 +114,25 @@ export const createAccessLifecycle = (ctx: InteractionContext) => {
      * Failed deliveries remain pending; refresh must be idempotent. */
     async retryInvalidations(
       principal: Principal,
-      input: { limit?: number } = {}
+      input: { limit?: number; cursor?: string } = {}
     ) {
       if (principal.kind !== "system") {
         throw new ForbiddenError("liveArtifacts.retryInvalidations");
       }
+      const limit = pageSize(input.limit);
       const rows = await ctx.db
         .select()
         .from(invalidations)
-        .where(isNull(invalidations.completedAt))
+        .where(
+          and(
+            isNull(invalidations.completedAt),
+            input.cursor ? gt(invalidations.id, input.cursor) : undefined
+          )
+        )
         .orderBy(asc(invalidations.id))
-        .limit(pageSize(input.limit));
+        .limit(limit + 1);
       let completed = 0;
-      for (const row of rows) {
+      for (const row of rows.slice(0, limit)) {
         try {
           // biome-ignore lint/performance/noAwaitInLoops: serialize room refresh and durable acknowledgement
           await deliver(row);
@@ -135,7 +141,11 @@ export const createAccessLifecycle = (ctx: InteractionContext) => {
           /* Durable row remains pending for the next delivery. */
         }
       }
-      return { attempted: rows.length, completed };
+      return {
+        attempted: Math.min(rows.length, limit),
+        completed,
+        ...(rows.length > limit ? { next: rows[limit - 1]?.id } : {}),
+      };
     },
     async setAudience(
       principal: Principal,
