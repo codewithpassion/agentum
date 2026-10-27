@@ -141,7 +141,8 @@
     "./live-guests/http-scope": "./src/live-guests/http-scope.ts",
     "./live-guests/artifacts": "./src/live-guests/artifacts.ts",
     "./live-guests/images": "./src/live-guests/images.ts",
-    "./live-guests/service": "./src/live-guests/service.ts"
+    "./live-guests/service": "./src/live-guests/service.ts",
+    "./live-exports": "./src/live-exports/service.ts"
   },
   "scripts": {
     "test": "bun test",
@@ -151,6 +152,7 @@
     "@anthropic-ai/sdk": "^0.118.0",
     "@repo/db": "workspace:*",
     "@repo/library-sync": "workspace:*",
+    "@repo/live-export": "workspace:*",
     "@repo/protocol": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "fflate": "0.8.3",

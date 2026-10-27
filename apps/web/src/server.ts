@@ -17,6 +17,7 @@ import {
   liveImageRoutes,
   liveRoomRoutes,
 } from "./server/live-artifacts/routes";
+import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
 import { accessRoutes } from "./server/routes/access.ts";
@@ -162,6 +163,7 @@ app.use(
 
 // One route app per lane, each mounted once here. Lanes edit their own file.
 app.route("/", liveImageRoutes());
+app.route("/", liveExportRoutes());
 app.route("/", runtimeRoutes);
 app.route("/", accessRoutes);
 app.route("/", automationRoutes);

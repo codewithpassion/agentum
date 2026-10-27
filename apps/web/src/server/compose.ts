@@ -119,6 +119,11 @@ import {
   type LiveArtifactsWithAsk,
 } from "@repo/services/live-artifacts/factory";
 import {
+  createLiveExportsService,
+  type LiveExportsService,
+  type PrintPDF,
+} from "@repo/services/live-exports";
+import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
@@ -248,7 +253,7 @@ import {
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { appStorePort } from "./app-store/port.ts";
-import { browserRunDriver } from "./browser-run.ts";
+import { browserRunDriver, exportPrintPDF } from "./browser-run.ts";
 import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
@@ -303,6 +308,7 @@ export interface Infra {
   /** Runs work after the response: `waitUntil` in a request. Without it, work is awaited. */
   defer?: (work: Promise<void>) => void;
   devFakeRuntime: boolean;
+  exportPDF?: PrintPDF;
   /** How connector probes reach the network. Defaults to the global `fetch`. */
   fetch?: Fetcher;
   /** Where uploaded files live: R2 in the app. */
@@ -380,6 +386,7 @@ export interface Services {
   libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
   liveArtifacts?: LiveArtifactsWithAsk;
+  liveExports?: LiveExportsService;
   liveGuests?: () => Promise<
     import("@repo/services/live-guests/service").LiveGuestsService
   >;
@@ -496,6 +503,20 @@ const skillsStoreGithub = (
 });
 
 /** The services over a database and infra. Tests call this with fakes. */
+const lazyGuestService = (
+  factory: Infra["guests"],
+  input: GuestComposition
+): Services["liveGuests"] => {
+  if (!factory) {
+    return;
+  }
+  let guests: ReturnType<typeof guestService> | undefined;
+  return () => {
+    guests ??= factory(input);
+    return guests;
+  };
+};
+
 export const composeWith = ({
   allowedOrgIds,
   db,
@@ -996,7 +1017,6 @@ export const composeWith = ({
         infra.live.wake
       )
     : undefined;
-  let guests: ReturnType<typeof guestService> | undefined;
   return {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -1028,20 +1048,22 @@ export const composeWith = ({
       libraryAccess,
       libraryLinks,
       liveArtifacts,
-      liveGuests: infra.guests
-        ? () => {
-            guests ??= infra.guests?.({
-              atomic: infra.atomic,
-              clock: infra.clock,
-              db,
-              services: { events, liveArtifacts },
-            });
-            if (!guests) {
-              throw new Error("Guest access unavailable");
-            }
-            return guests;
-          }
+      liveExports: liveArtifacts
+        ? createLiveExportsService({
+            clock: infra.clock,
+            db,
+            files,
+            live: liveArtifacts,
+            printPDF: infra.exportPDF,
+            rooms: infra.live?.rooms,
+          })
         : undefined,
+      liveGuests: lazyGuestService(infra.guests, {
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+        services: { events, liveArtifacts },
+      }),
       liveRoom: infra.live?.roomFor,
       machines,
       mail: { ...mail, ...mailOutbound },
@@ -1107,6 +1129,7 @@ export const compose = (
       cloudRunner: durableRunnerPort(env.PI_RUN),
       defer,
       devFakeRuntime,
+      exportPDF: exportPrintPDF(env.BROWSER),
       fileBlobs: r2FileBlobs(env.FILES),
       // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),

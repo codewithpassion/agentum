@@ -88,3 +88,7 @@ The subsequent actual-editor split capture exposed valid adjacent boundary trans
 ## Independent recheck on main 922f82ea
 
 Verdict: **incomplete; no new finding established**. I inspected the e2183512 migration validator and reran `bun run --cwd packages/live-deck test`: 43 passed, 431 assertions, including actual workerd. The retained map chain checks every item for a single ContentAny value; the suite exercises deleted nested shared payloads, malformed records and budgets, cross-fragment source/target rejection, native Y.ID and the captured merged list split. I did not complete the requested independent adversarial probes of overwritten history, spanning fragment ancestry, or resource limits, and cannot certify absence of bypasses or valid-operation rejection. The separate actual-browser gate remains outstanding. This is not an approval.
+
+### Independent recheck unavailable
+
+The focused Terra recheck requested after e2183512 failed before producing a verdict: the provider reported that the request was flagged for possible cybersecurity risk. No approval or new finding resulted. The controller did not retry with altered wording or treat this as acceptance. Existing focused tests and LD.6 browser evidence remain recorded above; independent remediation approval remains open.
