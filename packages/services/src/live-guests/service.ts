@@ -26,7 +26,18 @@ export const createLiveGuestsService = async (deps: LiveGuestsDeps) => {
     ...invitations,
     ...auth,
     ...sessions,
-    invitation: access.invitation,
+    async invitation(workspaceId: string, token: string) {
+      const metadata = await access.invitation(workspaceId, token);
+      if (!metadata) {
+        return null;
+      }
+      const { createdBy, ...landing } = metadata;
+      const inviterName = await deps.inviterName({
+        userId: createdBy,
+        workspaceId,
+      });
+      return deps.guestsOff() ? null : { ...landing, inviterName };
+    },
     resolve: access.resolve,
   };
 };

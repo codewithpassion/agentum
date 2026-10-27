@@ -19,6 +19,7 @@ import { createGuestAuthService } from "./auth.ts";
 import { createGuestInvitations } from "./invitations.ts";
 import type { GuestEmailPort } from "./ports.ts";
 import { createGuestCodeHasher } from "./security.ts";
+import { createLiveGuestsService } from "./service.ts";
 import { createGuestSessionLifecycle } from "./sessions.ts";
 
 const NOW = "2026-10-27T00:00:00.000Z";
@@ -155,6 +156,26 @@ const lastCode = (h: Awaited<ReturnType<typeof setup>>) => {
 };
 
 describe("guest OTP, actual migrated DB and Web Crypto", () => {
+  test("composed scanner landing supplies trusted inviter name without any DB writes or sends", async () => {
+    const h = await setup();
+    const invite = await h.invite();
+    const service = await createLiveGuestsService({
+      ...h.authDeps,
+      directory: { findMemberByEmail: () => Promise.resolve(null) },
+      invalidations: { trigger: () => Promise.resolve() },
+      origin: "https://example.com",
+    });
+    const before = h.db.client.serialize();
+    expect(await service.invitation("w1", invite.inviteToken)).toMatchObject({
+      artifactTitle: "Client document",
+      expiresAt: EXPIRY,
+      inviterName: "Inviter",
+      role: "editor",
+    });
+    expect(h.db.client.serialize()).toEqual(before);
+    expect(h.mails).toHaveLength(0);
+    expect(await service.invitation("w2", invite.inviteToken)).toBeNull();
+  });
   test("explicit code request stores only context-bound hash and sends required data; verify consumes and signs in", async () => {
     const h = await setup();
     const invite = await h.invite();
