@@ -1,5 +1,8 @@
 import type { QaAuthorKind, QaStatus } from "@repo/db/shared";
 import type { DesktopAction } from "@repo/protocol/computer";
+import type { LivePort } from "./tools/live";
+
+export type { LivePort } from "./tools/live";
 
 /**
  * What the platform tools need from the app. The app builds one `McpPorts` per
@@ -258,6 +261,8 @@ export interface ArtifactTestInfo {
  * Artifacts as the tools see them, bound to the run. A port throws `ToolError`
  * with `forbidden` for an artifact the run may not write, `not_found`, and
  * `conflict` for a stale `baseVersion` with the current version in the message.
+ * `update` must reject live document/deck artifacts with validation naming
+ * document_edit/deck_write respectively; it must never replace live content.
  * `promote` answers `waiting` when a person must approve the version's grants.
  */
 export interface ArtifactsPort {
@@ -822,6 +827,8 @@ export interface McpPorts {
   listSessions: (input: { agent: string }) => Promise<SessionInfo[]>;
   listSkills: () => Promise<SkillInfo[]>;
   listTriggers: (input: { agentId?: string }) => Promise<TriggerInfo[]>;
+  /** Live document tools, bound to the caller by the app (L.7). */
+  live?: LivePort;
   /** Bound to the calling run's active mailbox; absent for other principals. */
   mail?: {
     list: (input: {

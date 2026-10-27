@@ -778,3 +778,18 @@ test("the artifact write tools have platform labels for Ask me before", () => {
     "publishing a new version of an artifact"
   );
 });
+
+test("live document tools have stable platform approval labels", () => {
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/document_edit"]).toBe(
+    "editing a live document"
+  );
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/document_comment"]).toBe(
+    "commenting on a live document"
+  );
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/document_read"]).toBe(
+    "reading a live document"
+  );
+  expect(PLATFORM_TOOL_LABELS["harbourmaster/document_comments"]).toBe(
+    "reading live document comments"
+  );
+});

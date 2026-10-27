@@ -10,6 +10,7 @@ import { computerTools } from "./tools/computer";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
+import { liveTools } from "./tools/live";
 import { mailTools } from "./tools/mail";
 import { qaTools } from "./tools/qa";
 import { routineTools } from "./tools/routines";
@@ -80,7 +81,12 @@ export const harbourmasterTools = (
   ...inboxTools(ports),
   // Offered once the app wires the port; a read-only caller keeps the read tools.
   ...(ports.artifacts
-    ? artifactTools(ports.artifacts).filter(
+    ? artifactTools(ports.artifacts, ports.live).filter(
+        (tool) => !readOnly || tool.annotations.readOnlyHint === true
+      )
+    : []),
+  ...(ports.live
+    ? liveTools(ports.live).filter(
         (tool) => !readOnly || tool.annotations.readOnlyHint === true
       )
     : []),
@@ -147,6 +153,13 @@ export const TOOL_NAMES = harbourmasterTools({
   listSessions: unusedPort,
   listSkills: unusedPort,
   listTriggers: unusedPort,
+  live: {
+    comment: unusedPort,
+    comments: unusedPort,
+    create: unusedPort,
+    edit: unusedPort,
+    read: unusedPort,
+  },
   pinSkill: unusedPort,
   readSession: unusedPort,
   rejectSkillVersion: unusedPort,

@@ -17,6 +17,7 @@ import {
   createHarbourmasterMcpServer,
   harbourmasterTools,
   type ServerOptions,
+  TOOL_NAMES,
 } from "../server";
 import { connectClient, textOf } from "../testing";
 
@@ -1185,4 +1186,15 @@ describe("dry-run gate", () => {
     expect(textOf(result)).toBe(GENERIC);
     expect(calls).toEqual([]);
   });
+});
+
+test("default runtime catalog includes every live document tool", () => {
+  for (const name of [
+    "document_read",
+    "document_edit",
+    "document_comment",
+    "document_comments",
+  ]) {
+    expect(TOOL_NAMES).toContain(name);
+  }
 });

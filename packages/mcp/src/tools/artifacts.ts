@@ -21,6 +21,8 @@ import {
   WRITE_UPDATE,
 } from "./define";
 
+import type { LivePort } from "./live";
+
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const TOKEN_IN_TEXT = /hm_(?:view|share)_[A-Za-z0-9_.~%-]+/g;
 const TRAILING_PADDING = /[=]+$/;
@@ -84,13 +86,23 @@ const contentFields = {
     .describe("A short note about this version, up to 500 characters."),
 };
 
-const createInput = z.strictObject({
+export const artifactCreateInputSchema = z.strictObject({
   description: z
     .string()
     .max(500)
     .optional()
     .describe("What the artifact is, up to 500 characters."),
-  kind,
+  kind: z
+    .enum(["page", "doc", "dashboard", "app", "document"])
+    .describe(
+      "document: a live collaborative document with optional markdown. page/doc/dashboard/app: static file-based artifacts."
+    ),
+  markdown: z
+    .string()
+    .optional()
+    .describe(
+      "Initial live document markdown; omit for an empty document. Only for kind document."
+    ),
   title: z
     .string()
     .trim()
@@ -306,16 +318,57 @@ const testText = (info: ArtifactTestInfo): string => {
   ].join("\n");
 };
 
-export const artifactTools = (port: ArtifactsPort): ToolDefinition[] => [
+export const artifactTools = (
+  port: ArtifactsPort,
+  live?: LivePort
+): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
-    description: `Publishes a new artifact (a page, doc or dashboard) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath (usually your task folder). The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one. A new app version from an agent is proposed, not live, until artifact_promote. artifact_test opens the proposed version.`,
-    inputSchema: createInput,
+    description: `Creates a live document with kind document and optional markdown; use document_read/document_edit afterwards, never artifact_update. The person wins; fill pending blocks with guarded updates and never force retries. Static creation: publishes a new artifact (a page, doc or dashboard) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath (usually your task folder). The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one. A new app version from an agent is proposed, not live, until artifact_promote. artifact_test opens the proposed version.`,
+    inputSchema: artifactCreateInputSchema,
     name: "artifact_create",
     run: async (input) => {
+      if (input.kind === "document") {
+        if (
+          input.files !== undefined ||
+          input.fromLibraryPath !== undefined ||
+          input.entry !== undefined
+        ) {
+          invalid(
+            "A live document takes optional markdown, not files, entry or fromLibraryPath."
+          );
+        }
+        if (!live) {
+          throw new ToolError(
+            "validation",
+            "Live documents are not available on this server."
+          );
+        }
+        const result = await live.create({
+          description: input.description,
+          kind: "document",
+          markdown: input.markdown,
+          message: input.message,
+          title: input.title,
+        });
+        return {
+          data: {
+            artifactId: result.artifactId,
+            revision: result.revision,
+            url: result.url,
+          },
+          text: `Created live document ${result.artifactId}, revision ${result.revision}. Open it at ${result.url} (needs sign-in). Use document_read and document_edit for guarded changes; the person wins.`,
+        };
+      }
+      if (input.markdown !== undefined) {
+        invalid(
+          "markdown is only for kind document; static artifacts use files or fromLibraryPath."
+        );
+      }
       const withEntry = {
         ...input,
         entry: input.entry ?? defaultEntry(input.kind),
+        kind: input.kind,
       };
       checkContent(withEntry);
       const published = await port.create(withEntry);
