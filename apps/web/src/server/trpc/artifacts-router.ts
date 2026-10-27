@@ -29,11 +29,18 @@ import {
   artifactsVersionsInputSchema,
   artifactsVersionsOutputSchema,
 } from "@repo/protocol/artifacts";
+import { isArtifactCallError } from "@repo/services/artifacts/calls";
 import type { ArtifactsService } from "@repo/services/artifacts/service";
 import { TRPCError } from "@trpc/server";
 import type { Services } from "../compose.ts";
 import { router, workspaceProcedure } from "./init.ts";
 
+const CALL_ERROR_CODES = {
+  failed: "BAD_GATEWAY",
+  needs_auth: "PRECONDITION_FAILED",
+  not_granted: "FORBIDDEN",
+  too_large: "PAYLOAD_TOO_LARGE",
+} as const;
 // A.6 adds `artifacts` to `Services`; until then the service may be missing.
 // A.6 replaces this accessor with `ctx.services.artifacts`.
 const artifactsOf = (ctx: { services: Services }): ArtifactsService => {
@@ -52,11 +59,18 @@ export const artifactsRouter = router({
   callTool: workspaceProcedure
     .input(artifactsCallToolInputSchema)
     .output(artifactsCallToolOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.callTool is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await ctx.services.artifactCalls.callTool(ctx.principal, input);
+      } catch (error) {
+        throw isArtifactCallError(error)
+          ? new TRPCError({
+              cause: error,
+              code: CALL_ERROR_CODES[error.code],
+              message: error.message,
+            })
+          : error;
+      }
     }),
   decideGrant: workspaceProcedure
     .input(artifactsDecideGrantInputSchema)
