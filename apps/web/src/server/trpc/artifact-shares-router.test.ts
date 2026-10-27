@@ -166,9 +166,6 @@ describe("artifact shares procedures call the service", () => {
 
     expect(await caller.artifacts.linksEnabled()).toEqual({ enabled: true });
     expect(received).toEqual([{ args: [principal], method: "linksEnabled" }]);
-    await expect(callerWith({}).artifacts.linksEnabled()).rejects.toMatchObject(
-      { code: "NOT_IMPLEMENTED" }
-    );
   });
 
   test("an anonymous caller is unauthorized and never reaches the service", async () => {
@@ -186,18 +183,6 @@ describe("artifact shares procedures call the service", () => {
       )
     );
     expect(received).toEqual([]);
-  });
-
-  test("with no service wired, every procedure is NOT_IMPLEMENTED", async () => {
-    const unwired = callerWith({});
-
-    await Promise.all(
-      procedures.map(({ run, method }) =>
-        expect(run(unwired), method).rejects.toMatchObject({
-          code: "NOT_IMPLEMENTED",
-        })
-      )
-    );
   });
 
   test("a ForbiddenError from the service maps to FORBIDDEN", async () => {

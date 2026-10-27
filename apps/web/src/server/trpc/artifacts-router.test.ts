@@ -15,31 +15,7 @@ const caller = appRouter.createCaller({
 } as unknown as Context);
 const artifactId = crypto.randomUUID();
 
-const calls: Record<string, () => Promise<unknown>> = {
-  createShare: () => caller.artifacts.createShare({ artifactId }),
-  decideGrant: () =>
-    caller.artifacts.decideGrant({ decision: "approved", grantId: "x" }),
-  handTo: () => caller.artifacts.handTo({ agentId: null, artifactId }),
-  open: () => caller.artifacts.open({ artifactId, surface: "viewer" }),
-  pin: () => caller.artifacts.pin({ artifactId, surface: "sidebar" }),
-  promote: () => caller.artifacts.promote({ artifactId, versionId: "x" }),
-  revokeShare: () => caller.artifacts.revokeShare({ shareId: "x" }),
-  setLinksEnabled: () => caller.artifacts.setLinksEnabled({ enabled: true }),
-  shares: () => caller.artifacts.shares({ artifactId }),
-  unpin: () => caller.artifacts.unpin({ artifactId, surface: "sidebar" }),
-  views: () => caller.artifacts.views({ artifactId }),
-};
-
-test("every artifacts procedure but callTool is stubbed as NOT_IMPLEMENTED", async () => {
-  expect(Object.keys(calls)).toHaveLength(11);
-  await Promise.all(
-    Object.entries(calls).map(([name, call]) =>
-      expect(call(), name).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" })
-    )
-  );
-});
-
-test("the input schema runs before the stub body", async () => {
+test("the input schema runs before the procedure body", async () => {
   await expect(
     caller.artifacts.get({ artifactId: "nope" })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });

@@ -11,6 +11,7 @@ import {
   type ArtifactVersionRow,
   type ArtifactVisibility,
   activeLinkCounts,
+  filesByVersionIds,
   findArtifact,
   findVersionById,
   findVersionByNumber,
@@ -53,6 +54,7 @@ import {
   contentTypeForPath,
 } from "@repo/protocol/artifacts";
 import { and, eq, inArray } from "drizzle-orm";
+import { zipSync } from "fflate";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
@@ -62,6 +64,8 @@ import type { LibraryBlobs, LibraryService } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
 import { visibleSessions } from "../sessions.ts";
 import type { Principal } from "../workspaces.ts";
+import type { ArtifactGrantsService } from "./grants.ts";
+import { MANIFEST_PATH } from "./manifest.ts";
 import {
   type ArtifactPolicyRecord,
   agentCanSee,
@@ -80,7 +84,12 @@ const AGENT_LOOKUP_CHUNK = 80;
 const FILE_ROWS_PER_INSERT = 10;
 /** Blobs written at the same time. */
 const BLOB_WRITE_PARALLEL = 8;
-const CREATABLE_KINDS: readonly ArtifactKind[] = ["page", "doc", "dashboard"];
+const CREATABLE_KINDS: readonly ArtifactKind[] = [
+  "page",
+  "doc",
+  "dashboard",
+  "app",
+];
 const TEXT_TYPE = /^(text\/|application\/(json|xml|javascript))|\+xml/;
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
@@ -103,7 +112,7 @@ export interface ArtifactContentInput {
 
 export interface CreateArtifactInput extends ArtifactContentInput {
   description?: string;
-  kind: "page" | "doc" | "dashboard";
+  kind: "page" | "doc" | "dashboard" | "app";
   message?: string;
   title: string;
   /** The tool call that made it, carried on `artifact.published`. */
@@ -219,6 +228,8 @@ const chunks = <T>(items: readonly T[], size: number): T[][] => {
 
 const blobKey = (workspaceId: string, sha256: string) =>
   `${workspaceId}/artifact-blobs/${sha256}`;
+const thumbnailKey = (workspaceId: string, versionId: string) =>
+  `${workspaceId}/artifact-thumbnails/${versionId}.png`;
 const manifestKey = (workspaceId: string, versionId: string) =>
   `${workspaceId}/artifact-manifests/${versionId}.json`;
 
@@ -285,6 +296,7 @@ export const createArtifactsService = ({
   clock,
   db,
   events,
+  grants,
   library,
   people,
 }: {
@@ -293,6 +305,8 @@ export const createArtifactsService = ({
   clock: Clock;
   db: Database;
   events: Pick<EventsService, "insertStatement">;
+  /** Checks and records the grants of an `app` version (B.4). Without it apps are refused. */
+  grants?: Pick<ArtifactGrantsService, "checkManifest" | "recordVersionGrants">;
   library: Pick<LibraryService, "list" | "read">;
   /** Looks up owner names for cards. Without it, `ownerName` is null. */
   people?: PeopleLookup;
@@ -600,11 +614,74 @@ export const createArtifactsService = ({
     );
   };
 
+  /** The paths of a stored version with the bytes of its manifest, for the grant check. */
+  const manifestOf = async (
+    member: Member,
+    files: { path: string; sha256: string }[]
+  ): Promise<ResolvedFile[]> =>
+    await Promise.all(
+      files.map(async (file) => {
+        const blob =
+          file.path === MANIFEST_PATH
+            ? await blobs.get(blobKey(member.workspaceId, file.sha256))
+            : null;
+        return {
+          bytes: blob?.bytes ?? new Uint8Array(),
+          contentType: "",
+          path: file.path,
+          sha256: file.sha256,
+        };
+      })
+    );
+
+  /** An agent's app version waits `proposed` for `artifact_promote`; a person's goes live at once. */
+  const statusFor = (member: Member, kind: ArtifactKind) =>
+    kind === "app" && member.kind === "run" ? "proposed" : "published";
+
+  const manifestFiles = (files: ResolvedFile[]) =>
+    files.map((file) => ({
+      path: file.path,
+      ...(file.path === MANIFEST_PATH && {
+        text: new TextDecoder().decode(file.bytes),
+      }),
+    }));
+
+  /** Before an app version is written: its manifest must parse and ask only for read-only tools. */
+  const checkApp = async (
+    member: Member,
+    kind: ArtifactKind,
+    files: ResolvedFile[]
+  ) => {
+    if (kind !== "app") {
+      return;
+    }
+    if (!grants) {
+      throw invalid("Apps are not enabled");
+    }
+    await grants.checkManifest(member, manifestFiles(files));
+  };
+
+  /** After an app version is written: one grant row per ask. */
+  const recordApp = async (
+    member: Member,
+    kind: ArtifactKind,
+    ids: { artifactId: string; versionId: string },
+    files: ResolvedFile[]
+  ) => {
+    if (kind === "app" && grants) {
+      await grants.recordVersionGrants(member, {
+        ...ids,
+        files: manifestFiles(files),
+      });
+    }
+  };
+
   /** The rows of a new version: the version and its files, in chunks D1 can bind. */
   const versionStatements = (
     member: Member,
     artifactId: string,
-    draft: VersionDraft
+    draft: VersionDraft,
+    status: "proposed" | "published" = "published"
   ): Statement[] => {
     const at = nowIso();
     const totalBytes = draft.files.reduce((sum, file) => sum + file.size, 0);
@@ -624,7 +701,7 @@ export const createArtifactsService = ({
         number: draft.number,
         parentNumber: draft.parentNumber,
         sourceLibraryPath: draft.sourceLibraryPath,
-        status: "published",
+        status,
         totalBytes,
         workspaceId: member.workspaceId,
       }),
@@ -751,6 +828,7 @@ export const createArtifactsService = ({
       throw invalid(`Kind ${input.kind} cannot be created yet`);
     }
     const content = await resolveContent(member, input, input.kind);
+    await checkApp(member, input.kind, content.files);
     const fresh = await checkQuota(member.workspaceId, content.files);
 
     const scope =
@@ -782,7 +860,10 @@ export const createArtifactsService = ({
           createdAt: at,
           createdById: author.id,
           createdByKind: author.kind,
-          currentVersionId: draft.versionId,
+          currentVersionId:
+            statusFor(member, input.kind) === "proposed"
+              ? null
+              : draft.versionId,
           description: input.description ?? null,
           id: artifactId,
           kind: input.kind,
@@ -793,7 +874,12 @@ export const createArtifactsService = ({
           updatedAt: at,
           workspaceId: member.workspaceId,
         }),
-        ...versionStatements(member, artifactId, draft),
+        ...versionStatements(
+          member,
+          artifactId,
+          draft,
+          statusFor(member, input.kind)
+        ),
         event(
           member,
           "artifact.created",
@@ -803,6 +889,12 @@ export const createArtifactsService = ({
         publishedEvent(member, row, input.title, draft, input.toolCallId),
       ],
       ""
+    );
+    await recordApp(
+      member,
+      input.kind,
+      { artifactId, versionId: draft.versionId },
+      content.files
     );
     return resultOf(artifactId, draft);
   };
@@ -825,13 +917,19 @@ export const createArtifactsService = ({
     const current = row.currentVersionId
       ? await findVersionById(db, member.workspaceId, row.currentVersionId)
       : null;
-    if (!current) {
+    // An app nobody promoted yet has no current version: it builds on its newest.
+    const baseNumber =
+      current?.number ??
+      (row.kind === "app"
+        ? await maxVersionNumber(db, member.workspaceId, row.id)
+        : 0);
+    if (baseNumber === 0) {
       throw notFound();
     }
-    if (input.baseVersion !== current.number) {
+    if (input.baseVersion !== baseNumber) {
       throw new ServiceError(
         "conflict",
-        `Stale baseVersion ${input.baseVersion}: the current version is ${current.number}`
+        `Stale baseVersion ${input.baseVersion}: the current version is ${baseNumber}`
       );
     }
     // Read the number right after the stale check, before the slow work below,
@@ -839,22 +937,28 @@ export const createArtifactsService = ({
     // index refuses the second one.
     const number = (await maxVersionNumber(db, member.workspaceId, row.id)) + 1;
     const content = await resolveContent(member, input, row.kind);
+    await checkApp(member, row.kind, content.files);
     const fresh = await checkQuota(member.workspaceId, content.files);
     const draft = draftOf(content, {
       message: input.message ?? "",
       number,
-      parentNumber: current.number,
+      parentNumber: baseNumber,
     });
+    const status = statusFor(member, row.kind);
     await writeBlobs(member.workspaceId, content.files, fresh);
     await writeManifest(member.workspaceId, draft);
     const title = input.title ?? row.title;
     await commit(
       [
-        ...versionStatements(member, row.id, draft),
+        ...versionStatements(member, row.id, draft, status),
         db
           .update(artifacts)
           .set({
-            currentVersionId: draft.versionId,
+            ...(status === "published" && {
+              currentVersionId: draft.versionId,
+              // The new version has no thumbnail until `artifact_test` makes one.
+              thumbnailKey: null,
+            }),
             title,
             updatedAt: nowIso(),
           })
@@ -867,6 +971,12 @@ export const createArtifactsService = ({
         publishedEvent(member, row, title, draft, input.toolCallId),
       ],
       `The current version is ${number - 1}.`
+    );
+    await recordApp(
+      member,
+      row.kind,
+      { artifactId: row.id, versionId: draft.versionId },
+      content.files
     );
     return resultOf(row.id, draft);
   };
@@ -906,13 +1016,23 @@ export const createArtifactsService = ({
       sourceLibraryPath: source.sourceLibraryPath,
       versionId: ulid(),
     };
+    // An app's restored version asks for what the old one asked for, so its
+    // manifest is checked again and its grants are recorded like a new version's.
+    const appFiles = row.kind === "app" ? await manifestOf(user, files) : [];
+    if (row.kind === "app") {
+      await checkApp(user, row.kind, appFiles);
+    }
     await writeManifest(user.workspaceId, draft);
     await commit(
       [
         ...versionStatements(user, row.id, draft),
         db
           .update(artifacts)
-          .set({ currentVersionId: draft.versionId, updatedAt: nowIso() })
+          .set({
+            currentVersionId: draft.versionId,
+            thumbnailKey: null,
+            updatedAt: nowIso(),
+          })
           .where(
             and(
               eq(artifacts.id, row.id),
@@ -928,6 +1048,12 @@ export const createArtifactsService = ({
         publishedEvent(user, row, row.title, draft),
       ],
       `The current version is ${number - 1}.`
+    );
+    await recordApp(
+      user,
+      row.kind,
+      { artifactId: row.id, versionId: draft.versionId },
+      appFiles
     );
     return { version: number };
   };
@@ -1197,7 +1323,135 @@ export const createArtifactsService = ({
   ): Promise<ArtifactVersion[]> => {
     const member = reader(principal, "artifacts.versions");
     const row = await visible(member, artifactId);
-    return (await listVersions(db, member.workspaceId, row.id)).map(toVersion);
+    const rows = await listVersions(db, member.workspaceId, row.id);
+    const files = await filesByVersionIds(
+      db,
+      member.workspaceId,
+      rows.map((version) => version.id)
+    );
+    return rows.map((version) => ({
+      ...toVersion(version),
+      files: (files.get(version.id) ?? []).map(
+        ({ contentType, path, size }) => ({ contentType, path, size })
+      ),
+    }));
+  };
+
+  /** The version a reader asks for: the number, else the current one. */
+  const versionOf = async (
+    member: Member,
+    row: ArtifactRow,
+    number: number | undefined
+  ): Promise<ArtifactVersionRow> => {
+    if (number === undefined) {
+      return await currentOf(member, row);
+    }
+    const version = await findVersionByNumber(
+      db,
+      member.workspaceId,
+      row.id,
+      number
+    );
+    if (!version) {
+      throw new ServiceError("not_found", "Version not found");
+    }
+    return version;
+  };
+
+  /** A run saves the PNG of a version it can see. It writes no event. */
+  const setThumbnail = async (
+    principal: Principal,
+    input: { artifactId: string; png: Uint8Array; versionId: string }
+  ): Promise<void> => {
+    const member = writer(principal, "artifacts.setThumbnail");
+    if (member.kind !== "run") {
+      throw new ForbiddenError("artifacts.setThumbnail");
+    }
+    const row = await visible(member, input.artifactId);
+    const version = await findVersionById(
+      db,
+      member.workspaceId,
+      input.versionId
+    );
+    if (version?.artifactId !== row.id) {
+      throw new ServiceError("not_found", "Version not found");
+    }
+    const key = thumbnailKey(member.workspaceId, version.id);
+    await blobs.put(key, input.png);
+    const statements: Statement[] = [
+      db
+        .update(artifactVersions)
+        .set({ thumbnailKey: key })
+        .where(
+          and(
+            eq(artifactVersions.id, version.id),
+            eq(artifactVersions.workspaceId, member.workspaceId)
+          )
+        ),
+    ];
+    if (row.currentVersionId === version.id) {
+      statements.push(
+        db
+          .update(artifacts)
+          .set({ thumbnailKey: key })
+          .where(
+            and(
+              eq(artifacts.id, row.id),
+              eq(artifacts.workspaceId, member.workspaceId)
+            )
+          )
+      );
+    }
+    await atomic(statements);
+  };
+
+  /** The PNG of a version (the current one by default). */
+  const thumbnail = async (
+    principal: Principal,
+    artifactId: string,
+    number?: number
+  ): Promise<Uint8Array> => {
+    const member = reader(principal, "artifacts.thumbnail");
+    const row = await visible(member, artifactId);
+    const version = await versionOf(member, row, number);
+    const blob = version.thumbnailKey
+      ? await blobs.get(version.thumbnailKey)
+      : null;
+    if (!blob) {
+      throw new ServiceError("not_found", "Thumbnail not found");
+    }
+    return blob.bytes;
+  };
+
+  /** A zip of the files of a version (the current one by default). */
+  const download = async (
+    principal: Principal,
+    artifactId: string,
+    number?: number
+  ): Promise<{ bytes: Uint8Array; filename: string }> => {
+    const member = reader(principal, "artifacts.download");
+    const row = await visible(member, artifactId);
+    const version = await versionOf(member, row, number);
+    const files = await versionFiles(db, member.workspaceId, version.id);
+    const blobsOfFiles = await Promise.all(
+      files.map((file) => blobs.get(blobKey(member.workspaceId, file.sha256)))
+    );
+    const entries: Record<string, Uint8Array> = {};
+    for (const [index, file] of files.entries()) {
+      const blob = blobsOfFiles[index];
+      if (!blob) {
+        throw new ServiceError("not_found", `File ${file.path} not found`);
+      }
+      entries[file.path] = blob.bytes;
+    }
+    const slug = row.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return {
+      bytes: zipSync(entries),
+      filename: `${slug || "artifact"}-v${version.number}.zip`,
+    };
   };
 
   /** The text of one file of a version (the current one by default; the entry by default). */
@@ -1244,6 +1498,7 @@ export const createArtifactsService = ({
 
   return {
     create,
+    download,
     get,
     list,
     readFile,
@@ -1251,6 +1506,8 @@ export const createArtifactsService = ({
     rename,
     restore,
     setAudience,
+    setThumbnail,
+    thumbnail,
     update,
     versions,
   };

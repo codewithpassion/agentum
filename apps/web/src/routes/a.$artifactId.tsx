@@ -12,13 +12,21 @@ import { toast } from "sonner";
 import { AccessLog } from "#/components/artifacts/access-log.tsx";
 import { ArtifactFrame } from "#/components/artifacts/artifact-frame.tsx";
 import { ShareDialog } from "#/components/artifacts/share-dialog.tsx";
+import { HandToDialog } from "#/components/artifacts/viewer/hand-to-dialog.tsx";
 import { VersionHistorySheet } from "#/components/artifacts/viewer/version-history-sheet.tsx";
 import { ViewerBar } from "#/components/artifacts/viewer/viewer-bar.tsx";
 import {
   buildViewerPath,
+  type PromoteState,
   parseVersionSearch,
   shownVersionNumber,
 } from "#/components/artifacts/viewer/viewer-logic.ts";
+import {
+  type PinSurface,
+  pinnedSurfaces,
+  pinToast,
+  togglePinned,
+} from "#/components/artifacts/viewer/viewer-menu-model.ts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -96,10 +104,19 @@ function ArtifactViewerPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [handToOpen, setHandToOpen] = useState(false);
+  const [pinned, setPinned] = useState<ReadonlySet<PinSurface>>(new Set());
+  const [promoting, setPromoting] = useState(false);
+  const [waitingVersionId, setWaitingVersionId] = useState<string | null>(null);
   const [tab, setTab] = useState<"artifact" | "log">("artifact");
 
   const currentNumber = detail.currentVersion.number;
   const shownNumber = shownVersionNumber(detail, v);
+  // The shown version's files other than its entry, for the share dialog.
+  const shownVersion = versions.find((item) => item.number === shownNumber);
+  const dataFiles = shownVersion?.files
+    ?.filter((file) => file.path !== shownVersion.entry)
+    .map(({ path, size }) => ({ path, size }));
 
   // One open per version shown, and a new one after a restore bumps the
   // current version. Each open writes a log row.
@@ -126,6 +143,22 @@ function ArtifactViewerPage() {
       cancelled = true;
     };
   }, [artifactId, v, currentNumber]);
+
+  // The caller's pins load in the browser only; a failure reads as no pins.
+  useEffect(() => {
+    let cancelled = false;
+    getTrpc()
+      .artifacts.pins.query({})
+      .then((pins) => {
+        if (!cancelled) {
+          setPinned(pinnedSurfaces(pins, artifactId));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactId]);
 
   const showVersion = useCallback(
     (number: number) => {
@@ -176,6 +209,55 @@ function ArtifactViewerPage() {
       }, `Restored v${number} as a new version`),
     [artifactId, navigate, run]
   );
+  const shownVersionId = shownVersion?.id ?? null;
+  let promoteState: PromoteState = "idle";
+  if (promoting) {
+    promoteState = "working";
+  } else if (waitingVersionId !== null && waitingVersionId === shownVersionId) {
+    promoteState = "waiting";
+  }
+  const promote = useCallback(async () => {
+    if (!shownVersion) {
+      return;
+    }
+    setPromoting(true);
+    try {
+      await getTrpc().artifacts.promote.mutate({
+        artifactId,
+        versionId: shownVersion.id,
+      });
+      toast.success(`Promoted v${shownVersion.number}`);
+      await router.invalidate();
+    } catch (error) {
+      if (error instanceof TRPCClientError && error.data?.code === "CONFLICT") {
+        setWaitingVersionId(shownVersion.id);
+      } else {
+        toast.error(errorMessage(error));
+      }
+    } finally {
+      setPromoting(false);
+    }
+  }, [artifactId, router, shownVersion]);
+  const togglePin = useCallback(
+    async (surface: PinSurface) => {
+      const wasPinned = pinned.has(surface);
+      try {
+        const trpc = getTrpc();
+        await (wasPinned
+          ? trpc.artifacts.unpin.mutate({ artifactId, surface })
+          : trpc.artifacts.pin.mutate({ artifactId, surface }));
+        setPinned((current) => togglePinned(current, surface));
+        toast.success(pinToast(surface, !wasPinned));
+      } catch (error) {
+        toast.error(errorMessage(error));
+      }
+    },
+    [artifactId, pinned]
+  );
+  const openHandTo = useCallback(() => setHandToOpen(true), []);
+  const handedTo = useCallback(() => {
+    router.invalidate();
+  }, [router]);
   const copyLink = useCallback(() => {
     const path = buildViewerPath(artifactId, v, currentNumber);
     navigator.clipboard
@@ -219,10 +301,15 @@ function ArtifactViewerPage() {
         onCopyLink={copyLink}
         onDelete={openDelete}
         onFullScreen={fullScreen}
+        onHandTo={openHandTo}
         onHistory={openHistory}
+        onPromote={promote}
         onRename={rename}
         onShare={openShare}
+        onTogglePin={togglePin}
         onVersion={showVersion}
+        pinned={pinned}
+        promoteState={promoteState}
         shownNumber={shownNumber}
         versions={versions}
       />
@@ -271,8 +358,16 @@ function ArtifactViewerPage() {
       )}
       <ShareDialog
         artifactId={artifactId}
+        dataFiles={dataFiles}
         onOpenChange={setShareOpen}
         open={shareOpen}
+      />
+      <HandToDialog
+        artifactId={artifactId}
+        currentAgentId={detail.handedToAgentId}
+        onOpenChange={setHandToOpen}
+        onSaved={handedTo}
+        open={handToOpen}
       />
       <VersionHistorySheet
         canRestore={detail.canManage}

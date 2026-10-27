@@ -1,6 +1,7 @@
 // Core procedures over the artifacts service (A.2). The shares half is in
 // artifact-shares-router.ts, the phase 2 procedures throw until their tasks.
 
+import { ARTIFACT_PIN_SURFACES } from "@repo/db/shared";
 import {
   artifactsCallToolInputSchema,
   artifactsCallToolOutputSchema,
@@ -30,9 +31,9 @@ import {
   artifactsVersionsOutputSchema,
 } from "@repo/protocol/artifacts";
 import { isArtifactCallError } from "@repo/services/artifacts/calls";
-import type { ArtifactsService } from "@repo/services/artifacts/service";
+import { ServiceError } from "@repo/services/errors";
 import { TRPCError } from "@trpc/server";
-import type { Services } from "../compose.ts";
+import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
 const CALL_ERROR_CODES = {
@@ -41,20 +42,6 @@ const CALL_ERROR_CODES = {
   not_granted: "FORBIDDEN",
   too_large: "PAYLOAD_TOO_LARGE",
 } as const;
-// A.6 adds `artifacts` to `Services`; until then the service may be missing.
-// A.6 replaces this accessor with `ctx.services.artifacts`.
-const artifactsOf = (ctx: { services: Services }): ArtifactsService => {
-  const service = (ctx.services as Partial<{ artifacts: ArtifactsService }>)
-    .artifacts;
-  if (!service) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Artifacts service is not wired",
-    });
-  }
-  return service;
-};
-
 export const artifactsRouter = router({
   callTool: workspaceProcedure
     .input(artifactsCallToolInputSchema)
@@ -75,61 +62,80 @@ export const artifactsRouter = router({
   decideGrant: workspaceProcedure
     .input(artifactsDecideGrantInputSchema)
     .output(artifactsDecideGrantOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.decideGrant is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactGrants.decideGrant(ctx.principal, input);
+      return {};
     }),
   get: workspaceProcedure
     .input(artifactsGetInputSchema)
     .output(artifactsGetOutputSchema)
     .query(({ ctx, input }) =>
-      artifactsOf(ctx).get(ctx.principal, input.artifactId)
+      ctx.services.artifacts.get(ctx.principal, input.artifactId)
+    ),
+  /** The grants of one version, for the share dialog and the viewer (B.9). */
+  grants: workspaceProcedure
+    .input(
+      z.strictObject({ artifactId: z.uuid(), versionId: z.string().min(1) })
+    )
+    .query(({ ctx, input }) =>
+      ctx.services.artifactGrants.list(ctx.principal, input)
     ),
   handTo: workspaceProcedure
     .input(artifactsHandToInputSchema)
     .output(artifactsHandToOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.handTo is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactGrants.handTo(ctx.principal, input);
+      return {};
     }),
   list: workspaceProcedure
     .input(artifactsListInputSchema)
     .output(artifactsListOutputSchema)
-    .query(({ ctx, input }) => artifactsOf(ctx).list(ctx.principal, input)),
+    .query(({ ctx, input }) =>
+      ctx.services.artifacts.list(ctx.principal, input)
+    ),
   pin: workspaceProcedure
     .input(artifactsPinInputSchema)
     .output(artifactsPinOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.pin is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactPins.pin(ctx.principal, input);
+      return {};
     }),
+  /** The caller's pins, for the sidebar, the desk and the viewer menu (B.9). */
+  pins: workspaceProcedure
+    .input(
+      z.strictObject({ surface: z.enum(ARTIFACT_PIN_SURFACES).optional() })
+    )
+    .query(({ ctx, input }) =>
+      ctx.services.artifactPins.list(
+        ctx.principal,
+        input.surface === undefined ? {} : { surface: input.surface }
+      )
+    ),
   promote: workspaceProcedure
     .input(artifactsPromoteInputSchema)
     .output(artifactsPromoteOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.promote is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.services.artifactGrants.promote(
+        ctx.principal,
+        input
+      );
+      if (result.status !== "promoted") {
+        throw new ServiceError("conflict", "The grants need a decision first");
+      }
+      return { version: result.version };
     }),
   remove: workspaceProcedure
     .input(artifactsRemoveInputSchema)
     .output(artifactsRemoveOutputSchema)
     .mutation(async ({ ctx, input }) => {
-      await artifactsOf(ctx).remove(ctx.principal, input.artifactId);
+      await ctx.services.artifacts.remove(ctx.principal, input.artifactId);
       return {};
     }),
   rename: workspaceProcedure
     .input(artifactsRenameInputSchema)
     .output(artifactsRenameOutputSchema)
     .mutation(async ({ ctx, input }) => {
-      await artifactsOf(ctx).rename(
+      await ctx.services.artifacts.rename(
         ctx.principal,
         input.artifactId,
         input.title
@@ -140,13 +146,17 @@ export const artifactsRouter = router({
     .input(artifactsRestoreInputSchema)
     .output(artifactsRestoreOutputSchema)
     .mutation(({ ctx, input }) =>
-      artifactsOf(ctx).restore(ctx.principal, input.artifactId, input.version)
+      ctx.services.artifacts.restore(
+        ctx.principal,
+        input.artifactId,
+        input.version
+      )
     ),
   setAudience: workspaceProcedure
     .input(artifactsSetAudienceInputSchema)
     .output(artifactsSetAudienceOutputSchema)
     .mutation(async ({ ctx, input }) => {
-      await artifactsOf(ctx).setAudience(
+      await ctx.services.artifacts.setAudience(
         ctx.principal,
         input.artifactId,
         input.audience
@@ -156,16 +166,14 @@ export const artifactsRouter = router({
   unpin: workspaceProcedure
     .input(artifactsUnpinInputSchema)
     .output(artifactsUnpinOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.unpin is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      await ctx.services.artifactPins.unpin(ctx.principal, input);
+      return {};
     }),
   versions: workspaceProcedure
     .input(artifactsVersionsInputSchema)
     .output(artifactsVersionsOutputSchema)
     .query(({ ctx, input }) =>
-      artifactsOf(ctx).versions(ctx.principal, input.artifactId)
+      ctx.services.artifacts.versions(ctx.principal, input.artifactId)
     ),
 });

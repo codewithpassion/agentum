@@ -60,6 +60,7 @@ import {
   encryptSecret,
   hashedToken,
   hashToken,
+  importSecretsKey,
   type SecretBinding,
 } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
@@ -151,8 +152,8 @@ export interface ArtifactSharesDeps {
   origin: string;
   /** Names for the owner shown on the share page. */
   people?: PeopleLookup;
-  /** The key behind `SECRETS_KEY`. */
-  secretsKey: CryptoKey;
+  /** `SECRETS_KEY`, base64. Needed to create or show a link. */
+  secretsKey?: string;
   /** `ARTIFACT_VIEW_KEY`: signs view tokens. */
   viewKey: string;
 }
@@ -238,6 +239,15 @@ export const createArtifactSharesService = ({
   secretsKey,
   viewKey,
 }: ArtifactSharesDeps) => {
+  let importedKey: Promise<CryptoKey> | undefined;
+  const cryptoKey = (): Promise<CryptoKey> => {
+    if (!secretsKey) {
+      throw new Error("Link shares need secretsKey (SECRETS_KEY).");
+    }
+    importedKey ??= importSecretsKey(secretsKey);
+    return importedKey;
+  };
+
   const shareBinding = (workspaceId: string, rowId: string): SecretBinding => ({
     field: SHARE_TOKEN_FIELD,
     rowId,
@@ -257,7 +267,7 @@ export const createArtifactSharesService = ({
   ): Promise<ArtifactShare> => {
     const token = showUrl
       ? await decryptSecret(
-          secretsKey,
+          await cryptoKey(),
           shareBinding(row.workspaceId, row.id),
           row.tokenEncrypted
         )
@@ -315,6 +325,9 @@ export const createArtifactSharesService = ({
     claims: Omit<ViewTokenClaims, "expiresAt">,
     seconds: number
   ) => {
+    if (!viewKey) {
+      throw new ServiceError("invalid", "Artifact viewing is not set up.");
+    }
     const expiresAt = Math.floor(clock.now().getTime() / 1000) + seconds;
     return signViewToken({ ...claims, expiresAt }, viewKey).then((token) => ({
       contentUrl: artifactContentPath({ artifactId: claims.artifactId, token }),
@@ -506,7 +519,7 @@ export const createArtifactSharesService = ({
       revokedAt: null,
       revokedBy: null,
       tokenEncrypted: await encryptSecret(
-        secretsKey,
+        await cryptoKey(),
         shareBinding(user.workspaceId, id),
         token
       ),
@@ -690,7 +703,8 @@ export const createArtifactSharesService = ({
     token: string,
     request: ShareRequestInfo
   ): Promise<LinkOpenResult> => {
-    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+    // Without a signing key no link can open: refuse like any dead link, before a view row is written.
+    if (!(viewKey && token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX))) {
       return { ok: false };
     }
     const share = await getShareByHash(db, await hashToken(token));

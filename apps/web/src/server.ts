@@ -7,10 +7,13 @@ import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import type { MiddlewareHandler } from "hono/types";
+import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
 import { compose } from "./server/compose.ts";
+import { frameGuard } from "./server/frame-guard.ts";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
 import { accessRoutes } from "./server/routes/access.ts";
+import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
 import { devRoutes } from "./server/routes/dev.ts";
 import type { AppEnv } from "./server/routes/groups.ts";
@@ -35,6 +38,17 @@ export { SecretsOutbound } from "./server/secrets-outbound.ts";
 export { SessionStream } from "./server/session-stream.ts";
 
 const app = new Hono<AppEnv>();
+
+// No page the app serves may be framed (R1.21a). Artifact content sets its own.
+app.use("*", frameGuard);
+
+// Artifact content: signed view tokens, R2 only. Mounted before Clerk and the
+// compose middleware, so these paths never reach either (R1.21a).
+mountArtifactContentRoutes(app, {
+  bucket: (env) => env.FILES,
+  viewKey: (env) => env.ARTIFACT_VIEW_KEY,
+  workspaceId: (claims) => claims.workspaceId,
+});
 
 app.use("*", clerkMiddleware());
 
@@ -129,6 +143,7 @@ app.use(
 app.route("/", runtimeRoutes);
 app.route("/", accessRoutes);
 app.route("/", automationRoutes);
+app.route("/", artifactRoutes({ session: (c) => getAuth(c) }));
 
 // Local checks (the atomic probe, and the offer nudge the e2e script uses).
 // Dev builds only.

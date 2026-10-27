@@ -17,7 +17,6 @@ import {
 } from "@repo/protocol/artifacts";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
-import { importSecretsKey } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
 import { createEventsService } from "../events.ts";
 import type { Principal } from "../workspaces.ts";
@@ -90,10 +89,10 @@ const request = (
 let db: ReturnType<typeof migrated>;
 let nowMs: number;
 let service: ArtifactSharesService;
-let secretsKey: CryptoKey;
+let secretsKey: string;
 let versionIds: { v1: string; v2: string };
 
-const build = (overrides: { linksOff?: boolean } = {}) => {
+const build = (overrides: { linksOff?: boolean; viewKey?: string } = {}) => {
   const store = new Map<string, string>();
   return createArtifactSharesService({
     atomic: sqliteAtomic(db),
@@ -178,11 +177,11 @@ const seedVersion = (artifactId: string, id: string, number: number) =>
     })
     .run();
 
-beforeEach(async () => {
+beforeEach(() => {
   db = migrated();
   nowMs = Date.parse(START);
-  secretsKey = await importSecretsKey(
-    btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+  secretsKey = btoa(
+    String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))
   );
   seedWorkspace(W1);
   seedWorkspace(W2);
@@ -726,6 +725,17 @@ describe("link open", () => {
     ).toBe("disabled");
     await expect(
       off.createShare(owner, { artifactId: ARTIFACT })
+    ).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  test("a missing view key refuses a link like a dead one and writes no view row", async () => {
+    const { token } = await create();
+    const before = db.select().from(artifactViews).all().length;
+    const keyless = build({ viewKey: "" });
+    expect(await keyless.openLink(token, request())).toEqual({ ok: false });
+    expect(db.select().from(artifactViews).all()).toHaveLength(before);
+    await expect(
+      keyless.open(owner, { artifactId: ARTIFACT, surface: "viewer" })
     ).rejects.toMatchObject({ code: "invalid" });
   });
 

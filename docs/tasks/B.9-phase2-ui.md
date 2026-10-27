@@ -3,9 +3,9 @@ id: B.9
 title: "Phase 2 UI, live links, grant approvals, pins, hand-to"
 milestone: B
 size: M
-status: todo
-depends_on: [A.8, A.10, B.4, B.6]
-branch: null
+status: done
+depends_on: [A.8, A.10, B.4]
+branch: task/B.9-phase2-ui
 lane: web-share
 executor: claude
 ---
@@ -24,5 +24,12 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 - Browser check of each item when B.4 and B.6 are merged; otherwise in B.10.
 - `bun run check && bun run test && bun run build` pass.
 
+## Refinements (2026-10-27)
+- Moved up: it no longer waits for B.6. The live-link form codes against A.1's `createShare` schema (`dataMode`, `liveTools`). B.6 builds the server side in parallel.
+- B.4: argument limits are stored as extra tool grant rows with target `<tool>#<json>`. Filter them out of every tool list you show. `promote` answers CONFLICT while grants wait; show that as "Waiting for approval".
+- A.3: `ArtifactShare.url` is the token-less `<origin>/s/` for members who are not the owner or an admin. Hide Copy for those.
+
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched early (B.6 dependency dropped).
+- 2026-10-27: ready, review clean after 0 fix rounds; browser check deferred to B.10; artifacts.grants and artifacts.pins queries added; merged.
