@@ -1038,3 +1038,146 @@ test("an artifact pin needs its artifact and workspace", () => {
   db.insert(artifactPins).values(pin).run();
   expect(db.select().from(artifactPins).all()).toHaveLength(1);
 });
+
+test("live tables enforce parent foreign keys, guest grants and active uniqueness", () => {
+  const { client } = migrated();
+  const insert = (
+    table: string,
+    values: Record<string, string | number | null>
+  ) => {
+    const columns = Object.keys(values);
+    client
+      .query(
+        `INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`
+      )
+      .run(...Object.values(values));
+  };
+  const db = migrated();
+  seedRun(db);
+  db.insert(artifacts).values(artifactRow()).run();
+  const c = db.client;
+  const put = (
+    table: string,
+    values: Record<string, string | number | null>
+  ) => {
+    const columns = Object.keys(values);
+    c.query(
+      `INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`
+    ).run(...Object.values(values));
+  };
+  const rows: [string, Record<string, string | number | null>][] = [
+    [
+      "guest_identities",
+      {
+        created_at: NOW,
+        display_name: "Ana",
+        email: "ana@example.com",
+        id: "g1",
+        workspace_id: "w1",
+      },
+    ],
+    [
+      "artifact_members",
+      {
+        artifact_id: "ar1",
+        created_at: NOW,
+        created_by: "u1",
+        expires_at: NOW,
+        guest_id: "g1",
+        id: "m1",
+        principal_kind: "guest",
+        role: "editor",
+        workspace_id: "w1",
+      },
+    ],
+    [
+      "guest_invites",
+      {
+        created_at: NOW,
+        id: "i1",
+        member_id: "m1",
+        token_hash: "ih",
+        workspace_id: "w1",
+      },
+    ],
+    [
+      "guest_codes",
+      {
+        code_hash: "ch",
+        created_at: NOW,
+        expires_at: NOW,
+        guest_id: "g1",
+        id: "c1",
+        workspace_id: "w1",
+      },
+    ],
+    [
+      "guest_sessions",
+      {
+        created_at: NOW,
+        expires_at: NOW,
+        guest_id: "g1",
+        id: "gs1",
+        last_used_at: NOW,
+        token_hash: "sh",
+        workspace_id: "w1",
+      },
+    ],
+    [
+      "artifact_comment_threads",
+      { artifact_id: "ar1", id: "ct1", workspace_id: "w1" },
+    ],
+    [
+      "artifact_comments",
+      {
+        author_id: "a1",
+        author_kind: "agent",
+        body: "Hello",
+        created_at: NOW,
+        id: "co1",
+        run_id: "r1",
+        thread_id: "ct1",
+        workspace_id: "w1",
+      },
+    ],
+    [
+      "artifact_live_changes",
+      {
+        artifact_id: "ar1",
+        created_at: NOW,
+        id: "lc1",
+        rev_from: 0,
+        rev_to: 1,
+        run_id: "r1",
+        summary: "Edit",
+        tool_call_id: "tc1",
+        workspace_id: "w1",
+      },
+    ],
+  ];
+  for (const [table, row] of rows) {
+    const keys = c
+      .query<{ from: string }, []>(`PRAGMA foreign_key_list(${table})`)
+      .all();
+    for (const key of keys) {
+      expect(() => put(table, { ...row, [key.from]: "missing" })).toThrow(FK);
+    }
+    put(table, row);
+  }
+  expect(() => put("artifact_members", { ...rows[1]?.[1], id: "m2" })).toThrow(
+    "UNIQUE constraint failed"
+  );
+  c.run("UPDATE artifact_members SET revoked_at = 'ended' WHERE id = 'm1'");
+  put("artifact_members", { ...rows[1]?.[1], id: "m2" });
+  expect(() =>
+    put("artifact_members", { ...rows[1]?.[1], guest_id: null, id: "m3" })
+  ).toThrow("CHECK constraint failed");
+  expect(() =>
+    c.run("UPDATE runs SET scope_artifact_id = 'missing' WHERE id = 'r1'")
+  ).toThrow(FK);
+  expect(() =>
+    c.run("UPDATE artifacts SET converted_from_id = 'missing' WHERE id = 'ar1'")
+  ).toThrow(FK);
+  expect(c.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  expect(() => insert("guest_identities", { ...rows[0]?.[1] })).toThrow(FK);
+});

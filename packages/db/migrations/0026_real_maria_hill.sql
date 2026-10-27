@@ -1,0 +1,1 @@
+ALTER TABLE `artifact_views` ADD `guest_id` text REFERENCES guest_identities(id);

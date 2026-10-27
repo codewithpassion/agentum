@@ -5,6 +5,7 @@ import {
   type EventActorKind,
   INPUT_FILES_MAX,
   type RunStatus,
+  SESSION_ORIGINS as SHARED_SESSION_ORIGINS,
 } from "@repo/db/shared";
 import type { RunStop } from "@repo/protocol/safeguards";
 import { z } from "zod";
@@ -27,17 +28,8 @@ export const systemClock: Clock = {
     }),
 };
 
-/** Origins a browser client may name. */
-export const SESSION_ORIGINS = [
-  "ui",
-  "slack",
-  "mail",
-  "inbox",
-  "qa",
-  "routine",
-  "trigger",
-  "mcp",
-] as const;
+/** Session origins; the browser router independently restricts starts to ui. */
+export const SESSION_ORIGINS = SHARED_SESSION_ORIGINS;
 /** Set in-process only (the agent builder's dry run), never by a browser client. */
 export const DRY_RUN_ORIGIN = "dry_run" as const;
 export type SessionOrigin =
@@ -145,6 +137,7 @@ export interface RunRecord {
   reply: ReplyTarget;
   requestId: string | null;
   resultText: string | null;
+  scopeArtifactId: string | null;
   sessionId: string;
   startedAt: string | null;
   status: RunStatus;

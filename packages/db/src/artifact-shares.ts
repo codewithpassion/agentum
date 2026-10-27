@@ -25,7 +25,7 @@ export interface ArtifactAccessRow {
   currentVersionId: string | null;
   handedToAgentId: string | null;
   id: string;
-  kind: "page" | "doc" | "dashboard" | "app";
+  kind: import("./shared.ts").ArtifactKind;
   ownerUserId: string | null;
   title: string;
   workspaceId: string;
@@ -166,7 +166,7 @@ export interface ShareLookup {
   dataMode: "snapshot" | "live";
   expiresAt: string | null;
   grantedBy: string | null;
-  kind: "page" | "doc" | "dashboard" | "app";
+  kind: import("./shared.ts").ArtifactKind;
   linksEnabled: boolean;
   /** JSON array of tool keys, or null. */
   liveTools: string | null;
@@ -296,6 +296,7 @@ export const listViews = (
         city: artifactViews.city,
         country: artifactViews.country,
         createdAt: artifactViews.createdAt,
+        guestId: artifactViews.guestId,
         id: artifactViews.id,
         ipPrefix: artifactViews.ipPrefix,
         outcome: artifactViews.outcome,

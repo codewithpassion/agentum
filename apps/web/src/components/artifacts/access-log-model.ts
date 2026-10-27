@@ -97,7 +97,9 @@ export function describeBrowser(userAgent: string | null): string {
 }
 
 const MEMBER_SURFACES: Record<ArtifactView["surface"], string> = {
+  guest: "Guest",
   live_call: "Member, live call",
+  room: "Room",
   share: "Member",
   test: "Member, artifact test",
   thread: "Member, in thread",

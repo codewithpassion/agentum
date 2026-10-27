@@ -16,6 +16,9 @@ export const workspaces = sqliteTable("workspaces", {
   clerkOrgId: text("clerk_org_id").notNull().unique(),
   createdAt: createdAt(),
   id: id(),
+  liveGuestsEnabled: integer("live_guests_enabled", { mode: "boolean" })
+    .notNull()
+    .default(true),
   name: text("name").notNull(),
   // The default timezone for routines.
   timezone: text("timezone").notNull(),

@@ -1,4 +1,5 @@
 import {
+  type AnySQLiteColumn,
   index,
   integer,
   primaryKey,
@@ -21,6 +22,7 @@ import {
   ARTIFACT_VIEW_SURFACES,
 } from "../shared.ts";
 import { agents } from "./agents.ts";
+import { guestIdentities } from "./live-artifacts.ts";
 import { runs } from "./runs.ts";
 import { sessions } from "./sessions.ts";
 import { workspaces } from "./workspaces.ts";
@@ -35,6 +37,9 @@ export const artifacts = sqliteTable(
   {
     agentId: text("agent_id").references(() => agents.id),
     audience: text("audience", { enum: ARTIFACT_AUDIENCES }).notNull(),
+    convertedFromId: text("converted_from_id").references(
+      (): AnySQLiteColumn => artifacts.id
+    ),
     createdAt: createdAt(),
     // Clerk user id or agent id, see `created_by_kind`.
     createdById: text("created_by_id").notNull(),
@@ -51,6 +56,7 @@ export const artifacts = sqliteTable(
     handedToAgentId: text("handed_to_agent_id").references(() => agents.id),
     id: id(),
     kind: text("kind", { enum: ARTIFACT_KINDS }).notNull(),
+    liveRoomRev: integer("live_room_rev"),
     // Clerk user id. Null: no person owns it.
     ownerUserId: text("owner_user_id"),
     runId: text("run_id").references(() => runs.id),
@@ -179,6 +185,9 @@ export const artifactViews = sqliteTable(
     city: text("city"),
     country: text("country"),
     createdAt: createdAt(),
+    guestId: text("guest_id").references(
+      (): AnySQLiteColumn => guestIdentities.id
+    ),
     id: id(),
     ipPrefix: text("ip_prefix"),
     outcome: text("outcome", { enum: ARTIFACT_VIEW_OUTCOMES }).notNull(),

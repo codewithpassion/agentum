@@ -24,6 +24,7 @@ export const run = (
   reply: { kind: "none" },
   requestId: null,
   resultText: null,
+  scopeArtifactId: null,
   sessionId: "session",
   startedAt: null,
   status: "running",
