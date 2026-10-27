@@ -3,7 +3,7 @@ id: B.11
 title: Live-call limits and logging, then the final staging deploy
 milestone: B
 size: S
-status: in_progress
+status: done
 depends_on: [B.10]
 branch: task/B.11-live-limits-and-redeploy
 lane: staging
@@ -22,3 +22,4 @@ Gaps from B.10 (`docs/reviews/tasks/B.10.md`) against R2.13 and R2.14 in `docs/v
 
 ## Log
 - 2026-10-27: planned from B.10's gaps and dispatched (controller).
+- 2026-10-27: code ready at 8eb8003, review clean after 1 fix round; SHARE_CALL_LIMIT binding (120/min); pre-service refusals logged (capped 120/min); staging deployed a5137fa2; the three staging checks are NOT run (no sign-in key in the worktree), steps for Dom in docs/reviews/tasks/B.11.md; merged.
