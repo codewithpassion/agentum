@@ -61,7 +61,7 @@ const contentFields = {
     .string()
     .optional()
     .describe(
-      "The entry file. Defaults to index.html, or index.md for a doc. Must be one of the files."
+      "The entry file. Defaults to index.html, or index.md for a doc. Must be one of the files, and an .html, .htm or .md file."
     ),
   files: z
     .array(file)

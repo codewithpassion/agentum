@@ -71,6 +71,7 @@ function SharePage() {
         className="min-h-0 flex-1"
         contentUrl={data.contentUrl}
         interactive
+        shareToken={token}
         title={data.title}
         version={data.version}
         viewer="link"

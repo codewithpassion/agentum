@@ -177,16 +177,38 @@ describe("content route: 200", () => {
     expect(await res.text()).toContain("hi</body>");
   });
 
-  it("injects the bridge script first in <head>", async () => {
+  it("injects the bridge script before the first element, after the doctype", async () => {
     const { get } = setup();
     const tok = await token();
     const html = await (await get(urlFor(tok))).text();
-    expect(html).toContain(
-      '<head><script src="_hm/bridge.js"></script><title>t</title>'
+    expect(html).toStartWith(
+      '<!doctype html><script src="_hm/bridge.js"></script><html><head><title>t</title>'
     );
   });
 
-  it("uses a path relative to the page for nested html, and appends without <head>", async () => {
+  it("puts the bridge ahead of page scripts even without <head> or <html>, or with a script before <head>", async () => {
+    const bodies = [
+      "<script>var a=location.hash</script><p>x</p>",
+      "<!doctype html><script>var a=1</script><html><head></head></html>",
+      "<html><script>var a=1</script><head></head><body></body></html>",
+      "<!-- c --><!doctype html><body><script>var a=1</script></body>",
+    ];
+    const tok = await token();
+    for (const body of bodies) {
+      const seed: Seed = {
+        entry: "index.html",
+        files: { "index.html": { body, sha: sha("a") } },
+      };
+      // biome-ignore lint/performance/noAwaitInLoops: requests run in order
+      const html = await (await setup(seed).get(urlFor(tok))).text();
+      expect(html.match(/_hm\/bridge\.js/g)).toHaveLength(1);
+      expect(html.indexOf("_hm/bridge.js")).toBeLessThan(
+        html.indexOf("var a=")
+      );
+    }
+  });
+
+  it("uses a path relative to the page for nested html", async () => {
     const { get } = setup();
     const tok = await token();
     const html = await (await get(urlFor(tok, "sub/page.html"))).text();
@@ -236,7 +258,7 @@ describe("content route: 200", () => {
       expectContentHeaders(res, folder(tok));
       const html = await res.text();
       expect(html).toContain("<h1>Hello</h1>");
-      expect(html).toContain('<head><script src="');
+      expect(html).toContain('<script src="');
     }
     const raw = await get(urlFor(tok, "index.md"));
     expect(raw.headers.get("Content-Type")).toBe(

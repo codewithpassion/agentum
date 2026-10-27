@@ -19,6 +19,8 @@ import {
 /** JSON-RPC error codes the frame answers with. */
 export const BRIDGE_ERROR = {
   denied: -32_000,
+  /** The call ran or was tried and did not work. */
+  failed: -32_001,
   invalidRequest: -32_600,
   methodNotFound: -32_601,
 } as const;
@@ -89,6 +91,8 @@ export interface FrameBridgeOptions {
   /** The iframe's `contentWindow`, read on every message. */
   getTarget: () => (BridgeTarget & object) | null;
   graceMs?: number;
+  /** The value the iframe's `name` carries, fixed for the bridge's life. */
+  nonce: string;
   /** Clock in ms, for the repeat window. Defaults to `Date.now`. */
   now?: () => number;
   /** Called when the iframe left its page without a fresh `ui/initialize`. */
@@ -136,6 +140,7 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
     getInit,
     getTarget,
     extraHandlers,
+    nonce,
   } = options;
   const setTimer = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer =
@@ -256,7 +261,8 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
     } catch (error) {
       const code =
         error instanceof BridgeError ? error.code : BRIDGE_ERROR.denied;
-      const text = error instanceof Error ? error.message : "Request failed";
+      const text =
+        error instanceof BridgeError ? error.message : "Request failed";
       respondError(current, message, code, text);
     }
   };
@@ -325,6 +331,12 @@ export function createFrameBridge(options: FrameBridgeOptions): FrameBridge {
       }
       const message = parseBridgeMessage(event.data);
       if (message?.method !== "ui/initialize" || !("id" in message)) {
+        return;
+      }
+      // Any page in the iframe can send this message, since every sandboxed
+      // document shares the opaque origin. Only a page that sends the nonce
+      // the frame put in the iframe's name may take the port.
+      if (message.params.nonce !== nonce) {
         return;
       }
       const isRepeat =

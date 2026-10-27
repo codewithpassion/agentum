@@ -77,9 +77,15 @@ export const artifactManifestFileSchema = z.strictObject({
 export type ArtifactManifestFile = z.infer<typeof artifactManifestFileSchema>;
 
 /** The file tree of one version. `entry` is a key of `files`. */
+/** Entry files the content route serves as a page, with the bridge in it. */
+const ARTIFACT_ENTRY_PATTERN = /\.(?:html?|md)$/i;
+
 export const artifactManifestSchema = z
   .strictObject({
-    entry: artifactPathSchema,
+    entry: artifactPathSchema.refine(
+      (path) => ARTIFACT_ENTRY_PATTERN.test(path),
+      { message: "entry must be an .html, .htm or .md file" }
+    ),
     files: z.record(artifactPathSchema, artifactManifestFileSchema),
   })
   .superRefine((manifest, ctx) => {
@@ -273,6 +279,8 @@ export const uiInitializeParamsSchema = z.strictObject({
   // The MCP Apps spec requires it; the frame ignores its content.
   appCapabilities: z.record(z.string(), z.unknown()).optional(),
   appInfo: z.strictObject({ name: z.string(), version: z.string() }).optional(),
+  /** The frame's value from the iframe's `name`, read from `window.name`. */
+  nonce: z.string().min(1).optional(),
   protocolVersion: z.string().min(1),
 });
 export const uiInitializeRequestSchema = jsonRpcRequestSchema(
@@ -381,6 +389,7 @@ export const storageSetRequestSchema = jsonRpcRequestSchema(
     value: z.json(),
   })
 );
+export type StorageSetRequest = z.infer<typeof storageSetRequestSchema>;
 export const storageSetResponseSchema = jsonRpcResultSchema(emptyResultSchema);
 
 export const storageDeleteRequestSchema = jsonRpcRequestSchema(
