@@ -124,15 +124,36 @@ export const BRIDGE_JS = `(function () {
     contentFolder = null;
   }
 
-  // The viewer puts a one-time nonce in the fragment as "#hm=<nonce>".
+  // The viewer puts a one-time nonce in the fragment as "#hm=<nonce>". The
+  // script takes it and removes it from the address, so the page's own scripts
+  // and its router don't see it. The frame honours it once, so a copy that
+  // leaks anyway is no use to a page the artifact navigates to.
   function readNonce() {
     try {
       var parts = String(window.location.hash || "").slice(1).split("&");
+      var found = null;
+      var rest = [];
       for (var i = 0; i < parts.length; i += 1) {
-        if (parts[i].indexOf("hm=") === 0 && parts[i].length > 3) {
-          return parts[i].slice(3);
+        if (found === null && parts[i].indexOf("hm=") === 0 && parts[i].length > 3) {
+          found = parts[i].slice(3);
+        } else if (parts[i] !== "") {
+          rest.push(parts[i]);
         }
       }
+      if (found !== null) {
+        try {
+          window.history.replaceState(
+            null,
+            "",
+            window.location.pathname +
+              window.location.search +
+              (rest.length > 0 ? "#" + rest.join("&") : "")
+          );
+        } catch (_error) {
+          // The address keeps the fragment.
+        }
+      }
+      return found;
     } catch (_error) {
       // No location to read, so no nonce.
     }

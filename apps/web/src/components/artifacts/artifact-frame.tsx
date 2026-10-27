@@ -85,13 +85,16 @@ export function ArtifactFrame({
   const [reloadKey, setReloadKey] = useState(0);
   // A fresh nonce for every iframe load this component starts, so only the
   // page it loaded can open the bridge.
-  const nonceKey = `${contentUrl}:${reloadKey}`;
+  // Anything the bridge is built from restarts the iframe too, since a page
+  // that lost its port never handshakes again.
+  const takesMessages = onMessage !== undefined;
+  const frameKey = `${contentUrl}:${reloadKey}:${viewer}:${shareToken ?? ""}:${takesMessages}`;
   const [issued, setIssued] = useState(() => ({
-    key: nonceKey,
+    key: frameKey,
     nonce: newNonce(),
   }));
-  if (issued.key !== nonceKey) {
-    setIssued({ key: nonceKey, nonce: newNonce() });
+  if (issued.key !== frameKey) {
+    setIssued({ key: frameKey, nonce: newNonce() });
   }
   const { nonce } = issued;
   const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
@@ -108,7 +111,6 @@ export function ArtifactFrame({
   initRef.current = { version, viewer };
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
-  const takesMessages = onMessage !== undefined;
 
   useEffect(() => {
     if (blanked) {
@@ -216,7 +218,7 @@ export function ArtifactFrame({
           "h-full w-full border-0 bg-background",
           !interactive && "pointer-events-none"
         )}
-        key={`${contentUrl}:${reloadKey}`}
+        key={frameKey}
         onLoad={handleLoad}
         ref={iframeRef}
         referrerPolicy="no-referrer"

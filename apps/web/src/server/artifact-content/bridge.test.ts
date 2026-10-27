@@ -105,7 +105,13 @@ class Inbox {
 }
 
 const makeEnv = (
-  options: { framed?: boolean; hash?: string; withObserver?: boolean } = {}
+  options: {
+    framed?: boolean;
+    hash?: string;
+    history?: unknown;
+    location?: { pathname: string; search: string };
+    withObserver?: boolean;
+  } = {}
 ) => {
   const { framed = true, hash, withObserver = false } = options;
   const posted: Posted[] = [];
@@ -135,7 +141,10 @@ const makeEnv = (
     win.parent = win;
   }
   if (hash !== undefined) {
-    win.location = { hash };
+    win.location = { hash, ...options.location };
+  }
+  if (options.history) {
+    win.history = options.history;
   }
   let rect = { height: 100.2, width: 640.7 };
   if (withObserver) {
@@ -579,6 +588,29 @@ describe("bridge nonce", () => {
       nonce: "abc123",
       protocolVersion: "2026-01-26",
     });
+  });
+
+  test("the nonce is removed from the address, other fragment parts stay", () => {
+    const urls: unknown[] = [];
+    const history = {
+      replaceState: (_state: unknown, _title: string, url: string) => {
+        urls.push(url);
+      },
+    };
+    // The harness builds the window itself, so give it history and a path.
+    const env = makeEnv({
+      hash: "#x=1&hm=abc123",
+      history,
+      location: { pathname: "/p", search: "?q=1" },
+    });
+    expect(initParams(env).nonce).toBe("abc123");
+    expect(urls).toEqual(["/p?q=1#x=1"]);
+    makeEnv({
+      hash: "#hm=abc123",
+      history,
+      location: { pathname: "/p", search: "" },
+    });
+    expect(urls.at(-1)).toBe("/p");
   });
 
   test("no hash, a hash without hm, or an empty nonce sends no nonce key", () => {

@@ -37,7 +37,6 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
   const opened: string[] = [];
   const confirmed: string[] = [];
   let blanked = 0;
-  const clock = { time: 0 };
   const sizes: unknown[] = [];
   const bridge = createFrameBridge({
     clearTimer: (handle) => {
@@ -62,7 +61,6 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
     getInit: () => INIT,
     getTarget: () => target,
     nonce: NONCE,
-    now: () => clock.time,
     onBlank: () => {
       blanked += 1;
     },
@@ -109,9 +107,6 @@ function setup(overrides: Partial<FrameBridgeOptions> = {}) {
     }
   };
   return {
-    advance: (ms: number) => {
-      clock.time += ms;
-    },
     blanked: () => blanked,
     bridge,
     confirmed,
@@ -342,59 +337,37 @@ test("an initialize that lands just after load cancels the blanking", () => {
   expect(t.blanked()).toBe(0);
 });
 
-test("a new document after a load needs its own initialize, and gets a fresh port", () => {
-  const t = setup();
-  t.initialize();
-  t.bridge.handleLoad();
-  t.advance(1500);
-  t.initialize(t.target, 2);
-  t.bridge.handleLoad();
-  expect(t.blanked()).toBe(0);
-  expect(t.ports).toHaveLength(2);
-  expect(t.posted).toHaveLength(2);
-});
-
 test("repeat initializes from the page's retry loop are ignored", () => {
   const t = setup();
   t.initialize();
   // In flight before the page saw the reply, before and after its load event.
-  t.advance(250);
   t.initialize();
   t.bridge.handleLoad();
-  t.advance(250);
   t.initialize();
   expect(t.posted).toHaveLength(1);
   expect(t.ports).toHaveLength(1);
 });
 
-test("a second initialize without a load in between is ignored, however late", () => {
+test("the nonce works once: a replay after the iframe navigated gets no port and the frame blanks", () => {
   const t = setup();
-  t.initialize();
-  t.advance(60_000);
-  t.initialize();
+  t.initialize(t.target, 1);
+  t.bridge.handleLoad();
+  // A page the artifact navigated to, holding the nonce it read from the URL.
+  t.bridge.handleLoad();
+  t.initialize(t.target, 2, NONCE);
+  t.initialize(t.target, 3, "wrong");
+  expect(t.ports).toHaveLength(1);
   expect(t.posted).toHaveLength(1);
+  t.fireTimers();
+  expect(t.blanked()).toBe(1);
 });
 
-test("messages over a replaced port get no reply", async () => {
+test("a late repeat of the accepted initialize is ignored", () => {
   const t = setup();
   t.initialize();
-  const stalePort = t.ports.at(0);
-  const staleHandler = stalePort?.port1.onmessage;
-  expect(staleHandler).toBeTruthy();
-  t.bridge.handleLoad();
-  t.advance(1500);
-  t.initialize(t.target, 2);
-  expect(t.ports).toHaveLength(2);
-  staleHandler?.({
-    data: {
-      id: 3,
-      jsonrpc: "2.0",
-      method: "tools/call",
-      params: { name: "x" },
-    },
-  } as MessageEvent);
-  await flush();
-  expect(stalePort?.sent).toHaveLength(0);
+  t.initialize();
+  expect(t.posted).toHaveLength(1);
+  expect(t.ports).toHaveLength(1);
 });
 
 test("dispose stops everything", () => {
@@ -436,26 +409,6 @@ test("a load followed only by wrong-nonce initializes blanks the frame after the
   t.fireTimers();
   expect(t.blanked()).toBe(1);
   expect(t.posted).toHaveLength(0);
-});
-
-test("a wrong-nonce initialize cannot replace a live port", () => {
-  const t = setup();
-  t.initialize(t.target, 1);
-  t.bridge.handleLoad();
-  t.advance(1500);
-  t.initialize(t.target, 2, "wrong");
-  expect(t.ports).toHaveLength(1);
-  expect(t.posted).toHaveLength(1);
-});
-
-test("a correct-nonce initialize after a load still gets a fresh port", () => {
-  const t = setup();
-  t.initialize(t.target, 1);
-  t.bridge.handleLoad();
-  t.advance(1500);
-  t.initialize(t.target, 2, NONCE);
-  expect(t.ports).toHaveLength(2);
-  expect(t.posted).toHaveLength(2);
 });
 
 test("an extra handler's plain Error is answered with a fixed message", async () => {
