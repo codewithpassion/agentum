@@ -8,11 +8,13 @@
  * copy, and a view token only lives in the URL this service returns.
  */
 import type { Database } from "@repo/db";
+import { approvedToolTargets } from "@repo/db/artifact-calls";
 import {
   type ArtifactAccessRow,
   type ArtifactShareRow,
   type ArtifactVersionRef,
   bumpShareOpenStatement,
+  countLiveCalls,
   ensureViewSalt,
   getLinkSwitch,
   getLiveArtifact,
@@ -29,6 +31,7 @@ import {
   pruneViews,
   revokeShareStatement,
   setLinkSwitchStatement,
+  setViewOutcomeStatement,
 } from "@repo/db/artifact-shares";
 import type { Atomic } from "@repo/db/atomic";
 import { ARTIFACT_VIEW_KEEP_DAYS } from "@repo/db/shared";
@@ -50,7 +53,11 @@ import {
   artifactsSetLinksEnabledInputSchema,
   artifactsSharesInputSchema,
   artifactsViewsInputSchema,
+  type ShareCallInput,
   type ShareOpenResponse,
+  type ShareStorageInput,
+  shareCallInputSchema,
+  shareStorageInputSchema,
   type ViewTokenClaims,
 } from "@repo/protocol/artifacts";
 import { ulid } from "ulidx";
@@ -67,7 +74,15 @@ import { ServiceError } from "../errors.ts";
 import type { EventsService, PeopleLookup } from "../events.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
-import { agentCanSee, canManage, canOpen, type PolicyUser } from "./policy.ts";
+import { isArtifactCallError, type ToolRunner } from "./calls.ts";
+import {
+  agentCanSee,
+  canCreateLiveLink,
+  canManage,
+  canOpen,
+  type PolicyUser,
+} from "./policy.ts";
+import { type AppStorePort, LIST_LIMIT } from "./storage.ts";
 import {
   cutUserAgent,
   newSalt,
@@ -89,6 +104,14 @@ const VIEWS_PAGE_SIZE = 50;
 /** Salts older than this many days are deleted. */
 const SALT_KEEP_DAYS = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+
+/** Live call limits (PRD R2.13): per link a minute and a day, per visitor a minute. */
+export const LIVE_CALLS_PER_LINK_MINUTE = 60;
+export const LIVE_CALLS_PER_LINK_DAY = 1000;
+export const LIVE_CALLS_PER_VISITOR_MINUTE = 10;
+/** Marks a limits row (`<tool>#<json>`) among a version's tool grants. */
+const LIMITS_SEPARATOR = "#";
 
 const SHARE_TABLE = "artifact_shares";
 const SHARE_TOKEN_FIELD = "token";
@@ -137,23 +160,48 @@ export interface ShareRequestInfo {
   userAgent: string | null;
 }
 
+/** What a link viewer's storage request comes to. Reads only, in the shared area. */
+export type LinkStorageResult =
+  | { ok: true; result: { keys: string[] } | { value: unknown } }
+  | { ok: false; reason: "not_found" | "forbidden" | "failed" };
+
+/** What a link viewer's tool call comes to. The route maps the reasons to 404, 403, 429 and 502. */
+export type LinkCallResult =
+  | { ok: true; result: unknown }
+  | {
+      ok: false;
+      reason: "not_found" | "forbidden" | "rate_limited" | "failed";
+    };
+
 export type LinkOpenResult =
   | { grant: ShareGrant; ok: true; response: ShareOpenResponse }
   | { ok: false };
 
 export interface ArtifactSharesDeps {
+  /** The Clerk orgs the app serves (`ALLOWED_ORG_IDS`). A live call needs its granter in one. */
+  allowedOrgIds?: readonly string[];
   atomic: Atomic;
   clock: Pick<Clock, "now">;
   db: Database;
   events: Pick<EventsService, "insertStatement">;
+  /**
+   * Whether `userId` belongs to the Clerk org right now, with no cache. Live
+   * link calls ask it for `granted_by` on every call (R2.11). Without it, no
+   * live call runs.
+   */
+  isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   /** `ARTIFACT_LINKS_OFF` set on the environment: every link open is refused. */
   linksOff?: boolean;
   /** Origin that share URLs start with, for example `https://app.example`. */
   origin: string;
   /** Names for the owner shown on the share page. */
   people?: PeopleLookup;
+  /** Runs a granted tool as a person (B.5). Without it, no live call runs. */
+  runner?: ToolRunner;
   /** `SECRETS_KEY`, base64. Needed to create or show a link. */
   secretsKey?: string;
+  /** App storage, read by link viewers through `storageLink`. Without it, those reads fail. */
+  store?: Pick<AppStorePort, "get" | "list">;
   /** `ARTIFACT_VIEW_KEY`: signs view tokens. */
   viewKey: string;
 }
@@ -197,6 +245,18 @@ const shareStatus = (
   return "active";
 };
 
+/** A stored value as the bridge gives it: parsed JSON, or the raw text an app server wrote. */
+const storedValue = (text: string | null): unknown => {
+  if (text === null) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
 const parseLiveTools = (text: string | null): string[] | null => {
   if (text === null) {
     return null;
@@ -229,14 +289,18 @@ const linkOutcome = (
 };
 
 export const createArtifactSharesService = ({
+  allowedOrgIds = [],
   atomic,
   clock,
   db,
   events,
+  isOrgMember,
   linksOff = false,
   origin,
   people,
+  runner,
   secretsKey,
+  store,
   viewKey,
 }: ArtifactSharesDeps) => {
   let importedKey: Promise<CryptoKey> | undefined;
@@ -467,7 +531,69 @@ export const createArtifactSharesService = ({
     return await Promise.all(rows.map((row) => toShare(row, now, showUrl)));
   };
 
-  /** A new snapshot link. Live links are phase 2 and refused here. */
+  /** The plain tool keys a version has approved. Limits rows (`<tool>#<json>`) are not tools. */
+  const approvedTools = async (
+    workspaceId: string,
+    versionId: string
+  ): Promise<string[]> =>
+    (await approvedToolTargets(db, { versionId, workspaceId })).filter(
+      (target) => !target.includes(LIMITS_SEPARATOR)
+    );
+
+  /** The expiry (in the future) and the pinned version (published) a new link asks for. */
+  const checkedShareOptions = async (
+    artifact: ArtifactAccessRow,
+    wanted: { expiresAt?: string | null; versionId?: string | null },
+    now: Date
+  ): Promise<{ expiresAt: string | null; versionId: string | null }> => {
+    const expiresAt = wanted.expiresAt
+      ? new Date(wanted.expiresAt).toISOString()
+      : null;
+    if (expiresAt !== null && Date.parse(expiresAt) <= now.getTime()) {
+      throw new ServiceError("invalid", "The expiry must be in the future.");
+    }
+    const versionId = wanted.versionId ?? null;
+    if (versionId !== null) {
+      const version = await getVersionById(db, artifact.id, versionId);
+      if (version?.status !== "published") {
+        throw new ServiceError("not_found", "Version not found");
+      }
+    }
+    return { expiresAt, versionId };
+  };
+
+  /**
+   * The tools a live link may call: each must be approved for the version the
+   * link will show, its pin or else the current one.
+   */
+  const checkedLiveTools = async (
+    artifact: ArtifactAccessRow,
+    versionId: string | null,
+    requested: string[]
+  ): Promise<string[]> => {
+    const tools = [...new Set(requested)];
+    const shown = await linkVersion({
+      artifactId: artifact.id,
+      currentVersionId: artifact.currentVersionId,
+      versionId,
+    });
+    const approved = shown
+      ? await approvedTools(artifact.workspaceId, shown.id)
+      : [];
+    if (!tools.every((tool) => approved.includes(tool))) {
+      throw new ServiceError(
+        "invalid",
+        "A live link can only call tools this version has approved."
+      );
+    }
+    return tools;
+  };
+
+  /**
+   * A new link. A snapshot link is for the owner or an admin. A live link is
+   * for the owner alone, because its calls use the owner's connections, and
+   * it records who granted it and a subset of the version's approved tools.
+   */
   const createShare = async (
     principal: Principal,
     input: ArtifactsCreateShareInput
@@ -479,8 +605,9 @@ export const createArtifactSharesService = ({
       CREATE_SHARE_ACTION,
       parsed.artifactId
     );
-    if (parsed.dataMode !== "snapshot") {
-      throw new ServiceError("invalid", "Live links are not available yet.");
+    const live = parsed.dataMode === "live";
+    if (live && !canCreateLiveLink(artifact, policyUser(user))) {
+      throw new ForbiddenError(CREATE_SHARE_ACTION);
     }
     if (linksOff || !(await getLinkSwitch(db, user.workspaceId))) {
       throw new ServiceError(
@@ -489,32 +616,27 @@ export const createArtifactSharesService = ({
       );
     }
     const now = clock.now();
-    const expiresAt = parsed.expiresAt
-      ? new Date(parsed.expiresAt).toISOString()
+    const { expiresAt, versionId } = await checkedShareOptions(
+      artifact,
+      parsed,
+      now
+    );
+    const liveTools = live
+      ? await checkedLiveTools(artifact, versionId, parsed.liveTools ?? [])
       : null;
-    if (expiresAt !== null && Date.parse(expiresAt) <= now.getTime()) {
-      throw new ServiceError("invalid", "The expiry must be in the future.");
-    }
-    const versionId = parsed.versionId ?? null;
-    if (versionId !== null) {
-      const version = await getVersionById(db, artifact.id, versionId);
-      if (version?.status !== "published") {
-        throw new ServiceError("not_found", "Version not found");
-      }
-    }
     const id = ulid(now.getTime());
     const { hash, token } = await hashedToken(ARTIFACT_SHARE_TOKEN_PREFIX);
     const row: ArtifactShareRow = {
       artifactId: artifact.id,
       createdAt: now.toISOString(),
       createdBy: user.userId,
-      dataMode: "snapshot",
+      dataMode: live ? "live" : "snapshot",
       expiresAt,
-      grantedBy: null,
+      grantedBy: live ? user.userId : null,
       id,
       kind: "link",
       lastOpenedAt: null,
-      liveTools: null,
+      liveTools: liveTools ? JSON.stringify(liveTools) : null,
       openCount: 0,
       revokedAt: null,
       revokedBy: null,
@@ -531,7 +653,14 @@ export const createArtifactSharesService = ({
       insertShareStatement(db, row),
       events.insertStatement({
         actor: { id: user.userId, kind: "user" },
-        payload: { artifactId: artifact.id, expiresAt, shareId: id, versionId },
+        payload: {
+          artifactId: artifact.id,
+          dataMode: row.dataMode,
+          expiresAt,
+          ...(liveTools ? { liveTools } : {}),
+          shareId: id,
+          versionId,
+        },
         type: "artifact.share_created",
         workspaceId: user.workspaceId,
       }),
@@ -767,6 +896,224 @@ export const createArtifactSharesService = ({
     };
   };
 
+  /** The granter must still own the artifact and sit in an allowed org (R2.11). No cache. */
+  const granterStillValid = async (share: {
+    clerkOrgId: string;
+    grantedBy: string | null;
+    ownerUserId: string | null;
+  }): Promise<boolean> =>
+    share.grantedBy !== null &&
+    share.ownerUserId === share.grantedBy &&
+    allowedOrgIds.includes(share.clerkOrgId) &&
+    isOrgMember !== undefined &&
+    (await isOrgMember(share.grantedBy, share.clerkOrgId));
+
+  /** Whether a live link may run `tool` right now: a live link, the tool in its list and in the version's grants, and a granter who still qualifies. */
+  const liveCallAllowed = async (
+    share: Parameters<typeof granterStillValid>[0] & {
+      dataMode: "live" | "snapshot";
+      liveTools: string | null;
+      workspaceId: string;
+    },
+    versionId: string,
+    tool: string
+  ): Promise<boolean> =>
+    share.dataMode === "live" &&
+    runner !== undefined &&
+    parseLiveTools(share.liveTools)?.includes(tool) === true &&
+    (await approvedTools(share.workspaceId, versionId)).includes(tool) &&
+    (await granterStillValid(share));
+
+  /**
+   * A link viewer calls a tool (PRD section 4, R2.6, R2.10 to R2.14). The
+   * token is looked up by its hash and every check runs now, with no cache:
+   * the link is alive, it is a live link, the tool is in `live_tools` and in
+   * the shown version's approved grants, the granter still owns the artifact
+   * and belongs to an allowed org, and the rate limits hold. The tool then
+   * runs as the granter through B.5's runner, which scrubs and caps the result.
+   * Every known link writes one `live_call` row with the tool key and the
+   * outcome. An unknown token writes nothing and reads as not found.
+   */
+  const callLink = async (
+    token: string,
+    input: ShareCallInput,
+    request: ShareRequestInfo
+  ): Promise<LinkCallResult> => {
+    const call = shareCallInputSchema.parse(input);
+    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+      return { ok: false, reason: "not_found" };
+    }
+    const share = await getShareByHash(db, await hashToken(token));
+    if (!share) {
+      return { ok: false, reason: "not_found" };
+    }
+    const now = clock.now();
+    const version = await linkVersion(share);
+    const base = {
+      ...(await viewRow(
+        share,
+        version ? version.id : null,
+        "ok",
+        request,
+        now
+      )),
+      surface: "live_call" as const,
+      toolKey: call.tool,
+    };
+    const finish = async (
+      outcome: NewArtifactView["outcome"],
+      reason: Extract<LinkCallResult, { ok: false }>["reason"]
+    ): Promise<LinkCallResult> => {
+      await atomic([insertViewStatement(db, { ...base, outcome })]);
+      return { ok: false, reason };
+    };
+
+    const dead = linkOutcome(share, version !== undefined, now, linksOff);
+    if (dead !== "ok" || !version) {
+      return await finish(dead === "ok" ? "revoked" : dead, "not_found");
+    }
+    if (await overLimit(share.shareId, base.visitorHash ?? null, now)) {
+      return await finish("rate_limited", "rate_limited");
+    }
+
+    return await runGranted(share, version.id, call, base);
+  };
+
+  /**
+   * The checks that need the granter and the version's grants, then the run.
+   * The row goes in before the run so that calls in flight count against the
+   * limits, and its outcome is set afterwards when the run did not work.
+   */
+  const runGranted = async (
+    share: Parameters<typeof liveCallAllowed>[0] & {
+      agentId: string | null;
+      grantedBy: string | null;
+    },
+    versionId: string,
+    call: ShareCallInput,
+    row: NewArtifactView
+  ): Promise<LinkCallResult> => {
+    const refuse = async (
+      outcome: NewArtifactView["outcome"],
+      reason: "failed" | "forbidden"
+    ): Promise<LinkCallResult> => {
+      await atomic([insertViewStatement(db, { ...row, outcome })]);
+      return { ok: false, reason };
+    };
+    try {
+      const allowed = await liveCallAllowed(share, versionId, call.tool);
+      if (!(allowed && runner && share.grantedBy)) {
+        return await refuse("refused", "forbidden");
+      }
+      await atomic([insertViewStatement(db, row)]);
+      return await runRecorded(runner, share.grantedBy, share, call, row.id);
+    } catch (error) {
+      // A failed check (the membership lookup, the database) fails closed.
+      console.error("Live link check failed", error);
+      return await refuse("error", "failed");
+    }
+  };
+
+  const runRecorded = async (
+    toolRunner: ToolRunner,
+    userId: string,
+    share: { agentId: string | null; workspaceId: string },
+    call: ShareCallInput,
+    viewId: string
+  ): Promise<LinkCallResult> => {
+    try {
+      const { result } = await toolRunner.run({
+        agentId: share.agentId,
+        arguments: call.arguments ?? {},
+        toolKey: call.tool,
+        userId,
+        workspaceId: share.workspaceId,
+      });
+      return { ok: true, result };
+    } catch (error) {
+      const refused =
+        isArtifactCallError(error) && error.code === "not_granted";
+      await atomic([
+        setViewOutcomeStatement(db, viewId, refused ? "refused" : "error"),
+      ]);
+      if (!refused) {
+        console.error("Live link call failed", error);
+      }
+      return { ok: false, reason: refused ? "forbidden" : "failed" };
+    }
+  };
+
+  /** Whether the link or the visitor is over a live call limit right now (R2.13). */
+  const overLimit = async (
+    shareId: string,
+    visitorKey: string | null,
+    now: Date
+  ): Promise<boolean> => {
+    const since = (ms: number) => new Date(now.getTime() - ms).toISOString();
+    const [minute, day, byVisitor] = await Promise.all([
+      countLiveCalls(db, { shareId, since: since(MINUTE_MS) }),
+      countLiveCalls(db, { shareId, since: since(DAY_MS) }),
+      countLiveCalls(db, {
+        shareId,
+        since: since(MINUTE_MS),
+        visitorHash: visitorKey,
+      }),
+    ]);
+    return (
+      minute >= LIVE_CALLS_PER_LINK_MINUTE ||
+      day >= LIVE_CALLS_PER_LINK_DAY ||
+      byVisitor >= LIVE_CALLS_PER_VISITOR_MINUTE
+    );
+  };
+
+  /**
+   * A link viewer reads the app's shared storage (`get` or `list`). The link
+   * is checked as for an open, so a revoked, expired or disabled one is not
+   * found. Writes are always forbidden: a link holder never changes shared
+   * data. No access-log row is written, because reads are not tool calls.
+   */
+  const storageLink = async (
+    token: string,
+    input: ShareStorageInput
+  ): Promise<LinkStorageResult> => {
+    const parsed = shareStorageInputSchema.parse(input);
+    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+      return { ok: false, reason: "not_found" };
+    }
+    const share = await getShareByHash(db, await hashToken(token));
+    if (!share) {
+      return { ok: false, reason: "not_found" };
+    }
+    const version = await linkVersion(share);
+    if (
+      linkOutcome(share, version !== undefined, clock.now(), linksOff) !== "ok"
+    ) {
+      return { ok: false, reason: "not_found" };
+    }
+    if (parsed.op === "set" || parsed.op === "delete") {
+      return { ok: false, reason: "forbidden" };
+    }
+    if (!store) {
+      return { ok: false, reason: "failed" };
+    }
+    const scope = {
+      area: "shared" as const,
+      artifactId: share.artifactId,
+      viewerKey: `l:${share.shareId}`,
+    };
+    try {
+      if (parsed.op === "list") {
+        const items = await store.list(scope, parsed.prefix ?? "", LIST_LIMIT);
+        return { ok: true, result: { keys: items.map((item) => item.key) } };
+      }
+      const text = await store.get(scope, parsed.key ?? "");
+      return { ok: true, result: { value: storedValue(text) } };
+    } catch (error) {
+      console.error("Link storage read failed", error);
+      return { ok: false, reason: "failed" };
+    }
+  };
+
   /**
    * Deletes access-log rows past `ARTIFACT_VIEW_KEEP_DAYS` and salts past two
    * days (R1.33). The minute tick calls it; it takes no principal.
@@ -784,6 +1131,7 @@ export const createArtifactSharesService = ({
   };
 
   return {
+    callLink,
     createShare,
     linksEnabled,
     mintTestToken,
@@ -793,6 +1141,7 @@ export const createArtifactSharesService = ({
     revokeShare,
     setLinksEnabled,
     shares,
+    storageLink,
     views,
   };
 };
