@@ -3,6 +3,7 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { artifacts, artifactVersions } from "@repo/db/schema/artifacts";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
+import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
@@ -48,6 +49,7 @@ const manifest = (body: object) => [
 
 let db: ReturnType<typeof migrated>;
 let service: ReturnType<typeof createArtifactGrantsService>;
+let requests: ReturnType<typeof createRequestsService>;
 let agentId: string;
 let otherAgentId: string;
 let runPrincipal: Principal;
@@ -111,7 +113,7 @@ const setup = async () => {
   otherAgentId = (
     await agents.create(owner, { model: "m", name: "Other", runtime: "cloud" })
   ).id;
-  const requests = createRequestsService({
+  requests = createRequestsService({
     atomic: sqliteAtomic(db),
     clock,
     db,
@@ -360,7 +362,8 @@ test("R2.4: a version that adds a grant waits in Needs you, then promotes after 
   });
   const [closed] = await db.select().from(runRequests);
   expect(closed?.status).toBe("answered");
-  expect(resumed).toEqual([request?.id ?? ""]);
+  // The tool returned `waiting`, so no runtime holds the card.
+  expect(resumed).toEqual([]);
   expect(types).toContain("request.answered");
   expect(await eventTypes()).toContain("artifact.grant_decided");
   const done = await service.promote(runPrincipal, {
@@ -487,4 +490,116 @@ test("handing to the same agent twice writes one event", async () => {
   expect(
     (await eventTypes()).filter((type) => type === "artifact.handed_to")
   ).toHaveLength(1);
+});
+
+test("dropping an approved argument limit needs a person again", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await record(
+    "v2",
+    { tools: [{ limits: { limit: { max: 10 } }, tool: "linear/list_issues" }] },
+    owner
+  );
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await addVersion("v3", 3);
+  const grants = await record("v3", {
+    tools: [{ tool: "linear/list_issues" }],
+  });
+  expect(grants.map((grant) => grant.status)).toEqual(["pending"]);
+  const same = await addVersion("v4", 4).then(() =>
+    record("v4", {
+      tools: [{ limits: { limit: { max: 10 } }, tool: "linear/list_issues" }],
+    })
+  );
+  expect(same.map((grant) => grant.status)).toEqual(["approved", "approved"]);
+});
+
+test("a waiting promote leaves the run running", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  const [run] = await db.select().from(runRows);
+  expect(run?.status).toBe("running");
+});
+
+test("allowing the card decides its grants and the next promote goes live", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  const waiting = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  if (waiting.status !== "waiting") {
+    throw new Error("expected waiting");
+  }
+  await requests.answer(owner, {
+    answer: { decision: "allow_once" },
+    requestId: waiting.requestId,
+    via: "web",
+  });
+  expect(
+    await service.promote(runPrincipal, {
+      artifactId: ARTIFACT,
+      versionId: "v2",
+    })
+  ).toEqual({ status: "promoted", version: 2 });
+  const [grant] = await service.list(owner, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  expect(grant).toMatchObject({ decidedBy: "u1", status: "approved" });
+  expect(await db.select().from(runRequests)).toHaveLength(1);
+});
+
+test("denying the card rejects the version", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  const waiting = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  if (waiting.status !== "waiting") {
+    throw new Error("expected waiting");
+  }
+  await requests.answer(owner, {
+    answer: { decision: "deny" },
+    requestId: waiting.requestId,
+    via: "web",
+  });
+  await expect(
+    service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(await versionStatus("v2")).toBe("rejected");
+});
+
+test("a card answered by someone who cannot decide is a conflict, not a new card", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { hosts: ["files.example.com"] });
+  const waiting = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  if (waiting.status !== "waiting") {
+    throw new Error("expected waiting");
+  }
+  await requests.answer(owner, {
+    answer: { decision: "allow_once" },
+    requestId: waiting.requestId,
+    via: "web",
+  });
+  await db.update(runRequests).set({ answeredBy: "u9" });
+  await expect(
+    service.promote(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(await db.select().from(runRequests)).toHaveLength(1);
+  expect(await versionStatus("v2")).toBe("proposed");
 });

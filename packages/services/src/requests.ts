@@ -26,7 +26,7 @@ import { ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
 import {
-  isMailApproval,
+  isDetachedApproval,
   mailSendError,
   notMailApproval,
 } from "./mail/approval.ts";
@@ -471,8 +471,8 @@ export const createRequestsService = ({
     return requestRecord(row);
   };
   const waitForRuntime = async (row: RequestRow) => {
-    // Mail approvals outlive the run; the tool returns immediately.
-    if (isMailApproval(row)) {
+    // Mail and promote approvals outlive the run; the tool returns immediately.
+    if (isDetachedApproval(row)) {
       return;
     }
     await runs.markWaiting(SYSTEM_PRINCIPAL, row.runId);
@@ -480,7 +480,7 @@ export const createRequestsService = ({
     await markRunningIfSettled(row.runId);
   };
   const resume = async (row: RequestRow) => {
-    if (isMailApproval(row)) {
+    if (isDetachedApproval(row)) {
       return;
     }
     await markRunningIfSettled(row.runId);

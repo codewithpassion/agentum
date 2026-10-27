@@ -2,7 +2,7 @@
 // They take a drizzle instance and never make one. Writes that must land
 // together come back as unexecuted statements for `atomic`.
 
-import { and, asc, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   artifactGrants,
@@ -327,23 +327,3 @@ export const listPins = (
       asc(artifactPins.position),
       asc(artifactPins.id)
     );
-
-/** The ids of the given grants, used to check a batch stays inside one workspace. */
-export const grantIdsIn = async (
-  db: Database,
-  query: { ids: string[]; workspaceId: string }
-): Promise<string[]> => {
-  if (query.ids.length === 0) {
-    return [];
-  }
-  const rows = await db
-    .select({ id: artifactGrants.id })
-    .from(artifactGrants)
-    .where(
-      and(
-        inArray(artifactGrants.id, query.ids),
-        eq(artifactGrants.workspaceId, query.workspaceId)
-      )
-    );
-  return rows.map((row) => row.id);
-};

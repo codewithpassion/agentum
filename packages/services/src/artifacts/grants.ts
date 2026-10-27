@@ -126,6 +126,35 @@ const sameGrant = (
   right: { kind: string; target: string }
 ) => left.kind === right.kind && left.target === right.target;
 
+/** The limits rows (`<tool>#<json>`) a set holds for one tool, sorted. */
+const limitRows = (set: readonly { target: string }[], tool: string) =>
+  set
+    .map((held) => held.target)
+    .filter((target) => target.startsWith(`${tool}${LIMITS_SEPARATOR}`))
+    .sort();
+
+/**
+ * Whether the approved set already covers `grant`. A tool without limits is
+ * covered only when every limit the set holds for it is still declared:
+ * dropping an approved limit widens the grant, so it needs a person again.
+ */
+const covered = (
+  carried: readonly { kind: string; target: string }[],
+  declared: readonly { kind: string; target: string }[],
+  grant: { kind: string; target: string }
+): boolean => {
+  if (!carried.some((held) => sameGrant(held, grant))) {
+    return false;
+  }
+  if (grant.kind !== "tool" || grant.target.includes(LIMITS_SEPARATOR)) {
+    return true;
+  }
+  const declaredLimits = limitRows(declared, grant.target);
+  return limitRows(carried, grant.target).every((row) =>
+    declaredLimits.includes(row)
+  );
+};
+
 export const createArtifactGrantsService = ({
   atomic,
   clock,
@@ -266,8 +295,7 @@ export const createArtifactGrantsService = ({
       version.authorKind === "user" &&
       version.authorId === principal.userId;
     const rows = declared.map((grant) => {
-      const approved =
-        byPerson || carried.some((held) => sameGrant(held, grant));
+      const approved = byPerson || covered(carried, declared, grant);
       return {
         createdAt: now,
         decidedAt: approved ? now : null,
@@ -307,6 +335,82 @@ export const createArtifactGrantsService = ({
       workspaceId: artifact.workspaceId,
     });
     return rows.map(grantRecord);
+  };
+
+  /** Writes one decision over some grants of a version, with an event each. A rejection rejects the version. */
+  const applyDecisions = async (
+    artifact: ArtifactRow,
+    grants: ArtifactGrantRow[],
+    decision: "approved" | "rejected",
+    userId: string
+  ) => {
+    const [first] = grants;
+    if (!first) {
+      return;
+    }
+    const now = clock.now().toISOString();
+    await atomic([
+      ...grants.map((grant) =>
+        decideGrantStatement(db, {
+          decidedAt: now,
+          decidedBy: userId,
+          id: grant.id,
+          status: decision,
+        })
+      ),
+      ...(decision === "rejected"
+        ? [rejectVersionStatement(db, first.versionId)]
+        : []),
+    ]);
+    for (const grant of grants) {
+      // biome-ignore lint/performance/noAwaitInLoops: events keep the order of the grants
+      await events.append({
+        actor: { id: userId, kind: "user" },
+        payload: {
+          artifactId: artifact.id,
+          decision,
+          grantId: grant.id,
+          kind: grant.kind,
+          target: grant.target,
+          versionId: grant.versionId,
+        },
+        type: "artifact.grant_decided",
+        workspaceId: artifact.workspaceId,
+      });
+    }
+  };
+
+  /**
+   * Applies a person's answer on the Needs you card to the grants it listed, so
+   * answering the card decides them as `decideGrant` would. Only the owner's
+   * answer counts: the card's visibility follows the agent's session, not the
+   * artifact, and an admin decides on the artifact page. Anything else is a
+   * conflict, so the agent never loops on a card nobody can act on.
+   */
+  const applyCardAnswer = async (
+    artifact: ArtifactRow,
+    card: { answer: string | null; answeredBy: string | null },
+    pending: ArtifactGrantRow[]
+  ) => {
+    if (card.answeredBy === null || card.answeredBy !== artifact.ownerUserId) {
+      throw new ServiceError(
+        "conflict",
+        "The card was answered by someone who cannot decide these grants; decide them on the artifact page"
+      );
+    }
+    const denied = isDeny(card.answer);
+    await applyDecisions(
+      artifact,
+      pending,
+      denied ? "rejected" : "approved",
+      card.answeredBy
+    );
+    if (denied) {
+      throw new ServiceError(
+        "conflict",
+        "A person declined this version in Needs you"
+      );
+    }
   };
 
   /** Settles the Needs you card of a version once its grants are all decided. Best effort. */
@@ -381,31 +485,7 @@ export const createArtifactGrantsService = ({
     if (grant.status !== "pending") {
       throw new ServiceError("conflict", "Grant already decided");
     }
-    const now = clock.now().toISOString();
-    await atomic([
-      decideGrantStatement(db, {
-        decidedAt: now,
-        decidedBy: principal.userId,
-        id: grant.id,
-        status: input.decision,
-      }),
-      ...(input.decision === "rejected"
-        ? [rejectVersionStatement(db, grant.versionId)]
-        : []),
-    ]);
-    await events.append({
-      actor: { id: principal.userId, kind: "user" },
-      payload: {
-        artifactId: artifact.id,
-        decision: input.decision,
-        grantId: grant.id,
-        kind: grant.kind,
-        target: grant.target,
-        versionId: grant.versionId,
-      },
-      type: "artifact.grant_decided",
-      workspaceId: artifact.workspaceId,
-    });
+    await applyDecisions(artifact, [grant], input.decision, principal.userId);
     await settleRequest(principal, artifact, grant.versionId);
   };
 
@@ -422,12 +502,6 @@ export const createArtifactGrantsService = ({
     const [latest] = prior;
     if (latest?.status === "pending") {
       return latest.id;
-    }
-    if (latest?.status === "answered" && isDeny(latest.answer)) {
-      throw new ServiceError(
-        "conflict",
-        "A person declined this version in Needs you"
-      );
     }
     const asks = pending.map((row) => row.target);
     const opened = await requests.open(SYSTEM_PRINCIPAL, {
@@ -493,7 +567,17 @@ export const createArtifactGrantsService = ({
         "A grant of this version was rejected"
       );
     }
-    const pending = rows.filter((row) => row.status === "pending");
+    let pending = rows.filter((row) => row.status === "pending");
+    if (pending.length > 0) {
+      const [card] = await promoteRequests(db, {
+        versionId: version.id,
+        workspaceId: artifact.workspaceId,
+      });
+      if (card?.status === "answered") {
+        await applyCardAnswer(artifact, card, pending);
+        pending = [];
+      }
+    }
     if (pending.length > 0) {
       if (principal.kind !== "run") {
         throw new ServiceError(
