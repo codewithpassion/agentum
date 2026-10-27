@@ -20,13 +20,19 @@ export class LiveArtifactMaintenance extends DurableObject<Env> {
       sweeps.push(live.retryCheckpoints);
       await this.ctx.storage.put("checkpointTick", Date.now());
     }
-    for (const sweep of sweeps) {
-      let cursor: string | undefined;
-      do {
-        // biome-ignore lint/performance/noAwaitInLoops: durable pagination must finish a page before using its cursor.
-        const page = await sweep(SYSTEM_PRINCIPAL, { cursor, limit: 100 });
-        cursor = page.next;
-      } while (cursor);
+    const results = await Promise.allSettled(
+      sweeps.map(async (sweep) => {
+        let cursor: string | undefined;
+        do {
+          // biome-ignore lint/performance/noAwaitInLoops: durable pagination must finish a page before using its cursor.
+          const page = await sweep(SYSTEM_PRINCIPAL, { cursor, limit: 100 });
+          cursor = page.next;
+        } while (cursor);
+      })
+    );
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") {
+      throw failed.reason;
     }
   }
 }
