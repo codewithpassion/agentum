@@ -15,14 +15,12 @@ import {
   findArtifact,
   findVersionById,
   findVersionByNumber,
-  knownBlobSizes,
   listArtifacts,
   listVersions,
   maxVersionNumber,
   pinnedArtifactIds,
   versionFiles,
   versionsByIds,
-  workspaceBlobBytes,
 } from "@repo/db/artifacts";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
@@ -38,7 +36,6 @@ import {
   ARTIFACT_FILE_MAX_BYTES,
   ARTIFACT_MAX_BYTES,
   ARTIFACT_MAX_FILES,
-  ARTIFACT_WORKSPACE_MAX_BYTES,
   type ArtifactAudience,
   type ArtifactKind,
   type ArtifactPublishedPayload,
@@ -47,7 +44,6 @@ import {
 import {
   type ArtifactCard,
   type ArtifactDetail,
-  type ArtifactManifest,
   type ArtifactVersion,
   artifactManifestSchema,
   artifactPathSchema,
@@ -64,6 +60,11 @@ import type { LibraryBlobs, LibraryService } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
 import { visibleSessions } from "../sessions.ts";
 import type { Principal } from "../workspaces.ts";
+import {
+  blobKey,
+  createArtifactBlobWriter,
+  manifestKey,
+} from "./blob-writer.ts";
 import type { ArtifactGrantsService } from "./grants.ts";
 import { MANIFEST_PATH } from "./manifest.ts";
 import {
@@ -82,8 +83,6 @@ const PAGE_SIZE = 50;
 const AGENT_LOOKUP_CHUNK = 80;
 /** D1 binds at most 100 parameters per statement, and a file row binds 6. */
 const FILE_ROWS_PER_INSERT = 10;
-/** Blobs written at the same time. */
-const BLOB_WRITE_PARALLEL = 8;
 const CREATABLE_KINDS: readonly ArtifactKind[] = [
   "page",
   "doc",
@@ -226,12 +225,8 @@ const chunks = <T>(items: readonly T[], size: number): T[][] => {
   return out;
 };
 
-const blobKey = (workspaceId: string, sha256: string) =>
-  `${workspaceId}/artifact-blobs/${sha256}`;
 const thumbnailKey = (workspaceId: string, versionId: string) =>
   `${workspaceId}/artifact-thumbnails/${versionId}.png`;
-const manifestKey = (workspaceId: string, versionId: string) =>
-  `${workspaceId}/artifact-manifests/${versionId}.json`;
 
 const checkText = (
   label: string,
@@ -312,6 +307,10 @@ export const createArtifactsService = ({
   people?: PeopleLookup;
 }) => {
   const nowIso = () => clock.now().toISOString();
+  const { checkQuota, writeBlobs, writeManifest } = createArtifactBlobWriter({
+    blobs,
+    db,
+  });
 
   // Principals
 
@@ -542,76 +541,6 @@ export const createArtifactsService = ({
       }))
     );
     return { entry, files, sourceLibraryPath };
-  };
-
-  /** Refuses a write that would take the workspace's blobs over the quota. */
-  const checkQuota = async (
-    workspaceId: string,
-    files: readonly ResolvedFile[]
-  ): Promise<Set<string>> => {
-    const unique = new Map<string, number>();
-    for (const file of files) {
-      unique.set(file.sha256, file.bytes.byteLength);
-    }
-    const known = await knownBlobSizes(db, workspaceId, [...unique.keys()]);
-    const fresh = new Set<string>();
-    let freshBytes = 0;
-    for (const [hash, size] of unique) {
-      if (!known.has(hash)) {
-        fresh.add(hash);
-        freshBytes += size;
-      }
-    }
-    const used = await workspaceBlobBytes(db, workspaceId);
-    if (used + freshBytes > ARTIFACT_WORKSPACE_MAX_BYTES) {
-      throw invalid("The workspace's artifact storage is full (1 GB)");
-    }
-    return fresh;
-  };
-
-  const writeBlobs = async (
-    workspaceId: string,
-    files: readonly ResolvedFile[],
-    fresh: ReadonlySet<string>
-  ) => {
-    const toWrite = new Map<string, Uint8Array>();
-    for (const file of files) {
-      if (fresh.has(file.sha256)) {
-        toWrite.set(file.sha256, file.bytes);
-      }
-    }
-    for (const batch of chunks([...toWrite], BLOB_WRITE_PARALLEL)) {
-      // biome-ignore lint/performance/noAwaitInLoops: a few blobs at a time, not 200 at once
-      await Promise.all(
-        batch.map(([hash, bytes]) =>
-          blobs.put(blobKey(workspaceId, hash), bytes)
-        )
-      );
-    }
-  };
-
-  const writeManifest = async (workspaceId: string, draft: VersionDraft) => {
-    const manifest: ArtifactManifest = {
-      entry: draft.entry,
-      files: Object.fromEntries(
-        draft.files.map((file) => [
-          file.path,
-          {
-            contentType: file.contentType,
-            sha256: file.sha256,
-            size: file.size,
-          },
-        ])
-      ),
-    };
-    const checked = artifactManifestSchema.safeParse(manifest);
-    if (!checked.success) {
-      throw invalid(checked.error.issues[0]?.message ?? "Invalid artifact");
-    }
-    await blobs.put(
-      manifestKey(workspaceId, draft.versionId),
-      new TextEncoder().encode(JSON.stringify(checked.data))
-    );
   };
 
   /** The paths of a stored version with the bytes of its manifest, for the grant check. */
