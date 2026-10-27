@@ -41,8 +41,8 @@ const cases: [
   [
     "list",
     artifactsListInputSchema,
-    { kind: "page", madeBy: "agent", shared: true },
-    { kind: "video" },
+    { kind: "page", madeBy: "agent", runId: "run1", shared: true },
+    { kind: "video", runId: "" },
   ],
   ["get", artifactsGetInputSchema, { artifactId: id }, { artifactId: "nope" }],
   ["versions", artifactsVersionsInputSchema, { artifactId: id }, {}],

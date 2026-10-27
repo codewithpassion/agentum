@@ -15,6 +15,7 @@ import { Route as ChooseOrganizationRouteImport } from './routes/choose-organiza
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SignUpRouteImport } from './routes/sign-up'
+import { Route as AppArtifactsRouteImport } from './routes/_app/artifacts'
 import { Route as AppConnectorsRouteImport } from './routes/_app/connectors'
 import { Route as AppDeskRouteImport } from './routes/_app/desk'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
@@ -71,6 +72,11 @@ const SignUpRoute = SignUpRouteImport.update({
   id: '/sign-up',
   path: '/sign-up',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppArtifactsRoute = AppArtifactsRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppConnectorsRoute = AppConnectorsRouteImport.update({
   id: '/connectors',
@@ -217,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
+  '/artifacts': typeof AppArtifactsRoute
   '/connectors': typeof AppConnectorsRoute
   '/desk': typeof AppDeskRoute
   '/inbox': typeof AppInboxRoute
@@ -251,6 +258,7 @@ export interface FileRoutesByTo {
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
+  '/artifacts': typeof AppArtifactsRoute
   '/connectors': typeof AppConnectorsRoute
   '/desk': typeof AppDeskRoute
   '/inbox': typeof AppInboxRoute
@@ -286,6 +294,7 @@ export interface FileRoutesById {
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
+  '/_app/artifacts': typeof AppArtifactsRoute
   '/_app/connectors': typeof AppConnectorsRoute
   '/_app/desk': typeof AppDeskRoute
   '/_app/inbox': typeof AppInboxRoute
@@ -322,6 +331,7 @@ export interface FileRouteTypes {
     | '/dev-login'
     | '/login'
     | '/sign-up'
+    | '/artifacts'
     | '/connectors'
     | '/desk'
     | '/inbox'
@@ -356,6 +366,7 @@ export interface FileRouteTypes {
     | '/dev-login'
     | '/login'
     | '/sign-up'
+    | '/artifacts'
     | '/connectors'
     | '/desk'
     | '/inbox'
@@ -390,6 +401,7 @@ export interface FileRouteTypes {
     | '/dev-login'
     | '/login'
     | '/sign-up'
+    | '/_app/artifacts'
     | '/_app/connectors'
     | '/_app/desk'
     | '/_app/inbox'
@@ -471,6 +483,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/sign-up'
       preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/artifacts': {
+      id: '/_app/artifacts'
+      path: '/artifacts'
+      fullPath: '/artifacts'
+      preLoaderRoute: typeof AppArtifactsRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/connectors': {
       id: '/_app/connectors'
@@ -691,6 +710,7 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppArtifactsRoute: typeof AppArtifactsRoute
   AppConnectorsRoute: typeof AppConnectorsRoute
   AppDeskRoute: typeof AppDeskRoute
   AppInboxRoute: typeof AppInboxRoute
@@ -713,6 +733,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppArtifactsRoute: AppArtifactsRoute,
   AppConnectorsRoute: AppConnectorsRoute,
   AppDeskRoute: AppDeskRoute,
   AppInboxRoute: AppInboxRoute,
