@@ -3,7 +3,7 @@ id: N.1
 title: Review nits in the desk and admin API (X.9, X.10)
 milestone: N
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/N.1-desk-admin-nits
 lane: admin-api
@@ -25,3 +25,4 @@ Dom asked on 27 Oct 2026 to clear the nits the X.9 and X.10 reviews left (`docs/
 ## Log
 - 2026-10-27: added at Dom's request (clear review nits).
 - 2026-10-27: dispatched.
+- 2026-10-27: review clean after 0 fix rounds; merged.
