@@ -115,6 +115,15 @@ try {
             undefined,
             kind
           );
+          const other =
+            kind === "document" && role === "editor"
+              ? await create(
+                  `guest-${kind}-${role}-${viewport.width}@example.com`,
+                  "viewer",
+                  undefined,
+                  "document"
+                )
+              : null;
           const context = await browser.newContext({
             hasTouch: viewport.width === 390,
             isMobile: viewport.width === 390,
@@ -230,6 +239,24 @@ try {
               page.getByText("Connecting to the deck room…")
             ).toHaveCount(0);
             await expect(page.getByLabel("Live deck editor")).toBeVisible();
+          }
+          if (other) {
+            await page
+              .locator(
+                `nav[aria-label="Shared with you"] a[href="/g/a/${other.artifactId}"]`
+              )
+              .click();
+            await expect(
+              page.getByText("Read only", { exact: true })
+            ).toBeVisible();
+            await page
+              .locator(
+                `nav[aria-label="Shared with you"] a[href="/g/a/${invitation.artifactId}"]`
+              )
+              .click();
+            await expect(
+              page.getByLabel("Document content", { exact: true })
+            ).toContainText(`Guest edit ${viewport.width}`);
           }
           if (kind === "document" && role === "editor") {
             await post(

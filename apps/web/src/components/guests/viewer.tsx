@@ -167,6 +167,20 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
               <a
                 href={`/g/a/${encodeURIComponent(invitation.artifactId)}`}
                 key={invitation.artifactId}
+                onClick={(event) => {
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  window.history.pushState(null, "", event.currentTarget.href);
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }}
               >
                 {invitation.title}
               </a>
