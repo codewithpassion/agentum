@@ -126,6 +126,8 @@
     "./tasks/status-band": "./src/tasks/status-band.ts",
     "./skills-store/github": "./src/skills-store/github.ts",
     "./wiki/suggestions": "./src/wiki/suggestions.ts",
+    "./live-artifacts/access-lifecycle": "./src/live-artifacts/access-lifecycle.ts",
+    "./live-artifacts/ports": "./src/live-artifacts/ports.ts",
     "./live-artifacts/service": "./src/live-artifacts/service.ts"
   },
   "scripts": {

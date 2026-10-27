@@ -18,7 +18,6 @@ import { sessions } from "@repo/db/schema/sessions";
 import {
   ARTIFACT_FILE_MAX_BYTES,
   ARTIFACT_MAX_BYTES,
-  type ArtifactAudience,
   LIVE_DOC_MAX_BYTES,
   ROOM_CONNECTION_MINUTES,
   ROOM_TICKET_SECONDS,
@@ -45,7 +44,20 @@ import type { EventsService } from "../events.ts";
 import type { LibraryBlobs } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
-import { signRoomTicket } from "./ticket.ts";
+import { createAccessLifecycle } from "./access-lifecycle.ts";
+import { createChangesModule } from "./changes.ts";
+import { createCommentsModule } from "./comments.ts";
+import type { LiveInteractionPorts } from "./ports.ts";
+
+export type {
+  LiveAdmissionPort,
+  LiveAnchorPort,
+  LiveAskPort,
+  LiveChangePort,
+  LiveInteractionPorts,
+} from "./ports.ts";
+
+import { signRoomTicket, verifyRoomTicket } from "./ticket.ts";
 
 export interface LivePublishResult extends PublishResult {
   revision: number;
@@ -86,7 +98,7 @@ export interface LiveRoomsPort {
   url: (scope: LiveRoomScope) => string;
 }
 
-export interface LiveArtifactsDeps {
+export interface LiveArtifactsDeps extends LiveInteractionPorts {
   artifacts: Pick<ArtifactsService, "readFile" | "setAudience" | "remove">;
   atomic: Atomic;
   blobs: Pick<LibraryBlobs, "get" | "put">;
@@ -101,8 +113,8 @@ export interface LiveArtifactsDeps {
   ticketKey: string;
 }
 
-type Member = Extract<Principal, { kind: "user" | "run" }>;
-type Row = NonNullable<Awaited<ReturnType<typeof findArtifact>>>;
+export type Member = Extract<Principal, { kind: "user" | "run" }>;
+export type Row = NonNullable<Awaited<ReturnType<typeof findArtifact>>>;
 type Role = RoomTicketClaims["role"];
 const missing = () =>
   new ServiceError("not_found", "Artifact or checkpoint not found");
@@ -288,7 +300,12 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       | "artifact.created"
       | "artifact.published"
       | "artifact.restored"
-      | "artifact.live_checkpoint",
+      | "artifact.live_checkpoint"
+      | "artifact.comment_created"
+      | "artifact.comment_resolved"
+      | "artifact.agent_change_reverted"
+      | "artifact.deleted"
+      | "artifact.audience_changed",
     payload: Record<string, unknown>
   ) =>
     events.insertStatement({
@@ -517,12 +534,44 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     return await persist(member, row, snapshot, true);
   };
 
+  const shared = { ...deps, access, authorOf, event, now, participantId };
   return {
+    ...createCommentsModule(shared),
+    ...createChangesModule(shared),
+    ...createAccessLifecycle(shared),
+    /** L.3/L.7 must call after signature verification and before jti consumption,
+     * and on renewal. Principal is freshly authenticated by trusted composition. */
+    async admit(
+      principal: Principal,
+      input: { artifactId: string; ticket: string }
+    ) {
+      const member = memberOf(principal);
+      const claims = await verifyRoomTicket(input.ticket, deps.ticketKey, {
+        artifactId: input.artifactId,
+        nowSeconds: Math.floor(clock.now().getTime() / 1000),
+        workspaceId: member.workspaceId,
+      });
+      if (!claims || claims.participantId !== participantId(member)) {
+        throw new ForbiddenError("liveArtifacts.admission");
+      }
+      const { role } = await access(principal, input.artifactId);
+      if (role !== claims.role) {
+        throw new ForbiddenError("liveArtifacts.staleTicket");
+      }
+      return claims;
+    },
     async checkpoint(
       principal: Principal,
       input: DocumentSnapshot & { artifactId: string }
     ) {
       const { member, row } = await access(principal, input.artifactId, true);
+      checkSnapshot(input);
+      if (member.kind === "run") {
+        await deps.anchors.guardAgentSnapshot(
+          { artifactId: row.id, workspaceId: row.workspaceId },
+          { runId: member.runId, snapshot: input }
+        );
+      }
       return await persist(member, row, input);
     },
     async convertDoc(
@@ -552,16 +601,6 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       principal: Principal,
       input: { title: string; markdown?: string }
     ) => createDocument(principal, input),
-    async invalidateAccess(
-      principal: Principal,
-      input: { artifactId: string; participantId?: string }
-    ) {
-      const { row } = await access(principal, input.artifactId, true, true);
-      await rooms.refresh(
-        { artifactId: row.id, workspaceId: row.workspaceId },
-        input.participantId
-      );
-    },
     async join(
       principal: Principal,
       input: { artifactId: string }
@@ -601,11 +640,6 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         ticket,
       };
     },
-    async remove(principal: Principal, input: { artifactId: string }) {
-      const { row } = await access(principal, input.artifactId, true, true);
-      await deps.artifacts.remove(principal, row.id);
-      await rooms.refresh({ artifactId: row.id, workspaceId: row.workspaceId });
-    },
     async restore(
       principal: Principal,
       input: { artifactId: string; version: number }
@@ -644,14 +678,6 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
         }
       );
       return await persist(member, row, restored, false, version.number);
-    },
-    async setAudience(
-      principal: Principal,
-      input: { artifactId: string; audience: ArtifactAudience }
-    ) {
-      const { row } = await access(principal, input.artifactId, true, true);
-      await deps.artifacts.setAudience(principal, row.id, input.audience);
-      await rooms.refresh({ artifactId: row.id, workspaceId: row.workspaceId });
     },
   };
 };

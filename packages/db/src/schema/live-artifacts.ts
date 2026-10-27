@@ -192,3 +192,21 @@ export const artifactLiveChanges = sqliteTable(
     ),
   ]
 );
+
+/** Durable, at-least-once room access refresh. Kept after artifact deletion. */
+export const artifactRoomInvalidations = sqliteTable(
+  "artifact_room_invalidations",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id),
+    completedAt: text("completed_at"),
+    createdAt: createdAt(),
+    id: id(),
+    participantId: text("participant_id"),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    index("artifact_room_invalidations_pending_idx").on(t.completedAt, t.id),
+  ]
+);
