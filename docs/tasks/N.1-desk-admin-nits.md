@@ -26,3 +26,4 @@ Dom asked on 27 Oct 2026 to clear the nits the X.9 and X.10 reviews left (`docs/
 - 2026-10-27: added at Dom's request (clear review nits).
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 0 fix rounds; merged.
+- 2026-10-27: on staging (1e668ac2): an invalid secret name now returns the real validation message.
