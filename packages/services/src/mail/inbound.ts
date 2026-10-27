@@ -221,19 +221,49 @@ export const createInboundMail = ({
     }
     return row;
   };
+  // The port stores a sent mail's id without angle brackets, and a report names it with them.
+  const idForms = (ids: string[]) => [
+    ...new Set(
+      ids.flatMap((id) => {
+        const bare = id.replace(BRACKETS, "").trim();
+        return bare ? [bare, `<${bare}>`] : [];
+      })
+    ),
+  ];
+  /** Moves a sent mail to `bounced` or `failed` and writes the matching event, in one atomic write. */
+  const markUndelivered = async (
+    original: typeof mailMessages.$inferSelect,
+    agentId: string,
+    status: "bounced" | "failed",
+    reason?: string
+  ) => {
+    await atomic([
+      db
+        .update(mailMessages)
+        .set({ status, ...(reason ? { lastError: reason } : {}) })
+        .where(eq(mailMessages.id, original.id)),
+      events.insertStatement({
+        actor: { id: "mail", kind: "system" },
+        agentId,
+        payload: {
+          messageId: original.id,
+          to: original.toAddresses,
+          // `mail.failed` carries `error`, as the send path writes it.
+          ...(reason
+            ? { [status === "failed" ? "error" : "reason"]: reason }
+            : {}),
+        },
+        runId: original.runId,
+        type: status === "bounced" ? "mail.bounced" : "mail.failed",
+        workspaceId: original.workspaceId,
+      }),
+    ]);
+  };
   const bounce = async (
     message: InboundMessage,
     box: typeof agentMailboxes.$inferSelect
   ) => {
-    // The port stores a sent mail's id without angle brackets, and a report names it with them.
-    const ids = [
-      ...new Set(
-        bounceMessageIds(message).flatMap((id) => {
-          const bare = id.replace(BRACKETS, "").trim();
-          return bare ? [bare, `<${bare}>`] : [];
-        })
-      ),
-    ];
+    const ids = idForms(bounceMessageIds(message));
     if (!ids.length) {
       return;
     }
@@ -259,20 +289,46 @@ export const createInboundMail = ({
         continue;
       }
       // biome-ignore lint/performance/noAwaitInLoops: each original has its own event and status transition
-      await atomic([
-        db
-          .update(mailMessages)
-          .set({ status: "bounced" })
-          .where(eq(mailMessages.id, original.id)),
-        events.insertStatement({
-          actor: { id: "mail", kind: "system" },
-          agentId: box.agentId,
-          payload: { messageId: original.id, to: original.toAddresses },
-          runId: original.runId,
-          type: "mail.bounced",
-          workspaceId: box.workspaceId,
-        }),
-      ]);
+      await markUndelivered(original, box.agentId, "bounced");
+    }
+  };
+  /**
+   * An Email Sending event said a sent mail came back or never left. The id is
+   * the one the send binding reported, stored as the mail's RFC id. Unknown ids
+   * and mail that already left the `sent` state are ignored, so a redelivered
+   * event changes nothing.
+   */
+  const recordUndelivered = async (
+    principal: Principal,
+    report: { messageId: string; reason: string; status: "bounced" | "failed" }
+  ) => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError("mail.recordUndelivered");
+    }
+    const ids = idForms([report.messageId]);
+    if (!ids.length) {
+      return;
+    }
+    const originals = await db
+      .select({ agentId: agentMailboxes.agentId, message: mailMessages })
+      .from(mailMessages)
+      .innerJoin(mailThreads, eq(mailMessages.threadId, mailThreads.id))
+      .innerJoin(agentMailboxes, eq(mailThreads.mailboxId, agentMailboxes.id))
+      .where(
+        and(
+          eq(mailMessages.direction, "out"),
+          inArray(mailMessages.rfcMessageId, ids),
+          eq(mailMessages.status, "sent")
+        )
+      );
+    for (const { agentId, message } of originals) {
+      // biome-ignore lint/performance/noAwaitInLoops: each original has its own event and status transition
+      await markUndelivered(
+        message,
+        agentId,
+        report.status,
+        report.reason.slice(0, 500)
+      );
     }
   };
   const indexInbound = async (
@@ -532,6 +588,7 @@ export const createInboundMail = ({
   };
   return {
     receive,
+    recordUndelivered,
     setTrigger,
     thread,
     threadForTask,

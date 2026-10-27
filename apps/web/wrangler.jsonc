@@ -31,6 +31,13 @@
   // Outbound agent mail (task V5.7). `remote` stays off so local dev simulates
   // sends instead of mailing anyone.
   "send_email": [{ "name": "EMAIL" }],
+  // Email Sending events (task N.4): bounces and failures of outbound agent
+  // mail arrive on this queue. The queue and the subscription on the sending
+  // domain are made by hand (docs/reviews/tasks/N.4.md). Production and
+  // staging each have their own queue. Previews have no consumer.
+  "queues": {
+    "consumers": [{ "queue": "harbourmaster-mail-events" }]
+  },
   // The agents' browser (task V6.11), Browser Run through @cloudflare/playwright.
   // Usage beyond the included hours is billed to the account.
   "browser": { "binding": "BROWSER" },
@@ -106,6 +113,9 @@
       ],
       "worker_loaders": [{ "binding": "LOADER" }],
       "send_email": [{ "name": "EMAIL" }],
+      "queues": {
+        "consumers": [{ "queue": "harbourmaster-staging-mail-events" }]
+      },
       "browser": { "binding": "BROWSER" },
       "vars": {
         "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io",
@@ -148,7 +158,8 @@
         "worker_loaders": [{ "binding": "LOADER" }],
         "send_email": [{ "name": "EMAIL" }],
         "browser": { "binding": "BROWSER" },
-        // Mail is off in previews: an empty MAIL_DOMAIN.
+        // No queue consumer: a queue has one consumer and staging's Worker
+        // holds it. Mail is off in previews: an empty MAIL_DOMAIN.
         "vars": {
           "PUBLIC_BASE_URL": "",
           "LINUX_VM_IDLE_SECONDS": "180",
