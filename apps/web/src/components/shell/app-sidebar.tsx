@@ -1,5 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ChevronRight, Plus } from "lucide-react";
+import type { PinnedArtifact } from "#/components/artifacts/pinned/pinned-logic";
+import { PinnedSidebarGroup } from "#/components/artifacts/pinned/pinned-sidebar";
 import {
   Collapsible,
   CollapsibleContent,
@@ -37,6 +39,8 @@ interface AppSidebarProps {
   needsYouCount: number;
   /** Open Q&A questions. */
   openQaCount: number;
+  /** Artifacts the person pinned to the sidebar. */
+  pinned?: readonly PinnedArtifact[];
 }
 
 function isActive(pathname: string, to: string) {
@@ -169,11 +173,13 @@ export function AppSidebar({
   agents,
   needsYouCount,
   openQaCount,
+  pinned = [],
 }: AppSidebarProps) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
   const { isMobile } = useSidebar();
+  const closeMobileNav = useCloseMobileNav();
 
   return (
     <Sidebar className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]">
@@ -195,6 +201,7 @@ export function AppSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        <PinnedSidebarGroup onNavigate={closeMobileNav} pins={pinned} />
         {/* On a phone "More" sits above the agent list, so Inbox, Sessions and
             the rest are one tap away instead of below ten agents. */}
         {isMobile ? <MoreSection pathname={pathname} /> : null}

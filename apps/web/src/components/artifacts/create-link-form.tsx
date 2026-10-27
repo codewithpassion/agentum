@@ -9,6 +9,8 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
+import { LiveLinkChoice } from "./live-link-choice";
+import { type DataMode, expiryText } from "./live-link-model";
 import {
   buildCreateShareInput,
   DEFAULT_EXPIRY,
@@ -20,9 +22,13 @@ import {
 
 export interface CreateLinkFormProps {
   artifactId: string;
+  /** Shows the Data choice (snapshot or live) when true. */
+  canCreateLive: boolean;
   currentVersionId: string;
   /** Shown in "Pin this version (v{n})" when known. */
   currentVersionNumber?: number;
+  /** Approved read-only tools of the version a live link can expose. */
+  liveToolOptions: readonly string[];
   onCreated: (share: ArtifactShare) => void;
 }
 
@@ -31,14 +37,18 @@ const isExpiryChoice = (value: string): value is ExpiryChoice =>
 
 export function CreateLinkForm({
   artifactId,
+  canCreateLive,
   currentVersionId,
   currentVersionNumber,
+  liveToolOptions,
   onCreated,
 }: CreateLinkFormProps) {
   const id = useId();
   const [expiry, setExpiry] = useState<ExpiryChoice>(DEFAULT_EXPIRY);
   const [date, setDate] = useState("");
   const [pin, setPin] = useState(false);
+  const [mode, setMode] = useState<DataMode>("snapshot");
+  const [ticked, setTicked] = useState<readonly string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -53,8 +63,10 @@ export function CreateLinkForm({
       currentVersionId,
       date,
       expiry,
+      mode: canCreateLive ? mode : "snapshot",
       now: new Date(),
       pin,
+      tools: ticked,
     });
     if (!built.ok) {
       setError(built.error);
@@ -71,7 +83,17 @@ export function CreateLinkForm({
     } finally {
       setBusy(false);
     }
-  }, [artifactId, currentVersionId, date, expiry, onCreated, pin]);
+  }, [
+    artifactId,
+    canCreateLive,
+    currentVersionId,
+    date,
+    expiry,
+    mode,
+    onCreated,
+    pin,
+    ticked,
+  ]);
 
   const onSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -90,6 +112,13 @@ export function CreateLinkForm({
   );
   const onDateChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setDate(event.target.value);
+  }, []);
+  const toggleTool = useCallback((tool: string) => {
+    setTicked((current) =>
+      current.includes(tool)
+        ? current.filter((t) => t !== tool)
+        : [...current, tool]
+    );
   }, []);
   const followLatest = useCallback(() => setPin(false), []);
   const pinVersion = useCallback(() => setPin(true), []);
@@ -143,13 +172,30 @@ export function CreateLinkForm({
           {pinLabel}
         </label>
       </fieldset>
-      {/* Phase 2: data mode choice (snapshot / live) goes here. */}
+      {canCreateLive ? (
+        <LiveLinkChoice
+          expiryText={expiryText(expiry, date)}
+          groupName={`${id}-data`}
+          mode={mode}
+          onModeChange={setMode}
+          onToggle={toggleTool}
+          options={liveToolOptions}
+          ticked={ticked}
+        />
+      ) : null}
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
         </p>
       )}
-      <Button className="min-h-10" disabled={busy} type="submit">
+      <Button
+        className="min-h-10"
+        disabled={
+          busy ||
+          (canCreateLive && mode === "live" && liveToolOptions.length === 0)
+        }
+        type="submit"
+      >
         Create link
       </Button>
     </form>

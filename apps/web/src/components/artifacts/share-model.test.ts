@@ -8,6 +8,7 @@ import {
   EXPIRY_LABELS,
   resolveExpiry,
   revokeConfirmCopy,
+  shareUrlHasToken,
   shareVersionLabel,
 } from "./share-model.ts";
 
@@ -158,4 +159,46 @@ test("a link's version label", () => {
   expect(shareVersionLabel(share({ versionId: "gone" }), numbers)).toBe(
     "Pinned"
   );
+});
+
+const liveBase = {
+  artifactId: ARTIFACT_ID,
+  currentVersionId: "ver-3",
+  date: "",
+  expiry: "7d" as const,
+  now,
+  pin: false,
+};
+
+test("buildCreateShareInput sends dataMode live with the ticked tools", () => {
+  const built = buildCreateShareInput({
+    ...liveBase,
+    mode: "live",
+    tools: ["gmail.search", "drive.list"],
+  });
+  expect(built.ok).toBe(true);
+  if (built.ok) {
+    expect(built.input.dataMode).toBe("live");
+    expect(built.input.liveTools).toEqual(["gmail.search", "drive.list"]);
+  }
+});
+
+test("buildCreateShareInput refuses a live link with no tools", () => {
+  expect(
+    buildCreateShareInput({ ...liveBase, mode: "live", tools: [] })
+  ).toEqual({ error: "Pick at least one tool.", ok: false });
+});
+
+test("buildCreateShareInput sends no liveTools for a snapshot, even with tools passed", () => {
+  const built = buildCreateShareInput({ ...liveBase, tools: ["a"] });
+  expect(built.ok).toBe(true);
+  if (built.ok) {
+    expect(built.input.dataMode).toBe("snapshot");
+    expect("liveTools" in built.input).toBe(false);
+  }
+});
+
+test("shareUrlHasToken is false for the token-less member url", () => {
+  expect(shareUrlHasToken("https://example.test/s/")).toBe(false);
+  expect(shareUrlHasToken("https://example.test/s/abc")).toBe(true);
 });
