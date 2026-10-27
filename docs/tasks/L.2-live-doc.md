@@ -3,7 +3,7 @@ id: L.2
 title: Shared document schema and operations
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.1]
 branch: null
 lane: doc
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Sol starts shared document engine against merged L.1 contracts; integration remains gated on contract review and full checks.
