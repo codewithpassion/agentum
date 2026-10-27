@@ -129,7 +129,7 @@ tools preserve its refusal.
 
 Expected adapter failures must be `ToolError` from `@repo/mcp/result` so the code
 and guidance survive the safe error boundary. Added codes: `guard_mismatch`,
-`block_gone`, `anchor_conflict`, `find_not_found`, `find_ambiguous`; existing
+`block_gone`, `anchor_conflict`, `find_none`, `find_ambiguous`; existing
 `forbidden`, `validation`, `not_found`, `conflict` remain. Unexpected exceptions
 remain masked. A guard mismatch must never trigger automatic force retry, and a
 missing pending block must never be recreated by the tool.
@@ -190,3 +190,7 @@ Verdict: **changes requested** for one L.5 contract discrepancy. Reviewed `e24a7
 The four schemas use strict objects; guarded block-id replace/delete require both hash and revision, and find targets are exact. Descriptions cover person-wins, pending blocks and detached comments. Annotations, tool labels, shared approval keys and conditional registration are present; read-only filtering and the shared dry-run gate cover the mutations, including document creation. Existing static artifact callers retain their port and validation behavior; `live` is optional. The package MCP suite passed: **387 tests, 0 failures**. Initial run before locked dependency installation failed on missing modules; the rerun passed.
 
 `packages/mcp/src/tools/live.ts:284` delegates authorization, guards, atomic application and anchoring to the service; `:325` and `:340` describe anchor protection and agent-addressed answered state. These are contracts, not proof of enforcement. L.7 must bind principal, workspace, agent, run and tool-call identity and test actual permissions: created/handed or in-artifact edits, guest scope/role, protection of comment anchors including the agent's own, and answered updates only for the addressed agent. It must also implement static/live refusal guidance, error mapping and real room round trips. `apps/web/src/server/mcp/ports.ts:312` currently supplies static artifact ports but no live port, so production runtime registration and R1.22/R1.28 approval behavior across Pi, Managed Agents and machines remain integration gates, not demonstrated behavior or L.5 authorization defects. Mock-port tests cannot establish these properties.
+
+## Controller resolution — 2026-10-27
+
+Aligned exported ToolErrorCode, forwarding tests and adapter guidance to PRD `find_none`. L.7 must verify real registration, authorization and approval behavior across runtimes; mock-port tests alone do not establish those requirements.

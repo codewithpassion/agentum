@@ -3,7 +3,7 @@ id: L.6
 title: Speaker identity and thread authors
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.1]
 branch: null
 lane: services
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Sol dispatched remaining identity/envelope/Slack/guest-run and trusted display transport. Live service core remains isolated in another worktree.

@@ -338,7 +338,7 @@ for (const code of [
   "guard_mismatch",
   "block_gone",
   "anchor_conflict",
-  "find_not_found",
+  "find_none",
   "find_ambiguous",
   "forbidden",
 ] as const) {

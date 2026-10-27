@@ -3,7 +3,7 @@ id: L.0
 title: Spike rooms, agent presence and conversions on workerd
 milestone: L
 size: M
-status: review
+status: done
 depends_on: []
 branch: t3/live-awareness-fixture-tests
 lane: worker
@@ -29,3 +29,5 @@ Run relevant executable checks and record actual results, distinguishing unverif
 - 2026-10-27: Independent review c7d0ce74 requests three fixes: real browser/room relative insert probe, own-client clock/reconnect regression with explicit fallback, and fail-closed local fixture deployment guard. Terra remediation dispatched; L.0 acceptance remains open.
 
 - 2026-10-27: Merged 16dd4eee/b7014997 remediation. Browser/room relative insert and unmerged human edit converge; own-clock reconnect failure reproduced, connection-unique awareness IDs selected for L.3; local-only deployment/runtime guards verified. Root/fixture/browser checks pass in delegate. Final review pending.
+
+- 2026-10-27: Independent review accepted spike remediation; tool missing-find contract corrected by controller. Later runtime integration gates remain explicitly assigned to L.3/L.7.

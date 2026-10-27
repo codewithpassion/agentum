@@ -3,7 +3,7 @@ id: L.5
 title: Live document MCP tools
 milestone: L
 size: L
-status: review
+status: done
 depends_on: [L.1]
 branch: t3/live-document-tools
 lane: mcp
@@ -21,3 +21,5 @@ executor: codex
 - 2026-10-27: Sol dispatched tool adapters against L.1 contracts, isolated from ongoing engine/service lanes.
 
 - 2026-10-27: e24a7c51 merged, four tools/create adapter, 387 MCP tests and root suites reported passing. Independent review plus controller integration checks underway; L.7 owns actual runtime ports.
+
+- 2026-10-27: Independent review accepted spike remediation; tool missing-find contract corrected by controller. Later runtime integration gates remain explicitly assigned to L.3/L.7.
