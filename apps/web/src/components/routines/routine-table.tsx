@@ -80,12 +80,14 @@ function RoutineRow({
   return (
     <TableRow>
       <ResponsiveCell className="font-medium" label="Name">
-        {routine.name}
-        {pending ? (
-          <div className="font-normal text-muted-foreground text-xs">
-            Proposed by {routine.agentName}
-          </div>
-        ) : null}
+        <div>
+          <div>{routine.name}</div>
+          {pending ? (
+            <div className="font-normal text-muted-foreground text-xs">
+              Proposed by {routine.agentName}
+            </div>
+          ) : null}
+        </div>
       </ResponsiveCell>
       {showAgent ? (
         <ResponsiveCell label="Agent">{routine.agentName}</ResponsiveCell>

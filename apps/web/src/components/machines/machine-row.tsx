@@ -61,10 +61,12 @@ export function MachineRow({
   return (
     <TableRow>
       <ResponsiveCell label="Name">
-        <span className="font-medium">{machine.name}</span>
-        {machine.singleUser ? (
-          <p className="text-muted-foreground text-sm">shared user</p>
-        ) : null}
+        <div>
+          <span className="font-medium">{machine.name}</span>
+          {machine.singleUser ? (
+            <p className="text-muted-foreground text-sm">shared user</p>
+          ) : null}
+        </div>
       </ResponsiveCell>
       <ResponsiveCell label="Roles">
         <div className="flex flex-col gap-1 max-md:items-end">
@@ -85,7 +87,7 @@ export function MachineRow({
         {lastSeen(machine)}
       </ResponsiveCell>
       <ResponsiveActions>
-        <div className="flex flex-wrap items-center justify-end gap-2 max-md:justify-start">
+        <div className="flex items-center justify-end gap-2 max-md:flex-wrap max-md:justify-start">
           {canAddComputerRole(machine) ? (
             <Button onClick={handleAddComputer} size="sm" variant="outline">
               Add computer role

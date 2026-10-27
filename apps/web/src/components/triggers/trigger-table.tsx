@@ -103,12 +103,14 @@ function TriggerRow({
   return (
     <TableRow>
       <ResponsiveCell className="font-medium" label="Name">
-        <div>{trigger.name}</div>
-        {pending ? (
-          <div className="font-normal text-muted-foreground text-xs">
-            Proposed by {trigger.agentName}
-          </div>
-        ) : null}
+        <div>
+          <div>{trigger.name}</div>
+          {pending ? (
+            <div className="font-normal text-muted-foreground text-xs">
+              Proposed by {trigger.agentName}
+            </div>
+          ) : null}
+        </div>
       </ResponsiveCell>
       {showAgent ? (
         <ResponsiveCell label="Agent">{trigger.agentName}</ResponsiveCell>

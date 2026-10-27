@@ -50,7 +50,7 @@ export function ResponsiveCell({
 }
 
 const ACTIONS_CARD_LAYOUT = [
-  "max-md:flex max-md:flex-wrap max-md:justify-start max-md:gap-2 max-md:px-0 max-md:pt-2",
+  "max-md:flex max-md:flex-wrap max-md:items-center max-md:justify-start max-md:gap-2 max-md:px-0 max-md:pt-2",
   "max-md:empty:hidden",
   "max-md:[&_a]:min-h-10 max-md:[&_button]:min-h-10 max-md:[&_button]:min-w-10",
 ].join(" ");

@@ -1,13 +1,13 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
 import {
   ResponsiveActions,
   ResponsiveCell,
   ResponsiveTable,
 } from "#/components/responsive-table/responsive-table";
 import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
 import {
   TableBody,
   TableHead,
@@ -60,16 +60,19 @@ function CancelRunButton({ runId }: { runId: string }) {
     }
   }, [router, runId]);
   return (
-    <Button
+    <ConfirmButton
       className="ml-2"
+      confirmLabel="Cancel run"
       data-testid="log-cancel"
+      description="The run stops now. Work it has not finished is lost."
       disabled={cancelling}
-      onClick={cancel}
+      onConfirm={cancel}
       size="sm"
+      title="Cancel this run?"
       variant="outline"
     >
       Cancel
-    </Button>
+    </ConfirmButton>
   );
 }
 

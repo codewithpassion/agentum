@@ -220,7 +220,7 @@ function AssignedConnectorRow({
           </Button>
         </div>
       </ResponsiveCell>
-      <ResponsiveActions>
+      <ResponsiveActions className="text-right">
         <ConfirmButton
           description={`Remove ${connector.name} from this agent? It can be added again later.`}
           onConfirm={handleRemove}
