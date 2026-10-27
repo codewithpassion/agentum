@@ -32,3 +32,4 @@ Found in the W.9 staging check on 18 Oct 2026 (log in `/home/roboto/devel/harbou
 - 2026-10-27: unblocked by the controller under Dom's overnight goal ("all the items"); scope rechecked against v2 by the dispatcher.
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 1 fix round; merged. Cold-start 10 s check on staging by controller.
+- 2026-10-27: staging check passed (7611c904): a cold isolate run on HEI controller was running 3.3 s after Send and done at 24.6 s. Deployed to production (70f7cb6, worker e8fc5796).

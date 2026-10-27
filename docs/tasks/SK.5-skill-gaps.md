@@ -36,3 +36,4 @@ Gaps from the SK staging check on 18 Oct 2026 and the P.5 trial on 19 Oct 2026:
 - 2026-10-27: dispatched.
 - 2026-10-27: review clean after 0 fix rounds; merged. delete_connector over MCP needs an admin key.
 - 2026-10-27: staging check passed (eed452dc, Dev Workspace): sk-check, sk-agent, p5-loop (people-owned) and p5-stub deleted in the UI, gone after reload; skill Log entries show versions. Two pending-only p5-loop copies owned by agents p5-glm53 and p5-glm53-flash remain.
+- 2026-10-27: deployed to production (worker 70bd37aa, then e8fc5796 with W.10).
