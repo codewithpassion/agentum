@@ -1039,6 +1039,7 @@ export const composeWith = ({
           db,
           events,
           files,
+          imageBlobs: infra.fileBlobs,
           runs,
         }),
         infra.live.wake

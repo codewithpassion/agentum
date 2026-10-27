@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
+import { deckActionMatrix } from "./action-matrix.mjs";
 
 let input = "";
 for await (const part of process.stdin) {
@@ -99,7 +100,17 @@ try {
         });
       }
       await page.route("**/*", async (route) => {
-        const path = new URL(route.request().url()).pathname;
+        const address = new URL(route.request().url());
+        if (address.hostname === "fonts.googleapis.com") {
+          await route.fulfill({ body: "", contentType: "text/css" });
+          return;
+        }
+        if (address.origin !== base) {
+          errors.push(`Unexpected external origin: ${address.origin}`);
+          await route.abort();
+          return;
+        }
+        const path = address.pathname;
         if (path !== "/" && !path.startsWith("/assets/")) {
           await route.continue();
           return;
@@ -185,6 +196,17 @@ try {
       page.evaluate(
         () => Reflect.get(window, "deckRoom").deck.read("opening").slide
       );
+    await deckActionMatrix({ alice, bob });
+    await call("/deck-restore", {
+      requestId: crypto.randomUUID(),
+      state: initialSnapshot.state,
+    });
+    await expect
+      .poll(
+        async () =>
+          (await scene(bob)).elements.find((e) => e.id === "box").props.x
+      )
+      .toBe("480");
     await expect
       .poll(async () =>
         alice.evaluate(

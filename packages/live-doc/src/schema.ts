@@ -360,11 +360,40 @@ export function sanitizeJSON(
         type: "doc",
       });
 }
+/** Inspection/replacement is synchronous and uses the same DOM-free parser.
+ * Resolvers at the authorized service boundary must store bytes before supplying replacements.
+ * Replacements still pass the unchanged shared sanitizer and ownership policy. */
+export function markdownImageUrls(text: string): string[] {
+  const urls = new Set<string>();
+  const visit = (node: JSONContent) => {
+    if (node.type === "image" && typeof node.attrs?.src === "string") {
+      urls.add(node.attrs.src);
+    }
+    for (const child of node.content ?? []) {
+      visit(child);
+    }
+  };
+  visit(markdown.parse(text));
+  return [...urls];
+}
 export function fromMarkdown(
   text: string,
-  policy: ContentPolicy = {}
+  policy: ContentPolicy = {},
+  replacements?: ReadonlyMap<string, string>
 ): JSONContent {
-  return sanitizeJSON(markdown.parse(text), policy);
+  const parsed = markdown.parse(text);
+  const visit = (node: JSONContent) => {
+    if (node.type === "image" && replacements?.has(node.attrs?.src)) {
+      node.attrs = { ...node.attrs, src: replacements.get(node.attrs?.src) };
+    }
+    for (const child of node.content ?? []) {
+      visit(child);
+    }
+  };
+  if (replacements) {
+    visit(parsed);
+  }
+  return sanitizeJSON(parsed, policy);
 }
 export function toMarkdown(json: unknown, policy: ContentPolicy = {}): string {
   return markdown.serialize(sanitizeJSON(json, policy));
