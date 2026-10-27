@@ -37,6 +37,7 @@ const ADMIN_TOOLS = [
   "create_enrolment_code",
   "create_api_key",
   "revoke_api_key",
+  "delete_connector",
 ];
 const WRITE_ADMIN_TOOLS = ADMIN_TOOLS.slice(0, 3);
 

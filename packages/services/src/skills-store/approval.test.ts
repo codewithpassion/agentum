@@ -412,6 +412,7 @@ test("each write records its skill events, with the principal as the actor", asy
     rows.map((row) => `${row.type} ${row.actorKind} ${row.actorId}`)
   ).toEqual([
     "skill.created agent a1",
+    "skill.assigned agent a1",
     "skill.approved user u1",
     "skill.committed agent a1",
     "skill.rejected user u1",
@@ -421,7 +422,16 @@ test("each write records its skill events, with the principal as the actor", asy
     "skill.unassigned user u1",
   ]);
 
-  const [created, approvedRow, runCommit, rejected, personCommit] = rows;
+  const [
+    created,
+    autoAssigned,
+    approvedRow,
+    runCommit,
+    rejected,
+    personCommit,
+  ] = rows;
+  expect(autoAssigned?.agentId).toBe(A1);
+  expect(autoAssigned?.runId).toBe(R1);
   expect(created?.agentId).toBe(A1);
   expect(created?.runId).toBe(R1);
   expect(payloadOf(created?.payload)).toEqual({

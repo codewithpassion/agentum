@@ -605,6 +605,7 @@ export interface AdminPort {
           value: string;
         }
   ) => Promise<AdminSecretInfo>;
+  deleteConnector: (input: { connectorId: string }) => Promise<void>;
   grantSecret: (input: { agent: string; secretId: string }) => Promise<void>;
   revokeApiKey: (input: { keyId: string }) => Promise<AdminKeyRevoked>;
   revokeSecret: (input: { agent: string; secretId: string }) => Promise<void>;
@@ -661,6 +662,8 @@ export interface McpPorts {
     name: string;
   }) => Promise<TriggerChange>;
   deleteRoutine: (input: { routineId: string }) => Promise<void>;
+  /** Removes a skill with all its versions, files and assignments. */
+  deleteSkill: (input: { skillId: string }) => Promise<void>;
   deleteTrigger: (input: { triggerId: string }) => Promise<void>;
   exportSkill: (input: {
     skillId: string;

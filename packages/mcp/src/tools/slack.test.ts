@@ -55,6 +55,7 @@ const fakePorts = (overrides: Partial<McpPorts> = {}): McpPorts => ({
   createSkill: uncalled("createSkill"),
   createTrigger: uncalled("createTrigger"),
   deleteRoutine: uncalled("deleteRoutine"),
+  deleteSkill: uncalled("deleteSkill"),
   deleteTrigger: uncalled("deleteTrigger"),
   exportSkill: uncalled("exportSkill"),
   getRun: uncalled("getRun"),

@@ -751,3 +751,83 @@ test("a draft connector assignment explains that the agent is not active", async
     message: "That agent is not active",
   });
 });
+
+test("remove deletes the connector with its credentials and assignments, and logs it", async () => {
+  const connector = await addHeaderConnector();
+  await service.setCredential(dom, {
+    connectorId: connector.id,
+    value: `Bearer ${TOKEN}`,
+  });
+  await service.assign(dom, { agentId: agent.id, connectorId: connector.id });
+  const other = await addHeaderConnector();
+  await service.assign(dom, { agentId: agent.id, connectorId: other.id });
+
+  await service.remove(dom, { connectorId: connector.id });
+
+  expect(await service.list(dom)).toHaveLength(1);
+  expect(
+    db
+      .select()
+      .from(credentials)
+      .where(eq(credentials.connectorId, connector.id))
+      .all()
+  ).toEqual([]);
+  expect(
+    db
+      .select()
+      .from(agentConnectors)
+      .where(eq(agentConnectors.connectorId, connector.id))
+      .all()
+  ).toEqual([]);
+  expect(await service.assignments(dom, { agentId: agent.id })).toHaveLength(1);
+  const logged = db
+    .select()
+    .from(eventsTable)
+    .where(eq(eventsTable.type, "connector.deleted"))
+    .all();
+  expect(logged).toHaveLength(1);
+  expect(JSON.parse(logged[0]?.payload ?? "null")).toEqual({
+    connectorId: connector.id,
+    name: "Stub",
+  });
+});
+
+test("remove is refused for another workspace, a run and a non-admin key", async () => {
+  const connector = await addHeaderConnector();
+  const run: Principal = {
+    agentId: agent.id,
+    kind: "run",
+    runId: "r1",
+    workspaceId: WORKSPACE,
+  };
+  const writeKey: Principal = {
+    apiKey: { access: "write", id: "k1" },
+    kind: "user",
+    userId: "user_dom",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  await expect(
+    service.remove(outsider, { connectorId: connector.id })
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    service.remove(run, { connectorId: connector.id })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.remove(writeKey, { connectorId: connector.id })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.list(dom)).toHaveLength(1);
+});
+
+test("an admin key may remove a connector", async () => {
+  const connector = await addHeaderConnector();
+  const adminKey: Principal = {
+    apiKey: { access: "admin", id: "k2" },
+    kind: "user",
+    userId: "user_dom",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  await service.remove(adminKey, { connectorId: connector.id });
+  expect(await service.list(dom)).toEqual([]);
+});

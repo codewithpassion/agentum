@@ -19,6 +19,7 @@ import {
   agentConnectors,
   connectors,
   credentials,
+  oauthStates,
 } from "@repo/db/schema/connectors";
 import {
   CONNECTOR_CALL_TIMEOUT_SECONDS,
@@ -77,6 +78,7 @@ const SET_CREDENTIAL_ACTION = "connectors.setCredential";
 const SET_CALL_TIMEOUT_ACTION = "connectors.setCallTimeout";
 const ASSIGN_ACTION = "connectors.assign";
 const UNASSIGN_ACTION = "connectors.unassign";
+const DELETE_ACTION = "connectors.delete";
 const ASSIGNMENTS_ACTION = "connectors.assignments";
 
 const DEFAULT_HEADER_NAME = "Authorization";
@@ -152,6 +154,8 @@ export const unassignInputSchema = z.strictObject({
   agentId: idString,
   connectorId: idString,
 });
+
+export const removeInputSchema = z.strictObject({ connectorId: idString });
 
 export const agentInputSchema = z.strictObject({ agentId: idString });
 
@@ -722,6 +726,45 @@ export const createConnectorsService = ({
     return { removed: removed.length > 0 };
   };
 
+  /**
+   * Deletes a connector with its stored credentials, its OAuth sign-ins in
+   * flight and its assignments to agents. A session or an admin key may do it.
+   */
+  const remove = async (
+    principal: Principal,
+    input: z.input<typeof removeInputSchema>
+  ): Promise<void> => {
+    const user =
+      principal.kind === "user" && principal.via === "api_key"
+        ? requireKey(principal, DELETE_ACTION, "admin")
+        : requireUser(principal, DELETE_ACTION);
+    const parsed = removeInputSchema.parse(input);
+    authorize(user, DELETE_ACTION, {
+      id: parsed.connectorId,
+      kind: CONNECTOR_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const connector = await loadConnector(
+      db,
+      parsed.connectorId,
+      user.workspaceId
+    );
+    await atomic([
+      db.delete(oauthStates).where(eq(oauthStates.connectorId, connector.id)),
+      db.delete(credentials).where(eq(credentials.connectorId, connector.id)),
+      db
+        .delete(agentConnectors)
+        .where(eq(agentConnectors.connectorId, connector.id)),
+      db.delete(connectors).where(eq(connectors.id, connector.id)),
+      events.insertStatement({
+        actor: { id: user.userId, kind: "user" },
+        payload: { connectorId: connector.id, name: connector.name },
+        type: "connector.deleted",
+        workspaceId: user.workspaceId,
+      }),
+    ]);
+  };
+
   /** Throws not_found unless every id is a connector of the caller's workspace. */
   const assertExist = async (
     principal: Principal,
@@ -776,6 +819,7 @@ export const createConnectorsService = ({
     assignments,
     create,
     list,
+    remove,
     setCallTimeout,
     setCredential,
     unassign,

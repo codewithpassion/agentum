@@ -10,4 +10,7 @@ export const r2SkillBlobs = (bucket: R2Bucket): SkillBlobs => ({
   put: async (key, bytes) => {
     await bucket.put(key, bytes);
   },
+  remove: async (key) => {
+    await bucket.delete(key);
+  },
 });

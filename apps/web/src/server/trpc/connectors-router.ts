@@ -9,6 +9,7 @@ import {
   connectorCallTimeoutSchema,
   connectorCreateSchema,
   credentialSetSchema,
+  removeInputSchema,
   unassignInputSchema,
 } from "@repo/services/connectors";
 import { router, workspaceProcedure } from "./init.ts";
@@ -32,6 +33,11 @@ export const connectorsRouter = router({
   list: workspaceProcedure.query(({ ctx }) =>
     ctx.services.connectors.list(ctx.principal)
   ),
+  remove: workspaceProcedure
+    .input(removeInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.connectors.remove(ctx.principal, input)
+    ),
   setCallTimeout: workspaceProcedure
     .input(connectorCallTimeoutSchema)
     .mutation(({ ctx, input }) =>

@@ -35,6 +35,7 @@ const WRITE_TOOLS = [
   "assign_skill",
   "commit_skill",
   "create_skill",
+  "delete_skill",
   "import_skill",
   "pin_skill",
   "reject_skill_version",
@@ -247,6 +248,31 @@ test("a person creates, commits, approves, assigns and pins", async () => {
   expect(unassigned.isError).toBeFalsy();
   expect((await skillsOf(session))[0]?.assignedTo).toEqual([]);
   await session.close();
+});
+
+test("a person deletes a skill with its assignments, and a run is refused", async () => {
+  const agent = await makeAgent("Echo");
+  const person = await connect(userPrincipal);
+  const run = await connect(await runOf(agent.id));
+
+  const doomed = await createAs(person, "doomed");
+  await person.call("assign_skill", {
+    agent: agent.id,
+    skillId: doomed.skillId,
+  });
+  expect(
+    errorCodeOf(await run.call("delete_skill", { skillId: doomed.skillId }))
+  ).toBe(NOT_ALLOWED);
+
+  const deleted = await person.call("delete_skill", {
+    skillId: doomed.skillId,
+  });
+  expect(deleted.isError).toBeFalsy();
+  expect((await skillsOf(person)).map((skill) => skill.id)).not.toContain(
+    doomed.skillId
+  );
+  await person.close();
+  await run.close();
 });
 
 test("a person approves and rejects a run's proposal", async () => {
