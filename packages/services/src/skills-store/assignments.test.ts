@@ -338,6 +338,8 @@ describe("same-name conflicts", () => {
   const twoDups = async (service: Service) => {
     const people = await createSkill(service, "dup");
     const agentOwned = await runDraft(service, "dup");
+    // A run's skill is assigned to its owner on creation. These tests start from no assignment.
+    await service.unassign(user(), { agentId: A1, skillId: agentOwned });
     await service.approve(user(), { skillId: agentOwned, version: 1 });
     return { agentOwned, people: people.skill.id };
   };

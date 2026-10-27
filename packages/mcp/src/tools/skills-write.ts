@@ -232,6 +232,21 @@ export const skillWriteTools = (ports: McpPorts): ToolDefinition[] => [
     title: "Unassign skill",
   }),
   defineTool({
+    annotations: WRITE_DELETE,
+    description:
+      "Deletes a skill with all its versions, files and assignments, so no agent carries it any more. People only: a run is refused. Also refused while a run of an agent that carries the skill is active.",
+    inputSchema: z.strictObject({ skillId }),
+    name: "delete_skill",
+    run: async (input) => {
+      await ports.deleteSkill(input);
+      return {
+        data: { deleted: { skillId: input.skillId } },
+        text: `Deleted "${input.skillId}" with all its versions, files and assignments.`,
+      };
+    },
+    title: "Delete skill",
+  }),
+  defineTool({
     annotations: WRITE_UPDATE,
     description:
       "Pins an agent to one approved version of a skill. Pass null to follow the latest approved version again. People only: a run is refused.",

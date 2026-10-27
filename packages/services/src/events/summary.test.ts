@@ -107,3 +107,25 @@ test("run.limit_reached and run.repeat_stopped show their error text", () => {
   expect(summarize("run.limit_reached", { error: limit })).toBe(limit);
   expect(summarize("run.repeat_stopped", { error: repeat })).toBe(repeat);
 });
+
+test("skill events show the version after the name", () => {
+  expect(summarize("skill.approved", { name: "triage", version: 3 })).toBe(
+    "triage v3"
+  );
+  expect(summarize("skill.committed", { name: "triage", version: 1 })).toBe(
+    "triage v1"
+  );
+});
+
+test("a skill event without a version number shows the name alone", () => {
+  expect(summarize("skill.deleted", { name: "triage" })).toBe("triage");
+  expect(summarize("skill.pinned", { name: "triage", version: null })).toBe(
+    "triage"
+  );
+});
+
+test("a version number is left off events that are not about skills", () => {
+  expect(summarize("agent.created", { name: "triage", version: 3 })).toBe(
+    "triage"
+  );
+});

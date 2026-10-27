@@ -6,8 +6,9 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod";
+import { DeleteSkillDialog } from "#/components/skills/delete-skill-dialog";
 import { SkillEditor } from "#/components/skills/skill-editor";
 import { SkillHistory } from "#/components/skills/skill-history";
 import {
@@ -20,7 +21,7 @@ import {
   versionLabel,
 } from "#/components/skills/skills-logic";
 import { Badge } from "#/components/ui/badge";
-import { buttonVariants } from "#/components/ui/button";
+import { Button, buttonVariants } from "#/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
 
@@ -82,6 +83,10 @@ function SkillPage() {
   const { review, tab = "files" } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const openDelete = useCallback(() => setDeleting(true), []);
+  const closeDelete = useCallback(() => setDeleting(false), []);
+  const deleted = useCallback(() => navigate({ to: "/skills" }), [navigate]);
 
   const agentNames = useMemo(
     () => new Map(agents.map((agent) => [agent.id, agent.name])),
@@ -128,6 +133,24 @@ function SkillPage() {
           </span>
         </p>
         {skill.source ? <SkillSourceLine source={skill.source} /> : null}
+        <div>
+          <Button
+            data-testid="skill-delete"
+            onClick={openDelete}
+            size="sm"
+            type="button"
+            variant="destructive"
+          >
+            Delete
+          </Button>
+        </div>
+        {deleting ? (
+          <DeleteSkillDialog
+            onClose={closeDelete}
+            onDone={deleted}
+            skill={skill}
+          />
+        ) : null}
       </header>
       {head === undefined || head.status !== "proposed" ? null : (
         <p

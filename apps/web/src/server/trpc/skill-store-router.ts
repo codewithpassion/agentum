@@ -168,6 +168,11 @@ export const skillStoreRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.services.skillsStore.reject(ctx.principal, input)
     ),
+  remove: workspaceProcedure
+    .input(skillRefSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.skillsStore.remove(ctx.principal, input)
+    ),
   revert: workspaceProcedure
     .input(revertInputSchema)
     .mutation(({ ctx, input }) =>

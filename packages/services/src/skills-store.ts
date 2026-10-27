@@ -20,6 +20,7 @@
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
+import { runs } from "@repo/db/schema/runs";
 import {
   skillAssignments,
   skillLibraryMigrations,
@@ -28,7 +29,7 @@ import {
   skillVersionFiles,
   skillVersions,
 } from "@repo/db/schema/skills";
-import type { EventType, SkillAuthorKind } from "@repo/db/shared";
+import type { EventType, RunStatus, SkillAuthorKind } from "@repo/db/shared";
 import { SKILLS_MAX_BYTES, SKILLS_MAX_FILES } from "@repo/protocol/skills";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -97,6 +98,8 @@ import type { Principal } from "./workspaces.ts";
 const SKILL_KIND = "skill";
 /** D1 binds at most 100 parameters per statement. A file row binds 6, an assignment 5. */
 const ROWS_PER_INSERT = 15;
+/** One hash binds one parameter, and D1 binds at most 100 per statement. */
+const HASHES_PER_QUERY = 90;
 const ARCHIVE_MAX_BYTES = SKILLS_MAX_BYTES * 2;
 const MIGRATION_AUTHOR = "migration";
 
@@ -107,6 +110,8 @@ export interface SkillBlobs {
   get: (key: string) => Promise<Uint8Array | null>;
   /** Stores the bytes. The key is their hash, so storing the same key again is harmless. */
   put: (key: string, bytes: Uint8Array) => Promise<void>;
+  /** Removes the object. Removing a key that is not stored is harmless. */
+  remove: (key: string) => Promise<void>;
 }
 
 type SkillEvent = Extract<EventType, `skill.${string}`>;
@@ -126,6 +131,8 @@ interface Caller {
 
 /** A new version to write, with its tree already hashed and checked. */
 interface Publication {
+  /** Also hand the new skill to this agent, following the latest approved version. */
+  assignTo?: string;
   caller: Caller;
   conflict: string;
   event: SkillEvent;
@@ -310,6 +317,33 @@ export const createSkillsStoreService = ({
   };
 
   // --- reading rows ---
+
+  /** Whether the agent already carries an assigned skill of this name. */
+  const carriesName = async (
+    agentId: string,
+    name: string
+  ): Promise<boolean> => {
+    const carried = await db
+      .select({ id: skills.id })
+      .from(skillAssignments)
+      .innerJoin(skills, eq(skills.id, skillAssignments.skillId))
+      .where(
+        and(
+          eq(skillAssignments.agentId, agentId),
+          eq(skills.name, name),
+          eq(skills.deleted, false)
+        )
+      )
+      .limit(1);
+    return carried.length > 0;
+  };
+
+  /** The agent a new skill is assigned to: its owner, unless it carries a skill of that name already. */
+  const ownerToAssign = async (
+    c: Caller,
+    name: string
+  ): Promise<string | undefined> =>
+    c.agentId && !(await carriesName(c.agentId, name)) ? c.agentId : undefined;
 
   const isAssigned = async (
     workspaceId: string,
@@ -545,6 +579,23 @@ export const createSkillsStoreService = ({
         ...p.eventExtra,
       })
     );
+    if (p.newSkill && p.assignTo) {
+      statements.push(
+        db.insert(skillAssignments).values({
+          agentId: p.assignTo,
+          createdAt: now,
+          pinnedVersionId: null,
+          skillId: p.skill.id,
+          workspaceId: caller.workspaceId,
+        }),
+        eventStatement(
+          caller,
+          "skill.assigned",
+          { agentId: p.assignTo, name: p.skill.name, skillId: p.skill.id },
+          p.assignTo
+        )
+      );
+    }
     return statements;
   };
 
@@ -1040,6 +1091,7 @@ export const createSkillsStoreService = ({
     const files = await planWrites(parsed.files, new Map());
     const id = ulid();
     const version = await publish({
+      assignTo: await ownerToAssign(c, parsed.name),
       caller: c,
       conflict: "A skill with this name already exists",
       event: "skill.created",
@@ -1293,19 +1345,7 @@ export const createSkillsStoreService = ({
         skillId: existing.skillId,
       };
     }
-    const carried = await db
-      .select({ id: skills.id })
-      .from(skillAssignments)
-      .innerJoin(skills, eq(skills.id, skillAssignments.skillId))
-      .where(
-        and(
-          eq(skillAssignments.agentId, parsed.agentId),
-          eq(skills.name, skill.name),
-          eq(skills.deleted, false)
-        )
-      )
-      .limit(1);
-    if (carried.length > 0) {
+    if (await carriesName(parsed.agentId, skill.name)) {
       throw conflict(`The agent already carries a skill named ${skill.name}`);
     }
     await atomic([
@@ -1405,6 +1445,105 @@ export const createSkillsStoreService = ({
       pinnedVersion: parsed.version,
       skillId: skill.id,
     };
+  };
+
+  // --- deleting ---
+
+  /** Runs in these states may still read the skill. */
+  const LIVE_RUN_STATUSES: RunStatus[] = [
+    "queued",
+    "offered",
+    "running",
+    "waiting",
+  ];
+
+  /** The hashes among `hashes` that no remaining version file holds. */
+  const unusedHashes = async (hashes: readonly string[]): Promise<string[]> => {
+    const used = new Set<string>();
+    for (const part of chunks([...hashes], HASHES_PER_QUERY)) {
+      // biome-ignore lint/performance/noAwaitInLoops: Chunks keep each query under the D1 parameter limit.
+      const rows = await db
+        .select({ hash: skillVersionFiles.hash })
+        .from(skillVersionFiles)
+        .where(inArray(skillVersionFiles.hash, part));
+      for (const row of rows) {
+        used.add(row.hash);
+      }
+    }
+    return hashes.filter((hash) => !used.has(hash));
+  };
+
+  /**
+   * Deletes a skill with its versions, files, assignments and upstream source.
+   * People only. Refused while a run of an agent that owns or carries the skill
+   * is queued, running or waiting, because that run may be reading it. The
+   * file bytes go from blob storage when no other version holds them.
+   */
+  const remove = async (
+    principal: Principal,
+    input: z.input<typeof skillRefSchema>
+  ): Promise<void> => {
+    const c = peopleOf(principal, "skills.delete");
+    await ensureMigrated(principal);
+    const parsed = skillRefSchema.parse(input);
+    const skill = await skillFor(c, parsed.skillId);
+    const carriers = await db
+      .select({ agentId: skillAssignments.agentId })
+      .from(skillAssignments)
+      .where(eq(skillAssignments.skillId, skill.id));
+    const agentIds = [
+      ...new Set([
+        ...carriers.map((row) => row.agentId),
+        ...(skill.ownerAgentId ? [skill.ownerAgentId] : []),
+      ]),
+    ];
+    if (agentIds.length > 0) {
+      const [live] = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          and(
+            inArray(runs.agentId, agentIds),
+            inArray(runs.status, LIVE_RUN_STATUSES)
+          )
+        )
+        .limit(1);
+      if (live) {
+        throw conflict(
+          `A run is using ${skill.name}. Delete it when the run has finished, or cancel the run first.`
+        );
+      }
+    }
+    const files = await db
+      .select({ hash: skillVersionFiles.hash })
+      .from(skillVersionFiles)
+      .innerJoin(
+        skillVersions,
+        eq(skillVersions.id, skillVersionFiles.versionId)
+      )
+      .where(eq(skillVersions.skillId, skill.id));
+    const hashes = [...new Set(files.map((file) => file.hash))];
+    const ofSkill = db
+      .select({ id: skillVersions.id })
+      .from(skillVersions)
+      .where(eq(skillVersions.skillId, skill.id));
+    await atomic([
+      db.delete(skillAssignments).where(eq(skillAssignments.skillId, skill.id)),
+      db
+        .delete(skillVersionFiles)
+        .where(inArray(skillVersionFiles.versionId, ofSkill)),
+      db.delete(skillVersions).where(eq(skillVersions.skillId, skill.id)),
+      db.delete(skillSources).where(eq(skillSources.skillId, skill.id)),
+      db.delete(skills).where(eq(skills.id, skill.id)),
+      eventStatement(
+        c,
+        "skill.deleted",
+        { name: skill.name, skillId: skill.id },
+        skill.ownerAgentId
+      ),
+    ]);
+    const orphaned = await unusedHashes(hashes);
+    await Promise.all(orphaned.map((hash) => blobs.remove(blobKey(hash))));
   };
 
   /** The version an assignment resolves to: its pin, else the latest approved one. Null when there is none. */
@@ -1776,6 +1915,7 @@ export const createSkillsStoreService = ({
     > = {}
   ): Promise<VersionRecord> =>
     publish({
+      assignTo: await ownerToAssign(c, name),
       caller: c,
       conflict: "A skill with this name already exists",
       event: "skill.imported",
@@ -1929,6 +2069,7 @@ export const createSkillsStoreService = ({
     proposals,
     readFile,
     reject,
+    remove,
     revert,
     show,
     unassign,

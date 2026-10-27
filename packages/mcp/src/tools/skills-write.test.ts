@@ -41,6 +41,7 @@ const fakePorts = (overrides: Partial<McpPorts>): McpPorts =>
     assignSkill: uncalled("assignSkill"),
     commitSkill: uncalled("commitSkill"),
     createSkill: uncalled("createSkill"),
+    deleteSkill: uncalled("deleteSkill"),
     importSkill: uncalled("importSkill"),
     pinSkill: uncalled("pinSkill"),
     rejectSkillVersion: uncalled("rejectSkillVersion"),
@@ -89,6 +90,7 @@ describe("skill write tools: names and annotations", () => {
         "assign_skill",
         "commit_skill",
         "create_skill",
+        "delete_skill",
         "import_skill",
         "pin_skill",
         "reject_skill_version",
@@ -115,10 +117,12 @@ describe("skill write tools: names and annotations", () => {
     }
   });
 
-  test("unassign is destructive and no tool is read-only", async () => {
+  test("unassign and delete are destructive and no tool is read-only", async () => {
     const tools = await listTools();
-    const unassign = tools.find((tool) => tool.name === "unassign_skill");
-    expect(unassign?.annotations?.destructiveHint).toBe(true);
+    for (const name of ["unassign_skill", "delete_skill"]) {
+      const tool = tools.find((item) => item.name === name);
+      expect(tool?.annotations?.destructiveHint).toBe(true);
+    }
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint).not.toBe(true);
     }
@@ -307,6 +311,24 @@ describe("skill write tools: inputs reach the ports", () => {
     expect(unassigned.structuredContent).toEqual({
       unassigned: { agent: "ops-bot", skillId: "skl_1" },
     });
+  });
+
+  test("delete_skill passes skillId and says what was removed", async () => {
+    const seen: unknown[] = [];
+    const ports = fakePorts({
+      deleteSkill: (input) => {
+        seen.push(input);
+        return Promise.resolve();
+      },
+    });
+    const deleted = await callTool(ports, "delete_skill", { skillId: "skl_1" });
+    expect(seen).toEqual([{ skillId: "skl_1" }]);
+    expect(deleted.structuredContent).toEqual({
+      deleted: { skillId: "skl_1" },
+    });
+    expect(textOf(deleted)).toBe(
+      'Deleted "skl_1" with all its versions, files and assignments.'
+    );
   });
 
   test("pin_skill passes a version, and null follows the latest approved version", async () => {

@@ -53,11 +53,11 @@
     "PUBLIC_BASE_URL": "https://harbourmaster.rockyshoreslabs.io",
     // How long a Linux VM sits idle before it snapshots /workspace and sleeps.
     "LINUX_VM_IDLE_SECONDS": "180",
-    // Agent mail (task V5.7). An empty MAIL_DOMAIN turns mail off. Production has
-    // no mail domain yet: set the three below once Dom picks one, with Email
-    // Routing and Email Sending on for it.
-    "MAIL_DOMAIN": "",
-    "MAIL_ZONE_ID": "",
+    // Agent mail (task V5.7). An empty MAIL_DOMAIN turns mail off. Production
+    // uses the agents. subdomain (Dom, 27 Oct 2026), with Email Routing and
+    // Email Sending on for it, in the rockyshoreslabs.io zone.
+    "MAIL_DOMAIN": "agents.rockyshoreslabs.io",
+    "MAIL_ZONE_ID": "4dd028fe52d70f89e51383e1689d601a",
     "MAIL_WORKER_NAME": "harbourmaster"
   },
   "routes": [

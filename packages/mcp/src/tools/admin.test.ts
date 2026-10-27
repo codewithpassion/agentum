@@ -18,6 +18,7 @@ const SETUP_NAMES = [
   "create_enrolment_code",
   "create_api_key",
   "revoke_api_key",
+  "delete_connector",
 ];
 const ADMIN_NAMES = [...WRITE_NAMES, ...SETUP_NAMES];
 
@@ -69,6 +70,7 @@ const recordingAdmin = () => {
       title: "Plans",
     }),
     createSecret: record("createSecret", SECRET),
+    deleteConnector: record("deleteConnector", undefined),
     grantSecret: record("grantSecret", undefined),
     revokeApiKey: record("revokeApiKey", {
       id: "key_1",
@@ -98,7 +100,7 @@ describe("admin tool registration", () => {
     );
   });
 
-  test("admin access offers all nine admin tools", () => {
+  test("admin access offers all ten admin tools", () => {
     expect(namesFor(portsWith(port), { admin: "admin" })).toEqual(
       [...ADMIN_NAMES].sort()
     );
@@ -224,6 +226,22 @@ describe("admin tools call their port with the input", () => {
       { admin: "admin" }
     );
     expect(calls.revokeApiKey).toEqual([{ keyId: "key_1" }]);
+  });
+
+  test("delete_connector passes the connector id and is destructive", async () => {
+    const { calls, port } = recordingAdmin();
+    const result = await callTool(
+      portsWith(port),
+      "delete_connector",
+      { connectorId: "conn_1" },
+      { admin: "admin" }
+    );
+    expect(calls.deleteConnector).toEqual([{ connectorId: "conn_1" }]);
+    expect(textOf(result)).toContain("conn_1");
+    const tool = harbourmasterTools(portsWith(port), { admin: "admin" }).find(
+      (candidate) => candidate.name === "delete_connector"
+    );
+    expect(tool?.annotations?.destructiveHint).toBe(true);
   });
 });
 
