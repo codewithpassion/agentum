@@ -3054,3 +3054,73 @@ test("scoped guest runs see only their artifact session, and revoked membership 
     buildRuns().offerQueuedRun(SYSTEM_PRINCIPAL, own.runId)
   ).rejects.toBeInstanceOf(ForbiddenError);
 });
+
+test("ordinary runs cannot read private artifact summaries after grant revocation", async () => {
+  const artifactId = "11111111-1111-4111-8111-111111111111";
+  db.insert(artifacts)
+    .values({
+      audience: "private",
+      createdAt: START,
+      createdById: "u1",
+      createdByKind: "user",
+      id: artifactId,
+      kind: "document",
+      ownerUserId: "u1",
+      title: "Private",
+      updatedAt: START,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const target = await start(
+    user,
+    spyAgentId,
+    { session: { externalKey: artifactId, origin: "artifact" } },
+    "private",
+    { offerLater: true }
+  );
+  const caller = await start(colleague, spyAgentId, {}, "ordinary", {
+    offerLater: true,
+  });
+  const principal: Principal = {
+    agentId: spyAgentId,
+    kind: "run",
+    runId: caller.runId,
+    workspaceId: WORKSPACE,
+  };
+  await expect(runs.getRun(principal, target.runId)).rejects.toBeInstanceOf(
+    ServiceError
+  );
+  await expect(
+    runs.waitForRun(principal, target.runId, 0)
+  ).rejects.toBeInstanceOf(ServiceError);
+  db.insert(artifactMembers)
+    .values({
+      artifactId,
+      createdAt: START,
+      createdBy: "u1",
+      id: "ordinary-member",
+      principalKind: "user",
+      role: "commenter",
+      userId: "u2",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await runs.getRun(principal, target.runId)).id).toBe(target.runId);
+  db.update(artifactMembers)
+    .set({ revokedAt: START })
+    .where(eq(artifactMembers.id, "ordinary-member"))
+    .run();
+  await expect(runs.getRun(principal, target.runId)).rejects.toBeInstanceOf(
+    ServiceError
+  );
+  await expect(
+    runs.waitForRun(principal, target.runId, 0)
+  ).rejects.toBeInstanceOf(ServiceError);
+  await expect(
+    runs.getRun({ ...principal, runId: "missing" }, target.runId)
+  ).rejects.toBeInstanceOf(ServiceError);
+  await expect(
+    runs.getRun({ ...principal, workspaceId: "w2" }, target.runId)
+  ).rejects.toBeInstanceOf(ServiceError);
+  expect((await runs.getRun(principal, caller.runId)).id).toBe(caller.runId);
+});

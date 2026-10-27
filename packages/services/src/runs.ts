@@ -401,8 +401,23 @@ export const createRunsService = ({
     }
     if (principal.kind === "run") {
       const caller = await loadRun(db, principal.runId, principal.workspaceId);
-      if (!caller?.scopeArtifactId) {
-        return;
+      if (!caller || caller.agentId !== principal.agentId) {
+        throw new ServiceError("not_found", "Run not found");
+      }
+      if (!caller.scopeArtifactId) {
+        const [session] = await db
+          .select({ origin: sessions.origin })
+          .from(sessions)
+          .where(
+            and(
+              eq(sessions.id, run.sessionId),
+              eq(sessions.workspaceId, principal.workspaceId)
+            )
+          )
+          .limit(1);
+        if (session && session.origin !== "artifact") {
+          return;
+        }
       }
     }
     const [visible] = await db
