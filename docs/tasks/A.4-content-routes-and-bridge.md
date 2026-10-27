@@ -3,7 +3,7 @@ id: A.4
 title: Sandboxed content routes and bridge script
 milestone: A
 size: L
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.4-content-routes-and-bridge
 lane: worker-content
@@ -28,3 +28,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 6c51573, review clean after 1 fix round; R1.19 probe passed Chrome and Firefox; frame-ancestors middleware must skip content paths; merged.
