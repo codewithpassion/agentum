@@ -24,7 +24,7 @@ function PathText({ path }: { path: string }) {
         <span key={index}>
           {index > 0 ? (
             <>
-              /<wbr />
+              /<wbr className="md:hidden" />
             </>
           ) : null}
           {part}

@@ -42,7 +42,7 @@ function DoesText({ does }: { does: string }) {
       >
         {does}
       </p>
-      {does.length > LONG_DOES || does.split("\n").length > 4 ? (
+      {does.length > LONG_DOES || does.includes("\n") ? (
         <button
           aria-expanded={expanded}
           className="mt-1 text-primary text-xs hover:underline md:hidden"
