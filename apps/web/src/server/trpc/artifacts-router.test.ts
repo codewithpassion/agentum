@@ -15,25 +15,7 @@ const caller = appRouter.createCaller({
 } as unknown as Context);
 const artifactId = crypto.randomUUID();
 
-const calls: Record<string, () => Promise<unknown>> = {
-  decideGrant: () =>
-    caller.artifacts.decideGrant({ decision: "approved", grantId: "x" }),
-  handTo: () => caller.artifacts.handTo({ agentId: null, artifactId }),
-  pin: () => caller.artifacts.pin({ artifactId, surface: "sidebar" }),
-  promote: () => caller.artifacts.promote({ artifactId, versionId: "x" }),
-  unpin: () => caller.artifacts.unpin({ artifactId, surface: "sidebar" }),
-};
-
-test("the phase 2 artifacts procedures are stubbed as NOT_IMPLEMENTED", async () => {
-  expect(Object.keys(calls)).toHaveLength(5);
-  await Promise.all(
-    Object.entries(calls).map(([name, call]) =>
-      expect(call(), name).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" })
-    )
-  );
-});
-
-test("the input schema runs before the stub body", async () => {
+test("the input schema runs before the procedure body", async () => {
   await expect(
     caller.artifacts.get({ artifactId: "nope" })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });

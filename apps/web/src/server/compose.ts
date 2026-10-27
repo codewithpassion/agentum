@@ -29,6 +29,14 @@ import {
   createToolRunner,
 } from "@repo/services/artifacts/calls";
 import {
+  type ArtifactGrantsService,
+  createArtifactGrantsService,
+} from "@repo/services/artifacts/grants";
+import {
+  type ArtifactPinsService,
+  createArtifactPinsService,
+} from "@repo/services/artifacts/pins";
+import {
   type ArtifactsService,
   createArtifactsService,
 } from "@repo/services/artifacts/service";
@@ -326,6 +334,8 @@ export interface Services {
   agents: AgentsService;
   apiKeys: ApiKeysService;
   artifactCalls: ArtifactToolPort;
+  artifactGrants: ArtifactGrantsService;
+  artifactPins: ArtifactPinsService;
   artifactShares: ArtifactSharesService;
   artifactStorage: ArtifactStorageService;
   artifacts: ArtifactsService;
@@ -552,15 +562,6 @@ export const composeWith = ({
       runner: infra.cloudRunner,
     }),
   });
-  const artifacts = createArtifactsService({
-    atomic: infra.atomic,
-    blobs: libraryBlobs,
-    clock: infra.clock,
-    db,
-    events,
-    library,
-    people: infra.people,
-  });
   const artifactShares = createArtifactSharesService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -713,6 +714,31 @@ export const composeWith = ({
     events,
     runs,
     secrets,
+  });
+  const artifactGrants = createArtifactGrantsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    requests,
+    // B.8 replaces this with the connector and platform tool catalog. Until
+    // then no tool is known, so no tool grant is accepted.
+    tools: { lookup: () => Promise.resolve(null) },
+  });
+  const artifactPins = createArtifactPinsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+  });
+  const artifacts = createArtifactsService({
+    atomic: infra.atomic,
+    blobs: libraryBlobs,
+    clock: infra.clock,
+    db,
+    events,
+    grants: artifactGrants,
+    library,
+    people: infra.people,
   });
   const mailOutbound = createMailOutbound({
     atomic: infra.atomic,
@@ -916,6 +942,8 @@ export const composeWith = ({
       agents,
       apiKeys,
       artifactCalls,
+      artifactGrants,
+      artifactPins,
       artifactShares,
       artifactStorage,
       artifacts,
