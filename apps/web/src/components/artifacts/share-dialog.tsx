@@ -22,6 +22,7 @@ import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
 import { CreateLinkForm } from "./create-link-form";
 import { LinkList } from "./link-list";
+import { type GrantLike, liveToolOptions } from "./live-link-model";
 import { errorMessage } from "./share-model";
 import { SheetCloseButton } from "./sheet-close";
 
@@ -49,6 +50,7 @@ const formatKb = (bytes: number) =>
 
 interface LoadedData {
   detail: ArtifactDetail;
+  grants: GrantLike[];
   shares: ArtifactShare[];
   versions: ArtifactVersion[];
 }
@@ -130,7 +132,10 @@ function ShareBody({
         trpc.artifacts.shares.query({ artifactId }),
         trpc.artifacts.versions.query({ artifactId }),
       ]);
-      setData({ detail, shares, versions });
+      const grants: GrantLike[] = await trpc.artifacts.grants
+        .query({ artifactId, versionId: detail.currentVersion.id })
+        .catch(() => []);
+      setData({ detail, grants, shares, versions });
       setError(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -164,7 +169,7 @@ function ShareBody({
     );
   }
 
-  const { detail, shares, versions } = data;
+  const { detail, grants, shares, versions } = data;
   const versionNumbers = new Map(versions.map((v) => [v.id, v.number]));
   const canCreate = detail.canManage && detail.linksEnabled;
   let note: string | null = null;
@@ -209,8 +214,10 @@ function ShareBody({
         {canCreate ? (
           <CreateLinkForm
             artifactId={artifactId}
+            canCreateLive={detail.canCreateLiveLink}
             currentVersionId={detail.currentVersion.id}
             currentVersionNumber={detail.currentVersion.number}
+            liveToolOptions={liveToolOptions(grants)}
             onCreated={load}
           />
         ) : (
@@ -222,6 +229,7 @@ function ShareBody({
         <LinkList
           canManage={detail.canManage}
           onChanged={load}
+          ownerName={detail.ownerName}
           shares={shares}
           versionNumbers={versionNumbers}
         />

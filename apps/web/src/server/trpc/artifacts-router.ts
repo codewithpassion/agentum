@@ -1,6 +1,7 @@
 // Core procedures over the artifacts service (A.2). The shares half is in
 // artifact-shares-router.ts, the phase 2 procedures throw until their tasks.
 
+import { ARTIFACT_PIN_SURFACES } from "@repo/db/shared";
 import {
   artifactsCallToolInputSchema,
   artifactsCallToolOutputSchema,
@@ -32,6 +33,7 @@ import {
 import { isArtifactCallError } from "@repo/services/artifacts/calls";
 import { ServiceError } from "@repo/services/errors";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
 const CALL_ERROR_CODES = {
@@ -70,6 +72,14 @@ export const artifactsRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.artifacts.get(ctx.principal, input.artifactId)
     ),
+  /** The grants of one version, for the share dialog and the viewer (B.9). */
+  grants: workspaceProcedure
+    .input(
+      z.strictObject({ artifactId: z.uuid(), versionId: z.string().min(1) })
+    )
+    .query(({ ctx, input }) =>
+      ctx.services.artifactGrants.list(ctx.principal, input)
+    ),
   handTo: workspaceProcedure
     .input(artifactsHandToInputSchema)
     .output(artifactsHandToOutputSchema)
@@ -90,6 +100,17 @@ export const artifactsRouter = router({
       await ctx.services.artifactPins.pin(ctx.principal, input);
       return {};
     }),
+  /** The caller's pins, for the sidebar, the desk and the viewer menu (B.9). */
+  pins: workspaceProcedure
+    .input(
+      z.strictObject({ surface: z.enum(ARTIFACT_PIN_SURFACES).optional() })
+    )
+    .query(({ ctx, input }) =>
+      ctx.services.artifactPins.list(
+        ctx.principal,
+        input.surface === undefined ? {} : { surface: input.surface }
+      )
+    ),
   promote: workspaceProcedure
     .input(artifactsPromoteInputSchema)
     .output(artifactsPromoteOutputSchema)

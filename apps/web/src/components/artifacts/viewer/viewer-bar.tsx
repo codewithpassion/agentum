@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { MoreHorizontal, Share2 } from "lucide-react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useCallback, useState } from "react";
+import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
   DropdownMenu,
@@ -22,7 +23,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
-import { byline, downloadPath } from "./viewer-logic.ts";
+import {
+  byline,
+  canPromote,
+  downloadPath,
+  type PromoteState,
+  promoteButton,
+  versionOptionLabel,
+  versionStatusBadge,
+} from "./viewer-logic.ts";
+import { type PinSurface, pinMenuLabel } from "./viewer-menu-model.ts";
 
 // Menu rows are 40 px tall on phones (R1.26).
 const ITEM_CLASS = "min-h-10 md:min-h-0";
@@ -97,10 +107,15 @@ interface ViewerBarProps {
   onCopyLink: () => void;
   onDelete: () => void;
   onFullScreen: () => void;
+  onHandTo: () => void;
   onHistory: () => void;
+  onPromote: () => void;
   onRename: (title: string) => void;
   onShare: () => void;
+  onTogglePin: (surface: PinSurface) => void;
   onVersion: (version: number) => void;
+  pinned: ReadonlySet<PinSurface>;
+  promoteState: PromoteState;
   shownNumber: number;
   versions: readonly ArtifactVersion[];
 }
@@ -111,10 +126,15 @@ export function ViewerBar({
   onCopyLink,
   onDelete,
   onFullScreen,
+  onHandTo,
   onHistory,
+  onPromote,
   onRename,
   onShare,
+  onTogglePin,
   onVersion,
+  pinned,
+  promoteState,
   shownNumber,
   versions,
 }: ViewerBarProps) {
@@ -125,6 +145,11 @@ export function ViewerBar({
     (value: string) => onVersion(Number(value)),
     [onVersion]
   );
+  const shown = sorted.find((version) => version.number === shownNumber);
+  const badge = shown ? versionStatusBadge(shown.status) : null;
+  const promote = promoteButton(promoteState);
+  const pinSidebar = useCallback(() => onTogglePin("sidebar"), [onTogglePin]);
+  const pinDesk = useCallback(() => onTogglePin("desk"), [onTogglePin]);
   const changeAudience = useCallback(
     (value: string) =>
       onAudience(value === "private" ? "private" : "workspace"),
@@ -162,12 +187,34 @@ export function ViewerBar({
           <SelectContent>
             {sorted.map((version) => (
               <SelectItem key={version.id} value={String(version.number)}>
-                v{version.number}
+                {versionOptionLabel(version)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
+      {badge ? <Badge variant="secondary">{badge}</Badge> : null}
+      {canPromote(detail, shown) ? (
+        <>
+          {promoteState === "waiting" ? (
+            <Link
+              className="hidden text-muted-foreground text-xs underline md:inline"
+              to="/desk"
+            >
+              Decide the grants in Needs you
+            </Link>
+          ) : null}
+          <Button
+            className="h-10 md:h-8"
+            disabled={promote.disabled}
+            onClick={onPromote}
+            size="sm"
+            variant={promoteState === "idle" ? "default" : "outline"}
+          >
+            {promote.label}
+          </Button>
+        </>
+      ) : null}
       {detail.canManage ? (
         <Button className="h-10 md:h-8" onClick={onShare} size="sm">
           <Share2 />
@@ -200,8 +247,18 @@ export function ViewerBar({
               Download
             </a>
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className={ITEM_CLASS} onSelect={pinSidebar}>
+            {pinMenuLabel("sidebar", pinned.has("sidebar"))}
+          </DropdownMenuItem>
+          <DropdownMenuItem className={ITEM_CLASS} onSelect={pinDesk}>
+            {pinMenuLabel("desk", pinned.has("desk"))}
+          </DropdownMenuItem>
           {detail.canManage ? (
             <>
+              <DropdownMenuItem className={ITEM_CLASS} onSelect={onHandTo}>
+                Hand to agent...
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Audience</DropdownMenuLabel>
               <DropdownMenuRadioGroup

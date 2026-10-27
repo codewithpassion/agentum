@@ -3,7 +3,7 @@ id: B.6
 title: Live links
 milestone: B
 size: M
-status: in_progress
+status: done
 depends_on: [A.3, A.6, B.5]
 branch: task/B.6-live-links
 lane: services-shares
@@ -25,3 +25,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 62f4bbd, review clean after 1 fix round; 502 for granter-side failures; storage read route; argument limits not enforced yet; merged.

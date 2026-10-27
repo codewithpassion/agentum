@@ -2,9 +2,13 @@ import { expect, test } from "bun:test";
 import {
   buildViewerPath,
   byline,
+  canPromote,
   downloadPath,
   parseVersionSearch,
+  promoteButton,
   shownVersionNumber,
+  versionOptionLabel,
+  versionStatusBadge,
 } from "./viewer-logic.ts";
 
 test("parseVersionSearch accepts positive whole numbers", () => {
@@ -51,4 +55,36 @@ test("byline falls back to someone and keeps the task only when visible", () => 
     owner: "Dom",
     task: { runId: "r1", title: "Plan" },
   });
+});
+
+test("versionStatusBadge names anything but published", () => {
+  expect(versionStatusBadge("published")).toBeNull();
+  expect(versionStatusBadge("proposed")).toBe("Proposed");
+  expect(versionStatusBadge("rejected")).toBe("rejected");
+});
+
+test("versionOptionLabel marks versions that are not published", () => {
+  expect(versionOptionLabel({ number: 2, status: "published" })).toBe("v2");
+  expect(versionOptionLabel({ number: 3, status: "proposed" })).toBe(
+    "v3 (proposed)"
+  );
+});
+
+test("promoteButton gives the label and disabled flag for each state", () => {
+  expect(promoteButton("idle")).toEqual({ disabled: false, label: "Promote" });
+  expect(promoteButton("working")).toEqual({
+    disabled: true,
+    label: "Promoting...",
+  });
+  expect(promoteButton("waiting")).toEqual({
+    disabled: true,
+    label: "Waiting for approval",
+  });
+});
+
+test("canPromote needs a manager and a proposed version", () => {
+  expect(canPromote({ canManage: true }, { status: "proposed" })).toBe(true);
+  expect(canPromote({ canManage: false }, { status: "proposed" })).toBe(false);
+  expect(canPromote({ canManage: true }, { status: "published" })).toBe(false);
+  expect(canPromote({ canManage: true }, undefined)).toBe(false);
 });

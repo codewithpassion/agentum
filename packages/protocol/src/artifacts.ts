@@ -77,9 +77,15 @@ export const artifactManifestFileSchema = z.strictObject({
 export type ArtifactManifestFile = z.infer<typeof artifactManifestFileSchema>;
 
 /** The file tree of one version. `entry` is a key of `files`. */
+/** Entry files the content route serves as a page, with the bridge in it. */
+const ARTIFACT_ENTRY_PATTERN = /\.(?:html?|md)$/i;
+
 export const artifactManifestSchema = z
   .strictObject({
-    entry: artifactPathSchema,
+    entry: artifactPathSchema.refine(
+      (path) => ARTIFACT_ENTRY_PATTERN.test(path),
+      { message: "entry must be an .html, .htm or .md file" }
+    ),
     files: z.record(artifactPathSchema, artifactManifestFileSchema),
   })
   .superRefine((manifest, ctx) => {
@@ -273,6 +279,8 @@ export const uiInitializeParamsSchema = z.strictObject({
   // The MCP Apps spec requires it; the frame ignores its content.
   appCapabilities: z.record(z.string(), z.unknown()).optional(),
   appInfo: z.strictObject({ name: z.string(), version: z.string() }).optional(),
+  /** The frame's value from the iframe's `name`, read from `window.name`. */
+  nonce: z.string().min(1).optional(),
   protocolVersion: z.string().min(1),
 });
 export const uiInitializeRequestSchema = jsonRpcRequestSchema(
@@ -381,6 +389,7 @@ export const storageSetRequestSchema = jsonRpcRequestSchema(
     value: z.json(),
   })
 );
+export type StorageSetRequest = z.infer<typeof storageSetRequestSchema>;
 export const storageSetResponseSchema = jsonRpcResultSchema(emptyResultSchema);
 
 export const storageDeleteRequestSchema = jsonRpcRequestSchema(
@@ -822,6 +831,22 @@ export const shareCallInputSchema = z.strictObject({
   tool: idSchema,
 });
 export type ShareCallInput = z.infer<typeof shareCallInputSchema>;
+
+/**
+ * A link viewer's storage request. Only `get` and `list` on the shared area
+ * run; `set` and `delete` parse so that the route can answer them with 403.
+ */
+export const shareStorageInputSchema = z
+  .object({
+    key: z.string().min(1).optional(),
+    op: z.enum(["get", "list", "set", "delete"]),
+    prefix: z.string().optional(),
+  })
+  .refine((value) => value.op !== "get" || value.key !== undefined, {
+    message: "get needs a key",
+    path: ["key"],
+  });
+export type ShareStorageInput = z.infer<typeof shareStorageInputSchema>;
 
 export const shareCallResponseSchema = z.strictObject({
   result: z.unknown(),

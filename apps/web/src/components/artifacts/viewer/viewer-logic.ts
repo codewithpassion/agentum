@@ -1,4 +1,4 @@
-import type { ArtifactDetail } from "@repo/protocol/artifacts";
+import type { ArtifactDetail, ArtifactVersion } from "@repo/protocol/artifacts";
 
 /** `?v=<n>`: a positive whole number, otherwise nothing. */
 export function parseVersionSearch(raw: unknown): number | undefined {
@@ -49,4 +49,47 @@ export function byline(
       ? { runId: detail.madeIn.runId, title: detail.madeIn.title }
       : null,
   };
+}
+
+/** The plain word for a version that is not published, else nothing. */
+export function versionStatusBadge(
+  status: ArtifactVersion["status"]
+): string | null {
+  if (status === "published") {
+    return null;
+  }
+  return status === "proposed" ? "Proposed" : status;
+}
+
+/** "v3", or "v3 (proposed)" for a version that is not published. */
+export function versionOptionLabel(
+  version: Pick<ArtifactVersion, "number" | "status">
+): string {
+  return version.status === "published"
+    ? `v${version.number}`
+    : `v${version.number} (${version.status})`;
+}
+
+export type PromoteState = "idle" | "waiting" | "working";
+
+/** The Promote button for a state: its label and whether it can be pressed. */
+export function promoteButton(state: PromoteState): {
+  disabled: boolean;
+  label: string;
+} {
+  if (state === "waiting") {
+    return { disabled: true, label: "Waiting for approval" };
+  }
+  if (state === "working") {
+    return { disabled: true, label: "Promoting..." };
+  }
+  return { disabled: false, label: "Promote" };
+}
+
+/** Promote shows for a proposed version, to someone who manages the artifact. */
+export function canPromote(
+  detail: Pick<ArtifactDetail, "canManage">,
+  version: Pick<ArtifactVersion, "status"> | undefined
+): boolean {
+  return detail.canManage && version?.status === "proposed";
 }
