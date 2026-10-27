@@ -198,7 +198,9 @@
       "dependencies": {
         "@modelcontextprotocol/server": "^2.0.0",
         "@repo/db": "workspace:*",
+        "@repo/live-deck": "workspace:*",
         "@repo/protocol": "workspace:*",
+        "yjs": "^13.6.27",
         "zod": "^4.6.5",
       },
       "devDependencies": {
