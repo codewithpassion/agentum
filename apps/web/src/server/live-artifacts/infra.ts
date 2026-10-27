@@ -1,0 +1,132 @@
+import { createClerkClient } from "@clerk/backend";
+import type { LiveAskDeps } from "@repo/services/live-artifacts/ask";
+import type { LiveArtifactsDeps } from "@repo/services/live-artifacts/service";
+import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
+import type { Composed } from "../compose";
+import { freshMember } from "./auth";
+import { documentContent } from "./content";
+import { roomStub } from "./namespace";
+import { requiredLive } from "./required";
+
+export interface LiveInfra
+  extends Pick<
+      LiveArtifactsDeps,
+      "anchors" | "changes" | "content" | "identity" | "rooms" | "ticketKey"
+    >,
+    Pick<LiveAskDeps, "presence" | "resolveMember"> {
+  roomFor: (
+    principal: import("@repo/services/workspaces").Principal,
+    artifactId: string
+  ) => ReturnType<typeof roomStub>;
+  wake: () => Promise<void>;
+}
+export const productionLiveInfra = (
+  env: Env,
+  composed: () => Composed
+): LiveInfra => {
+  const stub = (scope: Parameters<typeof roomStub>[1]) =>
+    roomStub(env.ARTIFACT_ROOM, scope);
+  return {
+    anchors: {
+      guardAgentSnapshot: async (scope, input) =>
+        (await stub(scope)).guardAgentSnapshot(input),
+      resolve: async (scope, anchor) =>
+        (await stub(scope)).resolveAnchor(anchor),
+    },
+    changes: {
+      revert: async (scope, input) => {
+        const room = await stub(scope);
+        if (!input.principal) {
+          throw new Error("Authenticated actor required");
+        }
+        await room.registerActor(input.principal);
+        return room.revert(input.changeId, input.byParticipant);
+      },
+    },
+    content: documentContent(async (scope) =>
+      scope
+        ? new Set(
+            (
+              await requiredLive(composed().services).roomPolicy(
+                SYSTEM_PRINCIPAL,
+                scope
+              )
+            ).ownBlobUrls
+          )
+        : new Set()
+    ),
+    identity: async (principal) => {
+      if (principal.kind === "run") {
+        const agent = await composed().services.agents.get(
+          principal,
+          principal.agentId
+        );
+        return { color: "#8b5cf6", name: agent.name };
+      }
+      // The shared people service resolves trusted names; ids remain a safe fallback.
+      const user = await createClerkClient({
+        secretKey: env.CLERK_SECRET_KEY,
+      }).users.getUser(principal.userId);
+      return {
+        color: "#3b82f6",
+        name:
+          [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+          user.username ||
+          "Member",
+      };
+    },
+    presence: async (scope, member) => {
+      const present = await (await stub(scope)).presence();
+      const sender = present.find((p) => p.id === `u:${member.userId}`);
+      return {
+        present: present
+          .filter((p) => p.id !== sender?.id)
+          .map((p) => ({
+            id: p.id,
+            kind: p.kind,
+            name: p.name,
+            role: "participant",
+          })),
+        where: undefined,
+      };
+    },
+    resolveMember: (scope, userId) =>
+      freshMember(env, composed(), scope.workspaceId, userId),
+    roomFor: async (principal, artifactId) => {
+      if (principal.kind === "system") {
+        throw new Error("Authenticated member required");
+      }
+      await requiredLive(composed().services).roomIdentity(
+        principal,
+        artifactId
+      );
+      const room = await stub({
+        artifactId,
+        workspaceId: principal.workspaceId,
+      });
+      await room.registerActor(principal);
+      return room;
+    },
+    rooms: {
+      refresh: async (scope, participantId, id) =>
+        (await stub(scope)).completeInvalidation(participantId, id),
+      registerImage: async (scope, fileId) =>
+        (await stub(scope)).registerImage(fileId),
+      restore: async (scope, input) => {
+        const room = await stub(scope);
+        if (!input.principal) {
+          throw new Error("Authenticated restore actor required");
+        }
+        await room.registerActor(input.principal);
+        return room.restoreAuthorized(input);
+      },
+      saveRestored: async (scope) => (await stub(scope)).checkpoint(),
+      suspend: async (scope, id) => (await stub(scope)).suspend(id),
+      url: (scope) => `/api/rooms/${scope.artifactId}`,
+    },
+    ticketKey: env.ARTIFACT_VIEW_KEY
+      ? `artifact-room:${env.ARTIFACT_VIEW_KEY}`
+      : "",
+    wake: () => env.LIVE_ARTIFACT_MAINTENANCE.getByName("maintenance").start(),
+  };
+};

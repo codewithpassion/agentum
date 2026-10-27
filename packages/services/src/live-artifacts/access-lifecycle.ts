@@ -52,7 +52,8 @@ export const createAccessLifecycle = (ctx: InteractionContext) => {
     }
     await ctx.rooms.refresh(
       { artifactId: entry.artifactId, workspaceId: entry.workspaceId },
-      entry.participantId ?? undefined
+      entry.participantId ?? undefined,
+      entry.id
     );
     await ctx.atomic([
       ctx.db
@@ -74,6 +75,10 @@ export const createAccessLifecycle = (ctx: InteractionContext) => {
     ) {
       const { row } = await ctx.access(principal, input.artifactId, true, true);
       const entry = queue(row.workspaceId, row.id, input.participantId);
+      await ctx.rooms.suspend?.(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        entry.id
+      );
       await ctx.atomic([ctx.db.insert(invalidations).values(entry)]);
       await deliver(entry);
     },
@@ -88,6 +93,10 @@ export const createAccessLifecycle = (ctx: InteractionContext) => {
         throw new ForbiddenError("liveArtifacts.remove");
       }
       const entry = queue(row.workspaceId, row.id);
+      await ctx.rooms.suspend?.(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        entry.id
+      );
       await ctx.atomic([
         ctx.db
           .update(artifacts)
@@ -161,6 +170,10 @@ export const createAccessLifecycle = (ctx: InteractionContext) => {
         throw new ForbiddenError("liveArtifacts.setAudience");
       }
       const entry = queue(row.workspaceId, row.id);
+      await ctx.rooms.suspend?.(
+        { artifactId: row.id, workspaceId: row.workspaceId },
+        entry.id
+      );
       await ctx.atomic([
         ctx.db
           .update(artifacts)

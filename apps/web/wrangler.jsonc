@@ -13,7 +13,9 @@
       { "name": "LINUX_VM", "class_name": "VmSession" },
       { "name": "SESSION_STREAM", "class_name": "SessionStream" },
       { "name": "MAILBOX", "class_name": "MailboxDO" },
-      { "name": "APP_STORE", "class_name": "AppStore" }
+      { "name": "APP_STORE", "class_name": "AppStore" },
+      { "name": "ARTIFACT_ROOM", "class_name": "ArtifactRoom" },
+      { "name": "LIVE_ARTIFACT_MAINTENANCE", "class_name": "LiveArtifactMaintenance" }
     ]
   },
   // The Linux VM of a cloud agent session (task C.14): a Sandbox SDK container,
@@ -51,7 +53,8 @@
     { "tag": "v4", "new_sqlite_classes": ["VmSession"] },
     { "tag": "v5", "new_sqlite_classes": ["SessionStream"] },
     { "tag": "v6", "new_sqlite_classes": ["MailboxDO"] },
-    { "tag": "v7", "new_sqlite_classes": ["AppStore"] }
+    { "tag": "v7", "new_sqlite_classes": ["AppStore"] },
+    { "tag": "v8", "new_sqlite_classes": ["ArtifactRoom", "LiveArtifactMaintenance"] }
   ],
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
@@ -130,7 +133,9 @@
           { "name": "LINUX_VM", "class_name": "VmSession" },
           { "name": "SESSION_STREAM", "class_name": "SessionStream" },
           { "name": "MAILBOX", "class_name": "MailboxDO" },
-          { "name": "APP_STORE", "class_name": "AppStore" }
+          { "name": "APP_STORE", "class_name": "AppStore" },
+      { "name": "ARTIFACT_ROOM", "class_name": "ArtifactRoom" },
+      { "name": "LIVE_ARTIFACT_MAINTENANCE", "class_name": "LiveArtifactMaintenance" }
         ]
       },
       "containers": [
@@ -202,7 +207,9 @@
             { "name": "LINUX_VM", "class_name": "VmSession" },
             { "name": "SESSION_STREAM", "class_name": "SessionStream" },
             { "name": "MAILBOX", "class_name": "MailboxDO" },
-            { "name": "APP_STORE", "class_name": "AppStore" }
+            { "name": "APP_STORE", "class_name": "AppStore" },
+      { "name": "ARTIFACT_ROOM", "class_name": "ArtifactRoom" },
+      { "name": "LIVE_ARTIFACT_MAINTENANCE", "class_name": "LiveArtifactMaintenance" }
           ]
         },
         // Wrangler accepts no Durable Object container for previews, so a Linux

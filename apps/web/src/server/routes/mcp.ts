@@ -402,6 +402,11 @@ export const mcpRoutes = ({
       relay: composed.relay,
       requestHost: new URL(c.req.url).hostname,
       services: composed.services,
+      toolCallId:
+        isRecord(parsedBody) &&
+        (typeof parsedBody.id === "string" || typeof parsedBody.id === "number")
+          ? `${c.req.header("Mcp-Session-Id") ?? "stateless"}:${String(parsedBody.id)}`
+          : undefined,
     });
     // The mail tools are for a run whose agent has an active mailbox.
     const hasMailbox =

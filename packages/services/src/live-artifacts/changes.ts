@@ -162,6 +162,7 @@ export const createChangesModule = (ctx: InteractionContext) => ({
       {
         byParticipant: ctx.participantId(member),
         changeId: change.id,
+        principal: member,
         revFrom: change.revFrom,
         revTo: change.revTo,
         runId: change.runId,

@@ -1,9 +1,11 @@
+import { TRPCError } from "@trpc/server";
 import { accessRouter } from "./access-router.ts";
 import { artifactSharesRouter } from "./artifact-shares-router.ts";
 import { artifactStorageRouter } from "./artifact-storage-router.ts";
 import { artifactsRouter } from "./artifacts-router.ts";
 import { automationRouter } from "./automation-router.ts";
 import { mergeRouters, router, workspaceProcedure } from "./init.ts";
+import { createLiveArtifactsRouter } from "./live-artifacts-router";
 import { mailRouter } from "./mail-router.ts";
 import { runtimeRouter } from "./runtime-router.ts";
 
@@ -29,6 +31,15 @@ export const appRouter = mergeRouters(
       artifactSharesRouter,
       artifactStorageRouter
     ),
+    liveArtifacts: createLiveArtifactsRouter((ctx) => {
+      if (!ctx.services.liveArtifacts) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Live artifacts are unavailable",
+        });
+      }
+      return ctx.services.liveArtifacts;
+    }),
   })
 );
 
