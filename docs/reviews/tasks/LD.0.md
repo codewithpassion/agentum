@@ -61,3 +61,28 @@ Dependencies are lock-pinned to Yjs 13.6.33 and fractional-indexing 3.4.0 (MIT),
 - Client bundle search for `drizzle`: no matches. `git diff --check`: clean.
 
 The initial full-run deck limit fixture exceeded Bun's default five-second timeout under concurrent suites. The fixture now loads 499 valid slides directly, then exercises actual validated 500th/501st admissions and invalid ingress/restore; no timeout was increased. The full suite passed after that change and the final serialized-HTML expansion regression.
+
+## Independent review (2026-10-27)
+
+Reviewed main at `381134df93fdf1be048cc1ce10119c9e6330cfcc`, including implementation `10dbdf15` and merge `d998ce00`. Verdict: **changes required for the bounded core**. The findings below are within LD.0's own HTML and scene contract; the production rich-text codec, room, editor and tools remain separate phase 2 integration gates.
+
+### P2 — Unknown `__proto__` HTML attribute is silently accepted
+
+`parseXml` copies saxes attributes into a normal `{}` using `attrs[k] = String(v)` (`packages/live-deck/src/index.ts`, `parseXml`). The inherited `__proto__` setter consumes a string assignment without creating an own property, so `checkAttrs` never sees it. Reproduction with a codec whose `parse` is a no-op and `serialize` returns `[]`:
+
+```ts
+parseSlide('<slide id="s" order="a0" background="#fff" transition="none" duration="0" __proto__="x"></slide>', codec)
+```
+
+This returns a scene instead of rejecting the unknown attribute; replacing `__proto__` with `constructor` is rejected. This violates R2.5's refusal requirement and the reported strict unknown-attribute guarantee. The attribute does not itself reach the returned scene in this reproduction; this is an input validation failure, not evidence of script execution. Use a null-prototype attribute dictionary or explicitly reject the name before copying, and cover slide, element and text attributes.
+
+### P2 — Accepted notes can make the HTML read/write API non-round-trippable
+
+`validateSlide` accepts any string for notes and `escapeHtml` does not reject XML-disallowed characters. With the same empty codec, add a valid empty slide with `notes: "\u0000"`; `deck.readHtml("s")` returns HTML containing that NUL, and `parseSlide(read.html, codec)` throws `disallowed character` at `/slide/notes`. Thus a locally authored or admitted Yjs scene can pass validation and be unreadable to an agent that attempts to write back the returned HTML. Validate XML character legality for all strings represented in HTML, including notes and trusted codec output, before accepting a scene; test local operations, Yjs admission and restore as well as round-trip.
+
+### Verification and boundaries
+
+- `bun install --frozen-lockfile`: passed; dependencies were absent initially. The initial focused test and typecheck attempts consequently failed before installation.
+- `bun run --cwd packages/live-deck test`: passed, 23 tests and 170 assertions. `bun run --cwd packages/live-deck typecheck`: passed.
+- Independent temporary Bun probes reproduced both findings above and confirmed a remote same-transaction element edit/revert is skipped by an old revision. Existing focused tests also exercise remote ABA, deletion/recreation, independent per-key edits, malicious candidate updates, missing dependencies, blob ownership, restore and concurrent limit admission. These checks do not prove safety for all possible Yjs histories.
+- Production acceptance still requires the shared live-doc codec to validate actual Yjs rich-text structure and links, and room/editor/tools to enforce authenticated serialized admission, ownership, persistence/broadcast, and rejected-client resynchronization. These are separate integration gates, not findings against this bounded core.
