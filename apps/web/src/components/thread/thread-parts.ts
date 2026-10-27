@@ -2,6 +2,7 @@
 // Pure: it reads its input and returns new objects.
 
 import type { ThreadMessageLike } from "@assistant-ui/react";
+import type { ArtifactThreadPart } from "@repo/protocol/artifacts";
 import type {
   ThreadMessage,
   ThreadPart,
@@ -53,7 +54,7 @@ const toolCallOf = (part: ToolCallPart): Content => {
   };
 };
 
-const assistantContent = (part: ThreadPart): Content[] => {
+const assistantContent = (part: ThreadPart | ArtifactThreadPart): Content[] => {
   if (part.type === "tool-call") {
     return [toolCallOf(part)];
   }
@@ -68,6 +69,15 @@ const assistantContent = (part: ThreadPart): Content[] => {
       {
         data: "fileId" in part ? { fileId: part.fileId } : { path: part.path },
         type: "data-attachment",
+      },
+    ];
+  }
+  if (part.type === "artifact") {
+    const { artifactId, kind, title, version, versionId } = part;
+    return [
+      {
+        data: { artifactId, kind, title, version, versionId },
+        type: "data-artifact",
       },
     ];
   }
