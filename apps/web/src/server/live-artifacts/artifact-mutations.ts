@@ -39,7 +39,9 @@ export const liveArtifactMutations = (
       if (row.kind === "document" || row.kind === "deck") {
         throw new ServiceError(
           "invalid",
-          "Use document_edit to edit live documents"
+          row.kind === "deck"
+            ? "Use deck_write to edit live decks"
+            : "Use document_edit to edit live documents"
         );
       }
       return artifacts.update(principal, input);

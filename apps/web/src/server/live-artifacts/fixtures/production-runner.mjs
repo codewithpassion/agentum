@@ -124,6 +124,62 @@ try {
     }
     return result.result.structuredContent;
   };
+  const deckCreated = await mcp("artifact_create", {
+    kind: "deck",
+    slides: [
+      '<slide id="s1" order="a0" background="#fff" transition="none" duration="0"><notes>Notes</notes><element id="e1" type="text" parent="s1" order="a0" prop-x="0" prop-y="0" prop-w="100" prop-h="50"><p>Deck content</p></element></slide>',
+    ],
+    title: "Production deck",
+  });
+  check(Boolean(deckCreated.artifactId), "actual MCP deck creation");
+  const deckRead = await mcp("deck_read", {
+    artifactId: deckCreated.artifactId,
+  });
+  check(
+    deckRead.slides[0].html.includes("Deck content"),
+    "registered production deck_read loads real room"
+  );
+  const deckInput = {
+    artifactId: deckCreated.artifactId,
+    ops: [
+      {
+        html: deckRead.slides[0].html.replace(
+          "Deck content",
+          "Production edit"
+        ),
+        op: "write",
+        revision: deckRead.slides[0].revision,
+        slideId: "s1",
+      },
+    ],
+  };
+  const deckEdit = await mcp("deck_write", deckInput);
+  const deckRepeat = await mcp("deck_write", deckInput, rpcId);
+  check(
+    JSON.stringify(deckEdit) === JSON.stringify(deckRepeat),
+    "MCP deck write idempotently replays durable result"
+  );
+  const deckFiles = await db
+    .prepare(
+      "SELECT f.path FROM artifact_version_files f JOIN artifacts a ON a.current_version_id=f.version_id WHERE a.id=?"
+    )
+    .bind(deckCreated.artifactId)
+    .all();
+  check(
+    deckFiles.results.some((f) => f.path === "deck.json") &&
+      deckFiles.results.some((f) => f.path === "state.ydoc"),
+    "production deck checkpoint uses ordinary artifact version files"
+  );
+  const deckJoin = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/join/${deckCreated.artifactId}`,
+      { headers, method: "POST" }
+    )
+  ).json();
+  check(
+    deckJoin.role === "editor" && deckJoin.ticket,
+    "deck shares production admission"
+  );
   const created = await mcp("artifact_create", {
     kind: "document",
     markdown: "# Fixture\n\nHello human words here.",
