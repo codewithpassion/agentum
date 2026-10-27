@@ -3,9 +3,9 @@ id: L.3
 title: Realtime artifact room
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [L.1, L.2]
-branch: null
+branch: t3/implement-artifact-room
 lane: worker
 executor: codex
 ---
@@ -19,3 +19,5 @@ executor: codex
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
 
 - 2026-10-27: Sol dispatched room using merged engine and reviewed spike. Must use connection-unique awareness IDs, authoritative validation before Yjs update application and fresh authorization at admission/renewal; service durable invalidation fix is underway separately.
+
+- 2026-10-27: Merged bounded room 4b859af2; independent security/persistence review pending. Production adapters and staging remain gates.
