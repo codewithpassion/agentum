@@ -1,10 +1,13 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
+import { artifacts } from "@repo/db/schema/artifacts";
 import { events as eventRows } from "@repo/db/schema/events";
 import { inboxThreads } from "@repo/db/schema/inbox";
+import { artifactMembers } from "@repo/db/schema/live-artifacts";
 import { machines as machineRows } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
@@ -909,4 +912,75 @@ test("get still returns a dry-run session to its builder", async () => {
     origin: "dry_run",
     private: true,
   });
+});
+
+test("artifact sessions require a same-workspace artifact and active access", async () => {
+  db.insert(artifacts)
+    .values({
+      audience: "private",
+      createdAt: START,
+      createdById: "u1",
+      createdByKind: "user",
+      id: "artifact-1",
+      kind: "document",
+      ownerUserId: "u1",
+      title: "Private",
+      updatedAt: START,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(sessionRows)
+    .values({
+      actorId: "u1",
+      actorKind: "user",
+      agentId,
+      createdAt: START,
+      externalKey: "artifact-1",
+      id: "artifact-session",
+      origin: "artifact",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await sessions.list(user("u1"))).map((s) => s.id)).toContain(
+    "artifact-session"
+  );
+  expect((await sessions.list(user("u2"))).map((s) => s.id)).not.toContain(
+    "artifact-session"
+  );
+  await expect(
+    sessions.transcript(user("u2"), "artifact-session")
+  ).rejects.toThrow("Session not found");
+  db.insert(artifactMembers)
+    .values({
+      artifactId: "artifact-1",
+      createdAt: START,
+      createdBy: "u1",
+      id: "foreign-grant",
+      principalKind: "user",
+      role: "editor",
+      userId: "u2",
+      workspaceId: "w2",
+    })
+    .run();
+  expect((await sessions.list(user("u2"))).map((s) => s.id)).not.toContain(
+    "artifact-session"
+  );
+  db.delete(artifactMembers)
+    .where(eq(artifactMembers.id, "foreign-grant"))
+    .run();
+  db.insert(artifactMembers)
+    .values({
+      artifactId: "artifact-1",
+      createdAt: START,
+      createdBy: "u1",
+      id: "grant",
+      principalKind: "user",
+      role: "editor",
+      userId: "u2",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await sessions.list(user("u2"))).map((s) => s.id)).toContain(
+    "artifact-session"
+  );
 });
