@@ -122,6 +122,10 @@ const injectBridge = (response: Response, src: string): Response => {
   return new HTMLRewriter()
     .on("head", {
       element(element) {
+        // Only the page's own <head>, not one inside <svg> or <template>.
+        if (injected) {
+          return;
+        }
         injected = true;
         element.prepend(tag, { html: true });
       },
@@ -165,7 +169,9 @@ const serveDoc = async (
   fetchFile: FetchFile,
   request: ContentRequest
 ): Promise<Response> => {
-  const file = manifest.files[filePath];
+  const file = Object.hasOwn(manifest.files, filePath)
+    ? manifest.files[filePath]
+    : undefined;
   if (!file) {
     return notFound();
   }
@@ -194,7 +200,9 @@ const serveFile = async (
   fetchFile: FetchFile,
   request: ContentRequest
 ): Promise<Response> => {
-  const file = manifest.files[filePath];
+  const file = Object.hasOwn(manifest.files, filePath)
+    ? manifest.files[filePath]
+    : undefined;
   if (!file) {
     return notFound();
   }

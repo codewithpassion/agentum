@@ -272,6 +272,51 @@ describe("content route: 200", () => {
   });
 });
 
+describe("content route: path edge cases", () => {
+  it("answers 404 for names that exist on Object.prototype", async () => {
+    const { get } = setup();
+    const tok = await token();
+    for (const name of [
+      "constructor",
+      "__proto__",
+      "toString",
+      "hasOwnProperty",
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: requests run in order
+      const res = await get(urlFor(tok, name), {
+        headers: { "If-None-Match": '"undefined"' },
+      });
+      expect(res.status).toBe(404);
+      expectContentHeaders(res, folder(tok));
+    }
+  });
+
+  it("injects the bridge once when a page has several <head> elements", async () => {
+    const seed: Seed = {
+      entry: "index.html",
+      files: {
+        "index.html": {
+          body: "<html><head></head><body><svg><head></head></svg></body></html>",
+          sha: sha("a"),
+        },
+      },
+    };
+    const tok = await token();
+    const html = await (await setup(seed).get(urlFor(tok))).text();
+    expect(html.match(/_hm\/bridge\.js/g)).toHaveLength(1);
+  });
+
+  it("redirects a document load before it considers If-None-Match", async () => {
+    const { get } = setup();
+    const tok = await token();
+    const etag = (await get(urlFor(tok, "app.js"))).headers.get("ETag") ?? "";
+    const res = await get(urlFor(tok, "app.js"), {
+      headers: { "If-None-Match": etag, "Sec-Fetch-Dest": "document" },
+    });
+    expect(res.status).toBe(302);
+  });
+});
+
 describe("content route: 304", () => {
   it("answers a matching ETag with 304 and the full headers", async () => {
     const { get } = setup();
