@@ -30,8 +30,10 @@ test("CreateLinkForm lists the expiry options in order with both version choices
   const html = renderToStaticMarkup(
     <CreateLinkForm
       artifactId="a1"
+      canCreateLive={false}
       currentVersionId="v1"
       currentVersionNumber={3}
+      liveToolOptions={[]}
       onCreated={noop}
     />
   );
@@ -50,6 +52,7 @@ test("LinkList shows Copy, Revoke and the counts for an active share", () => {
     <LinkList
       canManage
       onChanged={noop}
+      ownerName={null}
       shares={[share({ openCount: 12 })]}
       versionNumbers={new Map()}
     />
@@ -66,6 +69,7 @@ test("Revoke is the trigger of a confirm dialog, not a direct action", () => {
     <LinkList
       canManage
       onChanged={noop}
+      ownerName={null}
       shares={[share({})]}
       versionNumbers={new Map()}
     />
@@ -81,6 +85,7 @@ test("LinkList hides Copy and Revoke from members who cannot manage links", () =
     <LinkList
       canManage={false}
       onChanged={noop}
+      ownerName={null}
       shares={[share({ openCount: 4 })]}
       versionNumbers={new Map()}
     />
@@ -95,6 +100,7 @@ test("LinkList shows neither Copy nor Revoke for a revoked share", () => {
     <LinkList
       canManage
       onChanged={noop}
+      ownerName={null}
       shares={[
         share({ revokedAt: "2026-10-02T10:00:00.000Z", status: "revoked" }),
       ]}
@@ -111,6 +117,7 @@ test("LinkList lists the newest link first", () => {
     <LinkList
       canManage
       onChanged={noop}
+      ownerName={null}
       shares={[
         share({
           createdAt: "2026-09-01T00:00:00.000Z",
