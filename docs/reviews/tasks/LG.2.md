@@ -67,3 +67,7 @@ Final checks:
 - To avoid the root test command's early cancellation hiding other results, bunx turbo run test --continue was also executed: 11/12 package tasks passed; only @repo/mcp failed. That run had 3,164 service tests and 3,316 web tests passing (one existing web skip); two further guest tests were subsequently added and the complete services suite was rerun with 3,166 passing. Root script tests independently passed: 284 tests, zero failures.
 
 The complete root commands are therefore not reported as green. The environment and deck MCP blockers remain for their owners. Local SQLite concurrency is not a deployed D1 or production runtime acceptance claim.
+
+## Independent recheck on main 922f82ea
+
+Verdict: **incomplete; no new finding established**. I inspected migration 0030 and the shared guest provenance/start predicates. `bun run --cwd packages/db test` passed 85 tests, 399 assertions on migrated SQLite; `bun run --cwd packages/services test -- src/runs.test.ts -t 'guest'` passed 27 tests, 133 assertions. These existing tests cover concurrent caps and retry, revocation races, lifecycle fencing and approval visibility. I did not complete independent race or adversarial probes or a full lifecycle call-site audit, so these results do not establish that all paths fail closed. Production guest execution remains disabled; the route, restricted MCP/runtime, current role enforcement, room invalidation and presence-aware outbound approval gates above remain necessary. SQLite results are not deployed D1 evidence. This is not an approval.
