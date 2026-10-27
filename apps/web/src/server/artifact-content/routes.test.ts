@@ -89,6 +89,7 @@ const claims = (over: Partial<ViewTokenClaims> = {}): ViewTokenClaims => ({
   userId: "user_1",
   versionId: VERSION,
   viewer: "member",
+  workspaceId: WORKSPACE,
   ...over,
 });
 
