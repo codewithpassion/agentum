@@ -3,9 +3,9 @@ id: LD.3
 title: Deck DOM editor and presentation components
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [LD.0, LD.2]
-branch: null
+branch: t3/live-deck-editor
 lane: deck-ui
 executor: codex
 ---
@@ -17,3 +17,5 @@ Implement phase-2 section5 React DOM editor and presentation components against 
 ## Log
 
 - 2026-10-27: Dispatched isolated deck UI work while phase1 server/client integration proceeds; core and shared codec accepted. Commit major tasks and run actual browser checks.
+
+- 2026-10-27: Mergedd72459f9 deck editor/presentation components; component browser/root checks passed. Independent review pending; real deck room/route/service acceptance separate.
