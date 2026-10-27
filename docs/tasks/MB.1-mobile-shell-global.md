@@ -3,7 +3,7 @@ id: MB.1
 title: "Mobile: app shell, global form sizes, dialog and sheet limits, touch targets"
 milestone: MB
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/MB.1-mobile-shell-global
 lane: web-shell
@@ -30,3 +30,4 @@ Dom asked on 27 Oct 2026 for every function of the app to work from a phone. The
 ## Log
 - 2026-10-27: added from the mobile audit.
 - 2026-10-27: dispatched.
+- 2026-10-27: review not clean after 2 rounds; the round-2 must-fix (one selector) was fixed after the cap and not re-reviewed. Controller merged it; the staging re-audit covers it.
