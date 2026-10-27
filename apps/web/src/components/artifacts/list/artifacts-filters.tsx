@@ -89,7 +89,9 @@ export function ArtifactsFilters({ filters, onChange }: ArtifactsFiltersProps) {
           id="artifacts-shared"
           onCheckedChange={handleSharedChange}
         />
-        <Label htmlFor="artifacts-shared">Shared by link</Label>
+        <Label className="max-md:min-h-10" htmlFor="artifacts-shared">
+          Shared by link
+        </Label>
       </div>
     </div>
   );

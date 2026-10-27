@@ -4,7 +4,8 @@ Run on `vite dev` at port 3214 from the A.14 worktree, signed in with dev login,
 
 ## Verdicts
 
-Round 1: pending.
+Round 1 (8dfd76ec): must-fix. The phone share sheet and history sheet kept shadcn's 28 px close button, so R1.26 did not hold as written. Fixed with a 40 px close button (`sheet-close.tsx`, `showCloseButton={false}`). Nits fixed: header comment, `.sr-only` and task-list CSS for GFM output, two more doc tests (task lists, inert HTML and `javascript:` links inside tables).
+Round 2: pending.
 
 ## Evidence per requirement
 
@@ -19,7 +20,7 @@ R1.22: the card appears in the thread while the run streams (no reload, first ta
 R1.23: the task view's Artifacts slot lists the artifacts the run published (one row for the dashboard run, two for the Sonnet run).
 R1.24: `/artifacts` lists what the viewer may open. Kind filter "Doc" gave 1 of 5, "Shared by link" gave only the shared one, "Made by" People gave 0 and Agents gave all.
 R1.25: `/a/<id>` shows title, owner, "made by agent in a task" link, version picker, Share, and a menu with full screen, version history, copy link, download, audience and delete. `?v=1` opened v1 and the picker followed. The history sheet lists versions with View and Restore (confirm step). Rename by clicking the title, audience from the menu (both events written). Delete asks for confirmation, soft-deletes and wrote `artifact.deleted`. Download returned a zip with the right filename.
-R1.26: at 390 x 844, no sideways scroll (`scrollWidth == clientWidth`) on `/artifacts`, `/a/<id>` (page, dashboard and doc), the share sheet, the access log tab, the history sheet, the "more" menu, `/s/<token>`, the dead-link page and `/settings/artifacts`. Control heights measured by script. Before the fixes the viewer title (rename) button was 20 px and the thread card Open link 28 px; both are 40 px now. Still under 40 px, all outside the artifact UI or from shadcn: the app shell header (logo, user menu, theme button), the sheet's own Close button (28 px), the Show more / Stop task / Send / Attach controls of the existing task page, and the `/artifacts` "Shared by link" checkbox (16 px box, the row is 40 px tall). The version picker is not in the phone viewer bar; history's View button covers it.
+R1.26: at 390 x 844, no sideways scroll (`scrollWidth == clientWidth`) on `/artifacts`, `/a/<id>` (page, dashboard and doc), the share sheet, the access log tab, the history sheet, the "more" menu, `/s/<token>`, the dead-link page and `/settings/artifacts`. Control heights measured by script. Before the fixes the viewer title (rename) button was 20 px and the thread card Open link 28 px; both are 40 px now. The sheets' Close buttons were 28 px (shadcn) and are 40 px now, and the `/artifacts` "Shared by link" label is 40 px on phones. Still under 40 px, all outside the artifact UI: the app shell header (logo, user menu, theme button) and the Show more / Stop task / Send / Attach / Open in library controls of the existing task page. The version picker is not in the phone viewer bar; history's View button covers it.
 R1.27: three links made (7 days following latest, 1 day pinned to v3, both from the dialog). Copy puts the full URL on the clipboard ("Link copied") any time after creation.
 R1.28: opened in a second browser profile with no cookies: the page shows the artifact in the share frame with "Shared from <workspace> on Harbourmaster", "Content is user-generated and unverified." and "Opens of this link are logged."; same at 390 px. The workspace name here is the Clerk org id, because local workspace rows are created with `name = clerkOrgId` (`workspaces.ts` `forOrg`); see steps for Dom.
 R1.29: revoke, reopen: "This link is not available." (page) and 404 `{"error":"This link is not available."}` from `POST /api/share/<token>/open`, byte for byte the answer for an unknown token (checked with curl). Switching "Allow link sharing" off in Settings gave the same page; switching back on restored the pinned link. Setting `expires_at` into the past gave the same page. The 1-hour token tail was not timed.
@@ -30,6 +31,10 @@ R1.33: not run (the minute tick runs on the production Worker only). Covered by 
 R1.34: events written with `actor_kind=user` and the signed-in user for restore, rename, audience change, link create, link revoke, links switch (both ways) and delete.
 R1.35, R1.36: not run here (A.6 route tests; A.11 on staging).
 Data files in the share dialog: the dashboard's dialog lists `data.json 1 KB`.
+
+## After merging v3/artifacts (B.6, B.7)
+
+Merged `v3/artifacts` (5a47d005) and re-ran on the merged tree: the probe in Chromium and Firefox, framed and direct (same counts, 0 failed, no API requests from content frames, iframe `sandbox="allow-scripts allow-forms"` with the nonce `name` set); viewer pages for a page, a dashboard and a doc; the thread card (live preview on desktop, thumbnail at 390 px); the share page at 1280 and 390 px; the sheets at 390 px. No new failures. `bun run check && bun run test && bun run build` pass on the merge (see the final commit).
 
 ## Probe (R1.19), real server
 
@@ -51,7 +56,8 @@ Not tested: Safari, and the member-token redirect in a browser that sends `Sec-F
 1. `apps/web/src/server/artifact-content/doc.ts`: GitHub tables, strikethrough and task lists in doc artifacts (`remark-gfm`, one new dependency). Agents write tables; the viewer showed pipes. Test added.
 2. `apps/web/src/components/artifacts/share-dialog.tsx`, `link-list.tsx`: the 8-column link table pushed the dialog past its width, clipping the audience buttons and the Revoke button. Added `min-w-0` to the body, widened the dialog to `sm:max-w-5xl`, truncated the creator id.
 3. `viewer/viewer-bar.tsx`, `thread-card.tsx`: 40 px tap height on phones for the rename button and the card's Open link.
-4. `routes/a.$artifactId.tsx`: deleting lands on `/artifacts` (it went to `/desk`, A.8's nit now that A.9 is in).
+4. `sheet-close.tsx`, `share-dialog.tsx`, `version-history-sheet.tsx`, `artifacts-filters.tsx`: 40 px sheet close buttons and checkbox label on phones (round 1).
+5. `routes/a.$artifactId.tsx`: deleting lands on `/artifacts` (it went to `/desk`, A.8's nit now that A.9 is in).
 
 ## Found and left
 
