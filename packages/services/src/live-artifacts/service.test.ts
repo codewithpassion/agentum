@@ -1974,3 +1974,70 @@ test("internal checkpoint recovery cannot resurrect a deleted artifact", async (
     )
   ).rejects.toThrow();
 });
+
+test("external image import authorizes before fetch and again after fetch, registers ownership before returning canonical URL", async () => {
+  const h = setup();
+  const created = await h.create();
+  let fetched = 0;
+  let registered = false;
+  let revoke = false;
+  const service = createLiveArtifactsService({
+    ...h.deps,
+    externalImageFetch: async () => {
+      fetched += 1;
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: mutated between asynchronous import calls.
+      if (revoke) {
+        await h.db
+          .update(artifacts)
+          .set({ deletedAt: NOW })
+          .where(eq(artifacts.id, created.artifactId));
+      }
+      return new Response(
+        new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]),
+        { headers: { "Content-Type": "image/png" } }
+      );
+    },
+    files: {
+      upload: async () => {
+        await Promise.resolve();
+        return {
+          createdAt: NOW,
+          id: "imported",
+          mime: "image/png",
+          name: "Imported image",
+          runId: null,
+          size: 12,
+          source: "upload",
+        };
+      },
+    },
+    rooms: {
+      ...h.deps.rooms,
+      registerImage: async (scope, id) => {
+        await Promise.resolve();
+        expect(scope.artifactId).toBe(created.artifactId);
+        expect(id).toBe("imported");
+        registered = true;
+      },
+    },
+  });
+  const input = {
+    artifactId: created.artifactId,
+    url: "https://images.unsplash.com/photo",
+  };
+  await expect(
+    service.importImage(principals.keyReader, input)
+  ).rejects.toThrow();
+  await expect(
+    service.importImage(principals.otherWorkspace, input)
+  ).rejects.toThrow();
+  expect(fetched).toBe(0);
+  expect(await service.importImage(principals.owner, input)).toEqual({
+    url: "/files/imported",
+  });
+  expect(registered).toBe(true);
+  registered = false;
+  revoke = true;
+  await expect(service.importImage(principals.owner, input)).rejects.toThrow();
+  expect(registered).toBe(false);
+});

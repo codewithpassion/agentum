@@ -138,6 +138,7 @@ export function LiveDocumentPage({
             agentChanges={agentChanges}
             document={ready.document}
             history={services.history}
+            importImage={services.importImage}
             onAskAgent={(selection) => select("ask", selection)}
             onCommentSelection={(selection) => select("comment", selection)}
             onEditorReady={setEditor}

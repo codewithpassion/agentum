@@ -65,6 +65,7 @@ import { createLiveAccess } from "./access.ts";
 import { createAccessLifecycle } from "./access-lifecycle.ts";
 import { createChangesModule } from "./changes.ts";
 import { createCommentsModule } from "./comments.ts";
+import { fetchExternalImage, type ImageFetch } from "./external-image.ts";
 import { imageMime } from "./image-mime.ts";
 import type { LiveInteractionPorts } from "./ports.ts";
 
@@ -181,6 +182,7 @@ export interface LiveArtifactsDeps extends LiveInteractionPorts {
   content: LiveContentCodec;
   db: Database;
   events: Pick<EventsService, "insertStatement">;
+  externalImageFetch?: ImageFetch;
   files?: Pick<import("../files.ts").FilesService, "upload">;
   identity: (
     principal: Extract<Principal, { kind: "user" | "run" }>
@@ -960,6 +962,22 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
           )
         )
         .orderBy(asc(artifactVersions.number));
+    },
+    async importImage(
+      principal: Principal,
+      input: { artifactId: string; url: string }
+    ) {
+      const { row } = await access(principal, input.artifactId, true);
+      if (row.kind !== "document" || !deps.externalImageFetch) {
+        throw invalid("External image import is unavailable");
+      }
+      const body = await fetchExternalImage(input.url, deps.externalImageFetch);
+      // Reauthorize after network I/O and use the same ownership registration as uploads.
+      return this.uploadImage(principal, {
+        artifactId: row.id,
+        body,
+        name: "Imported image",
+      });
     },
     async open(principal: Principal, input: { artifactId: string }) {
       const { row, role } = await access(principal, input.artifactId);

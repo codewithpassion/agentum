@@ -118,6 +118,11 @@ export const createLiveArtifactsRouter = (
     history: workspaceProcedure
       .input(z.strictObject(artifact))
       .query(({ ctx, input }) => service(ctx).history(ctx.principal, input)),
+    importImage: workspaceProcedure
+      .input(z.strictObject({ ...artifact, url: z.string().min(1).max(2048) }))
+      .mutation(({ ctx, input }) =>
+        service(ctx).importImage(ctx.principal, input)
+      ),
     invalidateAccess: workspaceProcedure
       .input(z.strictObject({ ...artifact, participantId: id.optional() }))
       .mutation(({ ctx, input }) =>

@@ -94,6 +94,23 @@ app.get("/fixture/policy/:id", async (c) => {
     })
   );
 });
+app.post("/fixture/import-image/:id", async (c) =>
+  c.json(
+    await requiredLive(c.get("composed").services).importImage(
+      {
+        isAdmin: false,
+        kind: "user",
+        userId: "u1",
+        via: "session",
+        workspaceId: "w1",
+      },
+      {
+        artifactId: c.req.param("id"),
+        url: (await c.req.json<{ url: string }>()).url,
+      }
+    )
+  )
+);
 app.get("/fixture/embed-sources/:id", async (c) =>
   c.json(
     await requiredLive(c.get("composed").services).embedSources(

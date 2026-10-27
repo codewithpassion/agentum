@@ -137,6 +137,18 @@ const ports = (index: 0 | 1): DocumentEditorPorts => ({
       return Promise.resolve();
     },
   },
+  importImage: async (url) => {
+    const response = await fetch("/fixture/import", {
+      body: JSON.stringify({ url }),
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error("Image import failed");
+    }
+    const result = (await response.json()) as { url: string; alt: string };
+    ownBlobUrls.add(result.url);
+    return result;
+  },
   onAskAgent: (selection) => {
     events.ask = selection;
   },

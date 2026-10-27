@@ -59,6 +59,12 @@ export const documentServices = (artifactId: string) => {
         restoreRequests.delete(id);
       },
     } satisfies HistoryPort,
+    async importImage(url: string) {
+      const result = z
+        .object({ url: ownedUrl })
+        .parse(await liveApi.importImage.mutate({ artifactId, url }));
+      return { ...result, alt: "Imported image" };
+    },
     async policy(): Promise<RoomPolicy> {
       const result = roomPolicySchema.parse(await request(`${base}/policy`));
       return {

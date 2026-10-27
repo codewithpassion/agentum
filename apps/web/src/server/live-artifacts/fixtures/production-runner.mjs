@@ -11,6 +11,7 @@ for await (const chunk of process.stdin) {
   script += chunk;
 }
 const directory = await mkdtemp(join(tmpdir(), "live-production-"));
+let externalImageRequests = 0;
 const options = {
   bindings: {
     ALLOWED_ORG_IDS: "org_w1",
@@ -33,6 +34,14 @@ const options = {
     },
   },
   modules: true,
+  outboundService: (request) => {
+    assert.equal(new URL(request.url).hostname, "images.unsplash.com");
+    externalImageRequests += 1;
+    return new Response(
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]),
+      { headers: { "Content-Type": "image/png" } }
+    );
+  },
   r2Buckets: ["FILES"],
   resourcePersistencePath: directory,
   script,
@@ -604,6 +613,33 @@ try {
   check(
     persisted.markdown.includes("Agent edited actual room."),
     "R2/DB checkpoint roundtrip"
+  );
+  const importedResponse = await runtime.dispatchFetch(
+    `http://localhost/fixture/import-image/${created.artifactId}`,
+    {
+      body: JSON.stringify({ url: "https://images.unsplash.com/photo" }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  check(
+    importedResponse.ok,
+    `external image import stores in actual R2/workerd: ${await importedResponse.clone().text()}`
+  );
+  const importedImage = await importedResponse.json();
+  check(
+    importedImage.url.startsWith("/files/") && externalImageRequests === 1,
+    "external image returns only own blob canonical URL"
+  );
+  const importedPolicy = await (
+    await runtime.dispatchFetch(
+      `http://localhost/api/live-artifacts/${created.artifactId}/policy`,
+      { headers }
+    )
+  ).json();
+  check(
+    importedPolicy.ownBlobUrls.includes(importedImage.url),
+    "import acknowledgement follows production room ownership registration"
   );
   const image = new FormData();
   image.set(

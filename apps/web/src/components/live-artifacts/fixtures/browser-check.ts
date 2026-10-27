@@ -39,8 +39,24 @@ try {
       console.error("FIXTURE ERROR", error.stack);
     });
     const uploads = new Map<string, Buffer>();
+    const externalRequests: string[] = [];
     await page.route("**/*", async (route) => {
       const url = new URL(route.request().url());
+      if (url.pathname === "/fixture/import") {
+        expect(route.request().postDataJSON()).toEqual({
+          url: "https://images.unsplash.com/photo",
+        });
+        const path = "/files/imported.png";
+        uploads.set(
+          path,
+          Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6XQAAAAASUVORK5CYII=",
+            "base64"
+          )
+        );
+        await route.fulfill({ json: { alt: "Imported image", url: path } });
+        return;
+      }
       if (url.pathname === "/fixture/upload") {
         const path = `/files/fixture-${uploads.size}.png`;
         uploads.set(path, route.request().postDataBuffer() ?? Buffer.alloc(0));
@@ -57,6 +73,7 @@ try {
         return;
       }
       if (url.origin !== "https://editor.fixture") {
+        externalRequests.push(url.href);
         await route.abort();
         return;
       }
@@ -214,6 +231,26 @@ try {
     await expect.poll(() => uploads.size).toBe(2);
     await expect(bob.locator(".tiptap img[src]")).toHaveCount(1);
     expect(uploads.size).toBe(2);
+    await alice
+      .getByLabel("Image URL", { exact: true })
+      .fill("https://images.unsplash.com/photo");
+    await alice
+      .getByRole("button", { exact: true, name: "Insert image URL" })
+      .click();
+    await expect(bob.locator('img[src="/files/imported.png"]')).toHaveCount(1);
+    await expect
+      .poll(() =>
+        bob
+          .locator('img[src="/files/imported.png"]')
+          .evaluate((image) => (image as HTMLImageElement).naturalWidth)
+      )
+      .toBe(1);
+    expect(
+      externalRequests.filter(
+        (url) => new URL(url).hostname === "images.unsplash.com"
+      )
+    ).toEqual([]);
+
     const downloading = page.waitForEvent("download");
     await alice
       .getByRole("button", { exact: true, name: "Download markdown" })

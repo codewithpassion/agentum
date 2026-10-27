@@ -353,18 +353,24 @@ export function stopUndoGroup(editor: Editor): void {
 }
 export async function uploadEditorImage(
   editor: Editor,
-  file: File,
+  file: File | string,
   ports: DocumentEditorPorts,
   allowed: Set<string>
 ): Promise<void> {
   if (!(editor.isEditable && canEdit(ports.role))) {
     throw new Error("Editing is not permitted");
   }
-  if (!file.type.startsWith("image/")) {
+  if (typeof file !== "string" && !file.type.startsWith("image/")) {
     throw new Error("Choose an image file");
   }
   const position = relativeAt(editor, editor.state.selection.from);
-  const result = await ports.uploadImage(file);
+  const result =
+    typeof file === "string"
+      ? await ports.importImage?.(file)
+      : await ports.uploadImage(file);
+  if (!result) {
+    throw new Error("Image URL import unavailable");
+  }
   if (editor.isDestroyed || !editor.isEditable) {
     return;
   }
