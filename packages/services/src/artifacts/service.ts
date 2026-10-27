@@ -174,7 +174,7 @@ const toHex = (buffer: ArrayBuffer): string =>
     .join("");
 
 const sha256Of = async (bytes: Uint8Array): Promise<string> =>
-  toHex(await crypto.subtle.digest("SHA-256", bytes));
+  toHex(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)));
 
 const decodeBase64 = (value: string, path: string): Uint8Array => {
   if (Math.ceil((value.length * 3) / 4) > ARTIFACT_FILE_MAX_BYTES + 3) {
