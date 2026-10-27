@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LiveOutputs } from "../live-artifacts/live-api";
 import { liveApi } from "../live-artifacts/live-api";
+import { ExportControls } from "../live-exports/export-controls";
 import { DeckCollaboration } from "./deck-collaboration";
 import { deckServices } from "./deck-services";
 import type { DeckWhere } from "./ports";
@@ -97,6 +98,12 @@ export function LiveDeckPage({
         <h1>{title}</h1>
         <span>{room ? `Connected · ${room.role}` : "Disconnected"}</span>
       </header>
+      <ExportControls
+        artifactId={artifactId}
+        connected={room !== undefined}
+        key={artifactId}
+        kind="deck"
+      />
       {Boolean(error) && (
         <div role="alert">
           <p>{error}</p>
