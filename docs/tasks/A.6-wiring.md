@@ -27,5 +27,12 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 - `compose.test.ts` passes; `bun run check && bun run test && bun run build` pass; the bundle grep for `drizzle` in `apps/web/dist/client` is empty.
 - Local smoke: `vite dev`, dev login, create an artifact through the MCP route, open its member content URL framed and directly (302), and a link open from a fresh browser.
 
+## Refinements (2026-10-27, from merged tasks)
+- A.5: `McpPorts.artifacts` is optional and the five tools only appear when it is set. Wire it in `apps/web/src/server/mcp/ports.ts`; the MCP round trip must list all five tools.
+- A.4: `mountArtifactContentRoutes(app, { bucket, viewKey, workspaceId, nowSeconds? })` is not mounted yet. Pass `workspaceId: (claims) => claims.workspaceId`; A.3 adds that claim to the view token. The content route never touches D1.
+- A.12: use `artifactTestBrowser(env.BROWSER)` from `browser-run.ts` with `runArtifactTest` and `formatArtifactTestResult` from `apps/web/src/server/artifact-test/`. Local Browser Run needs `CI=1` on `vite dev`.
+- A.9: `artifacts.list` takes `runId` (A.2 filters on it).
+- A services test ("an hour of never-claimed runs stays bounded") can time out on a busy host. Re-run it before treating it as a failure.
+
 ## Log
 - 2026-10-27: planned (controller).
