@@ -39,3 +39,6 @@ export const submitOnSendShortcut = (
   event.preventDefault();
   event.currentTarget.form?.requestSubmit();
 };
+
+/** The hint for a touch screen, where there is no Ctrl or Cmd key. */
+export const TOUCH_SEND_LABEL = "Tap Send to send";

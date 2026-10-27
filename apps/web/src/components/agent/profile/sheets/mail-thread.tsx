@@ -92,16 +92,18 @@ export function MailThreadPanel({ onBack, threadId }: MailThreadPanelProps) {
                 {note !== null && (
                   <p className="text-muted-foreground text-xs">{note}</p>
                 )}
-                <p className="text-sm">
+                <p className="text-sm max-md:[overflow-wrap:anywhere]">
                   From: {parseAddresses(message.fromAddress).join(", ")}
                 </p>
-                <p className="text-sm">
+                <p className="text-sm max-md:[overflow-wrap:anywhere]">
                   To: {parseAddresses(message.toAddresses).join(", ")}
                 </p>
                 {cc.length > 0 && (
-                  <p className="text-sm">Cc: {cc.join(", ")}</p>
+                  <p className="text-sm max-md:[overflow-wrap:anywhere]">
+                    Cc: {cc.join(", ")}
+                  </p>
                 )}
-                <div className="whitespace-pre-wrap text-sm">
+                <div className="whitespace-pre-wrap text-sm max-md:[overflow-wrap:anywhere]">
                   {message.body?.text ?? message.snippet}
                 </div>
                 {attachments.length > 0 && (

@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useMemo } from "react";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import { ThreadPanel } from "#/components/inbox/thread-panel";
 import { usePolledQuery } from "#/components/inbox/use-polled-query";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { InboxThread } from "#/integrations/trpc/types";
+import { cn } from "#/lib/utils.ts";
 
 const searchSchema = z.object({
   thread: z.string().min(1).optional().catch(undefined),
@@ -59,7 +60,13 @@ function InboxPage() {
 
   return (
     <section className="mx-auto grid max-w-5xl gap-8 md:grid-cols-[16rem_1fr]">
-      <aside className="flex flex-col gap-6">
+      <aside
+        className={cn(
+          "flex flex-col gap-6",
+          // Phones show the list or the open thread, not both.
+          threadId !== undefined && "max-md:hidden"
+        )}
+      >
         <h1 className="font-heading text-3xl text-foreground">Inbox</h1>
         <NewThreadForm onCreated={openThread} />
         {list.error === null ? null : (
@@ -67,19 +74,27 @@ function InboxPage() {
         )}
         <ThreadList activeId={threadId} threads={threads} />
       </aside>
-      <div className="min-w-0">
+      <div className={cn("min-w-0", threadId === undefined && "max-md:hidden")}>
         {threadId === undefined ? (
           <p className="text-muted-foreground text-sm">
             Pick a thread, or start a new one.
           </p>
         ) : (
-          <ThreadPanel
-            agentNames={agentNames}
-            key={threadId}
-            onPosted={list.refresh}
-            threadId={threadId}
-            userId={userId}
-          />
+          <>
+            <Link
+              className="mb-3 inline-flex min-h-10 items-center text-muted-foreground text-sm md:hidden"
+              to="/inbox"
+            >
+              ‹ All threads
+            </Link>
+            <ThreadPanel
+              agentNames={agentNames}
+              key={threadId}
+              onPosted={list.refresh}
+              threadId={threadId}
+              userId={userId}
+            />
+          </>
         )}
       </div>
     </section>

@@ -19,7 +19,13 @@ import {
   findCloudModel,
 } from "@repo/services/cloud/models";
 import { Link } from "@tanstack/react-router";
-import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useState,
+} from "react";
 import { Button } from "#/components/ui/button";
 import {
   Field,
@@ -60,6 +66,8 @@ const defaultValues: AgentFormValues = {
 };
 
 interface AgentFormProps {
+  /** Shown beside the submit button on phones only (sticky footer). */
+  extraAction?: ReactNode;
   initial?: AgentFormValues;
   lockRuntime?: boolean;
   machines: MachineRecord[];
@@ -152,6 +160,7 @@ function CloudModelNote({
 
 export function AgentForm({
   initial = defaultValues,
+  extraAction,
   lockRuntime = false,
   machines,
   onSubmit,
@@ -424,9 +433,14 @@ export function AgentForm({
           {error}
         </p>
       )}
-      <Button disabled={pending} type="submit">
-        {submitLabel}
-      </Button>
+      <div className="sticky -bottom-6 z-10 -mx-4 flex flex-wrap items-center gap-2 border-border border-t bg-background px-4 pt-3 pb-9 md:contents">
+        <Button disabled={pending} type="submit">
+          {submitLabel}
+        </Button>
+        {extraAction === undefined ? null : (
+          <span className="md:hidden">{extraAction}</span>
+        )}
+      </div>
     </form>
   );
 }

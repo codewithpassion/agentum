@@ -249,7 +249,13 @@ export function TaskPage({ initial }: { initial: TaskView }) {
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       <nav aria-label="Breadcrumb" className="text-muted-foreground text-sm">
-        <Link to="/desk">Desk</Link> › Task
+        <Link
+          className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:min-w-10 pointer-coarse:items-center"
+          to="/desk"
+        >
+          Desk
+        </Link>{" "}
+        › Task
       </nav>
       <header className="flex flex-wrap items-center gap-2.5">
         <h1 className="min-w-60 flex-1 font-heading text-2xl text-foreground">
@@ -276,7 +282,10 @@ export function TaskPage({ initial }: { initial: TaskView }) {
           {error}
         </p>
       )}
-      <div className="flex flex-wrap gap-1.5" data-testid="task-facts">
+      <div
+        className="grid grid-cols-2 gap-1.5 md:flex md:flex-wrap"
+        data-testid="task-facts"
+      >
         <Fact label="agent">
           <Link params={{ agentId: task.agent.id }} to="/agents/$agentId">
             {task.agent.name}
