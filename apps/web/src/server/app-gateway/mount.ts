@@ -10,6 +10,7 @@ import {
   parseArtifactContentPath,
   type ViewTokenClaims,
 } from "@repo/protocol/artifacts";
+import { truncateIp } from "@repo/services/artifacts/view-privacy";
 import { verifyViewToken } from "@repo/services/artifacts/view-token";
 import type { Context, Hono } from "hono";
 import {
@@ -31,7 +32,14 @@ export interface AppGatewayWiring
   declaresHosts: (versionId: string) => Promise<boolean>;
 }
 
+/** The slice of a Workers rate limit binding the route uses. */
+export interface ApiLimiter {
+  limit: (options: { key: string }) => Promise<{ success: boolean }>;
+}
+
 export interface AppGatewayMountDeps {
+  /** Flood guard for link holders, counted per link and per IP prefix. Without it nothing is counted. */
+  limiter?: (env: Env) => ApiLimiter | undefined;
   /** Test seam for the clock; defaults to the current time. */
   nowSeconds?: () => number;
   /** The HMAC key view tokens are signed with. */
@@ -68,6 +76,30 @@ const refusedForHosts = async (
   return await wiring.declaresHosts(claims.versionId);
 };
 
+/**
+ * Whether a link holder is inside the flood guard. Members are the workspace's
+ * own people and are not counted. The exact limits on tool calls (60 a minute
+ * per link, 10 per visitor) live in the service; this one guards the app's
+ * server part, and the approved hosts it can reach, from a runaway client.
+ */
+const withinLimit = async (
+  c: Context<AppEnv>,
+  claims: ViewTokenClaims,
+  deps: AppGatewayMountDeps
+): Promise<boolean> => {
+  const limiter = deps.limiter?.(c.env);
+  if (!(limiter && claims.viewer === "link" && claims.shareId)) {
+    return true;
+  }
+  const ip = c.req.header("CF-Connecting-IP");
+  const keys = [
+    `api:link:${claims.shareId}`,
+    ...(ip ? [`api:ip:${truncateIp(ip)}`] : []),
+  ];
+  const results = await Promise.all(keys.map((key) => limiter.limit({ key })));
+  return results.every((result) => result.success);
+};
+
 export const mountAppGatewayRoutes = (
   app: Hono<AppEnv>,
   deps: AppGatewayMountDeps
@@ -75,7 +107,12 @@ export const mountAppGatewayRoutes = (
   const handler = async (c: Context<AppEnv>): Promise<Response> => {
     const url = new URL(c.req.url);
     const csp: ContentCspInput = { appOrigin: url.origin, contentBase: null };
-    const finish = (response: Response) => withContentHeaders(response, csp);
+    const finish = (response: Response) => {
+      const wrapped = withContentHeaders(response, csp);
+      // Gateway answers are no-store already; so are these.
+      wrapped.headers.set("Cache-Control", "private, no-store");
+      return wrapped;
+    };
     try {
       const parsed = parseArtifactContentPath(url.pathname);
       if (!parsed) {
@@ -95,6 +132,17 @@ export const mountAppGatewayRoutes = (
       }
       if (c.req.header("Service-Worker") === "script") {
         return finish(text(FORBIDDEN, "Forbidden."));
+      }
+      if (!(await withinLimit(c, claims, deps))) {
+        return finish(
+          new Response("Too many requests.", {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Retry-After": "60",
+            },
+            status: 429,
+          })
+        );
       }
       const wiring = deps.wiring(c);
       if (await refusedForHosts(claims, wiring)) {

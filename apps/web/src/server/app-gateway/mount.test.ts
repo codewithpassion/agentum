@@ -23,7 +23,7 @@ const claims = (over: Partial<ViewTokenClaims> = {}): ViewTokenClaims => ({
   ...over,
 });
 
-const setup = (declaresHosts = false) => {
+const setup = (declaresHosts = false, allow = true) => {
   const ports = fakePorts();
   const inputs: AppRuntimeInput[] = [];
   const wiring: AppGatewayWiring = {
@@ -44,7 +44,14 @@ const setup = (declaresHosts = false) => {
     },
   };
   const app = new Hono<AppEnv>();
+  const limited: string[] = [];
   mountAppGatewayRoutes(app, {
+    limiter: () => ({
+      limit: ({ key }) => {
+        limited.push(key);
+        return Promise.resolve({ success: allow });
+      },
+    }),
     nowSeconds: () => NOW,
     viewKey: () => KEY,
     wiring: () => wiring,
@@ -62,7 +69,7 @@ const setup = (declaresHosts = false) => {
       {} as Env
     );
   };
-  return { app, call, inputs, ports };
+  return { app, call, inputs, limited, ports };
 };
 
 describe("app gateway route", () => {
@@ -142,5 +149,50 @@ describe("app gateway route", () => {
     const response = await t.call({}, { method: "OPTIONS" });
     expect(response.status).toBeLessThan(300);
     expect(t.inputs).toHaveLength(0);
+  });
+});
+
+describe("app gateway route: flood guard and headers", () => {
+  const link = { shareId: "s1", userId: undefined, viewer: "link" } as const;
+
+  test("a link holder over the limit gets 429 and the app is not reached", async () => {
+    const t = setup(false, false);
+    t.ports.share.state = { dataMode: "live", ok: true };
+    const response = await t.call(link);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(response.headers.get("Content-Security-Policy")).toContain(
+      "sandbox"
+    );
+    expect(t.inputs).toHaveLength(0);
+    expect(t.limited[0]).toBe("api:link:s1");
+  });
+
+  test("a link holder inside the limit is counted per link", async () => {
+    const t = setup();
+    t.ports.share.state = { dataMode: "live", ok: true };
+    expect((await t.call(link)).status).toBe(200);
+    expect(t.limited).toEqual(["api:link:s1"]);
+  });
+
+  test("a member is not counted", async () => {
+    const t = setup(false, false);
+    expect((await t.call({})).status).toBe(200);
+    expect(t.limited).toEqual([]);
+  });
+
+  test("every refusal the route makes carries the CSP and no-store", async () => {
+    const t = setup(true);
+    const refused = [
+      await t.call({ viewer: "test" }),
+      await t.call({}, {}, OTHER),
+      await t.call({}, { method: "OPTIONS" }),
+    ];
+    for (const response of refused) {
+      expect(response.headers.get("Content-Security-Policy")).toContain(
+        "sandbox"
+      );
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    }
   });
 });

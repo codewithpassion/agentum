@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ArtifactCallError } from "@repo/services/artifacts/calls";
+import { ServiceError } from "@repo/services/errors";
 import type { ContentBucket } from "../artifact-content/routes.ts";
 import { createAppGatewayPorts } from "./compose-ports.ts";
 import { fakeStore } from "./fakes.ts";
@@ -34,20 +35,29 @@ const setup = () => {
   const seen: unknown[] = [];
   const state = {
     callShare: { ok: true, result: { rows: 2 } } as unknown,
+    callShareThrows: false as boolean,
     callTool: { result: { n: 1 } } as unknown,
     declares: false,
     member: true as boolean,
+    memberThrows: false as boolean,
   };
   const services = {
     artifactApp: {
       approvedHosts: () => Promise.resolve(["api.example.com"]),
       declaresHosts: () => Promise.resolve(state.declares),
       memberPrincipal: (userId: string, workspaceId: string) =>
-        Promise.resolve(
-          state.member
-            ? ({ kind: "user", userId, via: "session", workspaceId } as const)
-            : null
-        ),
+        state.memberThrows
+          ? Promise.reject(new Error("Clerk 500: secret detail"))
+          : Promise.resolve(
+              state.member
+                ? ({
+                    kind: "user",
+                    userId,
+                    via: "session",
+                    workspaceId,
+                  } as const)
+                : null
+            ),
       secretRules: () => Promise.resolve([]),
       versionWorkspaceId: (_artifact: string, version: string) =>
         Promise.resolve(version === "gone" ? null : WORKSPACE),
@@ -63,6 +73,9 @@ const setup = () => {
     },
     artifactShares: {
       callShare: (...args: unknown[]) => {
+        if (state.callShareThrows) {
+          return Promise.reject(new Error("D1_ERROR: leaked detail"));
+        }
         seen.push({ link: args });
         return Promise.resolve(state.callShare);
       },
@@ -177,10 +190,25 @@ describe("calls.asMember", () => {
     await expect(
       t.ports.calls.asMember({ ...call, userId: "alice" })
     ).rejects.toThrow("not_granted: No.");
-    t.state.callTool = new Error("secret internals");
+    t.state.callTool = new ServiceError("not_found", "Artifact not found.");
     await expect(
       t.ports.calls.asMember({ ...call, userId: "alice" })
     ).rejects.toThrow(PREFIX.forbidden);
+  });
+
+  test("a failure of the platform's own side never shows its text to the app", async () => {
+    const t = setup();
+    t.state.callTool = new Error("D1_ERROR: no such table secret_table");
+    await expect(
+      t.ports.calls.asMember({ ...call, userId: "alice" })
+    ).rejects.toThrow(PREFIX.failed);
+    await expect(
+      t.ports.calls.asMember({ ...call, userId: "alice" })
+    ).rejects.not.toThrow("D1_ERROR");
+    t.state.memberThrows = true;
+    await expect(
+      t.ports.calls.asMember({ ...call, userId: "alice" })
+    ).rejects.toThrow(PREFIX.failed);
   });
 
   test("arguments that are not an object are refused", async () => {
@@ -222,6 +250,14 @@ describe("calls.asLink", () => {
     await expect(refuse("forbidden")).rejects.toThrow(PREFIX.not_granted);
     await expect(refuse("rate_limited")).rejects.toThrow(PREFIX.rate_limited);
     await expect(refuse("failed")).rejects.toThrow(PREFIX.failed);
+  });
+
+  test("a failure inside the share service never shows its text to the app", async () => {
+    const t = setup();
+    t.state.callShareThrows = true;
+    const rejected = t.ports.calls.asLink({ ...call, meta, shareId: "s1" });
+    await expect(rejected).rejects.toThrow(PREFIX.failed);
+    await expect(rejected).rejects.not.toThrow("D1_ERROR");
   });
 
   test("an empty visitor hash goes on as null", async () => {

@@ -6,6 +6,8 @@
  */
 import { artifactManifestSchema } from "@repo/protocol/artifacts";
 import { isArtifactCallError } from "@repo/services/artifacts/calls";
+import { isForbiddenError } from "@repo/services/authz";
+import { isServiceError } from "@repo/services/errors";
 import { canWrite } from "../app-store/rules.ts";
 import {
   blobKey,
@@ -25,13 +27,32 @@ type PortServices = Pick<
   "artifactApp" | "artifactCalls" | "artifactShares"
 >;
 
+const REFUSAL_CODES = ["forbidden", "not_granted", "rate_limited", "too_large"];
+
+/** An error `appError` made: its text starts with a code the app may see. */
+const isAppRefusal = (error: unknown): boolean =>
+  error instanceof Error &&
+  REFUSAL_CODES.some((code) => error.message.startsWith(`${code}: `));
+
+/** A failure of the platform's own side (database, Clerk): the app learns that it failed, never why. */
+const platformFailure = (error: unknown): Error => {
+  console.error(
+    "App call failed",
+    error instanceof Error ? error.name : "unknown error"
+  );
+  return new Error("failed: the tool call failed");
+};
+
 /** A tool call that went wrong, as the error the app's code sees. */
 const callError = (error: unknown): Error => {
   if (isArtifactCallError(error)) {
     return new Error(`${error.code}: ${error.message}`);
   }
-  // Anything else (a hidden artifact, a refused principal) reads as forbidden.
-  return appError("forbidden", "the call was refused");
+  if (isServiceError(error) || isForbiddenError(error)) {
+    // A hidden artifact or a refused principal.
+    return appError("forbidden", "the call was refused");
+  }
+  return platformFailure(error);
 };
 
 const argumentsOf = (args: unknown): Record<string, unknown> => {
@@ -47,15 +68,15 @@ const argumentsOf = (args: unknown): Record<string, unknown> => {
 const memberCalls =
   (services: PortServices): AppCallPort["asMember"] =>
   async (call) => {
-    const principal = await services.artifactApp.memberPrincipal(
-      call.userId,
-      call.workspaceId
-    );
-    if (!principal) {
-      throw appError("forbidden", "the person is no longer a member");
-    }
     const args = argumentsOf(call.args);
     try {
+      const principal = await services.artifactApp.memberPrincipal(
+        call.userId,
+        call.workspaceId
+      );
+      if (!principal) {
+        throw appError("forbidden", "the person is no longer a member");
+      }
       const { result } = await services.artifactCalls.callTool(principal, {
         arguments: args,
         artifactId: call.artifactId,
@@ -64,24 +85,32 @@ const memberCalls =
       });
       return result;
     } catch (error) {
-      throw callError(error);
+      throw isAppRefusal(error) ? error : callError(error);
     }
   };
 
 const linkCalls =
   (services: PortServices): AppCallPort["asLink"] =>
   async (call) => {
-    const result = await services.artifactShares.callShare(
-      call.shareId,
-      call.artifactId,
-      { arguments: argumentsOf(call.args), tool: call.tool },
-      {
-        ipPrefix: call.meta.ipPrefix,
-        place: call.meta.place,
-        userAgent: call.meta.userAgent,
-        visitorHash: call.meta.visitorHash || null,
-      }
-    );
+    const args = argumentsOf(call.args);
+    let result: Awaited<
+      ReturnType<PortServices["artifactShares"]["callShare"]>
+    >;
+    try {
+      result = await services.artifactShares.callShare(
+        call.shareId,
+        call.artifactId,
+        { arguments: args, tool: call.tool },
+        {
+          ipPrefix: call.meta.ipPrefix,
+          place: call.meta.place,
+          userAgent: call.meta.userAgent,
+          visitorHash: call.meta.visitorHash || null,
+        }
+      );
+    } catch (error) {
+      throw platformFailure(error);
+    }
     if (result.ok) {
       return result.result;
     }

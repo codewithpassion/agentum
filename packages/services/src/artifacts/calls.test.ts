@@ -594,3 +594,19 @@ describe("the connector tool catalog", () => {
     ).toBeNull();
   });
 });
+
+describe("a limits row is not a tool", () => {
+  test("a member cannot name a `<tool>#<json>` target as the tool", async () => {
+    const { service } = setup({
+      grants: ["xero/list_invoices", 'xero/list_invoices#{"limit":{"max":5}}'],
+    });
+    expect(
+      await codeOf(
+        service.callTool(
+          member("v"),
+          call('xero/list_invoices#{"limit":{"max":5}}')
+        )
+      )
+    ).toBe("not_granted");
+  });
+});

@@ -49,6 +49,7 @@ app.use("*", frameGuard);
 // The server part of an app artifact, `/a/<uuid>/c/<token>/api/*`. Before the
 // content routes, which refuse every method but GET. Builds its own services.
 mountAppGatewayRoutes(app, {
+  limiter: (env) => (env as Partial<Env>).APP_API_LIMIT,
   viewKey: (env) => env.ARTIFACT_VIEW_KEY,
   wiring: (c) => appGatewayWiring(c.env, c.executionCtx, import.meta.env.DEV),
 });

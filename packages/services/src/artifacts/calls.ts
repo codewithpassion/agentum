@@ -360,7 +360,8 @@ export const createArtifactCallsService = ({
       versionId: input.versionId,
       workspaceId,
     });
-    if (!granted.includes(input.tool)) {
+    // A limits row (`<tool>#<json>`) is a grant row, not a tool.
+    if (input.tool.includes("#") || !granted.includes(input.tool)) {
       throw notGranted();
     }
     const args = input.arguments ?? {};

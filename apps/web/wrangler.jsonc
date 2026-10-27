@@ -78,6 +78,11 @@
       "name": "SHARE_OPEN_LIMIT",
       "namespace_id": "2001",
       "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "APP_API_LIMIT",
+      "namespace_id": "2004",
+      "simple": { "limit": 300, "period": 60 }
     }
   ],
   "routes": [
@@ -149,6 +154,11 @@
           "name": "SHARE_OPEN_LIMIT",
           "namespace_id": "2002",
           "simple": { "limit": 30, "period": 60 }
+        },
+        {
+          "name": "APP_API_LIMIT",
+          "namespace_id": "2005",
+          "simple": { "limit": 300, "period": 60 }
         }
       ],
       "r2_buckets": [
@@ -202,6 +212,11 @@
             "name": "SHARE_OPEN_LIMIT",
             "namespace_id": "2003",
             "simple": { "limit": 30, "period": 60 }
+          },
+          {
+            "name": "APP_API_LIMIT",
+            "namespace_id": "2006",
+            "simple": { "limit": 300, "period": 60 }
           }
         ],
         // Previews share the staging bucket; keys are per workspace.
