@@ -53,6 +53,9 @@ class TextProjection {
       this.addText(node, positions);
     } else {
       for (const child of node.toArray()) {
+        if (!(child instanceof XmlElement || child instanceof XmlText)) {
+          throw new DocumentError("invalid_content");
+        }
         this.walk(child);
         positions.push(this.text.length);
       }
@@ -65,7 +68,11 @@ class TextProjection {
 }
 
 function selected(live: LiveDocument, range: Range) {
-  const resolved = live.resolveAnchor({ ...range, kind: "document" });
+  const resolved = live.resolveAnchor({
+    ...range,
+    detached: false,
+    kind: "document",
+  });
   if (resolved.detached || !resolved.start || !resolved.end) {
     return null;
   }

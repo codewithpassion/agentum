@@ -125,6 +125,30 @@ function presences(client) {
       return [{ clock, id, state: JSON.parse(decoding.readVarString(a)) }];
     });
 }
+async function syncReplica(client) {
+  const doc = new Y.Doc();
+  doc.getXmlFragment("content");
+  const e = encoding.createEncoder();
+  encoding.writeVarUint(e, 0);
+  encoding.writeVarUint(e, 0);
+  encoding.writeVarUint8Array(e, Y.encodeStateVector(doc));
+  client.ws.send(encoding.toUint8Array(e));
+  await pause(50);
+  for (const message of client.messages) {
+    if (typeof message === "string") {
+      continue;
+    }
+    const d = decoding.createDecoder(new Uint8Array(message));
+    if (decoding.readVarUint(d) !== 0) {
+      continue;
+    }
+    const kind = decoding.readVarUint(d);
+    if (kind === 1 || kind === 2) {
+      Y.applyUpdate(doc, decoding.readVarUint8Array(d));
+    }
+  }
+  return doc;
+}
 function origin(changeId) {
   return {
     changeId,
@@ -519,6 +543,47 @@ try {
       "version-old",
     "checkpoint retains restore provenance"
   );
+  await call(
+    "/ops",
+    {
+      ops: [
+        {
+          content: {
+            json: {
+              content: [
+                { attrs: { src: "/files/own-image.png" }, type: "image" },
+              ],
+              type: "doc",
+            },
+          },
+          op: "insert",
+        },
+      ],
+      origin: origin("own-image"),
+    },
+    "images"
+  );
+  check(
+    (await call("/read", {}, "images")).content.includes(
+      "/files/own-image.png"
+    ),
+    "image policy comes from trusted service port"
+  );
+  const imageClient = await connect(await ticket({}, "images"), "images");
+  const imageDoc = await syncReplica(imageClient);
+  const image = imageDoc
+    .getXmlFragment("content")
+    .toArray()
+    .find((n) => n.nodeName === "image");
+  const imageVector = Y.encodeStateVector(imageDoc);
+  image.setAttribute("src", "/files/foreign-image.png");
+  imageClient.ws.send(update(Y.encodeStateAsUpdate(imageDoc, imageVector)));
+  await pause(50);
+  check(
+    !(await call("/read", {}, "images")).content.includes("foreign-image"),
+    "binary update cannot grant itself ownership of an image"
+  );
+  imageDoc.destroy();
   // 512 KiB chunks, 1 MiB compaction, 8 MiB cap and recovered multi-MiB state.
   await call("/seed", { markdown: "x".repeat(1_300_000) }, "large");
   let stats = await call("/stats", {}, "large");
@@ -586,6 +651,7 @@ try {
   const sleeper = await connect(await ticket({}, "hibernate"), "hibernate");
   sleeper.ws.send(awareness(1, 1, {}));
   await pause(30);
+  const sleepyDoc = await syncReplica(sleeper);
   const { starts } = (await call("/stats", {}, "hibernate")).fixture;
   await pause(12_000);
   sleeper.ws.send(awareness(1, 2, {}));
@@ -603,6 +669,22 @@ try {
     (await call("/presence", {}, "hibernate"))[0].name === "Trusted owner",
     "awareness attachments recover after wake"
   );
+  const sleepyParagraph = sleepyDoc
+    .getXmlFragment("content")
+    .toArray()
+    .find((n) => n.nodeName === "paragraph");
+  const sleepyText = sleepyParagraph
+    .toArray()
+    .find((n) => n instanceof Y.XmlText);
+  const sleepyVector = Y.encodeStateVector(sleepyDoc);
+  sleepyText.insert(0, "Wake ");
+  sleeper.ws.send(update(Y.encodeStateAsUpdate(sleepyDoc, sleepyVector)));
+  await pause(50);
+  check(
+    (await call("/read", {}, "hibernate")).content.includes("Wake Hello"),
+    "rich Yjs edits continue after socket hibernation"
+  );
+  sleepyDoc.destroy();
   sleeper.ws.close();
   const last = await connect(await ticket({}, "last"), "last");
   await call(

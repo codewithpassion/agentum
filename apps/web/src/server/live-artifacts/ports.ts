@@ -24,10 +24,17 @@ export interface RestoreProvenance {
   requestId: string;
   versionId: string;
 }
+export type RoomAdmissionContext =
+  | { request: Request }
+  | { authorizationRef: string };
 /** Trusted in-process/service-binding adapter only. Never expose these methods as public routes. */
 export interface ArtifactRoomService {
   /** Resolve fresh authenticated principal and call LiveAdmissionPort.admit. Never derive a privileged principal from claims. */
-  admit: (scope: RoomScope, ticket: string) => Promise<RoomIdentity | null>;
+  admit: (
+    scope: RoomScope,
+    ticket: string,
+    context: RoomAdmissionContext
+  ) => Promise<RoomIdentity | null>;
   /** Read current membership, artifact deletion, principal restrictions and grant expiry.
    * Return null for revoked/deleted access. Must not authorize from ticket claims alone.
    * The adapter must serialize with access mutations or use a current access generation.

@@ -20,6 +20,7 @@ import { guardAnchoredWords, resolveDocumentAnchor } from "./anchors";
 import type {
   ArtifactRoomEnv,
   RestoreProvenance,
+  RoomAdmissionContext,
   RoomIdentity,
   RoomScope,
   RoomSnapshot,
@@ -286,7 +287,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       await this.ctx.storage.deleteAlarm();
     }
   }
-  private async admit(token: string, existing?: WebSocket) {
+  private async admit(token: string, existing?: WebSocket, request?: Request) {
     if (token.length > 8192 || !this.env.ARTIFACT_ROOM_TICKET_KEY.trim()) {
       throw new Error("Invalid ticket");
     }
@@ -301,9 +302,18 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     if (!claims) {
       throw new Error("Invalid ticket");
     }
+    let context: RoomAdmissionContext;
+    if (existing) {
+      context = { authorizationRef: session(existing).authorizationRef };
+    } else if (request) {
+      context = { request };
+    } else {
+      throw new Error("Authentication context required");
+    }
     const current = await this.env.ARTIFACT_ROOM_SERVICE.admit(
       this.meta.scope,
-      token
+      token,
+      context
     );
     if (
       !current ||
@@ -348,7 +358,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       }
       try {
         const identity = await this.admit(
-          new URL(request.url).searchParams.get("ticket") ?? ""
+          new URL(request.url).searchParams.get("ticket") ?? "",
+          undefined,
+          request
         );
         // biome-ignore lint/correctness/noUndeclaredVariables: workerd global.
         const { 0: client, 1: server } = new WebSocketPair();
@@ -459,10 +471,19 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     });
   }
   private rejectMessage(socket: WebSocket, error: unknown) {
+    let message = "Rejected message";
+    if (error instanceof DocumentError) {
+      message = error.code;
+    } else if (
+      error instanceof Error &&
+      error.message === "Document exceeds 8 MiB"
+    ) {
+      message = error.message;
+    }
     try {
       socket.send(
         JSON.stringify({
-          message: error instanceof DocumentError ? error.code : String(error),
+          message,
           type: "error",
         })
       );
