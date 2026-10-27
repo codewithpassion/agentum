@@ -139,6 +139,30 @@ try {
     deckRead.slides[0].html.includes("Deck content"),
     "registered production deck_read loads real room"
   );
+  let invalidDeckError = "";
+  try {
+    await mcp("deck_write", {
+      artifactId: deckCreated.artifactId,
+      ops: [
+        {
+          html: deckRead.slides[0].html.replace('prop-x="0"', 'prop-x="NaN"'),
+          op: "write",
+          revision: deckRead.slides[0].revision,
+          slideId: "s1",
+        },
+      ],
+    });
+  } catch (error) {
+    invalidDeckError = String(error);
+  }
+  check(
+    invalidDeckError.includes("prop-x") &&
+      invalidDeckError.includes("validation"),
+    "actual RPC preserves deck validation code and exact core path"
+  );
+  const refreshedDeckRead = await mcp("deck_read", {
+    artifactId: deckCreated.artifactId,
+  });
   const deckInput = {
     artifactId: deckCreated.artifactId,
     ops: [
@@ -148,7 +172,7 @@ try {
           "Production edit"
         ),
         op: "write",
-        revision: deckRead.slides[0].revision,
+        revision: refreshedDeckRead.slides[0].revision,
         slideId: "s1",
       },
     ],
@@ -180,6 +204,91 @@ try {
     deckJoin.role === "editor" && deckJoin.ticket,
     "deck shares production admission"
   );
+  const emptyDeck = await mcp("artifact_create", {
+    kind: "deck",
+    title: "Empty deck",
+  });
+  const emptyRead = await mcp("deck_read", {
+    artifactId: emptyDeck.artifactId,
+  });
+  check(
+    emptyRead.slides.length === 0,
+    "empty deck opens with actual initialized authority"
+  );
+  await db
+    .prepare(
+      "UPDATE artifacts SET owner_user_id='other',audience='private' WHERE id=?"
+    )
+    .bind(emptyDeck.artifactId)
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO artifact_members (id,workspace_id,artifact_id,principal_kind,user_id,role,created_by,created_at) VALUES ('source-viewer','w1',?,'user','u1','viewer','other',?)"
+    )
+    .bind(emptyDeck.artifactId, now)
+    .run();
+  await db
+    .prepare(
+      "UPDATE sessions SET origin='artifact',external_key=? WHERE id='s1'"
+    )
+    .bind(emptyDeck.artifactId)
+    .run();
+  let sourceDenied = false;
+  try {
+    await mcp("deck_write", {
+      artifactId: deckCreated.artifactId,
+      ops: [
+        {
+          html: '<slide id="forbidden" order="a1" background="#fff" transition="none" duration="0"></slide>',
+          op: "add",
+        },
+      ],
+    });
+  } catch {
+    sourceDenied = true;
+  }
+  check(
+    sourceDenied,
+    "artifact-triggered deck writer is capped by source viewer role"
+  );
+  await db
+    .prepare(
+      "UPDATE artifact_members SET role='editor' WHERE id='source-viewer'"
+    )
+    .run();
+  await db
+    .prepare(
+      "UPDATE artifacts SET owner_user_id='other',audience='private' WHERE id=?"
+    )
+    .bind(deckCreated.artifactId)
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO artifact_members (id,workspace_id,artifact_id,principal_kind,user_id,role,created_by,created_at) VALUES ('target-viewer','w1',?,'user','u1','viewer','other',?)"
+    )
+    .bind(deckCreated.artifactId, now)
+    .run();
+  let targetDenied = false;
+  try {
+    await mcp("deck_write", {
+      artifactId: deckCreated.artifactId,
+      ops: [
+        {
+          html: '<slide id="forbidden" order="a1" background="#fff" transition="none" duration="0"></slide>',
+          op: "add",
+        },
+      ],
+    });
+  } catch {
+    targetDenied = true;
+  }
+  check(
+    targetDenied,
+    "artifact-triggered deck writer is independently capped by target viewer role"
+  );
+  await db
+    .prepare("UPDATE sessions SET origin='ui',external_key=NULL WHERE id='s1'")
+    .run();
   const created = await mcp("artifact_create", {
     kind: "document",
     markdown: "# Fixture\n\nHello human words here.",

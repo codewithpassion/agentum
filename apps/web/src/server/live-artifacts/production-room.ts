@@ -561,11 +561,7 @@ export class ArtifactRoom extends Room {
     const sender = sessions.find(
       (session) => session.participantId === participantId
     );
-    const snapshot = await super.authoritativeSnapshot();
-    const probe = new Doc();
-    applyUpdate(probe, snapshot.state);
-    const isDeck = probe.share.has("slides");
-    probe.destroy();
+    const isDeck = (await super.roomKind()) === "deck";
     if (isDeck) {
       return {
         present: await Promise.all(
@@ -654,11 +650,7 @@ export class ArtifactRoom extends Room {
     }
   }
   async agentChanges(): Promise<AgentRange[]> {
-    const snapshot = await super.authoritativeSnapshot();
-    const probe = new Doc();
-    applyUpdate(probe, snapshot.state);
-    const isDeck = probe.share.has("slides");
-    probe.destroy();
+    const isDeck = (await super.roomKind()) === "deck";
     if (isDeck) {
       return [];
     }

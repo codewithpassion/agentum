@@ -9,6 +9,7 @@ import {
   LiveDocument,
   type Operation,
 } from "@repo/live-doc";
+import { ToolError } from "@repo/mcp/result";
 import type { DeckReadInput, DeckWriteInput } from "@repo/mcp/tools/deck";
 import { DeckSceneAdapter } from "@repo/mcp/tools/deck-scene";
 import {
@@ -333,8 +334,12 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       ownsBlob: (path) => this.policy.has(path),
     });
     let full: Uint8Array;
+    let changed = false;
     try {
       trial.applyUpdate(Y.encodeStateAsUpdate(this.doc));
+      trial.doc.on("update", () => {
+        changed = true;
+      });
       trial.applyUpdate(update);
       full = Y.encodeStateAsUpdate(trial.doc);
     } finally {
@@ -344,12 +349,14 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     const previous = structuredClone(this.meta);
     try {
       this.ctx.storage.transactionSync(() => {
-        this.meta.sequence += 1;
-        this.meta.revision += 1;
-        this.meta.dirtySince ??= Date.now();
+        if (changed) {
+          this.meta.sequence += 1;
+          this.meta.revision += 1;
+          this.meta.dirtySince ??= Date.now();
+          this.meta.updateBytes += update.length;
+          this.store.write("update", String(this.meta.sequence), update);
+        }
         this.meta.ownBlobUrls = [...this.policy];
-        this.meta.updateBytes += update.length;
-        this.store.write("update", String(this.meta.sequence), update);
         persist?.(this.meta.revision, full);
         if (
           this.meta.sequence - this.meta.baseSequence >= COMPACT_UPDATES ||
@@ -375,12 +382,34 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       this.meta = previous;
       throw error;
     }
-    this.requiredDeck().applyUpdate(update);
-    this.broadcast(syncFrame(2, update));
+    if (changed) {
+      this.requiredDeck().applyUpdate(update);
+      this.broadcast(syncFrame(2, update));
+      this.pruneDeckPresence();
+    }
     const lease = this.store.get<PresenterLease>("presenter");
     if (lease && !this.requiredDeck().ids().includes(lease.position.slideId)) {
       this.clearPresentation();
     }
+  }
+  private async deckOutcome<T>(work: () => Promise<T>) {
+    try {
+      return { ok: true as const, result: await work() };
+    } catch (error) {
+      if (error instanceof ToolError) {
+        return { code: error.code, message: error.message, ok: false as const };
+      }
+      throw error;
+    }
+  }
+  deckReadOutcome(
+    input: DeckReadInput,
+    subject: Pick<RoomIdentity, "participantId" | "kind">
+  ) {
+    return this.deckOutcome(() => this.deckRead(input, subject));
+  }
+  deckWriteOutcome(input: DeckWriteInput, origin: LiveOperationOrigin) {
+    return this.deckOutcome(() => this.deckWrite(input, origin));
   }
   deckRead(
     input: DeckReadInput,
@@ -454,6 +483,46 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       };
     });
   }
+  private pruneDeckPresence() {
+    const clean = (entry: AwarenessEntry): AwarenessEntry => {
+      const { slideId, selection, pointer, ...identity } = entry;
+      if (!(slideId && this.requiredDeck().ids().includes(slideId))) {
+        return identity;
+      }
+      const { slide } = this.requiredDeck().read(slideId);
+      return {
+        ...identity,
+        pointer,
+        selection: selection?.filter((id) =>
+          slide.elements.some((element) => element.id === id)
+        ),
+        slideId,
+      };
+    };
+    for (const socket of this.ctx.getWebSockets()) {
+      const state = session(socket);
+      if (!state.present || state.expires <= Date.now()) {
+        continue;
+      }
+      const next = clean(state.present);
+      if (JSON.stringify(next) === JSON.stringify(state.present)) {
+        continue;
+      }
+      state.present = next;
+      state.clock += 1;
+      socket.serializeAttachment(state);
+      this.broadcast(presenceFrame(state.awarenessId, state.clock, next));
+    }
+    const agent = this.store.get<AgentState>("agent");
+    if (agent) {
+      agent.entry = clean(agent.entry);
+      agent.clock += 1;
+      this.store.put("agent", agent);
+      this.broadcast(
+        presenceFrame(agent.awarenessId, agent.clock, agent.entry)
+      );
+    }
+  }
   private validateDeckPresence(entry: AwarenessEntry) {
     if (entry.cursor) {
       throw new Error("Document cursor in deck");
@@ -496,7 +565,11 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     } else {
       for (const peer of this.ctx.getWebSockets()) {
         if (session(peer).expires > Date.now()) {
-          peer.send(bytes);
+          try {
+            peer.send(bytes);
+          } catch {
+            /* close event clears ownership */
+          }
         }
       }
     }
@@ -572,6 +645,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       }
     }
     socket.send(JSON.stringify(result));
+  }
+  roomKind() {
+    return this.exclusive(() => this.meta.kind ?? "document");
   }
   authoritativeSnapshot() {
     return this.exclusive(async () => this.snapshot());
@@ -1325,9 +1401,9 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         throw new Error("Snapshot too large");
       }
       const key = `restore:${input.requestId}`;
-      const prior = this.store.get<RestoreProvenance & { revision: number }>(
-        key
-      );
+      const prior = this.store.get<
+        (RestoreProvenance & { revision: number }) | undefined
+      >(key);
       if (prior) {
         if (
           prior.versionId !== input.versionId ||

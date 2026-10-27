@@ -39,8 +39,8 @@ const SLACK_READ_NAMES = [
 
 const SLACK_WRITE_NAMES = ["slack_send"];
 
-const LIVE_READ_NAMES = ["document_read", "document_comments"];
-const LIVE_WRITE_NAMES = ["document_edit", "document_comment"];
+const LIVE_READ_NAMES = ["document_read", "document_comments", "deck_read"];
+const LIVE_WRITE_NAMES = ["document_edit", "document_comment", "deck_write"];
 
 const ARTIFACT_READ_NAMES = ["artifact_list", "artifact_read", "artifact_test"];
 const ARTIFACT_WRITE_NAMES = [
@@ -124,6 +124,8 @@ const fakePorts: McpPorts = {
   createRoutine: uncalled,
   createSkill: uncalled,
   createTrigger: uncalled,
+  deck: { read: uncalled, write: uncalled },
+  deckCreation: { create: uncalled },
   deleteRoutine: uncalled,
   deleteSkill: uncalled,
   deleteTrigger: uncalled,
@@ -441,5 +443,45 @@ test("computer and browser calls work over MCP and writes respect dry run", asyn
     expect(read.structuredContent).toMatchObject({ content: "/a" });
   } finally {
     await dry.close();
+  }
+});
+
+test("registered deck writes respect read-only and dry-run gates", async () => {
+  const recorded: unknown[] = [];
+  const dry = await connectClient(
+    createHarbourmasterMcpServer(fakePorts, {
+      dryRun: {
+        record: async (entry) => {
+          recorded.push(entry);
+          await Promise.resolve();
+        },
+      },
+    })
+  );
+  try {
+    const result = await dry.client.callTool({
+      arguments: {
+        artifactId: crypto.randomUUID(),
+        ops: [{ html: "<slide></slide>", op: "add" }],
+      },
+      name: "deck_write",
+    });
+    expect(result.structuredContent).toEqual({
+      skipped: true,
+      tool: "deck_write",
+    });
+    expect(recorded).toHaveLength(1);
+  } finally {
+    await dry.close();
+  }
+  const readOnly = await connectClient(
+    createHarbourmasterMcpServer(fakePorts, { readOnly: true })
+  );
+  try {
+    const names = (await readOnly.client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain("deck_read");
+    expect(names).not.toContain("deck_write");
+  } finally {
+    await readOnly.close();
   }
 });
