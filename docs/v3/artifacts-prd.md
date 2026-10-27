@@ -6,7 +6,7 @@ Written 27 Oct 2026 from Dom's voice brief of the same day. Status: draft for Do
 
 Agents in Harbourmaster will publish artifacts: HTML pages, markdown documents and data dashboards. An artifact shows as a card with a live preview in the task thread. It opens at its own link inside a thin Harbourmaster frame with its title, owner, version and share controls. At first only workspace members can open it. Then its owner can make a revocable "anyone with the link" share, and every open, anonymous ones included, lands in an access log. Later phases turn artifacts into versioned micro apps with server-side code and per-app storage, add Git sync, and add richer sharing.
 
-The one rule this design won't bend: artifact code never runs on the app's origin. Harbourmaster serves artifact content from a separate registrable domain, one hostname per artifact, through a second small Worker that holds no Clerk session and no database binding. The app embeds that hostname in a sandboxed iframe.
+Artifacts live on the app's own origin, as Dom decided on 27 Oct 2026: `/a/<uuid>` is the framed view and the content sits under it. The one rule this design won't bend is that artifact code never runs with the app's origin. Every content response carries `Content-Security-Policy: sandbox allow-scripts allow-forms` without `allow-same-origin`, so the page runs in an opaque origin even when someone opens its URL directly, and the viewer embeds it in an iframe with the same sandbox. The main Worker serves the content. There is no second Worker and no second domain.
 
 ## Problem
 
@@ -26,7 +26,7 @@ Claude's desktop app has "dashboards" and claude.ai has artifacts, which are clo
 1. An agent on any runtime can create and update an artifact with platform tools, and can test it before it tells a person it is done.
 2. People see the artifact where they already work. It shows as a card in the task thread, in the task view, and in an Artifacts area.
 3. Every artifact has its own link that opens inside a Harbourmaster frame with its title, owner, version and share controls.
-4. Untrusted HTML and JavaScript never run with the user's Clerk session or on the app's origin.
+4. Untrusted HTML and JavaScript are served from the app's host but always run in an opaque origin, with no access to the user's Clerk session.
 5. Sharing outside the workspace is deliberate, managed (listed, revocable, expiring) and logged, including anonymous opens.
 6. Artifacts can grow into micro apps with server parts and storage that run inside the AI OS (phase 2).
 
@@ -74,7 +74,7 @@ Facts below come from public docs as of 27 Oct 2026, unless marked otherwise.
 
 The MCP Apps extension (SEP-1865, stable since 26 Jan 2026) standardises the same idea for MCP hosts: HTML resources at `ui://`, rendered in a sandboxed iframe on an origin different from the host's, talking to the host through JSON-RPC 2.0 over `postMessage` (`ui/initialize`, `ui/open-link`, `ui/message`, `tools/call`). The host proxies tool calls and rejects tools not marked for apps. Pages declare `connectDomains` and `resourceDomains`, and hosts may tighten but never loosen the CSP. ([spec](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx)) OpenAI's Apps SDK now speaks the same bridge ([developers.openai.com](https://developers.openai.com/apps-sdk/build/chatgpt-ui)).
 
-What Harbourmaster copies: private or org-scoped by default, a separate content origin, a CDN allowlist CSP, versions with stale-publish refusal, an org switch for external sharing, viewer-rights connector calls that never run for anonymous viewers, the "user-generated and unverified" label, and the MCP Apps message names for the bridge. What it adds: agents as authors with a test tool, an access log of anonymous opens, share-link expiry and per-link revocation, and (phase 2) server parts.
+What Harbourmaster copies: UUID paths on the main domain for the viewer, private or org-scoped by default, sandboxed content, a CDN allowlist CSP, versions with stale-publish refusal, an org switch for external sharing, viewer-rights connector calls that never run for anonymous viewers, the "user-generated and unverified" label, and the MCP Apps message names for the bridge. What it adds: agents as authors with a test tool, an access log of anonymous opens, share-link expiry and per-link revocation, and (phase 2) server parts.
 
 ## What exists in Harbourmaster today
 
@@ -120,7 +120,7 @@ Kinds:
 
 Kind is a label for the UI and for limits. Phase 1 serves `page` and `dashboard` the same way.
 
-Versions are immutable full trees, like skill versions (`packages/db/src/schema/skills.ts`). Each version has a `number` that counts up per artifact and a `parent_number`. A unique index on `(artifact_id, number)` refuses two updates raced on the same base, the way `commit_skill` refuses a stale `baseVersion` (`skills-store.ts`, `commit` at line 1148). Restoring version 3 creates a new version with version 3's tree, so history only grows. File bytes are content-addressed in R2 under `<workspaceId>/artifact-blobs/<sha256>`, and each version also writes a manifest object `<workspaceId>/artifact-manifests/<versionId>.json` (path to hash, size and content type). The content Worker reads only the manifest and the blobs, never D1.
+Versions are immutable full trees, like skill versions (`packages/db/src/schema/skills.ts`). Each version has a `number` that counts up per artifact and a `parent_number`. A unique index on `(artifact_id, number)` refuses two updates raced on the same base, the way `commit_skill` refuses a stale `baseVersion` (`skills-store.ts`, `commit` at line 1148). Restoring version 3 creates a new version with version 3's tree, so history only grows. File bytes are content-addressed in R2 under `<workspaceId>/artifact-blobs/<sha256>`, and each version also writes a manifest object `<workspaceId>/artifact-manifests/<versionId>.json` (path to hash, size and content type). The content route reads only the manifest and the blobs, never D1.
 
 Ownership has three parts:
 
@@ -128,7 +128,7 @@ Ownership has three parts:
 - The author is recorded per version: a person, or an agent with the run that wrote it.
 - The owner is the accountable person: the creator when a person publishes, or the run's `on_behalf_of_user_id` when an agent does (`packages/db/src/schema/runs.ts:41`). A trigger or routine run with no person has no owner, and workspace admins act as owner.
 
-Audience in phase 1 is `private` (owner only) or `workspace` (every member). Link shares sit on top of either. The default comes from the session the artifact was made in: a `ui` or private session gives `private`, any other session gives `workspace`, and a person publishing outside a session gets `private`. This follows `visibleSessions` so an artifact never shows more than its conversation did. Phase 4 adds `people` and `public`.
+Audience in phase 1 is `private` (owner only) or `workspace` (every member). Link shares sit on top of either. The default comes from the session the artifact was made in (Dom's decision, 27 Oct 2026): a `ui` or private session gives `private`, any other session gives `workspace`, and a person publishing outside a session gets `private`. This follows `visibleSessions` so an artifact never shows more than its conversation did. Phase 4 adds `people` and `public`.
 
 Relation to the library. Artifacts are publications, the library is the working tree. An agent builds in its task folder (`agents/<slug>/tasks/<runId>/`), where its file and bash tools work, then publishes the folder as a version (`fromLibraryPath`). The version records `source_library_path`. Artifacts are not library files, for three reasons: library versions are per file with no tree snapshot, the library prunes versions after 30 days (`LIBRARY_VERSION_KEEP_DAYS`), and the library syncs onto machines and VMs, which published pages don't need. The skills store made the same split when it moved skills out of the library (`skill_library_migrations`).
 
@@ -183,35 +183,90 @@ Agents on the Linux VM can also test logic with `bun test` on their own files be
 
 ### 3. Hosting and isolation
 
-This is the security core. The rule: untrusted HTML and JS never run on `harbourmaster.rockyshoreslabs.io` or any other host that receives the user's Clerk cookies, and never in a context that can read the app's DOM or storage.
+This is the security core. Dom decided on 27 Oct 2026 that artifacts live on the app's own origin under a path with a UUID, the way claude.ai uses `claude.ai/artifacts/<uuid>`: `https://harbourmaster.rockyshoreslabs.io/a/<uuid>` is the framed view, and the content is served under it. A dedicated subdomain may come later only if it proves necessary, and it is not in phase 1 or 2.
 
-Options compared:
+So the isolation has to come from the browser's sandbox, not from a second origin. The rule: untrusted HTML and JS always run in an opaque origin. They must never be able to read the app's cookies, DOM or storage, send credentialed requests to `/api/*` and read the answer, register a service worker, or navigate the top window.
 
-| Option | Isolation from the app | Isolation between artifacts | Cost and effort | Verdict |
-|---|---|---|---|---|
-| A. `srcdoc` iframe on the app origin with `sandbox="allow-scripts"` (opaque origin) | Good in modern browsers, but the page shares the app's process and site for cookie decisions, and no storage works | Each frame opaque | Lowest | Rejected for production. Google advises against relying on sandboxing alone for active content ([web.dev](https://web.dev/articles/securely-hosting-user-data)). |
-| B. A subdomain of `rockyshoreslabs.io`, such as `*.artifacts.rockyshoreslabs.io` | Weak. Any cookie set with `Domain=rockyshoreslabs.io` reaches it. Clerk's own site sets `__session` and `__client_uat` with an explicit parent domain ([clerk.com cookies](https://clerk.com/docs/guides/how-clerk-works/cookies)), and whether the production instance from X.1 does the same is unverified. Cloudflare warns about exactly this for sandbox previews ([docs](https://developers.cloudflare.com/sandbox/previews/serve-previews-on-their-own-hostnames/)). Content is also same-site, which weakens SameSite defences. A second-level wildcard needs Total TLS or ACM. | Per hostname | Low | Rejected. |
-| C. A separate registrable domain, one shared host for all artifacts | Strong | Weak: all artifacts share one origin's storage | Low | Rejected. |
-| D. A separate registrable domain, one hostname per artifact, sandboxed iframe | Strong | Per origin, and per site once the domain is on the Public Suffix List | Domain purchase, a wildcard route and a second Worker | Picked. |
+#### What the content could steal
 
-The pick, option D:
+Clerk's `__session` cookie holds a session JWT that lives about a minute. Clerk's docs say it is set on the application's root domain and is not HttpOnly, because Clerk's client SDKs read it ([Clerk XSS leak protection](https://clerk.com/docs/guides/secure/best-practices/xss-leak-protection), [GitHub discussion #336](https://github.com/clerk/javascript/discussions/336)). Clerk says it uses `SameSite=Lax` ([Clerk cookies](https://clerk.com/docs/guides/how-clerk-works/cookies)), and the docs don't state the path, which is `/` in practice (to confirm in devtools in A.4's check). The long-lived `__client` cookie is HttpOnly and sits on the Frontend API domain, not the app's. Harbourmaster's own code sets no cookie attributes: a search of `apps/web/src` for `SameSite`, `HttpOnly` and `__session` finds nothing, so Clerk's defaults are what ship.
 
-- A dedicated domain, called `<content-domain>` here (Dom chooses it, open question 1). Each artifact is served at `https://<artifactId>.<content-domain>`, where `artifactId` is the lowercase ULID. Universal SSL covers first-level subdomains ([Cloudflare](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/)). A proxied wildcard DNS record plus a Worker route `*.<content-domain>/*` sends every hostname to one Worker. Custom Domains don't take wildcards, so this must be a route ([Cloudflare custom domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)). Staging gets its own domain, because routes can't split two environments inside one first-level wildcard and a deeper wildcard needs a paid certificate.
-- A second Worker, `apps/artifact-host`, serves that domain. It is not the main Worker, because `apps/web/src/server.ts` runs `clerkMiddleware()` on every request and falls through to TanStack SSR, so one routing slip there would put untrusted bytes next to the session. The content Worker has two bindings: the `FILES` R2 bucket, which its code only reads, and the `ARTIFACT_VIEW_KEY` secret to verify tokens. It has no D1, no Clerk keys, no `RUN_TOKEN_KEY` and no `SECRETS_KEY`.
-- The app embeds the content in `<iframe sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer">`. `allow-same-origin` is safe here because the content origin is already foreign to the app, and it lets the page use its own `localStorage`. The frame gets no `allow-top-navigation`, so a page can't swap the Harbourmaster frame for a fake login. It gets no `allow-downloads`, so a page can't push a file. It gets no permissions (`allow` attribute empty apart from `clipboard-write`).
-- Content responses carry: `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://cdn.tailwindcss.com https://code.jquery.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-src 'none'; form-action 'self'; base-uri 'self'; frame-ancestors <app origins>`, plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow` and `Cross-Origin-Resource-Policy: cross-origin`. `connect-src 'self'` and the image rule stop a page from beaconing viewer data to other hosts. The allowlist matches Claude's, so agent habits carry over.
-- Auth to the content host uses a view token in the path: `https://<artifactId>.<content-domain>/_v/<token>/index.html`. Relative asset URLs then carry the token on their own. A cookie set after the first request would be a third-party cookie inside the app's frame, which Safari blocks, so the design doesn't use cookies at all. The token is an HMAC like `signRunToken` (`run-tokens.ts:106`) over `{ workspaceId, artifactId, versionId, kind: "member" | "link" | "test", shareId?, exp }`, with its own key. The Worker checks the signature, the expiry, and that the hostname's artifact id matches. Member and link tokens live 1 hour, test tokens 5 minutes. Root-absolute paths such as `/app.js` miss the token and fail, so the tool description tells agents to use relative paths and `artifact_test` reports the 404s.
-- Top-level navigation to content is refused. A request with `Sec-Fetch-Dest: document` and a member or link token gets a 302 to `https://<app>/a/<artifactId>`, without the token. So a content URL pasted into an address bar always lands in the Harbourmaster frame, with its owner and warning label. Test tokens are exempt, because Browser Run navigates top-level.
-- The Worker rewrites HTML entries with `HTMLRewriter` to add `<script src="/_hm/bridge.js">` before anything else in `<head>`. Docs are served through a platform viewer page (`/_hm/doc.html`) that renders `index.md` inside the same sandbox.
-- The content domain goes on the Public Suffix List before phase 2, as Google recommends for per-item subdomains ([web.dev](https://web.dev/articles/securely-hosting-user-data)), so artifacts become separate sites and can't toss cookies at each other. Phase 1 uses no cookies, so phase 1 doesn't wait for it.
-- Previews. PR previews have no content host, the same way they have no Linux VM (`apps/web/wrangler.jsonc`, previews comment). The card and viewer say "Preview not available in PR previews". Local dev runs `apps/artifact-host` with `wrangler dev` on its own port and serves `<id>.localhost:<port>`, which Chrome and Firefox resolve to loopback. Safari's handling of `*.localhost` is unverified.
+A script running same-origin with the app could therefore read `__session` from `document.cookie` and call every tRPC procedure as the viewer for that minute, refreshing it as Clerk does. Any artifact that ever runs with the app's origin is a full account takeover for whoever opens it. Everything below exists to stop that.
 
-The frame side, on the app origin:
+#### Options
 
-- `/a/$artifactId` is a full-viewport TanStack route outside `_app/` (no sidebar), signed in only.
-- `/s/$token` is the share page, also outside `_app/`, like `login.tsx`, and needs no session.
-- Both answer with `Content-Security-Policy: frame-ancestors 'none'` and `Referrer-Policy: no-referrer`, so nobody can wrap the share page in their own phishing frame and the token in `/s/…` doesn't leak through `Referer`. The app sets no `frame-ancestors` anywhere today (thread sweep), which is worth fixing app-wide separately.
-- The frame handles messages only when `event.source` is its own iframe's `contentWindow`, validates each with a zod schema from `@repo/protocol`, and never evaluates anything. `ui/open-link` opens only `http` and `https` URLs, after the viewer confirms in a dialog.
+| Option | Effect | Verdict |
+|---|---|---|
+| A. Sandboxed iframe attribute only (`sandbox="allow-scripts"`) | Opaque origin inside the frame. Opening the content URL directly, or a link to it, runs the page same-origin with the session. | Not enough on its own. |
+| B. `Content-Security-Policy: sandbox allow-scripts …` response header, without `allow-same-origin` | The document gets an opaque origin wherever it loads, top-level included. The repo already uses this header on `/files/:id` (`apps/web/src/server/routes/files.ts:57-60`). Supported by all current browsers, not in `<meta>` ([MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox)). | Required. |
+| C. Both B and A, plus a redirect of top-level opens to the frame, path-scoped CSP sources and no CORS credentials | Each layer covers a different failure: B covers direct opens, A survives the frame navigating itself (iframe sandbox flags persist across navigations), the redirect keeps the Harbourmaster frame around the content. | Picked. |
+| D. `srcdoc` iframe with inlined content | No URL to open directly, but assets need inlining and the frame can't load relative files. | Rejected. |
+| E. A subdomain or separate domain | Real origin isolation. | Deferred by Dom's decision. Triggers to revisit are below. |
+
+#### The design
+
+Content URL: `/a/<uuid>/c/<token>/<path>`, served by a Hono route in the main Worker, mounted before the TanStack fall-through in `apps/web/src/server.ts`. The token is an HMAC view token (section 6), so relative asset URLs carry it.
+
+Every content response, success or error, passes through one header wrapper that sets:
+
+- `Content-Security-Policy: sandbox allow-scripts allow-forms; default-src 'none'; script-src <base> 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://cdn.tailwindcss.com https://code.jquery.com; style-src <base> 'unsafe-inline' https://fonts.googleapis.com; font-src <base> https://fonts.gstatic.com; img-src <base> data: blob:; connect-src <base>; media-src <base>; form-action 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; frame-ancestors https://<app>`. `<base>` is the full URL of this version's content folder, `https://<app>/a/<uuid>/c/<token>/`. CSP host sources with a path ending in `/` match only that prefix, so a page can't load or fetch `/api/*`, `/files/*` or another artifact. `'self'` is not used anywhere in the policy. In an opaque-origin document it may match nothing, or more than intended, so explicit URLs are safer.
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex, nofollow`, `Cache-Control: private, max-age=300`.
+- `Access-Control-Allow-Origin: *` without `Access-Control-Allow-Credentials`. A page in an opaque origin is cross-origin to its own files, so `fetch('data.json')` and module scripts need CORS. The wildcard can't carry cookies, and the token in the path is what grants access.
+
+The route refuses before it serves:
+
+- A request with `Sec-Fetch-Dest: document` (a top-level open) and a member or link token answers 302 to `/a/<uuid>`, without the token. Pasted content URLs always land in the Harbourmaster frame with its owner line and warning label. Test tokens for Browser Run are exempt.
+- A request with the `Service-Worker: script` header answers 403, and no content response ever sets `Service-Worker-Allowed`. An opaque origin can't register a service worker anyway, so this guards against a header slip.
+
+Content paths skip `clerkMiddleware()` and the compose middleware. The route needs only the `FILES` bucket and the view-token key, and reads the version's manifest from R2. Skipping Clerk keeps its handshake redirects out of iframe loads and keeps the session machinery away from untrusted bytes.
+
+The frame on `/a/<uuid>` embeds `<iframe sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer" allow="clipboard-write">`. No `allow-same-origin`, `allow-popups`, `allow-modals`, `allow-downloads` or `allow-top-navigation`. Without `allow-modals`, a page can't raise a `prompt()` asking for a password over the app's URL. Links in a page go through the bridge (`ui/open-link`), which opens them in a new tab after the viewer confirms.
+
+Every non-content response from the app gets `Content-Security-Policy: frame-ancestors 'none'` from a middleware in `server.ts`. The app has no such header today (thread sweep) and embeds nothing of its own. With it, an artifact that navigates its iframe to `/desk` gets a refused frame, not a live app page inside the viewer.
+
+How each threat ends:
+
+| Threat | What stops it |
+|---|---|
+| Read `__session` or other cookies | Opaque origin: `document.cookie` throws. |
+| Read the app's DOM or storage | Opaque origin: no same-origin access to the parent; `localStorage`, `sessionStorage` and IndexedDB throw. |
+| `fetch('/api/trpc/…')` with the viewer's session | `connect-src` allows only the content folder; the request would carry `Origin: null`, so the default `credentials: "same-origin"` omits cookies; the app sends no CORS headers, so the page can't read an answer; `csrf()` on `/api/trpc/*` refuses form-type posts from another origin (the comment above the tRPC mount in `server.ts`). |
+| Credentialed subresource loads (`<img src="/files/…">`) | `img-src` limited to the content folder. Requests from an opaque-origin document count as cross-site for `SameSite=Lax`, so the cookie isn't sent on subresource loads (per the cookie spec; to confirm with probes in A.4 and A.11). |
+| Register a service worker | Opaque origins can't; `worker-src 'none'`; the route refuses `Service-Worker: script`. |
+| Navigate the top window to a fake login | No `allow-top-navigation` in either sandbox. |
+| Post a form with typed data somewhere | `form-action 'none'`. |
+| `prompt()` for a password | No `allow-modals`. |
+| Open the content URL directly as a full page on the app's domain | 302 to the frame; and if a browser sends no `Sec-Fetch-Dest`, the CSP sandbox still gives an opaque origin. |
+| Navigate its own iframe to an outside phishing page | Not blockable by CSP (`navigate-to` was dropped from the spec). The frame expects `ui/initialize` from the injected bridge after every iframe `load` event. When a load arrives without one, the frame blanks the iframe and shows "This artifact tried to leave its page" with Reload. |
+| Read another artifact | Path-scoped CSP, no shared storage, and its content needs its own token. |
+
+The bridge uses a `MessageChannel`. On the first `ui/initialize` the frame transfers one port to the page and talks only through that port. If the iframe navigates away, the port dies with the document, so the frame can never post data to a page that replaced the artifact. The frame still checks `event.source` on the initial message and validates every message with a zod schema from `@repo/protocol`.
+
+Before anything else in `<head>`, the route injects `<script src="_hm/bridge.js">` with `HTMLRewriter`. `_hm/` is a reserved folder inside the content path that agents can't write to. Besides the bridge, it installs in-memory stand-ins for `localStorage` and `sessionStorage`, so libraries that touch them don't crash in an opaque origin. Docs are served through a platform viewer page that renders `index.md` inside the same sandbox.
+
+There is one Worker. The main Worker serves the content routes, because the second origin that justified a separate Worker is gone, and the isolation lives in the browser. A second Worker would add a deploy and a wrangler config without adding a boundary. The one server-side rule that matters is that the content route sets its headers on every response, which one wrapper and a test over every status code enforce.
+
+PR previews now work too. A preview serves content on its own `workers.dev` URL, with the same headers.
+
+#### Residual risks, stated plainly
+
+1. Same site, possibly same process. The content is same-site with the app. Chrome can put sandboxed iframes in their own process, but whether every browser Dom's viewers use does is unverified. Google's guidance is that the CSP sandbox alone may not stop Spectre-class attacks ([web.dev](https://web.dev/articles/securely-hosting-user-data)). A working side-channel attack could read the app page's memory, including the one-minute session JWT. This is the main thing a separate origin would buy.
+2. Phishing on the real domain. Artifact content appears under `harbourmaster.rockyshoreslabs.io` in the address bar. The frame label, the top-open redirect and the blocked modals reduce it, but a convincing fake inside the frame is still on our domain. Worse, if Google Safe Browsing or a mail filter flags one phishing artifact, it may flag the whole host, and the app goes down with it.
+3. One missing header is a full compromise. If any content response, an error page, a redirect or a cached copy, reaches the browser without the CSP sandbox, that page runs same-origin with the session. The single wrapper, tests over every path and status, and `Cache-Control: private` (so no shared cache can strip or mix headers) are the defence, but it is a sharp edge.
+4. Opaque origins limit what artifacts can do: no real `localStorage`, no IndexedDB, no service workers, no cookies of their own, no OAuth popups. Phase 1 pages and dashboards don't need them. Phase 2 storage goes through the bridge.
+5. The cookie and fetch behaviour of opaque origins rests on the specs and on Chrome and Firefox probes. Safari can't be driven by the repo's browser tooling, so a person checks it by hand in A.11.
+
+#### When to move content to a subdomain
+
+Any one of these should trigger a separate content origin (a subdomain on a separate registrable domain, as in this PRD's first draft):
+
+- A micro app needs real-origin features: its own cookies, IndexedDB, a service worker, WebAuthn or an OAuth popup.
+- A header slip or a browser bug ever lets content run with the app's origin, in testing or in production.
+- A Safe Browsing or mail-filter flag against the app's host caused by artifact content.
+- Public listing (phase 4), or link shares reaching many outside viewers, which raises the phishing stakes.
+- A security review that rates the shared-process risk as unacceptable for the data in the workspace.
+
+The routes are ready for that move. The content path builder is one function, so moving content to `https://<uuid>.<content-domain>/c/<token>/…` changes that function, the CSP `<base>` and `frame-ancestors`, and adds a route. The data model doesn't change.
 
 ### 4. Data and tool access from inside an artifact
 
@@ -224,12 +279,12 @@ Options:
 | Snapshot data shipped in the version | None | Yes, and the sharer sees what's in it | Phase 1. |
 | A `postMessage` bridge to the app frame, which calls a tRPC procedure with the viewer's own session and the artifact's declared grants | None | No, by rule | Phase 2. |
 
-Phase 1 dashboards read data files in their own version with relative `fetch('data.json')`, which `connect-src 'self'` allows. Freshness comes from the agent publishing a new version, often from a routine. The share dialog lists the data files in the version, so a person sharing a link sees what data leaves with it.
+Phase 1 dashboards read data files in their own version with relative `fetch('data.json')`, which the path-scoped `connect-src` allows. Freshness comes from the agent publishing a new version, often from a routine. The share dialog lists the data files in the version, so a person sharing a link sees what data leaves with it.
 
 Phase 2 adds live calls through the bridge, modelled on MCP Apps and on Claude's artifact connectors:
 
 - The version declares grants in `harbourmaster.json`: which connector tools and platform read tools it may call, and with which argument limits.
-- The page sends `tools/call` to the frame. The frame calls `artifacts.callTool` over tRPC as the signed-in viewer (`workspaceProcedure`). The service checks the grant list, runs the tool through the existing credentials path with the viewer's own credential (`credentials.resolve` in `packages/services/src/credentials.ts:591`), and returns the scrubbed result.
+- The page sends `tools/call` to the frame over the bridge's `MessageChannel` port. The frame calls `artifacts.callTool` over tRPC as the signed-in viewer (`workspaceProcedure`). The service checks the grant list, runs the tool through the existing credentials path with the viewer's own credential (`credentials.resolve` in `packages/services/src/credentials.ts:591`), and returns the scrubbed result.
 - Only `readOnlyHint` tools can be granted in phase 2. A grant that a version adds or widens needs a person's approval, through the propose and approve flow skills already use.
 - Link viewers never trigger a call with anyone's rights. The bridge answers `tools/call` from a link viewer with an error. This is the main exfiltration path, so it is a requirement (R2.6), not a default.
 - Phase 2 can add "owner-scoped published queries": a person approves one named read query that runs as them on a schedule and writes a data file into a new version. That keeps the owner's rights on the server and the result as a snapshot.
@@ -246,10 +301,10 @@ Options:
 
 How it runs:
 
-- The content Worker routes `https://<artifactId>.<content-domain>/_v/<token>/api/*` to the main Worker over a service binding to a named entrypoint, `AppGateway`, passing the verified claims. The content Worker still never holds D1.
+- The content route sends `/a/<uuid>/c/<token>/api/*` to an `AppGateway` module in the main Worker, with the verified token claims (artifact, version, viewer). It answers CORS preflights for that path with `Access-Control-Allow-Origin: *` and no credentials, because the page calls it from an opaque origin.
 - `AppGateway` loads the version's `server/` bundle with `env.LOADER.get("app:<versionId>", …)`, so a version stays warm and a new version is a new Worker. Its `env` holds one binding, `HM`, made with `ctx.exports.AppHost({ props: { artifactId, versionId, viewer } })` as `ScriptHost` is today. `HM` offers storage, granted tool calls and a filtered `fetch`.
 - `globalOutbound` is an outbound entrypoint that allows only hosts the app declares and adds secrets through placeholders, like `SecretsOutbound` (`apps/web/src/server/secrets-outbound.ts`). With no hosts declared it is `null`, which blocks the network ([egress control](https://developers.cloudflare.com/dynamic-workers/usage/egress-control/)).
-- Storage is one SQLite Durable Object per app, `AppStore`, with a per-viewer area and a shared area, reached only through `HM`. Durable Object Facets, which give dynamically loaded code its own SQLite that the supervisor's database can't see, are the alternative to evaluate in the phase 2 spike ([facets](https://developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/)).
+- Storage is one SQLite Durable Object per app, `AppStore`, with a per-viewer area and a shared area, reached only through `HM` from the server part or through the bridge from the page. Pages can't use the browser's own storage in an opaque origin. Durable Object Facets, which give dynamically loaded code its own SQLite that the supervisor's database can't see, are the alternative to evaluate in the phase 2 spike ([facets](https://developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/)).
 - Limits: per-request CPU as the parent Worker, 50 subrequests (`MAX_SUBREQUESTS` in `dynamic-worker-sandbox.ts`), 20 MB of storage per app to start, the same as Claude's artifact storage.
 - Secrets: an app names secrets from the vault; a person grants them, as `grant_secret` does for agents (`packages/mcp/src/tools/admin.ts`). Values never reach the app's code, only placeholders that the outbound entrypoint fills.
 - Versions of apps go live only on promote. An agent publishes a version as `proposed`, tests it with `artifact_test` and `bun test`, and calls `artifact_promote`. A version that adds grants, secrets or hosts waits for a person in Needs you.
@@ -298,7 +353,7 @@ What each view row keeps, and why:
 | user agent, cut to 256 characters | header | Browser and bot detection |
 | referrer host only | header | Where a link travelled, without paths or tokens |
 
-Lawfulness. Under the EU's *Breyer* ruling, a dynamic IP address can be personal data, and security logging can be a legitimate interest ([Bird & Bird](https://twobirds.com/en/insights/2016/global/cjeu-decision-on-dynamic-ip-addresses-touches-fundamental-dp-law-questions), [GDPR recital 49](https://gdpr-info.eu/recitals/no-49/)). Australia's Privacy Act covers information about a reasonably identifiable person, APP 11.2 requires destroying or de-identifying information once it's no longer needed ([OAIC](https://www.oaic.gov.au/privacy/australian-privacy-principles/australian-privacy-principles-guidelines/chapter-11-app-11-security-of-personal-information)), and the tranche 2 exposure draft (31 Aug 2026, not law) would bring IP addresses clearly into scope (secondary source, [Sparke Helmore](https://www.sparke.com.au/insights/a-new-era-for-privacy-in-australia-implications-of-privacy-act-reform-tranche-2/)). The design therefore never stores a full IP, tells link viewers in the frame that opens are logged, and prunes rows after a retention period (open question 4). No authoritative norm for view-log retention was found. The CNIL suggests 6 to 12 months for security logs ([CNIL](https://cnil.fr/la-cnil-publie-une-recommandation-relative-aux-mesures-de-journalisation)). This is not legal advice.
+Lawfulness. Under the EU's *Breyer* ruling, a dynamic IP address can be personal data, and security logging can be a legitimate interest ([Bird & Bird](https://twobirds.com/en/insights/2016/global/cjeu-decision-on-dynamic-ip-addresses-touches-fundamental-dp-law-questions), [GDPR recital 49](https://gdpr-info.eu/recitals/no-49/)). Australia's Privacy Act covers information about a reasonably identifiable person, APP 11.2 requires destroying or de-identifying information once it's no longer needed ([OAIC](https://www.oaic.gov.au/privacy/australian-privacy-principles/australian-privacy-principles-guidelines/chapter-11-app-11-security-of-personal-information)), and the tranche 2 exposure draft (31 Aug 2026, not law) would bring IP addresses clearly into scope (secondary source, [Sparke Helmore](https://www.sparke.com.au/insights/a-new-era-for-privacy-in-australia-implications-of-privacy-act-reform-tranche-2/)). The design therefore never stores a full IP, tells link viewers in the frame that opens are logged, and deletes rows after 12 months (Dom's decision, 27 Oct 2026). No authoritative norm for view-log retention was found. The CNIL suggests 6 to 12 months for security logs ([CNIL](https://cnil.fr/la-cnil-publie-une-recommandation-relative-aux-mesures-de-journalisation)). This is not legal advice.
 
 ### 7. Versioning and Git sync (phase 3)
 
@@ -337,20 +392,20 @@ Workspace setting. Settings gains an "Artifacts" section with the link-sharing s
 
 | Risk | Mitigation |
 |---|---|
-| XSS or session theft through artifact code | Separate registrable domain, one host per artifact, a content Worker without session, D1 or secrets, a sandboxed iframe, CSP. Link viewers are not principals. |
+| XSS or session theft through artifact code | CSP `sandbox` header on every content response plus a sandboxed iframe, both without `allow-same-origin`; path-scoped CSP sources; no CORS credentials; content paths skip Clerk; `frame-ancestors 'none'` on the app. Link viewers are not principals. Residual risks are listed in section 3. |
+| A flagged phishing artifact gets the app's host blocklisted | Only members create links, agents can't, links expire and can be switched off; a Safe Browsing or mail-filter flag is a trigger to move content to its own domain (section 3). |
 | Phishing through shared links (the claude.ai FakeAgent case) | Content can't navigate the frame or run top-level; the frame always shows workspace, owner and "user-generated and unverified"; `noindex` everywhere; no downloads from the sandbox; only members create links; agents can't; links expire; the workspace switch and `ARTIFACT_LINKS_OFF` stop them all. A report button comes in phase 4. |
-| A prompt-injected agent publishes a page that asks for credentials | Agents can't create links, so the page reaches only members, inside the labelled frame. `form-action 'self'` and `connect-src 'self'` keep typed data on the content host, where phase 1 has nothing that accepts it. |
+| A prompt-injected agent publishes a page that asks for credentials | Agents can't create links, so the page reaches only members, inside the labelled frame. `form-action 'none'`, the path-scoped `connect-src`, no `allow-modals` and no popups keep typed data inside the page. |
 | Data exfiltration from a dashboard | Phase 1 has no live data. Phase 2 tool calls use the viewer's own rights, read-only tools only, grant changes need approval, and link viewers get no calls. Residual: CSP doesn't cover every channel (WebRTC, DNS prefetch, popups), so grants, not CSP, are the boundary. |
 | A shared link leaks further than intended | Expiry, revocation, the access log with places and networks, and dead-link opens recorded. |
 | Abuse of public links (scraping, load) | A Workers Rate Limiting binding on `/api/share/:token/open`, per token and per IP prefix. Content responses for one version are cacheable. |
 | Cost | R2 storage at the existing bucket, a per-workspace artifact quota of 1 GB like `LIBRARY_MAX_BYTES`, Browser Run time per `artifact_test` (billed beyond included hours, `wrangler.jsonc` comment), and Dynamic Workers within the included 1,000 per month at this scale. |
 | Moderation | Owners and admins delete artifacts and revoke links; soft delete keeps the record and stops serving at once; every management action is in `events`. |
 | Dynamic Workers stay in beta | Phase 2 keeps the loader behind a port, as `SkillScriptSandbox` is (`sandbox-port.ts`), so Workers for Platforms can replace it. |
-| Two Workers to deploy | `apps/artifact-host` deploys with its own `wrangler deploy`, documented in README "Deploy", and the staging walkthrough checks both. |
 
 ## Data model (sketch)
 
-All tables carry `workspace_id TEXT NOT NULL` with a foreign key, as every table but `workspaces` does (`docs/HANDOVER.md`). Ids are ULIDs.
+All tables carry `workspace_id TEXT NOT NULL` with a foreign key, as every table but `workspaces` does (`docs/HANDOVER.md`). Ids are ULIDs, except `artifacts.id`, which is a random UUID (`crypto.randomUUID()`) because it appears in URLs, as on claude.ai.
 
 `artifacts`
 
@@ -415,7 +470,7 @@ Indexes on `(artifact_id, created_at)` and `(share_id, created_at)`.
 
 `workspaces` gains `artifact_links_enabled` (boolean, default true).
 
-Shared constants in `packages/db/src/shared.ts`: `ARTIFACT_KINDS`, `ARTIFACT_AUDIENCES`, `ARTIFACT_VIEW_SURFACES`, `ARTIFACT_VIEW_OUTCOMES`, `ARTIFACT_MAX_FILES = 200`, `ARTIFACT_MAX_BYTES = 16 MB`, `ARTIFACT_WORKSPACE_MAX_BYTES = 1 GB`, `ARTIFACT_VIEW_KEEP_DAYS`, and the new `EVENT_TYPES`.
+Shared constants in `packages/db/src/shared.ts`: `ARTIFACT_KINDS`, `ARTIFACT_AUDIENCES`, `ARTIFACT_VIEW_SURFACES`, `ARTIFACT_VIEW_OUTCOMES`, `ARTIFACT_MAX_FILES = 200`, `ARTIFACT_MAX_BYTES = 16 MB`, `ARTIFACT_WORKSPACE_MAX_BYTES = 1 GB`, `ARTIFACT_VIEW_KEEP_DAYS = 365`, and the new `EVENT_TYPES`.
 
 Phase 2 adds `artifact_grants` (version_id, kind `tool` or `secret` or `host`, target, status, decided_by) and the `AppStore` Durable Object.
 
@@ -447,17 +502,14 @@ All `workspaceProcedure`, thin over the services.
 
 ### HTTP routes
 
-App origin, in a new artifacts route file mounted once in `apps/web/src/server.ts`:
+All in the main Worker, in a new artifacts route file mounted once in `apps/web/src/server.ts` before the TanStack fall-through.
 
 - `POST /api/share/:token/open` (public, rate limited). Response 200: `{ title, kind, workspaceName, ownerName | null, agentName | null, version: { number, createdAt }, contentUrl, expiresAt }`. Response 404: `{ error: "This link is not available." }` for every refusal.
 - `GET /api/artifacts/:id/thumbnail?version=<n>` (cookie session). `image/png` with the `/files` headers (`nosniff`, sandbox CSP).
-- `/a/*` and `/s/*` get `frame-ancestors 'none'` and `Referrer-Policy: no-referrer` from a small Hono middleware before TanStack handles them.
-
-Content origin, `apps/artifact-host`:
-
-- `GET https://<artifactId>.<content-domain>/_v/<token>/<path>`: the file, or the entry for `/`. 401 for a bad or expired token, 404 for a missing path, 302 to the app viewer for top-level navigation with a member or link token.
-- `GET /_hm/bridge.js` and `GET /_hm/doc.html`: platform files.
-- Everything else: 404.
+- `GET /a/<uuid>/c/<token>/<path>`: the file, or the entry for an empty path, with the headers of section 3 on every status. 401 for a bad or expired token or a token for another artifact, 404 for a missing path, 302 to `/a/<uuid>` for a top-level open with a member or link token, 403 for `Service-Worker: script`. Skips `clerkMiddleware()`.
+- `GET /a/<uuid>/c/<token>/_hm/bridge.js` and `_hm/doc.html`: platform files under the same headers.
+- `OPTIONS` and `* /a/<uuid>/c/<token>/api/*`: phase 2 app server parts.
+- Every other response from the app gets `frame-ancestors 'none'`. `/a/<uuid>` and `/s/<token>` also get `Referrer-Policy: no-referrer`.
 
 ### Bridge (phase 1 subset, MCP Apps names)
 
@@ -487,14 +539,16 @@ Agent tools
 - R1.13 No tool result, event payload or log line contains a view token or a share token.
 
 Hosting
-- R1.14 Artifact content is served only from `<artifactId>.<content-domain>` by `apps/artifact-host`, which has no D1 binding, no Clerk keys and no secrets except the view-token key.
+- R1.14 Every response under `/a/<uuid>/c/`, including errors and redirects, carries the CSP `sandbox allow-scripts allow-forms` without `allow-same-origin`, and the other headers of section 3.
 - R1.15 A content request with a missing, forged or expired token, or with a token for another artifact, answers 401 and no bytes.
-- R1.16 A top-level navigation to a content URL with a member or link token answers 302 to the app viewer, without the token.
-- R1.17 Content responses carry the CSP, `nosniff`, `no-referrer` and `noindex` headers of section 3, with `frame-ancestors` limited to the app's origins.
-- R1.18 The app embeds content in an iframe with exactly `allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox`.
-- R1.19 A script in an artifact can't read the app's cookies, DOM or storage, and can't navigate the top frame (checked by probe pages in the staging check).
-- R1.20 The frame accepts messages only from its own iframe, validates them, and opens a link only after the viewer confirms.
-- R1.21 A `doc` artifact renders its markdown inside the sandbox, not on the app origin.
+- R1.16 A top-level open of a content URL with a member or link token answers 302 to `/a/<uuid>`, without the token.
+- R1.17 CSP sources in content responses are limited to the version's content folder and the CDN allowlist; a probe page can't load or fetch `/api/*`, `/files/*` or another artifact's path.
+- R1.18 The viewer embeds content in an iframe with exactly `sandbox="allow-scripts allow-forms"`.
+- R1.19 A probe artifact can't read `document.cookie`, `localStorage` or the parent DOM, can't send a request to `/api/trpc` that carries the session, can't register a service worker, can't navigate the top window, can't submit a form and can't call `prompt()`, when framed and when its URL is opened directly.
+- R1.20 The frame talks to the page only through a `MessageChannel` port set up on `ui/initialize`, validates every message, and opens a link only after the viewer confirms.
+- R1.21 An iframe `load` without a fresh `ui/initialize` blanks the frame and shows a warning.
+- R1.21a Every non-content app response carries `frame-ancestors 'none'`, and content paths skip `clerkMiddleware()`.
+- R1.21b A `doc` artifact renders its markdown inside the sandbox.
 
 UI
 - R1.22 A published artifact appears in the thread as a card with a live preview on desktop and a thumbnail on phones, live while the run streams and after a reload.
@@ -517,14 +571,14 @@ Sharing and the log
 
 ### Phase 2: live dashboards and micro apps
 
-- R2.1 An `app` artifact can include `server/` code that runs in a Dynamic Worker per version, reached at `/_v/<token>/api/*` on its content host.
+- R2.1 An `app` artifact can include `server/` code that runs in a Dynamic Worker per version, reached at `/a/<uuid>/c/<token>/api/*`.
 - R2.2 App server code has no network unless the version declares hosts and a person approved them.
 - R2.3 App storage is per app, with a per-viewer area and a shared area, capped at 20 MB, reachable only through `HM`.
 - R2.4 An agent's app version is `proposed` until `artifact_promote`; a version that adds grants, secrets or hosts waits for a person in Needs you.
 - R2.5 A page calls a granted read-only tool through the bridge, and it runs with the signed-in viewer's own credential.
 - R2.6 A link viewer's `tools/call`, storage write or server call that needs a person's rights is refused.
 - R2.7 People can pin an artifact to the sidebar and as a desk tile.
-- R2.8 The content domain is on the Public Suffix List before R2.1 ships.
+- R2.8 Before R2.1 ships, a review checks the subdomain triggers of section 3 against phase 2's apps and records the answer.
 - R2.9 A person can hand an artifact to another agent, which may then update it.
 
 ### Phase 3: Git sync
@@ -545,77 +599,76 @@ Sharing and the log
 
 | Phase | Ships | Depends on |
 |---|---|---|
-| 1 | Static, doc and snapshot dashboard artifacts; agent tools with Browser Run testing; thread card, task slot, Artifacts page, framed link; private and workspace audiences; link sharing with expiry and revoke; access log; content Worker on its own domain | A content domain (open question 1) |
-| 2 | Live dashboards through the bridge with viewer rights; micro apps with server parts, storage, grants, propose and promote; pins on desk and sidebar | Phase 1, PSL entry, a spike on Dynamic Workers and Facets |
+| 1 | Static, doc and snapshot dashboard artifacts; agent tools with Browser Run testing; thread card, task slot, Artifacts page, framed link; private and workspace audiences; link sharing with expiry and revoke; access log; sandboxed content routes on the app's origin | Nothing outside the repo |
+| 2 | Live dashboards through the bridge with viewer rights; micro apps with server parts, storage, grants, propose and promote; pins on desk and sidebar | Phase 1, a spike on Dynamic Workers and Facets, the subdomain review (R2.8) |
 | 3 | Git sync, push then pull | Phase 2, a GitHub App |
 | 4 | People and public sharing, agent share requests, reports, comments | Phase 1 |
 
 ## Phase 1 tasks
 
-Ids are placeholders. The contract task A.1 alone changes `packages/db/src/schema`, `packages/db/src/shared.ts` and generates the migration, as the v2 rules require (`docs/v2/build-plan.md`, "Rules for parallel work"). A new lane, `artifact-host`, holds the new Worker app. Every new binding or var for the main Worker goes in three places in `apps/web/wrangler.jsonc` and lands in the worker lane.
+Ids are placeholders. The contract task A.1 alone changes `packages/db/src/schema`, `packages/db/src/shared.ts` and generates the migration, as the v2 rules require (`docs/v2/build-plan.md`, "Rules for parallel work"). Every new binding or var goes in three places in `apps/web/wrangler.jsonc` and lands in the worker lane. The domain spike and the separate content Worker of the first draft are gone. Their browser probes moved into A.4's check and the staging check.
 
 | id | title | size | depends_on | lane | executor |
 |---|---|---|---|---|---|
 | A.1 | Artifacts contract | M | none | db | claude |
-| A.2 | Content domain and host spike | S | none | ops | claude |
-| A.3 | Artifacts service and router | L | A.1 | services | codex |
-| A.4 | Shares, view tokens and access log service | M | A.3 | services | codex |
-| A.5 | Content host Worker | L | A.1, A.2 | artifact-host | claude |
-| A.6 | Artifact MCP tools | M | A.1 | mcp | codex |
-| A.7 | Wiring, share route, test driver and tick | L | A.3, A.4, A.6 | worker | claude |
-| A.8 | Thread fold for artifacts | S | A.1 | mcp | codex |
-| A.9 | Artifacts page and framed viewer | L | A.5, A.7 | web | claude |
-| A.10 | Thread card and task slot | M | A.8, A.9 | web | claude |
-| A.11 | Share dialog, share page and access log | M | A.10 | web | claude |
-| A.12 | Phase 1 staging check | M | all A tasks | worker | claude |
+| A.2 | Artifacts service and router | L | A.1 | services | codex |
+| A.3 | Shares, view tokens and access log service | M | A.2 | services | codex |
+| A.4 | Sandboxed content routes and bridge script | L | A.1 | worker | claude |
+| A.5 | Artifact MCP tools | M | A.1 | mcp | codex |
+| A.6 | Wiring, share route, test driver and tick | L | A.2, A.3, A.4, A.5 | worker | claude |
+| A.7 | Thread fold for artifacts | S | A.1 | mcp | codex |
+| A.8 | Artifacts page and framed viewer | L | A.6 | web | claude |
+| A.9 | Thread card and task slot | M | A.7, A.8 | web | claude |
+| A.10 | Share dialog, share page and access log | M | A.9 | web | claude |
+| A.11 | Phase 1 staging check | M | all A tasks | worker | claude |
 
 Scope and check per task:
 
-**A.1 Artifacts contract.** Scope: the five tables and `workspaces.artifact_links_enabled` in `packages/db/src/schema/artifacts.ts`; migration with `migrations/meta`; constants, types and `EVENT_TYPES` in `shared.ts`; `packages/protocol/src/artifacts.ts` with the view-token claim schema and the phase 1 bridge message schemas (confirm MCP Apps names). Check: `schema.test.ts` and `foreign-keys.test.ts` cover the tables, protocol tests parse every bridge message and token claim, the `events` triggers survive, `bun run check && bun run test && bun run build` pass.
+**A.1 Artifacts contract.** Scope: the five tables and `workspaces.artifact_links_enabled` in `packages/db/src/schema/artifacts.ts`, with `artifacts.id` a UUID; migration with `migrations/meta`; constants, types and `EVENT_TYPES` in `shared.ts`; `packages/protocol/src/artifacts.ts` with the view-token claim schema, the content path builder, and the phase 1 bridge message schemas (confirm MCP Apps names). Check: `schema.test.ts` and `foreign-keys.test.ts` cover the tables, protocol tests parse every bridge message and token claim, the `events` triggers survive, `bun run check && bun run test && bun run build` pass.
 
-**A.2 Content domain and host spike.** Scope: with Dom's domains, a throwaway Worker on staging's content domain behind a wildcard route and proxied wildcard DNS; prove Universal SSL on `<ulid>.<domain>`, the iframe attributes, `Sec-Fetch-Dest` in Chrome, Firefox and Safari, `*.localhost` for local dev, and record which Clerk cookies the production instance sets on which domain. Write `docs/v3/decisions/artifact-host.md`. Check: the decision file lists each probe with its result and screenshots; the throwaway Worker is deleted.
+**A.2 Artifacts service and router.** Scope: `packages/services/src/artifacts/` factory over `{ db, atomic, blobs, clock, events, library }`: create, update with base check, content-addressed blob and manifest writes, `fromLibraryPath` through the library service's read rules, limits, list, get, versions, read file, restore, rename, audience, soft delete, the audience and agent rules of R1.5, R1.6 and R1.9, events with session and run; `artifacts-router.ts` for the procedures except shares and views. Check: unit tests for R1.2 to R1.6, R1.8, R1.9 and the events of R1.34 against `bun:sqlite`; router tests for 401 and 403.
 
-**A.3 Artifacts service and router.** Scope: `packages/services/src/artifacts/` factory over `{ db, atomic, blobs, clock, events, library }`: create, update with base check, content-addressed blob and manifest writes, `fromLibraryPath` through the library service's read rules, limits, list, get, versions, read file, restore, rename, audience, soft delete, the audience and agent rules of R1.5, R1.6 and R1.9, events with session and run; `artifacts-router.ts` for the procedures except shares and views. Check: unit tests for R1.2 to R1.6, R1.8, R1.9 and the events of R1.34 against `bun:sqlite`; router tests for 401 and 403.
+**A.3 Shares, view tokens and access log service.** Scope: `hm_view_` token sign and verify in an entry that imports no drizzle; `hm_share_` link create (hash plus encrypted copy), list, revoke, expiry, pinned version, workspace switch (admins), open for members and links with view recording, IP truncation, daily salts, 12-month prune; `PLATFORM_TOOL_LABELS` entries for the artifact write tools; router procedures for shares, views and the switch. Check: tests for R1.27, R1.29 to R1.34 and R1.13, including a type test that a `ShareGrant` can't be passed where a `Principal` is expected, and that no stored row or event holds a token or a full IP.
 
-**A.4 Shares, view tokens and access log service.** Scope: token sign and verify in an entry that imports no drizzle (the host imports it); link create (hash plus encrypted copy), list, revoke, expiry, pinned version, workspace switch (admins), open for members and links with view recording, IP truncation, daily salts, prune; `PLATFORM_TOOL_LABELS` entries for the artifact write tools; router procedures for shares, views and the switch. Check: tests for R1.27, R1.29 to R1.34 and R1.13, including that a `ShareGrant` can't be passed where a `Principal` is expected (a type test), and that no stored row or event holds a token or a full IP.
+**A.4 Sandboxed content routes and bridge script.** Scope: a Hono route module under `apps/web/src/server/artifact-content/` for `/a/<uuid>/c/<token>/*`: token check, manifest and blob reads from R2, one header wrapper for every response, the `Sec-Fetch-Dest` redirect, the `Service-Worker` refusal, `HTMLRewriter` injection of `_hm/bridge.js`, the bridge script with its `MessageChannel` and storage stand-ins, and the markdown viewer. Not mounted yet. Check: route tests for R1.14 to R1.17 over every status code; a browser probe in Chrome and Firefox against a local dev server for R1.19, framed and opened directly, with the cookie result recorded in `docs/reviews/tasks/A.4.md`; `bun run check && bun run test && bun run build` pass.
 
-**A.5 Content host Worker.** Scope: `apps/artifact-host` with `wrangler.jsonc` for production and staging only, the wildcard route, `FILES` and the view-key secret; token check, manifest and blob reads, headers of R1.17, `Sec-Fetch-Dest` redirect, HTMLRewriter bridge injection, `/_hm/bridge.js` and the markdown viewer; local dev on `*.localhost`; turbo build and test; README "Deploy" section for the second Worker. Check: Worker tests for R1.15 to R1.17 and R1.21; `bun run check && bun run test && bun run build` pass.
+**A.5 Artifact MCP tools.** Scope: `packages/mcp/src/tools/artifacts.ts` with the five tools, ports in `packages/mcp/src/ports.ts`, annotations, descriptions that tell agents to use relative paths and to test, registration in `server.ts`. Check: tool tests for schemas, annotations, the dry-run text (R1.10) and error codes; `tools.test.ts` lists the new names.
 
-**A.6 Artifact MCP tools.** Scope: `packages/mcp/src/tools/artifacts.ts` with the five tools, ports in `packages/mcp/src/ports.ts`, annotations, descriptions that tell agents to use relative paths and to test, registration in `server.ts`. Check: tool tests for schemas, annotations, the dry-run text (R1.10) and error codes; `tools.test.ts` lists the new names.
+**A.6 Wiring, share route, test driver and tick.** Scope: build both services in `composeWith` and add them to `Services`; merge the router in `router.ts`; in `server.ts`, mount the content routes and the artifacts routes, skip `clerkMiddleware()` and compose for content paths, and add the `frame-ancestors 'none'` middleware (R1.21a); `POST /api/share/:token/open` and the thumbnail route; MCP port adapters; the `artifact_test` driver over `browser-run.ts`; `artifact.published` in `STREAM_EVENT_TYPES`; tick jobs for view and salt pruning; var `ARTIFACT_LINKS_OFF`, secret `ARTIFACT_VIEW_KEY` and a rate-limit binding, each in three places. Check: route tests for R1.29, R1.35, R1.36 and R1.21a; an MCP round trip from a run token through `artifact_create` and `artifact_test` with a fake browser driver; `compose.test.ts` passes.
 
-**A.7 Wiring, share route, test driver and tick.** Scope: build both services in `composeWith` and add them to `Services`; merge the router in `router.ts`; mount the artifacts routes in `server.ts` (`POST /api/share/:token/open`, thumbnail, the `/a` and `/s` header middleware); MCP port adapters; the `artifact_test` driver over `browser-run.ts`; `artifact.published` in `STREAM_EVENT_TYPES`; tick jobs for view and salt pruning; vars `ARTIFACT_CONTENT_DOMAIN` and `ARTIFACT_LINKS_OFF`, secret `ARTIFACT_VIEW_KEY`, and a rate-limit binding, each in three places. Check: route tests for R1.29, R1.35 and R1.36; an MCP round trip test from a run token through `artifact_create` and `artifact_test` with a fake browser driver; `compose.test.ts` passes.
+**A.7 Thread fold for artifacts.** Scope: `packages/protocol/src/thread.ts` folds `artifact.published` into an `artifact` part after the tool call that made it, in both `foldThread` and `applyFrame`. Check: fold tests for replay, live frames, dedupe and a reload mid-run.
 
-**A.8 Thread fold for artifacts.** Scope: `packages/protocol/src/thread.ts` folds `artifact.published` into an `artifact` part after the tool call that made it, in both `foldThread` and `applyFrame`. Check: fold tests for replay, live frames, dedupe and a reload mid-run.
+**A.8 Artifacts page and framed viewer.** Scope: nav item; `/artifacts`; `/a/$artifactId` outside `_app` with the top bar, version picker, history sheet with restore confirm, rename, delete confirm, audience switch, the iframe, the bridge's frame side and the load-without-initialize warning (R1.20, R1.21); mobile layout. Check: component tests for the bridge handler; browser check at 1280 x 800 and 390 x 844 (R1.24 to R1.26).
 
-**A.9 Artifacts page and framed viewer.** Scope: nav item; `/artifacts`; `/a/$artifactId` outside `_app` with the top bar, version picker, history sheet with restore confirm, rename, delete confirm, audience switch, the iframe and the frame's message handler; mobile layout. Check: component tests for the message handler (R1.20); browser check at 1280 x 800 and 390 x 844 (R1.24 to R1.26) against a local content host.
+**A.9 Thread card and task slot.** Scope: `data-artifact` part in `thread-parts.ts` and `assistant-message-container.tsx`, the card with lazy preview and click-to-interact overlay, thumbnail on phones, the Artifacts slot in `task-page.tsx`. Check: tests for the part mapping; browser check that a run's artifact shows live and after reload (R1.22, R1.23).
 
-**A.10 Thread card and task slot.** Scope: `data-artifact` part in `thread-parts.ts` and `assistant-message-container.tsx`, the card with lazy preview and click-to-interact overlay, thumbnail on phones, the Artifacts slot in `task-page.tsx`. Check: tests for the part mapping; browser check that a run's artifact shows live and after reload (R1.22, R1.23).
+**A.10 Share dialog, share page and access log.** Scope: the share dialog and phone sheet with data-file list, link form and list with revoke confirm; `/s/$token` outside `_app` with labels and the dead-link page; the access log tab; the admin switch in Settings. Check: browser check in a fresh profile with no session (R1.28), revoke then reopen (R1.29), and the log rows shown (R1.31).
 
-**A.11 Share dialog, share page and access log.** Scope: the share dialog and phone sheet with data-file list, link form and list with revoke confirm; `/s/$token` outside `_app` with labels and the dead-link page; the access log tab; the admin switch in Settings. Check: browser check in a fresh profile with no session (R1.28), revoke then reopen (R1.29), and the log rows shown (R1.31).
-
-**A.12 Phase 1 staging check.** Scope: deploy both Workers to staging; one agent per runtime makes a page, a doc and a dashboard and tests them; open each from the thread, the task view, `/artifacts` and on a phone width; run probe artifacts that try to read app cookies, frame the app, navigate the top frame and beacon to another host; create, open, revoke and expire links from a fresh browser; turn the switch off; read the log. Record results in `docs/reviews/tasks/A.12.md`. The minute tick runs only on the production Worker (`wrangler.jsonc`, crons comment), so R1.33's pruning is checked by its unit tests, not on staging. Check: every R1 requirement has a pass line with evidence.
+**A.11 Phase 1 staging check.** Scope: deploy to staging; one agent per runtime makes a page, a doc and a dashboard and tests them; open each from the thread, the task view, `/artifacts` and at phone width; run the probe artifacts of R1.19 framed and opened directly, in Chrome through agent-browser and in Safari by hand (Dom or the controller); create, open, revoke and expire links from a fresh browser; turn the switch off; read the log. Record results in `docs/reviews/tasks/A.11.md`. The minute tick runs only on the production Worker (`wrangler.jsonc`, crons comment), so R1.33's pruning is checked by its unit tests, not on staging. Check: every R1 requirement has a pass line with evidence.
 
 Running sets, at most one task per lane at a time:
 
-1. A.1 (db), A.2 (ops)
-2. A.3 (services), A.5 (artifact-host), A.6 (mcp)
-3. A.4 (services), A.8 (mcp), A.5 continues
-4. A.7 (worker)
-5. A.9 (web)
-6. A.10 (web)
-7. A.11 (web)
-8. A.12 (worker)
+1. A.1 (db)
+2. A.2 (services), A.4 (worker), A.5 (mcp)
+3. A.3 (services), A.7 (mcp)
+4. A.6 (worker)
+5. A.8 (web)
+6. A.9 (web)
+7. A.10 (web)
+8. A.11 (worker)
 
-The web lane (A.9 to A.11) is the critical path. 12 tasks, 4 on Codex (A.3, A.4, A.6, A.8).
+The web lane (A.8 to A.10) is the critical path. 11 tasks, 4 on Codex (A.2, A.3, A.5, A.7).
+
+## Decisions
+
+- 27 Oct 2026, Dom: artifacts live on the app's origin under `/a/<uuid>`, with the content under that path. No separate content domain in phase 1 or 2. A subdomain comes later only if a trigger in section 3 fires.
+- 27 Oct 2026, Dom: the default audience follows the session. Artifacts from web chat and Slack DMs start private to the person who opened the session, and the rest start workspace-wide.
+- 27 Oct 2026, Dom: the access log keeps rows for 12 months, with IPv4 /24 and IPv6 /48 prefixes and a daily-salted visitor hash, and never a full IP.
 
 ## Open questions for Dom
 
-1. Which content domain? It must be a separate registrable domain, not under `rockyshoreslabs.io`. Recommended: buy two short domains, one for production and one for staging (for example `<name>content.net` and `<name>content-staging.net`), and put the production one on the Public Suffix List before phase 2.
-2. Default audience. Recommended: follow the session. An artifact from a web chat or a Slack DM starts private to the person who opened that session. An artifact from a Slack channel, a trigger or a routine starts workspace-wide. Making everything workspace-wide is simpler, but it would show the whole workspace what a private chat produced.
-3. Who may create links. Recommended: the owner and workspace admins, never agents in phase 1, with a workspace switch that is on by default. The alternative is any member, as with desk keys today (X.2 log).
-4. Access log retention. Recommended: 12 months, with IP prefixes and a daily-salted visitor hash only, never full addresses. Shorter (90 days) is also defensible; no authoritative norm exists for view logs.
-5. Live data for link viewers in phase 2. Recommended: none. Link viewers see snapshot data only, and live calls run only for signed-in members with their own rights. Owner-scoped data for link viewers goes through a person-approved scheduled query that writes a snapshot.
-6. Agent versions. Recommended: page, doc and dashboard versions go live at once, as on claude.ai, and restore undoes a bad one. App versions with new grants wait for a person.
-7. Library mirror. Recommended: no copy of artifact files in the library. Agents publish from their task folder, and a "Save to library" action can come later.
-8. PR previews. Recommended: no artifact viewer in previews, as with the Linux VM. A second preview content domain isn't worth it now.
-9. Storage quota. Recommended: 1 GB of artifact bytes per workspace, like the library.
+1. Who may create links. Recommended: the owner and workspace admins, never agents in phase 1, with a workspace switch that is on by default. The alternative is any member, as with desk keys today (X.2 log).
+2. Live data for link viewers in phase 2. Recommended: none. Link viewers see snapshot data only, and live calls run only for signed-in members with their own rights. Owner-scoped data for link viewers goes through a person-approved scheduled query that writes a snapshot.
+3. Agent versions. Recommended: page, doc and dashboard versions go live at once, as on claude.ai, and restore undoes a bad one. App versions with new grants wait for a person.
+4. Library mirror. Recommended: no copy of artifact files in the library. Agents publish from their task folder, and a "Save to library" action can come later.
+5. Storage quota. Recommended: 1 GB of artifact bytes per workspace, like the library.
