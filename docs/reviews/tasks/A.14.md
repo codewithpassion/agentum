@@ -5,7 +5,7 @@ Run on `vite dev` at port 3214 from the A.14 worktree, signed in with dev login,
 ## Verdicts
 
 Round 1 (8dfd76ec): must-fix. The phone share sheet and history sheet kept shadcn's 28 px close button, so R1.26 did not hold as written. Fixed with a 40 px close button (`sheet-close.tsx`, `showCloseButton={false}`). Nits fixed: header comment, `.sr-only` and task-list CSS for GFM output, two more doc tests (task lists, inert HTML and `javascript:` links inside tables).
-Round 2: pending.
+Round 2 (9825b1f8, fix commits only): clean. Two nits: the new close button is now the first tabbable element in the sheet, so focus starts on Close; and the check line below needed a commit to point at (it is 9825b1f8).
 
 ## Evidence per requirement
 
@@ -34,7 +34,7 @@ Data files in the share dialog: the dashboard's dialog lists `data.json 1 KB`.
 
 ## After merging v3/artifacts (B.6, B.7)
 
-Merged `v3/artifacts` (5a47d005) and re-ran on the merged tree: the probe in Chromium and Firefox, framed and direct (same counts, 0 failed, no API requests from content frames, iframe `sandbox="allow-scripts allow-forms"` with the nonce `name` set); viewer pages for a page, a dashboard and a doc; the thread card (live preview on desktop, thumbnail at 390 px); the share page at 1280 and 390 px; the sheets at 390 px. No new failures. `bun run check && bun run test && bun run build` pass on the merge (see the final commit).
+Merged `v3/artifacts` (5a47d005) and re-ran on the merged tree: the probe in Chromium and Firefox, framed and direct (same counts, 0 failed, no API requests from content frames, iframe `sandbox="allow-scripts allow-forms"` with the nonce `name` set); viewer pages for a page, a dashboard and a doc; the thread card (live preview on desktop, thumbnail at 390 px); the share page at 1280 and 390 px; the sheets at 390 px. No new failures. `bun run check && bun run test && bun run build` pass at 9825b1f8 (the 40 px label change came after the browser re-runs and was measured on its own). One services test (`an hour of never-claimed runs stays bounded...`) timed out at 60 s in one full run while the machine's load average was about 29; it passes alone and in the later full run.
 
 ## Probe (R1.19), real server
 
