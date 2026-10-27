@@ -8,6 +8,7 @@ import {
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { eq } from "drizzle-orm";
 import { type callMcpTool, McpUnauthorizedError } from "../connectors/mcp.ts";
 import type {
   CredentialsService,
@@ -18,6 +19,7 @@ import type { Principal } from "../workspaces.ts";
 import {
   type ArtifactCallErrorCode,
   createArtifactCallsService,
+  createConnectorToolCatalog,
   createToolRunner,
   isArtifactCallError,
   MAX_CALL_RESULT_BYTES,
@@ -512,5 +514,99 @@ describe("callTool as a member (R2.5)", () => {
       "https://mcp.example.com/mcp",
       "https://b.example.com/mcp",
     ]);
+  });
+});
+
+describe("argument limits on a member's call", () => {
+  const LIMITS = 'xero/list_invoices#{"limit":{"max":5}}';
+  const withLimits = (limit: unknown) => ({
+    ...call("xero/list_invoices"),
+    arguments: { limit },
+  });
+
+  test("a call outside the limits is refused and never reaches the runner", async () => {
+    const { resolveUserCalls, seen, service } = setup({
+      grants: ["xero/list_invoices", LIMITS],
+    });
+    for (const limit of [6, "5", undefined]) {
+      expect(
+        // biome-ignore lint/performance/noAwaitInLoops: each call is checked in turn
+        await codeOf(service.callTool(member("v"), withLimits(limit)))
+      ).toBe("not_granted");
+    }
+    expect(resolveUserCalls).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  test("a call inside the limits runs", async () => {
+    const { seen, service } = setup({
+      grants: ["xero/list_invoices", LIMITS],
+    });
+    await service.callTool(member("v"), call("xero/list_invoices"));
+    expect(seen.map((s) => s.args)).toEqual([{ limit: 5 }]);
+  });
+
+  test("a limits row that is not approved refuses the call", async () => {
+    const { db, seen, service } = setup({
+      grants: ["xero/list_invoices", LIMITS],
+    });
+    db.update(artifactGrants)
+      .set({ status: "pending" })
+      .where(eq(artifactGrants.target, LIMITS))
+      .run();
+    expect(
+      await codeOf(service.callTool(member("v"), call("xero/list_invoices")))
+    ).toBe("not_granted");
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("the connector tool catalog", () => {
+  test("knows a connector tool by its server key and reports its read-only hint", async () => {
+    const { db } = setup();
+    const catalog = createConnectorToolCatalog(db);
+    expect(await catalog.lookup("w1", "xero/list_invoices", null)).toEqual({
+      readOnly: true,
+    });
+    expect(await catalog.lookup("w1", "xero/create_bill", null)).toEqual({
+      readOnly: false,
+    });
+  });
+
+  test("knows nothing of a missing tool, connector, workspace or the platform's own tools", async () => {
+    const { db } = setup();
+    const catalog = createConnectorToolCatalog(db);
+    expect(await catalog.lookup("w1", "xero/nope", null)).toBeNull();
+    expect(await catalog.lookup("w1", "other/list_invoices", null)).toBeNull();
+    expect(await catalog.lookup("w2", "xero/list_invoices", null)).toBeNull();
+    expect(
+      await catalog.lookup("w1", "harbourmaster/artifact_read", null)
+    ).toBeNull();
+    expect(await catalog.lookup("w1", "xerolist_invoices", null)).toBeNull();
+  });
+
+  test("an agent's artifact uses the agent's connector list for the keys", async () => {
+    const { db } = setup();
+    const catalog = createConnectorToolCatalog(db);
+    // No agent has the connector assigned, so its keys are empty.
+    expect(
+      await catalog.lookup("w1", "xero/list_invoices", "a-none")
+    ).toBeNull();
+  });
+});
+
+describe("a limits row is not a tool", () => {
+  test("a member cannot name a `<tool>#<json>` target as the tool", async () => {
+    const { service } = setup({
+      grants: ["xero/list_invoices", 'xero/list_invoices#{"limit":{"max":5}}'],
+    });
+    expect(
+      await codeOf(
+        service.callTool(
+          member("v"),
+          call('xero/list_invoices#{"limit":{"max":5}}')
+        )
+      )
+    ).toBe("not_granted");
   });
 });

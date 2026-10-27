@@ -43,6 +43,12 @@ describe("appOutboundFetch", () => {
     expect(t.sent.length).toBe(1);
   });
 
+  test("a request goes out with redirects left to the app, so a redirect cannot skip the allowlist", async () => {
+    const t = setup(["api.example.com"]);
+    await t.run("https://api.example.com/x");
+    expect(t.sent.at(0)?.redirect).toBe("manual");
+  });
+
   test("a host that is not approved gets 403 and nothing is sent", async () => {
     const t = setup(["api.example.com"]);
     const answer = await t.run("https://blocked.test/");

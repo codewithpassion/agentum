@@ -117,6 +117,7 @@ export const TOOL_NAMES = harbourmasterTools({
   artifacts: {
     create: unusedPort,
     list: unusedPort,
+    promote: unusedPort,
     read: unusedPort,
     test: unusedPort,
     update: unusedPort,

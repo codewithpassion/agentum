@@ -4,6 +4,7 @@ import {
   callableConnectors,
   findArtifactAccess,
   findVersionStatus,
+  toolLimitRows,
 } from "./artifact-calls.ts";
 import { agents } from "./schema/agents.ts";
 import {
@@ -204,4 +205,34 @@ test("callableConnectors for an agent lists its assigned connectors in assignmen
     workspaceId: "w1",
   });
   expect(rows.map((r) => r.id)).toEqual(["c2"]);
+});
+
+test("toolLimitRows returns the limit rows of one tool in any status", async () => {
+  const db = seed();
+  db.insert(artifactGrants)
+    .values([
+      grant("g1", "xero/list_invoices", "approved"),
+      grant("g2", 'xero/list_invoices#{"limit":{"max":5}}', "approved"),
+      grant("g3", 'xero/list_invoices#{"q":{"maxLength":9}}', "pending"),
+      grant("g4", 'xero/list_invoices_all#{"limit":{"max":1}}', "approved"),
+      grant("g5", 'xero/other#{"limit":{"max":1}}', "approved"),
+      grant("g6", 'xero/list_invoices#{"x":{"min":0}}', "approved", "host"),
+    ])
+    .run();
+  const rows = await toolLimitRows(db, {
+    tool: "xero/list_invoices",
+    versionId: "v1",
+    workspaceId: "w1",
+  });
+  expect(rows.sort((a, b) => a.target.localeCompare(b.target))).toEqual([
+    { status: "approved", target: 'xero/list_invoices#{"limit":{"max":5}}' },
+    { status: "pending", target: 'xero/list_invoices#{"q":{"maxLength":9}}' },
+  ]);
+  expect(
+    await toolLimitRows(db, {
+      tool: "xero/list_invoices",
+      versionId: "v1",
+      workspaceId: "w2",
+    })
+  ).toEqual([]);
 });

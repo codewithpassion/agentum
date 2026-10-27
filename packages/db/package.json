@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/database.ts",
     "./artifact-grants": "./src/artifact-grants.ts",
+    "./artifact-app": "./src/artifact-app.ts",
     "./artifact-calls": "./src/artifact-calls.ts",
     "./artifacts": "./src/artifacts.ts",
     "./artifact-shares": "./src/artifact-shares.ts",

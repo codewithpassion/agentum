@@ -40,7 +40,11 @@ const SLACK_READ_NAMES = [
 const SLACK_WRITE_NAMES = ["slack_send"];
 
 const ARTIFACT_READ_NAMES = ["artifact_list", "artifact_read", "artifact_test"];
-const ARTIFACT_WRITE_NAMES = ["artifact_create", "artifact_update"];
+const ARTIFACT_WRITE_NAMES = [
+  "artifact_create",
+  "artifact_promote",
+  "artifact_update",
+];
 
 const EXPECTED_NAMES = [
   "library_list",
@@ -103,6 +107,7 @@ const fakePorts: McpPorts = {
   artifacts: {
     create: uncalled,
     list: uncalled,
+    promote: uncalled,
     read: uncalled,
     test: uncalled,
     update: uncalled,

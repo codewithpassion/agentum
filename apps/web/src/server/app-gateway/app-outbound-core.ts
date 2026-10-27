@@ -48,7 +48,10 @@ export const appOutboundFetch = async (
   return await outboundFetch(request, {
     announce: (announcedHost, names) =>
       deps.grants.announce(props, announcedHost, names),
-    fetch: deps.fetch,
+    // A redirect goes back to the app, which asks again and so comes through
+    // the allowlist again. Following one here would skip the host check.
+    fetch: (outgoing) =>
+      deps.fetch(new Request(outgoing, { redirect: "manual" })),
     log: deps.log,
     matches: (matchHost) => deps.grants.secretRules(props, matchHost),
   });
