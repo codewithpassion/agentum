@@ -69,7 +69,10 @@ export const withContentHeaders = (
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("X-Robots-Tag", "noindex, nofollow");
-  headers.set("Cache-Control", "private, max-age=300");
+  // `no-transform` stops Cloudflare Web Analytics' automatic setup from
+  // injecting its beacon into the page (Web Analytics FAQ, "automatic setup is
+  // not working": https://developers.cloudflare.com/web-analytics/faq/).
+  headers.set("Cache-Control", "private, max-age=300, no-transform");
   headers.set("Access-Control-Allow-Origin", "*");
   headers.delete("Access-Control-Allow-Credentials");
   headers.delete("Service-Worker-Allowed");

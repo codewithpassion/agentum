@@ -245,6 +245,7 @@ import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { appStorePort } from "./app-store/port.ts";
 import { browserRunDriver } from "./browser-run.ts";
+import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { libraryNotifier } from "./library-notifier.ts";
@@ -313,6 +314,8 @@ export interface Infra {
   managedPoller?: ManagedPollerPort;
   /** Finds the workspace member behind a verified email, for the desk API. Without one, no desk key resolves a member. */
   memberDirectory?: MemberDirectory;
+  /** Reads a Clerk organisation's name, for naming a workspace. Without it, a workspace is named by its org id. */
+  orgName?: (clerkOrgId: string) => Promise<string | null>;
   /** Names the people behind user ids in the Log. Without it, the Log shows ids. */
   people?: PeopleLookup;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
@@ -506,7 +509,11 @@ export const composeWith = ({
       : []),
   ];
 
-  const workspaces = createWorkspacesService({ allowedOrgIds, db });
+  const workspaces = createWorkspacesService({
+    allowedOrgIds,
+    db,
+    orgName: infra.orgName,
+  });
   const events = createEventsService({
     blobs: infra.blobs,
     db,
@@ -1060,6 +1067,7 @@ export const compose = (
         }),
       managedPoller: durablePollerPort(env.MANAGED_POLLER),
       memberDirectory: clerkEmailMemberLookup(env.CLERK_SECRET_KEY),
+      orgName: clerkOrgName(env.CLERK_SECRET_KEY),
       people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
