@@ -3,6 +3,7 @@ import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TooltipProvider } from "#/components/ui/tooltip";
 import { useIsAppShell } from "#/hooks/use-app-shell";
+import { useIsFullBleed } from "#/hooks/use-full-bleed";
 import { cn } from "#/lib/utils";
 import Footer from "../components/footer";
 import Header from "../components/header";
@@ -40,6 +41,7 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   const inAppShell = useIsAppShell();
+  const fullBleed = useIsFullBleed();
 
   return (
     <html className="light" lang="en" suppressHydrationWarning>
@@ -51,13 +53,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body className="flex min-h-dvh flex-col font-sans antialiased [overflow-wrap:anywhere] selection:bg-primary/30">
         <ClerkProvider>
           <TooltipProvider>
-            <Header />
+            {fullBleed ? null : <Header />}
             {/* flex-1 pushes the footer to the bottom on short pages. The app
                 shell carries its own footer inside the sidebar inset. */}
-            <div className={cn("flex-1", !inAppShell && "pb-20")}>
+            <div
+              className={cn("flex-1", !(inAppShell || fullBleed) && "pb-20")}
+            >
               {children}
             </div>
-            <Footer />
+            {fullBleed ? null : <Footer />}
             <ThemedToaster />
             <TanStackDevtools
               config={{

@@ -3,7 +3,7 @@ id: A.3
 title: Shares, opens, view tokens and access log service
 milestone: A
 size: L
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.3-shares-and-access-log
 lane: services-shares
@@ -28,3 +28,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 45a5795, review clean after 2 fix rounds; workspaceId claim and linksEnabled query added after review; merged.

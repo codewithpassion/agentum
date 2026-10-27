@@ -18,6 +18,7 @@ const claims = (overrides: Partial<ViewTokenClaims> = {}): ViewTokenClaims => ({
   userId: "user_1",
   versionId: "ver_1",
   viewer: "member",
+  workspaceId: "ws_1",
   ...overrides,
 });
 
@@ -97,6 +98,7 @@ describe("signViewToken and verifyViewToken", () => {
         expiresAt: NOW + 60,
         versionId: "v",
         viewer: "member",
+        workspaceId: "ws_1",
       }),
       KEY
     );
