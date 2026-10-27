@@ -387,19 +387,36 @@ try {
       seen.state.user.name === "Trusted owner",
     "deck awareness echo uses trusted server identity"
   );
-  const control = async (client, action, fields = {}) => {
-    const requestId = crypto.randomUUID();
-    client.ws.send(
-      JSON.stringify({ action, requestId, type: "presentation", ...fields })
-    );
-    await pause(50);
-    return client.messages
-      .filter((m) => typeof m === "string")
-      .map(JSON.parse)
-      .find(
-        (m) => m.type === "presentation-result" && m.requestId === requestId
+  const control = (client, action, fields = {}) =>
+    new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const cleanup = () => {
+        clearTimeout(timer);
+        client.ws.removeEventListener("message", receive);
+      };
+      const receive = (event) => {
+        if (typeof event.data !== "string") {
+          return;
+        }
+        const result = JSON.parse(event.data);
+        if (
+          result.type !== "presentation-result" ||
+          result.requestId !== requestId
+        ) {
+          return;
+        }
+        cleanup();
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Presenter ${action} request ${requestId} timed out`));
+      }, 5000);
+      client.ws.addEventListener("message", receive);
+      client.ws.send(
+        JSON.stringify({ action, requestId, type: "presentation", ...fields })
       );
-  };
+    });
   const [lease, race] = await Promise.all([
     control(one, "acquire", { build: 0, slideId: "s1" }),
     control(two, "acquire", { build: 0, slideId: "s2" }),
