@@ -3,9 +3,9 @@ id: B.3
 title: App storage
 milestone: B
 size: M
-status: todo
+status: in_progress
 depends_on: [A.1, B.1]
-branch: null
+branch: task/B.3-app-storage
 lane: worker-store
 executor: claude
 ---
@@ -23,3 +23,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

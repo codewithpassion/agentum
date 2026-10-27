@@ -3,9 +3,9 @@ id: B.2
 title: App gateway, AppHost binding and outbound filter
 milestone: B
 size: L
-status: todo
+status: in_progress
 depends_on: [A.1, B.1]
-branch: null
+branch: task/B.2-app-gateway
 lane: worker-apps
 executor: claude
 ---
@@ -26,3 +26,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

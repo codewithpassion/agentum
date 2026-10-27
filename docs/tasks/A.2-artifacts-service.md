@@ -3,9 +3,9 @@ id: A.2
 title: Artifacts core service and router
 milestone: A
 size: L
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.2-artifacts-service
 lane: services
 executor: claude
 ---
@@ -24,3 +24,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

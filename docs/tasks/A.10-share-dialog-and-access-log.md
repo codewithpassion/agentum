@@ -3,9 +3,9 @@ id: A.10
 title: Share dialog, access log and links switch
 milestone: A
 size: M
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.10-share-dialog-and-access-log
 lane: web-share
 executor: claude
 ---
@@ -26,3 +26,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

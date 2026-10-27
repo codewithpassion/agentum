@@ -3,9 +3,9 @@ id: A.9
 title: Artifacts page, nav item and task slot
 milestone: A
 size: M
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.9-artifacts-page-and-task-slot
 lane: web-app
 executor: claude
 ---
@@ -27,3 +27,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

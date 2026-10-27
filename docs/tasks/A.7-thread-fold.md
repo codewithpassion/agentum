@@ -3,9 +3,9 @@ id: A.7
 title: Thread fold for artifacts
 milestone: A
 size: S
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.7-thread-fold
 lane: protocol-thread
 executor: claude
 ---
@@ -21,3 +21,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

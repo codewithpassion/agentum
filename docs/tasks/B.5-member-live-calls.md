@@ -3,9 +3,9 @@ id: B.5
 title: Member live tool calls and storage procedures
 milestone: B
 size: M
-status: todo
+status: in_progress
 depends_on: [A.1, B.1]
-branch: null
+branch: task/B.5-member-live-calls
 lane: services-calls
 executor: claude
 ---
@@ -29,3 +29,4 @@ Dom asked to move phase 2 work up, so this runs beside A.2 and A.3. Where this d
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

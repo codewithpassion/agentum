@@ -3,7 +3,7 @@ id: A.1
 title: Artifacts contract (phase 1 and 2 schema, protocol, seams)
 milestone: A
 size: L
-status: in_progress
+status: done
 depends_on: []
 branch: task/A.1-artifacts-contract
 lane: db
@@ -51,3 +51,4 @@ UI seams (`apps/web/src/components/artifacts/`)
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at 1135f62, review clean after 1 fix round; merged.

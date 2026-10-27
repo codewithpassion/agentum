@@ -3,9 +3,9 @@ id: A.13
 title: Thread card for artifacts
 milestone: A
 size: M
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.13-thread-card
 lane: web-thread
 executor: claude
 ---
@@ -25,3 +25,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

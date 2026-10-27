@@ -3,9 +3,9 @@ id: A.4
 title: Sandboxed content routes and bridge script
 milestone: A
 size: L
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.4-content-routes-and-bridge
 lane: worker-content
 executor: claude
 ---
@@ -27,3 +27,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

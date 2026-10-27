@@ -3,9 +3,9 @@ id: A.12
 title: artifact_test browser driver
 milestone: A
 size: M
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.12-artifact-test-driver
 lane: worker-test
 executor: claude
 ---
@@ -26,3 +26,4 @@ Split out of the PRD's A.6 so it runs beside the other tasks.
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

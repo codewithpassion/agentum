@@ -3,10 +3,10 @@ id: B.4
 title: Grants, propose and promote, pins and hand-to
 milestone: B
 size: L
-status: todo
+status: in_progress
 depends_on: [A.1, B.1]
-branch: null
-lane: services
+branch: task/B.4-grants-promote-pins
+lane: services-grants
 executor: claude
 ---
 
@@ -31,3 +31,4 @@ Dom asked to move phase 2 work up, so this runs beside A.2 instead of after it. 
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

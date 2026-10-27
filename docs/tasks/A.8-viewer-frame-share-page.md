@@ -3,9 +3,9 @@ id: A.8
 title: Framed viewer, artifact frame and share page
 milestone: A
 size: L
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.8-viewer-frame-share-page
 lane: web-viewer
 executor: claude
 ---
@@ -26,3 +26,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.

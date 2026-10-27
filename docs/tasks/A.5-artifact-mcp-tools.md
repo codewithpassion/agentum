@@ -3,9 +3,9 @@ id: A.5
 title: Artifact MCP tools
 milestone: A
 size: M
-status: todo
+status: in_progress
 depends_on: [A.1]
-branch: null
+branch: task/A.5-artifact-mcp-tools
 lane: mcp
 executor: claude
 ---
@@ -25,3 +25,4 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD). A.1 holds every schema change, share
 
 ## Log
 - 2026-10-27: planned (controller).
+- 2026-10-27: dispatched.
