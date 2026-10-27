@@ -511,10 +511,9 @@ function parseXml(html: string): Node {
     if (nodeCount > LIMITS.nodes || stack.length > LIMITS.depth + 2) {
       fail(path(), "HTML complexity limit");
     }
-    const attrs: Record<string, string> = {};
-    for (const [k, v] of Object.entries(tag.attributes)) {
-      attrs[k] = String(v);
-    }
+    const attrs = Object.fromEntries(
+      Object.entries(tag.attributes).map(([key, value]) => [key, String(value)])
+    );
     const node: Node = { attrs, children: [], tag: tag.name };
     if (stack.length) {
       stack.at(-1)?.children.push(node);
@@ -768,6 +767,9 @@ export function serializeSlide(slide: SlideData, codec: RichTextCodec): string {
   if (new TextEncoder().encode(html).byteLength > LIMITS.bytes) {
     fail("/slide", "serialized HTML size limit");
   }
+  // Every admitted scene must remain readable through the XML interchange,
+  // including notes and strings returned by the injected rich-text codec.
+  parseXml(html);
   return html;
 }
 type SharedMap = YMap<unknown>;

@@ -887,3 +887,46 @@ test("rich-text and notes ABA are guarded; token-only HTML writes retain untouch
     "observation"
   );
 });
+
+test("prototype-named attributes are rejected at each HTML boundary", () => {
+  const html = serializeSlide(slide("s"), codec);
+  for (const tag of ["slide", "element", "p"]) {
+    expect(() =>
+      parseSlide(html.replace(`<${tag}`, `<${tag} __proto__="x"`), codec)
+    ).toThrow();
+  }
+});
+
+test("XML-illegal strings cannot enter local scenes, remote updates or restores", () => {
+  const deck = new Deck(new YDoc(), codec);
+  deck.addSlide(slide("s"));
+  const original = deck.readHtml("s").html;
+  for (const invalid of ["\u0000", "\u0001", "\ud800", "\ufffe"]) {
+    expect(() => deck.addSlide({ ...slide("bad"), notes: invalid })).toThrow();
+    expect(() => deck.updateSlide("s", { notes: invalid })).toThrow();
+    const textSlide = slide("text");
+    const [textElement] = textSlide.elements;
+    if (!textElement) {
+      throw new Error("missing element");
+    }
+    textElement.text = [{ attrs: {}, children: [invalid], tag: "p" }];
+    expect(() => deck.addSlide(textSlide)).toThrow();
+    // Yjs UTF-8 encoding normalizes lone surrogates to U+FFFD.
+    if (invalid === "\ud800") {
+      continue;
+    }
+    const remote = replica(deck.doc);
+    const notes = remote.getMap<YMap<unknown>>("slides").get("s")?.get("notes");
+    if (!(notes instanceof YText)) {
+      throw new Error("missing notes");
+    }
+    notes.insert(0, invalid);
+    expect(() => deck.applyUpdate(YencodeStateAsUpdate(remote))).toThrow();
+    expect(() => deck.restore(YencodeStateAsUpdate(remote))).toThrow();
+    expect(deck.readHtml("s").html).toBe(original);
+  }
+  deck.updateSlide("s", { notes: "Valid \t\nemoji 🦀 and & < >" });
+  expect(parseSlide(deck.readHtml("s").html, codec).notes).toBe(
+    "Valid \t\nemoji 🦀 and & < >"
+  );
+});
