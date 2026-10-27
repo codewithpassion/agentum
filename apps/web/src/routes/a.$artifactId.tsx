@@ -349,6 +349,7 @@ function ArtifactViewerPage() {
               className="h-full w-full"
               contentUrl={open.opened.contentUrl}
               interactive
+              preview={shownVersion?.status === "proposed"}
               title={detail.title}
               version={open.opened.version}
               viewer="member"

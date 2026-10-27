@@ -85,16 +85,18 @@ export const createArtifactPorts = ({
     const versions = await services.artifacts.versions(principal, artifactId);
     const found =
       number === undefined
-        ? versions.reduce<(typeof versions)[number] | undefined>(
-            (best, row) => (!best || row.number > best.number ? row : best),
-            undefined
-          )
+        ? versions
+            .filter((row) => row.status !== "rejected")
+            .reduce<(typeof versions)[number] | undefined>(
+              (best, row) => (!best || row.number > best.number ? row : best),
+              undefined
+            )
         : versions.find((row) => row.number === number);
     if (!found) {
       throw new ToolError(
         "not_found",
         number === undefined
-          ? "The artifact has no versions."
+          ? "The artifact has no versions to test."
           : `Version ${number} not found.`
       );
     }

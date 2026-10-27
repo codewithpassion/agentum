@@ -478,14 +478,23 @@ export const createArtifactSharesService = ({
         workspaceId: user.workspaceId,
       }),
     ]);
+    // A proposed version is unreviewed agent code: it opens as a test viewer,
+    // which reads shared data and writes and calls nothing, whoever looks.
     const signed = await sign(
-      {
-        artifactId,
-        userId: user.userId,
-        versionId: version.id,
-        viewer: "member",
-        workspaceId: user.workspaceId,
-      },
+      version.status === "proposed"
+        ? {
+            artifactId,
+            versionId: version.id,
+            viewer: "test",
+            workspaceId: user.workspaceId,
+          }
+        : {
+            artifactId,
+            userId: user.userId,
+            versionId: version.id,
+            viewer: "member",
+            workspaceId: user.workspaceId,
+          },
       MEMBER_TOKEN_SECONDS
     );
     return {
