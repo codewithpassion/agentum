@@ -4,7 +4,7 @@ title: Member live tool calls and storage procedures
 milestone: B
 size: M
 status: todo
-depends_on: [A.2, A.3, B.3, B.4]
+depends_on: [A.1, B.1]
 branch: null
 lane: services-calls
 executor: claude
@@ -20,6 +20,12 @@ Spec: `docs/v3/artifacts-prd.md` (the PRD), phase 2, and `docs/v3/phase2-spike.m
 ## Check
 - Tests for R2.5: a granted tool runs with the viewer's credential, an ungranted one and a non-read-only one are refused, results are scrubbed and capped.
 - `bun run check && bun run test && bun run build` pass.
+
+## Moved up (2026-10-27)
+Dom asked to move phase 2 work up, so this runs beside A.2 and A.3. Where this differs from the scope above, it wins.
+- Read approved grants with your own query functions (`packages/db/src/artifact-calls.ts`), not through B.4's service.
+- Storage procedures call the store through the port interface `docs/v3/phase2-spike.md` defines; B.3 implements it and B.8 wires it. Test with a fake store.
+- In `artifacts-router.ts` touch only the `callTool` stub and add the storage procedures in a new `artifact-storage-router.ts` merged under `artifacts` in `router.ts`. On `git merge v3/artifacts`, resolve conflicts keeping both sides.
 
 ## Log
 - 2026-10-27: planned (controller).
