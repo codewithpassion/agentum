@@ -1,0 +1,403 @@
+/**
+ * The page side of the artifact bridge, as a string. The Worker injects
+ * `<script src="_hm/bridge.js">` first in `<head>` of every HTML artifact page
+ * and serves this source there. It cannot read files at runtime, so the script
+ * lives here. Keep it free of backticks, dollar-brace and backslashes so the
+ * template literal needs no escaping.
+ *
+ * The page runs in an opaque origin (`sandbox="allow-scripts allow-forms"`).
+ * The script gives it in-memory localStorage and sessionStorage, performs the
+ * MCP Apps `ui/initialize` handshake with the viewer frame, and then talks to
+ * the frame over the MessagePort the frame hands back. Spec:
+ * docs/v3/artifacts-prd.md, "Hosting and isolation" and "Bridge".
+ */
+export const BRIDGE_JS = `(function () {
+  "use strict";
+
+  var PROTOCOL_VERSION = "2026-01-26";
+  var RETRY_MS = 250;
+  var MAX_TRIES = 40;
+
+  // The real Storage objects throw SecurityError in an opaque origin.
+  function installStorage(name) {
+    try {
+      var map = new Map();
+      var methods = {
+        clear: function () {
+          map.clear();
+        },
+        getItem: function (key) {
+          var k = String(key);
+          return map.has(k) ? map.get(k) : null;
+        },
+        key: function (index) {
+          var keys = Array.from(map.keys());
+          var i = Number(index);
+          return Number.isInteger(i) && i >= 0 && i < keys.length
+            ? keys[i]
+            : null;
+        },
+        removeItem: function (key) {
+          map.delete(String(key));
+        },
+        setItem: function (key, value) {
+          map.set(String(key), String(value));
+        },
+      };
+      var isMethod = function (prop) {
+        return Object.prototype.hasOwnProperty.call(methods, prop);
+      };
+      var store = new Proxy({}, {
+        deleteProperty: function (_target, prop) {
+          if (typeof prop === "string") {
+            map.delete(prop);
+          }
+          return true;
+        },
+        get: function (_target, prop) {
+          if (typeof prop !== "string") {
+            return undefined;
+          }
+          if (prop === "length") {
+            return map.size;
+          }
+          if (isMethod(prop)) {
+            return methods[prop];
+          }
+          return map.has(prop) ? map.get(prop) : undefined;
+        },
+        getOwnPropertyDescriptor: function (_target, prop) {
+          if (typeof prop === "string" && map.has(prop)) {
+            return {
+              configurable: true,
+              enumerable: true,
+              value: map.get(prop),
+              writable: true,
+            };
+          }
+          return undefined;
+        },
+        has: function (_target, prop) {
+          return (
+            typeof prop === "string" &&
+            (prop === "length" || isMethod(prop) || map.has(prop))
+          );
+        },
+        ownKeys: function () {
+          return Array.from(map.keys());
+        },
+        set: function (_target, prop, value) {
+          if (typeof prop === "string") {
+            map.set(prop, String(value));
+          }
+          return true;
+        },
+      });
+      Object.defineProperty(window, name, {
+        configurable: true,
+        get: function () {
+          return store;
+        },
+      });
+    } catch (_error) {
+      // The page keeps whatever storage it had.
+    }
+  }
+
+  installStorage("localStorage");
+  installStorage("sessionStorage");
+
+  function isHttpUrl(value) {
+    try {
+      var protocol = new URL(String(value)).protocol;
+      return protocol === "http:" || protocol === "https:";
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  // The script lives at <content folder>/_hm/bridge.js.
+  var contentFolder = null;
+  try {
+    contentFolder = new URL("../", document.currentScript.src).href;
+  } catch (_error) {
+    contentFolder = null;
+  }
+
+  var port = null;
+  var initResult = null;
+  var nextId = 2;
+  var pending = new Map();
+  var resolveReady = function () {};
+  var ready = new Promise(function (resolve) {
+    resolveReady = resolve;
+  });
+
+  function request(method, params) {
+    // PHASE 2 EXTENSION POINT
+    // Phase 2 adds tools.call(...) and storage.get/set/delete/list(...) to
+    // window.harbourmaster as thin wrappers over request(), using the
+    // tools/call and storage/* methods from the protocol package
+    // (packages/protocol/src/artifacts.ts). They are not implemented yet.
+    return new Promise(function (resolve, reject) {
+      if (!port) {
+        reject(new Error("Harbourmaster bridge is not connected"));
+        return;
+      }
+      var id = nextId;
+      nextId += 1;
+      var message = { id: id, jsonrpc: "2.0", method: method };
+      if (params !== undefined) {
+        message.params = params;
+      }
+      pending.set(id, { reject: reject, resolve: resolve });
+      try {
+        port.postMessage(message);
+      } catch (error) {
+        pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  function openLink(url) {
+    if (!isHttpUrl(url)) {
+      return Promise.reject(
+        new Error("openLink needs an http or https URL")
+      );
+    }
+    return request("ui/open-link", { url: String(url) });
+  }
+
+  function handlePortMessage(event) {
+    try {
+      var message = event.data;
+      if (!message || typeof message !== "object" || message.jsonrpc !== "2.0") {
+        return;
+      }
+      var entry = pending.get(message.id);
+      if (!entry) {
+        return;
+      }
+      pending.delete(message.id);
+      if (message.error) {
+        var text =
+          typeof message.error.message === "string"
+            ? message.error.message
+            : "Harbourmaster bridge request failed";
+        var failure = new Error(text);
+        failure.code = message.error.code;
+        entry.reject(failure);
+        return;
+      }
+      entry.resolve(message.result);
+    } catch (_error) {
+      // A bad message from the frame must not reach the page.
+    }
+  }
+
+  var sizeQueued = false;
+
+  function sendSize() {
+    try {
+      var rect = document.documentElement.getBoundingClientRect();
+      port.postMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/size-changed",
+        params: { height: Math.ceil(rect.height), width: Math.ceil(rect.width) },
+      });
+    } catch (_error) {
+      // Size reports are best effort.
+    }
+  }
+
+  function queueSize() {
+    if (sizeQueued) {
+      return;
+    }
+    sizeQueued = true;
+    var run = function () {
+      sizeQueued = false;
+      sendSize();
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(run);
+    } else {
+      run();
+    }
+  }
+
+  function connect(result, messagePort) {
+    port = messagePort;
+    initResult = result;
+    port.onmessage = handlePortMessage;
+    try {
+      port.postMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/initialized",
+      });
+    } catch (_error) {
+      // The frame is gone; requests will reject.
+    }
+    sendSize();
+    try {
+      if (typeof window.ResizeObserver === "function") {
+        new window.ResizeObserver(queueSize).observe(document.documentElement);
+      }
+    } catch (_error) {
+      // Without an observer the frame keeps the first size.
+    }
+    resolveReady(result);
+  }
+
+  function isInitializeResponse(data) {
+    return (
+      !!data &&
+      typeof data === "object" &&
+      data.jsonrpc === "2.0" &&
+      data.id === 1 &&
+      !!data.result &&
+      typeof data.result === "object" &&
+      "theme" in data.result &&
+      "viewer" in data.result &&
+      "version" in data.result
+    );
+  }
+
+  function startHandshake() {
+    var tries = 0;
+    var timer = null;
+
+    window.addEventListener("message", function (event) {
+      try {
+        if (port || event.source !== window.parent) {
+          return;
+        }
+        if (!isInitializeResponse(event.data)) {
+          return;
+        }
+        var messagePort = event.ports && event.ports[0];
+        if (!messagePort) {
+          return;
+        }
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        connect(event.data.result, messagePort);
+      } catch (_error) {
+        // Ignore anything that does not fit.
+      }
+    });
+
+    var attempt = function () {
+      timer = null;
+      if (port) {
+        return;
+      }
+      if (tries >= MAX_TRIES) {
+        resolveReady(null);
+        return;
+      }
+      tries += 1;
+      try {
+        window.parent.postMessage(
+          {
+            id: 1,
+            jsonrpc: "2.0",
+            method: "ui/initialize",
+            params: {
+              appInfo: { name: "harbourmaster-bridge", version: "1" },
+              protocolVersion: PROTOCOL_VERSION,
+            },
+          },
+          "*"
+        );
+      } catch (_error) {
+        // Try again on the next tick.
+      }
+      timer = setTimeout(attempt, RETRY_MS);
+    };
+    attempt();
+  }
+
+  try {
+    if (window.parent === window) {
+      resolveReady(null);
+    } else {
+      startHandshake();
+    }
+  } catch (_error) {
+    resolveReady(null);
+  }
+
+  function field(name) {
+    return initResult ? initResult[name] : null;
+  }
+
+  try {
+    window.harbourmaster = Object.freeze({
+      get theme() {
+        return field("theme");
+      },
+      get version() {
+        return field("version");
+      },
+      get viewer() {
+        return field("viewer");
+      },
+      openLink: openLink,
+      ready: ready,
+      request: request,
+    });
+  } catch (_error) {
+    // The page keeps running without the API.
+  }
+
+  function findAnchor(target) {
+    var node = target;
+    while (node) {
+      if (
+        typeof node.tagName === "string" &&
+        node.tagName.toUpperCase() === "A" &&
+        typeof node.href === "string" &&
+        node.href !== ""
+      ) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  if (contentFolder !== null) {
+    try {
+      document.addEventListener(
+        "click",
+        function (event) {
+          try {
+            if (!port) {
+              return;
+            }
+            var anchor = findAnchor(event.target);
+            if (!anchor) {
+              return;
+            }
+            var href = new URL(anchor.href).href;
+            if (!isHttpUrl(href) || href.indexOf(contentFolder) === 0) {
+              return;
+            }
+            event.preventDefault();
+            openLink(href).catch(function () {});
+          } catch (_error) {
+            // Let the browser handle the click.
+          }
+        },
+        true
+      );
+    } catch (_error) {
+      // Links keep their default behaviour.
+    }
+  }
+})();
+`;
