@@ -53,3 +53,15 @@ Unchanged role controls from the server are accepted without disrupting the docu
 - Repeated L.8a component browser check after the assigned-ID cursor plugin change: both required viewports pass, 138 visible expanded controls at least 40×40 px.
 - Actual workerd two-browser check: both required viewports pass with the protocol/reconnect/permission cases above. The isolated room issuer is test-only; it is not an authenticated production app/service check.
 - Full app acceptance remains blocked at the missing `liveArtifacts.createDocument` root mount on main. The authenticated runner reports that gate without manufacturing a successful artifact or substituting service callbacks. L.7/controller have the exact endpoint dependencies and executable acceptance command.
+
+## Independent review — 2026-10-27
+
+Reviewed merged client `4d852d19` at checkout `2e4ac2495a7bfcf608206512179f26c24ea00c76`. Verdict: **changes required**.
+
+### High — renewal can bypass the fresh-document downgrade boundary
+
+In `room-provider.ts`, the renewal ticket response assigns a changed `joined.role` directly to `this.role` and updates the UI, but does not fail or recreate the room. If the server's subsequent `role` control carries that same role, `receiveControl` treats it as unchanged and returns. Thus a downgrade discovered during renewal can leave the old Y.Doc and its optimistic unaccepted structs in the connection, contrary to the fresh-document resynchronization guarantee. A later upgrade/reconnect or sync can offer those structs to the room. Treat any role change discovered by renewal as a reason to dispose and fetch accepted state in a fresh document, and test renewal racing the server role control. This is a code-path finding; the existing downgrade browser fixture does not exercise this ordering.
+
+The binary and JSON control paths, assigned awareness ID separate from Y.Doc ID, canonical cursor normalization, trusted server roster, self filter, policy refresh before incoming updates and late-disposal checks were inspected. The existing real-room fixture exercises normal downgrade, blur, late peers and fresh reconnect; it does not prove the renewal race above. Image safety depends on L.7 providing an authenticated, current, artifact-owned manifest and ensuring uploads are included before returning. Client URL syntax alone is not ownership verification. Namespace, room binding, policy/upload/export endpoints and authoritative attribution ranges remain L.7 gates; missing attribution underlines are an unmet phase-1 requirement, not evidence that the client can infer safe ranges.
+
+Checks at the reviewed SHA: locked dependency installation passed; focused editor/provider tests **38 pass, 198 assertions**. Actual two-context workerd browser fixture passed at 1280×800 and 390×844; editor browser fixture passed at both sizes with 138 controls measured. Initial attempts before installation failed for missing dependencies. These fixture results do not establish authenticated production routes, distinct members, real agent behavior or staging. No preview tools were used.
