@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/document.ts",
-    "./schema": "./src/schema.ts"
+    "./schema": "./src/schema.ts",
+    "./rich-text": "./src/rich-text.ts"
   },
   "scripts": {
     "build": "bun build src/document.ts src/schema.ts --target browser --outdir dist",

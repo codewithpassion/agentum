@@ -265,6 +265,7 @@ const layoutGrammars: Record<string, RegExp> = {
 const escapeHtml = (s: string) =>
   s
     .replaceAll("&", "&amp;")
+    .replaceAll("\r", "&#13;")
     .replaceAll("<", "&lt;")
     .replaceAll('"', "&quot;")
     .replaceAll(">", "&gt;");
