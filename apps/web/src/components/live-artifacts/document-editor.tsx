@@ -1,6 +1,6 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Small editor controls capture the command and its current selection. */
 import { EditorContent } from "@tiptap/react";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { applyBlock, blockActions } from "./editor-actions";
 import { selectedContext } from "./editor-binding";
 import { EditorHistory } from "./editor-history";
@@ -23,6 +23,11 @@ export function DocumentEditor(ports: DocumentEditorPorts) {
     []
   );
   const { editor, upload, revision } = useDocumentEditor(ports, report);
+  const { onEditorReady } = ports;
+  useEffect(() => {
+    onEditorReady?.(editor);
+    return () => onEditorReady?.(null);
+  }, [editor, onEditorReady]);
   const participants = useSyncExternalStore(
     ports.provider.subscribe,
     ports.provider.getSnapshot,
@@ -65,7 +70,7 @@ export function DocumentEditor(ports: DocumentEditorPorts) {
       <EditorPresence editor={editor} port={ports.provider} />
       <div className="live-toolbar">
         <EditorHistory
-          editable={editable}
+          editable={ports.role === "owner"}
           port={ports.history}
           report={report}
         />
