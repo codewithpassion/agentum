@@ -1,0 +1,79 @@
+# A.11 review: phase 1 staging check
+
+Run on 2026-10-27 against `harbourmaster-staging` (https://harbourmaster-staging.rockyshoreslabs.io), deployed from this branch's tree (v3/artifacts at 5e579ce2) with `bun run staging:deploy` from `apps/web`. The built `dist/server/wrangler.json` was checked first: name `harbourmaster-staging`, route `harbourmaster-staging.rockyshoreslabs.io` (custom domain), D1 `harbourmaster-staging`, R2 `harbourmaster-staging-files`, rate limit namespace 2002, `PUBLIC_BASE_URL` the staging host. The deploy applied remote migration 0024 to the staging database and printed the new bindings (`SHARE_OPEN_LIMIT`, `ARTIFACT_LINKS_OFF`). `ARTIFACT_VIEW_KEY` was already set by Dom and was not touched. Signed in with `agent-login --env staging` as the user of the Harbour Edge address on the production Clerk instance (the portcity address is not on it). Production was not touched and no secret was set.
+
+Browser checks used agent-browser (Chromium) for the viewer, thread, task view, `/artifacts`, phone width, the share dialog and a second, cookie-free session for links. The probe used Playwright's Chromium 1243 (agent-browser cannot read inside the sandboxed frame).
+
+## Verdicts
+
+Round 0: this task changes no code, so the record below is the deliverable. Review rounds are listed at the end.
+
+## Runtimes
+
+Three agents each made a page, a doc and a dashboard (with `data.json`) from a web chat task and ran `artifact_test` on all three (phone viewport for the doc).
+
+Cloud isolate: agent "Test" (existing). All three created, all three tested, PNGs written to `agents/test/tasks/<runId>/`, cards and thumbnails shown.
+Managed Agents: agent "Controller" (existing, `managed`). All three created and tested.
+Linux VM: new agent "A11 VM Maker" (`cloud` runtime, environment `linux-vm`, Sonnet 5.5). All three created and tested. A second task ran `uname -a` through the agent's bash tool and got a Cloudflare microVM kernel, so the VM environment is live on staging.
+Machine: `/machines` shows no machines on staging. R1.7 for a machine is blocked on a connected machine.
+
+## Evidence per requirement
+
+R1.1, R1.5: nine artifacts from three runtimes, each with title, kind, owner Dominik Fretz, "made by <agent> in a task" linking to the task. All started `Private` because the sessions were `ui` sessions. The "any other session starts workspace" half was not run (unit tests in A.2).
+R1.2, R1.3, R1.4: not run on staging. Covered locally by A.14 (restore) and by A.2's tests (conflict, limits).
+R1.6: one signed-in user, so only the owner's view was seen. A.2 tests cover the rest.
+R1.7: cloud isolate, Linux VM and Managed Agents pass (create and test; the read, list and update tools were not called here, A.5's tests cover them). Machine: blocked, none enrolled.
+R1.8, R1.9, R1.10, R1.11: not run on staging. Covered by the A.5 and A.2 tests (`fromLibraryPath` scope, own-artifact updates, dry run, ask-before).
+R1.12: `artifact_test` returned console errors, failed requests and a text snapshot on all nine runs. Screenshots landed in the task folder (the Test task shows two desktop PNGs and one phone PNG in its Files panel). The desktop runs set the card thumbnails; the doc (phone run) has none, as designed. See finding 1: every run reports one console error and one failed request from a Cloudflare script that is not part of the artifact.
+R1.13: all three task pages hold only `hm_view_[redacted]` where a content URL appears, never a token; no `hm_share_` string appears. The share tokens used below were read from the app's own copy action, held in a scratch file and deleted afterwards.
+R1.14: a 200 content response, a 401 with a forged token, a 401 with no token and the 302 to `/a/<id>` all carry `content-security-policy: sandbox allow-scripts allow-forms; default-src 'none'; ...`, with `referrer-policy: no-referrer`, `x-content-type-options: nosniff` and `x-robots-tag: noindex, nofollow` on the 200.
+R1.15: missing token, forged token and another artifact's token answer 401 with no bytes (curl, size 0).
+R1.16: a content URL with a link token and `Sec-Fetch-Dest: document` answers 302 to `/a/<uuid>` with no token. In the browser, a member token opened top level lands on `/a/<id>` (Chromium).
+R1.17, R1.19: see the probe section. Zero requests to `/api/*` from the content frames.
+R1.18: the viewer, the thread card and the share page all use an iframe with `sandbox="allow-scripts allow-forms"` exactly.
+R1.20, R1.21: not run on staging. The probe's bridge handshake control passed framed and was `null` when opened directly. A.8 and A.14 cover the blanking.
+R1.21a: `content-security-policy: frame-ancestors 'none'` on `/login`, `/api/health`, `/desk` (307), `/s/<token>`, `/a/<id>` (307). Content paths carry the sandbox policy instead.
+R1.21b: the doc renders in the sandbox with heading, paragraphs, list and the GFM table drawn as a table (screenshot checked).
+R1.22: the card appears in the thread with a live iframe preview on desktop (the iframe mounts when scrolled into view) and a thumbnail image at 390 px, after a reload. Page and dashboard cards had thumbnails at 390 px; the doc card has none.
+R1.23: the task view's Artifacts slot lists the three artifacts the run published, with kind, version and audience.
+R1.24: `/artifacts` lists all nine artifacts with the kind, maker and link-sharing filters present; each row shows owner, maker, version, age and audience.
+R1.25: `/a/<id>` shows title, owner, "made by <agent> in a task", the version picker, Share, a menu and the Access log tab. The dashboard rendered its bars from `data.json` in the sandbox (Test and Linux VM runs; Managed also made one). Version history and `?v=` were not repeated here (A.14).
+R1.26: at 390 x 844 there is no sideways scroll on `/artifacts`, the three viewer pages (page, doc, dashboard), the task page and the share page, and the viewer bar has no control under 40 px. Controls under 40 px remain outside the artifact UI, as in A.14: the app shell header (logo, user menu, theme button, 28 px), the task page's "Stop task", the breadcrumb and "Show more", and the `/artifacts` filter checkbox row (16 px glyph). The thread card's Open link is 40 px.
+R1.27: two links created from the dialog (7 days following latest; 1 day pinned to v1), both copied from the list ("Copy" works at any time). A third was created with a 75 second expiry through the same `artifacts.createShare` call the dialog makes, because the dialog's date picker cannot set a moment.
+R1.28: in a second browser session with no cookies of mine, `/s/<token>` shows the dashboard in the share frame with "Shared from org_3LDLbiYGe7iohEccrRQuLeBqaX2 on Harbourmaster", "Content is user-generated and unverified." and "Opens of this link are logged.", at 1280 and at 390 px (no sideways scroll). The workspace name is the Clerk org id on staging too, not a name (finding 2).
+R1.29: after Revoke, the page shows "This link is not available." and `POST /api/share/<token>/open` answers 404 `{"error":"This link is not available."}`, byte for byte (`cmp`) the answer for an unknown token. The same held with the workspace switch off (Settings, "Allow link sharing") and after the 75 second link expired; switching it back on restored the active link. The one-hour tail for tokens already minted was not timed.
+R1.30: not run. One signed-in member exists on staging and the portcity address is not on the instance. A.3's tests cover it.
+R1.31: the dashboard's Access log tab lists one row per open: member in viewer, the test run (who "Unknown"), and link opens with place (Sydney, New South Wales, AU), network (`Aussie Broadband (119.18.0.0/24)`, a /24 prefix, no full IP), browser and outcome. Counts in the share dialog matched (2 and 1 opens before revoking).
+R1.32: rows with outcome "Link revoked" appear for opens after revoke; expired and disabled outcomes were exercised (the log shows them in the same table, not read row by row for those two).
+R1.33: not run (the minute tick runs on production only; unit tests). See finding 5.
+R1.34: the Log page shows `artifact.created`, `artifact.published`, `artifact.share_created` (three, one per link), `artifact.share_revoked` and `artifact.links_switched` (two, off then on). Actors were not read on the page. A.14 checked `actor_kind=user` locally.
+R1.35: passes, but the threshold is looser than the configured 30 a minute. From a quiet start, 76 sequential opens of one token answered 200 and the 77th answered 429. A burst of 150 with 25 in parallel gave 100 x 200 and 50 x 429. See finding 3.
+R1.36: blocked on staging. The permission system refused the temporary deploy needed to switch `ARTIFACT_LINKS_OFF` on and back off (see steps for Dom). Covered by `apps/web/src/server/routes/artifacts.test.ts` ("R1.36 refuses every link while ARTIFACT_LINKS_OFF is set"), `shares.test.ts` and `live-links.test.ts`; the workspace switch is verified above.
+
+## Probe (R1.19), real staging server
+
+A probe page (the A.14 `probe.html`, 18 checks) was published by the Test agent with `artifact_create`, then opened framed in the viewer and directly with a `test` token. The browser held real Clerk cookies for the production instance (`__session_<id>`, `__client_uat`, none of them HttpOnly except `__refresh_<id>`, all `Path=/`, SameSite=Lax), so there was something to steal.
+
+Chromium 1243, framed: 18 checks, 0 failed, 4 CSP violation events. Direct: 15 checks, 0 failed, 4 CSP violation events. Iframe sandbox exactly `allow-scripts allow-forms`, no dialogs, no popups, zero API requests from the content frames. The checks are the same as in A.14 (`document.cookie` read and write throw, opaque origin, `indexedDB`, parent DOM and globals, top navigation, service worker, `prompt()`, `window.open`, credentialed fetches to `/api/health` and `/api/trpc`, another artifact's path, form submit; controls: bridge handshake framed and `null` direct, `data.json` loads).
+
+Supplementary only: a Playwright WebKit build (GTK, not Safari) ran the framed probe with 18 checks, 0 failed, 5 CSP violation events. Its direct run stopped on a navigation error when following the member-token redirect, so it is not a pass. Safari is Dom's step.
+
+## Findings
+
+1. Cloudflare Web Analytics auto-injection. For browser-like requests (a Chrome user agent, `Accept: text/html`), Cloudflare adds `<script defer src="https://static.cloudflareinsights.com/beacon.min.js/...">` to the HTML of content responses. The artifact CSP blocks it, so every `artifact_test` run on every runtime reports one console error and one failed request ("CSP blocked cloudflareinsights beacon"), and the agent has to decide whether to fix it (all three said it came from the platform and left the files alone). Production serves the same script on `/login`. It also lands in the console of real viewers. Fix in the Cloudflare dashboard (turn off Web Analytics automatic setup for the staging and production hostnames) or in code (ignore that source in `artifact_test`'s report). Not fixed here.
+2. The share page and `/s/<token>` open response carry `workspaceName` equal to the Clerk org id (`org_3LDLbiYGe7iohEccrRQuLeBqaX2`) on staging, as on the local run. The row's `name` needs setting, or the service should look up the Clerk organisation name, before link pages go to anyone outside the team.
+3. The Workers rate limit binding is looser than its 30 a minute configuration: 429 started at about the 77th request in a minute, and 100 of 150 parallel requests passed. The guard works as a flood guard; do not rely on it for an exact count.
+4. The staging deploy printed `schedule: * * * * *` for `harbourmaster-staging`. The crons comment in `wrangler.jsonc` says only production runs the tick, but `dist/server/wrangler.json` carries the top-level `triggers` into the staging build, so staging probably runs it too (this also means R1.33 pruning may run there). Not checked further.
+5. In the Linux VM run, `artifact_test` returned the dashboard's text snapshot as "Loading..." (the page had not finished its `fetch` when the snapshot was taken). The page itself drew the bars. The agent noticed and said the bars might not have rendered.
+6. The access log labels both links "Link created 27 Oct 2026, 16:59", so two links made in the same minute look alike.
+
+## Steps for Dom
+
+1. Safari: open a probe artifact framed and directly in Safari (macOS and iPhone) and check that the 18 and 15 checks pass. The probe source is `tmp/A.14/probe.html` in the build folder; publish it with `artifact_create` from any agent.
+2. R1.36 on staging, if you want it live: in `apps/web/wrangler.jsonc`, set `ARTIFACT_LINKS_OFF` to `"1"` under `env.staging.vars` only, run `bun run staging:deploy` from `apps/web`, open any active share link (expect "This link is not available."), then set it back to `""` and run `bun run staging:deploy` again. Do it away from the demo.
+3. Decide on finding 1 (Cloudflare Web Analytics beacon) and finding 2 (workspace name) before showing links to outsiders.
+4. Test data left on staging, all private to you: nine "A11 page", "A11 doc" and "A11 dashboard" artifacts plus "A11 R1.19 probe", the agent "A11 VM Maker" (Linux VM environment) and six tasks. All share links made in this run are revoked or expired. Delete them when you like.
+
+## Nits left and ideas beyond scope
+
+Nits: none in code. Ideas: an `artifact_test` option that waits for network idle before the snapshot; a name column for "Created by" in the link list (A.14 noted the id); a way to pick a time, not only a date, for link expiry.
