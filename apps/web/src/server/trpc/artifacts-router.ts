@@ -28,18 +28,33 @@ import {
   artifactsVersionsInputSchema,
   artifactsVersionsOutputSchema,
 } from "@repo/protocol/artifacts";
+import { isArtifactCallError } from "@repo/services/artifacts/calls";
 import { TRPCError } from "@trpc/server";
 import { router, workspaceProcedure } from "./init.ts";
+
+const CALL_ERROR_CODES = {
+  failed: "BAD_GATEWAY",
+  needs_auth: "PRECONDITION_FAILED",
+  not_granted: "FORBIDDEN",
+  too_large: "PAYLOAD_TOO_LARGE",
+} as const;
 
 export const artifactsRouter = router({
   callTool: workspaceProcedure
     .input(artifactsCallToolInputSchema)
     .output(artifactsCallToolOutputSchema)
-    .mutation(() => {
-      throw new TRPCError({
-        code: "NOT_IMPLEMENTED",
-        message: "artifacts.callTool is not implemented yet",
-      });
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await ctx.services.artifactCalls.callTool(ctx.principal, input);
+      } catch (error) {
+        throw isArtifactCallError(error)
+          ? new TRPCError({
+              cause: error,
+              code: CALL_ERROR_CODES[error.code],
+              message: error.message,
+            })
+          : error;
+      }
     }),
   decideGrant: workspaceProcedure
     .input(artifactsDecideGrantInputSchema)

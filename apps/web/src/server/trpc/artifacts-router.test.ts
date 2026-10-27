@@ -15,8 +15,6 @@ const caller = appRouter.createCaller({
 const artifactId = crypto.randomUUID();
 
 const calls: Record<string, () => Promise<unknown>> = {
-  callTool: () =>
-    caller.artifacts.callTool({ artifactId, tool: "x", versionId: "x" }),
   createShare: () => caller.artifacts.createShare({ artifactId }),
   decideGrant: () =>
     caller.artifacts.decideGrant({ decision: "approved", grantId: "x" }),
@@ -39,8 +37,8 @@ const calls: Record<string, () => Promise<unknown>> = {
   views: () => caller.artifacts.views({ artifactId }),
 };
 
-test("every artifacts procedure is stubbed as NOT_IMPLEMENTED", async () => {
-  expect(Object.keys(calls)).toHaveLength(19);
+test("every artifacts procedure but callTool is stubbed as NOT_IMPLEMENTED", async () => {
+  expect(Object.keys(calls)).toHaveLength(18);
   await Promise.all(
     Object.entries(calls).map(([name, call]) =>
       expect(call(), name).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" })
