@@ -262,7 +262,35 @@ export const createEventsService = ({
     }
   };
 
-  const append = async (input: EventInput): Promise<EventRecord> => {
+  const insertRow = (row: EventRow, condition?: SQL) => {
+    if (condition) {
+      return db.insert(events).select(
+        db
+          .select({
+            actorId: sql<string>`${row.actorId}`.as("actorId"),
+            actorKind: sql<string>`${row.actorKind}`.as("actorKind"),
+            agentId: sql<string | null>`${row.agentId}`.as("agentId"),
+            createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
+            id: sql<string>`${row.id}`.as("id"),
+            payload: sql<string | null>`${row.payload}`.as("payload"),
+            payloadRef: sql<string | null>`${row.payloadRef}`.as("payloadRef"),
+            runId: sql<string | null>`${row.runId}`.as("runId"),
+            seq: sql<number | null>`${row.seq}`.as("seq"),
+            sessionId: sql<string | null>`${row.sessionId}`.as("sessionId"),
+            type: sql<string>`${row.type}`.as("type"),
+            workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
+          })
+          .from(sql`(select 1)`)
+          .where(condition)
+      );
+    }
+    return db.insert(events).values(row);
+  };
+
+  const append = async (
+    input: EventInput,
+    condition?: () => SQL
+  ): Promise<EventRecord> => {
     const parsed = eventInputSchema.parse(input);
     const now = new Date();
     const id = newEventId(now);
@@ -279,7 +307,14 @@ export const createEventsService = ({
       capped.payload,
       capped.payload_ref?.key ?? null
     );
-    await db.insert(events).values(row);
+    // Evaluate the trusted predicate after payload IO and in the INSERT itself.
+    // A denied write must neither publish an event nor advance the run sequence.
+    const inserted = await insertRow(row, condition?.()).returning({
+      id: events.id,
+    });
+    if (inserted.length === 0) {
+      throw new ForbiddenError("events.append");
+    }
     const record = toRecord(row);
     await notify(record);
     return record;
@@ -335,28 +370,7 @@ export const createEventsService = ({
       );
     }
     const row = toRow(parsed, id, now, redacted, null);
-    if (condition) {
-      return db.insert(events).select(
-        db
-          .select({
-            actorId: sql<string>`${row.actorId}`.as("actorId"),
-            actorKind: sql<string>`${row.actorKind}`.as("actorKind"),
-            agentId: sql<string | null>`${row.agentId}`.as("agentId"),
-            createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
-            id: sql<string>`${row.id}`.as("id"),
-            payload: sql<string | null>`${row.payload}`.as("payload"),
-            payloadRef: sql<string | null>`${row.payloadRef}`.as("payloadRef"),
-            runId: sql<string | null>`${row.runId}`.as("runId"),
-            seq: sql<number | null>`${row.seq}`.as("seq"),
-            sessionId: sql<string | null>`${row.sessionId}`.as("sessionId"),
-            type: sql<string>`${row.type}`.as("type"),
-            workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
-          })
-          .from(sql`(select 1)`)
-          .where(condition)
-      );
-    }
-    return db.insert(events).values(row);
+    return insertRow(row, condition);
   };
 
   /**

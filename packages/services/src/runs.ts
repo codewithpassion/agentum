@@ -1346,16 +1346,25 @@ export const createRunsService = ({
     const masker = fresh.length > 0 ? await runMasker(run) : null;
     for (const event of fresh) {
       // biome-ignore lint/performance/noAwaitInLoops: events are stored in seq order
-      await eventsService.append({
-        actor: agentActor(run),
-        agentId: run.agentId,
-        payload: masker ? masker.maskDeep(event.payload) : event.payload,
-        runId: run.id,
-        seq: event.seq,
-        sessionId: run.sessionId,
-        type: event.type,
-        workspaceId: run.workspaceId,
-      });
+      await eventsService.append(
+        {
+          actor: agentActor(run),
+          agentId: run.agentId,
+          payload: masker ? masker.maskDeep(event.payload) : event.payload,
+          runId: run.id,
+          seq: event.seq,
+          sessionId: run.sessionId,
+          type: event.type,
+          workspaceId: run.workspaceId,
+        },
+        run.scopeArtifactId
+          ? () => {
+              requireGuestsEnabled();
+              return sql`exists (select 1 from ${runs} where ${runs.id} = ${run.id}
+          and ${runs.workspaceId} = ${run.workspaceId} and ${currentGuestRun(nowIso())})`;
+            }
+          : undefined
+      );
       lastSeq = event.seq;
     }
     if (

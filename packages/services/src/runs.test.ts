@@ -3103,6 +3103,97 @@ describe("guest artifact starts", () => {
     );
   }
 
+  for (const change of ["grant", "session", "workspace"] as const) {
+    for (const boundary of ["masker", "second insert", "blob"] as const) {
+      test(`guest event ingestion fences ${change} revocation during ${boundary}`, async () => {
+        await setupArtifact();
+        const phase = new Set<string>();
+        const revoke = () => {
+          if (change === "grant") {
+            db.update(artifactMembers).set({ revokedAt: START }).run();
+          }
+          if (change === "session") {
+            db.update(guestSessions).set({ expiresAt: START }).run();
+          }
+          if (change === "workspace") {
+            db.update(workspaceRows).set({ liveGuestsEnabled: false }).run();
+          }
+        };
+        const service = guestRuns({
+          blobs: {
+            ...blobs,
+            put: async (key, body) => {
+              await blobs.put(key, body);
+              if (phase.has("ingesting") && boundary === "blob") {
+                revoke();
+              }
+            },
+          },
+          secrets: {
+            announceDelivery: () => Promise.resolve(),
+            maskerFor: async () => {
+              if (phase.has("ingesting") && boundary === "masker") {
+                revoke();
+              }
+              await Promise.resolve();
+              return null;
+            },
+            resolveForAgent: () =>
+              Promise.reject(new Error("Unused guest secret resolution")),
+          },
+        });
+        const started = await queuedGuest(service);
+        await service.claimRun(SYSTEM_PRINCIPAL, started.runId);
+        phase.add("ingesting");
+        const insert = db.insert.bind(db);
+        let eventInserts = 0;
+        const hook = spyOn(db, "insert").mockImplementation((table) => {
+          if (Object.is(table, eventRows)) {
+            eventInserts += 1;
+            if (boundary === "second insert" && eventInserts === 2) {
+              revoke();
+            }
+          }
+          return insert(table);
+        });
+        try {
+          await expect(
+            service.ingestRunEvents(SYSTEM_PRINCIPAL, started.runId, [
+              {
+                payload: {
+                  text: boundary === "blob" ? "x".repeat(70_000) : "first",
+                },
+                seq: 1,
+                type: "message.assistant",
+              },
+              {
+                payload: { text: "second" },
+                seq: 2,
+                type: "message.assistant",
+              },
+            ])
+          ).rejects.toBeInstanceOf(ForbiddenError);
+          const written = db
+            .select()
+            .from(eventRows)
+            .where(eq(eventRows.runId, started.runId))
+            .all()
+            .filter((row) => row.seq !== null);
+          expect(written.map((row) => row.seq)).toEqual(
+            boundary === "second insert" ? [1] : []
+          );
+          await expect(
+            service.ingestRunEvents(SYSTEM_PRINCIPAL, started.runId, [
+              { payload: { text: "retry" }, seq: 2, type: "message.assistant" },
+            ])
+          ).rejects.toBeInstanceOf(ForbiddenError);
+        } finally {
+          hook.mockRestore();
+        }
+      });
+    }
+  }
+
   test("legacy machine claim never resolves guest secrets or emits a token", async () => {
     await setupArtifact();
     let secretsRead = false;

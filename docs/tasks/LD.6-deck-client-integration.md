@@ -3,7 +3,7 @@ id: LD.6
 title: Collaborative deck route and transport integration
 milestone: L
 size: L
-status: in_progress
+status: review
 depends_on: [LD.3, LD.5]
 branch: null
 lane: web
@@ -17,3 +17,5 @@ Connect the actual deck page and editor to typed production service endpoints an
 ## Log
 
 - 2026-10-27: Parallel client integration started after document client review fixes merged. Backend LD.5 active; no server/service/schema ownership in this lane.
+
+- 2026-10-27: Merged client21a5daba: actual desktop/phone workerd browser structural edits, sparse cells, peer undo and presentation lifecycle pass with original binding. Independent client review and authenticated full-app/staging acceptance remain open.
