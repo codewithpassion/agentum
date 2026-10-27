@@ -1,6 +1,6 @@
 # L.6a — thread actors and author presentation
 
-Implemented 2026-10-27 on `t3/2b3bcf6c`, bounded to protocol thread folding and thread author presentation. Read `CLAUDE.md`, the L.6a brief and live-artifacts PRD section 8 / R1.35. Parent L.6 remains incomplete.
+Implemented 2026-10-27 on `t3/thread-author-preservation`, bounded to protocol thread folding and thread author presentation. Read `CLAUDE.md`, the L.6a brief and live-artifacts PRD section 8 / R1.35. Parent L.6 remains incomplete.
 
 ## Behavior
 
@@ -17,6 +17,8 @@ The UI infers multiple people from distinct `(kind, id)` user/guest actors, or a
 3. For live delivery, either enrich parsed frames in the trusted client/session adapter as `ThreadFrame`, or add the same optional top-level display object to the stream event schema and its server producer together in the service integration lane. The current strict `eventFrameSchema` does not accept this extension on the wire. History and live adapters must use the same resolution so reload/reconnect names agree. `actorDisplay` in the payload is intentionally ignored.
 4. Pass trusted room/session presence information as `multiPerson: true` to `useTaskThreadRuntime` when more than one person is present, including before another participant sends a message. Without it, labels start when a second distinct authenticated person appears in history. The existing task callers need no changes for single-person web chat.
 5. Speaker-envelope construction, Slack linking/names, guest run authorization and agent instructions remain in parent L.6. No service, session, run, MCP, prompt, database or schema implementation was changed here.
+
+Implementation commit: `3927cbfb4223d3bca03048d3dcc38e737ce371e7`.
 
 ## Verification
 
