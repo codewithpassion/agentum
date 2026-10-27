@@ -185,16 +185,14 @@ try {
               await expect(editor).toContainText(
                 `Guest edit ${viewport.width}`
               );
-              await page
-                .getByLabel("Upload image")
-                .setInputFiles({
-                  buffer: Buffer.from(
-                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4qkAAAAASUVORK5CYII=",
-                    "base64"
-                  ),
-                  mimeType: "image/png",
-                  name: "guest.png",
-                });
+              await page.getByLabel("Upload image").setInputFiles({
+                buffer: Buffer.from(
+                  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4qkAAAAASUVORK5CYII=",
+                  "base64"
+                ),
+                mimeType: "image/png",
+                name: "guest.png",
+              });
               await expect(editor.locator("img")).toHaveAttribute(
                 "src",
                 /^blob:/
