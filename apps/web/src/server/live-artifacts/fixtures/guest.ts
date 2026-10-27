@@ -125,6 +125,33 @@ app.post("/fixture/checkpoint/:id", async (c) =>
     ).checkpoint()
   )
 );
+// Fixed fixture run, never mounted in production and never accepts caller identity.
+app.post("/fixture/suggestion/:id", async (c) => {
+  const { services } = get(c.env);
+  if (!services.liveRoom) {
+    throw new Error("Missing room");
+  }
+  const principal = {
+    agentId: "thread-agent",
+    kind: "run" as const,
+    runId: "suggestion-run",
+    workspaceId: "w1",
+  };
+  const room = await services.liveRoom(principal, c.req.param("id"));
+  return c.json(
+    await room.documentEdit(
+      [{ content: { text: "Reviewed by a guest" }, op: "insert" }],
+      {
+        changeId: "guest-review",
+        mode: "suggestion",
+        participantId: "a:thread-agent:suggestion-run",
+        runId: "suggestion-run",
+        toolCallId: "guest-review",
+      },
+      "Guest review fixture"
+    )
+  );
+});
 app.post("/fixture/revoke/:artifact/:member", async (c) => {
   const composed = get(c.env);
   await (await guests(composed)).revoke(owner, {

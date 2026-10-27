@@ -34,6 +34,11 @@ const inputs = {
   convertDoc: { artifactId },
   createDeck: { slides: [], title: "Deck" },
   createDocument: { title: "Doc" },
+  decideSuggestion: {
+    artifactId,
+    decision: "accept",
+    suggestionId: "suggestion",
+  },
   ensureDeckCell: {
     artifactId,
     elementId: "table",
@@ -60,6 +65,8 @@ const inputs = {
   selectAgent: { agentId: "agent", artifactId },
   session: { artifactId },
   setAudience: { artifactId, audience: "private" },
+  setSuggestionMode: { artifactId, enabled: true },
+  suggestions: { artifactId },
   threads: { artifactId },
 } as const;
 const create = (

@@ -1131,21 +1131,37 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
     },
     async roomIdentity(principal: Principal, artifactId: string) {
       const { member, role } = await access(principal, artifactId);
-      const [run] =
-        member.kind === "run"
-          ? await db
-              .select({ actorKind: runs.actorKind })
-              .from(runs)
-              .where(
-                and(
-                  eq(runs.id, member.runId),
-                  eq(runs.workspaceId, member.workspaceId)
-                )
-              )
-              .limit(1)
-          : [];
+      let forceSuggestions = false;
+      let runId: string | null = member.kind === "run" ? member.runId : null;
+      const seen = new Set<string>();
+      while (runId) {
+        if (seen.has(runId) || seen.size >= 16) {
+          throw new ForbiddenError("liveArtifacts.runLineage");
+        }
+        seen.add(runId);
+        const [run]: { actorKind: string; parentRunId: string | null }[] =
+          // biome-ignore lint/performance/noAwaitInLoops: traverse trusted persisted ancestry, never caller lineage.
+          await db
+            .select({
+              actorKind: runs.actorKind,
+              parentRunId: runs.parentRunId,
+            })
+            .from(runs)
+            .where(
+              and(eq(runs.id, runId), eq(runs.workspaceId, member.workspaceId))
+            )
+            .limit(1);
+        if (!run) {
+          throw new ForbiddenError("liveArtifacts.runLineage");
+        }
+        if (run.actorKind === "guest") {
+          forceSuggestions = true;
+          break;
+        }
+        runId = run.parentRunId;
+      }
       return {
-        forceSuggestions: run?.actorKind === "guest",
+        forceSuggestions,
         ...(await deps.identity(member)),
         kind: member.kind === "user" ? ("member" as const) : ("agent" as const),
         participantId: participantId(member),

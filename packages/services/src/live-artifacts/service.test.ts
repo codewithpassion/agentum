@@ -639,15 +639,17 @@ describe("live authorization and tickets", () => {
     expect(h.counts()).toEqual(before);
   });
 
-  test("checkpoint audit names the writing run rather than the creating run", async () => {
+  test("agent snapshot publication is disabled without canonical room authority", async () => {
     const h = setup();
     const doc = await h.service.createDocument(principals.agentOne, {
       title: "Agent doc",
     });
-    await h.service.checkpoint(principals.agentOneInUi, {
-      artifactId: doc.artifactId,
-      ...encode("Updated", 1),
-    });
+    await expect(
+      h.service.checkpoint(principals.agentOneInUi, {
+        artifactId: doc.artifactId,
+        ...encode("Updated", 1),
+      })
+    ).rejects.toThrow("Agents must use guarded room operations");
     const audit = h.db
       .select()
       .from(events)
@@ -655,7 +657,7 @@ describe("live authorization and tickets", () => {
       .all();
     expect(
       audit.map((event) => JSON.parse(event.payload ?? "{}").runId)
-    ).toEqual(["r-shared", "r-ui"]);
+    ).toEqual(["r-shared"]);
   });
 
   test("foreign agent, run and current-version parents are refused", async () => {
@@ -1405,7 +1407,7 @@ describe("durable access lifecycle", () => {
     await refuses(() => h.service.admit(principals.owner, owner), "not_found");
   });
 
-  test("agent checkpoints invoke anchor guard and a refusal leaves no version or event", async () => {
+  test("agent snapshot fallback fails closed before legacy anchor validation", async () => {
     const h = setup();
     const { artifactId } = await h.service.createDocument(principals.agentOne, {
       title: "Agent doc",
@@ -1419,13 +1421,8 @@ describe("durable access lifecycle", () => {
     const snapshot = encode("deleted", 2);
     await expect(
       h.service.checkpoint(principals.agentOne, { artifactId, ...snapshot })
-    ).rejects.toThrow("anchored words would be deleted");
-    expect(calls).toEqual([
-      [
-        { artifactId, workspaceId: "w1" },
-        { runId: "r-shared", snapshot: { artifactId, ...snapshot } },
-      ],
-    ]);
+    ).rejects.toThrow("Agents must use guarded room operations");
+    expect(calls).toEqual([]);
     expect(h.counts()).toEqual(before);
   });
 
@@ -1973,4 +1970,65 @@ test("internal checkpoint recovery cannot resurrect a deleted artifact", async (
       principals.owner
     )
   ).rejects.toThrow();
+});
+
+test("suggestion review uses current service authority and guest forcing uses stored run attribution", async () => {
+  const h = setup();
+  const doc = await h.service.createDocument(principals.agentOne, {
+    title: "Review",
+  });
+  expect(
+    (await h.service.roomIdentity(principals.agentOne, doc.artifactId))
+      .forceSuggestions
+  ).toBe(false);
+  h.db
+    .update(runs)
+    .set({ actorId: "guest-id", actorKind: "guest" })
+    .where(eq(runs.id, "r-shared"))
+    .run();
+  expect(
+    (await h.service.roomIdentity(principals.agentOne, doc.artifactId))
+      .forceSuggestions
+  ).toBe(true);
+  h.db
+    .update(runs)
+    .set({ parentRunId: "r-shared" })
+    .where(eq(runs.id, "r-ui"))
+    .run();
+  expect(
+    (await h.service.roomIdentity(principals.agentOneInUi, doc.artifactId))
+      .forceSuggestions
+  ).toBe(true);
+  let calls = 0;
+  h.deps.rooms.suggestions = () => {
+    calls += 1;
+    return Promise.resolve({ items: [], mode: true });
+  };
+  await h.service.suggestions(principals.owner, { artifactId: doc.artifactId });
+  await h.service.setSuggestionMode(principals.owner, {
+    artifactId: doc.artifactId,
+    enabled: true,
+  });
+  await h.service.decideSuggestion(principals.owner, {
+    artifactId: doc.artifactId,
+    decision: "accept",
+    suggestionId: "one",
+  });
+  expect(calls).toBe(3);
+  await expect(
+    h.service.decideSuggestion(principals.agentOne, {
+      artifactId: doc.artifactId,
+      decision: "accept",
+      suggestionId: "one",
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  h.grant(doc.artifactId, "viewer");
+  await expect(
+    h.service.decideSuggestion(principals.stranger, {
+      artifactId: doc.artifactId,
+      decision: "reject",
+      suggestionId: "one",
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(calls).toBe(3);
 });
