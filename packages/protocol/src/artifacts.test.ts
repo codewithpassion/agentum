@@ -275,6 +275,7 @@ describe("view token claims", () => {
     shareId: "s1",
     versionId: "v1",
     viewer: "link",
+    workspaceId: "w1",
   };
 
   test("accepts valid claims", () => {

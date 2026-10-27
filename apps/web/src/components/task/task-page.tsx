@@ -2,6 +2,7 @@ import { toActionLog } from "@repo/services/tasks/action-log";
 import { buildReceipt } from "@repo/services/tasks/receipt";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { ArtifactsSlot } from "#/components/artifacts/list/artifacts-slot.tsx";
 import {
   type AnswerPayload,
   isConflict,
@@ -315,6 +316,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
             takeover={takeover}
           />
           <FilesSlot runId={runId} running={isActive(runStatus)} />
+          <ArtifactsSlot runId={runId} running={isActive(runStatus)} />
           <MailSlot
             agentId={task.agent.id}
             error={mailError}

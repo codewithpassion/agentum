@@ -3,7 +3,7 @@ id: A.9
 title: Artifacts page, nav item and task slot
 milestone: A
 size: M
-status: in_progress
+status: done
 depends_on: [A.1]
 branch: task/A.9-artifacts-page-and-task-slot
 lane: web-app
@@ -28,3 +28,4 @@ UI tasks run beside the backend tasks and code against the A.1 tRPC schemas. If 
 ## Log
 - 2026-10-27: planned (controller).
 - 2026-10-27: dispatched.
+- 2026-10-27: ready at dcf7427, review clean after 1 fix round; runId added to list input; browser check moved to A.14; merged.
