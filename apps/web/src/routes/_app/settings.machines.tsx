@@ -72,8 +72,10 @@ function MachinesPage() {
 
   return (
     <section className="mx-auto max-w-4xl">
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-heading text-3xl text-foreground">Machines</h1>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <h1 className="font-heading text-3xl text-foreground [overflow-wrap:normal]">
+          Machines
+        </h1>
         <div className="flex items-center gap-2">
           <Button onClick={openAddComputer} variant="outline">
             Add computer
