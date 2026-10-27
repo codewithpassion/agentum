@@ -27,6 +27,8 @@ import { Route as AppRoutinesRouteImport } from './routes/_app/routines'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
+import { Route as AArtifactIdRouteImport } from './routes/a.$artifactId'
+import { Route as STokenRouteImport } from './routes/s.$token'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAgentsNewRouteImport } from './routes/_app/agents.new'
@@ -133,6 +135,16 @@ const AppTriggersRoute = AppTriggersRouteImport.update({
   id: '/triggers',
   path: '/triggers',
   getParentRoute: () => AppRoute,
+} as any)
+const AArtifactIdRoute = AArtifactIdRouteImport.update({
+  id: '/a/$artifactId',
+  path: '/a/$artifactId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const STokenRoute = STokenRouteImport.update({
+  id: '/s/$token',
+  path: '/s/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
   id: '/agents/',
@@ -241,6 +253,8 @@ export interface FileRoutesByFullPath {
   '/sessions': typeof AppSessionsRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/triggers': typeof AppTriggersRoute
+  '/a/$artifactId': typeof AArtifactIdRoute
+  '/s/$token': typeof STokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
   '/qa/$questionId': typeof AppQaQuestionIdRoute
@@ -276,6 +290,8 @@ export interface FileRoutesByTo {
   '/routines': typeof AppRoutinesRoute
   '/sessions': typeof AppSessionsRoute
   '/triggers': typeof AppTriggersRoute
+  '/a/$artifactId': typeof AArtifactIdRoute
+  '/s/$token': typeof STokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
   '/qa/$questionId': typeof AppQaQuestionIdRoute
@@ -314,6 +330,8 @@ export interface FileRoutesById {
   '/_app/sessions': typeof AppSessionsRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/triggers': typeof AppTriggersRoute
+  '/a/$artifactId': typeof AArtifactIdRoute
+  '/s/$token': typeof STokenRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/agents/new': typeof AppAgentsNewRoute
   '/_app/qa/$questionId': typeof AppQaQuestionIdRoute
@@ -352,6 +370,8 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/settings'
     | '/triggers'
+    | '/a/$artifactId'
+    | '/s/$token'
     | '/agents/$agentId'
     | '/agents/new'
     | '/qa/$questionId'
@@ -387,6 +407,8 @@ export interface FileRouteTypes {
     | '/routines'
     | '/sessions'
     | '/triggers'
+    | '/a/$artifactId'
+    | '/s/$token'
     | '/agents/$agentId'
     | '/agents/new'
     | '/qa/$questionId'
@@ -424,6 +446,8 @@ export interface FileRouteTypes {
     | '/_app/sessions'
     | '/_app/settings'
     | '/_app/triggers'
+    | '/a/$artifactId'
+    | '/s/$token'
     | '/_app/agents/$agentId'
     | '/_app/agents/new'
     | '/_app/qa/$questionId'
@@ -450,6 +474,8 @@ export interface RootRouteChildren {
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
   SignUpRoute: typeof SignUpRoute
+  AArtifactIdRoute: typeof AArtifactIdRoute
+  STokenRoute: typeof STokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -579,6 +605,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/triggers'
       preLoaderRoute: typeof AppTriggersRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/a/$artifactId': {
+      id: '/a/$artifactId'
+      path: '/a/$artifactId'
+      fullPath: '/a/$artifactId'
+      preLoaderRoute: typeof AArtifactIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$token': {
+      id: '/s/$token'
+      path: '/s/$token'
+      fullPath: '/s/$token'
+      preLoaderRoute: typeof STokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/agents/': {
       id: '/_app/agents/'
@@ -785,6 +825,8 @@ const rootRouteChildren: RootRouteChildren = {
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
   SignUpRoute: SignUpRoute,
+  AArtifactIdRoute: AArtifactIdRoute,
+  STokenRoute: STokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
