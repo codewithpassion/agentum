@@ -211,6 +211,13 @@
       "when": 1793095788093,
       "tag": "0029_fast_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1793100842013,
+      "tag": "0030_nebulous_human_torch",
+      "breakpoints": true
     }
   ]
 }

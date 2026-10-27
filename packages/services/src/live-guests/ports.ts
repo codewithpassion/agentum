@@ -35,12 +35,12 @@ export interface GuestEmailPort {
   sendInvitation: (input: InvitationEmail & { url: string }) => Promise<void>;
 }
 
-/** Phase 3 runtime integration must authenticate the current session, resolve a
- * fresh grant, and atomically charge the daily cap before starting a run.
+/** Authentication only. Charging belongs in RunsService's insertion transaction,
+ * never in a separate authorization call that can double charge retries.
  * Never trust a GuestGrant object submitted by the caller as authentication.
  */
 export interface GuestRunAuthorizationPort {
-  authorizeAndCharge: (input: {
+  authorize: (input: {
     agentId: string;
     artifactId: string;
     sessionToken: string;

@@ -285,3 +285,16 @@ export const artifactAskDispatches = sqliteTable(
     index("artifact_ask_dispatches_pending_idx").on(t.completedAt, t.id),
   ]
 );
+
+/** Immutable provenance for scoped execution. Session ids survive credential rotation;
+ * no session FK: signout deletes sessions while run history must be retained. */
+export const guestRunScopes = sqliteTable("guest_run_scopes", {
+  memberId: text("member_id")
+    .notNull()
+    .references(() => artifactMembers.id),
+  runId: text("run_id")
+    .primaryKey()
+    .references(() => runs.id),
+  sessionId: text("session_id").notNull(),
+  workspaceId: workspaceId().references(() => workspaces.id),
+});
