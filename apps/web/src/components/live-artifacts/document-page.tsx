@@ -7,11 +7,16 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { CollaborationPanel, type PanelIntent } from "./collaboration-panel";
 import { DocumentEditor } from "./document-editor";
 import { documentServices } from "./document-services";
-import type { EditorRole, EditorSelection } from "./editor-ports";
+import type {
+  AgentDecoration,
+  EditorRole,
+  EditorSelection,
+} from "./editor-ports";
 import { ToolButton } from "./editor-toolbar";
 import { liveApi } from "./live-api";
 import { TicketedRoom } from "./room-provider";
@@ -39,6 +44,9 @@ class EditorBoundary extends Component<
 }
 const RETRYABLE_CONNECTION =
   /^(Room disconnected|Could not connect|Room synchronization|Room renewal)/;
+const EMPTY_CHANGES: readonly AgentDecoration[] = [];
+const noPolicySubscription = () => () => undefined;
+const emptyChanges = () => EMPTY_CHANGES;
 export function LiveDocumentPage({
   artifactId,
   title,
@@ -54,6 +62,11 @@ export function LiveDocumentPage({
   const [role, setRole] = useState<EditorRole>("viewer");
   const [intent, setIntent] = useState<PanelIntent>();
   const services = useMemo(() => documentServices(artifactId), [artifactId]);
+  const agentChanges = useSyncExternalStore(
+    ready?.subscribePolicy ?? noPolicySubscription,
+    ready?.getAgentChanges ?? emptyChanges,
+    emptyChanges
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt intentionally recreates a rejected connection.
   useEffect(() => {
     setReady(undefined);
@@ -115,6 +128,7 @@ export function LiveDocumentPage({
       {ready !== undefined && (
         <EditorBoundary key={attempt}>
           <DocumentEditor
+            agentChanges={agentChanges}
             document={ready.document}
             history={services.history}
             onAskAgent={(selection) => select("ask", selection)}

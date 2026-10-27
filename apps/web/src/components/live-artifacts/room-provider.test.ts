@@ -386,3 +386,100 @@ test("Yjs relative-position instances normalize null fields before publishing", 
     },
   });
 });
+
+test("renewal-discovered downgrade disposes before a matching role control can bypass fresh-state resync", async () => {
+  let joins = 0;
+  const failures: string[] = [];
+  const roles: string[] = [];
+  const room = new TicketedRoom({
+    failed: (message) => failures.push(message),
+    join: async () => {
+      joins += 1;
+      return { ...joined, role: joins === 1 ? "owner" : "viewer" };
+    },
+    policy: async () => new Set(),
+    ready: () => {
+      /* State observation is through the document below. */
+    },
+    roleChanged: (role) => roles.push(role),
+  });
+  rooms.push(room);
+  const socket = await session(room, Date.now() + 60_100);
+  const accepted = new Doc();
+  accepted.getText("test").insert(0, "Accepted");
+  socket.receive(sync(accepted));
+  await settle();
+  room.document.getText("test").insert(0, "Unaccepted ");
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  expect(roles).toEqual(["owner", "viewer"]);
+  expect(failures).toHaveLength(1);
+  expect(failures[0]).toContain("permissions changed");
+  expect(socket.sent.filter((value) => typeof value === "string")).toHaveLength(
+    0
+  );
+  socket.receive(JSON.stringify({ role: "viewer", type: "role" }));
+  await settle();
+  expect(failures).toHaveLength(1);
+  const rejoined = setup();
+  const next = await session(rejoined.room);
+  next.receive(sync(accepted));
+  await settle();
+  expect(rejoined.room.document.getText("test").toString()).toBe("Accepted");
+  expect(rejoined.room.document).not.toBe(room.document);
+  accepted.destroy();
+});
+
+test("authoritative agent ranges reach the policy snapshot before remote content and disappear on the next manifest", async () => {
+  const changes = [
+    {
+      end: { assoc: -1, tname: "content" },
+      id: "change",
+      name: "Trusted agent",
+      start: { tname: "content" },
+      text: "agent words",
+    },
+  ];
+  let current = changes;
+  const room = new TicketedRoom({
+    failed: (message) => {
+      throw new Error(message);
+    },
+    join: async () => joined,
+    policy: async () => ({
+      agentChanges: current,
+      ownBlobUrls: new Set<string>(),
+    }),
+    ready: () => {
+      /* Snapshot asserted below. */
+    },
+    roleChanged: () => {
+      /* No authorization change here. */
+    },
+  });
+  rooms.push(room);
+  const socket = await session(room);
+  const server = new Doc();
+  server.getText("test").insert(0, "agent words");
+  let delivered = 0;
+  const unsubscribe = room.subscribePolicy(() => {
+    delivered += 1;
+    expect(room.document.getText("test").toString().length).toBeGreaterThan(0);
+  });
+  let observedBeforeContent = false;
+  room.document.on("update", () => {
+    observedBeforeContent = room.getAgentChanges() === current;
+  });
+  socket.receive(sync(server));
+  await settle();
+  expect(observedBeforeContent).toBe(true);
+  expect(room.getAgentChanges()).toEqual(changes);
+  expect(delivered).toBe(1);
+  current = [];
+  server.getText("test").insert(0, "human ");
+  socket.receive(sync(server, 2));
+  await settle();
+  expect(room.getAgentChanges()).toEqual([]);
+  expect(delivered).toBe(2);
+  unsubscribe();
+  server.destroy();
+});

@@ -17,7 +17,7 @@ import type { LiveArtifactsRouter } from "../src/integrations/trpc/types";
 
 const base = process.env.HM_SERVER ?? "http://localhost:3118";
 const evidence = resolve(
-  process.env.HM_LIVE_EVIDENCE ?? "/tmp/harbourmaster-l8-browser"
+  process.env.HM_LIVE_EVIDENCE ?? `/tmp/harbourmaster-l8-browser-${Date.now()}`
 );
 await mkdir(evidence, { recursive: true });
 const browser = await chromium.launch({ headless: true });
@@ -33,7 +33,16 @@ async function login(page: Page) {
       "Real local dev login is unavailable; authenticated acceptance requires a supplied session."
     );
   }
+  const loginResponse = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/dev-login"
+  );
   await local.click();
+  const accepted = await loginResponse;
+  if (!accepted.ok() && accepted.status() !== 302) {
+    throw new Error(
+      `Real dev login endpoint failed (${accepted.status()}); check local server configuration.`
+    );
+  }
   await page.waitForURL((url) => !url.pathname.includes("login"), {
     timeout: 30_000,
   });
@@ -192,7 +201,7 @@ try {
       .first()
       .fill("Reply from the second browser profile");
     await bob
-      .getByRole("button", { exact: true, name: "Post" })
+      .getByRole("button", { exact: true, name: "Post reply" })
       .first()
       .click();
     await expect(
@@ -208,6 +217,68 @@ try {
       await alice.keyboard.press("Escape");
       await bob.keyboard.press("Escape");
     }
+    await alice.bringToFront();
+    await alice
+      .locator("summary")
+      .filter({ hasText: /^Insert$/ })
+      .click();
+    await alice.getByLabel("Upload image", { exact: true }).setInputFiles({
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6XQAAAAASUVORK5CYII=",
+        "base64"
+      ),
+      mimeType: "image/png",
+      name: "real-room-image.png",
+    });
+    await expect(alice.locator(".tiptap img")).toBeVisible();
+    await expect(bob.locator(".tiptap img")).toBeVisible();
+    const imageUrl = await alice.locator(".tiptap img").getAttribute("src");
+    const policy = await pair[0].request.get(
+      `${base}/api/live-artifacts/${artifactId}/policy`
+    );
+    const manifest = z
+      .object({ ownBlobUrls: z.array(z.string()) })
+      .parse(await policy.json());
+    expect(manifest.ownBlobUrls).toContain(imageUrl);
+    if (!imageUrl) {
+      throw new Error("Uploaded image has no URL");
+    }
+    expect((await pair[1].request.get(new URL(imageUrl, base).href)).ok()).toBe(
+      true
+    );
+    passed.push(
+      `${viewport.width}: real persisted image upload, verified ownership policy, room image propagation and peer byte fetch`
+    );
+    const downloadEvent = alice.waitForEvent("download");
+    await alice
+      .getByRole("button", { exact: true, name: "Download markdown" })
+      .click();
+    const download = await downloadEvent;
+    expect(download.suggestedFilename()).toMatch(/\.md$/);
+    const exported = await pair[0].request.get(
+      `${base}/api/live-artifacts/${artifactId}/markdown`
+    );
+    const markdown = z
+      .object({ filename: z.string(), markdown: z.string() })
+      .parse(await exported.json());
+    expect(markdown.markdown).toContain("Anchored words stay together.");
+    await alice
+      .getByRole("button", { exact: true, name: "Version history" })
+      .click();
+    await alice
+      .getByRole("button", { exact: true, name: "Restore Checkpoint v1" })
+      .click();
+    await alice
+      .getByRole("button", { exact: true, name: "Confirm restore" })
+      .click();
+    await expect
+      .poll(() => plainDocument(bob))
+      .toContain("Anchored words stay together.");
+    await expect.poll(() => plainDocument(bob)).not.toContain("Bob suffix");
+    await expect(bob.locator(".tiptap img")).toHaveCount(0);
+    passed.push(
+      `${viewport.width}: latest persisted Markdown downloads and owner checkpoint restore propagates as a real room edit`
+    );
     const before = await api.changes.query({ artifactId });
     if (before.items.some((change) => !change.revertedAt)) {
       await panel(alice, "Agent changes", mobile);
