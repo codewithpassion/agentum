@@ -69,7 +69,15 @@ export const setup = (
   onDeleted?: Parameters<typeof createSkillsStoreService>[0]["onDeleted"]
 ) => {
   const db = migrated();
-  const atomic = sqliteAtomic(db);
+  const plain = sqliteAtomic(db);
+  // A test sets `hooks.beforeBatch` to act between a service's checks and its write.
+  const hooks: { beforeBatch?: () => void } = {};
+  const atomic: typeof plain = (statements) => {
+    const hook = hooks.beforeBatch;
+    hooks.beforeBatch = undefined;
+    hook?.();
+    return plain(statements);
+  };
   for (const id of [W1, W2]) {
     db.insert(workspaceRows)
       .values({
@@ -156,7 +164,7 @@ export const setup = (
     library,
     onDeleted,
   });
-  return { atomic, blobs, db, events, library, libraryBlobs, service };
+  return { atomic, blobs, db, events, hooks, library, libraryBlobs, service };
 };
 
 /** A new skill from a person, with a valid SKILL.md and the extra files given as path to text. */

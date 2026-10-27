@@ -227,7 +227,8 @@ export const createSkillsSync = ({
   /**
    * Forgets the uploads of a deleted skill: its Anthropic skill, then its rows.
    * Without a gateway (the workspace has no key) only the rows go. A failed
-   * Anthropic delete keeps the rows and is logged.
+   * Anthropic delete keeps the rows and is logged. Nothing retries it, because
+   * the skill is gone, so the upload stays at Anthropic until someone removes it.
    */
   const retire = async (
     gateway: Pick<SkillsGateway, "deleteSkill"> | null,

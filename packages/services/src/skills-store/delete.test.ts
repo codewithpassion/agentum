@@ -134,19 +134,40 @@ describe("deleting a skill", () => {
     expect(held).toContain("shared");
   });
 
-  test("is stopped when a run goes live after the first check", async () => {
-    const { db, events, service } = setup();
+  test("a commit stores a shared blob again when a delete removed it after the commit's check", async () => {
+    const { blobs, db, service } = setup();
+    finishRuns(db);
+    await createSkill(service, "first", { "s.txt": "shared" });
+    const { exists } = blobs;
+    let vanished = false;
+    blobs.exists = async (key) => {
+      const found = await exists(key);
+      // The delete removes the blob right after the commit saw it stored.
+      if (found && !vanished) {
+        vanished = true;
+        blobs.objects.delete(key);
+      }
+      return found;
+    };
+    await createSkill(service, "second", { "s.txt": "shared" });
+    expect(vanished).toBe(true);
+    const held = [...blobs.objects.values()].map((bytes) =>
+      new TextDecoder().decode(bytes)
+    );
+    expect(held).toContain("shared");
+  });
+
+  test("is stopped when a run goes live after the first check, and logs no delete", async () => {
+    const { db, hooks, service } = setup();
     finishRuns(db);
     const { skill } = await createSkill(service, "racing");
     await service.assign(user(), { agentId: A1, skillId: skill.id });
-    const { insertStatement } = events;
-    events.insertStatement = (input) => {
-      db.update(runRows)
+    hooks.beforeBatch = () =>
+      db
+        .update(runRows)
         .set({ status: "running" })
         .where(eq(runRows.id, R1))
         .run();
-      return insertStatement(input);
-    };
     const error = await errorOf(service.remove(user(), { skillId: skill.id }));
     expect(isServiceError(error) && error.code).toBe("conflict");
     expect(countOf(db, skill.id)).toMatchObject({
@@ -154,6 +175,13 @@ describe("deleting a skill", () => {
       skill: 1,
       versions: 1,
     });
+    expect(
+      db
+        .select()
+        .from(eventRows)
+        .where(eq(eventRows.type, "skill.deleted"))
+        .all()
+    ).toEqual([]);
   });
 
   test("tells onDeleted which skill went, and survives its failure", async () => {

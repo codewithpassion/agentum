@@ -649,6 +649,10 @@ export const createSkillsStoreService = ({
       }
       throw error;
     }
+    // A delete of another skill may have removed a shared blob between the
+    // first check and the rows. Its own recheck puts the bytes back when it sees
+    // these rows, and this one when it ran first.
+    await storeBlobs(p.files);
     const approved = p.status
       ? p.status === "approved"
       : p.caller.kind !== "agent";
@@ -1484,8 +1488,10 @@ export const createSkillsStoreService = ({
   /**
    * Removes the bytes no version holds any more. Best effort: the skill is
    * already deleted, so a failure is logged and leaves an unused blob. A
-   * commit may reuse a blob between the check and the removal, so the
-   * bytes are read first and put back when a row points at them again.
+   * commit may reuse a blob between the check and the removal. The bytes are
+   * read first and put back when a row points at them again, and a commit
+   * whose rows land after that recheck stores its blobs again once they are
+   * written (`publish`), so one of the two always restores the bytes.
    */
   const removeBlobs = async (hashes: readonly string[]): Promise<void> => {
     try {
@@ -1539,16 +1545,17 @@ export const createSkillsStoreService = ({
         ...(skill.ownerAgentId ? [skill.ownerAgentId] : []),
       ]),
     ];
-    const liveRuns = db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(
-        and(
-          inArray(runs.agentId, agentIds),
-          inArray(runs.status, [...LIVE_RUN_STATUSES])
-        )
-      );
-    const [live] = agentIds.length > 0 ? await liveRuns.limit(1) : [];
+    const liveRuns = () =>
+      db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          and(
+            inArray(runs.agentId, agentIds),
+            inArray(runs.status, [...LIVE_RUN_STATUSES])
+          )
+        );
+    const [live] = agentIds.length > 0 ? await liveRuns().limit(1) : [];
     const busy = () =>
       conflict(
         `A run is using ${skill.name}. Delete it when the run has finished, or cancel the run first.`
@@ -1569,7 +1576,7 @@ export const createSkillsStoreService = ({
       .select({ id: skillVersions.id })
       .from(skillVersions)
       .where(eq(skillVersions.skillId, skill.id));
-    const idle = notExists(liveRuns);
+    const idle = notExists(liveRuns());
     await atomic([
       db
         .delete(skillAssignments)
@@ -1584,12 +1591,6 @@ export const createSkillsStoreService = ({
         .delete(skillSources)
         .where(and(eq(skillSources.skillId, skill.id), idle)),
       db.delete(skills).where(and(eq(skills.id, skill.id), idle)),
-      eventStatement(
-        c,
-        "skill.deleted",
-        { name: skill.name, skillId: skill.id },
-        skill.ownerAgentId
-      ),
     ]);
     const [left] = await db
       .select({ id: skills.id })
@@ -1599,6 +1600,15 @@ export const createSkillsStoreService = ({
     if (left) {
       throw busy();
     }
+    // Written once the delete is known to have happened, so a stopped delete leaves no event.
+    await atomic([
+      eventStatement(
+        c,
+        "skill.deleted",
+        { name: skill.name, skillId: skill.id },
+        skill.ownerAgentId
+      ),
+    ]);
     await removeBlobs(hashes);
     try {
       await onDeleted?.({ skillId: skill.id, workspaceId: skill.workspaceId });

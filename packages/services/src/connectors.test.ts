@@ -49,6 +49,7 @@ let service: ReturnType<typeof createConnectorsService>;
 let agents: ReturnType<typeof createAgentsService>;
 let events: ReturnType<typeof createEventsService>;
 let agent: AgentRecord;
+let beforeBatch: (() => void) | undefined;
 
 const clock: Clock = {
   now: () => new Date(START),
@@ -74,6 +75,7 @@ const toStub: Fetcher = (input, init) => {
 };
 
 const build = () => {
+  const plain = sqliteAtomic(db);
   const store = new Map<string, string>();
   events = createEventsService({
     blobs: {
@@ -87,7 +89,12 @@ const build = () => {
   });
   agents = createAgentsService({ db, events });
   service = createConnectorsService({
-    atomic: sqliteAtomic(db),
+    atomic: (statements) => {
+      const hook = beforeBatch;
+      beforeBatch = undefined;
+      hook?.();
+      return plain(statements);
+    },
     clock,
     db,
     events,
@@ -820,19 +827,24 @@ test("remove stops when a run goes live after the first check", async () => {
   const connector = await addHeaderConnector();
   await service.assign(dom, { agentId: agent.id, connectorId: connector.id });
   seedRun("done");
-  const { insertStatement } = events;
   // The batch is built after the first check, so the run starts in between.
-  events.insertStatement = (input) => {
-    db.update(runs)
+  beforeBatch = () =>
+    db
+      .update(runs)
       .set({ status: "running" })
       .where(eq(runs.id, "r-live"))
       .run();
-    return insertStatement(input);
-  };
   await expect(
     service.remove(dom, { connectorId: connector.id })
   ).rejects.toMatchObject({ code: "conflict" });
   expect(await service.list(dom)).toHaveLength(1);
+  expect(
+    db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.type, "connector.deleted"))
+      .all()
+  ).toEqual([]);
   expect(
     db
       .select()

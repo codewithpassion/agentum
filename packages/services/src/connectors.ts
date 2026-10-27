@@ -757,26 +757,27 @@ export const createConnectorsService = ({
       .select({ agentId: agentConnectors.agentId })
       .from(agentConnectors)
       .where(eq(agentConnectors.connectorId, connector.id));
-    const liveRuns = db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(
-        and(
-          inArray(
-            runs.agentId,
-            carriers.map((row) => row.agentId)
-          ),
-          inArray(runs.status, [...LIVE_RUN_STATUSES])
-        )
-      );
-    const [live] = await liveRuns.limit(1);
+    const liveRuns = () =>
+      db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          and(
+            inArray(
+              runs.agentId,
+              carriers.map((row) => row.agentId)
+            ),
+            inArray(runs.status, [...LIVE_RUN_STATUSES])
+          )
+        );
+    const [live] = await liveRuns().limit(1);
     if (live) {
       throw new ServiceError(
         "conflict",
         `A run is using ${connector.name}. Delete it when the run has finished, or cancel the run first.`
       );
     }
-    const idle = notExists(liveRuns);
+    const idle = notExists(liveRuns());
     await atomic([
       db
         .delete(oauthStates)
@@ -788,12 +789,6 @@ export const createConnectorsService = ({
         .delete(agentConnectors)
         .where(and(eq(agentConnectors.connectorId, connector.id), idle)),
       db.delete(connectors).where(and(eq(connectors.id, connector.id), idle)),
-      events.insertStatement({
-        actor: { id: user.userId, kind: "user" },
-        payload: { connectorId: connector.id, name: connector.name },
-        type: "connector.deleted",
-        workspaceId: user.workspaceId,
-      }),
     ]);
     const [left] = await db
       .select({ id: connectors.id })
@@ -806,6 +801,15 @@ export const createConnectorsService = ({
         `A run started using ${connector.name}. Try again when it has finished.`
       );
     }
+    // Written once the delete is known to have happened, so a stopped delete leaves no event.
+    await atomic([
+      events.insertStatement({
+        actor: { id: user.userId, kind: "user" },
+        payload: { connectorId: connector.id, name: connector.name },
+        type: "connector.deleted",
+        workspaceId: user.workspaceId,
+      }),
+    ]);
   };
 
   /** Throws not_found unless every id is a connector of the caller's workspace. */
