@@ -115,6 +115,10 @@ import {
   type LibraryLinksService,
 } from "@repo/services/library-links";
 import {
+  createLiveArtifactsWithAsk,
+  type LiveArtifactsWithAsk,
+} from "@repo/services/live-artifacts/factory";
+import {
   createMachinesService,
   type MachinesService,
 } from "@repo/services/machines";
@@ -249,6 +253,7 @@ import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { libraryNotifier } from "./library-notifier.ts";
+import { type LiveInfra, productionLiveInfra } from "./live-artifacts/infra";
 import { type MailEnv, mailInfra } from "./mail-infra.ts";
 import { durablePollerPort } from "./managed-poller-port.ts";
 import { clerkEmailMemberLookup } from "./mcp/clerk-email-member.ts";
@@ -305,6 +310,7 @@ export interface Infra {
   isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
+  live?: LiveInfra;
   mailbox?: MailboxPort;
   mailDomain?: string;
   mailRouting?: EmailRoutingPort;
@@ -367,6 +373,8 @@ export interface Services {
   library: LibraryService;
   libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
+  liveArtifacts?: LiveArtifactsWithAsk;
+  liveRoom?: LiveInfra["roomFor"];
   machines: MachinesService;
   mail: MailService & MailOutbound;
   managed: ManagedService;
@@ -410,6 +418,8 @@ export interface Composed {
 export type ComposeEnv = Pick<
   Env,
   | "ALLOWED_ORG_IDS"
+  | "ARTIFACT_ROOM"
+  | "LIVE_ARTIFACT_MAINTENANCE"
   | "APP_STORE"
   | "ARTIFACT_LINKS_OFF"
   | "ARTIFACT_VIEW_KEY"
@@ -991,6 +1001,23 @@ export const composeWith = ({
       library,
       libraryAccess,
       libraryLinks,
+      liveArtifacts: infra.live
+        ? withLiveMaintenance(
+            createLiveArtifactsWithAsk({
+              ...infra.live,
+              artifacts,
+              atomic: infra.atomic,
+              blobs: libraryBlobs,
+              clock: infra.clock,
+              db,
+              events,
+              files,
+              runs,
+            }),
+            infra.live.wake
+          )
+        : undefined,
+      liveRoom: infra.live?.roomFor,
       machines,
       mail: { ...mail, ...mailOutbound },
       managed,
@@ -1039,7 +1066,8 @@ export const compose = (
   defer?: (work: Promise<void>) => void
 ): Composed => {
   const db = drizzle(env.DB);
-  return composeWith({
+  let composed: Composed;
+  composed = composeWith({
     allowedOrgIds: parseOrgIds(env.ALLOWED_ORG_IDS),
     db,
     infra: {
@@ -1061,6 +1089,7 @@ export const compose = (
       githubToken: env.GITHUB_TOKEN || undefined,
       isOrgMember: clerkOrgMemberCheckFresh(env.CLERK_SECRET_KEY),
       libraryBlobs: r2LibraryBlobs(env.FILES),
+      live: productionLiveInfra(env as Env, () => composed),
       ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>
         connectManagedGateway(apiKey, {
@@ -1082,4 +1111,22 @@ export const compose = (
       validateModelKey,
     },
   });
+  return composed;
 };
+
+const withLiveMaintenance = (
+  service: LiveArtifactsWithAsk,
+  wake: () => Promise<void>
+): LiveArtifactsWithAsk =>
+  new Proxy(service, {
+    get(target, key, receiver) {
+      const method = Reflect.get(target, key, receiver);
+      if (typeof method !== "function") {
+        return method;
+      }
+      return async (...args: unknown[]) => {
+        await wake();
+        return Reflect.apply(method, target, args);
+      };
+    },
+  });

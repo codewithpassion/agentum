@@ -17,6 +17,7 @@ export const STREAM_EVENT_TYPES = [
   "tool.call",
   "tool.result",
   "artifact.published",
+  "artifact.live_checkpoint",
   "run.queued",
   "run.started",
   "run.waiting",

@@ -36,6 +36,7 @@ export interface LiveChangePort {
   revert: (
     scope: LiveRoomScope,
     input: {
+      principal?: Principal;
       changeId: string;
       runId: string;
       toolCallId: string;

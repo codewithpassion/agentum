@@ -1210,6 +1210,7 @@ describe("live comments and changes", () => {
       {
         byParticipant: "u:u1",
         changeId: change.id,
+        principal: principals.owner,
         revFrom: 1,
         revTo: 2,
         runId: "r-shared",

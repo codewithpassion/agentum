@@ -12,6 +12,10 @@ import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
 import { compose } from "./server/compose.ts";
 import { frameGuard } from "./server/frame-guard.ts";
+import {
+  liveImageRoutes,
+  liveRoomRoutes,
+} from "./server/live-artifacts/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
 import { accessRoutes } from "./server/routes/access.ts";
@@ -33,6 +37,8 @@ export { DirectoryBackupGateway } from "@cloudflare/sandbox";
 export { AppHost, AppOutbound } from "./server/app-entrypoints.ts";
 export { AppStore } from "./server/app-store/app-store.ts";
 export { VmSession } from "./server/linux-vm/vm-session.ts";
+export { LiveArtifactMaintenance } from "./server/live-artifacts/maintenance";
+export { ArtifactRoom } from "./server/live-artifacts/production-room";
 export { MailboxDO } from "./server/mailbox.ts";
 export { ManagedPoller } from "./server/managed-poller.ts";
 export { PiRun } from "./server/pi-run.ts";
@@ -62,6 +68,7 @@ mountArtifactContentRoutes(app, {
   workspaceId: (claims) => claims.workspaceId,
 });
 
+app.route("/", liveRoomRoutes());
 app.use("*", clerkMiddleware());
 
 // Every service, built once for the request from the bindings and secrets.
@@ -152,6 +159,7 @@ app.use(
 );
 
 // One route app per lane, each mounted once here. Lanes edit their own file.
+app.route("/", liveImageRoutes());
 app.route("/", runtimeRoutes);
 app.route("/", accessRoutes);
 app.route("/", automationRoutes);

@@ -48,6 +48,7 @@ import { createBrowserPorts } from "./browser-ports.ts";
 import { createComputerPorts } from "./computer-ports.ts";
 import { guarded } from "./guarded.ts";
 import { createLibraryPorts } from "./library-ports.ts";
+import { createLivePorts } from "./live-ports";
 import { createMailPorts } from "./mail-ports.ts";
 import { createQaPorts } from "./qa-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
@@ -197,6 +198,7 @@ export const createMcpPorts = ({
   relay,
   requestHost,
   services,
+  toolCallId,
 }: {
   /** The browser `artifact_test` opens pages in. Without it the tool answers that the browser is unavailable. */
   artifactTestBrowser?: ArtifactTestBrowser;
@@ -209,6 +211,7 @@ export const createMcpPorts = ({
   relay?: MachineRelayPort;
   requestHost?: string;
   services: Services;
+  toolCallId?: string;
 }): McpPorts => {
   /** The agent whose slug or id is `reference`, among those the caller can see. */
   const findAgent = async (reference: string): Promise<AgentInfo> => {
@@ -294,6 +297,16 @@ export const createMcpPorts = ({
   };
 
   return {
+    ...(services.liveArtifacts
+      ? {
+          live: createLivePorts({
+            principal,
+            publicBaseUrl,
+            services,
+            toolCallId,
+          }),
+        }
+      : {}),
     ...createLibraryPorts({ principal, services }),
     // The route offers the tools only to a key whose access allows them.
     ...(principal.kind === "user" && principal.apiKey

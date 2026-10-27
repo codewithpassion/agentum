@@ -77,6 +77,11 @@ export const createLiveArtifactsRouter = (
       .mutation(({ ctx, input }) =>
         service(ctx).createDocument(ctx.principal, input)
       ),
+    exportMarkdown: workspaceProcedure
+      .input(z.strictObject(artifact))
+      .query(({ ctx, input }) =>
+        service(ctx).exportMarkdown(ctx.principal, input)
+      ),
     invalidateAccess: workspaceProcedure
       .input(z.strictObject({ ...artifact, participantId: id.optional() }))
       .mutation(({ ctx, input }) =>
@@ -85,6 +90,11 @@ export const createLiveArtifactsRouter = (
     join: workspaceProcedure
       .input(z.strictObject(artifact))
       .mutation(({ ctx, input }) => service(ctx).join(ctx.principal, input)),
+    ownBlobUrls: workspaceProcedure
+      .input(z.strictObject(artifact))
+      .query(({ ctx, input }) =>
+        service(ctx).ownBlobUrls(ctx.principal, input)
+      ),
     recordChange: workspaceProcedure
       .input(
         z.strictObject({
