@@ -700,7 +700,6 @@ export const createRunsService = ({
       if (!session) {
         throw new ServiceError("not_found", "Session not found");
       }
-      requireArtifactSessionMatch(input, session);
       if (
         scopeArtifactId &&
         (session.origin !== "artifact" ||
@@ -708,6 +707,7 @@ export const createRunsService = ({
       ) {
         throw new ForbiddenError(START_ACTION);
       }
+      requireArtifactSessionMatch(input, session);
       if (session.origin === "artifact" && !scopeArtifactId) {
         await authorizeArtifactRun(
           db,

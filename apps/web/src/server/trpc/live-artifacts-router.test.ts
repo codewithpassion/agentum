@@ -16,7 +16,7 @@ const inputs = {
   answered: { threadId: "thread" },
   ask: { artifactId, text: "hello", via: "artifact_thread" },
   changes: { artifactId },
-  checkpoint: { artifactId, revision: 1, state: new Uint8Array([1]) },
+  checkpoint: { artifactId, revision: 1, state: [1] },
   comment: { artifactId, body: "Hi" },
   convertDoc: { artifactId },
   createDocument: { title: "Doc" },
@@ -111,7 +111,10 @@ test("thin procedures pass the authenticated principal and validated input exact
         value: unknown
       ) => Promise<unknown>
     )(input);
-    expect(calls.at(-1)).toEqual([principal, input]);
+    expect(calls.at(-1)).toEqual([
+      principal,
+      name === "checkpoint" ? { ...input, state: new Uint8Array([1]) } : input,
+    ]);
   }
   expect(calls).toHaveLength(Object.keys(inputs).length);
 });

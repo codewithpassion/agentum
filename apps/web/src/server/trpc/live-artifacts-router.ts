@@ -36,8 +36,10 @@ export const createLiveArtifactsRouter = (
           ...artifact,
           revision,
           state: z
-            .instanceof(Uint8Array)
-            .refine((v) => v.length > 0 && v.length <= LIVE_DOC_MAX_BYTES),
+            .array(z.number().int().min(0).max(255))
+            .min(1)
+            .max(LIVE_DOC_MAX_BYTES)
+            .transform((value) => Uint8Array.from(value)),
         })
       )
       .mutation(({ ctx, input }) =>

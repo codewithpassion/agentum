@@ -8,6 +8,7 @@ import { events as eventRows } from "@repo/db/schema/events";
 import { agentLibraryAccess } from "@repo/db/schema/library";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
@@ -714,4 +715,23 @@ test("library-live claims carry modes, legacy claims keep paths only", async () 
   expect(legacy.library).toBeDefined();
   expect(legacy.library).not.toHaveProperty("taskFolder");
   expect(legacy.library).not.toHaveProperty("roots");
+});
+
+test("an earlier artifact run cannot resume the newly selected agent's runtime session", async () => {
+  const started = await start(agentId);
+  db.update(sessions)
+    .set({
+      agentId: otherAgentId,
+      origin: "artifact",
+      runtimeMachineId: "m2",
+      runtimeRef: "other-agent-runtime",
+    })
+    .where(eq(sessions.id, started.sessionId))
+    .run();
+  const claimed = await claim("m1", started.runId);
+  expect(claimed.session).toEqual({
+    id: started.sessionId,
+    runtimeMachineId: null,
+    runtimeRef: null,
+  });
 });

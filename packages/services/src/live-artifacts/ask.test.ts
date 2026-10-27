@@ -69,7 +69,12 @@ const setup = () => {
       }
       return await h.atomic(statements);
     },
-    changes: { revert: async () => ({ revision: 10 }) },
+    changes: {
+      revert: async (_scope: unknown, input: { byParticipant: string }) => ({
+        byParticipant: input.byParticipant,
+        revision: 10,
+      }),
+    },
     clock,
     content: {
       exportDocument: async () => ({ html: "<p>body</p>", markdown: "body" }),
@@ -273,6 +278,65 @@ describe("artifact asks with real run persistence", () => {
     expect(
       (await h.runService.claimRun({ kind: "system" }, second.runId)).agentId
     ).toBe("a2");
+  });
+
+  test("member run rights follow the current asker grant and old changes survive an agent switch", async () => {
+    const h = setup();
+    const artifactId = await h.create();
+    h.grant(artifactId, "commenter");
+    const asked = await h.service.ask(principals.stranger, {
+      agentId: "a1",
+      artifactId,
+      text: "comment only",
+      via: "artifact_thread",
+    });
+    const runPrincipal = {
+      agentId: "a1",
+      kind: "run" as const,
+      runId: asked.runId,
+      workspaceId: "w1",
+    };
+    await expect(
+      h.service.checkpoint(runPrincipal, {
+        artifactId,
+        revision: 1,
+        state: bytes("blocked"),
+      })
+    ).rejects.toMatchObject({ code: "forbidden" });
+    h.db.update(artifactMembers).set({ role: "editor" }).run();
+    await h.service.checkpoint(runPrincipal, {
+      artifactId,
+      revision: 1,
+      state: bytes("allowed"),
+    });
+    const change = await h.service.recordChange(runPrincipal, {
+      artifactId,
+      revFrom: 0,
+      revTo: 1,
+      summary: "edit",
+      toolCallId: "call",
+    });
+    await h.service.selectAgent(principals.owner, {
+      agentId: "a2",
+      artifactId,
+    });
+    await h.service.revertChange(principals.owner, { changeId: change.id });
+    const comment = await h.service.comment(runPrincipal, {
+      artifactId,
+      body: "still same run",
+    });
+    expect(comment.authorId).toBe("a1");
+    h.db
+      .update(artifactMembers)
+      .set({ revokedAt: "2026-10-27T00:00:00Z" })
+      .run();
+    const reader = createSessionsService(h);
+    await expect(
+      reader.get(runPrincipal, asked.sessionId)
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      h.runService.getRun(runPrincipal, asked.runId)
+    ).rejects.toMatchObject({ code: "not_found" });
   });
 
   test("concurrent caller retries create one comment, dispatch, event and run", async () => {
