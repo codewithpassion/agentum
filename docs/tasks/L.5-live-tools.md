@@ -3,7 +3,7 @@ id: L.5
 title: Live document MCP tools
 milestone: L
 size: L
-status: todo
+status: in_progress
 depends_on: [L.1]
 branch: null
 lane: mcp
@@ -17,3 +17,5 @@ executor: codex
 ## Log
 
 - 2026-10-27: Queued for the user-authorized implementation of all four live artifacts phases using Sol and Terra worktrees. Commit each substantial completed task. Track validation gaps explicitly.
+
+- 2026-10-27: Sol dispatched tool adapters against L.1 contracts, isolated from ongoing engine/service lanes.
