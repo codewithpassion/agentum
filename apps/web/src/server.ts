@@ -7,6 +7,7 @@ import handler from "@tanstack/react-start/server-entry";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import type { MiddlewareHandler } from "hono/types";
+import guestEntry from "./guest-entry.tsx?worker&url";
 import { mountAppGatewayRoutes } from "./server/app-gateway/mount.ts";
 import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
@@ -70,7 +71,23 @@ mountArtifactContentRoutes(app, {
   workspaceId: (claims) => claims.workspaceId,
 });
 
-app.route("/", guestRoutes());
+app.route(
+  "/",
+  guestRoutes({
+    compose: (env) => compose(env, false),
+    page: async () =>
+      new Response(
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Shared with you · Harbourmaster</title></head><body><div id="guest-root"></div><script type="module" src="${guestEntry}"></script></body></html>`,
+        {
+          headers: {
+            "Cache-Control": "no-store",
+            "Content-Type": "text/html; charset=utf-8",
+            "Referrer-Policy": "no-referrer",
+          },
+        }
+      ),
+  })
+);
 app.route("/", liveRoomRoutes());
 app.use("*", clerkMiddleware());
 

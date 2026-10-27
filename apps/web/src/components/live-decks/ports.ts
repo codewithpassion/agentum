@@ -21,7 +21,7 @@ export interface DeckParticipant {
   status?: string;
 }
 export interface DeckEditorPorts {
-  ask: (where: DeckWhere) => Promise<void>;
+  ask?: (where: DeckWhere) => Promise<void>;
   comment: (where: DeckWhere) => Promise<void>;
   /** Trusted local replica constructed with the production richTextCodec. */
   deck: Deck;
@@ -31,7 +31,8 @@ export interface DeckEditorPorts {
     elementId: string,
     key: string
   ) => Promise<void>;
-  history: () => Promise<void>;
+  history?: () => Promise<void>;
+  imageUrl?: (path: string) => string | undefined;
   ownsBlob: (path: string) => boolean;
   participants: readonly DeckParticipant[];
   /** Trusted room broadcast. Null clears spotlight. Local users may leave it. */

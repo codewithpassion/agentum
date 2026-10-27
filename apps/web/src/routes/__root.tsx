@@ -8,6 +8,7 @@ import { cn } from "#/lib/utils";
 import Footer from "../components/footer";
 import Header from "../components/header";
 import ThemedToaster from "../components/themed-toaster";
+import guestEntry from "../guest-entry.tsx?worker&url";
 
 import ClerkProvider from "../integrations/clerk/provider";
 
@@ -44,7 +45,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   const fullBleed = useIsFullBleed();
 
   return (
-    <html className="light" lang="en" suppressHydrationWarning>
+    <html
+      className="light"
+      data-guest-client={guestEntry}
+      lang="en"
+      suppressHydrationWarning
+    >
       <head>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: static theme-init script, no user input */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

@@ -20,6 +20,7 @@ import {
 } from "#/components/ui/sheet";
 import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
+import { GuestPeople } from "../guests/people";
 import { CreateLinkForm } from "./create-link-form";
 import { LinkList } from "./link-list";
 import { type GrantLike, liveToolOptions } from "./live-link-model";
@@ -181,6 +182,7 @@ function ShareBody({
 
   return (
     <div className="min-w-0 space-y-5">
+      {detail.canManage && (detail.kind === "document" || detail.kind === "deck") && <GuestPeople artifactId={artifactId} />}
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}

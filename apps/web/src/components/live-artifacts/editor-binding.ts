@@ -267,7 +267,32 @@ export function createDocumentEditor(
     },
     element: element ?? document.createElement("div"),
     extensions: [
-      ...createExtensions(ports.policy),
+      ...createExtensions(ports.policy).map((extension) =>
+        extension.name === "image" && ports.imageUrl
+          ? extension.extend({
+              addNodeView:
+                () =>
+                ({ node }) => {
+                  const img = document.createElement("img");
+                  const update = (next: typeof node) => {
+                    if (next.type.name !== "image") {
+                      return false;
+                    }
+                    const url = ports.imageUrl?.(String(next.attrs.src));
+                    if (url) {
+                      img.src = url;
+                    } else {
+                      img.removeAttribute("src");
+                    }
+                    img.alt = String(next.attrs.alt ?? "");
+                    return true;
+                  };
+                  update(node);
+                  return { dom: img, update };
+                },
+            })
+          : extension
+      ),
       RoleCollaboration.configure({
         fragment: ports.document.getXmlFragment("content"),
         yUndoOptions: {

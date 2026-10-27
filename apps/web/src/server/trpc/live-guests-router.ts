@@ -32,6 +32,11 @@ export const liveGuestsRouter = router({
     .mutation(async ({ ctx, input }) =>
       (await service(ctx)).invite(ctx.principal, input)
     ),
+  people: workspaceProcedure
+    .input(z.strictObject({ artifactId }))
+    .query(async ({ ctx, input }) =>
+      (await service(ctx)).people(ctx.principal, input.artifactId)
+    ),
   revoke: workspaceProcedure
     .input(z.strictObject({ artifactId, memberId: z.string().min(1).max(200) }))
     .mutation(async ({ ctx, input }) =>

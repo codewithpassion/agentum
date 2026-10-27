@@ -22,6 +22,7 @@ import { roomStub } from "./namespace";
 
 export interface GuestRouteDeps {
   compose: (env: Env) => Composed;
+  page?: (request: Request) => Promise<Response>;
 }
 export const guestRoutes = (
   deps: GuestRouteDeps = { compose: (env) => compose(env, false) }
@@ -57,6 +58,9 @@ export const guestRoutes = (
     c.json({ error: "Guest access unavailable" }, 404)
   );
   app.get("/g/:inviteToken", async (c) => {
+    if (deps.page && c.req.header("Accept")?.includes("text/html")) {
+      return deps.page(c.req.raw);
+    }
     const composed = c.get("composed");
     const token = c.req.param("inviteToken");
     const workspace = await createGuestScopeDiscovery(composed.db).invitation(
@@ -130,16 +134,18 @@ export const guestRoutes = (
     return c.json({ signedOut: true });
   });
   app.get("/g/a/:artifactId", (c) =>
-    app.fetch(
-      new Request(
-        new URL(
-          `/api/guest/artifacts/${encodeURIComponent(c.req.param("artifactId"))}/open`,
-          c.req.url
-        ),
-        c.req.raw
-      ),
-      c.env
-    )
+    deps.page && c.req.header("Accept")?.includes("text/html")
+      ? deps.page(c.req.raw)
+      : app.fetch(
+          new Request(
+            new URL(
+              `/api/guest/artifacts/${encodeURIComponent(c.req.param("artifactId"))}/open`,
+              c.req.url
+            ),
+            c.req.raw
+          ),
+          c.env
+        )
   );
   app.get("/api/guest/artifacts/:artifactId/session/stream", async (c) => {
     const composed = c.get("composed");

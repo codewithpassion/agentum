@@ -69,11 +69,13 @@ export function DocumentEditor(ports: DocumentEditorPorts) {
     >
       <EditorPresence editor={editor} port={ports.provider} />
       <div className="live-toolbar">
-        <EditorHistory
-          editable={ports.role === "owner"}
-          port={ports.history}
-          report={report}
-        />
+        {ports.history !== undefined && (
+          <EditorHistory
+            editable={ports.role === "owner"}
+            port={ports.history}
+            report={report}
+          />
+        )}
         {!editable && (
           <span>
             {ports.role === "commenter" ? "Comment only" : "Read only"}
@@ -98,9 +100,11 @@ export function DocumentEditor(ports: DocumentEditorPorts) {
         <div className="live-document-main">
           {selection !== undefined && (
             <fieldset aria-label="Selection actions" className="live-toolbar">
-              <ToolButton onClick={() => ports.onAskAgent(selection)}>
-                Ask agent
-              </ToolButton>
+              {ports.onAskAgent !== undefined && (
+                <ToolButton onClick={() => ports.onAskAgent?.(selection)}>
+                  Ask agent
+                </ToolButton>
+              )}
               {ports.role !== "viewer" && (
                 <ToolButton onClick={() => ports.onCommentSelection(selection)}>
                   Comment on selection

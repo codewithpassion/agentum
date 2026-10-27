@@ -257,9 +257,11 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
             Follow presentation
           </button>
         )}
-        <button onClick={() => ports.history().catch(report)} type="button">
-          Version history
-        </button>
+        {ports.history !== undefined && (
+          <button onClick={() => ports.history?.().catch(report)} type="button">
+            Version history
+          </button>
+        )}
         <button onClick={() => setHidePointers(!hidePointers)} type="button">
           {hidePointers ? "Show pointers" : "Hide pointers"}
         </button>
@@ -602,6 +604,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                   <div className="ld-thumbnail-scene">
                     <DeckScene
                       deck={ports.deck}
+                      imageUrl={ports.imageUrl}
                       ownsBlob={ports.ownsBlob}
                       slide={item}
                     />
@@ -694,6 +697,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                     }
                     gesture={(phase) => commands.gesture(phase)}
                     hidePointers={hidePointers}
+                    imageUrl={ports.imageUrl}
                     onActiveText={setActiveText}
                     ownsBlob={ports.ownsBlob}
                     participants={ports.participants.filter(
@@ -736,8 +740,8 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
                   Comment on selection
                 </button>
                 <button
-                  disabled={ports.role === "viewer"}
-                  onClick={() => ports.ask(where()).catch(report)}
+                  disabled={ports.role === "viewer" || !ports.ask}
+                  onClick={() => ports.ask?.(where()).catch(report)}
                   type="button"
                 >
                   Ask about selection

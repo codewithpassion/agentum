@@ -47,8 +47,9 @@ export interface HistoryPort {
 export interface DocumentEditorPorts {
   agentChanges?: readonly AgentDecoration[];
   document: Doc;
-  history: HistoryPort;
-  onAskAgent: (selection: EditorSelection) => void;
+  history?: HistoryPort;
+  imageUrl?: (path: string) => string | undefined;
+  onAskAgent?: (selection: EditorSelection) => void;
   onCommentSelection: (selection: EditorSelection) => void;
   onEditorReady?: (editor: Editor | null) => void;
   policy: ContentPolicy;
