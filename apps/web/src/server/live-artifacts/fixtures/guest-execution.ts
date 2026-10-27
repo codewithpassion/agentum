@@ -191,23 +191,28 @@ app.post("/fixture/role/:artifact/:member", async (c) => {
 app.post("/fixture/create", async (c) => {
   const composed = fixtureCompose(c.env);
   const input = await c.req.json<{
+    artifactId?: string;
     kind?: string;
     email?: string;
     role?: "viewer" | "commenter" | "editor";
   }>();
   const live = requiredLive(composed.services);
-  const artifact =
-    input.kind === "deck"
-      ? await live.createDeck(owner, {
-          slides: [
-            '<slide id="s1" order="a0" background="#fff" transition="none" duration="0"></slide>',
-          ],
-          title: "Executor deck",
-        })
-      : await live.createDocument(owner, {
-          markdown: "# Accepted original",
-          title: "Executor document",
-        });
+  let artifact: { artifactId: string };
+  if (input.artifactId) {
+    artifact = { artifactId: input.artifactId };
+  } else if (input.kind === "deck") {
+    artifact = await live.createDeck(owner, {
+      slides: [
+        '<slide id="s1" order="a0" background="#fff" transition="none" duration="0"></slide>',
+      ],
+      title: "Executor deck",
+    });
+  } else {
+    artifact = await live.createDocument(owner, {
+      markdown: "# Accepted original",
+      title: "Executor document",
+    });
+  }
   const guests = await composed.services.liveGuests?.();
   if (!guests) {
     throw new Error("Missing guests");

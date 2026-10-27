@@ -408,6 +408,62 @@ try {
           ),
           "desktop/phone horizontal fit"
         );
+        // Leave an ambiguous draft on A, sign out from B, then authenticate
+        // another real guest to A in this same tab/storage partition.
+        const otherArtifact = await post("/fixture/create", {
+          email: `${kind}-${viewport.width}@example.com`,
+          kind,
+        });
+        await db
+          .prepare("UPDATE artifacts SET agent_id='a1' WHERE id=?")
+          .bind(otherArtifact.artifactId)
+          .run();
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+          page.evaluate(
+            (target) =>
+              navigator.locks.request("harbourmaster-guest-cookie", () =>
+                location.assign(target)
+              ),
+            `${base}/g/a/${otherArtifact.artifactId}`
+          ),
+        ]);
+        await expect(composer.getByLabel("Message to agent")).toBeEnabled();
+        await page
+          .getByRole("button", { exact: true, name: "Sign out" })
+          .click();
+        await expect(
+          page.getByText("Signed out", { exact: true })
+        ).toBeVisible();
+        check(
+          await page.evaluate(() =>
+            Object.keys(sessionStorage).every(
+              (key) => !key.startsWith("harbourmaster:guest-ask:")
+            )
+          ),
+          "signout on B clears pending asks from A"
+        );
+        const nextGuest = await post("/fixture/create", {
+          artifactId: id,
+          email: `next-${kind}-${viewport.width}@example.com`,
+        });
+        const nextToken = nextGuest.mail
+          .at(-1)
+          .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
+        await page.goto(`${base}/g/${nextToken}`);
+        await page.getByRole("button", { name: "Send me a code" }).click();
+        await expect(page.getByLabel("6-digit code")).toBeVisible();
+        const nextMail = await (await request("/fixture/mail")).json();
+        await page
+          .getByLabel("6-digit code")
+          .fill(nextMail.at(-1).text.match(/\b\d{6}\b/)[0]);
+        await page.getByRole("button", { name: "Verify code" }).click();
+        await expect(composer.getByLabel("Message to agent")).toBeEnabled();
+        await expect(composer.getByLabel("Message to agent")).toHaveValue("");
+        await expect(
+          composer.getByRole("button", { name: "Retry request" })
+        ).toHaveCount(0);
+        checks += 3;
         assert.deepEqual(errors, []);
         checks += 8;
         await context.close();
