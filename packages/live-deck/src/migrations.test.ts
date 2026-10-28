@@ -3,9 +3,14 @@ import {
   applyUpdate,
   Doc,
   encodeStateAsUpdate,
+  encodeStateVector,
+  getItem,
   getState,
   ID,
+  type Item,
+  XmlElement,
   type XmlFragment,
+  XmlText,
   Map as YMap,
 } from "yjs";
 import capture from "./fixtures/structural-migration.json";
@@ -217,4 +222,104 @@ test("deleted and overwritten migration entries cannot retain hidden payloads", 
     ).toThrow();
     expect(encodeStateAsUpdate(authority.doc)).toEqual(before);
   }
+});
+function fragmentAt(doc: Doc): XmlFragment {
+  const item = getItem(doc.store, new ID(4_007_255_768, 47)) as Item;
+  return (item.content as unknown as { type: XmlFragment }).type;
+}
+test("within depth: a migration range nested more than 64 elements deep is refused", () => {
+  const remote = replica();
+  let node: XmlFragment = fragmentAt(remote.doc);
+  for (let depth = 0; depth < 70; depth += 1) {
+    const element = new XmlElement("x");
+    node.insert(0, [element]);
+    node = element;
+  }
+  const text = new XmlText();
+  node.insert(0, [text]);
+  text.insert(0, "c");
+  const char = text._start?.id;
+  const holder = text._item?.id;
+  if (!(char && holder)) {
+    throw new Error("deep text missing");
+  }
+  rewrite(remote.doc, (v: Migration) => {
+    v.transfers[0].source = {
+      client: char.client,
+      clock: char.clock,
+      length: 1,
+    };
+    v.transfers[0].target = {
+      client: char.client,
+      clock: char.clock,
+      type: { client: holder.client, clock: holder.clock },
+    };
+  });
+  const authority = replica();
+  const before = encodeStateAsUpdate(authority.doc);
+  expect(() =>
+    authority.applyUpdate(encodeStateAsUpdate(remote.doc))
+  ).toThrow();
+  expect(encodeStateAsUpdate(authority.doc)).toEqual(before);
+});
+test("target type must match every destination item", () => {
+  const remote = replica();
+  const paragraph = fragmentAt(remote.doc).get(1) as XmlElement;
+  // Two adjacent items from one client: a character in `first`, then `second`, a sibling element.
+  const first = new XmlText();
+  paragraph.insert(0, [first]);
+  first.insert(0, "z");
+  const second = new XmlText();
+  paragraph.insert(1, [second]);
+  second.insert(0, "z");
+  const start = first._start?.id;
+  const firstHolder = first._item?.id;
+  if (!(start && firstHolder && second._item)) {
+    throw new Error("destination items missing");
+  }
+  expect(second._item.id.clock).toBe(start.clock + 1);
+  rewrite(remote.doc, (v: Migration) => {
+    v.transfers[0].source = {
+      client: start.client,
+      clock: start.clock,
+      length: 2,
+    };
+    v.transfers[0].target = {
+      client: start.client,
+      clock: start.clock,
+      type: { client: firstHolder.client, clock: firstHolder.clock },
+    };
+  });
+  const authority = replica();
+  const before = encodeStateAsUpdate(authority.doc);
+  expect(() =>
+    authority.applyUpdate(encodeStateAsUpdate(remote.doc))
+  ).toThrow();
+  expect(encodeStateAsUpdate(authority.doc)).toEqual(before);
+});
+test("overwritten migration payloads cannot retain hidden payloads", () => {
+  const remote = replica();
+  const store = root(remote.doc);
+  remote.doc.transact(() => {
+    store.set("hidden", { secret: 1 });
+    store.set("hidden", { ok: true });
+  });
+  const authority = replica();
+  const before = encodeStateAsUpdate(authority.doc);
+  expect(() =>
+    authority.applyUpdate(encodeStateAsUpdate(remote.doc))
+  ).toThrow();
+  expect(encodeStateAsUpdate(authority.doc)).toEqual(before);
+});
+test("a payload set in one update and overwritten in a later one is refused", () => {
+  const remote = replica();
+  const store = root(remote.doc);
+  const start = encodeStateVector(remote.doc);
+  store.set("hidden", { secret: 1 });
+  const first = encodeStateAsUpdate(remote.doc, start);
+  store.set("hidden", { ok: true });
+  const authority = replica();
+  const before = encodeStateAsUpdate(authority.doc);
+  expect(() => authority.applyUpdate(first)).toThrow();
+  expect(encodeStateAsUpdate(authority.doc)).toEqual(before);
 });

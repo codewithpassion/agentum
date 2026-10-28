@@ -340,9 +340,45 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   }
   private installDeck(doc: Y.Doc) {
     this.deck = new Deck(doc, richTextCodec, {
+      onCompact: () => this.persistCompaction(),
       ownsBlob: (path, slideId, elementId) =>
         this.ownsDeckSource(path, slideId, elementId),
     });
+  }
+  /** Compaction keeps the visible scene, so only the stored base changes: a new snapshot replaces the update log. */
+  private persistCompaction() {
+    if (!this.meta) {
+      return;
+    }
+    const previous = structuredClone(this.meta);
+    try {
+      const full = Y.encodeStateAsUpdate(this.doc);
+      this.ctx.storage.transactionSync(() => {
+        const old = this.meta.generation;
+        this.meta.generation += 1;
+        this.store.write("snapshot", String(this.meta.generation), full);
+        for (
+          let i = this.meta.baseSequence + 1;
+          i <= this.meta.sequence;
+          i += 1
+        ) {
+          this.store.remove("update", String(i));
+        }
+        this.store.remove("snapshot", String(old));
+        this.meta.baseSequence = this.meta.sequence;
+        this.meta.updateBytes = 0;
+        this.store.put("state", this.meta);
+      });
+    } catch (error) {
+      this.meta = previous;
+      throw error;
+    }
+  }
+  /** Runs when a window fills up. The checkpoint and restore paths call compact() themselves. */
+  private compactDeckIfNeeded() {
+    if (this.deck?.shouldCompact()) {
+      this.deck.compact();
+    }
   }
   private installDeckTools() {
     this.deckTools?.destroy();
@@ -399,23 +435,14 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     persist?: (revision: number, full: Uint8Array) => void,
     publicationReceipt?: string
   ) {
-    const trial = new Deck(new Y.Doc({ gc: false }), richTextCodec, {
-      ownsBlob: (path, slideId, elementId) =>
-        this.ownsDeckSource(path, slideId, elementId),
-    });
-    let full: Uint8Array;
-    let changed = false;
-    try {
-      trial.applyUpdate(Y.encodeStateAsUpdate(this.doc));
-      trial.doc.on("update", () => {
-        changed = true;
-      });
-      trial.applyUpdate(update);
-      full = Y.encodeStateAsUpdate(trial.doc);
-    } finally {
-      trial.destroy();
-      trial.doc.destroy();
-    }
+    // One validation of what the update adds. The authority is untouched until the commit is durable.
+    const prepared = this.requiredDeck().prepare(update);
+    const { changed } = prepared;
+    let state: Uint8Array | undefined;
+    const full = () => {
+      state ??= prepared.full();
+      return state;
+    };
     const previous = structuredClone(this.meta);
     try {
       this.ctx.storage.transactionSync(() => {
@@ -428,14 +455,14 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           this.store.write("update", String(this.meta.sequence), update);
         }
         this.meta.ownBlobUrls = [...this.policy];
-        persist?.(this.meta.revision, full);
+        persist?.(this.meta.revision, full());
         if (
           this.meta.sequence - this.meta.baseSequence >= COMPACT_UPDATES ||
           this.meta.updateBytes >= COMPACT_BYTES
         ) {
           const old = this.meta.generation;
           this.meta.generation += 1;
-          this.store.write("snapshot", String(this.meta.generation), full);
+          this.store.write("snapshot", String(this.meta.generation), full());
           for (
             let i = this.meta.baseSequence + 1;
             i <= this.meta.sequence;
@@ -451,13 +478,17 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       });
     } catch (error) {
       this.meta = previous;
+      prepared.discard();
       throw error;
     }
     if (changed) {
-      this.requiredDeck().applyUpdate(update);
+      prepared.apply();
       this.retainDeckElements(this.requiredDeck());
       this.broadcast(syncFrame(2, update));
       this.pruneDeckPresence();
+      this.compactDeckIfNeeded();
+    } else {
+      prepared.discard();
     }
     const lease = this.store.get<PresenterLease>("presenter");
     if (lease && !this.requiredDeck().ids().includes(lease.position.slideId)) {
@@ -1927,6 +1958,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
               this.meta.restores.push(provenance);
             }
           );
+          // The replaced scene needs no old migration records or payloads.
+          this.requiredDeck().compact();
           this.installDeckTools(); // restore explicitly expires every opaque observation.
           this.clearPresentation();
           await this.schedule();
@@ -2101,6 +2134,10 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         retryAt: Date.now() + RETRY_MS,
         revision: this.meta.revision,
       };
+      // A checkpoint is the natural window boundary: store it compact.
+      if (this.deck?.dirty()) {
+        this.deck.compact();
+      }
       const { state } = this.snapshot();
       const created = pending;
       this.ctx.storage.transactionSync(() => {
