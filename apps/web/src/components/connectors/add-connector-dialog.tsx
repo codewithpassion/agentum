@@ -1,3 +1,4 @@
+import type { ConnectorAuthMode } from "@repo/db/shared";
 import { type ChangeEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
@@ -12,6 +13,7 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { ConnectorRecord } from "#/integrations/trpc/types";
+import { AuthModeSelect } from "./auth-mode-select";
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
@@ -26,6 +28,7 @@ export function AddConnectorDialog({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [headerName, setHeaderName] = useState("");
+  const [authMode, setAuthMode] = useState<ConnectorAuthMode>("auto");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +68,7 @@ export function AddConnectorDialog({
     try {
       const trimmedHeader = headerName.trim();
       const connector = await getTrpc().connectors.create.mutate({
+        authMode,
         name,
         url,
         ...(trimmedHeader === "" ? {} : { headerName: trimmedHeader }),
@@ -74,7 +78,7 @@ export function AddConnectorDialog({
       setError(errorMessage(caught));
       setPending(false);
     }
-  }, [headerName, name, onCreated, url]);
+  }, [authMode, headerName, name, onCreated, url]);
 
   return (
     <Dialog onOpenChange={handleOpenChange} open>
@@ -103,6 +107,11 @@ export function AddConnectorDialog({
               value={url}
             />
           </div>
+          <AuthModeSelect
+            id="connector-auth-mode"
+            onChange={setAuthMode}
+            value={authMode}
+          />
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="connector-header-name">Header name</Label>
             <Input

@@ -2,6 +2,7 @@ import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
 import { AddConnectorDialog } from "#/components/connectors/add-connector-dialog";
+import { AuthModeDialog } from "#/components/connectors/auth-mode-dialog";
 import { CallTimeoutDialog } from "#/components/connectors/call-timeout-dialog";
 import { connectHref } from "#/components/connectors/connect-link";
 import { connectSearchSchema } from "#/components/connectors/connect-search";
@@ -75,6 +76,15 @@ function addedMessage(connector: ConnectorRecord): string {
   }
 }
 
+/** An OAuth server that registers no clients: the person types one in. */
+function needsClient(connector: ConnectorRecord): boolean {
+  return (
+    connector.authKind === "oauth" &&
+    connector.oauth !== null &&
+    !(connector.oauth.canRegister || connector.oauth.clientConfigured)
+  );
+}
+
 function credentialLabel(connector: ConnectorRecord): string {
   if (connector.authKind !== "header") {
     return "-";
@@ -133,17 +143,23 @@ function OAuthActions({
 function ConnectorRow({
   connector,
   onDelete,
+  onEditAuth,
   onEditTimeout,
   onPaste,
   onSetClient,
 }: {
   connector: ConnectorRecord;
   onDelete: (connector: ConnectorRecord) => void;
+  onEditAuth: (connector: ConnectorRecord) => void;
   onEditTimeout: (connector: ConnectorRecord) => void;
   onPaste: (connector: ConnectorRecord) => void;
   onSetClient: (connector: ConnectorRecord) => void;
 }) {
   const paste = useCallback(() => onPaste(connector), [connector, onPaste]);
+  const editAuth = useCallback(
+    () => onEditAuth(connector),
+    [connector, onEditAuth]
+  );
   const editTimeout = useCallback(
     () => onEditTimeout(connector),
     [connector, onEditTimeout]
@@ -165,6 +181,9 @@ function ConnectorRow({
       </ResponsiveCell>
       <ResponsiveCell label="Auth">
         <Badge variant="outline">{AUTH_LABEL[connector.authKind]}</Badge>
+        {connector.authMode === "auto" ? null : (
+          <span className="ml-1 text-muted-foreground text-xs">forced</span>
+        )}
       </ResponsiveCell>
       <ResponsiveCell label="Status">
         <Badge variant={connector.status === "ok" ? "default" : "secondary"}>
@@ -204,6 +223,9 @@ function ConnectorRow({
           {connector.authKind === "oauth" ? (
             <OAuthActions connector={connector} onSetClient={onSetClient} />
           ) : null}
+          <Button onClick={editAuth} size="sm" variant="outline">
+            Auth
+          </Button>
           <Button onClick={editTimeout} size="sm" variant="outline">
             Time limit
           </Button>
@@ -225,6 +247,7 @@ function ConnectorsPage() {
   const [settingClient, setSettingClient] = useState<ConnectorRecord | null>(
     null
   );
+  const [editingAuth, setEditingAuth] = useState<ConnectorRecord | null>(null);
   const [editingTimeout, setEditingTimeout] = useState<ConnectorRecord | null>(
     null
   );
@@ -243,6 +266,28 @@ function ConnectorsPage() {
     async (connector: ConnectorRecord) => {
       setAdding(false);
       setNotice(addedMessage(connector));
+      if (needsClient(connector)) {
+        setSettingClient(connector);
+      }
+      await router.invalidate();
+    },
+    [router]
+  );
+
+  const openEditAuth = useCallback(
+    (connector: ConnectorRecord) => setEditingAuth(connector),
+    []
+  );
+
+  const closeEditAuth = useCallback(() => setEditingAuth(null), []);
+
+  const handleAuthSaved = useCallback(
+    async (connector: ConnectorRecord) => {
+      setEditingAuth(null);
+      setNotice(`Authentication for ${connector.name} is set.`);
+      if (needsClient(connector)) {
+        setSettingClient(connector);
+      }
       await router.invalidate();
     },
     [router]
@@ -338,6 +383,7 @@ function ConnectorsPage() {
                 connector={connector}
                 key={connector.id}
                 onDelete={openDelete}
+                onEditAuth={openEditAuth}
                 onEditTimeout={openEditTimeout}
                 onPaste={openPaste}
                 onSetClient={openSetClient}
@@ -368,6 +414,17 @@ function ConnectorsPage() {
           connector={{ id: settingClient.id, name: settingClient.name }}
           onClose={closeSetClient}
           onSaved={handleClientSaved}
+        />
+      )}
+      {editingAuth === null ? null : (
+        <AuthModeDialog
+          connector={{
+            id: editingAuth.id,
+            name: editingAuth.name,
+            authMode: editingAuth.authMode,
+          }}
+          onClose={closeEditAuth}
+          onSaved={handleAuthSaved}
         />
       )}
       {editingTimeout === null ? null : (

@@ -439,6 +439,14 @@ export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 export const CONNECTOR_AUTH_KINDS = ["none", "header", "oauth"] as const;
 export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];
 
+/**
+ * What the person chose for a connector. `auto` follows the server's own answer
+ * to an unauthenticated probe. `oauth` and `none` are forced: no probe changes
+ * them.
+ */
+export const CONNECTOR_AUTH_MODES = ["auto", "oauth", "none"] as const;
+export type ConnectorAuthMode = (typeof CONNECTOR_AUTH_MODES)[number];
+
 /** Seconds a connector tool call may take before it is stopped. */
 export const CONNECTOR_CALL_TIMEOUT_SECONDS = {
   default: 60,
