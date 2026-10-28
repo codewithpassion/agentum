@@ -3,7 +3,7 @@ id: LR.5
 title: Live deck compaction and incremental migration validation
 milestone: LR
 size: L
-status: in_progress
+status: done
 depends_on: [LR.3]
 branch: task/LR.5-live-deck-compaction
 lane: services
@@ -26,3 +26,4 @@ Fixes open findings A1, A2 and A3 of review A in `docs/reviews/tasks/LR.3.md` (p
 
 ## Log
 - 2026-10-28: created from LR.3 review A; dispatched (Sonnet dispatcher, Haiku workers, Sonnet reviewer). Dom: before production.
+- 2026-10-28: merged at 2ac334aa, review clean after 1 fix round. Deviation: in-place compaction (ids and clocks kept), no peer resync; updates built on removed ancestry are refused whole.
