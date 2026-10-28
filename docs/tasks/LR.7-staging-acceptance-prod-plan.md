@@ -34,3 +34,4 @@ Dom authorised on 28 Oct 2026, staging only:
 - 2026-10-28: round 2 merged (4c1c619a): 8 pass, 3 fail (exports LR.9; latency and touch targets LR.10), 6 not run, 1 needs-Dom. NO-GO.
 - 2026-10-28: LR.9, LR.10, LR.11 merged; round 3 dispatched.
 - 2026-10-28: round 3 merged (51f7babe): 13 pass, 3 fail (server authorize per frame and admissions: LR.14; deck toolbar 33px: LR.12), needs-Dom 5. NO-GO.
+- 2026-10-29: LR.12, LR.13, LR.14 merged; round 4 dispatched.

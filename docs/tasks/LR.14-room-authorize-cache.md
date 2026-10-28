@@ -3,7 +3,7 @@ id: LR.14
 title: Live rooms authorize once per participant window, not per frame
 milestone: LR
 size: M
-status: in_progress
+status: done
 depends_on: [LR.10]
 branch: task/LR.14-room-authorize-cache
 lane: services
@@ -25,3 +25,4 @@ Found by LR.7 round 3 on staging (`docs/reviews/tasks/LR.7.md`). Document peer e
 
 ## Log
 - 2026-10-28: created from LR.7 round 3; dispatched.
+- 2026-10-29: merged at 42a8bdb8, security review clean after 1 fix round (4 must-fix fixed). 2 s grant per participant, epoch invalidation.
