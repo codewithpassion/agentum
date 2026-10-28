@@ -379,6 +379,11 @@
     max-height: 200px;
     overflow: auto;
   }
+  .ld-toolbar button,
+  .ld-toolbar select,
+  .ld-toolbar input {
+    min-height: 40px;
+  }
   .ld-inspector {
     display: grid;
     grid-template-columns: 1fr 1fr;

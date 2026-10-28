@@ -499,8 +499,11 @@ export class TicketedDeckRoom {
     const ticket = this.refresh.issued;
     const manifest = await this.options.policy();
     // A response older than one already applied must not overwrite it.
-    if (this.lifecycle.disposed || ticket < this.refresh.applied) {
+    if (this.lifecycle.disposed) {
       return false;
+    }
+    if (ticket < this.refresh.applied) {
+      return true;
     }
     this.refresh.applied = ticket;
     if ("ownBlobUrls" in manifest) {

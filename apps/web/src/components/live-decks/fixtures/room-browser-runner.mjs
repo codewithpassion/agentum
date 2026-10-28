@@ -197,6 +197,21 @@ try {
         () => Reflect.get(window, "deckRoom").deck.read("opening").slide
       );
     await deckActionMatrix({ alice, bob });
+    const toolbarHeights = await alice.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          ".ld-toolbar button, .ld-toolbar select, .ld-toolbar input"
+        ),
+      ]
+        .map((control) => control.getBoundingClientRect().height)
+        .filter((height) => height > 0)
+    );
+    console.log(
+      `Toolbar controls ${viewport.width}: ${toolbarHeights.length}, min ${Math.min(...toolbarHeights)}px`
+    );
+    if (viewport.width === 390) {
+      expect(Math.min(...toolbarHeights)).toBeGreaterThanOrEqual(40);
+    }
     await call("/deck-restore", {
       requestId: crypto.randomUUID(),
       state: initialSnapshot.state,
