@@ -11,7 +11,8 @@ import {
   writeVarUint,
   writeVarUint8Array,
 } from "lib0/encoding";
-import { Doc, encodeStateAsUpdate } from "yjs";
+import { applyUpdate, Doc, encodeStateAsUpdate } from "yjs";
+import { emptySlide, newElement } from "./model";
 import { TicketedDeckRoom } from "./room-provider";
 
 class Socket {
@@ -97,7 +98,9 @@ function sync(update: Uint8Array) {
   writeVarUint8Array(encoder, update);
   return toUint8Array(encoder);
 }
-async function connect() {
+async function connect(
+  policy: () => Promise<ReadonlySet<string>> = async () => new Set()
+) {
   let failure = "";
   let ready = false;
   const room = new TicketedDeckRoom({
@@ -105,7 +108,7 @@ async function connect() {
       failure = message;
     },
     join: async () => joined,
-    policy: async () => new Set(),
+    policy,
     ready: () => {
       ready = true;
     },
@@ -289,4 +292,125 @@ test("a stale-ancestry refusal reaches the editor as the typed reason and is not
   await tick();
   expect(client.failure()).toBe(DECK_STALE_ANCESTRY);
   expect(Socket.instances).toHaveLength(1);
+});
+
+/** A second replica of the checkpoint the room synced, as a peer's edits arrive. */
+function peer() {
+  const doc = new Doc();
+  applyUpdate(doc, checkpoint());
+  const deck = new Deck(doc, richTextCodec);
+  return {
+    addSlide(text?: string) {
+      const slide = emptySlide(deck);
+      deck.addSlide(slide);
+      if (text) {
+        const element = newElement(slide, "text");
+        element.text = [{ attrs: {}, children: [text], tag: "p" }];
+        deck.addElement(slide.id, element);
+      }
+      return { id: slide.id, update: encodeStateAsUpdate(doc) };
+    },
+    destroy() {
+      deck.destroy();
+      doc.destroy();
+    },
+  };
+}
+function gatedPolicy() {
+  let release: () => void = () => undefined;
+  const state = {
+    fetches: 0,
+    gate: undefined as Promise<void> | undefined,
+    release: () => release(),
+    urls: new Set<string>(),
+  };
+  const policy = async () => {
+    state.fetches += 1;
+    await state.gate;
+    return state.urls;
+  };
+  const hold = () => {
+    state.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  };
+  return { hold, policy, state };
+}
+test("peer frames after sync apply without waiting for a policy fetch, then the policy refreshes", async () => {
+  const { hold, policy, state } = gatedPolicy();
+  const client = await connect(policy);
+  session(client.socket);
+  client.socket.receive(sync(checkpoint()));
+  await tick();
+  expect(client.ready()).toBe(true);
+  const remote = peer();
+  const before = state.fetches;
+  hold();
+  const first = remote.addSlide();
+  client.socket.receive(sync(first.update));
+  await tick();
+  expect(client.room.deck.ids()).toContain(first.id);
+  expect(state.fetches).toBe(before + 1);
+  // Frames that arrive while a refresh is in flight share one queued refresh.
+  for (let index = 0; index < 3; index += 1) {
+    client.socket.receive(sync(remote.addSlide().update));
+  }
+  await tick();
+  expect(state.fetches).toBe(before + 1);
+  state.release();
+  await tick();
+  expect(state.fetches).toBe(before + 2);
+  expect(client.failure()).toBe("");
+  remote.destroy();
+});
+test("a peer frame that references a blob still waits for the verified manifest", async () => {
+  const { hold, policy, state } = gatedPolicy();
+  const client = await connect(policy);
+  session(client.socket);
+  client.socket.receive(sync(checkpoint()));
+  await tick();
+  const remote = peer();
+  hold();
+  const blob = remote.addSlide("see /files/new.png");
+  client.socket.receive(sync(blob.update));
+  await tick();
+  expect(client.room.deck.ids()).not.toContain(blob.id);
+  state.release();
+  await tick();
+  expect(client.room.deck.ids()).toContain(blob.id);
+  remote.destroy();
+});
+test("access loss stops the room without a policy fetch", async () => {
+  const { policy, state } = gatedPolicy();
+  const client = await connect(policy);
+  session(client.socket);
+  client.socket.receive(sync(checkpoint()));
+  await tick();
+  const before = state.fetches;
+  client.socket.receive({ role: "viewer", type: "role" });
+  await tick();
+  expect(client.failure()).toContain("permissions changed");
+  const remote = peer();
+  client.socket.receive(sync(remote.addSlide().update));
+  await tick();
+  expect(state.fetches).toBe(before);
+  remote.destroy();
+});
+test("a background policy failure stops the room", async () => {
+  const state = { failing: false as boolean };
+  const client = await connect(async () => {
+    if (state.failing) {
+      throw new Error("Policy unavailable");
+    }
+    return new Set();
+  });
+  session(client.socket);
+  client.socket.receive(sync(checkpoint()));
+  await tick();
+  state.failing = true;
+  const remote = peer();
+  client.socket.receive(sync(remote.addSlide().update));
+  await tick();
+  expect(client.failure()).toBe("Policy unavailable");
+  remote.destroy();
 });
