@@ -15,7 +15,7 @@ import {
 import capture from "./fixtures/structural-migration.json";
 import { Deck } from "./index";
 
-import { validatePositionMigrations } from "./migrations";
+import { StaleAncestryError, validatePositionMigrations } from "./migrations";
 import { richTextCodec } from "./rich-text";
 
 const bytes = new Uint8Array(capture.state);
@@ -269,7 +269,9 @@ test("an update built on ancestry compaction removed is refused whole", () => {
       version: 1,
     });
   });
-  expect(() => server.applyUpdate(diff(stale, staleStart))).toThrow();
+  expect(() => server.applyUpdate(diff(stale, staleStart))).toThrow(
+    StaleAncestryError
+  );
   expect(encodeStateAsUpdate(server.doc)).toEqual(before);
 });
 

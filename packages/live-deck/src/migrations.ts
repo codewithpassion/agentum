@@ -1,3 +1,4 @@
+import { DECK_STALE_ANCESTRY } from "@repo/protocol/deck";
 import {
   AbstractType,
   ContentAny,
@@ -17,6 +18,13 @@ import {
 
 const ROOT = /^__tiptap_position_migrations:item:(0|[1-9]\d*):(0|[1-9]\d*)$/;
 const CELL = /^(0|[1-9]\d*):(0|[1-9]\d*)$/;
+/** The update names history compaction already removed, so the sender must reload. */
+export class StaleAncestryError extends Error {
+  constructor() {
+    super(DECK_STALE_ANCESTRY);
+    this.name = "StaleAncestryError";
+  }
+}
 const reject = (): never => {
   throw new Error("invalid_deck_position_migration");
 };
@@ -59,6 +67,9 @@ function item(doc: Doc, id: ID): Item {
     return reject();
   }
   const found = getItem(doc.store, id);
+  if (found instanceof GC) {
+    throw new StaleAncestryError();
+  }
   if (!(found instanceof Item)) {
     return reject();
   }

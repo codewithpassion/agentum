@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { AwarenessEntry } from "./live";
 
 export const PRESENTER_LEASE_MS = 15_000;
+/** Error reason the deck room sends when an update builds on history compaction removed. */
+export const DECK_STALE_ANCESTRY = "deck_stale_ancestry";
 const id = z.string().min(1).max(200);
 export const presentationControlSchema = z.discriminatedUnion("action", [
   z.strictObject({

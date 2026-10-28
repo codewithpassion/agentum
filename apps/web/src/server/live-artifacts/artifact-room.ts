@@ -41,6 +41,7 @@ import type {
   RoomScope,
   RoomSnapshot,
 } from "./ports";
+import { rejectionMessage } from "./room-rejection";
 import {
   COMPACT_BYTES,
   COMPACT_UPDATES,
@@ -1224,18 +1225,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     }
   }
   private rejectMessage(socket: WebSocket, error: unknown) {
-    let message = "Rejected message";
-    if (error instanceof Error && error.message.startsWith("/")) {
-      message = error.message.slice(0, 4096);
-    }
-    if (error instanceof DocumentError) {
-      message = error.code;
-    } else if (
-      error instanceof Error &&
-      error.message === "Document exceeds 8 MiB"
-    ) {
-      message = "Document exceeds 8 MiB";
-    }
+    const message = rejectionMessage(error);
     try {
       socket.send(
         JSON.stringify({
