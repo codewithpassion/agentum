@@ -27,6 +27,7 @@ import {
   type CommentAnchor,
   type LiveOperationOrigin,
   type LiveSuggestion,
+  type RoomTicketClaims,
 } from "@repo/protocol/live";
 import { verifyRoomTicket } from "@repo/services/live-artifacts/ticket";
 import * as decoding from "lib0/decoding";
@@ -52,6 +53,20 @@ import {
 const CHECKPOINT_MS = 5 * 60 * 1000;
 const RETRY_MS = 5000;
 const AGENT_MS = 5000;
+/** How long one authorize result covers inbound frames. Revocation does not
+ * wait for it: refresh() and disconnect() invalidate the cache immediately. */
+const GRANT_MS = 2000;
+const GRANT_ATTEMPTS = 3;
+interface Grant {
+  at: number;
+  epoch: number;
+  identity: RoomIdentity;
+}
+interface Admission {
+  claims: RoomTicketClaims;
+  current: RoomIdentity;
+  epoch: number;
+}
 interface Session extends RoomIdentity {
   awarenessId: number;
   clock: number;
@@ -162,6 +177,12 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private retainedEmbedElements = new Map<string, string>();
   private initialization: Promise<void> | undefined;
   private tail: Promise<unknown> = Promise.resolve();
+  /** Bumped synchronously whenever access may have changed. A grant or an
+   * admission resolved under an older epoch is never applied. */
+  private accessEpoch = 0;
+  private readonly grants = new Map<string, Grant>();
+  private readonly inflight = new Map<string, Promise<Grant>>();
+  private readonly deliveries = new Map<number, Promise<void>>();
 
   constructor(ctx: DurableObjectState, env: ArtifactRoomEnv) {
     super(ctx, env);
@@ -247,9 +268,12 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     }
   }
   private async refreshPolicy() {
-    const urls = await this.env.ARTIFACT_ROOM_SERVICE.ownBlobUrls(
-      this.meta.scope
-    );
+    this.applyPolicy(await this.fetchPolicy());
+  }
+  private fetchPolicy() {
+    return this.env.ARTIFACT_ROOM_SERVICE.ownBlobUrls(this.meta.scope);
+  }
+  private applyPolicy(urls: string[]) {
     // Accepted scene references remain valid opaque placeholders when a source
     // is deleted/restricted. This grants no content access: resolveEmbed checks
     // current source permission independently. Never retain unadmitted catalog entries.
@@ -946,6 +970,59 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     }
     return current;
   }
+  private invalidateAccess() {
+    this.accessEpoch += 1;
+    this.grants.clear();
+    this.inflight.clear();
+  }
+  private grantKey(
+    subject: Pick<Session, "participantId" | "authorizationRef">
+  ) {
+    return `${subject.participantId}\u0000${subject.authorizationRef}`;
+  }
+  private cachedGrant(subject: Session) {
+    const grant = this.grants.get(this.grantKey(subject));
+    return grant &&
+      grant.epoch === this.accessEpoch &&
+      Date.now() - grant.at < GRANT_MS
+      ? grant
+      : undefined;
+  }
+  private rememberGrant(key: string, grant: Grant) {
+    if (grant.epoch !== this.accessEpoch) {
+      return;
+    }
+    const now = Date.now();
+    for (const [other, entry] of this.grants) {
+      if (now - entry.at >= GRANT_MS) {
+        this.grants.delete(other);
+      }
+    }
+    this.grants.set(key, grant);
+  }
+  /** Authorizes outside `exclusive`. Callers hitting the same participant
+   * share one lookup, so a burst of frames or sockets costs one round trip. */
+  private loadGrant(subject: Session): Promise<Grant> {
+    const key = this.grantKey(subject);
+    const running = this.inflight.get(key);
+    if (running) {
+      return running;
+    }
+    const epoch = this.accessEpoch;
+    const pending: Promise<Grant> = (async () => {
+      await this.ensureInitialized();
+      const identity = await this.authorize(subject);
+      const grant = { at: Date.now(), epoch, identity };
+      this.rememberGrant(key, grant);
+      return grant;
+    })().finally(() => {
+      if (this.inflight.get(key) === pending) {
+        this.inflight.delete(key);
+      }
+    });
+    this.inflight.set(key, pending);
+    return pending;
+  }
   private async writer(subject: Pick<RoomIdentity, "participantId" | "kind">) {
     const current = await this.authorize(subject);
     if (!writable(current)) {
@@ -994,7 +1071,15 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       await this.ctx.storage.deleteAlarm();
     }
   }
-  private async admit(token: string, existing?: WebSocket, request?: Request) {
+  /** Network half of admission. It changes no room state, so it runs outside
+   * `exclusive` and concurrent admissions do not queue behind each other. */
+  private async resolveAdmission(
+    token: string,
+    existing?: WebSocket,
+    request?: Request
+  ): Promise<Admission> {
+    await this.ensureInitialized();
+    const epoch = this.accessEpoch;
     if (token.length > 8192 || !this.env.ARTIFACT_ROOM_TICKET_KEY.trim()) {
       throw new Error("Invalid ticket");
     }
@@ -1033,6 +1118,16 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     if (current.role !== claims.role) {
       throw new Error("Stale ticket role");
     }
+    return { claims, current, epoch };
+  }
+  /** State half of admission. Runs inside `exclusive`, so the one-time ticket
+   * is consumed atomically and the first of two racing admissions wins. */
+  private commitAdmission(resolved: Admission, existing?: WebSocket) {
+    const { claims, current, epoch } = resolved;
+    // Access changed while the lookup was in flight, so its answer is stale.
+    if (epoch !== this.accessEpoch) {
+      throw new Error("Access changed");
+    }
     if (existing) {
       const old = session(existing);
       if (
@@ -1050,6 +1145,11 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
         Math.floor(Date.now() / 1000)
       )
     );
+    this.rememberGrant(this.grantKey(current), {
+      at: Date.now(),
+      epoch,
+      identity: current,
+    });
     return {
       ...current,
       expires: Math.min(
@@ -1058,17 +1158,29 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       ),
     };
   }
-  override fetch(request: Request): Promise<Response> {
+  private async admit(token: string, existing?: WebSocket, request?: Request) {
+    return this.commitAdmission(
+      await this.resolveAdmission(token, existing, request),
+      existing
+    );
+  }
+  override async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("WebSocket required", { status: 426 });
+    }
+    let resolved: Admission;
+    try {
+      resolved = await this.resolveAdmission(
+        new URL(request.url).searchParams.get("ticket") ?? "",
+        undefined,
+        request
+      );
+    } catch {
+      return new Response("Access denied", { status: 403 });
+    }
     return this.exclusive(async () => {
-      if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-        return new Response("WebSocket required", { status: 426 });
-      }
       try {
-        const identity = await this.admit(
-          new URL(request.url).searchParams.get("ticket") ?? "",
-          undefined,
-          request
-        );
+        const identity = this.commitAdmission(resolved);
         // biome-ignore lint/correctness/noUndeclaredVariables: workerd global.
         const { 0: client, 1: server } = new WebSocketPair();
         const state: Session = {
@@ -1136,47 +1248,103 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     socket: WebSocket,
     message: string | ArrayBuffer
   ): Promise<void> {
-    return this.exclusive(async () => {
-      try {
-        let state = session(socket);
-        if (state.expires <= Date.now()) {
-          this.close(socket, "Expired");
-          return;
-        }
-        this.checkDeckRate(state, message);
-        // Also fail closed on messages while a durable refresh is being retried.
-        const current = await this.authorize(state);
-        state = { ...state, ...current };
-        if (!writable(state) || state.kind === "agent") {
-          this.releasePresenter(state.awarenessId);
-        }
-        socket.serializeAttachment(state);
-        if (typeof message === "string") {
-          await this.receiveControl(socket, state, message);
-          return;
-        }
-        if (message.byteLength > this.maxBytes + 1024) {
-          throw new Error("Message too large");
-        }
-        const decoder = decoding.createDecoder(new Uint8Array(message));
-        const type = decoding.readVarUint(decoder);
-        switch (type) {
-          case 0:
-            await this.receiveSync(socket, state, decoder);
-            break;
-          case 1:
-            this.receivePresence(socket, state, decoder, message.byteLength);
-            break;
-          case 3:
-            this.sendPresence(socket);
-            break;
-          default:
-            throw new Error("Unsupported protocol");
-        }
-      } catch (error) {
-        this.rejectMessage(socket, error);
+    // One frame at a time per socket, so a retry after an invalidation keeps
+    // its place and Yjs updates never arrive ahead of their dependencies.
+    const id = session(socket).awarenessId;
+    const done = (this.deliveries.get(id) ?? Promise.resolve()).then(() =>
+      this.deliver(socket, message, 0)
+    );
+    const tail = done.then(
+      () => undefined,
+      () => undefined
+    );
+    this.deliveries.set(id, tail);
+    tail.then(() => {
+      if (this.deliveries.get(id) === tail) {
+        this.deliveries.delete(id);
       }
     });
+    return done;
+  }
+  // The grant is resolved outside `exclusive`: a warm grant costs nothing,
+  // a cold one is a single shared lookup that blocks no other frame.
+  private async deliver(
+    socket: WebSocket,
+    message: string | ArrayBuffer,
+    attempt: number
+  ): Promise<void> {
+    if (session(socket).expires <= Date.now()) {
+      await this.exclusive(() => this.close(socket, "Expired"));
+      return;
+    }
+    let grant: Grant;
+    try {
+      const subject = session(socket);
+      grant = this.cachedGrant(subject) ?? (await this.loadGrant(subject));
+    } catch (error) {
+      // Fails closed, including while an access mutation holds its fence.
+      await this.exclusive(() => this.rejectMessage(socket, error));
+      return;
+    }
+    if (await this.exclusive(() => this.receiveFrame(socket, message, grant))) {
+      return;
+    }
+    if (attempt + 1 >= GRANT_ATTEMPTS) {
+      await this.exclusive(() =>
+        this.rejectMessage(socket, new Error("Access denied"))
+      );
+      return;
+    }
+    await this.deliver(socket, message, attempt + 1);
+  }
+  /** Returns false when access changed after the grant was issued, so the
+   * caller must authorize again. Never awaits a lookup. */
+  private async receiveFrame(
+    socket: WebSocket,
+    message: string | ArrayBuffer,
+    grant: Grant
+  ): Promise<boolean> {
+    try {
+      let state = session(socket);
+      if (state.expires <= Date.now()) {
+        this.close(socket, "Expired");
+        return true;
+      }
+      if (grant.epoch !== this.accessEpoch) {
+        return false;
+      }
+      this.checkDeckRate(state, message);
+      state = { ...state, ...grant.identity };
+      if (!writable(state) || state.kind === "agent") {
+        this.releasePresenter(state.awarenessId);
+      }
+      socket.serializeAttachment(state);
+      if (typeof message === "string") {
+        await this.receiveControl(socket, state, message);
+        return true;
+      }
+      if (message.byteLength > this.maxBytes + 1024) {
+        throw new Error("Message too large");
+      }
+      const decoder = decoding.createDecoder(new Uint8Array(message));
+      const type = decoding.readVarUint(decoder);
+      switch (type) {
+        case 0:
+          await this.receiveSync(socket, state, decoder);
+          break;
+        case 1:
+          this.receivePresence(socket, state, decoder, message.byteLength);
+          break;
+        case 3:
+          this.sendPresence(socket);
+          break;
+        default:
+          throw new Error("Unsupported protocol");
+      }
+    } catch (error) {
+      this.rejectMessage(socket, error);
+    }
+    return true;
   }
   private async receiveControl(
     socket: WebSocket,
@@ -2031,72 +2199,110 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
       await this.schedule();
     });
   }
-  private async refreshSocket(socket: WebSocket, participantId?: string) {
+  private refreshSocket(socket: WebSocket, current: RoomIdentity) {
     const state = session(socket);
-    if (participantId && state.participantId !== participantId) {
+    const updated = { ...state, ...current };
+    if (!writable(updated)) {
+      this.releasePresenter(updated.awarenessId);
+    }
+    if (updated.expires <= Date.now()) {
+      this.close(socket, "Expired");
       return;
     }
-    try {
-      const current = await this.authorize(state);
-      const updated = { ...state, ...current };
-      if (!writable(updated)) {
-        this.releasePresenter(updated.awarenessId);
-      }
-      if (updated.expires <= Date.now()) {
-        this.close(socket, "Expired");
-        return;
-      }
-      if (updated.present) {
-        updated.present = {
-          ...updated.present,
-          color: current.color,
-          id: current.participantId,
-          kind: current.kind,
-          name: current.name,
-        };
-        updated.clock += 1;
-      }
-      socket.serializeAttachment(updated);
-      if (updated.present) {
-        this.broadcast(
-          presenceFrame(updated.awarenessId, updated.clock, updated.present)
-        );
-      }
-      socket.send(JSON.stringify({ role: current.role, type: "role" }));
-    } catch {
-      this.close(socket, "Revoked");
+    if (updated.present) {
+      updated.present = {
+        ...updated.present,
+        color: current.color,
+        id: current.participantId,
+        kind: current.kind,
+        name: current.name,
+      };
+      updated.clock += 1;
     }
-  }
-  refresh(participantId?: string) {
-    return this.exclusive(async () => {
-      await Promise.all(
-        this.ctx
-          .getWebSockets()
-          .map((socket) => this.refreshSocket(socket, participantId))
+    socket.serializeAttachment(updated);
+    if (updated.present) {
+      this.broadcast(
+        presenceFrame(updated.awarenessId, updated.clock, updated.present)
       );
-      try {
-        await this.refreshPolicy();
-      } catch {
-        /* policy outage cannot block access invalidation; mutations refresh it again */
-      }
-      const agent = this.store.get<AgentState>("agent");
-      if (agent && (!participantId || agent.entry.id === participantId)) {
-        try {
-          await this.authorize({
-            kind: "agent",
-            participantId: agent.entry.id,
-          });
-        } catch {
-          this.broadcast(
-            presenceFrame(agent.awarenessId, agent.clock + 1, null)
-          );
-          this.store.put("agent", null);
+    }
+    socket.send(JSON.stringify({ role: current.role, type: "role" }));
+  }
+  /** Re-reads access for attached sockets, the policy and the agent. Every
+   * lookup runs outside `exclusive`; only the results are applied inside it.
+   * It keeps warm grants, so it is the periodic path. */
+  async revalidate(participantId?: string) {
+    await this.ensureInitialized();
+    const epoch = this.accessEpoch;
+    const sockets = this.ctx
+      .getWebSockets()
+      .filter(
+        (socket) =>
+          !participantId || session(socket).participantId === participantId
+      );
+    const lookups = Promise.all(
+      sockets.map((socket) =>
+        this.loadGrant(session(socket)).then(
+          (grant) => grant,
+          () => null
+        )
+      )
+    );
+    const policy = this.fetchPolicy().then(
+      (own) => own,
+      () => null
+    );
+    const agent = this.store.get<AgentState>("agent");
+    const agentAccess =
+      agent && (!participantId || agent.entry.id === participantId)
+        ? this.authorize({ kind: "agent", participantId: agent.entry.id }).then(
+            () => true,
+            () => false
+          )
+        : undefined;
+    const [grants, urls, agentAllowed] = await Promise.all([
+      lookups,
+      policy,
+      agentAccess,
+    ]);
+    return this.exclusive(async () => {
+      sockets.forEach((socket, index) => {
+        const grant = grants[index];
+        // A denial always applies. A positive answer older than a newer
+        // invalidation does not: that invalidation queued its own revalidate.
+        if (grant && grant.epoch !== this.accessEpoch) {
+          return;
         }
+        try {
+          if (!grant) {
+            throw new Error("Access denied");
+          }
+          this.refreshSocket(socket, grant.identity);
+        } catch {
+          this.close(socket, "Revoked");
+        }
+      });
+      // A policy read from before a newer invalidation must not replace it.
+      if (urls && epoch === this.accessEpoch) {
+        this.applyPolicy(urls);
+      }
+      const current = this.store.get<AgentState>("agent");
+      if (current && agentAllowed === false) {
+        this.broadcast(
+          presenceFrame(current.awarenessId, current.clock + 1, null)
+        );
+        this.store.put("agent", null);
       }
       await this.schedule();
     });
   }
+  /** Access may have changed (membership, role, deletion, fence). Cached
+   * grants die synchronously, before any later frame can read one. */
+  refresh(participantId?: string) {
+    this.invalidateAccess();
+    return this.revalidate(participantId);
+  }
   disconnect(participantId: string) {
+    this.invalidateAccess();
     return this.exclusive(async () => {
       for (const socket of this.ctx.getWebSockets()) {
         if (session(socket).participantId === participantId) {

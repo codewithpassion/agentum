@@ -710,7 +710,7 @@ export class ArtifactRoom extends Room {
   async askPresence(
     participantId: string
   ): Promise<Pick<SpeakerRoom, "present" | "where">> {
-    await super.refresh();
+    await super.revalidate();
     const present = await super.presence();
     const sessions = this.state
       .getWebSockets()
@@ -1249,7 +1249,7 @@ export class ArtifactRoom extends Room {
   }
   override async alarm() {
     try {
-      await super.refresh();
+      await super.revalidate();
       await super.alarm();
     } finally {
       await this.scheduleRefresh();

@@ -416,6 +416,134 @@ try {
     expiring.closed && (await call("/stats")).sockets === 0,
     "connection expiration alarm removes server sockets"
   );
+  // LR.14: one authorize per participant window, not per frame.
+  const authCalls = async () => (await call("/stats")).fixture.authCalls ?? 0;
+  const branch = new Y.Doc();
+  Y.applyUpdate(branch, Y.encodeStateAsUpdate(replica));
+  const branchText = branch
+    .getXmlFragment("content")
+    .toArray()
+    .find((n) => n.nodeName === "paragraph")
+    .toArray()
+    .find((n) => n instanceof Y.XmlText);
+  const edit = (word) => {
+    const before = Y.encodeStateVector(branch);
+    branchText.insert(0, word);
+    return update(Y.encodeStateAsUpdate(branch, before));
+  };
+  const cacheWriter = await connect(
+    await ticket({ participantId: "cache-writer" })
+  );
+  const warm = await authCalls();
+  for (const word of ["a", "b", "c", "d", "e"]) {
+    cacheWriter.ws.send(edit(word));
+  }
+  await pause(100);
+  check(
+    (await call("/read")).content.includes("edcba"),
+    "frames inside the grant window apply"
+  );
+  check(
+    (await authCalls()) === warm,
+    "frames inside the grant window never authorize"
+  );
+  await pause(2100);
+  await controls("authDelay", 200);
+  const cold = await authCalls();
+  for (const word of ["f", "g", "h"]) {
+    cacheWriter.ws.send(edit(word));
+  }
+  await pause(500);
+  check(
+    (await call("/read")).content.includes("hgfedcba") &&
+      (await authCalls()) === cold + 1,
+    "an expired grant is re-read once for a burst of frames"
+  );
+  // An invalidation lands while frames wait on a lookup: both frames still
+  // apply in order and the socket survives.
+  await controls("authDelay", 300);
+  await pause(2100);
+  cacheWriter.ws.send(edit("p"));
+  cacheWriter.ws.send(edit("q"));
+  await pause(100);
+  await call("/refresh", { id: "nobody" });
+  await pause(1500);
+  check(
+    (await call("/read")).content.includes("qphgfedcba") && !cacheWriter.closed,
+    "frames keep their order when an invalidation lands during the lookup"
+  );
+  // A downgrade lands while a frame waits on a lookup that still answers
+  // editor: the stale answer is discarded and the write is refused.
+  await pause(2100);
+  cacheWriter.ws.send(edit("SXQ"));
+  await pause(100);
+  await controls("role:cache-writer", "viewer");
+  await call("/refresh", { id: "cache-writer" });
+  await pause(800);
+  check(
+    !((await call("/read")).content.includes("SXQ") || cacheWriter.closed),
+    "a downgrade during the lookup refuses the in-flight write"
+  );
+  await controls("authDelay", 0);
+  await controls("role:cache-writer", "viewer");
+  await pause(2100);
+  cacheWriter.ws.send(edit("Z"));
+  await pause(60);
+  check(
+    !(await call("/read")).content.includes("Z"),
+    "role downgrade without a refresh still lands after the grant window"
+  );
+  await controls("role:cache-writer", "owner");
+  const fenced = await connect(await ticket({ participantId: "cache-fence" }));
+  const fenceBranch = new Y.Doc();
+  Y.applyUpdate(fenceBranch, Y.encodeStateAsUpdate(replica));
+  fenced.ws.send(update(Y.encodeStateAsUpdate(fenceBranch)));
+  await controls("fence", true);
+  await call("/refresh");
+  const fenceText = fenceBranch
+    .getXmlFragment("content")
+    .toArray()
+    .find((n) => n.nodeName === "paragraph")
+    .toArray()
+    .find((n) => n instanceof Y.XmlText);
+  const fenceVector = Y.encodeStateVector(fenceBranch);
+  fenceText.insert(0, "FENCED");
+  fenced.ws.send(update(Y.encodeStateAsUpdate(fenceBranch, fenceVector)));
+  await pause(60);
+  check(
+    !(await call("/read")).content.includes("FENCED") && fenced.closed,
+    "an access fence blocks the next frame despite a warm grant"
+  );
+  await controls("fence", false);
+  // Admission lookups run in parallel, and a lookup that straddles a
+  // revocation never admits.
+  await controls("authDelay", 300);
+  const admitStart = Date.now();
+  const admitted = await Promise.all(
+    Array.from({ length: 8 }, async (_, index) =>
+      connect(await ticket({ participantId: `burst-${index}` }))
+    )
+  );
+  const admitMs = Date.now() - admitStart;
+  check(
+    admitted.every((c) => c.status === 101) && admitMs < 1200,
+    `eight concurrent admissions do not serialize lookups (${admitMs} ms)`
+  );
+  for (const client of admitted) {
+    client.ws.close();
+  }
+  const straddle = await ticket({ participantId: "straddle" });
+  const straddling = connect(straddle);
+  await pause(100);
+  await controls("role:straddle", null);
+  await call("/refresh", { id: "straddle" });
+  check(
+    (await straddling).status === 403,
+    "an admission lookup that straddles a revocation is refused"
+  );
+  await controls("authDelay", 0);
+  cacheWriter.ws.close();
+  fenced.ws.close();
   // Restart-safe captured agent edits and monotonic authoritative revisions.
   const before = await call("/read");
   const applied = await call("/ops", {

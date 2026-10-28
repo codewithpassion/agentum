@@ -70,16 +70,24 @@ export class TestArtifactRoom extends ArtifactRoom {
       },
       authorize: async (_scope, subject) => {
         put("authCalls", (get<number>("authCalls") ?? 0) + 1);
-        if (get<boolean>("deleted")) {
-          return null;
+        // The answer is read first and delivered late, like a slow Clerk call.
+        const delay = get<number>("authDelay") ?? 0;
+        const late = async <T>(answer: T) => {
+          if (delay > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+          return answer;
+        };
+        if (get<boolean>("deleted") || get<boolean>("fence")) {
+          return late(null);
         }
         const role = get<RoomIdentity["role"] | null>(
           `role:${subject.participantId}`
         );
         if (role === null) {
-          return null;
+          return late(null);
         }
-        return {
+        return late({
           ...subject,
           authorizationRef: `fixture:${subject.participantId}`,
           color: "#123456",
@@ -87,7 +95,7 @@ export class TestArtifactRoom extends ArtifactRoom {
             get<boolean>(`force:${subject.participantId}`) ?? false,
           name: `Trusted ${subject.participantId}`,
           role: role ?? (subject.kind === "agent" ? "editor" : "owner"),
-        };
+        });
       },
       open: async () =>
         get<boolean>("deck")
