@@ -3,7 +3,7 @@ id: LR.4
 title: Deploy live artifacts to staging and run the acceptance checklist
 milestone: LR
 size: M
-status: in_progress
+status: done
 depends_on: [LR.1, LR.2, LR.3]
 branch: task/LR.4-staging-deploy
 lane: ops
@@ -25,3 +25,4 @@ Item 4 of `docs/reviews/tasks/L.HANDOFF.md`. Dom authorised a staging deploy (28
 - 2026-10-28: dispatched (Sonnet). Dom authorised the staging deploy.
 - 2026-10-28: deployed to staging (version 33171fed), D1 0025-0033 applied. Blocked: Clerk handshake 500 jwk-kid-mismatch, staging Clerk publishable/secret keys from different instances. Checklist 5 pass, 1 fail, 7 needs-Dom.
 - 2026-10-28: Dom: use the Clerk dev instance for staging. Re-dispatched.
+- 2026-10-28: staging on Clerk dev instance (staging:build --mode staging, secrets set by controller), redeployed 8f7481c2. Sign-in works. Checklist 6 pass, 0 fail, 7 needs-Dom. Follow-up LR.4b: agent-login --env staging still uses prod key.
