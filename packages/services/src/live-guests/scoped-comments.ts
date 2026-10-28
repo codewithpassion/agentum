@@ -9,8 +9,9 @@ import {
   artifactCommentThreads as threads,
 } from "@repo/db/schema/live-artifacts";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { LIVE_COMMENTS_PER_THREAD_MAX } from "@repo/db/shared";
 import { type CommentAnchor, commentAnchorSchema } from "@repo/protocol/live";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { hashToken } from "../crypto.ts";
@@ -91,9 +92,12 @@ export const createScopedGuestComments = (deps: {
       .where(
         and(
           eq(comments.threadId, thread.id),
-          eq(comments.workspaceId, saved.workspaceId)
+          eq(comments.workspaceId, saved.workspaceId),
+          isNull(comments.deletedAt)
         )
-      );
+      )
+      .orderBy(asc(comments.id))
+      .limit(LIVE_COMMENTS_PER_THREAD_MAX);
     return {
       comment,
       thread: {
@@ -156,7 +160,8 @@ export const createScopedGuestComments = (deps: {
     input: z.infer<typeof schema>,
     threadId: string,
     effect: typeof guestCommentEffects.$inferSelect,
-    anchor?: CommentAnchor
+    anchor?: CommentAnchor,
+    quote?: string
   ) => {
     const at = deps.clock.now().toISOString();
     await deps.atomic([
@@ -180,6 +185,7 @@ export const createScopedGuestComments = (deps: {
               anchor: anchor ? JSON.stringify(anchor) : null,
               artifactId: input.artifactId,
               id: threadId,
+              quote: anchor ? (quote ?? null) : null,
               toAgent: false,
               workspaceId: principal.workspaceId,
             }),
@@ -220,7 +226,8 @@ export const createScopedGuestComments = (deps: {
     principal: Principal,
     raw: unknown,
     callId: string,
-    anchor?: CommentAnchor
+    anchor?: CommentAnchor,
+    quote?: string
   ) => {
     const input = schema.parse(raw);
     if (principal.kind !== "run" || !callId || callId.length > 200) {
@@ -251,7 +258,7 @@ export const createScopedGuestComments = (deps: {
       workspaceId: principal.workspaceId,
     };
     try {
-      await commit(principal, input, threadId, effect, anchor);
+      await commit(principal, input, threadId, effect, anchor, quote);
     } catch (error) {
       await access(principal, input.artifactId);
       const saved = await replay(principal.runId, callId, fingerprint);

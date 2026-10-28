@@ -61,7 +61,13 @@ export const guestMcpServer = async (input: {
               quote: value.quote,
             })
           : undefined;
-        return comments.apply(principal, value, input.toolCallId, anchor);
+        return comments.apply(
+          principal,
+          value,
+          input.toolCallId,
+          anchor,
+          value.quote
+        );
       }),
   };
   const { deck } = createDeckPorts({
