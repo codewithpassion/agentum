@@ -51,6 +51,14 @@ export const freshMember = async (
   });
 };
 
+/** Clerk reads only the URL and headers. Building from the original request
+ * would consume its body, and the export route authenticates again later. */
+export const clerkRequest = (request: Request, cookie: string) => {
+  const headers = new Headers(request.headers);
+  headers.set("Cookie", cookie);
+  return new Request(request.url, { headers });
+};
+
 /** Replays the original credential through its real verifier; claims never
  * substitute for a credential. The stored reference is private to the room. */
 export const authenticateRoomRequest = async (
@@ -87,10 +95,8 @@ export const authenticateRoomRequest = async (
   if (!cookies.length) {
     return null;
   }
-  const headers = new Headers(request.headers);
-  headers.set("Cookie", cookies.join("; "));
   const result = await clerk.authenticateRequest(
-    new Request(request, { headers })
+    clerkRequest(request, cookies.join("; "))
   );
   const auth = result.toAuth();
   if (!(auth?.userId && auth.orgId && auth.sessionId)) {
