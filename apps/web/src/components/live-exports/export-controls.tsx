@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Export actions capture the selected format. */
 import { useEffect, useRef, useState } from "react";
+import "./export-controls.css";
 import { type DownloadFormat, prepareDownload, saveDownload } from "./download";
 
 export function ExportControls({

@@ -332,25 +332,78 @@ test("renews with a newly issued ticket before expiry and accepts the renewal ac
   await settle();
   expect(failures).toEqual([]);
 });
-test("authoritative policy refresh precedes every remote update, including removal", async () => {
+test("inbound frames after sync apply without awaiting a policy fetch, then the policy refreshes", async () => {
   let urls = new Set(["/files/old.png"]);
-  const { room } = setup(async () => urls);
+  let fetches = 0;
+  let release: () => void = () => undefined;
+  let gate: Promise<void> | undefined;
+  const { room } = setup(async () => {
+    fetches += 1;
+    await gate;
+    return urls;
+  });
   const socket = await session(room);
   const server = new Doc();
   socket.receive(sync(server));
   await settle();
   expect(room.policy.ownBlobUrls.has("/files/old.png")).toBe(true);
   urls = new Set(["/files/new.png"]);
+  gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const before = fetches;
+  server.getText("test").insert(0, "remote update");
+  socket.receive(sync(server, 2));
+  await settle();
+  expect(room.document.getText("test").toString()).toBe("remote update");
+  expect(fetches).toBe(before + 1);
+  expect(room.policy.ownBlobUrls.has("/files/old.png")).toBe(true);
+  release();
+  await settle();
+  expect(room.policy.ownBlobUrls.has("/files/new.png")).toBe(true);
+  expect(room.policy.ownBlobUrls.has("/files/old.png")).toBe(false);
+  server.destroy();
+});
+
+test("an update that references a blob still waits for the verified manifest", async () => {
+  let urls = new Set(["/files/old.png"]);
+  const { room } = setup(async () => urls);
+  const socket = await session(room);
+  const server = new Doc();
+  socket.receive(sync(server));
+  await settle();
+  urls = new Set(["/files/new.png"]);
   let observed = false;
   room.document.on("update", () => {
-    observed =
-      room.policy.ownBlobUrls.has("/files/new.png") &&
-      !room.policy.ownBlobUrls.has("/files/old.png");
+    observed = room.policy.ownBlobUrls.has("/files/new.png");
   });
-  server.getText("test").insert(0, "remote image update");
+  server.getText("test").insert(0, "see /files/new.png");
   socket.receive(sync(server, 2));
   await settle();
   expect(observed).toBe(true);
+  server.destroy();
+});
+
+test("access loss still stops the room without a policy fetch", async () => {
+  let fetches = 0;
+  const { failures, room } = setup(async () => {
+    fetches += 1;
+    return new Set();
+  });
+  const socket = await session(room);
+  const server = new Doc();
+  socket.receive(sync(server));
+  await settle();
+  const before = fetches;
+  socket.receive(JSON.stringify({ role: "viewer", type: "role" }));
+  await settle();
+  expect(failures).toEqual([
+    "Document permissions changed. Reconnect to refresh access.",
+  ]);
+  server.getText("test").insert(0, "late frame");
+  socket.receive(sync(server, 2));
+  await settle();
+  expect(fetches).toBe(before);
   server.destroy();
 });
 

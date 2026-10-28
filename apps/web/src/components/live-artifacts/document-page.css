@@ -71,3 +71,11 @@
   min-width: 40px;
   min-height: 40px;
 }
+
+@media (max-width: 640px) {
+  .live-document-page > header a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+  }
+}
