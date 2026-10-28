@@ -132,3 +132,32 @@ Totals: pass 9 rows (4 latency rows, same-cell, document controls, role downgrad
 ## Left on staging (round 4)
 
 `LR7 doc C` (workspace audience, `hm-member2` grant now viewer), connector `LR7 r4 gmail oauth`, plus the round 3 items. `hm-admin` is back in the Clerk dev org as org:admin after the revocation runs. Test text was added to `LR7 doc A` and `LR7 deck`.
+
+## Round 5
+
+Date 2026-10-29. Main `afaf2e59` (LR.15 single Clerk check per admission, LR.16 deck controls and private grant page merged). `staging:build` first: the built `dist/server/wrangler.json` named only Worker `harbourmaster-staging`, host `harbourmaster-staging.rockyshoreslabs.io`, D1 `harbourmaster-staging`, R2 `harbourmaster-staging-files`, queue `harbourmaster-staging-mail-events`. The first `staging:deploy` failed on the D1 migration call (Cloudflare API error, transient, as in round 4); the second deployed version **9b8ec34d-67fe-41e0-a0c8-96102b3bff43**. No migrations pending. The Durable Objects run the new code (admission times changed). Production untouched, no Worker secret written, no model call. Three agent-browser sessions (dev user, `hm-admin`, `hm-member2`). Logs and scripts in `harbourmaster-wt/tmp/LR.7/` (`r5-*.txt`).
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 5 | Room join, one socket, time to first frame | pass | 1554, 1636, 1641, 1679, 2585 ms. Median 1641, max 2585 (round 4: 2.2 s alone). The join call itself takes about 0.27 s. |
+| 5 | Eight concurrent room joins, 3 rounds | fail | Max 6813, 7426, 7357 ms (round 4: 13.3 s). Only 6 of 24 sockets had a frame under 3 s (2 per round), median about 4.1 s. Sorted first-frame times per round still step up by roughly 0.6 to 1.5 s per socket (1017, 1570, 1623, 1802, 1841, 2214, 3116, ...), so some step in admission is still serial. The join call stays at 0.25 to 0.31 s. |
+| 3 | Deck controls at 390x844 | pass | 0 of 55 under 40 px, scrollWidth 375 (round 4: 24 of 56 at 33 to 35 px). |
+| 3 | Document controls at 390x844 | pass | 0 of 69 under 40 px, scrollWidth 375. |
+| 3 | Desktop 1280x800 deck unchanged | pass | 51 of 62 controls are 33 px (24 px for the export buttons), as before. The LR.16 rule sits inside the narrow media query. |
+| 3 | Private artifact, granted user | pass | `hm-member2` with a `user` grant (viewer) on private `LR7 doc B` and `LR7 deck` opens both pages: "Connected · viewer", editor visible, no "not available". |
+| 3 | Private artifact, ungranted member and signed out | pass | `hm-member2` without a grant on private `LR7 doc A` and `LR7 big`: "This artifact is not available.", no editor, no socket. Signed out: 307 to `/login` for both pages. Note: org admin `hm-admin` opens private artifacts as "owner" without a grant (existing behaviour, so it cannot serve as the ungranted member). |
+| 3 | Document peer latency, 1 char, 5 samples | pass | 243, 143, 138, 1395, 141 ms. Median 143, max 1395 (limit 1500). |
+| 3 | Deck peer latency, 1 char, 5 samples | pass | 131, 909, 133, 899, 143 ms. Median 143, max 909. |
+| 5 | Revocation closes the room | pass | Removing `hm-admin` from the Clerk org: socket closed 277, 993, 373 and 2638 ms after the API call returned (limit 5 s). Two further attempts were void (the browser session had lost its org after the re-add and never connected). |
+| 5 | Role downgrade to viewer | pass | `hm-member2` as editor on `LR7 doc C`: a typed character reached the owner. After `liveGuests.changeRole` to viewer the member socket closed about 1.7 s after the call started, reconnect showed "Connected · viewer" with a non-editable editor, and typing as viewer never reached the owner. |
+| 7 | Exports | pass | Document docx 8.7 KB (2.2 s) and pdf 27 KB (3.3 s), deck pptx 62 KB (2.6 s) and pdf 3 pages (6.3 s), all 200 (`file` confirms Word 2007+, PDF 1.4, zip). Files in `harbourmaster-wt/tmp/LR.7/exports/r5-*`. Deck warnings informational as before. |
+| LR.11/13 | Forced-OAuth connector | pass | New connector with auth OAuth on the Gmail URL opened the "OAuth client for ..." dialog on its own (shared Google client unset). |
+| 3 | Same-cell typing in a deck table | pass | 3 of 3 runs: both browsers typed three characters into cell 0:0 at once, all 6 characters kept each run and both views identical. |
+
+Failure: eight concurrent admissions. LR.15 cut the worst case from 13.3 s to 7.4 s and one socket alone is now 1.6 s (median), but the 3 s bar is missed for 18 of 24 sockets. By reading the code, the route still runs the Clerk check once (`routes.ts:46`, about 0.7 s, parallel across sockets) and then `live.admit` (`routes.ts:59`); the Durable Object runs `live().admit` again for the same ticket (`production-room.ts:416`, `:432`), `storeCredential`, several `ctx.storage` puts, and `roomIdentity` (`production-room.ts:318`), all inside the one ProductionRoom Durable Object, so admissions queue there. I did not trace timings server-side, so the exact serial step is unconfirmed. Suggested next step: add timing marks (route Clerk check, route `live.admit`, DO `admit`, `commitAdmission` in `exclusive`, `artifact-room.ts:1123`) and read them with `wrangler tail`; then drop the second `live().admit` D1 round trip when the route already consumed the ticket (the signed assertion carries the `jti`), and skip `roomIdentity` on the first authorize after admission.
+
+Totals: pass 14 rows, fail 1 (eight concurrent admissions). Round 4 failures fixed: deck controls (LR.16), private grant page (LR.16), revocation (accepted against the 5 s deadline). Needs-Dom items unchanged (Slack and machine runtimes, guest items, Gmail OAuth login).
+
+## Left on staging (round 5)
+
+Connector `LR7 r5 gmail oauth`, user grants for `hm-member2` on `LR7 doc B` and `LR7 deck` (viewer) and on `LR7 doc C` (viewer after the downgrade test), extra test characters in `LR7 doc A`, `LR7 deck` (table cell 0:0 and the slide 3 text) and `LR7 doc C`. `hm-admin` is back in the Clerk dev org as org:admin.
