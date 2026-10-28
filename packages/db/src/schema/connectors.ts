@@ -9,6 +9,7 @@ import {
 import { createdAt, id, workspaceId } from "../columns.ts";
 import {
   CONNECTOR_AUTH_KINDS,
+  CONNECTOR_AUTH_MODES,
   CONNECTOR_CALL_TIMEOUT_SECONDS,
   CONNECTOR_STATUSES,
   CREDENTIAL_MODES,
@@ -27,6 +28,10 @@ export const connectors = sqliteTable(
   "connectors",
   {
     authKind: text("auth_kind", { enum: CONNECTOR_AUTH_KINDS }).notNull(),
+    // The person's choice. `auto` lets the probe decide `authKind`; the others force it.
+    authMode: text("auth_mode", { enum: CONNECTOR_AUTH_MODES })
+      .notNull()
+      .default("auto"),
     // Seconds a connector tool call may take before it is stopped.
     callTimeoutSeconds: integer("call_timeout_seconds")
       .notNull()

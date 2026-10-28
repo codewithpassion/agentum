@@ -23,8 +23,10 @@ import {
 } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
 import {
+  CONNECTOR_AUTH_MODES,
   CONNECTOR_CALL_TIMEOUT_SECONDS,
   type ConnectorAuthKind,
+  type ConnectorAuthMode,
   type ConnectorStatus,
   CREDENTIAL_MODES,
   type CredentialMode,
@@ -76,6 +78,7 @@ const CONNECTOR_KIND = "connector";
 const CREATE_ACTION = "connectors.create";
 const LIST_ACTION = "connectors.list";
 const SET_CREDENTIAL_ACTION = "connectors.setCredential";
+const SET_AUTH_MODE_ACTION = "connectors.setAuthMode";
 const SET_CALL_TIMEOUT_ACTION = "connectors.setCallTimeout";
 const ASSIGN_ACTION = "connectors.assign";
 const UNASSIGN_ACTION = "connectors.unassign";
@@ -113,6 +116,7 @@ const headerNameSchema = z
   );
 
 export const connectorCreateSchema = z.strictObject({
+  authMode: z.enum(CONNECTOR_AUTH_MODES).default("auto"),
   headerName: headerNameSchema.optional(),
   name: z.string().trim().min(1).max(80),
   url: z.string().trim().min(1).max(2048),
@@ -131,6 +135,12 @@ export const credentialSetSchema = z.strictObject({
     .regex(HEADER_VALUE_PATTERN, "A header value is plain text on one line."),
 });
 export type CredentialSetInput = z.input<typeof credentialSetSchema>;
+
+export const connectorAuthModeSchema = z.strictObject({
+  authMode: z.enum(CONNECTOR_AUTH_MODES),
+  connectorId: idString,
+});
+export type ConnectorAuthModeInput = z.input<typeof connectorAuthModeSchema>;
 
 export const connectorCallTimeoutSchema = z.strictObject({
   connectorId: idString,
@@ -174,6 +184,8 @@ export interface ConnectorSummary {
   /** Every agent-owned credential of this connector. */
   agentCredentials: CredentialSummary[];
   authKind: ConnectorAuthKind;
+  /** The person's choice. Anything but `auto` is never changed by a probe. */
+  authMode: ConnectorAuthMode;
   /** Seconds a tool call may take before it is stopped. */
   callTimeoutSeconds: number;
   createdAt: string;
@@ -259,6 +271,7 @@ const toSummary = (
       .filter((credential) => credential.ownerKind === "agent")
       .map(toCredentialSummary),
     authKind: row.authKind,
+    authMode: row.authMode,
     callTimeoutSeconds: row.callTimeoutSeconds,
     createdAt: row.createdAt,
     headerName: row.headerName,
@@ -413,6 +426,48 @@ export const createConnectorsService = ({
     }
   };
 
+  /**
+   * Decides how a connector authenticates. `auto` follows the unauthenticated
+   * probe: a 401 means OAuth when the server publishes metadata, a header
+   * otherwise. `oauth` runs the same discovery without needing the 401, so a
+   * server that answers anyone still gets a login. `none` never starts OAuth.
+   * `tools` is the list the probe read, null when the server asked for auth.
+   */
+  const resolveAuth = async (
+    url: string,
+    mode: ConnectorAuthMode
+  ): Promise<{
+    authKind: ConnectorAuthKind;
+    oauth: OAuthConfig | null;
+    status: ConnectorStatus;
+    tools: CachedTool[] | null;
+  }> => {
+    const outcome = await probe(url);
+    const tools = outcome.kind === "ok" ? outcome.tools : null;
+    if (mode === "none" || (mode === "auto" && outcome.kind === "ok")) {
+      return { authKind: "none", oauth: null, status: "ok", tools };
+    }
+    const oauth = await discoverOAuth(
+      url,
+      outcome.kind === "unauthorized" ? outcome.wwwAuthenticate : null
+    );
+    if (mode === "oauth") {
+      if (!oauth) {
+        throw invalid(
+          "That server does not publish OAuth metadata, so it cannot be set to OAuth. Use a header or no authentication instead."
+        );
+      }
+      return { authKind: "oauth", oauth, status: "needs_auth", tools };
+    }
+    // Auto, and the server asked for auth.
+    return {
+      authKind: oauth ? "oauth" : "header",
+      oauth,
+      status: "needs_auth",
+      tools: null,
+    };
+  };
+
   const credentialsOf = async (
     workspaceId: string,
     userId: string,
@@ -460,34 +515,24 @@ export const createConnectorsService = ({
       throw error;
     }
 
-    const outcome = await probe(url);
     const now = clock.now();
-    let authKind: ConnectorAuthKind = "none";
-    let status: ConnectorStatus = "ok";
-    let tools: CachedTool[] = [];
-    let oauth: OAuthConfig | null = null;
-    if (outcome.kind === "ok") {
-      ({ tools } = outcome);
-    } else {
-      status = "needs_auth";
-      oauth = await discoverOAuth(url, outcome.wwwAuthenticate);
-      authKind = oauth ? "oauth" : "header";
-    }
+    const found = await resolveAuth(url, parsed.authMode);
     const row: ConnectorRow = {
-      authKind,
+      authKind: found.authKind,
+      authMode: parsed.authMode,
       callTimeoutSeconds: CONNECTOR_CALL_TIMEOUT_SECONDS.default,
       createdAt: now.toISOString(),
       createdBy: user.userId,
       headerName:
-        authKind === "header"
+        found.authKind === "header"
           ? (parsed.headerName ?? DEFAULT_HEADER_NAME)
           : null,
       id: ulid(now.getTime()),
       name: parsed.name,
-      oauth: oauth ? JSON.stringify(oauth) : null,
-      status,
-      tools: JSON.stringify(tools),
-      toolsFetchedAt: outcome.kind === "ok" ? now.toISOString() : null,
+      oauth: found.oauth ? JSON.stringify(found.oauth) : null,
+      status: found.status,
+      tools: JSON.stringify(found.tools ?? []),
+      toolsFetchedAt: found.tools ? now.toISOString() : null,
       url,
       workspaceId: user.workspaceId,
     };
@@ -615,6 +660,69 @@ export const createConnectorsService = ({
       throw new ServiceError("not_found", "Credential not found");
     }
     return toCredentialSummary(saved);
+  };
+
+  /**
+   * Changes how a connector authenticates. The server is probed again, so a
+   * wrong choice is refused and nothing is saved. A kind that changes drops the
+   * stored logins, which the new kind could not read. A connector that stays
+   * OAuth keeps its discovered endpoints and client.
+   */
+  const setAuthMode = async (
+    principal: Principal,
+    input: ConnectorAuthModeInput
+  ): Promise<ConnectorSummary> => {
+    const user = requireUser(principal, SET_AUTH_MODE_ACTION);
+    const parsed = connectorAuthModeSchema.parse(input);
+    const { workspaceId } = user;
+    authorize(user, SET_AUTH_MODE_ACTION, {
+      id: parsed.connectorId,
+      kind: CONNECTOR_KIND,
+      workspaceId,
+    });
+    const connector = await loadConnector(db, parsed.connectorId, workspaceId);
+    const found = await resolveAuth(connector.url, parsed.authMode);
+    const kept = found.authKind === connector.authKind;
+    const keepsLogin = kept && found.authKind !== "none";
+    const now = clock.now().toISOString();
+    const where = and(
+      eq(connectors.id, connector.id),
+      eq(connectors.workspaceId, workspaceId)
+    );
+    await atomic([
+      ...(kept
+        ? []
+        : [
+            db
+              .delete(oauthStates)
+              .where(eq(oauthStates.connectorId, connector.id)),
+            db
+              .delete(credentials)
+              .where(eq(credentials.connectorId, connector.id)),
+          ]),
+      db
+        .update(connectors)
+        .set({
+          authKind: found.authKind,
+          authMode: parsed.authMode,
+          headerName:
+            found.authKind === "header"
+              ? (connector.headerName ?? DEFAULT_HEADER_NAME)
+              : null,
+          oauth:
+            found.authKind === "oauth" && kept
+              ? connector.oauth
+              : found.oauth && JSON.stringify(found.oauth),
+          status: keepsLogin ? connector.status : found.status,
+          ...(found.tools
+            ? { tools: JSON.stringify(found.tools), toolsFetchedAt: now }
+            : {}),
+        })
+        .where(where),
+    ]);
+    const row = await loadConnector(db, connector.id, workspaceId);
+    const owned = await credentialsOf(workspaceId, user.userId, row.id);
+    return toSummary(row, owned, user.userId);
   };
 
   /** Sets how long one tool call of a connector may run. */
@@ -867,6 +975,7 @@ export const createConnectorsService = ({
     create,
     list,
     remove,
+    setAuthMode,
     setCallTimeout,
     setCredential,
     unassign,

@@ -636,3 +636,30 @@ describe("redirects", () => {
     expect(inits.every((init) => init?.redirect === "manual")).toBe(true);
   });
 });
+
+test("buildAuthorizeUrl asks Google for offline access and consent, and nobody else", () => {
+  const input = {
+    challenge: "c",
+    clientId: "id",
+    redirectUri: "https://hm.example.com/cb",
+    resource: "https://gmailmcp.googleapis.com/mcp/v1",
+    state: "s",
+  };
+  const google = new URL(
+    buildAuthorizeUrl({
+      ...input,
+      authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+    })
+  );
+  expect(google.searchParams.get("access_type")).toBe("offline");
+  expect(google.searchParams.get("prompt")).toBe("consent");
+
+  const other = new URL(
+    buildAuthorizeUrl({
+      ...input,
+      authorizationEndpoint: "https://auth.example.com/authorize",
+    })
+  );
+  expect(other.searchParams.has("access_type")).toBe(false);
+  expect(other.searchParams.has("prompt")).toBe(false);
+});

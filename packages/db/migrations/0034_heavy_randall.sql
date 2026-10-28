@@ -1,0 +1,1 @@
+ALTER TABLE `connectors` ADD `auth_mode` text DEFAULT 'auto' NOT NULL;

@@ -27,6 +27,7 @@ const AUTH_PARAM = /([a-z_]+)\s*=\s*("[^"]*"|[^\s,]+)/gi;
 const SECONDS = 1000;
 const DEFAULT_EXPIRES_IN_SECONDS = 3600;
 const ERROR_SNIPPET_LENGTH = 300;
+const GOOGLE_AUTHORIZE_HOST = "accounts.google.com";
 
 export class OAuthDiscoveryError extends Error {}
 export class OAuthTokenError extends Error {
@@ -380,6 +381,12 @@ export const buildAuthorizeUrl = (input: AuthorizeUrlInput): string => {
   params.set("resource", input.resource);
   if (input.scope) {
     params.set("scope", input.scope);
+  }
+  if (url.hostname === GOOGLE_AUTHORIZE_HOST) {
+    // Google issues a refresh token only when asked for offline access, and
+    // then only on a consent screen. Without one the login ends in an hour.
+    params.set("access_type", "offline");
+    params.set("prompt", "consent");
   }
   return url.toString();
 };
