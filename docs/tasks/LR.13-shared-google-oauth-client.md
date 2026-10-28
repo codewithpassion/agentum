@@ -3,7 +3,7 @@ id: LR.13
 title: Workspace-wide Google OAuth client for connectors on accounts.google.com
 milestone: LR
 size: S
-status: in_progress
+status: done
 depends_on: [LR.11]
 branch: task/LR.13-shared-google-client
 lane: mcp
@@ -24,3 +24,4 @@ Dom, 28 Oct 2026. Google's authorization server has no dynamic client registrati
 
 ## Log
 - 2026-10-28: created; dispatched.
+- 2026-10-29: merged at e79d307a, review clean after 1 fix round; Google secrets optional in types. Dom: set GOOGLE_OAUTH_CLIENT_ID/SECRET and redirect URIs.

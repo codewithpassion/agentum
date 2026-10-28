@@ -3,7 +3,7 @@ id: LR.12
 title: Deck room applies peer frames without a policy fetch per frame
 milestone: LR
 size: M
-status: in_progress
+status: done
 depends_on: [LR.10]
 branch: task/LR.12-deck-room-latency
 lane: web
@@ -23,3 +23,4 @@ LR.10 (`docs/reviews/tasks/LR.10.md`) removed the per-frame HTTP policy fetch fr
 - 2026-10-28: created from LR.10.
 - 2026-10-28: dispatched; production does not wait for it.
 - 2026-10-28: scope added from LR.7 round 3: deck toolbar controls are 33px at 390px, need 40px (deck-editor.css:361).
+- 2026-10-29: merged at a02b486a, review clean; shared empty cell text node, cached deck policy, 40px deck toolbar (toolbar and one nit after review). Open: backfill for untouched empty cells.
