@@ -3,7 +3,7 @@ id: LR.8
 title: Live-room and export auth pass the Clerk publishable key
 milestone: LR
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/LR.8-live-room-clerk-key
 lane: services
@@ -22,3 +22,4 @@ Found by LR.7 on staging (`docs/reviews/tasks/LR.7.md`): every member live-room 
 
 ## Log
 - 2026-10-28: created from LR.7 round 1; dispatched.
+- 2026-10-28: merged at fdd5f621, review clean (0 fix rounds).
