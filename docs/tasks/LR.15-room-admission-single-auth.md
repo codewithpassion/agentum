@@ -3,7 +3,7 @@ id: LR.15
 title: Room admission runs the Clerk check once, not in both route and Durable Object
 milestone: LR
 size: S
-status: in_progress
+status: done
 depends_on: [LR.14]
 branch: task/LR.15-room-admission-auth
 lane: services
@@ -23,3 +23,4 @@ LR.7 round 4 (`docs/reviews/tasks/LR.7.md`): one room join takes 2.2 s and eight
 
 ## Log
 - 2026-10-29: created from LR.7 round 4; dispatched.
+- 2026-10-29: merged at bf8f3136, security review clean after 1 fix round. One Clerk name lookup per join remains (follow-up).
