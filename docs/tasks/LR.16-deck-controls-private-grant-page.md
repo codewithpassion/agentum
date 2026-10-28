@@ -3,7 +3,7 @@ id: LR.16
 title: All deck controls 40px at 390px; private artifact with a user grant opens
 milestone: LR
 size: S
-status: in_progress
+status: done
 depends_on: [LR.12]
 branch: task/LR.16-deck-controls-grant-page
 lane: web
@@ -23,3 +23,4 @@ LR.7 round 4 (`docs/reviews/tasks/LR.7.md`).
 
 ## Log
 - 2026-10-29: created from LR.7 round 4; dispatched.
+- 2026-10-29: merged at f8913e89, review clean. 0/52 deck controls under 40px at 390px; granted users open private document/deck artifacts.
