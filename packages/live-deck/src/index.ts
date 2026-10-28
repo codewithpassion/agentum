@@ -21,6 +21,7 @@ import {
   emptyUsage,
   isMigrationRoot,
   LIFETIME_CAPS,
+  StaleAncestryError,
   type Usage,
   validatePositionMigrations,
   WINDOW_CAPS,
@@ -1668,7 +1669,10 @@ export class Deck {
       let admitted = true;
       try {
         this.stageOnce(change, author, undefined, true);
-      } catch {
+      } catch (probeError) {
+        if (probeError instanceof StaleAncestryError) {
+          throw probeError;
+        }
         admitted = false;
       }
       if (!admitted) {
