@@ -115,6 +115,7 @@ export class TicketedDeckRoom {
   readonly awareness = new Awareness(this.document);
   readonly policy = { ownBlobUrls: new Set<string>() };
   readonly deck = new Deck(this.document, richTextCodec, {
+    compaction: false,
     ownsBlob: (path) => this.policy.ownBlobUrls.has(path),
   });
   get participants(): readonly DeckParticipant[] {
@@ -179,6 +180,7 @@ export class TicketedDeckRoom {
           // Tiptap may materialize an empty local migration map during undo.
           // Validate the actual encoded wire state; empty local roots are not encoded.
           const candidate = new Deck(new Doc(), richTextCodec, {
+            compaction: false,
             ownsBlob: (path) => this.policy.ownBlobUrls.has(path),
           });
           try {

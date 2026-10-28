@@ -1,8 +1,10 @@
 import {
   AbstractType,
   ContentAny,
+  ContentDeleted,
   ContentType,
   type Doc,
+  GC,
   getItem,
   getState,
   ID,
@@ -68,8 +70,20 @@ function parent(value: Item): AbstractType<unknown> {
   }
   return value.parent;
 }
+function wasCollected(doc: Doc, id: ID): boolean {
+  if (id.clock >= getState(doc.store, id.client)) {
+    return false;
+  }
+  const found = getItem(doc.store, id);
+  // A collected type under a live parent stays an Item with its content dropped.
+  return found instanceof GC || found.content instanceof ContentDeleted;
+}
 /** Only actual nested scene text/cell fragments, including retained deleted history. */
-function fragmentFor(doc: Doc, id: ID): XmlFragment {
+function fragmentFor(doc: Doc, id: ID, collected: boolean): XmlFragment | null {
+  // Compaction may have dropped a fragment no live record refers to any more.
+  if (collected && wasCollected(doc, id)) {
+    return null;
+  }
   const entry = item(doc, id);
   if (
     entry.id.clock !== id.clock ||
@@ -110,7 +124,7 @@ function fragmentFor(doc: Doc, id: ID): XmlFragment {
 }
 function within(value: Item, fragment: XmlFragment): boolean {
   let type = parent(value);
-  for (let depth = 0; depth < 64; depth += 1) {
+  for (let depth = 0; depth < MAX_DEPTH; depth += 1) {
     if (type === fragment) {
       return true;
     }
@@ -123,30 +137,84 @@ function within(value: Item, fragment: XmlFragment): boolean {
   }
   return false;
 }
-function range(doc: Doc, fragment: XmlFragment, id: ID, length: number): Item {
-  const first = item(doc, id);
+function heldBy(part: Item, holder: ID): boolean {
+  const actual = parent(part)._item?.id;
+  return actual?.client === holder.client && actual.clock === holder.clock;
+}
+function range(
+  doc: Doc,
+  fragment: XmlFragment,
+  id: ID,
+  length: number,
+  holder?: ID
+): void {
   let { clock } = id;
   const end = clock + length;
   while (clock < end) {
     const part = item(doc, new ID(id.client, clock));
     if (part.parentSub !== null || !within(part, fragment)) {
-      return reject();
+      reject();
+    }
+    if (holder && !heldBy(part, holder)) {
+      reject();
     }
     clock = part.id.clock + part.length;
   }
-  return first;
 }
-interface Budget {
+/** Counts of what migration records ask the validator and clients to walk. */
+export interface Usage {
   positions: number;
   records: number;
   transfers: number;
   vectors: number;
 }
+export const emptyUsage = (): Usage => ({
+  positions: 0,
+  records: 0,
+  transfers: 0,
+  vectors: 0,
+});
+/** What one checkpoint window (the span between compactions) may add. */
+export const WINDOW_CAPS: Readonly<Usage> = {
+  positions: 2_000_000,
+  records: 10_000,
+  transfers: 100_000,
+  vectors: 100_000,
+};
+const LIFETIME_FACTOR = 32;
+/** Live records survive compaction, so the whole deck gets a ceiling too. */
+export const LIFETIME_CAPS: Readonly<Usage> = {
+  positions: WINDOW_CAPS.positions * LIFETIME_FACTOR,
+  records: WINDOW_CAPS.records * LIFETIME_FACTOR,
+  transfers: WINDOW_CAPS.transfers * LIFETIME_FACTOR,
+  vectors: WINDOW_CAPS.vectors * LIFETIME_FACTOR,
+};
+export const isMigrationRoot = (name: string) => ROOT.test(name);
+const MAX_ROOTS = 20_000;
+const MAX_DEPTH = 64;
+/** A cap was hit. Compaction opens a new window, so the caller may retry once. */
+export class CapacityError extends Error {
+  constructor(message = "invalid_deck_position_migration") {
+    super(message);
+    this.name = "CapacityError";
+  }
+}
+function charge(usage: Usage, allow: Usage) {
+  if (
+    usage.positions > allow.positions ||
+    usage.records > allow.records ||
+    usage.transfers > allow.transfers ||
+    usage.vectors > allow.vectors
+  ) {
+    throw new CapacityError();
+  }
+}
 function transfer(
   doc: Doc,
   fragment: XmlFragment,
   input: unknown,
-  budget: Budget
+  usage: Usage,
+  allow: Usage
 ) {
   const value = record(input, ["source", "target"]);
   const source = record(value.source, [
@@ -156,10 +224,11 @@ function transfer(
     "boundary",
   ]);
   const length = integer(source.length);
-  budget.positions += length;
-  if (!length || budget.positions > 2_000_000) {
+  usage.positions += length;
+  if (!length) {
     return reject();
   }
+  charge(usage, allow);
   boundary(source.boundary);
   range(
     doc,
@@ -181,27 +250,17 @@ function transfer(
   if (target.assoc !== undefined && target.assoc !== -1 && target.assoc !== 0) {
     return reject();
   }
-  const destination = range(
+  const holder = target.type === null ? undefined : identity(target.type);
+  range(
     doc,
     fragment,
     new ID(integer(target.client), integer(target.clock)),
-    length
+    length,
+    holder
   );
-  if (target.type === null) {
-    // Upstream merges adjacent node-boundary transfers just like characters.
-    if (target.boundary === undefined) {
-      return reject();
-    }
-  } else {
-    const type = identity(target.type);
-    const actual = parent(destination)._item?.id;
-    if (
-      !actual ||
-      actual.client !== type.client ||
-      actual.clock !== type.clock
-    ) {
-      return reject();
-    }
+  // Upstream merges adjacent node-boundary transfers just like characters.
+  if (target.type === null && target.boundary === undefined) {
+    return reject();
   }
 }
 function boundary(value: unknown) {
@@ -215,7 +274,8 @@ function migration(
   entry: Item,
   key: string,
   input: unknown,
-  budget: Budget
+  usage: Usage,
+  allow: Usage
 ) {
   const value = record(input, [
     "version",
@@ -237,16 +297,10 @@ function migration(
   if (!(Array.isArray(value.seen) && Array.isArray(value.transfers))) {
     return reject();
   }
-  budget.records += 1;
-  budget.vectors += value.seen.length;
-  budget.transfers += value.transfers.length;
-  if (
-    budget.records > 10_000 ||
-    budget.vectors > 100_000 ||
-    budget.transfers > 100_000
-  ) {
-    return reject();
-  }
+  usage.records += 1;
+  usage.vectors += value.seen.length;
+  usage.transfers += value.transfers.length;
+  charge(usage, allow);
   const seen = new Set<number>();
   for (const pair of value.seen) {
     if (!Array.isArray(pair) || pair.length !== 2) {
@@ -259,40 +313,234 @@ function migration(
     seen.add(c);
   }
   for (const transferValue of value.transfers) {
-    transfer(doc, fragment, transferValue, budget);
+    transfer(doc, fragment, transferValue, usage, allow);
   }
 }
-/** y-tiptap 3.0.10's closed v1 history grammar. Never allow a prefix-only hidden root. */
-export function validatePositionMigrations(doc: Doc): Set<string> {
-  const accepted = new Set<string>();
-  const budget: Budget = { positions: 0, records: 0, transfers: 0, vectors: 0 };
+const rootId = (name: string) => {
+  const match = ROOT.exec(name) as RegExpExecArray;
+  return new ID(integer(Number(match[1])), integer(Number(match[2])));
+};
+function migrationRoots(doc: Doc): Map<AbstractType<unknown>, string> {
+  const stores = new Map<AbstractType<unknown>, string>();
   for (const name of doc.share.keys()) {
-    const match = ROOT.exec(name);
-    if (!match) {
-      continue;
+    if (ROOT.test(name)) {
+      // getMap converts a decoded placeholder and repoints the items at it.
+      stores.set(doc.getMap(name) as AbstractType<unknown>, name);
     }
-    const fragment = fragmentFor(
-      doc,
-      new ID(integer(Number(match[1])), integer(Number(match[2])))
-    );
-    const store = doc.getMap(name);
-    if (store._start !== null || accepted.size >= 20_000) {
-      return reject();
+  }
+  if (stores.size > MAX_ROOTS) {
+    reject();
+  }
+  return stores;
+}
+function* allEntries(stores: Map<AbstractType<unknown>, string>) {
+  for (const [store, name] of stores) {
+    if (store._start !== null) {
+      reject();
     }
     // Visible entries alone miss same-transaction insert/delete payloads. With
     // gc disabled every retained map value must satisfy the closed grammar.
-    for (const [key, latest] of store._map) {
+    for (const latest of store._map.values()) {
       for (let entry: Item | null = latest; entry; entry = entry.left) {
-        if (
-          !(entry.content instanceof ContentAny) ||
-          entry.content.arr.length !== 1
-        ) {
-          return reject();
-        }
-        migration(doc, fragment, entry, key, entry.content.arr[0], budget);
+        yield [name, entry] as const;
       }
     }
-    accepted.add(name);
   }
-  return accepted;
+}
+/** Only structs an update added: cost follows the update, never the history. */
+function* newEntries(
+  doc: Doc,
+  stores: Map<AbstractType<unknown>, string>,
+  since: ReadonlyMap<number, number>
+) {
+  for (const store of stores.keys()) {
+    if (store._start !== null) {
+      reject();
+    }
+  }
+  for (const [client, structs] of doc.store.clients) {
+    const from = since.get(client) ?? 0;
+    if (getState(doc.store, client) <= from) {
+      continue;
+    }
+    let low = 0;
+    let high = structs.length - 1;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      const probe = structs[mid] as Item | GC;
+      if (probe.id.clock + probe.length > from) {
+        high = mid;
+      } else {
+        low = mid + 1;
+      }
+    }
+    for (let index = low; index < structs.length; index += 1) {
+      const struct = structs[index];
+      if (!(struct instanceof Item && struct.parent instanceof AbstractType)) {
+        continue;
+      }
+      const name = stores.get(struct.parent);
+      if (name !== undefined) {
+        yield [name, struct] as const;
+      }
+    }
+  }
+}
+export interface ScanOptions {
+  /** Most this scan may add before it throws CapacityError. */
+  allow: Usage;
+  /** Clocks the validator already saw. Omit to scan the whole document. */
+  since?: ReadonlyMap<number, number>;
+  /** Roots an earlier scan proved against their fragment. */
+  verified?: ReadonlySet<string>;
+}
+export interface Scan {
+  roots: Set<string>;
+  usage: Usage;
+}
+function retainsPayload(store: AbstractType<unknown>): boolean {
+  for (const latest of store._map.values()) {
+    for (let entry: Item | null = latest; entry; entry = entry.left) {
+      if (entry.content instanceof ContentAny) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+/** y-tiptap 3.0.10's closed v1 history grammar. Never allow a prefix-only hidden root. */
+export function validatePositionMigrations(
+  doc: Doc,
+  options: ScanOptions
+): Scan {
+  const stores = migrationRoots(doc);
+  const usage = emptyUsage();
+  const fragments = new Map<string, XmlFragment>();
+  const entries = options.since
+    ? newEntries(doc, stores, options.since)
+    : allEntries(stores);
+  for (const [name, entry] of entries) {
+    if (entry.parentSub === null) {
+      return reject();
+    }
+    if (entry.content instanceof ContentDeleted) {
+      continue; // Collected payload: nothing is left to validate.
+    }
+    if (
+      !(entry.content instanceof ContentAny) ||
+      entry.content.arr.length !== 1
+    ) {
+      return reject();
+    }
+    let fragment = fragments.get(name);
+    if (!fragment) {
+      fragment = fragmentFor(doc, rootId(name), false) as XmlFragment;
+      fragments.set(name, fragment);
+    }
+    migration(
+      doc,
+      fragment,
+      entry,
+      entry.parentSub,
+      entry.content.arr[0],
+      usage,
+      options.allow
+    );
+  }
+  const roots = new Set<string>();
+  for (const [store, name] of stores) {
+    roots.add(name);
+    if (!(fragments.has(name) || options.verified?.has(name))) {
+      fragmentFor(doc, rootId(name), !retainsPayload(store));
+    }
+  }
+  return { roots, usage };
+}
+type Cover = (client: unknown, clock: unknown, length: unknown) => void;
+function countRecord(input: unknown, usage: Usage, cover: Cover) {
+  const value = input as Record<string, unknown>;
+  const seen = value.seen as unknown[];
+  const transfers = value.transfers as {
+    source: Record<string, number>;
+    target: Record<string, number> | null;
+  }[];
+  usage.records += 1;
+  usage.vectors += seen.length;
+  usage.transfers += transfers.length;
+  for (const { source, target } of transfers) {
+    usage.positions += source.length as number;
+    cover(source.client, source.clock, source.length);
+    if (target) {
+      cover(target.client, target.clock, source.length);
+    }
+  }
+}
+function collect(
+  doc: Doc,
+  intervals: Map<number, [number, number][]>,
+  items: Set<Item>
+) {
+  for (const [client, list] of intervals) {
+    list.sort((a, b) => a[0] - b[0]);
+    let clock = 0;
+    for (const [start, end] of list) {
+      clock = Math.max(clock, start);
+      while (clock < end && clock < getState(doc.store, client)) {
+        const part = getItem(doc.store, new ID(client, clock));
+        if (part instanceof Item) {
+          items.add(part);
+        }
+        clock = part.id.clock + part.length;
+      }
+    }
+  }
+  for (const start of [...items]) {
+    let up = start.parent;
+    while (up instanceof AbstractType && up._item && !items.has(up._item)) {
+      items.add(up._item);
+      up = up._item.parent;
+    }
+  }
+}
+interface Held {
+  items: Set<Item>;
+  usage: Usage;
+}
+/** Items the live records point at, plus every ancestor the validator walks. */
+export function liveReferences(doc: Doc): Held {
+  const intervals = new Map<number, [number, number][]>();
+  const usage = emptyUsage();
+  const items = new Set<Item>();
+  const cover = (client: unknown, clock: unknown, length: unknown) => {
+    if (
+      typeof client === "number" &&
+      typeof clock === "number" &&
+      typeof length === "number"
+    ) {
+      const list = intervals.get(client) ?? [];
+      list.push([clock, clock + length]);
+      intervals.set(client, list);
+    }
+  };
+  for (const [store, name] of migrationRoots(doc)) {
+    let live = false;
+    for (const latest of store._map.values()) {
+      for (let entry: Item | null = latest; entry; entry = entry.left) {
+        if (entry.deleted || !(entry.content instanceof ContentAny)) {
+          continue;
+        }
+        live = true;
+        countRecord(entry.content.arr[0], usage, cover);
+      }
+    }
+    if (live) {
+      const id = rootId(name);
+      const found = getItem(doc.store, id);
+      if (found instanceof Item) {
+        items.add(found);
+      }
+    }
+  }
+  collect(doc, intervals, items);
+  return { items, usage };
 }

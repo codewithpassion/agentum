@@ -6,6 +6,7 @@ import {
   AbstractType as YAbstractType,
   applyUpdate as YapplyUpdate,
   Doc as YDoc,
+  decodeStateVector as YdecodeStateVector,
   encodeStateAsUpdate as YencodeStateAsUpdate,
   encodeStateVector as YencodeStateVector,
   Map as YMap,
@@ -14,7 +15,16 @@ import {
   XmlText as YXmlText,
   type YEvent as YYEvent,
 } from "yjs";
-import { validatePositionMigrations } from "./migrations";
+import { compactDoc } from "./compaction";
+import {
+  CapacityError,
+  emptyUsage,
+  isMigrationRoot,
+  LIFETIME_CAPS,
+  type Usage,
+  validatePositionMigrations,
+  WINDOW_CAPS,
+} from "./migrations";
 
 const absoluteUrlGrammar = /^(https?:\/\/|mailto:)/;
 const effectGrammar = /^(fade|rise|drop|left|right|scale|pop)$/;
@@ -124,7 +134,14 @@ export interface Section {
   title: string;
 }
 export interface DeckOptions {
+  /**
+   * Window caps and in-place compaction. On by default. A browser mirror turns
+   * it off: it never opens its own window, the authority does.
+   */
+  compaction?: boolean;
   maxObservations?: number;
+  /** Runs after compaction rewrote the doc, so a host can persist the result. */
+  onCompact?: () => void;
   /** Exact authorized image paths and immutable embed file identities from the host policy. */
   ownsBlob?: (path: string, slideId?: string, elementId?: string) => boolean;
 }
@@ -828,9 +845,45 @@ const keys = (value: SharedMap, allowed: string[], path: string) => {
     }
   }
 };
+/** A validated change that is not on the authority yet. */
+export interface PreparedUpdate {
+  /** Applies the exact bytes to the authority. Cannot fail after prepare. */
+  apply: () => void;
+  readonly changed: boolean;
+  discard: () => void;
+  /** Full encoded state the authority will have after apply. */
+  full: () => Uint8Array;
+}
+interface Scope {
+  bytes: number;
+  initial: boolean;
+  live: Usage;
+  /** Measure the exact encoded size even when the estimate is small. */
+  measure: boolean;
+  since: Map<number, number>;
+  size: number;
+  verified: ReadonlySet<string>;
+  window: Usage;
+}
+interface Staged {
+  changed: boolean;
+  delta: Uint8Array;
+  exact?: number;
+  roots: Set<string>;
+  scope: Scope;
+  usage: Usage;
+}
+const USAGE_KEYS = ["positions", "records", "transfers", "vectors"] as const;
+const roomFor = (cap: number, used: number) => Math.max(0, cap - used);
 export class Deck {
   readonly doc: YDoc;
   readonly codec: RichTextCodec;
+  // Migration usage since the last compaction (window) and held by live records.
+  private window = emptyUsage();
+  private live = emptyUsage();
+  private verified: ReadonlySet<string> = new Set();
+  private size = 0;
+  private dirtyBytes = 0;
   private readonly authorClientId = newClientId();
   private readonly options: DeckOptions;
   private readonly history = new Map<string, number>();
@@ -1591,41 +1644,197 @@ export class Deck {
     });
   }
   private commitMutation(change: (candidate: Deck) => void) {
-    const update = this.mutateCandidate(change, true);
-    YapplyUpdate(this.doc, update);
+    const staged = this.stage(change, true);
+    this.land(staged, staged.delta);
   }
-  private mutateCandidate(
+  /** Seeds a copy, runs the change, validates what it added, and retries once after compaction. */
+  private stage(
     change: (candidate: Deck) => void,
-    author = false
-  ): Uint8Array {
+    author = false,
+    keep?: { doc: YDoc }
+  ): Staged {
+    try {
+      return this.stageOnce(change, author, keep);
+    } catch (error) {
+      if (
+        !(error instanceof CapacityError) ||
+        this.options.compaction === false ||
+        this.dirtyBytes === 0
+      ) {
+        throw error;
+      }
+      // Compact only when a fresh window would admit the update. A hostile
+      // update must leave the authority untouched, as before.
+      let admitted = true;
+      try {
+        this.stageOnce(change, author, undefined, true);
+      } catch {
+        admitted = false;
+      }
+      if (!admitted) {
+        throw error;
+      }
+      this.compact();
+      return this.stageOnce(change, author, keep);
+    }
+  }
+  private stageOnce(
+    change: (candidate: Deck) => void,
+    author: boolean,
+    keep?: { doc: YDoc },
+    probe = false
+  ): Staged {
+    const before = YencodeStateVector(this.doc);
     const doc = new YDoc({ gc: false });
     YapplyUpdate(doc, YencodeStateAsUpdate(this.doc));
-    const candidate = new Deck(doc, this.codec, this.options);
+    const candidate = new Deck(doc, this.codec, {
+      ...this.options,
+      onCompact: undefined,
+    });
     if (author) {
       doc.clientID = this.authorClientId;
     }
+    let changed = false;
+    doc.on("update", () => {
+      changed = true;
+    });
+    let kept = false;
     try {
+      if (probe) {
+        // Same order as the real retry: the authority compacts first.
+        compactDoc(doc);
+      }
       change(candidate);
-      candidate.validate();
-      return YencodeStateAsUpdate(doc, YencodeStateVector(this.doc));
+      const since = YdecodeStateVector(before);
+      const scope: Scope = {
+        bytes: 0,
+        initial: since.size === 0,
+        live: this.live,
+        measure: probe,
+        since,
+        size: this.size,
+        verified: this.verified,
+        window: probe ? emptyUsage() : this.window,
+      };
+      const delta = YencodeStateAsUpdate(doc, before);
+      scope.bytes = delta.byteLength;
+      const checked = candidate.verify(scope);
+      if (keep) {
+        keep.doc = doc;
+        kept = true;
+      }
+      return {
+        changed,
+        delta,
+        exact: checked.exact,
+        roots: checked.roots,
+        scope,
+        usage: checked.usage,
+      };
     } finally {
       candidate.destroy();
-      doc.destroy();
+      if (!kept) {
+        doc.destroy();
+      }
+    }
+  }
+  private land(staged: Staged, bytes: Uint8Array) {
+    YapplyUpdate(this.doc, bytes);
+    this.verified = staged.roots;
+    this.size = staged.exact ?? this.size + staged.scope.bytes;
+    this.dirtyBytes += staged.scope.bytes;
+    if (staged.scope.initial) {
+      this.live = staged.usage;
+      return;
+    }
+    for (const key of USAGE_KEYS) {
+      this.window[key] += staged.usage[key];
     }
   }
   /** Authenticate/authorize and rate-limit before this synchronous boundary. Never apply network updates directly. */
   applyUpdate(update: Uint8Array) {
+    this.prepare(update).apply();
+  }
+  /**
+   * Validates an update against a copy and returns it unapplied, so a host can
+   * persist it before the authority changes. Costs the update, not the history.
+   */
+  prepare(update: Uint8Array): PreparedUpdate {
     if (update.byteLength > LIMITS.updateBytes) {
       fail("/update", "update size limit");
     }
-    this.mutateCandidate((candidate) => {
+    const keep = { doc: undefined as unknown as YDoc };
+    const apply = (candidate: Deck) => {
       YapplyUpdate(candidate.doc, update);
       if (candidate.doc.store.pendingStructs || candidate.doc.store.pendingDs) {
         fail("/update", "missing dependencies; resynchronize and retry");
       }
-    });
-    // Apply the original structs, preserving client IDs, clocks and delete sets. No snapshot re-encoding.
-    YapplyUpdate(this.doc, update);
+    };
+    let staged: Staged;
+    try {
+      staged = this.stage(apply, false, keep);
+    } catch (error) {
+      keep.doc?.destroy();
+      throw error;
+    }
+    let open = true;
+    const discard = () => {
+      if (open) {
+        open = false;
+        keep.doc.destroy();
+      }
+    };
+    return {
+      apply: () => {
+        if (!open) {
+          throw new Error("update already settled");
+        }
+        // Apply the original structs, preserving client IDs, clocks and delete sets. No snapshot re-encoding.
+        this.land(staged, update);
+        discard();
+      },
+      changed: staged.changed,
+      discard,
+      full: () => YencodeStateAsUpdate(keep.doc),
+    };
+  }
+  /**
+   * Rebuilds the deck in place from live state, keeping only the deleted
+   * ancestry current migration records name. Opens a new checkpoint window.
+   * Ids and clocks stay put, so peers resync nothing.
+   */
+  compact() {
+    this.live = compactDoc(this.doc);
+    this.window = emptyUsage();
+    this.size = YencodeStateAsUpdate(this.doc).byteLength;
+    this.dirtyBytes = 0;
+    this.options.onCompact?.();
+  }
+  /** True once enough has piled up since the last compaction that a host should run one. */
+  shouldCompact(): boolean {
+    if (this.dirtyBytes === 0) {
+      return false;
+    }
+    for (const key of USAGE_KEYS) {
+      if (this.window[key] >= WINDOW_CAPS[key] / 2) {
+        return true;
+      }
+    }
+    return (
+      this.size >= LIMITS.sceneBytes / 2 &&
+      this.dirtyBytes >= LIMITS.sceneBytes / 16
+    );
+  }
+  /** True when anything changed since the last compaction. */
+  dirty(): boolean {
+    return this.dirtyBytes > 0;
+  }
+  usage() {
+    return {
+      bytes: this.size,
+      live: { ...this.live },
+      window: { ...this.window },
+    };
   }
   /** Checkpoint replacement is a new authoritative transaction, not a merge of an old checkpoint. */
   restore(update: Uint8Array) {
@@ -1652,9 +1861,18 @@ export class Deck {
               );
             }
           }
+          // The checkpoint carries no history: old records point at replaced fragments.
+          for (const name of [...target.doc.share.keys()]) {
+            if (isMigrationRoot(name)) {
+              target.doc.getMap(name).clear();
+            }
+          }
         });
       });
       this.observations.clear();
+      // No records survive the replacement, so the next window starts clean.
+      this.window = emptyUsage();
+      this.live = emptyUsage();
     } finally {
       candidate.destroy();
       doc.destroy();
@@ -1691,10 +1909,27 @@ export class Deck {
       );
     }
   }
-  private validateRoots() {
-    const migrations = validatePositionMigrations(this.doc);
+  private allowance(scope?: Scope): Usage {
+    const allow = emptyUsage();
+    for (const key of USAGE_KEYS) {
+      const held = scope ? scope.live[key] + scope.window[key] : 0;
+      const lifetime = roomFor(LIFETIME_CAPS[key], held);
+      // Initial loads replay history that earlier windows already admitted.
+      allow[key] =
+        scope && !scope.initial && this.options.compaction !== false
+          ? Math.min(lifetime, roomFor(WINDOW_CAPS[key], scope.window[key]))
+          : lifetime;
+    }
+    return allow;
+  }
+  private validateRoots(scope?: Scope) {
+    const scan = validatePositionMigrations(this.doc, {
+      allow: this.allowance(scope),
+      since: scope && !scope.initial ? scope.since : undefined,
+      verified: scope?.verified,
+    });
     for (const [name, value] of this.doc.share) {
-      if (migrations.has(name)) {
+      if (scan.roots.has(name)) {
         continue;
       }
       if (!["meta", "sections", "slides"].includes(name)) {
@@ -1706,12 +1941,27 @@ export class Deck {
         fail(`/${name}`, "invalid root");
       }
     }
+    return scan;
   }
+  /** Whole-document validation. Updates go through prepare, which only checks what they add. */
   validate() {
-    if (YencodeStateAsUpdate(this.doc).byteLength > LIMITS.sceneBytes) {
-      fail("/deck", "encoded scene size limit; compact checkpoint required");
+    this.verify();
+  }
+  private verify(scope?: Scope) {
+    let exact: number | undefined;
+    if (
+      !scope ||
+      scope.measure ||
+      scope.size + scope.bytes > LIMITS.sceneBytes / 2
+    ) {
+      exact = YencodeStateAsUpdate(this.doc).byteLength;
+      if (exact > LIMITS.sceneBytes) {
+        throw new CapacityError(
+          "/deck: encoded scene size limit; compact checkpoint required"
+        );
+      }
     }
-    this.validateRoots();
+    const scan = this.validateRoots(scope);
     this.validateMetaSections();
     if (this.slides.size > LIMITS.slides) {
       fail("/slides", "slide limit");
@@ -1765,6 +2015,7 @@ export class Deck {
     if (totalCells > LIMITS.cells) {
       fail("/slides", "deck table cell limit");
     }
+    return { exact, roots: scan.roots, usage: scan.usage };
   }
   private mergeLayout(
     id: string,
