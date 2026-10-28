@@ -4,6 +4,7 @@ import type { LiveOutputs } from "../live-artifacts/live-api";
 import { liveApi } from "../live-artifacts/live-api";
 import { ExportControls } from "../live-exports/export-controls";
 import { DeckCollaboration } from "./deck-collaboration";
+import { DeckRefusalNotice, isStaleAncestry } from "./deck-refusal-notice.tsx";
 import { deckServices } from "./deck-services";
 import type { DeckWhere } from "./ports";
 import { TicketedDeckRoom } from "./room-provider";
@@ -104,7 +105,10 @@ export function LiveDeckPage({
         key={artifactId}
         kind="deck"
       />
-      {Boolean(error) && (
+      {isStaleAncestry(error) && (
+        <DeckRefusalNotice onReload={() => setAttempt((old) => old + 1)} />
+      )}
+      {Boolean(error) && !isStaleAncestry(error) && (
         <div role="alert">
           <p>{error}</p>
           <p>

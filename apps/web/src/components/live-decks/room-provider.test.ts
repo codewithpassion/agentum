@@ -2,6 +2,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { Deck } from "@repo/live-deck";
 import { richTextCodec } from "@repo/live-deck/rich-text";
+import { DECK_STALE_ANCESTRY } from "@repo/protocol/deck";
 import type { LiveJoinResult } from "@repo/protocol/live";
 import { Window } from "happy-dom";
 import {
@@ -276,4 +277,16 @@ test("service authority snapshots validate before binding and never echo to the 
   ).rejects.toThrow("unknown root");
   expect(client.room.document.getMap("forged").size).toBe(0);
   invalid.destroy();
+});
+test("a stale-ancestry refusal reaches the editor as the typed reason and is not retried", async () => {
+  const client = await connect();
+  session(client.socket);
+  client.socket.receive(sync(checkpoint()));
+  await tick();
+  client.socket.receive({ message: DECK_STALE_ANCESTRY, type: "error" });
+  // The room closes its socket right after the refusal; the reason must survive.
+  client.socket.onclose?.();
+  await tick();
+  expect(client.failure()).toBe(DECK_STALE_ANCESTRY);
+  expect(Socket.instances).toHaveLength(1);
 });

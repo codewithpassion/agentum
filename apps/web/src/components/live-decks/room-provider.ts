@@ -243,14 +243,17 @@ export class TicketedDeckRoom {
           .then(() => this.receive(event.data, joined))
           .catch((error: unknown) => this.fail(error));
       };
+      // Queue behind unread frames: the room sends its refusal reason, then closes.
       socket.onclose = () => {
-        if (!this.lifecycle.disposed) {
-          this.fail(
-            new Error(
-              "Room disconnected. Reconnect to reload the accepted deck."
-            )
-          );
-        }
+        this.receiving = this.receiving.then(() => {
+          if (!this.lifecycle.disposed) {
+            this.fail(
+              new Error(
+                "Room disconnected. Reconnect to reload the accepted deck."
+              )
+            );
+          }
+        });
       };
       socket.onerror = () =>
         this.fail(new Error("Could not connect to the deck room"));

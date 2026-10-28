@@ -15,7 +15,7 @@ import {
 import capture from "./fixtures/structural-migration.json";
 import { Deck } from "./index";
 
-import { validatePositionMigrations } from "./migrations";
+import { StaleAncestryError, validatePositionMigrations } from "./migrations";
 import { richTextCodec } from "./rich-text";
 
 const bytes = new Uint8Array(capture.state);
@@ -269,7 +269,9 @@ test("an update built on ancestry compaction removed is refused whole", () => {
       version: 1,
     });
   });
-  expect(() => server.applyUpdate(diff(stale, staleStart))).toThrow();
+  expect(() => server.applyUpdate(diff(stale, staleStart))).toThrow(
+    StaleAncestryError
+  );
   expect(encodeStateAsUpdate(server.doc)).toEqual(before);
 });
 
@@ -307,4 +309,43 @@ test("a replaced fragment compacts to a state that still reloads", () => {
   const reloaded = new Deck(new Doc(), richTextCodec);
   reloaded.applyUpdate(encodeStateAsUpdate(server.doc));
   expect(reloaded.ids().sort()).toEqual(["closing", "opening"]);
+});
+
+test("a record naming a fragment compaction emptied is refused as stale", () => {
+  const server = deckWith();
+  const stale = peerOf(server);
+  const admin = peerOf(server);
+  const start = encodeStateVector(admin);
+  admin.transact(() => {
+    admin.getMap(ROOT).clear();
+    const elements = admin.getMap("slides").get("opening") as unknown as {
+      get: (k: string) => {
+        get: (k: string) => { set: (k: string, v: unknown) => void };
+      };
+    };
+    const fragment = new XmlFragment();
+    fragment.insert(0, [new XmlElement("paragraph")]);
+    elements.get("elements").get("headline").set("text", fragment);
+  });
+  server.applyUpdate(diff(admin, start));
+  server.compact();
+  const staleStart = encodeStateVector(stale);
+  stale.transact(() => {
+    const clock = getState(stale.store, stale.clientID);
+    stale.getMap(ROOT).set(`${stale.clientID}:${clock}`, {
+      client: stale.clientID,
+      clock,
+      seen: [],
+      transfers: [
+        {
+          source: { client: TEXT.client, clock: TEXT.clock, length: 1 },
+          target: null,
+        },
+      ],
+      version: 1,
+    });
+  });
+  expect(() => server.applyUpdate(diff(stale, staleStart))).toThrow(
+    StaleAncestryError
+  );
 });
