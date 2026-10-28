@@ -28,5 +28,5 @@ test("production composition: run-token MCP, real room, R2/D1, admission/replay 
   }
   expect(
     JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}").passed
-  ).toBeGreaterThanOrEqual(11);
+  ).toBeGreaterThanOrEqual(16);
 }, 120_000);

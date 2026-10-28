@@ -9,6 +9,7 @@ import type { Clock } from "../runs/types.ts";
 import { fetchExternalImage, type ImageFetch } from "./external-image.ts";
 import type { LiveRoomScope, Member } from "./service.ts";
 
+export const IMAGE_FILE_PATH = /^\/files\/[A-Za-z0-9_-]+$/;
 export type ImportImageRow = typeof files.$inferSelect;
 const sourceOf = (member: Member) => {
   if (member.kind === "run") {
@@ -35,6 +36,8 @@ export function stageImportImages(input: {
   fileBlobs?: Pick<FileBlobs, "put" | "delete">;
   manifests: Pick<LibraryBlobs, "put"> & Partial<Pick<LibraryBlobs, "delete">>;
   authorize: () => Promise<void>;
+  /** Defaults to a fresh ulid. Guarded edits derive it so retries agree. */
+  newId?: (url: string) => string;
 }) {
   const rows: ImportImageRow[] = [];
   const resolved = new Map<string, string>();
@@ -107,7 +110,7 @@ export function stageImportImages(input: {
         throw invalid();
       }
       await input.authorize();
-      const id = ulid();
+      const id = input.newId?.(url) ?? ulid();
       const r2Key = `${input.scope.workspaceId}/files/${id}`;
       keys.push(r2Key);
       await input.fileBlobs.put(r2Key, body, body.type);

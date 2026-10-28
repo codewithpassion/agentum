@@ -13,6 +13,8 @@ import type {
 } from "@repo/mcp/tools/live";
 import type { LiveOperationOrigin } from "@repo/protocol/live";
 import { commentAnchorSchema } from "@repo/protocol/live";
+import { isForbiddenError } from "@repo/services/authz";
+import { isServiceError } from "@repo/services/errors";
 import type {
   DocumentSnapshot,
   GuestPublicationActor,
@@ -28,6 +30,7 @@ import { resolveDocumentAnchor } from "./anchors";
 import { ArtifactRoom as Room } from "./artifact-room";
 import { type AgentRange, insertedRanges } from "./attribution";
 import { authenticateRoomRequest, freshMember } from "./auth";
+import { editMarkdownImageUrls, withStoredImages } from "./edit-image-ops";
 import { roomName } from "./namespace";
 import { findBlock, translateOperation } from "./operations";
 import type { ArtifactRoomService, RoomScope } from "./ports";
@@ -192,6 +195,10 @@ const translateBatch = (
 
   return translated;
 };
+const HTTP_SOURCE = /^https?:\/\//i;
+type StagedImages =
+  | { ok: true; ids: string[]; ops: Operation[] }
+  | { ok: false; code: "forbidden" | "validation"; message: string };
 const ticketKey = (env: Env) =>
   env.ARTIFACT_VIEW_KEY ? `artifact-room:${env.ARTIFACT_VIEW_KEY}` : "";
 
@@ -897,17 +904,24 @@ export class ArtifactRoom extends Room {
       return { ok: true as const, ...result };
     }
     const { live, meta } = await this.snapshotController();
-    store.put(key, {
-      ops: JSON.stringify(ops),
-      revFrom: meta.revision,
-      summary,
-    });
+    let staged: StagedImages | undefined;
     try {
+      // Guard admission comes first: a mismatch here fetches and writes nothing.
       const translated = translateBatch(live, meta.blockRevisions, ops, origin);
-      const result = await this.edit(translated, origin, summary);
+      store.put(key, {
+        ops: JSON.stringify(ops),
+        revFrom: meta.revision,
+        summary,
+      });
+      staged = await this.stageEditImages(translated, origin);
+      if (!staged.ok) {
+        return staged;
+      }
+      const result = await this.edit(staged.ops, origin, summary);
       await this.documentRead({});
       return { ok: true as const, ...result };
     } catch (error) {
+      await this.discardEditImages(staged, origin);
       if (error instanceof DocumentError) {
         return {
           code: error.code,
@@ -929,9 +943,110 @@ export class ArtifactRoom extends Room {
       live.doc.destroy();
     }
   }
+  /** Fetches and stores the edit's external Markdown images after guard
+   * admission. Ids come from the change id, so a retry reuses the stored files. */
+  private async stageEditImages(
+    translated: Operation[],
+    origin: LiveOperationOrigin
+  ): Promise<StagedImages> {
+    // Own /files/ paths, data: and relative sources keep the sanitizer's verdict.
+    const urls = editMarkdownImageUrls(translated).filter((url) =>
+      HTTP_SOURCE.test(url)
+    );
+    if (!urls.length) {
+      return { ids: [], ok: true, ops: translated };
+    }
+    const scope = await this.state.storage.get<RoomScope>("productionScope");
+    if (!scope) {
+      throw new Error("Unbound scope");
+    }
+    const live = requiredLive(this.composed().services);
+    let ids: string[] = [];
+    try {
+      const principal = await this.actingPrincipal(origin.participantId);
+      const stored = await live.roomStageEditImages(principal, {
+        artifactId: scope.artifactId,
+        changeId: origin.changeId,
+        urls,
+      });
+      ({ ids } = stored);
+      await this.serializeImages(() =>
+        live.roomPublishEditImages(principal, {
+          artifactId: scope.artifactId,
+          ids,
+        })
+      );
+      return {
+        ids,
+        ok: true,
+        ops: withStoredImages(
+          translated,
+          new Map(Object.entries(stored.replacements))
+        ),
+      };
+    } catch (error) {
+      await this.discardEditImages({ ids, ok: true, ops: [] }, origin);
+      if (isForbiddenError(error)) {
+        return {
+          code: "forbidden",
+          message: "External images are not allowed for this credential.",
+          ok: false,
+        };
+      }
+      if (isServiceError(error)) {
+        return { code: "validation", message: error.message, ok: false };
+      }
+      throw error;
+    }
+  }
+  /** Removes staged images of a failed edit, unless an accepted change or a
+   * suggestion of this change id already uses them. */
+  private async discardEditImages(
+    staged: StagedImages | undefined,
+    origin: LiveOperationOrigin
+  ) {
+    const store = new RoomStorage(this.state.storage);
+    if (
+      !(staged?.ok && staged.ids.length) ||
+      store.get(`change:${origin.changeId}`) ||
+      store.get(`suggestion:${origin.changeId}`)
+    ) {
+      return;
+    }
+    const scope = await this.state.storage.get<RoomScope>("productionScope");
+    if (!scope) {
+      return;
+    }
+    await this.serializeImages(() =>
+      requiredLive(this.composed().services).roomDiscardEditImages(scope, {
+        ids: staged.ids,
+        runId: origin.runId,
+      })
+    );
+  }
+  private async actingPrincipal(participantId: string) {
+    const ref = await this.state.storage.get<string>(`actor:${participantId}`);
+    const principal = await resolveCredential(
+      this.productionEnv,
+      this.composed(),
+      ref
+        ? await this.state.storage.get<Credential>(`credential:${ref}`)
+        : undefined
+    );
+    if (!principal || participant(principal) !== participantId) {
+      throw new Error("Acting principal unavailable");
+    }
+    return principal;
+  }
   private imageTail: Promise<unknown> = Promise.resolve();
+  /** One writer at a time for the ownership manifest. */
+  private serializeImages<T>(action: () => Promise<T>) {
+    const result = this.imageTail.then(action);
+    this.imageTail = result.catch(() => undefined);
+    return result;
+  }
   registerImage(fileId: string) {
-    const result = this.imageTail.then(async () => {
+    return this.serializeImages(async () => {
       const scope = await this.state.storage.get<RoomScope>("productionScope");
       if (!scope) {
         throw new Error("Unbound scope");
@@ -942,8 +1057,6 @@ export class ArtifactRoom extends Room {
         fileId
       );
     });
-    this.imageTail = result.catch(() => undefined);
-    return result;
   }
   async bindScope(scope: RoomScope) {
     if (

@@ -711,6 +711,151 @@ try {
       convertedPolicy.urls[0] !== markdownPolicy.urls[0],
     "conversion owns a distinct stored file scoped to the new artifact"
   );
+  const imageDoc = await mcp("artifact_create", {
+    kind: "document",
+    markdown: "Guarded image target.",
+    title: "Guarded edit images",
+  });
+  const imageRead = await mcp("document_read", {
+    artifactId: imageDoc.artifactId,
+  });
+  const imageBlock = imageRead.blocks.find(
+    (b) => b.text === "Guarded image target."
+  );
+  const imageOps = (guard) => [
+    {
+      content: {
+        markdown: "Edited\n\n![edit](https://public-images.example.com/edit)",
+      },
+      op: "replace",
+      target: { blockId: imageBlock.id, ...guard },
+    },
+  ];
+  const guardedFetches = externalImageRequests;
+  const failedEdits = [];
+  for (const guard of [
+    { ifHash: imageBlock.hash, ifRev: imageBlock.rev + 1 },
+    { ifHash: "stale", ifRev: imageBlock.rev },
+  ]) {
+    try {
+      await mcp("document_edit", {
+        artifactId: imageDoc.artifactId,
+        ops: imageOps(guard),
+        summary: "Stale guard",
+      });
+    } catch (error) {
+      failedEdits.push(String(error));
+    }
+  }
+  const afterMismatch = await mcp("document_read", {
+    artifactId: imageDoc.artifactId,
+  });
+  check(
+    failedEdits.length === 2 &&
+      externalImageRequests === guardedFetches &&
+      !JSON.stringify(afterMismatch).includes("/files/") &&
+      (
+        await db
+          .prepare("SELECT count(*) AS n FROM files WHERE id LIKE 'edit-%'")
+          .first()
+      ).n === 0,
+    `guard mismatch fetches and writes nothing: ${failedEdits.join("|").slice(0, 300)}`
+  );
+  const imageEditInput = {
+    artifactId: imageDoc.artifactId,
+    ops: imageOps({ ifHash: imageBlock.hash, ifRev: imageBlock.rev }),
+    summary: "Image edit",
+  };
+  const imageEdit = await mcp("document_edit", imageEditInput);
+  const imageEditRequestId = rpcId;
+  check(
+    externalImageRequests === guardedFetches + 1,
+    "admitted guarded edit fetches the external image once"
+  );
+  const imagePolicy = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/policy/${imageDoc.artifactId}`,
+      { headers }
+    )
+  ).json();
+  const imageAfter = await mcp("document_read", {
+    artifactId: imageDoc.artifactId,
+  });
+  check(
+    imagePolicy.urls.length === 1 &&
+      imageAfter.blocks.some((b) => b.type === "image") &&
+      !JSON.stringify(imageAfter).includes("public-images.example.com"),
+    `accepted edit shows only the stored, owned image ${JSON.stringify(imagePolicy)} ${JSON.stringify(imageAfter).slice(0, 600)}`
+  );
+  const imageRepeat = await mcp(
+    "document_edit",
+    imageEditInput,
+    imageEditRequestId
+  );
+  check(
+    imageRepeat.changeId === imageEdit.changeId &&
+      externalImageRequests === guardedFetches + 1,
+    "replayed edit does not fetch again"
+  );
+  const imageCheckpoint = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/persisted/${imageDoc.artifactId}`,
+      { headers }
+    )
+  ).json();
+  check(
+    imageCheckpoint.markdown.includes(imagePolicy.urls[0]),
+    "checkpoint publishes the edit's image"
+  );
+  const imageEditFixture = async (changeId, mode, scopedRun = false) =>
+    (
+      await runtime.dispatchFetch(
+        `http://localhost/fixture/image-edit/${imageDoc.artifactId}`,
+        {
+          body: JSON.stringify({
+            changeId,
+            markdown: `Suggested\n\n![s](https://public-images.example.com/${changeId})`,
+            mode,
+            scoped: scopedRun,
+          }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        }
+      )
+    ).json();
+  const suggestionFetches = externalImageRequests;
+  const suggested = await imageEditFixture("suggest-1", "suggestion");
+  const beforeAccept = await mcp("document_read", {
+    artifactId: imageDoc.artifactId,
+  });
+  check(
+    suggested.ok &&
+      suggested.status === "pending" &&
+      externalImageRequests === suggestionFetches + 1 &&
+      !beforeAccept.blocks.some((b) => b.text === "Suggested"),
+    "suggestion-mode edit stays pending and leaves the document unchanged"
+  );
+  const listed = await (
+    await runtime.dispatchFetch(
+      `http://localhost/fixture/suggestions/${imageDoc.artifactId}`,
+      { headers }
+    )
+  ).json();
+  const proposal = listed.items.find((i) => i.id === suggested.suggestionId);
+  check(
+    proposal?.status === "pending" &&
+      proposal.preview.includes("/files/edit-") &&
+      !proposal.preview.includes("public-images.example.com"),
+    "the suggestion previews only the stored, owned image"
+  );
+  const scopedFetches = externalImageRequests;
+  const scoped = await imageEditFixture("scoped-1", "direct", true);
+  check(
+    scoped.ok === false &&
+      scoped.code === "forbidden" &&
+      externalImageRequests === scopedFetches,
+    "scoped guest runs are refused external fetches"
+  );
   const importedPolicy = await (
     await runtime.dispatchFetch(
       `http://localhost/api/live-artifacts/${created.artifactId}/policy`,

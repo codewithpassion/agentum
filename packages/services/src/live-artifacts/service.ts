@@ -67,9 +67,14 @@ import { createLiveAccess } from "./access.ts";
 import { createAccessLifecycle } from "./access-lifecycle.ts";
 import { createChangesModule } from "./changes.ts";
 import { createCommentsModule } from "./comments.ts";
+import { createEditImagesModule } from "./edit-images.ts";
 import { fetchExternalImage, type ImageFetch } from "./external-image.ts";
 import { imageMime } from "./image-mime.ts";
-import { type ImportImageRow, stageImportImages } from "./import-images.ts";
+import {
+  IMAGE_FILE_PATH,
+  type ImportImageRow,
+  stageImportImages,
+} from "./import-images.ts";
 import type { LiveInteractionPorts } from "./ports.ts";
 
 export type {
@@ -231,7 +236,6 @@ export interface GuestPublicationActor {
 }
 type PublicationActor = Member | GuestPublicationActor;
 export type Row = NonNullable<Awaited<ReturnType<typeof findArtifact>>>;
-const IMAGE_FILE_PATH = /^\/files\/[A-Za-z0-9_-]+$/;
 const missing = () =>
   new ServiceError("not_found", "Artifact or checkpoint not found");
 const invalid = (message: string) => new ServiceError("invalid", message);
@@ -1538,6 +1542,7 @@ export const createLiveArtifactsService = (deps: LiveArtifactsDeps) => {
       );
       return { url: `/files/${file.id}` };
     },
+    ...createEditImagesModule({ ...shared, requireUnscoped }),
     ...createChangesModule(shared),
     ...createAccessLifecycle(shared),
     /** L.3/L.7 must call after signature verification and before jti consumption,
