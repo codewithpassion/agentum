@@ -8,7 +8,8 @@ import {
   getState,
   ID,
   Item,
-  type XmlFragment,
+  XmlElement,
+  XmlFragment,
   type XmlText,
 } from "yjs";
 import capture from "./fixtures/structural-migration.json";
@@ -283,4 +284,27 @@ test("gc:true peers: collected migration payloads are accepted", () => {
   // A gc:true encoder ships the deleted entry as collected content, not as data.
   expect(() => server.applyUpdate(diff(peer, start))).not.toThrow();
   server.validate();
+});
+
+test("a replaced fragment compacts to a state that still reloads", () => {
+  const server = deckWith();
+  const admin = peerOf(server);
+  const start = encodeStateVector(admin);
+  admin.transact(() => {
+    admin.getMap(ROOT).clear();
+    const elements = admin.getMap("slides").get("opening") as unknown as {
+      get: (k: string) => {
+        get: (k: string) => { set: (k: string, v: unknown) => void };
+      };
+    };
+    const fragment = new XmlFragment();
+    fragment.insert(0, [new XmlElement("paragraph")]);
+    elements.get("elements").get("headline").set("text", fragment);
+  });
+  server.applyUpdate(diff(admin, start));
+  server.compact();
+  server.validate();
+  const reloaded = new Deck(new Doc(), richTextCodec);
+  reloaded.applyUpdate(encodeStateAsUpdate(server.doc));
+  expect(reloaded.ids().sort()).toEqual(["closing", "opening"]);
 });

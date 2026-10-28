@@ -71,10 +71,12 @@ function parent(value: Item): AbstractType<unknown> {
   return value.parent;
 }
 function wasCollected(doc: Doc, id: ID): boolean {
-  return (
-    id.clock < getState(doc.store, id.client) &&
-    getItem(doc.store, id) instanceof GC
-  );
+  if (id.clock >= getState(doc.store, id.client)) {
+    return false;
+  }
+  const found = getItem(doc.store, id);
+  // A collected type under a live parent stays an Item with its content dropped.
+  return found instanceof GC || found.content instanceof ContentDeleted;
 }
 /** Only actual nested scene text/cell fragments, including retained deleted history. */
 function fragmentFor(doc: Doc, id: ID, collected: boolean): XmlFragment | null {

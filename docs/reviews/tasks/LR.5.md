@@ -18,6 +18,32 @@ Fixes A1 to A3 of review A in `LR.3.md`.
 
 **Browser mirrors** pass `compaction: false`: they never open a window, the authority does.
 
-## Status
+## Review
 
-Implementation in progress. Verdicts, nits and steps for Dom are filled in after review.
+Round 1 (1163155e, Sonnet reviewer): not clean, one must-fix. After compaction, a deleted fragment under a live parent stays an Item with dropped content, not a collected struct, so `fragmentFor` rejected it and the deck could not reload (snapshot written by `persistCompaction` would not load after a restart). An editor could trigger it by replacing a text element's fragment. Fixed in the fix commit: `wasCollected` accepts both forms, with a reload test that fails without the fix. The reviewer also showed the cap-overflow probe compacted a copy that already held the update, so ancestry the update used stayed alive and the probe could pass where the real retry fails. The probe now compacts the copy before applying the change, matching the real path.
+
+Round 2: see below.
+
+## Checks
+
+`bun run check`, `bun run test`, `bun run build` pass. The deck real-room runner (`apps/web/src/components/live-decks/fixtures/room-browser-check.ts`, actual ArtifactRoom in workerd, two browsers, 1280x800 and 390x844) passes. New tests: `packages/live-deck/src/compaction.test.ts` (A1 250 toggles of a 10k paragraph, A2 deleted-payload bloat, A3 incremental usage, restore after compaction, hostile restore roots, peer convergence across compaction for gc true and false peers, stale ancestry refusal, gc:true collected payloads, reload after fragment replacement) and four added to `migrations.test.ts` (`within` depth, target type for every destination item, overwritten payloads).
+
+## Nits left
+
+- Probe path: the `dirtyBytes === 0` guard blocks the retry when an update itself frees space (replacing a scene above 8 MB right after a compaction).
+- A rejection at the lifetime ceiling still pays a copy, a probe copy, a compaction and an exact encode.
+- Per-update cost is still O(roots) (up to 20,000 junk roots) and the candidate copies the whole doc; A3 is bounded for migration validation, not for the copy.
+- `persistCompaction` failure surfaces after the commit and broadcast.
+- The A3 test checks the incremental scan count, not elapsed cost.
+- Missing tests: window and lifetime cap exhaustion through `Deck`, the probe path leaving the authority unchanged, `commitDeck` prepare/apply, `persistCompaction` rollback.
+- Not done from the review's nits: `reject()` still carries no reason; `target.boundary` and `source.boundary` are not cross-checked; `applyUpdate` persists the original bytes, so trailing bytes survive until compaction.
+- The browser mirror (`compaction: false`) keeps lifetime counters that do not reset when the authority restores.
+
+## Ideas beyond the scope
+
+- Live records never expire, so the lifetime ceiling (32 windows) is a durable limit; recovery is an owner restore. A pruning pass for old records needs a decision on which anchors still need them.
+- Persistent validator on the browser mirror, so each local edit validates its delta instead of the whole doc.
+
+## Steps for Dom
+
+None. No accounts or dashboards are involved.

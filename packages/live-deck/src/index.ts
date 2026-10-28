@@ -1700,6 +1700,10 @@ export class Deck {
     });
     let kept = false;
     try {
+      if (probe) {
+        // Same order as the real retry: the authority compacts first.
+        compactDoc(doc);
+      }
       change(candidate);
       const since = YdecodeStateVector(before);
       const scope: Scope = {
@@ -1714,9 +1718,6 @@ export class Deck {
       };
       const delta = YencodeStateAsUpdate(doc, before);
       scope.bytes = delta.byteLength;
-      if (probe) {
-        compactDoc(doc);
-      }
       const checked = candidate.verify(scope);
       if (keep) {
         keep.doc = doc;
