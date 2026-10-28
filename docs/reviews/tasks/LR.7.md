@@ -103,3 +103,32 @@ Totals: pass 13, fail 3 (document peer latency, concurrent admission slowness, d
 ## Left on staging (round 3)
 
 Documents `LR7 doc A`, `LR7 doc B` (one imported image), `LR7 deck`, pages `LR7 P1` and `LR7 P2` (workspace audience), agents `LR7 cloud`, `LR7 vm`, `LR7 managed`, an OpenRouter key and an Anthropic key in the workspace (D1), three test connectors (`LR7 gmail oauth`, `LR7 gmail Automatic`, `LR7 gmail None`), one pending guest invite. Ask-before on `bash` for `LR7 vm` was switched back off.
+
+## Round 4
+
+Date 2026-10-29. Main `0fd6ef2b` (LR.12, LR.13, LR.14 merged). `staging:build` first: the built `dist/server/wrangler.json` named only Worker `harbourmaster-staging`, host `harbourmaster-staging.rockyshoreslabs.io`, D1 `harbourmaster-staging`, R2 `harbourmaster-staging-files`, queue `harbourmaster-staging-mail-events`. The first `staging:deploy` failed on the D1 migration call with Cloudflare error 7403 (transient, the same account listed migrations a minute later); the second deployed version **435d66e4-b003-4e0e-ba7a-f1dad77ea28c**. No migrations pending. Production untouched, no Worker secret written, no model call. Two agent-browser sessions (dev user and `hm-admin`; `hm-member2` for the role test). Logs and scripts in `harbourmaster-wt/tmp/LR.7/`.
+
+Latency is measured browser to browser on one machine: a `beforeinput` timestamp in the typing page, a MutationObserver timestamp in the peer page, 5 samples each. Non-ASCII marker characters separate typed text from presence labels.
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 3 | Document peer latency, 1 char | pass | 139, 349, 487, 689, 694 ms. Median 487, max 694 (round 3: 1.9 s). |
+| 3 | Document peer latency, 3 quick chars | pass | Time until all three arrived: 351, 360, 383, 693, 702 ms. Median 383, max 702 (round 3: about 6 s). |
+| 3 | Deck peer latency, 1 char | pass | 283, 416, 468, 482, 1352 ms. Median 468, max 1352. |
+| 3 | Deck peer latency, 3 chars | pass | All arrived: 345 to 966 ms, median 457, max 966. |
+| 3 | Same-cell typing in a deck table | pass | Both browsers typed three characters into cell 0:0 at once, 5 runs. 5 of 5: all 30 characters kept, both views identical after each run. |
+| 5 | Eight concurrent room admissions | fail | Time to first frame, run 1: 2.5 to 12.6 s (0.3 s for the join call); run 2: 3.1 to 13.3 s. All got a frame, none within 3 s except the first one or two. One socket alone: 2.2 s; 2 sockets: 2.5 and 3.1 s; 4: 2.4 to 5.1 s. The fixed cost is the member check done twice, once in the Worker route (`routes.ts:46` then `live.admit`, `maintenance.start()`) and again in the Durable Object (`production-room.ts:396`, `artifact-room.ts:1105`). Each `authenticateRoomRequest` makes `authenticateRequest` (`auth.ts:98`), `sessions.getSession` (`auth.ts:105`) and `getOrganizationMembershipList` (`auth.ts:39`); a plain `GET /policy` (one check) takes 0.7 s. Suggested fix: pass the route's verified principal to the Durable Object (signed internal header or the stored credential) so the DO does not re-run Clerk, and cache the session and membership result for a few seconds per session id. LR.14 removed the queue serialisation but not this cost. |
+| 3 | Controls at 390x844, document | pass | 0 of 69 under 40 px, scrollWidth 375. |
+| 3 | Controls at 390x844, deck | fail | 24 of 56 are 33 to 35 px: All slides, Present, Version history, Hide pointers, member chip (`deck-editor.tsx:252-272`), Move slide earlier/later (`:652`, `:660`), Comment/Ask about selection, Background, Transition, Duration, Layout, Direction, Grid columns, Gap, Padding, Add token buttons (`inspector.tsx:112` and below). LR.12's rule (`deck-editor.css:361-386`) covers only `.ld-toolbar`. Suggested fix: use `.ld-editor button, .ld-editor select, .ld-editor input { min-height: 40px }` in that media block. |
+| 5 | Revocation closes the room | fail (limit 1 s) | Removing `hm-admin` from the Clerk org: the socket closed 1.75, 1.18, 1.58 and 1.93 s after the Clerk API call returned. The room finds out by polling: alarm every 2 s (`artifact-room.ts:1040`) and a grant valid for 2 s (`:58`); LR.14's own note says 2 s plus lookup.. Suggested fix: a Clerk webhook (or the membership change path) that calls the room's `disconnect(participantId)`, or a 500 ms check interval. |
+| 5 | Role downgrade to viewer | pass | `hm-member2` as editor on `LR7 doc C` typed into the room and the owner saw it. After `liveGuests.changeRole` to viewer the member socket closed within the call ("Document permissions changed. Reconnect to refresh access."), reconnect shows "Connected · viewer" with a non-editable editor, and typing attempted as viewer never reached the owner. |
+| 7 | Exports | pass | Document docx 8.7 KB (3.8 s) and pdf 27 KB (6.3 s); deck pptx 62 KB (3.8 s) and pdf 3 pages (4.8 s); all 200, files in `harbourmaster-wt/tmp/LR.7/exports/r4-*`. Deck warnings are informational (embed placeholder, text layout). |
+| LR.11/13 | Forced-OAuth connector | pass | A new connector on the Gmail URL with auth OAuth opened the "OAuth client for ..." dialog by itself (shared Google client unset). The old round-3 connector with a fake client id still redirects to Google and gets `invalid_client`, as expected. |
+
+Product bug seen on the way (not in the thresholds): a member given a grant on a private artifact through `liveGuests.invite` (principalKind user) gets "This artifact is not available." on the page, although `liveArtifacts.join` and `open` answer with role editor. The route loader uses `artifacts.get` (`routes/a.$artifactId.tsx:53`), which does not look at `artifact_members`. The test used audience `workspace` as a workaround. Also: an idle second tab lost its room with `UNAUTHORIZED` after a few minutes (cookie session expiry in a background tab, as in round 2); Reconnect or a reload recovers.
+
+Totals: pass 9 rows (4 latency rows, same-cell, document controls, role downgrade, exports, connector), fail 3 (admissions, deck controls, revocation timing). Needs-Dom items are unchanged from round 3 (Slack and machine runtimes, guest items, Gmail OAuth login).
+
+## Left on staging (round 4)
+
+`LR7 doc C` (workspace audience, `hm-member2` grant now viewer), connector `LR7 r4 gmail oauth`, plus the round 3 items. `hm-admin` is back in the Clerk dev org as org:admin after the revocation runs. Test text was added to `LR7 doc A` and `LR7 deck`.
