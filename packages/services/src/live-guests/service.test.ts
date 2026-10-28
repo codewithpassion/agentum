@@ -405,9 +405,11 @@ describe("guest sessions (existing authenticated rows)", () => {
       service.open(input),
       service.open(input),
     ]);
+    // The second request is the single-use grace for the previous token: it
+    // recovers instead of being refused, and still audits one view.
     expect(
       results.filter((result) => result.status === "fulfilled")
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(h.db.select().from(artifactViews).all()).toHaveLength(1);
     const h2 = setup();
     const invited = await h2.invite();
@@ -588,4 +590,195 @@ test("People reads require owner/admin and expose only this artifact's grants", 
   await expect(
     h.service.people({ ...principals.owner, workspaceId: "w2" }, h.artifactId)
   ).rejects.toThrow();
+});
+
+describe("guest session survives an interrupted committed rotation", () => {
+  const GRACE_MS = 120_000;
+  const lifecycle = (h: ReturnType<typeof setup>, off = () => false) =>
+    createGuestSessionLifecycle({
+      atomic: h.atomic,
+      clock: h.clock,
+      db: h.db,
+      guestsOff: off,
+    });
+  const tokenOf = (cookie: string) =>
+    cookie.split(";")[0]?.slice("__Host-hm_guest=".length) ?? "";
+  const asToken = (
+    input: { artifactId: string; workspaceId: string },
+    sessionToken: string
+  ) => ({ ...input, sessionToken });
+  const started = async () => {
+    const h = setup();
+    const invited = await h.invite();
+    const input = await session(h);
+    return { h, input, invited };
+  };
+
+  test("a lost response after commit is recovered with the old token", async () => {
+    const { h, input } = await started();
+    const lost = await lifecycle(h).renew(input);
+    expect(
+      await h.reader.resolve(asToken(input, tokenOf(lost.cookie)))
+    ).not.toBeNull();
+    // The browser never saw `lost.cookie` and presents the old token again.
+    const recovered = await lifecycle(h).renew(input);
+    const next = asToken(input, tokenOf(recovered.cookie));
+    expect(next.sessionToken).not.toBe(tokenOf(lost.cookie));
+    expect(await h.reader.resolve(next)).toMatchObject({ role: "editor" });
+    expect(recovered.grant.role).toBe("editor");
+    // Ordinary authentication never accepts the previous token.
+    expect(await h.reader.resolve(input)).toBeNull();
+    await lifecycle(h).renew(next);
+  });
+
+  test("a Worker restart between commit and delivery loses nothing", async () => {
+    const { h, input } = await started();
+    await lifecycle(h).open(input, { country: "AU" });
+    // A fresh service instance, as after an isolate restart, shares only the database.
+    const recovered = await lifecycle(h).renew(input);
+    expect(
+      await h.reader.resolve(asToken(input, tokenOf(recovered.cookie)))
+    ).not.toBeNull();
+    expect(h.db.select().from(artifactViews).all()).toHaveLength(1);
+  });
+
+  test("two tabs rotating at once both succeed and the session survives whichever cookie lands last", async () => {
+    for (const survivor of [0, 1]) {
+      // biome-ignore lint/performance/noAwaitInLoops: each scenario owns its database
+      const { h, input } = await started();
+      const settled = await Promise.all([
+        lifecycle(h).renew(input),
+        lifecycle(h).renew(input),
+      ]);
+      const kept = tokenOf(settled[survivor]?.cookie ?? "");
+      expect(kept).not.toBe("");
+      const again = await lifecycle(h).renew(asToken(input, kept));
+      expect(
+        await h.reader.resolve(asToken(input, tokenOf(again.cookie)))
+      ).not.toBeNull();
+    }
+  });
+
+  test("an old token is refused after recovery and after any later rotation", async () => {
+    const { h, input } = await started();
+    const first = await lifecycle(h).renew(input);
+    const recovered = await lifecycle(h).renew(input);
+    // The original token was spent twice (current, then grace). It is dead now.
+    await expect(lifecycle(h).renew(input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+    // The lost credential is still the immediately previous token, once.
+    const viaFirst = await lifecycle(h).renew(
+      asToken(input, tokenOf(first.cookie))
+    );
+    await expect(
+      lifecycle(h).renew(asToken(input, tokenOf(recovered.cookie)))
+    ).resolves.toBeDefined();
+    // Two rotations later the first recovered token is no longer previous.
+    await lifecycle(h).renew(asToken(input, tokenOf(viaFirst.cookie)));
+    await expect(lifecycle(h).renew(input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+    await expect(
+      lifecycle(h).renew(asToken(input, tokenOf(first.cookie)))
+    ).rejects.toThrow("Guest access unavailable");
+  });
+
+  test("the grace is bounded in time", async () => {
+    const { h, input } = await started();
+    await lifecycle(h).renew(input);
+    const start = h.clock.now().getTime();
+    h.setDate(new Date(start + GRACE_MS + 1000).toISOString());
+    await expect(lifecycle(h).renew(input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+    const second = await started();
+    await lifecycle(second.h).renew(second.input);
+    second.h.setDate(new Date(start + GRACE_MS - 1000).toISOString());
+    await expect(
+      lifecycle(second.h).renew(second.input)
+    ).resolves.toBeDefined();
+  });
+
+  test("revocation, expiry, role change, switch-off and signout win over recovery", async () => {
+    const revoked = await started();
+    await lifecycle(revoked.h).renew(revoked.input);
+    await revoked.h.service.revoke(principals.owner, {
+      artifactId: revoked.h.artifactId,
+      memberId: revoked.invited.memberId,
+    });
+    await expect(lifecycle(revoked.h).renew(revoked.input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+
+    const expired = await started();
+    await lifecycle(expired.h).renew(expired.input);
+    expired.h.db
+      .update(artifactMembers)
+      .set({ expiresAt: NOW })
+      .where(eq(artifactMembers.id, expired.invited.memberId))
+      .run();
+    await expect(lifecycle(expired.h).renew(expired.input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+
+    const demoted = await started();
+    const lost = await lifecycle(demoted.h).renew(demoted.input);
+    demoted.h.db
+      .update(artifactMembers)
+      .set({ role: "viewer" })
+      .where(eq(artifactMembers.id, demoted.invited.memberId))
+      .run();
+    const downgraded = await lifecycle(demoted.h).renew(demoted.input);
+    expect(downgraded.grant.role).toBe("viewer");
+    expect(tokenOf(lost.cookie)).not.toBe("");
+
+    const off = await started();
+    await lifecycle(off.h).renew(off.input);
+    await expect(lifecycle(off.h, () => true).renew(off.input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+
+    const out = await started();
+    await lifecycle(out.h).renew(out.input);
+    await lifecycle(out.h).signout(out.input);
+    expect(out.h.db.select().from(guestSessions).all()).toHaveLength(0);
+    await expect(lifecycle(out.h).renew(out.input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+
+    const sessionExpired = await started();
+    await lifecycle(sessionExpired.h).renew(sessionExpired.input);
+    sessionExpired.h.db.update(guestSessions).set({ expiresAt: NOW }).run();
+    await expect(
+      lifecycle(sessionExpired.h).renew(sessionExpired.input)
+    ).rejects.toThrow("Guest access unavailable");
+  });
+
+  test("a revoke racing the recovery aborts it", async () => {
+    const { h, input, invited } = await started();
+    await lifecycle(h).renew(input);
+    const racing = createGuestSessionLifecycle({
+      atomic: async (statements) => {
+        await h.service.revoke(principals.owner, {
+          artifactId: h.artifactId,
+          memberId: invited.memberId,
+        });
+        await h.atomic(statements);
+      },
+      clock: h.clock,
+      db: h.db,
+      guestsOff: () => false,
+    });
+    await expect(racing.renew(input)).rejects.toThrow(
+      "Guest access unavailable"
+    );
+  });
+
+  test("signing out with the previous token ends the session", async () => {
+    const { h, input } = await started();
+    await lifecycle(h).renew(input);
+    await lifecycle(h).signout(input);
+    expect(h.db.select().from(guestSessions).all()).toHaveLength(0);
+  });
 });

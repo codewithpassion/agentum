@@ -2,9 +2,9 @@
  * including foreign keys: the L.1 foreign keys themselves are not composite.
  * Mutations return unexecuted statements for the service atomic write.
  */
-import { and, eq, gt, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
-import { artifacts } from "./schema/artifacts.ts";
+import { artifacts, artifactViews } from "./schema/artifacts.ts";
 import {
   artifactMembers,
   guestIdentities,
@@ -104,6 +104,31 @@ const findSessionGrant = async (
   return row ?? null;
 };
 
+/** Rotation alone also admits the immediately previous token, while its grace
+ * lasts, so a guest whose rotation response was lost can recover. Every other
+ * reader uses `findGuestSessionGrant` and refuses it. The grant, role, expiry
+ * and switch checks are the same joins either way. */
+export const findGuestSessionRotationGrant = (
+  db: Database,
+  input: {
+    artifactId: string;
+    workspaceId: string;
+    at: string;
+    tokenHash: string;
+  }
+) =>
+  findSessionGrant(
+    db,
+    input,
+    or(
+      eq(guestSessions.tokenHash, input.tokenHash),
+      and(
+        eq(guestSessions.previousTokenHash, input.tokenHash),
+        gt(guestSessions.previousValidUntil, input.at)
+      )
+    ) as SQL
+  );
+
 /** Browser HTTP authentication requires the current rotating token. */
 export const findGuestSessionGrant = (
   db: Database,
@@ -158,9 +183,12 @@ export const guestMemberMutation = (
       )
     );
 
-/** CAS rotation: an old token cannot be renewed or used for a second open.
- * Recheck database access INSIDE the atomic write, so a revoke competing with
- * the preflight cannot produce a successful rotation or view audit.
+/** CAS rotation. The presented token must be the current one, or the previous
+ * one inside its grace; the replaced current token becomes the new previous, so
+ * the session always accepts the latest token and the one before it, and no
+ * older one. Recheck database access INSIDE the atomic write, so a revoke
+ * competing with the preflight cannot produce a successful rotation or view
+ * audit.
  */
 export const rotateGuestSessionStatement = (
   db: Database,
@@ -171,6 +199,7 @@ export const rotateGuestSessionStatement = (
     at: string;
     expiresAt: string;
     oldHash: string;
+    previousValidUntil: string;
     sessionId: string;
     tokenHash: string;
     workspaceId: string;
@@ -181,7 +210,11 @@ export const rotateGuestSessionStatement = (
     .set({
       expiresAt: input.expiresAt,
       lastUsedAt: input.at,
-      tokenHash: sql`CASE WHEN ${guestSessions.tokenHash} = ${input.oldHash}
+      previousTokenHash: sql`${guestSessions.tokenHash}`,
+      previousValidUntil: input.previousValidUntil,
+      tokenHash: sql`CASE WHEN (${guestSessions.tokenHash} = ${input.oldHash}
+      OR (${guestSessions.previousTokenHash} = ${input.oldHash}
+        AND ${guestSessions.previousValidUntil} > ${input.at}))
     AND ${guestSessions.expiresAt} > ${input.at}
     AND EXISTS (
       SELECT 1 FROM artifact_members m
@@ -203,9 +236,12 @@ export const rotateGuestSessionStatement = (
       )
     );
 
+/** Signing out with the previous token inside its grace ends the session too,
+ * for a guest who lost the response that carried the current one. */
 export const deleteGuestSessionStatement = (
   db: Database,
   input: {
+    at: string;
     tokenHash: string;
     workspaceId: string;
   }
@@ -214,10 +250,62 @@ export const deleteGuestSessionStatement = (
     .delete(guestSessions)
     .where(
       and(
-        eq(guestSessions.tokenHash, input.tokenHash),
+        or(
+          eq(guestSessions.tokenHash, input.tokenHash),
+          and(
+            eq(guestSessions.previousTokenHash, input.tokenHash),
+            gt(guestSessions.previousValidUntil, input.at)
+          )
+        ),
         eq(guestSessions.workspaceId, input.workspaceId)
       )
     );
+
+/** One view row, only when this very write rotated from the current token.
+ * A recovery from the previous token repeats an open that already audited. */
+export const guestViewOnRotation = (
+  db: Database,
+  input: {
+    oldHash: string;
+    sessionId: string;
+    tokenHash: string;
+    view: typeof artifactViews.$inferInsert;
+  }
+) => {
+  const v = input.view;
+  return db.insert(artifactViews).select(
+    db
+      .select({
+        artifactId: sql<string>`${v.artifactId}`.as("artifactId"),
+        asn: sql<string | null>`${v.asn ?? null}`.as("asn"),
+        asOrg: sql<string | null>`${v.asOrg ?? null}`.as("asOrg"),
+        city: sql<string | null>`${v.city ?? null}`.as("city"),
+        country: sql<string | null>`${v.country ?? null}`.as("country"),
+        createdAt: sql<string>`${v.createdAt}`.as("createdAt"),
+        guestId: sql<string | null>`${v.guestId ?? null}`.as("guestId"),
+        id: sql<string>`${v.id}`.as("id"),
+        ipPrefix: sql<string | null>`${v.ipPrefix ?? null}`.as("ipPrefix"),
+        outcome: sql<string>`${v.outcome}`.as("outcome"),
+        referrerHost: sql<string | null>`${v.referrerHost ?? null}`.as(
+          "referrerHost"
+        ),
+        region: sql<string | null>`${v.region ?? null}`.as("region"),
+        shareId: sql<string | null>`NULL`.as("shareId"),
+        surface: sql<string>`${v.surface}`.as("surface"),
+        toolKey: sql<string | null>`NULL`.as("toolKey"),
+        userAgent: sql<string | null>`${v.userAgent ?? null}`.as("userAgent"),
+        userId: sql<string | null>`NULL`.as("userId"),
+        versionId: sql<string | null>`NULL`.as("versionId"),
+        visitorHash: sql<string | null>`NULL`.as("visitorHash"),
+        workspaceId: sql<string>`${v.workspaceId}`.as("workspaceId"),
+      })
+      .from(sql`(select 1)`)
+      .where(
+        sql`EXISTS (SELECT 1 FROM guest_sessions s WHERE s.id = ${input.sessionId}
+      AND s.token_hash = ${input.tokenHash} AND s.previous_token_hash = ${input.oldHash})`
+      )
+  );
+};
 
 /** Catch a session deleted between preflight and rotation (zero updated rows).
  * guest identity cannot disappear while the scoped grant still references it.
