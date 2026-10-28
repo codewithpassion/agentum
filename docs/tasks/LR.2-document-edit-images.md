@@ -3,9 +3,9 @@ id: LR.2
 title: Guarded document_edit ingests external Markdown images
 milestone: LR
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/LR.2-document-edit-images
 lane: mcp
 executor: claude
 ---
@@ -25,3 +25,4 @@ Today Markdown image nodes silently disappear on the guarded `document_edit` pat
 
 ## Log
 - 2026-10-28: created from L.HANDOFF.md.
+- 2026-10-28: dispatched (Sonnet dispatcher, Haiku workers, Sonnet reviewers per Dom).

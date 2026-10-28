@@ -3,9 +3,9 @@ id: LR.3
 title: Independent reviews of Yjs migration remediation and guest comment/runtime tranche
 milestone: LR
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/LR.3-independent-assurance
 lane: docs
 executor: claude
 ---
@@ -25,3 +25,4 @@ Item 3 of `docs/reviews/tasks/L.HANDOFF.md`. Two reviews never happened:
 
 ## Log
 - 2026-10-28: created from L.HANDOFF.md.
+- 2026-10-28: dispatched (Sonnet dispatcher, Haiku workers, Sonnet reviewers per Dom).

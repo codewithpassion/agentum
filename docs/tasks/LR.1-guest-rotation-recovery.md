@@ -3,9 +3,9 @@ id: LR.1
 title: Guest session survives an interrupted committed rotation
 milestone: LR
 size: L
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/LR.1-guest-rotation-recovery
 lane: services
 executor: claude
 ---
@@ -27,3 +27,4 @@ When the server commits replacement-token state for a rotating guest session but
 
 ## Log
 - 2026-10-28: created from L.HANDOFF.md.
+- 2026-10-28: dispatched (Sonnet dispatcher, Haiku workers, Sonnet reviewers per Dom).
