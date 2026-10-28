@@ -3,7 +3,7 @@ id: LR.10
 title: Peer edits arrive without a policy fetch per frame; 40px touch targets at 390px
 milestone: LR
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/LR.10-room-latency-touch
 lane: web
@@ -23,3 +23,4 @@ Found by LR.7 round 2 on staging (`docs/reviews/tasks/LR.7.md`).
 
 ## Log
 - 2026-10-28: created from LR.7 round 2; dispatched.
+- 2026-10-28: merged at 3906ee23, review clean. Document room fixed; deck room keeps the per-frame policy fetch (cached frames broke concurrent same-cell typing 3/7), follow-up needed. 40px targets measured.
