@@ -76,6 +76,7 @@ import {
   canOpen,
   defaultAudience,
 } from "./policy.ts";
+import { hasUserGrant } from "./user-grant.ts";
 
 const ARTIFACT_RESOURCE = "artifact";
 const TITLE_MAX = 120;
@@ -371,6 +372,28 @@ export const createArtifactsService = ({
       throw notFound();
     }
     return row;
+  };
+
+  /**
+   * `visible`, plus a person holding a live member grant on a document or
+   * deck. For the artifact page only: the other actions stay owner and admin.
+   */
+  const visibleToPage = async (
+    member: Member,
+    artifactId: string
+  ): Promise<ArtifactRow> => {
+    const row = await findArtifact(db, member.workspaceId, artifactId);
+    if (!row) {
+      throw notFound();
+    }
+    if (
+      canSee(member, row) ||
+      (member.kind === "user" &&
+        (await hasUserGrant(db, row, member.userId, nowIso())))
+    ) {
+      return row;
+    }
+    throw notFound();
   };
 
   const managed = async (
@@ -1221,7 +1244,7 @@ export const createArtifactsService = ({
     artifactId: string
   ): Promise<ArtifactDetail> => {
     const member = reader(principal, "artifacts.get");
-    const row = await visible(member, artifactId);
+    const row = await visibleToPage(member, artifactId);
     const [version, [card], [workspace], made] = await Promise.all([
       currentOf(member, row),
       cards(member, [row]),
@@ -1257,7 +1280,7 @@ export const createArtifactsService = ({
     artifactId: string
   ): Promise<ArtifactVersion[]> => {
     const member = reader(principal, "artifacts.versions");
-    const row = await visible(member, artifactId);
+    const row = await visibleToPage(member, artifactId);
     const rows = await listVersions(db, member.workspaceId, row.id);
     const files = await filesByVersionIds(
       db,

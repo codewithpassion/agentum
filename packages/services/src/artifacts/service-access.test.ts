@@ -5,6 +5,7 @@ import {
   artifacts,
 } from "@repo/db/schema/artifacts";
 import { events } from "@repo/db/schema/events";
+import { artifactMembers } from "@repo/db/schema/live-artifacts";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   artifactCardSchema,
@@ -720,5 +721,80 @@ describe("readFile", () => {
         })
       )
     ).toBe("invalid");
+  });
+});
+
+describe("user grant on a private live artifact", () => {
+  const member = { ...principals.stranger, userId: "u3" };
+  const grantTo = (
+    h: Harness,
+    artifactId: string,
+    extra: { expiresAt?: string; revokedAt?: string; userId?: string } = {}
+  ) =>
+    h.db
+      .insert(artifactMembers)
+      .values({
+        artifactId,
+        createdAt: NOW,
+        createdBy: "u1",
+        id: crypto.randomUUID(),
+        principalKind: "user",
+        role: "viewer",
+        userId: "u2",
+        workspaceId: WORKSPACE,
+        ...extra,
+      })
+      .run();
+  const liveOne = async (
+    h: Harness,
+    kind: "document" | "page" = "document"
+  ) => {
+    const id = await privateOne(h);
+    h.db.update(artifacts).set({ kind }).where(eq(artifacts.id, id)).run();
+    return id;
+  };
+
+  test("the granted user opens the page, an ungranted member does not", async () => {
+    const h = harness();
+    const id = await liveOne(h);
+    grantTo(h, id);
+    expect((await h.service.get(principals.stranger, id)).title).toBe("Secret");
+    expect(await h.service.versions(principals.stranger, id)).toHaveLength(1);
+    expect(await code(h.service.get(member, id))).toBe("not_found");
+    expect(await code(h.service.versions(member, id))).toBe("not_found");
+  });
+
+  test("the grant opens the page and nothing else", async () => {
+    const h = harness();
+    const id = await liveOne(h);
+    grantTo(h, id);
+    expect(
+      await code(h.service.readFile(principals.stranger, { artifactId: id }))
+    ).toBe("not_found");
+    expect((await h.service.list(principals.stranger)).items).toEqual([]);
+  });
+
+  test("a revoked or expired grant does not open it", async () => {
+    const revoked = harness();
+    const revokedId = await liveOne(revoked);
+    grantTo(revoked, revokedId, { revokedAt: NOW });
+    expect(
+      await code(revoked.service.get(principals.stranger, revokedId))
+    ).toBe("not_found");
+    const expired = harness();
+    const expiredId = await liveOne(expired);
+    grantTo(expired, expiredId, { expiresAt: "2000-01-01T00:00:00.000Z" });
+    expect(
+      await code(expired.service.get(principals.stranger, expiredId))
+    ).toBe("not_found");
+  });
+
+  test("a grant on a static artifact opens nothing", async () => {
+    const h = harness();
+    const id = await liveOne(h, "page");
+    grantTo(h, id);
+    expect(await code(h.service.get(principals.stranger, id))).toBe(
+      "not_found"
+    );
   });
 });
