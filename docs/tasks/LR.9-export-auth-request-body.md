@@ -3,7 +3,7 @@ id: LR.9
 title: Exports authenticate without consuming the request body twice
 milestone: LR
 size: S
-status: in_progress
+status: done
 depends_on: [LR.8]
 branch: task/LR.9-export-auth-body
 lane: services
@@ -22,3 +22,4 @@ Found by LR.7 round 2 on staging (`docs/reviews/tasks/LR.7.md`): every member ex
 
 ## Log
 - 2026-10-28: created from LR.7 round 2; dispatched.
+- 2026-10-28: merged at 304096f4, review clean (0 fix rounds). Merge check: guest-execution.test.ts failed once under load (workerd 'other side closed'), passed on rerun on merged main and before/after LR.9 in the worktree: load-sensitive, not LR.9.
