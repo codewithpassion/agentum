@@ -348,6 +348,8 @@ export interface Infra {
   runTokenKey?: string;
   /** `SECRETS_KEY`. Storing a connector credential or a workspace secret encrypts with it. */
   secretsKey?: string;
+  /** `GOOGLE_OAUTH_CLIENT_ID` and `_SECRET`, both or neither. The OAuth client for connectors on accounts.google.com. */
+  sharedGoogleClient?: { clientId: string; clientSecret: string };
   /** Where the skills store keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   skillBlobs?: SkillBlobs;
   /** Finds the Clerk user behind a Slack email. Without one, nobody is linked. */
@@ -449,6 +451,8 @@ export type ComposeEnv = Pick<
   | "DB"
   | "FILES"
   | "GITHUB_TOKEN"
+  | "GOOGLE_OAUTH_CLIENT_ID"
+  | "GOOGLE_OAUTH_CLIENT_SECRET"
   | "MACHINE_RELAY"
   | "MANAGED_POLLER"
   | "GUEST_RUN"
@@ -577,6 +581,7 @@ export const composeWith = ({
     events,
     fetch: connectorFetch,
     secretsKey: infra.secretsKey,
+    sharedGoogleClient: infra.sharedGoogleClient,
   });
   const connectorOAuth = createConnectorOAuthService({
     atomic: infra.atomic,
@@ -585,6 +590,7 @@ export const composeWith = ({
     events,
     fetch: connectorFetch,
     secretsKey: infra.secretsKey,
+    sharedGoogleClient: infra.sharedGoogleClient,
   });
   const credentials = createCredentialsService({
     clock: infra.clock,
@@ -1191,6 +1197,14 @@ export const compose = (
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: env.RUN_TOKEN_KEY,
       secretsKey: env.SECRETS_KEY,
+      // Unset secrets read as empty strings; Google's client needs both.
+      sharedGoogleClient:
+        env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET
+          ? {
+              clientId: env.GOOGLE_OAUTH_CLIENT_ID,
+              clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+            }
+          : undefined,
       skillBlobs: r2SkillBlobs(env.FILES),
       slackDirectory: clerkSlackDirectory(env.CLERK_SECRET_KEY),
       streams: streamPublisher(env.SESSION_STREAM, defer),

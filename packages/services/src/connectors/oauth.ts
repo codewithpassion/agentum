@@ -28,6 +28,25 @@ const SECONDS = 1000;
 const DEFAULT_EXPIRES_IN_SECONDS = 3600;
 const ERROR_SNIPPET_LENGTH = 300;
 const GOOGLE_AUTHORIZE_HOST = "accounts.google.com";
+const GOOGLE_TOKEN_HOST = "oauth2.googleapis.com";
+
+/** Whether an authorization endpoint is Google's, which has no client registration. */
+export const isGoogleAuthorizationEndpoint = (endpoint: string): boolean => {
+  try {
+    return new URL(endpoint).hostname === GOOGLE_AUTHORIZE_HOST;
+  } catch {
+    return false;
+  }
+};
+
+/** Whether a token endpoint is Google's, the only host the shared secret may go to. */
+export const isGoogleTokenEndpoint = (endpoint: string): boolean => {
+  try {
+    return new URL(endpoint).hostname === GOOGLE_TOKEN_HOST;
+  } catch {
+    return false;
+  }
+};
 
 export class OAuthDiscoveryError extends Error {}
 export class OAuthTokenError extends Error {
