@@ -5,6 +5,7 @@ import {
   ADMISSION_HEADER,
   admissionFromRequest,
   type RoomAdmission,
+  requestMember,
   signRoomAdmission,
   verifyRoomAdmission,
 } from "./room-admission";
@@ -65,7 +66,7 @@ test("forged, tampered and wrong-key assertions are refused", async () => {
 test("expired, future-dated and over-long assertions are refused", async () => {
   const header = await signRoomAdmission(admission(), key);
   expect(await verify(header, {}, now + 30)).toBeNull();
-  expect(await verify(header, {}, now - 1)).toBeNull();
+  expect(await verify(header, {}, now - 3)).toBeNull();
   const long = await signRoomAdmission(
     admission({ expiresAt: now + 3600 }),
     key
@@ -187,4 +188,68 @@ test("a present but wrong assertion is refused, never downgraded", async () => {
       await ticketFor({ artifactId: crypto.randomUUID() })
     )
   ).toBe("refused");
+});
+
+test("room admission runs Clerk once: a signed request never authenticates again", async () => {
+  let clerk = 0;
+  const authenticate = () => {
+    clerk += 1;
+    return Promise.resolve({ principal });
+  };
+  const bound = { key, scope, ticket: await ticketFor() };
+  const header = await signRoomAdmission(admission(), key);
+  const trusted = await requestMember(
+    authenticate,
+    bound,
+    requestWith(header),
+    now
+  );
+  expect(trusted?.verified).toEqual(principal);
+  expect(trusted?.sessionId).toBe("sess_1");
+  expect(clerk).toBe(0);
+  // Without the route's assertion the room authenticates in full, once.
+  expect(
+    (await requestMember(authenticate, bound, requestWith(), now))?.principal
+  ).toEqual(principal);
+  expect(clerk).toBe(1);
+});
+
+test("a wrong assertion is refused without falling back to a full check", async () => {
+  let clerk = 0;
+  const authenticate = () => {
+    clerk += 1;
+    return Promise.resolve({ principal });
+  };
+  const header = await signRoomAdmission(admission(), key);
+  const forged = await requestMember(
+    authenticate,
+    { key, scope, ticket: await ticketFor() },
+    requestWith("hm_adm_forged.forged"),
+    now
+  );
+  const otherTicket = await requestMember(
+    authenticate,
+    { key, scope, ticket: await ticketFor({ jti: "j2" }) },
+    requestWith(header),
+    now
+  );
+  const otherRoom = await requestMember(
+    authenticate,
+    {
+      key,
+      scope: { ...scope, artifactId: crypto.randomUUID() },
+      ticket: await ticketFor(),
+    },
+    requestWith(header),
+    now
+  );
+  expect([forged, otherTicket, otherRoom]).toEqual([null, null, null]);
+  expect(clerk).toBe(0);
+});
+
+test("a ticket's own payload and signature never verify as an assertion", async () => {
+  const [payload, signature] = (await ticketFor())
+    .slice("hm_room_".length)
+    .split(".");
+  expect(await verify(`hm_adm_${payload}.${signature}`)).toBeNull();
 });

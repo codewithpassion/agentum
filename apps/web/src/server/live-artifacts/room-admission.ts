@@ -10,7 +10,7 @@ import {
   toBase64Url,
 } from "@repo/services/crypto";
 import { verifyRoomTicket } from "@repo/services/live-artifacts/ticket";
-import type { WorkspacePrincipal } from "@repo/services/workspaces";
+import type { Principal, WorkspacePrincipal } from "@repo/services/workspaces";
 
 /** The room ticket's signing key. Empty when the Worker has no view key. */
 export const roomTicketKey = (env: Env) =>
@@ -19,6 +19,8 @@ export const roomTicketKey = (env: Env) =>
 export const ADMISSION_HEADER = "X-Hm-Room-Admission";
 /** Longer than a slow admission needs, far shorter than a ticket. */
 export const ADMISSION_SECONDS = 30;
+/** The route and the room run in different isolates. */
+const CLOCK_SKEW_SECONDS = 2;
 
 const PREFIX = "hm_adm_";
 const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
@@ -111,7 +113,7 @@ export const verifyRoomAdmission = async (
       parsed.artifactId !== expected.artifactId ||
       parsed.workspaceId !== expected.workspaceId ||
       parsed.jti !== expected.jti ||
-      parsed.issuedAt > nowSeconds ||
+      parsed.issuedAt > nowSeconds + CLOCK_SKEW_SECONDS ||
       parsed.expiresAt <= nowSeconds ||
       parsed.expiresAt - parsed.issuedAt > ADMISSION_SECONDS
     ) {
@@ -152,4 +154,40 @@ export const admissionFromRequest = async (
       )
     : null;
   return admission ? { admission, status: "trusted" } : { status: "refused" };
+};
+
+/** The member behind a room request. A request the route signed carries its
+ * verified result, so `authenticate` (Clerk) does not run again. A request with
+ * no assertion is authenticated in full, and a wrong assertion is refused. */
+export interface RoomMember {
+  principal: Principal;
+  sessionId?: string;
+  /** Set when the route already verified this principal for this admission. */
+  verified?: Principal;
+}
+export const requestMember = async (
+  authenticate: () => Promise<RoomMember | null>,
+  bound: {
+    key: string;
+    scope: { artifactId: string; workspaceId: string };
+    ticket: string;
+  },
+  request: Request,
+  nowSeconds = Math.floor(Date.now() / 1000)
+): Promise<RoomMember | null> => {
+  const trusted = await admissionFromRequest(
+    request,
+    bound.ticket,
+    bound.key,
+    bound.scope,
+    nowSeconds
+  );
+  if (trusted.status === "refused") {
+    return null;
+  }
+  if (trusted.status === "trusted") {
+    const { principal, sessionId } = trusted.admission;
+    return { principal, sessionId, verified: principal };
+  }
+  return authenticate();
 };

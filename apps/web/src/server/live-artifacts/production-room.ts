@@ -40,7 +40,7 @@ import { roomName } from "./namespace";
 import { findBlock, translateOperation } from "./operations";
 import type { ArtifactRoomService, RoomScope } from "./ports";
 import { requiredLive } from "./required";
-import { admissionFromRequest, roomTicketKey } from "./room-admission";
+import { requestMember, roomTicketKey } from "./room-admission";
 
 import { RoomStorage } from "./storage";
 
@@ -153,38 +153,6 @@ const storeCredential = async (
   await ctx.storage.put(`acceptedActor:${authorizationRef}`, principal);
   await ctx.storage.put(`actor:${participant(principal)}`, authorizationRef);
   return authorizationRef;
-};
-/** The member behind a room request. A request the route signed carries its
- * verified result, so Clerk does not run again. A request with no assertion
- * is authenticated in full, and a wrong assertion is refused. */
-const requestMember = async (
-  env: Env,
-  composed: Composed,
-  scope: RoomScope,
-  ticket: string,
-  request: Request
-): Promise<{
-  principal: Principal;
-  sessionId?: string;
-  /** Set when the route already verified this principal for this admission. */
-  verified?: Principal;
-} | null> => {
-  const trusted = await admissionFromRequest(
-    request,
-    ticket,
-    roomTicketKey(env),
-    scope,
-    Math.floor(Date.now() / 1000)
-  );
-  if (trusted.status === "refused") {
-    return null;
-  }
-  if (trusted.status === "trusted") {
-    const { principal, sessionId } = trusted.admission;
-    return { principal, sessionId, verified: principal };
-  }
-  const member = await authenticateRoomMember(env, composed, request);
-  return member;
 };
 const participant = (principal: Principal) => {
   if (principal.kind === "user") {
@@ -442,10 +410,8 @@ export class ArtifactRoom extends Room {
         let verified: Principal | undefined;
         if ("request" in context) {
           const member = await requestMember(
-            env,
-            get(),
-            scope,
-            ticket,
+            () => authenticateRoomMember(env, get(), context.request),
+            { key: ticketKey(env), scope, ticket },
             context.request
           );
           if (!member || participant(member.principal) === "") {
