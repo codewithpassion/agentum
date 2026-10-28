@@ -3,7 +3,7 @@ id: LR.6
 title: Tell a deck editor when their offline changes were refused after compaction
 milestone: LR
 size: S
-status: in_progress
+status: done
 depends_on: [LR.5]
 branch: task/LR.6-deck-offline-refusal-notice
 lane: web
@@ -23,3 +23,4 @@ Since LR.5 (`docs/reviews/tasks/LR.5.md`), a deck update built on ancestry that 
 
 ## Log
 - 2026-10-28: created from Dom's decision on LR.5; dispatched.
+- 2026-10-28: merged at d59e7c8e, review clean after 1 fix round. Full test passes on main (guest-execution workerd failure seen in the worktree did not reproduce).
