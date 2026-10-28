@@ -96,6 +96,9 @@ function fragmentFor(doc: Doc, id: ID, collected: boolean): XmlFragment | null {
     return null;
   }
   const entry = item(doc, id);
+  if (entry.content instanceof ContentDeleted) {
+    throw new StaleAncestryError();
+  }
   if (
     entry.id.clock !== id.clock ||
     !(entry.content instanceof ContentType) ||

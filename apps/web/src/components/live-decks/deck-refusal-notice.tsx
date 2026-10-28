@@ -12,8 +12,9 @@ export function DeckRefusalNotice({ onReload }: { onReload: () => void }) {
       <AlertTitle>Your offline changes couldn't be applied</AlertTitle>
       <AlertDescription>
         <p>
-          The deck was tidied up while you were away, so the room refused the
-          edits you made offline. Reload to continue with the current deck.
+          The deck was tidied up, so the room refused edits built on its older
+          state, such as changes made offline. Reload to continue with the
+          current deck. Reloading discards those edits.
         </p>
         <Button onClick={onReload} size="sm" type="button">
           Reload deck
