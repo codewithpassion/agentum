@@ -125,6 +125,7 @@ export class TicketedRoom {
     disposed: false,
     synced: false,
   };
+  private readonly refresh = { queued: false, running: false };
   private receiving = Promise.resolve();
   // An explicit ask/comment attachment survives the editor cursor plugin's blur
   // updates. Only clearSelection consumes it; ordinary caret presence stays live.
@@ -336,24 +337,24 @@ export class TicketedRoom {
       if (subtype !== 1 && subtype !== 2) {
         throw new Error("Unknown document frame");
       }
+      if (this.lifecycle.synced) {
+        // Cached policy: peer edits apply without a network round trip. The
+        // policy refreshes in the background and is republished when it lands.
+        applyUpdate(this.document, update, this);
+        this.scheduleRefresh();
+        return;
+      }
+      // The first sync waits for a verified manifest before any content lands.
       if (!(await this.refreshPolicy())) {
         return;
       }
       applyUpdate(this.document, update, this);
       this.publishPolicy();
-      if (!this.lifecycle.synced && subtype === 1) {
+      if (subtype === 1) {
         clearTimeout(this.connectionTimer);
         this.lifecycle.synced = true;
         this.options.ready(this);
-        this.policyTimer = setInterval(() => {
-          this.receiving = this.receiving
-            .then(async () => {
-              if (!this.lifecycle.disposed && (await this.refreshPolicy())) {
-                this.publishPolicy();
-              }
-            })
-            .catch((error: unknown) => this.fail(error));
-        }, 30_000);
+        this.policyTimer = setInterval(() => this.scheduleRefresh(), 30_000);
       }
     } else if (type === 1) {
       const update = readVarUint8Array(decoder);
@@ -361,6 +362,28 @@ export class TicketedRoom {
     } else {
       throw new Error("Unknown room frame");
     }
+  }
+  /** Coalesces refreshes: at most one in flight, one more queued behind it. */
+  private scheduleRefresh() {
+    if (this.refresh.running) {
+      this.refresh.queued = true;
+      return;
+    }
+    this.refresh.running = true;
+    this.refreshPolicy()
+      .then((fresh) => {
+        if (fresh) {
+          this.publishPolicy();
+        }
+      })
+      .catch((error: unknown) => this.fail(error))
+      .finally(() => {
+        this.refresh.running = false;
+        if (this.refresh.queued && !this.lifecycle.disposed) {
+          this.refresh.queued = false;
+          this.scheduleRefresh();
+        }
+      });
   }
   private async refreshPolicy() {
     const manifest = await this.options.policy();

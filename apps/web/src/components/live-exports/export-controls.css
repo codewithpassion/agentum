@@ -1,0 +1,5 @@
+@media (max-width: 640px) {
+  section[aria-label="Export downloads"] button {
+    min-height: 40px;
+  }
+}
