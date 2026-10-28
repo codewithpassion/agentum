@@ -1251,17 +1251,19 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     // One frame at a time per socket, so a retry after an invalidation keeps
     // its place and Yjs updates never arrive ahead of their dependencies.
     const id = session(socket).awarenessId;
-    const done = (this.deliveries.get(id) ?? Promise.resolve())
-      .then(() => this.deliver(socket, message, 0))
-      .finally(() => {
-        if (this.deliveries.get(id) === done) {
-          this.deliveries.delete(id);
-        }
-      });
-    this.deliveries.set(
-      id,
-      done.catch(() => undefined)
+    const done = (this.deliveries.get(id) ?? Promise.resolve()).then(() =>
+      this.deliver(socket, message, 0)
     );
+    const tail = done.then(
+      () => undefined,
+      () => undefined
+    );
+    this.deliveries.set(id, tail);
+    tail.then(() => {
+      if (this.deliveries.get(id) === tail) {
+        this.deliveries.delete(id);
+      }
+    });
     return done;
   }
   // The grant is resolved outside `exclusive`: a warm grant costs nothing,
