@@ -159,11 +159,18 @@ export const guestSessions = sqliteTable(
     id: id(),
     ipPrefix: text("ip_prefix"),
     lastUsedAt: text("last_used_at").notNull(),
+    /** The token this one replaced, and until when one more rotation may still
+     * present it. Lets a guest whose rotation response was lost recover. */
+    previousTokenHash: text("previous_token_hash"),
+    previousValidUntil: text("previous_valid_until"),
     tokenHash: text("token_hash").notNull().unique(),
     userAgent: text("user_agent"),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
-  (t) => [index("guest_sessions_guest_idx").on(t.guestId)]
+  (t) => [
+    index("guest_sessions_guest_idx").on(t.guestId),
+    index("guest_sessions_previous_token_idx").on(t.previousTokenHash),
+  ]
 );
 
 export const artifactCommentThreads = sqliteTable(

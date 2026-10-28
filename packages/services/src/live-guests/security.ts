@@ -3,6 +3,9 @@ import { hashedToken, toBase64Url } from "../crypto.ts";
 
 export const GUEST_COOKIE = "__Host-hm_guest";
 export const GUEST_SESSION_SECONDS = 12 * 60 * 60;
+/** How long after a rotation its replaced token may still rotate once more. It
+ * covers a response lost to navigation or a restart, and nothing longer. */
+export const GUEST_PREVIOUS_TOKEN_GRACE_SECONDS = 120;
 export const GUEST_CODE_SECONDS = 10 * 60;
 export const GUEST_CODE_TRIES = 5;
 const CODE = /^\d{6}$/;
