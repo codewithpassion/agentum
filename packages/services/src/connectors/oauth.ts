@@ -29,6 +29,15 @@ const DEFAULT_EXPIRES_IN_SECONDS = 3600;
 const ERROR_SNIPPET_LENGTH = 300;
 const GOOGLE_AUTHORIZE_HOST = "accounts.google.com";
 
+/** Whether an authorization endpoint is Google's, which has no client registration. */
+export const isGoogleAuthorizationEndpoint = (endpoint: string): boolean => {
+  try {
+    return new URL(endpoint).hostname === GOOGLE_AUTHORIZE_HOST;
+  } catch {
+    return false;
+  }
+};
+
 export class OAuthDiscoveryError extends Error {}
 export class OAuthTokenError extends Error {
   /** The HTTP status of the token endpoint's answer. */

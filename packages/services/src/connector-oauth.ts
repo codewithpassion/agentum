@@ -45,6 +45,8 @@ import {
   type OAuthClient,
   type OAuthConfig,
   parseOAuthConfig,
+  type SharedGoogleClient,
+  sharedClientApplies,
 } from "./connectors/oauth-config.ts";
 import { InvalidConnectorUrlError } from "./connectors/url.ts";
 import { loadActiveAgent, loadConnector, requireUser } from "./connectors.ts";
@@ -174,12 +176,15 @@ export const createConnectorOAuthService = ({
   events,
   fetch: fetchImpl,
   secretsKey,
+  sharedGoogleClient,
 }: {
   atomic: Atomic;
   clock: Clock;
   db: Database;
   events: EventsService;
   fetch: Fetcher;
+  /** The deployment's Google OAuth client. Used for connectors on accounts.google.com unless a client was typed in. */
+  sharedGoogleClient?: SharedGoogleClient;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
 }) => {
@@ -268,9 +273,37 @@ export const createConnectorOAuthService = ({
     redirectUri: string
   ): Promise<OAuthClient> => {
     const { client } = config;
+    if (client?.source === "manual") {
+      return client;
+    }
+    if (sharedGoogleClient && sharedClientApplies(config, sharedGoogleClient)) {
+      // Copied in on every start, so a rotated secret reaches the connector.
+      const shared: OAuthClient = {
+        clientId: sharedGoogleClient.clientId,
+        clientSecret: await encryptSecret(
+          await cryptoKey(),
+          {
+            field: SECRET_FIELD_CLIENT,
+            rowId: connector.id,
+            table: "connectors",
+            workspaceId: connector.workspaceId,
+          },
+          sharedGoogleClient.clientSecret
+        ),
+        redirectUri: null,
+        source: "shared",
+        tokenEndpointAuth: chooseTokenEndpointAuth(
+          true,
+          config.tokenEndpointAuthMethods
+        ),
+      };
+      await saveConfig(connector.id, { ...config, client: shared });
+      return shared;
+    }
     if (
       client &&
-      (client.source === "manual" || client.redirectUri === redirectUri)
+      client.source !== "shared" &&
+      client.redirectUri === redirectUri
     ) {
       return client;
     }

@@ -63,6 +63,8 @@ import {
   configFromDiscovery,
   type OAuthConfig,
   parseOAuthConfig,
+  type SharedGoogleClient,
+  sharedClientApplies,
 } from "./connectors/oauth-config.ts";
 import {
   canonicalizeConnectorUrl,
@@ -247,11 +249,17 @@ const toCredentialSummary = (row: CredentialRow): CredentialSummary => ({
   version: row.version,
 });
 
-const oauthSummary = (row: ConnectorRow): ConnectorSummary["oauth"] => {
+const oauthSummary = (
+  row: ConnectorRow,
+  shared: SharedGoogleClient | undefined
+): ConnectorSummary["oauth"] => {
   const config = row.authKind === "oauth" ? parseOAuthConfig(row.oauth) : null;
   return config
     ? {
-        canRegister: config.registrationEndpoint !== null,
+        // The shared Google client counts as a way to get a client with no dialog.
+        canRegister:
+          config.registrationEndpoint !== null ||
+          sharedClientApplies(config, shared),
         clientConfigured: config.client !== null,
       }
     : null;
@@ -260,7 +268,8 @@ const oauthSummary = (row: ConnectorRow): ConnectorSummary["oauth"] => {
 const toSummary = (
   row: ConnectorRow,
   owned: readonly CredentialRow[],
-  userId: string
+  userId: string,
+  shared: SharedGoogleClient | undefined
 ): ConnectorSummary => {
   const mine = owned.find(
     (credential) =>
@@ -278,7 +287,7 @@ const toSummary = (
     id: row.id,
     myCredential: mine ? toCredentialSummary(mine) : null,
     name: row.name,
-    oauth: oauthSummary(row),
+    oauth: oauthSummary(row, shared),
     status: row.status,
     tools: toolSchema.parse(JSON.parse(row.tools)),
     toolsFetchedAt: row.toolsFetchedAt,
@@ -358,12 +367,15 @@ export const createConnectorsService = ({
   events,
   fetch: fetchImpl,
   secretsKey,
+  sharedGoogleClient,
 }: {
   atomic: Atomic;
   clock: Clock;
   db: Database;
   events: EventsService;
   fetch: Fetcher;
+  /** The deployment's Google OAuth client; only its presence shows in a summary. */
+  sharedGoogleClient?: SharedGoogleClient;
   /** `SECRETS_KEY`, base64. Needed only to store a credential. */
   secretsKey?: string;
 }) => {
@@ -537,7 +549,7 @@ export const createConnectorsService = ({
       workspaceId: user.workspaceId,
     };
     await db.insert(connectors).values(row);
-    return toSummary(row, [], user.userId);
+    return toSummary(row, [], user.userId, sharedGoogleClient);
   };
 
   /** The workspace's connectors with the credentials the caller may see. */
@@ -557,7 +569,8 @@ export const createConnectorsService = ({
       toSummary(
         row,
         owned.filter((credential) => credential.connectorId === row.id),
-        user.userId
+        user.userId,
+        sharedGoogleClient
       )
     );
   };
@@ -722,7 +735,7 @@ export const createConnectorsService = ({
     ]);
     const row = await loadConnector(db, connector.id, workspaceId);
     const owned = await credentialsOf(workspaceId, user.userId, row.id);
-    return toSummary(row, owned, user.userId);
+    return toSummary(row, owned, user.userId, sharedGoogleClient);
   };
 
   /** Sets how long one tool call of a connector may run. */
@@ -750,7 +763,7 @@ export const createConnectorsService = ({
       );
     const row = await loadConnector(db, parsed.connectorId, workspaceId);
     const owned = await credentialsOf(workspaceId, user.userId, row.id);
-    return toSummary(row, owned, user.userId);
+    return toSummary(row, owned, user.userId, sharedGoogleClient);
   };
 
   /** Gives an agent a connector, or changes how its credential is chosen. */
