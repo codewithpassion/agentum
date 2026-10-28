@@ -37,3 +37,34 @@ Totals: pass 3 (1d, 4a-c, 6 server part), fail 4 (2, 3, 5, 7, all one cause), ne
 ## Left on staging
 
 Documents `LR7 doc A` plus three large or small test documents created by the dev user, guest enabled flag on, one pending guest invitation. Clerk dev users above remain.
+
+## Round 2
+
+Date 2026-10-28. Main `ccc5db1c` (LR.8 and LR.6 merged). The built `dist/server/wrangler.json` named only Worker `harbourmaster-staging`, host `harbourmaster-staging.rockyshoreslabs.io`, D1 `harbourmaster-staging`, R2 `harbourmaster-staging-files`, queue `harbourmaster-staging-mail-events`. Production untouched. No D1 migrations pending. Final clean staging version id **4aa40d88-9632-4ccf-8b77-75a534236370** (deploys that day: `bf023b3d`, redeploy `60e12e63`, a diagnostic build `46fcf869` with one extra `console.error` in the export catch, then the clean redeploy; the diagnostic edit was reverted and is not committed). Two Clerk dev users signed in via `agent-login` (dev user and `hm-admin`, both owners of `LR7 doc A`). Logs in `harbourmaster-wt/tmp/LR.7/`.
+
+Setup added on staging: workspace model key set through `modelKeys.set` (OpenRouter, D1 not a Worker secret) and agent `LR7 cloud` (cloud runtime, `openrouter:deepseek/deepseek-v4.1-flash-1017`). A deck `LR7 deck` (`719c73c5-7c65-4a1e-b48b-29bd092bf809`). Three short model runs in total.
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 1 | Room WebSocket for members (LR.8) | pass | Both browsers show "Connected · owner" and each other as participants; the 403 is gone. |
+| 7 | Exports through Browser Run (docx, pdf, pptx) | fail | Every member export still answers 500 "Export failed" in about 0.5 s, so Browser Run is never reached. Cause found with a temporary log line: `TypeError: Cannot reconstruct a Request with a used body`. `authenticateRoomRequest` builds `new Request(request, { headers })` at `apps/web/src/server/live-artifacts/auth.ts:93`, which consumes the body of `c.req.raw`; the second call (revalidation) at `apps/web/src/server/live-exports/routes.ts:43` then throws. Fix: build the Clerk request without the body (`new Request(request.url, { method: request.method, headers })`) or pass `c.req.raw.clone()` to each call. Local tests missed it because fixtures replace `authenticate`. Office fidelity for Dom stays blocked. |
+| 2 | Real-model run, member composer trigger | pass | Cloud agent read and edited `LR7 doc A` (tools `harbourmaster_document_read`, `_edit`), appended "Agent was here." at revision 35, visible to both browsers. The thread envelope carried the sender and the present roster (the roster dropped Admin HM after that browser left). |
+| 2 | Agent suggestions (ask-before) with two users | pass | With suggestion mode on, the agent's edit stayed pending and the document did not change; Admin HM accepted it and the text appeared in both browsers. The first checkbox click did not persist, the `setSuggestionMode` call did (no failure reproduced after reload). |
+| 2 | Selection and addressed-comment triggers, Slack, machine, managed and Linux VM runtimes | not run | Out of reach in this pass. |
+| 3 | Two-browser editing | pass with latency failure | Typing converges in both directions and after reload. A single character takes about 2 to 3 s to reach the peer, five characters about 20 s. Presence labels appear. Likely cause: `room-provider.ts:339` awaits `refreshPolicy()` (an HTTP `GET /policy`, 0.7 to 2 s here) before applying every inbound frame, serially. Fix: cache the policy and refresh it on the existing 30 s timer or only when a blob URL is unknown. Spec asks 500 ms for carets and prompt peer edits. |
+| 3 | 390x844 layout | partial | No horizontal overflow, editor and toolbar usable. 3 of 70 controls are 24 px high: the Artifacts link and both export buttons (R1.17 asks 40 px). |
+| 3 | Deck room | pass (open only) | Deck opens for both users, "Add slide" adds a slide visible to the peer. Presenting, builds, pointers, restore and checkpoint deadlines not run. |
+| 5 | Hibernation | pass | After 100 s idle, an edit still reached the peer (about 15 s with the latency above). |
+| 5 | Restart recovery | pass | Document content survived four staging deploys, including DO code changes. |
+| 5 | Member access loss | pass | Removing `hm-admin` from the org through the Clerk API closed that browser's socket 0.2 s after the API call returned ("Disconnected"). Membership was restored. |
+| 5 | 15-minute expiry, D1 admission, effect approvals | not run | |
+| 6 | Browser half (network inspection, discovery, embeds) | not run | |
+| 4d | Guest code request, comment, revocation, `LIVE_GUESTS_OFF` | needs-Dom | Inbox receipt confirmed by Dom in round 1. The code mail and the rest need Dom's inbox; `LIVE_GUESTS_OFF` needs a var change and deploy. |
+
+Other observations. A browser tab idle for a few minutes got `Document service failed (401)` on the policy fetch and an export `401 Member authentication required` (cookie session token expired in a throttled headless tab); "Reconnect" recovered. The agent thread and task page show the raw `harbourmaster_turn` JSON envelope as the user message text. The live document pages render with almost no CSS (toolbar and sidebar unstyled).
+
+Totals: pass 8 (1, composer run, suggestions, hibernation, restart, access loss, deck open, edit convergence), fail 3 (7 exports, 3 latency, 3 control size), not run 6, needs-Dom 1 (4d) plus Office fidelity.
+
+## Left on staging (round 2)
+
+`LR7 doc A` has test text, `LR7 deck`, agent `LR7 cloud`, an OpenRouter workspace key, and the earlier guest invite. `hm-admin` was removed and re-added to the Clerk dev org.
