@@ -182,6 +182,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
   private accessEpoch = 0;
   private readonly grants = new Map<string, Grant>();
   private readonly inflight = new Map<string, Promise<Grant>>();
+  private readonly deliveries = new Map<number, Promise<void>>();
 
   constructor(ctx: DurableObjectState, env: ArtifactRoomEnv) {
     super(ctx, env);
@@ -1247,7 +1248,21 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     socket: WebSocket,
     message: string | ArrayBuffer
   ): Promise<void> {
-    return this.deliver(socket, message, 0);
+    // One frame at a time per socket, so a retry after an invalidation keeps
+    // its place and Yjs updates never arrive ahead of their dependencies.
+    const id = session(socket).awarenessId;
+    const done = (this.deliveries.get(id) ?? Promise.resolve())
+      .then(() => this.deliver(socket, message, 0))
+      .finally(() => {
+        if (this.deliveries.get(id) === done) {
+          this.deliveries.delete(id);
+        }
+      });
+    this.deliveries.set(
+      id,
+      done.catch(() => undefined)
+    );
+    return done;
   }
   // The grant is resolved outside `exclusive`: a warm grant costs nothing,
   // a cold one is a single shared lookup that blocks no other frame.
@@ -1256,6 +1271,10 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
     message: string | ArrayBuffer,
     attempt: number
   ): Promise<void> {
+    if (session(socket).expires <= Date.now()) {
+      await this.exclusive(() => this.close(socket, "Expired"));
+      return;
+    }
     let grant: Grant;
     try {
       const subject = session(socket);
@@ -2211,6 +2230,7 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
    * It keeps warm grants, so it is the periodic path. */
   async revalidate(participantId?: string) {
     await this.ensureInitialized();
+    const epoch = this.accessEpoch;
     const sockets = this.ctx
       .getWebSockets()
       .filter(
@@ -2259,7 +2279,8 @@ export class ArtifactRoom extends DurableObject<ArtifactRoomEnv> {
           this.close(socket, "Revoked");
         }
       });
-      if (urls) {
+      // A policy read from before a newer invalidation must not replace it.
+      if (urls && epoch === this.accessEpoch) {
         this.applyPolicy(urls);
       }
       const current = this.store.get<AgentState>("agent");

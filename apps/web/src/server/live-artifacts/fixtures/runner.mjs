@@ -459,6 +459,31 @@ try {
       (await authCalls()) === cold + 1,
     "an expired grant is re-read once for a burst of frames"
   );
+  // An invalidation lands while frames wait on a lookup: both frames still
+  // apply in order and the socket survives.
+  await controls("authDelay", 300);
+  await pause(2100);
+  cacheWriter.ws.send(edit("p"));
+  cacheWriter.ws.send(edit("q"));
+  await pause(100);
+  await call("/refresh", { id: "nobody" });
+  await pause(1500);
+  check(
+    (await call("/read")).content.includes("qphgfedcba") && !cacheWriter.closed,
+    "frames keep their order when an invalidation lands during the lookup"
+  );
+  // A downgrade lands while a frame waits on a lookup that still answers
+  // editor: the stale answer is discarded and the write is refused.
+  await pause(2100);
+  cacheWriter.ws.send(edit("SXQ"));
+  await pause(100);
+  await controls("role:cache-writer", "viewer");
+  await call("/refresh", { id: "cache-writer" });
+  await pause(800);
+  check(
+    !((await call("/read")).content.includes("SXQ") || cacheWriter.closed),
+    "a downgrade during the lookup refuses the in-flight write"
+  );
   await controls("authDelay", 0);
   await controls("role:cache-writer", "viewer");
   await pause(2100);
