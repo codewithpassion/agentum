@@ -7,6 +7,14 @@ import { clerkOAuthClientName } from "../mcp/clerk-oauth-client";
 import { authenticateBearer } from "../mcp/principal-resolver";
 import { requiredLive } from "./required";
 
+/** Clerk client for request authentication. `authenticateRequest` throws on
+ * deployed Workers without the publishable key. */
+export const requestClerk = (env: Env) =>
+  createClerkClient({
+    publishableKey: env.CLERK_PUBLISHABLE_KEY,
+    secretKey: env.CLERK_SECRET_KEY,
+  });
+
 export const freshMember = async (
   env: Env,
   composed: Composed,
@@ -27,7 +35,7 @@ export const freshMember = async (
   ) {
     return null;
   }
-  const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+  const clerk = requestClerk(env);
   const memberships = await clerk.users.getOrganizationMembershipList({
     limit: 100,
     userId,
@@ -50,7 +58,7 @@ export const authenticateRoomRequest = async (
   composed: Composed,
   request: Request
 ): Promise<Principal | null> => {
-  const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+  const clerk = requestClerk(env);
   if (request.headers.has("Authorization")) {
     return authenticateBearer(
       { composed, env },

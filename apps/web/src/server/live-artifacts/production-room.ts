@@ -29,7 +29,7 @@ import { type Composed, compose } from "../compose";
 import { resolveDocumentAnchor } from "./anchors";
 import { ArtifactRoom as Room } from "./artifact-room";
 import { type AgentRange, insertedRanges } from "./attribution";
-import { authenticateRoomRequest, freshMember } from "./auth";
+import { authenticateRoomRequest, freshMember, requestClerk } from "./auth";
 import { editMarkdownImageUrls, withStoredImages } from "./edit-image-ops";
 import { roomName } from "./namespace";
 import { findBlock, translateOperation } from "./operations";
@@ -123,9 +123,7 @@ const storeCredential = async (
   } satisfies Credential);
   if (!request.headers.has("Authorization") && principal.kind === "user") {
     const auth = (
-      await createClerkClient({
-        secretKey: env.CLERK_SECRET_KEY,
-      }).authenticateRequest(request)
+      await requestClerk(env).authenticateRequest(request)
     ).toAuth();
     if (!auth?.sessionId || auth.userId !== principal.userId) {
       throw new Error("Invalid authenticated session");
