@@ -1,8 +1,10 @@
 import { TOKEN_ENDPOINT_AUTH_METHODS } from "@repo/db/shared";
 import { z } from "zod";
-import type {
-  AuthorizationServerMetadata,
-  ProtectedResourceMetadata,
+import {
+  type AuthorizationServerMetadata,
+  isGoogleAuthorizationEndpoint,
+  isGoogleTokenEndpoint,
+  type ProtectedResourceMetadata,
 } from "./oauth.ts";
 
 /**
@@ -11,6 +13,8 @@ import type {
  * server: registered on the fly, or typed in by a person when the server has
  * no registration endpoint. Its secret is AES-GCM ciphertext. The whole object
  * stays on the server; the connector summary only says whether a client exists.
+ * A `shared` client is the deployment's own Google client (`GOOGLE_OAUTH_*`),
+ * copied in when a Google connector starts a login.
  */
 export const oauthConfigSchema = z.object({
   authorizationEndpoint: z.string(),
@@ -20,7 +24,7 @@ export const oauthConfigSchema = z.object({
       clientSecret: z.string().nullable(),
       // The redirect URI a registered client was made for. Null for a typed one.
       redirectUri: z.string().nullable(),
-      source: z.enum(["manual", "registered"]),
+      source: z.enum(["manual", "registered", "shared"]),
       tokenEndpointAuth: z.enum(TOKEN_ENDPOINT_AUTH_METHODS),
     })
     .nullable(),
@@ -33,6 +37,34 @@ export const oauthConfigSchema = z.object({
 });
 export type OAuthConfig = z.infer<typeof oauthConfigSchema>;
 export type OAuthClient = NonNullable<OAuthConfig["client"]>;
+
+/** The deployment-wide Google OAuth client, from the Worker secrets. */
+export interface SharedGoogleClient {
+  clientId: string;
+  clientSecret: string;
+}
+
+/** Whether the shared Google client stands in for a client on this server. */
+export const sharedClientApplies = (
+  config: Pick<
+    OAuthConfig,
+    "authorizationEndpoint" | "client" | "tokenEndpoint"
+  >,
+  shared: SharedGoogleClient | undefined
+): boolean =>
+  shared !== undefined &&
+  config.client?.source !== "manual" &&
+  onGoogle(config);
+
+/**
+ * Both endpoints must be Google's: the server's own discovery picks them, and
+ * the shared secret is sent to the token endpoint.
+ */
+export const onGoogle = (
+  config: Pick<OAuthConfig, "authorizationEndpoint" | "tokenEndpoint">
+): boolean =>
+  isGoogleAuthorizationEndpoint(config.authorizationEndpoint) &&
+  isGoogleTokenEndpoint(config.tokenEndpoint);
 
 /** The stored config, or null when there is none or it does not parse. */
 export const parseOAuthConfig = (raw: string | null): OAuthConfig | null => {

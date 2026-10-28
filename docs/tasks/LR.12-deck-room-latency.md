@@ -22,3 +22,4 @@ LR.10 (`docs/reviews/tasks/LR.10.md`) removed the per-frame HTTP policy fetch fr
 ## Log
 - 2026-10-28: created from LR.10.
 - 2026-10-28: dispatched; production does not wait for it.
+- 2026-10-28: scope added from LR.7 round 3: deck toolbar controls are 33px at 390px, need 40px (deck-editor.css:361).

@@ -44,7 +44,10 @@ import {
   configFromDiscovery,
   type OAuthClient,
   type OAuthConfig,
+  onGoogle,
   parseOAuthConfig,
+  type SharedGoogleClient,
+  sharedClientApplies,
 } from "./connectors/oauth-config.ts";
 import { InvalidConnectorUrlError } from "./connectors/url.ts";
 import { loadActiveAgent, loadConnector, requireUser } from "./connectors.ts";
@@ -174,12 +177,15 @@ export const createConnectorOAuthService = ({
   events,
   fetch: fetchImpl,
   secretsKey,
+  sharedGoogleClient,
 }: {
   atomic: Atomic;
   clock: Clock;
   db: Database;
   events: EventsService;
   fetch: Fetcher;
+  /** The deployment's Google OAuth client. Used for connectors on accounts.google.com unless a client was typed in. */
+  sharedGoogleClient?: SharedGoogleClient;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
 }) => {
@@ -258,7 +264,8 @@ export const createConnectorOAuthService = ({
   };
 
   /**
-   * The client to authorise with. A typed-in client stays. A registered one is
+   * The client to authorise with. A typed-in client stays. On Google the
+   * deployment's shared client stands in when one is set. A registered one is
    * kept while its redirect URI is still this app's; otherwise (or when there
    * is none) the server is asked to register one.
    */
@@ -268,9 +275,37 @@ export const createConnectorOAuthService = ({
     redirectUri: string
   ): Promise<OAuthClient> => {
     const { client } = config;
+    if (client?.source === "manual") {
+      return client;
+    }
+    if (sharedGoogleClient && sharedClientApplies(config, sharedGoogleClient)) {
+      // Copied in on every start, so a rotated secret reaches the connector.
+      const shared: OAuthClient = {
+        clientId: sharedGoogleClient.clientId,
+        clientSecret: await encryptSecret(
+          await cryptoKey(),
+          {
+            field: SECRET_FIELD_CLIENT,
+            rowId: connector.id,
+            table: "connectors",
+            workspaceId: connector.workspaceId,
+          },
+          sharedGoogleClient.clientSecret
+        ),
+        redirectUri: null,
+        source: "shared",
+        tokenEndpointAuth: chooseTokenEndpointAuth(
+          true,
+          config.tokenEndpointAuthMethods
+        ),
+      };
+      await saveConfig(connector.id, { ...config, client: shared });
+      return shared;
+    }
     if (
       client &&
-      (client.source === "manual" || client.redirectUri === redirectUri)
+      client.source !== "shared" &&
+      client.redirectUri === redirectUri
     ) {
       return client;
     }
@@ -422,6 +457,9 @@ export const createConnectorOAuthService = ({
     }
     const config = parseOAuthConfig(connector.oauth);
     if (!config?.client) {
+      throw invalid("This connector has no OAuth client. Start again.");
+    }
+    if (config.client.source === "shared" && !onGoogle(config)) {
       throw invalid("This connector has no OAuth client. Start again.");
     }
 

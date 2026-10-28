@@ -19,7 +19,10 @@ import {
   OAUTH_STATE_TTL_MS,
 } from "./connector-oauth.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
-import { parseOAuthConfig } from "./connectors/oauth-config.ts";
+import {
+  parseOAuthConfig,
+  type SharedGoogleClient,
+} from "./connectors/oauth-config.ts";
 import {
   type ConnectorsService,
   createConnectorsService,
@@ -107,7 +110,7 @@ const seedWorkspace = (id: string) =>
     })
     .run();
 
-const build = () => {
+const build = (sharedGoogleClient?: SharedGoogleClient) => {
   const store = new Map<string, string>();
   const events = createEventsService({
     blobs: {
@@ -126,6 +129,7 @@ const build = () => {
     events,
     fetch: toStub,
     secretsKey: SECRETS_KEY,
+    sharedGoogleClient,
   };
   connectorsService = createConnectorsService(deps);
   oauth = createConnectorOAuthService(deps);
@@ -621,4 +625,176 @@ test("connecting caches the tool list the new token can read", async () => {
   }
   expect(list.tools.map((tool) => tool.name)).toEqual(["echo"]);
   expect(list.toolsFetchedAt).not.toBeNull();
+});
+
+const SHARED_GOOGLE: SharedGoogleClient = {
+  clientId: "shared-id.apps.googleusercontent.com",
+  clientSecret: "shared-google-secret",
+};
+const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
+
+/** A stub connector whose stored discovery says Google, which has no registration. */
+const addGoogleConnector = async () => {
+  const connector = await addConnector();
+  const [row] = await db.select().from(connectors).all();
+  const config = parseOAuthConfig(row?.oauth ?? null);
+  await db
+    .update(connectors)
+    .set({
+      oauth: JSON.stringify({
+        ...config,
+        authorizationEndpoint: GOOGLE_AUTHORIZE,
+        registrationEndpoint: null,
+        tokenEndpoint: "https://oauth2.googleapis.com/token",
+      }),
+    })
+    .run();
+  return connector;
+};
+
+const startAs = (connectorId: string) =>
+  oauth.start(dom, { as: "user", connectorId, origin: APP_ORIGIN });
+
+test("a Google server with the shared client skips the client dialog", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+
+  const [summary] = await connectorsService.list(dom);
+  expect(summary?.oauth).toEqual({
+    canRegister: true,
+    clientConfigured: false,
+  });
+  const { authorizeUrl } = await startAs(connector.id);
+  const url = new URL(authorizeUrl);
+  expect(url.origin + url.pathname).toBe(GOOGLE_AUTHORIZE);
+  expect(url.searchParams.get("client_id")).toBe(SHARED_GOOGLE.clientId);
+
+  const [row] = await db.select().from(connectors).all();
+  expect(row?.oauth).not.toContain(SHARED_GOOGLE.clientSecret);
+  const client = parseOAuthConfig(row?.oauth ?? null)?.client;
+  expect(client).toMatchObject({
+    clientId: SHARED_GOOGLE.clientId,
+    source: "shared",
+    tokenEndpointAuth: "client_secret_basic",
+  });
+  const plain = await decryptSecret(
+    await importSecretsKey(SECRETS_KEY),
+    {
+      field: "oauth.clientSecret",
+      rowId: connector.id,
+      table: "connectors",
+      workspaceId: WORKSPACE,
+    },
+    client?.clientSecret ?? ""
+  );
+  expect(plain).toBe(SHARED_GOOGLE.clientSecret);
+});
+
+test("a client typed on a Google connector wins over the shared one", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  await startAs(connector.id);
+  await oauth.setClient(dom, {
+    clientId: "typed-client",
+    clientSecret: "typed-secret",
+    connectorId: connector.id,
+  });
+
+  const { authorizeUrl } = await startAs(connector.id);
+
+  expect(new URL(authorizeUrl).searchParams.get("client_id")).toBe(
+    "typed-client"
+  );
+  const [row] = await db.select().from(connectors).all();
+  expect(parseOAuthConfig(row?.oauth ?? null)?.client?.source).toBe("manual");
+});
+
+test("a Google server without a shared client still needs one typed in", async () => {
+  build();
+  const connector = await addGoogleConnector();
+
+  const [summary] = await connectorsService.list(dom);
+  expect(summary?.oauth).toEqual({
+    canRegister: false,
+    clientConfigured: false,
+  });
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+});
+
+test("a server that is not Google ignores the shared client", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addConnector();
+  const [row] = await db.select().from(connectors).all();
+  const config = parseOAuthConfig(row?.oauth ?? null);
+  await db
+    .update(connectors)
+    .set({ oauth: JSON.stringify({ ...config, registrationEndpoint: null }) })
+    .run();
+
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+
+  await db
+    .update(connectors)
+    .set({ oauth: JSON.stringify(config) })
+    .run();
+  const { authorizeUrl } = await startAs(connector.id);
+  expect(new URL(authorizeUrl).searchParams.get("client_id")).not.toBe(
+    SHARED_GOOGLE.clientId
+  );
+});
+
+const googleWithTokenEndpoint = async (tokenEndpoint: string) => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  const [row] = await db.select().from(connectors).all();
+  const config = parseOAuthConfig(row?.oauth ?? null);
+  await db
+    .update(connectors)
+    .set({ oauth: JSON.stringify({ ...config, tokenEndpoint }) })
+    .run();
+  return connector.id;
+};
+
+test("the shared client is not used when the token endpoint is not Google's", async () => {
+  const id = await googleWithTokenEndpoint("https://evil.example/token");
+  await expect(startAs(id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+  const [row] = await db.select().from(connectors).all();
+  expect(row?.oauth).not.toContain("shared");
+});
+
+test("the shared client is not used for a lookalike token host", async () => {
+  const id = await googleWithTokenEndpoint(
+    "https://oauth2.googleapis.com.evil.example/token"
+  );
+  await expect(startAs(id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+});
+
+test("a lookalike authorization host does not get the shared client", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  const [row] = await db.select().from(connectors).all();
+  const config = parseOAuthConfig(row?.oauth ?? null);
+  await db
+    .update(connectors)
+    .set({
+      oauth: JSON.stringify({
+        ...config,
+        authorizationEndpoint: "https://accounts.google.com.evil.example/auth",
+      }),
+    })
+    .run();
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+});
+
+test("a stored shared client stops counting once the deployment drops it", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  await startAs(connector.id);
+  build();
+  const [summary] = await connectorsService.list(dom);
+  expect(summary?.oauth).toEqual({
+    canRegister: false,
+    clientConfigured: false,
+  });
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
 });
