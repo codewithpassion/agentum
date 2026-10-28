@@ -2,7 +2,7 @@
 
 ## Verdict
 
-Round 1 (25739f4, Sonnet high): must-fix. The shared secret could go to any token endpoint, because only the authorization endpoint host was checked and a connector's server picks both. Fixed in f761b92: both endpoints must be Google hosts (accounts.google.com and oauth2.googleapis.com, exact hostname) at start, code exchange and refresh. Round 2 (f761b92, fix commit only): clean. One fix round.
+Round 1 (25739f4, Sonnet high): must-fix. The shared secret could go to any token endpoint, because only the authorization endpoint host was checked and a connector's server picks both. Fixed in f761b92: both endpoints must be Google hosts (accounts.google.com and oauth2.googleapis.com, exact hostname) at start, code exchange and refresh. Round 2 (f761b92, fix commit only): clean. Then the controller's merge check failed: with an env file that lacks the two optional secrets, `Pick<Env, ...>` in `ComposeEnv` did not type-check. They are now declared as optional strings beside `MailEnv` in `compose.ts`, and `bun run check` passes with an env file that lacks both keys. Round 3 (that commit only): clean. One fix round for the code, one type fix after the merge check.
 
 ## What was built
 
