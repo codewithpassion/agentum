@@ -32,3 +32,4 @@ Dom authorised on 28 Oct 2026, staging only:
 - 2026-10-28: round 1 merged (126cea34): 3 pass, 4 fail (one cause, LR.8), 1 needs-Dom. NO-GO. Prod lacks ARTIFACT_VIEW_KEY secret.
 - 2026-10-28: round 2 dispatched after LR.6 and LR.8 merged; Dom: deploy prod straight away if green. 4d inbox receipt confirmed by Dom. Prod ARTIFACT_VIEW_KEY set by controller.
 - 2026-10-28: round 2 merged (4c1c619a): 8 pass, 3 fail (exports LR.9; latency and touch targets LR.10), 6 not run, 1 needs-Dom. NO-GO.
+- 2026-10-28: LR.9, LR.10, LR.11 merged; round 3 dispatched.

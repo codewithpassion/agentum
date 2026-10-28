@@ -3,7 +3,7 @@ id: LR.11
 title: Force OAuth on a connector whose server answers without a 401
 milestone: LR
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/LR.11-connector-force-oauth
 lane: mcp
@@ -25,3 +25,4 @@ Dom, 28 Oct 2026: adding `https://gmailmcp.googleapis.com/mcp/v1` as a connector
 
 ## Log
 - 2026-10-28: created from Dom's report; dispatched.
+- 2026-10-28: merged at 0679744f, review clean. Adds D1 migration 0034. Dom: Google OAuth client for Gmail MCP.
