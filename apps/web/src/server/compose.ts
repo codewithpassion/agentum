@@ -451,8 +451,6 @@ export type ComposeEnv = Pick<
   | "DB"
   | "FILES"
   | "GITHUB_TOKEN"
-  | "GOOGLE_OAUTH_CLIENT_ID"
-  | "GOOGLE_OAUTH_CLIENT_SECRET"
   | "MACHINE_RELAY"
   | "MANAGED_POLLER"
   | "GUEST_RUN"
@@ -462,7 +460,11 @@ export type ComposeEnv = Pick<
   | "SECRETS_KEY"
   | "SESSION_STREAM"
 > &
-  MailEnv;
+  MailEnv & {
+    /** Optional secrets, declared here so the type check does not depend on a developer's env file listing them. */
+    GOOGLE_OAUTH_CLIENT_ID?: string;
+    GOOGLE_OAUTH_CLIENT_SECRET?: string;
+  };
 
 /** Splits a comma separated list of ids, trimmed, dropping empty entries. */
 export const parseOrgIds = (raw: string | undefined): string[] =>
