@@ -3,9 +3,9 @@ id: LR.12
 title: Deck room applies peer frames without a policy fetch per frame
 milestone: LR
 size: M
-status: todo
+status: in_progress
 depends_on: [LR.10]
-branch: null
+branch: task/LR.12-deck-room-latency
 lane: web
 executor: claude
 ---
@@ -21,3 +21,4 @@ LR.10 (`docs/reviews/tasks/LR.10.md`) removed the per-frame HTTP policy fetch fr
 
 ## Log
 - 2026-10-28: created from LR.10.
+- 2026-10-28: dispatched; production does not wait for it.
