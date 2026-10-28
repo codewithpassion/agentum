@@ -1,6 +1,7 @@
 import type { Operation } from "@repo/live-doc";
 import { fromMarkdown, markdownImageUrls } from "@repo/live-doc/schema";
 
+const OWN_FILE = /^\/files\/[A-Za-z0-9_-]+$/;
 const markdownOf = (op: Operation): string | undefined => {
   if (!("content" in op && op.content && "markdown" in op.content)) {
     return;
@@ -26,7 +27,6 @@ export const withStoredImages = (
   ops: Operation[],
   replacements: ReadonlyMap<string, string>
 ): Operation[] => {
-  const ownBlobUrls = new Set(replacements.values());
   return ops.map((op) => {
     const markdown = markdownOf(op);
     if (
@@ -35,6 +35,11 @@ export const withStoredImages = (
     ) {
       return op;
     }
+    // Already-owned /files/ images stay; the room re-sanitizes against its own policy.
+    const ownBlobUrls = new Set([
+      ...replacements.values(),
+      ...markdownImageUrls(markdown).filter((url) => OWN_FILE.test(url)),
+    ]);
     return {
       ...op,
       content: {

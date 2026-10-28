@@ -30,11 +30,11 @@ const hex = (bytes: ArrayBuffer) =>
   [...new Uint8Array(bytes)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-const fileId = async (changeId: string, url: string) =>
+const fileId = async (scope: string, changeId: string, url: string) =>
   `${ID_PREFIX}${hex(
     await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(`${changeId}\n${url}`)
+      new TextEncoder().encode(`${scope}\n${changeId}\n${url}`)
     )
   ).slice(0, 40)}`;
 
@@ -75,15 +75,24 @@ export const createEditImagesModule = (
       throw invalid("Image ownership storage failed");
     }
   };
-  const owned = (workspaceId: string, ids: string[]) =>
-    ids.length
-      ? db
-          .select()
-          .from(files)
-          .where(
-            and(eq(files.workspaceId, workspaceId), inArray(files.id, ids))
+  // D1 binds at most 100 parameters per statement.
+  const owned = async (workspaceId: string, ids: string[]) => {
+    const rows: (typeof files.$inferSelect)[] = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      // biome-ignore lint/performance/noAwaitInLoops: bounded chunks keep each statement under D1's parameter limit.
+      const chunk = await db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.workspaceId, workspaceId),
+            inArray(files.id, ids.slice(i, i + 50))
           )
-      : Promise.resolve([]);
+        );
+      rows.push(...chunk);
+    }
+    return rows;
+  };
   return {
     /** Removes a failed change's staged rows, bytes and ownership. The room
      * calls it only when no accepted change or suggestion uses the images. */
@@ -147,7 +156,12 @@ export const createEditImagesModule = (
      * artifact is a separate publish step, so nothing is accepted yet. */
     async roomStageEditImages(
       principal: Principal,
-      input: { artifactId: string; changeId: string; urls: string[] }
+      input: {
+        artifactId: string;
+        baseBytes: number;
+        changeId: string;
+        urls: string[];
+      }
     ) {
       const { member, row } = await writer(principal, input.artifactId);
       const urls = [...new Set(input.urls)];
@@ -166,7 +180,8 @@ export const createEditImagesModule = (
       const ids = new Map(
         await Promise.all(
           urls.map(
-            async (url) => [url, await fileId(input.changeId, url)] as const
+            async (url) =>
+              [url, await fileId(row.id, input.changeId, url)] as const
           )
         )
       );
@@ -209,7 +224,10 @@ export const createEditImagesModule = (
         const all = new Map(
           [...known, ...prior, ...staging.rows].map((file) => [file.id, file])
         );
-        const bytes = [...all.values()].reduce((sum, f) => sum + f.size, 0);
+        const bytes = [...all.values()].reduce(
+          (sum, f) => sum + f.size,
+          input.baseBytes
+        );
         if (bytes > ARTIFACT_MAX_BYTES || all.size + 3 > ARTIFACT_MAX_FILES) {
           throw invalid("Images exceed artifact file limits");
         }

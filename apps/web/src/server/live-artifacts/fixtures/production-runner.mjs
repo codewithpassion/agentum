@@ -787,6 +787,33 @@ try {
       !JSON.stringify(imageAfter).includes("public-images.example.com"),
     `accepted edit shows only the stored, owned image ${JSON.stringify(imagePolicy)} ${JSON.stringify(imageAfter).slice(0, 600)}`
   );
+  let collided = false;
+  const collisionFetches = externalImageRequests;
+  try {
+    await mcp(
+      "document_edit",
+      {
+        ...imageEditInput,
+        ops: [
+          {
+            content: {
+              markdown:
+                "Other\n\n![o](https://public-images.example.com/other)",
+            },
+            op: "replace",
+            target: imageEditInput.ops[0].target,
+          },
+        ],
+      },
+      imageEditRequestId
+    );
+  } catch {
+    collided = true;
+  }
+  check(
+    collided && externalImageRequests === collisionFetches,
+    "a reused tool call with different input is refused without a fetch"
+  );
   const imageRepeat = await mcp(
     "document_edit",
     imageEditInput,

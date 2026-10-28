@@ -24,7 +24,7 @@ import { createGuestArtifacts } from "@repo/services/live-guests/artifacts";
 import { GUEST_COOKIE } from "@repo/services/live-guests/security";
 import type { SpeakerRoom } from "@repo/services/speaker-envelope";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
-import { applyUpdate, Doc, XmlElement } from "yjs";
+import { applyUpdate, Doc, encodeStateAsUpdate, XmlElement } from "yjs";
 import { type Composed, compose } from "../compose";
 import { resolveDocumentAnchor } from "./anchors";
 import { ArtifactRoom as Room } from "./artifact-room";
@@ -913,7 +913,7 @@ export class ArtifactRoom extends Room {
         revFrom: meta.revision,
         summary,
       });
-      staged = await this.stageEditImages(translated, origin);
+      staged = await this.stageEditImages(translated, origin, live);
       if (!staged.ok) {
         return staged;
       }
@@ -947,7 +947,8 @@ export class ArtifactRoom extends Room {
    * admission. Ids come from the change id, so a retry reuses the stored files. */
   private async stageEditImages(
     translated: Operation[],
-    origin: LiveOperationOrigin
+    origin: LiveOperationOrigin,
+    current: LiveDocument
   ): Promise<StagedImages> {
     // Own /files/ paths, data: and relative sources keep the sanitizer's verdict.
     const urls = editMarkdownImageUrls(translated).filter((url) =>
@@ -966,6 +967,10 @@ export class ArtifactRoom extends Room {
       const principal = await this.actingPrincipal(origin.participantId);
       const stored = await live.roomStageEditImages(principal, {
         artifactId: scope.artifactId,
+        // Checkpoints also carry the state, Markdown and HTML next to the images.
+        baseBytes:
+          encodeStateAsUpdate(current.doc).byteLength +
+          2 * new TextEncoder().encode(current.markdown()).byteLength,
         changeId: origin.changeId,
         urls,
       });

@@ -115,3 +115,20 @@ test("withStoredImages passes non-markdown and content-less ops through unchange
   expect(result[1]).toBe(jsonOp);
   expect(result[2]).toBe(bareOp);
 });
+
+test("an already owned image in the same Markdown survives the substitution", () => {
+  const out = withStoredImages(
+    [
+      {
+        content: {
+          markdown: "![old](/files/old)\n\n![new](https://a.test/new.png)",
+        },
+        op: "insert",
+      },
+    ],
+    new Map([["https://a.test/new.png", "/files/new"]])
+  );
+  const json = JSON.stringify(out);
+  expect(json).toContain("/files/old");
+  expect(json).toContain("/files/new");
+});

@@ -25,7 +25,12 @@ const prepared = async () => {
 
 test("staging fetches once, stores run-owned bytes under a stable change-derived id and retries do not refetch", async () => {
   const h = await prepared();
-  const input = { artifactId: h.artifactId, changeId: "c1", urls: [photo] };
+  const input = {
+    artifactId: h.artifactId,
+    baseBytes: 0,
+    changeId: "c1",
+    urls: [photo],
+  };
   const first = await h.service.roomStageEditImages(agent, input);
   const path = first.replacements[photo] ?? "";
   expect(path).toMatch(FILE_PATH);
@@ -41,6 +46,7 @@ test("staging fetches once, stores run-owned bytes under a stable change-derived
   expect(h.db.select().from(files).all()).toHaveLength(1);
   const other = await h.service.roomStageEditImages(agent, {
     ...input,
+    baseBytes: 0,
     changeId: "c2",
   });
   expect(other.replacements[photo]).not.toBe(path);
@@ -50,6 +56,7 @@ test("ownership is published only by the explicit publish step, exactly for the 
   const h = await prepared();
   const staged = await h.service.roomStageEditImages(agent, {
     artifactId: h.artifactId,
+    baseBytes: 0,
     changeId: "c1",
     urls: [photo],
   });
@@ -80,6 +87,7 @@ test("scoped guest runs and callers without write access are refused before any 
   await expect(
     h.service.roomStageEditImages(agent, {
       artifactId: h.artifactId,
+      baseBytes: 0,
       changeId: "c1",
       urls: [photo],
     })
@@ -88,6 +96,7 @@ test("scoped guest runs and callers without write access are refused before any 
   await expect(
     h.service.roomStageEditImages(principals.stranger, {
       artifactId: h.artifactId,
+      baseBytes: 0,
       changeId: "c1",
       urls: [photo],
     })
@@ -95,6 +104,7 @@ test("scoped guest runs and callers without write access are refused before any 
   await expect(
     h.service.roomStageEditImages(principals.agentTwo, {
       artifactId: h.artifactId,
+      baseBytes: 0,
       changeId: "c1",
       urls: [photo],
     })
@@ -108,6 +118,7 @@ test("refused, denied and over-limit sources write nothing", async () => {
   const stage = (urls: string[]) =>
     h.service.roomStageEditImages(agent, {
       artifactId: h.artifactId,
+      baseBytes: 0,
       changeId: "c1",
       urls,
     });
@@ -144,6 +155,7 @@ test("access revoked during the fetch discards the fetched bytes and writes no r
   await expect(
     service.roomStageEditImages(agent, {
       artifactId: h.artifactId,
+      baseBytes: 0,
       changeId: "c1",
       urls: [photo],
     })
@@ -156,6 +168,7 @@ test("artifact quota counts every owned image plus the staged ones", async () =>
   const h = await prepared();
   const staged = await h.service.roomStageEditImages(agent, {
     artifactId: h.artifactId,
+    baseBytes: 0,
     changeId: "c1",
     urls: [photo],
   });
@@ -170,6 +183,7 @@ test("artifact quota counts every owned image plus the staged ones", async () =>
   await expect(
     h.service.roomStageEditImages(agent, {
       artifactId: h.artifactId,
+      baseBytes: 0,
       changeId: "c2",
       urls: ["https://images.example.test/second"],
     })
@@ -181,22 +195,24 @@ test("discard removes exactly the named run-owned rows, bytes and ownership", as
   const h = await prepared();
   const keep = await h.service.roomStageEditImages(agent, {
     artifactId: h.artifactId,
+    baseBytes: 0,
     changeId: "keep",
     urls: [photo],
   });
   const drop = await h.service.roomStageEditImages(agent, {
     artifactId: h.artifactId,
+    baseBytes: 0,
     changeId: "drop",
     urls: ["https://images.example.test/other"],
   });
-  await Promise.all(
-    [keep, drop].map((staged) =>
-      h.service.roomPublishEditImages(agent, {
-        artifactId: h.artifactId,
-        ids: staged.ids,
-      })
-    )
-  );
+  // The manifest has one writer at a time in production, so publish in order.
+  for (const staged of [keep, drop]) {
+    // biome-ignore lint/performance/noAwaitInLoops: manifest writers are serialized.
+    await h.service.roomPublishEditImages(agent, {
+      artifactId: h.artifactId,
+      ids: staged.ids,
+    });
+  }
   await h.service.roomDiscardEditImages(
     { artifactId: h.artifactId, workspaceId: agent.workspaceId },
     { ids: drop.ids, runId: agent.runId }
@@ -222,4 +238,17 @@ test("discard removes exactly the named run-owned rows, bytes and ownership", as
     )
   ).rejects.toThrow();
   expect(h.db.select().from(files).all()).toHaveLength(1);
+});
+
+test("the room's state, Markdown and HTML bytes count against the artifact quota", async () => {
+  const h = await prepared();
+  await expect(
+    h.service.roomStageEditImages(agent, {
+      artifactId: h.artifactId,
+      baseBytes: 16 * 1024 * 1024,
+      changeId: "c1",
+      urls: [photo],
+    })
+  ).rejects.toThrow("file limits");
+  expect(h.state()).toEqual(h.before);
 });
