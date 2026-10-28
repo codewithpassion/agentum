@@ -204,40 +204,44 @@ describe("resolveSecretKey", () => {
     productionLocal: {},
   };
 
-  test("local and preview use the dev key from .env.local", () => {
-    for (const env of ["local", "preview"] as const) {
+  test("local, staging and preview use the dev key from .env.local", () => {
+    for (const env of ["local", "staging", "preview"] as const) {
       expect(resolveSecretKey(env, devOnly)).toBe(DEV_KEY);
     }
   });
 
   test("dev envs ignore the production sources", () => {
-    expect(
-      resolveSecretKey("preview", {
-        envLocal: { CLERK_SECRET_KEY: DEV_KEY },
-        process: { CLERK_SECRET_KEY: PROD_KEY },
-        productionLocal: { CLERK_SECRET_KEY: PROD_KEY },
-      })
-    ).toBe(DEV_KEY);
+    for (const env of ["staging", "preview"] as const) {
+      expect(
+        resolveSecretKey(env, {
+          envLocal: { CLERK_SECRET_KEY: DEV_KEY },
+          process: { CLERK_SECRET_KEY: PROD_KEY },
+          productionLocal: { CLERK_SECRET_KEY: PROD_KEY },
+        })
+      ).toBe(DEV_KEY);
+    }
   });
 
-  test("dev envs throw when .env.local has no key, naming the file", () => {
+  test("dev envs (local, staging) throw when .env.local has no key, naming the file", () => {
     for (const envLocal of [
       noKeys,
       { CLERK_SECRET_KEY: "" },
       { CLERK_SECRET_KEY: "  " },
     ]) {
-      expect(() =>
-        resolveSecretKey("local", {
-          envLocal,
-          process: {},
-          productionLocal: {},
-        })
-      ).toThrow("apps/web/.env.local");
+      for (const env of ["local", "staging"] as const) {
+        expect(() =>
+          resolveSecretKey(env, {
+            envLocal,
+            process: {},
+            productionLocal: {},
+          })
+        ).toThrow("apps/web/.env.local");
+      }
     }
   });
 
-  test("staging and production use the production file key first", () => {
-    for (const env of ["staging", "production"] as const) {
+  test("production uses the production file key first", () => {
+    for (const env of ["production"] as const) {
       expect(
         resolveSecretKey(env, {
           envLocal: { CLERK_SECRET_KEY: DEV_KEY },
@@ -248,8 +252,8 @@ describe("resolveSecretKey", () => {
     }
   });
 
-  test("staging and production fall back to a process key that differs from the dev key", () => {
-    for (const env of ["staging", "production"] as const) {
+  test("production falls back to a process key that differs from the dev key", () => {
+    for (const env of ["production"] as const) {
       expect(
         resolveSecretKey(env, {
           envLocal: { CLERK_SECRET_KEY: DEV_KEY },
@@ -260,8 +264,8 @@ describe("resolveSecretKey", () => {
     }
   });
 
-  test("staging and production ignore a process key equal to the dev key", () => {
-    for (const env of ["staging", "production"] as const) {
+  test("production ignores a process key equal to the dev key", () => {
+    for (const env of ["production"] as const) {
       expect(() =>
         resolveSecretKey(env, {
           envLocal: { CLERK_SECRET_KEY: DEV_KEY },
@@ -272,18 +276,6 @@ describe("resolveSecretKey", () => {
     }
   });
 
-  test("staging with no usable key throws a message naming both sources", () => {
-    expect(() =>
-      resolveSecretKey("staging", {
-        envLocal: { CLERK_SECRET_KEY: DEV_KEY },
-        process: {},
-        productionLocal: {},
-      })
-    ).toThrow(
-      "Staging and production need CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
-    );
-  });
-
   test("production with no usable key throws a message naming both sources", () => {
     expect(() =>
       resolveSecretKey("production", {
@@ -292,7 +284,7 @@ describe("resolveSecretKey", () => {
         productionLocal: {},
       })
     ).toThrow(
-      "Staging and production need CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
+      "Production needs CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
     );
   });
 
@@ -304,7 +296,7 @@ describe("resolveSecretKey", () => {
     };
     let message = "";
     try {
-      resolveSecretKey("staging", sources);
+      resolveSecretKey("production", sources);
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }

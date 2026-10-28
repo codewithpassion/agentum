@@ -170,18 +170,20 @@ how agents and browser tests sign in on staging, preview and production, where
 dev login is off. Flags: `--env local|staging|preview|production` (default
 `local`), `--pr <n>` (required for preview), `--email <address>` (default
 `DEV_LOGIN_EMAIL` from `.env.local`), `--redirect <path>` (default `/`),
-`--base-url <url>` (overrides the environment's base URL). Local and
+`--base-url <url>` (overrides the environment's base URL). Local, staging and
 preview use `CLERK_SECRET_KEY` from `apps/web/.env.local` (the Clerk dev
-instance). Staging and production share the production Clerk instance and read
-its key from `apps/web/.env.production.local` or the process environment, and
-`--email` must name a user on that instance (the dev user is not there). The URL is a one-time credential: open it in a fresh
-browser session and don't paste it into logs or reports. The key is never
-printed. The session lands on the signed-in pages only when the user has an
-allowed organisation active. On the production instance (staging, production) Clerk
-does not activate it for an Agent Task session: the session stays
-`pending` with the `choose-organization` task, which the app treats as signed
-out. `PendingSessionGate` (`src/integrations/clerk/pending-session-gate.tsx`)
-handles it. It activates the user's only organisation and reloads the page you
-asked for, and sends a user with several or none to `/choose-organization`.
+instance; staging is built with `--mode staging` and holds the dev keys).
+Production uses the production Clerk instance and reads its key from
+`apps/web/.env.production.local` or the process environment, and `--email` must
+name a user on that instance (the dev user is not there). The URL is a one-time
+credential: open it in a fresh browser session and don't paste it into logs or
+reports. The key is never printed. The session lands on the signed-in pages
+only when the user has an allowed organisation active. On the production
+instance (production only) Clerk does not activate it for an Agent Task
+session: the session stays `pending` with the `choose-organization` task, which
+the app treats as signed out. `PendingSessionGate`
+(`src/integrations/clerk/pending-session-gate.tsx`) handles it. It activates
+the user's only organisation and reloads the page you asked for, and sends a
+user with several or none to `/choose-organization`.
 Code: `apps/web/scripts/agent-login.ts`,
 pure helpers in `agent-login-helpers.ts`.
