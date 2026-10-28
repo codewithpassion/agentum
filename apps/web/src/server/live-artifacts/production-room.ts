@@ -1249,7 +1249,7 @@ export class ArtifactRoom extends Room {
   }
   override async alarm() {
     try {
-      await super.refresh();
+      await super.revalidate();
       await super.alarm();
     } finally {
       await this.scheduleRefresh();
