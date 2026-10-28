@@ -18,7 +18,7 @@ Date 2026-10-28. Source: main `cddf3332`, branch `task/LR.4-staging-deploy`. Env
 - `GET /api/rooms/<id>` without upgrade returns 426. With a websocket upgrade and no ticket it returns 403.
 - `/mcp` returns 401 and `/api/live-artifacts/<id>/policy` returns 401 unsigned.
 
-## Blocker found: staging Clerk keys do not match
+## Blocker found (fixed in the follow-up below): staging Clerk keys do not match
 
 A browser load of `/` ends at HTTP 500 after the Clerk handshake. `wrangler tail` shows `Clerk: Handshake token verification failed ... Unable to find a signing key in JWKS that matches the kid='ins_3Kk8...' (reason=jwk-kid-mismatch)`. The staging `CLERK_SECRET_KEY` and `CLERK_PUBLISHABLE_KEY` secrets appear to belong to different Clerk instances (publishable key points at `faithful-falcon-1887.clerk.accounts.dev`). Secrets were not changed by this task, so this predates the deploy. No signed-in browser flow can run on staging until Dom fixes the pair. I could not read secret values and did not change any secret.
 
@@ -30,7 +30,7 @@ Result keys: pass, fail, needs-Dom.
 |---|---|---|---|
 | 1a | Bindings provisioned (D1, R2, room/GuestRun DOs, LOADER, EMAIL, Browser Run, rate limits) | pass | Deploy output lists DB, FILES, BROWSER, EMAIL, LOADER, EXPORT/SHARE/APP limits and all DO classes on `harbourmaster-staging`. |
 | 1b | Applicable migrations | pass | 0025 to 0033 applied, none pending afterwards. |
-| 1c | Real Clerk signing | fail | Handshake 500, `jwk-kid-mismatch` (above). |
+| 1c | Real Clerk signing | pass | After the redeploy (below), an Agent Task sign-in on the Clerk dev instance reaches `/desk` signed in; `/artifacts` loads. |
 | 1d | Two distinct members, owner/admin, guest identities, public-only egress verified | needs-Dom | Dom: fix the Clerk key pair, create two workspace members plus an admin in the staging Clerk instance, add them to `ALLOWED_ORG_IDS`. |
 | 2 | Real-model runs: doc and deck creation, three member triggers, speaker/roster, Slack, simultaneous two browsers plus agent, tools and ask-before on cloud, VM, Managed, machine, guest runtime combinations | needs-Dom | Needs signed members and paid provider inference. Steps: sign in as member A and B, create a document and a deck, run the three triggers, edit from both browsers while an agent edits, approve an ask-before call on each runtime. |
 | 3 | Every section 4 and 5 action with a second signed browser at desktop and 390x844; 40px controls; presence; caret latency; restore; presentation; latest checkpoint in cards, thumbnails, read, history, download, shares; 5 MB and 8 MB limits and deadlines | needs-Dom | Needs two signed sessions. Steps: use two browsers, walk the action list, resize to 390x844, upload a 5 MB and an 8 MB document. |
@@ -42,4 +42,14 @@ Result keys: pass, fail, needs-Dom.
 | 6 | Public HTTPS images and redirects through LOADER, owned blobs, no third-party browser requests, discovery beyond one page, guest embeds and revocation, sandbox behaviour | needs-Dom | Needs signed members. Steps: insert an external image URL with a redirect, watch network requests, embed from a library with more than one page of items. |
 | 7 | PDF, Word, PPTX through Browser Run and quotas; fidelity in Office; element ask with a real model; individual suggestions with two signed participants | needs-Dom | Needs signed members and Office. Steps: export each format from a document and a deck, open in Word and PowerPoint, send an element ask, review suggestions as two users. |
 
-Totals: pass 5, fail 1, needs-Dom 7 (sub-items 1a to 7).
+Totals: pass 6, fail 0, needs-Dom 7 (sub-items 1a to 7). Only one signed member (the dev user) exists, so two-member, model, mail and Office items stay with Dom.
+
+## Follow-up: Clerk dev instance for staging
+
+Dom chose the Clerk dev instance (`faithful-falcon-1887.clerk.accounts.dev`) for staging. The controller set the staging Worker secrets `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and `ALLOWED_ORG_IDS` to dev values. The client bundle still carried the production publishable key.
+
+Cause: `staging:build` ran `vite build` in the default `production` mode, which loads `.env.production.local` (production publishable key) and never `.env.staging`. Fix: `staging:build` now runs `vite build --mode staging`, so Vite loads `.env.staging`, `.env`, `.env.local` and skips `.env.production.local`. The untracked `apps/web/.env.staging` gained `VITE_CLERK_PUBLISHABLE_KEY` (the dev key, public). The production `build` script is unchanged. `preview:deploy` shares `staging:build`, so previews also build with the dev key, which matches the dev instance previews already use.
+
+Verified in `dist/client`: the dev key's encoded host is present, the production one is absent from client and server output. Built `dist/server/wrangler.json` named `harbourmaster-staging`, one custom domain on the staging host, D1 `harbourmaster-staging`. Redeployed with `bun run staging:deploy` (migrations already applied). New version id: **8f7481c2-942b-4663-9f98-651e99643aeb**.
+
+Sign-in: signed-out `/` returns 200 and shows Clerk sign-in links, no 500. `bun run agent-login --env staging` reads the production key, so it mints a production-instance token and staging answers `jwk-kid-mismatch`. For the dev-instance staging use `bun run agent-login --env local --base-url https://harbourmaster-staging.rockyshoreslabs.io`; that signed in and landed on `/desk`. The CLAUDE.md Agent Task section still says staging uses the production instance and needs updating (not changed here).
