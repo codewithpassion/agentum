@@ -5,13 +5,18 @@ import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose";
 import { guarded } from "./guarded";
 
-const documentToolError = (result: { code: string; current?: unknown }) => {
+const documentToolError = (result: {
+  code: string;
+  current?: unknown;
+  message?: string;
+}) => {
   const codes: Record<string, string> = {
     ambiguous_find: "find_ambiguous",
     comment_anchor: "anchor_conflict",
   };
   const code = codes[result.code] ?? result.code;
   const mapped = [
+    "forbidden",
     "guard_mismatch",
     "block_gone",
     "find_none",
@@ -19,6 +24,7 @@ const documentToolError = (result: { code: string; current?: unknown }) => {
     "anchor_conflict",
   ].includes(code)
     ? (code as
+        | "forbidden"
         | "guard_mismatch"
         | "block_gone"
         | "find_none"
@@ -27,7 +33,7 @@ const documentToolError = (result: { code: string; current?: unknown }) => {
     : "validation";
   return new ToolError(
     mapped,
-    `${code}${result.current ? `: ${JSON.stringify(result.current)}` : ""}`
+    `${code}${result.current ? `: ${JSON.stringify(result.current)}` : ""}${result.message ? `: ${result.message}` : ""}`
   );
 };
 export const createLivePorts = ({

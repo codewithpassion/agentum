@@ -111,6 +111,59 @@ app.post("/fixture/convert/:id", async (c) => {
     policy: await live.ownBlobUrls(member, { artifactId: result.artifactId }),
   });
 });
+// Fixed fixture run a1/r1: a guarded edit that carries an external image, in either mode.
+app.post("/fixture/image-edit/:id", async (c) => {
+  const { services } = c.get("composed");
+  if (!services.liveRoom) {
+    throw new Error("Missing room");
+  }
+  const input = await c.req.json<{
+    changeId: string;
+    markdown: string;
+    mode: "direct" | "suggestion";
+    scoped?: boolean;
+  }>();
+  const principal = {
+    agentId: "a1",
+    kind: "run" as const,
+    runId: "r1",
+    workspaceId: "w1",
+  };
+  const room = await services.liveRoom(principal, c.req.param("id"));
+  if (input.scoped) {
+    // The room already knows this actor; its run becomes guest-scoped afterwards.
+    await c.env.DB.prepare("UPDATE runs SET scope_artifact_id=? WHERE id='r1'")
+      .bind(c.req.param("id"))
+      .run();
+  }
+  try {
+    return c.json(
+      await room.documentEdit(
+        [{ content: { markdown: input.markdown }, op: "insert" }],
+        {
+          changeId: input.changeId,
+          mode: input.mode,
+          participantId: "a:a1:r1",
+          runId: "r1",
+          toolCallId: input.changeId,
+        },
+        "Image edit fixture"
+      )
+    );
+  } finally {
+    await c.env.DB.prepare(
+      "UPDATE runs SET scope_artifact_id=NULL WHERE id='r1'"
+    ).run();
+  }
+});
+app.get("/fixture/suggestions/:id", async (c) =>
+  c.json(
+    await requiredLive(c.get("composed").services).suggestions(
+      { agentId: "a1", kind: "run", runId: "r1", workspaceId: "w1" },
+      { artifactId: c.req.param("id") }
+    )
+  )
+);
 app.post("/fixture/import-image/:id", async (c) =>
   c.json(
     await requiredLive(c.get("composed").services).importImage(
