@@ -4,7 +4,7 @@ Prepared 2026-10-28 from main `48d32be9`. Nothing here was run against productio
 
 ## Go / no-go
 
-**No-go until the room auth bug in `LR.7.md` is fixed, redeployed to staging, and the blocked checks pass.** Live documents, decks, exports and guest rooms cannot work on a deployed Worker today. Production also lacks the `ARTIFACT_VIEW_KEY` secret (below). Once both are done, rerun LR.7 items 2, 3, 5, 7 on staging.
+**No-go (round 2, staging version `4aa40d88-9632-4ccf-8b77-75a534236370`, main `ccc5db1c`).** The LR.8 room fix works: live documents and decks connect, edit, suggest and recover on staging. Two blockers remain. (1) Every member export (PDF, Word, PPTX) returns 500 because `live-artifacts/auth.ts:93` consumes the request body and the second authentication in `live-exports/routes.ts:43` throws "Cannot reconstruct a Request with a used body". Browser Run was never reached. (2) Peer edits take 2 to 20 s to arrive because `components/live-artifacts/room-provider.ts:339` fetches the policy over HTTP before applying every frame. Also open: 40 px controls at 390 px width, and several round 2 items not run (see `LR.7.md`). Production also lacks the `ARTIFACT_VIEW_KEY` secret (below; the controller set it per the task log). Go once the export fix is merged, staging exports pass, and Dom has judged the files in Office.
 
 ## Pending D1 migrations on prod
 
