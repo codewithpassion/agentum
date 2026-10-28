@@ -29,12 +29,19 @@ import { type Composed, compose } from "../compose";
 import { resolveDocumentAnchor } from "./anchors";
 import { ArtifactRoom as Room } from "./artifact-room";
 import { type AgentRange, insertedRanges } from "./attribution";
-import { authenticateRoomRequest, freshMember, requestClerk } from "./auth";
+import {
+  authenticateRoomMember,
+  authenticateRoomRequest,
+  freshMember,
+  requestClerk,
+} from "./auth";
 import { editMarkdownImageUrls, withStoredImages } from "./edit-image-ops";
 import { roomName } from "./namespace";
 import { findBlock, translateOperation } from "./operations";
 import type { ArtifactRoomService, RoomScope } from "./ports";
 import { requiredLive } from "./required";
+import { admissionFromRequest, roomTicketKey } from "./room-admission";
+
 import { RoomStorage } from "./storage";
 
 interface Credential {
@@ -105,7 +112,8 @@ const storeCredential = async (
   ctx: DurableObjectState,
   env: Env,
   principal: Principal,
-  request: Request
+  request: Request,
+  verifiedSessionId?: string
 ) => {
   const authorizationRef = crypto.randomUUID();
   const headers: [string, string][] = [];
@@ -122,16 +130,21 @@ const storeCredential = async (
     request: { headers, url: url.toString() },
   } satisfies Credential);
   if (!request.headers.has("Authorization") && principal.kind === "user") {
-    const auth = (
-      await requestClerk(env).authenticateRequest(request)
-    ).toAuth();
-    if (!auth?.sessionId || auth.userId !== principal.userId) {
-      throw new Error("Invalid authenticated session");
+    // The route already verified this session, so it is not authenticated again.
+    let sessionId = verifiedSessionId;
+    if (!sessionId) {
+      const auth = (
+        await requestClerk(env).authenticateRequest(request)
+      ).toAuth();
+      if (!auth?.sessionId || auth.userId !== principal.userId) {
+        throw new Error("Invalid authenticated session");
+      }
+      ({ sessionId } = auth);
     }
     await ctx.storage.put(`credential:${authorizationRef}`, {
       expiresAt: Date.now() + 15 * 60_000,
       session: {
-        id: auth.sessionId,
+        id: sessionId,
         userId: principal.userId,
         workspaceId: principal.workspaceId,
       },
@@ -140,6 +153,38 @@ const storeCredential = async (
   await ctx.storage.put(`acceptedActor:${authorizationRef}`, principal);
   await ctx.storage.put(`actor:${participant(principal)}`, authorizationRef);
   return authorizationRef;
+};
+/** The member behind a room request. A request the route signed carries its
+ * verified result, so Clerk does not run again. A request with no assertion
+ * is authenticated in full, and a wrong assertion is refused. */
+const requestMember = async (
+  env: Env,
+  composed: Composed,
+  scope: RoomScope,
+  ticket: string,
+  request: Request
+): Promise<{
+  principal: Principal;
+  sessionId?: string;
+  /** Set when the route already verified this principal for this admission. */
+  verified?: Principal;
+} | null> => {
+  const trusted = await admissionFromRequest(
+    request,
+    ticket,
+    roomTicketKey(env),
+    scope,
+    Math.floor(Date.now() / 1000)
+  );
+  if (trusted.status === "refused") {
+    return null;
+  }
+  if (trusted.status === "trusted") {
+    const { principal, sessionId } = trusted.admission;
+    return { principal, sessionId, verified: principal };
+  }
+  const member = await authenticateRoomMember(env, composed, request);
+  return member;
 };
 const participant = (principal: Principal) => {
   if (principal.kind === "user") {
@@ -197,10 +242,7 @@ const HTTP_SOURCE = /^https?:\/\//i;
 type StagedImages =
   | { ok: true; ids: string[]; ops: Operation[] }
   | { ok: false; code: "forbidden" | "validation"; message: string };
-const ticketKey = (env: Env) =>
-  env.ARTIFACT_VIEW_KEY ? `artifact-room:${env.ARTIFACT_VIEW_KEY}` : "";
-
-export { ticketKey as roomTicketKey };
+const ticketKey = roomTicketKey;
 
 /** Production wrapper supplies required in-process ports. There is deliberately
  * no ARTIFACT_ROOM_SERVICE Worker binding. Credential material stays in private
@@ -277,9 +319,12 @@ export class ArtifactRoom extends Room {
       }
       return identity;
     };
-    const authorize: ArtifactRoomService["authorize"] = async (
-      scope,
-      subject
+    /** `verified` is a principal the route authenticated moments ago for this
+     * admission, so the credential is not resolved through Clerk again. */
+    const authorizeWith = async (
+      scope: RoomScope,
+      subject: Parameters<ArtifactRoomService["authorize"]>[1],
+      verified?: Principal
     ) => {
       const ref =
         subject.authorizationRef ??
@@ -294,7 +339,7 @@ export class ArtifactRoom extends Room {
         if (subject.kind === "guest") {
           return authorizeGuest(ref, scope, subject);
         }
-        const principal = await resolve(ref);
+        const principal = verified ?? (await resolve(ref));
         if (
           !principal ||
           participant(principal) !== subject.participantId ||
@@ -320,6 +365,8 @@ export class ArtifactRoom extends Room {
         return null;
       }
     };
+    const authorize: ArtifactRoomService["authorize"] = (scope, subject) =>
+      authorizeWith(scope, subject);
     const admitGuest: ArtifactRoomService["admit"] = async (
       scope,
       ticket,
@@ -392,15 +439,19 @@ export class ArtifactRoom extends Room {
         }
         let authorizationRef: string;
         let principal: Principal | null;
+        let verified: Principal | undefined;
         if ("request" in context) {
-          principal = await authenticateRoomRequest(
+          const member = await requestMember(
             env,
             get(),
+            scope,
+            ticket,
             context.request
           );
-          if (!principal || participant(principal) === "") {
+          if (!member || participant(member.principal) === "") {
             return null;
           }
+          ({ principal, verified } = member);
           await live().admit(principal, {
             artifactId: scope.artifactId,
             ticket,
@@ -409,7 +460,8 @@ export class ArtifactRoom extends Room {
             ctx,
             env,
             principal,
-            context.request
+            context.request,
+            member.sessionId
           );
         } else {
           ({ authorizationRef } = context);
@@ -432,11 +484,15 @@ export class ArtifactRoom extends Room {
           ...credential,
           expiresAt: Date.now() + 15 * 60_000,
         });
-        return authorize(scope, {
-          authorizationRef,
-          kind: principal.kind === "user" ? "member" : "agent",
-          participantId: participant(principal),
-        });
+        return authorizeWith(
+          scope,
+          {
+            authorizationRef,
+            kind: principal.kind === "user" ? "member" : "agent",
+            participantId: participant(principal),
+          },
+          verified
+        );
       },
       authorize,
       open: async (objectId) => {

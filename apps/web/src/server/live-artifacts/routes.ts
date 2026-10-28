@@ -6,21 +6,27 @@ import { csrf } from "hono/csrf";
 import { type Composed, compose } from "../compose";
 import { readCappedBody } from "../mcp/body";
 import type { AppEnv } from "../routes/groups";
-import { authenticateRoomRequest } from "./auth";
+import { authenticateRoomMember, authenticateRoomRequest } from "./auth";
 import { roomStub } from "./namespace";
 import { requiredLive } from "./required";
+import {
+  ADMISSION_HEADER,
+  ADMISSION_SECONDS,
+  roomTicketKey,
+  signRoomAdmission,
+} from "./room-admission";
 
 interface RouteDeps {
   authenticate: (
     env: Env,
     composed: Composed,
     request: Request
-  ) => Promise<Principal | null>;
+  ) => Promise<{ principal: Principal; sessionId?: string } | null>;
   compose: (env: Env) => Composed;
   room: typeof roomStub;
 }
 const defaults: RouteDeps = {
-  authenticate: authenticateRoomRequest,
+  authenticate: authenticateRoomMember,
   compose: (env) => compose(env, false),
   room: roomStub,
 };
@@ -41,24 +47,48 @@ export const liveRoomRoutes = (deps: RouteDeps = defaults) =>
     }
     try {
       const composed = deps.compose(c.env);
-      const principal = await deps.authenticate(c.env, composed, c.req.raw);
-      if (!principal || principal.kind === "system") {
+      const member = await deps.authenticate(c.env, composed, c.req.raw);
+      const principal = member?.principal;
+      if (!(member && principal) || principal.kind === "system") {
         return c.text("Unauthorized", 401);
       }
       const live = composed.services.liveArtifacts;
       if (!live) {
         return c.text("Unavailable", 503);
       }
-      await live.admit(principal, {
-        artifactId: c.req.param("artifactId"),
-        ticket,
-      });
-      await c.env.LIVE_ARTIFACT_MAINTENANCE.getByName("maintenance").start();
-      const room = await deps.room(c.env.ARTIFACT_ROOM, {
-        artifactId: c.req.param("artifactId"),
-        workspaceId: principal.workspaceId,
-      });
-      return room.fetch(c.req.raw);
+      const artifactId = c.req.param("artifactId");
+      const claims = await live.admit(principal, { artifactId, ticket });
+      const key = roomTicketKey(c.env);
+      if (!key) {
+        return c.text("Unavailable", 503);
+      }
+      // The room trusts this signed result instead of running Clerk again. It
+      // overwrites whatever header the client sent.
+      const now = Math.floor(Date.now() / 1000);
+      const headers = new Headers(c.req.raw.headers);
+      headers.set(
+        ADMISSION_HEADER,
+        await signRoomAdmission(
+          {
+            artifactId,
+            expiresAt: now + ADMISSION_SECONDS,
+            issuedAt: now,
+            jti: claims.jti,
+            principal,
+            sessionId: member.sessionId,
+            workspaceId: principal.workspaceId,
+          },
+          key
+        )
+      );
+      const [room] = await Promise.all([
+        deps.room(c.env.ARTIFACT_ROOM, {
+          artifactId,
+          workspaceId: principal.workspaceId,
+        }),
+        c.env.LIVE_ARTIFACT_MAINTENANCE.getByName("maintenance").start(),
+      ]);
+      return room.fetch(new Request(c.req.raw, { headers }));
     } catch {
       return c.text("Access denied", 403);
     }
