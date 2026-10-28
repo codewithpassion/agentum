@@ -90,6 +90,20 @@ const frame = (type: number, payload: Uint8Array, subtype?: number) => {
   writeVarUint8Array(encoder, payload);
   return toUint8Array(encoder);
 };
+// Blob references are UTF-8 strings inside the update bytes. Only an update that
+// carries one needs a fresh ownership manifest before it applies.
+const BLOB_MARKERS = ["/files/"].map((marker) =>
+  new TextEncoder().encode(marker)
+);
+const mentionsBlob = (update: Uint8Array) =>
+  BLOB_MARKERS.some((marker) => {
+    for (let at = 0; at + marker.length <= update.length; at += 1) {
+      if (marker.every((byte, index) => update[at + index] === byte)) {
+        return true;
+      }
+    }
+    return false;
+  });
 export interface RoomOptions {
   /** Called after authenticated WebSocket upgrade, before policy HTTP reads. */
   admitted?: () => void;
@@ -337,20 +351,21 @@ export class TicketedRoom {
       if (subtype !== 1 && subtype !== 2) {
         throw new Error("Unknown document frame");
       }
-      if (this.lifecycle.synced) {
-        // Cached policy: peer edits apply without a network round trip. The
-        // policy refreshes in the background and is republished when it lands.
+      if (this.lifecycle.synced && !mentionsBlob(update)) {
+        // Edits that reference no blob apply from the cached policy without a
+        // network round trip. The policy refreshes in the background.
         applyUpdate(this.document, update, this);
         this.scheduleRefresh();
         return;
       }
-      // The first sync waits for a verified manifest before any content lands.
+      // The first sync, and any update that references a blob, waits for a
+      // verified manifest before content lands.
       if (!(await this.refreshPolicy())) {
         return;
       }
       applyUpdate(this.document, update, this);
       this.publishPolicy();
-      if (subtype === 1) {
+      if (!this.lifecycle.synced && subtype === 1) {
         clearTimeout(this.connectionTimer);
         this.lifecycle.synced = true;
         this.options.ready(this);

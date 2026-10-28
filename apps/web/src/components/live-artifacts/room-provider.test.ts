@@ -365,6 +365,25 @@ test("inbound frames after sync apply without awaiting a policy fetch, then the 
   server.destroy();
 });
 
+test("an update that references a blob still waits for the verified manifest", async () => {
+  let urls = new Set(["/files/old.png"]);
+  const { room } = setup(async () => urls);
+  const socket = await session(room);
+  const server = new Doc();
+  socket.receive(sync(server));
+  await settle();
+  urls = new Set(["/files/new.png"]);
+  let observed = false;
+  room.document.on("update", () => {
+    observed = room.policy.ownBlobUrls.has("/files/new.png");
+  });
+  server.getText("test").insert(0, "see /files/new.png");
+  socket.receive(sync(server, 2));
+  await settle();
+  expect(observed).toBe(true);
+  server.destroy();
+});
+
 test("access loss still stops the room without a policy fetch", async () => {
   let fetches = 0;
   const { failures, room } = setup(async () => {

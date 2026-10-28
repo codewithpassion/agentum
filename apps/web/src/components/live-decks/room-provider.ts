@@ -163,7 +163,6 @@ export class TicketedDeckRoom {
   }>();
   private presentationQueue: Promise<void> = Promise.resolve();
   private applying = false;
-  private readonly refresh = { queued: false, running: false };
   private receiving = Promise.resolve();
   private connectionTimer?: ReturnType<typeof setTimeout>;
   private readonly options: RoomOptions;
@@ -427,10 +426,7 @@ export class TicketedDeckRoom {
     if (subtype !== 1 && subtype !== 2) {
       throw new Error("Unknown deck frame");
     }
-    // After sync the cached policy applies at once and refreshes in the
-    // background; only the first sync waits for a verified manifest.
-    const cached = this.lifecycle.synced;
-    if (!(cached || (await this.refreshPolicy()))) {
+    if (!(await this.refreshPolicy())) {
       return;
     }
     this.applying = true;
@@ -442,39 +438,21 @@ export class TicketedDeckRoom {
     if (!this.document.getMap("meta").has("theme")) {
       throw new Error("Deck theme is not initialized by the authority");
     }
-    if (cached) {
-      this.scheduleRefresh();
-    } else {
-      this.publishPolicy();
-    }
+    this.publishPolicy();
     if (!this.lifecycle.synced && subtype === 1) {
       clearTimeout(this.connectionTimer);
       this.lifecycle.synced = true;
       this.options.ready(this);
-      this.policyTimer = setInterval(() => this.scheduleRefresh(), 30_000);
+      this.policyTimer = setInterval(() => {
+        this.receiving = this.receiving
+          .then(async () => {
+            if (!this.lifecycle.disposed && (await this.refreshPolicy())) {
+              this.publishPolicy();
+            }
+          })
+          .catch((error: unknown) => this.fail(error));
+      }, 30_000);
     }
-  }
-  /** Coalesces refreshes: at most one in flight, one more queued behind it. */
-  private scheduleRefresh() {
-    if (this.refresh.running) {
-      this.refresh.queued = true;
-      return;
-    }
-    this.refresh.running = true;
-    this.refreshPolicy()
-      .then((fresh) => {
-        if (fresh) {
-          this.publishPolicy();
-        }
-      })
-      .catch((error: unknown) => this.fail(error))
-      .finally(() => {
-        this.refresh.running = false;
-        if (this.refresh.queued && !this.lifecycle.disposed) {
-          this.refresh.queued = false;
-          this.scheduleRefresh();
-        }
-      });
   }
   private async refreshPolicy() {
     const manifest = await this.options.policy();

@@ -11,7 +11,7 @@ import {
   writeVarUint,
   writeVarUint8Array,
 } from "lib0/encoding";
-import { applyUpdate, Doc, encodeStateAsUpdate, encodeStateVector } from "yjs";
+import { Doc, encodeStateAsUpdate } from "yjs";
 import { TicketedDeckRoom } from "./room-provider";
 
 class Socket {
@@ -97,9 +97,7 @@ function sync(update: Uint8Array) {
   writeVarUint8Array(encoder, update);
   return toUint8Array(encoder);
 }
-async function connect(
-  policy: () => Promise<ReadonlySet<string>> = async () => new Set()
-) {
+async function connect() {
   let failure = "";
   let ready = false;
   const room = new TicketedDeckRoom({
@@ -107,7 +105,7 @@ async function connect(
       failure = message;
     },
     join: async () => joined,
-    policy,
+    policy: async () => new Set(),
     ready: () => {
       ready = true;
     },
@@ -291,38 +289,4 @@ test("a stale-ancestry refusal reaches the editor as the typed reason and is not
   await tick();
   expect(client.failure()).toBe(DECK_STALE_ANCESTRY);
   expect(Socket.instances).toHaveLength(1);
-});
-test("inbound frames after sync apply without awaiting a policy fetch", async () => {
-  let fetches = 0;
-  let release: () => void = () => undefined;
-  let gate: Promise<void> | undefined;
-  const client = await connect(async () => {
-    fetches += 1;
-    await gate;
-    return new Set();
-  });
-  session(client.socket);
-  const base = checkpoint();
-  client.socket.receive(sync(base));
-  await tick();
-  expect(client.ready()).toBe(true);
-  const before = fetches;
-  gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const edited = new Doc();
-  applyUpdate(edited, base);
-  const known = encodeStateVector(edited);
-  const editedDeck = new Deck(edited, richTextCodec);
-  editedDeck.setTheme({ colors: { accent: "#abcdef" }, fonts: {}, sizes: {} });
-  client.socket.receive(sync(encodeStateAsUpdate(edited, known)));
-  await tick();
-  expect(fetches).toBe(before + 1);
-  expect(
-    JSON.stringify(client.room.document.getMap("meta").toJSON())
-  ).toContain("abcdef");
-  release();
-  await tick();
-  editedDeck.destroy();
-  edited.destroy();
 });
