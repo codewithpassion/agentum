@@ -3,9 +3,9 @@ id: LR.4
 title: Deploy live artifacts to staging and run the acceptance checklist
 milestone: LR
 size: M
-status: todo
+status: in_progress
 depends_on: [LR.1, LR.2, LR.3]
-branch: null
+branch: task/LR.4-staging-deploy
 lane: ops
 executor: claude
 ---
@@ -22,3 +22,4 @@ Item 4 of `docs/reviews/tasks/L.HANDOFF.md`. Dom authorised a staging deploy (28
 
 ## Log
 - 2026-10-28: created from L.HANDOFF.md.
+- 2026-10-28: dispatched (Sonnet). Dom authorised the staging deploy.
