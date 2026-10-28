@@ -20,6 +20,9 @@ import { guestOpenMetadata } from "./guest-metadata";
 import { guestReplay, guestStream } from "./guest-stream";
 import { roomStub } from "./namespace";
 
+const cookieToken = (cookie: string) =>
+  cookie.split(";")[0]?.slice(GUEST_COOKIE.length + 1) ?? "";
+
 export interface GuestRouteDeps {
   compose: (env: Env) => Composed;
   page?: (request: Request) => Promise<Response>;
@@ -162,6 +165,12 @@ export const guestRoutes = (
       sessionToken: getCookie(c, GUEST_COOKIE) ?? "",
       workspaceId,
     };
+    // Rotate first: the cookie may be the previous token of a rotation whose
+    // response was lost, and only rotation accepts that. Everything after it
+    // authenticates with the replacement token.
+    const rotated = await service.renew(credential);
+    c.header("Set-Cookie", rotated.cookie);
+    credential.sessionToken = cookieToken(rotated.cookie);
     const scoped = scopedGuests(c.env, composed);
     const ref = await scoped.sessionReference(credential);
     const transcript = await scoped.transcript(credential);
@@ -177,10 +186,6 @@ export const guestRoutes = (
       throw new Error("Unavailable");
     }
     try {
-      const rotated = await service.renew(credential);
-      c.header("Set-Cookie", rotated.cookie);
-      credential.sessionToken =
-        rotated.cookie.split(";")[0]?.slice(GUEST_COOKIE.length + 1) ?? "";
       const resume = c.req.header("Last-Event-ID") || c.req.query("after");
       const replay = await guestReplay(
         scoped,
@@ -224,9 +229,11 @@ export const guestRoutes = (
       sessionToken: getCookie(c, GUEST_COOKIE) ?? "",
       workspaceId,
     };
+    const rotated = await service.renew(credential);
+    c.header("Set-Cookie", rotated.cookie);
+    credential.sessionToken = cookieToken(rotated.cookie);
     const images = guestImages(c.env, composed);
     const image = await images.read(credential, c.req.param("fileId"));
-    c.header("Set-Cookie", (await service.renew(credential)).cookie);
     return new Response(image.body, {
       headers: {
         ...Object.fromEntries(c.res.headers),
@@ -253,18 +260,21 @@ export const guestRoutes = (
       sessionToken: getCookie(c, GUEST_COOKIE) ?? "",
       workspaceId,
     };
-    const scoped = createGuestArtifacts({
-      ...composed,
-      events: composed.services.events,
-      guestsOff: () =>
-        Boolean((c.env as Env & { LIVE_GUESTS_OFF?: string }).LIVE_GUESTS_OFF),
-    });
-    const grant = await scoped.current(credential);
     if (
       action === "room" &&
       c.req.method === "GET" &&
       c.req.header("Upgrade")?.toLowerCase() === "websocket"
     ) {
+      // A socket never rotates, so it needs the current token.
+      const scoped = createGuestArtifacts({
+        ...composed,
+        events: composed.services.events,
+        guestsOff: () =>
+          Boolean(
+            (c.env as Env & { LIVE_GUESTS_OFF?: string }).LIVE_GUESTS_OFF
+          ),
+      });
+      const grant = await scoped.current(credential);
       const room = await roomStub(c.env.ARTIFACT_ROOM, grant);
       return room.fetch(c.req.raw);
     }
@@ -272,13 +282,13 @@ export const guestRoutes = (
     if (!handler || handler.method !== c.req.method) {
       return c.json({ error: "Guest access unavailable" }, 404);
     }
+    // Rotation authenticates the request, and alone accepts the previous token.
     const rotated =
       action === "open"
         ? await service.open(credential, guestOpenMetadata(c.req.raw))
         : await service.renew(credential);
     c.header("Set-Cookie", rotated.cookie);
-    credential.sessionToken =
-      rotated.cookie.split(";")[0]?.slice(GUEST_COOKIE.length + 1) ?? "";
+    credential.sessionToken = cookieToken(rotated.cookie);
     const result = await handler.execute({
       composed,
       credential,

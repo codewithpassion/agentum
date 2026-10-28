@@ -232,6 +232,13 @@
       "when": 1793136632558,
       "tag": "0032_lovely_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1793161459389,
+      "tag": "0033_chief_magus",
+      "breakpoints": true
     }
   ]
 }

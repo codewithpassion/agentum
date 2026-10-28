@@ -5,11 +5,11 @@ import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import {
   deleteGuestSessionStatement,
-  findGuestSessionGrant,
+  findGuestSessionRotationGrant,
   guestSessionRotationGuard,
+  guestViewOnRotation,
   rotateGuestSessionStatement,
 } from "@repo/db/live-guests";
-import { artifactViews } from "@repo/db/schema/artifacts";
 import { guestGrantSchema } from "@repo/protocol/live";
 import { ulid } from "ulidx";
 import { hashToken } from "../crypto.ts";
@@ -17,6 +17,7 @@ import { ServiceError } from "../errors.ts";
 import type { Clock } from "../runs/types.ts";
 import {
   clearGuestSessionCookie,
+  GUEST_PREVIOUS_TOKEN_GRACE_SECONDS,
   GUEST_SESSION_SECONDS,
   guestSessionCookie,
   newGuestSessionToken,
@@ -52,7 +53,7 @@ export const createGuestSessionLifecycle = (deps: {
     }
     const at = deps.clock.now();
     const oldHash = await hashToken(input.sessionToken);
-    const row = await findGuestSessionGrant(deps.db, {
+    const row = await findGuestSessionRotationGrant(deps.db, {
       artifactId: input.artifactId,
       at: at.toISOString(),
       tokenHash: oldHash,
@@ -72,6 +73,9 @@ export const createGuestSessionLifecycle = (deps: {
     const expiresAt = new Date(
       at.getTime() + GUEST_SESSION_SECONDS * 1000
     ).toISOString();
+    const previousValidUntil = new Date(
+      at.getTime() + GUEST_PREVIOUS_TOKEN_GRACE_SECONDS * 1000
+    ).toISOString();
     if (deps.guestsOff()) {
       throw refused();
     }
@@ -83,6 +87,7 @@ export const createGuestSessionLifecycle = (deps: {
           expiresAt,
           grantExpiresAt: grant.expiresAt,
           oldHash,
+          previousValidUntil,
           role: grant.role,
           sessionId: row.sessionId,
           tokenHash: credential.hash,
@@ -96,22 +101,27 @@ export const createGuestSessionLifecycle = (deps: {
         }),
         ...(metadata
           ? [
-              deps.db.insert(artifactViews).values({
-                artifactId: row.artifactId,
-                asn: metadata.asn,
-                asOrg: metadata.asOrg,
-                city: metadata.city,
-                country: metadata.country,
-                createdAt: at.toISOString(),
-                guestId: row.guestId,
-                id: ulid(),
-                ipPrefix: metadata.ipPrefix,
-                outcome: "ok",
-                referrerHost: metadata.referrerHost,
-                region: metadata.region,
-                surface: "guest",
-                userAgent: metadata.userAgent,
-                workspaceId: row.workspaceId,
+              guestViewOnRotation(deps.db, {
+                oldHash,
+                sessionId: row.sessionId,
+                tokenHash: credential.hash,
+                view: {
+                  artifactId: row.artifactId,
+                  asn: metadata.asn,
+                  asOrg: metadata.asOrg,
+                  city: metadata.city,
+                  country: metadata.country,
+                  createdAt: at.toISOString(),
+                  guestId: row.guestId,
+                  id: ulid(),
+                  ipPrefix: metadata.ipPrefix,
+                  outcome: "ok",
+                  referrerHost: metadata.referrerHost,
+                  region: metadata.region,
+                  surface: "guest",
+                  userAgent: metadata.userAgent,
+                  workspaceId: row.workspaceId,
+                },
               }),
             ]
           : []),
@@ -132,6 +142,7 @@ export const createGuestSessionLifecycle = (deps: {
       if (SESSION.test(input.sessionToken)) {
         await deps.atomic([
           deleteGuestSessionStatement(deps.db, {
+            at: deps.clock.now().toISOString(),
             tokenHash: await hashToken(input.sessionToken),
             workspaceId: input.workspaceId,
           }),
