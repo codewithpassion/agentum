@@ -51,12 +51,12 @@ export const freshMember = async (
   });
 };
 
-/** Clerk reads only the URL and headers. Building from the original request
+/** Clerk reads the URL, method and headers, not the body. Building from the original request
  * would consume its body, and the export route authenticates again later. */
 export const clerkRequest = (request: Request, cookie: string) => {
   const headers = new Headers(request.headers);
   headers.set("Cookie", cookie);
-  return new Request(request.url, { headers });
+  return new Request(request.url, { headers, method: request.method });
 };
 
 /** Replays the original credential through its real verifier; claims never

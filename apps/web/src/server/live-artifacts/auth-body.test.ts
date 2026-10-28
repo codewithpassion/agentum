@@ -11,6 +11,7 @@ test("the Clerk request carries no body, so the original stays readable", async 
   const second = clerkRequest(post, "a=b");
   for (const request of [first, second]) {
     expect(request.body).toBeNull();
+    expect(request.method).toBe("POST");
     expect(request.headers.get("Cookie")).toBe("a=b");
   }
   expect(post.bodyUsed).toBe(false);
