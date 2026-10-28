@@ -1217,6 +1217,7 @@ export class Deck {
       if (canonical(this.codec.serialize(xml)) !== canonical(nodes)) {
         xml.delete(0, xml.length);
         this.codec.parse(nodes, xml);
+        seedEmptyParagraphs(xml);
       }
     }
   }
@@ -2201,6 +2202,14 @@ export class Deck {
     this.validateContent(final);
     this.commitSlide(final);
     return result;
+  }
+}
+/** ProseMirror creates a paragraph's text node on the first keystroke. Writers who each type first at the same moment would create two text nodes, and the editor binding then drops one writer's text. An empty text node written here is shared by everyone from the start. */
+function seedEmptyParagraphs(fragment: YXmlFragment) {
+  for (const child of fragment.toArray()) {
+    if (child instanceof YXmlFragment && child.length === 0) {
+      child.insert(0, [new YXmlText()]);
+    }
   }
 }
 export function generateKeyBetween(

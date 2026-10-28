@@ -4,7 +4,7 @@ import { Deck } from "@repo/live-deck";
 import { richTextCodec } from "@repo/live-deck/rich-text";
 import { Editor } from "@tiptap/core";
 import { Window } from "happy-dom";
-import { Doc, encodeStateAsUpdate, encodeStateVector } from "yjs";
+import { Doc, encodeStateAsUpdate, encodeStateVector, XmlFragment } from "yjs";
 import { scenePoint, transformPatches } from "./geometry";
 import {
   buildSteps,
@@ -490,4 +490,101 @@ test("two mounted cell bindings preserve the peer's text through local undo and 
     b.destroy();
     f.destroy();
   }
+});
+
+function raceFixture(unseeded: boolean) {
+  const authority = new Deck(new Doc(), richTextCodec);
+  authority.setTheme({ colors: {}, fonts: {}, sizes: {} });
+  const slide = emptySlide(authority);
+  authority.addSlide(slide);
+  const table = newElement(slide, "table");
+  table.cells = Object.fromEntries(
+    Object.entries(table.cells ?? {}).filter(([key]) => key !== "0:0")
+  );
+  authority.addElement(slide.id, table);
+  const left = new Deck(new Doc(), richTextCodec);
+  const right = new Deck(new Doc(), richTextCodec);
+  left.applyUpdate(encodeStateAsUpdate(authority.doc));
+  right.applyUpdate(encodeStateAsUpdate(authority.doc));
+  authority.setCell(slide.id, table.id, "0:0", [
+    { attrs: {}, children: [], tag: "p" },
+  ]);
+  if (unseeded) {
+    // The shape a cell had before empty paragraphs carried a shared text node.
+    const paragraph = authority.cellFragment(slide.id, table.id, "0:0").get(0);
+    if (paragraph instanceof XmlFragment) {
+      paragraph.delete(0, paragraph.length);
+    }
+  }
+  left.applyUpdate(encodeStateAsUpdate(authority.doc));
+  right.applyUpdate(encodeStateAsUpdate(authority.doc));
+  const open = (deck: Deck) =>
+    new Editor({
+      extensions: deckTextExtensions(
+        deck.cellFragment(slide.id, table.id, "0:0")
+      ),
+    });
+  const sync = () => {
+    const toRight = encodeStateAsUpdate(left.doc, encodeStateVector(right.doc));
+    const toLeft = encodeStateAsUpdate(right.doc, encodeStateVector(left.doc));
+    right.applyUpdate(toRight);
+    left.applyUpdate(toLeft);
+  };
+  return { left, open, right, sync };
+}
+function typeConcurrently(unseeded: boolean, every: number, first: number) {
+  const f = raceFixture(unseeded);
+  const a = f.open(f.left);
+  const b = f.open(f.right);
+  try {
+    const left = [..."Cell Alice"];
+    const right = [..."Cell Bob"];
+    let step = 0;
+    a.commands.focus("end");
+    b.commands.focus("end");
+    while (left.length > 0 || right.length > 0) {
+      const l = left.shift();
+      const r = right.shift();
+      if (l) {
+        a.commands.insertContent(l);
+      }
+      if (r) {
+        b.commands.insertContent(r);
+      }
+      step += 1;
+      if (step >= first && (step - first) % every === 0) {
+        f.sync();
+      }
+    }
+    f.sync();
+    f.sync();
+    return [a.getText(), b.getText()];
+  } finally {
+    a.destroy();
+    b.destroy();
+    f.left.destroy();
+    f.right.destroy();
+  }
+}
+const typedChars = [..."Cell AliceCell Bob"].sort().join("");
+/** Every schedule of when the two writers see each other's keystrokes. */
+function lostTextSchedules(unseeded: boolean) {
+  const lost: string[] = [];
+  for (let first = 1; first <= 4; first += 1) {
+    for (let every = 1; every <= 4; every += 1) {
+      const [a, b] = typeConcurrently(unseeded, every, first);
+      const whole = (text?: string) =>
+        [...(text ?? "")].sort().join("") === typedChars;
+      if (!(whole(a) && a === b)) {
+        lost.push(`${first}/${every}`);
+      }
+    }
+  }
+  return lost;
+}
+test("two writers typing first into the same new table cell keep every character", () => {
+  expect(lostTextSchedules(false)).toEqual([]);
+});
+test("a cell without a shared text node loses concurrent first typing", () => {
+  expect(lostTextSchedules(true).length).toBeGreaterThan(0);
 });

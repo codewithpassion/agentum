@@ -98,12 +98,26 @@ const frame = (type: number, payload: Uint8Array, subtype?: number) => {
   writeVarUint8Array(encoder, payload);
   return toUint8Array(encoder);
 };
+// Blob and embed references are UTF-8 strings inside the update bytes. Only an
+// update that carries one needs a fresh ownership manifest before it applies.
+const BLOB_MARKERS = ["/files/", "artifact:"].map((marker) =>
+  new TextEncoder().encode(marker)
+);
+const mentionsBlob = (update: Uint8Array) =>
+  BLOB_MARKERS.some((marker) => {
+    for (let at = 0; at + marker.length <= update.length; at += 1) {
+      if (marker.every((byte, index) => update[at + index] === byte)) {
+        return true;
+      }
+    }
+    return false;
+  });
 export interface RoomOptions {
   /** Called after authenticated WebSocket upgrade, before policy HTTP reads. */
   admitted?: () => void;
   failed: (message: string) => void;
   join: () => Promise<LiveJoinResult>;
-  /** Refresh verified ownership before applying every room update. */
+  /** Fetch verified ownership. Runs before the first sync and any blob-bearing update, and in the background otherwise. */
   policy: () => Promise<ReadonlySet<string> | RoomPolicy>;
   ready: (room: TicketedDeckRoom) => void;
   roleChanged: (role: EditorRole) => void;
@@ -163,6 +177,12 @@ export class TicketedDeckRoom {
   }>();
   private presentationQueue: Promise<void> = Promise.resolve();
   private applying = false;
+  private readonly refresh = {
+    applied: 0,
+    issued: 0,
+    queued: false,
+    running: false,
+  };
   private receiving = Promise.resolve();
   private connectionTimer?: ReturnType<typeof setTimeout>;
   private readonly options: RoomOptions;
@@ -426,7 +446,13 @@ export class TicketedDeckRoom {
     if (subtype !== 1 && subtype !== 2) {
       throw new Error("Unknown deck frame");
     }
-    if (!(await this.refreshPolicy())) {
+    if (this.lifecycle.synced && !mentionsBlob(update)) {
+      // Edits that reference no blob apply from the cached policy without a
+      // network round trip. The policy refreshes in the background.
+      this.scheduleRefresh();
+    } else if (!(await this.refreshPolicy())) {
+      // The first sync, and any update that references a blob, waits for a
+      // verified manifest before content lands.
       return;
     }
     this.applying = true;
@@ -443,22 +469,40 @@ export class TicketedDeckRoom {
       clearTimeout(this.connectionTimer);
       this.lifecycle.synced = true;
       this.options.ready(this);
-      this.policyTimer = setInterval(() => {
-        this.receiving = this.receiving
-          .then(async () => {
-            if (!this.lifecycle.disposed && (await this.refreshPolicy())) {
-              this.publishPolicy();
-            }
-          })
-          .catch((error: unknown) => this.fail(error));
-      }, 30_000);
+      this.policyTimer = setInterval(() => this.scheduleRefresh(), 30_000);
     }
   }
+  /** Coalesces refreshes: at most one in flight, one more queued behind it. */
+  private scheduleRefresh() {
+    if (this.refresh.running) {
+      this.refresh.queued = true;
+      return;
+    }
+    this.refresh.running = true;
+    this.refreshPolicy()
+      .then((fresh) => {
+        if (fresh) {
+          this.publishPolicy();
+        }
+      })
+      .catch((error: unknown) => this.fail(error))
+      .finally(() => {
+        this.refresh.running = false;
+        if (this.refresh.queued && !this.lifecycle.disposed) {
+          this.refresh.queued = false;
+          this.scheduleRefresh();
+        }
+      });
+  }
   private async refreshPolicy() {
+    this.refresh.issued += 1;
+    const ticket = this.refresh.issued;
     const manifest = await this.options.policy();
-    if (this.lifecycle.disposed) {
+    // A response older than one already applied must not overwrite it.
+    if (this.lifecycle.disposed || ticket < this.refresh.applied) {
       return false;
     }
+    this.refresh.applied = ticket;
     if ("ownBlobUrls" in manifest) {
       this.policy.ownBlobUrls = new Set(manifest.ownBlobUrls);
     } else {
