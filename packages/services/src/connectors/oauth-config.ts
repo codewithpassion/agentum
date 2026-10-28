@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   type AuthorizationServerMetadata,
   isGoogleAuthorizationEndpoint,
+  isGoogleTokenEndpoint,
   type ProtectedResourceMetadata,
 } from "./oauth.ts";
 
@@ -45,12 +46,25 @@ export interface SharedGoogleClient {
 
 /** Whether the shared Google client stands in for a client on this server. */
 export const sharedClientApplies = (
-  config: Pick<OAuthConfig, "authorizationEndpoint" | "client">,
+  config: Pick<
+    OAuthConfig,
+    "authorizationEndpoint" | "client" | "tokenEndpoint"
+  >,
   shared: SharedGoogleClient | undefined
 ): boolean =>
   shared !== undefined &&
   config.client?.source !== "manual" &&
-  isGoogleAuthorizationEndpoint(config.authorizationEndpoint);
+  onGoogle(config);
+
+/**
+ * Both endpoints must be Google's: the server's own discovery picks them, and
+ * the shared secret is sent to the token endpoint.
+ */
+export const onGoogle = (
+  config: Pick<OAuthConfig, "authorizationEndpoint" | "tokenEndpoint">
+): boolean =>
+  isGoogleAuthorizationEndpoint(config.authorizationEndpoint) &&
+  isGoogleTokenEndpoint(config.tokenEndpoint);
 
 /** The stored config, or null when there is none or it does not parse. */
 export const parseOAuthConfig = (raw: string | null): OAuthConfig | null => {

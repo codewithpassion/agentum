@@ -260,7 +260,10 @@ const oauthSummary = (
         canRegister:
           config.registrationEndpoint !== null ||
           sharedClientApplies(config, shared),
-        clientConfigured: config.client !== null,
+        // A shared client only counts while the deployment still has one.
+        clientConfigured:
+          config.client !== null &&
+          !(config.client.source === "shared" && shared === undefined),
       }
     : null;
 };

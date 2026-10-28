@@ -44,6 +44,7 @@ import {
   configFromDiscovery,
   type OAuthClient,
   type OAuthConfig,
+  onGoogle,
   parseOAuthConfig,
   type SharedGoogleClient,
   sharedClientApplies,
@@ -263,7 +264,8 @@ export const createConnectorOAuthService = ({
   };
 
   /**
-   * The client to authorise with. A typed-in client stays. A registered one is
+   * The client to authorise with. A typed-in client stays. On Google the
+   * deployment's shared client stands in when one is set. A registered one is
    * kept while its redirect URI is still this app's; otherwise (or when there
    * is none) the server is asked to register one.
    */
@@ -455,6 +457,9 @@ export const createConnectorOAuthService = ({
     }
     const config = parseOAuthConfig(connector.oauth);
     if (!config?.client) {
+      throw invalid("This connector has no OAuth client. Start again.");
+    }
+    if (config.client.source === "shared" && !onGoogle(config)) {
       throw invalid("This connector has no OAuth client. Start again.");
     }
 

@@ -43,7 +43,7 @@ import { z } from "zod";
 import { decodeAllowedTools } from "./connectors/allowed-tools.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
 import { OAuthTokenError, refreshTokens } from "./connectors/oauth.ts";
-import { parseOAuthConfig } from "./connectors/oauth-config.ts";
+import { onGoogle, parseOAuthConfig } from "./connectors/oauth-config.ts";
 import { InvalidConnectorUrlError } from "./connectors/url.ts";
 import { decryptSecret, encryptSecret, importSecretsKey } from "./crypto.ts";
 import type { Clock } from "./runs/types.ts";
@@ -396,9 +396,11 @@ export const createCredentialsService = ({
     const old = await openSecret(row, connector);
     const config =
       connector.authKind === "oauth" ? parseOAuthConfig(connector.oauth) : null;
-    const client = config
-      ? await clientCredentials(connector, config.client)
-      : null;
+    // The shared Google secret goes only to Google's token endpoint.
+    const client =
+      config && !(config.client?.source === "shared" && !onGoogle(config))
+        ? await clientCredentials(connector, config.client)
+        : null;
     if (!(config && client && old.refreshToken)) {
       return await markRefused();
     }

@@ -645,6 +645,7 @@ const addGoogleConnector = async () => {
         ...config,
         authorizationEndpoint: GOOGLE_AUTHORIZE,
         registrationEndpoint: null,
+        tokenEndpoint: "https://oauth2.googleapis.com/token",
       }),
     })
     .run();
@@ -740,4 +741,60 @@ test("a server that is not Google ignores the shared client", async () => {
   expect(new URL(authorizeUrl).searchParams.get("client_id")).not.toBe(
     SHARED_GOOGLE.clientId
   );
+});
+
+const googleWithTokenEndpoint = async (tokenEndpoint: string) => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  const [row] = await db.select().from(connectors).all();
+  const config = parseOAuthConfig(row?.oauth ?? null);
+  await db
+    .update(connectors)
+    .set({ oauth: JSON.stringify({ ...config, tokenEndpoint }) })
+    .run();
+  return connector.id;
+};
+
+test("the shared client is not used when the token endpoint is not Google's", async () => {
+  const id = await googleWithTokenEndpoint("https://evil.example/token");
+  await expect(startAs(id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+  const [row] = await db.select().from(connectors).all();
+  expect(row?.oauth).not.toContain("shared");
+});
+
+test("the shared client is not used for a lookalike token host", async () => {
+  const id = await googleWithTokenEndpoint(
+    "https://oauth2.googleapis.com.evil.example/token"
+  );
+  await expect(startAs(id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+});
+
+test("a lookalike authorization host does not get the shared client", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  const [row] = await db.select().from(connectors).all();
+  const config = parseOAuthConfig(row?.oauth ?? null);
+  await db
+    .update(connectors)
+    .set({
+      oauth: JSON.stringify({
+        ...config,
+        authorizationEndpoint: "https://accounts.google.com.evil.example/auth",
+      }),
+    })
+    .run();
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+});
+
+test("a stored shared client stops counting once the deployment drops it", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  await startAs(connector.id);
+  build();
+  const [summary] = await connectorsService.list(dom);
+  expect(summary?.oauth).toEqual({
+    canRegister: false,
+    clientConfigured: false,
+  });
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
 });
