@@ -35,3 +35,4 @@ Dom authorised on 28 Oct 2026, staging only:
 - 2026-10-28: LR.9, LR.10, LR.11 merged; round 3 dispatched.
 - 2026-10-28: round 3 merged (51f7babe): 13 pass, 3 fail (server authorize per frame and admissions: LR.14; deck toolbar 33px: LR.12), needs-Dom 5. NO-GO.
 - 2026-10-29: LR.12, LR.13, LR.14 merged; round 4 dispatched.
+- 2026-10-29: round 4 merged (456d4f49): latency passes (doc/deck median <500 ms, max <1.4 s); fails: 8 admissions 13.3 s (LR.15), deck controls 33px (LR.16), revocation 1.2-1.9 s vs the controller's 1 s bar (the spec's deadline is 5 s, so accepted). Side bug: private artifact grant page (LR.16). NO-GO.
