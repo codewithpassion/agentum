@@ -22,7 +22,7 @@ Fixes A1 to A3 of review A in `LR.3.md`.
 
 Round 1 (1163155e, Sonnet reviewer): not clean, one must-fix. After compaction, a deleted fragment under a live parent stays an Item with dropped content, not a collected struct, so `fragmentFor` rejected it and the deck could not reload (snapshot written by `persistCompaction` would not load after a restart). An editor could trigger it by replacing a text element's fragment. Fixed in the fix commit: `wasCollected` accepts both forms, with a reload test that fails without the fix. The reviewer also showed the cap-overflow probe compacted a copy that already held the update, so ancestry the update used stayed alive and the probe could pass where the real retry fails. The probe now compacts the copy before applying the change, matching the real path.
 
-Round 2: see below.
+Round 2 (40a38911, fix commit only): clean. Two nits left: no test pins that a root holding payload pointing at a collected item is still rejected (the reviewer probed it by hand), and the probe stages with pre-compaction `live` and `size`, so it could admit an update the real retry then rejects after a harmless compaction.
 
 ## Checks
 
