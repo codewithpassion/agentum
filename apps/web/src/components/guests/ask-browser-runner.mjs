@@ -640,7 +640,10 @@ try {
               await response.text();
               return response.status;
             }, id);
-            assert.equal(status, retainLock ? 200 : 404);
+            // The original helper commits a rotation whose response never
+            // reaches the browser. The previous token recovers it once, so the
+            // session survives either way (LR.1).
+            assert.equal(status, 200);
             checks += 2;
             console.log(
               JSON.stringify({
@@ -652,9 +655,10 @@ try {
           }
           await page.unroute(probeUrl);
           await navigate(`${base}/g/a/${id}`);
+          await expect(composer).toBeVisible();
           await expect(
             page.getByText("This invite has ended", { exact: true })
-          ).toBeVisible();
+          ).toHaveCount(0);
           checks += 1;
         }
         await context.close();

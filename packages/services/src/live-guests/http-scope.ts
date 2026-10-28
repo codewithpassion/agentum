@@ -2,7 +2,7 @@
 import type { Database } from "@repo/db";
 import { artifacts } from "@repo/db/schema/artifacts";
 import { guestInvites, guestSessions } from "@repo/db/schema/live-artifacts";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { hashToken } from "../crypto.ts";
 
 const INVITATION = /^hm_invite_[A-Za-z0-9_-]{43}$/;
@@ -32,10 +32,16 @@ export const createGuestScopeDiscovery = (db: Database) => ({
     if (!SESSION.test(token)) {
       return null;
     }
+    const hash = await hashToken(token);
     const [row] = await db
       .select({ workspaceId: guestSessions.workspaceId })
       .from(guestSessions)
-      .where(eq(guestSessions.tokenHash, await hashToken(token)))
+      .where(
+        or(
+          eq(guestSessions.tokenHash, hash),
+          eq(guestSessions.previousTokenHash, hash)
+        )
+      )
       .limit(1);
     return row?.workspaceId ?? null;
   },
