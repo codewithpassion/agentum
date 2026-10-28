@@ -75,10 +75,3 @@
     grid-column: 1 / -1;
   }
 }
-
-@media (max-width: 640px) {
-  .live-deck-page > header a {
-    display: inline-flex;
-    align-items: center;
-  }
-}

@@ -109,7 +109,7 @@ export interface RoomOptions {
   admitted?: () => void;
   failed: (message: string) => void;
   join: () => Promise<LiveJoinResult>;
-  /** Refresh verified ownership before applying every room update. */
+  /** Fetch verified ownership. Runs before the first sync and any blob-bearing update, and in the background otherwise. */
   policy: () => Promise<ReadonlySet<string> | RoomPolicy>;
   ready: (room: TicketedRoom) => void;
   roleChanged: (role: EditorRole) => void;
@@ -139,7 +139,12 @@ export class TicketedRoom {
     disposed: false,
     synced: false,
   };
-  private readonly refresh = { queued: false, running: false };
+  private readonly refresh = {
+    applied: 0,
+    issued: 0,
+    queued: false,
+    running: false,
+  };
   private receiving = Promise.resolve();
   // An explicit ask/comment attachment survives the editor cursor plugin's blur
   // updates. Only clearSelection consumes it; ordinary caret presence stays live.
@@ -401,10 +406,14 @@ export class TicketedRoom {
       });
   }
   private async refreshPolicy() {
+    this.refresh.issued += 1;
+    const ticket = this.refresh.issued;
     const manifest = await this.options.policy();
-    if (this.lifecycle.disposed) {
+    // A response older than one already applied must not overwrite it.
+    if (this.lifecycle.disposed || ticket < this.refresh.applied) {
       return false;
     }
+    this.refresh.applied = ticket;
     if ("ownBlobUrls" in manifest) {
       this.policy.ownBlobUrls = new Set(manifest.ownBlobUrls);
       this.agentChanges = manifest.agentChanges ?? [];
