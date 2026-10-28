@@ -379,9 +379,10 @@
     max-height: 200px;
     overflow: auto;
   }
-  .ld-toolbar button,
-  .ld-toolbar select,
-  .ld-toolbar input {
+  .ld-editor button,
+  .ld-editor select,
+  .ld-editor input,
+  .ld-editor textarea {
     min-height: 40px;
   }
   .ld-inspector {
