@@ -29,3 +29,4 @@ Dom authorised on 28 Oct 2026, staging only:
 
 ## Log
 - 2026-10-28: created; dispatched.
+- 2026-10-28: round 1 merged (126cea34): 3 pass, 4 fail (one cause, LR.8), 1 needs-Dom. NO-GO. Prod lacks ARTIFACT_VIEW_KEY secret.
