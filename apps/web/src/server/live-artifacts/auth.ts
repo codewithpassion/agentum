@@ -21,10 +21,14 @@ export const freshMember = async (
   workspaceId: string,
   userId: string
 ) => {
-  const orgId = await requiredLive(composed.services).roomOrgId(
-    SYSTEM_PRINCIPAL,
-    workspaceId
-  );
+  // The membership list is keyed by user, so it runs beside the org lookup.
+  const [orgId, memberships] = await Promise.all([
+    requiredLive(composed.services).roomOrgId(SYSTEM_PRINCIPAL, workspaceId),
+    requestClerk(env).users.getOrganizationMembershipList({
+      limit: 100,
+      userId,
+    }),
+  ]);
   if (
     !(
       orgId &&
@@ -35,11 +39,6 @@ export const freshMember = async (
   ) {
     return null;
   }
-  const clerk = requestClerk(env);
-  const memberships = await clerk.users.getOrganizationMembershipList({
-    limit: 100,
-    userId,
-  });
   const membership = memberships.data.find((m) => m.organization.id === orgId);
   if (!membership) {
     return null;
@@ -60,15 +59,17 @@ export const clerkRequest = (request: Request, cookie: string) => {
 };
 
 /** Replays the original credential through its real verifier; claims never
- * substitute for a credential. The stored reference is private to the room. */
-export const authenticateRoomRequest = async (
+ * substitute for a credential. The stored reference is private to the room.
+ * `sessionId` is set for a cookie sign-in, so a caller that stores the session
+ * does not authenticate the request a second time. */
+export const authenticateRoomMember = async (
   env: Env,
   composed: Composed,
   request: Request
-): Promise<Principal | null> => {
+): Promise<{ principal: Principal; sessionId?: string } | null> => {
   const clerk = requestClerk(env);
   if (request.headers.has("Authorization")) {
-    return authenticateBearer(
+    const principal = await authenticateBearer(
       { composed, env },
       {
         clientName: (e) => clerkOAuthClientName(e.CLERK_SECRET_KEY),
@@ -80,6 +81,7 @@ export const authenticateRoomRequest = async (
       },
       request.headers.get("Authorization")
     );
+    return principal ? { principal } : null;
   }
   if (!request.headers.has("Cookie")) {
     return null;
@@ -102,16 +104,32 @@ export const authenticateRoomRequest = async (
   if (!(auth?.userId && auth.orgId && auth.sessionId)) {
     return null;
   }
-  const session = await clerk.sessions.getSession(auth.sessionId);
+  const { orgId, orgRole, sessionId, userId } = auth;
+  // The session check and the member check do not depend on each other.
+  const [session, member] = await Promise.all([
+    clerk.sessions.getSession(sessionId),
+    (async () => {
+      const principal = await composed.services.workspaces.sessionPrincipal({
+        orgId,
+        orgRole,
+        userId,
+      });
+      return principal
+        ? freshMember(env, composed, principal.workspaceId, principal.userId)
+        : null;
+    })(),
+  ]);
   if (session.status !== "active" || session.expireAt <= Date.now()) {
     return null;
   }
-  const principal = await composed.services.workspaces.sessionPrincipal({
-    orgId: auth.orgId,
-    orgRole: auth.orgRole,
-    userId: auth.userId,
-  });
-  return principal
-    ? freshMember(env, composed, principal.workspaceId, principal.userId)
-    : null;
+  return member ? { principal: member, sessionId } : null;
+};
+
+export const authenticateRoomRequest = async (
+  env: Env,
+  composed: Composed,
+  request: Request
+): Promise<Principal | null> => {
+  const member = await authenticateRoomMember(env, composed, request);
+  return member ? member.principal : null;
 };
