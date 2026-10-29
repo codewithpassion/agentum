@@ -3,7 +3,7 @@ id: LR.18
 title: Create document from the artifacts page, like Create deck
 milestone: LR
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/LR.18-create-document-ui
 lane: web
@@ -23,3 +23,4 @@ Dom, 29 Oct 2026: the production smoke test found a "Create deck" action on `/ar
 
 ## Log
 - 2026-10-29: created; dispatched.
+- 2026-10-29: merged at 40ef524e, review clean. No delete/archive exists for decks or documents.
