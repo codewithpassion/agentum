@@ -3,7 +3,7 @@ id: LR.7
 title: Finish staging acceptance and write the production deploy plan
 milestone: LR
 size: L
-status: in_progress
+status: done
 depends_on: [LR.4, LR.5]
 branch: task/LR.7-staging-acceptance
 lane: ops
@@ -38,3 +38,4 @@ Dom authorised on 28 Oct 2026, staging only:
 - 2026-10-29: round 4 merged (456d4f49): latency passes (doc/deck median <500 ms, max <1.4 s); fails: 8 admissions 13.3 s (LR.15), deck controls 33px (LR.16), revocation 1.2-1.9 s vs the controller's 1 s bar (the spec's deadline is 5 s, so accepted). Side bug: private artifact grant page (LR.16). NO-GO.
 - 2026-10-29: LR.15, LR.16 merged; round 5 dispatched.
 - 2026-10-29: round 5 merged (1a0c2a7f): 14 pass, 1 fail (8 concurrent joins 7.4 s, LR.17, non-blocking). Prod: D1 migrations 0024-0034 applied by controller (pre-migration bookmark in tmp/controller/prod-rollback.txt); Worker deploy blocked by auto-mode, left to Dom.
+- 2026-10-29: production deployed by controller at Dom's request: version 6ada88a2 (main 9880f601), migrations 0024-0034 applied; /api/health and / 200. Signed-in smoke test dispatched.
