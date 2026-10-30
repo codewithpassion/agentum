@@ -13,7 +13,7 @@ import {
 import { getTrpc } from "#/integrations/trpc/client";
 import { freshIds, stableOrder } from "./stable-order.ts";
 
-export const SCOPE_STORAGE_KEY = "hm:rail-scope";
+const SCOPE_STORAGE_KEY = "hm:rail-scope";
 
 interface Loaded {
   scope: RailScope;
@@ -106,10 +106,12 @@ export function useRail(scope: RailScope | null, openId: string | null) {
     setShown({ fresh: freshIds(previousIds, items), items, source: data });
   }
 
+  // Until the other scope's answer arrives, the rail shows it as loading.
+  const current = data?.scope === scope ? data : null;
   return {
     error,
     fresh: shown.fresh,
-    needsYou: shown.items,
-    view: data?.view ?? null,
+    needsYou: current === null ? [] : shown.items,
+    view: current?.view ?? null,
   };
 }

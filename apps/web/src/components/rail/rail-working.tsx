@@ -23,10 +23,13 @@ function WorkingRow({
     >
       <span
         aria-hidden="true"
-        className="size-[7px] shrink-0 animate-pulse rounded-full bg-muted-foreground/40 [animation-duration:1.8s]"
+        className="size-[7px] shrink-0 animate-pulse rounded-full bg-muted-foreground/40 [animation-duration:1.8s] motion-reduce:animate-none"
       />
-      <span className="truncate">{run.title}</span>
-      <span className="ml-auto hidden shrink-0 text-xs group-hover/working:inline">
+      <span className="truncate">
+        {run.title}
+        {run.passedOnBy === null ? "" : `, passed on by ${run.passedOnBy}`}
+      </span>
+      <span className="ml-auto hidden shrink-0 text-xs group-hover/working:inline group-focus-visible/working:inline">
         {run.status}
       </span>
     </RailLink>

@@ -32,16 +32,22 @@ const SECTION_HEADING_CLASS =
 
 /** The item the main pane has open, from `/desk?item=...`. */
 function useOpenItemId(): string | null {
-  const search = useRouterState({ select: (state) => state.location.search });
-  const { item } = search as { item?: unknown };
-  return typeof item === "string" ? item : null;
+  const location = useRouterState({ select: (state) => state.location });
+  const { item } = location.search as { item?: unknown };
+  return location.pathname === "/desk" && typeof item === "string"
+    ? item
+    : null;
 }
 
 /** Ctrl+K or Cmd+K toggles Find from anywhere in the app. */
 function useFindShortcut(toggle: () => void) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !(event.shiftKey || event.altKey || event.repeat) &&
+        event.key.toLowerCase() === "k"
+      ) {
         event.preventDefault();
         toggle();
       }
@@ -62,20 +68,25 @@ export function Rail({ agents, pinned = [] }: RailProps) {
   const { setOpenMobile } = useSidebar();
   const { organization } = useOrganization();
   const openId = useOpenItemId();
-  const { scope, setScope } = useRailScope();
-  const { error, fresh, needsYou, view } = useRail(scope, openId);
+  const { scope: chosenScope, setScope } = useRailScope();
   const { data: members } = usePolledQuery(
     () => getTrpc().members.list.query(),
     null,
     MEMBERS_POLL_MS
   );
+  // A one-person workspace has no toggle, so a stored Everyone must not stick.
+  const scope = members?.length === 1 ? "mine" : chosenScope;
+  const { error, fresh, needsYou, view } = useRail(scope, openId);
   const [findOpen, setFindOpen] = useState(false);
 
   const closeMobileNav = useCallback(
     () => setOpenMobile(false),
     [setOpenMobile]
   );
-  const toggleFind = useCallback(() => setFindOpen((was) => !was), []);
+  const toggleFind = useCallback(() => {
+    setOpenMobile(false);
+    setFindOpen((was) => !was);
+  }, [setOpenMobile]);
   const openFind = useCallback(() => {
     setOpenMobile(false);
     setFindOpen(true);

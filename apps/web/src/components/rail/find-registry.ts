@@ -16,7 +16,7 @@ import {
   Sparkles,
   Webhook,
 } from "lucide-react";
-import { settingsNav } from "../settings/settings-nav.ts";
+import { settingsNav } from "#/components/settings/settings-nav.ts";
 
 export interface FindEntry {
   group: string;

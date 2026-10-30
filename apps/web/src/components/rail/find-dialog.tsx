@@ -22,7 +22,7 @@ function FindItem({
   entry,
   onPick,
 }: {
-  entry: Pick<FindEntry, "hint" | "label" | "to"> & { icon: FindEntry["icon"] };
+  entry: Omit<FindEntry, "group">;
   onPick: (to: string) => void;
 }) {
   const Icon = entry.icon;
@@ -31,7 +31,7 @@ function FindItem({
     <CommandItem
       keywords={entry.hint === undefined ? [] : [entry.hint]}
       onSelect={handleSelect}
-      value={entry.label}
+      value={`${entry.label} ${entry.to}`}
     >
       <Icon />
       <span className="flex-1">{entry.label}</span>
@@ -62,7 +62,7 @@ export function FindDialog({
   );
   return (
     <CommandDialog
-      description="Find an agent, a task or a setting"
+      description="Find an agent, a page or a setting"
       onOpenChange={onOpenChange}
       open={open}
       title="Find"

@@ -23,7 +23,7 @@ const SETUP_ROWS: Readonly<
 };
 
 const ROW_CLASS =
-  "block min-h-10 rounded-lg border border-border border-l-[3px] bg-card px-2.5 py-2 text-sm no-underline hover:border-input";
+  "block min-h-10 rounded-lg border border-border border-l-[3px] bg-card px-2.5 py-2 text-sm no-underline hover:bg-muted/50";
 
 function AgentTile({ name }: { name: string }) {
   return (
@@ -105,6 +105,9 @@ export function NeedsYouRow({
           <span className="font-medium text-primary">{due}</span>
         )}
         <span>{first.status}</span>
+        {first.passedOnBy === null ? null : (
+          <span>passed on by {first.passedOnBy}</span>
+        )}
         {extra === null ? null : (
           <span className="rounded-full bg-muted px-1.5">{extra}</span>
         )}
