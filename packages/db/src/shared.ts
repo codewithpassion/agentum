@@ -600,6 +600,8 @@ export const MAIL_APPROVAL_TTL_MS = 3 * 24 * 60 * 60_000;
 
 /** Window event: refetch the rail now. */
 export const RAIL_REFRESH_EVENT = "hm:rail-refresh";
+/** Window event: the stored Mine or Everyone choice changed outside the rail toggle. */
+export const RAIL_SCOPE_EVENT = "hm:rail-scope";
 
 export type RailScope = "mine" | "everyone";
 export type RailItemKind = NeedsYouKind | "problem";
@@ -620,6 +622,8 @@ export interface RailCard {
   agentId: string;
   agentName: string;
   at: string;
+  /** What the card is about, from the desk card's band: the version message, the skill name, the reply text. On a problem, the sentence that says what happened. */
+  detail: string;
   expiresAt: string | null;
   /** The source card's id, so request ids stay answerable. */
   id: string;

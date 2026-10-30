@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { inboxPosts } from "@repo/db/schema/inbox";
 import {
   agentMailboxes,
   mailMessages,
@@ -7,6 +8,7 @@ import {
 } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { skillVersions } from "@repo/db/schema/skills";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   APPROVAL_TTL_MS,
@@ -63,6 +65,8 @@ let agents: AgentsService;
 let requests: ReturnType<typeof createRequestsService>;
 let runs: ReturnType<typeof createRunsService>;
 let desk: ReturnType<typeof createDeskService>;
+let inbox: ReturnType<typeof createInboxService>;
+let skillsStore: ReturnType<typeof createSkillsStoreService>;
 let rail: ReturnType<typeof createRailService>;
 let a1: string;
 let a2: string;
@@ -142,7 +146,7 @@ beforeEach(async () => {
     db,
     events,
   });
-  const skillsStore = createSkillsStoreService({
+  skillsStore = createSkillsStoreService({
     atomic,
     blobs: memorySkillBlobs(),
     clock,
@@ -172,16 +176,17 @@ beforeEach(async () => {
         : Promise.resolve(memberList),
   });
   agents = createAgentsService({ db, events, members });
+  inbox = createInboxService({
+    atomic,
+    clock,
+    db,
+    events,
+    runs: { startRun: (principal, input) => runs.startRun(principal, input) },
+  });
   desk = createDeskService({
     clock,
     db,
-    inbox: createInboxService({
-      atomic,
-      clock,
-      db,
-      events,
-      runs: { startRun: (principal, input) => runs.startRun(principal, input) },
-    }),
+    inbox,
     people,
     requests,
     routines,
@@ -227,8 +232,12 @@ const setOwners = (
 ) => agents.setOwners(user("u1"), agentId, { backupUserId, ownerUserId });
 
 /** A real run that waits on an approval, as a person's chat would leave it. */
-const waitingOnApproval = async (agentId: string, toolKey = "bash") => {
-  const runId = await seed({ agentId, status: "waiting" });
+const waitingOnApproval = async (
+  agentId: string,
+  toolKey = "bash",
+  run: Partial<SeedRun> = {}
+) => {
+  const runId = await seed({ ...run, agentId, status: "waiting" });
   const request = await requests.open(system, {
     input: { command: "rm -rf build" },
     kind: "approval",
@@ -343,6 +352,7 @@ interface SeedRun {
   agentId?: string;
   finishedAt?: string;
   inputText?: string;
+  origin?: string;
   parentRunId?: string;
   private?: boolean;
   status: RunStatus;
@@ -360,7 +370,7 @@ const seed = async (o: SeedRun): Promise<string> => {
     agentId: o.agentId ?? a1,
     createdAt,
     id: `s-${id}`,
-    origin: "mcp",
+    origin: o.origin ?? "mcp",
     private: o.private ?? false,
     workspaceId: "w1",
   });
@@ -770,6 +780,103 @@ test("a run in another member's private session can't be dismissed and never sho
   expect((await view("everyone", user("u2"))).needsYou).toHaveLength(1);
 });
 
+/** Bob starts a waiting approval, a failed run and a running run on Alpha, in a session of the given kind. */
+const bobRunsOnAlpha = async (session: Pick<SeedRun, "origin" | "private">) => {
+  const approval = await waitingOnApproval(a1, "bash", {
+    ...session,
+    userId: "u2",
+  });
+  const failed = await seed({
+    agentId: a1,
+    finishedAt: new Date(NOW - HOUR).toISOString(),
+    status: "failed",
+    userId: "u2",
+    ...session,
+  });
+  const running = await seed({
+    agentId: a1,
+    status: "running",
+    userId: "u2",
+    ...session,
+  });
+  return { approval: approval.runId, failed, running };
+};
+
+const runIdsOf = (items: { cards: { runId: string | null }[] }[]) =>
+  items.flatMap((item) => item.cards.map((card) => card.runId)).sort();
+
+test.each([
+  ["a private", { private: true }],
+  ["a UI", { origin: "ui" }],
+] as const)(
+  "a run in the owner's agent from Bob's own %s session is in Bob's Mine only",
+  async (_kind, session) => {
+    await setOwners(a1, "u1");
+    const { approval, failed, running } = await bobRunsOnAlpha(session);
+
+    const [bobMine, bobEveryone, others] = await Promise.all([
+      view("mine", user("u2")),
+      view("everyone", user("u2")),
+      Promise.all(
+        (["u1", "u3"] as const).flatMap((userId) =>
+          (["mine", "everyone"] as const).map((scope) =>
+            view(scope, user(userId))
+          )
+        )
+      ),
+    ]);
+    for (const bob of [bobMine, bobEveryone]) {
+      expect(runIdsOf(bob.needsYou)).toEqual([approval, failed].sort());
+      expect(bob.working.map((row) => row.id)).toEqual([running]);
+    }
+    for (const other of others) {
+      expect(other.needsYou).toHaveLength(0);
+      expect(other.working).toHaveLength(0);
+    }
+    const ann = await view("mine", user("u1"));
+    expect(ann.counts).toEqual({ everyone: 0, mine: 0 });
+    expect((await view("mine", user("u2"))).counts).toEqual({
+      everyone: 2,
+      mine: 2,
+    });
+  }
+);
+
+test("a finished run in Bob's own private session counts in his Done today only", async () => {
+  await setOwners(a1, "u1");
+  await seed({
+    agentId: a1,
+    finishedAt: new Date(NOW - HOUR).toISOString(),
+    private: true,
+    status: "done",
+    userId: "u2",
+  });
+
+  expect((await view("mine", user("u2"))).doneToday).toBe(1);
+  expect((await view("everyone", user("u2"))).doneToday).toBe(1);
+  expect((await view("mine", user("u1"))).doneToday).toBe(0);
+  expect((await view("everyone", user("u1"))).doneToday).toBe(0);
+  expect((await view("mine", user("u3"))).doneToday).toBe(0);
+});
+
+test("a run in a shared session on Alpha stays in Ann's Mine, not Bob's", async () => {
+  await setOwners(a1, "u1");
+  const shared = await waitingOnApproval(a1, "bash", { userId: "u2" });
+
+  const ids = (items: { cards: { runId: string | null }[] }[]) =>
+    runIdsOf(items);
+  expect(ids((await view("mine", user("u1"))).needsYou)).toEqual([
+    shared.runId,
+  ]);
+  expect((await view("mine", user("u2"))).needsYou).toHaveLength(0);
+  expect(ids((await view("everyone", user("u2"))).needsYou)).toEqual([
+    shared.runId,
+  ]);
+  expect(ids((await view("everyone", user("u1"))).needsYou)).toEqual([
+    shared.runId,
+  ]);
+});
+
 test("a hand-off says who passed it on, by parent run or by agent actor", async () => {
   const parent = await seed({
     agentId: a1,
@@ -954,4 +1061,121 @@ test("only a user can read the agents overview", async () => {
   await expect(rail.agentsOverview(system)).rejects.toBeInstanceOf(
     ForbiddenError
   );
+});
+
+const TIDY_CONTENT =
+  "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n";
+const TIDY_SKILL = {
+  files: [{ content: TIDY_CONTENT, path: "SKILL.md" }],
+  message: "Add tidy",
+  name: "tidy",
+};
+
+test("a skill proposal's card carries the version message, a GitHub update's the skill name, a thread reply's its text", async () => {
+  const runId = await seed({ agentId: a1, status: "running" });
+  await skillsStore.create(
+    { agentId: a1, kind: "run", runId, workspaceId: "w1" },
+    TIDY_SKILL
+  );
+  const { skill } = await skillsStore.create(user(), {
+    ...TIDY_SKILL,
+    files: [
+      {
+        content: TIDY_CONTENT.replaceAll("tidy", "polish"),
+        path: "SKILL.md",
+      },
+    ],
+    name: "polish",
+  });
+  await db.insert(skillVersions).values({
+    authorId: "u1",
+    authorKind: "user",
+    createdAt: new Date(now).toISOString(),
+    id: "zz-update",
+    message: "Proposed update from GitHub",
+    number: 2,
+    parentNumber: 1,
+    skillId: skill.id,
+    sourceCommitSha: "b".repeat(40),
+    status: "proposed",
+    workspaceId: "w1",
+  });
+  const thread = await inbox.createThread(user(), { title: "Plans" });
+  await inbox.post(user(), { text: "Hello", threadId: thread.id });
+  await db.insert(inboxPosts).values({
+    authorId: a2,
+    authorKind: "agent",
+    createdAt: new Date(now + 1).toISOString(),
+    id: "zz-post",
+    text: "Here is the plan. Second sentence.",
+    threadId: thread.id,
+    workspaceId: "w1",
+  });
+
+  const cards = (await view("everyone")).needsYou.flatMap((item) => item.cards);
+  const details = new Map(cards.map((card) => [card.kind, card.detail]));
+
+  expect(cards.filter((card) => card.kind === "skill_proposal")).toHaveLength(
+    2
+  );
+  expect(cards.map((card) => card.detail)).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("Add tidy"),
+      expect.stringContaining("polish"),
+    ])
+  );
+  expect(details.get("inbox_reply")).toBe(
+    "Replied: Here is the plan. Second sentence."
+  );
+});
+
+test("a problem card says what happened: the address of a bounce, the agent of a failed run", async () => {
+  const failed = await seed({
+    finishedAt: new Date(NOW - HOUR).toISOString(),
+    status: "failed",
+  });
+  const bounced = await seed({
+    finishedAt: new Date(NOW - HOUR).toISOString(),
+    status: "done",
+  });
+  await db.insert(agentMailboxes).values({
+    address: "agent@example.com",
+    agentId: a1,
+    createdAt: new Date(NOW).toISOString(),
+    id: "boxP",
+    status: "active",
+    workspaceId: "w1",
+  });
+  await db.insert(mailThreads).values({
+    externalThreadId: "tp",
+    id: "threadP",
+    lastMessageAt: new Date(NOW).toISOString(),
+    mailboxId: "boxP",
+    subject: "Help",
+    workspaceId: "w1",
+  });
+  await db.insert(mailMessages).values({
+    ccAddresses: "[]",
+    createdAt: new Date(NOW - HOUR).toISOString(),
+    direction: "out",
+    externalMessageId: "outp",
+    fromAddress: '{"address":"agent@example.com"}',
+    id: "outp",
+    runId: bounced,
+    snippet: "",
+    status: "bounced",
+    subject: "Help",
+    threadId: "threadP",
+    toAddresses: '["gone@example.net"]',
+    workspaceId: "w1",
+  });
+
+  const byRun = new Map(
+    (await view("mine")).needsYou.map(
+      (item) => [item.id, item.cards[0]] as const
+    )
+  );
+
+  expect(byRun.get(bounced)?.detail).toBe("Mail to gone@example.net bounced");
+  expect(byRun.get(failed)?.detail).toBe("Alpha stopped before finishing");
 });

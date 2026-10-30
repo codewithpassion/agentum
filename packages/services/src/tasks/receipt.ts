@@ -1,5 +1,6 @@
 import type { ReceiptStep } from "@repo/db/shared";
 import type { EventRecord } from "../events.ts";
+import { runTitleText } from "../mail-title-text.ts";
 import type { RunRecord } from "../runs/types.ts";
 import {
   chips,
@@ -76,7 +77,12 @@ const addOrigin = (
   const title = run.parentRunId
     ? `Handoff from ${text(run.parentAgentName) || "another run"}`
     : `From ${ORIGINS[origin] ?? toolWords(origin)}`;
-  const first = addStep(ctx, "trigger", title, text(run.inputText));
+  const first = addStep(
+    ctx,
+    "trigger",
+    title,
+    runTitleText(text(run.inputText))
+  );
   if (queued) {
     first.eventIds.push(queued.id);
   }

@@ -11,12 +11,16 @@ import {
   cardView,
   deskCardOf,
   expiryNote,
+  findCard,
   howItGotHere,
+  isListed,
   itemAfterAnswer,
+  keepsSendError,
   nextItemId,
   pruneAnswered,
   selectItem,
   selectionId,
+  sendFailureText,
 } from "./pane-logic.ts";
 
 const NOW = Date.parse("2026-10-31T12:00:00.000Z");
@@ -35,6 +39,7 @@ const card = (overrides: Partial<RailCard> = {}): RailCard => ({
   agentId: "agent-1",
   agentName: "Ada",
   at: "2026-10-31T09:00:00.000Z",
+  detail: "",
   expiresAt: null,
   id: "card-1",
   kind: "question",
@@ -152,6 +157,79 @@ describe("selectItem", () => {
       "setup:ai_account"
     );
     expect(selectionId({ item: grouped, kind: "item" })).toBe("b1");
+  });
+});
+
+describe("isListed", () => {
+  const first = item(card({ id: "a1" }));
+  const grouped = item(card({ id: "b1" }), card({ id: "b2" }));
+  const listed = view([first, grouped], ["first_agent"]);
+
+  test("an item id, a card id inside an item and a setup id are listed", () => {
+    expect(isListed(listed, "a1")).toBe(true);
+    expect(isListed(listed, "b1")).toBe(true);
+    expect(isListed(listed, "b2")).toBe(true);
+    expect(isListed(listed, "setup:first_agent")).toBe(true);
+  });
+
+  test("an id from another item or a setup step not shown is not listed", () => {
+    expect(isListed(listed, "gone")).toBe(false);
+    expect(isListed(listed, "setup:ai_account")).toBe(false);
+    expect(isListed(view([]), "a1")).toBe(false);
+  });
+});
+
+describe("findCard", () => {
+  test("finds a card in any item", () => {
+    const grouped = item(card({ id: "b1" }), card({ id: "b2" }));
+    expect(findCard(view([item(card({ id: "a1" })), grouped]), "b2")?.id).toBe(
+      "b2"
+    );
+  });
+
+  test("gives nothing for an unknown id or no view", () => {
+    expect(findCard(view([item(card({ id: "a1" }))]), "gone")).toBeUndefined();
+    expect(findCard(null, "a1")).toBeUndefined();
+  });
+});
+
+describe("keepsSendError", () => {
+  test("keeps the error through the move its own answer made", () => {
+    expect(keepsSendError(undefined, "a1")).toBe(true);
+    expect(keepsSendError("b1", "b1")).toBe(true);
+  });
+
+  test("drops the error once another item is open", () => {
+    expect(keepsSendError("b1", "c1")).toBe(false);
+  });
+
+  test("keeps it when nothing is open after the answer", () => {
+    expect(keepsSendError(null, null)).toBe(true);
+  });
+});
+
+describe("sendFailureText", () => {
+  test("names the mail and its first recipient", () => {
+    expect(
+      sendFailureText(
+        { ...mail, subject: "Team page", to: ["priya@example.com", "x@y.z"] },
+        "SMTP is down"
+      )
+    ).toBe(
+      'Allowed, but the mail "Team page" to priya@example.com could not be sent: SMTP is down'
+    );
+  });
+
+  test("leaves the recipient out when there is none", () => {
+    expect(
+      sendFailureText({ ...mail, subject: "Offer", to: [] }, "SMTP is down")
+    ).toBe('Allowed, but the mail "Offer" could not be sent: SMTP is down');
+  });
+
+  test("falls back to the plain line when there is no mail", () => {
+    const plain = "Allowed, but the mail could not be sent: SMTP is down";
+    expect(sendFailureText(null, "SMTP is down")).toBe(plain);
+    expect(sendFailureText(undefined, "SMTP is down")).toBe(plain);
   });
 });
 
@@ -284,6 +362,24 @@ describe("deskCardOf", () => {
       threadId: "thread-2",
       title: "Which folder?",
     });
+  });
+
+  test("puts the detail in the band, not the status", () => {
+    const proposal = card({
+      detail: "Version 3: tighter wording",
+      kind: "skill_proposal",
+      status: "Waiting for review",
+    });
+    expect(deskCardOf(proposal).band).toStrictEqual({
+      text: "Version 3: tighter wording",
+      tone: "waiting",
+    });
+  });
+
+  test("falls back to the status when the detail is empty", () => {
+    expect(
+      deskCardOf(card({ detail: "", status: "Reply ready" })).band
+    ).toEqual({ text: "Reply ready", tone: "waiting" });
   });
 
   test("maps each kind to its desk kind", () => {

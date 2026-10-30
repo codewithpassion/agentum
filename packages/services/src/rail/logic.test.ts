@@ -11,6 +11,7 @@ import {
   mailTitle,
   plainStatus,
   plainTitle,
+  problemDetail,
   sortNeedsYou,
 } from "./logic.ts";
 
@@ -293,6 +294,33 @@ test.each([
   expect(isMine({ ...input, userId: "u1" })).toBe(expected);
 });
 
+test.each([
+  [
+    {
+      assigneeUserId: "u2",
+      escalatedToMe: false,
+      memberLookupFailed: false,
+      ownedByMe: true,
+    },
+    true,
+  ],
+  [
+    {
+      assigneeUserId: "u2",
+      escalatedToMe: false,
+      memberLookupFailed: false,
+      ownedByMe: false,
+    },
+    false,
+  ],
+  [
+    { assigneeUserId: "u2", escalatedToMe: false, memberLookupFailed: false },
+    false,
+  ],
+] as const)("isMine with ownedByMe case %#", (input, expected) => {
+  expect(isMine({ ...input, userId: "u1" })).toBe(expected);
+});
+
 const item = (id: string, at: string, dueAt: string | null): RailItem => ({
   assigneeName: null,
   assigneeUserId: null,
@@ -301,6 +329,7 @@ const item = (id: string, at: string, dueAt: string | null): RailItem => ({
       agentId: "agent-1",
       agentName: "Ada",
       at,
+      detail: "",
       expiresAt: null,
       id: `card-${id}`,
       kind: "question",
@@ -350,4 +379,29 @@ test("sortNeedsYou breaks ties by id", () => {
     item("y", "2026-10-01T10:00:00Z", "2026-10-28T10:00:00Z"),
   ]);
   expect(sorted.map((i) => i.id)).toEqual(["y", "z"]);
+});
+
+test.each([
+  [
+    {
+      agentName: "Ada",
+      bandText: "Mail to a@x.io bounced",
+      problem: "bounced",
+    },
+    "Mail to a@x.io bounced",
+  ],
+  [
+    { agentName: "Ada", bandText: "x", problem: "failed" },
+    "Ada stopped before finishing",
+  ],
+  [
+    { agentName: "Ada", bandText: "x", problem: "interrupted" },
+    "Ada stopped before finishing",
+  ],
+  [
+    { agentName: "", bandText: "x", problem: null },
+    "This work stopped before finishing",
+  ],
+] as const)("problemDetail %#", (input, expected) => {
+  expect(problemDetail(input)).toBe(expected);
 });

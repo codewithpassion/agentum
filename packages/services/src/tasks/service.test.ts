@@ -483,8 +483,15 @@ test("get returns the run, its agent, its session and the session's other runs, 
       id: "run-01",
       inputText: "Task run-01",
       status: "done",
+      title: "Task run-01",
     },
-    { createdAt: ISO_NOW, id: "run-03", inputText: "third", status: "running" },
+    {
+      createdAt: ISO_NOW,
+      id: "run-03",
+      inputText: "third",
+      status: "running",
+      title: "third",
+    },
   ]);
   expect(view.agent).toEqual({
     computerMachineId: null,

@@ -32,14 +32,11 @@ export function ProblemBody({
 
   return (
     <div className="flex flex-col gap-3" data-testid="problem-body">
-      <p className="text-destructive">
-        {card.agentName === "" ? "This work" : `${card.agentName}'s work`}:{" "}
-        {card.status.toLowerCase()}.
-      </p>
+      <p className="text-destructive">{card.detail}</p>
       <div className="flex flex-wrap gap-2">
         {runId === null ? null : (
           <Link
-            className={buttonVariants({ variant: "outline" })}
+            className={buttonVariants({ variant: "link" })}
             params={{ runId }}
             to="/tasks/$runId"
           >
@@ -48,7 +45,7 @@ export function ProblemBody({
         )}
         {runId === null && threadId !== null ? (
           <Link
-            className={buttonVariants({ variant: "outline" })}
+            className={buttonVariants({ variant: "link" })}
             search={{ thread: threadId }}
             to="/inbox"
           >

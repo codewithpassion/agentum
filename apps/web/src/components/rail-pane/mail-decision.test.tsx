@@ -7,6 +7,7 @@ const card: RailCard = {
   agentId: "agent_1",
   agentName: "Sam",
   at: "2026-10-31T01:00:00.000Z",
+  detail: "Can we meet Thursday?",
   expiresAt: null,
   id: "req_1",
   kind: "approval",

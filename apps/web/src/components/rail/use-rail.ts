@@ -1,5 +1,6 @@
 import {
   RAIL_REFRESH_EVENT,
+  RAIL_SCOPE_EVENT,
   type RailItem,
   type RailScope,
   type RailView,
@@ -39,13 +40,19 @@ export function useRailScope() {
   const [scope, setScopeState] = useState<RailScope | null>(null);
 
   useEffect(() => {
-    let stored: string | null = null;
-    try {
-      stored = window.localStorage.getItem(SCOPE_STORAGE_KEY);
-    } catch {
-      // Storage can be blocked. Mine is the default.
-    }
-    setScopeState(isScope(stored) ? stored : "mine");
+    const read = () => {
+      let stored: string | null = null;
+      try {
+        stored = window.localStorage.getItem(SCOPE_STORAGE_KEY);
+      } catch {
+        // Storage can be blocked. Mine is the default.
+      }
+      setScopeState(isScope(stored) ? stored : "mine");
+    };
+    read();
+    // The main pane can switch the scope too, for a link to a teammate's item.
+    window.addEventListener(RAIL_SCOPE_EVENT, read);
+    return () => window.removeEventListener(RAIL_SCOPE_EVENT, read);
   }, []);
 
   const setScope = useCallback((next: RailScope) => {

@@ -281,6 +281,20 @@ const problemStatus = (problem: CardFacts["problem"]): string => {
   }
 };
 
+/**
+ * The one sentence a problem card shows. A bounce keeps the desk's own line,
+ * which names the address ("Mail to ada@example.com bounced"). Anything else
+ * names the agent.
+ */
+export const problemDetail = (input: {
+  agentName: string;
+  bandText: string;
+  problem: CardFacts["problem"];
+}): string =>
+  input.problem === "bounced"
+    ? input.bandText
+    : `${input.agentName || "This work"} stopped before finishing`;
+
 /** What happened to the card, in plain words. */
 export const plainStatus = (card: CardFacts): string => {
   if (card.kind === "approval") {
@@ -329,17 +343,23 @@ export const escalationTarget = (input: {
     : null;
 };
 
-/** Mine: I am the assignee, or escalated to me, or nobody is asked (assignee null), or the member lookup failed (memberLookupFailed true). */
+/**
+ * Mine: I am the assignee, or escalated to me, or nobody is asked (assignee null),
+ * or the member lookup failed (memberLookupFailed true), or the item is in a run
+ * only I can see (ownedByMe true).
+ */
 export const isMine = (input: {
   assigneeUserId: string | null;
   escalatedToMe: boolean;
   memberLookupFailed: boolean;
+  ownedByMe?: boolean;
   userId: string;
 }): boolean =>
   input.assigneeUserId === input.userId ||
   input.escalatedToMe ||
   input.assigneeUserId === null ||
-  input.memberLookupFailed;
+  input.memberLookupFailed ||
+  input.ownedByMe === true;
 
 const openedAt = (item: RailItem): number =>
   Date.parse(item.cards.at(0)?.at ?? "");

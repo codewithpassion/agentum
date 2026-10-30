@@ -6,6 +6,7 @@ import type {
   DeskCardKind,
   RailCard,
   RailItem,
+  RailMail,
   RailSetupStep,
   RailView,
 } from "@repo/db/shared";
@@ -36,6 +37,9 @@ const defaultSelection = (view: Listed): Selection | null => {
   return firstItem === undefined ? null : { item: firstItem, kind: "item" };
 };
 
+const holdsId = (item: RailItem, id: string): boolean =>
+  item.id === id || item.cards.some((card) => card.id === id);
+
 /**
  * The selection for an id from the URL or the last view. An id that no longer
  * exists (or none at all) falls back to the first setup step, then the first item.
@@ -54,12 +58,52 @@ export const selectItem = (
   if (step !== undefined) {
     return { kind: "setup", step };
   }
-  const item = view.needsYou.find(
-    (candidate) =>
-      candidate.id === itemId ||
-      candidate.cards.some((card) => card.id === itemId)
-  );
+  const item = view.needsYou.find((candidate) => holdsId(candidate, itemId));
   return item === undefined ? defaultSelection(view) : { item, kind: "item" };
+};
+
+/** Whether an id names a setup step, an item, or a card inside an item in the view. */
+export const isListed = (view: Listed, id: string): boolean =>
+  view.setup.some((step) => setupItemId(step) === id) ||
+  view.needsYou.some((item) => holdsId(item, id));
+
+/** The card with this id, from any item in the view. */
+export const findCard = (
+  view: Listed | null,
+  cardId: string
+): RailCard | undefined => {
+  if (view === null) {
+    return;
+  }
+  return view.needsYou
+    .flatMap((item) => item.cards)
+    .find((card) => card.id === cardId);
+};
+
+/**
+ * Whether a send error stays on screen. It stays through the move its own
+ * answer makes (`under` is the item that move opened) and goes once a
+ * different item is open.
+ */
+export const keepsSendError = (
+  under: string | null | undefined,
+  selectedId: string | null
+): boolean => under === undefined || under === selectedId;
+
+/**
+ * The line under a send that failed. It names the mail when the card is known,
+ * and falls back to the plain line when there is no mail.
+ */
+export const sendFailureText = (
+  mail: RailMail | null | undefined,
+  error: string
+): string => {
+  if (mail === null || mail === undefined) {
+    return `Allowed, but the mail could not be sent: ${error}`;
+  }
+  const [recipient] = mail.to;
+  const to = recipient === undefined ? "" : ` to ${recipient}`;
+  return `Allowed, but the mail "${mail.subject}"${to} could not be sent: ${error}`;
 };
 
 /**
@@ -179,7 +223,10 @@ const deskKindOf = (kind: RailCard["kind"]): DeskCardKind => {
 export const deskCardOf = (card: RailCard): DeskCard => ({
   agentId: card.agentId,
   at: card.at,
-  band: { text: card.status, tone: "waiting" },
+  band: {
+    text: card.detail === "" ? card.status : card.detail,
+    tone: "waiting",
+  },
   id: card.id,
   kind: deskKindOf(card.kind),
   lane: "needs_you",

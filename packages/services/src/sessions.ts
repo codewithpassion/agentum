@@ -32,6 +32,8 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import type { EventRecord, EventsService } from "./events.ts";
+import { mailSubjectsOf } from "./mail-subjects.ts";
+import { mailTitleOf, runTitleText } from "./mail-title-text.ts";
 import { currentGuestRun } from "./runs/guest-scope.ts";
 import { loadRun } from "./runs/queries.ts";
 import { toRecord, toSummary } from "./runs/records.ts";
@@ -351,20 +353,26 @@ export const loadTitleSources = async (
 
 /**
  * The title of a session, or of one run in it when `first` is that run's input.
- * A name from its origin comes first. Otherwise, or when that name is gone,
- * the first message.
+ * A run started by mail takes its mail's subject first. Then a name from its
+ * origin. Otherwise, or when that name is gone, the first message.
  */
 export const titleFor = (
   { labels, threadTitles, triggerNames }: TitleSources,
   row: SessionRow,
-  first: string
+  first: string,
+  mailSubject?: string
 ): string => {
+  const subject = mailTitleOf(mailSubject);
+  if (subject !== undefined) {
+    return truncate(subject);
+  }
   const name = sourceName(row, triggerNames, threadTitles);
   const label = labels.get(row.id) ?? null;
   if (name !== undefined && name.trim() !== "") {
     return truncate(name);
   }
-  return truncate(label === null ? first : `${label}: ${first}`);
+  const text = runTitleText(first);
+  return truncate(label === null ? text : `${label}: ${text}`);
 };
 
 export const createSessionsService = ({
@@ -392,23 +400,43 @@ export const createSessionsService = ({
   };
 
   /**
-   * The title of each session, keyed by session id, see `titleFor`.
+   * The title of each session, keyed by session id, see `titleFor`. `firstRuns`
+   * holds each session's first run, which the title is named from.
    */
   const titlesFor = async (
     rows: SessionRow[],
-    firstMessageBySession: Map<string, string>
+    firstRuns: Map<string, { id: string; inputText: string }>,
+    workspaceId: string
   ): Promise<Map<string, string>> => {
-    const sources = await loadTitleSources(db, rows);
+    const [sources, subjects] = await Promise.all([
+      loadTitleSources(db, rows),
+      mailSubjectsOf(
+        db,
+        workspaceId,
+        [...firstRuns.values()].map((run) => run.id)
+      ),
+    ]);
     return new Map(
-      rows.map((row) => [
-        row.id,
-        titleFor(sources, row, firstMessageBySession.get(row.id) ?? ""),
-      ])
+      rows.map((row) => {
+        const first = firstRuns.get(row.id);
+        return [
+          row.id,
+          titleFor(
+            sources,
+            row,
+            first?.inputText ?? "",
+            first === undefined ? undefined : subjects.get(first.id)
+          ),
+        ];
+      })
     );
   };
 
   /** Pairs each session row with its latest run's status and title. */
-  const withRuns = async (rows: SessionRow[]): Promise<SessionListItem[]> => {
+  const withRuns = async (
+    rows: SessionRow[],
+    workspaceId: string
+  ): Promise<SessionListItem[]> => {
     if (rows.length === 0) {
       return [];
     }
@@ -429,13 +457,12 @@ export const createSessionsService = ({
         run,
       ]);
     }
-    const firstMessageBySession = new Map(
-      [...bySession].map(([id, sessionRuns]) => [
-        id,
-        sessionRuns[0]?.inputText ?? "",
-      ])
+    const firstRuns = new Map(
+      [...bySession].flatMap(([id, sessionRuns]) =>
+        sessionRuns[0] ? [[id, sessionRuns[0]] as const] : []
+      )
     );
-    const titles = await titlesFor(rows, firstMessageBySession);
+    const titles = await titlesFor(rows, firstRuns, workspaceId);
     return rows.map((row) => ({
       ...toSession(row),
       latestRunId: bySession.get(row.id)?.at(-1)?.id ?? null,
@@ -466,7 +493,7 @@ export const createSessionsService = ({
       )
       .orderBy(desc(sessions.createdAt), desc(sessions.id))
       .limit(SESSION_LIST_LIMIT);
-    return withRuns(rows);
+    return withRuns(rows, reader.workspaceId);
   };
 
   /** The queue state of a session's latest run, see `SessionTranscript.queue`. */
@@ -542,7 +569,8 @@ export const createSessionsService = ({
     const entries = await events.transcript(reader, row.workspaceId, row.id);
     const titles = await titlesFor(
       [row],
-      new Map([[row.id, sessionRuns[0]?.inputText ?? ""]])
+      new Map(sessionRuns[0] ? [[row.id, sessionRuns[0]]] : []),
+      reader.workspaceId
     );
     return {
       entries,
@@ -645,7 +673,8 @@ export const createSessionsService = ({
     }
 
     const items = await withRuns(
-      [...groups.values()].map((group) => group.session)
+      [...groups.values()].map((group) => group.session),
+      reader.workspaceId
     );
     return items.map((session) => ({
       passages: groups.get(session.id)?.passages ?? [],

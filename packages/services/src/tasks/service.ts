@@ -36,6 +36,7 @@ import {
   type TaskFilesInput,
   taskFilesInputSchema,
 } from "../library/task-files.ts";
+import { mailSubjectsOf } from "../mail-subjects.ts";
 import type { RequestRecord, RequestsService } from "../requests.ts";
 import { toRecord } from "../runs/records.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
@@ -117,6 +118,7 @@ export interface TaskView {
     id: string;
     inputText: string;
     status: RunStatus;
+    title: string;
   }[];
   /** The run's open request that has not expired, or null. */
   request: RequestRecord | null;
@@ -385,6 +387,10 @@ export const createTasksService = ({
       sessionEvents(member, run.sessionId),
       openRequests(member, run.sessionId),
     ]);
+    const subjects = await mailSubjectsOf(db, member.workspaceId, [
+      run.id,
+      ...otherRuns.map((other) => other.id),
+    ]);
     return {
       agent: {
         computerMachineId: row.computerMachineId,
@@ -403,6 +409,12 @@ export const createTasksService = ({
         id: other.id,
         inputText: other.inputText,
         status: other.status,
+        title: titleFor(
+          sources,
+          row.session,
+          other.inputText,
+          subjects.get(other.id)
+        ),
       })),
       request: open.get(run.id)?.[0] ?? null,
       run: {
@@ -420,7 +432,12 @@ export const createTasksService = ({
         origin: row.session.origin,
       },
       startedBy,
-      title: titleFor(sources, row.session, run.inputText),
+      title: titleFor(
+        sources,
+        row.session,
+        run.inputText,
+        subjects.get(run.id)
+      ),
     };
   };
 
@@ -456,7 +473,7 @@ export const createTasksService = ({
       rows.map((run) => run.sessionId),
       (batch) => db.select().from(sessions).where(inArray(sessions.id, batch))
     );
-    const [sources, latest, open] = await Promise.all([
+    const [sources, latest, open, subjects] = await Promise.all([
       loadTitleSources(db, sessionRows),
       latestBandEvents(
         db,
@@ -465,6 +482,11 @@ export const createTasksService = ({
       rows.some((run) => run.status === "waiting")
         ? openRequests(member)
         : new Map<string, RequestRecord[]>(),
+      mailSubjectsOf(
+        db,
+        member.workspaceId,
+        rows.map((run) => run.id)
+      ),
     ]);
     const sessionOf = new Map(sessionRows.map((row) => [row.id, row]));
     return rows.map((run) => {
@@ -481,7 +503,9 @@ export const createTasksService = ({
           latest.get(run.id) ?? [],
           open.get(run.id) ?? []
         ),
-        title: session ? titleFor(sources, session, run.inputText) : "",
+        title: session
+          ? titleFor(sources, session, run.inputText, subjects.get(run.id))
+          : "",
       };
     });
   };
