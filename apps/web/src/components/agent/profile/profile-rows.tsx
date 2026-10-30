@@ -1,9 +1,11 @@
+import type { WorkspaceMember } from "@repo/db/shared";
 import { useCallback, useState } from "react";
 import type {
   AgentProfileView,
   AgentRecord,
   MailboxRecord,
 } from "#/integrations/trpc/types";
+import { AsksRow } from "./asks-row.tsx";
 import { BrowserSwitch } from "./browser-switch.tsx";
 import { ChipList } from "./chip-list.tsx";
 import { LibraryRow } from "./library-row.tsx";
@@ -60,6 +62,7 @@ function DoesText({ does }: { does: string }) {
 export function ProfileRows({
   agent,
   mailbox,
+  members,
   onChanged,
   onOpen,
   onOpenMail,
@@ -67,6 +70,8 @@ export function ProfileRows({
 }: {
   agent: AgentRecord;
   mailbox: MailboxRecord | null;
+  /** The Asks row shows when this is set. Null means the member lookup failed. */
+  members?: WorkspaceMember[] | null;
   onChanged?: () => void;
   onOpen: (sheet: SheetId) => void;
   onOpenMail: () => void;
@@ -98,6 +103,11 @@ export function ProfileRows({
       <Row label="Does">
         <DoesText does={profile.does} />
       </Row>
+      {members === undefined ? null : (
+        <Row label="Asks">
+          <AsksRow agent={agent} members={members} />
+        </Row>
+      )}
       <Row label="Voice">
         <VoiceField agentId={agent.id} voice={profile.voice} />
       </Row>

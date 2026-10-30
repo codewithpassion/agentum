@@ -21,7 +21,7 @@ import {
   type RailView,
   type RailWorking,
 } from "@repo/db/shared";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRecord, AgentsService } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -65,6 +65,19 @@ export const railInputSchema = z.strictObject({
   scope: z.enum(["mine", "everyone"]),
 });
 export type RailInput = z.input<typeof railInputSchema>;
+
+/** What one agent is doing, for the Agents table. */
+export interface AgentOverview {
+  agentId: string;
+  /** Tasks the member can see that started in the last 7 days. */
+  tasksThisWeek: number;
+  /** Open requests and takeovers that wait on a person. */
+  waiting: number;
+  /** Live runs that do not wait on a person. */
+  working: number;
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60_000;
 
 export const clearAttentionInputSchema = z.strictObject({
   runId: z.string().min(1).max(200),
@@ -607,7 +620,60 @@ export const createRailService = ({
     ]);
   };
 
-  return { clearAttention, get };
+  /**
+   * One row per agent for the Agents table: what waits on a person, what is
+   * running, and the tasks of the last 7 days. Counts follow the desk's
+   * visibility rules, like the rail. No per-run cost is stored, so there is none.
+   */
+  const agentsOverview = async (
+    principal: Principal
+  ): Promise<AgentOverview[]> => {
+    const member = requireMember(principal, READ_ACTION);
+    const weekStart = new Date(clock.now().getTime() - WEEK_MS).toISOString();
+    const [sources, agentList, weekRows] = await Promise.all([
+      desk.railSources(member, { dayStart: weekStart }),
+      agents.list(member),
+      visibleSessions(db, member).then((visible) =>
+        db
+          .select({ agentId: runRows.agentId, total: count() })
+          .from(runRows)
+          .where(
+            and(
+              eq(runRows.workspaceId, member.workspaceId),
+              gte(runRows.createdAt, weekStart),
+              inArray(
+                runRows.sessionId,
+                db.select({ id: sessions.id }).from(sessions).where(visible)
+              )
+            )
+          )
+          .groupBy(runRows.agentId)
+      ),
+    ]);
+    const tally = (ids: readonly string[]) => {
+      const counts = new Map<string, number>();
+      for (const id of ids) {
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+      return counts;
+    };
+    const waiting = tally(sources.needsYou.map((card) => card.agentId));
+    const waitingRuns = new Set(sources.waitingRunIds);
+    const working = tally(
+      sources.running
+        .filter((card) => !waitingRuns.has(card.id))
+        .map((card) => card.agentId)
+    );
+    const week = new Map(weekRows.map((row) => [row.agentId, row.total]));
+    return agentList.map((agent) => ({
+      agentId: agent.id,
+      tasksThisWeek: week.get(agent.id) ?? 0,
+      waiting: waiting.get(agent.id) ?? 0,
+      working: working.get(agent.id) ?? 0,
+    }));
+  };
+
+  return { agentsOverview, clearAttention, get };
 };
 
 export type RailService = ReturnType<typeof createRailService>;

@@ -9,14 +9,17 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   addressSuggestion,
   applyEdit,
   builderSteps,
+  clearDescription,
   type Locked,
+  loadDescription,
   openGaps,
   redraftBlocker,
+  saveDescription,
 } from "#/components/agent/builder/builder-logic.ts";
 import { DescribePanel } from "#/components/agent/builder/describe-panel";
 import { DraftCard } from "#/components/agent/builder/draft-card";
@@ -62,6 +65,8 @@ const messageOf = (cause: unknown): string =>
 function NewAgent() {
   const { catalog } = Route.useLoaderData();
   const [description, setDescription] = useState("");
+  // Storage is read after mount, so the first render matches the server.
+  const [restored, setRestored] = useState(false);
   const [voice, setVoice] = useState<VoicePreset | undefined>();
   const [templateId, setTemplateId] = useState<AgentTemplateId | undefined>();
   const [drafted, setDrafted] = useState<Drafted | undefined>();
@@ -76,6 +81,17 @@ function NewAgent() {
   const [panelError, setPanelError] = useState<string | null>(null);
   const router = useRouter();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setDescription(loadDescription(window.sessionStorage));
+    setRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (restored) {
+      saveDescription(window.sessionStorage, description);
+    }
+  }, [restored, description]);
 
   const draft = drafted?.draft;
   const address =
@@ -209,6 +225,7 @@ function NewAgent() {
         draft: serverDraft(draft),
         draftAgentId: id,
       });
+      clearDescription(window.sessionStorage);
       await router.invalidate();
       await navigate({
         params: { agentId: created.id },
@@ -223,6 +240,7 @@ function NewAgent() {
         if (draftAgentId !== undefined) {
           await getTrpc().agentBuilder.discard.mutate({ draftAgentId });
         }
+        clearDescription(window.sessionStorage);
         await navigate({ to: "/agents" });
       }),
     [act, draftAgentId, navigate]
