@@ -3,7 +3,7 @@ id: RL.6
 title: "Rail gate fixes"
 milestone: RL
 size: M
-status: in_progress
+status: done
 depends_on: [RL.1, RL.2, RL.3, RL.4, RL.5]
 branch: task/RL.6-rail-gate-fixes
 lane: services
@@ -29,3 +29,4 @@ From the milestone gate, `docs/reviews/RL-1.md`, and the first browser run on st
 
 ## Log
 - 2026-10-31: created from the milestone gate. Dispatched.
+- 2026-10-31: merged, review clean, the last must-fix applied without another review round.
