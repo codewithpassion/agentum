@@ -373,7 +373,7 @@ const resolveSlug = (given: string | undefined, name: string): string => {
  * The agents of a workspace: create, read, update, archive. Each write
  * appends an `agent.*` event. Only a user principal writes.
  */
-/** Fails unless the owner and backup are different current members. */
+/** Fails unless the owner and backup are different people and any id being set is a current member. */
 const assertOwners = async (
   user: UserPrincipal,
   members: Pick<MembersService, "list">,
@@ -390,7 +390,12 @@ const assertOwners = async (
   const known = new Set(
     (await members.list(user)).map((member) => member.userId)
   );
-  for (const userId of [owners.ownerUserId, owners.backupUserId]) {
+  // An id that is not changing may belong to someone who has since left.
+  const changing = [
+    owners.ownerUserId === current.ownerUserId ? null : owners.ownerUserId,
+    owners.backupUserId === current.backupUserId ? null : owners.backupUserId,
+  ];
+  for (const userId of changing) {
     if (userId !== null && !known.has(userId)) {
       throw new ServiceError("invalid", "That person is not a member");
     }

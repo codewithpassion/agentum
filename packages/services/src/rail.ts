@@ -29,6 +29,7 @@ import type { DeskService } from "./desk.ts";
 import { ServiceError } from "./errors.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
+import type { ManagedKeysService } from "./managed/keys.ts";
 import type { MembersService } from "./members.ts";
 import type { ModelKeysService } from "./model-keys.ts";
 import {
@@ -163,6 +164,7 @@ export const createRailService = ({
   clock,
   db,
   desk,
+  managedKeys,
   members,
   modelKeys,
   people,
@@ -172,6 +174,7 @@ export const createRailService = ({
   clock: Clock;
   db: Database;
   desk: Pick<DeskService, "railSources">;
+  managedKeys: Pick<ManagedKeysService, "status">;
   members: Pick<MembersService, "list">;
   modelKeys: Pick<ModelKeysService, "configuredProviders">;
   people?: PeopleLookup;
@@ -339,12 +342,14 @@ export const createRailService = ({
   ): Promise<RailView> => {
     const member = requireMember(principal, READ_ACTION);
     const { dayStart, scope } = railInputSchema.parse(rawInput);
-    const [sources, agentList, directory, providers] = await Promise.all([
-      desk.railSources(member, { dayStart }),
-      agents.list(member, { includeArchived: true }),
-      directoryOf(member),
-      modelKeys.configuredProviders(member),
-    ]);
+    const [sources, agentList, directory, providers, anthropic] =
+      await Promise.all([
+        desk.railSources(member, { dayStart }),
+        agents.list(member, { includeArchived: true }),
+        directoryOf(member),
+        modelKeys.configuredProviders(member),
+        managedKeys.status(member),
+      ]);
     const now = clock.now();
     const memberIds = directory?.ids ?? null;
     const agentOf = new Map(agentList.map((agent) => [agent.id, agent]));
@@ -526,9 +531,7 @@ export const createRailService = ({
     });
 
     const inScope = (isMineItem: boolean) => scope === "everyone" || isMineItem;
-    const waitingRuns = new Set(
-      sources.needsYou.flatMap((card) => card.runId ?? [])
-    );
+    const waitingRuns = new Set(sources.waitingRunIds);
     const working: RailWorking[] = sources.running
       .filter((card) => !waitingRuns.has(card.id))
       .map((card) => ({
@@ -547,7 +550,7 @@ export const createRailService = ({
     ).length;
 
     const setup: RailSetupStep[] = [
-      ...(Object.values(providers).some(Boolean)
+      ...(anthropic.configured || Object.values(providers).some(Boolean)
         ? []
         : ["ai_account" as const]),
       ...(agentList.some((agent) => agent.status === "active")

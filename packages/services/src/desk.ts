@@ -118,6 +118,8 @@ export interface RailSources {
   pending: RequestRecord[];
   running: DeskCard[];
   stuck: StuckRun[];
+  /** The live runs that wait on a person; the rail lists them under Needs you only. */
+  waitingRunIds: string[];
 }
 
 /** One thing waiting on the member, as C4 lists it. */
@@ -921,6 +923,9 @@ export const createDeskService = ({
           stuckRows.find((row) => row.id === card.id)?.status
         ),
       })),
+      waitingRunIds: liveRows
+        .filter((row) => row.status === "waiting")
+        .map((row) => row.id),
     };
   };
 

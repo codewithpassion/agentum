@@ -57,6 +57,7 @@ let now: number;
 let counter: number;
 let memberList: WorkspaceMember[] | null;
 let hasKey: boolean;
+let hasAnthropic: boolean;
 let people: PeopleLookup | undefined;
 let agents: AgentsService;
 let requests: ReturnType<typeof createRequestsService>;
@@ -86,6 +87,7 @@ beforeEach(async () => {
   counter = 0;
   memberList = [ANN, BOB, CY];
   hasKey = true;
+  hasAnthropic = false;
   people = undefined;
   const iso = new Date(now).toISOString();
   await db.insert(workspaces).values(
@@ -192,6 +194,14 @@ beforeEach(async () => {
     clock,
     db,
     desk,
+    managedKeys: {
+      status: () =>
+        Promise.resolve({
+          configured: hasAnthropic,
+          hint: null,
+          updatedAt: null,
+        }),
+    },
     members,
     modelKeys: {
       configuredProviders: () => Promise.resolve({ openrouter: hasKey }),
@@ -833,6 +843,26 @@ test("a new workspace sees the two setup steps, and each goes when done", async 
   expect((await view()).setup).toEqual([]);
   hasKey = false;
   expect((await view()).setup).toEqual(["ai_account"]);
+});
+
+test("an Anthropic key alone clears the AI account step", async () => {
+  hasKey = false;
+  hasAnthropic = true;
+
+  expect((await view()).setup).toEqual([]);
+});
+
+test("a running run with a held mail stays in Working, because no tool waits on the approval", async () => {
+  const { runId } = await heldMail({ to: ["priya@acme.com"] });
+  await db
+    .update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, runId));
+
+  const result = await view("everyone");
+
+  expect(result.needsYou).toHaveLength(1);
+  expect(result.working.map((row) => row.id)).toEqual([runId]);
 });
 
 test("assignees are named from the people lookup when the member list fails", async () => {
