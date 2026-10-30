@@ -3,9 +3,9 @@ id: RL.5
 title: "Agents table, Asks on the profile, builder fixes"
 milestone: RL
 size: S
-status: todo
+status: in_progress
 depends_on: [RL.2]
-branch: null
+branch: task/RL.5-rail-agents
 lane: web-agents
 executor: claude
 ---
@@ -24,3 +24,4 @@ Spec: `docs/ux-review/rail/spec.md`, the section "Agents and asking (RL.5)" and 
 
 ## Log
 - 2026-10-30: created from Dom's request to design, spec and build the rail.
+- 2026-10-31: dispatched.

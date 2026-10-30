@@ -3,9 +3,9 @@ id: RL.4
 title: "The main pane: plain decisions, problems, setup and the board view"
 milestone: RL
 size: M
-status: todo
+status: in_progress
 depends_on: [RL.2]
-branch: null
+branch: task/RL.4-rail-pane
 lane: web-pane
 executor: claude
 ---
@@ -26,3 +26,4 @@ Spec: `docs/ux-review/rail/spec.md`, the section "The main pane (RL.4)" and the 
 
 ## Log
 - 2026-10-30: created from Dom's request to design, spec and build the rail.
+- 2026-10-31: dispatched.
