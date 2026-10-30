@@ -113,7 +113,7 @@ export interface RailSources {
   done: { agentId: string; runId: string }[];
   needsYou: DeskCard[];
   /**
-   * The runs of the live, done and stuck lists that only the viewer can see:
+   * The runs of the live, done and stuck lists, and behind open requests, that only the viewer can see:
    * their session is a UI or private one the viewer opened. Unique.
    */
   ownRunIds: string[];

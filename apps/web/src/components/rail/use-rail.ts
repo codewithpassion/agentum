@@ -62,8 +62,6 @@ export function useRailScope() {
     } catch {
       // The choice then lasts for this visit only.
     }
-    // The main pane reads the stored scope on its next fetch.
-    window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
   }, []);
 
   return { scope, setScope };
