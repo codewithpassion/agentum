@@ -371,6 +371,36 @@ test("an inbox run is labelled with its thread's title", async () => {
   });
 });
 
+test("the other runs of an inbox thread are each titled by their own post", async () => {
+  await db.insert(inboxThreads).values({
+    createdAt: ISO_NOW,
+    createdBy: "u1",
+    id: "thr-2",
+    lastPostAt: ISO_NOW,
+    title: "Deploy question",
+    workspaceId: "w1",
+  });
+  const first = await runs.startRun(user(), {
+    agentId: a1,
+    input: { text: "first reply" },
+    session: { externalKey: "thr-2", origin: "inbox" },
+  });
+  await db
+    .update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, first.runId));
+  const second = await runs.startRun(user(), {
+    agentId: a1,
+    input: { text: "second reply" },
+    session: { externalKey: "thr-2", origin: "inbox" },
+  });
+
+  const view = await tasks.get(user(), { runId: second.runId });
+
+  expect(view.title).toBe("Deploy question");
+  expect(view.otherRuns.map((run) => run.title)).toEqual(["first reply"]);
+});
+
 test("a routine run is labelled with the routine's name", async () => {
   await insertTrigger("trg-digest", "routine", "Daily digest");
   const started = await runs.startRun(triggerPrincipal("trg-digest", a1), {

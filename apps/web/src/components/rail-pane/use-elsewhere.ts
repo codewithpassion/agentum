@@ -10,9 +10,10 @@ import { isListed } from "./pane-logic.ts";
 export type Elsewhere = "everyone" | "gone" | "failed";
 
 /**
- * Checks Everyone once for each missing id, outside the poll. Mine is the only
- * scope a missing item can be under, so Everyone is the one place to look.
- * Null while the check runs.
+ * Checks Everyone once for each missing id, outside the poll. The caller passes
+ * an id only once a list loaded after the id was opened lacks it, so the scope
+ * on screen is known to be without it. Everyone holds everything Mine does, so
+ * it is the one other place to look. Null while the check runs.
  */
 export function useElsewhere(
   missing: string | null,

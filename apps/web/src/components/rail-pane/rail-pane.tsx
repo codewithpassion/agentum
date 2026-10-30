@@ -43,6 +43,8 @@ interface SendError {
 
 /** The rail, the answerable requests behind its cards, and the skill versions proposed. */
 const loadPane = async () => {
+  // When this load began, so the pane can tell a list that predates a click.
+  const startedAt = performance.now();
   const trpc = getTrpc();
   const scope = railScope.get();
   const [rail, pending, proposals] = await Promise.all([
@@ -66,7 +68,7 @@ const loadPane = async () => {
       { number: version.number, skillId: version.skillId },
     ])
   );
-  return { rail, requests, scope, versions };
+  return { rail, requests, scope, startedAt, versions };
 };
 
 type Loaded = Awaited<ReturnType<typeof loadPane>>;
@@ -205,6 +207,21 @@ export function RailPane({
   // The URL's `item` when an answer here moved the pane to another item. Until
   // the URL catches up, that item is gone because of us and is not "missing".
   const [settling, setSettling] = useState<string | undefined>(undefined);
+  // When `item` last changed. The rail and the pane poll apart, so a row can be
+  // newer than the pane's list. Only a list loaded after the change may say the
+  // item is missing. The first list is for the first item, so it counts.
+  const [opened, setOpened] = useState<{
+    at: number;
+    item: string | undefined;
+  }>({ at: 0, item });
+  if (opened.item !== item) {
+    setOpened({ at: performance.now(), item });
+  }
+  useEffect(() => {
+    if (opened.at > 0) {
+      refresh();
+    }
+  }, [opened.at, refresh]);
 
   // A refresh, or the rail's scope toggle: the pane reads the shared scope on
   // every fetch, so it follows the toggle at once.
@@ -242,7 +259,10 @@ export function RailPane({
     [item, list, settling]
   );
 
-  const elsewhere = useElsewhere(missing, scope);
+  // Until a list loaded since the click confirms it, the item is only being
+  // looked for: no card, and no word on where it is.
+  const confirmed = data !== null && data.startedAt >= opened.at;
+  const elsewhere = useElsewhere(confirmed ? missing : null, scope);
 
   // A send error stays through the move its own answer makes, then goes once
   // another item is open.
