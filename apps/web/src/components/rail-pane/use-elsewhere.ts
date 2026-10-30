@@ -23,6 +23,15 @@ export function useElsewhere(
     id: string;
     result: Elsewhere;
   } | null>(null);
+  // A verdict belongs to one opening of one id under one scope. Opening the id
+  // again starts from no verdict, so an old one is never shown while the new
+  // check runs.
+  const key = missing === null ? null : `${missing}|${scope}`;
+  const [lastKey, setLastKey] = useState(key);
+  if (lastKey !== key) {
+    setLastKey(key);
+    setChecked(null);
+  }
 
   useEffect(() => {
     if (missing === null || scope !== "mine") {

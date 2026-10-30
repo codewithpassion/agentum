@@ -200,3 +200,45 @@ test("an item that is truly gone is still said to be gone, after the pane looks 
   expect(container.textContent).toContain("not waiting any more");
   await act(async () => root.unmount());
 });
+
+test("opening an id again does not show the verdict from the last time", async () => {
+  hold = false;
+  railScope.set("mine");
+  server = { everyone: view(["m", "a"]), mine: view(["m"]) };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container as unknown as Element);
+
+  await act(async () => root.render(<App />));
+  await settle();
+  await act(async () => probe.open("a"));
+  await settle();
+  expect(container.textContent).toContain("under Everyone");
+
+  // A teammate answers it. The person goes elsewhere and comes back.
+  await act(async () => probe.open("m"));
+  await settle();
+  expect(container.textContent).toContain("Title m");
+  server = { everyone: view(["m"]), mine: view(["m"]) };
+  hold = true;
+  held = [];
+  await act(async () => probe.open("a"));
+  expect(container.textContent).toContain("Looking for that item.");
+  expect(container.textContent).not.toContain("under Everyone");
+  hold = false;
+  await act(async () => {
+    for (const release of held.splice(0)) {
+      release();
+    }
+  });
+  await settle();
+  await act(async () => {
+    for (const release of held.splice(0)) {
+      release();
+    }
+  });
+  await settle();
+
+  expect(container.textContent).toContain("not waiting any more");
+  await act(async () => root.unmount());
+});

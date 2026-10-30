@@ -377,11 +377,11 @@ export const titleFor = (
 
 /**
  * The title of one run among the others of its session: what that run was
- * about, its mail subject or its input, never the session's own name, so the
- * rows of a thread tell apart.
+ * about, its mail subject or the first line of its input, never the session's
+ * own name, so the rows of a thread tell apart.
  */
 export const runTitleFor = (first: string, mailSubject?: string): string =>
-  truncate(runTitleText(first, mailSubject));
+  truncate(runTitleText(first.split("\n")[0] ?? "", mailSubject));
 
 export const createSessionsService = ({
   db,

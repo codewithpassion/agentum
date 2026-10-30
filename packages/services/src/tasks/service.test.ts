@@ -380,25 +380,29 @@ test("the other runs of an inbox thread are each titled by their own post", asyn
     title: "Deploy question",
     workspaceId: "w1",
   });
-  const first = await runs.startRun(user(), {
-    agentId: a1,
-    input: { text: "first reply" },
-    session: { externalKey: "thr-2", origin: "inbox" },
-  });
-  await db
-    .update(runRows)
-    .set({ status: "done" })
-    .where(eq(runRows.id, first.runId));
-  const second = await runs.startRun(user(), {
-    agentId: a1,
-    input: { text: "second reply" },
-    session: { externalKey: "thr-2", origin: "inbox" },
-  });
+  const post = async (text: string): Promise<string> => {
+    const started = await runs.startRun(user(), {
+      agentId: a1,
+      input: { text },
+      session: { externalKey: "thr-2", origin: "inbox" },
+    });
+    await db
+      .update(runRows)
+      .set({ status: "done" })
+      .where(eq(runRows.id, started.runId));
+    return started.runId;
+  };
+  await post("first reply\n\nYour final answer is your reply.");
+  await post("second reply\n\nYour final answer is your reply.");
+  const third = await post("third reply");
 
-  const view = await tasks.get(user(), { runId: second.runId });
+  const view = await tasks.get(user(), { runId: third });
 
   expect(view.title).toBe("Deploy question");
-  expect(view.otherRuns.map((run) => run.title)).toEqual(["first reply"]);
+  expect(view.otherRuns.map((run) => run.title)).toEqual([
+    "first reply",
+    "second reply",
+  ]);
 });
 
 test("a routine run is labelled with the routine's name", async () => {
