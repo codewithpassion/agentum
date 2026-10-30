@@ -83,6 +83,14 @@ break:
 free GitHub plan, so its only trigger is `workflow_dispatch`. Add `push` and
 `pull_request` triggers only when Dom says so (see `docs/workflow.md`).
 
+## The rail
+
+`apps/web/src/components/rail/` replaced the sidebar, and `components/rail-pane/` is the main pane on `/desk`. The spec is `docs/ux-review/rail/spec.md`. Rules that are easy to break:
+
+- A new page goes in `rail/find-registry.ts`, or `find-registry.test.ts` fails. Find is the only way to reach most pages.
+- An agent asks `agents.owner_user_id`, falling back to `created_by`. That is visibility only: any member can still answer any request.
+- Anything a person must act on should reach `desk.railSources`, or it won't show in Needs you.
+
 ## Starting a new project
 
 A copy of this boilerplate becomes a project through `/project-init`. The user
