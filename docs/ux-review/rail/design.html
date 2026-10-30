@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>The rail: multi-agent design</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300..700&family=Newsreader:opsz,wght@6..72,300..600&display=swap"
+      rel="stylesheet"
+    >
+    <style>
+    :root {
+      --paper: #faf9f5;
+      --ink: #141413;
+      --card: #fff;
+      --muted: #f0eee6;
+      --line: #e3e1d8;
+      --soft: #6b6a63;
+      --faint: #9a988f;
+      --accent: #c9654a;
+      --wash: #fbeee9;
+      --bad: #b8382e;
+      --rail: #f6f4ec;
+      --sans: "DM Sans", system-ui, sans-serif;
+      --serif: "Newsreader", Georgia, serif;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      font: 15px / 1.5 var(--sans);
+      color: var(--ink);
+      background: var(--paper);
+    }
+    button,
+    input,
+    textarea {
+      font: inherit;
+      color: inherit;
+    }
+    button {
+      padding: 0;
+      text-align: left;
+      cursor: pointer;
+      background: none;
+      border: 0;
+    }
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+    .btn {
+      display: inline-block;
+      padding: 7px 14px;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .btn:hover {
+      background: var(--muted);
+    }
+    .btn.go {
+      color: #fff;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .btn.quiet {
+      color: var(--soft);
+      background: none;
+      border-color: transparent;
+    }
+    .link {
+      font-size: 14px;
+      color: var(--soft);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .link:hover {
+      color: var(--ink);
+    }
+    .tile {
+      display: inline-grid;
+      flex: none;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #fff;
+      border-radius: 6px;
+    }
+    .chrome {
+      display: flex;
+      flex: none;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 14px;
+      font-size: 13px;
+      color: #faf9f5;
+      background: #141413;
+    }
+    .chrome .seg {
+      display: inline-flex;
+      padding: 2px;
+      margin-right: 10px;
+      background: #2a2a28;
+      border-radius: 7px;
+    }
+    .chrome .seg button {
+      padding: 4px 11px;
+      color: #c9c7be;
+      border-radius: 5px;
+    }
+    .chrome .seg button[aria-pressed="true"] {
+      color: #141413;
+      background: #faf9f5;
+    }
+    .chrome strong {
+      margin-right: 8px;
+      font-weight: 500;
+    }
+    .chrome .right {
+      margin-left: auto;
+      color: #a8a69c;
+    }
+    #app {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+    .rail {
+      display: flex;
+      flex: none;
+      flex-direction: column;
+      width: 320px;
+      min-height: 0;
+      background: var(--rail);
+      border-right: 1px solid var(--line);
+    }
+    .rtop {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 14px 6px;
+    }
+    .rtop .name {
+      flex: 1;
+      font: 500 18px / 1 var(--serif);
+    }
+    .scope {
+      display: flex;
+      padding: 2px;
+      margin: 4px 14px 2px;
+      font-size: 13px;
+      background: var(--muted);
+      border-radius: 7px;
+    }
+    .scope button {
+      flex: 1;
+      padding: 3px 0;
+      color: var(--soft);
+      text-align: center;
+      border-radius: 5px;
+    }
+    .scope button[aria-pressed="true"] {
+      font-weight: 500;
+      color: var(--ink);
+      background: var(--card);
+    }
+    .rscroll {
+      flex: 1;
+      min-height: 0;
+      padding: 2px 8px 10px;
+      overflow: auto;
+    }
+    .rail h2 {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 8px 6px;
+      font: 500 13px / 1 var(--sans);
+      color: var(--soft);
+    }
+    .need {
+      display: block;
+      width: 100%;
+      padding: 9px 10px 10px;
+      margin-bottom: 6px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      border-radius: 9px;
+    }
+    .need:hover {
+      border-color: #cfccc0;
+      border-left-color: var(--accent);
+    }
+    .need[aria-current="true"] {
+      background: var(--wash);
+      border-color: #eccabd;
+      border-left-color: var(--accent);
+    }
+    .need.bad {
+      border-left-color: var(--bad);
+    }
+    .need b {
+      display: block;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .need .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-top: 3px;
+      font-size: 12.5px;
+      color: var(--soft);
+    }
+    .due {
+      font-weight: 500;
+      color: var(--accent);
+    }
+    .more {
+      padding: 0 7px;
+      font-size: 12px;
+      color: var(--soft);
+      background: var(--muted);
+      border-radius: 99px;
+    }
+    .work {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      width: 100%;
+      padding: 3px 8px;
+      font-size: 13px;
+      color: var(--faint);
+    }
+    .work i {
+      flex: none;
+      width: 7px;
+      height: 7px;
+      background: #c4c1b5;
+      border-radius: 50%;
+      animation: p 1.8s ease-in-out infinite;
+    }
+    .work span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .work:hover {
+      color: var(--soft);
+    }
+    @keyframes p {
+      50% {
+        opacity: 0.35;
+      }
+    }
+    @keyframes rise {
+      from {
+        transform: translateY(14px);
+        opacity: 0;
+      }
+      to {
+        transform: none;
+        opacity: 1;
+      }
+    }
+    .rise {
+      animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .rnav {
+      display: grid;
+      flex: none;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 2px;
+      padding: 8px;
+      border-top: 1px solid var(--line);
+    }
+    .rnav button {
+      padding: 6px;
+      font-size: 13px;
+      color: var(--soft);
+      text-align: center;
+      border-radius: 6px;
+    }
+    .rnav button:hover,
+    .rnav button[aria-current="true"] {
+      color: var(--ink);
+      background: var(--muted);
+    }
+    .pane {
+      flex: 1;
+      min-width: 0;
+      padding: 34px 48px 60px;
+      overflow: auto;
+    }
+    .in {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .pane h1 {
+      font: 400 30px / 1.15 var(--serif);
+      letter-spacing: -0.01em;
+    }
+    .sub {
+      margin-top: 5px;
+      color: var(--soft);
+    }
+    .quote {
+      padding-left: 14px;
+      margin-top: 20px;
+      color: var(--soft);
+      border-left: 2px solid var(--line);
+    }
+    .quote small {
+      display: block;
+      font-size: 13px;
+      color: var(--faint);
+    }
+    .reply {
+      padding: 14px 16px;
+      margin-top: 18px;
+      white-space: pre-wrap;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 16px;
+    }
+    .waiting {
+      margin-left: auto;
+      font-size: 13px;
+      color: var(--faint);
+    }
+    .group {
+      padding-top: 22px;
+      margin-top: 26px;
+      border-top: 1px solid var(--line);
+    }
+    .group h3 {
+      font-weight: 500;
+    }
+    details {
+      padding-top: 10px;
+      margin-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+    summary {
+      font-size: 14px;
+      color: var(--soft);
+      cursor: pointer;
+    }
+    details ol {
+      padding-left: 20px;
+      font-size: 14px;
+      color: var(--soft);
+    }
+    table {
+      width: 100%;
+      margin-top: 18px;
+      font-size: 14px;
+      border-collapse: collapse;
+    }
+    th {
+      padding: 6px 10px;
+      font-weight: 500;
+      color: var(--soft);
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--muted);
+    }
+    td b {
+      font-weight: 500;
+    }
+    .wait {
+      font-weight: 500;
+      color: var(--accent);
+    }
+    .scrim {
+      position: fixed;
+      inset: 0;
+      z-index: 9;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 9vh;
+      background: rgba(20, 20, 19, 0.35);
+    }
+    .palette {
+      width: min(620px, 92vw);
+      max-height: 76vh;
+      padding: 6px 6px 12px;
+      overflow: auto;
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: 0 18px 60px rgba(20, 20, 19, 0.25);
+    }
+    .palette input {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 16px;
+      outline: none;
+      background: none;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .palette h3 {
+      padding: 12px 14px 2px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--soft);
+    }
+    .palette button {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      padding: 5px 14px;
+      border-radius: 6px;
+    }
+    .palette button:hover {
+      background: var(--muted);
+    }
+    .palette span {
+      font-size: 13px;
+      color: var(--faint);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important;
+      }
+    }
+    @media (max-width: 820px) {
+      #app {
+        flex-direction: column;
+        overflow: auto;
+      }
+      .rail {
+        width: auto;
+        border-right: 0;
+      }
+      .pane {
+        padding: 22px 18px;
+        overflow: visible;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <div class="chrome">
+      <strong>The rail, 8 agents and 3 people</strong
+      ><span class="seg" id="who"></span><span class="seg" id="day"></span
+      ><button class="btn" id="mail" style="padding:3px 10px;color:#141413">
+        A new email arrives
+      </button><span class="right">Nothing below is real data</span>
+    </div>
+    <div id="app"></div>
+    <div id="over"></div>
+    <script>
+    "use strict";
+    const A = {
+      cs: ["Chief of Staff", "CS", "#0f8f7f"],
+      ex: ["Expenses", "EX", "#65a30d"],
+      hr: ["Hiring Helper", "HH", "#2563eb"],
+      ic: ["Invoice Chaser", "IC", "#d9730d"],
+      mk: ["Newsletter", "NL", "#be185d"],
+      pr: ["Proposal Writer", "PW", "#7c3aed"],
+      re: ["Research", "RE", "#0e7490"],
+      sc: ["Scheduler", "SC", "#475569"],
+    };
+    const P = { dan: "Dan", priya: "Priya", sam: "Sam" };
+    const seed = () => [
+      {
+        action: "Send reply",
+        agent: "cs",
+        due: "by 9am tomorrow",
+        dueRank: 1,
+        from: "Tom Reid, Kestrel Energy",
+        group: [
+          {
+            action: "Send reply",
+            agent: "pr",
+            from: "Tom Reid, Kestrel Energy",
+            mail: "Can you send the revised fee note with the forecast?",
+            reply: "Hi Tom,\n\nThe revised fee note is attached.\n\nPriya Nair",
+            title: "Reply to Tom: updated fee note",
+          },
+        ],
+        id: "kes",
+        mail: "Our board meets tomorrow. We need the updated forecast and the risk slide before 9am. Who is on this?",
+        owner: "priya",
+        reply:
+          "Hi Tom,\n\nWe have this. Sam Okafor is your contact and will send the forecast and the risk slide before 9am tomorrow.\n\nPriya Nair\nNorthbank Advisory",
+        say: "Reply ready",
+        title: "Reply to Tom: board pack needs the new forecast",
+      },
+      {
+        action: "Send reminder",
+        agent: "ic",
+        due: "this week",
+        dueRank: 2,
+        from: "Accounts, Brightwell Foods",
+        id: "inv",
+        mail: "Our system shows INV-2041 ($18,400) unpaid. Please resend it with the correct PO number.",
+        owner: "dan",
+        reply:
+          "Hi,\n\nINV-2041 is attached with PO 88213. Please let us know when it is scheduled.\n\nDan Hughes",
+        say: "Reminder ready",
+        title: "Reminder to Brightwell for $18,400",
+        via: "Chief of Staff",
+      },
+      {
+        action: "Send reply",
+        agent: "cs",
+        dueRank: 3,
+        from: "Jane Doe, Harcourt Logistics",
+        id: "jane",
+        mail: "Could we move Thursday's review to Friday, and add a section on pricing options?",
+        owner: "priya",
+        reply:
+          "Hi Jane,\n\nThanks for your note. We are checking Friday and will confirm today.\n\nPriya Nair",
+        say: "Reply ready",
+        title: "Reply to Jane: moving Thursday's review",
+      },
+      {
+        action: "Senior consultant",
+        agent: "hr",
+        alt: "Analyst",
+        dueRank: 4,
+        escalatedTo: "priya",
+        from: "Careers inbox",
+        id: "cv",
+        mail: "A CV arrived with no role named. It looks like a senior consultant application.",
+        owner: "sam",
+        say: "Question, waiting 5 hours on Sam",
+        title: "Hiring Helper asks: which role is this CV for?",
+      },
+      {
+        action: "Open the log",
+        agent: "mk",
+        alt: "Dismiss",
+        bad: true,
+        dueRank: 5,
+        from: "Weekly newsletter routine",
+        id: "bad",
+        mail: "The run stopped after 2 of 4 steps. Nothing was sent.",
+        owner: "priya",
+        say: "Stopped at 7:12am, the model key ran out of credit",
+        title: "Newsletter failed to finish",
+      },
+    ];
+    const WORK = [
+      ["cs", "Reading the Fairway lease notice", "priya"],
+      ["re", "Comparing three logistics vendors", "sam"],
+      ["ic", "Checking Brightwell's PO number", "dan", "Chief of Staff"],
+      ["ex", "Sorting September receipts", "dan"],
+      ["sc", "Finding a time for the Kestrel review", "priya"],
+      ["pr", "Drafting the Harcourt scope", "sam"],
+    ];
+    const S = {
+      day: "30",
+      done: { dan: 4, priya: 9, sam: 3 },
+      items: seed(),
+      more: false,
+      pal: false,
+      scope: "mine",
+      sel: null,
+      setup: 0,
+      view: "home",
+      who: "priya",
+    };
+    const esc = (s) =>
+      String(s).replace(
+        /[&<>"]/g,
+        (c) => ({ '"': "&quot;", "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]
+      );
+    const tile = (k) =>
+      `<span class="tile" style="background:${A[k][2]}">${A[k][1]}</span>`;
+    const mine = (i) => i.owner === S.who || i.escalatedTo === S.who;
+    const vis = () => S.items.filter((i) => S.scope === "everyone" || mine(i));
+    const visWork = () =>
+      WORK.filter((w) => S.scope === "everyone" || w[2] === S.who);
+    const need = (i) =>
+      `<button class="need ${i.bad ? "bad" : ""} ${i.fresh ? "rise" : ""}" data-sel="${i.id}" ${S.sel === i.id ? 'aria-current="true"' : ""}><b>${esc(i.title)}</b><span class="meta">${tile(i.agent)}${i.due ? `<span class="due">${i.due}</span>` : ""}<span>${esc(i.say)}</span>${i.group ? `<span class="more">+${i.group.length} more from Kestrel</span>` : ""}${S.scope === "everyone" && i.owner !== S.who ? `<span>for ${P[i.owner]}</span>` : ""}${i.escalatedTo === S.who ? `<span class="due">asked you too</span>` : ""}</span></button>`;
+    function rail() {
+      if (S.day === "1") {
+        const st = [
+          ["Add your AI account", "Needed before any agent can run"],
+          ["Describe your first job", "About a minute"],
+        ];
+        return (
+          `<h2><span>Needs you</span><span>${2 - S.setup}</span></h2>` +
+          st
+            .slice(S.setup)
+            .map(
+              ([t, s], i) =>
+                `<button class="need" data-step ${i === 0 ? 'aria-current="true"' : ""}><b>${t}</b><span class="meta">${s}</span></button>`
+            )
+            .join("") +
+          `<h2><span>Working</span></h2><div class="work"><span>Nothing yet</span></div>`
+        );
+      }
+      const list = vis(),
+        w = visWork(),
+        cap = S.more ? w.length : 3;
+      return (
+        `<h2><span>Needs you</span><span>${list.length}</span></h2>` +
+        (list.map(need).join("") ||
+          `<div class="work"><span>Nothing needs you.</span></div>`) +
+        `<h2><span>Working</span><span>${w.length}</span></h2>` +
+        w
+          .slice(0, cap)
+          .map(
+            (x) =>
+              `<div class="work"><i></i><span>${esc(x[1])}${x[3] ? `, passed on by ${x[3]}` : ""}</span></div>`
+          )
+          .join("") +
+        (w.length > 3
+          ? `<button class="work" data-more><span>${S.more ? "Show less" : `${w.length - 3} more working`}</span></button>`
+          : "") +
+        `<button class="work" style="margin-top:8px" data-done><span>${S.scope === "everyone" ? 16 : S.done[S.who]} done today</span></button>`
+      );
+    }
+    const block = (i, first) =>
+      `<div class="${first ? "" : "group"}"><${first ? "h1" : "h3"}>${esc(i.title)}</${first ? "h1" : "h3"}><p class="sub">${esc(i.from)}${i.via ? `, passed on by ${i.via}` : ""}</p><div class="quote"><small>They wrote</small>${esc(i.mail)}</div>${i.reply ? `<div class="reply">${esc(i.reply)}</div>` : ""}<div class="actions"><button class="btn go" data-act="${i.id || ""}">${esc(i.action)}</button>${i.alt ? `<button class="btn" data-act="${i.id || ""}">${esc(i.alt)}</button>` : `<button class="btn" data-act="${i.id || ""}">Not this time</button><button class="btn quiet">Tell it what to change</button>`}<span class="waiting">Waiting on ${P[S.items.find((x) => x.id === S.sel)?.owner] || "you"}</span></div></div>`;
+    function pane() {
+      if (S.day === "1") {
+        return S.setup === 0
+          ? `<div class="in"><h1>Add your AI account</h1><p class="sub">Agents run on your own account with Anthropic or OpenRouter, so you pay them directly. Paste a key and you're done.</p><div class="actions"><button class="btn go" data-step>Paste an Anthropic key</button><button class="btn">How to get a key</button></div></div>`
+          : S.setup === 1
+            ? `<div class="in"><h1>Describe your first job</h1><p class="sub">Say what you want taken off your plate. You'll see a draft and try it before anything goes live.</p><div class="actions"><button class="btn go" data-step>Open the agent builder</button></div></div>`
+            : `<div class="in"><h1>You're set up</h1><p class="sub">When something needs you it appears on the left.</p><div class="actions"><button class="btn go" data-go30>See a normal day</button></div></div>`;
+      }
+      if (S.view === "agents") {
+        return `<div class="in"><h1>Agents</h1><p class="sub">Who is doing what. Each agent asks one person, and a backup if nobody answers in 4 hours.</p><table><thead><tr><th>Agent</th><th>Asks</th><th>Now</th><th>This week</th></tr></thead><tbody>${Object.entries(
+          A
+        )
+          .map(([k, a], n) => {
+            const w = WORK.filter((x) => x[0] === k).length,
+              q = S.items.filter((x) => x.agent === k).length;
+            return `<tr><td>${tile(k)} <b>${a[0]}</b></td><td>${["Priya", "Dan", "Sam", "Sam", "Sam", "Priya", "Dan", "Priya"][n]}</td><td>${q ? `<span class="wait">${q} waiting</span> ` : ""}${w ? `${w} working` : q ? "" : "Quiet"}</td><td>${[31, 6, 4, 2, 9, 1, 12, 14][n]} tasks</td></tr>`;
+          })
+          .join(
+            ""
+          )}</tbody></table><div class="actions"><button class="btn go">New agent</button><button class="btn">How they fit together</button></div></div>`;
+      }
+      if (S.view === "done") {
+        return `<div class="in"><h1>Done today</h1><p class="sub">Nothing here needs you. The full board is under Everything.</p></div>`;
+      }
+      const it = S.items.find((i) => i.id === S.sel) || vis()[0];
+      if (!it) {
+        return `<div class="in"><h1>Nothing needs you</h1><p class="sub">${visWork().length} things are in hand. Anything new will rise on the left.</p></div>`;
+      }
+      S.sel = it.id;
+      return `<div class="in">${block(it, true)}${(it.group || []).map((g) => block(g, false)).join("")}<details><summary>How it got here</summary><ol><li>Mail started this at 6:48pm.</li><li>${A[it.agent][0]} read the Team page and wrote one reply.</li><li>It stopped to ask. Cost under 1 cent.</li></ol><p><button class="link" data-pal>Open the full log</button></p></details></div>`;
+    }
+    const DIR = [
+      [
+        "Work",
+        [
+          ["Board", "Desk"],
+          ["Every task", "Sessions"],
+          ["Log", "Log"],
+          ["Questions", "Q&A"],
+          ["Threads", "Inbox"],
+        ],
+      ],
+      [
+        "How things start",
+        [
+          ["Map", "Map"],
+          ["Schedules", "Routines"],
+          ["Web triggers", "Triggers"],
+        ],
+      ],
+      [
+        "What agents use",
+        [
+          ["Skills", "Skills"],
+          ["Files and wiki", "Library"],
+          ["Things agents made", "Artifacts"],
+          ["Computers", "Machines"],
+        ],
+      ],
+      [
+        "Settings",
+        [
+          ["AI account", "Model providers"],
+          ["Apps", "Connectors"],
+          ["Passwords and keys", "Secrets"],
+          ["API keys", ""],
+          ["Connected apps", ""],
+        ],
+      ],
+    ];
+    function render() {
+      document.getElementById("who").innerHTML = Object.entries(P)
+        .map(
+          ([k, v]) =>
+            `<button aria-pressed="${S.who === k}" data-who="${k}">${v}</button>`
+        )
+        .join("");
+      document.getElementById("day").innerHTML = [
+        ["1", "First day"],
+        ["30", "A normal day"],
+      ]
+        .map(
+          ([k, v]) =>
+            `<button aria-pressed="${S.day === k}" data-day="${k}">${v}</button>`
+        )
+        .join("");
+      document.getElementById("app").innerHTML =
+        `<aside class="rail"><div class="rtop"><span class="name">Northbank</span><button class="btn" data-pal>Find</button><button class="btn go">New</button></div>${S.day === "30" ? `<div class="scope"><button aria-pressed="${S.scope === "mine"}" data-scope="mine">Mine</button><button aria-pressed="${S.scope === "everyone"}" data-scope="everyone">Everyone</button></div>` : ""}<div class="rscroll">${rail()}</div><nav class="rnav"><button data-view="agents" ${S.view === "agents" ? 'aria-current="true"' : ""}>Agents</button><button>Files</button><button data-pal>Everything</button></nav></aside><section class="pane">${pane()}</section>`;
+      document.getElementById("over").innerHTML = S.pal
+        ? `<div class="scrim" data-close><div class="palette" role="dialog" aria-label="Find anything"><input aria-label="Find" placeholder="Find an agent, a task or a setting">${DIR.map(([h, l]) => `<h3>${h}</h3>${l.map(([a, b]) => `<button><b style="font-weight:400">${a}</b><span>${b}</span></button>`).join("")}`).join("")}</div></div>`
+        : "";
+    }
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest("button,[data-close]");
+      if (!t) {
+        return;
+      }
+      const d = t.dataset;
+      if (d.who) {
+        S.who = d.who;
+        S.sel = null;
+        S.view = "home";
+      } else if (d.day) {
+        S.day = d.day;
+        S.view = "home";
+      } else if (d.scope) {
+        S.scope = d.scope;
+        S.sel = null;
+      } else if (d.sel) {
+        S.sel = d.sel;
+        S.view = "home";
+      } else if (d.view) {
+        S.view = d.view;
+      } else if ("more" in d) {
+        S.more = !S.more;
+      } else if ("done" in d) {
+        S.view = "done";
+      } else if ("pal" in d) {
+        S.pal = true;
+      } else if ("step" in d) {
+        S.setup += 1;
+      } else if ("go30" in d) {
+        S.day = "30";
+      } else if (d.act) {
+        S.items = S.items.filter((i) => i.id !== d.act);
+        S.done[S.who] += 1;
+        S.sel = null;
+      } else if ("close" in d) {
+        if (e.target === t) {
+          S.pal = false;
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
+      render();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && S.pal) {
+        S.pal = false;
+        render();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        S.pal = true;
+        render();
+      }
+    });
+    document.getElementById("mail").onclick = () => {
+      const it = {
+        action: "Send reply",
+        agent: "cs",
+        due: "today",
+        dueRank: 0,
+        fresh: true,
+        from: "Lena, Fairway Property",
+        id: "n" + Date.now(),
+        mail: "Please confirm the Level 4 renewal today.",
+        owner: S.who,
+        reply: "Hi Lena,\n\nWe will confirm by 5pm.\n\nPriya Nair",
+        say: "Reply ready",
+        title: "Reply to Lena: lease renewal needs confirming today",
+      };
+      const open = S.sel ?? vis()[0]?.id;
+      S.sel = open;
+      const at = S.items.findIndex((i) => i.id === open);
+      S.items.splice(at + 1, 0, it);
+      render();
+      it.fresh = false;
+    };
+    const q = new URLSearchParams(location.search);
+    if (q.get("who")) {
+      S.who = q.get("who");
+    }
+    if (q.get("scope")) {
+      S.scope = q.get("scope");
+    }
+    if (q.get("day")) {
+      S.day = q.get("day");
+    }
+    if (q.get("view")) {
+      S.view = q.get("view");
+    }
+    render();
+    </script>
+  </body>
+</html>

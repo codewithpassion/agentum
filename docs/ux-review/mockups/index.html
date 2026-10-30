@@ -1,0 +1,1661 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Harbourmaster: three directions</title>
+    <link href="https://fonts.googleapis.com" rel="preconnect">
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300..700&family=Newsreader:opsz,wght@6..72,300..600&display=swap"
+      rel="stylesheet"
+    >
+    <style>
+    /* Tokens copied from apps/web/src/styles.css. Colour is out of scope for this review,
+   so the three directions differ in structure and flow only. */
+    :root {
+      --paper: #faf9f5;
+      --ink: #141413;
+      --card: #fff;
+      --muted: #f0eee6;
+      --line: #e3e1d8;
+      --soft: #6b6a63;
+      --faint: #9a988f;
+      --accent: #c9654a;
+      --accent-ink: #fff;
+      --accent-wash: #fbeee9;
+      --good: #2f7d5b;
+      --code: #f4f2ea;
+      --sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+      --serif: "Newsreader", ui-serif, Georgia, serif;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      font: 15px / 1.5 var(--sans);
+      -webkit-font-smoothing: antialiased;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+      color: inherit;
+    }
+    button {
+      padding: 0;
+      text-align: left;
+      cursor: pointer;
+      background: none;
+      border: 0;
+    }
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+    .btn {
+      display: inline-block;
+      padding: 7px 14px;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .btn:hover {
+      background: var(--muted);
+    }
+    .btn.go {
+      color: var(--accent-ink);
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .btn.go:hover {
+      filter: brightness(0.94);
+    }
+    .btn.quiet {
+      color: var(--soft);
+      background: none;
+      border-color: transparent;
+    }
+    .btn.quiet:hover {
+      color: var(--ink);
+      background: var(--muted);
+    }
+    .link {
+      font-size: 14px;
+      color: var(--soft);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .link:hover {
+      color: var(--ink);
+    }
+    .input,
+    textarea.input {
+      width: 100%;
+      padding: 9px 12px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    textarea.input {
+      min-height: 88px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+    .tile {
+      display: grid;
+      flex: none;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      background: #0f8f7f;
+      border-radius: 7px;
+    }
+    .tile.ic {
+      background: #d9730d;
+    }
+
+    /* Mockup chrome, not part of any direction */
+    .chrome {
+      display: flex;
+      flex: none;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      padding: 8px 14px;
+      font-size: 13px;
+      color: #faf9f5;
+      background: var(--ink);
+    }
+    .chrome strong {
+      margin-right: 10px;
+      font-weight: 500;
+    }
+    .chrome .seg {
+      display: inline-flex;
+      padding: 2px;
+      margin-right: 10px;
+      background: #2a2a28;
+      border-radius: 7px;
+    }
+    .chrome .seg button {
+      padding: 4px 11px;
+      color: #c9c7be;
+      border-radius: 5px;
+    }
+    .chrome .seg button[aria-pressed="true"] {
+      color: var(--ink);
+      background: #faf9f5;
+    }
+    .chrome .right {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .chrome .right button {
+      padding: 4px 11px;
+      color: #e6e4dc;
+      border: 1px solid #4a4a46;
+      border-radius: 6px;
+    }
+    .chrome .right button:hover {
+      background: #2a2a28;
+    }
+    #stage {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* A: the rail */
+    .rail {
+      display: flex;
+      flex: none;
+      flex-direction: column;
+      width: 320px;
+      min-height: 0;
+      background: #f6f4ec;
+      border-right: 1px solid var(--line);
+    }
+    .rail-top {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 14px 8px;
+    }
+    .rail-top .name {
+      flex: 1;
+      font: 500 18px / 1 var(--serif);
+    }
+    .rail-scroll {
+      flex: 1;
+      min-height: 0;
+      padding: 4px 8px 12px;
+      overflow: auto;
+    }
+    .rail h2 {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 8px 6px;
+      font: 500 13px / 1 var(--sans);
+      color: var(--soft);
+    }
+    .need {
+      display: block;
+      width: 100%;
+      padding: 10px 10px 11px;
+      margin-bottom: 6px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      border-radius: 9px;
+    }
+    .need:hover {
+      border-color: #cfccc0;
+      border-left-color: var(--accent);
+    }
+    .need[aria-current="true"] {
+      background: var(--accent-wash);
+      border-color: #eccabd;
+      border-left-color: var(--accent);
+    }
+    .need b {
+      display: block;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .need span {
+      display: block;
+      margin-top: 2px;
+      font-size: 13px;
+      color: var(--soft);
+    }
+    .work {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      width: 100%;
+      padding: 4px 8px;
+      font-size: 13px;
+      color: var(--faint);
+      border-radius: 6px;
+    }
+    .work:hover {
+      color: var(--soft);
+      background: var(--muted);
+    }
+    .work[aria-current="true"] {
+      color: var(--soft);
+      background: var(--muted);
+    }
+    .work i {
+      flex: none;
+      width: 7px;
+      height: 7px;
+      background: #c4c1b5;
+      border-radius: 50%;
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    .work span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .doneline {
+      display: block;
+      width: 100%;
+      padding: 8px 8px 4px;
+      font-size: 13px;
+      color: var(--faint);
+    }
+    .doneline:hover {
+      color: var(--soft);
+    }
+    .rail-nav {
+      display: grid;
+      flex: none;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 2px;
+      padding: 8px;
+      border-top: 1px solid var(--line);
+    }
+    .rail-nav button {
+      padding: 7px 8px;
+      font-size: 13px;
+      color: var(--soft);
+      text-align: center;
+      border-radius: 6px;
+    }
+    .rail-nav button:hover,
+    .rail-nav button[aria-current="true"] {
+      color: var(--ink);
+      background: var(--muted);
+    }
+    .pane {
+      flex: 1;
+      min-width: 0;
+      padding: 36px 48px 60px;
+      overflow: auto;
+    }
+    .pane-in {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .pane h1 {
+      font: 400 32px / 1.15 var(--serif);
+      letter-spacing: -0.01em;
+    }
+    .sub {
+      margin-top: 6px;
+      color: var(--soft);
+    }
+    .quote {
+      padding-left: 14px;
+      margin-top: 24px;
+      color: var(--soft);
+      border-left: 2px solid var(--line);
+    }
+    .quote small {
+      display: block;
+      margin-bottom: 2px;
+      font-size: 13px;
+      color: var(--faint);
+    }
+    .draft {
+      margin-top: 22px;
+    }
+    .draft label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .draft textarea {
+      min-height: 150px;
+    }
+    .who {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+      font-size: 14px;
+      color: var(--soft);
+    }
+    .who b {
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 20px;
+    }
+    .expiry {
+      margin-left: auto;
+      font-size: 13px;
+      color: var(--faint);
+    }
+    details.hood {
+      padding-top: 12px;
+      margin-top: 36px;
+      border-top: 1px solid var(--line);
+    }
+    details.hood summary {
+      font-size: 14px;
+      color: var(--soft);
+      cursor: pointer;
+    }
+    .hood ol {
+      padding-left: 20px;
+      margin: 12px 0 0;
+      font-size: 14px;
+      color: var(--soft);
+    }
+    .hood ol li {
+      margin-bottom: 4px;
+    }
+    .hood code {
+      padding: 1px 5px;
+      font-size: 12.5px;
+      background: var(--code);
+      border-radius: 4px;
+    }
+    .steps {
+      padding: 0;
+      margin: 28px 0 0;
+      list-style: none;
+    }
+    .steps li {
+      padding: 16px 0;
+      border-top: 1px solid var(--line);
+    }
+    .steps li:last-child {
+      border-bottom: 1px solid var(--line);
+    }
+    .steps h3 {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      font-size: 16px;
+      font-weight: 500;
+    }
+    .steps .num {
+      font-variant-numeric: tabular-nums;
+      color: var(--faint);
+    }
+    .steps p {
+      margin: 4px 0 0 22px;
+      font-size: 14px;
+      color: var(--soft);
+    }
+    .steps .body {
+      margin: 12px 0 0 22px;
+    }
+    .steps .ok h3 {
+      color: var(--faint);
+    }
+    .steps .ok .num {
+      color: var(--good);
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .chip {
+      padding: 4px 11px;
+      font-size: 13px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 99px;
+    }
+    .chip:hover {
+      background: var(--muted);
+    }
+    .rise {
+      animation: rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    @keyframes rise {
+      from {
+        transform: translateY(14px);
+        opacity: 0;
+        box-shadow: 0 0 0 3px var(--accent-wash);
+      }
+      to {
+        transform: none;
+        opacity: 1;
+      }
+    }
+    @keyframes pulse {
+      50% {
+        opacity: 0.35;
+      }
+    }
+
+    /* Palette and overlays */
+    .scrim {
+      position: fixed;
+      inset: 0;
+      z-index: 9;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 9vh;
+      background: rgba(20, 20, 19, 0.35);
+    }
+    .palette {
+      width: min(640px, 92vw);
+      max-height: 76vh;
+      padding: 6px 6px 12px;
+      overflow: auto;
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: 0 18px 60px rgba(20, 20, 19, 0.25);
+    }
+    .palette input {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 16px;
+      outline: none;
+      background: none;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .palette h3 {
+      padding: 12px 14px 2px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--soft);
+    }
+    .palette button {
+      display: flex;
+      gap: 20px;
+      justify-content: space-between;
+      width: 100%;
+      padding: 6px 14px;
+      border-radius: 6px;
+    }
+    .palette button:hover {
+      background: var(--muted);
+    }
+    .palette button span {
+      font-size: 13px;
+      color: var(--faint);
+    }
+    .mapdlg {
+      width: min(980px, 94vw);
+      max-height: 84vh;
+      padding: 22px 24px;
+      overflow: auto;
+      background: var(--card);
+      border-radius: 12px;
+    }
+    .mapdlg h2 {
+      margin-bottom: 4px;
+      font: 400 24px / 1.2 var(--serif);
+    }
+    .mapdlg p {
+      margin-bottom: 14px;
+      color: var(--soft);
+    }
+    table {
+      width: 100%;
+      font-size: 14px;
+      border-collapse: collapse;
+    }
+    th {
+      padding: 6px 10px;
+      font-weight: 500;
+      color: var(--soft);
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    td {
+      padding: 7px 10px;
+      vertical-align: top;
+      border-bottom: 1px solid var(--muted);
+    }
+    td:first-child {
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    /* B: the note */
+    .bwrap {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+    .btop {
+      display: flex;
+      flex: none;
+      gap: 22px;
+      align-items: center;
+      padding: 14px 28px;
+    }
+    .btop .name {
+      margin-right: 6px;
+      font: 500 18px / 1 var(--serif);
+    }
+    .btop button {
+      padding: 2px 0;
+      font-size: 14px;
+      color: var(--soft);
+    }
+    .btop button:hover {
+      color: var(--ink);
+    }
+    .btop button[aria-current="true"] {
+      color: var(--ink);
+      border-bottom: 2px solid var(--ink);
+    }
+    .bscroll {
+      flex: 1;
+      min-height: 0;
+      padding: 30px 28px 130px;
+      overflow: auto;
+    }
+    .note {
+      max-width: 660px;
+      margin: 0 auto;
+    }
+    .note .date {
+      font-size: 14px;
+      color: var(--faint);
+    }
+    .note h1 {
+      margin: 6px 0 30px;
+      font: 400 44px / 1.08 var(--serif);
+      letter-spacing: -0.015em;
+    }
+    .dec {
+      padding: 0 0 26px;
+      margin-bottom: 26px;
+      border-bottom: 1px solid var(--line);
+    }
+    .dec p.say {
+      font: 400 21px / 1.4 var(--serif);
+    }
+    .dec p.say em {
+      font-style: normal;
+      color: var(--soft);
+    }
+    .dec details {
+      margin-top: 10px;
+    }
+    .dec summary {
+      font-size: 14px;
+      color: var(--soft);
+      cursor: pointer;
+    }
+    .dec .ta {
+      margin-top: 10px;
+    }
+    .dec .actions {
+      margin-top: 12px;
+    }
+    .dec.gone {
+      padding-bottom: 14px;
+      margin-bottom: 14px;
+      opacity: 0.45;
+    }
+    .dec.gone p.say {
+      font-family: var(--sans);
+      font-size: 16px;
+    }
+    .note h2 {
+      margin: 34px 0 6px;
+      font: 400 22px / 1.2 var(--serif);
+    }
+    .prose {
+      font: 400 18px / 1.55 var(--serif);
+      color: #3a3935;
+    }
+    .ask {
+      position: fixed;
+      bottom: 22px;
+      left: 50%;
+      display: flex;
+      gap: 6px;
+      width: min(660px, 92vw);
+      padding: 6px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 8px 28px rgba(20, 20, 19, 0.1);
+      transform: translateX(-50%);
+    }
+    .ask input {
+      flex: 1;
+      min-width: 0;
+      padding: 6px 10px;
+      outline: none;
+      background: none;
+      border: 0;
+    }
+    .more-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 26px 40px;
+      margin-top: 10px;
+    }
+    .more-grid h3 {
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .more-grid button {
+      display: block;
+      padding: 2px 0;
+      color: var(--soft);
+    }
+    .more-grid button:hover {
+      color: var(--ink);
+      text-decoration: underline;
+    }
+
+    /* C: jobs */
+    .cnav {
+      display: flex;
+      flex: none;
+      flex-direction: column;
+      gap: 2px;
+      width: 190px;
+      padding: 14px 10px;
+      border-right: 1px solid var(--line);
+    }
+    .cnav .name {
+      padding: 2px 8px 14px;
+      font: 500 18px / 1 var(--serif);
+    }
+    .cnav button {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 10px;
+      border-radius: 7px;
+    }
+    .cnav button:hover {
+      background: var(--muted);
+    }
+    .cnav button[aria-current="true"] {
+      font-weight: 500;
+      background: var(--muted);
+    }
+    .cnav .count {
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .cnav .foot {
+      margin-top: auto;
+    }
+    .cmain {
+      flex: 1;
+      min-width: 0;
+      padding: 32px 44px 60px;
+      overflow: auto;
+    }
+    .chead {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .chead h1 {
+      flex: 1;
+      min-width: 200px;
+      font: 400 32px / 1.15 var(--serif);
+    }
+    .job {
+      max-width: 860px;
+      padding: 22px 0;
+      border-top: 1px solid var(--line);
+    }
+    .sentence {
+      font: 400 23px / 1.65 var(--serif);
+    }
+    .pill {
+      display: inline;
+      padding: 2px 9px 3px;
+      border-radius: 7px;
+      background: var(--muted);
+      box-decoration-break: clone;
+      white-space: nowrap;
+      -webkit-box-decoration-break: clone;
+    }
+    button.pill {
+      font: inherit;
+      cursor: pointer;
+    }
+    button.pill:hover {
+      background: #e8e5d9;
+    }
+    button.pill[aria-expanded="true"] {
+      background: var(--accent-wash);
+      box-shadow: inset 0 0 0 1px var(--accent);
+    }
+    .pill.ppl {
+      background: #e7efe9;
+    }
+    .pill.empty {
+      color: var(--soft);
+      background: none;
+      border: 1px dashed var(--faint);
+      box-shadow: inset 0 0 0 1px dashed;
+    }
+    .jobmeta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      margin-top: 8px;
+      font-size: 14px;
+      color: var(--soft);
+    }
+    .jobmeta .wait {
+      font-weight: 500;
+      color: var(--accent);
+    }
+    .builder {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+      gap: 40px;
+      align-items: start;
+      margin-top: 22px;
+    }
+    .opts {
+      padding: 14px;
+      margin-top: 14px;
+      background: #f6f4ec;
+      border-radius: 10px;
+    }
+    .opts p {
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: var(--soft);
+    }
+    .tryit {
+      padding-left: 28px;
+      border-left: 1px solid var(--line);
+    }
+    .tryit h2 {
+      margin-bottom: 8px;
+      font: 400 20px / 1.2 var(--serif);
+    }
+    .result {
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    .result b {
+      font-weight: 500;
+    }
+    details.adv {
+      padding-top: 12px;
+      margin-top: 26px;
+      border-top: 1px solid var(--line);
+    }
+    details.adv summary {
+      font-size: 14px;
+      color: var(--soft);
+      cursor: pointer;
+    }
+    .advrow {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 10px;
+      padding: 8px 0;
+      font-size: 14px;
+      border-bottom: 1px solid var(--muted);
+    }
+    .advrow span:first-child {
+      color: var(--soft);
+    }
+    .fit {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px 34px;
+      max-width: 860px;
+      margin-top: 22px;
+    }
+    .fit h3 {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--soft);
+    }
+    .fit div {
+      position: relative;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+    }
+    .fit div.arrow::after {
+      position: absolute;
+      top: 50%;
+      right: -34px;
+      width: 34px;
+      content: "";
+      border-top: 1px solid var(--faint);
+    }
+
+    @media (max-width: 820px) {
+      .pill {
+        white-space: normal;
+      }
+      #stage {
+        flex-direction: column;
+        overflow: auto;
+      }
+      .rail,
+      .cnav {
+        width: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .rail-scroll {
+        max-height: 44vh;
+      }
+      .pane,
+      .cmain {
+        padding: 22px 18px 60px;
+        overflow: visible;
+      }
+      .builder,
+      .fit {
+        grid-template-columns: 1fr;
+      }
+      .tryit {
+        padding-left: 0;
+        border-left: 0;
+      }
+      .note h1 {
+        font-size: 34px;
+      }
+      .more-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <nav aria-label="Mockup controls" class="chrome">
+      <strong>Harbourmaster mock-ups</strong>
+      <span class="seg" id="dirs"></span>
+      <span class="seg" id="days"></span>
+      <span class="right"
+        ><button id="reset">Start again</button
+        ><button id="mapbtn">Where did everything go?</button></span
+      >
+    </nav>
+    <main id="stage"></main>
+    <div id="overlay"></div>
+    <script>
+    "use strict";
+    const seed = () => [
+      {
+        action: "Send reply",
+        agent: "Chief of Staff",
+        ask: "Reply ready for you",
+        draft:
+          "Hi Tom,\n\nWe have this. Sam Okafor is your contact and will send the updated forecast and the risk slide before 9am tomorrow.\n\nPriya Nair\nNorthbank Advisory",
+        expires: "Waits until you decide",
+        id: "tom",
+        mail: "Our board meets tomorrow. We need the updated forecast and the risk slide before 9am. Who is on this?",
+        owner: "Sam Okafor",
+        say: "Tom Reid at Kestrel needs the updated forecast and risk slide by 9am tomorrow. I wrote back saying Sam has it.",
+        sent: "Sending your reply to Tom",
+        state: "need",
+        tile: "CS",
+        title: "Tom needs the forecast by 9am tomorrow",
+        who: "Tom Reid, Kestrel Energy",
+        why: "Sam runs the Kestrel work.",
+      },
+      {
+        action: "Send reply",
+        agent: "Chief of Staff",
+        ask: "Reply ready for you",
+        draft:
+          "Hi Jane,\n\nThanks for your note. We are checking Friday and will confirm today. Mei Tan will come back to you on the pricing section and what it means for timing.\n\nPriya Nair\nNorthbank Advisory",
+        expires: "Waits until you decide",
+        id: "jane",
+        mail: "Could we move Thursday's strategy review to Friday, and add a section on pricing options?",
+        owner: "Mei Tan",
+        say: "Jane Doe at Harcourt wants Thursday's review moved to Friday, with a pricing section added. Adding it may change the scope, so I kept the reply open.",
+        sent: "Sending your reply to Jane",
+        state: "need",
+        tile: "CS",
+        title: "Jane wants Thursday's review moved to Friday",
+        who: "Jane Doe, Harcourt Logistics",
+        why: "Mei leads strategy decks and pricing.",
+      },
+      {
+        action: "Send reminder",
+        agent: "Invoice Chaser",
+        ask: "Reminder ready for you",
+        draft:
+          "Hi,\n\nThanks for flagging this. INV-2041 is attached again with PO 88213. Please let us know when it is scheduled.\n\nDan Hughes\nNorthbank Advisory",
+        expires: "Waits until you decide",
+        id: "inv",
+        mail: "Our system shows INV-2041 ($18,400) unpaid. Please resend it with the correct PO number and we will pay this cycle.",
+        owner: "Dan Hughes",
+        say: "Brightwell Foods will pay INV-2041 ($18,400) this cycle if we resend it with the right PO number. I found the PO and wrote the reminder.",
+        sent: "Sending the Brightwell reminder",
+        state: "need",
+        tile: "IC",
+        title: "Reminder to Brightwell for $18,400",
+        who: "Accounts, Brightwell Foods",
+        why: "Dan owns collections.",
+      },
+      {
+        agent: "Chief of Staff",
+        id: "lease",
+        state: "work",
+        title: "Reading the Fairway lease notice",
+      },
+      {
+        agent: "Chief of Staff",
+        id: "po",
+        state: "work",
+        title: "Filing this week's newsletters",
+      },
+    ];
+    const S = {
+      b: { steps: 0 },
+      c: {
+        approver: null,
+        open: null,
+        tried: false,
+        trigger: null,
+        view: "list",
+      },
+      day: "30",
+      dir: "a",
+      done: 14,
+      items: seed(),
+      overlay: null,
+      sel: "tom",
+      steps: 0,
+      view: "home",
+    };
+    const esc = (s) =>
+      String(s).replace(
+        /[&<>"]/g,
+        (c) => ({ '"': "&quot;", "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]
+      );
+    const needs = () => S.items.filter((i) => i.state === "need");
+    const works = () => S.items.filter((i) => i.state === "work");
+    const WORDS = [
+      "No things",
+      "One thing",
+      "Two things",
+      "Three things",
+      "Four things",
+      "Five things",
+    ];
+
+    function act(id) {
+      const it = S.items.find((i) => i.id === id);
+      it.state = "work";
+      it.title = it.sent;
+      S.sel = (needs()[0] || {}).id || null;
+      render();
+      setTimeout(() => {
+        S.items = S.items.filter((i) => i !== it);
+        S.done += 1;
+        render();
+      }, 1800);
+    }
+    function newMail() {
+      const id = "n" + Date.now();
+      S.items.push({
+        agent: "Chief of Staff",
+        id,
+        state: "work",
+        title: "Reading a new email from Kestrel",
+      });
+      render();
+      setTimeout(() => {
+        const it = S.items.find((i) => i.id === id);
+        Object.assign(it, {
+          action: "Send reply",
+          ask: "Reply ready for you",
+          draft:
+            "Hi Tom,\n\nSam Okafor will present on Thursday.\n\nPriya Nair\nNorthbank Advisory",
+          expires: "Waits until you decide",
+          fresh: true,
+          mail: "Who from your side presents on Thursday? I need to tell our CFO.",
+          owner: "Sam Okafor",
+          say: "Tom Reid asks who presents on Thursday, for his CFO. I wrote back saying Sam.",
+          sent: "Sending your reply to Tom",
+          state: "need",
+          tile: "CS",
+          title: "Kestrel asks who presents on Thursday",
+          who: "Tom Reid, Kestrel Energy",
+          why: "Sam runs the Kestrel work.",
+        });
+        S.items = [it, ...S.items.filter((i) => i !== it)];
+        render();
+        it.fresh = false;
+      }, 2200);
+    }
+
+    /* ---------- A ---------- */
+    function railItems() {
+      if (S.day === "1") {
+        const list = [
+          ["Connect your office mail", "Connect", "mail"],
+          ["Say who is on the team", "Add people", "team"],
+          ["Try it on a sample email", "Try it", "try"],
+        ];
+        return (
+          `<h2><span>Needs you</span><span>${3 - S.steps}</span></h2>` +
+          list
+            .slice(S.steps)
+            .map(
+              ([t, s], i) =>
+                `<button class="need" ${i === 0 ? 'aria-current="true"' : ""}><b>${t}</b><span>Part of setup, about a minute</span></button>`
+            )
+            .join("") +
+          `<h2><span>Working</span></h2><div class="work"><span>Nothing yet</span></div>`
+        );
+      }
+      return (
+        `<h2><span>Needs you</span><span>${needs().length}</span></h2>` +
+        needs()
+          .map(
+            (i) =>
+              `<button class="need ${i.fresh ? "rise" : ""}" data-sel="${i.id}" ${S.sel === i.id && S.view === "home" ? 'aria-current="true"' : ""}><b>${esc(i.title)}</b><span>${esc(i.agent)}, ${esc(i.ask.toLowerCase())}</span></button>`
+          )
+          .join("") +
+        (needs().length
+          ? ""
+          : `<div class="work"><span>Nothing right now. Good.</span></div>`) +
+        `<h2><span>Working</span><span>${works().length}</span></h2>` +
+        works()
+          .map(
+            (i) => `<div class="work"><i></i><span>${esc(i.title)}</span></div>`
+          )
+          .join("") +
+        `<button class="doneline" data-view="done">${S.done} done today</button>`
+      );
+    }
+    function hood(it) {
+      return `<details class="hood"><summary>How it got here</summary><ol>
+    <li>Mail from ${esc(it.who)} started this at 6:48pm.</li>
+    <li>${esc(it.agent)} read the Team page and sorted it as client work.</li>
+    <li>It wrote one reply and stopped to ask you. Cost under 1 cent.</li></ol>
+    <p style="margin-top:10px"><button class="link" data-overlay="palette">Open the full log, the run id and every tool call</button></p></details>`;
+    }
+    function aPane() {
+      if (S.day === "1") {
+        const steps = [
+          [
+            "Connect your office mail",
+            "So Chief of Staff can read what comes in. It can read and draft. It cannot send anything without you.",
+            `<button class="btn go" data-a-step>Continue with Google</button> <button class="btn" data-a-step>Forward mail to a new address instead</button>`,
+          ],
+          [
+            "Say who is on the team",
+            "So it knows who should own what. Paste names, or upload a list.",
+            `<textarea class="input">Priya Nair, operations
+Sam Okafor, partner, Kestrel and Harcourt
+Mei Tan, strategy and pricing
+Dan Hughes, finance</textarea><div class="actions"><button class="btn go" data-a-step>Save the team</button></div>`,
+          ],
+          [
+            "Try it on a sample email",
+            "Nothing is sent. You see what it would do.",
+            `<button class="btn go" data-a-step>Try it</button>`,
+          ],
+        ];
+        if (S.steps >= 3) {
+          return `<div class="pane-in"><h1>You're set up, Priya.</h1><p class="sub">Chief of Staff is reading your mail now. When something needs you it appears on the left. Everything else stays quiet.</p><div class="actions"><button class="btn go" data-day="30">See a normal day</button></div></div>`;
+        }
+        return `<div class="pane-in"><h1>Your chief of staff is nearly ready</h1>
+      <p class="sub">You described the job and we drafted it. Three things left, each takes under a minute. Each one leaves the left side when it's done.</p>
+      <ol class="steps">${steps.map(([t, p, body], i) => `<li class="${i < S.steps ? "ok" : ""}"><h3><span class="num">${i < S.steps ? "Done" : i + 1}</span>${t}</h3>${i === S.steps ? `<p>${p}</p><div class="body">${body}</div>` : ""}</li>`).join("")}</ol></div>`;
+      }
+      if (S.view === "done") {
+        return `<div class="pane-in"><h1>${S.done} done today</h1><p class="sub">The 8am briefing went out. 6 newsletters filed. 2 invoices checked. Nothing here needs you.</p><div class="actions"><button class="btn" data-view="home">Back</button></div></div>`;
+      }
+      if (S.view === "agents") {
+        return `<div class="pane-in"><h1>Agents</h1><p class="sub">Two agents working for Northbank.</p>
+    <ol class="steps"><li><h3><span class="tile" style="width:22px;height:22px">CS</span>Chief of Staff</h3><p>Reads office mail, writes replies, posts the 8am briefing. Asks you before anything leaves.</p></li>
+    <li><h3><span class="tile ic" style="width:22px;height:22px">IC</span>Invoice Chaser</h3><p>Follows up overdue invoices that Chief of Staff passes on. Asks Dan first.</p></li></ol>
+    <div class="actions"><button class="btn go">New agent</button><button class="btn">How they fit together</button></div></div>`;
+      }
+      const it = S.items.find((i) => i.id === S.sel) || needs()[0];
+      if (!it) {
+        return `<div class="pane-in"><h1>All clear</h1><p class="sub">Chief of Staff is still working. Anything new will rise to the top on the left.</p><div class="actions"><button class="btn" data-newmail>Pretend a new email arrives</button></div></div>`;
+      }
+      return `<div class="pane-in">
+    <h1>${esc(it.title)}</h1>
+    <p class="sub">${esc(it.who)}</p>
+    <div class="quote"><small>They wrote</small>${esc(it.mail)}</div>
+    <div class="draft"><label for="d">${esc(it.agent)} wrote this reply</label><textarea id="d" class="input">${esc(it.draft)}</textarea></div>
+    <p class="who"><span class="tile ${it.tile === "IC" ? "ic" : ""}">${esc(it.tile)}</span><span>Suggested owner <b>${esc(it.owner)}</b>. ${esc(it.why)}</span> <button class="link">Change</button></p>
+    <div class="actions"><button class="btn go" data-act="${it.id}">${esc(it.action)}</button><button class="btn">Not this time</button><button class="btn quiet">Tell it what to change</button><span class="expiry">${esc(it.expires)}</span></div>
+    ${hood(it)}</div>`;
+    }
+    function renderA() {
+      return `<aside class="rail" aria-label="What needs attention">
+    <div class="rail-top"><span class="name">Northbank</span><button class="btn" data-overlay="palette">Find</button><button class="btn go" data-newtask>New</button></div>
+    <div class="rail-scroll">${railItems()}</div>
+    <nav class="rail-nav"><button data-view="agents" ${S.view === "agents" ? 'aria-current="true"' : ""}>Agents</button><button>Files</button><button data-overlay="palette">Everything</button></nav>
+  </aside><section class="pane">${aPane()}
+  ${S.day === "30" ? `<div class="pane-in" style="margin-top:30px"><button class="link" data-newmail>Pretend a new email arrives, and watch the left side</button></div>` : ""}</section>`;
+    }
+
+    /* ---------- B ---------- */
+    function renderB() {
+      const nav = `<header class="btop"><span class="name">Harbourmaster</span>
+    <button ${S.view !== "more" && S.view !== "agents" ? 'aria-current="true"' : ""} data-view="home">Today</button><button data-view="agents" ${S.view === "agents" ? 'aria-current="true"' : ""}>Agents</button><button>Files</button><button data-view="more" ${S.view === "more" ? 'aria-current="true"' : ""}>More</button></header>`;
+      if (S.day === "1") {
+        const body = [
+          [
+            "What should it take off your plate?",
+            `<textarea class="input" placeholder="Read the office mail, sort it, and write replies I can approve."></textarea><div class="chips"><button class="chip">Sort an inbox</button><button class="chip">Chase late invoices</button><button class="chip">Research a topic</button></div><div class="actions"><button class="btn go" data-b-step>Draft it</button></div>`,
+          ],
+          [
+            "Which mail should it read?",
+            `<div class="actions" style="margin-top:0"><button class="btn go" data-b-step>Continue with Google</button><button class="btn" data-b-step>Forward mail to a new address</button></div>`,
+          ],
+          [
+            "Who should it ask, and who does what?",
+            `<textarea class="input">Priya approves anything to a client. Sam has Kestrel and Harcourt. Mei does pricing. Dan does invoices.</textarea><div class="actions"><button class="btn go" data-b-step>That's right</button></div>`,
+          ],
+          [
+            "When should I write to you?",
+            `<div class="chips"><button class="chip" data-b-step>8am Sydney on weekdays</button><button class="chip" data-b-step>9am</button><button class="chip" data-b-step>Whenever something comes up</button></div>`,
+          ],
+        ];
+        const i = S.b.steps;
+        return `<div class="bwrap">${nav}<div class="bscroll"><article class="note"><p class="date">Friday, 30 October</p>
+      <h1>${i >= 4 ? "You're set up. I'll write at 8am." : "Let's get your mail handled."}</h1>
+      ${body
+        .slice(0, i)
+        .map(
+          ([t]) =>
+            `<p class="prose" style="color:var(--faint);margin-bottom:8px">${t} Done.</p>`
+        )
+        .join("")}
+      ${i < 4 ? `<h2 style="margin-top:14px">${body[i][0]}</h2><div style="margin-top:12px">${body[i][1]}</div>` : `<p class="prose">This page becomes your morning note. It lists what needs you, then what is in hand, then what was handled quietly.</p><div class="actions"><button class="btn go" data-day="30">See a normal day</button></div>`}
+    </article></div></div>`;
+      }
+      if (S.view === "more") {
+        const groups = [
+          [
+            "How it all fits",
+            ["Map of agents and what starts them", "Schedules", "Web triggers"],
+          ],
+          ["Past work", ["Every task", "Full log", "Questions"]],
+          [
+            "What agents can use",
+            [
+              "Apps",
+              "Know-how (skills)",
+              "Files and wiki",
+              "Things agents made",
+            ],
+          ],
+          [
+            "Admin",
+            [
+              "AI account",
+              "Passwords and keys",
+              "Computers",
+              "Developer access",
+            ],
+          ],
+        ];
+        return `<div class="bwrap">${nav}<div class="bscroll"><article class="note"><h1>More</h1><div class="more-grid">${groups.map(([h, l]) => `<div><h3>${h}</h3>${l.map((x) => `<button>${x}</button>`).join("")}</div>`).join("")}</div></article></div></div>`;
+      }
+      if (S.view === "agents") {
+        return `<div class="bwrap">${nav}<div class="bscroll"><article class="note"><h1>Agents</h1>
+      <p class="prose"><b style="font-weight:500">Chief of Staff</b> reads the office mail, writes replies for you to approve, and writes this note. It has handled 31 emails this week.</p>
+      <p class="prose" style="margin-top:14px"><b style="font-weight:500">Invoice Chaser</b> follows up overdue invoices and asks Dan before anything goes out.</p>
+      <div class="actions"><button class="btn go">New agent</button></div></article></div></div>`;
+      }
+      const n = needs().length;
+      const list = S.items.filter((i) => i.say);
+      return `<div class="bwrap">${nav}<div class="bscroll"><article class="note">
+    <p class="date">Friday, 30 October. Written by Chief of Staff at 8:00am.</p>
+    <h1>${n ? `${WORDS[n] ?? n + " things"} ${n === 1 ? "needs" : "need"} you, Priya.` : "Nothing needs you, Priya."}</h1>
+    ${list
+      .map((i) =>
+        i.state === "need"
+          ? `<section class="dec ${i.fresh ? "rise" : ""}"><p class="say">${esc(i.say)}</p>
+      <details><summary>Read the reply and suggested owner</summary><div class="ta"><textarea class="input">${esc(i.draft)}</textarea></div><p class="who">Owner <b>${esc(i.owner)}</b>. ${esc(i.why)}</p></details>
+      <div class="actions"><button class="btn go" data-act="${i.id}">${esc(i.action)}</button><button class="btn">Not this time</button><button class="btn quiet">Change it</button></div></section>`
+          : `<section class="dec gone"><p class="say">${esc(i.title)}.</p></section>`
+      )
+      .join("")}
+    <h2>In hand</h2>
+    <p class="prose">${
+      works()
+        .filter((i) => !i.say)
+        .map(
+          (i) =>
+            `${esc(i.agent)} is ${esc(i.title.charAt(0).toLowerCase() + i.title.slice(1))}.`
+        )
+        .join(" ") || "Nothing running."
+    }</p>
+    <h2>Handled quietly</h2>
+    <p class="prose">${S.done} things since yesterday, including 6 newsletters filed and 2 invoices checked. <button class="link" style="font:inherit">See them</button></p>
+    <p style="margin-top:22px"><button class="link" data-newmail>Pretend a new email arrives</button></p>
+  </article></div>
+  <form class="ask" onsubmit="return false"><input aria-label="Ask or hand something off" placeholder="Ask, or hand something off"><button class="btn go">Send</button></form></div>`;
+    }
+
+    /* ---------- C ---------- */
+    const TRIGGERS = [
+      "an email arrives",
+      "it's 8am on a weekday",
+      "someone mentions it in Slack",
+      "a person asks",
+    ];
+    const APPROVERS = [
+      "ask me first",
+      "ask Dan first",
+      "go ahead without asking",
+    ];
+    const pill = (t, cls = "") => `<span class="pill ${cls}">${esc(t)}</span>`;
+    function renderC() {
+      const n = needs().length;
+      const nav = `<nav class="cnav" aria-label="Main"><span class="name">Harbourmaster</span>
+    <button data-c="today" ${S.c.view === "today" ? 'aria-current="true"' : ""}><span>Today</span><span class="count">${S.day === "1" ? "" : n || ""}</span></button>
+    <button data-c="list" ${S.c.view === "list" || S.c.view === "new" || S.c.view === "fit" ? 'aria-current="true"' : ""}><span>Jobs</span></button>
+    <button><span>Files</span></button>
+    <button class="foot" data-overlay="palette"><span>Settings</span></button></nav>`;
+      let main = "";
+      const firstDay = S.day === "1" && S.c.view !== "today";
+      if (S.c.view === "new" || firstDay) {
+        const t = S.c.trigger;
+        const a = S.c.approver;
+        const open = S.c.open;
+        const trigOpts =
+          open === "t"
+            ? `<div class="opts"><p>What should start this job?</p><div class="chips">${TRIGGERS.map((x) => `<button class="chip" data-c-t="${x}">${x}</button>`).join("")}</div></div>`
+            : "";
+        const mailOpts =
+          t === "an email arrives" && !S.c.mail
+            ? `<div class="opts"><p>Which mail? It can read and draft. It cannot send without you.</p><div class="chips"><button class="btn go" data-c-mail>Continue with Google</button><button class="btn" data-c-mail>Forward to a new address</button></div></div>`
+            : "";
+        const apprOpts =
+          open === "a"
+            ? `<div class="opts"><p>Before anything leaves Northbank, it should</p><div class="chips">${APPROVERS.map((x) => `<button class="chip" data-c-a="${x}">${x}</button>`).join("")}</div></div>`
+            : "";
+        main = `<div class="chead"><h1>${firstDay ? "Give Harbourmaster its first job" : "New job"}</h1></div>
+    <p class="sub">Finish the sentence. Everything else has a sensible default.</p>
+    <div class="builder"><div>
+      <p class="sentence">When <button class="pill ${t ? "" : "empty"}" data-c-open="t" aria-expanded="${open === "t"}">${t ? esc(t) : "something happens"}</button>,
+      sort the mail into client work, invoices and noise, and write replies, then <button class="pill ${a ? "ppl" : "empty"}" data-c-open="a" aria-expanded="${open === "a"}">${a ? esc(a) : "decide who approves"}</button>.</p>
+      ${trigOpts}${mailOpts}${apprOpts}
+      ${S.c.mail ? `<p class="sub" style="margin-top:12px">Reading office@northbank.example.</p>` : ""}
+      <details class="adv"><summary>More options</summary>
+        <div class="advrow"><span>Name</span><span>Chief of Staff</span></div>
+        <div class="advrow"><span>Instructions</span><span>7 rules written for you. <button class="link">Read and edit</button></span></div>
+        <div class="advrow"><span>Runs on</span><span>Cloudflare, about 1 cent an email. <button class="link">Change</button></span></div>
+        <div class="advrow"><span>AI model</span><span>Haiku, fast and low cost. <button class="link">Change</button></span></div>
+        <div class="advrow"><span>Can use</span><span>Mail, files, the wiki. <button class="link">Add an app</button></span></div>
+        <div class="advrow"><span>Hands off to</span><span>Nobody yet. <button class="link">Choose</button></span></div>
+      </details>
+    </div>
+    <aside class="tryit"><h2>Try it first</h2>
+      <p class="sub" style="margin-top:0">Nothing is sent or saved.</p>
+      <div class="quote"><small>Sample email from Jane Doe</small>Could we move Thursday's review to Friday, and add a section on pricing options?</div>
+      <div class="actions"><button class="btn" data-c-try>Try it on this email</button></div>
+      ${S.c.tried ? `<div class="result"><p><b>It would sort this as client work,</b> suggest Mei as owner, and hold this reply for you:</p><p class="quote" style="margin-top:8px">Hi Jane, thanks for your note. We are checking Friday and will confirm today.</p></div>` : ""}
+      <div class="actions"><button class="btn go" data-c-start ${t && a ? "" : 'disabled style="opacity:.45;cursor:not-allowed"'}>Start this job</button></div>
+    </aside></div>`;
+      } else if (S.c.view === "today") {
+        main = `<div class="chead"><h1>Today</h1></div><p class="sub">Grouped by job. The list shows only what waits on you.</p>
+    <div class="job"><p class="sentence" style="font-size:19px">Sort the office mail</p><p class="jobmeta"><span class="wait">${needs().filter((i) => i.tile === "CS").length} waiting</span><span>29 handled this week</span></p>
+      ${needs()
+        .filter((i) => i.tile === "CS")
+        .map(
+          (i) =>
+            `<div class="dec" style="margin-top:14px;padding-bottom:14px;margin-bottom:0"><p style="font-weight:500">${esc(i.title)}</p><p class="sub" style="margin-top:2px">${esc(i.who)}. Suggested owner ${esc(i.owner)}.</p><div class="actions" style="margin-top:8px"><button class="btn go" data-act="${i.id}">${esc(i.action)}</button><button class="btn">Read it</button></div></div>`
+        )
+        .join("")}
+    </div>
+    <div class="job"><p class="sentence" style="font-size:19px">Follow up overdue invoices</p><p class="jobmeta"><span class="wait">${needs().filter((i) => i.tile === "IC").length} waiting</span><span>2 handled this week</span></p>
+      ${needs()
+        .filter((i) => i.tile === "IC")
+        .map(
+          (i) =>
+            `<div class="dec" style="margin-top:14px;padding-bottom:14px;margin-bottom:0"><p style="font-weight:500">${esc(i.title)}</p><p class="sub" style="margin-top:2px">${esc(i.who)}. Asks ${esc(i.owner)}.</p><div class="actions" style="margin-top:8px"><button class="btn go" data-act="${i.id}">${esc(i.action)}</button><button class="btn">Read it</button></div></div>`
+        )
+        .join("")}
+    </div>`;
+      } else if (S.c.view === "fit") {
+        main = `<div class="chead"><h1>How it fits</h1><button class="btn" data-c="list">Back to list</button></div>
+    <p class="sub">The same three jobs, as a picture. Today's Map, in the words Priya uses.</p>
+    <div class="fit"><h3>What starts it</h3><h3>Who does it</h3><h3>Where it ends up</h3>
+    <div class="arrow">An email arrives</div><div class="arrow">Chief of Staff</div><div>Replies, after Priya says yes</div>
+    <div class="arrow">8am on weekdays</div><div class="arrow">Chief of Staff</div><div>The morning briefing</div>
+    <div class="arrow">Chief of Staff finds an overdue invoice</div><div class="arrow">Invoice Chaser</div><div>Reminders, after Dan says yes</div></div>`;
+      } else {
+        main = `<div class="chead"><h1>Jobs</h1><button class="btn" data-c="fit">How it fits</button><button class="btn go" data-c="new">New job</button></div>
+    <div class="job" style="border-top:0"><p class="sentence">When ${pill("an email arrives at office@")}, ${pill("Chief of Staff")} sorts it and writes replies, then ${pill("asks Priya", "ppl")} before anything leaves.</p>
+      <p class="jobmeta"><span class="wait">${needs().filter((i) => i.tile === "CS").length} waiting on you</span><span>Ran 31 times this week</span><span>About $0.40 this week</span><button class="link">Pause</button><button class="link">Edit</button></p></div>
+    <div class="job"><p class="sentence">Every ${pill("weekday at 8am Sydney")}, ${pill("Chief of Staff")} writes the briefing, then ${pill("posts it on Today", "ppl")}.</p>
+      <p class="jobmeta"><span>Ran 5 times this week</span><span>Next on Monday</span><button class="link">Pause</button><button class="link">Edit</button></p></div>
+    <div class="job"><p class="sentence">When ${pill("Chief of Staff finds an overdue invoice")}, ${pill("Invoice Chaser")} writes a reminder, then ${pill("asks Dan", "ppl")}.</p>
+      <p class="jobmeta"><span class="wait">${needs().filter((i) => i.tile === "IC").length} waiting on Dan</span><span>Ran twice this week</span><button class="link">Pause</button><button class="link">Edit</button></p></div>`;
+      }
+      return `${nav}<section class="cmain">${main}</section>`;
+    }
+
+    /* ---------- Overlays ---------- */
+    const DIRECTORY = [
+      [
+        "Past work",
+        [
+          ["Every task", "Sessions and task pages"],
+          ["Full log", "Log"],
+          ["Questions", "Q&A and Inbox"],
+        ],
+      ],
+      [
+        "How things start",
+        [
+          ["Map", "Map"],
+          ["Schedules", "Routines"],
+          ["Web triggers", "Triggers"],
+        ],
+      ],
+      [
+        "What agents can use",
+        [
+          ["Apps", "Connectors and Slack"],
+          ["Know-how", "Skills"],
+          ["Files and wiki", "Library"],
+          ["Things agents made", "Artifacts"],
+        ],
+      ],
+      [
+        "Admin",
+        [
+          ["AI account", "Model providers"],
+          ["Passwords and keys", "Secrets"],
+          ["Computers", "Machines"],
+          ["Developer access", "API keys and Connected apps"],
+          ["Sharing rules", "Settings, Artifacts"],
+        ],
+      ],
+    ];
+    const MAP = [
+      [
+        "Desk",
+        "Left rail plus the pane it opens",
+        "Today, the note",
+        "Today, grouped by job",
+      ],
+      [
+        "Agents, profile",
+        "Agents at the foot of the rail",
+        "Agents tab",
+        "Inside a job, under More options",
+      ],
+      [
+        "Map",
+        "Agents, How they fit together",
+        "More, Map",
+        "Jobs, How it fits",
+      ],
+      [
+        "Q&A, Inbox",
+        "Questions rise in the rail. Archive under Everything",
+        "Questions join the note. Archive under More",
+        "Questions join Today. Archive in Settings",
+      ],
+      [
+        "Sessions, Log, Task page",
+        "How it got here on each item. Full views under Everything",
+        "Under each decision. Full views under More",
+        "Under each job. Full views in Settings",
+      ],
+      [
+        "Routines, Triggers",
+        "Agent page, plus Everything",
+        "More",
+        "The When part of each job",
+      ],
+      [
+        "Library, wiki, Artifacts",
+        "Files, with Things agents made as a filter",
+        "Files tab",
+        "Files",
+      ],
+      [
+        "Skills",
+        "Everything, Know-how",
+        "More, Know-how",
+        "Settings, Know-how",
+      ],
+      [
+        "Connectors, Slack",
+        "Apps, starting from a list with one-click sign-in",
+        "Same, offered inside setup steps",
+        "Same, offered inside the sentence",
+      ],
+      [
+        "Secrets",
+        "Admin, also linked from any app that needs one",
+        "More, Admin",
+        "Settings, Admin",
+      ],
+      [
+        "Model providers",
+        "First-run credit, then Admin, AI account",
+        "More, Admin",
+        "Settings, Admin",
+      ],
+      [
+        "Machines, computers",
+        "Admin, Computers. Offered when an agent needs one",
+        "More, Admin",
+        "More options on a job, Settings",
+      ],
+      [
+        "API keys, Connected apps",
+        "Admin, Developer access",
+        "More, Admin",
+        "Settings, Developer access",
+      ],
+    ];
+    function overlay() {
+      if (S.overlay === "palette") {
+        return `<div class="scrim" data-close><div class="palette" role="dialog" aria-label="Find anything"><input aria-label="Find anything" placeholder="Find anything: a task, an agent, a setting">
+    ${DIRECTORY.map(([h, l]) => `<h3>${h}</h3>${l.map(([a, b]) => `<button><b style="font-weight:400">${a}</b><span>${b}</span></button>`).join("")}`).join("")}</div></div>`;
+      }
+      if (S.overlay === "map") {
+        return `<div class="scrim" data-close><div class="mapdlg" role="dialog" aria-label="Where everything went"><h2>Where did everything go?</h2><p>Nothing is removed. Every page in today's app has a home in each direction, one or two clicks from where people work.</p>
+    <table><thead><tr><th>Today</th><th>A, the rail</th><th>B, the morning note</th><th>C, jobs</th></tr></thead><tbody>${MAP.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>`;
+      }
+      return "";
+    }
+
+    /* ---------- Shell ---------- */
+    function render() {
+      document.getElementById("dirs").innerHTML = [
+        ["a", "A: The rail"],
+        ["b", "B: The morning note"],
+        ["c", "C: Jobs"],
+      ]
+        .map(
+          ([k, l]) =>
+            `<button aria-pressed="${S.dir === k}" data-dir="${k}">${l}</button>`
+        )
+        .join("");
+      document.getElementById("days").innerHTML = [
+        ["1", "First day"],
+        ["30", "A normal day"],
+      ]
+        .map(
+          ([k, l]) =>
+            `<button aria-pressed="${S.day === k}" data-day="${k}">${l}</button>`
+        )
+        .join("");
+      const stage = document.getElementById("stage");
+      stage.innerHTML =
+        S.dir === "a" ? renderA() : S.dir === "b" ? renderB() : renderC();
+      document.getElementById("overlay").innerHTML = overlay();
+    }
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest("button,[data-close]");
+      if (!t) {
+        return;
+      }
+      const d = t.dataset;
+      if (d.dir) {
+        S.dir = d.dir;
+        S.view = "home";
+      } else if (d.day) {
+        S.day = d.day;
+        S.view = "home";
+        S.c.view = d.day === "1" ? "new" : "list";
+      } else if (d.sel) {
+        S.sel = d.sel;
+        S.view = "home";
+      } else if (d.view) {
+        S.view = d.view;
+      } else if (d.act) {
+        act(d.act);
+        return;
+      } else if ("newmail" in d) {
+        newMail();
+        return;
+      } else if ("aStep" in d) {
+        S.steps += 1;
+      } else if ("bStep" in d) {
+        S.b.steps += 1;
+      } else if (d.overlay) {
+        S.overlay = d.overlay;
+      } else if (d.c) {
+        S.c.view = d.c;
+      } else if (d.cOpen) {
+        S.c.open = S.c.open === d.cOpen ? null : d.cOpen;
+      } else if (d.cT) {
+        S.c.trigger = d.cT;
+        S.c.open = null;
+      } else if (d.cA) {
+        S.c.approver = d.cA;
+        S.c.open = null;
+      } else if ("cMail" in d) {
+        S.c.mail = true;
+      } else if ("cTry" in d) {
+        S.c.tried = true;
+      } else if ("cStart" in d) {
+        S.day = "30";
+        S.c.view = "list";
+      } else if ("close" in d) {
+        if (e.target === t) {
+          S.overlay = null;
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
+      render();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && S.overlay) {
+        S.overlay = null;
+        render();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        S.overlay = "palette";
+        render();
+      }
+    });
+    document.getElementById("mapbtn").onclick = () => {
+      S.overlay = "map";
+      render();
+    };
+    document.getElementById("reset").onclick = () => {
+      Object.assign(S, {
+        b: { steps: 0 },
+        c: {
+          approver: null,
+          open: null,
+          tried: false,
+          trigger: null,
+          view: S.day === "1" ? "new" : "list",
+        },
+        done: 14,
+        items: seed(),
+        sel: "tom",
+        steps: 0,
+        view: "home",
+      });
+      render();
+    };
+    const params = new URLSearchParams(location.search);
+    if (params.get("dir")) {
+      S.dir = params.get("dir");
+    }
+    if (params.get("day")) {
+      S.day = params.get("day");
+      if (S.day === "1") {
+        S.c.view = "new";
+      }
+    }
+    render();
+    </script>
+  </body>
+</html>

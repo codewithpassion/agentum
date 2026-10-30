@@ -18,7 +18,9 @@
       // in. They are not part of the app until that skill runs.
       "!.claude/skills/add-clerk/templates",
       // Design mock-ups exported from Claude Design, kept as reference only.
-      "!docs/v2/design"
+      "!docs/v2/design",
+      // The UX review: throwaway mock-ups and video tooling, not part of the app.
+      "!docs/ux-review"
     ]
   }
 }
