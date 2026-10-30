@@ -25,10 +25,15 @@ const card: RailCard = {
 
 const noop = () => Promise.resolve();
 
-const render = (props: { expiry?: string | null; waitingOn?: string | null }) =>
+const render = (props: {
+  cc?: string[];
+  expiry?: string | null;
+  waitingOn?: string | null;
+}) =>
   renderToStaticMarkup(
     <MailDecision
       card={card}
+      cc={props.cc ?? []}
       expiry={props.expiry ?? null}
       onAnswer={noop}
       waitingOn={props.waitingOn ?? null}
@@ -61,4 +66,11 @@ test("names who it waits on and shows the expiry only when given one", () => {
     "expires in 42 min"
   );
   expect(render({})).not.toContain("expires");
+});
+
+test("names the Cc recipients, who get the reply too", () => {
+  expect(render({})).not.toContain("Cc");
+  expect(render({ cc: ["boss@example.com", "hr@example.com"] })).toContain(
+    "Cc boss@example.com, hr@example.com"
+  );
 });

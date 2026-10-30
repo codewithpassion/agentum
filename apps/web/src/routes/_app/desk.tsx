@@ -195,9 +195,9 @@ function BoardView() {
   );
 }
 
-/** The open rail item, or the board with `?view=board`. */
+/** The open rail item, or the board with `?view=board` (or the old `?agent=` links). */
 function Desk() {
-  const { item, view } = Route.useSearch();
+  const { agent, item, view } = Route.useSearch();
   const navigate = Route.useNavigate();
   const open = useCallback(
     (id: string | null) =>
@@ -207,7 +207,7 @@ function Desk() {
       }),
     [navigate]
   );
-  return view === "board" ? (
+  return view === "board" || agent !== undefined ? (
     <BoardView />
   ) : (
     <RailPane item={item} onOpen={open} />

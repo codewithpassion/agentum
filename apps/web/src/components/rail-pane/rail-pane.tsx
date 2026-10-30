@@ -5,7 +5,7 @@ import {
   type RailView,
 } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { localMidnightIso } from "#/components/desk/desk-logic.ts";
 import {
   DESK_POLL_INTERVAL_MS,
@@ -17,8 +17,13 @@ import {
 } from "#/components/requests/request-card-logic.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import { answerRequest } from "./answer.ts";
-import { CardView } from "./card-view.tsx";
-import { itemAfterAnswer, selectItem } from "./pane-logic.ts";
+import { type CardActions, CardView } from "./card-view.tsx";
+import {
+  itemAfterAnswer,
+  pruneAnswered,
+  selectItem,
+  selectionId,
+} from "./pane-logic.ts";
 import { SetupPane } from "./setup-pane.tsx";
 import { useNowMs } from "./use-now-ms.ts";
 
@@ -88,7 +93,7 @@ function ItemCards({
   loaded,
   nowMs,
 }: {
-  actions: Parameters<typeof CardView>[0]["actions"];
+  actions: CardActions;
   item: RailItem;
   loaded: Loaded;
   nowMs: number;
@@ -128,16 +133,44 @@ export function RailPane({
     DESK_POLL_INTERVAL_MS
   );
   const [sendError, setSendError] = useState<string | null>(null);
+  // Cards answered here. A poll that lands late cannot bring them back.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  // The open item holds still: a new item that sorts first on a bare /desk
+  // does not take the pane away from what is being read.
+  const [shown, setShown] = useState(item);
 
   useEffect(() => {
     window.addEventListener(RAIL_REFRESH_EVENT, refresh);
     return () => window.removeEventListener(RAIL_REFRESH_EVENT, refresh);
   }, [refresh]);
 
-  const selection = useMemo(
-    () => (data === null ? null : selectItem(data.rail, item)),
-    [data, item]
+  useEffect(() => {
+    if (item !== undefined) {
+      setShown(item);
+    }
+  }, [item]);
+
+  const list = useMemo(
+    () => (data === null ? null : pruneAnswered(data.rail, answered)),
+    [answered, data]
   );
+  const selection = useMemo(
+    () => (list === null ? null : selectItem(list, shown)),
+    [list, shown]
+  );
+
+  useEffect(() => {
+    if (selection !== null) {
+      setShown(selectionId(selection));
+    }
+  }, [selection]);
+
+  const latest = useRef({ list, selection });
+  useEffect(() => {
+    latest.current = { list, selection };
+  });
 
   const answer = useCallback(
     async (requestId: string, payload: Parameters<typeof answerRequest>[2]) => {
@@ -154,18 +187,22 @@ export function RailPane({
     await getTrpc().desk.clearAttention.mutate({ runId });
   }, []);
 
-  // After any action: refresh the rail, then open what comes next.
+  // After any action: tell the rail, and open what comes next.
   const done = useCallback(
-    async (cardId: string) => {
-      if (data === null || selection?.kind !== "item") {
-        return;
+    (cardId: string): Promise<void> => {
+      const { list: current, selection: open } = latest.current;
+      if (current !== null && open?.kind === "item") {
+        const next = itemAfterAnswer(current, open.item, cardId);
+        setAnswered((previous) => new Set(previous).add(cardId));
+        if (next !== null) {
+          setShown(next);
+        }
+        onOpen(next);
       }
-      const next = itemAfterAnswer(data.rail, selection.item, cardId);
       window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
-      await refresh();
-      onOpen(next);
+      return Promise.resolve();
     },
-    [data, onOpen, refresh, selection]
+    [onOpen]
   );
   const actions = useMemo(
     () => ({ onAnswer: answer, onDismiss: dismiss, onDone: done }),

@@ -363,9 +363,11 @@ function ApprovalCard({
 function TakeoverCard({
   view,
   nowMs,
+  onClosed,
 }: {
   view: Extract<RequestView, { kind: "takeover" }>;
   nowMs: number;
+  onClosed?: () => void;
 }) {
   const [pending, setPending] = useState(false);
   const [closed, setClosed] = useState(false);
@@ -376,12 +378,13 @@ function TakeoverCard({
     try {
       await getTrpc().takeover.cancel.mutate({ requestId: view.id });
       setClosed(true);
+      onClosed?.();
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
-  }, [view.id]);
+  }, [onClosed, view.id]);
   if (closed) {
     return (
       <p className="text-muted-foreground text-sm">Takeover request closed</p>
@@ -424,16 +427,21 @@ function TakeoverCard({
   );
 }
 
-/** `title` replaces an approval's raw "Use <tool>" line when the caller has a plainer one. */
+/**
+ * `title` replaces an approval's raw "Use <tool>" line when the caller has a
+ * plainer one. `onClosed` runs once a takeover request is cancelled here.
+ */
 export function RequestCard({
   view,
   nowMs,
   onAnswer,
+  onClosed,
   title,
 }: {
   view: RequestView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
+  onClosed?: () => void;
   title?: string;
 }) {
   const { user } = useUser();
@@ -449,7 +457,7 @@ export function RequestCard({
     );
   }
   if (view.kind === "takeover") {
-    return <TakeoverCard nowMs={nowMs} view={view} />;
+    return <TakeoverCard nowMs={nowMs} onClosed={onClosed} view={view} />;
   }
   if (view.kind === "approval") {
     return (

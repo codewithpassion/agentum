@@ -116,6 +116,7 @@ export function NeedsYouBody({
         <RequestCard
           nowMs={nowMs}
           onAnswer={onAnswer}
+          onClosed={onChanged}
           title={title}
           view={request}
         />
@@ -125,7 +126,12 @@ export function NeedsYouBody({
       return request === null ? (
         <AskFallback card={card} />
       ) : (
-        <RequestCard nowMs={nowMs} onAnswer={onAnswer} view={request} />
+        <RequestCard
+          nowMs={nowMs}
+          onAnswer={onAnswer}
+          onClosed={onChanged}
+          view={request}
+        />
       );
     case "skill_proposal":
     case "trigger_proposal":

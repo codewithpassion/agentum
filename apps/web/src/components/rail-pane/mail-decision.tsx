@@ -1,6 +1,7 @@
 import type { RailCard } from "@repo/db/shared";
 import { type ChangeEvent, useCallback, useId, useState } from "react";
 import type { AnswerPayload } from "#/components/requests/request-card-logic.ts";
+import { errorMessage } from "#/components/triggers/format.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
@@ -10,17 +11,17 @@ import {
   sendReplyAnswer,
 } from "./answer.ts";
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
-
 /** A held mail reply: what they wrote, the reply in plain type, and the three ways to answer. */
 export function MailDecision({
   card,
+  cc,
   expiry,
   onAnswer,
   waitingOn,
 }: {
   card: RailCard;
+  /** Cc addresses of the held mail. They get the reply too. */
+  cc: readonly string[];
   /** "expires in 42 min", or null while plenty of time is left. */
   expiry: string | null;
   onAnswer: (cardId: string, payload: AnswerPayload) => Promise<void>;
@@ -67,6 +68,7 @@ export function MailDecision({
     <div className="flex flex-col gap-4" data-testid="mail-decision">
       <p className="text-muted-foreground text-sm">
         Goes to {mail.to.join(", ")}
+        {cc.length === 0 ? null : `, Cc ${cc.join(", ")}`}
       </p>
       {mail.theyWrote === null ? null : (
         <blockquote className="border-border border-l-2 pl-3.5 text-muted-foreground">

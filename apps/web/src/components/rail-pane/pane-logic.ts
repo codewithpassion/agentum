@@ -62,6 +62,33 @@ export const selectItem = (
   return item === undefined ? defaultSelection(view) : { item, kind: "item" };
 };
 
+/**
+ * The list without the cards already answered here, so a poll that lands late
+ * cannot bring one back. An item left with no cards goes; the others keep
+ * their order and take their id from their first remaining card.
+ */
+export const pruneAnswered = (
+  view: Listed,
+  answered: ReadonlySet<string>
+): Listed => {
+  if (answered.size === 0) {
+    return view;
+  }
+  const needsYou: RailItem[] = [];
+  for (const item of view.needsYou) {
+    const cards = item.cards.filter((card) => !answered.has(card.id));
+    const [first] = cards;
+    if (first !== undefined) {
+      needsYou.push(
+        cards.length === item.cards.length
+          ? item
+          : { ...item, cards, id: first.id }
+      );
+    }
+  }
+  return { needsYou, setup: view.setup };
+};
+
 /** The id the pane stores for a selection. */
 export const selectionId = (selection: Selection): string =>
   selection.kind === "setup" ? setupItemId(selection.step) : selection.item.id;
@@ -99,9 +126,9 @@ export const itemAfterAnswer = (
 };
 
 /** Which body a card gets: a problem, a held mail, or the plain body. */
-export type CardView = "mail" | "problem" | "body";
+export type CardKind = "mail" | "problem" | "body";
 
-export const cardView = (card: RailCard): CardView => {
+export const cardView = (card: RailCard): CardKind => {
   if (card.kind === "problem") {
     return "problem";
   }

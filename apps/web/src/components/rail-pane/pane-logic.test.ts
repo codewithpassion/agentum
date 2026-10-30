@@ -14,6 +14,7 @@ import {
   howItGotHere,
   itemAfterAnswer,
   nextItemId,
+  pruneAnswered,
   selectItem,
   selectionId,
 } from "./pane-logic.ts";
@@ -328,5 +329,37 @@ describe("howItGotHere", () => {
     expect(howItGotHere(card({ agentName: "" }), formatAt)[0]).toBe(
       "Someone started this at 09:00."
     );
+  });
+});
+
+describe("pruneAnswered", () => {
+  const a = card({ id: "a" });
+  const b = card({ id: "b" });
+  const c = card({ id: "c" });
+
+  test("nothing answered returns the list as it is", () => {
+    const list = view([item(a)]);
+    expect(pruneAnswered(list, new Set())).toBe(list);
+  });
+
+  test("an item whose cards are all answered goes", () => {
+    expect(pruneAnswered(view([item(a), item(b)]), new Set(["a"]))).toEqual(
+      view([item(b)])
+    );
+  });
+
+  test("a group keeps its other cards and takes its id from the first left", () => {
+    const { needsYou } = pruneAnswered(view([item(a, b, c)]), new Set(["a"]));
+    expect(needsYou.map((entry) => entry.id)).toEqual(["b"]);
+    expect(needsYou.flatMap((entry) => entry.cards.map((x) => x.id))).toEqual([
+      "b",
+      "c",
+    ]);
+  });
+
+  test("setup steps stay", () => {
+    expect(
+      pruneAnswered(view([item(a)], ["ai_account"]), new Set(["a"])).setup
+    ).toEqual(["ai_account"]);
   });
 });

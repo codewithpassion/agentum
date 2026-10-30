@@ -1,9 +1,10 @@
 import type { RailCard } from "@repo/db/shared";
 import { useCallback } from "react";
 import { NeedsYouBody } from "#/components/desk/needs-you-card.tsx";
-import type {
-  AnswerPayload,
-  RequestView,
+import {
+  type AnswerPayload,
+  mailApprovalFields,
+  type RequestView,
 } from "#/components/requests/request-card-logic.ts";
 import { HowItGotHere } from "./how-it-got-here.tsx";
 import { MailDecision } from "./mail-decision.tsx";
@@ -15,8 +16,15 @@ export interface CardActions {
   onAnswer: (requestId: string, payload: AnswerPayload) => Promise<void>;
   onDismiss: (runId: string) => Promise<void>;
   /** Runs once a card is dealt with, to move on. */
-  onDone: (cardId: string) => void;
+  onDone: (cardId: string) => Promise<void>;
 }
+
+/** The Cc addresses of the held mail behind a request. */
+const heldMailCc = (request: RequestView | null): string[] => {
+  const fields =
+    request?.kind === "approval" ? mailApprovalFields(request.display) : null;
+  return fields === null ? [] : fields.cc;
+};
 
 function CardBody({
   actions,
@@ -37,22 +45,24 @@ function CardBody({
   const answerMail = useCallback(
     async (cardId: string, payload: AnswerPayload) => {
       await onAnswer(cardId, payload);
-      onDone(cardId);
+      await onDone(cardId);
     },
     [onAnswer, onDone]
   );
   const answerView = useCallback(
     async (view: RequestView, payload: AnswerPayload) => {
       await onAnswer(view.id, payload);
-      onDone(view.id);
+      await onDone(view.id);
     },
     [onAnswer, onDone]
   );
-  const changed = useCallback(() => onDone(card.id), [card.id, onDone]);
+  const changed = useCallback(() => {
+    onDone(card.id);
+  }, [card.id, onDone]);
   const dismiss = useCallback(
     async (runId: string) => {
       await onDismiss(runId);
-      onDone(card.id);
+      await onDone(card.id);
     },
     [card.id, onDismiss, onDone]
   );
@@ -62,6 +72,7 @@ function CardBody({
       return (
         <MailDecision
           card={card}
+          cc={heldMailCc(request)}
           expiry={expiryNote(card.expiresAt, nowMs)}
           onAnswer={answerMail}
           waitingOn={waitingOn}
