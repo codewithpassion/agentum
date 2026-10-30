@@ -225,13 +225,17 @@ test("opening an id again does not show the verdict from the last time", async (
   await act(async () => probe.open("a"));
   expect(container.textContent).toContain("Looking for that item.");
   expect(container.textContent).not.toContain("under Everyone");
-  hold = false;
+  // The pane's own load lands and the Everyone check is held open: still no
+  // verdict from the last time.
   await act(async () => {
     for (const release of held.splice(0)) {
       release();
     }
   });
   await settle();
+  expect(container.textContent).toContain("Looking for that item.");
+  expect(container.textContent).not.toContain("under Everyone");
+  hold = false;
   await act(async () => {
     for (const release of held.splice(0)) {
       release();
