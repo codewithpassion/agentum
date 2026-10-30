@@ -12,6 +12,8 @@ import {
   DESK_POLL_INTERVAL_MS,
   usePolledQuery,
 } from "#/components/inbox/use-polled-query";
+import { RailPane } from "#/components/rail-pane/rail-pane";
+import { useNowMs } from "#/components/rail-pane/use-now-ms";
 import {
   type AnswerPayload,
   isConflict,
@@ -19,13 +21,14 @@ import {
   viewFromRecord,
 } from "#/components/requests/request-card-logic";
 import { buttonVariants } from "#/components/ui/button";
+import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
 
 const searchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
+  item: z.string().min(1).max(300).optional().catch(undefined),
+  view: z.literal("board").optional().catch(undefined),
 });
-
-const CLOCK_TICK_MS = 30_000;
 
 export const Route = createFileRoute("/_app/desk")({
   validateSearch: (search) => searchSchema.parse(search),
@@ -77,17 +80,6 @@ const loadDesk = async (agentId: string | undefined) => {
   return { desk, mail, pins, requests, versions };
 };
 
-/** The current time, set after mount so server and browser markup match. */
-function useNowMs(): number | null {
-  const [nowMs, setNowMs] = useState<number | null>(null);
-  useEffect(() => {
-    setNowMs(Date.now());
-    const timer = setInterval(() => setNowMs(Date.now()), CLOCK_TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
-  return nowMs;
-}
-
 const dateText = (nowMs: number): string =>
   new Intl.DateTimeFormat(undefined, {
     day: "numeric",
@@ -95,7 +87,8 @@ const dateText = (nowMs: number): string =>
     weekday: "long",
   }).format(nowMs);
 
-function Desk() {
+/** Today's desk, three lanes. It lives at `/desk?view=board`. */
+function BoardView() {
   const agents = Route.useLoaderData();
   const { agent } = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -122,7 +115,9 @@ function Desk() {
 
   const selectAgent = useCallback(
     (id: string | null) =>
-      navigate({ search: id === null ? {} : { agent: id } }),
+      navigate({
+        search: id === null ? { view: "board" } : { agent: id, view: "board" },
+      }),
     [navigate]
   );
 
@@ -198,5 +193,29 @@ function Desk() {
         />
       )}
     </section>
+  );
+}
+
+/** The open rail item, or the board with `?view=board` (or the old `?agent=` links). */
+function Desk() {
+  const { agent, item, view } = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const isMobile = useIsMobile();
+  const open = useCallback(
+    (id: string | null) =>
+      navigate({
+        replace: true,
+        search: id === null ? {} : { item: id },
+      }),
+    [navigate]
+  );
+  return view === "board" || agent !== undefined ? (
+    <BoardView />
+  ) : (
+    <RailPane
+      inline={isMobile && item === undefined}
+      item={item}
+      onOpen={open}
+    />
   );
 }

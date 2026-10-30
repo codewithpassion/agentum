@@ -1,0 +1,274 @@
+import {
+  RAIL_REFRESH_EVENT,
+  type RailItem,
+  type RailScope,
+  type RailView,
+} from "@repo/db/shared";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { localMidnightIso } from "#/components/desk/desk-logic.ts";
+import {
+  DESK_POLL_INTERVAL_MS,
+  usePolledQuery,
+} from "#/components/inbox/use-polled-query.ts";
+import {
+  type RequestView,
+  viewFromRecord,
+} from "#/components/requests/request-card-logic.ts";
+import { getTrpc } from "#/integrations/trpc/client";
+import { answerRequest } from "./answer.ts";
+import { type CardActions, CardView } from "./card-view.tsx";
+import { InlineList } from "./inline-list.tsx";
+import {
+  itemAfterAnswer,
+  pruneAnswered,
+  selectItem,
+  selectionId,
+} from "./pane-logic.ts";
+import { SetupPane } from "./setup-pane.tsx";
+import { useNowMs } from "./use-now-ms.ts";
+
+/** Where the rail keeps the viewer's choice between Mine and Everyone. */
+const SCOPE_KEY = "hm:rail-scope";
+
+const readScope = (): RailScope =>
+  window.localStorage.getItem(SCOPE_KEY) === "everyone" ? "everyone" : "mine";
+
+/** The rail, the answerable requests behind its cards, and the skill versions proposed. */
+const loadPane = async () => {
+  const trpc = getTrpc();
+  const scope = readScope();
+  const [rail, pending, proposals] = await Promise.all([
+    trpc.desk.rail.query({
+      dayStart: localMidnightIso(new Date()),
+      scope,
+    }),
+    trpc.requests.pending.query({}),
+    trpc.skillStore.proposals.query(),
+  ]);
+  const requests = new Map<string, RequestView>();
+  for (const record of pending) {
+    const view = viewFromRecord(record, null);
+    if (view !== null) {
+      requests.set(view.id, view);
+    }
+  }
+  const versions = new Map(
+    proposals.map((version) => [
+      version.id,
+      { number: version.number, skillId: version.skillId },
+    ])
+  );
+  return { rail, requests, scope, versions };
+};
+
+type Loaded = Awaited<ReturnType<typeof loadPane>>;
+
+function Empty({ rail }: { rail: RailView }) {
+  const inHand = rail.working.length;
+  return (
+    <div className="flex flex-col gap-2" data-testid="rail-empty">
+      <h1 className="font-heading text-3xl text-foreground">
+        Nothing needs you
+      </h1>
+      <p className="text-muted-foreground">
+        {inHand === 0
+          ? "Anything new will show up on the left."
+          : `${inHand} ${inHand === 1 ? "thing is" : "things are"} in hand. Anything new will show up on the left.`}
+      </p>
+      <p>
+        <Link
+          className="text-muted-foreground text-sm underline underline-offset-2"
+          search={{ view: "board" }}
+          to="/desk"
+        >
+          Open the board
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+function ItemCards({
+  actions,
+  item,
+  loaded,
+  nowMs,
+}: {
+  actions: CardActions;
+  item: RailItem;
+  loaded: Loaded;
+  nowMs: number;
+}) {
+  return (
+    <div>
+      {item.cards.map((card, index) => (
+        <CardView
+          actions={actions}
+          card={card}
+          first={index === 0}
+          key={card.id}
+          nowMs={nowMs}
+          request={loaded.requests.get(card.id) ?? null}
+          version={loaded.versions.get(card.id) ?? null}
+          waitingOn={item.assigneeName}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** The main pane: the open item, decided in plain words. */
+export function RailPane({
+  inline,
+  item,
+  onOpen,
+}: {
+  /** A phone with no item open: the list shows here, as the rail is closed. */
+  inline: boolean;
+  /** The `item` search param. */
+  item: string | undefined;
+  /** Opens an item by id, or the default one for null. */
+  onOpen: (id: string | null) => void;
+}) {
+  const nowMs = useNowMs();
+  const { data, error, refresh } = usePolledQuery(
+    loadPane,
+    null,
+    DESK_POLL_INTERVAL_MS
+  );
+  const [sendError, setSendError] = useState<string | null>(null);
+  // Cards answered here. A poll that lands late cannot bring them back.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  // The `item` in the URL says what is open. Two things fill the gaps. On a
+  // bare /desk the first item is held once chosen, so a new item that sorts
+  // first does not take the pane away from what is being read. After an
+  // answer, `next` stands in until the URL catches up.
+  const [held, setHeld] = useState<string | undefined>(undefined);
+  const [next, setNext] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    window.addEventListener(RAIL_REFRESH_EVENT, refresh);
+    return () => window.removeEventListener(RAIL_REFRESH_EVENT, refresh);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (item !== undefined) {
+      setHeld(undefined);
+    }
+    setNext(undefined);
+  }, [item]);
+
+  const list = useMemo(
+    () => (data === null ? null : pruneAnswered(data.rail, answered)),
+    [answered, data]
+  );
+  const selection = useMemo(
+    () => (list === null ? null : selectItem(list, next ?? item ?? held)),
+    [held, item, list, next]
+  );
+
+  useEffect(() => {
+    if (item === undefined && next === undefined && selection !== null) {
+      setHeld(selectionId(selection));
+    }
+  }, [item, next, selection]);
+
+  // The shown item goes into the URL, so the rail marks it and a new item that
+  // sorts first cannot move it. A phone keeps the list at a bare /desk.
+  const navigating = useRouterState({
+    select: (state) => state.status === "pending",
+  });
+  useEffect(() => {
+    if (
+      !(inline || navigating) &&
+      item === undefined &&
+      next === undefined &&
+      selection !== null
+    ) {
+      onOpen(selectionId(selection));
+    }
+  }, [inline, item, navigating, next, onOpen, selection]);
+
+  const latest = useRef({ list, selection });
+  useEffect(() => {
+    latest.current = { list, selection };
+  });
+
+  const answer = useCallback(
+    async (requestId: string, payload: Parameters<typeof answerRequest>[2]) => {
+      const { sendError: failed } = await answerRequest(
+        (input) => getTrpc().requests.answer.mutate(input),
+        requestId,
+        payload
+      );
+      setSendError(failed);
+    },
+    []
+  );
+  const dismiss = useCallback(async (runId: string) => {
+    await getTrpc().desk.clearAttention.mutate({ runId });
+  }, []);
+
+  // After any action: tell the rail, and open what comes next.
+  const done = useCallback(
+    (cardId: string): Promise<void> => {
+      const { list: current, selection: open } = latest.current;
+      if (current !== null && open?.kind === "item") {
+        const following = itemAfterAnswer(current, open.item, cardId);
+        setAnswered((previous) => new Set(previous).add(cardId));
+        setNext(following ?? undefined);
+        onOpen(following);
+      }
+      window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
+      return Promise.resolve();
+    },
+    [onOpen]
+  );
+  const actions = useMemo(
+    () => ({ onAnswer: answer, onDismiss: dismiss, onDone: done }),
+    [answer, dismiss, done]
+  );
+
+  if (data === null || nowMs === null) {
+    return (
+      <p className="text-muted-foreground text-sm">{error ?? "Loading…"}</p>
+    );
+  }
+  return (
+    <section className="mx-auto flex w-full max-w-[720px] flex-col gap-4 pt-2 pb-16">
+      {error === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
+      {sendError === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          Allowed, but the mail could not be sent: {sendError}
+        </p>
+      )}
+      {selection === null ? <Empty rail={data.rail} /> : null}
+      {inline && list !== null && selection !== null ? (
+        <InlineList
+          items={list.needsYou}
+          nowMs={nowMs}
+          scope={data.scope}
+          setup={list.setup}
+        />
+      ) : null}
+      {!inline && selection?.kind === "setup" ? (
+        <SetupPane step={selection.step} />
+      ) : null}
+      {!inline && selection?.kind === "item" ? (
+        <ItemCards
+          actions={actions}
+          item={selection.item}
+          loaded={data}
+          nowMs={nowMs}
+        />
+      ) : null}
+    </section>
+  );
+}

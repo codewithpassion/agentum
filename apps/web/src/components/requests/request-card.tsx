@@ -256,10 +256,12 @@ function ApprovalCard({
   view,
   nowMs,
   onAnswer,
+  title,
 }: {
   view: Extract<RequestView, { kind: "approval" }>;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
+  title?: string;
 }) {
   const { error, pending, submit } = useAnswer(view, onAnswer);
   const [note, setNote] = useState("");
@@ -291,7 +293,7 @@ function ApprovalCard({
       className="flex flex-col gap-3 rounded-md border border-border px-3 py-2 text-sm"
       data-testid="request-card"
     >
-      <p>{view.display.summary}</p>
+      <p>{title ?? view.display.summary}</p>
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
@@ -361,9 +363,11 @@ function ApprovalCard({
 function TakeoverCard({
   view,
   nowMs,
+  onClosed,
 }: {
   view: Extract<RequestView, { kind: "takeover" }>;
   nowMs: number;
+  onClosed?: () => void;
 }) {
   const [pending, setPending] = useState(false);
   const [closed, setClosed] = useState(false);
@@ -374,12 +378,13 @@ function TakeoverCard({
     try {
       await getTrpc().takeover.cancel.mutate({ requestId: view.id });
       setClosed(true);
+      onClosed?.();
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
-  }, [view.id]);
+  }, [onClosed, view.id]);
   if (closed) {
     return (
       <p className="text-muted-foreground text-sm">Takeover request closed</p>
@@ -422,14 +427,22 @@ function TakeoverCard({
   );
 }
 
+/**
+ * `title` replaces an approval's raw "Use <tool>" line when the caller has a
+ * plainer one. `onClosed` runs once a takeover request is cancelled here.
+ */
 export function RequestCard({
   view,
   nowMs,
   onAnswer,
+  onClosed,
+  title,
 }: {
   view: RequestView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
+  onClosed?: () => void;
+  title?: string;
 }) {
   const { user } = useUser();
 
@@ -444,10 +457,17 @@ export function RequestCard({
     );
   }
   if (view.kind === "takeover") {
-    return <TakeoverCard nowMs={nowMs} view={view} />;
+    return <TakeoverCard nowMs={nowMs} onClosed={onClosed} view={view} />;
   }
   if (view.kind === "approval") {
-    return <ApprovalCard nowMs={nowMs} onAnswer={onAnswer} view={view} />;
+    return (
+      <ApprovalCard
+        nowMs={nowMs}
+        onAnswer={onAnswer}
+        title={title}
+        view={view}
+      />
+    );
   }
   return <QuestionCard nowMs={nowMs} onAnswer={onAnswer} view={view} />;
 }

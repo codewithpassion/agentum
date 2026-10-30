@@ -79,16 +79,20 @@ interface NeedsYouBodyProps {
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
   onChanged: () => void;
   request: RequestView | null;
+  /** Replaces an approval's raw "Use <tool>" line. */
+  title?: string;
   version: { number: number; skillId: string } | null;
 }
 
-function NeedsYouBody({
+/** What a Needs you card asks, by kind. The desk and the rail pane both draw it. */
+export function NeedsYouBody({
   agentName,
   card,
   nowMs,
   onAnswer,
   onChanged,
   request,
+  title,
   version,
 }: NeedsYouBodyProps) {
   switch (card.needsYouKind) {
@@ -109,14 +113,25 @@ function NeedsYouBody({
       return request === null ? (
         <AskFallback card={card} />
       ) : (
-        <RequestCard nowMs={nowMs} onAnswer={onAnswer} view={request} />
+        <RequestCard
+          nowMs={nowMs}
+          onAnswer={onAnswer}
+          onClosed={onChanged}
+          title={title}
+          view={request}
+        />
       );
     case "question":
     case "takeover":
       return request === null ? (
         <AskFallback card={card} />
       ) : (
-        <RequestCard nowMs={nowMs} onAnswer={onAnswer} view={request} />
+        <RequestCard
+          nowMs={nowMs}
+          onAnswer={onAnswer}
+          onClosed={onChanged}
+          view={request}
+        />
       );
     case "skill_proposal":
     case "trigger_proposal":
@@ -189,6 +204,7 @@ export function NeedsYouCard({
         onAnswer={onAnswer}
         onChanged={onChanged}
         request={request}
+        title={card.title}
         version={version}
       />
     </section>
