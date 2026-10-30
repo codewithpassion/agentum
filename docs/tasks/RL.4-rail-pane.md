@@ -3,7 +3,7 @@ id: RL.4
 title: "The main pane: plain decisions, problems, setup and the board view"
 milestone: RL
 size: M
-status: in_progress
+status: done
 depends_on: [RL.2]
 branch: task/RL.4-rail-pane
 lane: web-pane
@@ -27,3 +27,4 @@ Spec: `docs/ux-review/rail/spec.md`, the section "The main pane (RL.4)" and the 
 ## Log
 - 2026-10-30: created from Dom's request to design, spec and build the rail.
 - 2026-10-31: dispatched.
+- 2026-10-31: merged. Two fix rounds ended must-fix, controller fixed the stale selection and recorded the rarer case as a nit. Milestone gate covers the later commits.
