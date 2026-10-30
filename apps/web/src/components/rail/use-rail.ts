@@ -1,20 +1,18 @@
 import {
   RAIL_REFRESH_EVENT,
-  RAIL_SCOPE_EVENT,
   type RailItem,
   type RailScope,
   type RailView,
 } from "@repo/db/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { localMidnightIso } from "#/components/desk/desk-logic";
 import {
   DESK_POLL_INTERVAL_MS,
   usePolledQuery,
 } from "#/components/inbox/use-polled-query";
+import { railScope } from "#/components/rail-pane/scope-storage.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import { freshIds, stableOrder } from "./stable-order.ts";
-
-const SCOPE_STORAGE_KEY = "hm:rail-scope";
 
 interface Loaded {
   scope: RailScope;
@@ -29,54 +27,23 @@ interface Shown {
 
 const NOTHING_SHOWN: Shown = { fresh: new Set(), items: [], source: null };
 
-const isScope = (value: string | null): value is RailScope =>
-  value === "mine" || value === "everyone";
+const NO_SCOPE_YET = (): null => null;
 
 /**
- * The person's chosen scope, kept in localStorage. It is null until the
- * stored choice has been read, so the rail does not fetch the wrong scope first.
+ * The person's chosen scope, from the store the main pane reads too. It is
+ * null on the server and until hydration, so the rail does not fetch the wrong
+ * scope first.
  */
-export function useRailScope() {
-  const [scope, setScopeState] = useState<RailScope | null>(null);
-
-  useEffect(() => {
-    const read = () => {
-      let stored: string | null = null;
-      try {
-        stored = window.localStorage.getItem(SCOPE_STORAGE_KEY);
-      } catch {
-        // Storage can be blocked. Mine is the default.
-      }
-      setScopeState(isScope(stored) ? stored : "mine");
-    };
-    read();
-    // The main pane can switch the scope too, for a link to a teammate's item.
-    // An event that carries the scope is the toggle's own, which blocked
-    // storage would not remember.
-    const onChange = (event: Event) => {
-      const { detail } = event as CustomEvent<unknown>;
-      if (typeof detail === "string" && isScope(detail)) {
-        setScopeState(detail);
-        return;
-      }
-      read();
-    };
-    window.addEventListener(RAIL_SCOPE_EVENT, onChange);
-    return () => window.removeEventListener(RAIL_SCOPE_EVENT, onChange);
-  }, []);
-
-  const setScope = useCallback((next: RailScope) => {
-    setScopeState(next);
-    try {
-      window.localStorage.setItem(SCOPE_STORAGE_KEY, next);
-    } catch {
-      // The choice then lasts for this visit only.
-    }
-    // The main pane follows. The rail itself only sets its state from this.
-    window.dispatchEvent(new CustomEvent(RAIL_SCOPE_EVENT, { detail: next }));
-  }, []);
-
-  return { scope, setScope };
+export function useRailScope(): {
+  scope: RailScope | null;
+  setScope: (scope: RailScope) => void;
+} {
+  const scope = useSyncExternalStore<RailScope | null>(
+    railScope.subscribe,
+    railScope.get,
+    NO_SCOPE_YET
+  );
+  return { scope, setScope: railScope.set };
 }
 
 const loadRail = async (scope: RailScope | null): Promise<Loaded | null> => {

@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { readScope, SCOPE_KEY, writeScope } from "./scope-storage.ts";
+import {
+  createScopeStore,
+  readScope,
+  SCOPE_KEY,
+  writeScope,
+} from "./scope-storage.ts";
 
 const memory = (values: Record<string, string> = {}) => {
   const store = new Map(Object.entries(values));
@@ -50,4 +55,28 @@ test("writes the scope under the rail key", () => {
 
 test("a write to blocked storage does not throw", () => {
   expect(() => writeScope(() => blocked, "everyone")).not.toThrow();
+});
+
+test("the store holds the choice in memory when storage is blocked, and tells its subscribers", () => {
+  const store = createScopeStore(() => blocked);
+  const heard: string[] = [];
+  const unsubscribe = store.subscribe(() => heard.push(store.get()));
+
+  expect(store.get()).toBe("mine");
+  store.set("everyone");
+  expect(store.get()).toBe("everyone");
+  store.set("everyone");
+  unsubscribe();
+  store.set("mine");
+
+  expect(heard).toEqual(["everyone"]);
+});
+
+test("the store reads the stored choice once and writes changes through", () => {
+  const storage = memory({ [SCOPE_KEY]: "everyone" });
+  const store = createScopeStore(() => storage);
+
+  expect(store.get()).toBe("everyone");
+  store.set("mine");
+  expect(storage.store.get(SCOPE_KEY)).toBe("mine");
 });

@@ -1,6 +1,5 @@
 import {
   RAIL_REFRESH_EVENT,
-  RAIL_SCOPE_EVENT,
   type RailItem,
   type RailView,
 } from "@repo/db/shared";
@@ -30,7 +29,7 @@ import {
   selectionId,
   sendFailureText,
 } from "./pane-logic.ts";
-import { readScope, writeScope } from "./scope-storage.ts";
+import { railScope } from "./scope-storage.ts";
 import { SetupPane } from "./setup-pane.tsx";
 import { type Elsewhere, useElsewhere } from "./use-elsewhere.ts";
 import { useNowMs } from "./use-now-ms.ts";
@@ -42,12 +41,10 @@ interface SendError {
   under?: string | null;
 }
 
-const browserStorage = (): Storage => window.localStorage;
-
 /** The rail, the answerable requests behind its cards, and the skill versions proposed. */
 const loadPane = async () => {
   const trpc = getTrpc();
-  const scope = readScope(browserStorage);
+  const scope = railScope.get();
   const [rail, pending, proposals] = await Promise.all([
     trpc.desk.rail.query({
       dayStart: localMidnightIso(new Date()),
@@ -209,14 +206,14 @@ export function RailPane({
   // the URL catches up, that item is gone because of us and is not "missing".
   const [settling, setSettling] = useState<string | undefined>(undefined);
 
-  // A refresh, or the rail's scope toggle: the pane reads the stored scope on
+  // A refresh, or the rail's scope toggle: the pane reads the shared scope on
   // every fetch, so it follows the toggle at once.
   useEffect(() => {
     window.addEventListener(RAIL_REFRESH_EVENT, refresh);
-    window.addEventListener(RAIL_SCOPE_EVENT, refresh);
+    const unsubscribe = railScope.subscribe(refresh);
     return () => {
       window.removeEventListener(RAIL_REFRESH_EVENT, refresh);
-      window.removeEventListener(RAIL_SCOPE_EVENT, refresh);
+      unsubscribe();
     };
   }, [refresh]);
 
@@ -304,8 +301,7 @@ export function RailPane({
     []
   );
   const showEveryone = useCallback(() => {
-    writeScope(browserStorage, "everyone");
-    window.dispatchEvent(new Event(RAIL_SCOPE_EVENT));
+    railScope.set("everyone");
   }, []);
   const openWaiting = useCallback(() => onOpen(null), [onOpen]);
   const dismiss = useCallback(async (runId: string) => {

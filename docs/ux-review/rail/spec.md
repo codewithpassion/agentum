@@ -42,7 +42,6 @@ In `packages/db/src/shared.ts`, importable from the browser:
 export const RAIL_ESCALATE_AFTER_MS = 4 * 60 * 60_000;
 export const MAIL_APPROVAL_TTL_MS = 3 * 24 * 60 * 60_000;
 export const RAIL_REFRESH_EVENT = "hm:rail-refresh"; // window event: refetch the rail now
-export const RAIL_SCOPE_EVENT = "hm:rail-scope"; // window event: the stored scope changed outside the toggle
 export type RailScope = "mine" | "everyone";
 export type RailItemKind = NeedsYouKind | "problem";
 
