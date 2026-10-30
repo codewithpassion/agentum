@@ -26,6 +26,10 @@ export const runs = sqliteTable(
     agentId: text("agent_id")
       .notNull()
       .references(() => agents.id),
+    // When a person dismissed this run from Needs you, and who.
+    attentionClearedAt: text("attention_cleared_at"),
+    // Clerk user id.
+    attentionClearedBy: text("attention_cleared_by"),
     claimedBy: text("claimed_by"),
     createdAt: createdAt(),
     depth: integer("depth").notNull().default(0),

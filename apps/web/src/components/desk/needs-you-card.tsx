@@ -1,4 +1,8 @@
-import type { DeskCard, NeedsYouKind } from "@repo/db/shared";
+import {
+  type DeskCard,
+  NEEDS_YOU_HEADINGS,
+  type NeedsYouKind,
+} from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import { GrantApprovalCard } from "#/components/artifacts/grant-approval-card.tsx";
 import { parsePromoteApproval } from "#/components/artifacts/grant-approval-model.ts";
@@ -19,20 +23,8 @@ import { ProposalActions } from "./proposal-actions.tsx";
 const BOX_CLASS =
   "flex flex-col gap-3 rounded-[10px] border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40";
 
-const HEADINGS: Record<NeedsYouKind, (agentName: string) => string> = {
-  approval: (name) => `${name} asks for approval`,
-  inbox_reply: (name) => `${name} replied`,
-  library_conflict: (name) => `${name} left a library conflict`,
-  question: (name) => `${name} asks`,
-  routine_proposal: (name) => `${name} proposed a routine`,
-  skill_proposal: (name) => `${name} proposed a skill change`,
-  takeover: (name) => `${name} needs you to take over a computer`,
-  trigger_proposal: (name) => `${name} proposed a trigger`,
-  wiki_suggestion: (name) => `${name} suggested a wiki edit`,
-};
-
 const headingFor = (agentName: string, kind: NeedsYouKind | undefined) =>
-  kind === undefined ? agentName : HEADINGS[kind](agentName);
+  kind === undefined ? agentName : NEEDS_YOU_HEADINGS[kind](agentName);
 
 function OpenTaskLink({ runId }: { runId: string }) {
   return (

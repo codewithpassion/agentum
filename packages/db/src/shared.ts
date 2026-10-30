@@ -576,6 +576,106 @@ export const NEEDS_YOU_KINDS = [
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
+/** The heading of a Needs you card, from the name of the agent it is about. */
+export const NEEDS_YOU_HEADINGS: Record<
+  NeedsYouKind,
+  (agentName: string) => string
+> = {
+  approval: (name) => `${name} asks for approval`,
+  inbox_reply: (name) => `${name} replied`,
+  library_conflict: (name) => `${name} left a library conflict`,
+  question: (name) => `${name} asks`,
+  routine_proposal: (name) => `${name} proposed a routine`,
+  skill_proposal: (name) => `${name} proposed a skill change`,
+  takeover: (name) => `${name} needs you to take over a computer`,
+  trigger_proposal: (name) => `${name} proposed a trigger`,
+  wiki_suggestion: (name) => `${name} suggested a wiki edit`,
+};
+
+/** An item older than this also shows in the backup's Mine. */
+export const RAIL_ESCALATE_AFTER_MS = 4 * 60 * 60_000;
+
+/** Mail approvals wait longer than other approvals, because no tool is blocked on them. */
+export const MAIL_APPROVAL_TTL_MS = 3 * 24 * 60 * 60_000;
+
+/** Window event: refetch the rail now. */
+export const RAIL_REFRESH_EVENT = "hm:rail-refresh";
+
+export type RailScope = "mine" | "everyone";
+export type RailItemKind = NeedsYouKind | "problem";
+
+export interface RailMail {
+  /** The reply a person is approving, up to 4000 characters. */
+  body: string;
+  /** Without Re: or Fwd:. */
+  subject: string;
+  /** Snippet of the inbound message on the same thread. */
+  theyWrote: string | null;
+  to: string[];
+}
+
+/** One decision. A rail row holds one, or several when grouped. */
+export interface RailCard {
+  /** Empty when no agent is involved. */
+  agentId: string;
+  agentName: string;
+  at: string;
+  expiresAt: string | null;
+  /** The source card's id, so request ids stay answerable. */
+  id: string;
+  kind: RailItemKind;
+  mail: RailMail | null;
+  passedOnBy: string | null;
+  runId: string | null;
+  /** What happened, in plain words: "Reply ready". */
+  status: string;
+  threadId: string | null;
+  title: string;
+}
+
+export interface RailItem {
+  /** Null means anyone. */
+  assigneeName: string | null;
+  assigneeUserId: string | null;
+  /** At least one; the first gives the row its title. */
+  cards: RailCard[];
+  dueAt: string | null;
+  escalatedToMe: boolean;
+  /** Stable across polls: the first card's id. */
+  id: string;
+  mine: boolean;
+}
+
+export interface RailWorking {
+  agentId: string;
+  agentName: string;
+  /** The run id. */
+  id: string;
+  mine: boolean;
+  passedOnBy: string | null;
+  status: string;
+  title: string;
+}
+
+export type RailSetupStep = "ai_account" | "first_agent";
+
+export interface RailView {
+  /** Needs you, for the badge and the toggle. */
+  counts: { everyone: number; mine: number };
+  /** Finished today within the scope. */
+  doneToday: number;
+  /** Already filtered to the scope and sorted. */
+  needsYou: RailItem[];
+  setup: RailSetupStep[];
+  /** Already filtered to the scope, newest first. */
+  working: RailWorking[];
+}
+
+export interface WorkspaceMember {
+  name: string;
+  userId: string;
+}
+
 /** The colour of a status band. */
 export const BAND_TONES = ["ok", "waiting", "running", "error"] as const;
 export type BandTone = (typeof BAND_TONES)[number];
