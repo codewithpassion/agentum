@@ -3,7 +3,7 @@ id: RL.3
 title: "The rail replaces the sidebar, with Find"
 milestone: RL
 size: M
-status: in_progress
+status: done
 depends_on: [RL.2]
 branch: task/RL.3-rail-shell
 lane: web-shell
@@ -27,3 +27,4 @@ Spec: `docs/ux-review/rail/spec.md`, the section "The shell (RL.3)" and the Rule
 ## Log
 - 2026-10-30: created from Dom's request to design, spec and build the rail.
 - 2026-10-31: dispatched.
+- 2026-10-31: merged, review clean.
