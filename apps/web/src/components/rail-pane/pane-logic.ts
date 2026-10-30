@@ -67,6 +67,23 @@ export const isListed = (view: Listed, id: string): boolean =>
   view.setup.some((step) => setupItemId(step) === id) ||
   view.needsYou.some((item) => holdsId(item, id));
 
+/**
+ * The id the URL names when the view does not list it, so the pane says so and
+ * shows no card. `settling` is the id an answer here just moved away from,
+ * which the URL has not caught up with yet. Null when nothing is missing.
+ */
+export const missingItem = (
+  view: Listed | null,
+  itemId: string | undefined,
+  settling: string | undefined
+): string | null =>
+  view !== null &&
+  itemId !== undefined &&
+  itemId !== settling &&
+  !isListed(view, itemId)
+    ? itemId
+    : null;
+
 /** The card with this id, from any item in the view. */
 export const findCard = (
   view: Listed | null,

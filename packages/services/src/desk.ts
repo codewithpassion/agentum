@@ -826,8 +826,9 @@ export const createDeskService = ({
   /**
    * What the rail needs from the desk, under the desk's own visibility rules:
    * the Needs you cards with the open requests behind them, the live runs, the
-   * agents of runs that finished since `dayStart`, and runs that failed or
-   * bounced mail in the last 7 days and have not been dismissed.
+   * runs that finished since `dayStart`, and runs that failed or bounced mail
+   * in the last 7 days and have not been dismissed. `ownRunIds` marks the runs
+   * among them, and behind open requests, that only the viewer can see.
    */
   const railSources = async (
     principal: Principal,
@@ -909,6 +910,9 @@ export const createDeskService = ({
           ...liveRows.map((row) => row.id),
           ...doneRows.map((row) => row.runId),
           ...stuckRows.map((row) => row.id),
+          // A held mail outlives its run, so an open request can name a run
+          // that is neither live nor just finished.
+          ...sources.pending.map((record) => record.runId),
         ],
         (batch) =>
           db
@@ -920,7 +924,7 @@ export const createDeskService = ({
                 inArray(runRows.sessionId, ownSessions)
               )
             )
-      ).then((rows) => rows.map((row) => row.id)),
+      ).then((rows) => [...new Set(rows.map((row) => row.id))]),
     ]);
     return {
       done: doneRows,

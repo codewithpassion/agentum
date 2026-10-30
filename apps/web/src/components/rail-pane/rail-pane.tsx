@@ -22,9 +22,9 @@ import { type CardActions, CardView } from "./card-view.tsx";
 import { InlineList } from "./inline-list.tsx";
 import {
   findCard,
-  isListed,
   itemAfterAnswer,
   keepsSendError,
+  missingItem,
   pruneAnswered,
   selectItem,
   selectionId,
@@ -205,6 +205,9 @@ export function RailPane({
   // answer, `next` stands in until the URL catches up.
   const [held, setHeld] = useState<string | undefined>(undefined);
   const [next, setNext] = useState<string | undefined>(undefined);
+  // The URL's `item` when an answer here moved the pane to another item. Until
+  // the URL catches up, that item is gone because of us and is not "missing".
+  const [settling, setSettling] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     window.addEventListener(RAIL_REFRESH_EVENT, refresh);
@@ -216,6 +219,7 @@ export function RailPane({
       setHeld(undefined);
     }
     setNext(undefined);
+    setSettling(undefined);
   }, [item]);
 
   const list = useMemo(
@@ -228,18 +232,11 @@ export function RailPane({
   );
   const selectedId = selection === null ? null : selectionId(selection);
   const scope = data?.scope ?? null;
-  // An item the URL names that is not listed. Answers here leave the URL behind
-  // for a moment, so an item answered here is not missing.
+  // An item the URL names that is not listed. An answer here leaves the URL
+  // behind for a moment, and that item is not missing.
   const missing = useMemo(
-    () =>
-      list !== null &&
-      item !== undefined &&
-      next === undefined &&
-      !answered.has(item) &&
-      !isListed(list, item)
-        ? item
-        : null,
-    [answered, item, list, next]
+    () => missingItem(list, item, settling),
+    [item, list, settling]
   );
 
   const elsewhere = useElsewhere(missing, scope);
@@ -274,9 +271,9 @@ export function RailPane({
     }
   }, [inline, item, navigating, next, onOpen, selection]);
 
-  const latest = useRef({ list, selection });
+  const latest = useRef({ item, list, selection });
   useEffect(() => {
-    latest.current = { list, selection };
+    latest.current = { item, list, selection };
   });
 
   const answer = useCallback(
@@ -322,7 +319,11 @@ export function RailPane({
             ? { ...previous, under: following }
             : previous
         );
-        setNext(following ?? undefined);
+        // An answer that keeps the URL's item open has no gap to fill.
+        if (following !== latest.current.item) {
+          setNext(following ?? undefined);
+          setSettling(latest.current.item);
+        }
         onOpen(following);
       }
       window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));

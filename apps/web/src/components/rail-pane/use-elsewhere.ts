@@ -27,21 +27,29 @@ export function useElsewhere(
     if (missing === null || scope !== "mine") {
       return;
     }
+    let cancelled = false;
     const check = async () => {
       try {
         const everyone = await getTrpc().desk.rail.query({
           dayStart: localMidnightIso(new Date()),
           scope: "everyone",
         });
-        setChecked({
-          id: missing,
-          result: isListed(everyone, missing) ? "everyone" : "gone",
-        });
+        if (!cancelled) {
+          setChecked({
+            id: missing,
+            result: isListed(everyone, missing) ? "everyone" : "gone",
+          });
+        }
       } catch {
-        setChecked({ id: missing, result: "failed" });
+        if (!cancelled) {
+          setChecked({ id: missing, result: "failed" });
+        }
       }
     };
     check();
+    return () => {
+      cancelled = true;
+    };
   }, [missing, scope]);
 
   if (missing === null) {

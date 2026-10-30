@@ -17,7 +17,7 @@ export const readScope = (storage: () => Store): RailScope => {
   }
 };
 
-/** Keeps the choice. When storage is blocked, the choice lasts for this visit only. */
+/** Keeps the choice. When storage is blocked it is not kept, and the next read says Mine. */
 export const writeScope = (storage: () => Store, scope: RailScope): void => {
   try {
     storage().setItem(SCOPE_KEY, scope);

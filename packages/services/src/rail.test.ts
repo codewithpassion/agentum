@@ -1179,3 +1179,37 @@ test("a problem card says what happened: the address of a bounce, the agent of a
   expect(byRun.get(bounced)?.detail).toBe("Mail to gone@example.net bounced");
   expect(byRun.get(failed)?.detail).toBe("Alpha stopped before finishing");
 });
+
+test("an open request on a finished private run is still in the starter's Mine", async () => {
+  await setOwners(a1, "u1");
+  const runId = await seed({
+    agentId: a1,
+    private: true,
+    status: "waiting",
+    userId: "u2",
+  });
+  const request = await requests.open(system, {
+    input: { command: "rm -rf build" },
+    kind: "approval",
+    runId,
+    toolKey: "bash",
+    toolName: "bash",
+    toolUseId: "call1",
+  });
+  // The run ended long ago; its request is still open, as a held mail's is.
+  await db
+    .update(runRows)
+    .set({
+      finishedAt: new Date(NOW - 30 * HOUR).toISOString(),
+      status: "done",
+    })
+    .where(eq(runRows.id, runId));
+
+  const ids = async (principal: Principal, scope: RailScope) =>
+    (await view(scope, principal)).needsYou.map((item) => item.id);
+
+  expect(await ids(user("u2"), "mine")).toEqual([request.id]);
+  expect(await ids(user("u1"), "mine")).toEqual([]);
+  expect(await ids(user("u1"), "everyone")).toEqual([]);
+  expect(await ids(user("u3"), "everyone")).toEqual([]);
+});

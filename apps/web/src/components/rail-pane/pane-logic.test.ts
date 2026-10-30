@@ -16,6 +16,7 @@ import {
   isListed,
   itemAfterAnswer,
   keepsSendError,
+  missingItem,
   nextItemId,
   pruneAnswered,
   selectItem,
@@ -176,6 +177,25 @@ describe("isListed", () => {
     expect(isListed(listed, "gone")).toBe(false);
     expect(isListed(listed, "setup:ai_account")).toBe(false);
     expect(isListed(view([]), "a1")).toBe(false);
+  });
+});
+
+describe("missingItem", () => {
+  const listed = view([item(card({ id: "a1" }))]);
+
+  test("an id the view lists, or no id, or no view, is not missing", () => {
+    expect(missingItem(listed, "a1", undefined)).toBeNull();
+    expect(missingItem(listed, undefined, undefined)).toBeNull();
+    expect(missingItem(null, "a1", undefined)).toBeNull();
+  });
+
+  test("an id the view does not list is missing, even one answered before", () => {
+    expect(missingItem(listed, "gone", undefined)).toBe("gone");
+    expect(missingItem(listed, "gone", "other")).toBe("gone");
+  });
+
+  test("the id an answer just moved away from is not missing until the URL moves", () => {
+    expect(missingItem(listed, "gone", "gone")).toBeNull();
   });
 });
 

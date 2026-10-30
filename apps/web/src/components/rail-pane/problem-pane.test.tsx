@@ -54,7 +54,7 @@ test("a failed run says what happened in its detail", () => {
   expect(html).not.toContain("'s work");
 });
 
-test("the log is a link and Dismiss is the only outline button", () => {
+test("the log is a link and Dismiss is a button", () => {
   const html = render(problem({ detail: "Alpha stopped before finishing" }));
   expect(html).toContain(">Open the log</a>");
   expect(html).toContain(">Dismiss</button>");
