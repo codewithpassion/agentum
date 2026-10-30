@@ -9,7 +9,11 @@ import { runRequests } from "@repo/db/schema/requests";
 import { sessions as artifactSessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { workspaces } from "@repo/db/schema/workspaces";
-import { MAIL_SEND_TOOL, mailToolKey } from "@repo/db/shared";
+import {
+  MAIL_APPROVAL_TTL_MS,
+  MAIL_SEND_TOOL,
+  mailToolKey,
+} from "@repo/db/shared";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -345,20 +349,24 @@ export const createMailOutbound = ({
     );
     let request: Awaited<ReturnType<RequestsService["open"]>>;
     try {
-      request = await requests.open(SYSTEM_PRINCIPAL, {
-        input: {
-          cc: draft.cc,
-          from: box.address,
-          preview: draft.text.slice(0, 500),
-          subject: draft.subject,
-          to: draft.to,
+      request = await requests.open(
+        SYSTEM_PRINCIPAL,
+        {
+          input: {
+            cc: draft.cc,
+            from: box.address,
+            preview: draft.text.slice(0, 4000),
+            subject: draft.subject,
+            to: draft.to,
+          },
+          kind: "approval",
+          runId: run.id,
+          toolKey: mailToolKey(heldRecipient),
+          toolName: MAIL_SEND_TOOL,
+          toolUseId: `mail:${message.id}`,
         },
-        kind: "approval",
-        runId: run.id,
-        toolKey: mailToolKey(heldRecipient),
-        toolName: MAIL_SEND_TOOL,
-        toolUseId: `mail:${message.id}`,
-      });
+        { ttlMs: MAIL_APPROVAL_TTL_MS }
+      );
     } catch (error) {
       // Without an approval nothing would ever release or drop the held mail.
       await failHeld(adapter, ref, message);

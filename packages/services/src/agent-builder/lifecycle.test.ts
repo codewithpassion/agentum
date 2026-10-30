@@ -77,6 +77,7 @@ const draft: AgentDraft = {
 };
 
 const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
+  backupUserId: null,
   computerMachineId: null,
   createdAt: "2026-10-27T09:00:00.000Z",
   createdBy: "user_1",
@@ -87,6 +88,7 @@ const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
   machineId: null,
   model: CLOUD_DEFAULT_MODEL,
   name: "Inbox helper",
+  ownerUserId: null,
   runtime: "cloud",
   runtimeConfig: {},
   slug: "inbox-helper",

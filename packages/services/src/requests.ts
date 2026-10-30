@@ -521,7 +521,8 @@ export const createRequestsService = ({
 
   const open = async (
     principal: Principal,
-    raw: z.input<typeof openInputSchema>
+    raw: z.input<typeof openInputSchema>,
+    options: { ttlMs?: number } = {}
   ) => {
     const input = openInputSchema.parse(raw);
     const run = await requireRun(principal, input.runId);
@@ -550,7 +551,9 @@ export const createRequestsService = ({
         createdAt: now.toISOString(),
         deliveredAt: null,
         display: JSON.stringify(display),
-        expiresAt: new Date(now.getTime() + TTL[input.kind]).toISOString(),
+        expiresAt: new Date(
+          now.getTime() + (options.ttlMs ?? TTL[input.kind])
+        ).toISOString(),
         id: ulid(),
         kind: input.kind,
         // The runtime's own question texts; answers come back keyed by them.

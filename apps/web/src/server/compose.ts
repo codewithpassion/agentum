@@ -157,6 +157,11 @@ import { createManagedSkillsSource } from "@repo/services/managed/skills-source"
 import type { ManagedPollerPort } from "@repo/services/managed/types";
 import { createMapService, type MapService } from "@repo/services/map";
 import {
+  createMembersService,
+  type MemberLister,
+  type MembersService,
+} from "@repo/services/members";
+import {
   createModelKeysService,
   type ModelKeysService,
   validateModelKey,
@@ -170,6 +175,7 @@ import {
   type OAuthClientsService,
 } from "@repo/services/oauth-clients";
 import { createQaService, type QaService } from "@repo/services/qa";
+import { createRailService, type RailService } from "@repo/services/rail";
 import {
   createRequestsService,
   type RequestsService,
@@ -256,6 +262,7 @@ import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import { appStorePort } from "./app-store/port.ts";
 import { browserRunDriver, exportPrintPDF } from "./browser-run.ts";
+import { clerkMembers } from "./clerk-members.ts";
 import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
@@ -337,6 +344,8 @@ export interface Infra {
   managedPoller?: ManagedPollerPort;
   /** Finds the workspace member behind a verified email, for the desk API. Without one, no desk key resolves a member. */
   memberDirectory?: MemberDirectory;
+  /** Lists a Clerk organisation's members, for the rail and the owner pickers. Without it, owners cannot be set and Mine shows everything. */
+  members?: MemberLister;
   /** Reads a Clerk organisation's name, for naming a workspace. Without it, a workspace is named by its org id. */
   orgName?: (clerkOrgId: string) => Promise<string | null>;
   /** Names the people behind user ids in the Log. Without it, the Log shows ids. */
@@ -403,10 +412,12 @@ export interface Services {
   managed: ManagedService;
   managedKeys: ManagedKeysService;
   map: MapService;
+  members: MembersService;
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
   qa: QaService;
+  rail: RailService;
   requests: RequestsService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
@@ -571,7 +582,8 @@ export const composeWith = ({
     db,
     people: infra.people,
   });
-  const agents = createAgentsService({ db, events });
+  const members = createMembersService({ db, lister: infra.members });
+  const agents = createAgentsService({ db, events, members });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
   const connectorFetch: Fetcher =
@@ -987,6 +999,17 @@ export const composeWith = ({
     skillsStore,
     triggers,
   });
+  const rail = createRailService({
+    agents,
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    desk,
+    managedKeys,
+    members,
+    modelKeys,
+    people: infra.people,
+  });
   const agentBuilder = createAgentBuilderService({
     agents,
     connectors,
@@ -1106,6 +1129,7 @@ export const composeWith = ({
       managed,
       managedKeys,
       map,
+      members,
       modelKeys,
       network,
       oauthClients,
@@ -1116,6 +1140,7 @@ export const composeWith = ({
         events,
         runs,
       }),
+      rail,
       requests,
       routines,
       runSkills,
@@ -1193,6 +1218,7 @@ export const compose = (
         }),
       managedPoller: durablePollerPort(env.MANAGED_POLLER),
       memberDirectory: clerkEmailMemberLookup(env.CLERK_SECRET_KEY),
+      members: clerkMembers(env.CLERK_SECRET_KEY),
       orgName: clerkOrgName(env.CLERK_SECRET_KEY),
       people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,

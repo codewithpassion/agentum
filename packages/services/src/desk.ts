@@ -23,12 +23,24 @@ import {
   isPendingProposal,
   type RunStatus,
 } from "@repo/db/shared";
-import { and, count, desc, eq, gte, inArray, max, ne } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  max,
+  ne,
+  or,
+} from "drizzle-orm";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
+import { mailTitle } from "./rail/logic.ts";
 import type { RequestRecord, RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
 import type { Clock } from "./runs/types.ts";
@@ -49,6 +61,12 @@ const TITLE_MAX = 120;
 /** Most cards in Done today. The rest are a count. */
 const DONE_CAP = 20;
 
+/** How far back a failed or bounced run still needs a person (rail rule 9). */
+const STUCK_WINDOW_MS = 7 * 24 * 60 * 60_000;
+
+/** The first line of a run started by mail, before its subject is known. */
+const INBOUND_MAIL_PREFIX = "Inbound mail.";
+
 const READ_ACTION = "desk.read";
 const DESK_KIND = "desk";
 
@@ -58,6 +76,7 @@ const LIVE_STATUSES: readonly RunStatus[] = [
   "running",
   "waiting",
 ];
+const STUCK_STATUSES: readonly RunStatus[] = ["failed", "interrupted"];
 const FINISHED_STATUSES: readonly RunStatus[] = [
   "done",
   "failed",
@@ -83,6 +102,25 @@ export interface DeskView {
 }
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
+
+/** A run that needs a person because it did not finish well. */
+export interface StuckRun {
+  card: DeskCard;
+  problem: "bounced" | "failed" | "interrupted";
+}
+
+/** What the rail reads from the desk. See `railSources`. */
+export interface RailSources {
+  /** The agent of each run that finished since the viewer's midnight. */
+  doneAgentIds: string[];
+  needsYou: DeskCard[];
+  /** The open, unexpired requests behind the approval, question and takeover cards. */
+  pending: RequestRecord[];
+  running: DeskCard[];
+  stuck: StuckRun[];
+  /** The live runs that wait on a person; the rail lists them under Needs you only. */
+  waitingRunIds: string[];
+}
 
 /** One thing waiting on the member, as C4 lists it. */
 export interface NeedsYouItem {
@@ -140,13 +178,36 @@ type Draft = Omit<DeskCard, "startedBy"> & { starter: Starter };
 /** The title of a card for a GitHub update that a person proposed. */
 const GITHUB_UPDATE_TITLE = "Update from GitHub to review";
 
+/** Why a run needs a person: bounced mail wins over how the run ended. */
+const problemOf = (
+  bounced: boolean,
+  status: RunStatus | undefined
+): StuckRun["problem"] => {
+  if (bounced) {
+    return "bounced";
+  }
+  return status === "interrupted" ? "interrupted" : "failed";
+};
+
 const byAge = (a: DeskCard, b: DeskCard): number =>
   a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at);
 
-/** The first line of what was asked, as a card title. */
-const titleOf = (inputText: string): string => {
+/**
+ * The first line of what was asked, as a card title. A run started by mail
+ * takes its mail's subject. Its first line is a notice to the agent, which no
+ * card shows.
+ */
+const titleOf = (inputText: string, mailSubject?: string): string => {
+  const subject = mailSubject === undefined ? "" : mailTitle(mailSubject);
+  if (subject) {
+    return clip(subject, TITLE_MAX);
+  }
   const [line] = text(inputText).split("\n");
-  return clip(line?.trim() || "Task", TITLE_MAX);
+  const first = line?.trim() ?? "";
+  if (first.startsWith(INBOUND_MAIL_PREFIX)) {
+    return "Inbound mail";
+  }
+  return clip(first || "Task", TITLE_MAX);
 };
 
 export const createDeskService = ({
@@ -635,6 +696,26 @@ export const createDeskService = ({
             )
           )
     );
+    // A run started by mail is titled by the mail's subject.
+    const inbound = await inBatches(
+      rows.map((run) => run.id),
+      (batch) =>
+        db
+          .select({ runId: mailMessages.runId, subject: mailMessages.subject })
+          .from(mailMessages)
+          .where(
+            and(
+              eq(mailMessages.workspaceId, member.workspaceId),
+              eq(mailMessages.direction, "in"),
+              inArray(mailMessages.runId, batch)
+            )
+          )
+    );
+    const subjectOf = new Map(
+      inbound.flatMap(({ runId, subject }) =>
+        runId === null ? [] : [[runId, subject] as const]
+      )
+    );
     const bouncedBands = new Map(
       bounced.map((message) => {
         let address = "recipient";
@@ -677,20 +758,14 @@ export const createDeskService = ({
         lane,
         runId: run.id,
         starter: { id: run.actorId, kind: run.actorKind },
-        title: titleOf(run.inputText),
+        title: titleOf(run.inputText, subjectOf.get(run.id)),
       })
     );
     return await named(member.workspaceId, drafts);
   };
 
-  const get = async (
-    principal: Principal,
-    rawInput: DeskInput
-  ): Promise<DeskView> => {
-    const member = requireMember(principal);
-    const { agentId, dayStart } = deskInputSchema.parse(rawInput);
-    const since = new Date(dayStart).toISOString();
-    const sources = await needsYouSources(member);
+  /** The runs the member may see on the desk: session rules, no dry runs, no builder drafts. */
+  const visibleRuns = async (member: UserPrincipal, agentId?: string) => {
     const visible = inArray(
       runRows.sessionId,
       db
@@ -698,7 +773,7 @@ export const createDeskService = ({
         .from(sessions)
         .where(await visibleSessions(db, member))
     );
-    const mine = and(
+    return and(
       eq(runRows.workspaceId, member.workspaceId),
       visible,
       // Dry runs never show on the desk, not even to the builder who started them.
@@ -718,6 +793,17 @@ export const createDeskService = ({
       ),
       agentId === undefined ? undefined : eq(runRows.agentId, agentId)
     );
+  };
+
+  const get = async (
+    principal: Principal,
+    rawInput: DeskInput
+  ): Promise<DeskView> => {
+    const member = requireMember(principal);
+    const { agentId, dayStart } = deskInputSchema.parse(rawInput);
+    const since = new Date(dayStart).toISOString();
+    const sources = await needsYouSources(member);
+    const mine = await visibleRuns(member, agentId);
     const doneWhere = and(
       mine,
       inArray(runRows.status, [...FINISHED_STATUSES]),
@@ -753,6 +839,96 @@ export const createDeskService = ({
     };
   };
 
+  /**
+   * What the rail needs from the desk, under the desk's own visibility rules:
+   * the Needs you cards with the open requests behind them, the live runs, the
+   * agents of runs that finished since `dayStart`, and runs that failed or
+   * bounced mail in the last 7 days and have not been dismissed.
+   */
+  const railSources = async (
+    principal: Principal,
+    rawInput: { dayStart: string }
+  ): Promise<RailSources> => {
+    const member = requireMember(principal);
+    const { dayStart } = deskInputSchema
+      .pick({ dayStart: true })
+      .parse(rawInput);
+    const since = new Date(dayStart).toISOString();
+    const stuckSince = new Date(
+      clock.now().getTime() - STUCK_WINDOW_MS
+    ).toISOString();
+    const sources = await needsYouSources(member);
+    const mine = await visibleRuns(member);
+    const bouncedRuns = db
+      .select({ id: mailMessages.runId })
+      .from(mailMessages)
+      .where(
+        and(
+          eq(mailMessages.workspaceId, member.workspaceId),
+          eq(mailMessages.direction, "out"),
+          eq(mailMessages.status, "bounced"),
+          gte(mailMessages.createdAt, stuckSince)
+        )
+      );
+    const [liveRows, doneRows, stuckRows, bouncedIds] = await Promise.all([
+      db
+        .select()
+        .from(runRows)
+        .where(and(mine, inArray(runRows.status, [...LIVE_STATUSES])))
+        .orderBy(desc(runRows.createdAt), desc(runRows.id)),
+      db
+        .select({ agentId: runRows.agentId })
+        .from(runRows)
+        .where(
+          and(
+            mine,
+            inArray(runRows.status, [...FINISHED_STATUSES]),
+            gte(runRows.finishedAt, since)
+          )
+        ),
+      db
+        .select()
+        .from(runRows)
+        .where(
+          and(
+            mine,
+            isNull(runRows.attentionClearedAt),
+            or(
+              and(
+                inArray(runRows.status, [...STUCK_STATUSES]),
+                gte(runRows.finishedAt, stuckSince)
+              ),
+              inArray(runRows.id, bouncedRuns)
+            )
+          )
+        )
+        .orderBy(desc(runRows.createdAt), desc(runRows.id)),
+      bouncedRuns,
+    ]);
+    const bounced = new Set(bouncedIds.map((row) => row.id));
+    const [needsYou, running, stuckCards] = await Promise.all([
+      needsYouCards(member, sources),
+      runCards(member, "running", liveRows, sources.pending),
+      runCards(member, "done", stuckRows, []),
+    ]);
+    return {
+      doneAgentIds: doneRows.map((row) => row.agentId),
+      needsYou,
+      pending: sources.pending,
+      running,
+      stuck: stuckCards.map((card) => ({
+        card,
+        problem: problemOf(
+          bounced.has(card.id),
+          stuckRows.find((row) => row.id === card.id)?.status
+        ),
+      })),
+      waitingRunIds: liveRows
+        .filter((row) => row.status === "waiting")
+        .map((row) => row.id),
+    };
+  };
+
   /** How many cards the Needs you lane holds, for the sidebar badge. */
   const needsYouCount = async (principal: Principal): Promise<number> => {
     const member = requireMember(principal);
@@ -768,7 +944,7 @@ export const createDeskService = ({
     );
   };
 
-  return { get, needsYouCount, pendingRequests };
+  return { get, needsYouCount, pendingRequests, railSources };
 };
 
 export type DeskService = ReturnType<typeof createDeskService>;

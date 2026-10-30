@@ -5,6 +5,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { createAgentsService, findAgent, handsToNames } from "./agents.ts";
+import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -973,4 +974,199 @@ test("only users create drafts, reserve addresses and change draft lifecycle", a
   await expect(service.discardDraft(otherUser, draft.id)).rejects.toMatchObject(
     { code: "not_found" }
   );
+});
+
+const MEMBERS = [
+  { name: "Ann", userId: "u1" },
+  { name: "Ben", userId: "u2" },
+  { name: "Cy", userId: "u3" },
+];
+const members = { list: () => Promise.resolve(MEMBERS) };
+const withMembers = () => createAgentsService({ db, events, members });
+const updatedEvents = (agentId: string) =>
+  events.query(user, WORKSPACE, { agentId, types: ["agent.updated"] });
+
+test("setOwners sets both owners, returns them and writes an agent.updated event", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Owned",
+    runtime: "fake",
+  });
+  expect(
+    await withMembers().setOwners(user, agent.id, {
+      backupUserId: "u3",
+      ownerUserId: "u2",
+    })
+  ).toMatchObject({ backupUserId: "u3", id: agent.id, ownerUserId: "u2" });
+  expect(await service.get(user, agent.id)).toMatchObject({
+    backupUserId: "u3",
+    ownerUserId: "u2",
+  });
+  const [event] = await updatedEvents(agent.id);
+  expect(event).toMatchObject({
+    actor: { id: "u1", kind: "user" },
+    agentId: agent.id,
+    payload: { changed: ["ownerUserId", "backupUserId"] },
+  });
+});
+
+test("setOwners lists only the keys that changed", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Partial",
+    runtime: "fake",
+  });
+  const owned = withMembers();
+  await owned.setOwners(user, agent.id, {
+    backupUserId: "u3",
+    ownerUserId: "u2",
+  });
+  await owned.setOwners(user, agent.id, {
+    backupUserId: "u1",
+    ownerUserId: "u2",
+  });
+  const records = await updatedEvents(agent.id);
+  expect(records.map((record) => record.payload)).toEqual([
+    { changed: ["ownerUserId", "backupUserId"] },
+    { changed: ["backupUserId"] },
+  ]);
+});
+
+test("setOwners with the same values returns the record and writes no event", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Same",
+    runtime: "fake",
+  });
+  const owned = withMembers();
+  const input = { backupUserId: "u3", ownerUserId: "u2" };
+  await owned.setOwners(user, agent.id, input);
+  expect(await owned.setOwners(user, agent.id, input)).toMatchObject(input);
+  expect(await updatedEvents(agent.id)).toHaveLength(1);
+});
+
+test("setOwners clears both owners with nulls", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Cleared",
+    runtime: "fake",
+  });
+  const owned = withMembers();
+  await owned.setOwners(user, agent.id, {
+    backupUserId: "u3",
+    ownerUserId: "u2",
+  });
+  expect(
+    await owned.setOwners(user, agent.id, {
+      backupUserId: null,
+      ownerUserId: null,
+    })
+  ).toMatchObject({ backupUserId: null, ownerUserId: null });
+  expect(await service.get(user, agent.id)).toMatchObject({
+    backupUserId: null,
+    ownerUserId: null,
+  });
+});
+
+test("a backup equal to the creator is refused when the owner is null", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Creator",
+    runtime: "fake",
+  });
+  await expect(
+    withMembers().setOwners(user, agent.id, {
+      backupUserId: "u1",
+      ownerUserId: null,
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  expect(await service.get(user, agent.id)).toMatchObject({
+    backupUserId: null,
+    ownerUserId: null,
+  });
+});
+
+test("an owner equal to the backup is refused", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Twins",
+    runtime: "fake",
+  });
+  await expect(
+    withMembers().setOwners(user, agent.id, {
+      backupUserId: "u2",
+      ownerUserId: "u2",
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  expect(await updatedEvents(agent.id)).toHaveLength(0);
+});
+
+test("an owner or backup who is not a member is refused and nothing is written", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Outsider",
+    runtime: "fake",
+  });
+  const owned = withMembers();
+  await expect(
+    owned.setOwners(user, agent.id, { backupUserId: "u3", ownerUserId: "u9" })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    owned.setOwners(user, agent.id, { backupUserId: "u9", ownerUserId: "u2" })
+  ).rejects.toMatchObject({ code: "invalid" });
+  expect(await service.get(user, agent.id)).toMatchObject({
+    backupUserId: null,
+    ownerUserId: null,
+  });
+  expect(await updatedEvents(agent.id)).toHaveLength(0);
+});
+
+test("setOwners on an unknown agent, or one in another workspace, is not_found", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Hidden",
+    runtime: "fake",
+  });
+  const owned = withMembers();
+  const owners = { backupUserId: null, ownerUserId: "u2" };
+  await expect(owned.setOwners(user, "missing", owners)).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(
+    owned.setOwners(otherUser, agent.id, owners)
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(await service.get(user, agent.id)).toMatchObject({
+    ownerUserId: null,
+  });
+});
+
+test("setOwners refuses a non-user principal", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Runs",
+    runtime: "fake",
+  });
+  const run: Principal = {
+    agentId: agent.id,
+    kind: "run",
+    runId: "r1",
+    workspaceId: WORKSPACE,
+  };
+  await expect(
+    withMembers().setOwners(run, agent.id, {
+      backupUserId: null,
+      ownerUserId: "u2",
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("an agent service built without members refuses setOwners with invalid", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Plain",
+    runtime: "fake",
+  });
+  await expect(
+    service.setOwners(user, agent.id, { backupUserId: null, ownerUserId: "u2" })
+  ).rejects.toMatchObject({ code: "invalid" });
 });
