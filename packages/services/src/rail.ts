@@ -142,6 +142,22 @@ const byCardAge = (a: RailCard, b: RailCard): number =>
 
 type MailRow = typeof mailMessages.$inferSelect;
 
+/** The newest message for each key. Messages without a key are skipped. */
+const newestBy = (
+  messages: readonly MailRow[],
+  keyOf: (message: MailRow) => string | null
+): Map<string, MailRow> => {
+  const newest = new Map<string, MailRow>();
+  for (const message of messages) {
+    const key = keyOf(message);
+    const seen = key === null ? undefined : newest.get(key);
+    if (key !== null && (!seen || seen.createdAt < message.createdAt)) {
+      newest.set(key, message);
+    }
+  }
+  return newest;
+};
+
 /** One held mail: what is being sent, and the message it answers if there is one. */
 const heldMailOf = (
   record: RequestRecord,
@@ -285,26 +301,45 @@ export const createRailService = ({
             )
           )
     );
-    const latestIn = new Map<string, (typeof incoming)[number]>();
-    for (const message of incoming) {
-      const seen = latestIn.get(message.threadId);
-      if (!seen || seen.createdAt < message.createdAt) {
-        latestIn.set(message.threadId, message);
-      }
-    }
+    const latestIn = newestBy(incoming, (message) => message.threadId);
     const outgoingById = new Map(
       outgoing.map((message) => [message.id, message])
     );
-    for (const record of records) {
+    const sent = records.flatMap((record) => {
       const message = outgoingById.get(
         record.toolUseId.slice(MAIL_USE_PREFIX.length)
       );
-      if (message) {
-        held.set(
-          record.id,
-          heldMailOf(record, message, latestIn.get(message.threadId))
-        );
-      }
+      return message ? [{ message, record }] : [];
+    });
+    // A reply to someone other than the sender opens a new thread with no
+    // inbound mail, so the inbound mail that started the run stands in.
+    const bareRuns = sent
+      .filter(({ message }) => !latestIn.has(message.threadId))
+      .map(({ record }) => record.runId);
+    const latestInOfRun = newestBy(
+      await inBatches([...new Set(bareRuns)], (batch) =>
+        db
+          .select()
+          .from(mailMessages)
+          .where(
+            and(
+              eq(mailMessages.workspaceId, workspaceId),
+              eq(mailMessages.direction, "in"),
+              inArray(mailMessages.runId, batch)
+            )
+          )
+      ),
+      (message) => message.runId
+    );
+    for (const { message, record } of sent) {
+      held.set(
+        record.id,
+        heldMailOf(
+          record,
+          message,
+          latestIn.get(message.threadId) ?? latestInOfRun.get(record.runId)
+        )
+      );
     }
     return held;
   };
