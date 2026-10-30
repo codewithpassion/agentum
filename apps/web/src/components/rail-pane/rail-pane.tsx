@@ -137,9 +137,12 @@ export function RailPane({
   const [answered, setAnswered] = useState<ReadonlySet<string>>(
     () => new Set()
   );
-  // The open item holds still: a new item that sorts first on a bare /desk
-  // does not take the pane away from what is being read.
-  const [shown, setShown] = useState(item);
+  // The `item` in the URL says what is open. Two things fill the gaps. On a
+  // bare /desk the first item is held once chosen, so a new item that sorts
+  // first does not take the pane away from what is being read. After an
+  // answer, `next` stands in until the URL catches up.
+  const [held, setHeld] = useState<string | undefined>(undefined);
+  const [next, setNext] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     window.addEventListener(RAIL_REFRESH_EVENT, refresh);
@@ -148,8 +151,9 @@ export function RailPane({
 
   useEffect(() => {
     if (item !== undefined) {
-      setShown(item);
+      setHeld(undefined);
     }
+    setNext(undefined);
   }, [item]);
 
   const list = useMemo(
@@ -157,15 +161,15 @@ export function RailPane({
     [answered, data]
   );
   const selection = useMemo(
-    () => (list === null ? null : selectItem(list, shown)),
-    [list, shown]
+    () => (list === null ? null : selectItem(list, next ?? item ?? held)),
+    [held, item, list, next]
   );
 
   useEffect(() => {
-    if (selection !== null) {
-      setShown(selectionId(selection));
+    if (item === undefined && selection !== null) {
+      setHeld(selectionId(selection));
     }
-  }, [selection]);
+  }, [item, selection]);
 
   const latest = useRef({ list, selection });
   useEffect(() => {
@@ -192,12 +196,10 @@ export function RailPane({
     (cardId: string): Promise<void> => {
       const { list: current, selection: open } = latest.current;
       if (current !== null && open?.kind === "item") {
-        const next = itemAfterAnswer(current, open.item, cardId);
+        const following = itemAfterAnswer(current, open.item, cardId);
         setAnswered((previous) => new Set(previous).add(cardId));
-        if (next !== null) {
-          setShown(next);
-        }
-        onOpen(next);
+        setNext(following ?? undefined);
+        onOpen(following);
       }
       window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
       return Promise.resolve();
