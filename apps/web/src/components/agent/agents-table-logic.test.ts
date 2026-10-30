@@ -123,7 +123,7 @@ describe("rowsOf", () => {
     });
   });
 
-  test("counts an agent with no overview row as zeros", () => {
+  test("gives an agent with no overview row zero counts and no cost", () => {
     const [row] = rowsOf([agent({ id: "agt_9" })], [], members);
     expect(row).toMatchObject({
       cost: "Not reported",

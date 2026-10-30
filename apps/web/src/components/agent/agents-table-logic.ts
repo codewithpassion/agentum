@@ -67,7 +67,7 @@ export const formatCost = (costUsd: number | null): string => {
   return costUsd < 0.01 ? "<$0.01" : `$${costUsd.toFixed(2)}`;
 };
 
-/** One row per agent, in the order of `agents`. No overview row means zeros. */
+/** One row per agent, in the order of `agents`. No overview row means zero counts and no reported cost. */
 export const rowsOf = <T extends AgentAskRef>(
   agents: readonly T[],
   overview: readonly OverviewRow[],
