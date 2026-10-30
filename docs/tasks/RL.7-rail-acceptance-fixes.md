@@ -3,7 +3,7 @@ id: RL.7
 title: "Rail acceptance fixes: readable names, what they wrote"
 milestone: RL
 size: S
-status: in_progress
+status: done
 depends_on: [RL.6]
 branch: task/RL.7-rail-acceptance-fixes
 lane: services
@@ -23,3 +23,4 @@ Found by the first acceptance run on staging (`docs/ux-review/tooling/rail-video
 
 ## Log
 - 2026-10-31: created from the acceptance run. Dispatched.
+- 2026-10-31: merged, review clean.
