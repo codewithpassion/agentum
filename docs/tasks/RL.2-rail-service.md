@@ -3,9 +3,9 @@ id: RL.2
 title: "Rail service, mail titles, longer mail approvals, owners, members and tRPC"
 milestone: RL
 size: L
-status: todo
+status: in_progress
 depends_on: [RL.1]
-branch: null
+branch: task/RL.2-rail-service
 lane: services
 executor: claude
 ---
@@ -28,3 +28,4 @@ Spec: `docs/ux-review/rail/spec.md`, the section "Service and API (RL.2)" and th
 
 ## Log
 - 2026-10-30: created from Dom's request to design, spec and build the rail.
+- 2026-10-30: dispatched.

@@ -3,7 +3,7 @@ id: RL.1
 title: "Rail contract: owner and backup on agents, attention on runs, shared types"
 milestone: RL
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/RL.1-rail-contract
 lane: db
@@ -25,3 +25,4 @@ Spec: `docs/ux-review/rail/spec.md`, the section "Data contract (RL.1)" and the 
 ## Log
 - 2026-10-30: created from Dom's request to design, spec and build the rail.
 - 2026-10-30: dispatched.
+- 2026-10-30: merged, review clean.
