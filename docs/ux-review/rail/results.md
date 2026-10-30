@@ -34,5 +34,6 @@ Also checked: grouping (two Kestrel mails became one row with `+1 more`, and bot
 - **Done doesn't mean it went well.** An agent that finishes by saying "I can't verify this" still counts as done, and its work stays out of Needs you. In an earlier run, Invoice Chaser did exactly that until I told it to write the reminder anyway. Only failed, interrupted and bounced work comes to a person.
 - **The model decides whether a reply is held.** The rail shows approvals, so an agent that writes a reply in its summary instead of using the mail tool creates nothing to approve. The brief has to say to use the mail tool.
 - **The Task page still shows the raw prompt.** Its title reads as the subject, but the Thread panel shows the exact text the agent received, starting "Inbound mail. The quoted JSON below...". That's the page's raw view, and tidying it was out of scope.
+- **Runs not started by mail keep their raw input as a title.** On Dev Workspace, a failed live-document run shows `{"harbourmaster_turn":{"artifact":...` in the rail. Everything else on that older workspace worked: Agents, Find, the Board, Q&A, Inbox, Map and Library all loaded with no page errors.
 - **Reply text can't be edited before sending.** `Tell it what to change` denies it with a note instead.
 - **Staging crons are off,** so expiry of a waiting run wasn't tested by time passing.
