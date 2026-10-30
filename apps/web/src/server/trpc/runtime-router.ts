@@ -10,6 +10,7 @@ import { libraryRouter } from "./library-router.ts";
 import { machinesRouter } from "./machines-router.ts";
 import { managedKeysRouter } from "./managed-keys-router.ts";
 import { mapRouter } from "./map-router.ts";
+import { membersRouter } from "./members-router.ts";
 import { modelKeysRouter } from "./model-keys-router.ts";
 import { qaRouter } from "./qa-router.ts";
 import { requestsRouter } from "./requests-router.ts";
@@ -34,6 +35,7 @@ export const runtimeRouter = router({
   machines: machinesRouter,
   managedKeys: managedKeysRouter,
   map: mapRouter,
+  members: membersRouter,
   modelKeys: modelKeysRouter,
   qa: qaRouter,
   requests: requestsRouter,

@@ -21,6 +21,7 @@ import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { hasAgentHostRole } from "./machines.ts";
+import type { MembersService } from "./members.ts";
 import type { Principal } from "./workspaces.ts";
 
 const AGENT_CREATE = "agents.create";
@@ -92,6 +93,8 @@ const assertModelForRuntime = (runtime: AgentRuntime, model: string): void => {
 };
 
 export interface AgentRecord {
+  /** Who is asked when the owner does not answer in time, a Clerk user id. Null means no backup. */
+  backupUserId: string | null;
   /** The computer this agent drives, or null. Only cloud and managed agents have one. */
   computerMachineId: string | null;
   createdAt: string;
@@ -103,6 +106,8 @@ export interface AgentRecord {
   machineId: string | null;
   model: string;
   name: string;
+  /** Who the agent asks, a Clerk user id. Null means `createdBy`. */
+  ownerUserId: string | null;
   runtime: AgentRuntime;
   runtimeConfig: RuntimeConfig;
   slug: string;
@@ -226,6 +231,15 @@ export const agentUpdateSchema = z
   );
 export type AgentUpdateInput = z.input<typeof agentUpdateSchema>;
 
+const userIdSchema = z.string().min(1).max(200);
+
+/** Who an agent asks. Null owner means the creator; null backup means none. */
+export const agentOwnersSchema = z.strictObject({
+  backupUserId: userIdSchema.nullable(),
+  ownerUserId: userIdSchema.nullable(),
+});
+export type AgentOwnersInput = z.input<typeof agentOwnersSchema>;
+
 /** `input` with `patch` set on top of the agent's runtime config, when there is a patch. */
 const withConfigPatch = (
   input: AgentUpdateInput,
@@ -243,6 +257,7 @@ const unsavedAgent = (patch: object | undefined): ServiceError =>
     : new ServiceError("not_found", "Agent not found");
 
 const toRecord = (row: AgentRow): AgentRecord => ({
+  backupUserId: row.backupUserId,
   computerMachineId: row.computerMachineId,
   createdAt: row.createdAt,
   createdBy: row.createdBy,
@@ -253,6 +268,7 @@ const toRecord = (row: AgentRow): AgentRecord => ({
   machineId: row.machineId,
   model: row.model,
   name: row.name,
+  ownerUserId: row.ownerUserId,
   runtime: row.runtime,
   runtimeConfig: runtimeConfigSchema.parse(JSON.parse(row.runtimeConfig)),
   slug: row.slug,
@@ -357,12 +373,39 @@ const resolveSlug = (given: string | undefined, name: string): string => {
  * The agents of a workspace: create, read, update, archive. Each write
  * appends an `agent.*` event. Only a user principal writes.
  */
+/** Fails unless the owner and backup are different current members. */
+const assertOwners = async (
+  user: UserPrincipal,
+  members: Pick<MembersService, "list">,
+  current: AgentRecord,
+  owners: z.output<typeof agentOwnersSchema>
+): Promise<void> => {
+  const effectiveOwner = owners.ownerUserId ?? current.createdBy;
+  if (owners.backupUserId === effectiveOwner) {
+    throw new ServiceError(
+      "invalid",
+      "The backup must be someone other than the owner"
+    );
+  }
+  const known = new Set(
+    (await members.list(user)).map((member) => member.userId)
+  );
+  for (const userId of [owners.ownerUserId, owners.backupUserId]) {
+    if (userId !== null && !known.has(userId)) {
+      throw new ServiceError("invalid", "That person is not a member");
+    }
+  }
+};
+
 export const createAgentsService = ({
   db,
   events,
+  members,
 }: {
   db: Database;
   events: EventsService;
+  /** Who counts as a member, for `setOwners`. Without it owners cannot be set. */
+  members?: Pick<MembersService, "list">;
 }) => {
   const isSlugTaken = async (workspaceId: string, slug: string) => {
     const [row] = await db
@@ -825,6 +868,53 @@ export const createAgentsService = ({
     return toRecord(row);
   };
 
+  /**
+   * Sets who the agent asks and who backs them up. Both must be current
+   * members of the organisation, and they must be different people. A null
+   * owner means the agent's creator, a null backup means no backup.
+   */
+  const setOwners = async (
+    principal: Principal,
+    id: string,
+    input: AgentOwnersInput
+  ): Promise<AgentRecord> => {
+    const user = requireUser(principal, AGENT_UPDATE);
+    const { workspaceId } = user;
+    authorize(user, AGENT_UPDATE, { kind: AGENT_KIND, workspaceId });
+    const owners = agentOwnersSchema.parse(input);
+    const current = await findAgent(db, { id, workspaceId });
+    if (!current) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    if (!members) {
+      throw new ServiceError("invalid", "Members are not available here");
+    }
+    await assertOwners(user, members, current, owners);
+    const changed = [
+      ...(owners.ownerUserId === current.ownerUserId ? [] : ["ownerUserId"]),
+      ...(owners.backupUserId === current.backupUserId ? [] : ["backupUserId"]),
+    ];
+    if (changed.length === 0) {
+      return current;
+    }
+    const [row] = await db
+      .update(agents)
+      .set(owners)
+      .where(and(eq(agents.id, id), eq(agents.workspaceId, workspaceId)))
+      .returning();
+    if (!row) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    await events.append({
+      actor: { id: user.userId, kind: "user" },
+      agentId: id,
+      payload: { changed },
+      type: "agent.updated",
+      workspaceId,
+    });
+    return toRecord(row);
+  };
+
   const archive = async (
     principal: Principal,
     id: string
@@ -877,6 +967,7 @@ export const createAgentsService = ({
     get,
     list,
     reserveAddress,
+    setOwners,
     suggestAddress,
     update,
   };

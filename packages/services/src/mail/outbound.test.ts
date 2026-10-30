@@ -9,7 +9,11 @@ import {
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
-import { APPROVAL_TTL_MS, mailToolKey } from "@repo/db/shared";
+import {
+  APPROVAL_TTL_MS,
+  MAIL_APPROVAL_TTL_MS,
+  mailToolKey,
+} from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "../agents.ts";
@@ -238,7 +242,7 @@ test("outside cc holds one approval with preview and first unallowed key without
   expect(JSON.parse(request()?.display ?? "{}").input).toEqual({
     cc: ["outside@example.com", "second@example.com"],
     from: "agent@example.com",
-    preview: "x".repeat(500),
+    preview: "x".repeat(700),
     subject: "Hello",
     to: ["member@example.com"],
   });
@@ -250,6 +254,39 @@ test("outside cc holds one approval with preview and first unallowed key without
       .all()
       .some((e) => e.type === "mail.held")
   ).toBe(true);
+});
+
+test("a held mail approval expires in three days and an ordinary approval in one hour", async () => {
+  await mail.send(principal, draft(["outside@example.com"]));
+  const ordinary = await requests.open(system, {
+    input: { command: "echo hi" },
+    kind: "approval",
+    runId: principal.runId,
+    toolKey: "bash",
+    toolName: "bash",
+    toolUseId: "call1",
+  });
+  const lifetime = (id: string) => {
+    const row = db
+      .select()
+      .from(runRequests)
+      .where(eq(runRequests.id, id))
+      .get();
+    return Date.parse(row?.expiresAt ?? "") - Date.parse(row?.createdAt ?? "");
+  };
+  const held = db
+    .select()
+    .from(runRequests)
+    .where(eq(runRequests.toolName, "mail_send"))
+    .get();
+  expect(lifetime(held?.id ?? "missing")).toBe(MAIL_APPROVAL_TTL_MS);
+  expect(lifetime(ordinary.id)).toBe(APPROVAL_TTL_MS);
+});
+
+test("a held mail approval shows the whole reply up to 4000 characters", async () => {
+  const text = "y".repeat(3000);
+  await mail.send(principal, { ...draft(["outside@example.com"]), text });
+  expect(JSON.parse(request()?.display ?? "{}").input.preview).toBe(text);
 });
 
 test("allow once releases and emits in session without resuming runtime", async () => {
@@ -370,7 +407,7 @@ test("approval survives run completion and expires without restarting the run", 
     .update(runRows)
     .set({ status: "done" })
     .where(eq(runRows.id, principal.runId));
-  now += APPROVAL_TTL_MS + 1;
+  now += MAIL_APPROVAL_TTL_MS + 1;
   await requests.expireDue(system);
   expect(message()?.status).toBe("expired");
   expect(calls).toEqual(["hold", "discard:external-1"]);

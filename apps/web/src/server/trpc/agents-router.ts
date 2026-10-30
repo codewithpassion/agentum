@@ -1,4 +1,8 @@
-import { agentCreateSchema, agentUpdateSchema } from "@repo/services/agents";
+import {
+  agentCreateSchema,
+  agentOwnersSchema,
+  agentUpdateSchema,
+} from "@repo/services/agents";
 import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
@@ -39,6 +43,11 @@ export const agentsRouter = router({
         input.agentId,
         input.local
       )
+    ),
+  setOwners: workspaceProcedure
+    .input(agentOwnersSchema.extend({ id: z.string().min(1) }))
+    .mutation(({ ctx, input: { id, ...owners } }) =>
+      ctx.services.agents.setOwners(ctx.principal, id, owners)
     ),
   update: workspaceProcedure
     .input(z.strictObject({ id: z.string().min(1), patch: agentUpdateSchema }))
