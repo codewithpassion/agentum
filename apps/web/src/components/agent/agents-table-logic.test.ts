@@ -126,7 +126,7 @@ describe("rowsOf", () => {
   test("counts an agent with no overview row as zeros", () => {
     const [row] = rowsOf([agent({ id: "agt_9" })], [], members);
     expect(row).toMatchObject({
-      cost: "$0",
+      cost: "Not reported",
       doing: [{ strong: false, text: "Quiet" }],
       tasksThisWeek: 0,
     });
@@ -150,6 +150,7 @@ describe("rowsOf", () => {
 
 describe("formatCost", () => {
   test.each([
+    [null, "Not reported"],
     [0, "$0"],
     [0.004, "<$0.01"],
     [0.5, "$0.50"],

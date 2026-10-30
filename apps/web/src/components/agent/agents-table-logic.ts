@@ -56,8 +56,11 @@ export const doingNow = (
   return segments.length > 0 ? segments : [{ strong: false, text: "Quiet" }];
 };
 
-/** What a week of runs cost, in dollars. Under a cent reads as "<$0.01". */
-export const formatCost = (costUsd: number): string => {
+/** What a week of runs cost, in dollars. Null means no run reported a cost. Under a cent reads as "<$0.01". */
+export const formatCost = (costUsd: number | null): string => {
+  if (costUsd === null) {
+    return "Not reported";
+  }
   if (costUsd <= 0) {
     return "$0";
   }
@@ -76,7 +79,7 @@ export const rowsOf = <T extends AgentAskRef>(
     return {
       agent,
       asked: askedName(agent, members),
-      cost: formatCost(row?.costUsdThisWeek ?? 0),
+      cost: formatCost(row?.costUsdThisWeek ?? null),
       doing: doingNow(row),
       tasksThisWeek: row?.tasksThisWeek ?? 0,
     };

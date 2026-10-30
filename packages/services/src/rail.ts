@@ -69,8 +69,8 @@ export type RailInput = z.input<typeof railInputSchema>;
 /** What one agent is doing, for the Agents table. */
 export interface AgentOverview {
   agentId: string;
-  /** What the runs counted in `tasksThisWeek` cost, in US dollars. */
-  costUsdThisWeek: number;
+  /** What the finished runs counted in `tasksThisWeek` cost, in US dollars. Null when none reported a cost. */
+  costUsdThisWeek: number | null;
   /** Tasks the member can see that started in the last 7 days. */
   tasksThisWeek: number;
   /** Open items that wait on a person: approvals, questions, takeovers and proposals. */
@@ -640,7 +640,9 @@ export const createRailService = ({
         db
           .select({
             agentId: runRows.agentId,
-            cost: sql<number>`coalesce(sum(json_extract(${runRows.usage}, '$.costUsd')), 0)`,
+            cost: sql<
+              number | null
+            >`sum(json_extract(${runRows.usage}, '$.costUsd'))`,
             total: count(),
           })
           .from(runRows)
@@ -675,7 +677,7 @@ export const createRailService = ({
     const week = new Map(weekRows.map((row) => [row.agentId, row]));
     return agentList.map((agent) => ({
       agentId: agent.id,
-      costUsdThisWeek: week.get(agent.id)?.cost ?? 0,
+      costUsdThisWeek: week.get(agent.id)?.cost ?? null,
       tasksThisWeek: week.get(agent.id)?.total ?? 0,
       waiting: waiting.get(agent.id) ?? 0,
       working: working.get(agent.id) ?? 0,

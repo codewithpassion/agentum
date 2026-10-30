@@ -905,13 +905,19 @@ test("the agents overview counts waiting, working and this week's tasks per agen
     .update(runRows)
     .set({ usage: JSON.stringify({ costUsd: 0.25 }) })
     .where(eq(runRows.id, cheap));
-  await db.update(runRows).set({ dryRun: true }).where(eq(runRows.id, dry));
+  await db
+    .update(runRows)
+    .set({ dryRun: true, usage: JSON.stringify({ costUsd: 9 }) })
+    .where(eq(runRows.id, dry));
   await waitingOnApproval(a1);
   await waitingOnApproval(a1);
   const old = await seed({ agentId: a2, status: "done" });
   await db
     .update(runRows)
-    .set({ createdAt: new Date(NOW - 8 * 24 * HOUR).toISOString() })
+    .set({
+      createdAt: new Date(NOW - 8 * 24 * HOUR).toISOString(),
+      usage: JSON.stringify({ costUsd: 7 }),
+    })
     .where(eq(runRows.id, old));
 
   const overview = await rail.agentsOverview(user());
@@ -926,7 +932,7 @@ test("the agents overview counts waiting, working and this week's tasks per agen
   });
   expect(byAgent.get(a2)).toEqual({
     agentId: a2,
-    costUsdThisWeek: 0,
+    costUsdThisWeek: null,
     tasksThisWeek: 2,
     waiting: 0,
     working: 1,

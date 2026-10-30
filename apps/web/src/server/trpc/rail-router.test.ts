@@ -207,7 +207,7 @@ test("agents.overview returns one row per agent with zero counts when idle", asy
   expect(await caller.agents.overview()).toEqual([
     {
       agentId: agent.id,
-      costUsdThisWeek: 0,
+      costUsdThisWeek: null,
       tasksThisWeek: 0,
       waiting: 0,
       working: 0,
