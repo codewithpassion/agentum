@@ -1,5 +1,7 @@
 # Harbourmaster UX review, October 2026
 
+The rail, which came out of this review, is built. See `rail/spec.md`, `rail/results.md` and `media/rail/harbourmaster-rail.mp4`.
+
 A walkthrough of Harbourmaster on staging as a non-technical user, plus three redesign directions.
 
 | File | What it is |
@@ -26,13 +28,14 @@ bun run agent-login --env staging --email priya@office.northbank.rockyshoreslabs
 
 Nothing was deployed and no code changed.
 
-- The `ALLOWED_ORG_IDS` secret now has nine ids. Five are new, for the workspaces below. Two are production-instance orgs copied from the `workspaces` table so that no existing org lost access, and they do nothing on the dev instance staging runs on. `apps/web/.env.staging` (git-ignored) holds the same list. Cloudflare can't show a secret's value, so I never saw the live list before overwriting it. It could have held an id that wasn't in `.env.staging` or the table. If an org loses access on staging, add its id back.
-- Five Clerk users and organisations exist on the dev instance:
+- The `ALLOWED_ORG_IDS` secret now has ten ids. Six are new, for the workspaces below. Two are production-instance orgs copied from the `workspaces` table so that no existing org lost access, and they do nothing on the dev instance staging runs on. `apps/web/.env.staging` (git-ignored) holds the same list. Cloudflare can't show a secret's value, so I never saw the live list before overwriting it. It could have held an id that wasn't in `.env.staging` or the table. If an org loses access on staging, add its id back.
+- Eight Clerk users and six organisations exist on the dev instance for this work. Dan and Sam are members of the final Northbank Advisory:
 
 | Workspace | User | State |
 |---|---|---|
 | Northbank Advisory, final | `priya@office.northbank.rockyshoreslabs.io` | Live. Its routine fires on weekdays at 08:00 UTC at a small cost. Its Done list also has a task from my failed attempt to publish the mock-ups, and API keys has one revoked key from the same attempt. |
 | Outside Senders | `ux-sim@rockyshoreslabs.io` | Holds Client Mail Sim, which only runs when asked |
+| Firstday Studio | `nina@firstday.rockyshoreslabs.io` | First-day test. Agent archived, key removed |
 | Northbank Advisory, dry run | `ux-review@rockyshoreslabs.io` | Agents archived, keys removed |
 | Northbank Advisory, take 1 | `priya@northbank.rockyshoreslabs.io` | Agents archived, keys removed |
 | Northbank Advisory, take 2 | `priya.nair@northbank.rockyshoreslabs.io` | Agents archived, keys removed |
@@ -42,7 +45,7 @@ Nothing was deployed and no code changed.
 
 ## Mail that was sent
 
-25 simulated emails went between agents on `rockyshoreslabs.io`: 5 per run for four runs, plus 5 from the first attempt inside one workspace. Three approved replies went to reserved `.example` addresses and bounced, as expected. No outside person received anything.
+25 simulated emails went between agents on `rockyshoreslabs.io` during the review, and about 15 more during the rail test. Approved replies went to reserved `.example` addresses and bounced, as expected. No outside person received anything.
 
 ## One thing I did not chase
 
