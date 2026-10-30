@@ -32,6 +32,9 @@ export const agentsRouter = router({
   list: workspaceProcedure
     .input(z.strictObject({ includeArchived: z.boolean().optional() }))
     .query(({ ctx, input }) => ctx.services.agents.list(ctx.principal, input)),
+  overview: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.rail.agentsOverview(ctx.principal)
+  ),
   providerKeys: workspaceProcedure.query(({ ctx }) =>
     ctx.services.modelKeys.configuredProviders(ctx.principal)
   ),

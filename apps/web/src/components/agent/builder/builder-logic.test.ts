@@ -7,18 +7,49 @@ import {
   addressSuggestion,
   applyEdit,
   builderSteps,
+  clearDescription,
+  DESCRIPTION_KEY,
   decideText,
   importFileError,
   importTextError,
   isLocked,
+  isNoKeyError,
+  loadDescription,
   MAX_IMPORT_BYTES,
   openGaps,
   redraftBlocker,
   rulesOf,
   runsOnOptions,
+  saveDescription,
   toggleId,
   toggleStart,
 } from "./builder-logic.ts";
+
+const fakeStorage = (initial: Record<string, string> = {}) => {
+  const items = new Map(Object.entries(initial));
+  return {
+    getItem: (key: string) => items.get(key) ?? null,
+    items,
+    removeItem: (key: string) => {
+      items.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      items.set(key, value);
+    },
+  };
+};
+
+const brokenStorage = {
+  getItem: () => {
+    throw new Error("denied");
+  },
+  removeItem: () => {
+    throw new Error("denied");
+  },
+  setItem: () => {
+    throw new Error("denied");
+  },
+};
 
 const draft: AgentDraft = {
   does: "Sorts the inbox.",
@@ -199,5 +230,70 @@ describe("runsOnOptions", () => {
     expect(
       runsOnOptions({ ...catalog, runtimes: ["managed"] }, null)
     ).toHaveLength(1);
+  });
+});
+
+describe("no-key error", () => {
+  test.each([
+    [
+      "This workspace has no Anthropic API key. Add one in Settings, Anthropic API key.",
+      true,
+    ],
+    ["Error: This workspace has no Anthropic API key.", true],
+    ["The Anthropic API key was rejected.", false],
+    ["The model is overloaded. Try again.", false],
+    ["", false],
+  ])("isNoKeyError(%j) is %p", (message, expected) => {
+    expect(isNoKeyError(message)).toBe(expected);
+  });
+});
+
+describe("description storage", () => {
+  test("the key has the agreed name", () => {
+    expect(DESCRIPTION_KEY).toBe("hm:agent-builder-description");
+  });
+
+  test.each([
+    ["a saved description", { [DESCRIPTION_KEY]: "Sorts mail" }, "Sorts mail"],
+    ["nothing saved", {}, ""],
+  ])("loadDescription reads %s", (_label, initial, expected) => {
+    expect(loadDescription(fakeStorage(initial))).toBe(expected);
+  });
+
+  test("loadDescription returns empty when storage throws", () => {
+    expect(loadDescription(brokenStorage)).toBe("");
+  });
+
+  test("saveDescription stores text under the key", () => {
+    const storage = fakeStorage();
+    saveDescription(storage, "Sorts mail");
+    expect(storage.items.get(DESCRIPTION_KEY)).toBe("Sorts mail");
+  });
+
+  test("saveDescription removes the key for empty text", () => {
+    const storage = fakeStorage({ [DESCRIPTION_KEY]: "Sorts mail" });
+    saveDescription(storage, "");
+    expect(storage.items.has(DESCRIPTION_KEY)).toBe(false);
+  });
+
+  test("saveDescription does not throw when storage throws", () => {
+    expect(() => saveDescription(brokenStorage, "Sorts mail")).not.toThrow();
+    expect(() => saveDescription(brokenStorage, "")).not.toThrow();
+  });
+
+  test("clearDescription removes the key", () => {
+    const storage = fakeStorage({ [DESCRIPTION_KEY]: "Sorts mail" });
+    clearDescription(storage);
+    expect(storage.items.has(DESCRIPTION_KEY)).toBe(false);
+  });
+
+  test("clearDescription does not throw when storage throws", () => {
+    expect(() => clearDescription(brokenStorage)).not.toThrow();
+  });
+
+  test("a saved description loads back unchanged", () => {
+    const storage = fakeStorage();
+    saveDescription(storage, "Line one\nLine two");
+    expect(loadDescription(storage)).toBe("Line one\nLine two");
   });
 });

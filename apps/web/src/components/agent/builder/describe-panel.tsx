@@ -5,6 +5,7 @@ import {
   type VoicePreset,
 } from "@repo/db/shared";
 import { templates } from "@repo/services/agent-builder/templates";
+import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useCallback, useId, useRef, useState } from "react";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
@@ -15,6 +16,7 @@ import {
   DESCRIPTION_LIMIT,
   importFileError,
   importTextError,
+  isNoKeyError,
 } from "./builder-logic.ts";
 
 const CHIP_CLASS =
@@ -218,7 +220,20 @@ export function DescribePanel({
 
         {error === null ? null : (
           <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>
+              {error}
+              {isNoKeyError(error) ? (
+                <>
+                  {" "}
+                  <Link
+                    className="underline underline-offset-4"
+                    to="/settings/model-providers"
+                  >
+                    Open Settings
+                  </Link>
+                </>
+              ) : null}
+            </AlertDescription>
           </Alert>
         )}
       </div>

@@ -890,3 +890,68 @@ test("only a user can read the rail or dismiss", async () => {
     ForbiddenError
   );
 });
+
+test("the agents overview counts waiting, working and this week's tasks per agent", async () => {
+  const costly = await seed({ agentId: a1, status: "running" });
+  const cheap = await seed({ agentId: a1, status: "running" });
+  await seed({ agentId: a2, status: "running" });
+  await seed({ agentId: a2, status: "done" });
+  const dry = await seed({ agentId: a2, status: "done" });
+  await db
+    .update(runRows)
+    .set({ usage: JSON.stringify({ costUsd: 0.5, inputTokens: 10 }) })
+    .where(eq(runRows.id, costly));
+  await db
+    .update(runRows)
+    .set({ usage: JSON.stringify({ costUsd: 0.25 }) })
+    .where(eq(runRows.id, cheap));
+  await db
+    .update(runRows)
+    .set({ dryRun: true, usage: JSON.stringify({ costUsd: 9 }) })
+    .where(eq(runRows.id, dry));
+  await waitingOnApproval(a1);
+  await waitingOnApproval(a1);
+  const old = await seed({ agentId: a2, status: "done" });
+  await db
+    .update(runRows)
+    .set({
+      createdAt: new Date(NOW - 8 * 24 * HOUR).toISOString(),
+      usage: JSON.stringify({ costUsd: 7 }),
+    })
+    .where(eq(runRows.id, old));
+
+  const overview = await rail.agentsOverview(user());
+  const byAgent = new Map(overview.map((row) => [row.agentId, row]));
+
+  expect(byAgent.get(a1)).toEqual({
+    agentId: a1,
+    costUsdThisWeek: 0.75,
+    tasksThisWeek: 4,
+    waiting: 2,
+    working: 2,
+  });
+  expect(byAgent.get(a2)).toEqual({
+    agentId: a2,
+    costUsdThisWeek: null,
+    tasksThisWeek: 2,
+    waiting: 0,
+    working: 1,
+  });
+});
+
+test("the agents overview hides tasks in another member's private session", async () => {
+  await seed({ agentId: a1, private: true, status: "running", userId: "u2" });
+  await seed({ agentId: a1, status: "running" });
+
+  const row = (await rail.agentsOverview(user())).find(
+    (entry) => entry.agentId === a1
+  );
+
+  expect(row).toMatchObject({ tasksThisWeek: 1, working: 1 });
+});
+
+test("only a user can read the agents overview", async () => {
+  await expect(rail.agentsOverview(system)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+});

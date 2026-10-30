@@ -199,3 +199,18 @@ test("agents.setOwners refuses a user the lister does not return with BAD_REQUES
     })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
+
+test("agents.overview returns one row per agent with zero counts when idle", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(AGENT);
+
+  expect(await caller.agents.overview()).toEqual([
+    {
+      agentId: agent.id,
+      costUsdThisWeek: null,
+      tasksThisWeek: 0,
+      waiting: 0,
+      working: 0,
+    },
+  ]);
+});
