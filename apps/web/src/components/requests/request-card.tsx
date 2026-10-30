@@ -256,10 +256,12 @@ function ApprovalCard({
   view,
   nowMs,
   onAnswer,
+  title,
 }: {
   view: Extract<RequestView, { kind: "approval" }>;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
+  title?: string;
 }) {
   const { error, pending, submit } = useAnswer(view, onAnswer);
   const [note, setNote] = useState("");
@@ -291,7 +293,7 @@ function ApprovalCard({
       className="flex flex-col gap-3 rounded-md border border-border px-3 py-2 text-sm"
       data-testid="request-card"
     >
-      <p>{view.display.summary}</p>
+      <p>{title ?? view.display.summary}</p>
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
@@ -422,14 +424,17 @@ function TakeoverCard({
   );
 }
 
+/** `title` replaces an approval's raw "Use <tool>" line when the caller has a plainer one. */
 export function RequestCard({
   view,
   nowMs,
   onAnswer,
+  title,
 }: {
   view: RequestView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
+  title?: string;
 }) {
   const { user } = useUser();
 
@@ -447,7 +452,14 @@ export function RequestCard({
     return <TakeoverCard nowMs={nowMs} view={view} />;
   }
   if (view.kind === "approval") {
-    return <ApprovalCard nowMs={nowMs} onAnswer={onAnswer} view={view} />;
+    return (
+      <ApprovalCard
+        nowMs={nowMs}
+        onAnswer={onAnswer}
+        title={title}
+        view={view}
+      />
+    );
   }
   return <QuestionCard nowMs={nowMs} onAnswer={onAnswer} view={view} />;
 }
