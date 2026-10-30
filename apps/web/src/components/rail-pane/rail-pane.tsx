@@ -1,7 +1,6 @@
 import {
   RAIL_REFRESH_EVENT,
   type RailItem,
-  type RailScope,
   type RailView,
 } from "@repo/db/shared";
 import { Link, useRouterState } from "@tanstack/react-router";
@@ -15,29 +14,37 @@ import {
   type RequestView,
   viewFromRecord,
 } from "#/components/requests/request-card-logic.ts";
+import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { answerRequest } from "./answer.ts";
 import { type CardActions, CardView } from "./card-view.tsx";
 import { InlineList } from "./inline-list.tsx";
 import {
+  findCard,
   itemAfterAnswer,
+  keepsSendError,
+  missingItem,
   pruneAnswered,
   selectItem,
   selectionId,
+  sendFailureText,
 } from "./pane-logic.ts";
+import { railScope } from "./scope-storage.ts";
 import { SetupPane } from "./setup-pane.tsx";
+import { type Elsewhere, useElsewhere } from "./use-elsewhere.ts";
 import { useNowMs } from "./use-now-ms.ts";
 
-/** Where the rail keeps the viewer's choice between Mine and Everyone. */
-const SCOPE_KEY = "hm:rail-scope";
-
-const readScope = (): RailScope =>
-  window.localStorage.getItem(SCOPE_KEY) === "everyone" ? "everyone" : "mine";
+/** A send that failed: the banner names the mail, and `under` is the item the answer moved to. */
+interface SendError {
+  cardId: string;
+  text: string;
+  under?: string | null;
+}
 
 /** The rail, the answerable requests behind its cards, and the skill versions proposed. */
 const loadPane = async () => {
   const trpc = getTrpc();
-  const scope = readScope();
+  const scope = railScope.get();
   const [rail, pending, proposals] = await Promise.all([
     trpc.desk.rail.query({
       dayStart: localMidnightIso(new Date()),
@@ -63,6 +70,53 @@ const loadPane = async () => {
 };
 
 type Loaded = Awaited<ReturnType<typeof loadPane>>;
+
+function MissingItem({
+  elsewhere,
+  onOpenWaiting,
+  onShowEveryone,
+}: {
+  elsewhere: Elsewhere | null;
+  onOpenWaiting: () => void;
+  onShowEveryone: () => void;
+}) {
+  if (elsewhere === null) {
+    return (
+      <p className="text-muted-foreground text-sm">Looking for that item.</p>
+    );
+  }
+  if (elsewhere === "everyone") {
+    return (
+      <div className="flex flex-col gap-3" data-testid="rail-missing">
+        <p className="text-foreground">
+          That item is under Everyone, not under Mine.
+        </p>
+        <div>
+          <Button onClick={onShowEveryone} type="button" variant="outline">
+            Show Everyone
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (elsewhere === "gone") {
+    return (
+      <div className="flex flex-col gap-3" data-testid="rail-missing">
+        <p className="text-foreground">That item is not waiting any more.</p>
+        <div>
+          <Button onClick={onOpenWaiting} type="button" variant="link">
+            Open what is waiting
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <p className="text-destructive text-sm" role="alert">
+      Could not look for that item.
+    </p>
+  );
+}
 
 function Empty({ rail }: { rail: RailView }) {
   const inHand = rail.working.length;
@@ -137,7 +191,7 @@ export function RailPane({
     null,
     DESK_POLL_INTERVAL_MS
   );
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<SendError | null>(null);
   // Cards answered here. A poll that lands late cannot bring them back.
   const [answered, setAnswered] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -148,10 +202,19 @@ export function RailPane({
   // answer, `next` stands in until the URL catches up.
   const [held, setHeld] = useState<string | undefined>(undefined);
   const [next, setNext] = useState<string | undefined>(undefined);
+  // The URL's `item` when an answer here moved the pane to another item. Until
+  // the URL catches up, that item is gone because of us and is not "missing".
+  const [settling, setSettling] = useState<string | undefined>(undefined);
 
+  // A refresh, or the rail's scope toggle: the pane reads the shared scope on
+  // every fetch, so it follows the toggle at once.
   useEffect(() => {
     window.addEventListener(RAIL_REFRESH_EVENT, refresh);
-    return () => window.removeEventListener(RAIL_REFRESH_EVENT, refresh);
+    const unsubscribe = railScope.subscribe(refresh);
+    return () => {
+      window.removeEventListener(RAIL_REFRESH_EVENT, refresh);
+      unsubscribe();
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -159,6 +222,7 @@ export function RailPane({
       setHeld(undefined);
     }
     setNext(undefined);
+    setSettling(undefined);
   }, [item]);
 
   const list = useMemo(
@@ -169,6 +233,24 @@ export function RailPane({
     () => (list === null ? null : selectItem(list, next ?? item ?? held)),
     [held, item, list, next]
   );
+  const selectedId = selection === null ? null : selectionId(selection);
+  const scope = data?.scope ?? null;
+  // An item the URL names that is not listed. An answer here leaves the URL
+  // behind for a moment, and that item is not missing.
+  const missing = useMemo(
+    () => missingItem(list, item, settling),
+    [item, list, settling]
+  );
+
+  const elsewhere = useElsewhere(missing, scope);
+
+  // A send error stays through the move its own answer makes, then goes once
+  // another item is open.
+  useEffect(() => {
+    if (sendError !== null && !keepsSendError(sendError.under, selectedId)) {
+      setSendError(null);
+    }
+  }, [selectedId, sendError]);
 
   useEffect(() => {
     if (item === undefined && next === undefined && selection !== null) {
@@ -192,9 +274,9 @@ export function RailPane({
     }
   }, [inline, item, navigating, next, onOpen, selection]);
 
-  const latest = useRef({ list, selection });
+  const latest = useRef({ item, list, selection });
   useEffect(() => {
-    latest.current = { list, selection };
+    latest.current = { item, list, selection };
   });
 
   const answer = useCallback(
@@ -204,10 +286,24 @@ export function RailPane({
         requestId,
         payload
       );
-      setSendError(failed);
+      setSendError(
+        failed === null
+          ? null
+          : {
+              cardId: requestId,
+              text: sendFailureText(
+                findCard(latest.current.list, requestId)?.mail,
+                failed
+              ),
+            }
+      );
     },
     []
   );
+  const showEveryone = useCallback(() => {
+    railScope.set("everyone");
+  }, []);
+  const openWaiting = useCallback(() => onOpen(null), [onOpen]);
   const dismiss = useCallback(async (runId: string) => {
     await getTrpc().desk.clearAttention.mutate({ runId });
   }, []);
@@ -219,7 +315,16 @@ export function RailPane({
       if (current !== null && open?.kind === "item") {
         const following = itemAfterAnswer(current, open.item, cardId);
         setAnswered((previous) => new Set(previous).add(cardId));
-        setNext(following ?? undefined);
+        setSendError((previous) =>
+          previous?.cardId === cardId
+            ? { ...previous, under: following }
+            : previous
+        );
+        // An answer that keeps the URL's item open has no gap to fill.
+        if (following !== latest.current.item) {
+          setNext(following ?? undefined);
+          setSettling(latest.current.item);
+        }
         onOpen(following);
       }
       window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
@@ -246,10 +351,19 @@ export function RailPane({
       )}
       {sendError === null ? null : (
         <p className="text-destructive text-sm" role="alert">
-          Allowed, but the mail could not be sent: {sendError}
+          {sendError.text}
         </p>
       )}
-      {selection === null ? <Empty rail={data.rail} /> : null}
+      {missing === null ? null : (
+        <MissingItem
+          elsewhere={elsewhere}
+          onOpenWaiting={openWaiting}
+          onShowEveryone={showEveryone}
+        />
+      )}
+      {missing === null && selection === null ? (
+        <Empty rail={data.rail} />
+      ) : null}
       {inline && list !== null && selection !== null ? (
         <InlineList
           items={list.needsYou}
@@ -258,10 +372,10 @@ export function RailPane({
           setup={list.setup}
         />
       ) : null}
-      {!inline && selection?.kind === "setup" ? (
+      {!inline && missing === null && selection?.kind === "setup" ? (
         <SetupPane step={selection.step} />
       ) : null}
-      {!inline && selection?.kind === "item" ? (
+      {!inline && missing === null && selection?.kind === "item" ? (
         <ItemCards
           actions={actions}
           item={selection.item}

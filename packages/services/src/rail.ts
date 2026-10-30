@@ -41,6 +41,7 @@ import {
   mailTitle,
   plainStatus,
   plainTitle,
+  problemDetail,
   sortNeedsYou,
 } from "./rail/logic.ts";
 import type { RequestRecord } from "./requests.ts";
@@ -125,6 +126,7 @@ interface Candidate {
   dueAt: string | null;
   escalatedToMe: boolean;
   groupKey: string | null;
+  ownedByMe: boolean;
 }
 
 /** What the rail knows about a held mail. */
@@ -373,11 +375,19 @@ export const createRailService = ({
     );
     const assigneeFor = (agent: AgentRecord | undefined): string | null =>
       agent ? assigneeOf(agent, memberIds) : null;
-    const mineFor = (assigneeUserId: string | null, escalatedToMe: boolean) =>
+    const ownRuns = new Set(sources.ownRunIds);
+    const ownedBy = (runId: string | null): boolean =>
+      runId !== null && ownRuns.has(runId);
+    const mineFor = (
+      assigneeUserId: string | null,
+      escalatedToMe: boolean,
+      ownedByMe: boolean
+    ) =>
       isMine({
         assigneeUserId,
         escalatedToMe,
         memberLookupFailed: directory === null,
+        ownedByMe,
         userId: member.userId,
       });
 
@@ -418,6 +428,7 @@ export const createRailService = ({
           : null,
         escalatedToMe: target === member.userId,
         groupKey: mail ? groupKey(mail.mail.to) : null,
+        ownedByMe: ownedBy(card.runId),
       };
     };
 
@@ -447,6 +458,7 @@ export const createRailService = ({
             agentId: deskCard.agentId,
             agentName,
             at: deskCard.at,
+            detail: deskCard.band.text,
             expiresAt: record?.expiresAt ?? null,
             id: deskCard.id,
             kind,
@@ -476,6 +488,11 @@ export const createRailService = ({
             agentId: card.agentId,
             agentName,
             at: card.at,
+            detail: problemDetail({
+              agentName,
+              bandText: card.band.text,
+              problem,
+            }),
             expiresAt: null,
             id: card.id,
             kind: "problem",
@@ -499,7 +516,7 @@ export const createRailService = ({
         rows.push([entry]);
         continue;
       }
-      const key = `${entry.assigneeUserId ?? ""}|${entry.groupKey}`;
+      const key = `${entry.assigneeUserId ?? ""}|${entry.ownedByMe}|${entry.groupKey}`;
       const group = groups.get(key);
       if (group) {
         group.push(entry);
@@ -540,7 +557,7 @@ export const createRailService = ({
           dueAt: due.at(0) ?? null,
           escalatedToMe,
           id: first.card.id,
-          mine: mineFor(first.assigneeUserId, escalatedToMe),
+          mine: mineFor(first.assigneeUserId, escalatedToMe, first.ownedByMe),
         },
       ];
     });
@@ -553,15 +570,19 @@ export const createRailService = ({
         agentId: card.agentId,
         agentName: agentNames.get(card.agentId) ?? card.startedBy,
         id: card.id,
-        mine: mineFor(assigneeFor(agentOf.get(card.agentId)), false),
+        mine: mineFor(
+          assigneeFor(agentOf.get(card.agentId)),
+          false,
+          ownedBy(card.id)
+        ),
         passedOnBy: passedOn.get(card.id) ?? null,
         status: card.band.text,
         title: card.title,
       }))
       .filter(({ mine }) => inScope(mine));
 
-    const doneToday = sources.doneAgentIds.filter((agentId) =>
-      inScope(mineFor(assigneeFor(agentOf.get(agentId)), false))
+    const doneToday = sources.done.filter(({ agentId, runId }) =>
+      inScope(mineFor(assigneeFor(agentOf.get(agentId)), false, ownedBy(runId)))
     ).length;
 
     const setup: RailSetupStep[] = [

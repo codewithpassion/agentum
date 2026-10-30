@@ -11,8 +11,8 @@ export function ThreadRuns({
   runs: {
     createdAt: string;
     id: string;
-    inputText: string;
     status: RunStatus;
+    title: string;
   }[];
 }) {
   if (runs.length === 0) {
@@ -34,7 +34,7 @@ export function ThreadRuns({
                 params={{ runId: run.id }}
                 to="/tasks/$runId"
               >
-                <span className="min-w-0 flex-1 truncate">{run.inputText}</span>
+                <span className="min-w-0 flex-1 truncate">{run.title}</span>
                 <span
                   className={`shrink-0 rounded-full px-2 py-px text-[11px] ${pillClass(pill.tone)}`}
                 >

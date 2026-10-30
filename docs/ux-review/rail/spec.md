@@ -11,7 +11,7 @@ Colour, fonts and spacing tokens stay as they are in `apps/web/src/styles.css`.
 ## Rules
 
 1. **Each agent asks one person.** `agents.owner_user_id`, falling back to `agents.created_by`. Optionally a backup, `agents.backup_user_id`.
-2. **Mine and Everyone.** The rail opens on Mine. Mine holds items whose agent's owner is me, items escalated to me, and items with nobody to ask. An owner who is no longer a member of the Clerk organisation counts as nobody, so nothing gets orphaned. If the member lookup fails, Mine shows everything, because hiding work is worse than showing too much. Everyone holds all items, each naming who it's for.
+2. **Mine and Everyone.** The rail opens on Mine. Mine holds items whose agent's owner is me, items escalated to me, and items with nobody to ask. Mine also holds items whose assignee cannot see them, for the person who can: a run in the viewer's own `ui` or private session on an agent someone else owns. An owner who is no longer a member of the Clerk organisation counts as nobody, so nothing gets orphaned. If the member lookup fails, Mine shows everything, because hiding work is worse than showing too much. Everyone holds all items, each naming who it's for.
 3. **This is visibility, not permission.** Any member can still answer any request, and the existing authorisation doesn't change. A session's existing visibility rules still apply to runs.
 4. **Escalation is computed on read.** An item older than `RAIL_ESCALATE_AFTER_MS` (4 hours) also appears in the backup's Mine, marked "asked you too". No cron and no new state.
 5. **Plain titles.** No card, in the rail or on the Board, shows "Inbound mail. The quoted JSON below...". A run started by mail takes its title from the mail subject, with leading `Re:` and `Fwd:` removed.
@@ -57,6 +57,7 @@ export interface RailCard {
   agentId: string;     // "" when no agent is involved
   agentName: string;
   at: string;
+  detail: string;      // the desk card's band text: version message, skill name, reply text. On a problem, the sentence that says what happened
   expiresAt: string | null;
   id: string;          // the source card's id, so request ids stay answerable
   kind: RailItemKind;

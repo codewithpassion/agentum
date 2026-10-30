@@ -18,6 +18,7 @@ import { FindDialog } from "./find-dialog.tsx";
 import { RailLink } from "./rail-link.tsx";
 import { NeedsYouRow, SetupRow } from "./rail-needs-you.tsx";
 import { RailNewMenu } from "./rail-new-menu.tsx";
+import { RailQuestions } from "./rail-questions.tsx";
 import { ScopeToggle } from "./rail-scope-toggle.tsx";
 import { WorkingList } from "./rail-working.tsx";
 import { useRail, useRailScope } from "./use-rail.ts";
@@ -175,6 +176,7 @@ export function Rail({ agents, pinned = [] }: RailProps) {
               {view.doneToday} done today
             </RailLink>
           )}
+          <RailQuestions onNavigate={closeMobileNav} />
           <PinnedSidebarGroup onNavigate={closeMobileNav} pins={pinned} />
         </SidebarContent>
         <SidebarFooter className="border-sidebar-border border-t">

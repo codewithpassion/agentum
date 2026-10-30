@@ -620,6 +620,8 @@ export interface RailCard {
   agentId: string;
   agentName: string;
   at: string;
+  /** What the card is about, from the desk card's band: the version message, the skill name, the reply text. On a problem, the sentence that says what happened. */
+  detail: string;
   expiresAt: string | null;
   /** The source card's id, so request ids stay answerable. */
   id: string;

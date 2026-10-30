@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dueLabel, extraCardsLabel } from "./rail-logic.ts";
+import { dueLabel, extraCardsLabel, openQuestionsLabel } from "./rail-logic.ts";
 
 const now = new Date(2026, 9, 31, 10, 0);
 
@@ -60,4 +60,12 @@ test("extra card label counts the cards behind the first", () => {
   expect(extraCardsLabel(1)).toBeNull();
   expect(extraCardsLabel(2)).toBe("+1 more");
   expect(extraCardsLabel(5)).toBe("+4 more");
+});
+
+test("open questions label counts questions and is null at zero", () => {
+  expect(openQuestionsLabel(-1)).toBeNull();
+  expect(openQuestionsLabel(0)).toBeNull();
+  expect(openQuestionsLabel(1)).toBe("1 open question");
+  expect(openQuestionsLabel(2)).toBe("2 open questions");
+  expect(openQuestionsLabel(14)).toBe("14 open questions");
 });

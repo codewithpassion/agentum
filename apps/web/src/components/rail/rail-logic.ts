@@ -62,3 +62,11 @@ export function extraCardsLabel(cardCount: number): string | null {
   }
   return `+${cardCount - 1} more`;
 }
+
+/** Wording for the open questions row, or null when no question is open. */
+export function openQuestionsLabel(count: number): string | null {
+  if (count <= 0) {
+    return null;
+  }
+  return count === 1 ? "1 open question" : `${count} open questions`;
+}

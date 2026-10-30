@@ -131,6 +131,7 @@ test("the session's other runs split around this run's id", () => {
     id,
     inputText: id,
     status: "done" as const,
+    title: id,
   });
   const { earlier, later } = splitOtherRuns(
     [run("run_1"), run("run_3")],

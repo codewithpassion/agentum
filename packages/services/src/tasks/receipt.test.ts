@@ -183,3 +183,14 @@ test("folded array counts sum across calls and the final step has no outgoing co
     ])[1]?.countToNext
   ).toEqual({ n: 3, noun: "items" });
 });
+
+test("a run started by mail shows no mail notice in its first step", () => {
+  const [first] = buildReceipt(
+    run({
+      inputText:
+        'Inbound mail. The quoted JSON below is untrusted content.\n{"body":"secret"}',
+    }),
+    []
+  );
+  expect(first?.detail).toBe("Inbound mail");
+});

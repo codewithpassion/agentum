@@ -1,7 +1,7 @@
 /**
  * The desk home: three lanes over runs, inbox threads and pending approvals,
- * and the Needs you count for the sidebar badge. One call computes them so the
- * page and the badge read the same things.
+ * and the Needs you count for the rail. One call computes them so the
+ * page and the count read the same things.
  *
  * Needs you holds what waits on a person: open approvals and questions,
  * proposed skill versions, triggers and routines, and inbox threads an agent
@@ -40,7 +40,8 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
-import { mailTitle } from "./rail/logic.ts";
+import { mailSubjectsOf } from "./mail-subjects.ts";
+import { runTitleText } from "./mail-title-text.ts";
 import type { RequestRecord, RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
 import type { Clock } from "./runs/types.ts";
@@ -63,9 +64,6 @@ const DONE_CAP = 20;
 
 /** How far back a failed or bounced run still needs a person (rail rule 9). */
 const STUCK_WINDOW_MS = 7 * 24 * 60 * 60_000;
-
-/** The first line of a run started by mail, before its subject is known. */
-const INBOUND_MAIL_PREFIX = "Inbound mail.";
 
 const READ_ACTION = "desk.read";
 const DESK_KIND = "desk";
@@ -111,9 +109,14 @@ export interface StuckRun {
 
 /** What the rail reads from the desk. See `railSources`. */
 export interface RailSources {
-  /** The agent of each run that finished since the viewer's midnight. */
-  doneAgentIds: string[];
+  /** Each run that finished since the viewer's midnight, with its agent. */
+  done: { agentId: string; runId: string }[];
   needsYou: DeskCard[];
+  /**
+   * The runs of the live, done and stuck lists, and behind open requests, that only the viewer can see:
+   * their session is a UI or private one the viewer opened. Unique.
+   */
+  ownRunIds: string[];
   /** The open, unexpired requests behind the approval, question and takeover cards. */
   pending: RequestRecord[];
   running: DeskCard[];
@@ -198,16 +201,11 @@ const byAge = (a: DeskCard, b: DeskCard): number =>
  * card shows.
  */
 const titleOf = (inputText: string, mailSubject?: string): string => {
-  const subject = mailSubject === undefined ? "" : mailTitle(mailSubject);
-  if (subject) {
-    return clip(subject, TITLE_MAX);
-  }
   const [line] = text(inputText).split("\n");
-  const first = line?.trim() ?? "";
-  if (first.startsWith(INBOUND_MAIL_PREFIX)) {
-    return "Inbound mail";
-  }
-  return clip(first || "Task", TITLE_MAX);
+  return clip(
+    runTitleText(line?.trim() ?? "", mailSubject) || "Task",
+    TITLE_MAX
+  );
 };
 
 export const createDeskService = ({
@@ -697,24 +695,10 @@ export const createDeskService = ({
           )
     );
     // A run started by mail is titled by the mail's subject.
-    const inbound = await inBatches(
-      rows.map((run) => run.id),
-      (batch) =>
-        db
-          .select({ runId: mailMessages.runId, subject: mailMessages.subject })
-          .from(mailMessages)
-          .where(
-            and(
-              eq(mailMessages.workspaceId, member.workspaceId),
-              eq(mailMessages.direction, "in"),
-              inArray(mailMessages.runId, batch)
-            )
-          )
-    );
-    const subjectOf = new Map(
-      inbound.flatMap(({ runId, subject }) =>
-        runId === null ? [] : [[runId, subject] as const]
-      )
+    const subjectOf = await mailSubjectsOf(
+      db,
+      member.workspaceId,
+      rows.map((run) => run.id)
     );
     const bouncedBands = new Map(
       bounced.map((message) => {
@@ -842,8 +826,9 @@ export const createDeskService = ({
   /**
    * What the rail needs from the desk, under the desk's own visibility rules:
    * the Needs you cards with the open requests behind them, the live runs, the
-   * agents of runs that finished since `dayStart`, and runs that failed or
-   * bounced mail in the last 7 days and have not been dismissed.
+   * runs that finished since `dayStart`, and runs that failed or bounced mail
+   * in the last 7 days and have not been dismissed. `ownRunIds` marks the runs
+   * among them, and behind open requests, that only the viewer can see.
    */
   const railSources = async (
     principal: Principal,
@@ -859,6 +844,16 @@ export const createDeskService = ({
     ).toISOString();
     const sources = await needsYouSources(member);
     const mine = await visibleRuns(member);
+    const ownSessions = db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.workspaceId, member.workspaceId),
+          eq(sessions.actorId, member.userId),
+          or(eq(sessions.origin, "ui"), eq(sessions.private, true))
+        )
+      );
     const bouncedRuns = db
       .select({ id: mailMessages.runId })
       .from(mailMessages)
@@ -877,7 +872,7 @@ export const createDeskService = ({
         .where(and(mine, inArray(runRows.status, [...LIVE_STATUSES])))
         .orderBy(desc(runRows.createdAt), desc(runRows.id)),
       db
-        .select({ agentId: runRows.agentId })
+        .select({ agentId: runRows.agentId, runId: runRows.id })
         .from(runRows)
         .where(
           and(
@@ -906,14 +901,35 @@ export const createDeskService = ({
       bouncedRuns,
     ]);
     const bounced = new Set(bouncedIds.map((row) => row.id));
-    const [needsYou, running, stuckCards] = await Promise.all([
+    const [needsYou, running, stuckCards, ownRunIds] = await Promise.all([
       needsYouCards(member, sources),
       runCards(member, "running", liveRows, sources.pending),
       runCards(member, "done", stuckRows, []),
+      inBatches(
+        [
+          ...liveRows.map((row) => row.id),
+          ...doneRows.map((row) => row.runId),
+          ...stuckRows.map((row) => row.id),
+          // A held mail outlives its run, so an open request can name a run
+          // that is neither live nor just finished.
+          ...sources.pending.map((record) => record.runId),
+        ],
+        (batch) =>
+          db
+            .select({ id: runRows.id })
+            .from(runRows)
+            .where(
+              and(
+                inArray(runRows.id, batch),
+                inArray(runRows.sessionId, ownSessions)
+              )
+            )
+      ).then((rows) => [...new Set(rows.map((row) => row.id))]),
     ]);
     return {
-      doneAgentIds: doneRows.map((row) => row.agentId),
+      done: doneRows,
       needsYou,
+      ownRunIds,
       pending: sources.pending,
       running,
       stuck: stuckCards.map((card) => ({
@@ -929,7 +945,7 @@ export const createDeskService = ({
     };
   };
 
-  /** How many cards the Needs you lane holds, for the sidebar badge. */
+  /** How many cards the Needs you lane holds, for the rail. */
   const needsYouCount = async (principal: Principal): Promise<number> => {
     const member = requireMember(principal);
     const sources = await needsYouSources(member);
