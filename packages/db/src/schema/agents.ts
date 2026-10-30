@@ -10,6 +10,9 @@ export const agents = sqliteTable(
   {
     // The computer this agent drives. A computer serves one agent at a time
     // (`agents_computer_machine_unique`).
+    // Clerk user id of the backup who is asked too once a request waits long.
+    // NULL means no backup.
+    backupUserId: text("backup_user_id"),
     computerMachineId: text("computer_machine_id").references(
       () => machines.id
     ),
@@ -27,6 +30,9 @@ export const agents = sqliteTable(
     machineId: text("machine_id").references(() => machines.id),
     model: text("model").notNull(),
     name: text("name").notNull(),
+    // Clerk user id of the person who answers this agent's requests. NULL
+    // means `created_by`.
+    ownerUserId: text("owner_user_id"),
     runtime: text("runtime", { enum: AGENT_RUNTIMES }).notNull(),
     // JSON, validated by a zod schema in the owning module.
     runtimeConfig: text("runtime_config").notNull(),
