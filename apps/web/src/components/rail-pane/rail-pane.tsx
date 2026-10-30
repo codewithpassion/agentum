@@ -4,7 +4,7 @@ import {
   type RailScope,
   type RailView,
 } from "@repo/db/shared";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { localMidnightIso } from "#/components/desk/desk-logic.ts";
 import {
@@ -37,10 +37,11 @@ const readScope = (): RailScope =>
 /** The rail, the answerable requests behind its cards, and the skill versions proposed. */
 const loadPane = async () => {
   const trpc = getTrpc();
+  const scope = readScope();
   const [rail, pending, proposals] = await Promise.all([
     trpc.desk.rail.query({
       dayStart: localMidnightIso(new Date()),
-      scope: readScope(),
+      scope,
     }),
     trpc.requests.pending.query({}),
     trpc.skillStore.proposals.query(),
@@ -58,7 +59,7 @@ const loadPane = async () => {
       { number: version.number, skillId: version.skillId },
     ])
   );
-  return { rail, requests, versions };
+  return { rail, requests, scope, versions };
 };
 
 type Loaded = Awaited<ReturnType<typeof loadPane>>;
@@ -177,16 +178,19 @@ export function RailPane({
 
   // The shown item goes into the URL, so the rail marks it and a new item that
   // sorts first cannot move it. A phone keeps the list at a bare /desk.
+  const navigating = useRouterState({
+    select: (state) => state.status === "pending",
+  });
   useEffect(() => {
     if (
-      !inline &&
+      !(inline || navigating) &&
       item === undefined &&
       next === undefined &&
       selection !== null
     ) {
       onOpen(selectionId(selection));
     }
-  }, [inline, item, next, onOpen, selection]);
+  }, [inline, item, navigating, next, onOpen, selection]);
 
   const latest = useRef({ list, selection });
   useEffect(() => {
@@ -247,7 +251,12 @@ export function RailPane({
       )}
       {selection === null ? <Empty rail={data.rail} /> : null}
       {inline && list !== null && selection !== null ? (
-        <InlineList items={list.needsYou} setup={list.setup} />
+        <InlineList
+          items={list.needsYou}
+          nowMs={nowMs}
+          scope={data.scope}
+          setup={list.setup}
+        />
       ) : null}
       {!inline && selection?.kind === "setup" ? (
         <SetupPane step={selection.step} />
