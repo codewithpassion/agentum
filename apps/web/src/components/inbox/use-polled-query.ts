@@ -8,7 +8,7 @@ export const DESK_POLL_INTERVAL_MS = 10_000;
  * Runs `load` now, then every `intervalMs` while mounted, skipping ticks
  * while the document is hidden. It also runs again when the window gets
  * focus or the document becomes visible. `refresh` runs it on demand.
- * Results that arrive after unmount, or after a newer load started, are dropped.
+ * Results that arrive after unmount, or after a newer load landed, are dropped.
  */
 export function usePolledQuery<T>(
   load: () => Promise<T>,
@@ -19,28 +19,35 @@ export function usePolledQuery<T>(
   const [error, setError] = useState<string | null>(null);
   const loadRef = useRef(load);
   const mountedRef = useRef<boolean>(false);
-  const latestRef = useRef(0);
+  const startedRef = useRef(0);
+  const landedRef = useRef(0);
 
   useEffect(() => {
     loadRef.current = load;
   });
 
   const refresh = useCallback(async () => {
-    // A result counts only while no newer load has started, so a slow load
-    // cannot overwrite what a later one already returned.
-    latestRef.current += 1;
-    const sequence = latestRef.current;
+    // A result counts unless a newer load has already landed, so a slow load
+    // cannot overwrite what a later one returned. A load slower than the poll
+    // interval still lands, as nothing newer has.
+    startedRef.current += 1;
+    const sequence = startedRef.current;
     const isMounted = (): boolean => mountedRef.current;
-    const isCurrent = (): boolean =>
-      isMounted() && sequence === latestRef.current;
+    const lands = (): boolean => {
+      if (!isMounted() || sequence < landedRef.current) {
+        return false;
+      }
+      landedRef.current = sequence;
+      return true;
+    };
     try {
       const next = await loadRef.current();
-      if (isCurrent()) {
+      if (lands()) {
         setData(next);
         setError(null);
       }
     } catch (caught) {
-      if (isCurrent()) {
+      if (lands()) {
         setError(errorMessage(caught));
       }
     }
