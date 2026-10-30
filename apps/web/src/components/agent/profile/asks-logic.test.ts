@@ -110,9 +110,9 @@ describe("nextOwners", () => {
       { backupUserId: null, ownerUserId: "user_a" },
     ],
   ])("%s", (_name, change, expected) => {
-    expect(nextOwners({ change, current, members: everyone })).toEqual(
-      expected
-    );
+    expect(
+      nextOwners({ change, createdBy: "user_z", current, members: everyone })
+    ).toEqual(expected);
   });
 
   test("never produces a backup equal to the owner, for any pick", () => {
@@ -122,11 +122,13 @@ describe("nextOwners", () => {
       for (const backup of backups) {
         const fromOwner = nextOwners({
           change: { ownerUserId: owner },
+          createdBy: "user_a",
           current: { backupUserId: backup, ownerUserId: "user_a" },
           members: everyone,
         });
         const fromBackup = nextOwners({
           change: { backupUserId: backup },
+          createdBy: "user_a",
           current: { backupUserId: null, ownerUserId: owner },
           members: everyone,
         });
@@ -134,5 +136,31 @@ describe("nextOwners", () => {
         expect(fromBackup.backupUserId).not.toBe(fromBackup.ownerUserId);
       }
     }
+  });
+});
+
+describe("nextOwners with no stored owner", () => {
+  const unowned = { backupUserId: null, ownerUserId: null };
+
+  test("a backup-only change leaves the owner null", () => {
+    expect(
+      nextOwners({
+        change: { backupUserId: "user_b" },
+        createdBy: "user_a",
+        current: unowned,
+        members: everyone,
+      })
+    ).toEqual({ backupUserId: "user_b", ownerUserId: null });
+  });
+
+  test("the creator cannot be the backup of an agent they own by default", () => {
+    expect(
+      nextOwners({
+        change: { backupUserId: "user_a" },
+        createdBy: "user_a",
+        current: unowned,
+        members: everyone,
+      })
+    ).toEqual({ backupUserId: null, ownerUserId: null });
   });
 });

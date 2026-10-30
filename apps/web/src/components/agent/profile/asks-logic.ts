@@ -3,7 +3,8 @@ import type { WorkspaceMember } from "@repo/db/shared";
 /** Who the agent asks: its owner and an optional backup, both Clerk user ids. */
 export interface AskOwners {
   backupUserId: string | null;
-  ownerUserId: string;
+  /** Null keeps the creator as the owner. */
+  ownerUserId: string | null;
 }
 
 /** One edit from the owner or the backup select. */
@@ -42,15 +43,18 @@ export function canPick(members: WorkspaceMember[]): boolean {
 }
 
 /**
- * The owners to save after one change. A backup that the new owner cannot
- * have (the owner itself, or someone who is not a member) is cleared.
+ * The owners to save after one change. A backup that the owner cannot have
+ * (the owner itself, or someone who is not a member) is cleared. A backup-only
+ * change keeps the stored owner as it is, so a null owner stays null.
  */
 export function nextOwners({
   change,
+  createdBy,
   current,
   members,
 }: {
   change: AskChange;
+  createdBy: string;
   current: AskOwners;
   members: WorkspaceMember[];
 }): AskOwners {
@@ -60,7 +64,7 @@ export function nextOwners({
     "backupUserId" in change ? change.backupUserId : current.backupUserId;
   const offered =
     wanted !== null &&
-    backupChoices(members, ownerUserId).some(
+    backupChoices(members, ownerUserId ?? createdBy).some(
       (member) => member.userId === wanted
     );
   return { backupUserId: offered ? wanted : null, ownerUserId };

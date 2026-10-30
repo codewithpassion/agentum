@@ -892,10 +892,20 @@ test("only a user can read the rail or dismiss", async () => {
 });
 
 test("the agents overview counts waiting, working and this week's tasks per agent", async () => {
-  await seed({ agentId: a1, status: "running" });
-  await seed({ agentId: a1, status: "running" });
+  const costly = await seed({ agentId: a1, status: "running" });
+  const cheap = await seed({ agentId: a1, status: "running" });
   await seed({ agentId: a2, status: "running" });
   await seed({ agentId: a2, status: "done" });
+  const dry = await seed({ agentId: a2, status: "done" });
+  await db
+    .update(runRows)
+    .set({ usage: JSON.stringify({ costUsd: 0.5, inputTokens: 10 }) })
+    .where(eq(runRows.id, costly));
+  await db
+    .update(runRows)
+    .set({ usage: JSON.stringify({ costUsd: 0.25 }) })
+    .where(eq(runRows.id, cheap));
+  await db.update(runRows).set({ dryRun: true }).where(eq(runRows.id, dry));
   await waitingOnApproval(a1);
   await waitingOnApproval(a1);
   const old = await seed({ agentId: a2, status: "done" });
@@ -909,12 +919,14 @@ test("the agents overview counts waiting, working and this week's tasks per agen
 
   expect(byAgent.get(a1)).toEqual({
     agentId: a1,
+    costUsdThisWeek: 0.75,
     tasksThisWeek: 4,
     waiting: 2,
     working: 2,
   });
   expect(byAgent.get(a2)).toEqual({
     agentId: a2,
+    costUsdThisWeek: 0,
     tasksThisWeek: 2,
     waiting: 0,
     working: 1,
@@ -930,7 +942,6 @@ test("the agents overview hides tasks in another member's private session", asyn
   );
 
   expect(row).toMatchObject({ tasksThisWeek: 1, working: 1 });
-  expect(row?.tasksThisWeek).toBe(1);
 });
 
 test("only a user can read the agents overview", async () => {

@@ -1,4 +1,5 @@
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { ownerIdOf } from "./profile/asks-logic.ts";
 
 type AgentListItem = RouterOutputs["agents"]["list"][number];
 type OverviewRow = RouterOutputs["agents"]["overview"][number];
@@ -19,6 +20,7 @@ export interface DoingSegment {
 export interface AgentTableRow<T extends AgentAskRef = AgentListItem> {
   agent: T;
   asked: string;
+  cost: string;
   doing: DoingSegment[];
   tasksThisWeek: number;
 }
@@ -34,7 +36,7 @@ export const askedName = (
   if (members === null) {
     return "Unknown";
   }
-  const owner = agent.ownerUserId ?? agent.createdBy;
+  const owner = ownerIdOf(agent);
   return members.find((member) => member.userId === owner)?.name ?? "Nobody";
 };
 
@@ -54,6 +56,14 @@ export const doingNow = (
   return segments.length > 0 ? segments : [{ strong: false, text: "Quiet" }];
 };
 
+/** What a week of runs cost, in dollars. Under a cent reads as "<$0.01". */
+export const formatCost = (costUsd: number): string => {
+  if (costUsd <= 0) {
+    return "$0";
+  }
+  return costUsd < 0.01 ? "<$0.01" : `$${costUsd.toFixed(2)}`;
+};
+
 /** One row per agent, in the order of `agents`. No overview row means zeros. */
 export const rowsOf = <T extends AgentAskRef>(
   agents: readonly T[],
@@ -66,6 +76,7 @@ export const rowsOf = <T extends AgentAskRef>(
     return {
       agent,
       asked: askedName(agent, members),
+      cost: formatCost(row?.costUsdThisWeek ?? 0),
       doing: doingNow(row),
       tasksThisWeek: row?.tasksThisWeek ?? 0,
     };

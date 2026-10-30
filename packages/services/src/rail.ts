@@ -21,7 +21,7 @@ import {
   type RailView,
   type RailWorking,
 } from "@repo/db/shared";
-import { and, count, eq, gte, inArray, isNull } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRecord, AgentsService } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -69,9 +69,11 @@ export type RailInput = z.input<typeof railInputSchema>;
 /** What one agent is doing, for the Agents table. */
 export interface AgentOverview {
   agentId: string;
+  /** What the runs counted in `tasksThisWeek` cost, in US dollars. */
+  costUsdThisWeek: number;
   /** Tasks the member can see that started in the last 7 days. */
   tasksThisWeek: number;
-  /** Open requests and takeovers that wait on a person. */
+  /** Open items that wait on a person: approvals, questions, takeovers and proposals. */
   waiting: number;
   /** Live runs that do not wait on a person. */
   working: number;
@@ -623,7 +625,8 @@ export const createRailService = ({
   /**
    * One row per agent for the Agents table: what waits on a person, what is
    * running, and the tasks of the last 7 days. Counts follow the desk's
-   * visibility rules, like the rail. No per-run cost is stored, so there is none.
+   * visibility rules, like the rail. Dry runs from the builder are left out,
+   * as they are in the task list.
    */
   const agentsOverview = async (
     principal: Principal
@@ -635,11 +638,16 @@ export const createRailService = ({
       agents.list(member),
       visibleSessions(db, member).then((visible) =>
         db
-          .select({ agentId: runRows.agentId, total: count() })
+          .select({
+            agentId: runRows.agentId,
+            cost: sql<number>`coalesce(sum(json_extract(${runRows.usage}, '$.costUsd')), 0)`,
+            total: count(),
+          })
           .from(runRows)
           .where(
             and(
               eq(runRows.workspaceId, member.workspaceId),
+              eq(runRows.dryRun, false),
               gte(runRows.createdAt, weekStart),
               inArray(
                 runRows.sessionId,
@@ -664,10 +672,11 @@ export const createRailService = ({
         .filter((card) => !waitingRuns.has(card.id))
         .map((card) => card.agentId)
     );
-    const week = new Map(weekRows.map((row) => [row.agentId, row.total]));
+    const week = new Map(weekRows.map((row) => [row.agentId, row]));
     return agentList.map((agent) => ({
       agentId: agent.id,
-      tasksThisWeek: week.get(agent.id) ?? 0,
+      costUsdThisWeek: week.get(agent.id)?.cost ?? 0,
+      tasksThisWeek: week.get(agent.id)?.total ?? 0,
       waiting: waiting.get(agent.id) ?? 0,
       working: working.get(agent.id) ?? 0,
     }));

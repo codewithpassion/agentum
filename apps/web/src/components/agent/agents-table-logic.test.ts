@@ -4,6 +4,7 @@ import {
   type AgentAskRef,
   askedName,
   doingNow,
+  formatCost,
   rowsOf,
 } from "./agents-table-logic.ts";
 
@@ -24,6 +25,7 @@ const agent = (overrides: Partial<AgentAskRef> = {}): AgentAskRef => ({
 
 const overview = (overrides: Partial<OverviewRow> = {}): OverviewRow => ({
   agentId: "agt_1",
+  costUsdThisWeek: 0,
   tasksThisWeek: 0,
   waiting: 0,
   working: 0,
@@ -96,7 +98,12 @@ describe("rowsOf", () => {
         agent({ createdBy: "user_priya", id: "agt_2", ownerUserId: null }),
       ],
       [
-        overview({ agentId: "agt_2", tasksThisWeek: 7, waiting: 1 }),
+        overview({
+          agentId: "agt_2",
+          costUsdThisWeek: 1.234,
+          tasksThisWeek: 7,
+          waiting: 1,
+        }),
         overview({ agentId: "agt_1", tasksThisWeek: 2, working: 1 }),
       ],
       members
@@ -110,6 +117,7 @@ describe("rowsOf", () => {
     });
     expect(rows[1]).toMatchObject({
       asked: "Priya Shah",
+      cost: "$1.23",
       doing: [{ strong: true, text: "1 waiting" }],
       tasksThisWeek: 7,
     });
@@ -118,6 +126,7 @@ describe("rowsOf", () => {
   test("counts an agent with no overview row as zeros", () => {
     const [row] = rowsOf([agent({ id: "agt_9" })], [], members);
     expect(row).toMatchObject({
+      cost: "$0",
       doing: [{ strong: false, text: "Quiet" }],
       tasksThisWeek: 0,
     });
@@ -136,5 +145,16 @@ describe("rowsOf", () => {
 
   test("returns no rows for no agents", () => {
     expect(rowsOf([], [overview()], members)).toEqual([]);
+  });
+});
+
+describe("formatCost", () => {
+  test.each([
+    [0, "$0"],
+    [0.004, "<$0.01"],
+    [0.5, "$0.50"],
+    [12.345, "$12.35"],
+  ])("%p reads %p", (value, text) => {
+    expect(formatCost(value)).toBe(text);
   });
 });

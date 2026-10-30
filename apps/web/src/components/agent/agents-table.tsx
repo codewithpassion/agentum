@@ -17,11 +17,12 @@ export function AgentsTable({ rows }: { rows: AgentTableRow[] }) {
           <TableHead>Name</TableHead>
           <TableHead>Asks</TableHead>
           <TableHead>Doing now</TableHead>
-          <TableHead className="text-right">This week</TableHead>
+          <TableHead className="text-right">Tasks this week</TableHead>
+          <TableHead className="text-right">Cost this week</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map(({ agent, asked, doing, tasksThisWeek }) => (
+        {rows.map(({ agent, asked, cost, doing, tasksThisWeek }) => (
           <TableRow key={agent.id}>
             <TableCell>
               <Link
@@ -51,6 +52,9 @@ export function AgentsTable({ rows }: { rows: AgentTableRow[] }) {
             </TableCell>
             <TableCell className="text-right tabular-nums">
               {tasksThisWeek}
+            </TableCell>
+            <TableCell className="text-right text-muted-foreground tabular-nums">
+              {cost}
             </TableCell>
           </TableRow>
         ))}

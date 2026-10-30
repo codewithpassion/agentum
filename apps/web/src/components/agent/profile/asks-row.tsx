@@ -67,7 +67,11 @@ function AsksSelects({
     async (change: AskChange) => {
       const next = nextOwners({
         change,
-        current: { backupUserId: agent.backupUserId, ownerUserId: owner },
+        createdBy: agent.createdBy,
+        current: {
+          backupUserId: agent.backupUserId,
+          ownerUserId: agent.ownerUserId,
+        },
         members,
       });
       setSaving(true);
@@ -82,7 +86,14 @@ function AsksSelects({
         setSaving(false);
       }
     },
-    [agent.backupUserId, agent.id, members, owner, router]
+    [
+      agent.backupUserId,
+      agent.createdBy,
+      agent.id,
+      agent.ownerUserId,
+      members,
+      router,
+    ]
   );
 
   const changeOwner = useCallback(
