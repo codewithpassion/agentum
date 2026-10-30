@@ -121,11 +121,24 @@ test("plainTitle and plainStatus for a mail approval", () => {
 test.each([
   [
     { mail: { recipientName: null, subject: "", to: ["ada@x.com"] } },
-    "Reply to ada@x.com",
+    "Reply to Ada",
   ],
   [{ mail: { recipientName: "  ", subject: "Re:", to: [] } }, "Reply to them"],
 ])("mail approval title falls back: %p", (overrides, expected) => {
   expect(plainTitle(card(overrides))).toBe(expected);
+});
+
+test.each([
+  ["jane.doe@harcourt-logistics.example", "Jane Doe"],
+  ["tom.reid@acme.com", "Tom Reid"],
+  ["accounts@acme.com", "Accounts"],
+  ["j_smith99@acme.com", "J Smith"],
+  ["ANNA-LEE@acme.com", "Anna Lee"],
+  ["12345@acme.com", "12345@acme.com"],
+  ["+@acme.com", "+@acme.com"],
+])("mail approval without a name reads %p as %p", (address, expected) => {
+  const mail = { recipientName: null, subject: "", to: [address] };
+  expect(plainTitle(card({ mail }))).toBe(`Reply to ${expected}`);
 });
 
 test("plainTitle for an approval with a platform tool label", () => {

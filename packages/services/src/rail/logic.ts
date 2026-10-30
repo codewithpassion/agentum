@@ -246,13 +246,24 @@ const toolWords = (toolKey: string | null, toolName: string | null): string => {
   return words || "using a tool";
 };
 
+const NON_LETTERS_RE = /[^\p{L}]+/u;
+
+/** An address's local part as words: "j_smith99@x.com" becomes "J Smith". */
+const addressWords = (address: string): string =>
+  address
+    .slice(0, Math.max(address.lastIndexOf("@"), 0))
+    .split(NON_LETTERS_RE)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
 const recipientWho = (mail: NonNullable<CardFacts["mail"]>): string => {
   const first = mail.recipientName?.trim().split(WHITESPACE_RE)[0];
   if (first) {
     return first;
   }
   const address = mail.to[0]?.trim();
-  return address || "them";
+  return (address && addressWords(address)) || address || "them";
 };
 
 /** The card's heading in plain words. */

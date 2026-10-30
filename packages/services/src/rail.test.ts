@@ -252,6 +252,8 @@ const waitingOnApproval = async (
 interface HeldMailOptions {
   agentId?: string;
   inbound?: { name?: string; snippet: string; subject: string };
+  /** The reply goes out on a thread of its own, which has no inbound message. */
+  newThread?: boolean;
   preview?: string;
   subject?: string;
   to: string[];
@@ -310,6 +312,18 @@ const heldMail = async (o: HeldMailOptions) => {
     toAddresses: '["agent@example.com"]',
     workspaceId: "w1",
   } as typeof mailMessages.$inferInsert);
+  const outThread = o.newThread ? `thread${n}new` : `thread${n}`;
+  if (o.newThread) {
+    await db.insert(mailThreads).values({
+      externalThreadId: `t${n}new`,
+      id: outThread,
+      lastMessageAt: iso,
+      mailboxId: boxId,
+      sessionId: `s-${runId}`,
+      subject: o.subject ?? "Re: Quarterly numbers",
+      workspaceId: "w1",
+    });
+  }
   await db.insert(mailMessages).values({
     ccAddresses: "[]",
     createdAt: iso,
@@ -321,7 +335,7 @@ const heldMail = async (o: HeldMailOptions) => {
     snippet: "short",
     status: "held",
     subject: o.subject ?? "Re: Quarterly numbers",
-    threadId: `thread${n}`,
+    threadId: outThread,
     toAddresses: JSON.stringify(o.to),
     workspaceId: "w1",
   });
@@ -522,6 +536,24 @@ test("a mail approval reads as a reply, with the body, what they wrote and a due
   expect(item?.dueAt).toBe("2026-10-27T09:00:00.000Z");
 });
 
+test("a reply on a new thread shows what the run's inbound mail said, and its due time", async () => {
+  await heldMail({
+    inbound: {
+      snippet: "Please send the numbers by 9am tomorrow",
+      subject: "Fwd: Quarterly numbers",
+    },
+    newThread: true,
+    to: ["priya@acme.com"],
+  });
+
+  const [item] = (await view("mine")).needsYou;
+  const card = item?.cards[0];
+
+  expect(card?.mail?.theyWrote).toBe("Please send the numbers by 9am tomorrow");
+  expect(card?.threadId).toBe("thread1new");
+  expect(item?.dueAt).toBe("2026-10-27T09:00:00.000Z");
+});
+
 test("a held mail approval expires after 3 days and another approval after 1 hour", async () => {
   await heldMail({ to: ["priya@acme.com"] });
   await waitingOnApproval(a1);
@@ -670,8 +702,8 @@ test("Needs you sorts by due time, then undated items oldest first", async () =>
   const { needsYou } = await view("mine");
 
   expect(titles(needsYou).map(([title]) => title)).toEqual([
-    "Reply to legal@firm.com: Contract",
-    "Reply to boss@corp.com: Deck",
+    "Reply to Legal: Contract",
+    "Reply to Boss: Deck",
     "Alpha asks before bash",
     "Alpha asks before write",
   ]);
