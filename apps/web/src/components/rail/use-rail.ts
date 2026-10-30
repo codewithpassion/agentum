@@ -51,8 +51,18 @@ export function useRailScope() {
     };
     read();
     // The main pane can switch the scope too, for a link to a teammate's item.
-    window.addEventListener(RAIL_SCOPE_EVENT, read);
-    return () => window.removeEventListener(RAIL_SCOPE_EVENT, read);
+    // An event that carries the scope is the toggle's own, which blocked
+    // storage would not remember.
+    const onChange = (event: Event) => {
+      const { detail } = event as CustomEvent<unknown>;
+      if (typeof detail === "string" && isScope(detail)) {
+        setScopeState(detail);
+        return;
+      }
+      read();
+    };
+    window.addEventListener(RAIL_SCOPE_EVENT, onChange);
+    return () => window.removeEventListener(RAIL_SCOPE_EVENT, onChange);
   }, []);
 
   const setScope = useCallback((next: RailScope) => {
@@ -62,6 +72,8 @@ export function useRailScope() {
     } catch {
       // The choice then lasts for this visit only.
     }
+    // The main pane follows. The rail itself only sets its state from this.
+    window.dispatchEvent(new CustomEvent(RAIL_SCOPE_EVENT, { detail: next }));
   }, []);
 
   return { scope, setScope };

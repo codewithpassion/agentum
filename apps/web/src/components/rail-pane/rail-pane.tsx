@@ -209,9 +209,15 @@ export function RailPane({
   // the URL catches up, that item is gone because of us and is not "missing".
   const [settling, setSettling] = useState<string | undefined>(undefined);
 
+  // A refresh, or the rail's scope toggle: the pane reads the stored scope on
+  // every fetch, so it follows the toggle at once.
   useEffect(() => {
     window.addEventListener(RAIL_REFRESH_EVENT, refresh);
-    return () => window.removeEventListener(RAIL_REFRESH_EVENT, refresh);
+    window.addEventListener(RAIL_SCOPE_EVENT, refresh);
+    return () => {
+      window.removeEventListener(RAIL_REFRESH_EVENT, refresh);
+      window.removeEventListener(RAIL_SCOPE_EVENT, refresh);
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -300,8 +306,7 @@ export function RailPane({
   const showEveryone = useCallback(() => {
     writeScope(browserStorage, "everyone");
     window.dispatchEvent(new Event(RAIL_SCOPE_EVENT));
-    refresh();
-  }, [refresh]);
+  }, []);
   const openWaiting = useCallback(() => onOpen(null), [onOpen]);
   const dismiss = useCallback(async (runId: string) => {
     await getTrpc().desk.clearAttention.mutate({ runId });
