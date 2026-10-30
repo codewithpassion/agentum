@@ -33,20 +33,38 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
   loader: async ({ params }) => {
     try {
       const trpc = getTrpc();
-      const [agent, profile, askBefore, tasks, machines, mailbox, rules] =
-        await Promise.all([
-          trpc.agents.get.query({ id: params.agentId }),
-          trpc.agentProfile.profile.query({ agentId: params.agentId }),
-          trpc.agentProfile.askBefore.query({ agentId: params.agentId }),
-          trpc.tasks.list.query({
-            agentId: params.agentId,
-            limit: RECENT_TASKS,
-          }),
-          trpc.machines.list.query(),
-          trpc.mailbox.get.query({ agentId: params.agentId }),
-          trpc.requests.rules.list.query({ agentId: params.agentId }),
-        ]);
-      return { agent, askBefore, machines, mailbox, profile, rules, tasks };
+      const [
+        agent,
+        profile,
+        askBefore,
+        tasks,
+        machines,
+        mailbox,
+        rules,
+        members,
+      ] = await Promise.all([
+        trpc.agents.get.query({ id: params.agentId }),
+        trpc.agentProfile.profile.query({ agentId: params.agentId }),
+        trpc.agentProfile.askBefore.query({ agentId: params.agentId }),
+        trpc.tasks.list.query({
+          agentId: params.agentId,
+          limit: RECENT_TASKS,
+        }),
+        trpc.machines.list.query(),
+        trpc.mailbox.get.query({ agentId: params.agentId }),
+        trpc.requests.rules.list.query({ agentId: params.agentId }),
+        trpc.members.list.query().catch(() => null),
+      ]);
+      return {
+        agent,
+        askBefore,
+        machines,
+        members,
+        mailbox,
+        profile,
+        rules,
+        tasks,
+      };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -68,8 +86,16 @@ function useNowMs(): number | null {
 }
 
 function AgentPage() {
-  const { agent, askBefore, machines, mailbox, profile, rules, tasks } =
-    Route.useLoaderData();
+  const {
+    agent,
+    askBefore,
+    machines,
+    members,
+    mailbox,
+    profile,
+    rules,
+    tasks,
+  } = Route.useLoaderData();
   const nowMs = useNowMs();
   const { mail, sheet } = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -115,6 +141,7 @@ function AgentPage() {
         <ProfileRows
           agent={agent}
           mailbox={mailbox}
+          members={members}
           onOpen={openSheet}
           onOpenMail={openMailList}
           profile={profile}

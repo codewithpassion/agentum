@@ -192,3 +192,48 @@ export const runsOnOptions = (
   }
   return options;
 };
+
+const NO_KEY_TEXT = "no Anthropic API key";
+
+/** Whether a draft error says the workspace has no Anthropic API key. */
+export const isNoKeyError = (message: string): boolean =>
+  message.includes(NO_KEY_TEXT);
+
+/** The session key that keeps the description across a trip to Settings. */
+export const DESCRIPTION_KEY = "hm:agent-builder-description";
+
+type DescriptionStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+/** The saved description, or "" when none is saved or storage cannot be read. */
+export const loadDescription = (storage: DescriptionStorage): string => {
+  try {
+    return storage.getItem(DESCRIPTION_KEY) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+/** Saves the description. Empty text removes the key. Storage failures are ignored. */
+export const saveDescription = (
+  storage: DescriptionStorage,
+  text: string
+): void => {
+  try {
+    if (text === "") {
+      storage.removeItem(DESCRIPTION_KEY);
+    } else {
+      storage.setItem(DESCRIPTION_KEY, text);
+    }
+  } catch {
+    // Storage is unavailable, so the description is not kept.
+  }
+};
+
+/** Forgets the saved description. Storage failures are ignored. */
+export const clearDescription = (storage: DescriptionStorage): void => {
+  try {
+    storage.removeItem(DESCRIPTION_KEY);
+  } catch {
+    // Storage is unavailable, so there is nothing to forget.
+  }
+};
