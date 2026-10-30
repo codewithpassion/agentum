@@ -198,6 +198,9 @@ test("the toggle reaches the open pane with blocked storage, and a slow old load
   await settle();
   expect(probe.scope).toBe("mine");
   expect(container.textContent).not.toContain("Title x");
+  // Back under Mine, x is looked for again: the old verdict is not reused.
+  expect(container.textContent).not.toContain("under Everyone");
+  await flush();
   expect(container.textContent).toContain("under Everyone");
 
   auto = true;

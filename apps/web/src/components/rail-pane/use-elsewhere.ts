@@ -10,9 +10,10 @@ import { isListed } from "./pane-logic.ts";
 export type Elsewhere = "everyone" | "gone" | "failed";
 
 /**
- * Checks Everyone once for each missing id, outside the poll. Mine is the only
- * scope a missing item can be under, so Everyone is the one place to look.
- * Null while the check runs.
+ * Checks Everyone once for each missing id, outside the poll. The caller passes
+ * an id only once a list loaded after the id was opened lacks it, so the scope
+ * on screen is known to be without it. Everyone holds everything Mine does, so
+ * it is the one other place to look. Null while the check runs.
  */
 export function useElsewhere(
   missing: string | null,
@@ -22,6 +23,15 @@ export function useElsewhere(
     id: string;
     result: Elsewhere;
   } | null>(null);
+  // A verdict belongs to one opening of one id under one scope. Opening the id
+  // again starts from no verdict, so an old one is never shown while the new
+  // check runs.
+  const key = missing === null ? null : `${missing}|${scope}`;
+  const [lastKey, setLastKey] = useState(key);
+  if (lastKey !== key) {
+    setLastKey(key);
+    setChecked(null);
+  }
 
   useEffect(() => {
     if (missing === null || scope !== "mine") {

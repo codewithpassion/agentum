@@ -42,6 +42,7 @@ import { toRecord } from "../runs/records.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
 import {
   loadTitleSources,
+  runTitleFor,
   type SessionRow,
   titleFor,
   visibleSessions,
@@ -409,12 +410,7 @@ export const createTasksService = ({
         id: other.id,
         inputText: other.inputText,
         status: other.status,
-        title: titleFor(
-          sources,
-          row.session,
-          other.inputText,
-          subjects.get(other.id)
-        ),
+        title: runTitleFor(other.inputText, subjects.get(other.id)),
       })),
       request: open.get(run.id)?.[0] ?? null,
       run: {
