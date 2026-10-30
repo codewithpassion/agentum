@@ -2,7 +2,7 @@ import type { RailSetupStep } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "#/components/ui/button.tsx";
 
-const SETUP: Record<
+export const SETUP_CONTENT: Record<
   RailSetupStep,
   { action: string; body: string; title: string; to: string }
 > = {
@@ -22,7 +22,7 @@ const SETUP: Record<
 
 /** One setup step: a short explanation and the button that does it. */
 export function SetupPane({ step }: { step: RailSetupStep }) {
-  const content = SETUP[step];
+  const content = SETUP_CONTENT[step];
   return (
     <article className="flex flex-col gap-3" data-testid="setup-pane">
       <h1 className="font-heading text-3xl text-foreground">{content.title}</h1>

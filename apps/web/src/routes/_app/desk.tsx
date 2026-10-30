@@ -21,6 +21,7 @@ import {
   viewFromRecord,
 } from "#/components/requests/request-card-logic";
 import { buttonVariants } from "#/components/ui/button";
+import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
 
 const searchSchema = z.object({
@@ -199,6 +200,7 @@ function BoardView() {
 function Desk() {
   const { agent, item, view } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const isMobile = useIsMobile();
   const open = useCallback(
     (id: string | null) =>
       navigate({
@@ -210,6 +212,10 @@ function Desk() {
   return view === "board" || agent !== undefined ? (
     <BoardView />
   ) : (
-    <RailPane item={item} onOpen={open} />
+    <RailPane
+      inline={isMobile && item === undefined}
+      item={item}
+      onOpen={open}
+    />
   );
 }

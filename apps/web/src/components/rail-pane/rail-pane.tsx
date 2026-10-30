@@ -18,6 +18,7 @@ import {
 import { getTrpc } from "#/integrations/trpc/client";
 import { answerRequest } from "./answer.ts";
 import { type CardActions, CardView } from "./card-view.tsx";
+import { InlineList } from "./inline-list.tsx";
 import {
   itemAfterAnswer,
   pruneAnswered,
@@ -118,9 +119,12 @@ function ItemCards({
 
 /** The main pane: the open item, decided in plain words. */
 export function RailPane({
+  inline,
   item,
   onOpen,
 }: {
+  /** A phone with no item open: the list shows here, as the rail is closed. */
+  inline: boolean;
   /** The `item` search param. */
   item: string | undefined;
   /** Opens an item by id, or the default one for null. */
@@ -166,10 +170,23 @@ export function RailPane({
   );
 
   useEffect(() => {
-    if (item === undefined && selection !== null) {
+    if (item === undefined && next === undefined && selection !== null) {
       setHeld(selectionId(selection));
     }
-  }, [item, selection]);
+  }, [item, next, selection]);
+
+  // The shown item goes into the URL, so the rail marks it and a new item that
+  // sorts first cannot move it. A phone keeps the list at a bare /desk.
+  useEffect(() => {
+    if (
+      !inline &&
+      item === undefined &&
+      next === undefined &&
+      selection !== null
+    ) {
+      onOpen(selectionId(selection));
+    }
+  }, [inline, item, next, onOpen, selection]);
 
   const latest = useRef({ list, selection });
   useEffect(() => {
@@ -229,8 +246,13 @@ export function RailPane({
         </p>
       )}
       {selection === null ? <Empty rail={data.rail} /> : null}
-      {selection?.kind === "setup" ? <SetupPane step={selection.step} /> : null}
-      {selection?.kind === "item" ? (
+      {inline && list !== null && selection !== null ? (
+        <InlineList items={list.needsYou} setup={list.setup} />
+      ) : null}
+      {!inline && selection?.kind === "setup" ? (
+        <SetupPane step={selection.step} />
+      ) : null}
+      {!inline && selection?.kind === "item" ? (
         <ItemCards
           actions={actions}
           item={selection.item}
