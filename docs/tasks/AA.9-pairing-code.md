@@ -3,7 +3,7 @@ id: AA.9
 title: "Pairing code for outside A2A clients, modelled on Hermes"
 milestone: AA
 size: M
-status: in_progress
+status: done
 depends_on: [AA.4, AA.7]
 branch: task/AA.9-pairing-code
 lane: worker
@@ -36,3 +36,4 @@ Spec: `docs/v3/agent-connections.md`, the section "Pairing code, for an outside 
 - 2026-11-01: created from Dom's question about supporting Hermes's pairing.
 - 2026-11-01: AA.1 stores only a hash of the code. Decision: derive the code as an HMAC of the request id and the token under the secrets key, so the same token gets the same code back and no plaintext or reversible code is stored.
 - 2026-11-01: dispatched.
+- 2026-11-01: merged, review clean after 2 fix rounds.
