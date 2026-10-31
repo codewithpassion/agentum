@@ -615,7 +615,7 @@ export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 export const TOOL_RULE_MODES = ["ask", "allow"] as const;
 export type ToolRuleMode = (typeof TOOL_RULE_MODES)[number];
 
-export const ANSWER_SURFACES = ["web", "slack"] as const;
+export const ANSWER_SURFACES = ["web", "slack", "a2a"] as const;
 export type AnswerSurface = (typeof ANSWER_SURFACES)[number];
 
 /** How long an approval stays open: one hour. */

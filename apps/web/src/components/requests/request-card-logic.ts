@@ -84,6 +84,7 @@ const DECISION_TEXT: Record<ApprovalDecision, string> = {
 };
 
 const SURFACE_TEXT: Record<AnswerSurface, string> = {
+  a2a: "an outside agent",
   slack: "Slack",
   web: "the web app",
 };
