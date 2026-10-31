@@ -16,6 +16,7 @@ import {
   MAIL_SEND_TOOL,
   type RailCard,
   type RailItem,
+  type RailItemKind,
   type RailMail,
   type RailSetupStep,
   type RailView,
@@ -136,6 +137,24 @@ interface HeldMail {
   recipientName: string | null;
   threadId: string;
 }
+
+/**
+ * When a card's wait ends: a request's expiry. An A2A card never expires, since
+ * a person decides it and no timer does.
+ */
+const expiryOf = (
+  kind: RailItemKind,
+  record: { expiresAt: string } | undefined
+): string | null => {
+  if (
+    record === undefined ||
+    kind === "a2a_message" ||
+    kind === "a2a_connection"
+  ) {
+    return null;
+  }
+  return record.expiresAt;
+};
 
 const byCardAge = (a: RailCard, b: RailCard): number =>
   a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at);
@@ -490,11 +509,12 @@ export const createRailService = ({
         };
         return candidate(
           {
+            ...(deskCard.a2a ? { a2a: deskCard.a2a } : {}),
             agentId: deskCard.agentId,
             agentName,
             at: deskCard.at,
-            detail: deskCard.band.text,
-            expiresAt: record?.expiresAt ?? null,
+            detail: deskCard.a2a?.text ?? deskCard.band.text,
+            expiresAt: expiryOf(kind, record),
             id: deskCard.id,
             kind,
             mail: mail?.mail ?? null,

@@ -13,6 +13,10 @@ import {
   type ConnectionsService,
   createConnectionsService,
 } from "@repo/services/a2a/connections";
+import {
+  type A2aTasksService,
+  createA2aTasksService,
+} from "@repo/services/a2a/tasks";
 import { type AdminService, createAdminService } from "@repo/services/admin";
 import {
   type AgentBuilderService,
@@ -381,6 +385,7 @@ export interface Infra {
 }
 
 export interface Services {
+  a2aTasks: A2aTasksService;
   admin: AdminService;
   agentBuilder: AgentBuilderService;
   agentProfile: AgentProfileService;
@@ -598,6 +603,26 @@ export const composeWith = ({
     publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
   });
+  // Inbound A2A tasks. The runs and requests services are built below, and
+  // this service's gateway goes into the runs service, so it reaches both lazily.
+  const a2aTasks = createA2aTasksService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    requests: {
+      answerAsPeer: (principal, input) =>
+        requests.answerAsPeer(principal, input),
+    },
+    runs: {
+      cancelRun: (principal, runId) => runs.cancelRun(principal, runId),
+      startRun: (principal, input, options) =>
+        runs.startRun(principal, input, options),
+    },
+    secretsKey: infra.secretsKey,
+  });
+  // Ends the tasks and the runs of a connection that was revoked.
+  connections.onRevoked(a2aTasks.onConnectionRevoked);
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
   const connectorFetch: Fetcher =
     infra.fetch ?? ((input, init) => fetch(input, init));
@@ -787,7 +812,7 @@ export const composeWith = ({
   events.onAppend(slackRequests.onEvent);
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
-  const gateways: Gateway[] = [inbox.gateway, slackGateway];
+  const gateways: Gateway[] = [inbox.gateway, slackGateway, a2aTasks.gateway];
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -878,6 +903,9 @@ export const composeWith = ({
   events.onAppend(takeover.onEvent);
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
+  // Moves an inbound A2A task as its run does: run events here, request events on `events`.
+  runs.onEvent(a2aTasks.onEvent);
+  events.onAppend(a2aTasks.onEvent);
   // An investigator run that ends, or finishes, without having reported tells control-plane to escalate.
   runs.onEvent(
     createInvestigatorReportBack({
@@ -1003,6 +1031,7 @@ export const composeWith = ({
   });
   // The desk's Needs you logic is shared: the web desk and the desk API read the same items.
   const desk = createDeskService({
+    a2a: { connections, tasks: a2aTasks },
     clock: infra.clock,
     db,
     inbox,
@@ -1095,6 +1124,7 @@ export const composeWith = ({
     db,
     relay: infra.relay,
     services: {
+      a2aTasks,
       admin,
       agentBuilder,
       agentProfile,

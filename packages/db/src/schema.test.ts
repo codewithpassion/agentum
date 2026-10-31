@@ -27,6 +27,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     .filter((name) => name !== "__drizzle_migrations");
   expect(names).toEqual([
     "a2a_agent_cards",
+    "a2a_answer_markers",
     "a2a_connections",
     "a2a_outbound_tasks",
     "a2a_outbox",
@@ -121,7 +122,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(82);
+  expect(tables.length).toBe(83);
 
   for (const table of tables) {
     const column = client

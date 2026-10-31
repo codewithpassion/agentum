@@ -1023,6 +1023,12 @@ export const createConnectionsService = ({
     requireBase();
     const agent = await requireActiveAgent(agentId, user.workspaceId);
     requireAdminOrOwner(user, agent, PUBLISH_ACTION);
+    if (agent.runtime === "managed") {
+      throw new ServiceError(
+        "invalid",
+        "Agents on the managed runtime can't be published yet, because their tool calls can't be held for approval. Move the agent to the cloud or machine runtime first."
+      );
+    }
     const existing = await findCard(agentId);
     const now = nowIso();
     const fields = {

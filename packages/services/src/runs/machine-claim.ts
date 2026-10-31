@@ -31,6 +31,7 @@ import type { SecretsService } from "../secrets.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
 import { requireOrdinaryMachineRun } from "./guest-scope.ts";
+import { peerRootOf } from "./peer-root.ts";
 import { findSessionById, loadRun } from "./queries.ts";
 import { sessionSupportsSpeakers } from "./speakers.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
@@ -102,7 +103,9 @@ const assertCurrentApprovalProtocol = async (
     .from(sessions)
     .where(eq(sessions.id, run.sessionId))
     .limit(1);
-  if (session?.origin === "artifact" && !supported) {
+  const untrusted =
+    session?.origin === "artifact" || (await peerRootOf(db, run)) !== null;
+  if (untrusted && !supported) {
     throw new ForbiddenError("runs.currentApprovalsRequired");
   }
 };

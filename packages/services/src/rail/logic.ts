@@ -314,6 +314,9 @@ export const plainStatus = (card: CardFacts): string => {
   if (card.kind === "problem") {
     return problemStatus(card.problem);
   }
+  if (card.kind === "a2a_message" || card.kind === "a2a_connection") {
+    return "Waiting for approval";
+  }
   return NEEDS_YOU_HEADINGS[card.kind](card.agentName);
 };
 

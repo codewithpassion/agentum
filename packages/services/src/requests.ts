@@ -1,5 +1,6 @@
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
+import { a2aConnections } from "@repo/db/schema/a2a";
 import { agents } from "@repo/db/schema/agents";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -17,6 +18,7 @@ import {
   approvalSummary,
   toolKey as canonicalToolKey,
   questionAnswerSchema,
+  questionDisplaySchema,
 } from "@repo/protocol/requests";
 import { and, eq, getTableColumns, inArray, lte, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -53,11 +55,13 @@ import {
 } from "./requests/records.ts";
 import { importRunTokenKey } from "./run-tokens.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
+import { peerRootOf } from "./runs/peer-root.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import type { SecretsService } from "./secrets.ts";
 import { visibleSessions } from "./sessions.ts";
+import { buildPeerEnvelope } from "./speaker-envelope.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 export type { RequestRecord } from "./requests/records.ts";
@@ -69,6 +73,22 @@ export const ruleKeyInputSchema = rulesListInputSchema.extend({ toolKey: id });
 export const ruleSetInputSchema = ruleKeyInputSchema.extend({
   mode: z.enum(TOOL_RULE_MODES),
 });
+/** As long as a message a peer may send, so an answer is never refused for its length alone. */
+const PEER_ANSWER_MAX = 30_000;
+const UNKNOWN_PEER_HOST = "unknown host";
+
+export const peerAnswerInputSchema = z.strictObject({
+  requestId: id,
+  text: z.string().trim().min(1).max(PEER_ANSWER_MAX),
+});
+
+const peerHost = (origin: string | null): string => {
+  try {
+    return origin === null ? UNKNOWN_PEER_HOST : new URL(origin).host;
+  } catch {
+    return UNKNOWN_PEER_HOST;
+  }
+};
 export const webAnswerInputSchema = z.union([
   approvalAnswerSchema.extend({ requestId: id }),
   questionAnswerSchema.extend({ requestId: id }),
@@ -191,12 +211,11 @@ export const createRequestsService = ({
     row: RequestRow,
     type: EventInput["type"],
     payload: Record<string, unknown> = {},
-    userId?: string
+    userId?: string,
+    peerConnectionId?: string
   ) =>
     events.append({
-      actor: userId
-        ? { id: userId, kind: "user" }
-        : { id: row.agentId, kind: "agent" },
+      actor: announcer(row, userId, peerConnectionId),
       agentId: row.agentId,
       payload: { requestId: row.id, ...payload },
       runId: row.runId,
@@ -204,6 +223,18 @@ export const createRequestsService = ({
       type,
       workspaceId: row.workspaceId,
     });
+  const announcer = (
+    row: RequestRow,
+    userId?: string,
+    peerConnectionId?: string
+  ): { id: string; kind: "agent" | "peer" | "user" } => {
+    if (peerConnectionId) {
+      return { id: peerConnectionId, kind: "peer" };
+    }
+    return userId
+      ? { id: userId, kind: "user" }
+      : { id: row.agentId, kind: "agent" };
+  };
   const ruleAgent = async (principal: Principal, agentId: string) => {
     if (principal.kind !== "user") {
       throw new ForbiddenError("requests.rules");
@@ -340,6 +371,34 @@ export const createRequestsService = ({
       }))
     );
   };
+  /**
+   * A run a peer started, or one it handed work to, asks for every tool while
+   * the peer's connection has `tool_policy = ask`. A peer's text is outside
+   * input, so a connection that is gone or ended asks too: only an active
+   * connection set to `agent_rules` opens the agent's own rules.
+   */
+  const peerAsksEveryTool = async (run: RunRecord): Promise<boolean> => {
+    const connectionId = await peerRootOf(db, run);
+    if (connectionId === null) {
+      return false;
+    }
+    const [connection] = await db
+      .select({
+        status: a2aConnections.status,
+        toolPolicy: a2aConnections.toolPolicy,
+      })
+      .from(a2aConnections)
+      .where(
+        and(
+          eq(a2aConnections.id, connectionId),
+          eq(a2aConnections.workspaceId, run.workspaceId)
+        )
+      )
+      .limit(1);
+    return !(
+      connection?.status === "active" && connection.toolPolicy === "agent_rules"
+    );
+  };
   const needsApproval = async (
     principal: Principal,
     input: { runId: string; toolKey: string }
@@ -354,6 +413,9 @@ export const createRequestsService = ({
       return true;
     }
     if (await guestsPresent(run)) {
+      return true;
+    }
+    if (await peerAsksEveryTool(run)) {
       return true;
     }
     // The ask keys include the platform tools a switch covers (SWITCH_COVERS).
@@ -712,6 +774,112 @@ export const createRequestsService = ({
       sendError: await mailSendError(db, closed),
     };
   };
+  /**
+   * A peer answers a question its own run asked: the next message on the task
+   * it started. Only a `question`, and only on a run this connection started,
+   * so a peer can never answer an approval or reach another connection's run.
+   * Its text answers every question the run asked.
+   */
+  const answerAsPeer = async (
+    principal: Principal,
+    raw: { requestId: string; text: string }
+  ) => {
+    if (principal.kind !== "peer") {
+      throw new ForbiddenError("requests.answer");
+    }
+    const input = peerAnswerInputSchema.parse(raw);
+    authorize(principal, "a2a.answer", {
+      id: input.requestId,
+      kind: "request",
+      workspaceId: principal.workspaceId,
+    });
+    const [row] = await db
+      .select()
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.id, input.requestId),
+          eq(runRequests.workspaceId, principal.workspaceId),
+          eq(runRequests.kind, "question")
+        )
+      );
+    const run = row ? await loadRun(db, row.runId, row.workspaceId) : null;
+    if (
+      !(row && run) ||
+      run.actor.kind !== "peer" ||
+      run.actor.id !== principal.connectionId ||
+      run.agentId !== principal.agentId
+    ) {
+      throw new ServiceError("not_found", "Request not found");
+    }
+    const questions = questionDisplaySchema.parse(JSON.parse(row.display));
+    const answerOf = (text: string) => ({
+      answers: Object.fromEntries(
+        questions.questions.map(({ question }) => [question, text])
+      ),
+    });
+    const parsed = answerOf(input.text);
+    // The runtime hands the stored answer to the model as a tool result. The
+    // peer's text goes through the envelope, so it never reads as a member's.
+    const [connection] = await db
+      .select({
+        peerLabel: a2aConnections.peerLabel,
+        peerOrigin: a2aConnections.peerOrigin,
+      })
+      .from(a2aConnections)
+      .where(eq(a2aConnections.id, principal.connectionId))
+      .limit(1);
+    const enveloped = answerOf(
+      buildPeerEnvelope(
+        {
+          agentName: connection?.peerLabel ?? "",
+          connectionId: principal.connectionId,
+          host: peerHost(connection?.peerOrigin ?? null),
+        },
+        input.text
+      )
+    );
+    const masker = await secrets.maskerFor(row.workspaceId, row.agentId);
+    const [closed] = await db
+      .update(runRequests)
+      .set({
+        answer: JSON.stringify(runtimeAnswers(row, enveloped)),
+        answeredAt: clock.now().toISOString(),
+        answeredBy: principal.connectionId,
+        answeredVia: "a2a",
+        status: "answered",
+      })
+      .where(
+        and(
+          eq(runRequests.id, row.id),
+          eq(runRequests.status, "pending"),
+          inArray(
+            runRequests.runId,
+            db
+              .select({ id: runRows.id })
+              .from(runRows)
+              .where(currentGuestRun(clock.now().toISOString()))
+          )
+        )
+      )
+      .returning();
+    if (!closed) {
+      throw new ServiceError("conflict", "Already answered");
+    }
+    await announce(
+      closed,
+      "request.answered",
+      {
+        ...scrubAnswer(parsed, masker),
+        answeredBy: principal.connectionId,
+        kind: closed.kind,
+        via: "a2a",
+      },
+      undefined,
+      principal.connectionId
+    );
+    await resume(closed);
+  };
   const cancel = async (principal: Principal, requestId: string) => {
     const { row } = await requireRequest(principal, requestId);
     if (principal.kind !== "user") {
@@ -953,6 +1121,7 @@ export const createRequestsService = ({
 
   return {
     answer,
+    answerAsPeer,
     cancel,
     cancelForRun,
     expireDue,

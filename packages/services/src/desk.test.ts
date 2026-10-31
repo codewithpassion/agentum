@@ -16,6 +16,8 @@ import type { RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
+import type { ConnectionSummary } from "./a2a/connections.ts";
+import type { WaitingMessage } from "./a2a/needs-you.ts";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createDeskService, type DeskInput } from "./desk.ts";
@@ -52,6 +54,13 @@ let triggers: ReturnType<typeof createTriggersService>;
 let routines: ReturnType<typeof createRoutinesService>;
 let desk: ReturnType<typeof createDeskService>;
 let people: PeopleLookup | undefined;
+let waitingA2a: WaitingMessage[];
+let connectionsA2a: ConnectionSummary[];
+/** The A2A source the desk reads: whatever the test set in `waitingA2a` and `connectionsA2a`. */
+const fakeA2a = {
+  connections: { list: () => Promise.resolve(connectionsA2a) },
+  tasks: { listWaiting: () => Promise.resolve(waitingA2a) },
+};
 let a1: string;
 let a2: string;
 let b1: string;
@@ -62,6 +71,7 @@ const get = (input: Partial<DeskInput> = {}, principal = user()) =>
 
 const buildDesk = () =>
   createDeskService({
+    a2a: fakeA2a,
     clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
     db,
     inbox: createInboxService({
@@ -83,6 +93,8 @@ beforeEach(async () => {
   now = NOW;
   counter = 0;
   people = undefined;
+  waitingA2a = [];
+  connectionsA2a = [];
   const iso = new Date(now).toISOString();
   await db.insert(workspaces).values(
     ["w1", "w2"].map((id) => ({
@@ -920,4 +932,125 @@ test("Needs you includes only open library conflicts in the workspace and agent 
   });
   expect(await desk.needsYouCount(user())).toBe(1);
   expect((await get({ agentId: a2 })).needsYou).toEqual([]);
+});
+
+const bobMessage = (
+  overrides: Partial<WaitingMessage> = {}
+): WaitingMessage => ({
+  agentId: a1,
+  connectionId: "conn-bob",
+  createdAt: new Date(NOW).toISOString(),
+  host: "bob.example",
+  org: "Bob Co",
+  peer: "Bob's agent",
+  taskId: "task-1",
+  text: "Hello Alpha",
+  ...overrides,
+});
+
+const bobConnection = (
+  overrides: Partial<ConnectionSummary> = {}
+): ConnectionSummary => ({
+  agentId: a1,
+  agentName: "Alpha",
+  approvedAt: null,
+  approvedBy: null,
+  checkCode: "482913",
+  createdAt: new Date(NOW).toISOString(),
+  createdBy: "u1",
+  hourlyLimit: 60,
+  id: "conn-bob",
+  inboundPolicy: "approve",
+  inviteExpiresAt: null,
+  lastInAt: null,
+  lastOutAt: null,
+  outboundPolicy: "approve",
+  peerCardUrl: null,
+  peerKind: "a2a_inbound",
+  peerLabel: "Bob's agent",
+  peerOrg: "Bob Co",
+  peerOrigin: "https://bob.example",
+  pendingOrigin: null,
+  pendingTokenUrl: null,
+  revokedAt: null,
+  revokedBy: null,
+  slug: "bob",
+  status: "needs_approval",
+  tokenPrefix: null,
+  tokenUrl: null,
+  toolPolicy: "ask",
+  ...overrides,
+});
+
+test("a waiting A2A message and a pending connection wait in Needs you, the message unclipped", async () => {
+  const text = "x".repeat(5000);
+  waitingA2a = [bobMessage({ text })];
+  connectionsA2a = [bobConnection()];
+
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+  const message = rail.needsYou.find(
+    (card) => card.needsYouKind === "a2a_message"
+  );
+  const wants = rail.needsYou.find(
+    (card) => card.needsYouKind === "a2a_connection"
+  );
+
+  expect(message).toMatchObject({
+    a2a: {
+      checkCode: null,
+      connectionId: "conn-bob",
+      host: "bob.example",
+      org: "Bob Co",
+      peer: "Bob's agent",
+      text,
+    },
+    agentId: a1,
+    id: "task-1",
+    kind: "request",
+    lane: "needs_you",
+    startedBy: "Bob's agent",
+    title: "Bob's agent sent a message",
+  });
+  expect(message?.band.text).toBe(text);
+  expect(wants).toMatchObject({
+    a2a: {
+      checkCode: "482913",
+      connectionId: "conn-bob",
+      host: "bob.example",
+      org: "Bob Co",
+      peer: "Bob's agent",
+      text: null,
+    },
+    agentId: a1,
+    id: "conn-bob",
+    needsYouKind: "a2a_connection",
+    startedBy: "Bob's agent",
+    title: "Bob's agent wants to connect",
+  });
+  expect(wants?.band.text).toBe(
+    "Bob's agent at bob.example wants to connect to Alpha. Check code 482913."
+  );
+  expect(await desk.needsYouCount(user())).toBe(2);
+});
+
+test("an active connection is not listed, and a message leaves Needs you once the source stops returning it", async () => {
+  waitingA2a = [bobMessage()];
+  connectionsA2a = [bobConnection({ status: "active" })];
+  expect((await get()).needsYou.map((card) => card.needsYouKind)).toEqual([
+    "a2a_message",
+  ]);
+
+  waitingA2a = [];
+
+  expect((await get()).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user())).toBe(0);
+});
+
+test("an A2A item for a draft agent is left out", async () => {
+  const draft = await agents.createDraft(user(), { name: "Draft" });
+  waitingA2a = [bobMessage({ agentId: draft.id })];
+  connectionsA2a = [bobConnection({ agentId: draft.id })];
+
+  expect((await get()).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user())).toBe(0);
 });

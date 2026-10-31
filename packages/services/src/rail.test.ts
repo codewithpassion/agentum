@@ -22,6 +22,7 @@ import {
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
+import type { WaitingMessage } from "./a2a/needs-you.ts";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createDeskService } from "./desk.ts";
@@ -70,6 +71,7 @@ let skillsStore: ReturnType<typeof createSkillsStoreService>;
 let rail: ReturnType<typeof createRailService>;
 let a1: string;
 let a2: string;
+let waitingA2a: WaitingMessage[];
 
 const view = (scope: RailScope = "mine", principal: Principal = user()) =>
   rail.get(principal, { dayStart: DAY_START, scope });
@@ -183,7 +185,12 @@ beforeEach(async () => {
     events,
     runs: { startRun: (principal, input) => runs.startRun(principal, input) },
   });
+  waitingA2a = [];
   desk = createDeskService({
+    a2a: {
+      connections: { list: () => Promise.resolve([]) },
+      tasks: { listWaiting: () => Promise.resolve(waitingA2a) },
+    },
     clock,
     db,
     inbox,
@@ -1244,4 +1251,37 @@ test("an open request on a finished private run is still in the starter's Mine",
   expect(await ids(user("u1"), "mine")).toEqual([]);
   expect(await ids(user("u1"), "everyone")).toEqual([]);
   expect(await ids(user("u3"), "everyone")).toEqual([]);
+});
+
+test("an A2A message on the rail carries its A2A detail and never expires", async () => {
+  waitingA2a = [
+    {
+      agentId: a1,
+      connectionId: "conn-bob",
+      createdAt: new Date(now).toISOString(),
+      host: "bob.example",
+      org: "Bob Co",
+      peer: "Bob's agent",
+      taskId: "task-1",
+      text: "Please approve",
+    },
+  ];
+
+  const [item] = (await view("everyone")).needsYou;
+
+  expect(item?.cards[0]).toMatchObject({
+    a2a: {
+      checkCode: null,
+      connectionId: "conn-bob",
+      host: "bob.example",
+      org: "Bob Co",
+      peer: "Bob's agent",
+      text: "Please approve",
+    },
+    detail: "Please approve",
+    expiresAt: null,
+    kind: "a2a_message",
+    status: "Waiting for approval",
+    title: "Bob's agent sent a message",
+  });
 });

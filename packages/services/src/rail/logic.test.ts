@@ -191,6 +191,15 @@ test.each([
   expect(plainStatus(c)).toBe(expected);
 });
 
+test.each(["a2a_message", "a2a_connection"] as const)(
+  "%p keeps the desk title and reads as waiting for approval",
+  (kind) => {
+    const c = card({ kind, title: "Bob sent a message" });
+    expect(plainTitle(c)).toBe("Bob sent a message");
+    expect(plainStatus(c)).toBe("Waiting for approval");
+  }
+);
+
 const MEMBERS = new Set(["u1", "u2"]);
 
 test.each([

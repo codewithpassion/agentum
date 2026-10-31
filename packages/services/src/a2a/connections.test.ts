@@ -298,6 +298,46 @@ describe("publishing", () => {
       skills: SKILLS,
     });
   });
+
+  test("an agent on the managed runtime is refused and nothing is written", async () => {
+    db.update(agentRows)
+      .set({ runtime: "managed" })
+      .where(eq(agentRows.id, AGENT_X))
+      .run();
+    await expect(
+      service.publish(ownerA, {
+        agentId: AGENT_X,
+        description: "d",
+        skills: SKILLS,
+      })
+    ).rejects.toMatchObject({ code: "invalid" });
+    expect(
+      await db
+        .select()
+        .from(a2aAgentCards)
+        .where(eq(a2aAgentCards.agentId, AGENT_X))
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(eventRows)
+        .where(eq(eventRows.type, "a2a.agent_published"))
+    ).toHaveLength(0);
+  });
+
+  test("cloud and machine agents still publish", async () => {
+    db.update(agentRows)
+      .set({ runtime: "cloud" })
+      .where(eq(agentRows.id, AGENT_X))
+      .run();
+    db.update(agentRows)
+      .set({ runtime: "machine" })
+      .where(eq(agentRows.id, AGENT_Y))
+      .run();
+    await publishBoth();
+    expect((await publishedFor(ownerA, AGENT_X)).agentId).toBe(AGENT_X);
+    expect((await publishedFor(ownerB, AGENT_Y)).agentId).toBe(AGENT_Y);
+  });
 });
 
 describe("pairing", () => {

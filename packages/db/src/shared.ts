@@ -615,7 +615,7 @@ export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 export const TOOL_RULE_MODES = ["ask", "allow"] as const;
 export type ToolRuleMode = (typeof TOOL_RULE_MODES)[number];
 
-export const ANSWER_SURFACES = ["web", "slack"] as const;
+export const ANSWER_SURFACES = ["web", "slack", "a2a"] as const;
 export type AnswerSurface = (typeof ANSWER_SURFACES)[number];
 
 /** How long an approval stays open: one hour. */
@@ -658,6 +658,8 @@ export const NEEDS_YOU_KINDS = [
   "library_conflict",
   "wiki_suggestion",
   "takeover",
+  "a2a_message",
+  "a2a_connection",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -666,6 +668,8 @@ export const NEEDS_YOU_HEADINGS: Record<
   NeedsYouKind,
   (agentName: string) => string
 > = {
+  a2a_connection: (name) => `${name} has a connection waiting for approval`,
+  a2a_message: (name) => `A message for ${name} waits for approval`,
   approval: (name) => `${name} asks for approval`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
@@ -701,6 +705,8 @@ export interface RailMail {
 
 /** One decision. A rail row holds one, or several when grouped. */
 export interface RailCard {
+  /** Set on the A2A kinds: who is asking and what they sent. */
+  a2a?: A2aNeedsYou;
   /** Empty when no agent is involved. */
   agentId: string;
   agentName: string;
@@ -833,8 +839,24 @@ export const DESK_CARD_KINDS = [
 ] as const;
 export type DeskCardKind = (typeof DESK_CARD_KINDS)[number];
 
+/**
+ * What a person decides on in an A2A Needs you card. Everything in it but the
+ * ids comes from a peer, `peer`, `host`, `org` and `text` included: show it as
+ * plain text, never as markup.
+ */
+export interface A2aNeedsYou {
+  checkCode: string | null;
+  connectionId: string;
+  host: string | null;
+  org: string | null;
+  peer: string;
+  text: string | null;
+}
+
 /** One card on the desk. */
 export interface DeskCard {
+  /** Set on an A2A card (`a2a_message`, `a2a_connection`). */
+  a2a?: A2aNeedsYou;
   /** "user" when a person started the card. Name them from `startedBy`, not `agentId`. */
   actorKind?: "user";
   agentId: string;
