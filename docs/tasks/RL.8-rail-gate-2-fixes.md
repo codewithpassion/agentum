@@ -22,3 +22,4 @@ From the second milestone gate, `docs/reviews/RL-2.md`.
 ## Log
 - 2026-10-31: created from gate round 2. Dispatched.
 - 2026-10-31: merged, review clean after 1 fix round. Milestone closed after two gate rounds.
+- 2026-10-31: production deployed by the controller at Dom's request: version 2f25ccf1 (main c1460859), migration 0035 applied. Previous version c2f6a187, D1 bookmark 0000036f-00000080-00005115-1f09282a79de20112762e81604bd6eb5. Health and a read-only signed-in check on the live workspace passed with no page errors.
