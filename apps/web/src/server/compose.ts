@@ -4,6 +4,8 @@
 //
 // Lanes extend the app from here with one factory call each: add an adapter to
 // `adapters` or a gateway to `gateways` below. Nothing else needs to know.
+
+import type { A2aFetch } from "@repo/a2a/peer-fetch";
 import type { Database } from "@repo/db";
 import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
@@ -13,6 +15,14 @@ import {
   type ConnectionsService,
   createConnectionsService,
 } from "@repo/services/a2a/connections";
+import {
+  createOutboundService,
+  type OutboundService,
+} from "@repo/services/a2a/outbound";
+import {
+  createOutboxService,
+  type OutboxService,
+} from "@repo/services/a2a/outbox";
 import { createPageReads, type PageReads } from "@repo/services/a2a/page-reads";
 import {
   type A2aTasksService,
@@ -269,6 +279,11 @@ import {
 } from "@repo/services/wiki/suggestions";
 import { createWorkspacesService } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
+import {
+  createCardFetcher,
+  createPairingTransport,
+  createPeerFetch,
+} from "./a2a-transport.ts";
 import { appStorePort } from "./app-store/port.ts";
 import { browserRunDriver, exportPrintPDF } from "./browser-run.ts";
 import { clerkMembers } from "./clerk-members.ts";
@@ -276,6 +291,7 @@ import { clerkOrgName } from "./clerk-org-name.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { guestRuntimeOptions } from "./guest-runtime-options";
+import { inProcessFetch } from "./in-process.ts";
 import { libraryNotifier } from "./library-notifier.ts";
 import { liveArtifactMutations } from "./live-artifacts/artifact-mutations";
 import {
@@ -357,6 +373,12 @@ export interface Infra {
   members?: MemberLister;
   /** Reads a Clerk organisation's name, for naming a workspace. Without it, a workspace is named by its org id. */
   orgName?: (clerkOrgId: string) => Promise<string | null>;
+  /**
+   * How we reach an A2A peer: no private address, no redirect, HTTPS outside
+   * dev, a timeout, and in-process dispatch for our own origin. Without it,
+   * pairing and agent cards cannot be fetched and nothing is sent to a peer.
+   */
+  peerFetch?: A2aFetch;
   /** Names the people behind user ids in the Log. Without it, the Log shows ids. */
   people?: PeopleLookup;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
@@ -386,6 +408,8 @@ export interface Infra {
 }
 
 export interface Services {
+  a2aOutbound: OutboundService;
+  a2aOutbox: OutboxService;
   a2aPageReads: PageReads;
   a2aTasks: A2aTasksService;
   admin: AdminService;
@@ -496,6 +520,20 @@ export const parseOrgIds = (raw: string | undefined): string[] =>
     .map((id) => id.trim())
     .filter((id) => id.length > 0);
 
+/** A peer fetch that refuses everything, for a composition that has none. */
+const peerFetchOf = (configured: A2aFetch | undefined): A2aFetch =>
+  configured ??
+  (() => Promise.reject(new Error("No A2A peer fetch is configured.")));
+
+/** What the connections service needs to pair and read cards. Nothing until a peer fetch exists. */
+const pairingPortsOf = (configured: A2aFetch | undefined) =>
+  configured
+    ? {
+        fetchCard: createCardFetcher(configured),
+        transport: createPairingTransport(configured),
+      }
+    : {};
+
 const noGateway: ManagedServiceOptions["gatewayFor"] = () => {
   throw new Error("No Managed Agents gateway is configured.");
 };
@@ -597,6 +635,7 @@ export const composeWith = ({
   const members = createMembersService({ db, lister: infra.members });
   const agents = createAgentsService({ db, events, members });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
+  const peerFetch = peerFetchOf(infra.peerFetch);
   const a2aPageReads = createPageReads({ db, people: infra.people });
   const connections = createConnectionsService({
     atomic: infra.atomic,
@@ -605,6 +644,7 @@ export const composeWith = ({
     events,
     publicBaseUrl: infra.publicBaseUrl,
     secretsKey: infra.secretsKey,
+    ...pairingPortsOf(infra.peerFetch),
   });
   // Inbound A2A tasks. The runs and requests services are built below, and
   // this service's gateway goes into the runs service, so it reaches both lazily.
@@ -909,6 +949,27 @@ export const composeWith = ({
   // Moves an inbound A2A task as its run does: run events here, request events on `events`.
   runs.onEvent(a2aTasks.onEvent);
   events.onAppend(a2aTasks.onEvent);
+  // Our agent calling a peer: a person's answer to the send card sends or drops the message, and a revoke ends open tasks.
+  const a2aOutbound = createOutboundService({
+    clock: infra.clock,
+    db,
+    events,
+    fetch: peerFetch,
+    publicBaseUrl: infra.publicBaseUrl,
+    requests,
+    runs,
+    secretsKey: infra.secretsKey,
+  });
+  events.onAppend(a2aOutbound.onEvent);
+  connections.onRevoked(a2aOutbound.onConnectionRevoked);
+  const a2aOutbox = createOutboxService({
+    activation: connections,
+    clock: infra.clock,
+    db,
+    events,
+    fetch: peerFetch,
+    secretsKey: infra.secretsKey,
+  });
   // An investigator run that ends, or finishes, without having reported tells control-plane to escalate.
   runs.onEvent(
     createInvestigatorReportBack({
@@ -1127,6 +1188,8 @@ export const composeWith = ({
     db,
     relay: infra.relay,
     services: {
+      a2aOutbound,
+      a2aOutbox,
       a2aPageReads,
       a2aTasks,
       admin,
@@ -1258,6 +1321,13 @@ export const compose = (
       isOrgMember: clerkOrgMemberCheckFresh(env.CLERK_SECRET_KEY),
       libraryBlobs: r2LibraryBlobs(env.FILES),
       live: productionLiveInfra(env as Env, () => composed),
+      peerFetch: createPeerFetch({
+        allowHttp: devFakeRuntime,
+        // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
+        fetch: (input, init) => fetch(input, init),
+        localFetch: inProcessFetch(env as Env, defer),
+        publicBaseUrl: env.PUBLIC_BASE_URL,
+      }),
       ...mailInfra(env),
       managedGatewayFor: ({ apiKey, environment }) =>
         connectManagedGateway(apiKey, {

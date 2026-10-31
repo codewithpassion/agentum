@@ -5,10 +5,11 @@ import {
 } from "@repo/db/artifact-grants";
 import { mailMessages } from "@repo/db/schema/mail";
 import { runRequests } from "@repo/db/schema/requests";
-import { MAIL_SEND_TOOL } from "@repo/db/shared";
+import { A2A_SEND_TOOL, MAIL_SEND_TOOL } from "@repo/db/shared";
 import { and, eq, sql } from "drizzle-orm";
 
 const MAIL_TOOL_USE_PREFIX = "mail:";
+const A2A_TOOL_USE_PREFIX = "a2a:";
 
 /**
  * A mail approval outlives its run and no runtime waits on it, so the request
@@ -34,14 +35,27 @@ export const isPromoteApproval = (row: {
   row.toolName === PROMOTE_TOOL_NAME &&
   row.toolUseId.startsWith(PROMOTE_TOOL_USE_PREFIX);
 
-/** A mail or promote approval: the request and managed-run code skip both. */
+/**
+ * An outbound A2A message waiting for a person (`outbound_policy = approve`).
+ * `send_message` returns `waiting` at once, so no runtime waits on the card.
+ * Its tool use id is `a2a:<outboundTaskId>`.
+ */
+export const isA2aApproval = (row: {
+  toolName: string;
+  toolUseId: string;
+}): boolean =>
+  row.toolName === A2A_SEND_TOOL &&
+  row.toolUseId.startsWith(A2A_TOOL_USE_PREFIX);
+
+/** A mail, promote or A2A send approval: the request and managed-run code skip all three. */
 export const isDetachedApproval = (row: {
   toolName: string;
   toolUseId: string;
-}): boolean => isMailApproval(row) || isPromoteApproval(row);
+}): boolean =>
+  isMailApproval(row) || isPromoteApproval(row) || isA2aApproval(row);
 
-/** The SQL twin of `isDetachedApproval` that keeps mail and promote approvals out. `substr` compares case-sensitively, unlike `LIKE`. */
-export const notDetachedApproval = sql`NOT ((${runRequests.toolName} = ${MAIL_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${MAIL_TOOL_USE_PREFIX.length}) = ${MAIL_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${PROMOTE_TOOL_NAME} AND substr(${runRequests.toolUseId}, 1, ${PROMOTE_TOOL_USE_PREFIX.length}) = ${PROMOTE_TOOL_USE_PREFIX}))`;
+/** The SQL twin of `isDetachedApproval` that keeps mail, promote and A2A send approvals out. `substr` compares case-sensitively, unlike `LIKE`. */
+export const notDetachedApproval = sql`NOT ((${runRequests.toolName} = ${MAIL_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${MAIL_TOOL_USE_PREFIX.length}) = ${MAIL_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${PROMOTE_TOOL_NAME} AND substr(${runRequests.toolUseId}, 1, ${PROMOTE_TOOL_USE_PREFIX.length}) = ${PROMOTE_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${A2A_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${A2A_TOOL_USE_PREFIX.length}) = ${A2A_TOOL_USE_PREFIX}))`;
 
 /**
  * Why the mail behind an answered approval never left, or null when it did, is

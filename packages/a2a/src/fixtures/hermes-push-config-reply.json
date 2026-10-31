@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "configId": "cfg-1",
+    "taskId": "task-1",
+    "createdAt": "2026-11-01T10:00:00Z",
+    "pushNotificationConfig": {
+      "url": "https://harbourmaster.example.com/a2a/webhooks/task-1/tok"
+    }
+  }
+}

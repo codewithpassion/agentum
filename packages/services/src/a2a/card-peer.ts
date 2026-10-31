@@ -4,6 +4,7 @@
  * can call, and says what it refused when nothing fits.
  */
 import type { AgentCard } from "@repo/a2a/agent-card";
+import { pickInterface } from "@repo/a2a/client";
 import type { SecurityRequirement, SecurityScheme } from "@repo/a2a/security";
 
 export type OutboundScheme =
@@ -176,32 +177,14 @@ export const tokenUrlOfLabel = (label: string | null): string | null =>
     ? label.slice(OAUTH_KIND.length + 1)
     : null;
 
-const CALLABLE_BINDINGS = ["JSONRPC", "HTTP+JSON"];
-
 /**
  * The interface to call. JSONRPC at 1.0 wins, then any 1.0 interface, then any
  * binding v1 can call. Null when none fits or the chosen url does not parse.
+ * The client picks the same way, so what a person approves is what it calls.
  */
 export const chooseInterface = (
   card: AgentCard
 ): { origin: string; url: string } | null => {
-  const callable = card.supportedInterfaces.filter((entry) =>
-    CALLABLE_BINDINGS.includes(entry.protocolBinding)
-  );
-  const chosen =
-    callable.find(
-      (entry) =>
-        entry.protocolBinding === "JSONRPC" && entry.protocolVersion === "1.0"
-    ) ??
-    callable.find((entry) => entry.protocolVersion === "1.0") ??
-    callable[0];
-  if (chosen === undefined) {
-    return null;
-  }
-
-  try {
-    return { origin: new URL(chosen.url).origin, url: chosen.url };
-  } catch {
-    return null;
-  }
+  const picked = pickInterface(card);
+  return picked ? { origin: picked.origin, url: picked.url } : null;
 };

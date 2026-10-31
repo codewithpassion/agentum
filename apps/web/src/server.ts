@@ -13,6 +13,7 @@ import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
 import { compose } from "./server/compose.ts";
 import { frameGuard } from "./server/frame-guard.ts";
+import { setInProcessDispatch } from "./server/in-process.ts";
 import { guestEmbeds } from "./server/live-artifacts/guest-embeds";
 import { guestRoutes } from "./server/live-artifacts/guest-routes";
 import {
@@ -23,6 +24,7 @@ import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
 import { mountA2aRoutes } from "./server/routes/a2a.ts";
+import { mountA2aWebhooks } from "./server/routes/a2a-webhooks.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -111,6 +113,10 @@ const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
 // never meet Clerk: on a dev instance clerkMiddleware answers a browser-style
 // request with a handshake redirect. It is mounted ahead of `clerkMiddleware`
 // and ends every path under `/a2a` itself, so nothing falls through to the pages.
+// A peer's push webhook (`/a2a/webhooks/<taskId>/<token>`) is mounted first, so
+// it answers its own path and never reaches the pairing or peer-token handling
+// in `mountA2aRoutes`, whose last route answers every other path 404.
+mountA2aWebhooks(app, composeServices);
 mountA2aRoutes(app, composeServices);
 
 app.use("*", clerkMiddleware());
@@ -207,6 +213,10 @@ if (import.meta.env.DEV) {
 
 // Everything else is handled by TanStack Start (SSR pages and assets).
 app.all("*", (c) => handler.fetch(c.req.raw));
+
+// A message to a workspace on this deployment is dispatched here, in-process:
+// a Worker cannot fetch its own hostname (see server/in-process.ts).
+setInProcessDispatch((request, env, ctx) => app.fetch(request, env, ctx));
 
 /**
  * The minute tick (cron `* * * * *`). Runs every registered job once. Awaited,

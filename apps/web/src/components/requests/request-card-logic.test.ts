@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ApprovalAnswer, QuestionAnswer } from "@repo/protocol/requests";
 import {
+  a2aSendFields,
   approvalAnswer,
   canSubmitAnswers,
   expiryText,
@@ -466,5 +467,37 @@ describe("mailApprovalFields", () => {
     expect(
       mailApprovalFields(display("mail_send", { ...mail, subject: undefined }))
     ).toBeNull();
+  });
+});
+
+describe("a2aSendFields", () => {
+  const display = (
+    toolName: string,
+    input: unknown
+  ): Parameters<typeof a2aSendFields>[0] => ({
+    input: input as Parameters<typeof a2aSendFields>[0]["input"],
+    summary: "Send a message to Hermes",
+    toolKey: "a2a_send:con_1",
+    toolName,
+  });
+  const send = {
+    connection: "hermes",
+    host: "hermes.example.com",
+    peer: "Hermes",
+    text: "Summarise the open pull requests.\n\nThanks.",
+  };
+
+  test("reads the peer, its host and the whole message", () => {
+    expect(a2aSendFields(display("a2a_send", send))).toEqual({
+      host: "hermes.example.com",
+      peer: "Hermes",
+      text: "Summarise the open pull requests.\n\nThanks.",
+    });
+  });
+
+  test("is null for another tool or an input without the fields", () => {
+    expect(a2aSendFields(display("mail_send", send))).toBeNull();
+    expect(a2aSendFields(display("a2a_send", { peer: "Hermes" }))).toBeNull();
+    expect(a2aSendFields(display("a2a_send", "text"))).toBeNull();
   });
 });

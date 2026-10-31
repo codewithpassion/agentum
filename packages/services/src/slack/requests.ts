@@ -17,6 +17,7 @@ import { findAgent } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
 import { isServiceError } from "../errors.ts";
 import type { EventRecord } from "../events.ts";
+import { isA2aApproval } from "../mail/approval.ts";
 import {
   outcomeOf,
   type RequestRow,
@@ -48,6 +49,8 @@ import {
 import { verifySlackRequest } from "./signature.ts";
 
 const CANT_ANSWER = "You can't answer this one.";
+const TRAILING_SLASHES = /\/+$/;
+const PEER_NAME_MAX = 100;
 
 /** What `run_requests.slack_message` holds: the card, by Slack's `api_app_id`. */
 const slackMessageSchema = z.strictObject({
@@ -291,6 +294,45 @@ export const createSlackRequests = ({
   };
 
   /** Posts the card of a request that just opened, where its run can be answered from. */
+  /**
+   * A message to an outside agent waits for a person. A Slack block holds about
+   * 3,000 characters and a person must see the whole message before it goes, so
+   * Slack gets a plain notice with a link and no buttons. It is answered in
+   * Harbourmaster, where the card shows in full. The notice is not kept as the
+   * request's Slack message, so nothing edits it later.
+   */
+  const postSendNotice = async (
+    row: typeof runRequests.$inferSelect,
+    destination: Destination
+  ): Promise<void> => {
+    let peer = "an outside agent";
+    try {
+      const shown = (JSON.parse(row.display) as { input?: { peer?: unknown } })
+        .input?.peer;
+      if (typeof shown === "string") {
+        peer =
+          shown.length > PEER_NAME_MAX
+            ? `${shown.slice(0, PEER_NAME_MAX)}…`
+            : shown;
+      }
+    } catch {
+      // The notice still says a message waits.
+    }
+    const link = publicBaseUrl
+      ? ` Read it in full and answer at ${publicBaseUrl.replace(TRAILING_SLASHES, "")}/desk?item=${encodeURIComponent(row.id)}`
+      : " Open Harbourmaster to read it in full and answer.";
+    const posted = await withRetry(clock, () =>
+      destination.client.postMessage({
+        channel: destination.channel,
+        text: `A message to ${peer} is waiting for approval.${link}`,
+        threadTs: destination.threadTs,
+      })
+    );
+    if (posted.kind !== "ok") {
+      console.warn("Slack notice not posted", describeFailure(posted));
+    }
+  };
+
   const postCard = async (requestId: string): Promise<void> => {
     const row = await loadRow(requestId);
     if (!row || row.slackMessage !== null || row.status !== "pending") {
@@ -318,6 +360,10 @@ export const createSlackRequests = ({
         ? await threadDestination(run, reply)
         : await dmDestination(run);
     if (!destination) {
+      return;
+    }
+    if (isA2aApproval(row)) {
+      await postSendNotice(row, destination);
       return;
     }
     const request = await cardOf(row);

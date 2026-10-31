@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { a2aConnections, a2aOutboundTasks } from "@repo/db/schema/a2a";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
@@ -625,4 +626,106 @@ test("desk decisions direct takeovers to Harbourmaster", async () => {
     message: "Take over the computer in Harbourmaster.",
   });
   expect(await requests.outcome(system, request.id)).toBeNull();
+});
+
+/** An `a2a_send` card for a message of `length` characters, with the outbound task behind it. */
+const openSend = async (length: number) => {
+  const runId = await start();
+  const text = `Please check this. ${"x".repeat(length)}`;
+  const [run] = await db.select().from(runRows).where(eq(runRows.id, runId));
+  await db.insert(a2aConnections).values({
+    createdAt: "2026-10-26T12:00:00.000Z",
+    createdBy: "u1",
+    id: "con_1",
+    localAgentId: agentId,
+    peerKind: "a2a_outbound",
+    slug: "hermes",
+    status: "active",
+    workspaceId: "w1",
+  });
+  await db.insert(a2aOutboundTasks).values({
+    callingRunId: runId,
+    connectionId: "con_1",
+    createdAt: "2026-10-26T12:00:00.000Z",
+    id: "aot_1",
+    sessionId: run?.sessionId ?? "",
+    state: "TASK_STATE_AUTH_REQUIRED",
+    text,
+    updatedAt: "2026-10-26T12:00:00.000Z",
+    workspaceId: "w1",
+  });
+  const request = await requests.open(system, {
+    input: { connection: "hermes", host: "h.example", peer: "Hermes", text },
+    kind: "approval",
+    runId,
+    toolKey: "a2a_send:con_1",
+    toolName: "a2a_send",
+    toolUseId: "a2a:aot_1",
+  });
+  return { id: request.id, text };
+};
+
+test("a message to an outside agent comes back whole through the desk API, not clipped to 2,000 characters", async () => {
+  const { text } = await openSend(5000);
+
+  const [item] = await desk.needsYou(member);
+
+  expect(item?.title).toBe("Send a message to Hermes");
+  expect(item?.detail).toContain(text);
+  expect(text.length).toBeGreaterThan(2000);
+});
+
+test("a card that holds only a cut copy shows that copy, never the task row's text", async () => {
+  const { id, text } = await openSend(5000);
+  await db
+    .update(runRequests)
+    .set({
+      display: JSON.stringify({
+        input: `${text.slice(0, 1000)}… [truncated]`,
+        summary: "Send a message to Hermes",
+        toolKey: "a2a_send:con_1",
+        toolName: "a2a_send",
+      }),
+    })
+    .where(eq(runRequests.id, id));
+
+  const [item] = await desk.needsYou(member);
+
+  expect(item?.detail).toContain("[truncated]");
+  expect(item?.detail).not.toContain(text);
+});
+
+test("the desk API will not allow a message whose card holds only a cut copy, but will deny it", async () => {
+  const { id } = await openSend(5000);
+  await db
+    .update(runRequests)
+    .set({
+      display: JSON.stringify({
+        input: "cut… [truncated]",
+        summary: "x",
+        toolKey: "a2a_send:con_1",
+        toolName: "a2a_send",
+      }),
+    })
+    .where(eq(runRequests.id, id));
+
+  await expect(
+    desk.decide(member, id, { decision: "allow_once" })
+  ).rejects.toBeInstanceOf(ServiceError);
+  await expect(
+    desk.decide(member, id, { decision: "always" })
+  ).rejects.toBeInstanceOf(ServiceError);
+  expect(await desk.decide(member, id, { decision: "deny" })).toEqual({
+    requestId: id,
+    status: "answered",
+  });
+});
+
+test("the desk API allows a message whose card shows all of it", async () => {
+  const { id } = await openSend(5000);
+
+  expect(await desk.decide(member, id, { decision: "allow_once" })).toEqual({
+    requestId: id,
+    status: "answered",
+  });
 });

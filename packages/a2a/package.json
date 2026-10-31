@@ -4,10 +4,12 @@
   "type": "module",
   "exports": {
     "./agent-card": "./src/agent-card.ts",
+    "./client": "./src/client.ts",
     "./errors": "./src/errors.ts",
     "./extensions": "./src/extensions.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./messages": "./src/messages.ts",
+    "./peer-fetch": "./src/peer-fetch.ts",
     "./protocol": "./src/protocol.ts",
     "./requests": "./src/requests.ts",
     "./rest": "./src/rest.ts",

@@ -47,6 +47,7 @@ import {
   inArray,
   isNull,
   lt,
+  lte,
   notInArray,
   sql,
 } from "drizzle-orm";
@@ -112,6 +113,8 @@ const SLUG_FALLBACK = "peer";
 const RADIX_36 = 36;
 const BEARER_MIN = 32;
 const TEXT_MAX = 2000;
+/** Invites the tick ends in one go. */
+const EXPIRE_BATCH = 50;
 
 /** Statuses of a connection that has ended. */
 const ENDED: readonly A2aConnectionStatus[] = ["declined", "revoked"];
@@ -2360,6 +2363,65 @@ export const createConnectionsService = ({
     await endConnection(row, { actor: peerActor(row), notify: false });
   };
 
+  /**
+   * Ends the invites whose seven days ran out. A `join` already refuses them,
+   * so this only tidies the list: the row goes `revoked`, by the system, and the
+   * log says why. The minute tick calls it, a bounded batch at a time.
+   */
+  const expireStaleInvites = async (principal: Principal): Promise<number> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(REVOKE_ACTION);
+    }
+    const stale = await db
+      .select({ id: a2aConnections.id })
+      .from(a2aConnections)
+      .where(
+        and(
+          eq(a2aConnections.status, "inviting"),
+          lte(a2aConnections.inviteExpiresAt, nowIso())
+        )
+      )
+      .orderBy(asc(a2aConnections.inviteExpiresAt))
+      .limit(EXPIRE_BATCH);
+    if (stale.length === 0) {
+      return 0;
+    }
+    const ended = await db
+      .update(a2aConnections)
+      .set({
+        inviteTokenHash: null,
+        revokedAt: nowIso(),
+        revokedBy: "system",
+        status: "revoked",
+      })
+      .where(
+        and(
+          inArray(
+            a2aConnections.id,
+            stale.map(({ id }) => id)
+          ),
+          eq(a2aConnections.status, "inviting"),
+          lte(a2aConnections.inviteExpiresAt, nowIso())
+        )
+      )
+      .returning({
+        agentId: a2aConnections.localAgentId,
+        id: a2aConnections.id,
+        workspaceId: a2aConnections.workspaceId,
+      });
+    for (const row of ended) {
+      // biome-ignore lint/performance/noAwaitInLoops: a bounded batch, one event each
+      await record({
+        actor: SYSTEM_ACTOR,
+        agentId: row.agentId,
+        payload: { connectionId: row.id, reason: "invite_expired" },
+        type: "a2a.connection_revoked",
+        workspaceId: row.workspaceId,
+      });
+    }
+    return ended.length;
+  };
+
   // ---------------------------------------------------------------------
   // Authenticating a peer
 
@@ -2501,6 +2563,7 @@ export const createConnectionsService = ({
     createInvite,
     decline,
     declined,
+    expireStaleInvites,
     get,
     getPublished,
     join,

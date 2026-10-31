@@ -205,7 +205,7 @@ export type SafeFetchResult =
  *  so a redirect cannot point the request at an internal host. The request
  *  is aborted after `timeoutMs`; the rejection (a TimeoutError) propagates. */
 export async function safeFetch(
-  fetchImpl: typeof fetch,
+  fetchImpl: (input: string, init?: RequestInit) => Promise<Response>,
   raw: string,
   init: RequestInit = {},
   options: { allowHttp?: boolean; timeoutMs?: number } = {}

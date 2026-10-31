@@ -409,6 +409,57 @@ test("posts an approval card in the Slack thread of a Slack run", async () => {
   expect(readRequest()?.slackMessage).toBe(storedSlackMessage);
 });
 
+const sendDisplay = JSON.stringify({
+  input: {
+    connection: "hermes",
+    host: "h.example",
+    peer: "Hermes",
+    text: "x".repeat(6000),
+  },
+  summary: "Send a message to Hermes",
+  toolKey: "a2a_send:con_1",
+  toolName: "a2a_send",
+});
+
+const seedSend = () =>
+  seedRequest({
+    display: sendDisplay,
+    toolKey: "a2a_send:con_1",
+    toolName: "a2a_send",
+    toolUseId: "a2a:aot_1",
+  });
+
+test("a message to an outside agent gets a plain Slack notice with a link, no buttons and none of the text", async () => {
+  seedRun(slackReply);
+  seedSend();
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  const [post] = callsTo("chat.postMessage");
+  expect(callsTo("chat.postMessage")).toHaveLength(1);
+  expect(field(post as Recorded, "thread_ts")).toBe(THREAD);
+  const text = String(post?.body?.text);
+  expect(text).toBe(
+    "A message to Hermes is waiting for approval. Read it in full and answer at https://hm.test/desk?item=q1"
+  );
+  expect(post?.body?.blocks).toBeUndefined();
+  expect(JSON.stringify(post?.body)).not.toContain("xxxxxxxx");
+  expect(readRequest()?.slackMessage).toBeNull();
+});
+
+test("the notice for a web run goes to the linked person's DM", async () => {
+  seedRun(null);
+  seedSend();
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  const posts = callsTo("chat.postMessage");
+  expect(posts).toHaveLength(1);
+  expect(field(posts[0] as Recorded, "channel")).toBe(DM_CHANNEL);
+  expect(posts[0]?.body?.blocks).toBeUndefined();
+});
+
 test("sends a web run's card as a DM to the linked Slack user", async () => {
   seedRun(null);
   seedRequest();

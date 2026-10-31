@@ -7,7 +7,9 @@ import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import {
+  type A2aSendFields,
   type AnswerPayload,
+  a2aSendFields,
   approvalAnswer,
   canSubmitAnswers,
   expiryText,
@@ -252,6 +254,21 @@ function MailFields({ mail }: { mail: MailApprovalFields }) {
   );
 }
 
+function A2aFields({ send }: { send: A2aSendFields }) {
+  return (
+    <div
+      className="flex flex-col gap-2 text-sm"
+      data-testid="a2a-approval-fields"
+    >
+      <p className="text-muted-foreground text-xs">
+        To {send.peer} at {send.host}, an agent outside this workspace. This is
+        the whole message.
+      </p>
+      <pre className="whitespace-pre-wrap">{send.text}</pre>
+    </div>
+  );
+}
+
 function ApprovalCard({
   view,
   nowMs,
@@ -270,6 +287,7 @@ function ApprovalCard({
   const inputText =
     typeof input === "string" ? input : JSON.stringify(input, null, 2);
   const mail = mailApprovalFields(view.display);
+  const a2a = a2aSendFields(view.display);
 
   const allowOnce = useCallback(
     () => submit(approvalAnswer("allow_once", note)),
@@ -297,7 +315,7 @@ function ApprovalCard({
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
-      {mail === null ? (
+      {mail === null && a2a === null ? (
         <details className="text-muted-foreground text-xs">
           <summary className="pointer-coarse:min-h-10 cursor-pointer">
             Input
@@ -306,9 +324,9 @@ function ApprovalCard({
             {inputText}
           </pre>
         </details>
-      ) : (
-        <MailFields mail={mail} />
-      )}
+      ) : null}
+      {mail === null ? null : <MailFields mail={mail} />}
+      {a2a === null ? null : <A2aFields send={a2a} />}
       <div className="flex flex-col gap-1">
         <Label htmlFor={noteId}>Note for Deny (optional)</Label>
         <Input
@@ -327,20 +345,22 @@ function ApprovalCard({
         >
           Allow once
         </Button>
-        <div className="flex flex-col gap-1 border-border border-t pt-2 max-sm:order-last sm:border-t-0 sm:pt-0">
-          <Button
-            className="w-full sm:w-auto"
-            disabled={pending}
-            onClick={alwaysAllow}
-            type="button"
-            variant="outline"
-          >
-            Always allow
-          </Button>
-          <p className="text-muted-foreground text-xs sm:hidden">
-            Saves a rule if one fits.
-          </p>
-        </div>
+        {a2a === null ? (
+          <div className="flex flex-col gap-1 border-border border-t pt-2 max-sm:order-last sm:border-t-0 sm:pt-0">
+            <Button
+              className="w-full sm:w-auto"
+              disabled={pending}
+              onClick={alwaysAllow}
+              type="button"
+              variant="outline"
+            >
+              Always allow
+            </Button>
+            <p className="text-muted-foreground text-xs sm:hidden">
+              Saves a rule if one fits.
+            </p>
+          </div>
+        ) : null}
         <Button
           className="w-full sm:w-auto"
           disabled={pending}

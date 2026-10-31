@@ -41,6 +41,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
+import { isA2aApproval } from "./mail/approval.ts";
 import { mailSubjectsOf } from "./mail-subjects.ts";
 import { runTitleText } from "./mail-title-text.ts";
 import type { RequestRecord, RequestsService } from "./requests.ts";
@@ -388,15 +389,41 @@ export const createDeskService = ({
       member.workspaceId,
       pending.map((record) => record.agentId)
     );
-    return pending.map((record) => ({
-      agent: names.get(record.agentId) ?? record.agentId,
-      createdAt: record.createdAt,
-      expiresAt: record.expiresAt,
-      kind: record.kind,
-      requestId: record.id,
-      runId: record.runId,
-      ...describe(record),
-    }));
+    return pending.map((record) => {
+      const described = describe(record);
+      return {
+        agent: names.get(record.agentId) ?? record.agentId,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+        kind: record.kind,
+        requestId: record.id,
+        runId: record.runId,
+        ...described,
+        detail: sendDetail(record) ?? described.detail,
+      };
+    });
+  };
+
+  /**
+   * The whole message behind an `a2a_send` card, never clipped: a person must
+   * see all of what an approval sends. It comes from the card's input, which is
+   * scrubbed. Null for any other request, and for a card that holds only a cut copy.
+   */
+  const sendDetail = (record: RequestRecord): string | null => {
+    if (!(isA2aApproval(record) && "input" in record.display)) {
+      return null;
+    }
+    const { input } = record.display;
+    if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+      const { peer, host, text: shownText } = input as Record<string, unknown>;
+      if (typeof shownText === "string") {
+        return `To ${String(peer)} at ${String(host)}, an agent outside this workspace:\n\n${shownText}`;
+      }
+    }
+    // A card that holds only a cut copy cannot occur, because `send` closes one
+    // and refuses the message. Were one to appear, it shows the cut copy, and the
+    // desk API refuses to allow it.
+    return null;
   };
 
   /** The A2A messages and connections that wait on a person, before the draft filter. */
