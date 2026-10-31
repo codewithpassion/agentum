@@ -5,7 +5,7 @@ import { toThreadMessageLike } from "./thread-parts.ts";
 
 const entry = (
   id: string,
-  kind: "user" | "guest",
+  kind: "user" | "guest" | "peer",
   name?: string
 ): ThreadEvent => ({
   actor: { id, kind },
@@ -55,5 +55,27 @@ test("trusted room metadata shows authors before another person speaks", () => {
   const messages = foldThread([entry("one", "user", "Alex")]);
   expect([...threadAuthorLabels(messages, true).values()]).toEqual([
     "Alex · 1",
+  ]);
+});
+
+test("an outside agent is labelled by the name we hold for it, even alone", () => {
+  const messages = foldThread([entry("con_1", "peer", "Sam's Hermes")]);
+  expect([...threadAuthorLabels(messages).values()]).toEqual([
+    "Sam's Hermes (outside agent)",
+  ]);
+  const unnamed = foldThread([entry("con_2", "peer")]);
+  expect([...threadAuthorLabels(unnamed).values()]).toEqual([
+    "Outside agent (outside agent)",
+  ]);
+});
+
+test("a person beside an outside agent is not numbered with it", () => {
+  const messages = foldThread([
+    entry("one", "user", "Alex"),
+    entry("con_1", "peer", "Hermes"),
+  ]);
+  expect([...threadAuthorLabels(messages, true).values()]).toEqual([
+    "Alex · 1",
+    "Hermes (outside agent)",
   ]);
 });

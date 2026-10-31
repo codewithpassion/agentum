@@ -28,6 +28,7 @@ export const settingsNav: readonly SettingsNavGroup[] = [
     items: [
       { label: "API keys", to: "/settings/api-keys" },
       { label: "Connected apps", to: "/settings/connected-apps" },
+      { label: "Agent connections", to: "/settings/agent-connections" },
     ],
     label: "Access to Harbourmaster",
   },

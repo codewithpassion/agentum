@@ -20,6 +20,7 @@ test("paths appear in order", () => {
     "/settings/artifacts",
     "/settings/api-keys",
     "/settings/connected-apps",
+    "/settings/agent-connections",
   ]);
 });
 

@@ -13,6 +13,7 @@ import {
   type ConnectionsService,
   createConnectionsService,
 } from "@repo/services/a2a/connections";
+import { createPageReads, type PageReads } from "@repo/services/a2a/page-reads";
 import {
   type A2aTasksService,
   createA2aTasksService,
@@ -385,6 +386,7 @@ export interface Infra {
 }
 
 export interface Services {
+  a2aPageReads: PageReads;
   a2aTasks: A2aTasksService;
   admin: AdminService;
   agentBuilder: AgentBuilderService;
@@ -595,6 +597,7 @@ export const composeWith = ({
   const members = createMembersService({ db, lister: infra.members });
   const agents = createAgentsService({ db, events, members });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
+  const a2aPageReads = createPageReads({ db, people: infra.people });
   const connections = createConnectionsService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -1124,6 +1127,7 @@ export const composeWith = ({
     db,
     relay: infra.relay,
     services: {
+      a2aPageReads,
       a2aTasks,
       admin,
       agentBuilder,

@@ -6,6 +6,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { GrantApprovalCard } from "#/components/artifacts/grant-approval-card.tsx";
 import { parsePromoteApproval } from "#/components/artifacts/grant-approval-model.ts";
+import { A2aDecision } from "#/components/connections/a2a-decision.tsx";
 import { RequestCard } from "#/components/requests/request-card.tsx";
 import type {
   AnswerPayload,
@@ -158,6 +159,9 @@ export function NeedsYouBody({
       );
     case "library_conflict":
       return <ConflictResolver card={card} onChanged={onChanged} />;
+    case "a2a_message":
+    case "a2a_connection":
+      return <A2aDecision card={card} onChanged={onChanged} />;
     default:
       return <CardSummary card={card} />;
   }

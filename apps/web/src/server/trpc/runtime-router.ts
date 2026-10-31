@@ -1,4 +1,5 @@
 // Runtime lane tRPC procedures. The lane adds its routers here and nowhere else.
+import { a2aRouter } from "./a2a-router.ts";
 import { agentBuilderRouter } from "./agent-builder-router.ts";
 import { agentProfileRouter } from "./agent-profile-router.ts";
 import { agentsRouter } from "./agents-router.ts";
@@ -25,6 +26,7 @@ import { tasksRouter } from "./tasks-router.ts";
 import { wikiRouter } from "./wiki-router.ts";
 
 export const runtimeRouter = router({
+  a2a: a2aRouter,
   agentBuilder: agentBuilderRouter,
   agentProfile: agentProfileRouter,
   agents: agentsRouter,

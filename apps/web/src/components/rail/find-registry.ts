@@ -27,6 +27,7 @@ export interface FindEntry {
 }
 
 const settingsHints: Readonly<Record<string, string>> = {
+  "/settings/agent-connections": "Other agents",
   "/settings/connectors": "Apps",
   "/settings/model-providers": "AI account",
   "/settings/secrets": "Passwords and keys",

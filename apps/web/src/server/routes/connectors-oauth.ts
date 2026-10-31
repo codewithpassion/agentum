@@ -6,6 +6,7 @@
 // Mount with `accessRoutes.route("/", connectorOAuthRoutes({ session }))`,
 // because the paths are full, not prefixed.
 
+import { INVITE_TOKEN_PREFIX } from "@repo/services/a2a/urls";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { Principal } from "@repo/services/workspaces";
@@ -96,7 +97,11 @@ export const connectorOAuthRoutes = (
 ): Hono<AppEnv> => {
   const routes = new Hono<AppEnv>();
 
-  routes.get("/connect/:connectorId", async (c) => {
+  routes.get("/connect/:connectorId", async (c, next) => {
+    // An agent connection invite shares this path. The app's own page takes it.
+    if (c.req.param("connectorId").startsWith(INVITE_TOKEN_PREFIX)) {
+      return await next();
+    }
     noStore(c);
     const who = await caller(c, deps);
     if (who.kind === "none") {

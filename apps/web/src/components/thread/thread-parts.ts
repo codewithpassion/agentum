@@ -2,6 +2,7 @@
 // Pure: it reads its input and returns new objects.
 
 import type { ThreadMessageLike } from "@assistant-ui/react";
+import { speakerEnvelopeSchema } from "@repo/protocol/live";
 import type {
   ThreadMessage,
   ThreadPart,
@@ -83,10 +84,23 @@ const assistantContent = (part: ThreadPart): Content[] => {
   return [{ text: part.text, type: part.type }];
 };
 
+/**
+ * A peer's turn is stored inside the speaker envelope the agent reads. A person
+ * reads what the peer wrote. Text that is not a whole envelope stays as it is.
+ */
+export const peerText = (text: string): string => {
+  try {
+    const parsed = speakerEnvelopeSchema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data.harbourmaster_turn.text : text;
+  } catch {
+    return text;
+  }
+};
+
 // A user message's content holds text only. Files go to its attachments.
-const userContent = (part: ThreadPart): Content[] => {
+const userContent = (part: ThreadPart, fromPeer: boolean): Content[] => {
   if (part.type === "text") {
-    return [{ text: part.text, type: "text" }];
+    return [{ text: fromPeer ? peerText(part.text) : part.text, type: "text" }];
   }
   if (part.type === "placeholder") {
     return [{ text: PLACEHOLDER_TEXT, type: "text" }];
@@ -134,6 +148,8 @@ export const toThreadMessageLike = (
   return {
     ...base,
     ...(attachments.length === 0 ? {} : { attachments }),
-    content: message.parts.flatMap(userContent),
+    content: message.parts.flatMap((part) =>
+      userContent(part, message.actor?.kind === "peer")
+    ),
   };
 };
