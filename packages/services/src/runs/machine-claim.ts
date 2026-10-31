@@ -102,7 +102,8 @@ const assertCurrentApprovalProtocol = async (
     .from(sessions)
     .where(eq(sessions.id, run.sessionId))
     .limit(1);
-  if (session?.origin === "artifact" && !supported) {
+  const untrusted = session?.origin === "artifact" || run.actor.kind === "peer";
+  if (untrusted && !supported) {
     throw new ForbiddenError("runs.currentApprovalsRequired");
   }
 };

@@ -14,6 +14,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "../agents.ts";
+import { ForbiddenError } from "../authz.ts";
 import { createEventsService } from "../events.ts";
 import { memoryLibraryBlobs } from "../library/memory.ts";
 import { createLibraryService } from "../library.ts";
@@ -738,4 +739,44 @@ test("an earlier artifact run cannot resume the newly selected agent's runtime s
     runtimeMachineId: null,
     runtimeRef: null,
   });
+});
+
+const makePeerRun = (runId: string) => {
+  db.update(runRows)
+    .set({ actorId: "conn-peer", actorKind: "peer" })
+    .where(eq(runRows.id, runId))
+    .run();
+};
+
+test("a peer run cannot be claimed by a daemon without current approvals, and stays offered", async () => {
+  const started = await start(agentId);
+  makePeerRun(started.runId);
+
+  const error = await rejection(claim("m1", started.runId));
+
+  expect(error).toBeInstanceOf(ForbiddenError);
+  expect(status(started.runId)?.status).toBe("offered");
+});
+
+test("a peer run claimed by a daemon with current approvals carries currentApprovals", async () => {
+  const started = await start(agentId);
+  makePeerRun(started.runId);
+
+  const claimed = await runs.claimRunForMachine(machine("m1"), started.runId, {
+    currentApprovalsForDaemon: true,
+    platformUrl: PLATFORM,
+    requestsForDaemon: true,
+  });
+
+  expect(claimed.currentApprovals).toBe(true);
+  expect(status(started.runId)?.status).toBe("running");
+});
+
+test("an ordinary user run is claimed by a daemon without current approvals", async () => {
+  const started = await start(agentId);
+
+  const claimed = await claim("m1", started.runId);
+
+  expect(claimed).not.toHaveProperty("currentApprovals");
+  expect(status(started.runId)?.status).toBe("running");
 });

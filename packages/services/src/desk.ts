@@ -36,6 +36,7 @@ import {
   or,
 } from "drizzle-orm";
 import { z } from "zod";
+import type { A2aNeedsYouSource } from "./a2a/needs-you.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
@@ -192,6 +193,18 @@ const problemOf = (
   return status === "interrupted" ? "interrupted" : "failed";
 };
 
+/** The host of an origin such as `https://peer.example`, or null when it is not a URL. */
+const hostOf = (origin: string | null): string | null => {
+  if (origin === null) {
+    return null;
+  }
+  try {
+    return new URL(origin).host;
+  } catch {
+    return null;
+  }
+};
+
 const byAge = (a: DeskCard, b: DeskCard): number =>
   a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at);
 
@@ -209,6 +222,7 @@ const titleOf = (inputText: string, mailSubject?: string): string => {
 };
 
 export const createDeskService = ({
+  a2a,
   clock,
   db,
   inbox,
@@ -218,6 +232,7 @@ export const createDeskService = ({
   skillsStore,
   triggers,
 }: {
+  a2a?: A2aNeedsYouSource;
   clock: Clock;
   db: Database;
   inbox: Pick<InboxService, "listThreads">;
@@ -300,7 +315,8 @@ export const createDeskService = ({
   /** Names every starter in a few batched reads, then turns drafts into cards. */
   const named = async (
     workspaceId: string,
-    drafts: readonly Draft[]
+    drafts: readonly Draft[],
+    peerNames: ReadonlyMap<string, string> = new Map()
   ): Promise<DeskCard[]> => {
     const idsOf = (kind: string) =>
       drafts
@@ -319,6 +335,8 @@ export const createDeskService = ({
           return agentNames.get(id) ?? "An agent";
         case "trigger":
           return triggerNames.get(id) ?? "A trigger";
+        case "peer":
+          return peerNames.get(id) ?? "A peer";
         default:
           return "System";
       }
@@ -381,6 +399,23 @@ export const createDeskService = ({
     }));
   };
 
+  /** The A2A messages and connections that wait on a person, before the draft filter. */
+  const a2aWaiting = async (member: UserPrincipal) => {
+    if (!a2a) {
+      return { connections: [], messages: [] };
+    }
+    const [messages, connections] = await Promise.all([
+      a2a.tasks.listWaiting(member),
+      a2a.connections.list(member),
+    ]);
+    return {
+      connections: connections.filter(
+        (connection) => connection.status === "needs_approval"
+      ),
+      messages,
+    };
+  };
+
   /** Everything in Needs you, before it becomes cards. */
   const needsYouSources = async (member: UserPrincipal) => {
     const [
@@ -393,6 +428,7 @@ export const createDeskService = ({
       conflicts,
 
       suggestions,
+      a2aList,
     ] = await Promise.all([
       pendingRecords(member),
       skillsStore.proposals(member),
@@ -418,6 +454,7 @@ export const createDeskService = ({
             inArray(wikiSuggestions.status, ["pending", "stale"])
           )
         ),
+      a2aWaiting(member),
     ]);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
@@ -463,6 +500,12 @@ export const createDeskService = ({
         : [];
     });
     return {
+      a2aConnections: a2aList.connections.filter(
+        (connection) => !drafts.has(connection.agentId)
+      ),
+      a2aMessages: a2aList.messages.filter(
+        (message) => !drafts.has(message.agentId)
+      ),
       answered,
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       pending,
@@ -664,8 +707,70 @@ export const createDeskService = ({
           title: thread.title,
         })
       ),
+      ...sources.a2aMessages.map(
+        (message): Draft => ({
+          a2a: {
+            checkCode: null,
+            connectionId: message.connectionId,
+            host: message.host,
+            org: message.org,
+            peer: message.peer,
+            text: message.text,
+          },
+          agentId: message.agentId,
+          at: message.createdAt,
+          band: { text: message.text, tone: "waiting" },
+          id: message.taskId,
+          kind: "request",
+          lane: "needs_you",
+          needsYouKind: "a2a_message",
+          starter: { id: message.connectionId, kind: "peer" },
+          title: `${message.peer} sent a message`,
+        })
+      ),
+      ...sources.a2aConnections.map((connection): Draft => {
+        const peer = connection.peerLabel ?? connection.agentName;
+        const host = hostOf(connection.pendingOrigin ?? connection.peerOrigin);
+        const where = host === null ? "" : ` at ${host}`;
+        const code =
+          connection.checkCode === null
+            ? ""
+            : ` Check code ${connection.checkCode}.`;
+        return {
+          a2a: {
+            checkCode: connection.checkCode,
+            connectionId: connection.id,
+            host,
+            org: connection.peerOrg,
+            peer,
+            text: null,
+          },
+          agentId: connection.agentId,
+          at: connection.createdAt,
+          band: {
+            text: `${peer}${where} wants to connect to ${connection.agentName}.${code}`,
+            tone: "waiting",
+          },
+          id: connection.id,
+          kind: "request",
+          lane: "needs_you",
+          needsYouKind: "a2a_connection",
+          starter: { id: connection.id, kind: "peer" },
+          title: `${peer} wants to connect`,
+        };
+      }),
     ];
-    return (await named(workspaceId, drafts)).sort(byAge);
+    // A peer starter is named by its connection, so each one maps to its peer.
+    const peerNames = new Map<string, string>([
+      ...sources.a2aMessages.map(
+        (message) => [message.connectionId, message.peer] as const
+      ),
+      ...sources.a2aConnections.map(
+        (connection) =>
+          [connection.id, connection.peerLabel ?? connection.agentName] as const
+      ),
+    ]);
+    return (await named(workspaceId, drafts, peerNames)).sort(byAge);
   };
 
   /** Run cards for `lane`, each with its band. Ordered as `rows` are. */
@@ -956,7 +1061,9 @@ export const createDeskService = ({
       sources.versions.length +
       sources.proposedTriggers.length +
       sources.proposedRoutines.length +
-      sources.answered.length
+      sources.answered.length +
+      sources.a2aMessages.length +
+      sources.a2aConnections.length
     );
   };
 

@@ -132,3 +132,36 @@ test("speaker serialization preserves hostile text within one JSON envelope", ()
     expect(parsed.harbourmaster_turn.from.name).toBe("Dom");
   }
 });
+
+test("a peer turn parses, and unknown keys and peer presence still fail", () => {
+  const turn = {
+    from: { id: "c1", kind: "peer", name: "Scout", role: "outside agent" },
+    peer: { agent: "Scout", host: "scout.example.com", notice: "outside" },
+    text: "hello",
+    via: "a2a",
+  } as const;
+  const parsed = speakerEnvelopeSchema.parse({ harbourmaster_turn: turn });
+  expect(parsed.harbourmaster_turn.from.kind).toBe("peer");
+  expect(parsed.harbourmaster_turn.peer?.host).toBe("scout.example.com");
+  expect(
+    speakerEnvelopeSchema.safeParse({
+      harbourmaster_turn: { ...turn, extra: "untrusted" },
+    }).success
+  ).toBe(false);
+  expect(
+    speakerEnvelopeSchema.safeParse({
+      harbourmaster_turn: { ...turn, peer: { ...turn.peer, extra: "x" } },
+    }).success
+  ).toBe(false);
+  expect(
+    awarenessEntrySchema.safeParse({ ...participant, kind: "peer" }).success
+  ).toBe(false);
+  expect(
+    speakerEnvelopeSchema.safeParse({
+      harbourmaster_turn: {
+        ...turn,
+        present: [{ id: "c1", kind: "peer", name: "Scout", role: "x" }],
+      },
+    }).success
+  ).toBe(false);
+});

@@ -17,5 +17,9 @@ export const sessionSupportsSpeakers = async (
       )
     )
     .limit(1);
-  return session?.origin === "artifact" || session?.origin === "slack";
+  return (
+    session?.origin === "artifact" ||
+    session?.origin === "slack" ||
+    session?.origin === "a2a"
+  );
 };

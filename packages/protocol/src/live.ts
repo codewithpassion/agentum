@@ -114,6 +114,7 @@ const speaker = z.strictObject({
   name: z.string().min(1).max(200),
   role: z.string().min(1).max(100),
 });
+const speakerFromKind = z.enum(["member", "guest", "agent", "peer"]);
 export const speakerEnvelopeSchema = z.strictObject({
   harbourmaster_turn: z.strictObject({
     artifact: z
@@ -123,7 +124,14 @@ export const speakerEnvelopeSchema = z.strictObject({
         title: z.string().max(500),
       })
       .optional(),
-    from: speaker,
+    from: speaker.extend({ kind: speakerFromKind }),
+    peer: z
+      .strictObject({
+        agent: z.string().min(1).max(200),
+        host: z.string().min(1).max(253),
+        notice: z.string(),
+      })
+      .optional(),
     present: z
       .array(
         speaker.extend({
@@ -140,6 +148,7 @@ export const speakerEnvelopeSchema = z.strictObject({
       "comment",
       "web_chat",
       "slack",
+      "a2a",
     ]),
     where: speakerLocationSchema.optional(),
   }),
