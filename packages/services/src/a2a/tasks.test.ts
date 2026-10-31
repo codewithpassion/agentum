@@ -565,9 +565,16 @@ describe("a question from the run", () => {
     expect(request?.status).toBe("answered");
     expect(request?.answeredVia).toBe("a2a");
     expect(request?.answeredBy).toBe(CONNECTION);
-    expect(JSON.parse(request?.answer ?? "{}")).toEqual({
-      answers: { "Which colour do you want?": "Blue please" },
-    });
+    // The peer's words reach the model inside the peer envelope.
+    const stored = JSON.parse(request?.answer ?? "{}").answers[
+      "Which colour do you want?"
+    ];
+    const turn = speakerEnvelopeSchema.parse(
+      JSON.parse(stored)
+    ).harbourmaster_turn;
+    expect(turn.from.kind).toBe("peer");
+    expect(turn.via).toBe("a2a");
+    expect(turn.text).toBe("Blue please");
     expect(await f.db.select().from(a2aTasks)).toHaveLength(1);
     await f.runs.completeRun(f.system, runId, { status: "done", text: "Blue" });
     expect((await f.tasks.getTask(peerOf(), { id: taskId })).status.state).toBe(
@@ -592,9 +599,12 @@ describe("a question from the run", () => {
       .select()
       .from(runRequests)
       .where(eq(runRequests.id, requestId));
-    expect(JSON.parse(request?.answer ?? "{}").answers).toEqual({
-      "Which colour do you want?": "Blue please",
-    });
+    const stored = JSON.parse(request?.answer ?? "{}").answers[
+      "Which colour do you want?"
+    ];
+    expect(
+      speakerEnvelopeSchema.parse(JSON.parse(stored)).harbourmaster_turn.text
+    ).toBe("Blue please");
   });
 
   test("a person answering in the app returns the task to working", async () => {

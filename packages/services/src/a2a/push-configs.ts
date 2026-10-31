@@ -7,7 +7,11 @@
  */
 import type { TaskPushNotificationConfig } from "@repo/a2a/requests";
 import type { Database } from "@repo/db";
-import { a2aConnections, a2aOutbox, a2aPushConfigs } from "@repo/db/schema/a2a";
+import {
+  a2aConnections,
+  type a2aOutbox,
+  a2aPushConfigs,
+} from "@repo/db/schema/a2a";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -56,7 +60,7 @@ export type PushConfigView = Pick<
 };
 
 type ConfigRow = typeof a2aPushConfigs.$inferSelect;
-type OutboxRow = typeof a2aOutbox.$inferInsert;
+export type OutboxInsert = typeof a2aOutbox.$inferInsert;
 
 const storedAuthSchema = z.object({
   credentials: z.string().optional(),
@@ -287,17 +291,18 @@ export const createPushConfigs = ({
   };
 
   /**
-   * Queues one `push` outbox row per config for a task that just changed
-   * state, with the whole task as a `StreamResponse`. Nothing is queued for a
-   * connection that is no longer active: a revoked peer hears nothing more.
+   * One `push` outbox row per config for a task that is about to change state,
+   * with the whole task as a `StreamResponse`. The caller writes them in the
+   * same atomic write as the state change. None for a connection that is no
+   * longer active: a revoked peer hears nothing more.
    */
-  const queueFor = async (task: TaskRow): Promise<void> => {
+  const rowsFor = async (task: TaskRow): Promise<OutboxInsert[]> => {
     const configs = await db
       .select()
       .from(a2aPushConfigs)
       .where(eq(a2aPushConfigs.taskId, task.id));
     if (configs.length === 0) {
-      return;
+      return [];
     }
     const [connection] = await db
       .select({ status: a2aConnections.status })
@@ -305,10 +310,10 @@ export const createPushConfigs = ({
       .where(eq(a2aConnections.id, task.connectionId))
       .limit(1);
     if (connection?.status !== "active") {
-      return;
+      return [];
     }
     const body = JSON.stringify({ task: toTask(task) });
-    const rows: OutboxRow[] = [];
+    const rows: OutboxInsert[] = [];
     for (const config of configs) {
       const id = `obx_${ulid(clock.now().getTime())}`;
       // biome-ignore lint/performance/noAwaitInLoops: at most five configs per task
@@ -336,10 +341,10 @@ export const createPushConfigs = ({
         workspaceId: task.workspaceId,
       });
     }
-    await db.insert(a2aOutbox).values(rows);
+    return rows;
   };
 
-  return { create, get, list, queueFor, remove, validate };
+  return { create, get, list, remove, rowsFor, validate };
 };
 
 export type PushConfigs = ReturnType<typeof createPushConfigs>;

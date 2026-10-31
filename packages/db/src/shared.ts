@@ -840,8 +840,9 @@ export const DESK_CARD_KINDS = [
 export type DeskCardKind = (typeof DESK_CARD_KINDS)[number];
 
 /**
- * What a person decides on in an A2A Needs you card. `text` is outside input
- * from a peer: show it as plain text, never as markup.
+ * What a person decides on in an A2A Needs you card. Everything in it but the
+ * ids comes from a peer, `peer`, `host`, `org` and `text` included: show it as
+ * plain text, never as markup.
  */
 export interface A2aNeedsYou {
   checkCode: string | null;
@@ -854,8 +855,9 @@ export interface A2aNeedsYou {
 
 /** One card on the desk. */
 export interface DeskCard {
-  /** "user" when a person started the card. Name them from `startedBy`, not `agentId`. */
+  /** Set on an A2A card (`a2a_message`, `a2a_connection`). */
   a2a?: A2aNeedsYou;
+  /** "user" when a person started the card. Name them from `startedBy`, not `agentId`. */
   actorKind?: "user";
   agentId: string;
   at: string;

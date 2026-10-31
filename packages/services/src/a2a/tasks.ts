@@ -22,7 +22,9 @@ import {
 import { taskStateSchema } from "@repo/a2a/states";
 import type { Task } from "@repo/a2a/tasks";
 import type { Database } from "@repo/db";
+import type { Atomic } from "@repo/db/atomic";
 import {
+  a2aAgentCards,
   a2aConnections,
   a2aOutboundTasks,
   a2aOutbox,
@@ -31,7 +33,12 @@ import {
 import { agents } from "@repo/db/schema/agents";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
-import type { A2aTaskState, EventActorKind, EventType } from "@repo/db/shared";
+import type {
+  A2aTaskState,
+  EventActorKind,
+  EventType,
+  RunStatus,
+} from "@repo/db/shared";
 import { questionDisplaySchema } from "@repo/protocol/requests";
 import {
   and,
@@ -41,10 +48,10 @@ import {
   eq,
   gt,
   inArray,
-  isNotNull,
   isNull,
   lt,
   or,
+  sql,
 } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -57,6 +64,7 @@ import {
   type Clock,
   type Gateway,
   INPUT_TEXT_MAX,
+  LIVE_RUN_STATUSES,
   type StartRunInput,
   type StartRunOptions,
 } from "../runs/types.ts";
@@ -68,6 +76,7 @@ import { A2aRateLimitError, A2aTaskError } from "./errors.ts";
 import type { WaitingMessage } from "./needs-you.ts";
 import {
   createPushConfigs,
+  type OutboxInsert,
   type PushConfigInput,
   type PushConfigView,
 } from "./push-configs.ts";
@@ -107,6 +116,22 @@ const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 const UNKNOWN_HOST = "unknown host";
 
+/** Run statuses that never change again. */
+const ENDED_RUN_STATUSES: RunStatus[] = [
+  "done",
+  "failed",
+  "interrupted",
+  "cancelled",
+];
+
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
 const SYSTEM_ACTOR = { id: "tick", kind: "system" } as const;
 
 const idString = z.string().min(1).max(200);
@@ -143,6 +168,7 @@ const pushTaskInputSchema = z.object({ taskId: idString });
 const pushConfigRefSchema = pushTaskInputSchema.extend({ id: idString });
 
 export interface A2aTasksOptions {
+  atomic: Atomic;
   clock: Clock;
   db: Database;
   events: EventsService;
@@ -153,7 +179,7 @@ export interface A2aTasksOptions {
       principal: Principal,
       input: StartRunInput,
       options?: StartRunOptions
-    ) => Promise<unknown>;
+    ) => Promise<{ runId: string }>;
   };
   /** `SECRETS_KEY`. Storing a push credential encrypts with it. */
   secretsKey?: string;
@@ -174,6 +200,7 @@ const eventPayload = (
 ) => ({ connectionId: row.connectionId, taskId: row.id, ...extra });
 
 export const createA2aTasksService = ({
+  atomic,
   clock,
   db,
   events,
@@ -201,7 +228,8 @@ export const createA2aTasksService = ({
     ({ id: connection.id, kind: "peer" }) as const;
 
   const requireConnection = async (
-    peer: PeerPrincipal
+    peer: PeerPrincipal,
+    action: string
   ): Promise<ConnectionRow> => {
     const [row] = await db
       .select()
@@ -214,7 +242,7 @@ export const createA2aTasksService = ({
       )
       .limit(1);
     if (row?.status !== "active" || row.localAgentId !== peer.agentId) {
-      throw new ForbiddenError(SEND_ACTION);
+      throw new ForbiddenError(action);
     }
     return row;
   };
@@ -274,9 +302,38 @@ export const createA2aTasksService = ({
   // State
 
   /**
-   * Moves a task from one of the states `from` to `to`, and queues its pushes
-   * when this call is the one that moved it. Null when the task was not in any
-   * of them, which is how a race loser or a repeated event finds out.
+   * The push rows of a state change are written in the same atomic write as the
+   * change, and only while the task is in the state that change left it in, so
+   * a race loser queues nothing.
+   */
+  const pushWhileMoved = (
+    row: OutboxInsert,
+    moved: { at: string; id: string; state: A2aTaskState }
+  ) =>
+    db.insert(a2aOutbox).select(
+      db
+        .select({
+          attempts: sql<number>`${row.attempts}`.as("attempts"),
+          body: sql<string>`${row.body}`.as("body"),
+          connectionId: sql<string>`${row.connectionId}`.as("connectionId"),
+          createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
+          headers: sql<string | null>`${row.headers ?? null}`.as("headers"),
+          id: sql<string>`${row.id}`.as("id"),
+          kind: sql<string>`${row.kind}`.as("kind"),
+          nextAttemptAt: sql<string>`${row.nextAttemptAt}`.as("nextAttemptAt"),
+          url: sql<string>`${row.url}`.as("url"),
+          workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
+        })
+        .from(sql`(select 1)`)
+        .where(
+          sql`exists (select 1 from ${a2aTasks} where ${a2aTasks.id} = ${moved.id} and ${a2aTasks.state} = ${moved.state} and ${a2aTasks.updatedAt} = ${moved.at})`
+        )
+    );
+
+  /**
+   * Moves a task from one of the states `from` to `to` and queues its pushes
+   * with it, in one atomic write. Null when the task was not in any of them,
+   * which is how a race loser or a repeated event finds out.
    */
   const move = async (
     id: string,
@@ -284,31 +341,38 @@ export const createA2aTasksService = ({
     to: A2aTaskState,
     patch: Patch
   ): Promise<TaskRow | null> => {
-    const at = nowIso();
-    const [row] = await db
-      .update(a2aTasks)
-      .set({
-        ...(patch.decidedBy === undefined
-          ? {}
-          : { decidedAt: at, decidedBy: patch.decidedBy }),
-        ...(patch.resultText === undefined
-          ? {}
-          : { resultText: patch.resultText }),
-        state: to,
-        statusText: patch.statusText,
-        updatedAt: at,
-      })
-      .where(and(eq(a2aTasks.id, id), inArray(a2aTasks.state, [...from])))
-      .returning();
-    if (!row) {
+    const current = await taskById(id);
+    if (!(current && from.includes(current.state))) {
       return null;
     }
+    const at = nowIso();
+    const changes = {
+      ...(patch.decidedBy === undefined
+        ? {}
+        : { decidedAt: at, decidedBy: patch.decidedBy }),
+      ...(patch.resultText === undefined
+        ? {}
+        : { resultText: patch.resultText }),
+      state: to,
+      statusText: patch.statusText,
+      updatedAt: at,
+    };
+    let pushes: OutboxInsert[] = [];
     try {
-      await pushConfigs.queueFor(row);
+      pushes = await pushConfigs.rowsFor({ ...current, ...changes });
     } catch (error) {
-      console.error("A2A push not queued", row.id, error);
+      // A push that cannot be built must not hold the task's state back.
+      console.error("A2A push not built", id, error);
     }
-    return row;
+    await atomic([
+      db
+        .update(a2aTasks)
+        .set(changes)
+        .where(and(eq(a2aTasks.id, id), inArray(a2aTasks.state, [...from]))),
+      ...pushes.map((row) => pushWhileMoved(row, { at, id, state: to })),
+    ]);
+    const after = await taskById(id);
+    return after?.state === to && after.updatedAt === at ? after : null;
   };
 
   const fresh = async (id: string): Promise<TaskRow> => {
@@ -390,15 +454,16 @@ export const createA2aTasksService = ({
     throw new A2aRateLimitError(retryAfterSeconds);
   };
 
-  /**
-   * An agent on the managed runtime never asks `needsApproval`, so its tool
-   * calls could not be held for a person. Publishing refuses it, and a message
-   * to one that was published earlier is refused here too.
-   */
   const requireGateableAgent = async (connection: ConnectionRow) => {
     const [agent] = await db
-      .select({ runtime: agents.runtime, status: agents.status })
+      .select({
+        published: a2aAgentCards.agentId,
+        runtime: agents.runtime,
+        status: agents.status,
+        unpublishedAt: a2aAgentCards.unpublishedAt,
+      })
       .from(agents)
+      .leftJoin(a2aAgentCards, eq(a2aAgentCards.agentId, agents.id))
       .where(
         and(
           eq(agents.id, connection.localAgentId),
@@ -408,6 +473,9 @@ export const createA2aTasksService = ({
       .limit(1);
     if (agent?.status !== "active") {
       throw new ServiceError("not_found", "Agent not found");
+    }
+    if (agent.published === null || agent.unpublishedAt !== null) {
+      throw new ServiceError("conflict", "The agent is no longer published");
     }
     if (agent.runtime === "managed") {
       throw new A2aTaskError(
@@ -428,6 +496,13 @@ export const createA2aTasksService = ({
       text
     );
 
+  /**
+   * Starts the run of a task and links it, in one atomic write with the run
+   * itself. A run that cannot start fails the task and says so to nobody but the
+   * log: the peer reads a failed task, never the reason. A task that was
+   * cancelled or revoked while the run was being made has the run cancelled
+   * too.
+   */
   const startRunFor = async (
     connection: ConnectionRow,
     task: TaskRow
@@ -439,8 +514,9 @@ export const createA2aTasksService = ({
       kind: "peer",
       workspaceId: connection.workspaceId,
     };
+    let started: { runId: string };
     try {
-      await runs.startRun(
+      started = await runs.startRun(
         peer,
         {
           agentId: connection.localAgentId,
@@ -461,10 +537,15 @@ export const createA2aTasksService = ({
         }
       );
     } catch (error) {
+      console.error("A2A run not started", task.id, error);
       await move(task.id, ["TASK_STATE_SUBMITTED"], "TASK_STATE_FAILED", {
         statusText: STATUS_TEXT.notStarted,
       });
-      throw error;
+      return;
+    }
+    const after = await taskById(task.id);
+    if (after && TERMINAL.includes(after.state)) {
+      await cancelRunQuietly(started.runId);
     }
   };
 
@@ -501,6 +582,21 @@ export const createA2aTasksService = ({
     return text;
   };
 
+  /** The questions a run has open, the one asked first first. */
+  const pendingQuestions = async (runId: string, limit: number) =>
+    await db
+      .select({ display: runRequests.display, id: runRequests.id })
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.runId, runId),
+          eq(runRequests.kind, "question"),
+          eq(runRequests.status, "pending")
+        )
+      )
+      .orderBy(asc(runRequests.createdAt), asc(runRequests.id))
+      .limit(limit);
+
   /** The next message on a task: an answer to the question it asks, or nothing. */
   const continueTask = async (
     peer: PeerPrincipal,
@@ -525,20 +621,10 @@ export const createA2aTasksService = ({
         "The task has ended. Send a new message without a taskId to start another."
       );
     }
+    // The task's status shows the question asked first, so that is the one answered.
     const [question] =
       task.state === "TASK_STATE_INPUT_REQUIRED" && task.runId
-        ? await db
-            .select({ id: runRequests.id })
-            .from(runRequests)
-            .where(
-              and(
-                eq(runRequests.runId, task.runId),
-                eq(runRequests.kind, "question"),
-                eq(runRequests.status, "pending")
-              )
-            )
-            .orderBy(desc(runRequests.createdAt))
-            .limit(1)
+        ? await pendingQuestions(task.runId, 1)
         : [];
     if (!question) {
       throw new A2aTaskError(
@@ -562,6 +648,10 @@ export const createA2aTasksService = ({
         "The task is not waiting for an answer."
       );
     }
+    await db
+      .update(a2aConnections)
+      .set({ lastInAt: nowIso() })
+      .where(eq(a2aConnections.id, connection.id));
     await record({
       actor: peerActor(connection),
       agentId: connection.localAgentId,
@@ -569,9 +659,8 @@ export const createA2aTasksService = ({
       type: "a2a.message_received",
       workspaceId: connection.workspaceId,
     });
-    await move(task.id, ["TASK_STATE_INPUT_REQUIRED"], "TASK_STATE_WORKING", {
-      statusText: STATUS_TEXT.working,
-    });
+    // Back to working, or on to the next question the run has open.
+    await settleQuestion(await fresh(task.id));
     return await fresh(task.id);
   };
 
@@ -623,6 +712,80 @@ export const createA2aTasksService = ({
   };
 
   /**
+   * The insert of a task that only lands while the connection is under its
+   * hourly limit, counted in the same statement, so two sends at once cannot
+   * both take the last place.
+   */
+  const insertUnderLimit = (
+    row: typeof a2aTasks.$inferInsert,
+    connection: ConnectionRow
+  ) => {
+    const since = new Date(clock.now().getTime() - HOUR_MS).toISOString();
+    return db
+      .insert(a2aTasks)
+      .select(
+        db
+          .select({
+            connectionId: sql<string>`${row.connectionId}`.as("connectionId"),
+            contextId: sql<string>`${row.contextId}`.as("contextId"),
+            createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
+            decidedAt: sql<string | null>`${null}`.as("decidedAt"),
+            decidedBy: sql<string | null>`${null}`.as("decidedBy"),
+            hops: sql<number>`${row.hops}`.as("hops"),
+            id: sql<string>`${row.id}`.as("id"),
+            inputText: sql<string>`${row.inputText}`.as("inputText"),
+            messageId: sql<string>`${row.messageId}`.as("messageId"),
+            resultText: sql<string | null>`${null}`.as("resultText"),
+            runId: sql<string | null>`${null}`.as("runId"),
+            state: sql<string>`${row.state}`.as("state"),
+            statusText: sql<string | null>`${row.statusText ?? null}`.as(
+              "statusText"
+            ),
+            updatedAt: sql<string>`${row.updatedAt}`.as("updatedAt"),
+            workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
+          })
+          .from(sql`(select 1)`)
+          .where(
+            sql`((select count(*) from ${a2aTasks} where ${a2aTasks.connectionId} = ${connection.id} and ${a2aTasks.createdAt} > ${since}) + (select count(*) from ${a2aOutboundTasks} where ${a2aOutboundTasks.connectionId} = ${connection.id} and ${a2aOutboundTasks.createdAt} > ${since})) < ${connection.hourlyLimit}`
+          )
+      )
+      .returning({ id: a2aTasks.id });
+  };
+
+  /**
+   * Writes the task, or returns the one an earlier send of the same `messageId`
+   * made. Refuses with the rate limit when the connection has no place left.
+   */
+  const insertOrRecall = async (
+    row: typeof a2aTasks.$inferInsert,
+    connection: ConnectionRow
+  ): Promise<TaskRow | null> => {
+    let inserted: { id: string }[] = [];
+    let duplicate = false;
+    try {
+      inserted = await insertUnderLimit(row, connection);
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+      duplicate = true;
+    }
+    if (duplicate) {
+      const winner = await byMessageId(connection.id, row.messageId);
+      if (winner) {
+        return winner;
+      }
+      throw new ServiceError("conflict", "That message id is already used");
+    }
+    if (inserted.length === 0) {
+      // Another send took the last place while this one was checked.
+      await enforceHourlyLimit(connection);
+      throw new A2aRateLimitError(1);
+    }
+    return null;
+  };
+
+  /**
    * A message that opens a new task: `approve` leaves it waiting for a person,
    * `auto` starts the run at once. A repeated `messageId` returns the task the
    * first one made.
@@ -650,16 +813,9 @@ export const createA2aTasksService = ({
       updatedAt: at,
       workspaceId: connection.workspaceId,
     } satisfies typeof a2aTasks.$inferInsert;
-    try {
-      await db.insert(a2aTasks).values(row);
-    } catch (error) {
-      const winner = isUniqueViolation(error)
-        ? await byMessageId(connection.id, message.messageId)
-        : null;
-      if (!winner) {
-        throw error;
-      }
-      return winner;
+    const recalled = await insertOrRecall(row, connection);
+    if (recalled) {
+      return recalled;
     }
     await db
       .update(a2aConnections)
@@ -695,7 +851,7 @@ export const createA2aTasksService = ({
     raw: SendMessageRequest
   ): Promise<Task> => {
     const request = sendMessageRequestSchema.parse(raw);
-    const connection = await requireConnection(peer);
+    const connection = await requireConnection(peer, SEND_ACTION);
     authorize(peer, SEND_ACTION, {
       kind: TASK_KIND,
       workspaceId: connection.workspaceId,
@@ -875,7 +1031,7 @@ export const createA2aTasksService = ({
     raw: GetTaskInput
   ): Promise<Task> => {
     const input = getTaskInputSchema.parse(raw);
-    const connection = await requireConnection(peer);
+    const connection = await requireConnection(peer, READ_ACTION);
     authorize(peer, READ_ACTION, {
       id: input.id,
       kind: TASK_KIND,
@@ -904,7 +1060,7 @@ export const createA2aTasksService = ({
     raw: ListTasksInput = {}
   ): Promise<ListTasksResult> => {
     const input = listTasksInputSchema.parse(raw);
-    const connection = await requireConnection(peer);
+    const connection = await requireConnection(peer, READ_ACTION);
     authorize(peer, READ_ACTION, {
       kind: TASK_KIND,
       workspaceId: connection.workspaceId,
@@ -918,7 +1074,10 @@ export const createA2aTasksService = ({
       input.status === undefined ? undefined : eq(a2aTasks.state, input.status),
       input.statusTimestampAfter === undefined
         ? undefined
-        : gt(a2aTasks.updatedAt, input.statusTimestampAfter)
+        : gt(
+            a2aTasks.updatedAt,
+            new Date(input.statusTimestampAfter).toISOString()
+          )
     );
     const after = input.pageToken ? decodeToken(input.pageToken) : null;
     const [rows, [total]] = await Promise.all([
@@ -970,7 +1129,7 @@ export const createA2aTasksService = ({
     raw: CancelTaskInput
   ): Promise<Task> => {
     const input = cancelTaskInputSchema.parse(raw);
-    const connection = await requireConnection(peer);
+    const connection = await requireConnection(peer, CANCEL_ACTION);
     authorize(peer, CANCEL_ACTION, {
       id: input.id,
       kind: TASK_KIND,
@@ -1014,7 +1173,9 @@ export const createA2aTasksService = ({
       await runs.cancelRun(SYSTEM_PRINCIPAL, runId);
     } catch (error) {
       // A run that ended in the meantime is already as cancelled as it gets.
-      console.error("A2A run not cancelled", runId, error);
+      if (!(error instanceof ServiceError && error.code === "conflict")) {
+        console.error("A2A run not cancelled", runId, error);
+      }
     }
   };
 
@@ -1022,7 +1183,7 @@ export const createA2aTasksService = ({
   // Push configurations
 
   const requirePushTask = async (peer: PeerPrincipal, taskId: string) => {
-    const connection = await requireConnection(peer);
+    const connection = await requireConnection(peer, PUSH_ACTION);
     authorize(peer, PUSH_ACTION, {
       id: taskId,
       kind: TASK_KIND,
@@ -1069,34 +1230,6 @@ export const createA2aTasksService = ({
 
   // ---------------------------------------------------------------------
   // The run's side
-
-  const questionsOf = async (requestId: string) => {
-    const [row] = await db
-      .select({ display: runRequests.display, kind: runRequests.kind })
-      .from(runRequests)
-      .where(eq(runRequests.id, requestId))
-      .limit(1);
-    if (row?.kind !== "question") {
-      return null;
-    }
-    const parsed = questionDisplaySchema.safeParse(JSON.parse(row.display));
-    return parsed.success ? parsed.data.questions : null;
-  };
-
-  const hasPendingQuestion = async (runId: string): Promise<boolean> => {
-    const [pending] = await db
-      .select({ id: runRequests.id })
-      .from(runRequests)
-      .where(
-        and(
-          eq(runRequests.runId, runId),
-          eq(runRequests.kind, "question"),
-          eq(runRequests.status, "pending")
-        )
-      )
-      .limit(1);
-    return pending !== undefined;
-  };
 
   const complete = async (
     taskId: string,
@@ -1177,30 +1310,9 @@ export const createA2aTasksService = ({
           statusText: STATUS_TEXT.cancelled,
         });
         return;
-      case "request.opened": {
-        const { requestId } = event.payload;
-        const questions =
-          typeof requestId === "string" ? await questionsOf(requestId) : null;
-        if (questions) {
-          await move(
-            task.id,
-            ["TASK_STATE_SUBMITTED", "TASK_STATE_WORKING"],
-            "TASK_STATE_INPUT_REQUIRED",
-            { statusText: questionStatusText(questions) }
-          );
-        }
-        return;
-      }
       default:
-        // The question was answered, cancelled or expired.
-        if (!(await hasPendingQuestion(event.runId))) {
-          await move(
-            task.id,
-            ["TASK_STATE_INPUT_REQUIRED"],
-            "TASK_STATE_WORKING",
-            { statusText: STATUS_TEXT.working }
-          );
-        }
+        // A question opened, was answered, cancelled or expired.
+        await settleQuestion(task);
     }
   };
 
@@ -1223,7 +1335,9 @@ export const createA2aTasksService = ({
    * Runs after a connection is revoked. A message still waiting is rejected,
    * and a task with a run in flight is cancelled along with its run. The peer's
    * access has ended, so no push is queued for any of it and the pushes already
-   * queued are dropped.
+   * queued are dropped. The task changes and the drop land in one atomic write.
+   * A run that could not be cancelled here is cancelled by the sweep, which
+   * finds a live run under an ended task.
    */
   const onConnectionRevoked = async (revoked: {
     agentId: string;
@@ -1237,61 +1351,82 @@ export const createA2aTasksService = ({
         eq(a2aTasks.workspaceId, revoked.workspaceId),
         inArray(a2aTasks.state, [...states])
       );
-    const declined = await db
-      .update(a2aTasks)
-      .set({
-        state: "TASK_STATE_REJECTED",
-        statusText: STATUS_TEXT.connectionRevoked,
-        updatedAt: at,
-      })
-      .where(where(["TASK_STATE_AUTH_REQUIRED"]))
-      .returning();
-    const cancelled = await db
-      .update(a2aTasks)
-      .set({
-        state: "TASK_STATE_CANCELED",
-        statusText: STATUS_TEXT.connectionRevoked,
-        updatedAt: at,
-      })
-      .where(where(RUNNING))
-      .returning();
-    await db
-      .delete(a2aOutbox)
-      .where(
-        and(
-          eq(a2aOutbox.connectionId, revoked.connectionId),
-          eq(a2aOutbox.kind, "push")
-        )
-      );
-    for (const task of [...declined, ...cancelled]) {
-      // biome-ignore lint/performance/noAwaitInLoops: one task at a time keeps the log in order
-      await record({
-        actor: SYSTEM_ACTOR,
-        agentId: revoked.agentId,
-        payload: eventPayload(task, { reason: "revoked" }),
-        type:
-          task.state === "TASK_STATE_REJECTED"
-            ? "a2a.message_declined"
-            : "a2a.task_cancelled",
-        workspaceId: revoked.workspaceId,
-      });
+    const [waiting, live] = await Promise.all([
+      db
+        .select()
+        .from(a2aTasks)
+        .where(where(["TASK_STATE_AUTH_REQUIRED"])),
+      db.select().from(a2aTasks).where(where(RUNNING)),
+    ]);
+    await atomic([
+      db
+        .update(a2aTasks)
+        .set({
+          state: "TASK_STATE_REJECTED",
+          statusText: STATUS_TEXT.connectionRevoked,
+          updatedAt: at,
+        })
+        .where(where(["TASK_STATE_AUTH_REQUIRED"])),
+      db
+        .update(a2aTasks)
+        .set({
+          state: "TASK_STATE_CANCELED",
+          statusText: STATUS_TEXT.connectionRevoked,
+          updatedAt: at,
+        })
+        .where(where(RUNNING)),
+      db
+        .delete(a2aOutbox)
+        .where(
+          and(
+            eq(a2aOutbox.connectionId, revoked.connectionId),
+            eq(a2aOutbox.kind, "push")
+          )
+        ),
+    ]);
+    // Every run is stopped before any event is written, so a failing write
+    // cannot leave one running.
+    for (const task of live) {
       if (task.runId) {
+        // biome-ignore lint/performance/noAwaitInLoops: one cancel at a time keeps the log in order
         await cancelRunQuietly(task.runId);
+      }
+    }
+    for (const [tasks, type] of [
+      [waiting, "a2a.message_declined"],
+      [live, "a2a.task_cancelled"],
+    ] as const) {
+      for (const task of tasks) {
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: one task at a time keeps the log in order
+          await record({
+            actor: SYSTEM_ACTOR,
+            agentId: revoked.agentId,
+            payload: eventPayload(task, { reason: "revoked" }),
+            type,
+            workspaceId: revoked.workspaceId,
+          });
+        } catch (error) {
+          console.error("A2A revoke event not written", task.id, error);
+        }
       }
     }
   };
 
   /**
    * The minute tick. Catches what an event missed: a task whose run ended or
-   * started, a question that opened or closed unheard, and a task that never
-   * got a run. Returns how many tasks it moved.
+   * started, a question that opened or closed unheard, a task that never got a
+   * run, and a run still alive under a task that has ended. It reads only the
+   * tasks that disagree with their run, so a batch is never taken up by tasks
+   * that are fine. Returns how many tasks and runs it acted on.
    */
   const sweep = async (principal: Principal): Promise<number> => {
     if (principal.kind !== "system") {
       throw new ForbiddenError("a2a.sweep");
     }
-    let moved = 0;
-    const live = await db
+    let acted = 0;
+    const openQuestion = sql`exists (select 1 from ${runRequests} where ${runRequests.runId} = ${a2aTasks.runId} and ${runRequests.kind} = 'question' and ${runRequests.status} = 'pending')`;
+    const disagreeing = await db
       .select({
         resultText: runRows.resultText,
         runStatus: runRows.status,
@@ -1300,14 +1435,33 @@ export const createA2aTasksService = ({
       .from(a2aTasks)
       .innerJoin(runRows, eq(runRows.id, a2aTasks.runId))
       .where(
-        and(inArray(a2aTasks.state, [...RUNNING]), isNotNull(a2aTasks.runId))
+        and(
+          inArray(a2aTasks.state, [...RUNNING]),
+          or(
+            inArray(runRows.status, ENDED_RUN_STATUSES),
+            and(
+              inArray(runRows.status, ["running", "waiting"]),
+              eq(a2aTasks.state, "TASK_STATE_SUBMITTED")
+            ),
+            and(
+              inArray(a2aTasks.state, [
+                "TASK_STATE_SUBMITTED",
+                "TASK_STATE_WORKING",
+              ]),
+              openQuestion
+            ),
+            and(
+              eq(a2aTasks.state, "TASK_STATE_INPUT_REQUIRED"),
+              sql`not ${openQuestion}`
+            )
+          )
+        )
       )
       .orderBy(asc(a2aTasks.updatedAt))
       .limit(SWEEP_BATCH);
-    for (const { resultText, runStatus, task } of live) {
+    for (const { resultText, runStatus, task } of disagreeing) {
       // biome-ignore lint/performance/noAwaitInLoops: each task is one small read and one write
-      const next = await settle(task, runStatus, resultText ?? "");
-      moved += next ? 1 : 0;
+      acted += (await settle(task, runStatus, resultText ?? "")) ? 1 : 0;
     }
     const stale = new Date(
       clock.now().getTime() - NEVER_STARTED_AFTER_MS
@@ -1329,13 +1483,27 @@ export const createA2aTasksService = ({
         id,
         ["TASK_STATE_SUBMITTED"],
         "TASK_STATE_FAILED",
-        {
-          statusText: STATUS_TEXT.notStarted,
-        }
+        { statusText: STATUS_TEXT.notStarted }
       );
-      moved += failed ? 1 : 0;
+      acted += failed ? 1 : 0;
     }
-    return moved;
+    const strays = await db
+      .select({ runId: runRows.id })
+      .from(runRows)
+      .innerJoin(a2aTasks, eq(a2aTasks.runId, runRows.id))
+      .where(
+        and(
+          inArray(runRows.status, [...LIVE_RUN_STATUSES]),
+          inArray(a2aTasks.state, [...TERMINAL])
+        )
+      )
+      .limit(SWEEP_BATCH);
+    for (const { runId } of strays) {
+      // biome-ignore lint/performance/noAwaitInLoops: each run is one cancel
+      await cancelRunQuietly(runId);
+      acted += 1;
+    }
+    return acted;
   };
 
   /** What the run's own state says the task should be, applied when it differs. */
@@ -1360,35 +1528,31 @@ export const createA2aTasksService = ({
           statusText: STATUS_TEXT.cancelled,
         });
       case "running":
-        return await move(
+      case "waiting": {
+        const started = await move(
           task.id,
           ["TASK_STATE_SUBMITTED"],
           "TASK_STATE_WORKING",
           { statusText: STATUS_TEXT.working }
         );
-      case "waiting":
-        return await settleQuestion(task);
+        const current = await taskById(task.id);
+        const asked = current ? await settleQuestion(current) : null;
+        return started ?? asked;
+      }
       default:
         return null;
     }
   };
 
+  /**
+   * Makes the task say what the run's open questions say: the oldest one's text
+   * with the state `INPUT_REQUIRED`, or `WORKING` once none is open.
+   */
   const settleQuestion = async (task: TaskRow): Promise<TaskRow | null> => {
-    if (!task.runId) {
+    if (!task.runId || TERMINAL.includes(task.state)) {
       return null;
     }
-    const [pending] = await db
-      .select({ display: runRequests.display })
-      .from(runRequests)
-      .where(
-        and(
-          eq(runRequests.runId, task.runId),
-          eq(runRequests.kind, "question"),
-          eq(runRequests.status, "pending")
-        )
-      )
-      .orderBy(desc(runRequests.createdAt))
-      .limit(1);
+    const [pending] = await pendingQuestions(task.runId, 1);
     if (!pending) {
       return await move(
         task.id,
@@ -1397,18 +1561,27 @@ export const createA2aTasksService = ({
         { statusText: STATUS_TEXT.working }
       );
     }
-    if (task.state === "TASK_STATE_INPUT_REQUIRED") {
+    const parsed = questionDisplaySchema.safeParse(parseJson(pending.display));
+    if (!parsed.success) {
       return null;
     }
-    const parsed = questionDisplaySchema.safeParse(JSON.parse(pending.display));
-    return parsed.success
-      ? await move(
-          task.id,
-          ["TASK_STATE_SUBMITTED", "TASK_STATE_WORKING"],
-          "TASK_STATE_INPUT_REQUIRED",
-          { statusText: questionStatusText(parsed.data.questions) }
-        )
-      : null;
+    const text = questionStatusText(parsed.data.questions);
+    if (
+      task.state === "TASK_STATE_INPUT_REQUIRED" &&
+      task.statusText === text
+    ) {
+      return null;
+    }
+    return await move(
+      task.id,
+      [
+        "TASK_STATE_SUBMITTED",
+        "TASK_STATE_WORKING",
+        "TASK_STATE_INPUT_REQUIRED",
+      ],
+      "TASK_STATE_INPUT_REQUIRED",
+      { statusText: text }
+    );
   };
 
   return {

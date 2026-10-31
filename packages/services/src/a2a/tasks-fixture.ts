@@ -7,7 +7,7 @@
 
 import type { SendMessageRequest } from "@repo/a2a/requests";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { a2aConnections } from "@repo/db/schema/a2a";
+import { a2aAgentCards, a2aConnections } from "@repo/db/schema/a2a";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
@@ -66,7 +66,7 @@ export const textMessage = (
   },
 });
 
-export const createFixture = async () => {
+export const createFixture = async (options: { fake?: boolean } = {}) => {
   const db = migrated();
   let nowMs = Date.parse(START);
   const clock = {
@@ -95,8 +95,12 @@ export const createFixture = async () => {
       timezone: "UTC",
     }))
   );
-  const seedAgent = (id: string, runtime: "cloud" | "managed" = "cloud") =>
-    db.insert(agentRows).values({
+  /** An active agent, published as the connections service would publish it. */
+  const seedAgent = async (
+    id: string,
+    runtime: "cloud" | "machine" | "managed" | "fake" = "cloud"
+  ) => {
+    await db.insert(agentRows).values({
       createdAt: START,
       createdBy: "u-owner",
       id,
@@ -109,10 +113,23 @@ export const createFixture = async () => {
       status: "active",
       workspaceId: WORKSPACE,
     });
-  await seedAgent(AGENT);
+    await db.insert(a2aAgentCards).values({
+      agentId: id,
+      description: "A test agent",
+      id: `card_${id}`,
+      publicId: `pub_${id}`,
+      publishedAt: START,
+      publishedBy: "u-owner",
+      skills: "[]",
+      workspaceId: WORKSPACE,
+    });
+  };
+  await seedAgent(AGENT, options.fake ? "fake" : "cloud");
   const events = createEventsService({ blobs, db });
   const atomic = sqliteAtomic(db);
   const dispatched: string[] = [];
+  /** A test sets `beforeStartRun` to act in the gap before a run is made. */
+  const hooks: { beforeStartRun?: () => Promise<void> } = {};
   const adapter: RuntimeAdapter = {
     cancel: () => Promise.resolve(),
     dispatch: (_db, run) => {
@@ -126,13 +143,17 @@ export const createFixture = async () => {
   let runs: ReturnType<typeof createRunsService>;
   let requests: ReturnType<typeof createRequestsService>;
   const tasks = createA2aTasksService({
+    atomic,
     clock,
     db,
     events,
     requests: { answerAsPeer: (p, i) => requests.answerAsPeer(p, i) },
     runs: {
       cancelRun: (p, id) => runs.cancelRun(p, id),
-      startRun: (p, i, o) => runs.startRun(p, i, o),
+      startRun: async (p, i, o) => {
+        await hooks.beforeStartRun?.();
+        return await runs.startRun(p, i, o);
+      },
     },
     secretsKey: SECRETS_KEY,
   });
@@ -142,7 +163,7 @@ export const createFixture = async () => {
     blobs,
     clock,
     db,
-    devFakeRuntime: false,
+    devFakeRuntime: options.fake === true,
     gateways: [tasks.gateway],
   });
   requests = createRequestsService({
@@ -196,6 +217,7 @@ export const createFixture = async () => {
     db,
     dispatched,
     events,
+    hooks,
     requests,
     runs,
     seedAgent,

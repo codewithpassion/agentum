@@ -729,7 +729,7 @@ export const createDeskService = ({
         })
       ),
       ...sources.a2aConnections.map((connection): Draft => {
-        const peer = connection.peerLabel ?? connection.agentName;
+        const peer = connection.peerLabel ?? "An outside agent";
         const host = hostOf(connection.pendingOrigin ?? connection.peerOrigin);
         const where = host === null ? "" : ` at ${host}`;
         const code =
@@ -767,7 +767,7 @@ export const createDeskService = ({
       ),
       ...sources.a2aConnections.map(
         (connection) =>
-          [connection.id, connection.peerLabel ?? connection.agentName] as const
+          [connection.id, connection.peerLabel ?? "An outside agent"] as const
       ),
     ]);
     return (await named(workspaceId, drafts, peerNames)).sort(byAge);

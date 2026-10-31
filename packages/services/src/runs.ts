@@ -70,6 +70,7 @@ import {
   isGuestStartGuardFailure,
 } from "./runs/guest-scope.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
+import { peerRootOf } from "./runs/peer-root.ts";
 import {
   findSession,
   findSessionById,
@@ -606,6 +607,27 @@ export const createRunsService = ({
       ingestRunEvents(principal, runId, batch),
   };
 
+  /**
+   * The managed runtime never asks `needsApproval`, so work a peer's text set
+   * going cannot be handed to a managed agent: its tools could not be held.
+   */
+  const refusePeerHandoffToManaged = async (
+    runtime: AgentRuntime,
+    parentRunId: string | null,
+    workspaceId: string
+  ) => {
+    if (runtime !== "managed" || parentRunId === null) {
+      return;
+    }
+    const parent = await loadRun(db, parentRunId, workspaceId);
+    if (parent && (await peerRootOf(db, parent)) !== null) {
+      throw new ServiceError(
+        "invalid",
+        "An agent on the managed runtime can't take work that started with a message from a peer, because its tool calls can't be held for approval."
+      );
+    }
+  };
+
   type Prepared = Awaited<ReturnType<typeof prepareStart>>;
 
   const refuseScopedHandoff = async (principal: Principal) => {
@@ -662,6 +684,11 @@ export const createRunsService = ({
     }
     const subject = await deriveSubject(db, principal, agent.id);
     await refuseScopedHandoff(principal);
+    await refusePeerHandoffToManaged(
+      agent.runtime,
+      subject.parentRunId,
+      agent.workspaceId
+    );
     const fileIds = [...new Set(input.input.fileIds)];
     if (fileIds.length > 0 && subject.onBehalfOfUserId === null) {
       throw new ServiceError("invalid", "This caller cannot attach files");

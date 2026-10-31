@@ -606,6 +606,7 @@ export const composeWith = ({
   // Inbound A2A tasks. The runs and requests services are built below, and
   // this service's gateway goes into the runs service, so it reaches both lazily.
   const a2aTasks = createA2aTasksService({
+    atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,

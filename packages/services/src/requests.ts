@@ -55,11 +55,13 @@ import {
 } from "./requests/records.ts";
 import { importRunTokenKey } from "./run-tokens.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
+import { peerRootOf } from "./runs/peer-root.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import type { SecretsService } from "./secrets.ts";
 import { visibleSessions } from "./sessions.ts";
+import { buildPeerEnvelope } from "./speaker-envelope.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 export type { RequestRecord } from "./requests/records.ts";
@@ -71,10 +73,22 @@ export const ruleKeyInputSchema = rulesListInputSchema.extend({ toolKey: id });
 export const ruleSetInputSchema = ruleKeyInputSchema.extend({
   mode: z.enum(TOOL_RULE_MODES),
 });
+/** As long as a message a peer may send, so an answer is never refused for its length alone. */
+const PEER_ANSWER_MAX = 30_000;
+const UNKNOWN_PEER_HOST = "unknown host";
+
 export const peerAnswerInputSchema = z.strictObject({
   requestId: id,
-  text: z.string().trim().min(1).max(10_000),
+  text: z.string().trim().min(1).max(PEER_ANSWER_MAX),
 });
+
+const peerHost = (origin: string | null): string => {
+  try {
+    return origin === null ? UNKNOWN_PEER_HOST : new URL(origin).host;
+  } catch {
+    return UNKNOWN_PEER_HOST;
+  }
+};
 export const webAnswerInputSchema = z.union([
   approvalAnswerSchema.extend({ requestId: id }),
   questionAnswerSchema.extend({ requestId: id }),
@@ -358,26 +372,32 @@ export const createRequestsService = ({
     );
   };
   /**
-   * A run a peer started asks for every tool while its connection's
-   * `tool_policy` is `ask`. A peer's text is outside input, so an unreadable or
-   * missing connection asks too: only an explicit `agent_rules` opens the
-   * agent's own rules.
+   * A run a peer started, or one it handed work to, asks for every tool while
+   * the peer's connection has `tool_policy = ask`. A peer's text is outside
+   * input, so a connection that is gone or ended asks too: only an active
+   * connection set to `agent_rules` opens the agent's own rules.
    */
   const peerAsksEveryTool = async (run: RunRecord): Promise<boolean> => {
-    if (run.actor.kind !== "peer") {
+    const connectionId = await peerRootOf(db, run);
+    if (connectionId === null) {
       return false;
     }
     const [connection] = await db
-      .select({ toolPolicy: a2aConnections.toolPolicy })
+      .select({
+        status: a2aConnections.status,
+        toolPolicy: a2aConnections.toolPolicy,
+      })
       .from(a2aConnections)
       .where(
         and(
-          eq(a2aConnections.id, run.actor.id),
+          eq(a2aConnections.id, connectionId),
           eq(a2aConnections.workspaceId, run.workspaceId)
         )
       )
       .limit(1);
-    return connection?.toolPolicy !== "agent_rules";
+    return !(
+      connection?.status === "active" && connection.toolPolicy === "agent_rules"
+    );
   };
   const needsApproval = async (
     principal: Principal,
@@ -793,16 +813,37 @@ export const createRequestsService = ({
       throw new ServiceError("not_found", "Request not found");
     }
     const questions = questionDisplaySchema.parse(JSON.parse(row.display));
-    const parsed = {
+    const answerOf = (text: string) => ({
       answers: Object.fromEntries(
-        questions.questions.map(({ question }) => [question, input.text])
+        questions.questions.map(({ question }) => [question, text])
       ),
-    };
+    });
+    const parsed = answerOf(input.text);
+    // The runtime hands the stored answer to the model as a tool result. The
+    // peer's text goes through the envelope, so it never reads as a member's.
+    const [connection] = await db
+      .select({
+        peerLabel: a2aConnections.peerLabel,
+        peerOrigin: a2aConnections.peerOrigin,
+      })
+      .from(a2aConnections)
+      .where(eq(a2aConnections.id, principal.connectionId))
+      .limit(1);
+    const enveloped = answerOf(
+      buildPeerEnvelope(
+        {
+          agentName: connection?.peerLabel ?? "",
+          connectionId: principal.connectionId,
+          host: peerHost(connection?.peerOrigin ?? null),
+        },
+        input.text
+      )
+    );
     const masker = await secrets.maskerFor(row.workspaceId, row.agentId);
     const [closed] = await db
       .update(runRequests)
       .set({
-        answer: JSON.stringify(runtimeAnswers(row, parsed)),
+        answer: JSON.stringify(runtimeAnswers(row, enveloped)),
         answeredAt: clock.now().toISOString(),
         answeredBy: principal.connectionId,
         answeredVia: "a2a",
