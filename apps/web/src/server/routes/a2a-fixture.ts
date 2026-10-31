@@ -2,14 +2,13 @@
 // the real route app from `mountA2aRoutes`, and helpers that send a request the
 // way an outside client does. Test code only.
 import { sqliteAtomic } from "@repo/db/atomic";
-import { a2aTasks } from "@repo/db/schema/a2a";
 import type { A2aTaskState } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
-import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono/types";
 import { type Composed, composeWith } from "../compose.ts";
@@ -20,6 +19,8 @@ export const ORIGIN = "https://hm.test";
 export const SECRETS_KEY = btoa(
   String.fromCharCode(...new Uint8Array(32).fill(7))
 );
+/** An agent's private instructions. A card or an answer that shows them is a leak. */
+export const INSTRUCTIONS = "PRIVATE-INSTRUCTIONS-NEVER-PUBLISH";
 const SKILLS = [
   {
     description: "Answers questions.",
@@ -109,6 +110,7 @@ export const createA2aFixture = async (options: A2aRoutesOptions = {}) => {
     owner: Principal = admin
   ): Promise<Published> => {
     const agent = await composed.services.agents.create(owner, {
+      instructions: INSTRUCTIONS,
       model: "fake",
       name: `Agent ${slug}`,
       runtime: "fake",
@@ -186,44 +188,32 @@ export const createA2aFixture = async (options: A2aRoutesOptions = {}) => {
    * that needs a task which stays `TASK_STATE_WORKING` makes one here, because
    * the fake runtime finishes a real run at once.
    */
-  const seedTask = async (
+  const seedTask = (
     connectionId: string,
     state: A2aTaskState,
     extra: { contextId?: string; resultText?: string; statusText?: string } = {}
   ): Promise<string> => {
     seeded += 1;
     const id = `tsk_seed${seeded}`;
-    await db.insert(a2aTasks).values({
-      connectionId,
-      contextId: extra.contextId ?? `ctx_seed${seeded}`,
-      createdAt: new Date().toISOString(),
-      id,
-      inputText: "seeded",
-      messageId: `seed-${seeded}`,
-      resultText: extra.resultText ?? null,
-      state,
-      statusText: extra.statusText ?? null,
-      updatedAt: new Date().toISOString(),
-      workspaceId,
-    });
-    return id;
+    const now = new Date().toISOString();
+    // Plain SQL: the app reaches the tables through services, and a test row
+    // with no run behind it is something no service writes.
+    db.run(
+      sql`insert into a2a_tasks (id, workspace_id, connection_id, context_id, message_id, input_text, state, status_text, result_text, created_at, updated_at) values (${id}, ${workspaceId}, ${connectionId}, ${extra.contextId ?? `ctx_seed${seeded}`}, ${`seed-${seeded}`}, ${"seeded"}, ${state}, ${extra.statusText ?? null}, ${extra.resultText ?? null}, ${now}, ${now})`
+    );
+    return Promise.resolve(id);
   };
 
   /** Moves a seeded task to a new state, as a run's events would. */
-  const moveTask = async (
+  const moveTask = (
     taskId: string,
     state: A2aTaskState,
     extra: { resultText?: string; statusText?: string } = {}
   ): Promise<void> => {
-    await db
-      .update(a2aTasks)
-      .set({
-        resultText: extra.resultText ?? null,
-        state,
-        statusText: extra.statusText ?? null,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(a2aTasks.id, taskId));
+    db.run(
+      sql`update a2a_tasks set state = ${state}, status_text = ${extra.statusText ?? null}, result_text = ${extra.resultText ?? null}, updated_at = ${new Date().toISOString()} where id = ${taskId}`
+    );
+    return Promise.resolve();
   };
 
   return {
