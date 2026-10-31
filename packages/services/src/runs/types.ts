@@ -47,6 +47,7 @@ export const replyTargetSchema = z.discriminatedUnion("kind", [
     threadTs: idString,
   }),
   z.strictObject({ kind: z.literal("inbox"), threadId: idString }),
+  z.strictObject({ kind: z.literal("a2a"), taskId: idString }),
   z.strictObject({ kind: z.literal("none") }),
 ]);
 export type ReplyTarget = z.infer<typeof replyTargetSchema>;
