@@ -3,7 +3,7 @@ id: AA.7
 title: "Agent connections pages, join page, agent profile section, Needs you items"
 milestone: AA
 size: L
-status: in_progress
+status: done
 depends_on: [AA.3]
 branch: task/AA.7-connections-ui
 lane: web
@@ -38,3 +38,4 @@ Spec: `docs/v3/agent-connections.md`, the sections "What the page shows", "Trust
 ## Log
 - 2026-10-31: created.
 - 2026-11-01: dispatched.
+- 2026-11-01: merged, review clean after 1 fix round. Three browser steps used scratch scripts because AA.4 and AA.5 weren't merged; AA.8 redoes them over real HTTP.
