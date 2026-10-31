@@ -149,13 +149,25 @@ export const createFixture = async (options: { fake?: boolean } = {}) => {
   let runs: ReturnType<typeof createRunsService>;
   let requests: ReturnType<typeof createRequestsService>;
   /** A tasks service over the same database, as `composeWith` builds one per request. */
-  const newTasks = () =>
+  const newTasks = (
+    override: {
+      answerAsPeer?: (
+        principal: Principal,
+        input: { requestId: string; text: string }
+      ) => Promise<unknown>;
+    } = {}
+  ) =>
     createA2aTasksService({
       atomic,
       clock,
       db,
       events,
-      requests: { answerAsPeer: (p, i) => requests.answerAsPeer(p, i) },
+      requests: {
+        answerAsPeer: (p, i) =>
+          override.answerAsPeer
+            ? override.answerAsPeer(p, i).then(() => undefined)
+            : requests.answerAsPeer(p, i),
+      },
       runs: {
         cancelRun: (p, id) => runs.cancelRun(p, id),
         startRun: async (p, i, o) => {

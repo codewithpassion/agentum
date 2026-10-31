@@ -592,4 +592,42 @@ describe("the marker of an answer", () => {
     );
     expect((error as Error).message).toContain("already used");
   });
+
+  test("an answer that committed and then failed keeps its marker, so the retry answers nothing more", async () => {
+    const { taskId } = await twoQuestions();
+    const flaky = f.newTasks({
+      answerAsPeer: async (principal, input) => {
+        await f.requests.answerAsPeer(principal, input);
+        throw new Error("the wake of the run failed");
+      },
+    });
+    const answer = textMessage("m2", "Yes", { taskId });
+    await rejects(flaky.sendMessage(peerOf(), answer));
+    expect(await answeredCount()).toBe(1);
+    const retry = await f.tasks.sendMessage(peerOf(), answer);
+    expect(retry.id).toBe(taskId);
+    expect(await answeredCount()).toBe(1);
+    expect(await f.db.select().from(a2aAnswerMarkers)).toHaveLength(1);
+  });
+
+  test("an answer that failed before it committed gives its marker back, so the same message id may try again", async () => {
+    const { taskId } = await twoQuestions();
+    const broken = f.newTasks({
+      answerAsPeer: () => Promise.reject(new Error("database busy")),
+    });
+    const answer = textMessage("m2", "Yes", { taskId });
+    await rejects(broken.sendMessage(peerOf(), answer));
+    expect(await f.db.select().from(a2aAnswerMarkers)).toHaveLength(0);
+    const retry = await f.tasks.sendMessage(peerOf(), answer);
+    expect(statusOf(retry)).toContain("Second?");
+    expect(await answeredCount()).toBe(1);
+  });
+
+  test("a marked message id sent without a task id returns the marked task", async () => {
+    const { first, taskId } = await twoQuestions();
+    await markAnswer(taskId, first.id, "m2");
+    const again = await f.tasks.sendMessage(peerOf(), textMessage("m2", "Yes"));
+    expect(again.id).toBe(taskId);
+    expect(await f.db.select().from(a2aTasks)).toHaveLength(1);
+  });
 });

@@ -106,8 +106,10 @@ const MINUTE_MS = 60_000;
 const MS_PER_SECOND = 1000;
 /** A task that stayed `SUBMITTED` this long with no run never will get one. */
 const NEVER_STARTED_AFTER_MS = 5 * MINUTE_MS;
-/** Tasks the minute sweep looks at in one go. */
-/** Below D1's cap of 100 bound parameters, for the one update that stamps a batch. */
+/**
+ * Tasks the minute sweep looks at in one go. Below D1's cap of 100 bound
+ * parameters, for the one update that stamps a batch.
+ */
 const SWEEP_BATCH = 50;
 const SWEEP_CONNECTIONS = 20;
 const WAITING_LIST_CAP = 200;
@@ -647,7 +649,12 @@ export const createA2aTasksService = ({
     try {
       await requests.answerAsPeer(peer, { requestId: question.id, text });
     } catch (error) {
-      await releaseAnswer(connection, messageId);
+      // Only an answer that did not land gives its marker back. One that
+      // committed and failed afterwards (the wake of the run, say) keeps it, so
+      // the peer's retry cannot answer the next question.
+      if (await questionStillOpen(question.id)) {
+        await releaseAnswer(connection, messageId);
+      }
       // Someone answered it a moment ago.
       if (!(error instanceof ServiceError && error.code === "conflict")) {
         throw error;
@@ -944,6 +951,15 @@ export const createA2aTasksService = ({
     return claimed !== undefined;
   };
 
+  const questionStillOpen = async (requestId: string): Promise<boolean> => {
+    const [row] = await db
+      .select({ status: runRequests.status })
+      .from(runRequests)
+      .where(eq(runRequests.id, requestId))
+      .limit(1);
+    return row?.status === "pending";
+  };
+
   /** Takes a marker back when the answer it announced was refused, so the peer may try again. */
   const releaseAnswer = async (
     connection: ConnectionRow,
@@ -1003,12 +1019,9 @@ export const createA2aTasksService = ({
       return toTask(existing, historyLength);
     }
     // So does a retried answer, which must not answer the next question too.
-    const marked =
-      message.taskId === undefined
-        ? null
-        : await markedTask(connection, message.messageId);
+    const marked = await markedTask(connection, message.messageId);
     if (marked !== null) {
-      if (marked !== message.taskId) {
+      if (message.taskId !== undefined && marked !== message.taskId) {
         throw new ServiceError("invalid", "That message id is already used");
       }
       return toTask(await requireTask(connection, marked), historyLength);
@@ -1646,8 +1659,13 @@ export const createA2aTasksService = ({
     // hide one that needs acting on.
     await stampSwept(disagreeing.map(({ task }) => task.id));
     for (const { resultText, runStatus, task } of disagreeing) {
-      // biome-ignore lint/performance/noAwaitInLoops: each task is one small read and one write
-      acted += (await settle(task, runStatus, resultText ?? "")) ? 1 : 0;
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: each task is one small read and one write
+        acted += (await settle(task, runStatus, resultText ?? "")) ? 1 : 0;
+      } catch (error) {
+        // One task that cannot be settled must not hold back the rest.
+        console.error("A2A task not settled", task.id, error);
+      }
     }
     const stale = new Date(
       clock.now().getTime() - NEVER_STARTED_AFTER_MS
