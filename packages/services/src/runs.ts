@@ -614,13 +614,16 @@ export const createRunsService = ({
   const refusePeerHandoffToManaged = async (
     runtime: AgentRuntime,
     parentRunId: string | null,
-    workspaceId: string
+    workspaceId: string,
+    startedByPeer: boolean
   ) => {
-    if (runtime !== "managed" || parentRunId === null) {
+    if (runtime !== "managed") {
       return;
     }
-    const parent = await loadRun(db, parentRunId, workspaceId);
-    if (parent && (await peerRootOf(db, parent)) !== null) {
+    const parent = parentRunId
+      ? await loadRun(db, parentRunId, workspaceId)
+      : null;
+    if (startedByPeer || (parent && (await peerRootOf(db, parent)) !== null)) {
       throw new ServiceError(
         "invalid",
         "An agent on the managed runtime can't take work that started with a message from a peer, because its tool calls can't be held for approval."
@@ -687,7 +690,8 @@ export const createRunsService = ({
     await refusePeerHandoffToManaged(
       agent.runtime,
       subject.parentRunId,
-      agent.workspaceId
+      agent.workspaceId,
+      principal.kind === "peer"
     );
     const fileIds = [...new Set(input.input.fileIds)];
     if (fileIds.length > 0 && subject.onBehalfOfUserId === null) {

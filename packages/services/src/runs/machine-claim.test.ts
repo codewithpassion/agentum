@@ -772,6 +772,21 @@ test("a peer run claimed by a daemon with current approvals carries currentAppro
   expect(status(started.runId)?.status).toBe("running");
 });
 
+test("a run a peer's run handed work to cannot be claimed by a daemon without current approvals either", async () => {
+  const parent = await start(agentId);
+  makePeerRun(parent.runId);
+  const child = await start(agentId);
+  db.update(runRows)
+    .set({ actorId: agentId, actorKind: "agent", parentRunId: parent.runId })
+    .where(eq(runRows.id, child.runId))
+    .run();
+
+  const error = await rejection(claim("m1", child.runId));
+
+  expect(error).toBeInstanceOf(ForbiddenError);
+  expect(status(child.runId)?.status).toBe("offered");
+});
+
 test("an ordinary user run is claimed by a daemon without current approvals", async () => {
   const started = await start(agentId);
 

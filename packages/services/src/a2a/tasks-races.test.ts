@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { a2aAgentCards, a2aConnections, a2aTasks } from "@repo/db/schema/a2a";
+import {
+  a2aAgentCards,
+  a2aConnections,
+  a2aOutbox,
+  a2aTasks,
+} from "@repo/db/schema/a2a";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { eq } from "drizzle-orm";
@@ -280,5 +285,153 @@ describe("with the fake runtime", () => {
     expect(
       (await fake.tasks.getTask(peerOf(), { id: task.id })).status.state
     ).toBe("TASK_STATE_COMPLETED");
+  });
+});
+
+describe("two callers on one task", () => {
+  const withPush = async () => {
+    await f.connect();
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Hi"));
+    await f.tasks.createPushConfig(peerOf(), {
+      config: { url: "https://hook.example.com/x" },
+      taskId: task.id,
+    });
+    return task;
+  };
+  const pushStates = async () =>
+    (await f.db.select().from(a2aOutbox))
+      .filter((row) => row.kind === "push")
+      .map((row) => JSON.parse(row.body).task.status.state as string);
+
+  test("a double approve starts one run and queues one push", async () => {
+    const task = await withPush();
+    const results = await Promise.allSettled([
+      f.tasks.approveTask(member(), task.id),
+      f.tasks.approveTask(member("u-other"), task.id),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await f.db.select().from(runRows)).toHaveLength(1);
+    expect(await pushStates()).toEqual(["TASK_STATE_SUBMITTED"]);
+  });
+
+  test("an approve against a decline has one winner, and only its push is queued", async () => {
+    const task = await withPush();
+    await Promise.allSettled([
+      f.tasks.approveTask(member(), task.id),
+      f.tasks.declineTask(member("u-other"), task.id),
+    ]);
+    const final = (await taskRow(task.id))?.state;
+    expect(["TASK_STATE_SUBMITTED", "TASK_STATE_REJECTED"]).toContain(
+      final ?? ""
+    );
+    expect(await pushStates()).toEqual([final ?? ""]);
+    const runs = await f.db.select().from(runRows);
+    expect(runs).toHaveLength(final === "TASK_STATE_SUBMITTED" ? 1 : 0);
+  });
+
+  test("a loser queues no push", async () => {
+    const task = await withPush();
+    await f.tasks.declineTask(member(), task.id);
+    await rejects(f.tasks.approveTask(member(), task.id));
+    expect(await pushStates()).toEqual(["TASK_STATE_REJECTED"]);
+  });
+});
+
+describe("a retried answer", () => {
+  test("is not taken for the answer to the next question", async () => {
+    const { runId, taskId } = await startAuto();
+    await ask(runId, "First?", "q1");
+    f.advance(1000);
+    await ask(runId, "Second?", "q2");
+    const answer = textMessage("m2", "Yes", { taskId });
+    await f.tasks.sendMessage(peerOf(), answer);
+    const again = await f.tasks.sendMessage(peerOf(), answer);
+    expect(again.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
+    expect(statusOf(again)).toContain("Second?");
+    const answered = (await f.db.select().from(runRequests)).filter(
+      (row) => row.status === "answered"
+    );
+    expect(answered).toHaveLength(1);
+  });
+});
+
+describe("a connection that ended before the tasks on it were dealt with", () => {
+  test("the sweep rejects the message that waits and cancels the run in flight", async () => {
+    const { taskId } = await startAuto();
+    await f.db
+      .update(a2aConnections)
+      .set({ inboundPolicy: "approve" })
+      .where(eq(a2aConnections.id, CONNECTION));
+    const waiting = await f.tasks.sendMessage(
+      peerOf(),
+      textMessage("m2", "Hi")
+    );
+    // Revoked with the hook never run.
+    await f.db
+      .update(a2aConnections)
+      .set({ status: "revoked" })
+      .where(eq(a2aConnections.id, CONNECTION));
+    expect(await f.tasks.sweep(f.system)).toBeGreaterThan(0);
+    expect((await taskRow(taskId))?.state).toBe("TASK_STATE_CANCELED");
+    expect((await taskRow(waiting.id))?.state).toBe("TASK_STATE_REJECTED");
+    expect(await runStatus(taskId)).toBe("cancelled");
+    expect(await f.tasks.sweep(f.system)).toBe(0);
+  });
+});
+
+describe("the sweep and the first of several questions", () => {
+  test("the status moves on to the question still open", async () => {
+    const { runId, taskId } = await startAuto();
+    const first = await ask(runId, "First?", "q1");
+    f.advance(1000);
+    await ask(runId, "Second?", "q2");
+    await f.db
+      .update(runRequests)
+      .set({ status: "cancelled" })
+      .where(eq(runRequests.id, first.id));
+    expect(await f.tasks.sweep(f.system)).toBe(1);
+    const task = await f.tasks.getTask(peerOf(), { id: taskId });
+    expect(task.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
+    expect(statusOf(task)).toContain("Second?");
+  });
+});
+
+describe("a run that fails to reach its runtime", () => {
+  test("the task fails and the run that was written is cancelled", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    f.hooks.dispatchFails = true;
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Go"));
+    expect(task.status.state).toBe("TASK_STATE_FAILED");
+    expect(await runStatus(task.id)).toBe("cancelled");
+  });
+});
+
+describe("a cancel in the gap before the run exists", () => {
+  test("the run that gets made is cancelled", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    f.hooks.beforeStartRun = async () => {
+      const [row] = await f.db.select().from(a2aTasks);
+      await f.tasks.cancelTask(peerOf(), { id: row?.id ?? "" });
+    };
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Go"));
+    expect(task.status.state).toBe("TASK_STATE_CANCELED");
+    expect(await runStatus(task.id)).toBe("cancelled");
+  });
+});
+
+describe("a peer starting a run on a managed agent", () => {
+  test("is refused by the runs service itself", async () => {
+    await f.seedAgent("a-managed", "managed");
+    const error = await rejects(
+      f.runs.startRun(
+        { ...peerOf(), agentId: "a-managed" },
+        {
+          agentId: "a-managed",
+          input: { text: "Go" },
+          session: { origin: "a2a" },
+        }
+      )
+    );
+    expect((error as Error).message).toContain("managed");
   });
 });

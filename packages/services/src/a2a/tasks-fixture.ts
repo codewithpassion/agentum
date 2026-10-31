@@ -129,10 +129,16 @@ export const createFixture = async (options: { fake?: boolean } = {}) => {
   const atomic = sqliteAtomic(db);
   const dispatched: string[] = [];
   /** A test sets `beforeStartRun` to act in the gap before a run is made. */
-  const hooks: { beforeStartRun?: () => Promise<void> } = {};
+  const hooks: {
+    beforeStartRun?: () => Promise<void>;
+    dispatchFails?: boolean;
+  } = {};
   const adapter: RuntimeAdapter = {
     cancel: () => Promise.resolve(),
     dispatch: (_db, run) => {
+      if (hooks.dispatchFails) {
+        return Promise.reject(new Error("runtime unavailable"));
+      }
       dispatched.push(run.id);
       return Promise.resolve();
     },
