@@ -1,6 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { a2aAgentCards, a2aConnections, a2aTasks } from "./schema/a2a.ts";
+import {
+  a2aAgentCards,
+  a2aConnections,
+  a2aPairingRequests,
+  a2aTasks,
+} from "./schema/a2a.ts";
 import { agents } from "./schema/agents.ts";
 import { events } from "./schema/events.ts";
 import { workspaces } from "./schema/workspaces.ts";
@@ -112,4 +117,34 @@ test("a card's public id is unique", () => {
     db.insert(a2aAgentCards).values(card("a2", "pub1")).run()
   ).toThrow("UNIQUE constraint failed");
   expect(db.select().from(a2aAgentCards).all()).toHaveLength(1);
+});
+
+test("a pairing token is unique per agent, and cards start with pairing closed", () => {
+  db.insert(a2aAgentCards).values(card("a1", "pub1")).run();
+  expect(db.select().from(a2aAgentCards).get()).toMatchObject({
+    pairingFailures: 0,
+    pairingLockedUntil: null,
+    pairingOpen: false,
+  });
+  const request = {
+    agentId: "a1",
+    codeHash: "c",
+    createdAt: NOW,
+    expiresAt: NOW,
+    tokenHash: "t",
+    tokenPrefix: "hm_a2a_ab",
+    workspaceId: "w1",
+  };
+  db.insert(a2aPairingRequests)
+    .values({ ...request, id: "p1" })
+    .run();
+  expect(() =>
+    db
+      .insert(a2aPairingRequests)
+      .values({ ...request, id: "p2" })
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  db.insert(a2aPairingRequests)
+    .values({ ...request, agentId: "a2", id: "p3" })
+    .run();
 });

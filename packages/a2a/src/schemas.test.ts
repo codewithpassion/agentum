@@ -6,6 +6,8 @@ import {
   PAIRING_EXTENSION_URI,
 } from "./extensions.ts";
 import sampleCard from "./fixtures/agent-card.json";
+import hermesCard from "./fixtures/hermes-agent-card.json";
+import hermesMessage from "./fixtures/hermes-message.json";
 import sampleTask from "./fixtures/task.json";
 import { messageSchema, partSchema } from "./messages.ts";
 import {
@@ -65,7 +67,6 @@ describe("the spec's sample Agent Card", () => {
       "supportedInterfaces",
       "defaultInputModes",
       "defaultOutputModes",
-      "skills",
     ]) {
       expect(
         agentCardSchema.safeParse({ ...sampleCard, [key]: [] }).success
@@ -385,6 +386,85 @@ describe("SecurityScheme", () => {
     expect(
       securitySchemeSchema.safeParse({ oauth2SecurityScheme: { flows: {} } })
         .success
+    ).toBe(false);
+  });
+});
+
+describe("what Hermes sends", () => {
+  test("its text message parses, mediaType and all", () => {
+    const message = messageSchema.parse(hermesMessage);
+    expect(message.parts[0]?.text).toBe("Summarise the open pull requests");
+    expect(message.parts[0]?.mediaType).toBe("text/plain");
+    expect(message.contextId).toBe("ctx-hermes-1");
+    expect(
+      sendMessageRequestSchema.safeParse({ message: hermesMessage }).success
+    ).toBe(true);
+  });
+
+  test("its card parses and reads its bearer scheme in the proto's shape", () => {
+    const card = agentCardSchema.parse(hermesCard);
+    expect(card.name).toBe("Hermes");
+    expect(card.supportedInterfaces[0]?.protocolBinding).toBe("JSONRPC");
+    expect(card.securitySchemes?.bearer).toEqual({
+      httpAuthSecurityScheme: {
+        bearerFormat: undefined,
+        description: undefined,
+        scheme: "bearer",
+      },
+    });
+    expect(card.skills).toHaveLength(2);
+  });
+
+  test("a card with no skills parses", () => {
+    expect(
+      agentCardSchema.safeParse({ ...hermesCard, skills: [] }).success
+    ).toBe(true);
+  });
+
+  test("unknown fields are ignored and dropped", () => {
+    const card = agentCardSchema.parse(hermesCard) as Record<string, unknown>;
+    expect(card.url).toBeUndefined();
+    expect(card.security).toBeUndefined();
+    const part = partSchema.parse({ future: 1, text: "hi" }) as Record<
+      string,
+      unknown
+    >;
+    expect(part.text).toBe("hi");
+    expect(part.future).toBeUndefined();
+    expect(
+      messageSchema.safeParse({ ...userMessage, somethingNew: true }).success
+    ).toBe(true);
+  });
+
+  test("the legacy http scheme is read as bearer, anything else legacy is refused", () => {
+    expect(
+      securitySchemeSchema.parse({ scheme: "bearer", type: "http" })
+    ).toMatchObject({ httpAuthSecurityScheme: { scheme: "bearer" } });
+    expect(securitySchemeSchema.safeParse({ type: "http" }).success).toBe(
+      false
+    );
+    expect(
+      securitySchemeSchema.safeParse({
+        in: "header",
+        name: "k",
+        type: "apiKey",
+      }).success
+    ).toBe(false);
+  });
+
+  test("a security requirement may be empty, as ProtoJSON writes an empty map", () => {
+    expect(
+      agentCardSchema.safeParse({ ...sampleCard, securityRequirements: [{}] })
+        .success
+    ).toBe(true);
+  });
+
+  test("a 0.3 kind part is still refused next to the tolerance", () => {
+    expect(
+      messageSchema.safeParse({
+        ...hermesMessage,
+        parts: [{ kind: "text", mediaType: "text/plain", text: "hi" }],
+      }).success
     ).toBe(false);
   });
 });

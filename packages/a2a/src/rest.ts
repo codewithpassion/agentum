@@ -77,6 +77,22 @@ const COMPILED = REST_ROUTES.map((entry) => ({
   pattern: compile(entry.path),
 }));
 
+/** A malformed escape such as `%E0%A4%A` is no route, not an exception. */
+const decodeParams = (
+  raw: Record<string, string>
+): Record<string, string> | null => {
+  try {
+    return Object.fromEntries(
+      Object.entries(raw).map(([key, value]) => [
+        key,
+        decodeURIComponent(value),
+      ])
+    );
+  } catch {
+    return null;
+  }
+};
+
 export interface RestMatch {
   params: Record<string, string>;
   route: RestRoute;
@@ -96,13 +112,12 @@ export const matchRestRoute = (
     }
     const found = pattern.exec(path);
     if (found) {
+      const params = decodeParams(found.groups ?? {});
+      if (!params) {
+        return null;
+      }
       return {
-        params: Object.fromEntries(
-          Object.entries(found.groups ?? {}).map(([key, value]) => [
-            key,
-            decodeURIComponent(value),
-          ])
-        ),
+        params,
         route: entry,
       };
     }

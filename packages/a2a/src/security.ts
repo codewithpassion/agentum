@@ -86,6 +86,29 @@ export const mutualTlsSecuritySchemeSchema = z.object({
   description: z.string().optional(),
 });
 
+/**
+ * Hermes declares `{"type": "http", "scheme": "bearer"}`, the 0.3 shape, where
+ * the proto has `{"httpAuthSecurityScheme": {"scheme": "bearer"}}`. Read the
+ * first as the second. Only the http type is mapped. Our own cards use the
+ * proto's shape.
+ */
+const readLegacyHttpScheme = (value: unknown): unknown => {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "http" &&
+    typeof (value as { scheme?: unknown }).scheme === "string"
+  ) {
+    const { bearerFormat, description, scheme } = value as {
+      bearerFormat?: string;
+      description?: string;
+      scheme: string;
+    };
+    return { httpAuthSecurityScheme: { bearerFormat, description, scheme } };
+  }
+  return value;
+};
+
 const SECURITY_SCHEME_KEYS = [
   "apiKeySecurityScheme",
   "httpAuthSecurityScheme",
@@ -94,18 +117,24 @@ const SECURITY_SCHEME_KEYS = [
   "mtlsSecurityScheme",
 ] as const;
 
-/** Named by its member, as the proto's `oneof scheme`. Holds exactly one. */
-export const securitySchemeSchema = z
-  .object({
-    apiKeySecurityScheme: apiKeySecuritySchemeSchema.optional(),
-    httpAuthSecurityScheme: httpAuthSecuritySchemeSchema.optional(),
-    mtlsSecurityScheme: mutualTlsSecuritySchemeSchema.optional(),
-    oauth2SecurityScheme: oAuth2SecuritySchemeSchema.optional(),
-    openIdConnectSecurityScheme: openIdConnectSecuritySchemeSchema.optional(),
-  })
-  .refine(exactlyOneOf(SECURITY_SCHEME_KEYS), {
-    message: "A security scheme holds exactly one scheme",
-  });
+/**
+ * Named by its member, as the proto's `oneof scheme`. Holds exactly one. The
+ * legacy http form is accepted too and comes out as `httpAuthSecurityScheme`.
+ */
+export const securitySchemeSchema = z.preprocess(
+  readLegacyHttpScheme,
+  z
+    .object({
+      apiKeySecurityScheme: apiKeySecuritySchemeSchema.optional(),
+      httpAuthSecurityScheme: httpAuthSecuritySchemeSchema.optional(),
+      mtlsSecurityScheme: mutualTlsSecuritySchemeSchema.optional(),
+      oauth2SecurityScheme: oAuth2SecuritySchemeSchema.optional(),
+      openIdConnectSecurityScheme: openIdConnectSecuritySchemeSchema.optional(),
+    })
+    .refine(exactlyOneOf(SECURITY_SCHEME_KEYS), {
+      message: "A security scheme holds exactly one scheme",
+    })
+);
 export type SecurityScheme = z.infer<typeof securitySchemeSchema>;
 
 /** `StringList` in the proto: the scopes one scheme needs. */
@@ -113,6 +142,6 @@ const stringListSchema = z.object({ list: z.array(z.string()).optional() });
 
 /** Maps a scheme name from `securitySchemes` to the scopes it needs. */
 export const securityRequirementSchema = z.object({
-  schemes: z.record(z.string(), stringListSchema),
+  schemes: z.record(z.string(), stringListSchema).default({}),
 });
 export type SecurityRequirement = z.infer<typeof securityRequirementSchema>;

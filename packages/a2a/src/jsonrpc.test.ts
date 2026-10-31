@@ -59,6 +59,22 @@ describe("JSON-RPC", () => {
     });
   });
 
+  test("an error without data, as Hermes sends, parses with its code and message", () => {
+    const body =
+      '{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"no such task"}}';
+    expect(parseJsonRpcResponse(body)).toEqual({
+      error: { code: -32_001, message: "no such task" },
+      id: 1,
+      type: "error",
+    });
+  });
+
+  test("an error whose data is not an array still parses", () => {
+    const body =
+      '{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"x","data":"why"}}';
+    expect(parseJsonRpcResponse(body).type).toBe("error");
+  });
+
   test("a body that is not JSON is a JSONParseError with a null id", () => {
     const parsed = parseJsonRpcRequest("{nope");
     expect(parsed.ok).toBe(false);

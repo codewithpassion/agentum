@@ -40,7 +40,7 @@ export type JsonRpcRequest = z.infer<typeof jsonRpcRequestSchema>;
 
 const errorObjectSchema = z.object({
   code: z.number().int(),
-  data: z.array(z.record(z.string(), z.json())).optional(),
+  data: z.json().optional(),
   message: z.string(),
 });
 

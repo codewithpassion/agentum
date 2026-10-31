@@ -1,0 +1,8 @@
+{
+  "role": "ROLE_USER",
+  "parts": [
+    { "text": "Summarise the open pull requests", "mediaType": "text/plain" }
+  ],
+  "messageId": "3f9c1c9a5b7e4c1f9d2a6e8b0c4d7a11",
+  "contextId": "ctx-hermes-1"
+}

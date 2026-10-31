@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f4f73b9c-0335-458b-88d2-c02f09347323",
+  "id": "f45c97e6-652c-4859-8396-ffc626556c1c",
   "prevId": "1f0c2f48-bea1-43ec-847f-3fff0db0bc82",
   "tables": {
     "a2a_agent_cards": {
@@ -27,6 +27,29 @@
           "primaryKey": true,
           "notNull": true,
           "autoincrement": false
+        },
+        "pairing_failures": {
+          "name": "pairing_failures",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "pairing_locked_until": {
+          "name": "pairing_locked_until",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pairing_open": {
+          "name": "pairing_open",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "public_id": {
           "name": "public_id",
@@ -649,6 +672,97 @@
         "a2a_outbox_workspace_id_workspaces_id_fk": {
           "name": "a2a_outbox_workspace_id_workspaces_id_fk",
           "tableFrom": "a2a_outbox",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "a2a_pairing_requests": {
+      "name": "a2a_pairing_requests",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "code_hash": {
+          "name": "code_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_prefix": {
+          "name": "token_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "a2a_pairing_requests_agent_token_unique": {
+          "name": "a2a_pairing_requests_agent_token_unique",
+          "columns": ["agent_id", "token_hash"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "a2a_pairing_requests_agent_id_agents_id_fk": {
+          "name": "a2a_pairing_requests_agent_id_agents_id_fk",
+          "tableFrom": "a2a_pairing_requests",
+          "tableTo": "agents",
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "a2a_pairing_requests_workspace_id_workspaces_id_fk": {
+          "name": "a2a_pairing_requests_workspace_id_workspaces_id_fk",
+          "tableFrom": "a2a_pairing_requests",
           "tableTo": "workspaces",
           "columnsFrom": ["workspace_id"],
           "columnsTo": ["id"],

@@ -20,7 +20,7 @@ export const agentExtensionSchema = z.object({
   description: z.string().optional(),
   params: structSchema.optional(),
   required: z.boolean().optional(),
-  uri: z.string().min(1),
+  uri: z.string(),
 });
 export type AgentExtension = z.infer<typeof agentExtensionSchema>;
 
@@ -53,8 +53,10 @@ export const agentCardSignatureSchema = z.object({
 
 /**
  * Arrays the proto marks required must hold at least one element (spec
- * section 5.7). A 0.3 card, with its top-level `url` and `protocolVersion`
- * and no `supportedInterfaces`, fails here.
+ * section 5.7), except `skills`: Hermes publishes `"skills": []` when it has
+ * none, and refusing its card would refuse the peer. Unknown fields, such as
+ * Hermes's `url`, `security` and `stateTransitionHistory`, are ignored. A 0.3
+ * card with no `supportedInterfaces` fails here.
  */
 export const agentCardSchema = z.object({
   capabilities: agentCapabilitiesSchema,
@@ -68,7 +70,7 @@ export const agentCardSchema = z.object({
   securityRequirements: z.array(securityRequirementSchema).optional(),
   securitySchemes: z.record(z.string(), securitySchemeSchema).optional(),
   signatures: z.array(agentCardSignatureSchema).optional(),
-  skills: z.array(agentSkillSchema).min(1),
+  skills: z.array(agentSkillSchema),
   supportedInterfaces: z.array(agentInterfaceSchema).min(1),
   version: z.string().min(1),
 });

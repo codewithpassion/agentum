@@ -1,0 +1,41 @@
+{
+  "name": "Hermes",
+  "description": "A Hermes agent on Sam's box",
+  "url": "https://hermes.example.com/a2a",
+  "version": "1.0.0",
+  "provider": {
+    "organization": "Hermes Agent",
+    "url": "https://hermes.example.com/a2a"
+  },
+  "supportedInterfaces": [
+    {
+      "url": "https://hermes.example.com/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false,
+    "extendedAgentCard": false
+  },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [
+    {
+      "id": "toolset.terminal",
+      "name": "terminal",
+      "description": "Hermes 'terminal' capabilities",
+      "tags": ["terminal", "run_command"]
+    },
+    {
+      "id": "toolset.web",
+      "name": "web",
+      "description": "Hermes 'web' capabilities",
+      "tags": ["web"]
+    }
+  ],
+  "securitySchemes": { "bearer": { "type": "http", "scheme": "bearer" } },
+  "security": [{ "bearer": [] }]
+}

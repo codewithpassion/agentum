@@ -39,6 +39,14 @@ export const a2aAgentCards = sqliteTable(
     // The text the owner reviewed when publishing.
     description: text("description").notNull(),
     id: id(),
+    // Wrong pairing codes since the last good one. The lock follows a run of them.
+    pairingFailures: integer("pairing_failures").notNull().default(0),
+    // Set while the lock is on. Pairing with a code is refused until then.
+    pairingLockedUntil: text("pairing_locked_until"),
+    // Whether outside clients may ask to pair with this agent by code.
+    pairingOpen: integer("pairing_open", { mode: "boolean" })
+      .notNull()
+      .default(false),
     // Random, and part of the card URL, so it is unguessable and unique.
     publicId: text("public_id").notNull(),
     publishedAt: text("published_at").notNull(),
@@ -54,6 +62,36 @@ export const a2aAgentCards = sqliteTable(
   (t) => [
     uniqueIndex("a2a_agent_cards_agent_id_unique").on(t.agentId),
     uniqueIndex("a2a_agent_cards_public_id_unique").on(t.publicId),
+  ]
+);
+
+/**
+ * An outside client that paired with a published agent by code and waits for a
+ * person to approve it. Both the code and the token the client chose are kept
+ * as SHA-256 hashes, so neither can be read back.
+ */
+export const a2aPairingRequests = sqliteTable(
+  "a2a_pairing_requests",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    createdAt: createdAt(),
+    expiresAt: text("expires_at").notNull(),
+    id: id(),
+    tokenHash: text("token_hash").notNull(),
+    // The start of the token, so requests can be told apart in a list.
+    tokenPrefix: text("token_prefix").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id, {
+      onDelete: "cascade",
+    }),
+  },
+  (t) => [
+    uniqueIndex("a2a_pairing_requests_agent_token_unique").on(
+      t.agentId,
+      t.tokenHash
+    ),
   ]
 );
 

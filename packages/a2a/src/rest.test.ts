@@ -83,6 +83,10 @@ describe("the REST route table", () => {
     expect(matchRestRoute("POST", "/tasks/t1:other")).toBeNull();
   });
 
+  test("a malformed escape in an id matches nothing and does not throw", () => {
+    expect(matchRestRoute("GET", "/tasks/%E0%A4%A")).toBeNull();
+  });
+
   test("a wrong verb or an unknown path matches nothing", () => {
     expect(matchRestRoute("GET", "/message:send")).toBeNull();
     expect(matchRestRoute("DELETE", "/tasks/t1")).toBeNull();

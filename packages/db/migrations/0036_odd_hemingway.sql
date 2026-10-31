@@ -2,6 +2,9 @@ CREATE TABLE `a2a_agent_cards` (
 	`agent_id` text NOT NULL,
 	`description` text NOT NULL,
 	`id` text PRIMARY KEY NOT NULL,
+	`pairing_failures` integer DEFAULT 0 NOT NULL,
+	`pairing_locked_until` text,
+	`pairing_open` integer DEFAULT false NOT NULL,
 	`public_id` text NOT NULL,
 	`published_at` text NOT NULL,
 	`published_by` text NOT NULL,
@@ -95,6 +98,20 @@ CREATE TABLE `a2a_outbox` (
 );
 --> statement-breakpoint
 CREATE INDEX `a2a_outbox_next_attempt_idx` ON `a2a_outbox` (`next_attempt_at`);--> statement-breakpoint
+CREATE TABLE `a2a_pairing_requests` (
+	`agent_id` text NOT NULL,
+	`code_hash` text NOT NULL,
+	`created_at` text NOT NULL,
+	`expires_at` text NOT NULL,
+	`id` text PRIMARY KEY NOT NULL,
+	`token_hash` text NOT NULL,
+	`token_prefix` text NOT NULL,
+	`workspace_id` text NOT NULL,
+	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `a2a_pairing_requests_agent_token_unique` ON `a2a_pairing_requests` (`agent_id`,`token_hash`);--> statement-breakpoint
 CREATE TABLE `a2a_push_configs` (
 	`authentication` text,
 	`created_at` text NOT NULL,

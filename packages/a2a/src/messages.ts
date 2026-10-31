@@ -9,13 +9,16 @@ const PART_CONTENT_KEYS = ["text", "raw", "url", "data"] as const;
 
 /**
  * One of `text`, `raw` (base64), `url` or `data`, named by the member itself.
- * 1.0 has no `kind` discriminator, so the object is strict and a 0.3 part
- * (`{"kind": "text", "text": "..."}`) is refused.
+ * `mediaType` and `filename` ride along on any of them, so Hermes's
+ * `{"text": "...", "mediaType": "text/plain"}` is a text part. Unknown fields
+ * are ignored (spec 5.7). 1.0 has no `kind` discriminator, so a part that
+ * carries one, a 0.3 `{"kind": "text", "text": "..."}`, is refused.
  */
 export const partSchema = z
-  .strictObject({
+  .object({
     data: z.json().optional(),
     filename: z.string().optional(),
+    kind: z.never().optional(),
     mediaType: z.string().optional(),
     metadata: structSchema.optional(),
     raw: z.string().optional(),
