@@ -35,6 +35,7 @@ const INSTRUCTIONS = "TOP-SECRET-INSTRUCTIONS-DO-NOT-LEAK";
 const OUTSIDE_CARD_URL =
   "https://agent.example.com/.well-known/agent-card.json";
 const OUTSIDE_SECRET = "sk-outside-agent-credential-12345";
+const OAUTH_SECRET = "oauth-client-secret-67890";
 const CHECK_CODE = /^[A-HJ-NP-Z2-9]{8}$/;
 
 const session = (
@@ -756,6 +757,20 @@ describe("who may act", () => {
       expect(rowOf(pending.aliceId)?.status).toBe("needs_approval");
     });
 
+    test(`${name} is refused on revoke, decline and refresh`, async () => {
+      const pending = await toNeedsApproval();
+      await expect(
+        service.revoke(principal, pending.aliceId)
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        service.decline(principal, pending.aliceId)
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        service.refreshCard(principal, pending.aliceId)
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(rowOf(pending.aliceId)?.status).toBe("needs_approval");
+    });
+
     test(`${name} is refused on widen`, async () => {
       const pending = await pairFully();
       await expect(
@@ -973,7 +988,27 @@ describe("secrets at rest", () => {
       agentId: AGENT_X,
       label: "Hermes",
     });
-    await service.revoke(memberA, outbound.id);
+    peerCard = outsideCard({
+      securityRequirements: [{ schemes: { oauth: { list: [] } } }],
+      securitySchemes: {
+        oauth: {
+          oauth2SecurityScheme: {
+            flows: {
+              clientCredentials: {
+                scopes: {},
+                tokenUrl: "https://idp.example.com/token",
+              },
+            },
+          },
+        },
+      },
+    });
+    await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: "https://oauth.example.com/.well-known/agent-card.json",
+      credential: { clientId: "client-id-123", clientSecret: OAUTH_SECRET },
+    });
+    expect(rowOf(outbound.id)?.outboundCredential).toStartWith("v1:");
     const inviteSecret = pending.inviteLink.split("/connect/")[1] ?? "";
     const [token] = await db
       .select()
@@ -985,6 +1020,7 @@ describe("secrets at rest", () => {
       pending.bobToken,
       key.token,
       OUTSIDE_SECRET,
+      OAUTH_SECRET,
       pending.inviteLink,
     ];
     const tables = db.client
@@ -1041,5 +1077,188 @@ describe("secrets at rest", () => {
       .from(a2aAgentCards)
       .where(eq(a2aAgentCards.agentId, AGENT_X));
     expect(stored).toHaveLength(1);
+  });
+});
+
+describe("hardening", () => {
+  /** A service whose transport answers as the test says. */
+  const withTransport = (join: PairingTransport["join"]) =>
+    createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      publicBaseUrl: BASE,
+      secretsKey: SECRETS_KEY,
+      transport: { activate: () => Promise.resolve(), join },
+    });
+
+  test("an inviter cannot answer with a card from another host than its link", async () => {
+    await publishBoth();
+    const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+    const aliceCard = await publishedFor(ownerA, AGENT_X);
+    const liar = withTransport(() =>
+      Promise.resolve({
+        agentName: "Agent X",
+        cardUrl: aliceCard.cardUrl,
+        orgName: "Alice Org",
+      })
+    );
+    await expect(
+      liar.joinWithLink(ownerB, {
+        agentId: AGENT_Y,
+        link: invite.link.replace(BASE, "https://evil.example"),
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(await service.list(ownerB)).toHaveLength(0);
+  });
+
+  test("an OAuth token URL on a private address is refused", async () => {
+    peerCard = outsideCard({
+      securityRequirements: [{ schemes: { oauth: { list: [] } } }],
+      securitySchemes: {
+        oauth: {
+          oauth2SecurityScheme: {
+            flows: {
+              clientCredentials: {
+                scopes: {},
+                tokenUrl: "http://169.254.169.254/latest/token",
+              },
+            },
+          },
+        },
+      },
+    });
+    await expect(
+      service.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: OUTSIDE_CARD_URL,
+        credential: { clientId: "id", clientSecret: "secret" },
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(await db.select().from(a2aConnections)).toHaveLength(0);
+  });
+
+  test("a refresh that races a revoke leaves the connection revoked", async () => {
+    let connectionId = "";
+    const racing = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      fetchCard: async () => {
+        await service.revoke(memberA, connectionId);
+        return outsideCard({
+          supportedInterfaces: [
+            {
+              protocolBinding: "JSONRPC",
+              protocolVersion: "1.0",
+              url: "https://elsewhere.example.org/rpc",
+            },
+          ],
+        });
+      },
+      publicBaseUrl: BASE,
+      secretsKey: SECRETS_KEY,
+    });
+    connectionId = (
+      await service.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: OUTSIDE_CARD_URL,
+        credential: OUTSIDE_SECRET,
+      })
+    ).id;
+    const refreshed = await racing.refreshCard(ownerA, connectionId);
+    expect(refreshed.status).toBe("revoked");
+    await expect(service.approve(ownerA, connectionId)).rejects.toBeInstanceOf(
+      ServiceError
+    );
+  });
+
+  test("a changed credential scheme sends the connection back to a person", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    peerCard = outsideCard({
+      securityRequirements: [],
+      securitySchemes: undefined,
+    });
+    const refreshed = await service.refreshCard(ownerA, connection.id);
+    expect(refreshed.status).toBe("needs_approval");
+    await expect(service.approve(ownerA, connection.id)).rejects.toBeInstanceOf(
+      ServiceError
+    );
+  });
+
+  test("a repeated activation with the same token succeeds and another token does not", async () => {
+    const paired = await pairFully();
+    await service.activate(paired.bobToken, { token: paired.aliceToken });
+    await expect(
+      service.activate(paired.bobToken, { token: "hm_a2a_".padEnd(48, "q") })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(rowOf(paired.bobId)?.status).toBe("active");
+  });
+
+  test("a revoke from needs_approval reaches a joiner still waiting", async () => {
+    const pending = await toNeedsApproval();
+    await service.revoke(memberA, pending.aliceId);
+    const [notice] = await db
+      .select()
+      .from(a2aOutbox)
+      .where(eq(a2aOutbox.kind, "pair_revoke"));
+    expect(notice?.connectionId).toBe(pending.aliceId);
+    await service.peerRevoked(pending.bobToken);
+    expect(rowOf(pending.bobId)?.status).toBe("revoked");
+    // A retried notice is not an error.
+    await service.peerRevoked(pending.bobToken);
+  });
+
+  test("a notice that cannot be queued does not skip the event or the hook", async () => {
+    const paired = await pairFully();
+    const wrongKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
+    const unreadable = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      publicBaseUrl: BASE,
+      secretsKey: wrongKey,
+    });
+    const seen: string[] = [];
+    unreadable.onRevoked((revoked) => {
+      seen.push(revoked.connectionId);
+      return Promise.resolve();
+    });
+    await unreadable.revoke(memberA, paired.aliceId);
+    expect(rowOf(paired.aliceId)?.status).toBe("revoked");
+    expect(seen).toEqual([paired.aliceId]);
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_revoked"));
+    expect(logged).toHaveLength(1);
+  });
+
+  test("an agent's owner takes precedence over the person who created it", async () => {
+    db.update(agentRows)
+      .set({ ownerUserId: "u-delegate" })
+      .where(eq(agentRows.id, AGENT_X))
+      .run();
+    // The creator is no longer the owner, so the creator cannot publish.
+    await expect(
+      service.publish(ownerA, {
+        agentId: AGENT_X,
+        description: "d",
+        skills: SKILLS,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    const delegate = session("u-delegate", W_ALICE);
+    await service.publish(delegate, {
+      agentId: AGENT_X,
+      description: "d",
+      skills: SKILLS,
+    });
   });
 });

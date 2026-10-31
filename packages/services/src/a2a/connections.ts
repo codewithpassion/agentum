@@ -39,8 +39,10 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   isNull,
+  lt,
   notInArray,
   sql,
 } from "drizzle-orm";
@@ -50,6 +52,7 @@ import { type AgentRecord, findAgent, slugify } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { checkUrl } from "../connectors/safe-url.ts";
 import {
+  constantTimeEqual,
   decryptSecret,
   encryptSecret,
   hashedToken,
@@ -242,7 +245,7 @@ export interface ConnectionSummary {
   agentName: string;
   approvedAt: string | null;
   approvedBy: string | null;
-  /** Shown while the connection waits for the people on both sides to compare it. */
+  /** What both people compare while the connection is pending. It stays after. */
   checkCode: string | null;
   createdAt: string;
   createdBy: string;
@@ -795,7 +798,14 @@ export const createConnectionsService = ({
         )
       );
     if (by.notify) {
-      await queueNotice(row, "pair_revoke", "/pair/revoke");
+      // The access has ended whether or not the peer is told, so a notice that
+      // cannot be queued (an unreadable credential, say) must not skip the
+      // event or the hook below.
+      try {
+        await queueNotice(row, "pair_revoke", "/pair/revoke");
+      } catch {
+        console.error("A2A revoke notice not queued", row.id);
+      }
     }
     await record({
       actor: by.actor,
@@ -835,11 +845,16 @@ export const createConnectionsService = ({
         )
       );
     for (const row of live) {
-      // biome-ignore lint/performance/noAwaitInLoops: one connection at a time keeps the log in order
-      await endConnection(row, {
-        actor: event.actor.kind === "user" ? event.actor : SYSTEM_ACTOR,
-        notify: true,
-      });
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: one connection at a time keeps the log in order
+        await endConnection(row, {
+          actor: event.actor.kind === "user" ? event.actor : SYSTEM_ACTOR,
+          notify: true,
+        });
+      } catch (error) {
+        // One failing row must not leave the others live.
+        console.error("A2A archive revoke failed", row.id, error);
+      }
     }
   });
 
@@ -1059,7 +1074,7 @@ export const createConnectionsService = ({
       payload: {
         connectionId: row.id,
         dead,
-        failures: counted?.failures ?? INVITE_MAX_FAILURES,
+        failures: counted?.failures ?? row.inviteFailures,
       },
       type: "a2a.invite_failed",
       workspaceId: row.workspaceId,
@@ -1100,6 +1115,9 @@ export const createConnectionsService = ({
       throw new ServiceError("not_found", INVITE_REFUSED);
     }
     const body = pairJoinBodySchema.parse(input);
+    // Everything that can fail comes before the claim, which uses the invite up.
+    const base = requireBase();
+    const agent = await requireActiveAgent(row.localAgentId, row.workspaceId);
     const card = await requirePublished(row.localAgentId);
     const peer = await vetPeer(body.cardUrl, body.orgName, row.workspaceId);
     await refuseDuplicate(row.localAgentId, body.cardUrl, row.id);
@@ -1122,7 +1140,9 @@ export const createConnectionsService = ({
         and(
           eq(a2aConnections.id, row.id),
           eq(a2aConnections.status, "inviting"),
-          eq(a2aConnections.inviteTokenHash, row.inviteTokenHash)
+          eq(a2aConnections.inviteTokenHash, row.inviteTokenHash),
+          lt(a2aConnections.inviteFailures, INVITE_MAX_FAILURES),
+          gt(a2aConnections.inviteExpiresAt, nowIso())
         )
       )
       .returning({ id: a2aConnections.id });
@@ -1140,10 +1160,9 @@ export const createConnectionsService = ({
       type: "a2a.connection_requested",
       workspaceId: row.workspaceId,
     });
-    const agent = await requireActiveAgent(row.localAgentId, row.workspaceId);
     return {
       agentName: agent.name,
-      cardUrl: cardUrlOf(requireBase(), card.publicId),
+      cardUrl: cardUrlOf(base, card.publicId),
       orgName: await workspaceName(row.workspaceId),
     };
   };
@@ -1187,6 +1206,7 @@ export const createConnectionsService = ({
         "Connection is not waiting for approval"
       );
     }
+    await requirePublished(row.localAgentId);
     const bearer = await unseal(credentialBinding(row), row.outboundCredential);
     const minted = await hashedToken(ACCESS_TOKEN_PREFIX);
     const url = `${interfaceBaseOfCardUrl(row.peerCardUrl)}/pair/activate`;
@@ -1339,6 +1359,13 @@ export const createConnectionsService = ({
       type: "a2a.connection_declined",
       workspaceId: row.workspaceId,
     });
+    // A declined re-approval of an outside agent may have tasks to end.
+    await fireRevoked({
+      agentId: row.localAgentId,
+      connectionId: row.id,
+      peerKind: row.peerKind,
+      workspaceId: row.workspaceId,
+    });
     return await requireSummary(row.id, user.workspaceId);
   };
 
@@ -1384,6 +1411,14 @@ export const createConnectionsService = ({
         origin: parsed.origin,
       })
     );
+    // The inviter answers for itself. A card on another origin would borrow the
+    // identity of an agent whose host never spoke to us.
+    if (new URL(answer.cardUrl).origin !== parsed.origin) {
+      throw new ServiceError(
+        "invalid",
+        "The inviter named an agent on a different host than the invite link"
+      );
+    }
     const peer = await vetPeer(
       answer.cardUrl,
       answer.orgName,
@@ -1453,8 +1488,26 @@ export const createConnectionsService = ({
     bearer: string,
     input: PairActivateBody
   ): Promise<void> => {
-    const row = await rowByInboundToken(bearer, ["awaiting_peer"]);
+    const row = await rowByInboundToken(bearer, ["awaiting_peer", "active"]);
     const body = pairActivateBodySchema.parse(input);
+    if (row.status === "active") {
+      // A retry after a lost answer brings the same token and changes nothing.
+      const held = row.outboundCredential
+        ? await unseal(credentialBinding(row), row.outboundCredential)
+        : "";
+      if (
+        !constantTimeEqual(
+          new TextEncoder().encode(held),
+          new TextEncoder().encode(body.token)
+        )
+      ) {
+        throw new ServiceError(
+          "conflict",
+          "Connection is not waiting for activation"
+        );
+      }
+      return;
+    }
     const activated = await db
       .update(a2aConnections)
       .set({
@@ -1645,6 +1698,10 @@ export const createConnectionsService = ({
         `That agent wants ${choice.wanted}, which Harbourmaster does not support`
       );
     }
+    if (choice.scheme.kind === "oauth2_client_credentials") {
+      // The client secret goes to this URL, so it passes the guard too.
+      vetUrl(choice.scheme.tokenUrl);
+    }
     const secret = credentialText(choice.scheme, credential);
     const id = `con_${ulid(clock.now().getTime())}`;
     const now = nowIso();
@@ -1689,6 +1746,36 @@ export const createConnectionsService = ({
     return await requireSummary(id, user.workspaceId);
   };
 
+  /** The live outside-agent connection a refresh acts on, with its card URL. */
+  const refreshable = async (
+    actor: SessionUser | { kind: "system" },
+    connectionId: string
+  ): Promise<ConnectionRow & { peerCardUrl: string }> => {
+    let found: ConnectionRow | null | undefined;
+    if (actor.kind === "user") {
+      authorize(actor, REFRESH_ACTION, {
+        id: connectionId,
+        kind: CONNECTION_KIND,
+        workspaceId: actor.workspaceId,
+      });
+      found = await requireRow(connectionId, actor.workspaceId);
+    } else {
+      [found] = await db
+        .select()
+        .from(a2aConnections)
+        .where(eq(a2aConnections.id, connectionId))
+        .limit(1);
+    }
+    if (
+      found?.peerKind !== "a2a_outbound" ||
+      !found.peerCardUrl ||
+      ENDED.includes(found.status)
+    ) {
+      throw new ServiceError("not_found", "Connection not found");
+    }
+    return { ...found, peerCardUrl: found.peerCardUrl };
+  };
+
   /**
    * Fetches the card of an outside agent again. When its interface moved to
    * another origin the connection goes back to `needs_approval`, and the
@@ -1703,55 +1790,58 @@ export const createConnectionsService = ({
       principal.kind === "system"
         ? principal
         : requireSession(principal, REFRESH_ACTION);
-    if (actor.kind === "user") {
-      authorize(actor, REFRESH_ACTION, {
-        id: connectionId,
-        kind: CONNECTION_KIND,
-        workspaceId: actor.workspaceId,
-      });
-    }
-    const [found] =
-      actor.kind === "user"
-        ? [await requireRow(connectionId, actor.workspaceId)]
-        : await db
-            .select()
-            .from(a2aConnections)
-            .where(eq(a2aConnections.id, connectionId))
-            .limit(1);
-    if (
-      found?.peerKind !== "a2a_outbound" ||
-      !found.peerCardUrl ||
-      ENDED.includes(found.status)
-    ) {
-      throw new ServiceError("not_found", "Connection not found");
-    }
+    const found = await refreshable(actor, connectionId);
     const card = await fetchPeerCard(found.peerCardUrl);
     const peerInterface = chooseInterface(card);
-    const moved = peerInterface?.origin !== found.peerOrigin;
+    const earlier = parseStoredCard(found.peerCard);
+    const originMoved = peerInterface?.origin !== found.peerOrigin;
+    const schemeChanged =
+      JSON.stringify(earlier ? chooseOutboundScheme(earlier) : null) !==
+      JSON.stringify(chooseOutboundScheme(card));
+    // Neither update may touch a connection that ended while the card was fetched.
     await db
       .update(a2aConnections)
-      .set({
-        peerCard: JSON.stringify(card),
-        peerCardFetchedAt: nowIso(),
-        ...(moved && found.status === "active"
-          ? { status: "needs_approval" as const }
-          : {}),
-      })
-      .where(eq(a2aConnections.id, found.id));
-    if (moved && found.status === "active") {
-      await record({
-        actor: actorOf(actor),
-        agentId: found.localAgentId,
-        payload: {
-          connectionId: found.id,
-          from: found.peerOrigin,
-          to: peerInterface ? peerInterface.origin : null,
-        },
-        type: "a2a.connection_reapproval_needed",
-        workspaceId: found.workspaceId,
-      });
+      .set({ peerCard: JSON.stringify(card), peerCardFetchedAt: nowIso() })
+      .where(
+        and(
+          eq(a2aConnections.id, found.id),
+          notInArray(a2aConnections.status, [...ENDED])
+        )
+      );
+    if (originMoved || schemeChanged) {
+      const [flipped] = await db
+        .update(a2aConnections)
+        .set({ status: "needs_approval" })
+        .where(
+          and(
+            eq(a2aConnections.id, found.id),
+            eq(a2aConnections.status, "active")
+          )
+        )
+        .returning({ id: a2aConnections.id });
+      if (flipped) {
+        await record({
+          actor: actorOf(actor),
+          agentId: found.localAgentId,
+          payload: {
+            connectionId: found.id,
+            from: found.peerOrigin,
+            reason: originMoved ? "origin" : "scheme",
+            to: peerInterface ? peerInterface.origin : null,
+          },
+          type: "a2a.connection_reapproval_needed",
+          workspaceId: found.workspaceId,
+        });
+      }
     }
     return await requireSummary(found.id, found.workspaceId);
+  };
+
+  const parseStoredCard = (stored: string | null) => {
+    const parsed = stored
+      ? agentCardSchema.safeParse(JSON.parse(stored))
+      : null;
+    return parsed?.success ? parsed.data : null;
   };
 
   /** A person approves the origin a refreshed card now names. */
@@ -1759,17 +1849,23 @@ export const createConnectionsService = ({
     user: SessionUser,
     row: ConnectionRow
   ): Promise<ConnectionSummary> => {
-    const card = row.peerCard
-      ? agentCardSchema.safeParse(JSON.parse(row.peerCard))
-      : null;
-    const peerInterface = card?.success ? chooseInterface(card.data) : null;
-    if (!peerInterface) {
+    const card = parseStoredCard(row.peerCard);
+    const peerInterface = card ? chooseInterface(card) : null;
+    if (!(card && peerInterface)) {
       throw new ServiceError(
         "conflict",
         "The agent's card has no usable interface"
       );
     }
     vetUrl(peerInterface.url);
+    const scheme = chooseOutboundScheme(card);
+    if (!scheme.ok || schemeLabel(scheme.scheme) !== row.outboundScheme) {
+      // The stored credential is for the old scheme. Adding the agent again takes the right one.
+      throw new ServiceError(
+        "conflict",
+        "The agent now wants a different kind of credential. Remove it and add it again."
+      );
+    }
     const approved = await db
       .update(a2aConnections)
       .set({
@@ -1909,7 +2005,12 @@ export const createConnectionsService = ({
    * send nothing back.
    */
   const peerRevoked = async (bearer: string): Promise<void> => {
-    const row = await rowByInboundToken(bearer, ["activating", "active"]);
+    const row = await rowByInboundToken(bearer, [
+      "awaiting_peer",
+      "activating",
+      "active",
+      "revoked",
+    ]);
     await endConnection(row, { actor: peerActor(row), notify: false });
   };
 
