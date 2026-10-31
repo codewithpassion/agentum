@@ -9,6 +9,10 @@ import { type Atomic, d1Atomic } from "@repo/db/atomic";
 import type { ModelProvider } from "@repo/db/shared";
 import { TRANSFER_HELPER_SOURCE } from "@repo/library-sync/transfer-bundle";
 import type { GithubSkillFetcher } from "@repo/protocol/skills";
+import {
+  type ConnectionsService,
+  createConnectionsService,
+} from "@repo/services/a2a/connections";
 import { type AdminService, createAdminService } from "@repo/services/admin";
 import {
   type AgentBuilderService,
@@ -390,6 +394,7 @@ export interface Services {
   artifactStorage: ArtifactStorageService;
   artifacts: ArtifactsService;
   browser: BrowserService;
+  connections: ConnectionsService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
   credentials: CredentialsService;
@@ -585,6 +590,14 @@ export const composeWith = ({
   const members = createMembersService({ db, lister: infra.members });
   const agents = createAgentsService({ db, events, members });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
+  const connections = createConnectionsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    publicBaseUrl: infra.publicBaseUrl,
+    secretsKey: infra.secretsKey,
+  });
   // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
   const connectorFetch: Fetcher =
     infra.fetch ?? ((input, init) => fetch(input, init));
@@ -1095,6 +1108,7 @@ export const composeWith = ({
       artifactStorage,
       artifacts: liveArtifactMutations(artifacts, liveArtifacts),
       browser,
+      connections,
       connectorOAuth,
       connectors,
       credentials,

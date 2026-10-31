@@ -1,0 +1,1045 @@
+import { beforeEach, describe, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { a2aAgentCards, a2aConnections, a2aOutbox } from "@repo/db/schema/a2a";
+import { agents as agentRows } from "@repo/db/schema/agents";
+import { events as eventRows } from "@repo/db/schema/events";
+import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
+import { migrated } from "@repo/db/test-db";
+import { and, eq } from "drizzle-orm";
+import { type AgentsService, createAgentsService } from "../agents.ts";
+import { can, ForbiddenError } from "../authz.ts";
+import { decryptSecret, importSecretsKey } from "../crypto.ts";
+import { ServiceError } from "../errors.ts";
+import { createEventsService, type EventsService } from "../events.ts";
+import { deriveSubject, eventActor } from "../runs/subject.ts";
+import type { Clock } from "../runs/types.ts";
+import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import {
+  type ConnectionsService,
+  createConnectionsService,
+  INVITE_MAX_FAILURES,
+  INVITE_TTL_MS,
+  type PairingTransport,
+} from "./connections.ts";
+
+const BASE = "https://hm.test";
+const START = "2026-11-01T10:00:00.000Z";
+const CREATED = "2026-10-01T00:00:00.000Z";
+const SECRETS_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+const W_ALICE = "w-alice";
+const W_BOB = "w-bob";
+const AGENT_X = "a-x";
+const AGENT_X2 = "a-x2";
+const AGENT_Y = "a-y";
+const INSTRUCTIONS = "TOP-SECRET-INSTRUCTIONS-DO-NOT-LEAK";
+const OUTSIDE_CARD_URL =
+  "https://agent.example.com/.well-known/agent-card.json";
+const OUTSIDE_SECRET = "sk-outside-agent-credential-12345";
+const CHECK_CODE = /^[A-HJ-NP-Z2-9]{8}$/;
+
+const session = (
+  userId: string,
+  workspaceId: string,
+  isAdmin = false
+): Principal => ({
+  isAdmin,
+  kind: "user",
+  userId,
+  via: "session",
+  workspaceId,
+});
+
+/** Admin of Alice's org, the owner of X, a plain member of her org, and Bob (owner of Y). */
+const adminA = session("u-admin", W_ALICE, true);
+const ownerA = session("u-owner", W_ALICE);
+const memberA = session("u-member", W_ALICE);
+const ownerB = session("u-bob", W_BOB);
+
+const SKILLS = [
+  {
+    description: "Answers questions about the deployment.",
+    id: "ask",
+    name: "Ask",
+    tags: ["support"],
+  },
+];
+
+const outsideCard = (overrides: Record<string, unknown> = {}) => ({
+  capabilities: {},
+  defaultInputModes: ["text/plain"],
+  defaultOutputModes: ["text/plain"],
+  description: "An outside agent",
+  name: "Outside",
+  provider: { organization: "Acme", url: "https://acme.example" },
+  securityRequirements: [{ schemes: { bearer: { list: [] } } }],
+  securitySchemes: { bearer: { httpAuthSecurityScheme: { scheme: "bearer" } } },
+  skills: [
+    { description: "Does things", id: "do", name: "Do", tags: ["misc"] },
+  ],
+  supportedInterfaces: [
+    {
+      protocolBinding: "JSONRPC",
+      protocolVersion: "1.0",
+      url: "https://agent.example.com/rpc",
+    },
+  ],
+  version: "1",
+  ...overrides,
+});
+
+type Db = ReturnType<typeof migrated>;
+
+let db: Db;
+let nowMs: number;
+let clock: Clock;
+let events: EventsService;
+let agents: AgentsService;
+let service: ConnectionsService;
+let peerCard: unknown;
+let activateFails: boolean;
+let joinBodies: { token: string; cardUrl: string }[];
+let activations: { bearer: string; token: string; url: string }[];
+
+const transport: PairingTransport = {
+  activate: async ({ bearer, token, url }) => {
+    activations.push({ bearer, token, url });
+    if (activateFails) {
+      throw new Error("peer unreachable");
+    }
+    await service.activate(bearer, { token });
+  },
+  join: async ({ body, inviteToken }) => {
+    joinBodies.push({ cardUrl: body.cardUrl, token: body.token });
+    return await service.join(inviteToken, body);
+  },
+};
+
+const seedWorkspace = (id: string, name: string) =>
+  db
+    .insert(workspaceRows)
+    .values({
+      clerkOrgId: `org_${id}`,
+      createdAt: CREATED,
+      id,
+      name,
+      timezone: "UTC",
+    })
+    .run();
+
+const seedAgent = (
+  id: string,
+  workspaceId: string,
+  createdBy: string,
+  name: string
+) =>
+  db
+    .insert(agentRows)
+    .values({
+      createdAt: CREATED,
+      createdBy,
+      id,
+      instructions: INSTRUCTIONS,
+      model: "m",
+      name,
+      runtime: "fake",
+      runtimeConfig: "{}",
+      slug: id,
+      status: "active",
+      workspaceId,
+    })
+    .run();
+
+beforeEach(() => {
+  db = migrated();
+  nowMs = Date.parse(START);
+  clock = { now: () => new Date(nowMs), sleep: () => Promise.resolve() };
+  seedWorkspace(W_ALICE, "Alice Org");
+  seedWorkspace(W_BOB, "Bob Org");
+  seedAgent(AGENT_X, W_ALICE, "u-owner", "Agent X");
+  seedAgent(AGENT_X2, W_ALICE, "u-owner", "Agent X2");
+  seedAgent(AGENT_Y, W_BOB, "u-bob", "Agent Y");
+  const store = new Map<string, string>();
+  events = createEventsService({
+    blobs: {
+      get: (key) => Promise.resolve(store.get(key) ?? null),
+      put: (key, body) => {
+        store.set(key, body);
+        return Promise.resolve();
+      },
+    },
+    db,
+  });
+  agents = createAgentsService({ db, events });
+  peerCard = outsideCard();
+  activateFails = false;
+  joinBodies = [];
+  activations = [];
+  service = createConnectionsService({
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events,
+    fetchCard: () => Promise.resolve(peerCard),
+    publicBaseUrl: BASE,
+    secretsKey: SECRETS_KEY,
+    transport,
+  });
+});
+
+const publishBoth = async () => {
+  await service.publish(ownerA, {
+    agentId: AGENT_X,
+    description: "Agent X answers questions.",
+    skills: SKILLS,
+  });
+  await service.publish(ownerB, {
+    agentId: AGENT_Y,
+    description: "Agent Y answers questions.",
+    skills: SKILLS,
+  });
+};
+
+/** Alice invites with X, Bob joins with Y. Alice waits for approval. */
+const toNeedsApproval = async () => {
+  await publishBoth();
+  const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+  const joined = await service.joinWithLink(ownerB, {
+    agentId: AGENT_Y,
+    link: invite.link,
+  });
+  const bobToken = joinBodies.at(-1)?.token ?? "";
+  return {
+    aliceId: invite.connection.id,
+    bobId: joined.connection.id,
+    bobToken,
+    checkCode: joined.checkCode,
+    inviteLink: invite.link,
+  };
+};
+
+/** A full pairing. Returns both ids and both tokens. */
+const pairFully = async () => {
+  const pending = await toNeedsApproval();
+  await service.approve(ownerA, pending.aliceId);
+  const aliceToken = activations.at(-1)?.token ?? "";
+  return { ...pending, aliceToken };
+};
+
+const publishedFor = async (principal: Principal, agentId: string) => {
+  const card = await service.getPublished(principal, agentId);
+  if (!card) {
+    throw new Error("The agent is not published");
+  }
+  return card;
+};
+
+const rowOf = (id: string) =>
+  db.select().from(a2aConnections).where(eq(a2aConnections.id, id)).get();
+
+describe("publishing", () => {
+  test("a published card carries the reviewed text and never the instructions", async () => {
+    await publishBoth();
+    const published = await publishedFor(ownerA, AGENT_X);
+    const card = await service.publicCard(published.publicId);
+    expect(card?.agentName).toBe("Agent X");
+    expect(card?.description).toBe("Agent X answers questions.");
+    expect(JSON.stringify(card)).not.toContain(INSTRUCTIONS);
+    expect(JSON.stringify(published)).not.toContain(INSTRUCTIONS);
+    expect(published.cardUrl).toBe(
+      `${BASE}/a2a/${published.publicId}/.well-known/agent-card.json`
+    );
+  });
+
+  test("unpublishing removes the card and kills the tokens, and republishing keeps the public id", async () => {
+    await publishBoth();
+    const first = await publishedFor(ownerA, AGENT_X);
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Hermes",
+    });
+    expect(await service.authenticate(key.token)).not.toBeNull();
+    await service.unpublish(ownerA, AGENT_X);
+    expect(await service.publicCard(first.publicId)).toBeNull();
+    expect(await service.authenticate(key.token)).toBeNull();
+    await service.publish(ownerA, {
+      agentId: AGENT_X,
+      description: "Back again.",
+      skills: SKILLS,
+    });
+    const again = await publishedFor(ownerA, AGENT_X);
+    expect(again.publicId).toBe(first.publicId);
+    expect(await service.authenticate(key.token)).not.toBeNull();
+  });
+
+  test("a non-owner member may not publish, an admin may", async () => {
+    await expect(
+      service.publish(memberA, {
+        agentId: AGENT_X,
+        description: "d",
+        skills: SKILLS,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await service.publish(adminA, {
+      agentId: AGENT_X,
+      description: "d",
+      skills: SKILLS,
+    });
+  });
+});
+
+describe("pairing", () => {
+  test("a full pairing on two workspaces ends with both rows active and both tokens working", async () => {
+    const paired = await pairFully();
+    expect(rowOf(paired.aliceId)?.status).toBe("active");
+    expect(rowOf(paired.bobId)?.status).toBe("active");
+    const alice = await service.authenticate(paired.aliceToken);
+    expect(alice).toEqual({
+      agentId: AGENT_X,
+      connectionId: paired.aliceId,
+      kind: "peer",
+      workspaceId: W_ALICE,
+    });
+    const bob = await service.authenticate(paired.bobToken);
+    expect(bob).toEqual({
+      agentId: AGENT_Y,
+      connectionId: paired.bobId,
+      kind: "peer",
+      workspaceId: W_BOB,
+    });
+    expect(rowOf(paired.aliceId)?.outboundCredential).toStartWith("v1:");
+    expect(rowOf(paired.bobId)?.outboundCredential).toStartWith("v1:");
+    expect(
+      await db
+        .select()
+        .from(a2aOutbox)
+        .where(eq(a2aOutbox.kind, "pair_activate"))
+    ).toHaveLength(0);
+  });
+
+  test("both sides show the same check code and the organisation comes from our own row", async () => {
+    const pending = await toNeedsApproval();
+    const alice = await service.get(ownerA, pending.aliceId);
+    const bob = await service.get(ownerB, pending.bobId);
+    expect(alice.checkCode).toBe(pending.checkCode);
+    expect(bob.checkCode).toBe(pending.checkCode);
+    expect(pending.checkCode).toMatch(CHECK_CODE);
+    expect(alice.peerOrg).toBe("Bob Org");
+    expect(bob.peerOrg).toBe("Alice Org");
+    expect(alice.status).toBe("needs_approval");
+    expect(bob.status).toBe("awaiting_peer");
+  });
+
+  test("the claimed organisation is ignored on the same deployment", async () => {
+    await publishBoth();
+    const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+    const published = await publishedFor(ownerB, AGENT_Y);
+    await service.join(invite.link.split("/connect/")[1] ?? "", {
+      agentName: "Agent Y",
+      cardUrl: published.cardUrl,
+      orgName: "Totally Trusted Bank",
+      token: "hm_a2a_".padEnd(48, "x"),
+    });
+    const alice = await service.get(ownerA, invite.connection.id);
+    expect(alice.peerOrg).toBe("Bob Org");
+  });
+
+  test("an invite is refused within one workspace", async () => {
+    await publishBoth();
+    await service.publish(ownerA, {
+      agentId: AGENT_X2,
+      description: "Second.",
+      skills: SKILLS,
+    });
+    const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+    await expect(
+      service.joinWithLink(ownerA, { agentId: AGENT_X2, link: invite.link })
+    ).rejects.toBeInstanceOf(ServiceError);
+    const row = rowOf(invite.connection.id);
+    expect(row?.status).toBe("inviting");
+    const all = await service.list(ownerA);
+    expect(all.filter((c) => c.agentId === AGENT_X2)).toHaveLength(0);
+  });
+
+  test("a second live connection between the same agent and the same peer card is refused", async () => {
+    await pairFully();
+    const again = await service.createInvite(ownerA, { agentId: AGENT_X });
+    await expect(
+      service.joinWithLink(ownerB, { agentId: AGENT_Y, link: again.link })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(rowOf(again.connection.id)?.status).toBe("inviting");
+  });
+
+  test("an expired invite is refused", async () => {
+    await publishBoth();
+    const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+    nowMs += INVITE_TTL_MS + 1;
+    await expect(
+      service.joinWithLink(ownerB, { agentId: AGENT_Y, link: invite.link })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(rowOf(invite.connection.id)?.status).toBe("inviting");
+    expect(await service.list(ownerB)).toHaveLength(0);
+  });
+
+  test("a used invite cannot be used again", async () => {
+    const pending = await toNeedsApproval();
+    const token = pending.inviteLink.split("/connect/")[1] ?? "";
+    await expect(
+      service.join(token, {
+        agentName: "Agent Y",
+        cardUrl: joinBodies[0]?.cardUrl ?? "",
+        token: "hm_a2a_".padEnd(48, "y"),
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+  });
+
+  test("two joins at once cannot both win", async () => {
+    await publishBoth();
+    const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+    const token = invite.link.split("/connect/")[1] ?? "";
+    const published = await publishedFor(ownerB, AGENT_Y);
+    const attempt = (secret: string) =>
+      service.join(token, {
+        agentName: "Agent Y",
+        cardUrl: published.cardUrl,
+        token: `hm_a2a_${secret}`.padEnd(48, "z"),
+      });
+    const results = await Promise.allSettled([attempt("one"), attempt("two")]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(rowOf(invite.connection.id)?.status).toBe("needs_approval");
+  });
+
+  test("the fifth bad try ends the invite and the sixth is refused even with the right secret", async () => {
+    await publishBoth();
+    const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+    const token = invite.link.split("/connect/")[1] ?? "";
+    const wrong = `${token.split(".")[0]}.wrongsecret`;
+    for (let i = 0; i < INVITE_MAX_FAILURES; i += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: the tries must run in order
+      await expect(
+        service.join(wrong, {
+          agentName: "Agent Y",
+          cardUrl: `${BASE}/a2a/none/.well-known/agent-card.json`,
+          token: "hm_a2a_".padEnd(48, "w"),
+        })
+      ).rejects.toBeInstanceOf(ServiceError);
+    }
+    expect(rowOf(invite.connection.id)?.inviteFailures).toBe(
+      INVITE_MAX_FAILURES
+    );
+    await expect(
+      service.joinWithLink(ownerB, { agentId: AGENT_Y, link: invite.link })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(rowOf(invite.connection.id)?.status).toBe("revoked");
+  });
+
+  test("four bad tries leave the invite working", async () => {
+    await publishBoth();
+    const invite = await service.createInvite(ownerA, { agentId: AGENT_X });
+    const token = invite.link.split("/connect/")[1] ?? "";
+    const wrong = `${token.split(".")[0]}.wrongsecret`;
+    for (let i = 0; i < INVITE_MAX_FAILURES - 1; i += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: the tries must run in order
+      await expect(
+        service.join(wrong, {
+          agentName: "Agent Y",
+          cardUrl: `${BASE}/a2a/none/.well-known/agent-card.json`,
+          token: "hm_a2a_".padEnd(48, "w"),
+        })
+      ).rejects.toBeInstanceOf(ServiceError);
+    }
+    await service.joinWithLink(ownerB, {
+      agentId: AGENT_Y,
+      link: invite.link,
+    });
+    expect(rowOf(invite.connection.id)?.status).toBe("needs_approval");
+  });
+
+  test("a decline leaves no usable token on either side", async () => {
+    const pending = await toNeedsApproval();
+    await service.decline(ownerA, pending.aliceId);
+    const outbox = await db
+      .select()
+      .from(a2aOutbox)
+      .where(eq(a2aOutbox.kind, "pair_decline"));
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]?.url).toEndWith("/pair/decline");
+    // The outbox delivers the notice with the credential Bob issued as bearer.
+    await service.declined(pending.bobToken);
+    const alice = rowOf(pending.aliceId);
+    const bob = rowOf(pending.bobId);
+    expect(alice?.status).toBe("declined");
+    expect(alice?.outboundCredential).toBeNull();
+    expect(alice?.inboundTokenHash).toBeNull();
+    expect(bob?.status).toBe("declined");
+    expect(bob?.inboundTokenHash).toBeNull();
+    expect(await service.authenticate(pending.bobToken)).toBeNull();
+  });
+
+  test("an activation that cannot be delivered leaves the row activating and the outbox holds it sealed", async () => {
+    activateFails = true;
+    const pending = await toNeedsApproval();
+    const approved = await service.approve(ownerA, pending.aliceId);
+    expect(approved.status).toBe("activating");
+    const [queued] = await db
+      .select()
+      .from(a2aOutbox)
+      .where(eq(a2aOutbox.kind, "pair_activate"));
+    expect(queued?.url).toEndWith("/pair/activate");
+    // What AA.5 does: unseal the headers and the token, deliver, then confirm.
+    const key = await importSecretsKey(SECRETS_KEY);
+    const binding = (field: string) => ({
+      field,
+      rowId: queued?.id ?? "",
+      table: "a2a_outbox",
+      workspaceId: W_ALICE,
+    });
+    const headers = JSON.parse(
+      await decryptSecret(key, binding("headers"), queued?.headers ?? "")
+    ) as { Authorization: string };
+    const body = JSON.parse(queued?.body ?? "{}") as { token: string };
+    const token = await decryptSecret(key, binding("body.token"), body.token);
+    await service.activate(headers.Authorization.replace("Bearer ", ""), {
+      token,
+    });
+    await service.activationDelivered(SYSTEM_PRINCIPAL, pending.aliceId);
+    expect(rowOf(pending.aliceId)?.status).toBe("active");
+    expect(rowOf(pending.bobId)?.status).toBe("active");
+    expect(await service.authenticate(token)).not.toBeNull();
+    expect(await db.select().from(a2aOutbox)).toHaveLength(0);
+  });
+
+  test("a revoke while the activation waits stops it from being delivered", async () => {
+    activateFails = true;
+    const pending = await toNeedsApproval();
+    await service.approve(ownerA, pending.aliceId);
+    await service.revoke(memberA, pending.aliceId);
+    expect(
+      await db
+        .select()
+        .from(a2aOutbox)
+        .where(eq(a2aOutbox.kind, "pair_activate"))
+    ).toHaveLength(0);
+  });
+});
+
+describe("access keys and outside agents", () => {
+  test("an access key is shown once and stored as a hash", async () => {
+    await publishBoth();
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Hermes on Sam's box",
+    });
+    expect(key.token).toStartWith("hm_a2a_");
+    expect(key.connection.peerKind).toBe("a2a_inbound");
+    expect(key.connection.status).toBe("active");
+    expect(key.connection.tokenPrefix).toBe(key.token.slice(0, 11));
+    expect(key.cardUrl).toContain("/a2a/");
+    const principal = await service.authenticate(key.token);
+    expect(principal?.connectionId).toBe(key.connection.id);
+    expect(JSON.stringify(await service.list(ownerA))).not.toContain(key.token);
+  });
+
+  test("authenticate refuses anything but an active connection's token", async () => {
+    await publishBoth();
+    expect(await service.authenticate("hm_a2a_unknown")).toBeNull();
+    expect(await service.authenticate("hm_trg_whatever")).toBeNull();
+    expect(await service.authenticate("")).toBeNull();
+    const pending = await toNeedsApproval();
+    // Bob's token exists but his row waits for Alice.
+    expect(await service.authenticate(pending.bobToken)).toBeNull();
+  });
+
+  test("a revoked token fails on the next authenticate with no other step", async () => {
+    await publishBoth();
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Hermes",
+    });
+    expect(await service.authenticate(key.token)).not.toBeNull();
+    await service.revoke(memberA, key.connection.id);
+    expect(await service.authenticate(key.token)).toBeNull();
+    const row = rowOf(key.connection.id);
+    expect(row?.status).toBe("revoked");
+    expect(row?.revokedBy).toBe("u-member");
+  });
+
+  test("an outside agent is added with its credential sealed and its origin kept", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    expect(connection.status).toBe("active");
+    expect(connection.peerKind).toBe("a2a_outbound");
+    expect(connection.peerOrigin).toBe("https://agent.example.com");
+    expect(connection.peerOrg).toBe("Acme");
+    const row = rowOf(connection.id);
+    expect(row?.outboundScheme).toBe("bearer");
+    expect(row?.outboundCredential).toStartWith("v1:");
+    expect(row?.outboundCredential).not.toContain(OUTSIDE_SECRET);
+    const key = await importSecretsKey(SECRETS_KEY);
+    expect(
+      await decryptSecret(
+        key,
+        {
+          field: "outbound_credential",
+          rowId: connection.id,
+          table: "a2a_connections",
+          workspaceId: W_ALICE,
+        },
+        row?.outboundCredential ?? ""
+      )
+    ).toBe(OUTSIDE_SECRET);
+  });
+
+  test("a scheme the design does not list is refused and names what the card wanted", async () => {
+    peerCard = outsideCard({
+      securityRequirements: [{ schemes: { oidc: { list: [] } } }],
+      securitySchemes: {
+        oidc: {
+          openIdConnectSecurityScheme: {
+            openIdConnectUrl: "https://idp.example.com/.well-known/openid",
+          },
+        },
+      },
+    });
+    await expect(
+      service.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: OUTSIDE_CARD_URL,
+        credential: "x",
+      })
+    ).rejects.toThrow("OpenID Connect");
+    expect(await db.select().from(a2aConnections)).toHaveLength(0);
+  });
+
+  test("a card URL on a private address is refused before anything is fetched", async () => {
+    let fetched = false;
+    const guarded = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      fetchCard: () => {
+        fetched = true;
+        return Promise.resolve(peerCard);
+      },
+      publicBaseUrl: BASE,
+      secretsKey: SECRETS_KEY,
+    });
+    await expect(
+      guarded.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: "https://10.0.0.5/.well-known/agent-card.json",
+        credential: "x",
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(fetched).toBe(false);
+  });
+
+  test("the origin change returns a connection to needs_approval", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    // The same card keeps it active.
+    expect((await service.refreshCard(ownerA, connection.id)).status).toBe(
+      "active"
+    );
+    peerCard = outsideCard({
+      supportedInterfaces: [
+        {
+          protocolBinding: "JSONRPC",
+          protocolVersion: "1.0",
+          url: "https://elsewhere.example.org/rpc",
+        },
+      ],
+    });
+    const refreshed = await service.refreshCard(
+      SYSTEM_PRINCIPAL,
+      connection.id
+    );
+    expect(refreshed.status).toBe("needs_approval");
+    // The approved origin does not move until a person approves.
+    expect(refreshed.peerOrigin).toBe("https://agent.example.com");
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_reapproval_needed"));
+    expect(logged).toHaveLength(1);
+    const approved = await service.approve(ownerA, connection.id);
+    expect(approved.status).toBe("active");
+    expect(approved.peerOrigin).toBe("https://elsewhere.example.org");
+  });
+});
+
+describe("who may act", () => {
+  const refused: [string, Principal][] = [
+    [
+      "a run principal",
+      { agentId: AGENT_X, kind: "run", runId: "r1", workspaceId: W_ALICE },
+    ],
+    [
+      "an API key",
+      {
+        apiKey: { access: "write", id: "key1" },
+        isAdmin: true,
+        kind: "user",
+        userId: "u-admin",
+        via: "api_key",
+        workspaceId: W_ALICE,
+      },
+    ],
+    [
+      "a read-only OAuth client",
+      {
+        isAdmin: true,
+        kind: "user",
+        oauthClient: { access: "read", clientId: "c1" },
+        userId: "u-admin",
+        via: "oauth",
+        workspaceId: W_ALICE,
+      },
+    ],
+    ["a machine", { kind: "machine", machineId: "m1", workspaceId: W_ALICE }],
+    [
+      "a trigger",
+      {
+        agentId: AGENT_X,
+        kind: "trigger",
+        triggerId: "t1",
+        workspaceId: W_ALICE,
+      },
+    ],
+    [
+      "a peer",
+      {
+        agentId: AGENT_X,
+        connectionId: "con_x",
+        kind: "peer",
+        workspaceId: W_ALICE,
+      },
+    ],
+  ];
+
+  for (const [name, principal] of refused) {
+    test(`${name} is refused on create`, async () => {
+      await publishBoth();
+      await expect(
+        service.createInvite(principal, { agentId: AGENT_X })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        service.createAccessKey(principal, { agentId: AGENT_X, label: "k" })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        service.addOutbound(principal, {
+          agentId: AGENT_X,
+          cardUrl: OUTSIDE_CARD_URL,
+          credential: "x",
+        })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        service.publish(principal, {
+          agentId: AGENT_X,
+          description: "d",
+          skills: SKILLS,
+        })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    test(`${name} is refused on approve`, async () => {
+      const pending = await toNeedsApproval();
+      await expect(
+        service.approve(principal, pending.aliceId)
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(rowOf(pending.aliceId)?.status).toBe("needs_approval");
+    });
+
+    test(`${name} is refused on widen`, async () => {
+      const pending = await pairFully();
+      await expect(
+        service.setPolicies(principal, {
+          connectionId: pending.aliceId,
+          inboundPolicy: "auto",
+        })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(rowOf(pending.aliceId)?.inboundPolicy).toBe("approve");
+    });
+  }
+
+  test("a non-owner member is refused on approve and allowed on revoke", async () => {
+    const pending = await toNeedsApproval();
+    await expect(
+      service.approve(memberA, pending.aliceId)
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(rowOf(pending.aliceId)?.status).toBe("needs_approval");
+    const revoked = await service.revoke(memberA, pending.aliceId);
+    expect(revoked.status).toBe("revoked");
+  });
+
+  test("an org admin and the agent's owner may approve", async () => {
+    const first = await toNeedsApproval();
+    expect((await service.approve(adminA, first.aliceId)).status).toBe(
+      "active"
+    );
+  });
+
+  test("another workspace's connection is not found", async () => {
+    const pending = await toNeedsApproval();
+    await expect(
+      service.revoke(ownerB, pending.aliceId)
+    ).rejects.toBeInstanceOf(ServiceError);
+    await expect(service.get(ownerB, pending.aliceId)).rejects.toBeInstanceOf(
+      ServiceError
+    );
+  });
+
+  test("only a member who is not the owner may narrow, and widening needs the owner or an admin", async () => {
+    const paired = await pairFully();
+    await expect(
+      service.setPolicies(memberA, {
+        connectionId: paired.aliceId,
+        inboundPolicy: "auto",
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      service.setPolicies(memberA, {
+        connectionId: paired.aliceId,
+        hourlyLimit: 500,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      service.setPolicies(memberA, {
+        connectionId: paired.aliceId,
+        toolPolicy: "agent_rules",
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    const off = await service.setPolicies(memberA, {
+      connectionId: paired.aliceId,
+      inboundPolicy: "off",
+    });
+    expect(off.inboundPolicy).toBe("off");
+    // Turning it back on is widening.
+    await expect(
+      service.setPolicies(memberA, {
+        connectionId: paired.aliceId,
+        inboundPolicy: "approve",
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    const widened = await service.setPolicies(ownerA, {
+      connectionId: paired.aliceId,
+      inboundPolicy: "auto",
+      toolPolicy: "agent_rules",
+    });
+    expect(widened.inboundPolicy).toBe("auto");
+    expect(widened.toolPolicy).toBe("agent_rules");
+    const lowered = await service.setPolicies(memberA, {
+      connectionId: paired.aliceId,
+      hourlyLimit: 5,
+    });
+    expect(lowered.hourlyLimit).toBe(5);
+  });
+});
+
+describe("revoking", () => {
+  test("a revoke queues a notice to a Harbourmaster peer and the peer's access ends on its notice", async () => {
+    const paired = await pairFully();
+    await service.revoke(memberA, paired.aliceId);
+    const [notice] = await db
+      .select()
+      .from(a2aOutbox)
+      .where(eq(a2aOutbox.kind, "pair_revoke"));
+    expect(notice?.url).toEndWith("/pair/revoke");
+    expect(notice?.connectionId).toBe(paired.aliceId);
+    expect(await service.authenticate(paired.aliceToken)).toBeNull();
+    // Bob learns of it with the credential Alice holds for him, which is his own inbound token.
+    await service.peerRevoked(paired.bobToken);
+    expect(rowOf(paired.bobId)?.status).toBe("revoked");
+    expect(rowOf(paired.bobId)?.revokedBy).toBe("peer");
+    expect(await service.authenticate(paired.bobToken)).toBeNull();
+    // Bob sends nothing back.
+    expect(
+      await db
+        .select()
+        .from(a2aOutbox)
+        .where(eq(a2aOutbox.connectionId, paired.bobId))
+    ).toHaveLength(0);
+  });
+
+  test("the revoke hook fires once per connection", async () => {
+    const paired = await pairFully();
+    const seen: string[] = [];
+    service.onRevoked((revoked) => {
+      seen.push(`${revoked.connectionId}:${revoked.agentId}`);
+      return Promise.resolve();
+    });
+    await service.revoke(memberA, paired.aliceId);
+    await service.revoke(memberA, paired.aliceId);
+    expect(seen).toEqual([`${paired.aliceId}:${AGENT_X}`]);
+  });
+
+  test("a hook that throws does not undo the revoke", async () => {
+    const paired = await pairFully();
+    service.onRevoked(() => Promise.reject(new Error("boom")));
+    await service.revoke(memberA, paired.aliceId);
+    expect(rowOf(paired.aliceId)?.status).toBe("revoked");
+  });
+
+  test("archiving an agent revokes its connections", async () => {
+    const paired = await pairFully();
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Hermes",
+    });
+    await agents.archive(adminA, AGENT_X);
+    expect(rowOf(paired.aliceId)?.status).toBe("revoked");
+    expect(rowOf(key.connection.id)?.status).toBe("revoked");
+    expect(rowOf(paired.aliceId)?.revokedBy).toBe("u-admin");
+    expect(await service.authenticate(key.token)).toBeNull();
+    // Bob's agent is untouched.
+    expect(rowOf(paired.bobId)?.status).toBe("active");
+  });
+});
+
+describe("the peer principal", () => {
+  test("is refused any action outside a2a.* and runs.start, and on runs.start for another agent", async () => {
+    await publishBoth();
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Hermes",
+    });
+    const peer = await service.authenticate(key.token);
+    if (!peer) {
+      throw new Error("expected a peer principal");
+    }
+    for (const action of [
+      "runs.read",
+      "runs.cancel",
+      "events.read",
+      "agents.read",
+      "agents.update",
+      "sessions.read",
+      "requests.write",
+      "secrets.read",
+      "triggers.fire",
+    ]) {
+      expect(can(peer, action, { kind: "x", workspaceId: W_ALICE })).toBe(
+        false
+      );
+    }
+    expect(
+      can(peer, "a2a.task.read", { kind: "x", workspaceId: W_ALICE })
+    ).toBe(true);
+    expect(can(peer, "runs.start", { kind: "x", workspaceId: W_ALICE })).toBe(
+      true
+    );
+    expect(can(peer, "runs.start", { kind: "x", workspaceId: W_BOB })).toBe(
+      false
+    );
+    await expect(deriveSubject(db, peer, AGENT_X2)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    const subject = await deriveSubject(db, { ...peer, hops: 9 }, AGENT_X);
+    expect(subject).toEqual({
+      actor: { id: key.connection.id, kind: "peer" },
+      depth: 3,
+      onBehalfOfUserId: null,
+      parentRunId: null,
+    });
+    expect(eventActor(peer)).toEqual({
+      id: key.connection.id,
+      kind: "peer",
+    });
+    await expect(service.list(peer)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      service.revoke(peer, key.connection.id)
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("secrets at rest", () => {
+  test("no plaintext token or credential is in the database or in event payloads", async () => {
+    activateFails = true;
+    const pending = await toNeedsApproval();
+    await service.approve(ownerA, pending.aliceId);
+    const outbound = await service.addOutbound(ownerA, {
+      agentId: AGENT_X2,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    await publishBoth();
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Hermes",
+    });
+    await service.revoke(memberA, outbound.id);
+    const inviteSecret = pending.inviteLink.split("/connect/")[1] ?? "";
+    const [token] = await db
+      .select()
+      .from(a2aOutbox)
+      .where(eq(a2aOutbox.kind, "pair_activate"));
+    const secrets = [
+      inviteSecret,
+      inviteSecret.split(".")[1] ?? "",
+      pending.bobToken,
+      key.token,
+      OUTSIDE_SECRET,
+      pending.inviteLink,
+    ];
+    const tables = db.client
+      .query("select name from sqlite_master where type = 'table'")
+      .all() as { name: string }[];
+    let dump = "";
+    for (const { name } of tables) {
+      dump += JSON.stringify(db.client.query(`select * from "${name}"`).all());
+    }
+    for (const secret of secrets) {
+      expect(secret.length).toBeGreaterThan(10);
+      expect(dump).not.toContain(secret);
+    }
+    // The token the approval minted is only in the outbox, sealed.
+    expect(token?.body).toContain("v1:");
+    expect(dump).not.toContain(activations.at(-1)?.token ?? "missing");
+    const logged = await db.select().from(eventRows);
+    expect(logged.some((row) => row.type.startsWith("a2a."))).toBe(true);
+  });
+
+  test("every state change writes an a2a event naming no token", async () => {
+    const paired = await pairFully();
+    await service.setPolicies(ownerA, {
+      connectionId: paired.aliceId,
+      inboundPolicy: "auto",
+    });
+    await service.revoke(memberA, paired.aliceId);
+    const types = (
+      await db
+        .select({ type: eventRows.type })
+        .from(eventRows)
+        .where(and(eq(eventRows.workspaceId, W_ALICE)))
+    ).map((row) => row.type);
+    for (const expected of [
+      "a2a.agent_published",
+      "a2a.invite_created",
+      "a2a.connection_requested",
+      "a2a.connection_approved",
+      "a2a.policy_changed",
+      "a2a.connection_revoked",
+    ]) {
+      expect(types).toContain(expected);
+    }
+    const bobTypes = (
+      await db
+        .select({ type: eventRows.type })
+        .from(eventRows)
+        .where(eq(eventRows.workspaceId, W_BOB))
+    ).map((row) => row.type);
+    expect(bobTypes).toContain("a2a.connection_created");
+    expect(bobTypes).toContain("a2a.connection_activated");
+    const stored = await db
+      .select()
+      .from(a2aAgentCards)
+      .where(eq(a2aAgentCards.agentId, AGENT_X));
+    expect(stored).toHaveLength(1);
+  });
+});

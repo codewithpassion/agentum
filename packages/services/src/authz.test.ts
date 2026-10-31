@@ -87,6 +87,38 @@ describe("can", () => {
     expect(can(system, "events.read", resource("wA"))).toBe(true);
     expect(can(system, "events.read", resource("wB"))).toBe(true);
   });
+
+  describe("a peer principal reached through an A2A connection", () => {
+    const peer: Principal = {
+      agentId: "a1",
+      connectionId: "c1",
+      kind: "peer",
+      workspaceId: "wA",
+    };
+
+    for (const action of ["a2a.task.read", "runs.start"]) {
+      test(`may ${action} in its own workspace`, () => {
+        expect(can(peer, action, resource("wA"))).toBe(true);
+      });
+
+      test(`may not ${action} in another workspace`, () => {
+        expect(can(peer, action, resource("wB"))).toBe(false);
+      });
+    }
+
+    for (const action of [
+      "runs.read",
+      "events.read",
+      "agents.read",
+      "a2a",
+      "a2ax.read",
+      "sessions.read",
+    ]) {
+      test(`may not ${action} in its own workspace`, () => {
+        expect(can(peer, action, resource("wA"))).toBe(false);
+      });
+    }
+  });
 });
 
 describe("authorize", () => {

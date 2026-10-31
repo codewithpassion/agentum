@@ -256,6 +256,7 @@
       "name": "@repo/services",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.118.0",
+        "@repo/a2a": "workspace:*",
         "@repo/db": "workspace:*",
         "@repo/library-sync": "workspace:*",
         "@repo/live-export": "workspace:*",
