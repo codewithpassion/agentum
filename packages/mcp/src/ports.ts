@@ -13,10 +13,18 @@ export type { LivePort } from "./tools/live";
  * failure values. This package imports no service.
  */
 
-/** An agent the caller may message. `slug` is what tools take as `agent`. */
+/**
+ * An agent the caller may message. `slug` is what tools take as `agent`. A peer
+ * is an agent outside the workspace, reached through a connection: its slug is
+ * `<connection-slug>/<agent>`, and it carries `peer`, its `host` and what the
+ * peer says it does.
+ */
 export interface AgentInfo {
+  description?: string;
+  host?: string;
   id: string;
   name: string;
+  peer?: true;
   slug: string;
 }
 
@@ -27,8 +35,10 @@ export interface RunInfo {
   error: string | null;
   runId: string;
   sessionId: string;
-  /** One of queued, offered, running, done, failed, cancelled, interrupted. */
+  /** One of queued, offered, running, done, failed, cancelled, interrupted. A peer's message can also be waiting. */
   status: string;
+  /** What a message to a peer waits for, in words. Local runs leave it out. */
+  statusText?: string;
 }
 
 export interface SessionInfo {

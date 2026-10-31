@@ -51,6 +51,7 @@ import { guarded } from "./guarded.ts";
 import { createLibraryPorts } from "./library-ports.ts";
 import { createLivePorts } from "./live-ports";
 import { createMailPorts } from "./mail-ports.ts";
+import { createPeerPorts } from "./peer-ports.ts";
 import { createQaPorts } from "./qa-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
 
@@ -214,6 +215,8 @@ export const createMcpPorts = ({
   services: Services;
   toolCallId?: string;
 }): McpPorts => {
+  const peers = createPeerPorts({ principal, services });
+
   /** The agent whose slug or id is `reference`, among those the caller can see. */
   const findAgent = async (reference: string): Promise<AgentInfo> => {
     const agents = await services.agents.list(principal);
@@ -384,9 +387,11 @@ export const createMcpPorts = ({
       }),
 
     getRun: ({ runId }) =>
-      guarded(async () =>
-        toRunInfo(await services.runs.getRun(principal, runId))
-      ),
+      peers.ownsRun(runId)
+        ? peers.getRun(runId)
+        : guarded(async () =>
+            toRunInfo(await services.runs.getRun(principal, runId))
+          ),
 
     inboxList: () =>
       guarded(async () =>
@@ -434,13 +439,15 @@ export const createMcpPorts = ({
       }),
 
     listAgents: () =>
-      guarded(async () =>
-        (await services.agents.list(principal)).map((agent) => ({
+      guarded(async () => [
+        ...(await services.agents.list(principal)).map((agent) => ({
           id: agent.id,
           name: agent.name,
           slug: agent.slug,
-        }))
-      ),
+        })),
+        // Only a run has peers, so every other caller gets the local list alone.
+        ...(await peers.list()),
+      ]),
 
     listRoutines: ({ agentId }) =>
       guarded(async () =>
@@ -502,20 +509,26 @@ export const createMcpPorts = ({
       }),
 
     sendMessage: ({ agent, requestId, text, waitMs }) =>
-      guarded(async () => {
-        const target = await findAgent(agent);
-        const started = await services.runs.startRun(principal, {
-          agentId: target.id,
-          input: { text },
-          requestId,
-          session: { origin: "mcp" },
-        });
-        const run =
-          waitMs > 0
-            ? await services.runs.waitForRun(principal, started.runId, waitMs)
-            : await services.runs.getRun(principal, started.runId);
-        return toRunInfo(run);
-      }),
+      peers.ownsAgent(agent)
+        ? peers.send({ agent, requestId, text, waitMs })
+        : guarded(async () => {
+            const target = await findAgent(agent);
+            const started = await services.runs.startRun(principal, {
+              agentId: target.id,
+              input: { text },
+              requestId,
+              session: { origin: "mcp" },
+            });
+            const run =
+              waitMs > 0
+                ? await services.runs.waitForRun(
+                    principal,
+                    started.runId,
+                    waitMs
+                  )
+                : await services.runs.getRun(principal, started.runId);
+            return toRunInfo(run);
+          }),
 
     setRoutineEnabled: ({ enabled, routineId }) =>
       guarded(async () =>

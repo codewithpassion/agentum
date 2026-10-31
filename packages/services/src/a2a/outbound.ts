@@ -48,6 +48,7 @@ import {
 } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
+import { slugify } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import {
   decryptSecret,
@@ -146,6 +147,17 @@ export interface OutboundTaskInfo {
   sessionId: string;
   status: string;
   statusText: string;
+}
+
+/** A peer an agent may message, as `list_agents` shows it. */
+export interface PeerInfo {
+  connectionId: string;
+  description: string;
+  host: string;
+  name: string;
+  outboundPolicy: "approve" | "auto";
+  /** `<connection-slug>/<agent>`, what `send_message` takes as `agent`. */
+  slug: string;
 }
 
 const STATUS_OF: Record<A2aTaskState, string> = {
@@ -891,6 +903,63 @@ export const createOutboundService = ({
       }
     }
     return "The message could not be sent.";
+  };
+
+  /** What the peer's card says it does. Empty when the connection holds no card. */
+  const descriptionOf = (connection: ConnectionRow): string => {
+    if (!connection.peerCard) {
+      return "";
+    }
+    try {
+      const parsed = agentCardSchema.safeParse(JSON.parse(connection.peerCard));
+      return parsed.success ? capText(parsed.data.description, 500) : "";
+    } catch {
+      return "";
+    }
+  };
+
+  /**
+   * The peers the calling run's agent may message: its own active connections
+   * with an outbound policy other than `off` and a destination a person
+   * approved. Anyone but a run gets none, because a connection belongs to one
+   * agent.
+   */
+  const listPeers = async (principal: Principal): Promise<PeerInfo[]> => {
+    if (principal.kind !== "run") {
+      return [];
+    }
+    const rows = await db
+      .select()
+      .from(a2aConnections)
+      .where(
+        and(
+          eq(a2aConnections.workspaceId, principal.workspaceId),
+          eq(a2aConnections.localAgentId, principal.agentId),
+          eq(a2aConnections.status, "active"),
+          inArray(a2aConnections.outboundPolicy, ["approve", "auto"]),
+          inArray(a2aConnections.peerKind, ["a2a_outbound", "harbourmaster"])
+        )
+      )
+      .orderBy(asc(a2aConnections.createdAt), asc(a2aConnections.id));
+    const peers: PeerInfo[] = [];
+    for (const connection of rows) {
+      if (
+        destinationOf(connection) &&
+        (connection.outboundPolicy === "approve" ||
+          connection.outboundPolicy === "auto")
+      ) {
+        const name = capText(peerName(connection), PEER_NAME_MAX);
+        peers.push({
+          connectionId: connection.id,
+          description: descriptionOf(connection),
+          host: hostOf(connection.peerOrigin),
+          name,
+          outboundPolicy: connection.outboundPolicy,
+          slug: `${connection.slug}/${slugify(name) || "agent"}`,
+        });
+      }
+    }
+    return peers;
   };
 
   /** Everything a new task must pass before a row is written. */
@@ -1889,6 +1958,7 @@ export const createOutboundService = ({
 
   return {
     get,
+    listPeers,
     nudge,
     onConnectionRevoked,
     onEvent,
