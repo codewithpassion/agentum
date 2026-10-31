@@ -24,6 +24,7 @@ A2A wire reference: https://a2a-protocol.org/latest/specification/ and the norma
   - The two extension URIs (pairing and hops) as constants, and the metadata key for the hop count.
 - The tables in the design's "Data model", in `packages/db/src/schema/a2a.ts`, with one generated migration including `migrations/meta/`, and a package export. Foreign keys to `agents`, `runs` and `sessions` where the columns name them. Indexes for: inbound token hash (unique), invite token hash (unique), public id (unique), `(connection_id, message_id)` (unique), outbox due rows, outbound tasks due for polling.
 - Shared values in `packages/db/src/shared.ts`: `a2a` in `SESSION_ORIGINS`, `peer` in `EVENT_ACTOR_KINDS`, the `a2a.*` event types, and the status and policy enums with their defaults.
+- The pairing code columns and the `a2a_pairing_requests` table from the design's "Data model", for AA.9.
 - A `kind: "a2a"` reply target in `replyTargetSchema` with a task id.
 
 Later tasks build the services, routes and UI. This one adds no behaviour, except that the type changes must compile: any exhaustive switch over the changed unions gets the minimum case.
@@ -38,3 +39,4 @@ Later tasks build the services, routes and UI. This one adds no behaviour, excep
 - 2026-10-31: created from Dom's request to design and build agent connections.
 - 2026-10-31: dispatched.
 - 2026-11-01: scope extended mid-run with Hermes tolerance in the schemas; the dispatcher was told.
+- 2026-11-01: pairing columns and table added mid-run for AA.9; the dispatcher was told.

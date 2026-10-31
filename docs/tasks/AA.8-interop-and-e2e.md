@@ -4,7 +4,7 @@ title: "Interop with the official A2A SDK and TCK, two-deployment end to end, do
 milestone: AA
 size: M
 status: todo
-depends_on: [AA.4, AA.5, AA.6, AA.7]
+depends_on: [AA.4, AA.5, AA.6, AA.7, AA.9]
 branch: null
 lane: ops
 executor: claude
@@ -17,6 +17,7 @@ Spec: `docs/v3/agent-connections.md`. This task proves the claim that we speak A
 - Run the official TCK from https://github.com/a2aproject/a2a-tck against a local server on both bindings. Keep the results in `docs/reviews/tasks/AA.8.md`. Fix every failure in a mandatory category. Any left open get a line each saying why they're left, for Dom to decide.
 - `scripts/e2e/a2a-hermes.ts`: interop with a real Hermes at the latest release tag, checked out and installed in its own directory under `/home/roboto/devel/harbourmaster-wt/tmp/AA.8/`, never inside the repo. Run its gateway with the `a2a` platform on, pointed at a local fake OpenAI-compatible model endpoint so no key or spend is needed. Both directions:
   - Hermes's `a2a_discover` and `a2a_call` reach our published agent with a key. Test `auto` (the answer comes back) and `approve` (the waiting message comes back).
+  - Pairing: with "Accept pairing requests" on, Hermes's first `a2a_call` with a made-up token returns the code as its reply. Entering the code on our side lets the next call through.
   - Our client calls Hermes through a "Call it" connection. Confirm a reply that outlasts our client timeout is still recovered through `ListTasks` and `GetTask`, and a push nudge leads to the full text past 2000 characters.
   - If the gateway can't be run this way, drive its `adapter.py` and `tools.py` directly with the agent stubbed, and say so in the review file.
 - `scripts/e2e/a2a-two-deployments.ts`: two `vite dev` servers on different ports with separate `.wrangler` state, so two databases and real HTTP between them. Allow plain HTTP to localhost in dev only, and add a test that a production build refuses it. Drive pairing through the services' routes, then a message each way, including the approve path and a wake, then revoke on one side and confirm that both sides stop.

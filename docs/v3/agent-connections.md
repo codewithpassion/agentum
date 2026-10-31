@@ -38,7 +38,7 @@ Nothing a remote agent sends can start work without a person having created or a
 1. Alice opens Settings, Agent connections, picks her agent X and creates an invite. She gets a link, `https://<hmA>/connect/<token>`, shown once, valid 7 days, single use, at most 5 failed tries. Publishing X happens here if it isn't published yet.
 2. Bob pastes the link into Add connection on his Harbourmaster and picks his agent Y. Opening the link on the same deployment while signed in lands on that form directly.
 3. Bob's server calls `POST <hmA>/a2a/pair/join` with the invite as bearer and a body holding Y's card URL and a new `hm_a2a_` token that lets X call Y. Bob's row is `awaiting_peer`; Alice's is `needs_approval`.
-4. Alice sees it in Needs you: Y's name, the organisation it claims, the host it actually lives on, and a 6-character check code. Bob sees the same code, derived from a hash of both tokens, and can compare it with Alice if the link went through anything he doesn't trust. On the same deployment the organisation name comes from our own database, not the claim.
+4. Alice sees it in Needs you: Y's name, the organisation it claims, the host it actually lives on, and an 8-character check code, from the same alphabet as the pairing code below. Bob sees the same code, derived from a hash of both tokens, and can compare it with Alice if the link went through anything he doesn't trust. On the same deployment the organisation name comes from our own database, not the claim.
 5. Alice approves. Her server mints the token that lets Y call X and calls `POST <Y interface>/pair/activate` with Bob's token as bearer. That call succeeding proves the host really is Y's, because it had to answer on that origin holding a token only Bob's server issued. Both rows go `active`.
 
 If activation can't be delivered, Alice's row stays `activating` and the outbox retries.
@@ -46,6 +46,19 @@ If activation can't be delivered, Alice's row stays `activating` and the outbox 
 ### Outside client calling in
 
 A person picks an agent and a label ("Hermes on Sam's box") and gets an access key and the card URL, shown once. Creating the row is the approval. The policies below apply as normal. The peer has no URL of its own that we know, so nothing is sent to it except push notifications it asks for.
+
+### Pairing code, for an outside client we haven't given a key
+
+Hermes's own pairing approves people on chat platforms: an unknown sender gets a one-time code in reply, and the owner approves that code from the CLI. Its A2A platform doesn't use it. A2A peers there need a token and a place in `A2A_TRUSTED_PEERS`, so there is no pairing protocol to be wire-compatible with. This flow gives a Hermes agent the same experience against us, using only what `a2a_call` already does, and it copies Hermes's limits.
+
+It is off unless an admin or the agent's owner turns on "Accept pairing requests" for that agent.
+
+1. The Hermes operator makes up a long random token (at least 32 characters), sets it as `auth.token` for our agent in `a2a_agents`, and calls the agent.
+2. We don't recognise the token. With pairing on, `SendMessage` answers HTTP 200 with a `TASK_STATE_REJECTED` task whose status message holds an 8-character code and says nothing was delivered. A 401 wouldn't work, because Hermes replaces a 401's body with a generic auth error, while it reads `status.message` as the reply. The message text isn't stored. Every other operation still answers 401.
+3. The peer passes the code to our owner by their own means. The owner types it into the page and gives the connection a label. There is no approve button and no Needs you card, on purpose: only someone the owner actually heard from can get in, so a stranger's request can't be clicked through by mistake.
+4. The request's token hash becomes the connection's inbound token. The peer's next call works, under the default policies.
+
+Limits, from Hermes's `gateway/pairing.py`: 8 characters from an alphabet without `0`, `O`, `1` or `I`, hashed at rest, 1 hour expiry, at most 3 pending per agent, the same token gets its existing code back, lockout for 1 hour after 5 wrong codes, and codes never logged. With pairing off, or a token under 32 characters, the request gets the normal 401. Answering 200 to an unauthenticated caller bends the spec's "authenticate every request", which is why it is opt-in and per agent, and why it creates no task and starts no work.
 
 ### Calling out to an outside agent
 
@@ -146,7 +159,8 @@ The `tool_policy = ask` gate lives in `requests.needsApproval`, the check the cl
 
 All tables have `workspace_id`. Names are for AA.1 to finalise.
 
-- **`a2a_agent_cards`**: `agent_id` (unique), `public_id` (unique, random), `description`, `skills` JSON, `published_by`, `published_at`, `unpublished_at`.
+- **`a2a_agent_cards`**: `agent_id` (unique), `public_id` (unique, random), `description`, `skills` JSON, `pairing_open` (default false), `pairing_failures`, `pairing_locked_until`, `published_by`, `published_at`, `unpublished_at`.
+- **`a2a_pairing_requests`**: `agent_id`, `code_hash`, `token_hash` (unique with agent), `token_prefix`, `expires_at`, `created_at`.
 - **`a2a_connections`**: `local_agent_id`, `slug`, `peer_kind` (`harbourmaster`, `a2a_inbound`, `a2a_outbound`), `peer_label`, `peer_org`, `peer_card_url`, `peer_origin`, `peer_card` JSON, `peer_card_fetched_at`, `status` (`inviting`, `awaiting_peer`, `needs_approval`, `activating`, `active`, `declined`, `revoked`), invite columns (`invite_token_hash`, `invite_expires_at`, `invite_failures`), `check_code`, `inbound_token_hash`, `inbound_token_prefix`, `outbound_credential` (encrypted with the secrets key), `outbound_scheme`, the policy columns above, `created_by`, `approved_by`, `approved_at`, `revoked_by`, `revoked_at`, `last_in_at`, `last_out_at`.
 - **`a2a_tasks`** (we are the server): `connection_id`, `context_id`, `message_id` (unique with connection), `state`, `input_text`, `status_text`, `result_text`, `hops`, `run_id`, `decided_by`, `decided_at`, timestamps.
 - **`a2a_push_configs`**: `task_id`, `url`, encrypted `authentication`, encrypted `token`.
