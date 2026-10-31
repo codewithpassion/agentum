@@ -233,3 +233,52 @@ export const hermesCallEnvironment = (input: {
     value: input.publicUrl,
   },
 ];
+
+/** The settings a person can change on a connection's page. */
+export interface PolicySettings {
+  hourlyLimit: number;
+  inboundPolicy: A2aInboundPolicy;
+  outboundPolicy: A2aOutboundPolicy;
+  toolPolicy: A2aToolPolicy;
+}
+
+const INBOUND_RANK: Record<A2aInboundPolicy, number> = {
+  approve: 1,
+  auto: 2,
+  off: 0,
+};
+const OUTBOUND_RANK: Record<A2aOutboundPolicy, number> = {
+  approve: 1,
+  auto: 2,
+  off: 0,
+};
+const TOOL_RANK: Record<A2aToolPolicy, number> = { agent_rules: 1, ask: 0 };
+
+/**
+ * Whether moving to the fields in `next` widens trust, compared with `current`:
+ * a higher inbound or outbound step, agent rules in place of ask, or a higher
+ * hourly limit. Fields that `next` leaves out do not count. The service refuses
+ * a widening move from anyone but an org admin or the agent's owner.
+ */
+export const widens = (
+  current: PolicySettings,
+  next: Partial<PolicySettings>
+): boolean =>
+  (next.inboundPolicy !== undefined &&
+    INBOUND_RANK[next.inboundPolicy] > INBOUND_RANK[current.inboundPolicy]) ||
+  (next.outboundPolicy !== undefined &&
+    OUTBOUND_RANK[next.outboundPolicy] >
+      OUTBOUND_RANK[current.outboundPolicy]) ||
+  (next.toolPolicy !== undefined &&
+    TOOL_RANK[next.toolPolicy] > TOOL_RANK[current.toolPolicy]) ||
+  (next.hourlyLimit !== undefined && next.hourlyLimit > current.hourlyLimit);
+
+export const MESSAGE_CLIP_LENGTH = 300;
+
+/** A message cut to its first 300 characters, with an ellipsis when it was cut. Counts characters, not UTF-16 units. */
+export const clipMessage = (text: string): string => {
+  const characters = Array.from(text);
+  return characters.length <= MESSAGE_CLIP_LENGTH
+    ? text
+    : `${characters.slice(0, MESSAGE_CLIP_LENGTH).join("")}…`;
+};

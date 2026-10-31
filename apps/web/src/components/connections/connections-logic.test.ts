@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   type ConnectionLike,
+  clipMessage,
   directionsOn,
   hermesConfigYaml,
   hermesUrlOfCardUrl,
@@ -8,6 +9,7 @@ import {
   peerHost,
   sortConnections,
   wideningWarning,
+  widens,
 } from "./connections-logic.ts";
 
 const connection = (overrides: Partial<ConnectionLike>): ConnectionLike => ({
@@ -102,4 +104,71 @@ test("the Hermes block points at the interface base and quotes the key", () => {
       '      token: "hm_a2a_secret"',
     ].join("\n")
   );
+});
+
+const current = {
+  hourlyLimit: 100,
+  inboundPolicy: "approve",
+  outboundPolicy: "approve",
+  toolPolicy: "ask",
+} as const;
+
+test("widens: a higher inbound or outbound step widens, a lower one narrows", () => {
+  expect(widens(current, { inboundPolicy: "auto" })).toBe(true);
+  expect(widens(current, { inboundPolicy: "off" })).toBe(false);
+  expect(widens(current, { outboundPolicy: "auto" })).toBe(true);
+  expect(widens(current, { outboundPolicy: "off" })).toBe(false);
+});
+
+test("widens: agent rules in place of ask widens, ask narrows", () => {
+  expect(widens(current, { toolPolicy: "agent_rules" })).toBe(true);
+  expect(widens(current, { toolPolicy: "ask" })).toBe(false);
+});
+
+test("widens: a higher hourly limit widens, a lower one narrows", () => {
+  expect(widens(current, { hourlyLimit: 101 })).toBe(true);
+  expect(widens(current, { hourlyLimit: 99 })).toBe(false);
+  expect(widens(current, { hourlyLimit: 100 })).toBe(false);
+});
+
+test("widens: the same step as now, or no field, does not widen", () => {
+  expect(widens(current, { inboundPolicy: "approve" })).toBe(false);
+  expect(widens(current, {})).toBe(false);
+});
+
+test("widens compares with the current value, not the default", () => {
+  const open = {
+    ...current,
+    inboundPolicy: "auto",
+    toolPolicy: "agent_rules",
+  } as const;
+  expect(widens(open, { inboundPolicy: "approve" })).toBe(false);
+  expect(widens(open, { inboundPolicy: "auto" })).toBe(false);
+  expect(widens(open, { toolPolicy: "ask" })).toBe(false);
+});
+
+test("widens: a change of several fields widens when any one of them does", () => {
+  expect(widens(current, { hourlyLimit: 50, outboundPolicy: "auto" })).toBe(
+    true
+  );
+  expect(widens(current, { hourlyLimit: 50, inboundPolicy: "off" })).toBe(
+    false
+  );
+});
+
+test("clipMessage keeps a short message as it is", () => {
+  expect(clipMessage("hello")).toBe("hello");
+  const exact = "a".repeat(300);
+  expect(clipMessage(exact)).toBe(exact);
+});
+
+test("clipMessage cuts at 300 characters and adds an ellipsis", () => {
+  const clipped = clipMessage("a".repeat(301));
+  expect(clipped).toBe(`${"a".repeat(300)}…`);
+});
+
+test("clipMessage counts characters, so it never splits a surrogate pair", () => {
+  const emoji = "😀";
+  const clipped = clipMessage(emoji.repeat(301));
+  expect(clipped).toBe(`${emoji.repeat(300)}…`);
 });

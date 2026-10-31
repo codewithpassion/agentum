@@ -666,6 +666,53 @@ describe("access keys and outside agents", () => {
     expect(await db.select().from(a2aConnections)).toHaveLength(0);
   });
 
+  test("previewCard shows the card and what it asks for, and creates nothing", async () => {
+    const preview = await service.previewCard(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+    });
+    expect(preview).toEqual({
+      description: "An outside agent",
+      host: "agent.example.com",
+      name: "Outside",
+      org: "Acme",
+      scheme: "bearer",
+      skills: [{ description: "Does things", name: "Do" }],
+    });
+    expect(await db.select().from(a2aConnections)).toHaveLength(0);
+  });
+
+  test("previewCard refuses what addOutbound refuses, and a member who may not connect", async () => {
+    await expect(
+      service.previewCard(memberA, {
+        agentId: AGENT_X,
+        cardUrl: OUTSIDE_CARD_URL,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      service.previewCard(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: "https://10.0.0.5/.well-known/agent-card.json",
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+    peerCard = outsideCard({
+      securityRequirements: [{ schemes: { oidc: { list: [] } } }],
+      securitySchemes: {
+        oidc: {
+          openIdConnectSecurityScheme: {
+            openIdConnectUrl: "https://idp.example.com/.well-known/openid",
+          },
+        },
+      },
+    });
+    await expect(
+      service.previewCard(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: OUTSIDE_CARD_URL,
+      })
+    ).rejects.toThrow("OpenID Connect");
+  });
+
   test("a card URL on a private address is refused before anything is fetched", async () => {
     let fetched = false;
     const guarded = createConnectionsService({

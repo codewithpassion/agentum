@@ -238,6 +238,7 @@ const deskKindOf = (kind: RailCard["kind"]): DeskCardKind => {
 
 /** The desk card that the Needs you body draws for a rail card. */
 export const deskCardOf = (card: RailCard): DeskCard => ({
+  ...(card.a2a === undefined ? {} : { a2a: card.a2a }),
   agentId: card.agentId,
   at: card.at,
   band: {
