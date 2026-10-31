@@ -17,6 +17,7 @@ A2A wire reference: https://a2a-protocol.org/latest/specification/ and the norma
 ## Scope
 - New package `packages/a2a` (`@repo/a2a`), one `exports` subpath per module, no barrel. It imports only zod and has no database or Worker imports. It holds:
   - zod schemas and types for AgentCard, AgentInterface, AgentCapabilities, AgentExtension, AgentSkill, AgentProvider, SecurityScheme, SecurityRequirement, Message, Part, Task, TaskStatus, Artifact, StreamResponse, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, SendMessageRequest, SendMessageConfiguration, SendMessageResponse, TaskPushNotificationConfig, AuthenticationInfo.
+  - These schemas read what peers send, so they ignore unknown fields rather than refuse them, a text part with `mediaType` is a text part, and a `SecurityScheme` also parses Hermes's `{ "type": "http", "scheme": "bearer" }` as bearer. See "Hermes compatibility" in the design. Hermes's real card and a Hermes text message go in the test fixtures.
   - The task state helpers: which states are terminal and which are interrupted.
   - The error table from spec section 5.4 (name, JSON-RPC code, HTTP status, reason) and builders for both error body shapes described in the design's "A2A mapping".
   - The JSON-RPC envelope parse and build, and a REST route table for the HTTP+JSON operations.
@@ -36,3 +37,4 @@ Later tasks build the services, routes and UI. This one adds no behaviour, excep
 ## Log
 - 2026-10-31: created from Dom's request to design and build agent connections.
 - 2026-10-31: dispatched.
+- 2026-11-01: scope extended mid-run with Hermes tolerance in the schemas; the dispatcher was told.

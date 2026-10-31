@@ -108,9 +108,30 @@ Where the spec contradicts itself we pick one and write it down:
 
 `list_agents` also returns connected peers, with slugs of the form `<connection-slug>/<agent>`. `send_message` and `get_run` accept them and answer in the same shape, with no new tools, so an agent uses one habit for both. `outbound_policy` decides whether a person sees the text first.
 
-We register a per-task push webhook (`/a2a/webhooks/<taskId>`, its own token) when the peer's card supports it, and poll `GetTask` from the minute tick when it doesn't, for at most 24 hours.
+We register a per-task push webhook (`/a2a/webhooks/<taskId>/<token>`) when the peer's card supports it, and poll `GetTask` from the minute tick either way, for at most 24 hours, because a push may never come. A push is only a nudge to call `GetTask` straight away. Its body is never trusted (see "Hermes compatibility").
 
 When a result arrives and the calling run has already ended, the result starts a follow-up run in the same session with the calling run's reply target, so a Slack thread gets its answer. Results arriving while the calling run is still alive wait for `get_run`, and the minute tick wakes whatever the run left unread. Wakes count against the hourly limit.
+
+## Hermes compatibility
+
+Hermes is the first outside peer we must work with. It ships native A2A 1.0 in `plugins/platforms/a2a` (since v0.20, latest v0.22.5, read 1 November 2026), so a connection needs no plugin on its side. It speaks JSON-RPC only, uses bearer tokens, and has no invite flow, so it connects through "Give it a key" and "Call it". We follow the spec, and accept these habits of Hermes without loosening anything else.
+
+Hermes calling us:
+
+- It finds the card at `<base>/.well-known/agent-card.json`, so its `url` is `https://<host>/a2a/<publicId>`. Config goes in `a2a_agents` in `~/.hermes/config.yaml`, with `auth: { type: bearer, token }`. The key dialog shows this block ready to paste.
+- Text parts arrive as `{ "text": ..., "mediaType": "text/plain" }`. `mediaType` is a legal `Part` field, so a text part with it counts as text. Hermes issue #127707 records strict servers refusing this, and we must not be one.
+- It picks its own `contextId` on the first message. We accept client context ids.
+- `a2a_call` sends one blocking `SendMessage` with a 120 second default timeout and reads the reply from the first artifact, then from `status.message`. It doesn't poll or register a push, so a task returned unfinished never delivers its answer to that call. Every unfinished task we return therefore carries a `status.message` saying in plain words what it is waiting for. Accept-then-poll is an open Hermes PR (#141947).
+- Consequence for the default: at `inbound_policy = approve`, a Hermes agent gets "waiting for approval" and doesn't get the later answer by itself, though the answer stays in the session for its next message in that context. We keep `approve` as the default anyway, because safety beats convenience here. The page says this on a key connection, and a person who trusts the peer can choose `auto`. Tool approvals under `tool_policy = ask` can outlast the call in the same way.
+
+Us calling Hermes:
+
+- Its card declares `securitySchemes: { bearer: { type: "http", scheme: "bearer" } }` and `security`, not the proto's `httpAuthSecurityScheme` and `securityRequirements`, and it has extra fields (`url`, `stateTransitionHistory`). The client's card parser ignores unknown fields and reads both shapes as bearer. Our own cards use the proto's shape only.
+- Its JSON-RPC errors have no `data`. Parse `code` and `message` and don't require more.
+- It ignores `returnImmediately` and holds `SendMessage` open for up to 300 seconds (`A2A_REPLY_TIMEOUT`). So we always send our own `contextId`, cut the call off at our client timeout, and find the task with `ListTasks` filtered by that context, then poll `GetTask`. AA.8 confirms this against a real Hermes, including that it keeps working after we hang up.
+- Its push notifications don't send the configured `authentication`. They sign the body with `X-A2A-Signature` (HMAC-SHA256 under the peer's own secret, which we don't hold), and the text is cut to 2000 characters. So our webhook treats every push as a nudge: the URL holds the task's unguessable token, the body is never trusted, and the handler calls `GetTask` with our credential to read the real state. This is the rule for all peers, because A2A leaves webhook signing unspecified.
+
+To let us in, the Hermes operator needs `A2A_PEER_TOKENS` (the token we were given a name), `A2A_TRUSTED_PEERS` naming it, and `A2A_PUBLIC_URL` on an HTTPS address, because we refuse plain HTTP outside dev. The "Call it" dialog lists these.
 
 ## What the agent sees
 
