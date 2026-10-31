@@ -148,23 +148,31 @@ export const createFixture = async (options: { fake?: boolean } = {}) => {
   // `tasks` and `requests` need `runs`, and `runs` needs the tasks gateway.
   let runs: ReturnType<typeof createRunsService>;
   let requests: ReturnType<typeof createRequestsService>;
-  const tasks = createA2aTasksService({
-    atomic,
-    clock,
-    db,
-    events,
-    requests: { answerAsPeer: (p, i) => requests.answerAsPeer(p, i) },
-    runs: {
-      cancelRun: (p, id) => runs.cancelRun(p, id),
-      startRun: async (p, i, o) => {
-        await hooks.beforeStartRun?.();
-        return await runs.startRun(p, i, o);
+  /** A tasks service over the same database, as `composeWith` builds one per request. */
+  const newTasks = () =>
+    createA2aTasksService({
+      atomic,
+      clock,
+      db,
+      events,
+      requests: { answerAsPeer: (p, i) => requests.answerAsPeer(p, i) },
+      runs: {
+        cancelRun: (p, id) => runs.cancelRun(p, id),
+        startRun: async (p, i, o) => {
+          await hooks.beforeStartRun?.();
+          return await runs.startRun(p, i, o);
+        },
       },
-    },
-    secretsKey: SECRETS_KEY,
-  });
+      secretsKey: SECRETS_KEY,
+    });
+  const tasks = newTasks();
+  const managedAdapter: RuntimeAdapter = {
+    cancel: () => Promise.resolve(),
+    dispatch: () => Promise.resolve(),
+    kind: "managed",
+  };
   runs = createRunsService({
-    adapters: [adapter],
+    adapters: [adapter, managedAdapter],
     atomic,
     blobs,
     clock,
@@ -224,6 +232,7 @@ export const createFixture = async (options: { fake?: boolean } = {}) => {
     dispatched,
     events,
     hooks,
+    newTasks,
     requests,
     runs,
     seedAgent,

@@ -25,13 +25,13 @@ import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import {
   a2aAgentCards,
+  a2aAnswerMarkers,
   a2aConnections,
   a2aOutboundTasks,
   a2aOutbox,
   a2aTasks,
 } from "@repo/db/schema/a2a";
 import { agents } from "@repo/db/schema/agents";
-import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import type {
@@ -102,13 +102,13 @@ export const DECLINE_ACTION = "a2a.message.decline";
 export const PUSH_ACTION = "a2a.push";
 
 const HOUR_MS = 60 * 60_000;
-const MOVE_ATTEMPTS = 3;
 const MINUTE_MS = 60_000;
 const MS_PER_SECOND = 1000;
 /** A task that stayed `SUBMITTED` this long with no run never will get one. */
 const NEVER_STARTED_AFTER_MS = 5 * MINUTE_MS;
 /** Tasks the minute sweep looks at in one go. */
-const SWEEP_BATCH = 100;
+/** Below D1's cap of 100 bound parameters, for the one update that stamps a batch. */
+const SWEEP_BATCH = 50;
 const SWEEP_CONNECTIONS = 20;
 const WAITING_LIST_CAP = 200;
 const MESSAGE_ID_MAX = 200;
@@ -315,12 +315,12 @@ export const createA2aTasksService = ({
 
   /**
    * The push rows of a state change are written in the same atomic write as the
-   * change, and only while the task is in the state that change left it in, so
-   * a race loser queues nothing.
+   * change, and only while the task carries the token of that change's own
+   * update, so a caller that lost the race queues nothing.
    */
   const pushWhileMoved = (
     row: OutboxInsert,
-    moved: { at: string; id: string; state: A2aTaskState }
+    moved: { id: string; token: string }
   ) =>
     db.insert(a2aOutbox).select(
       db
@@ -338,39 +338,39 @@ export const createA2aTasksService = ({
         })
         .from(sql`(select 1)`)
         .where(
-          sql`exists (select 1 from ${a2aTasks} where ${a2aTasks.id} = ${moved.id} and ${a2aTasks.state} = ${moved.state} and ${a2aTasks.updatedAt} = ${moved.at})`
+          sql`exists (select 1 from ${a2aTasks} where ${a2aTasks.id} = ${moved.id} and ${a2aTasks.moveToken} = ${moved.token})`
         )
     );
 
   /**
-   * A timestamp that no earlier call in this process has used, so a state change
-   * is told apart from another made in the same millisecond.
+   * Moves a task from one of the states `from` to `to` and queues its pushes
+   * with it, in one atomic write. The database decides who wins: the update
+   * matches only a task still in one of the states `from` (and, for a decision
+   * by a person, one that nobody has decided), and writes a token no other call
+   * has. The caller whose token is on the row afterwards moved the task and
+   * alone queued its pushes. Null for a task that was not in any of the states
+   * `from`, and for a caller that lost the race, which may be another process.
    */
-  let lastStamp = 0;
-  const stamp = (): string => {
-    lastStamp = Math.max(clock.now().getTime(), lastStamp + 1);
-    return new Date(lastStamp).toISOString();
-  };
-
-  /**
-   * One try at a state change: the task goes from one of the states `from` to
-   * `to`, and its pushes are queued with it, in one atomic write. The write
-   * applies only to the version of the task that was read (its `updated_at`),
-   * and its pushes only while the task still carries this try's own stamp, so of
-   * two callers racing on one task exactly one moves it and queues anything.
-   * Null for the one that lost.
-   */
-  const tryMove = async (
-    current: TaskRow,
+  const move = async (
+    id: string,
     from: readonly A2aTaskState[],
     to: A2aTaskState,
     patch: Patch
   ): Promise<TaskRow | null> => {
-    const at = stamp();
+    const current = await taskById(id);
+    if (
+      !(current && from.includes(current.state)) ||
+      (current.state === to && current.statusText === patch.statusText)
+    ) {
+      return null;
+    }
+    const at = nowIso();
+    const token = ulid();
     const changes = {
       ...(patch.decidedBy === undefined
         ? {}
         : { decidedAt: at, decidedBy: patch.decidedBy }),
+      moveToken: token,
       ...(patch.resultText === undefined
         ? {}
         : { resultText: patch.resultText }),
@@ -383,7 +383,7 @@ export const createA2aTasksService = ({
       pushes = await pushConfigs.rowsFor({ ...current, ...changes });
     } catch (error) {
       // A push that cannot be built must not hold the task's state back.
-      console.error("A2A push not built", current.id, error);
+      console.error("A2A push not built", id, error);
     }
     await atomic([
       db
@@ -391,46 +391,17 @@ export const createA2aTasksService = ({
         .set(changes)
         .where(
           and(
-            eq(a2aTasks.id, current.id),
+            eq(a2aTasks.id, id),
             inArray(a2aTasks.state, [...from]),
-            eq(a2aTasks.updatedAt, current.updatedAt)
+            patch.decidedBy === undefined
+              ? undefined
+              : isNull(a2aTasks.decidedAt)
           )
         ),
-      ...pushes.map((row) =>
-        pushWhileMoved(row, { at, id: current.id, state: to })
-      ),
+      ...pushes.map((row) => pushWhileMoved(row, { id, token })),
     ]);
-    const after = await taskById(current.id);
-    return after?.state === to && after.updatedAt === at ? after : null;
-  };
-
-  /**
-   * Moves a task from one of the states `from` to `to`. Null when it was not in
-   * any of them, or another caller moved it first. A caller that lost to a
-   * change that left the task in `from` (a new status text, say) reads it again
-   * and tries once more.
-   */
-  const move = async (
-    id: string,
-    from: readonly A2aTaskState[],
-    to: A2aTaskState,
-    patch: Patch
-  ): Promise<TaskRow | null> => {
-    for (let attempt = 0; attempt < MOVE_ATTEMPTS; attempt += 1) {
-      // biome-ignore lint/performance/noAwaitInLoops: each try reads what the last one lost to
-      const current = await taskById(id);
-      if (
-        !(current && from.includes(current.state)) ||
-        (current.state === to && current.statusText === patch.statusText)
-      ) {
-        return null;
-      }
-      const moved = await tryMove(current, from, to, patch);
-      if (moved) {
-        return moved;
-      }
-    }
-    return null;
+    const after = await taskById(id);
+    return after?.moveToken === token ? after : null;
   };
 
   const fresh = async (id: string): Promise<TaskRow> => {
@@ -651,6 +622,47 @@ export const createA2aTasksService = ({
       .orderBy(asc(runRequests.createdAt), asc(runRequests.id))
       .limit(limit);
 
+  /**
+   * Answers the question for a peer. The marker goes in first and the answer
+   * second. A retry finds the marker and answers nothing, and false says so. If
+   * this request dies in between, the question stays open for the peer's next
+   * message, which is the safe way to fail. A refused answer takes its marker
+   * back.
+   */
+  const giveAnswer = async (
+    peer: PeerPrincipal,
+    connection: ConnectionRow,
+    input: {
+      messageId: string;
+      question: { id: string };
+      task: TaskRow;
+      text: string;
+    }
+  ): Promise<boolean> => {
+    const { messageId, question, task, text } = input;
+    if (!(await claimAnswer(connection, task, messageId, question.id))) {
+      return false;
+    }
+    let closed = false;
+    try {
+      await requests.answerAsPeer(peer, { requestId: question.id, text });
+    } catch (error) {
+      await releaseAnswer(connection, messageId);
+      // Someone answered it a moment ago.
+      if (!(error instanceof ServiceError && error.code === "conflict")) {
+        throw error;
+      }
+      closed = true;
+    }
+    if (closed) {
+      throw new A2aTaskError(
+        "UnsupportedOperationError",
+        "The task is not waiting for an answer."
+      );
+    }
+    return true;
+  };
+
   /** The next message on a task: an answer to the question it asks, or nothing. */
   const continueTask = async (
     peer: PeerPrincipal,
@@ -686,21 +698,15 @@ export const createA2aTasksService = ({
         "The task is not waiting for an answer."
       );
     }
-    let closed = false;
-    try {
-      await requests.answerAsPeer(peer, { requestId: question.id, text });
-    } catch (error) {
-      // Someone answered it a moment ago.
-      if (!(error instanceof ServiceError && error.code === "conflict")) {
-        throw error;
-      }
-      closed = true;
-    }
-    if (closed) {
-      throw new A2aTaskError(
-        "UnsupportedOperationError",
-        "The task is not waiting for an answer."
-      );
+    if (
+      !(await giveAnswer(peer, connection, {
+        messageId: message.messageId,
+        question,
+        task,
+        text,
+      }))
+    ) {
+      return task;
     }
     await db
       .update(a2aConnections)
@@ -793,12 +799,14 @@ export const createA2aTasksService = ({
             id: sql<string>`${row.id}`.as("id"),
             inputText: sql<string>`${row.inputText}`.as("inputText"),
             messageId: sql<string>`${row.messageId}`.as("messageId"),
+            moveToken: sql<string | null>`${null}`.as("moveToken"),
             resultText: sql<string | null>`${null}`.as("resultText"),
             runId: sql<string | null>`${null}`.as("runId"),
             state: sql<string>`${row.state}`.as("state"),
             statusText: sql<string | null>`${row.statusText ?? null}`.as(
               "statusText"
             ),
+            sweptAt: sql<string | null>`${null}`.as("sweptAt"),
             updatedAt: sql<string>`${row.updatedAt}`.as("updatedAt"),
             workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
           })
@@ -911,28 +919,62 @@ export const createA2aTasksService = ({
   };
 
   /**
-   * Whether this message already answered a question on `taskId`. The answer
-   * leaves its `messageId` in the log, which is where a retry looks.
+   * Records that this message is answering `requestId`. False when the message
+   * was recorded before, which means this is a retry.
    */
-  const answeredBefore = async (
+  const claimAnswer = async (
+    connection: ConnectionRow,
+    task: TaskRow,
+    messageId: string,
+    requestId: string
+  ): Promise<boolean> => {
+    const [claimed] = await db
+      .insert(a2aAnswerMarkers)
+      .values({
+        connectionId: connection.id,
+        createdAt: nowIso(),
+        id: `ans_${ulid(clock.now().getTime())}`,
+        messageId,
+        requestId,
+        taskId: task.id,
+        workspaceId: connection.workspaceId,
+      })
+      .onConflictDoNothing()
+      .returning({ id: a2aAnswerMarkers.id });
+    return claimed !== undefined;
+  };
+
+  /** Takes a marker back when the answer it announced was refused, so the peer may try again. */
+  const releaseAnswer = async (
     connection: ConnectionRow,
     messageId: string
-  ): Promise<boolean> => {
-    const needle = `"messageId":${JSON.stringify(messageId)}`;
-    const [found] = await db
-      .select({ id: eventRows.id })
-      .from(eventRows)
+  ): Promise<void> => {
+    await db
+      .delete(a2aAnswerMarkers)
       .where(
         and(
-          eq(eventRows.workspaceId, connection.workspaceId),
-          eq(eventRows.type, "a2a.message_received"),
-          eq(eventRows.actorId, connection.id),
-          sql`instr(${eventRows.payload}, ${needle}) > 0`,
-          sql`instr(${eventRows.payload}, '"answer":true') > 0`
+          eq(a2aAnswerMarkers.connectionId, connection.id),
+          eq(a2aAnswerMarkers.messageId, messageId)
+        )
+      );
+  };
+
+  /** The task a message already answered on, or null when it has answered nothing. */
+  const markedTask = async (
+    connection: ConnectionRow,
+    messageId: string
+  ): Promise<string | null> => {
+    const [marker] = await db
+      .select({ taskId: a2aAnswerMarkers.taskId })
+      .from(a2aAnswerMarkers)
+      .where(
+        and(
+          eq(a2aAnswerMarkers.connectionId, connection.id),
+          eq(a2aAnswerMarkers.messageId, messageId)
         )
       )
       .limit(1);
-    return found !== undefined;
+    return marker?.taskId ?? null;
   };
 
   /**
@@ -961,14 +1003,15 @@ export const createA2aTasksService = ({
       return toTask(existing, historyLength);
     }
     // So does a retried answer, which must not answer the next question too.
-    if (
-      message.taskId !== undefined &&
-      (await answeredBefore(connection, message.messageId))
-    ) {
-      return toTask(
-        await requireTask(connection, message.taskId),
-        historyLength
-      );
+    const marked =
+      message.taskId === undefined
+        ? null
+        : await markedTask(connection, message.messageId);
+    if (marked !== null) {
+      if (marked !== message.taskId) {
+        throw new ServiceError("invalid", "That message id is already used");
+      }
+      return toTask(await requireTask(connection, marked), historyLength);
     }
     if (connection.inboundPolicy === "off") {
       await refuse(connection, "inbound_off");
@@ -1517,12 +1560,28 @@ export const createA2aTasksService = ({
     }
   };
 
+  /** The least recently swept tasks first, the never swept ones by age. */
+  const sweepOrder = [
+    asc(sql`coalesce(${a2aTasks.sweptAt}, ${a2aTasks.createdAt})`),
+    asc(a2aTasks.id),
+  ] as const;
+
+  const stampSwept = async (ids: readonly string[]): Promise<void> => {
+    if (ids.length > 0) {
+      await db
+        .update(a2aTasks)
+        .set({ sweptAt: nowIso() })
+        .where(inArray(a2aTasks.id, [...ids]));
+    }
+  };
+
   /**
    * The minute tick. Catches what an event missed: a task whose run ended or
    * started, a question that opened or closed unheard, a task that never got a
-   * run, and a run still alive under a task that has ended. It reads only the
-   * tasks that disagree with their run, so a batch is never taken up by tasks
-   * that are fine. Returns how many tasks and runs it acted on.
+   * run, and a run still alive under a task that has ended. It takes the least
+   * recently swept tasks first and stamps them, so a batch of tasks that are
+   * fine (a question that waits) moves to the back and cannot hide one that
+   * needs acting on. Returns how many tasks and runs it acted on.
    */
   const sweep = async (principal: Principal): Promise<number> => {
     if (principal.kind !== "system") {
@@ -1580,8 +1639,12 @@ export const createA2aTasksService = ({
           )
         )
       )
-      .orderBy(asc(a2aTasks.updatedAt))
+      .orderBy(...sweepOrder)
       .limit(SWEEP_BATCH);
+    // Stamped before they are looked at, so a task that stays as it is (a
+    // question that waits) goes to the back and a full batch of them cannot
+    // hide one that needs acting on.
+    await stampSwept(disagreeing.map(({ task }) => task.id));
     for (const { resultText, runStatus, task } of disagreeing) {
       // biome-ignore lint/performance/noAwaitInLoops: each task is one small read and one write
       acted += (await settle(task, runStatus, resultText ?? "")) ? 1 : 0;
@@ -1611,7 +1674,7 @@ export const createA2aTasksService = ({
       acted += failed ? 1 : 0;
     }
     const strays = await db
-      .select({ runId: runRows.id })
+      .select({ runId: runRows.id, taskId: a2aTasks.id })
       .from(runRows)
       .innerJoin(a2aTasks, eq(a2aTasks.runId, runRows.id))
       .where(
@@ -1620,7 +1683,9 @@ export const createA2aTasksService = ({
           inArray(a2aTasks.state, [...TERMINAL])
         )
       )
+      .orderBy(...sweepOrder)
       .limit(SWEEP_BATCH);
+    await stampSwept(strays.map(({ taskId }) => taskId));
     for (const { runId } of strays) {
       // biome-ignore lint/performance/noAwaitInLoops: each run is one cancel
       await cancelRunQuietly(runId);

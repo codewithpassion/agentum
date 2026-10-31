@@ -185,12 +185,17 @@ export const a2aTasks = sqliteTable(
     inputText: text("input_text").notNull(),
     // The message id the peer chose. Unique per connection.
     messageId: text("message_id").notNull(),
+    // Written by each state change with a token of its own, so the change whose
+    // update landed can tell it won a race with another caller.
+    moveToken: text("move_token"),
     resultText: text("result_text"),
     runId: text("run_id").references(() => runs.id),
     state: text("state", { enum: A2A_TASK_STATES })
       .notNull()
       .default(A2A_DEFAULT_TASK_STATE),
     statusText: text("status_text"),
+    // When the minute sweep last looked at this task. It takes the least recently swept first.
+    sweptAt: text("swept_at"),
     updatedAt: text("updated_at").notNull(),
     workspaceId: workspaceId().references(() => workspaces.id, {
       onDelete: "cascade",
@@ -198,6 +203,40 @@ export const a2aTasks = sqliteTable(
   },
   (t) => [
     uniqueIndex("a2a_tasks_connection_message_unique").on(
+      t.connectionId,
+      t.messageId
+    ),
+    index("a2a_tasks_run_id_idx").on(t.runId),
+    index("a2a_tasks_state_swept_idx").on(t.state, t.sweptAt),
+  ]
+);
+
+/**
+ * A peer's message that answered a question on one of its tasks. The marker is
+ * written before the answer, so a retry of the same `message_id` finds it and
+ * answers nothing. A marker with no answer behind it (the request died between
+ * the two) leaves the question open for the peer's next message.
+ */
+export const a2aAnswerMarkers = sqliteTable(
+  "a2a_answer_markers",
+  {
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => a2aConnections.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    id: id(),
+    messageId: text("message_id").notNull(),
+    // Plain text on purpose: a run request has no foreign key here.
+    requestId: text("request_id").notNull(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => a2aTasks.id, { onDelete: "cascade" }),
+    workspaceId: workspaceId().references(() => workspaces.id, {
+      onDelete: "cascade",
+    }),
+  },
+  (t) => [
+    uniqueIndex("a2a_answer_markers_connection_message_unique").on(
       t.connectionId,
       t.messageId
     ),

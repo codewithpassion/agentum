@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   a2aAgentCards,
+  a2aAnswerMarkers,
   a2aConnections,
   a2aOutbox,
   a2aTasks,
@@ -244,7 +245,9 @@ describe("work a peer's run hands on", () => {
   test("a managed agent cannot take it", async () => {
     await f.seedAgent("a-managed", "managed");
     const error = await rejects(handOff("a-managed"));
-    expect((error as Error).message).toContain("managed");
+    expect((error as Error).message).toContain(
+      "started with a message from a peer"
+    );
   });
 
   test("a revoked connection asks for every tool whatever its policy was", async () => {
@@ -432,6 +435,161 @@ describe("a peer starting a run on a managed agent", () => {
         }
       )
     );
-    expect((error as Error).message).toContain("managed");
+    expect((error as Error).message).toContain(
+      "started with a message from a peer"
+    );
+  });
+});
+
+describe("two requests racing on one task, each with a service of its own", () => {
+  const racers = async () => {
+    await f.connect();
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Hi"));
+    await f.tasks.createPushConfig(peerOf(), {
+      config: { url: "https://hook.example.com/x" },
+      taskId: task.id,
+    });
+    return task;
+  };
+
+  test("a double approve starts exactly one run and queues one push", async () => {
+    const task = await racers();
+    const other = f.newTasks();
+    const results = await Promise.allSettled([
+      f.tasks.approveTask(member(), task.id),
+      other.approveTask(member("u-other"), task.id),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await f.db.select().from(runRows)).toHaveLength(1);
+    const pushes = (await f.db.select().from(a2aOutbox)).filter(
+      (row) => row.kind === "push"
+    );
+    expect(pushes).toHaveLength(1);
+  });
+
+  test("an approve against a decline has one winner", async () => {
+    const task = await racers();
+    const other = f.newTasks();
+    const results = await Promise.allSettled([
+      f.tasks.approveTask(member(), task.id),
+      other.declineTask(member("u-other"), task.id),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const final = (await taskRow(task.id))?.state;
+    expect((await f.db.select().from(runRows)).length).toBe(
+      final === "TASK_STATE_SUBMITTED" ? 1 : 0
+    );
+  });
+});
+
+describe("the sweep with a full batch of tasks that are fine", () => {
+  test("a stuck task behind them is still reached", async () => {
+    await f.connect({ hourlyLimit: 1000, inboundPolicy: "auto" });
+    const healthy = 56;
+    for (let index = 0; index < healthy; index += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each task is made after the one before, so their ages differ
+      const task = await f.tasks.sendMessage(
+        peerOf(),
+        textMessage(`h${index}`, "Go")
+      );
+      const runId = (await taskRow(task.id))?.runId ?? "";
+      // A cloud agent runs one run at a time, so the others are set running by hand.
+      await f.db
+        .update(runRows)
+        .set({ status: "running" })
+        .where(eq(runRows.id, runId));
+      await ask(runId, `Question ${index}?`, `q${index}`);
+      f.advance(1000);
+    }
+    const stuck = await f.tasks.sendMessage(peerOf(), textMessage("s", "Go"));
+    const stuckRunId = (await taskRow(stuck.id))?.runId ?? "";
+    // Its run failed and no event was heard.
+    await f.db
+      .update(runRows)
+      .set({ status: "failed" })
+      .where(eq(runRows.id, stuckRunId));
+    expect(await f.tasks.sweep(f.system)).toBe(0);
+    expect((await taskRow(stuck.id))?.state).toBe("TASK_STATE_SUBMITTED");
+    // The next minutes: the batch rotates, so the stuck task is reached soon.
+    const minute = async () => {
+      f.advance(60_000);
+      await f.tasks.sweep(f.system);
+    };
+    await minute();
+    await minute();
+    await minute();
+    expect((await taskRow(stuck.id))?.state).toBe("TASK_STATE_FAILED");
+  });
+});
+
+describe("the marker of an answer", () => {
+  const twoQuestions = async () => {
+    const { runId, taskId } = await startAuto();
+    const first = await ask(runId, "First?", "q1");
+    f.advance(1000);
+    await ask(runId, "Second?", "q2");
+    return { first, taskId };
+  };
+  const markAnswer = (taskId: string, requestId: string, messageId: string) =>
+    f.db.insert(a2aAnswerMarkers).values({
+      connectionId: CONNECTION,
+      createdAt: "2026-11-01T10:00:00.000Z",
+      id: `ans_${messageId}`,
+      messageId,
+      requestId,
+      taskId,
+      workspaceId: WORKSPACE,
+    });
+  const answeredCount = async () =>
+    (await f.db.select().from(runRequests)).filter(
+      (row) => row.status === "answered"
+    ).length;
+
+  test("a retry finds the marker, answers nothing and returns the task as it is", async () => {
+    const { taskId } = await twoQuestions();
+    const answer = textMessage("m2", "Yes", { taskId });
+    await f.tasks.sendMessage(peerOf(), answer);
+    const again = await f.tasks.sendMessage(peerOf(), answer);
+    expect(again.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
+    expect(await answeredCount()).toBe(1);
+    const markers = await f.db.select().from(a2aAnswerMarkers);
+    expect(markers).toHaveLength(1);
+    expect(markers[0]?.taskId).toBe(taskId);
+  });
+
+  test("a request that died after the marker answers nothing, and a new message id answers the open question", async () => {
+    const { first, taskId } = await twoQuestions();
+    // The marker went in and the request died before the answer.
+    await markAnswer(taskId, first.id, "m2");
+    const retry = await f.tasks.sendMessage(
+      peerOf(),
+      textMessage("m2", "Yes", { taskId })
+    );
+    expect(retry.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
+    expect(statusOf(retry)).toContain("First?");
+    expect(await answeredCount()).toBe(0);
+    const next = await f.tasks.sendMessage(
+      peerOf(),
+      textMessage("m3", "Yes", { taskId })
+    );
+    expect(statusOf(next)).toContain("Second?");
+    expect(await answeredCount()).toBe(1);
+    const stored = (await f.db.select().from(runRequests)).find(
+      (row) => row.id === first.id
+    );
+    expect(stored?.status).toBe("answered");
+  });
+
+  test("a message id used on another task is refused", async () => {
+    const { first, taskId } = await twoQuestions();
+    await markAnswer(taskId, first.id, "m2");
+    const other = await f.tasks.sendMessage(peerOf(), textMessage("o1", "Hi"));
+    const error = await rejects(
+      f.tasks.sendMessage(
+        peerOf(),
+        textMessage("m2", "Yes", { taskId: other.id })
+      )
+    );
+    expect((error as Error).message).toContain("already used");
   });
 });
