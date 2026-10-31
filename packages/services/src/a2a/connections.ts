@@ -86,6 +86,7 @@ import {
   schemeLabel,
   tokenUrlOfLabel,
 } from "./card-peer.ts";
+import { createPairing } from "./pairing.ts";
 import { checkCode } from "./pairing-code.ts";
 import {
   ACCESS_TOKEN_PREFIX,
@@ -190,6 +191,13 @@ export const accessKeyInputSchema = z.strictObject({
 });
 export type AccessKeyInput = z.input<typeof accessKeyInputSchema>;
 
+/** The destination a person looked at when they approved. */
+export const approveSeenSchema = z.strictObject({
+  origin: z.string().min(1).max(2000),
+  tokenUrl: z.string().min(1).max(2000).nullable(),
+});
+export type ApproveSeen = z.input<typeof approveSeenSchema>;
+
 const oauthCredentialSchema = z.strictObject({
   clientId: z.string().min(1).max(500),
   clientSecret: z.string().min(1).max(2000),
@@ -208,8 +216,31 @@ export const addOutboundInputSchema = z.strictObject({
     .union([z.string().min(1).max(4000), oauthCredentialSchema])
     .optional(),
   label: z.string().trim().min(1).max(80).optional(),
+  /** The destination the person looked at in the preview. A card that moved since is refused. */
+  seen: approveSeenSchema.optional(),
 });
 export type AddOutboundInput = z.input<typeof addOutboundInputSchema>;
+
+export const previewCardInputSchema = z.strictObject({
+  agentId: idString,
+  cardUrl: z.url().max(2000),
+});
+export type PreviewCardInput = z.input<typeof previewCardInputSchema>;
+
+/** What the "Call it" dialog shows before it asks for a credential. All of it is the peer's own text. */
+export interface CardPreview {
+  description: string;
+  host: string;
+  name: string;
+  org: string | null;
+  /** The origin calls go to, and the one the credential is sent to unless the scheme is OAuth. */
+  origin: string;
+  /** The kind of credential the card asks for: `none`, `bearer`, `api_key_header` or `oauth2_client_credentials`. */
+  scheme: OutboundScheme["kind"];
+  skills: { description: string; name: string }[];
+  /** Where an OAuth client secret goes. Null for any other scheme. */
+  tokenUrl: string | null;
+}
 
 export const policiesInputSchema = z
   .strictObject({
@@ -228,13 +259,6 @@ export const policiesInputSchema = z
     { message: "Change at least one setting" }
   );
 export type PoliciesInput = z.input<typeof policiesInputSchema>;
-
-/** The destination a person looked at when they approved. */
-export const approveSeenSchema = z.strictObject({
-  origin: z.string().min(1).max(2000),
-  tokenUrl: z.string().min(1).max(2000).nullable(),
-});
-export type ApproveSeen = z.input<typeof approveSeenSchema>;
 
 export const listInputSchema = z.strictObject({
   agentId: idString.optional(),
@@ -1624,23 +1648,31 @@ export const createConnectionsService = ({
   /** The row an incoming bearer token names as our inbound token, in one of `statuses`. */
   const rowByInboundToken = async (
     token: string,
-    statuses: readonly A2aConnectionStatus[]
+    statuses: readonly A2aConnectionStatus[],
+    publicId?: string
   ): Promise<ConnectionRow> => {
-    const [row] = await db
-      .select()
+    const [found] = await db
+      .select({ row: a2aConnections })
       .from(a2aConnections)
+      .innerJoin(
+        a2aAgentCards,
+        eq(a2aAgentCards.agentId, a2aConnections.localAgentId)
+      )
       .where(
         and(
           eq(a2aConnections.inboundTokenHash, await hashToken(token)),
           eq(a2aConnections.peerKind, "harbourmaster"),
-          inArray(a2aConnections.status, [...statuses])
+          inArray(a2aConnections.status, [...statuses]),
+          publicId === undefined
+            ? undefined
+            : eq(a2aAgentCards.publicId, publicId)
         )
       )
       .limit(1);
-    if (!row) {
+    if (!found) {
       throw new ServiceError("not_found", "Connection not found");
     }
-    return row;
+    return found.row;
   };
 
   /**
@@ -1650,9 +1682,14 @@ export const createConnectionsService = ({
    */
   const activate = async (
     bearer: string,
-    input: PairActivateBody
+    input: PairActivateBody,
+    publicId?: string
   ): Promise<void> => {
-    const row = await rowByInboundToken(bearer, ["awaiting_peer", "active"]);
+    const row = await rowByInboundToken(
+      bearer,
+      ["awaiting_peer", "active"],
+      publicId
+    );
     const body = pairActivateBodySchema.parse(input);
     if (row.status === "active") {
       // A retry after a lost answer brings the same token and changes nothing.
@@ -1703,8 +1740,8 @@ export const createConnectionsService = ({
   };
 
   /** The inviter turned the connection down. Our token for it stops working. */
-  const declined = async (bearer: string): Promise<void> => {
-    const row = await rowByInboundToken(bearer, ["awaiting_peer"]);
+  const declined = async (bearer: string, publicId?: string): Promise<void> => {
+    const row = await rowByInboundToken(bearer, ["awaiting_peer"], publicId);
     const done = await db
       .update(a2aConnections)
       .set({ inboundTokenHash: null, status: "declined" })
@@ -1836,7 +1873,7 @@ export const createConnectionsService = ({
     input: AddOutboundInput
   ): Promise<ConnectionSummary> => {
     const user = requireSession(principal, OUTBOUND_ACTION);
-    const { agentId, cardUrl, credential, label } =
+    const { agentId, cardUrl, credential, label, seen } =
       addOutboundInputSchema.parse(input);
     authorize(user, OUTBOUND_ACTION, {
       kind: CONNECTION_KIND,
@@ -1865,6 +1902,15 @@ export const createConnectionsService = ({
     if (choice.scheme.kind === "oauth2_client_credentials") {
       // The client secret goes to this URL, so it passes the guard too.
       vetUrl(choice.scheme.tokenUrl);
+    }
+    if (seen) {
+      refuseUnseen(seen, {
+        origin: peerInterface.origin,
+        tokenUrl:
+          choice.scheme.kind === "oauth2_client_credentials"
+            ? choice.scheme.tokenUrl
+            : null,
+      });
     }
     const secret = credentialText(choice.scheme, credential);
     const id = `con_${ulid(clock.now().getTime())}`;
@@ -1908,6 +1954,63 @@ export const createConnectionsService = ({
       workspaceId: user.workspaceId,
     });
     return await requireSummary(id, user.workspaceId);
+  };
+
+  /**
+   * What an outside agent's card says, for a person to look at before they
+   * give it a credential. Creates nothing. Every field comes from the peer, so
+   * the page shows it as plain text.
+   */
+  const previewCard = async (
+    principal: Principal,
+    input: PreviewCardInput
+  ): Promise<CardPreview> => {
+    const user = requireSession(principal, OUTBOUND_ACTION);
+    const { agentId, cardUrl } = previewCardInputSchema.parse(input);
+    authorize(user, OUTBOUND_ACTION, {
+      kind: CONNECTION_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const agent = await requireActiveAgent(agentId, user.workspaceId);
+    requireAdminOrOwner(user, agent, OUTBOUND_ACTION);
+    vetUrl(cardUrl);
+    await refuseDuplicate(agentId, cardUrl);
+    const card = await fetchPeerCard(cardUrl);
+    const peerInterface = chooseInterface(card);
+    if (!peerInterface) {
+      throw new ServiceError(
+        "invalid",
+        "That agent offers no JSON-RPC or HTTP+JSON interface"
+      );
+    }
+    vetUrl(peerInterface.url);
+    const choice = chooseOutboundScheme(card);
+    if (!choice.ok) {
+      throw new ServiceError(
+        "invalid",
+        `That agent wants ${choice.wanted}, which Harbourmaster does not support`
+      );
+    }
+    const tokenUrl =
+      choice.scheme.kind === "oauth2_client_credentials"
+        ? choice.scheme.tokenUrl
+        : null;
+    if (tokenUrl !== null) {
+      vetUrl(tokenUrl);
+    }
+    return {
+      description: card.description,
+      host: new URL(peerInterface.url).host,
+      name: card.name,
+      org: card.provider?.organization ?? null,
+      origin: peerInterface.origin,
+      scheme: choice.scheme.kind,
+      skills: card.skills.map((skill) => ({
+        description: skill.description,
+        name: skill.name,
+      })),
+      tokenUrl,
+    };
   };
 
   /** The live outside-agent connection a refresh acts on, with its card URL. */
@@ -2248,13 +2351,15 @@ export const createConnectionsService = ({
    * bearer. The access ended on its side already, so this only records it. We
    * send nothing back.
    */
-  const peerRevoked = async (bearer: string): Promise<void> => {
-    const row = await rowByInboundToken(bearer, [
-      "awaiting_peer",
-      "activating",
-      "active",
-      "revoked",
-    ]);
+  const peerRevoked = async (
+    bearer: string,
+    publicId?: string
+  ): Promise<void> => {
+    const row = await rowByInboundToken(
+      bearer,
+      ["awaiting_peer", "activating", "active", "revoked"],
+      publicId
+    );
     await endConnection(row, { actor: peerActor(row), notify: false });
   };
 
@@ -2321,16 +2426,19 @@ export const createConnectionsService = ({
   // Authenticating a peer
 
   /**
-   * The `peer` principal for an `hm_a2a_` token, or null. It re-reads the
-   * connection on every call and caches nothing, so a revoke takes effect on the
-   * next request. The connection must be `active`, and its agent published and
-   * active. This is not part of `createPrincipalResolver`, so the token works
+   * The `peer` principal for a bearer token, or null. Any token is looked up,
+   * not only `hm_a2a_` ones, because a client that paired by code chose its own.
+   * It re-reads the connection on every call and caches nothing, so a revoke
+   * takes effect on the next request. The connection must be `active`, and its
+   * agent published and active. When `publicId` is given, it must be the public id of the agent
+   * the connection belongs to, so a key does not work under another agent's
+   * path. This is not part of `createPrincipalResolver`, so the token works
    * only on the `/a2a` routes.
    */
-  const authenticate = async (token: string): Promise<PeerPrincipal | null> => {
-    if (!token.startsWith(ACCESS_TOKEN_PREFIX)) {
-      return null;
-    }
+  const authenticate = async (
+    token: string,
+    publicId?: string
+  ): Promise<PeerPrincipal | null> => {
     const [row] = await db
       .select({
         agentId: a2aConnections.localAgentId,
@@ -2348,7 +2456,10 @@ export const createConnectionsService = ({
           eq(a2aConnections.inboundTokenHash, await hashToken(token)),
           eq(a2aConnections.status, "active"),
           isNull(a2aAgentCards.unpublishedAt),
-          eq(agents.status, "active")
+          eq(agents.status, "active"),
+          publicId === undefined
+            ? undefined
+            : eq(a2aAgentCards.publicId, publicId)
         )
       )
       .limit(1);
@@ -2427,7 +2538,21 @@ export const createConnectionsService = ({
     revokedListeners.push(listener);
   };
 
+  const pairing = createPairing({
+    actorOf,
+    atomic,
+    clock,
+    db,
+    freeSlug,
+    publishedCardOf,
+    record,
+    requireActiveAgent,
+    requireSummary,
+    secretsKey,
+  });
+
   return {
+    ...pairing,
     activate,
     activationAbandoned,
     activationDelivered,
@@ -2446,6 +2571,7 @@ export const createConnectionsService = ({
     list,
     onRevoked,
     peerRevoked,
+    previewCard,
     publicCard,
     publish,
     refreshCard,

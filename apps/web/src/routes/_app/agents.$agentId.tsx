@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { AskBeforeCard } from "#/components/agent/profile/ask-before-card";
 import { ComputerCard } from "#/components/agent/profile/computer-card";
+import { ConnectionsCard } from "#/components/agent/profile/connections-card";
 import { ManageSheet } from "#/components/agent/profile/manage-sheet";
 import { ProfileHeader } from "#/components/agent/profile/profile-header";
 import { ProfileRows } from "#/components/agent/profile/profile-rows";
@@ -42,6 +43,8 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         mailbox,
         rules,
         members,
+        connections,
+        published,
       ] = await Promise.all([
         trpc.agents.get.query({ id: params.agentId }),
         trpc.agentProfile.profile.query({ agentId: params.agentId }),
@@ -54,14 +57,18 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         trpc.mailbox.get.query({ agentId: params.agentId }),
         trpc.requests.rules.list.query({ agentId: params.agentId }),
         trpc.members.list.query().catch(() => null),
+        trpc.a2a.list.query({ agentId: params.agentId }).catch(() => []),
+        trpc.a2a.published.query({ agentId: params.agentId }).catch(() => null),
       ]);
       return {
         agent,
         askBefore,
+        connections,
         machines,
         members,
         mailbox,
         profile,
+        published,
         rules,
         tasks,
       };
@@ -89,10 +96,12 @@ function AgentPage() {
   const {
     agent,
     askBefore,
+    connections,
     machines,
     members,
     mailbox,
     profile,
+    published,
     rules,
     tasks,
   } = Route.useLoaderData();
@@ -154,6 +163,11 @@ function AgentPage() {
             mailAllowed={allowedMailAddresses(rules)}
           />
           <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
+          <ConnectionsCard
+            agentId={agent.id}
+            connections={connections}
+            published={published}
+          />
           <ComputerCard
             agent={agent}
             header={profile.header}

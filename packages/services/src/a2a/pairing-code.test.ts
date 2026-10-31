@@ -3,6 +3,7 @@ import {
   checkCode,
   PAIRING_ALPHABET,
   PAIRING_CODE_LENGTH,
+  pairingRequestCode,
   randomPairingCode,
 } from "./pairing-code.ts";
 
@@ -55,5 +56,25 @@ describe("randomPairingCode", () => {
 
   test("two calls differ", () => {
     expect(randomPairingCode()).not.toBe(randomPairingCode());
+  });
+});
+
+describe("pairingRequestCode", () => {
+  const KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+  const OTHER_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(8)));
+
+  test("returns 8 alphabet characters and is deterministic", async () => {
+    const code = await pairingRequestCode(KEY, "prq_1", "token");
+    expect(code).toMatch(CODE_PATTERN);
+    expect(await pairingRequestCode(KEY, "prq_1", "token")).toBe(code);
+  });
+
+  test("changes with the request id, the token and the key", async () => {
+    const code = await pairingRequestCode(KEY, "prq_1", "token");
+    expect(await pairingRequestCode(KEY, "prq_2", "token")).not.toBe(code);
+    expect(await pairingRequestCode(KEY, "prq_1", "other")).not.toBe(code);
+    expect(await pairingRequestCode(OTHER_KEY, "prq_1", "token")).not.toBe(
+      code
+    );
   });
 });

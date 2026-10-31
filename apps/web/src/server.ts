@@ -23,7 +23,8 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
-import { a2aWebhookRoutes } from "./server/routes/a2a-webhooks.ts";
+import { mountA2aRoutes } from "./server/routes/a2a.ts";
+import { mountA2aWebhooks } from "./server/routes/a2a-webhooks.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -95,7 +96,6 @@ app.route(
   })
 );
 app.route("/", liveRoomRoutes());
-app.use("*", clerkMiddleware());
 
 // Every service, built once for the request from the bindings and secrets.
 const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -107,14 +107,25 @@ const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
   );
   await next();
 };
+
+// The A2A server (`/a2a/<publicId>/...`, `/a2a/pair/join`). Callers are other
+// servers with a bearer key and no cookie, so it takes no csrf check and must
+// never meet Clerk: on a dev instance clerkMiddleware answers a browser-style
+// request with a handshake redirect. It is mounted ahead of `clerkMiddleware`
+// and ends every path under `/a2a` itself, so nothing falls through to the pages.
+// A peer's push webhook (`/a2a/webhooks/<taskId>/<token>`) is mounted first, so
+// it answers its own path and never reaches the pairing or peer-token handling
+// in `mountA2aRoutes`, whose last route answers every other path 404.
+mountA2aWebhooks(app, composeServices);
+mountA2aRoutes(app, composeServices);
+
+app.use("*", clerkMiddleware());
 app.use("/api/*", composeServices);
 app.use("/mcp", composeServices);
 // `/files/:id` is outside `/api` but reads files too.
 app.use("/files/*", composeServices);
 // `/connect/:id` starts an OAuth connection and reads the services too.
 app.use("/connect/*", composeServices);
-// A peer's push webhook reads the services too.
-app.use("/a2a/*", composeServices);
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);
@@ -193,7 +204,6 @@ app.route("/", runtimeRoutes);
 app.route("/", accessRoutes);
 app.route("/", automationRoutes);
 app.route("/", artifactRoutes({ session: (c) => getAuth(c) }));
-app.route("/a2a", a2aWebhookRoutes());
 
 // Local checks (the atomic probe, and the offer nudge the e2e script uses).
 // Dev builds only.

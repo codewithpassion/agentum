@@ -28,6 +28,7 @@ import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
 import { Route as AArtifactIdRouteImport } from './routes/a.$artifactId'
+import { Route as ConnectTokenRouteImport } from './routes/connect.$token'
 import { Route as STokenRouteImport } from './routes/s.$token'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
@@ -46,6 +47,8 @@ import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.s
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
 import { Route as AppTasksRunIdRouteImport } from './routes/_app/tasks.$runId'
+import { Route as AppSettingsAgentConnectionsIndexRouteImport } from './routes/_app/settings.agent-connections.index'
+import { Route as AppSettingsAgentConnectionsConnectionIdRouteImport } from './routes/_app/settings.agent-connections.$connectionId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -141,6 +144,11 @@ const AArtifactIdRoute = AArtifactIdRouteImport.update({
   path: '/a/$artifactId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConnectTokenRoute = ConnectTokenRouteImport.update({
+  id: '/connect/$token',
+  path: '/connect/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const STokenRoute = STokenRouteImport.update({
   id: '/s/$token',
   path: '/s/$token',
@@ -234,6 +242,18 @@ const AppTasksRunIdRoute = AppTasksRunIdRouteImport.update({
   path: '/tasks/$runId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsAgentConnectionsIndexRoute =
+  AppSettingsAgentConnectionsIndexRouteImport.update({
+    id: '/agent-connections/',
+    path: '/agent-connections/',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
+const AppSettingsAgentConnectionsConnectionIdRoute =
+  AppSettingsAgentConnectionsConnectionIdRouteImport.update({
+    id: '/agent-connections/$connectionId',
+    path: '/agent-connections/$connectionId',
+    getParentRoute: () => AppSettingsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -254,6 +274,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRouteWithChildren
   '/triggers': typeof AppTriggersRoute
   '/a/$artifactId': typeof AArtifactIdRoute
+  '/connect/$token': typeof ConnectTokenRoute
   '/s/$token': typeof STokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
@@ -272,6 +293,8 @@ export interface FileRoutesByFullPath {
   '/qa/': typeof AppQaIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/skills/': typeof AppSkillsIndexRoute
+  '/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
+  '/settings/agent-connections/': typeof AppSettingsAgentConnectionsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -291,6 +314,7 @@ export interface FileRoutesByTo {
   '/sessions': typeof AppSessionsRoute
   '/triggers': typeof AppTriggersRoute
   '/a/$artifactId': typeof AArtifactIdRoute
+  '/connect/$token': typeof ConnectTokenRoute
   '/s/$token': typeof STokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/agents/new': typeof AppAgentsNewRoute
@@ -309,6 +333,8 @@ export interface FileRoutesByTo {
   '/qa': typeof AppQaIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/skills': typeof AppSkillsIndexRoute
+  '/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
+  '/settings/agent-connections': typeof AppSettingsAgentConnectionsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -331,6 +357,7 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/triggers': typeof AppTriggersRoute
   '/a/$artifactId': typeof AArtifactIdRoute
+  '/connect/$token': typeof ConnectTokenRoute
   '/s/$token': typeof STokenRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/agents/new': typeof AppAgentsNewRoute
@@ -349,6 +376,8 @@ export interface FileRoutesById {
   '/_app/qa/': typeof AppQaIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/skills/': typeof AppSkillsIndexRoute
+  '/_app/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
+  '/_app/settings/agent-connections/': typeof AppSettingsAgentConnectionsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -371,6 +400,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/triggers'
     | '/a/$artifactId'
+    | '/connect/$token'
     | '/s/$token'
     | '/agents/$agentId'
     | '/agents/new'
@@ -389,6 +419,8 @@ export interface FileRouteTypes {
     | '/qa/'
     | '/settings/'
     | '/skills/'
+    | '/settings/agent-connections/$connectionId'
+    | '/settings/agent-connections/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -408,6 +440,7 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/triggers'
     | '/a/$artifactId'
+    | '/connect/$token'
     | '/s/$token'
     | '/agents/$agentId'
     | '/agents/new'
@@ -426,6 +459,8 @@ export interface FileRouteTypes {
     | '/qa'
     | '/settings'
     | '/skills'
+    | '/settings/agent-connections/$connectionId'
+    | '/settings/agent-connections'
   id:
     | '__root__'
     | '/'
@@ -447,6 +482,7 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/_app/triggers'
     | '/a/$artifactId'
+    | '/connect/$token'
     | '/s/$token'
     | '/_app/agents/$agentId'
     | '/_app/agents/new'
@@ -465,6 +501,8 @@ export interface FileRouteTypes {
     | '/_app/qa/'
     | '/_app/settings/'
     | '/_app/skills/'
+    | '/_app/settings/agent-connections/$connectionId'
+    | '/_app/settings/agent-connections/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -475,6 +513,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   SignUpRoute: typeof SignUpRoute
   AArtifactIdRoute: typeof AArtifactIdRoute
+  ConnectTokenRoute: typeof ConnectTokenRoute
   STokenRoute: typeof STokenRoute
 }
 
@@ -613,6 +652,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AArtifactIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/connect/$token': {
+      id: '/connect/$token'
+      path: '/connect/$token'
+      fullPath: '/connect/$token'
+      preLoaderRoute: typeof ConnectTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/s/$token': {
       id: '/s/$token'
       path: '/s/$token'
@@ -739,6 +785,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTasksRunIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/agent-connections/': {
+      id: '/_app/settings/agent-connections/'
+      path: '/agent-connections'
+      fullPath: '/settings/agent-connections/'
+      preLoaderRoute: typeof AppSettingsAgentConnectionsIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/agent-connections/$connectionId': {
+      id: '/_app/settings/agent-connections/$connectionId'
+      path: '/agent-connections/$connectionId'
+      fullPath: '/settings/agent-connections/$connectionId'
+      preLoaderRoute: typeof AppSettingsAgentConnectionsConnectionIdRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
   }
 }
 
@@ -752,6 +812,8 @@ interface AppSettingsRouteChildren {
   AppSettingsModelProvidersRoute: typeof AppSettingsModelProvidersRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppSettingsAgentConnectionsConnectionIdRoute: typeof AppSettingsAgentConnectionsConnectionIdRoute
+  AppSettingsAgentConnectionsIndexRoute: typeof AppSettingsAgentConnectionsIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
@@ -764,6 +826,9 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsModelProvidersRoute: AppSettingsModelProvidersRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppSettingsAgentConnectionsConnectionIdRoute:
+    AppSettingsAgentConnectionsConnectionIdRoute,
+  AppSettingsAgentConnectionsIndexRoute: AppSettingsAgentConnectionsIndexRoute,
 }
 
 const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
@@ -826,6 +891,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   SignUpRoute: SignUpRoute,
   AArtifactIdRoute: AArtifactIdRoute,
+  ConnectTokenRoute: ConnectTokenRoute,
   STokenRoute: STokenRoute,
 }
 export const routeTree = rootRouteImport

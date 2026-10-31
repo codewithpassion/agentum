@@ -23,6 +23,7 @@ import {
   createOutboxService,
   type OutboxService,
 } from "@repo/services/a2a/outbox";
+import { createPageReads, type PageReads } from "@repo/services/a2a/page-reads";
 import {
   type A2aTasksService,
   createA2aTasksService,
@@ -409,6 +410,7 @@ export interface Infra {
 export interface Services {
   a2aOutbound: OutboundService;
   a2aOutbox: OutboxService;
+  a2aPageReads: PageReads;
   a2aTasks: A2aTasksService;
   admin: AdminService;
   agentBuilder: AgentBuilderService;
@@ -634,6 +636,7 @@ export const composeWith = ({
   const agents = createAgentsService({ db, events, members });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   const peerFetch = peerFetchOf(infra.peerFetch);
+  const a2aPageReads = createPageReads({ db, people: infra.people });
   const connections = createConnectionsService({
     atomic: infra.atomic,
     clock: infra.clock,
@@ -1187,6 +1190,7 @@ export const composeWith = ({
     services: {
       a2aOutbound,
       a2aOutbox,
+      a2aPageReads,
       a2aTasks,
       admin,
       agentBuilder,

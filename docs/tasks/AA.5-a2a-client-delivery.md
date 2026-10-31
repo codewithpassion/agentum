@@ -41,3 +41,4 @@ Lane is `mcp` so this can run beside AA.4. Put routes for this task in their own
 - 2026-10-31: created.
 - 2026-11-01: from AA.1 review: check the shape Hermes expects for push configs first (`docs/reviews/tasks/AA.1.md`).
 - 2026-11-01: dispatched.
+- 2026-11-01: blocked after 5 rounds on a last small change that removed a weaker desk fallback. Controller accepted it without another round; the milestone gate covers it.

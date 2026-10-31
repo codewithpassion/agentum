@@ -3,8 +3,9 @@
 // body is never read, and the service asks the peer for the real state with
 // our own credential. Hermes signs its pushes with a secret we do not hold and
 // cuts the text, so no body could be trusted anyway. Mount with
-// `app.route("/a2a", a2aWebhookRoutes())`.
-import { bearerGroup } from "./groups.ts";
+// `mountA2aWebhooks`.
+import type { Hono, MiddlewareHandler } from "hono";
+import { type AppEnv, bearerGroup } from "./groups.ts";
 
 const UNAUTHORIZED = 401;
 const NO_CONTENT = 204;
@@ -24,4 +25,17 @@ export const a2aWebhookRoutes = () => {
   });
 
   return routes;
+};
+
+/**
+ * Mounts the webhook ahead of `mountA2aRoutes`, whose last route answers every
+ * other path under `/a2a` with 404. Mounted first, the webhook answers its own
+ * path and never reaches the pairing or peer-token handling there.
+ */
+export const mountA2aWebhooks = (
+  app: Hono<AppEnv>,
+  compose: MiddlewareHandler<AppEnv>
+): void => {
+  app.use("/a2a/webhooks/*", compose);
+  app.route("/a2a", a2aWebhookRoutes());
 };

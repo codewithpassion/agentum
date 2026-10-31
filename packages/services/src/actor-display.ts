@@ -1,4 +1,5 @@
 import type { Database } from "@repo/db";
+import { a2aConnections } from "@repo/db/schema/a2a";
 import { guestIdentities } from "@repo/db/schema/live-artifacts";
 import { and, eq, inArray } from "drizzle-orm";
 import type { EventRecord, PeopleLookup } from "./events.ts";
@@ -47,6 +48,38 @@ export const resolveActorDisplays = async (
       guests.set(`${workspaceId}:${row.id}`, row.name);
     }
   }
+  // A peer's id is its connection. Its name is the label we hold for it,
+  // never anything the peer put in a message.
+  const peers = new Map<string, string>();
+  for (const workspaceId of workspaces) {
+    const ids = [
+      ...new Set(
+        records
+          .filter(
+            (r) => r.workspaceId === workspaceId && r.actor.kind === "peer"
+          )
+          .map((r) => r.actor.id)
+      ),
+    ];
+    if (!ids.length) {
+      continue;
+    }
+    // biome-ignore lint/performance/noAwaitInLoops: keep peer lookups bound to each authenticated workspace
+    const rows = await db
+      .select({ id: a2aConnections.id, name: a2aConnections.peerLabel })
+      .from(a2aConnections)
+      .where(
+        and(
+          eq(a2aConnections.workspaceId, workspaceId),
+          inArray(a2aConnections.id, ids)
+        )
+      );
+    for (const row of rows) {
+      if (row.name) {
+        peers.set(`${workspaceId}:${row.id}`, row.name);
+      }
+    }
+  }
   return records.map(({ actorDisplay: _ignored, ...record }) => {
     let rawName: string | null | undefined;
     if (record.actor.kind === "user") {
@@ -54,6 +87,9 @@ export const resolveActorDisplays = async (
     }
     if (record.actor.kind === "guest") {
       rawName = guests.get(`${record.workspaceId}:${record.actor.id}`);
+    }
+    if (record.actor.kind === "peer") {
+      rawName = peers.get(`${record.workspaceId}:${record.actor.id}`);
     }
     const name = rawName?.trim().slice(0, 200);
     return name ? { ...record, actorDisplay: { name } } : record;

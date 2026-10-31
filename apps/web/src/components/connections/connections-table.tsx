@@ -1,0 +1,155 @@
+import { Link } from "@tanstack/react-router";
+import { formatDistanceToNow } from "date-fns";
+import { useCallback } from "react";
+import { ConfirmButton } from "#/components/confirm-action/confirm-button";
+import {
+  ResponsiveActions,
+  ResponsiveCell,
+  ResponsiveTable,
+} from "#/components/responsive-table/responsive-table";
+import { Badge } from "#/components/ui/badge";
+import { buttonVariants } from "#/components/ui/button";
+import {
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "#/components/ui/table";
+import type { RouterOutputs } from "#/integrations/trpc/types";
+import {
+  directionsOn,
+  isEnded,
+  isPending,
+  kindWords,
+  lastActivity,
+  peerHost,
+  peerName,
+  revokeWords,
+  sortConnections,
+  statusWords,
+} from "./connections-logic";
+
+export type ConnectionRecord = RouterOutputs["a2a"]["list"][number];
+
+function ConnectionRow({
+  connection,
+  onRevoke,
+}: {
+  connection: ConnectionRecord;
+  onRevoke: (connectionId: string) => void;
+}) {
+  const revoke = useCallback(
+    () => onRevoke(connection.id),
+    [connection.id, onRevoke]
+  );
+  const peer = peerName(connection);
+  const host = peerHost(connection);
+  const activity = lastActivity(connection);
+  const directions = directionsOn(connection);
+  const pending = isPending(connection.status);
+  const revokeDescription = revokeWords(connection);
+
+  return (
+    <TableRow>
+      <ResponsiveCell className="font-medium" label="My agent">
+        <Link params={{ agentId: connection.agentId }} to="/agents/$agentId">
+          {connection.agentName}
+        </Link>
+      </ResponsiveCell>
+      <ResponsiveCell label="Peer">
+        <span className="flex flex-col">
+          <span className="break-words">{peer}</span>
+          <span className="text-muted-foreground text-xs">
+            {kindWords(connection.peerKind)}
+            {host === null ? null : ` · ${host}`}
+          </span>
+        </span>
+      </ResponsiveCell>
+      <ResponsiveCell label="Directions">
+        {directions.length === 0 ? (
+          <span className="text-muted-foreground">None</span>
+        ) : (
+          directions.join(", ")
+        )}
+      </ResponsiveCell>
+      <ResponsiveCell label="Status">
+        <span className="flex flex-col items-end gap-1">
+          <Badge variant={pending ? "default" : "secondary"}>
+            {statusWords(connection.status)}
+          </Badge>
+          {pending && connection.checkCode !== null ? (
+            <span className="font-mono text-muted-foreground text-xs">
+              {connection.checkCode}
+            </span>
+          ) : null}
+          {pending ? (
+            <span className="text-muted-foreground text-xs">
+              Needs approval, open it to decide
+            </span>
+          ) : null}
+        </span>
+      </ResponsiveCell>
+      <ResponsiveCell className="text-muted-foreground" label="Last activity">
+        {activity === null
+          ? "never"
+          : formatDistanceToNow(new Date(activity), { addSuffix: true })}
+      </ResponsiveCell>
+      <ResponsiveActions className="md:text-right">
+        <span className="flex flex-wrap gap-2 md:justify-end">
+          <Link
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+            params={{ connectionId: connection.id }}
+            to="/settings/agent-connections/$connectionId"
+          >
+            Open
+          </Link>
+          {isEnded(connection.status) ? null : (
+            <ConfirmButton
+              description={revokeDescription}
+              onConfirm={revoke}
+              size="sm"
+              title="Revoke this connection?"
+              variant="outline"
+            >
+              Revoke
+            </ConfirmButton>
+          )}
+        </span>
+      </ResponsiveActions>
+    </TableRow>
+  );
+}
+
+export function ConnectionsTable({
+  connections,
+  onRevoke,
+}: {
+  connections: readonly ConnectionRecord[];
+  onRevoke: (connectionId: string) => void;
+}) {
+  return (
+    <ResponsiveTable>
+      <TableHeader>
+        <TableRow>
+          <TableHead>My agent</TableHead>
+          <TableHead>Peer</TableHead>
+          <TableHead>Directions</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Last activity</TableHead>
+          <TableHead>
+            <span className="sr-only">Actions</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sortConnections(connections).map((connection) => (
+          <ConnectionRow
+            connection={connection}
+            key={connection.id}
+            onRevoke={onRevoke}
+          />
+        ))}
+      </TableBody>
+    </ResponsiveTable>
+  );
+}

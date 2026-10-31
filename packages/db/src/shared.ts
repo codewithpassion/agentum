@@ -389,6 +389,11 @@ export const EVENT_TYPES = [
   "a2a.task_cancelled",
   "a2a.rate_limited",
   "a2a.outbox_dropped",
+  "a2a.pairing_switched",
+  "a2a.pairing_requested",
+  "a2a.pairing_code_wrong",
+  "a2a.pairing_locked",
+  "a2a.pairing_approved",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

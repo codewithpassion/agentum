@@ -9,6 +9,8 @@ const EXCLUDED: Readonly<Record<string, string>> = {
   "/machines": "redirects to /settings/machines",
   "/qa/$questionId": "needs a question id, reached from the Q&A list",
   "/settings": "layout wrapper, Settings pages are listed one by one",
+  "/settings/agent-connections/$connectionId":
+    "needs a connection id, reached from the connections list",
   "/settings/managed-agents": "redirects to model providers",
   "/skills/$skillId": "needs a skill id, reached from the skills list",
   "/tasks/$runId": "needs a run id, reached from the task lists",

@@ -31,3 +31,4 @@ Spec: `docs/v3/agent-connections.md`. This task proves the claim that we speak A
 
 ## Log
 - 2026-10-31: created.
+- 2026-11-01: from AA.7: redo invite, join, approve, the `/a2a` send and "Call it" over real HTTP here. Delete the scratch Clerk user `aa7-second-workspace@example.com` and org "AA7 Second Workspace" from the dev instance if you can, otherwise list them for Dom.

@@ -33,6 +33,7 @@ interface ReceiptContext {
   steps: ReceiptStep[];
 }
 const ORIGINS: Record<string, string> = {
+  a2a: "outside agent",
   inbox: "Inbox",
   mail: "Mail",
   mcp: "MCP",

@@ -1,6 +1,6 @@
 # AA.5 review
 
-Blocked after round 5 (two controller-approved fix rounds used). The last must-fix was removed in the head commit without a further review, so the head is unreviewed by one small change (below). `bun run check` passes at the head commit. Targeted suites pass (`packages/services` a2a, desk, desk-api, slack, `packages/a2a`, the web transport, route, tick, compose and request card tests).
+Clean by controller decision after round 5. Two controller-approved fix rounds were used and the last change (below) got no review round of its own, so the milestone gate reviews it. `bun run check`, `bun run test` and `bun run build` pass at the merge of `main` (AA.4, AA.7, AA.9).
 
 ## Verdicts
 
@@ -11,9 +11,13 @@ Blocked after round 5 (two controller-approved fix rounds used). The last must-f
 - Round 4 (6430f0c7, fix commit only): not clean, 1 must-fix. The desk's task-row fallback showed unscrubbed text when scrubbing made the card longer than the size `send` had checked. Fixed in 98652747: `send` closes such a card, fails the task and tells the agent to shorten the message, and the fallback was scrubbed.
 - Round 5 (98652747, fix commit only): not clean, 1 must-fix. The fallback was still weaker than the card (`redactText` only, no vault masker). Fixed in the head commit by deleting the fallback: the desk shows the card's own scrubbed text, and for a cut card the cut copy, which the desk API refuses to allow. `send` already refuses every cut card, so it cannot occur. This last change has no review round.
 
-## Open
+## Controller decision after round 5
 
-Nothing is open as a known must-fix. The head commit's change (the fallback deleted, `sendDetail` made synchronous, its two tests replaced by one that a cut card shows the cut copy and not the row's text) was not reviewed. A controller decision is needed on whether to merge it as is or send it for one more review.
+684e4083 is accepted with no further review round. Removing the task-row fallback makes the code smaller and the desk stricter, and the milestone gate reviews the whole thing.
+
+## Merge of main
+
+`git merge main` brought in AA.4, AA.7 and AA.9. Conflicts were all keep-both: the imports in `server.ts`, the `Services` entries and the `a2aPageReads` line in `compose.ts`, and the exports in `packages/services/package.json`. One change beyond resolving conflicts: the webhook route is mounted ahead of `mountA2aRoutes` through `mountA2aWebhooks` in `routes/a2a-webhooks.ts`, because the last route of `a2aRoutes` answers every other path under `/a2a` with 404 and my route, mounted after it, would never run. Mounted first, the webhook answers its own path (401 for a wrong token, an unknown task or a revoked connection) and never reaches the pairing or peer-token handling. `routes/a2a-webhooks-mount.test.ts` proves it on the real mount order: `/a2a/webhooks/pair/activate` is a webhook and not a pairing call, an unknown 40 character token on `SendMessage` still gets the AA.9 pairing code with pairing on and 401 with it off, and a `GET` under `/a2a/webhooks` is still 404. `fetchCard` and the pairing transport are wired in `compose.ts` through `createCardFetcher` and `createPairingTransport` over the injected peer fetch (AA.7 had found them unwired on main).
 
 ## Nits left
 

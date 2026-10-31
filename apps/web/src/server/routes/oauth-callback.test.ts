@@ -342,3 +342,13 @@ test("a callback without state is a bad request", async () => {
 
   expect(res.status).toBe(400);
 });
+
+test("an agent connection invite is left to the app's own page", async () => {
+  session = USER_A;
+  const res = await connectAt("/connect/hm_inv_con_01ABC.secret", SAME_ORIGIN);
+
+  // Nothing in this router answers it, so the request goes on to the page.
+  expect(res.status).toBe(404);
+  expect(res.headers.get("location")).toBeNull();
+  expect(stateRows()).toHaveLength(0);
+});
