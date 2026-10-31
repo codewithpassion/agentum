@@ -4,6 +4,7 @@ import {
   peerHost,
   peerName,
   statusWords,
+  WHAT_A_CONNECTION_IS,
 } from "#/components/connections/connections-logic.ts";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 
@@ -18,7 +19,9 @@ export function ConnectionsCard({
   connections: RouterOutputs["a2a"]["list"];
   published: RouterOutputs["a2a"]["published"];
 }) {
-  const live = connections.filter((row) => !isEnded(row.status));
+  const live = connections.filter(
+    (row) => !isEnded(row.status) && row.status !== "inviting"
+  );
   const isPublished = published !== null && published.unpublishedAt === null;
   return (
     <section
@@ -28,12 +31,12 @@ export function ConnectionsCard({
       <h2 className="px-4 py-3 font-semibold text-sm">Connections</h2>
       <p className="px-4 pb-2 text-muted-foreground text-xs">
         {isPublished
-          ? "Published. Other agents can find this one and be connected to it."
+          ? "Published. A peer with an invite or a key can reach this agent."
           : "Not published. Nothing outside can reach this agent."}
       </p>
       <p className="px-4 pb-2 text-xs" data-testid="connections-count">
         {live.length === 0
-          ? "No connections."
+          ? `No connections. ${WHAT_A_CONNECTION_IS}`
           : `${live.length} ${live.length === 1 ? "connection" : "connections"}`}
       </p>
       {live.length === 0 ? null : (

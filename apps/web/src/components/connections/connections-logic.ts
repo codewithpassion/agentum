@@ -48,7 +48,9 @@ export const isEnded = (status: A2aConnectionStatus): boolean =>
 export const isPending = (status: A2aConnectionStatus): boolean =>
   status === "needs_approval";
 
-export const peerName = (connection: ConnectionLike): string =>
+export const peerName = (
+  connection: Pick<ConnectionLike, "peerLabel" | "status">
+): string =>
   connection.peerLabel?.trim() ||
   (connection.status === "inviting" ? "Invite not used yet" : "Unnamed agent");
 
@@ -282,4 +284,28 @@ export const clipMessage = (text: string): string => {
   return characters.length <= MESSAGE_CLIP_LENGTH
     ? text
     : `${characters.slice(0, MESSAGE_CLIP_LENGTH).join("")}…`;
+};
+
+const RECONNECT_WORDS: Record<A2aPeerKind, string> = {
+  a2a_inbound: "To let it back in you need to make a new key.",
+  a2a_outbound: "To call it again you need to add it again.",
+  harbourmaster: "To connect again you need a new invite.",
+};
+
+/** What the confirm before Revoke says stops, and what it takes to come back. */
+export const revokeWords = (
+  connection: Pick<ConnectionLike, "peerKind" | "peerLabel" | "status"> & {
+    agentName: string;
+  }
+): string => {
+  const peer = peerName(connection);
+  const stops =
+    connection.peerKind === "a2a_outbound"
+      ? `${connection.agentName} can no longer message ${peer}.`
+      : `${peer} can no longer send ${connection.agentName} messages${
+          connection.peerKind === "harbourmaster"
+            ? `, and ${connection.agentName} can no longer message it`
+            : ""
+        }.`;
+  return `${stops} Messages waiting for approval are declined and runs it started are cancelled. The connection stays listed as revoked. ${RECONNECT_WORDS[connection.peerKind]}`;
 };

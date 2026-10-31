@@ -4,12 +4,9 @@ import { useCallback, useState } from "react";
 import { errorMessage } from "#/components/triggers/format.ts";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
-import { approvalSeen } from "./approval-seen.ts";
+import { approvalFromCard } from "./approval-seen.ts";
 
 type Decision = "approve" | "decline";
-
-const NO_ORIGIN =
-  "This connection has no address to approve yet. Open it to look.";
 
 /** The connection a card is about. A connection card's own id is the connection's. */
 const connectionIdOf = ({ a2a, id }: DeskCard): string =>
@@ -17,8 +14,7 @@ const connectionIdOf = ({ a2a, id }: DeskCard): string =>
 
 /**
  * Approves or declines one thing a peer asked for: a message that waits, or a
- * connection. A connection is approved with the destination a fresh read of it
- * shows, which is the one the card names.
+ * connection. A connection is approved only for the host the card showed.
  */
 const decide = async (card: DeskCard, decision: Decision): Promise<void> => {
   const trpc = getTrpc();
@@ -35,10 +31,14 @@ const decide = async (card: DeskCard, decision: Decision): Promise<void> => {
     await trpc.a2a.decline.mutate({ connectionId });
     return;
   }
-  const seen = approvalSeen(await trpc.a2a.get.query({ connectionId }));
-  if (seen === null) {
-    throw new Error(NO_ORIGIN);
+  const checked = approvalFromCard(
+    await trpc.a2a.get.query({ connectionId }),
+    card.a2a?.host ?? null
+  );
+  if ("reason" in checked) {
+    throw new Error(checked.reason);
   }
+  const { seen } = checked;
   await trpc.a2a.approve.mutate({ connectionId, seen });
 };
 

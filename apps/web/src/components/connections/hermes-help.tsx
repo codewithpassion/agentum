@@ -50,8 +50,7 @@ export function HermesCallHelp() {
         ))}
       </ul>
       <p className="text-sm">
-        The credential you give below is the token Hermes was given under that
-        name.
+        The credential you give is the token Hermes was given under that name.
       </p>
     </div>
   );

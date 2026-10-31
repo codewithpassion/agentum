@@ -206,17 +206,20 @@ function CardSummary({ card }: { card: CardPreview }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
       <div className="flex flex-col gap-0.5">
-        <p className="font-medium">{card.name}</p>
-        <p className="text-muted-foreground">{card.host}</p>
+        <p className="break-words font-medium">{card.name}</p>
+        <p className="break-all text-muted-foreground">{card.host}</p>
         {card.org === null ? null : (
           <p className="text-muted-foreground">Organisation: {card.org}</p>
         )}
       </div>
-      <p>{card.description}</p>
+      <p className="break-words">{card.description}</p>
       {card.skills.length === 0 ? null : (
         <ul className="flex flex-col gap-1">
           {card.skills.map((skill) => (
-            <li key={skill.name}>
+            <li
+              className="break-words"
+              key={`${skill.name}:${skill.description}`}
+            >
               <span className="font-medium">{skill.name}</span>
               {skill.description === "" ? null : `: ${skill.description}`}
             </li>
@@ -388,6 +391,7 @@ function CallTab({ agents, onDone, onMade }: TabProps) {
         cardUrl: cardUrl.trim(),
         ...(trimmedLabel === "" ? {} : { label: trimmedLabel }),
         ...(credential === undefined ? {} : { credential }),
+        seen: { origin: card.origin, tokenUrl: card.tokenUrl },
       });
       setConnected(true);
       onMade();
@@ -460,8 +464,10 @@ function CallTab({ agents, onDone, onMade }: TabProps) {
                 secret={secret}
               />
               {card.scheme === "none" ? null : (
-                <p className="text-muted-foreground text-sm">
-                  The credential is sent only to {card.host}.
+                <p className="break-all text-muted-foreground text-sm">
+                  {card.tokenUrl === null
+                    ? `The credential is sent only to ${card.origin}.`
+                    : `The client secret is sent only to ${card.tokenUrl}.`}
                 </p>
               )}
               <div className="flex flex-col gap-1.5">

@@ -187,6 +187,13 @@ export const accessKeyInputSchema = z.strictObject({
 });
 export type AccessKeyInput = z.input<typeof accessKeyInputSchema>;
 
+/** The destination a person looked at when they approved. */
+export const approveSeenSchema = z.strictObject({
+  origin: z.string().min(1).max(2000),
+  tokenUrl: z.string().min(1).max(2000).nullable(),
+});
+export type ApproveSeen = z.input<typeof approveSeenSchema>;
+
 const oauthCredentialSchema = z.strictObject({
   clientId: z.string().min(1).max(500),
   clientSecret: z.string().min(1).max(2000),
@@ -205,6 +212,8 @@ export const addOutboundInputSchema = z.strictObject({
     .union([z.string().min(1).max(4000), oauthCredentialSchema])
     .optional(),
   label: z.string().trim().min(1).max(80).optional(),
+  /** The destination the person looked at in the preview. A card that moved since is refused. */
+  seen: approveSeenSchema.optional(),
 });
 export type AddOutboundInput = z.input<typeof addOutboundInputSchema>;
 
@@ -220,9 +229,13 @@ export interface CardPreview {
   host: string;
   name: string;
   org: string | null;
+  /** The origin calls go to, and the one the credential is sent to unless the scheme is OAuth. */
+  origin: string;
   /** The kind of credential the card asks for: `none`, `bearer`, `api_key_header` or `oauth2_client_credentials`. */
   scheme: OutboundScheme["kind"];
   skills: { description: string; name: string }[];
+  /** Where an OAuth client secret goes. Null for any other scheme. */
+  tokenUrl: string | null;
 }
 
 export const policiesInputSchema = z
@@ -242,13 +255,6 @@ export const policiesInputSchema = z
     { message: "Change at least one setting" }
   );
 export type PoliciesInput = z.input<typeof policiesInputSchema>;
-
-/** The destination a person looked at when they approved. */
-export const approveSeenSchema = z.strictObject({
-  origin: z.string().min(1).max(2000),
-  tokenUrl: z.string().min(1).max(2000).nullable(),
-});
-export type ApproveSeen = z.input<typeof approveSeenSchema>;
 
 export const listInputSchema = z.strictObject({
   agentId: idString.optional(),
@@ -1850,7 +1856,7 @@ export const createConnectionsService = ({
     input: AddOutboundInput
   ): Promise<ConnectionSummary> => {
     const user = requireSession(principal, OUTBOUND_ACTION);
-    const { agentId, cardUrl, credential, label } =
+    const { agentId, cardUrl, credential, label, seen } =
       addOutboundInputSchema.parse(input);
     authorize(user, OUTBOUND_ACTION, {
       kind: CONNECTION_KIND,
@@ -1879,6 +1885,15 @@ export const createConnectionsService = ({
     if (choice.scheme.kind === "oauth2_client_credentials") {
       // The client secret goes to this URL, so it passes the guard too.
       vetUrl(choice.scheme.tokenUrl);
+    }
+    if (seen) {
+      refuseUnseen(seen, {
+        origin: peerInterface.origin,
+        tokenUrl:
+          choice.scheme.kind === "oauth2_client_credentials"
+            ? choice.scheme.tokenUrl
+            : null,
+      });
     }
     const secret = credentialText(choice.scheme, credential);
     const id = `con_${ulid(clock.now().getTime())}`;
@@ -1959,16 +1974,25 @@ export const createConnectionsService = ({
         `That agent wants ${choice.wanted}, which Harbourmaster does not support`
       );
     }
+    const tokenUrl =
+      choice.scheme.kind === "oauth2_client_credentials"
+        ? choice.scheme.tokenUrl
+        : null;
+    if (tokenUrl !== null) {
+      vetUrl(tokenUrl);
+    }
     return {
       description: card.description,
       host: new URL(peerInterface.url).host,
       name: card.name,
       org: card.provider?.organization ?? null,
+      origin: peerInterface.origin,
       scheme: choice.scheme.kind,
       skills: card.skills.map((skill) => ({
         description: skill.description,
         name: skill.name,
       })),
+      tokenUrl,
     };
   };
 

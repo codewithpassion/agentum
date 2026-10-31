@@ -645,6 +645,29 @@ describe("access keys and outside agents", () => {
     ).toBe(OUTSIDE_SECRET);
   });
 
+  test("an outside agent is added only for the destination the preview showed", async () => {
+    const preview = await service.previewCard(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+    });
+    await expect(
+      service.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: OUTSIDE_CARD_URL,
+        credential: OUTSIDE_SECRET,
+        seen: { origin: "https://elsewhere.example.com", tokenUrl: null },
+      })
+    ).rejects.toThrow("destination changed");
+    expect(await db.select().from(a2aConnections)).toHaveLength(0);
+    const added = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+      seen: { origin: preview.origin, tokenUrl: preview.tokenUrl },
+    });
+    expect(added.status).toBe("active");
+  });
+
   test("a scheme the design does not list is refused and names what the card wanted", async () => {
     peerCard = outsideCard({
       securityRequirements: [{ schemes: { oidc: { list: [] } } }],
@@ -676,8 +699,10 @@ describe("access keys and outside agents", () => {
       host: "agent.example.com",
       name: "Outside",
       org: "Acme",
+      origin: "https://agent.example.com",
       scheme: "bearer",
       skills: [{ description: "Does things", name: "Do" }],
+      tokenUrl: null,
     });
     expect(await db.select().from(a2aConnections)).toHaveLength(0);
   });

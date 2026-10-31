@@ -126,7 +126,10 @@ test("a member may read the connections and is told why they cannot change one",
   expect((await member.a2a.manage({ connectionId })).reason).toMatch(
     CANNOT_CHANGE
   );
-  expect(await admin.a2a.manage({ connectionId })).toEqual({ reason: null });
+  expect(await admin.a2a.manage({ connectionId })).toEqual({
+    reason: null,
+    revokedBy: null,
+  });
   expect((await member.a2a.published({ agentId: agent.id }))?.skills).toEqual(
     SKILLS
   );

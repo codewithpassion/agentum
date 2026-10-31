@@ -59,7 +59,13 @@ function AgentConnectionsPage() {
 
   const chooseAdd = useCallback((choice: AddChoice) => setDialog(choice), []);
 
-  const closeDialog = useCallback(() => setDialog(null), []);
+  const navigate = Route.useNavigate();
+  const closeDialog = useCallback(() => {
+    setDialog(null);
+    if (join !== undefined) {
+      navigate({ replace: true, search: {} });
+    }
+  }, [join, navigate]);
 
   const reload = useCallback(() => {
     router.invalidate();

@@ -38,6 +38,8 @@ export interface ConnectionTask {
 export interface Manage {
   /** Why the caller may not change the connection, or null when they may. */
   reason: string | null;
+  /** Who revoked it, in words: a member's name, "the system" or "the other side". Null when it was not revoked. */
+  revokedBy: string | null;
 }
 
 export const createPageReads = ({
@@ -52,7 +54,11 @@ export const createPageReads = ({
     workspaceId: string
   ) => {
     const [row] = await db
-      .select({ agentId: a2aConnections.localAgentId, id: a2aConnections.id })
+      .select({
+        agentId: a2aConnections.localAgentId,
+        id: a2aConnections.id,
+        revokedBy: a2aConnections.revokedBy,
+      })
       .from(a2aConnections)
       .where(
         and(
@@ -75,6 +81,20 @@ export const createPageReads = ({
     }
     const found = await people(userIds).catch(() => new Map());
     return new Map([...found].map(([id, person]) => [id, person.name]));
+  };
+
+  /** Who ended a connection, in words. `revokedBy` holds a user id or the kind of actor that did it. */
+  const revokerOf = async (stored: string | null): Promise<string | null> => {
+    if (stored === null) {
+      return null;
+    }
+    if (stored === "system") {
+      return "the system";
+    }
+    if (stored === "peer") {
+      return "the other side";
+    }
+    return (await namesOf([stored])).get(stored) ?? "a member";
   };
 
   /** The latest tasks in both directions, newest first. */
@@ -170,9 +190,11 @@ export const createPageReads = ({
       connectionId,
       reader.workspaceId
     );
+    const revokedBy = await revokerOf(connection.revokedBy);
     if (reader.via !== "session") {
       return {
         reason: "Only a person signed in to the web app can change this.",
+        revokedBy,
       };
     }
     const [agent] = await db
@@ -181,16 +203,22 @@ export const createPageReads = ({
         ownerUserId: agents.ownerUserId,
       })
       .from(agents)
-      .where(eq(agents.id, connection.agentId))
+      .where(
+        and(
+          eq(agents.id, connection.agentId),
+          eq(agents.workspaceId, reader.workspaceId)
+        )
+      )
       .limit(1);
     if (!agent) {
       throw new ServiceError("not_found", "Agent not found");
     }
     return reader.isAdmin === true || reader.userId === effectiveOwner(agent)
-      ? { reason: null }
+      ? { reason: null, revokedBy }
       : {
           reason:
             "Only an organisation admin or the agent's owner can change this.",
+          revokedBy,
         };
   };
 

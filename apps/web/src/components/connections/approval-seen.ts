@@ -24,3 +24,30 @@ export const approvalSeen = (summary: {
     tokenUrl: summary.pendingTokenUrl ?? summary.tokenUrl,
   };
 };
+
+/**
+ * The destination to approve from a Needs you card, which shows only a host.
+ * An outside agent we call has a credential that goes to the address, so it is
+ * approved on its own page where the full origin and token URL show. A
+ * Harbourmaster peer is approved only while its address is still the host the
+ * card named.
+ */
+export const approvalFromCard = (
+  summary: Parameters<typeof approvalSeen>[0] & { peerKind: string },
+  shownHost: string | null
+): { seen: ApprovalSeen } | { reason: string } => {
+  if (summary.peerKind === "a2a_outbound") {
+    return { reason: "Open this connection to see where the credential goes." };
+  }
+  const seen = approvalSeen(summary);
+  if (seen === null) {
+    return { reason: "This connection has no address to approve yet." };
+  }
+  if (new URL(seen.origin).host !== shownHost) {
+    return {
+      reason:
+        "The address changed since this card loaded. Open the connection to look at it.",
+    };
+  }
+  return { seen };
+};

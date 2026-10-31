@@ -7,6 +7,7 @@ import {
   hermesUrlOfCardUrl,
   lastActivity,
   peerHost,
+  revokeWords,
   sortConnections,
   wideningWarning,
   widens,
@@ -171,4 +172,22 @@ test("clipMessage counts characters, so it never splits a surrogate pair", () =>
   const emoji = "😀";
   const clipped = clipMessage(emoji.repeat(301));
   expect(clipped).toBe(`${emoji.repeat(300)}…`);
+});
+
+test("the revoke words say what stops and how to come back, by kind of peer", () => {
+  const base = {
+    agentName: "Support",
+    peerLabel: "Sam",
+    status: "active" as const,
+  };
+  const invite = revokeWords({ ...base, peerKind: "harbourmaster" });
+  const key = revokeWords({ ...base, peerKind: "a2a_inbound" });
+  const outside = revokeWords({ ...base, peerKind: "a2a_outbound" });
+
+  expect(invite).toContain("Support can no longer message it");
+  expect(invite).toContain("new invite");
+  expect(key).not.toContain("can no longer message it");
+  expect(key).toContain("new key");
+  expect(outside).toContain("Support can no longer message Sam");
+  expect(outside).toContain("add it again");
 });

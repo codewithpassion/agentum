@@ -14,6 +14,7 @@ import {
   kindWords,
   peerHost,
   peerName,
+  revokeWords,
   statusWords,
 } from "#/components/connections/connections-logic";
 import { PoliciesPanel } from "#/components/connections/policies-panel";
@@ -71,7 +72,13 @@ function Fact({ children, label }: { children: ReactNode; label: string }) {
   );
 }
 
-function ConnectionHeader({ connection }: { connection: Connection }) {
+function ConnectionHeader({
+  connection,
+  revokedBy,
+}: {
+  connection: Connection;
+  revokedBy: string | null;
+}) {
   return (
     <div className="flex flex-col gap-3">
       <Link
@@ -85,7 +92,7 @@ function ConnectionHeader({ connection }: { connection: Connection }) {
         Back to connections
       </Link>
       <h1 className="font-heading text-3xl text-foreground">
-        {peerName(connection)}
+        <span className="break-words">{peerName(connection)}</span>
       </h1>
       <p className="text-muted-foreground text-sm">
         {peerHost(connection) ?? "No address known"}
@@ -114,7 +121,10 @@ function ConnectionHeader({ connection }: { connection: Connection }) {
           <Fact label="Approved">{ago(connection.approvedAt)}</Fact>
         )}
         {connection.revokedAt === null ? null : (
-          <Fact label="Revoked">{ago(connection.revokedAt)}</Fact>
+          <Fact label="Revoked">
+            {ago(connection.revokedAt)}
+            {revokedBy === null ? "" : ` by ${revokedBy}`}
+          </Fact>
         )}
         {connection.peerKind === "a2a_outbound" &&
         connection.peerCardUrl !== null ? (
@@ -146,6 +156,7 @@ function ApprovalCard({
 }) {
   const host = peerHost(connection);
   const origin = connection.pendingOrigin ?? connection.peerOrigin;
+  const tokenUrl = connection.pendingTokenUrl ?? connection.tokenUrl;
   return (
     <section className="flex flex-col gap-3">
       <h2 className="font-heading text-foreground text-xl">Approval</h2>
@@ -159,6 +170,12 @@ function ApprovalCard({
           {origin}
         </p>
       )}
+      {tokenUrl === null ? null : (
+        <p className="break-all text-sm">
+          The client secret goes to{" "}
+          <span className="font-mono text-xs">{tokenUrl}</span>
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <Button
           disabled={busy || reason !== null || origin === null}
@@ -166,11 +183,7 @@ function ApprovalCard({
         >
           Approve
         </Button>
-        <Button
-          disabled={busy || reason !== null}
-          onClick={onDecline}
-          variant="outline"
-        >
+        <Button disabled={busy} onClick={onDecline} variant="outline">
           Decline
         </Button>
         {reason === null ? null : (
@@ -237,7 +250,7 @@ function ConnectionPage() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-8">
-      <ConnectionHeader connection={connection} />
+      <ConnectionHeader connection={connection} revokedBy={manage.revokedBy} />
 
       {showCheckCode ? (
         <section className="flex flex-col gap-2">
@@ -283,7 +296,7 @@ function ConnectionPage() {
           <h2 className="font-heading text-foreground text-xl">Revoke</h2>
           <div>
             <ConfirmButton
-              description={`${peerName(connection)} can no longer send ${connection.agentName} messages, and ${connection.agentName} can no longer message it. Messages waiting for approval are declined and runs it started are cancelled. The connection stays listed as revoked. To connect again you need a new invite.`}
+              description={revokeWords(connection)}
               disabled={busy}
               onConfirm={revoke}
               size="sm"

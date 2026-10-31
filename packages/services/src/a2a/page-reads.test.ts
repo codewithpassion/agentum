@@ -131,9 +131,11 @@ describe("manage", () => {
 
     expect(await reads.manage(session("u-admin", true), id)).toEqual({
       reason: null,
+      revokedBy: null,
     });
     expect(await reads.manage(session("u-owner", false), id)).toEqual({
       reason: null,
+      revokedBy: null,
     });
   });
 
@@ -143,6 +145,18 @@ describe("manage", () => {
     const { reason } = await reads.manage(session("u-member", false), id);
 
     expect(reason).toMatch(NOT_ALLOWED);
+  });
+
+  test("a revoked connection names who revoked it", async () => {
+    const byMember = await f.connect({ id: "con_a", revokedBy: "u-member" });
+    const bySystem = await f.connect({ id: "con_b", revokedBy: "system" });
+
+    expect(
+      (await reads.manage(session("u-admin", true), byMember)).revokedBy
+    ).toBe("Name of u-member");
+    expect(
+      (await reads.manage(session("u-admin", true), bySystem)).revokedBy
+    ).toBe("the system");
   });
 
   test("a key reader is told a session is needed", async () => {

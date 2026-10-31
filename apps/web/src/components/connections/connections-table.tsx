@@ -24,6 +24,7 @@ import {
   lastActivity,
   peerHost,
   peerName,
+  revokeWords,
   sortConnections,
   statusWords,
 } from "./connections-logic";
@@ -46,7 +47,7 @@ function ConnectionRow({
   const activity = lastActivity(connection);
   const directions = directionsOn(connection);
   const pending = isPending(connection.status);
-  const revokeDescription = `${peer} can no longer send ${connection.agentName} messages, and ${connection.agentName} can no longer message it. Messages waiting for approval are declined and runs it started are cancelled. The connection stays listed as revoked. To connect again you need a new invite.`;
+  const revokeDescription = revokeWords(connection);
 
   return (
     <TableRow>
@@ -57,7 +58,7 @@ function ConnectionRow({
       </ResponsiveCell>
       <ResponsiveCell label="Peer">
         <span className="flex flex-col">
-          <span>{peer}</span>
+          <span className="break-words">{peer}</span>
           <span className="text-muted-foreground text-xs">
             {kindWords(connection.peerKind)}
             {host === null ? null : ` · ${host}`}
