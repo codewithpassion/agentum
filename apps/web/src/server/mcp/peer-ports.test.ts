@@ -213,7 +213,7 @@ test("list_agents for the owning run lists the local agents and the peer", async
       }),
     ]),
   });
-  expect(textOf(result)).toContain(`${PEER_TOOL_AGENT}: Helper`);
+  expect(textOf(result)).toContain(`${PEER_TOOL_AGENT}: peer at peer.test`);
   expect(textOf(result)).toContain("peer at peer.test");
   await session.close();
 });
@@ -479,6 +479,30 @@ test("send_message to a peer with waitMs on approve returns pending after about 
   expect(result.structuredContent).toMatchObject({ state: "pending" });
   expect(elapsed).toBeGreaterThanOrEqual(40);
   expect(elapsed).toBeLessThan(2000);
+  expect(fakePeer.calls).toHaveLength(0);
+  await session.close();
+});
+
+test("send_message past the hourly limit is a tool error that says when to retry", async () => {
+  const { agent, principal } = await agentWithRun("Ada");
+  await insertPeer(agent.id, { hourlyLimit: 0 });
+  const result = await sendAs(principal);
+  expect(result.isError).toBe(true);
+  expect(textOf(result)).toContain("hourly limit");
+  expect(textOf(result)).toContain("Try again in about");
+  expect(fakePeer.calls).toHaveLength(0);
+});
+
+test("send_message names a peer by its whole slug, so the connection id with another agent part is not found", async () => {
+  const { agent, principal } = await agentWithRun("Ada");
+  await insertPeer(agent.id);
+  const session = await connect(principal);
+  const result = await session.call("send_message", {
+    agent: `${CONNECTION_ID}/anything`,
+    text: "Hello?",
+  });
+  expect(result.isError).toBe(true);
+  expect(result.structuredContent).toMatchObject({ code: "not_found" });
   expect(fakePeer.calls).toHaveLength(0);
   await session.close();
 });

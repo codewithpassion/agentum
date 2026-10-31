@@ -94,7 +94,9 @@ export const createPeerPorts = ({
         // A slug that names a live peer must name it whole. One that is gone
         // (revoked, switched off) goes on to the service, which says why.
         const known = (await a2aOutbound.listPeers(principal)).find(
-          (peer) => peer.slug.split("/", 1)[0] === connection
+          (peer) =>
+            peer.slug.split("/", 1)[0] === connection ||
+            peer.connectionId === connection
         );
         if ((known && known.slug !== agent) || !(connection && peerAgent)) {
           throw new ToolError(

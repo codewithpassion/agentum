@@ -108,6 +108,8 @@ const TRAILING_SLASHES = /\/+$/;
 const NOT_FOUND = 404;
 const NO_CARD_AFTER_MS = 5 * MINUTE_MS;
 const PEER_NAME_MAX = 100;
+const PEER_DESCRIPTION_MAX = 500;
+const WHITESPACE_RUN = /\s+/g;
 /** An answer is cut to fit a run's input once escaped, never below this. */
 const WAKE_TEXT_FLOOR = 1000;
 
@@ -905,6 +907,10 @@ export const createOutboundService = ({
     return "The message could not be sent.";
   };
 
+  /** A peer's text on one line, so it cannot pass for a line of ours. */
+  const oneLine = (text: string, max: number): string =>
+    capText(text.replace(WHITESPACE_RUN, " ").trim(), max);
+
   /** What the peer's card says it does. Empty when the connection holds no card. */
   const descriptionOf = (connection: ConnectionRow): string => {
     if (!connection.peerCard) {
@@ -912,9 +918,20 @@ export const createOutboundService = ({
     }
     try {
       const parsed = agentCardSchema.safeParse(JSON.parse(connection.peerCard));
-      return parsed.success ? capText(parsed.data.description, 500) : "";
+      return parsed.success
+        ? oneLine(parsed.data.description, PEER_DESCRIPTION_MAX)
+        : "";
     } catch {
       return "";
+    }
+  };
+
+  /** Whether `send` could reach the connection's destination. A card that no longer parses cannot. */
+  const hasDestination = (connection: ConnectionRow): boolean => {
+    try {
+      return destinationOf(connection) !== null;
+    } catch {
+      return false;
     }
   };
 
@@ -928,6 +945,10 @@ export const createOutboundService = ({
     if (principal.kind !== "run") {
       return [];
     }
+    authorize(principal, READ_ACTION, {
+      kind: CONNECTION_KIND,
+      workspaceId: principal.workspaceId,
+    });
     const rows = await db
       .select()
       .from(a2aConnections)
@@ -944,11 +965,11 @@ export const createOutboundService = ({
     const peers: PeerInfo[] = [];
     for (const connection of rows) {
       if (
-        destinationOf(connection) &&
+        hasDestination(connection) &&
         (connection.outboundPolicy === "approve" ||
           connection.outboundPolicy === "auto")
       ) {
-        const name = capText(peerName(connection), PEER_NAME_MAX);
+        const name = oneLine(peerName(connection), PEER_NAME_MAX);
         peers.push({
           connectionId: connection.id,
           description: descriptionOf(connection),
