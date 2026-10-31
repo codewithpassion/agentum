@@ -1,0 +1,29 @@
+{
+  "name": "@repo/a2a",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./agent-card": "./src/agent-card.ts",
+    "./errors": "./src/errors.ts",
+    "./extensions": "./src/extensions.ts",
+    "./jsonrpc": "./src/jsonrpc.ts",
+    "./messages": "./src/messages.ts",
+    "./protocol": "./src/protocol.ts",
+    "./requests": "./src/requests.ts",
+    "./rest": "./src/rest.ts",
+    "./security": "./src/security.ts",
+    "./states": "./src/states.ts",
+    "./tasks": "./src/tasks.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2"
+  }
+}

@@ -113,6 +113,69 @@ export const isPendingProposal = (row: {
 /** Errors in a row that switch a routine off. */
 export const ROUTINE_ERROR_LIMIT = 5;
 
+/** Who is on the other end of an agent connection. */
+export const A2A_PEER_KINDS = [
+  "harbourmaster",
+  "a2a_inbound",
+  "a2a_outbound",
+] as const;
+export type A2aPeerKind = (typeof A2A_PEER_KINDS)[number];
+
+export const A2A_CONNECTION_STATUSES = [
+  "inviting",
+  "awaiting_peer",
+  "needs_approval",
+  "activating",
+  "active",
+  "declined",
+  "revoked",
+] as const;
+export type A2aConnectionStatus = (typeof A2A_CONNECTION_STATUSES)[number];
+
+/** Whether a message from the peer is refused, waits for a person, or starts a run. */
+export const A2A_INBOUND_POLICIES = ["off", "approve", "auto"] as const;
+export type A2aInboundPolicy = (typeof A2A_INBOUND_POLICIES)[number];
+export const A2A_DEFAULT_INBOUND_POLICY: A2aInboundPolicy = "approve";
+
+/** In a run a connection started: every tool call asks a person, or the agent's own rules apply. */
+export const A2A_TOOL_POLICIES = ["ask", "agent_rules"] as const;
+export type A2aToolPolicy = (typeof A2A_TOOL_POLICIES)[number];
+export const A2A_DEFAULT_TOOL_POLICY: A2aToolPolicy = "ask";
+
+/** Whether our agent's message to the peer is refused, waits for a person, or sends. */
+export const A2A_OUTBOUND_POLICIES = ["off", "approve", "auto"] as const;
+export type A2aOutboundPolicy = (typeof A2A_OUTBOUND_POLICIES)[number];
+export const A2A_DEFAULT_OUTBOUND_POLICY: A2aOutboundPolicy = "approve";
+
+/** Tasks per hour per connection, both directions. */
+export const A2A_DEFAULT_HOURLY_LIMIT = 20;
+
+/**
+ * A2A task states as stored in `a2a_tasks.state` and `a2a_outbound_tasks.state`.
+ * The strings are the wire names, so `@repo/a2a` and this list must agree.
+ */
+export const A2A_TASK_STATES = [
+  "TASK_STATE_SUBMITTED",
+  "TASK_STATE_WORKING",
+  "TASK_STATE_COMPLETED",
+  "TASK_STATE_FAILED",
+  "TASK_STATE_CANCELED",
+  "TASK_STATE_INPUT_REQUIRED",
+  "TASK_STATE_REJECTED",
+  "TASK_STATE_AUTH_REQUIRED",
+] as const;
+export type A2aTaskState = (typeof A2A_TASK_STATES)[number];
+export const A2A_DEFAULT_TASK_STATE: A2aTaskState = "TASK_STATE_SUBMITTED";
+
+/** What the `a2a_outbox` row delivers. */
+export const A2A_OUTBOX_KINDS = [
+  "push",
+  "pair_activate",
+  "pair_decline",
+  "pair_revoke",
+] as const;
+export type A2aOutboxKind = (typeof A2A_OUTBOX_KINDS)[number];
+
 /** Most bytes in one library file: 10 MB. */
 export const LIBRARY_FILE_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -299,6 +362,27 @@ export const EVENT_TYPES = [
   "artifact.live_checkpoint",
   "artifact.agent_change_reverted",
   "artifact.guests_switched",
+  "a2a.agent_published",
+  "a2a.agent_unpublished",
+  "a2a.invite_created",
+  "a2a.invite_failed",
+  "a2a.connection_created",
+  "a2a.connection_requested",
+  "a2a.connection_approved",
+  "a2a.connection_declined",
+  "a2a.connection_activated",
+  "a2a.connection_revoked",
+  "a2a.connection_reapproval_needed",
+  "a2a.policy_changed",
+  "a2a.message_received",
+  "a2a.message_approved",
+  "a2a.message_declined",
+  "a2a.message_refused",
+  "a2a.message_sent",
+  "a2a.result_received",
+  "a2a.task_cancelled",
+  "a2a.rate_limited",
+  "a2a.outbox_dropped",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -425,6 +509,7 @@ export const EVENT_ACTOR_KINDS = [
   "trigger",
   "system",
   "api_key",
+  "peer",
 ] as const;
 export type EventActorKind = (typeof EVENT_ACTOR_KINDS)[number];
 
@@ -986,6 +1071,7 @@ export const SESSION_ORIGINS = [
   "trigger",
   "mcp",
   "artifact",
+  "a2a",
 ] as const;
 export type SessionOrigin = (typeof SESSION_ORIGINS)[number] | "dry_run";
 

@@ -1,0 +1,12 @@
+{
+  "id": "task-uuid",
+  "contextId": "context-uuid",
+  "status": { "state": "TASK_STATE_COMPLETED" },
+  "artifacts": [
+    {
+      "artifactId": "artifact-uuid",
+      "name": "Weather Report",
+      "parts": [{ "text": "Today will be sunny with a high of 75°F" }]
+    }
+  ]
+}

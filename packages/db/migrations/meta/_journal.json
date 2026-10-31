@@ -253,6 +253,13 @@
       "when": 1793360891771,
       "tag": "0035_yummy_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1793450859272,
+      "tag": "0036_amused_spirit",
+      "breakpoints": true
     }
   ]
 }
