@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { ForbiddenError } from "../authz.ts";
+import { ServiceError } from "../errors.ts";
 import {
   createOutboundFixture,
   OUTBOUND_CONNECTION,
@@ -137,5 +139,37 @@ describe("listPeers", () => {
     const peers = await f.outbound.listPeers(call.principal);
 
     expect(peers.map((peer) => peer.connectionId)).toEqual(["con_good"]);
+  });
+
+  test("a run scoped to an artifact is refused the peer list", async () => {
+    await f.connectPeer();
+    const call = await f.callingRun();
+    const scoped = { ...call.principal, scopeArtifactId: "art_1" };
+
+    const error = await f.outbound.listPeers(scoped).then(
+      () => null,
+      (caught: unknown) => caught
+    );
+
+    expect(error).toBeInstanceOf(ForbiddenError);
+  });
+
+  test("sending to a connection whose card no longer parses is refused with a clear error", async () => {
+    await f.connectPeer({ peerCard: "{not json" });
+    const call = await f.callingRun();
+
+    const error = await f.outbound
+      .send(call.principal, {
+        connection: "con_peer",
+        requestId: "r1",
+        text: "Hello",
+      })
+      .then(
+        () => null,
+        (caught: unknown) => caught
+      );
+
+    expect(error).toBeInstanceOf(ServiceError);
+    expect((error as ServiceError).message).toContain("not approved");
   });
 });

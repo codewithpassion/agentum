@@ -1032,7 +1032,7 @@ export const createOutboundService = ({
       });
       throw new ServiceError("conflict", "Sending to this peer is turned off.");
     }
-    if (!destinationOf(connection)) {
+    if (!hasDestination(connection)) {
       throw new ServiceError(
         "conflict",
         "This connection's destination is not approved. A person must look at it again."
