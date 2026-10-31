@@ -13,7 +13,7 @@ import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createEventsService } from "../events.ts";
 import { createRequestsService } from "../requests.ts";
-import type { RuntimeAdapter } from "../runs/types.ts";
+import type { Gateway, RuntimeAdapter } from "../runs/types.ts";
 import { createRunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { createConnectionsService, type PeerPrincipal } from "./connections.ts";
@@ -66,7 +66,9 @@ export const textMessage = (
   },
 });
 
-export const createFixture = async (options: { fake?: boolean } = {}) => {
+export const createFixture = async (
+  options: { fake?: boolean; gateways?: Gateway[] } = {}
+) => {
   const db = migrated();
   let nowMs = Date.parse(START);
   const clock = {
@@ -190,7 +192,7 @@ export const createFixture = async (options: { fake?: boolean } = {}) => {
     clock,
     db,
     devFakeRuntime: options.fake === true,
-    gateways: [tasks.gateway],
+    gateways: [tasks.gateway, ...(options.gateways ?? [])],
   });
   requests = createRequestsService({
     atomic,

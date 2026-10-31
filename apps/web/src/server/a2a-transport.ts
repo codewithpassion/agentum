@@ -14,7 +14,7 @@ export interface PeerFetchOptions {
   /** Plain http is allowed (dev builds only). */
   allowHttp: boolean;
   /** The network. A bare `fetch` loses its receiver in workerd, so the caller wraps it. */
-  fetch: typeof fetch;
+  fetch: (input: string, init?: RequestInit) => Promise<Response>;
   /** Handles a request for this deployment's own origin in-process. A Worker cannot fetch its own hostname. */
   localFetch?: (request: Request) => Promise<Response>;
   /** `PUBLIC_BASE_URL`. A request to this origin goes to `localFetch`. */

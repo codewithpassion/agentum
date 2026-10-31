@@ -1518,6 +1518,7 @@ export const createOutboundService = ({
       actor: { id: connection.id, kind: "peer" },
       agentId: connection.localAgentId,
       payload: {
+        at: nowIso(),
         connectionId: connection.id,
         outboundTaskId: row.id,
         woke: true,

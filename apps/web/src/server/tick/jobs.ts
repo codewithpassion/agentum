@@ -1,4 +1,5 @@
 // Every job the minute tick runs. Lanes edit their own file, never this one.
+import { a2aJobs } from "./a2a.ts";
 import { a2aTaskJobs } from "./a2a-tasks.ts";
 import { accessJobs } from "./access.ts";
 import { artifactJobs } from "./artifacts.ts";
@@ -10,6 +11,7 @@ import { runtimeJobs } from "./runtime.ts";
 export const tickJobs: readonly TickJob[] = [
   ...runtimeJobs,
   ...a2aTaskJobs,
+  ...a2aJobs,
   ...accessJobs,
   ...automationJobs,
   ...libraryJobs,

@@ -227,14 +227,21 @@ const readCapped = async (
     return text;
   }
   const decoder = new TextDecoder();
+  const reader = response.body.getReader();
   let received = 0;
   let text = "";
-  for await (const chunk of response.body) {
-    received += chunk.byteLength;
+  for (;;) {
+    // biome-ignore lint/performance/noAwaitInLoops: chunks must be read in order
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    received += value.byteLength;
     if (received > limit) {
+      await reader.cancel();
       throw tooLarge();
     }
-    text += decoder.decode(chunk, { stream: true });
+    text += decoder.decode(value, { stream: true });
   }
   return text + decoder.decode();
 };

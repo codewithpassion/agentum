@@ -13,6 +13,7 @@ import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
 import { compose } from "./server/compose.ts";
 import { frameGuard } from "./server/frame-guard.ts";
+import { setInProcessDispatch } from "./server/in-process.ts";
 import { guestEmbeds } from "./server/live-artifacts/guest-embeds";
 import { guestRoutes } from "./server/live-artifacts/guest-routes";
 import {
@@ -22,6 +23,7 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
+import { a2aWebhookRoutes } from "./server/routes/a2a-webhooks.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -111,6 +113,8 @@ app.use("/mcp", composeServices);
 app.use("/files/*", composeServices);
 // `/connect/:id` starts an OAuth connection and reads the services too.
 app.use("/connect/*", composeServices);
+// A peer's push webhook reads the services too.
+app.use("/a2a/*", composeServices);
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);
@@ -189,6 +193,7 @@ app.route("/", runtimeRoutes);
 app.route("/", accessRoutes);
 app.route("/", automationRoutes);
 app.route("/", artifactRoutes({ session: (c) => getAuth(c) }));
+app.route("/a2a", a2aWebhookRoutes());
 
 // Local checks (the atomic probe, and the offer nudge the e2e script uses).
 // Dev builds only.
@@ -198,6 +203,10 @@ if (import.meta.env.DEV) {
 
 // Everything else is handled by TanStack Start (SSR pages and assets).
 app.all("*", (c) => handler.fetch(c.req.raw));
+
+// A message to a workspace on this deployment is dispatched here, in-process:
+// a Worker cannot fetch its own hostname (see server/in-process.ts).
+setInProcessDispatch((request, env, ctx) => app.fetch(request, env, ctx));
 
 /**
  * The minute tick (cron `* * * * *`). Runs every registered job once. Awaited,

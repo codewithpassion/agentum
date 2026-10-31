@@ -12,11 +12,16 @@ import type { Clock } from "../runs/types.ts";
 
 export const HOUR_MS = 60 * 60_000;
 
-/** The wake events of one connection since `since`. */
+/**
+ * The wake events of one connection since `since`. The time is the `at` in the
+ * payload, written by the same clock the limit reads, not the event's own
+ * stamp.
+ */
+const wakeAt = sql<string>`json_extract(${events.payload}, '$.at')`;
 const wakeCondition = (connectionId: string, since: string) =>
   and(
     eq(events.type, "a2a.result_received"),
-    gt(events.createdAt, since),
+    sql`${wakeAt} > ${since}`,
     sql`json_extract(${events.payload}, '$.woke') = 1`,
     sql`json_extract(${events.payload}, '$.connectionId') = ${connectionId}`
   );
@@ -55,7 +60,7 @@ export const hourlyUse = async (
         )
       ),
     db
-      .select({ at: events.createdAt })
+      .select({ at: wakeAt })
       .from(events)
       .where(wakeCondition(connectionId, since)),
   ]);
