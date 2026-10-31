@@ -94,7 +94,6 @@ app.route(
   })
 );
 app.route("/", liveRoomRoutes());
-app.use("*", clerkMiddleware());
 
 // Every service, built once for the request from the bindings and secrets.
 const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -106,17 +105,21 @@ const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
   );
   await next();
 };
+
+// The A2A server (`/a2a/<publicId>/...`, `/a2a/pair/join`). Callers are other
+// servers with a bearer key and no cookie, so it takes no csrf check and must
+// never meet Clerk: on a dev instance clerkMiddleware answers a browser-style
+// request with a handshake redirect. It is mounted ahead of `clerkMiddleware`
+// and ends every path under `/a2a` itself, so nothing falls through to the pages.
+mountA2aRoutes(app, composeServices);
+
+app.use("*", clerkMiddleware());
 app.use("/api/*", composeServices);
 app.use("/mcp", composeServices);
 // `/files/:id` is outside `/api` but reads files too.
 app.use("/files/*", composeServices);
 // `/connect/:id` starts an OAuth connection and reads the services too.
 app.use("/connect/*", composeServices);
-// The A2A server (`/a2a/<publicId>/...`, `/a2a/pair/join`). Callers are other
-// servers with a bearer key and no cookie, so it takes no csrf check, and it is
-// mounted ahead of the page fallback so nothing under it reaches Clerk's page
-// handling.
-mountA2aRoutes(app, composeServices);
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);

@@ -17,6 +17,8 @@ import { z } from "zod";
 export interface A2aTiming {
   /** SendMessage waits for a settled task at most this long. */
   blockMs: number;
+  /** A quiet stream sends a comment this often, so nothing on the way closes it as idle. */
+  heartbeatMs: number;
   /** How often the task row is read while waiting or streaming. */
   pollMs: number;
   /** A stream closes after this long, so the client resubscribes. */
@@ -25,13 +27,18 @@ export interface A2aTiming {
 
 export const DEFAULT_TIMING: A2aTiming = {
   blockMs: 90_000,
+  heartbeatMs: 30_000,
   pollMs: 2000,
   streamMs: 10 * 60_000,
 };
 
+/** What a stream yields besides an event: write a comment line, so the connection is not idle. */
+export const HEARTBEAT = "heartbeat";
+export type StreamItem = StreamResponse | typeof HEARTBEAT;
+
 export type OperationOutcome =
   | { body: unknown; kind: "body" }
-  | { events: AsyncIterable<StreamResponse>; kind: "stream" };
+  | { events: AsyncIterable<StreamItem>; kind: "stream" };
 
 interface OperationContext {
   peer: PeerPrincipal;
@@ -62,6 +69,21 @@ const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
 const fingerprint = (task: Task): string =>
   `${task.status.state}|${task.status.message?.parts[0]?.text ?? ""}`;
 
+/** The events of a task's change: an artifact update for each new artifact, then the status. */
+const changeEvents = (last: Task, task: Task): StreamResponse[] => {
+  const contextId = task.contextId ?? task.id;
+  const artifacts = (task.artifacts ?? []).filter(
+    (artifact) =>
+      !last.artifacts?.some((seen) => seen.artifactId === artifact.artifactId)
+  );
+  return [
+    ...artifacts.map((artifact) => ({
+      artifactUpdate: { artifact, contextId, lastChunk: true, taskId: task.id },
+    })),
+    { statusUpdate: { contextId, status: task.status, taskId: task.id } },
+  ];
+};
+
 /**
  * The task first, then a status update each time the task changes, with an
  * artifact update ahead of the one that carries the result. It ends at a
@@ -71,13 +93,14 @@ async function* taskEvents(
   initial: Task,
   read: () => Promise<Task>,
   { signal, timing }: Pick<OperationContext, "signal" | "timing">
-): AsyncGenerator<StreamResponse> {
+): AsyncGenerator<StreamItem> {
   yield { task: initial };
   if (isSettledTaskState(initial.status.state)) {
     return;
   }
   const deadline = Date.now() + timing.streamMs;
   let last = initial;
+  let lastWrite = Date.now();
   while (!signal.aborted && Date.now() < deadline) {
     // biome-ignore lint/performance/noAwaitInLoops: each read follows the wait before it
     await sleep(Math.min(timing.pollMs, deadline - Date.now()), signal);
@@ -85,25 +108,18 @@ async function* taskEvents(
       return;
     }
     const task = await read();
+    if (signal.aborted) {
+      return;
+    }
     if (fingerprint(task) === fingerprint(last)) {
+      if (Date.now() - lastWrite >= timing.heartbeatMs) {
+        lastWrite = Date.now();
+        yield HEARTBEAT;
+      }
       continue;
     }
-    const contextId = task.contextId ?? task.id;
-    for (const artifact of task.artifacts ?? []) {
-      if (
-        !last.artifacts?.some((seen) => seen.artifactId === artifact.artifactId)
-      ) {
-        yield {
-          artifactUpdate: {
-            artifact,
-            contextId,
-            lastChunk: true,
-            taskId: task.id,
-          },
-        };
-      }
-    }
-    yield { statusUpdate: { contextId, status: task.status, taskId: task.id } };
+    lastWrite = Date.now();
+    yield* changeEvents(last, task);
     last = task;
     if (isSettledTaskState(task.status.state)) {
       return;

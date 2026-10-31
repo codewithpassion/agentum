@@ -26,7 +26,6 @@ import {
   A2A_VERSION_HEADER,
 } from "@repo/a2a/protocol";
 import { matchRestRoute } from "@repo/a2a/rest";
-import type { StreamResponse } from "@repo/a2a/tasks";
 import type {
   PairActivateBody,
   PairJoinBody,
@@ -46,8 +45,10 @@ import {
 import {
   type A2aTiming,
   DEFAULT_TIMING,
+  HEARTBEAT,
   type OperationOutcome,
   runOperation,
+  type StreamItem,
 } from "./a2a-ops.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 
@@ -58,6 +59,7 @@ const WWW_AUTHENTICATE = 'Bearer realm="harbourmaster"';
 const BEARER = /^Bearer\s+(\S+)$/i;
 const CARD_MAX_AGE_SECONDS = 300;
 const ETAG_LENGTH = 32;
+const WEAK_PREFIX = /^W\//;
 const HEX = 16;
 /** The JSON-RPC code for what the A2A spec has no name for: a missing credential and the hourly limit. */
 const SERVER_ERROR_CODE = -32_000;
@@ -155,13 +157,11 @@ const invalid = (name: ErrorName, message?: string): Refusal => ({
 /** The `text/event-stream` of a run of events, each framed by the binding. */
 const eventStream = (
   binding: Binding,
-  events: AsyncIterable<StreamResponse>,
-  signal: AbortSignal
+  events: AsyncIterable<StreamItem>,
+  stopped: AbortController
 ): Response => {
   const encoder = new TextEncoder();
   const iterator = events[Symbol.asyncIterator]();
-  const stopped = new AbortController();
-  signal.addEventListener("abort", () => stopped.abort(), { once: true });
   const frame = (body: unknown) =>
     encoder.encode(`data: ${JSON.stringify(body)}\n\n`);
   const stream = new ReadableStream<Uint8Array>({
@@ -170,14 +170,26 @@ const eventStream = (
       await iterator.return?.();
     },
     pull: async (controller) => {
+      // A client that went away has nothing left to read.
+      if (stopped.signal.aborted) {
+        return;
+      }
       try {
         const next = await iterator.next();
-        if (next.done) {
-          controller.close();
+        if (stopped.signal.aborted) {
           return;
         }
-        controller.enqueue(frame(binding.resultBody(next.value)));
+        if (next.done) {
+          controller.close();
+        } else if (next.value === HEARTBEAT) {
+          controller.enqueue(encoder.encode(": keepalive\n\n"));
+        } else {
+          controller.enqueue(frame(binding.resultBody(next.value)));
+        }
       } catch (error) {
+        if (stopped.signal.aborted) {
+          return;
+        }
         controller.enqueue(frame(binding.errorBody(classify(error))));
         controller.close();
       }
@@ -221,12 +233,12 @@ const versionRefusal = (c: RouteContext): Refusal | null =>
       );
 
 const respond = (
-  c: RouteContext,
   binding: Binding,
-  outcome: OperationOutcome
+  outcome: OperationOutcome,
+  stopped: AbortController
 ): Response =>
   outcome.kind === "stream"
-    ? eventStream(binding, outcome.events, c.req.raw.signal)
+    ? eventStream(binding, outcome.events, stopped)
     : send(binding, binding.resultBody(outcome.body), 200);
 
 const execute = async (
@@ -237,16 +249,21 @@ const execute = async (
   params: unknown,
   timing: A2aTiming
 ): Promise<Response> => {
+  // Aborted when the client goes away: its request ends, or its stream is cancelled.
+  const stopped = new AbortController();
+  c.req.raw.signal.addEventListener("abort", () => stopped.abort(), {
+    once: true,
+  });
   try {
     return respond(
-      c,
       binding,
       await runOperation(operation, params, {
         peer,
-        signal: c.req.raw.signal,
+        signal: stopped.signal,
         tasks: c.get("composed").services.a2aTasks,
         timing,
-      })
+      }),
+      stopped
     );
   } catch (error) {
     return failure(binding, classify(error));
@@ -408,6 +425,13 @@ const digest = async (text: string): Promise<string> => {
     .slice(0, ETAG_LENGTH);
 };
 
+/** Whether an `If-None-Match` value (`*` or a list, weak tags included) names this tag. */
+const matchesEtag = (header: string | undefined, etag: string): boolean =>
+  (header ?? "")
+    .split(",")
+    .map((part) => part.trim().replace(WEAK_PREFIX, ""))
+    .some((part) => part === "*" || part === etag);
+
 const cardRequest = async (c: RouteContext): Promise<Response> => {
   const publicId = c.req.param("publicId") ?? "";
   const found = await c
@@ -435,7 +459,7 @@ const cardRequest = async (c: RouteContext): Promise<Response> => {
     "Cache-Control": `public, max-age=${CARD_MAX_AGE_SECONDS}`,
     ETag: etag,
   };
-  if (c.req.header("If-None-Match") === etag) {
+  if (matchesEtag(c.req.header("If-None-Match"), etag)) {
     return new Response(null, { headers, status: 304 });
   }
   return new Response(text, {

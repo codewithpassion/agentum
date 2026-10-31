@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { clerkMiddleware } from "@clerk/hono";
 import { Hono } from "hono";
+import { csrf } from "hono/csrf";
+import type { MiddlewareHandler } from "hono/types";
+import { mountA2aRoutes } from "./a2a.ts";
 import {
   type A2aFixture,
   createA2aFixture,
@@ -99,17 +103,53 @@ describe("an hm_a2a_ key works nowhere but /a2a", () => {
   });
 });
 
+/**
+ * Clerk on a dev instance (staging and previews hold dev keys) answers a
+ * browser-style request with a handshake redirect. These stand-ins use the
+ * real `clerkMiddleware` and `csrf()` in the order `server.ts` registers them.
+ */
+process.env.CLERK_TELEMETRY_DISABLED = "1";
+const CLERK = {
+  publishableKey: "pk_test_Y2xlcmsuZXhhbXBsZS5jb20k",
+  secretKey: "sk_test_unused",
+};
+const BROWSER = {
+  Accept: "text/html",
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+};
+
+/** An app with `/a2a` mounted before Clerk, as in server.ts, or after it, as it must not be. */
+const wired = (a2aFirst: boolean): Hono<AppEnv> => {
+  const wiredApp = new Hono<AppEnv>();
+  const compose: MiddlewareHandler<AppEnv> = async (c, next) => {
+    c.set("composed", f.composed);
+    await next();
+  };
+  if (a2aFirst) {
+    mountA2aRoutes(wiredApp, compose);
+  }
+  wiredApp.use("*", clerkMiddleware(CLERK));
+  if (!a2aFirst) {
+    mountA2aRoutes(wiredApp, compose);
+  }
+  wiredApp.use("/api/trpc/*", csrf());
+  wiredApp.all("*", (c) => c.text("PAGE"));
+  return wiredApp;
+};
+
 describe("/a2a on the app's real wiring", () => {
   const serverSource = readFileSync(
     join(import.meta.dir, "..", "..", "server.ts"),
     "utf8"
   );
+  const at = (needle: string) => serverSource.indexOf(needle);
 
-  test("server.ts mounts /a2a before the page fallback that Clerk's page handling sits behind", () => {
-    const mount = serverSource.indexOf("mountA2aRoutes(app, composeServices)");
-    const fallback = serverSource.indexOf('app.all("*"');
+  test("server.ts mounts /a2a before Clerk's middleware and the page fallback", () => {
+    const mount = at("mountA2aRoutes(app, composeServices)");
     expect(mount).toBeGreaterThan(-1);
-    expect(fallback).toBeGreaterThan(mount);
+    expect(at('app.use("*", clerkMiddleware())')).toBeGreaterThan(mount);
+    expect(at('app.all("*"')).toBeGreaterThan(mount);
   });
 
   test("server.ts gives /a2a no csrf check", () => {
@@ -124,8 +164,40 @@ describe("/a2a on the app's real wiring", () => {
     }
   });
 
+  test("control: with Clerk in front, a browser-style request is redirected to its handshake", async () => {
+    const res = await wired(false).request(
+      `/a2a/${publicId}/.well-known/agent-card.json`,
+      { headers: BROWSER }
+    );
+    expect(res.status).toBe(307);
+  });
+
+  test("with /a2a mounted first, browser-style requests reach the routes and Clerk never answers", async () => {
+    const app2 = wired(true);
+    const card = await app2.request(
+      `/a2a/${publicId}/.well-known/agent-card.json`,
+      { headers: BROWSER }
+    );
+    expect(card.status).toBe(200);
+    const unauthenticated = await app2.request(`/a2a/${publicId}/rest/tasks`, {
+      headers: BROWSER,
+    });
+    expect(unauthenticated.status).toBe(401);
+    const rpc = await app2.request(`/a2a/${publicId}/rpc`, {
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "ListTasks" }),
+      headers: {
+        ...BROWSER,
+        "A2A-Version": "1.0",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    expect(rpc.status).toBe(200);
+  });
+
   test("a cross-site form post is not blocked as csrf", async () => {
-    const res = await f.app.request(`/a2a/${publicId}/rpc`, {
+    const res = await wired(true).request(`/a2a/${publicId}/rpc`, {
       body: "a=b",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -139,6 +211,7 @@ describe("/a2a on the app's real wiring", () => {
   });
 
   test("nothing under /a2a falls through to the pages", async () => {
+    const app2 = wired(true);
     for (const path of [
       "/a2a",
       "/a2a/x",
@@ -146,7 +219,7 @@ describe("/a2a on the app's real wiring", () => {
       `/a2a/${publicId}/nope`,
     ]) {
       // biome-ignore lint/performance/noAwaitInLoops: one path at a time
-      const res = await f.app.request(path);
+      const res = await app2.request(path);
       expect(res.status).toBe(404);
       expect(res.headers.get("content-type")).toContain("json");
     }

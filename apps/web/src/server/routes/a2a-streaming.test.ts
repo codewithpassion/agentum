@@ -554,3 +554,41 @@ describe("blocking sends", () => {
     });
   }
 });
+
+describe("a quiet stream's lifetime", () => {
+  const SUBSCRIBE_RPC = SUBSCRIBES[0] as Call;
+  const SUBSCRIBE_GET = SUBSCRIBES[1] as Call;
+
+  test("a stream with nothing to say sends keepalive comments, and the frames still parse", async () => {
+    f = await createA2aFixture({
+      timing: { blockMs: 300, heartbeatMs: 30, pollMs: 10, streamMs: 200 },
+    });
+    const s = await session("auto");
+    const taskId = await f.seedTask(s.connectionId, "TASK_STATE_WORKING");
+    const raw = await readStream(await subscribe(SUBSCRIBE_GET, s, taskId));
+    expect(raw).toContain(": keepalive\n\n");
+    const data = raw
+      .split("\n\n")
+      .filter((block) => block.startsWith("data: "))
+      .join("\n\n");
+    expect(kindsOf(eventsOf(SUBSCRIBE_GET, framesOf(`${data}\n\n`)))).toEqual([
+      "task",
+    ]);
+  });
+
+  for (const call of [SUBSCRIBE_RPC, SUBSCRIBE_GET]) {
+    test(`${call.name}: a client that goes away stops the stream at once`, async () => {
+      f = await createA2aFixture({
+        timing: { blockMs: 300, pollMs: 10, streamMs: 5000 },
+      });
+      const s = await session("auto");
+      const taskId = await f.seedTask(s.connectionId, "TASK_STATE_WORKING");
+      const res = await subscribe(call, s, taskId);
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      await reader.read();
+      const started = Date.now();
+      await reader.cancel();
+      expect(Date.now() - started).toBeLessThan(500);
+    });
+  }
+});
