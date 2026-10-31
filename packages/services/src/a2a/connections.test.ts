@@ -1582,4 +1582,52 @@ describe("hardening, round two", () => {
     await service.activationAbandoned(SYSTEM_PRINCIPAL, paired.aliceId);
     expect(rowOf(paired.aliceId)?.status).toBe("active");
   });
+
+  test("two overlapping refreshes log once, and the dropped one logs nothing", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    const moveTo = (rpcUrl: string) =>
+      outsideCard({
+        supportedInterfaces: [
+          { protocolBinding: "JSONRPC", protocolVersion: "1.0", url: rpcUrl },
+        ],
+      });
+    const quick = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      fetchCard: () => Promise.resolve(moveTo("https://first.example.com/rpc")),
+      publicBaseUrl: BASE,
+      secretsKey: SECRETS_KEY,
+    });
+    // The slow refresh read the connection first. While it waits for its card,
+    // the quick one finishes.
+    const slow = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      fetchCard: async () => {
+        await quick.refreshCard(SYSTEM_PRINCIPAL, connection.id);
+        return moveTo("https://second.example.net/rpc");
+      },
+      publicBaseUrl: BASE,
+      secretsKey: SECRETS_KEY,
+    });
+    const refreshed = await slow.refreshCard(ownerA, connection.id);
+    expect(refreshed.status).toBe("needs_approval");
+    expect(refreshed.pendingOrigin).toBe("https://first.example.com");
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_reapproval_needed"));
+    expect(logged).toHaveLength(1);
+    expect(JSON.parse(logged[0]?.payload ?? "{}")).toMatchObject({
+      toOrigin: "https://first.example.com",
+    });
+  });
 });

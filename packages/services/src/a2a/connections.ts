@@ -1949,34 +1949,28 @@ export const createConnectionsService = ({
     const card = await fetchPeerCard(found.peerCardUrl);
     const { label, movedAgain, needsPerson, origin } = compareCard(found, card);
     const flips = found.status === "active" && needsPerson;
-    // One write, so a stored card never gets ahead of the flip that goes with
-    // it. Both statements only match the status this call read, so a revoke or
-    // an approval that landed while the card was fetched keeps what it decided.
-    await atomic([
-      db
-        .update(a2aConnections)
-        .set({ peerCard: JSON.stringify(card), peerCardFetchedAt: nowIso() })
-        .where(
-          and(
-            eq(a2aConnections.id, found.id),
-            eq(a2aConnections.status, found.status)
-          )
-        ),
-      db
-        .update(a2aConnections)
-        .set({ status: flips ? "needs_approval" : found.status })
-        .where(
-          and(
-            eq(a2aConnections.id, found.id),
-            eq(a2aConnections.status, found.status)
-          )
-        ),
-    ]);
-    const after = await requireRow(found.id, found.workspaceId);
-    const flipped = flips && after.status === "needs_approval";
+    // One statement, so a stored card never gets ahead of the flip that goes
+    // with it, and `returning` says whether this call's write landed. It only
+    // matches the status this call read, so a revoke, an approval or another
+    // refresh that landed while the card was fetched keeps what it decided, and
+    // this call then logs nothing.
+    const landed = await db
+      .update(a2aConnections)
+      .set({
+        peerCard: JSON.stringify(card),
+        peerCardFetchedAt: nowIso(),
+        status: flips ? "needs_approval" : found.status,
+      })
+      .where(
+        and(
+          eq(a2aConnections.id, found.id),
+          eq(a2aConnections.status, found.status)
+        )
+      )
+      .returning({ id: a2aConnections.id });
     const moved =
-      after.status === "needs_approval" &&
-      (flipped || (found.status === "needs_approval" && movedAgain));
+      landed.length > 0 &&
+      (flips || (found.status === "needs_approval" && movedAgain));
     if (moved) {
       await record({
         actor: actorOf(actor),
