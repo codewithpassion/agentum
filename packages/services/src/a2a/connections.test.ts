@@ -1262,3 +1262,142 @@ describe("hardening", () => {
     });
   });
 });
+
+describe("hardening, round two", () => {
+  const oauthCard = (
+    tokenUrl: string,
+    rpcUrl = "https://agent.example.com/rpc"
+  ) =>
+    outsideCard({
+      securityRequirements: [{ schemes: { oauth: { list: [] } } }],
+      securitySchemes: {
+        oauth: {
+          oauth2SecurityScheme: {
+            flows: { clientCredentials: { scopes: {}, tokenUrl } },
+          },
+        },
+      },
+      supportedInterfaces: [
+        { protocolBinding: "JSONRPC", protocolVersion: "1.0", url: rpcUrl },
+      ],
+    });
+
+  const addOauth = async () => {
+    peerCard = oauthCard("https://idp.example.com/token");
+    return await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: { clientId: "client-id-123", clientSecret: OAUTH_SECRET },
+    });
+  };
+
+  test("a decline whose notice cannot be queued still records the event and fires the hook", async () => {
+    const pending = await toNeedsApproval();
+    const wrongKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
+    const unreadable = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      publicBaseUrl: BASE,
+      secretsKey: wrongKey,
+    });
+    const seen: string[] = [];
+    unreadable.onRevoked((ended) => {
+      seen.push(ended.connectionId);
+      return Promise.resolve();
+    });
+    await unreadable.decline(memberA, pending.aliceId);
+    expect(rowOf(pending.aliceId)?.status).toBe("declined");
+    expect(seen).toEqual([pending.aliceId]);
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(
+        and(
+          eq(eventRows.type, "a2a.connection_declined"),
+          eq(eventRows.workspaceId, W_ALICE)
+        )
+      );
+    expect(logged).toHaveLength(1);
+  });
+
+  test("approving a moved OAuth token URL on a private address is refused", async () => {
+    const connection = await addOauth();
+    peerCard = oauthCard("https://169.254.169.254/token");
+    expect((await service.refreshCard(ownerA, connection.id)).status).toBe(
+      "needs_approval"
+    );
+    await expect(service.approve(ownerA, connection.id)).rejects.toBeInstanceOf(
+      ServiceError
+    );
+    expect(rowOf(connection.id)?.status).toBe("needs_approval");
+  });
+
+  test("approving a moved OAuth token URL seals the new URL into the credential", async () => {
+    const connection = await addOauth();
+    peerCard = oauthCard("https://idp2.example.com/token");
+    await service.refreshCard(ownerA, connection.id);
+    await service.approve(ownerA, connection.id);
+    const key = await importSecretsKey(SECRETS_KEY);
+    const row = rowOf(connection.id);
+    const plain = await decryptSecret(
+      key,
+      {
+        field: "outbound_credential",
+        rowId: connection.id,
+        table: "a2a_connections",
+        workspaceId: W_ALICE,
+      },
+      row?.outboundCredential ?? ""
+    );
+    expect(JSON.parse(plain)).toEqual({
+      clientId: "client-id-123",
+      clientSecret: OAUTH_SECRET,
+      scopes: [],
+      tokenUrl: "https://idp2.example.com/token",
+    });
+    expect(row?.status).toBe("active");
+  });
+
+  test("a card that moves a second time while a person looks is logged and shown", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    const moveTo = (rpcUrl: string) =>
+      outsideCard({
+        supportedInterfaces: [
+          { protocolBinding: "JSONRPC", protocolVersion: "1.0", url: rpcUrl },
+        ],
+      });
+    peerCard = moveTo("https://decoy.example.com/rpc");
+    const first = await service.refreshCard(ownerA, connection.id);
+    expect(first.pendingOrigin).toBe("https://decoy.example.com");
+    // The same card again is not news.
+    await service.refreshCard(ownerA, connection.id);
+    peerCard = moveTo("https://other.example.net/rpc");
+    const second = await service.refreshCard(ownerA, connection.id);
+    expect(second.status).toBe("needs_approval");
+    expect(second.pendingOrigin).toBe("https://other.example.net");
+    expect(second.peerOrigin).toBe("https://agent.example.com");
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_reapproval_needed"));
+    expect(logged).toHaveLength(2);
+  });
+
+  test("an activation the outbox gave up on ends the row", async () => {
+    activateFails = true;
+    const pending = await toNeedsApproval();
+    await service.approve(ownerA, pending.aliceId);
+    await expect(
+      service.activationAbandoned(ownerA, pending.aliceId)
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await service.activationAbandoned(SYSTEM_PRINCIPAL, pending.aliceId);
+    expect(rowOf(pending.aliceId)?.status).toBe("revoked");
+    expect(await db.select().from(a2aOutbox)).toHaveLength(0);
+  });
+});

@@ -16,7 +16,11 @@
  * event payload.
  */
 
-import { agentCardSchema, agentSkillSchema } from "@repo/a2a/agent-card";
+import {
+  type AgentCard,
+  agentCardSchema,
+  agentSkillSchema,
+} from "@repo/a2a/agent-card";
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { a2aAgentCards, a2aConnections, a2aOutbox } from "@repo/db/schema/a2a";
@@ -186,6 +190,12 @@ const oauthCredentialSchema = z.strictObject({
   clientSecret: z.string().min(1).max(2000),
 });
 
+/** What `addOutbound` seals for an OAuth client credentials agent. */
+const storedOauthSchema = oauthCredentialSchema.extend({
+  scopes: z.array(z.string()),
+  tokenUrl: z.string(),
+});
+
 export const addOutboundInputSchema = z.strictObject({
   agentId: idString,
   cardUrl: z.url().max(2000),
@@ -261,6 +271,8 @@ export interface ConnectionSummary {
   peerLabel: string | null;
   peerOrg: string | null;
   peerOrigin: string | null;
+  /** The origin a refreshed card names while a person has yet to approve it. */
+  pendingOrigin: string | null;
   revokedAt: string | null;
   revokedBy: string | null;
   slug: string;
@@ -332,6 +344,7 @@ const summaryColumns = {
   lastInAt: a2aConnections.lastInAt,
   lastOutAt: a2aConnections.lastOutAt,
   outboundPolicy: a2aConnections.outboundPolicy,
+  peerCard: a2aConnections.peerCard,
   peerCardUrl: a2aConnections.peerCardUrl,
   peerKind: a2aConnections.peerKind,
   peerLabel: a2aConnections.peerLabel,
@@ -343,6 +356,20 @@ const summaryColumns = {
   status: a2aConnections.status,
   tokenPrefix: a2aConnections.inboundTokenPrefix,
   toolPolicy: a2aConnections.toolPolicy,
+};
+
+type SummaryRow = Omit<ConnectionSummary, "pendingOrigin"> & {
+  peerCard: string | null;
+};
+
+/** A summary row with the card dropped and the origin awaiting approval worked out. */
+const toSummary = ({ peerCard, ...row }: SummaryRow): ConnectionSummary => {
+  const card =
+    row.status === "needs_approval" && row.peerKind === "a2a_outbound"
+      ? parseStoredCard(peerCard)
+      : null;
+  const pending = card ? chooseInterface(card) : null;
+  return { ...row, pendingOrigin: pending ? pending.origin : null };
 };
 
 /** The start of a token, kept next to its hash so connections can be told apart. */
@@ -361,6 +388,38 @@ const randomText = (length: number): string => {
   return [...bytes]
     .map((byte) => (byte % RADIX_36).toString(RADIX_36))
     .join("");
+};
+
+/** The card a connection stored, or null when there is none or it no longer parses. */
+const parseStoredCard = (stored: string | null) => {
+  const parsed = stored ? agentCardSchema.safeParse(JSON.parse(stored)) : null;
+  return parsed?.success ? parsed.data : null;
+};
+
+/**
+ * What a freshly fetched card changes for a connection. `needsPerson` compares
+ * it with what a person approved (the origin and the credential scheme).
+ * `movedAgain` compares it with the card stored last, so a card that moves a
+ * second time while a person is looking is noticed.
+ */
+const compareCard = (
+  found: Pick<ConnectionRow, "peerCard" | "peerOrigin">,
+  card: AgentCard
+): { movedAgain: boolean; needsPerson: boolean; origin: string | null } => {
+  const earlier = parseStoredCard(found.peerCard);
+  const earlierInterface = earlier ? chooseInterface(earlier) : null;
+  const nowInterface = chooseInterface(card);
+  const origin = nowInterface ? nowInterface.origin : null;
+  const schemeChanged =
+    JSON.stringify(earlier ? chooseOutboundScheme(earlier) : null) !==
+    JSON.stringify(chooseOutboundScheme(card));
+  return {
+    movedAgain:
+      origin !== (earlierInterface ? earlierInterface.origin : null) ||
+      schemeChanged,
+    needsPerson: origin !== found.peerOrigin || schemeChanged,
+    origin,
+  };
 };
 
 /** What the system acts as in the log. */
@@ -491,7 +550,7 @@ export const createConnectionsService = ({
         )
       )
       .limit(1);
-    return row ?? null;
+    return row ? toSummary(row) : null;
   };
 
   const requireSummary = async (id: string, workspaceId: string) => {
@@ -721,7 +780,7 @@ export const createConnectionsService = ({
     );
 
   /** Tells the peer, best effort: the access ended whether or not this lands. */
-  const queueNotice = async (
+  const queueNoticeRaw = async (
     row: ConnectionRow,
     kind: "pair_decline" | "pair_revoke",
     path: string
@@ -741,6 +800,23 @@ export const createConnectionsService = ({
         url: `${interfaceBaseOfCardUrl(row.peerCardUrl)}${path}`,
       })
     );
+  };
+
+  /**
+   * `queueNoticeRaw` that never throws. The access has ended whether or not the
+   * peer is told, so a notice that cannot be queued (an unreadable credential,
+   * say) must not skip the event or the hook that follow.
+   */
+  const queueNotice = async (
+    row: ConnectionRow,
+    kind: "pair_decline" | "pair_revoke",
+    path: string
+  ): Promise<void> => {
+    try {
+      await queueNoticeRaw(row, kind, path);
+    } catch (error) {
+      console.error("A2A notice not queued", row.id, error);
+    }
   };
 
   // ---------------------------------------------------------------------
@@ -798,14 +874,7 @@ export const createConnectionsService = ({
         )
       );
     if (by.notify) {
-      // The access has ended whether or not the peer is told, so a notice that
-      // cannot be queued (an unreadable credential, say) must not skip the
-      // event or the hook below.
-      try {
-        await queueNotice(row, "pair_revoke", "/pair/revoke");
-      } catch {
-        console.error("A2A revoke notice not queued", row.id);
-      }
+      await queueNotice(row, "pair_revoke", "/pair/revoke");
     }
     await record({
       actor: by.actor,
@@ -1318,6 +1387,27 @@ export const createConnectionsService = ({
     }
   };
 
+  /**
+   * AA.5 calls this when the outbox gave up on an activation for good (the
+   * joiner answered 404 or 401). The row ends instead of waiting for ever.
+   */
+  const activationAbandoned = async (
+    principal: Principal,
+    connectionId: string
+  ): Promise<void> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(APPROVE_ACTION);
+    }
+    const [row] = await db
+      .select()
+      .from(a2aConnections)
+      .where(eq(a2aConnections.id, connectionId))
+      .limit(1);
+    if (row?.status === "activating") {
+      await endConnection(row, { actor: SYSTEM_ACTOR, notify: false });
+    }
+  };
+
   /** A person turns down a connection that waits for them. Nothing the peer holds works afterwards. */
   const decline = async (
     principal: Principal,
@@ -1792,56 +1882,85 @@ export const createConnectionsService = ({
         : requireSession(principal, REFRESH_ACTION);
     const found = await refreshable(actor, connectionId);
     const card = await fetchPeerCard(found.peerCardUrl);
-    const peerInterface = chooseInterface(card);
-    const earlier = parseStoredCard(found.peerCard);
-    const originMoved = peerInterface?.origin !== found.peerOrigin;
-    const schemeChanged =
-      JSON.stringify(earlier ? chooseOutboundScheme(earlier) : null) !==
-      JSON.stringify(chooseOutboundScheme(card));
-    // Neither update may touch a connection that ended while the card was fetched.
-    await db
-      .update(a2aConnections)
-      .set({ peerCard: JSON.stringify(card), peerCardFetchedAt: nowIso() })
-      .where(
-        and(
-          eq(a2aConnections.id, found.id),
-          notInArray(a2aConnections.status, [...ENDED])
-        )
-      );
-    if (originMoved || schemeChanged) {
-      const [flipped] = await db
+    const { movedAgain, needsPerson, origin } = compareCard(found, card);
+    const flips = found.status === "active" && needsPerson;
+    // One write, so a stored card never gets ahead of the flip that goes with
+    // it. Neither statement may touch a connection that ended while the card
+    // was fetched.
+    await atomic([
+      db
         .update(a2aConnections)
-        .set({ status: "needs_approval" })
+        .set({ peerCard: JSON.stringify(card), peerCardFetchedAt: nowIso() })
         .where(
           and(
             eq(a2aConnections.id, found.id),
-            eq(a2aConnections.status, "active")
+            notInArray(a2aConnections.status, [...ENDED])
           )
-        )
-        .returning({ id: a2aConnections.id });
-      if (flipped) {
-        await record({
-          actor: actorOf(actor),
-          agentId: found.localAgentId,
-          payload: {
-            connectionId: found.id,
-            from: found.peerOrigin,
-            reason: originMoved ? "origin" : "scheme",
-            to: peerInterface ? peerInterface.origin : null,
-          },
-          type: "a2a.connection_reapproval_needed",
-          workspaceId: found.workspaceId,
-        });
-      }
+        ),
+      db
+        .update(a2aConnections)
+        .set({ status: flips ? "needs_approval" : found.status })
+        .where(
+          and(
+            eq(a2aConnections.id, found.id),
+            eq(a2aConnections.status, found.status)
+          )
+        ),
+    ]);
+    const after = await requireRow(found.id, found.workspaceId);
+    const flipped = flips && after.status === "needs_approval";
+    const moved =
+      after.status === "needs_approval" &&
+      (flipped || (found.status === "needs_approval" && movedAgain));
+    if (moved) {
+      await record({
+        actor: actorOf(actor),
+        agentId: found.localAgentId,
+        payload: {
+          connectionId: found.id,
+          from: found.peerOrigin,
+          reason: origin === found.peerOrigin ? "scheme" : "origin",
+          to: origin,
+        },
+        type: "a2a.connection_reapproval_needed",
+        workspaceId: found.workspaceId,
+      });
     }
     return await requireSummary(found.id, found.workspaceId);
   };
 
-  const parseStoredCard = (stored: string | null) => {
-    const parsed = stored
-      ? agentCardSchema.safeParse(JSON.parse(stored))
+  /**
+   * The sealed OAuth credential with the card's current token URL and scopes.
+   * The person approved this card, so the client secret may go to its token
+   * URL, once that URL passes the guard.
+   */
+  const resealOauth = async (
+    row: ConnectionRow,
+    scheme: Extract<OutboundScheme, { kind: "oauth2_client_credentials" }>
+  ): Promise<string> => {
+    vetUrl(scheme.tokenUrl);
+    const stored = row.outboundCredential
+      ? storedOauthSchema.safeParse(
+          JSON.parse(
+            await unseal(credentialBinding(row), row.outboundCredential)
+          )
+        )
       : null;
-    return parsed?.success ? parsed.data : null;
+    if (!stored?.success) {
+      throw new ServiceError(
+        "conflict",
+        "The stored credential cannot be read. Remove the agent and add it again."
+      );
+    }
+    return await seal(
+      credentialBinding(row),
+      JSON.stringify({
+        clientId: stored.data.clientId,
+        clientSecret: stored.data.clientSecret,
+        scopes: scheme.scopes,
+        tokenUrl: scheme.tokenUrl,
+      })
+    );
   };
 
   /** A person approves the origin a refreshed card now names. */
@@ -1866,11 +1985,16 @@ export const createConnectionsService = ({
         "The agent now wants a different kind of credential. Remove it and add it again."
       );
     }
+    const outboundCredential =
+      scheme.scheme.kind === "oauth2_client_credentials"
+        ? await resealOauth(row, scheme.scheme)
+        : row.outboundCredential;
     const approved = await db
       .update(a2aConnections)
       .set({
         approvedAt: nowIso(),
         approvedBy: user.userId,
+        outboundCredential,
         peerOrigin: peerInterface.origin,
         status: "active",
       })
@@ -2073,7 +2197,7 @@ export const createConnectionsService = ({
       kind: CONNECTION_KIND,
       workspaceId: reader.workspaceId,
     });
-    return await db
+    const rows = await db
       .select(summaryColumns)
       .from(a2aConnections)
       .innerJoin(agents, eq(agents.id, a2aConnections.localAgentId))
@@ -2086,6 +2210,7 @@ export const createConnectionsService = ({
         )
       )
       .orderBy(desc(a2aConnections.createdAt), asc(a2aConnections.id));
+    return rows.map(toSummary);
   };
 
   const get = async (
@@ -2125,6 +2250,7 @@ export const createConnectionsService = ({
 
   return {
     activate,
+    activationAbandoned,
     activationDelivered,
     addOutbound,
     approve,
