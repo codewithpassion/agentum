@@ -1621,23 +1621,31 @@ export const createConnectionsService = ({
   /** The row an incoming bearer token names as our inbound token, in one of `statuses`. */
   const rowByInboundToken = async (
     token: string,
-    statuses: readonly A2aConnectionStatus[]
+    statuses: readonly A2aConnectionStatus[],
+    publicId?: string
   ): Promise<ConnectionRow> => {
-    const [row] = await db
-      .select()
+    const [found] = await db
+      .select({ row: a2aConnections })
       .from(a2aConnections)
+      .innerJoin(
+        a2aAgentCards,
+        eq(a2aAgentCards.agentId, a2aConnections.localAgentId)
+      )
       .where(
         and(
           eq(a2aConnections.inboundTokenHash, await hashToken(token)),
           eq(a2aConnections.peerKind, "harbourmaster"),
-          inArray(a2aConnections.status, [...statuses])
+          inArray(a2aConnections.status, [...statuses]),
+          publicId === undefined
+            ? undefined
+            : eq(a2aAgentCards.publicId, publicId)
         )
       )
       .limit(1);
-    if (!row) {
+    if (!found) {
       throw new ServiceError("not_found", "Connection not found");
     }
-    return row;
+    return found.row;
   };
 
   /**
@@ -1647,9 +1655,14 @@ export const createConnectionsService = ({
    */
   const activate = async (
     bearer: string,
-    input: PairActivateBody
+    input: PairActivateBody,
+    publicId?: string
   ): Promise<void> => {
-    const row = await rowByInboundToken(bearer, ["awaiting_peer", "active"]);
+    const row = await rowByInboundToken(
+      bearer,
+      ["awaiting_peer", "active"],
+      publicId
+    );
     const body = pairActivateBodySchema.parse(input);
     if (row.status === "active") {
       // A retry after a lost answer brings the same token and changes nothing.
@@ -1700,8 +1713,8 @@ export const createConnectionsService = ({
   };
 
   /** The inviter turned the connection down. Our token for it stops working. */
-  const declined = async (bearer: string): Promise<void> => {
-    const row = await rowByInboundToken(bearer, ["awaiting_peer"]);
+  const declined = async (bearer: string, publicId?: string): Promise<void> => {
+    const row = await rowByInboundToken(bearer, ["awaiting_peer"], publicId);
     const done = await db
       .update(a2aConnections)
       .set({ inboundTokenHash: null, status: "declined" })
@@ -2245,13 +2258,15 @@ export const createConnectionsService = ({
    * bearer. The access ended on its side already, so this only records it. We
    * send nothing back.
    */
-  const peerRevoked = async (bearer: string): Promise<void> => {
-    const row = await rowByInboundToken(bearer, [
-      "awaiting_peer",
-      "activating",
-      "active",
-      "revoked",
-    ]);
+  const peerRevoked = async (
+    bearer: string,
+    publicId?: string
+  ): Promise<void> => {
+    const row = await rowByInboundToken(
+      bearer,
+      ["awaiting_peer", "activating", "active", "revoked"],
+      publicId
+    );
     await endConnection(row, { actor: peerActor(row), notify: false });
   };
 
@@ -2262,10 +2277,15 @@ export const createConnectionsService = ({
    * The `peer` principal for an `hm_a2a_` token, or null. It re-reads the
    * connection on every call and caches nothing, so a revoke takes effect on the
    * next request. The connection must be `active`, and its agent published and
-   * active. This is not part of `createPrincipalResolver`, so the token works
+   * active. When `publicId` is given, it must be the public id of the agent
+   * the connection belongs to, so a key does not work under another agent's
+   * path. This is not part of `createPrincipalResolver`, so the token works
    * only on the `/a2a` routes.
    */
-  const authenticate = async (token: string): Promise<PeerPrincipal | null> => {
+  const authenticate = async (
+    token: string,
+    publicId?: string
+  ): Promise<PeerPrincipal | null> => {
     if (!token.startsWith(ACCESS_TOKEN_PREFIX)) {
       return null;
     }
@@ -2286,7 +2306,10 @@ export const createConnectionsService = ({
           eq(a2aConnections.inboundTokenHash, await hashToken(token)),
           eq(a2aConnections.status, "active"),
           isNull(a2aAgentCards.unpublishedAt),
-          eq(agents.status, "active")
+          eq(agents.status, "active"),
+          publicId === undefined
+            ? undefined
+            : eq(a2aAgentCards.publicId, publicId)
         )
       )
       .limit(1);

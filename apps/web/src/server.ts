@@ -22,6 +22,7 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
+import { mountA2aRoutes } from "./server/routes/a2a.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -111,6 +112,11 @@ app.use("/mcp", composeServices);
 app.use("/files/*", composeServices);
 // `/connect/:id` starts an OAuth connection and reads the services too.
 app.use("/connect/*", composeServices);
+// The A2A server (`/a2a/<publicId>/...`, `/a2a/pair/join`). Callers are other
+// servers with a bearer key and no cookie, so it takes no csrf check, and it is
+// mounted ahead of the page fallback so nothing under it reaches Clerk's page
+// handling.
+mountA2aRoutes(app, composeServices);
 
 app.get("/api/health", (c) => {
   const auth = getAuth(c);

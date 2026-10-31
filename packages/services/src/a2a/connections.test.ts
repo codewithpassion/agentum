@@ -602,6 +602,33 @@ describe("access keys and outside agents", () => {
     expect(await service.authenticate(pending.bobToken)).toBeNull();
   });
 
+  test("authenticate with a public id accepts only that agent's path", async () => {
+    await publishBoth();
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Hermes",
+    });
+    const own = await publishedFor(ownerA, AGENT_X);
+    const other = await publishedFor(ownerB, AGENT_Y);
+    expect(
+      (await service.authenticate(key.token, own.publicId))?.connectionId
+    ).toBe(key.connection.id);
+    expect(await service.authenticate(key.token, other.publicId)).toBeNull();
+    expect(await service.authenticate(key.token, "pub_unknown")).toBeNull();
+  });
+
+  test("the pairing calls with a public id accept only the path of the connection's agent", async () => {
+    const pending = await toNeedsApproval();
+    const bobs = await publishedFor(ownerB, AGENT_Y);
+    const alices = await publishedFor(ownerA, AGENT_X);
+    await expect(
+      service.declined(pending.bobToken, alices.publicId)
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(rowOf(pending.bobId)?.status).toBe("awaiting_peer");
+    await service.declined(pending.bobToken, bobs.publicId);
+    expect(rowOf(pending.bobId)?.status).toBe("declined");
+  });
+
   test("a revoked token fails on the next authenticate with no other step", async () => {
     await publishBoth();
     const key = await service.createAccessKey(ownerA, {
