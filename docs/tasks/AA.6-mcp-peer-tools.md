@@ -3,9 +3,9 @@ id: AA.6
 title: "Agents reach peers through list_agents, send_message and get_run"
 milestone: AA
 size: S
-status: todo
+status: in_progress
 depends_on: [AA.5]
-branch: null
+branch: task/AA.6-mcp-peer-tools
 lane: mcp
 executor: claude
 ---
@@ -30,3 +30,4 @@ Spec: `docs/v3/agent-connections.md`, the section "Our agent calling a peer". It
 
 ## Log
 - 2026-10-31: created.
+- 2026-11-01: dispatched.

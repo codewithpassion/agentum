@@ -3,7 +3,7 @@ id: AA.5
 title: "A2A client, outbound tasks, webhooks, outbox delivery and wakes"
 milestone: AA
 size: L
-status: in_progress
+status: done
 depends_on: [AA.3]
 branch: task/AA.5-a2a-client-delivery
 lane: mcp
@@ -42,3 +42,4 @@ Lane is `mcp` so this can run beside AA.4. Put routes for this task in their own
 - 2026-11-01: from AA.1 review: check the shape Hermes expects for push configs first (`docs/reviews/tasks/AA.1.md`).
 - 2026-11-01: dispatched.
 - 2026-11-01: blocked after 5 rounds on a last small change that removed a weaker desk fallback. Controller accepted it without another round; the milestone gate covers it.
+- 2026-11-01: merged. The webhook route had to mount ahead of the AA.4 catch-all; a test on the real mount order covers it.
