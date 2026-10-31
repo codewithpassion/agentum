@@ -451,7 +451,6 @@ export const createPairing = ({
         createdBy: user.userId,
         id,
         inboundTokenHash: request.tokenHash,
-        inboundTokenPrefix: request.tokenPrefix,
         localAgentId: agentId,
         peerKind: "a2a_inbound",
         peerLabel: label,
@@ -477,11 +476,7 @@ export const createPairing = ({
     await record({
       actor: actorOf(user),
       agentId,
-      payload: {
-        connectionId: id,
-        peerKind: "a2a_inbound",
-        tokenPrefix: request.tokenPrefix,
-      },
+      payload: { connectionId: id, peerKind: "a2a_inbound" },
       type: "a2a.connection_created",
       workspaceId: user.workspaceId,
     });

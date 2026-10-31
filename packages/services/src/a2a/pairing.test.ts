@@ -202,6 +202,7 @@ describe("a request", () => {
     const [row] = requests();
     expect(row?.codeHash).toBe(await hashToken(code));
     expect(row?.tokenHash).toBe(await hashToken(tokenOf(1)));
+    expect(row?.tokenPrefix).toBe(row?.tokenHash.slice(0, 4));
     expect(JSON.stringify(row)).not.toContain(code);
     expect(JSON.stringify(row)).not.toContain(tokenOf(1));
   });
@@ -251,7 +252,7 @@ describe("a request", () => {
 });
 
 describe("a token that was paired elsewhere", () => {
-  test("is refused at approval with a plain message and the request goes", async () => {
+  test("is refused at approval, and the request goes", async () => {
     await open();
     const code = await request(tokenOf(1));
     // The same token gets a connection some other way between request and approval.
@@ -269,7 +270,9 @@ describe("a token that was paired elsewhere", () => {
         workspaceId: W,
       })
       .run();
-    await expect(approve(code)).rejects.toThrow(ServiceError);
+    await expect(approve(code)).rejects.toThrow(
+      "That token already belongs to another connection."
+    );
     expect(requests()).toHaveLength(0);
   });
 });
@@ -513,6 +516,7 @@ describe("the log", () => {
       "a2a.pairing_code_wrong",
       "a2a.pairing_locked",
       "a2a.pairing_approved",
+      "a2a.connection_created",
     ]) {
       expect(typeCount(type)).toBeGreaterThan(0);
     }

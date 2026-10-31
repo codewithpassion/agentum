@@ -81,7 +81,7 @@ export const a2aPairingRequests = sqliteTable(
     expiresAt: text("expires_at").notNull(),
     id: id(),
     tokenHash: text("token_hash").notNull(),
-    // The start of the token, so requests can be told apart in a list.
+    // The start of the token's hash, so requests can be told apart in a list. Never the token.
     tokenPrefix: text("token_prefix").notNull(),
     workspaceId: workspaceId().references(() => workspaces.id, {
       onDelete: "cascade",
