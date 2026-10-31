@@ -3,9 +3,9 @@ id: AA.7
 title: "Agent connections pages, join page, agent profile section, Needs you items"
 milestone: AA
 size: L
-status: todo
+status: in_progress
 depends_on: [AA.3]
-branch: null
+branch: task/AA.7-connections-ui
 lane: web
 executor: claude
 ---
@@ -37,3 +37,4 @@ Spec: `docs/v3/agent-connections.md`, the sections "What the page shows", "Trust
 
 ## Log
 - 2026-10-31: created.
+- 2026-11-01: dispatched.

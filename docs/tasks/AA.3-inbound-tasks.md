@@ -3,7 +3,7 @@ id: AA.3
 title: "Inbound tasks: policy gate, runs, state sync, tool gate, loop guard"
 milestone: AA
 size: L
-status: in_progress
+status: done
 depends_on: [AA.2]
 branch: task/AA.3-inbound-tasks
 lane: services
@@ -48,3 +48,4 @@ Spec: `docs/v3/agent-connections.md`, the sections "A2A mapping", "What the agen
 - 2026-10-31: created.
 - 2026-11-01: dispatched.
 - 2026-11-01: blocked after 3 rounds on 4 must-fixes. Controller decided: fix all, with a small schema change allowed here (`swept_at`, an answer marker table), and up to 2 more rounds.
+- 2026-11-01: merged, review clean on round 5. Migration 0037 adds `swept_at`, `move_token` and the answer marker table.

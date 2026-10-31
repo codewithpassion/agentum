@@ -3,9 +3,9 @@ id: AA.5
 title: "A2A client, outbound tasks, webhooks, outbox delivery and wakes"
 milestone: AA
 size: L
-status: todo
+status: in_progress
 depends_on: [AA.3]
-branch: null
+branch: task/AA.5-a2a-client-delivery
 lane: mcp
 executor: claude
 ---
@@ -40,3 +40,4 @@ Lane is `mcp` so this can run beside AA.4. Put routes for this task in their own
 ## Log
 - 2026-10-31: created.
 - 2026-11-01: from AA.1 review: check the shape Hermes expects for push configs first (`docs/reviews/tasks/AA.1.md`).
+- 2026-11-01: dispatched.

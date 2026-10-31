@@ -3,9 +3,9 @@ id: AA.4
 title: "A2A server routes: cards, JSON-RPC, HTTP+JSON, streaming, pairing endpoints"
 milestone: AA
 size: L
-status: todo
+status: in_progress
 depends_on: [AA.3]
-branch: null
+branch: task/AA.4-a2a-server-routes
 lane: worker
 executor: claude
 ---
@@ -39,3 +39,4 @@ Spec: `docs/v3/agent-connections.md`, the sections "A2A mapping" and "Trust flow
 
 ## Log
 - 2026-10-31: created.
+- 2026-11-01: dispatched.
