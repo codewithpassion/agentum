@@ -46,6 +46,7 @@ export function ConnectionsCard({
         <div className="border-border border-t px-4 py-2">
           <PairingSection
             agentId={agentId}
+            key={agentId}
             pairingOpen={published.pairingOpen}
           />
         </div>

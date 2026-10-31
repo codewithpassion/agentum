@@ -54,7 +54,7 @@ export const PAIRING_MAX_FAILURES = 5;
 export const PAIRING_LOCKOUT_MS = HOUR_MS;
 /** A token shorter than this is not a pairing request, whatever it says. */
 export const PAIRING_TOKEN_MIN = 32;
-/** Characters of the client's token kept to tell connections apart in a list. */
+/** Characters of the token's hash kept to tell connections apart in a list. Never the token itself. */
 const TOKEN_HINT_LENGTH = 4;
 
 export const PAIRING_SWITCH_ACTION = "a2a.pairing_switch";
@@ -163,6 +163,9 @@ export const createPairing = ({
    * other case, and the route answers its normal 401. For the route: no principal.
    */
   const pairableAgent = async (publicId: string): Promise<string | null> => {
+    if (!secretsKey) {
+      return null;
+    }
     const now = nowIso();
     const [row] = await db
       .select({ agentId: a2aAgentCards.agentId })
@@ -248,24 +251,30 @@ export const createPairing = ({
     }
     const id = `prq_${ulid(clock.now().getTime())}`;
     const code = await codeOf(id, token);
-    const inserted = await db
-      .insert(a2aPairingRequests)
-      .values({
-        agentId,
-        codeHash: await hashToken(code),
-        createdAt: now,
-        expiresAt: new Date(
-          clock.now().getTime() + PAIRING_REQUEST_TTL_MS
-        ).toISOString(),
-        id,
-        tokenHash,
-        tokenPrefix: token.slice(0, TOKEN_HINT_LENGTH),
-        workspaceId: card.workspaceId,
-      })
-      .onConflictDoNothing()
-      .returning({ id: a2aPairingRequests.id });
-    if (inserted.length === 0) {
-      // The same token asked at the same moment. Its row has the code.
+    const codeHash = await hashToken(code);
+    const expiresAt = new Date(
+      clock.now().getTime() + PAIRING_REQUEST_TTL_MS
+    ).toISOString();
+    // One statement counts the pending requests and inserts, so requests that
+    // arrive together can't pass the limit. A repeat of a token already waiting
+    // is dropped by the unique index.
+    await db.run(sql`
+      insert into a2a_pairing_requests
+        (id, workspace_id, agent_id, code_hash, token_hash, token_prefix, expires_at, created_at)
+      select ${id}, ${card.workspaceId}, ${agentId}, ${codeHash}, ${tokenHash}, ${tokenHash.slice(0, TOKEN_HINT_LENGTH)}, ${expiresAt}, ${now}
+      where (
+        select count(*) from a2a_pairing_requests
+        where agent_id = ${agentId} and expires_at > ${now}
+      ) < ${PAIRING_MAX_PENDING}
+      on conflict do nothing`);
+    const [stored] = await db
+      .select({ id: a2aPairingRequests.id })
+      .from(a2aPairingRequests)
+      .where(eq(a2aPairingRequests.id, id))
+      .limit(1);
+    if (!stored) {
+      // Over the limit, or the same token asked at the same moment. In the
+      // second case its row has the code.
       const [raced] = await db
         .select({ id: a2aPairingRequests.id })
         .from(a2aPairingRequests)
@@ -359,12 +368,21 @@ export const createPairing = ({
     await record({
       actor: actorOf(user),
       agentId,
-      payload: locked
-        ? { until }
-        : { failures: row?.failures ?? PAIRING_MAX_FAILURES },
-      type: locked ? "a2a.pairing_locked" : "a2a.pairing_code_wrong",
+      payload: {
+        failures: locked ? PAIRING_MAX_FAILURES : (row?.failures ?? 0),
+      },
+      type: "a2a.pairing_code_wrong",
       workspaceId: user.workspaceId,
     });
+    if (locked) {
+      await record({
+        actor: actorOf(user),
+        agentId,
+        payload: { until },
+        type: "a2a.pairing_locked",
+        workspaceId: user.workspaceId,
+      });
+    }
     return { failures: row?.failures ?? 0, locked };
   };
 
@@ -408,6 +426,20 @@ export const createPairing = ({
       const { locked } = await failCode(agentId, user);
       throw new ServiceError("invalid", locked ? LOCKED : WRONG_CODE);
     }
+    const [taken] = await db
+      .select({ id: a2aConnections.id })
+      .from(a2aConnections)
+      .where(eq(a2aConnections.inboundTokenHash, request.tokenHash))
+      .limit(1);
+    if (taken) {
+      await db
+        .delete(a2aPairingRequests)
+        .where(eq(a2aPairingRequests.id, request.id));
+      throw new ServiceError(
+        "conflict",
+        "That token already belongs to another connection."
+      );
+    }
     const id = `con_${ulid(clock.now().getTime())}`;
     // One write. A second approval of the same code finds the request gone,
     // and one that raced past that fails on the unique token hash and undoes both.
@@ -440,6 +472,17 @@ export const createPairing = ({
       agentId,
       payload: { connectionId: id, requestId: request.id },
       type: "a2a.pairing_approved",
+      workspaceId: user.workspaceId,
+    });
+    await record({
+      actor: actorOf(user),
+      agentId,
+      payload: {
+        connectionId: id,
+        peerKind: "a2a_inbound",
+        tokenPrefix: request.tokenPrefix,
+      },
+      type: "a2a.connection_created",
       workspaceId: user.workspaceId,
     });
     return await requireSummary(id, user.workspaceId);

@@ -173,6 +173,20 @@ describe("a request", () => {
     expect(typeCount("a2a.pairing_requested")).toBe(0);
   });
 
+  test("requests that arrive together can't pass the limit", async () => {
+    await open();
+    const codes = await Promise.all(
+      Array.from({ length: 10 }, (_, n) =>
+        service.requestPairing(AGENT, tokenOf(n + 1))
+      )
+    );
+    expect(codes.filter((code) => code !== null)).toHaveLength(
+      PAIRING_MAX_PENDING
+    );
+    expect(requests()).toHaveLength(PAIRING_MAX_PENDING);
+    expect(typeCount("a2a.pairing_requested")).toBe(PAIRING_MAX_PENDING);
+  });
+
   test("is refused for a token under 32 characters, and writes nothing", async () => {
     await open();
     expect(await service.requestPairing(AGENT, "x".repeat(31))).toBeNull();
@@ -236,6 +250,30 @@ describe("a request", () => {
   });
 });
 
+describe("a token that was paired elsewhere", () => {
+  test("is refused at approval with a plain message and the request goes", async () => {
+    await open();
+    const code = await request(tokenOf(1));
+    // The same token gets a connection some other way between request and approval.
+    const [row] = requests();
+    db.insert(a2aConnections)
+      .values({
+        createdAt: START,
+        createdBy: "u-owner",
+        id: "con_other",
+        inboundTokenHash: row?.tokenHash ?? "",
+        localAgentId: AGENT_TWO,
+        peerKind: "a2a_inbound",
+        slug: "other",
+        status: "active",
+        workspaceId: W,
+      })
+      .run();
+    await expect(approve(code)).rejects.toThrow(ServiceError);
+    expect(requests()).toHaveLength(0);
+  });
+});
+
 describe("expiry", () => {
   test("a code expires after 1 hour", async () => {
     await open();
@@ -267,7 +305,7 @@ describe("lockout", () => {
     await open();
     const code = await request(tokenOf(1));
     await wrongCodes(PAIRING_MAX_FAILURES);
-    expect(typeCount("a2a.pairing_code_wrong")).toBe(PAIRING_MAX_FAILURES - 1);
+    expect(typeCount("a2a.pairing_code_wrong")).toBe(PAIRING_MAX_FAILURES);
     expect(typeCount("a2a.pairing_locked")).toBe(1);
     await expect(approve(code)).rejects.toThrow(LOCKED);
     expect(a2aConnectionRows()).toHaveLength(0);

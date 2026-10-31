@@ -49,8 +49,9 @@ const PAIRING_CONTEXT = "harbourmaster a2a pairing code";
  * The code a pairing request shows its peer: an HMAC of the request id and the
  * peer's token under the secrets key (standard base64 of 32 bytes). The same
  * token on the same request always gets the same code, so the code never has
- * to be stored, and nobody without the secrets key can work it out from the
- * stored hashes.
+ * to be stored. Only its hash is kept, and the code is 40 bits, so a hash read
+ * from the database can still be enumerated: the hash protects against a log
+ * or a backup, not against a person who can read the table.
  */
 export const pairingRequestCode = async (
   secretsKey: string,

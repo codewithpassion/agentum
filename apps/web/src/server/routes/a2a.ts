@@ -254,7 +254,7 @@ const pairingTask = (code: string) => {
         messageId: `${id}:rejected`,
         parts: [
           {
-            text: `Nothing was delivered. This agent does not know you yet. Pairing code: ${code}. Give the code to the agent's owner. It works for 1 hour. Once they have entered it, send your message again.`,
+            text: `Nothing was delivered. This agent does not know you yet. Pairing code: ${code}. Give the code to the agent's owner. It works for up to 1 hour. Once they have entered it, send your message again.`,
           },
         ],
         role: "ROLE_AGENT",
