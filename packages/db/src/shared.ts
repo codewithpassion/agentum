@@ -167,6 +167,12 @@ export const A2A_TASK_STATES = [
 export type A2aTaskState = (typeof A2A_TASK_STATES)[number];
 export const A2A_DEFAULT_TASK_STATE: A2aTaskState = "TASK_STATE_SUBMITTED";
 
+/**
+ * The tool name of the approval card an outbound A2A message waits behind
+ * (`outbound_policy = approve`). Its tool use id is `a2a:<outboundTaskId>`.
+ */
+export const A2A_SEND_TOOL = "a2a_send";
+
 /** What the `a2a_outbox` row delivers. */
 export const A2A_OUTBOX_KINDS = [
   "push",

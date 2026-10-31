@@ -27,7 +27,6 @@ import {
   a2aAgentCards,
   a2aAnswerMarkers,
   a2aConnections,
-  a2aOutboundTasks,
   a2aOutbox,
   a2aTasks,
 } from "@repo/db/schema/a2a";
@@ -74,6 +73,7 @@ import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { requireReader, requireSession } from "./access.ts";
 import type { PeerPrincipal } from "./connections.ts";
 import { A2aRateLimitError, A2aTaskError } from "./errors.ts";
+import { HOUR_MS, hourlyCountSql, hourlyUse } from "./hourly.ts";
 import type { WaitingMessage } from "./needs-you.ts";
 import {
   createPushConfigs,
@@ -101,7 +101,6 @@ export const APPROVE_ACTION = "a2a.message.approve";
 export const DECLINE_ACTION = "a2a.message.decline";
 export const PUSH_ACTION = "a2a.push";
 
-const HOUR_MS = 60 * 60_000;
 const MINUTE_MS = 60_000;
 const MS_PER_SECOND = 1000;
 /** A task that stayed `SUBMITTED` this long with no run never will get one. */
@@ -417,35 +416,6 @@ export const createA2aTasksService = ({
   // ---------------------------------------------------------------------
   // Sending
 
-  /** Tasks in the last hour in both directions, and when the oldest one drops out. */
-  const hourlyUse = async (
-    connection: ConnectionRow
-  ): Promise<{ oldest: string | null; used: number }> => {
-    const since = new Date(clock.now().getTime() - HOUR_MS).toISOString();
-    const [inbound, outbound] = await Promise.all([
-      db
-        .select({ at: a2aTasks.createdAt })
-        .from(a2aTasks)
-        .where(
-          and(
-            eq(a2aTasks.connectionId, connection.id),
-            gt(a2aTasks.createdAt, since)
-          )
-        ),
-      db
-        .select({ at: a2aOutboundTasks.createdAt })
-        .from(a2aOutboundTasks)
-        .where(
-          and(
-            eq(a2aOutboundTasks.connectionId, connection.id),
-            gt(a2aOutboundTasks.createdAt, since)
-          )
-        ),
-    ]);
-    const times = [...inbound, ...outbound].map(({ at }) => at).sort();
-    return { oldest: times[0] ?? null, used: times.length };
-  };
-
   const refuse = async (
     connection: ConnectionRow,
     reason: string,
@@ -461,7 +431,7 @@ export const createA2aTasksService = ({
   };
 
   const enforceHourlyLimit = async (connection: ConnectionRow) => {
-    const { oldest, used } = await hourlyUse(connection);
+    const { oldest, used } = await hourlyUse(db, clock, connection.id);
     if (used < connection.hourlyLimit) {
       return;
     }
@@ -819,7 +789,7 @@ export const createA2aTasksService = ({
           })
           .from(sql`(select 1)`)
           .where(
-            sql`exists (select 1 from ${a2aConnections} where ${a2aConnections.id} = ${connection.id} and ${a2aConnections.status} = 'active') and ((select count(*) from ${a2aTasks} where ${a2aTasks.connectionId} = ${connection.id} and ${a2aTasks.createdAt} > ${since}) + (select count(*) from ${a2aOutboundTasks} where ${a2aOutboundTasks.connectionId} = ${connection.id} and ${a2aOutboundTasks.createdAt} > ${since})) < ${connection.hourlyLimit}`
+            sql`exists (select 1 from ${a2aConnections} where ${a2aConnections.id} = ${connection.id} and ${a2aConnections.status} = 'active') and ${hourlyCountSql(connection.id, since)} < ${connection.hourlyLimit}`
           )
       )
       .returning({ id: a2aTasks.id });

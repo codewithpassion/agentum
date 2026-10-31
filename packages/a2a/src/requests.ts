@@ -50,3 +50,10 @@ export const sendMessageResponseSchema = z
     message: "A send message response holds exactly one of task and message",
   });
 export type SendMessageResponse = z.infer<typeof sendMessageResponseSchema>;
+
+/** The answer to `ListTasks`. Other fields a peer adds are ignored. */
+export const listTasksResponseSchema = z.object({
+  nextPageToken: z.string().optional(),
+  tasks: z.array(taskSchema).default([]),
+});
+export type ListTasksResponse = z.infer<typeof listTasksResponseSchema>;
