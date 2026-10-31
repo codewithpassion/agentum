@@ -3,9 +3,9 @@ id: AA.8
 title: "Interop with the official A2A SDK and TCK, two-deployment end to end, docs"
 milestone: AA
 size: M
-status: todo
+status: in_progress
 depends_on: [AA.4, AA.5, AA.6, AA.7, AA.9]
-branch: null
+branch: task/AA.8-interop-and-e2e
 lane: ops
 executor: claude
 ---
@@ -32,3 +32,4 @@ Spec: `docs/v3/agent-connections.md`. This task proves the claim that we speak A
 ## Log
 - 2026-10-31: created.
 - 2026-11-01: from AA.7: redo invite, join, approve, the `/a2a` send and "Call it" over real HTTP here. Delete the scratch Clerk user `aa7-second-workspace@example.com` and org "AA7 Second Workspace" from the dev instance if you can, otherwise list them for Dom.
+- 2026-11-01: dispatched.
