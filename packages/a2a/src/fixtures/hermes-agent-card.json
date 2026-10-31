@@ -15,8 +15,8 @@
     }
   ],
   "capabilities": {
-    "streaming": false,
-    "pushNotifications": false,
+    "streaming": true,
+    "pushNotifications": true,
     "stateTransitionHistory": false,
     "extendedAgentCard": false
   },

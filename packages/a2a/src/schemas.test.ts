@@ -67,6 +67,7 @@ describe("the spec's sample Agent Card", () => {
       "supportedInterfaces",
       "defaultInputModes",
       "defaultOutputModes",
+      "skills",
     ]) {
       expect(
         agentCardSchema.safeParse({ ...sampleCard, [key]: [] }).success
@@ -415,12 +416,6 @@ describe("what Hermes sends", () => {
     expect(card.skills).toHaveLength(2);
   });
 
-  test("a card with no skills parses", () => {
-    expect(
-      agentCardSchema.safeParse({ ...hermesCard, skills: [] }).success
-    ).toBe(true);
-  });
-
   test("unknown fields are ignored and dropped", () => {
     const card = agentCardSchema.parse(hermesCard) as Record<string, unknown>;
     expect(card.url).toBeUndefined();
@@ -436,7 +431,18 @@ describe("what Hermes sends", () => {
     ).toBe(true);
   });
 
-  test("the legacy http scheme is read as bearer, anything else legacy is refused", () => {
+  test("a proto member next to the legacy fields is not overridden", () => {
+    const parsed = securitySchemeSchema.safeParse({
+      apiKeySecurityScheme: { location: "header", name: "k" },
+      scheme: "bearer",
+      type: "http",
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toHaveProperty("apiKeySecurityScheme");
+    expect(parsed.data).not.toHaveProperty("httpAuthSecurityScheme");
+  });
+
+  test("the legacy http scheme is read as bearer, a legacy scheme without one is refused", () => {
     expect(
       securitySchemeSchema.parse({ scheme: "bearer", type: "http" })
     ).toMatchObject({ httpAuthSecurityScheme: { scheme: "bearer" } });

@@ -86,6 +86,14 @@ export const mutualTlsSecuritySchemeSchema = z.object({
   description: z.string().optional(),
 });
 
+const SECURITY_SCHEME_KEYS = [
+  "apiKeySecurityScheme",
+  "httpAuthSecurityScheme",
+  "oauth2SecurityScheme",
+  "openIdConnectSecurityScheme",
+  "mtlsSecurityScheme",
+] as const;
+
 /**
  * Hermes declares `{"type": "http", "scheme": "bearer"}`, the 0.3 shape, where
  * the proto has `{"httpAuthSecurityScheme": {"scheme": "bearer"}}`. Read the
@@ -97,7 +105,10 @@ const readLegacyHttpScheme = (value: unknown): unknown => {
     typeof value === "object" &&
     value !== null &&
     (value as { type?: unknown }).type === "http" &&
-    typeof (value as { scheme?: unknown }).scheme === "string"
+    typeof (value as { scheme?: unknown }).scheme === "string" &&
+    SECURITY_SCHEME_KEYS.every(
+      (key) => (value as Record<string, unknown>)[key] === undefined
+    )
   ) {
     const { bearerFormat, description, scheme } = value as {
       bearerFormat?: string;
@@ -108,14 +119,6 @@ const readLegacyHttpScheme = (value: unknown): unknown => {
   }
   return value;
 };
-
-const SECURITY_SCHEME_KEYS = [
-  "apiKeySecurityScheme",
-  "httpAuthSecurityScheme",
-  "oauth2SecurityScheme",
-  "openIdConnectSecurityScheme",
-  "mtlsSecurityScheme",
-] as const;
 
 /**
  * Named by its member, as the proto's `oneof scheme`. Holds exactly one. The
