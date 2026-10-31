@@ -22,6 +22,7 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
+import { mountA2aRoutes } from "./server/routes/a2a.ts";
 import { accessRoutes } from "./server/routes/access.ts";
 import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
@@ -93,7 +94,6 @@ app.route(
   })
 );
 app.route("/", liveRoomRoutes());
-app.use("*", clerkMiddleware());
 
 // Every service, built once for the request from the bindings and secrets.
 const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -105,6 +105,15 @@ const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
   );
   await next();
 };
+
+// The A2A server (`/a2a/<publicId>/...`, `/a2a/pair/join`). Callers are other
+// servers with a bearer key and no cookie, so it takes no csrf check and must
+// never meet Clerk: on a dev instance clerkMiddleware answers a browser-style
+// request with a handshake redirect. It is mounted ahead of `clerkMiddleware`
+// and ends every path under `/a2a` itself, so nothing falls through to the pages.
+mountA2aRoutes(app, composeServices);
+
+app.use("*", clerkMiddleware());
 app.use("/api/*", composeServices);
 app.use("/mcp", composeServices);
 // `/files/:id` is outside `/api` but reads files too.

@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { HOPS_EXTENSION_URI, PAIRING_EXTENSION_URI } from "./extensions.ts";
 import { structSchema } from "./messages.ts";
+import { A2A_PROTOCOL_VERSION } from "./protocol.ts";
 import { securityRequirementSchema, securitySchemeSchema } from "./security.ts";
 
 export const agentInterfaceSchema = z.object({
@@ -74,3 +76,73 @@ export const agentCardSchema = z.object({
   version: z.string().min(1),
 });
 export type AgentCard = z.infer<typeof agentCardSchema>;
+
+export interface AgentCardInput {
+  agentName: string;
+  baseUrl: string;
+  description: string;
+  publicId: string;
+  skills: AgentSkill[];
+}
+
+const TRAILING_SLASHES = /\/+$/;
+
+/** Builds the card a published agent serves. Pure: no reads, no clock. */
+export const buildAgentCard = ({
+  agentName,
+  baseUrl,
+  description,
+  publicId,
+  skills,
+}: AgentCardInput): AgentCard => {
+  const origin = baseUrl.replace(TRAILING_SLASHES, "");
+  const base = `${origin}/a2a/${publicId}`;
+  return {
+    capabilities: {
+      extendedAgentCard: false,
+      extensions: [
+        {
+          description: "Invite based pairing of two Harbourmaster deployments.",
+          required: false,
+          uri: PAIRING_EXTENSION_URI,
+        },
+        {
+          description:
+            "A hop count in message metadata, so a chain of agents cannot loop.",
+          required: false,
+          uri: HOPS_EXTENSION_URI,
+        },
+      ],
+      pushNotifications: true,
+      streaming: true,
+    },
+    defaultInputModes: ["text/plain", "application/json"],
+    defaultOutputModes: ["text/plain"],
+    description,
+    name: agentName,
+    securityRequirements: [{ schemes: { bearer: { list: [] } } }],
+    securitySchemes: {
+      bearer: {
+        httpAuthSecurityScheme: {
+          description:
+            "An access key for this agent, sent as Authorization: Bearer <key>.",
+          scheme: "Bearer",
+        },
+      },
+    },
+    skills,
+    supportedInterfaces: [
+      {
+        protocolBinding: "JSONRPC",
+        protocolVersion: A2A_PROTOCOL_VERSION,
+        url: `${base}/rpc`,
+      },
+      {
+        protocolBinding: "HTTP+JSON",
+        protocolVersion: A2A_PROTOCOL_VERSION,
+        url: `${base}/rest`,
+      },
+    ],
+    version: "1.0.0",
+  };
+};
