@@ -50,6 +50,7 @@ import { verifySlackRequest } from "./signature.ts";
 
 const CANT_ANSWER = "You can't answer this one.";
 const TRAILING_SLASHES = /\/+$/;
+const PEER_NAME_MAX = 100;
 
 /** What `run_requests.slack_message` holds: the card, by Slack's `api_app_id`. */
 const slackMessageSchema = z.strictObject({
@@ -309,13 +310,16 @@ export const createSlackRequests = ({
       const shown = (JSON.parse(row.display) as { input?: { peer?: unknown } })
         .input?.peer;
       if (typeof shown === "string") {
-        peer = shown;
+        peer =
+          shown.length > PEER_NAME_MAX
+            ? `${shown.slice(0, PEER_NAME_MAX)}…`
+            : shown;
       }
     } catch {
       // The notice still says a message waits.
     }
     const link = publicBaseUrl
-      ? ` Read it in full and answer at ${publicBaseUrl.replace(TRAILING_SLASHES, "")}/desk`
+      ? ` Read it in full and answer at ${publicBaseUrl.replace(TRAILING_SLASHES, "")}/desk?item=${encodeURIComponent(row.id)}`
       : " Open Harbourmaster to read it in full and answer.";
     const posted = await withRetry(clock, () =>
       destination.client.postMessage({

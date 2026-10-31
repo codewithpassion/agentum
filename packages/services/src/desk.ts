@@ -39,6 +39,7 @@ import {
 import { z } from "zod";
 import type { A2aNeedsYouSource } from "./a2a/needs-you.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import { redactText } from "./events/scrub.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
@@ -418,9 +419,9 @@ export const createDeskService = ({
     }
     const { input } = record.display;
     if (typeof input === "object" && input !== null && !Array.isArray(input)) {
-      const shown = input as Record<string, unknown>;
-      if (typeof shown.text === "string") {
-        return `To ${String(shown.peer)} at ${String(shown.host)}, an agent outside this workspace:\n\n${shown.text}`;
+      const { peer, host, text: shownText } = input as Record<string, unknown>;
+      if (typeof shownText === "string") {
+        return `To ${String(peer)} at ${String(host)}, an agent outside this workspace:\n\n${shownText}`;
       }
     }
     const [task] = await db
@@ -429,11 +430,15 @@ export const createDeskService = ({
       .where(
         and(
           eq(a2aOutboundTasks.id, record.toolUseId.slice("a2a:".length)),
+          eq(a2aOutboundTasks.callingRunId, record.runId),
           eq(a2aOutboundTasks.workspaceId, record.workspaceId)
         )
       )
       .limit(1);
-    return task ? `To an agent outside this workspace:\n\n${task.text}` : null;
+    // Scrubbed as the card is, because this copy never went through the card.
+    return task
+      ? `To an agent outside this workspace:\n\n${redactText(task.text)}`
+      : null;
   };
 
   /** The A2A messages and connections that wait on a person, before the draft filter. */

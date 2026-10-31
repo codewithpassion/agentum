@@ -1168,8 +1168,9 @@ export const createOutboundService = ({
       }
       return await view(sent);
     }
+    let opened: Awaited<ReturnType<typeof requests.open>>;
     try {
-      await requests.open(SYSTEM_PRINCIPAL, {
+      opened = await requests.open(SYSTEM_PRINCIPAL, {
         input: card,
         kind: "approval",
         runId: callingRun.id,
@@ -1181,7 +1182,56 @@ export const createOutboundService = ({
       await failLocal(row, "No approval could be asked for this message.");
       throw error;
     }
+    // Hiding secrets can make the card longer than the size we checked, and
+    // then it stores a cut copy. A person must see all of what they approve, so
+    // the card is closed and the agent is told to shorten the message.
+    if (!cardCarriesText(opened.display)) {
+      await closeCard(opened);
+      await failLocal(
+        row,
+        "This message was too long to show a person in full once secrets were hidden."
+      );
+      throw new ServiceError(
+        "invalid",
+        "This message is too long to show a person for approval once secrets are hidden. Shorten it."
+      );
+    }
     return await view(row);
+  };
+
+  /** Whether an opened card holds the message as text, which means it was not cut. */
+  const cardCarriesText = (display: unknown): boolean => {
+    const { input } = display as { input?: unknown };
+    return (
+      typeof input === "object" &&
+      input !== null &&
+      typeof (input as { text?: unknown }).text === "string"
+    );
+  };
+
+  /** Closes a card that was opened and must not be answered, and says so on the stream. */
+  const closeCard = async (card: {
+    agentId: string;
+    id: string;
+    runId: string;
+    sessionId: string;
+    workspaceId: string;
+  }): Promise<void> => {
+    await db
+      .update(runRequests)
+      .set({ status: "cancelled" })
+      .where(
+        and(eq(runRequests.id, card.id), eq(runRequests.status, "pending"))
+      );
+    await events.append({
+      actor: { id: card.agentId, kind: "agent" },
+      agentId: card.agentId,
+      payload: { requestId: card.id },
+      runId: card.runId,
+      sessionId: card.sessionId,
+      type: "request.cancelled",
+      workspaceId: card.workspaceId,
+    });
   };
 
   // ---------------------------------------------------------------------

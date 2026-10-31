@@ -41,10 +41,9 @@ const idString = z.string().min(1).max(200);
 /** Whether an `a2a_send` card carries the message as text, so a person saw all of it. */
 const cardHoldsText = (display: string): boolean => {
   try {
-    return (
-      typeof (JSON.parse(display) as { input?: { text?: unknown } }).input
-        ?.text === "string"
-    );
+    const shown = (JSON.parse(display) as { input?: { text?: unknown } }).input
+      ?.text;
+    return typeof shown === "string" && shown.length > 0;
   } catch {
     return false;
   }

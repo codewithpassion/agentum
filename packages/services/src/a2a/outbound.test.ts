@@ -1314,3 +1314,23 @@ describe("approval expiry and long messages", () => {
     expect(shown).toBe(text.trim());
   });
 });
+
+describe("a card that hiding secrets would cut", () => {
+  test("the card is closed, nothing is sent and the agent is told to shorten the message", async () => {
+    await f.connectPeer({ outboundPolicy: "approve" });
+    const call = await f.callingRun();
+    // Raw, this fits the card. Once the secrets are hidden it does not.
+    const text = `${"token: a\n".repeat(90)}${"y".repeat(7100)} sk-ant-api03-${"A".repeat(40)}`;
+
+    const error = await rejects(sendFrom(call, "req-1", text));
+
+    expect(error).toBeInstanceOf(ServiceError);
+    expect((error as Error).message).toContain("Shorten it");
+    const [request] = await f.db.select().from(runRequests);
+    expect(request?.status).toBe("cancelled");
+    expect(f.peer.calls).toEqual([]);
+    expect(await eventTypes()).toContain("request.cancelled");
+    const [row] = await f.db.select().from(a2aOutboundTasks);
+    expect(row?.state).toBe("TASK_STATE_FAILED");
+  });
+});

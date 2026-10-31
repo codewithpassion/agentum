@@ -440,7 +440,7 @@ test("a message to an outside agent gets a plain Slack notice with a link, no bu
   expect(field(post as Recorded, "thread_ts")).toBe(THREAD);
   const text = String(post?.body?.text);
   expect(text).toBe(
-    "A message to Hermes is waiting for approval. Read it in full and answer at https://hm.test/desk"
+    "A message to Hermes is waiting for approval. Read it in full and answer at https://hm.test/desk?item=q1"
   );
   expect(post?.body?.blocks).toBeUndefined();
   expect(JSON.stringify(post?.body)).not.toContain("xxxxxxxx");
