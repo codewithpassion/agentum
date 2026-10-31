@@ -34,3 +34,4 @@ Spec: `docs/v3/agent-connections.md`, the section "Pairing code, for an outside 
 
 ## Log
 - 2026-11-01: created from Dom's question about supporting Hermes's pairing.
+- 2026-11-01: AA.1 stores only a hash of the code. Decision: derive the code as an HMAC of the request id and the token under the secrets key, so the same token gets the same code back and no plaintext or reversible code is stored.

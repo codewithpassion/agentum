@@ -3,9 +3,9 @@ id: AA.2
 title: "Connections service: publishing, invites, pairing, access keys, revoke"
 milestone: AA
 size: L
-status: todo
+status: in_progress
 depends_on: [AA.1]
-branch: null
+branch: task/AA.2-connections-service
 lane: services
 executor: claude
 ---
@@ -43,3 +43,4 @@ Spec: `docs/v3/agent-connections.md`, the sections "Trust flows", "Policies on a
 
 ## Log
 - 2026-10-31: created.
+- 2026-11-01: dispatched.

@@ -3,7 +3,7 @@ id: AA.1
 title: "Agent connections contract: A2A package, schema, shared values"
 milestone: AA
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/AA.1-a2a-contract
 lane: db
@@ -40,3 +40,4 @@ Later tasks build the services, routes and UI. This one adds no behaviour, excep
 - 2026-10-31: dispatched.
 - 2026-11-01: scope extended mid-run with Hermes tolerance in the schemas; the dispatcher was told.
 - 2026-11-01: pairing columns and table added mid-run for AA.9; the dispatcher was told.
+- 2026-11-01: merged, review clean after 2 fix rounds. One migration, 0036.
