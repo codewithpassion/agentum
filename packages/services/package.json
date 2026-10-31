@@ -7,6 +7,7 @@
     "./a2a/connections": "./src/a2a/connections.ts",
     "./a2a/errors": "./src/a2a/errors.ts",
     "./a2a/needs-you": "./src/a2a/needs-you.ts",
+    "./a2a/page-reads": "./src/a2a/page-reads.ts",
     "./a2a/pairing-code": "./src/a2a/pairing-code.ts",
     "./a2a/push-configs": "./src/a2a/push-configs.ts",
     "./a2a/tasks": "./src/a2a/tasks.ts",

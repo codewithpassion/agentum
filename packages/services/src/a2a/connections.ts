@@ -208,6 +208,23 @@ export const addOutboundInputSchema = z.strictObject({
 });
 export type AddOutboundInput = z.input<typeof addOutboundInputSchema>;
 
+export const previewCardInputSchema = z.strictObject({
+  agentId: idString,
+  cardUrl: z.url().max(2000),
+});
+export type PreviewCardInput = z.input<typeof previewCardInputSchema>;
+
+/** What the "Call it" dialog shows before it asks for a credential. All of it is the peer's own text. */
+export interface CardPreview {
+  description: string;
+  host: string;
+  name: string;
+  org: string | null;
+  /** The kind of credential the card asks for: `none`, `bearer`, `api_key_header` or `oauth2_client_credentials`. */
+  scheme: OutboundScheme["kind"];
+  skills: { description: string; name: string }[];
+}
+
 export const policiesInputSchema = z
   .strictObject({
     connectionId: idString,
@@ -1907,6 +1924,54 @@ export const createConnectionsService = ({
     return await requireSummary(id, user.workspaceId);
   };
 
+  /**
+   * What an outside agent's card says, for a person to look at before they
+   * give it a credential. Creates nothing. Every field comes from the peer, so
+   * the page shows it as plain text.
+   */
+  const previewCard = async (
+    principal: Principal,
+    input: PreviewCardInput
+  ): Promise<CardPreview> => {
+    const user = requireSession(principal, OUTBOUND_ACTION);
+    const { agentId, cardUrl } = previewCardInputSchema.parse(input);
+    authorize(user, OUTBOUND_ACTION, {
+      kind: CONNECTION_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const agent = await requireActiveAgent(agentId, user.workspaceId);
+    requireAdminOrOwner(user, agent, OUTBOUND_ACTION);
+    vetUrl(cardUrl);
+    await refuseDuplicate(agentId, cardUrl);
+    const card = await fetchPeerCard(cardUrl);
+    const peerInterface = chooseInterface(card);
+    if (!peerInterface) {
+      throw new ServiceError(
+        "invalid",
+        "That agent offers no JSON-RPC or HTTP+JSON interface"
+      );
+    }
+    vetUrl(peerInterface.url);
+    const choice = chooseOutboundScheme(card);
+    if (!choice.ok) {
+      throw new ServiceError(
+        "invalid",
+        `That agent wants ${choice.wanted}, which Harbourmaster does not support`
+      );
+    }
+    return {
+      description: card.description,
+      host: new URL(peerInterface.url).host,
+      name: card.name,
+      org: card.provider?.organization ?? null,
+      scheme: choice.scheme.kind,
+      skills: card.skills.map((skill) => ({
+        description: skill.description,
+        name: skill.name,
+      })),
+    };
+  };
+
   /** The live outside-agent connection a refresh acts on, with its card URL. */
   const refreshable = async (
     actor: SessionUser | { kind: "system" },
@@ -2383,6 +2448,7 @@ export const createConnectionsService = ({
     list,
     onRevoked,
     peerRevoked,
+    previewCard,
     publicCard,
     publish,
     refreshCard,

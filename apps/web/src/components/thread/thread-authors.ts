@@ -7,6 +7,21 @@ const personKey = (message: ThreadMessage): string | null => {
     : null;
 };
 
+/** Outside agents are labelled whoever else is in the thread, and are never numbered as people. */
+const peerLabel = (name: string | undefined): string =>
+  `${name || "Outside agent"} (outside agent)`;
+
+const personLabel = (
+  name: string | undefined,
+  kind: string | undefined,
+  ordinal: number | undefined
+): string => {
+  if (ordinal === undefined) {
+    return "Unknown author";
+  }
+  return `${name || (kind === "guest" ? "Guest" : "Person")} · ${ordinal}`;
+};
+
 /** Names come only from the trusted adapter, never message text or payloads.
  * Stable per-person ordinals distinguish missing or duplicate display names.
  */
@@ -22,22 +37,25 @@ export const threadAuthorLabels = (
     }
   }
   const labels = new Map<string, string>();
-  if (!multiPerson && people.size < 2) {
-    return labels;
-  }
+  const showPeople = multiPerson || people.size >= 2;
   for (const message of messages) {
     if (message.role !== "user") {
       continue;
     }
-    const key = personKey(message);
-    const ordinal = key === null ? undefined : people.get(key);
     const name = message.actorDisplay?.name.trim();
-    labels.set(
-      message.id,
-      ordinal === undefined
-        ? "Unknown author"
-        : `${name || (message.actor?.kind === "guest" ? "Guest" : "Person")} · ${ordinal}`
-    );
+    if (message.actor?.kind === "peer") {
+      labels.set(message.id, peerLabel(name));
+    } else if (showPeople) {
+      const key = personKey(message);
+      labels.set(
+        message.id,
+        personLabel(
+          name,
+          message.actor?.kind,
+          key === null ? undefined : people.get(key)
+        )
+      );
+    }
   }
   return labels;
 };

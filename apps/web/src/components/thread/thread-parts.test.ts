@@ -382,3 +382,39 @@ test("the file ids of a user message come back out of its attachments", () => {
     fileIdsOfAppend({ attachments } as Parameters<typeof fileIdsOfAppend>[0])
   ).toEqual(["file-a", "file-b"]);
 });
+
+test("a peer's turn shows what the peer wrote, not the envelope the agent reads", () => {
+  const envelope = JSON.stringify({
+    harbourmaster_turn: {
+      from: {
+        id: "con_1",
+        kind: "peer",
+        name: "Hermes",
+        role: "outside agent",
+      },
+      peer: {
+        agent: "Hermes",
+        host: "hermes.example",
+        notice: "Outside input.",
+      },
+      text: "Please summarise the <b>deploy</b>.",
+      via: "a2a",
+    },
+  });
+  const like = toThreadMessageLike(
+    user([{ text: envelope, type: "text" }], {
+      actor: { id: "con_1", kind: "peer" },
+    })
+  );
+  expect(like.content).toEqual([
+    { text: "Please summarise the <b>deploy</b>.", type: "text" },
+  ]);
+  const truncated = toThreadMessageLike(
+    user([{ text: envelope.slice(0, 40), type: "text" }], {
+      actor: { id: "con_1", kind: "peer" },
+    })
+  );
+  expect(truncated.content).toEqual([
+    { text: envelope.slice(0, 40), type: "text" },
+  ]);
+});
