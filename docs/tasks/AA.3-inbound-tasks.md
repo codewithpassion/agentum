@@ -3,9 +3,9 @@ id: AA.3
 title: "Inbound tasks: policy gate, runs, state sync, tool gate, loop guard"
 milestone: AA
 size: L
-status: todo
+status: in_progress
 depends_on: [AA.2]
-branch: null
+branch: task/AA.3-inbound-tasks
 lane: services
 executor: claude
 ---
@@ -46,3 +46,4 @@ Spec: `docs/v3/agent-connections.md`, the sections "A2A mapping", "What the agen
 
 ## Log
 - 2026-10-31: created.
+- 2026-11-01: dispatched.

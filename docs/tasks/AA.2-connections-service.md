@@ -3,7 +3,7 @@ id: AA.2
 title: "Connections service: publishing, invites, pairing, access keys, revoke"
 milestone: AA
 size: L
-status: in_progress
+status: done
 depends_on: [AA.1]
 branch: task/AA.2-connections-service
 lane: services
@@ -44,3 +44,4 @@ Spec: `docs/v3/agent-connections.md`, the sections "Trust flows", "Policies on a
 ## Log
 - 2026-10-31: created.
 - 2026-11-01: dispatched.
+- 2026-11-01: merged, review clean on the fifth round. Controller authorised rounds past two: OAuth token URL now part of the approved destination, and approve acts only on what the caller saw.
