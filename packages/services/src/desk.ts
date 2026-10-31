@@ -10,7 +10,6 @@
  * so another member's ui session or private Slack DM never shows.
  */
 import type { Database } from "@repo/db";
-import { a2aOutboundTasks } from "@repo/db/schema/a2a";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
@@ -39,7 +38,6 @@ import {
 import { z } from "zod";
 import type { A2aNeedsYouSource } from "./a2a/needs-you.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
-import { redactText } from "./events/scrub.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
@@ -391,29 +389,27 @@ export const createDeskService = ({
       member.workspaceId,
       pending.map((record) => record.agentId)
     );
-    return await Promise.all(
-      pending.map(async (record) => {
-        const described = describe(record);
-        return {
-          agent: names.get(record.agentId) ?? record.agentId,
-          createdAt: record.createdAt,
-          expiresAt: record.expiresAt,
-          kind: record.kind,
-          requestId: record.id,
-          runId: record.runId,
-          ...described,
-          detail: (await sendDetail(record)) ?? described.detail,
-        };
-      })
-    );
+    return pending.map((record) => {
+      const described = describe(record);
+      return {
+        agent: names.get(record.agentId) ?? record.agentId,
+        createdAt: record.createdAt,
+        expiresAt: record.expiresAt,
+        kind: record.kind,
+        requestId: record.id,
+        runId: record.runId,
+        ...described,
+        detail: sendDetail(record) ?? described.detail,
+      };
+    });
   };
 
   /**
    * The whole message behind an `a2a_send` card, never clipped: a person must
-   * see all of what an approval sends. It comes from the card's input, and from
-   * the task row when the card holds only a cut copy. Null for any other request.
+   * see all of what an approval sends. It comes from the card's input, which is
+   * scrubbed. Null for any other request, and for a card that holds only a cut copy.
    */
-  const sendDetail = async (record: RequestRecord): Promise<string | null> => {
+  const sendDetail = (record: RequestRecord): string | null => {
     if (!(isA2aApproval(record) && "input" in record.display)) {
       return null;
     }
@@ -424,21 +420,10 @@ export const createDeskService = ({
         return `To ${String(peer)} at ${String(host)}, an agent outside this workspace:\n\n${shownText}`;
       }
     }
-    const [task] = await db
-      .select({ text: a2aOutboundTasks.text })
-      .from(a2aOutboundTasks)
-      .where(
-        and(
-          eq(a2aOutboundTasks.id, record.toolUseId.slice("a2a:".length)),
-          eq(a2aOutboundTasks.callingRunId, record.runId),
-          eq(a2aOutboundTasks.workspaceId, record.workspaceId)
-        )
-      )
-      .limit(1);
-    // Scrubbed as the card is, because this copy never went through the card.
-    return task
-      ? `To an agent outside this workspace:\n\n${redactText(task.text)}`
-      : null;
+    // A card that holds only a cut copy cannot occur, because `send` closes one
+    // and refuses the message. Were one to appear, it shows the cut copy, and the
+    // desk API refuses to allow it.
+    return null;
   };
 
   /** The A2A messages and connections that wait on a person, before the draft filter. */

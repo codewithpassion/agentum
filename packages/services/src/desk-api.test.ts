@@ -675,7 +675,7 @@ test("a message to an outside agent comes back whole through the desk API, not c
   expect(text.length).toBeGreaterThan(2000);
 });
 
-test("a card that holds only a cut copy shows the whole text from the task row", async () => {
+test("a card that holds only a cut copy shows that copy, never the task row's text", async () => {
   const { id, text } = await openSend(5000);
   await db
     .update(runRequests)
@@ -691,31 +691,8 @@ test("a card that holds only a cut copy shows the whole text from the task row",
 
   const [item] = await desk.needsYou(member);
 
-  expect(item?.detail).toContain(text);
-});
-
-test("the copy read from the task row is scrubbed as the card is", async () => {
-  const { id } = await openSend(100);
-  const token = `sk-ant-api03-${"A".repeat(40)}`;
-  await db
-    .update(a2aOutboundTasks)
-    .set({ text: `Use this key ${token} please` });
-  await db
-    .update(runRequests)
-    .set({
-      display: JSON.stringify({
-        input: "cut… [truncated]",
-        summary: "x",
-        toolKey: "a2a_send:con_1",
-        toolName: "a2a_send",
-      }),
-    })
-    .where(eq(runRequests.id, id));
-
-  const [item] = await desk.needsYou(member);
-
-  expect(item?.detail).toContain("Use this key");
-  expect(item?.detail).not.toContain(token);
+  expect(item?.detail).toContain("[truncated]");
+  expect(item?.detail).not.toContain(text);
 });
 
 test("the desk API will not allow a message whose card holds only a cut copy, but will deny it", async () => {
