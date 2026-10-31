@@ -338,6 +338,17 @@ describe("ask_user tool", () => {
 });
 
 describe("approvalSummary", () => {
+  test("names the peer an outgoing agent message goes to", () => {
+    expect(
+      approvalSummary("a2a_send", {
+        host: "h.example",
+        peer: "Hermes",
+        text: "Hi",
+      })
+    ).toBe("Send a message to Hermes");
+    expect(approvalSummary("a2a_send", {})).toBe("Use a2a_send");
+  });
+
   test("summarises commands, MCP tools, and common built-in inputs on one line", () => {
     expect(approvalSummary("Bash", { command: "git push\norigin main" })).toBe(
       "Run `git push origin main`"

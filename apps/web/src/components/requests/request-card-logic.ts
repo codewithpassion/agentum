@@ -3,6 +3,7 @@
 // sends. Pure: the session stream keeps the requests, `request-card.tsx` draws them.
 
 import {
+  A2A_SEND_TOOL,
   type AnswerSurface,
   type ApprovalDecision,
   MAIL_SEND_TOOL,
@@ -172,6 +173,34 @@ export const mailApprovalFields = (
     subject,
     to: toList,
   };
+};
+
+/** What an outgoing message to an outside agent shows in its approval card. */
+export interface A2aSendFields {
+  host: string;
+  peer: string;
+  text: string;
+}
+
+/**
+ * The fields of an `a2a_send` approval, or null when the display is not one or
+ * its input lacks them. `text` is the whole message, as it will be sent.
+ */
+export const a2aSendFields = (
+  display: ApprovalDisplay
+): A2aSendFields | null => {
+  if (display.toolName !== A2A_SEND_TOOL || !isRecord(display.input)) {
+    return null;
+  }
+  const { host, peer, text } = display.input;
+  if (
+    typeof host !== "string" ||
+    typeof peer !== "string" ||
+    typeof text !== "string"
+  ) {
+    return null;
+  }
+  return { host, peer, text };
 };
 
 /** The answer to an approval. A blank note is left out. */

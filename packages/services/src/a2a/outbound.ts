@@ -28,6 +28,7 @@ import type { Task } from "@repo/a2a/tasks";
 import type { Database } from "@repo/db";
 import { a2aConnections, a2aOutboundTasks } from "@repo/db/schema/a2a";
 import { runRequests } from "@repo/db/schema/requests";
+import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
   A2A_SEND_TOOL,
@@ -74,7 +75,7 @@ import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { CONNECTION_KIND } from "./access.ts";
 import { schemeKindOfLabel, tokenUrlOfLabel } from "./card-peer.ts";
 import { A2aRateLimitError } from "./errors.ts";
-import { HOUR_MS, hourlyCountSql, hourlyUse } from "./hourly.ts";
+import { HOUR_MS, hourlyCountSql, hourlyUse, WAKE_MARK } from "./hourly.ts";
 import { interfaceBaseOfCardUrl } from "./urls.ts";
 
 export const SEND_ACTION = "a2a.outbound.send";
@@ -102,6 +103,8 @@ const GET_REFRESH_MS = 5000;
 const MESSAGE_ID_MAX = 200;
 const TASK_NOT_FOUND_CODE = -32_001;
 const TRAILING_SLASHES = /\/+$/;
+const NOT_FOUND = 404;
+const NO_CARD_AFTER_MS = 5 * MINUTE_MS;
 
 const TERMINAL_STATES: readonly A2aTaskState[] = [
   "TASK_STATE_COMPLETED",
@@ -290,13 +293,24 @@ export const createOutboundService = ({
   const peerName = (connection: ConnectionRow): string =>
     connection.peerLabel ?? connection.slug;
 
-  const infoOf = (row: OutboundRow, agentId: string): OutboundTaskInfo => {
+  /**
+   * The task as the agent reads it. The peer's answer goes inside the peer
+   * envelope, so it is outside input and never an instruction. Everything else
+   * here is our own words: a peer's status text and error text are not kept.
+   */
+  const infoOf = (
+    row: OutboundRow,
+    connection: ConnectionRow
+  ): OutboundTaskInfo => {
     const status = STATUS_OF[row.state];
     const failed = status === "failed" || status === "cancelled";
     return {
-      agentId,
-      answer: row.state === "TASK_STATE_COMPLETED" ? row.resultText : null,
-      error: failed ? (row.resultText ?? statusTextOf(row)) : null,
+      agentId: connection.localAgentId,
+      answer:
+        row.state === "TASK_STATE_COMPLETED" && row.resultText !== null
+          ? buildPeerEnvelope(peerOf(connection), row.resultText)
+          : null,
+      error: failed ? statusTextOf(row) : null,
       runId: row.id,
       sessionId: row.sessionId,
       status,
@@ -304,10 +318,19 @@ export const createOutboundService = ({
     };
   };
 
-  /** What the task says about itself, in plain words. Never the peer's raw error. */
+  const peerOf = (connection: ConnectionRow) => ({
+    agentName: peerName(connection),
+    connectionId: connection.id,
+    host: hostOf(connection.peerOrigin),
+  });
+
+  /** What the task says about itself, in plain words of ours. */
   const statusTextOf = (row: OutboundRow): string => {
     if (row.state === "TASK_STATE_COMPLETED") {
       return "The peer answered.";
+    }
+    if (row.state === "TASK_STATE_AUTH_REQUIRED" && row.remoteTaskId !== null) {
+      return "The peer needs authorisation before it can go on.";
     }
     return row.resultText ?? STATUS_DEFAULT[row.state];
   };
@@ -316,20 +339,20 @@ export const createOutboundService = ({
     TASK_STATE_AUTH_REQUIRED: WAITING_APPROVAL,
     TASK_STATE_CANCELED: "The peer cancelled the task.",
     TASK_STATE_COMPLETED: "The peer answered.",
-    TASK_STATE_FAILED: "The task failed.",
+    TASK_STATE_FAILED: "The peer failed the task.",
     TASK_STATE_INPUT_REQUIRED: "The peer is waiting for more input.",
     TASK_STATE_REJECTED: "The peer refused the task.",
     TASK_STATE_SUBMITTED: "The message is on its way to the peer.",
     TASK_STATE_WORKING: "The peer is working on it.",
   };
 
-  const agentIdOf = async (row: OutboundRow): Promise<string> => {
+  const view = async (row: OutboundRow): Promise<OutboundTaskInfo> => {
     const connection = await connectionById(row.connectionId);
-    return connection?.localAgentId ?? "";
+    if (!connection) {
+      throw new ServiceError("not_found", "Task not found");
+    }
+    return infoOf(row, connection);
   };
-
-  const view = async (row: OutboundRow): Promise<OutboundTaskInfo> =>
-    infoOf(row, await agentIdOf(row));
 
   // ---------------------------------------------------------------------
   // Reaching the peer
@@ -468,70 +491,87 @@ export const createOutboundService = ({
   // ---------------------------------------------------------------------
   // Moving a row
 
-  const nextPollAt = (row: Pick<OutboundRow, "createdAt">): string =>
+  /** When the message went out: the poll window runs 24 hours from it. */
+  const sentAtOf = (
+    row: Pick<OutboundRow, "createdAt" | "pollUntil">
+  ): number =>
+    row.pollUntil === null
+      ? Date.parse(row.createdAt)
+      : Date.parse(row.pollUntil) - POLL_WINDOW_MS;
+
+  const nextPollAt = (
+    row: Pick<OutboundRow, "createdAt" | "pollUntil">
+  ): string =>
     later(
-      clock.now().getTime() - Date.parse(row.createdAt) < FAST_POLL_FOR_MS
+      clock.now().getTime() - sentAtOf(row) < FAST_POLL_FOR_MS
         ? FAST_POLL_MS
         : SLOW_POLL_MS
     );
 
+  const OPEN_STATES_SQL = sql`${a2aOutboundTasks.state} not in ('TASK_STATE_COMPLETED','TASK_STATE_FAILED','TASK_STATE_CANCELED','TASK_STATE_REJECTED')`;
+
   /** Ends a task from our side. It wakes nothing: the agent reads it with `get`. */
   const failLocal = async (
     row: OutboundRow,
-    reason: string,
-    state: A2aTaskState = "TASK_STATE_FAILED"
+    reason: string
   ): Promise<OutboundRow> => {
-    await db
+    const [ended] = await db
       .update(a2aOutboundTasks)
       .set({
         nextPollAt: null,
         resultReadAt: nowIso(),
         resultText: capText(reason, STATUS_TEXT_MAX),
-        state,
+        state: "TASK_STATE_FAILED",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          eq(a2aOutboundTasks.id, row.id),
-          sql`${a2aOutboundTasks.state} not in ('TASK_STATE_COMPLETED','TASK_STATE_FAILED','TASK_STATE_CANCELED','TASK_STATE_REJECTED')`
-        )
-      );
+      .where(and(eq(a2aOutboundTasks.id, row.id), OPEN_STATES_SQL))
+      .returning({ id: a2aOutboundTasks.id });
+    if (ended) {
+      const connection = await connectionById(row.connectionId);
+      if (connection) {
+        await record({
+          actor: SYSTEM_ACTOR,
+          agentId: connection.localAgentId,
+          payload: {
+            connectionId: connection.id,
+            outboundTaskId: row.id,
+            reason: capText(reason, 200),
+          },
+          sessionId: row.sessionId,
+          type: "a2a.task_cancelled",
+          workspaceId: row.workspaceId,
+        });
+      }
+    }
     return (await taskById(row.id)) ?? row;
   };
 
   /**
    * Takes what the peer says its task is into the row. Only a row that is not
    * over yet moves, so a terminal state never reverts and a duplicate poll or
-   * push changes nothing.
+   * push changes nothing. Only the answer of a completed task is kept; the
+   * peer's status and error text are not. It wakes nothing: the callers that
+   * should do that ask for it.
    */
   const applyRemote = async (
     row: OutboundRow,
-    remote: Task
+    remote: Task,
+    options: { keepSchedule?: boolean } = {}
   ): Promise<OutboundRow> => {
     const { state } = remote.status;
-    const statusText = remote.status.message
-      ? capText(taskText({ ...remote, artifacts: undefined }), STATUS_TEXT_MAX)
-      : "";
-    const text = isTerminal(state) ? taskText(remote) : "";
-    const result =
-      state === "TASK_STATE_COMPLETED"
-        ? capText(text, OUTBOUND_TEXT_MAX)
-        : capText(text || statusText, STATUS_TEXT_MAX);
     const [moved] = await db
       .update(a2aOutboundTasks)
       .set({
-        nextPollAt: isTerminal(state) ? null : nextPollAt(row),
+        nextPollAt: nextPollOf(row, state, options.keepSchedule === true),
         remoteTaskId: row.remoteTaskId ?? remote.id,
-        resultText: isTerminal(state) ? result : statusText || row.resultText,
+        resultText:
+          state === "TASK_STATE_COMPLETED"
+            ? capText(taskText(remote), OUTBOUND_TEXT_MAX)
+            : null,
         state,
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          eq(a2aOutboundTasks.id, row.id),
-          sql`${a2aOutboundTasks.state} not in ('TASK_STATE_COMPLETED','TASK_STATE_FAILED','TASK_STATE_CANCELED','TASK_STATE_REJECTED')`
-        )
-      )
+      .where(and(eq(a2aOutboundTasks.id, row.id), OPEN_STATES_SQL))
       .returning();
     const after = moved ?? (await taskById(row.id)) ?? row;
     if (moved && isTerminal(state)) {
@@ -550,13 +590,31 @@ export const createOutboundService = ({
           workspaceId: row.workspaceId,
         });
       }
-      await wake(after);
     }
     return after;
   };
 
-  /** Asks the peer where the task stands, by id or, before we know its id, by our context. */
-  const refresh = async (row: OutboundRow): Promise<OutboundRow> => {
+  /** The next poll: none once over, the row's own when a push or a read must not move it, else by age. */
+  const nextPollOf = (
+    row: OutboundRow,
+    state: A2aTaskState,
+    keepSchedule: boolean
+  ): string | null => {
+    if (isTerminal(state)) {
+      return null;
+    }
+    return keepSchedule ? row.nextPollAt : nextPollAt(row);
+  };
+
+  /**
+   * Asks the peer where the task stands, by id or, before we know its id, by
+   * our context. A push or a read passes `keepSchedule`, so a peer that nudges
+   * often cannot push the next poll, and the 24 hour stop, away.
+   */
+  const refresh = async (
+    row: OutboundRow,
+    options: { keepSchedule?: boolean } = {}
+  ): Promise<OutboundRow> => {
     if (isTerminal(row.state)) {
       return row;
     }
@@ -565,62 +623,76 @@ export const createOutboundService = ({
       return await failLocal(row, "The connection is no longer active.");
     }
     try {
-      const { client } = await clientFor(connection);
+      const prepared = await clientFor(connection);
       if (row.remoteTaskId) {
-        return await applyRemote(row, await client.getTask(row.remoteTaskId));
+        return await applyRemote(
+          row,
+          await prepared.client.getTask(row.remoteTaskId),
+          options
+        );
       }
-      return await adoptByContext(row, connection);
+      return await adoptByContext(row, prepared, options);
     } catch (error) {
-      return await failedRefresh(row, error);
+      return await failedRefresh(row, error, options);
     }
   };
 
   /** Finds the task the peer made for our context, when SendMessage did not tell us. */
   const adoptByContext = async (
     row: OutboundRow,
-    connection: ConnectionRow
+    prepared: Awaited<ReturnType<typeof clientFor>>,
+    options: { keepSchedule?: boolean }
   ): Promise<OutboundRow> => {
-    const { client } = await clientFor(connection);
+    const { client, destination } = prepared;
     const found = (
       await client.listTasks({ contextId: row.contextId ?? "" })
     ).find((task) => task.contextId === row.contextId);
     if (found) {
-      return await applyRemote(row, found);
+      const after = await applyRemote(row, found, options);
+      // A send that timed out never got its webhook registered.
+      if (destination.push && !isTerminal(after.state)) {
+        await registerPush(row, client, found.id);
+      }
+      return after;
     }
-    if (
-      clock.now().getTime() - Date.parse(row.createdAt) >
-      UNCONFIRMED_AFTER_MS
-    ) {
+    if (clock.now().getTime() - sentAtOf(row) > UNCONFIRMED_AFTER_MS) {
       return await failLocal(
         row,
         "The peer never confirmed it received the message."
       );
     }
-    return await touch(row);
+    return await touch(row, options);
   };
 
   /** A transient failure keeps the row and tries again at the next poll. A peer that forgot the task ends it. */
   const failedRefresh = async (
     row: OutboundRow,
-    error: unknown
+    error: unknown,
+    options: { keepSchedule?: boolean }
   ): Promise<OutboundRow> => {
     if (
       error instanceof A2aClientError &&
-      error.rpcCode === TASK_NOT_FOUND_CODE
+      (error.rpcCode === TASK_NOT_FOUND_CODE || error.status === NOT_FOUND)
     ) {
       return await failLocal(row, "The peer no longer knows this task.");
     }
     if (error instanceof ServiceError) {
       return await failLocal(row, error.message);
     }
-    return await touch(row);
+    return await touch(row, options);
   };
 
-  /** Marks the row looked at and schedules the next poll. */
-  const touch = async (row: OutboundRow): Promise<OutboundRow> => {
+  /** Marks the row looked at and, unless told to keep it, schedules the next poll. */
+  const touch = async (
+    row: OutboundRow,
+    options: { keepSchedule?: boolean } = {}
+  ): Promise<OutboundRow> => {
     const [updated] = await db
       .update(a2aOutboundTasks)
-      .set({ nextPollAt: nextPollAt(row), updatedAt: nowIso() })
+      .set({
+        nextPollAt: options.keepSchedule ? row.nextPollAt : nextPollAt(row),
+        updatedAt: nowIso(),
+      })
       .where(
         and(
           eq(a2aOutboundTasks.id, row.id),
@@ -629,6 +701,16 @@ export const createOutboundService = ({
       )
       .returning();
     return updated ?? (await taskById(row.id)) ?? row;
+  };
+
+  /** The agent has the result, so no wake repeats it. Whoever marks first wins, and it is the same row either way. */
+  const markRead = async (id: string): Promise<void> => {
+    await db
+      .update(a2aOutboundTasks)
+      .set({ resultReadAt: nowIso() })
+      .where(
+        and(eq(a2aOutboundTasks.id, id), isNull(a2aOutboundTasks.resultReadAt))
+      );
   };
 
   // ---------------------------------------------------------------------
@@ -799,7 +881,8 @@ export const createOutboundService = ({
         case "too_large":
           return "The peer sent an answer we could not read.";
         default:
-          return `The peer refused the message: ${capText(error.message, 300)}`;
+          // Our words only. What the peer said is not passed on.
+          return `The peer refused the message${error.rpcCode === undefined ? "" : ` (error ${error.rpcCode})`}.`;
       }
     }
     return "The message could not be sent.";
@@ -1065,7 +1148,12 @@ export const createOutboundService = ({
     const { id } = created;
     const row = await requireTask(id);
     if (!approve) {
-      return await view(await dispatch(row));
+      const sent = await dispatch(row);
+      // The agent has the answer in this reply when the peer gave it at once.
+      if (isTerminal(sent.state)) {
+        await markRead(sent.id);
+      }
+      return await view(sent);
     }
     try {
       await requests.open(SYSTEM_PRINCIPAL, {
@@ -1096,29 +1184,33 @@ export const createOutboundService = ({
     taskId: string
   ): Promise<OutboundTaskInfo> => {
     const row = await requireTask(taskId);
+    // Another workspace's task is not found, the same as one that does not exist.
+    if (
+      principal.kind !== "system" &&
+      principal.workspaceId !== row.workspaceId
+    ) {
+      throw new ServiceError("not_found", "Task not found");
+    }
     const connection = await connectionById(row.connectionId);
     if (!connection) {
       throw new ServiceError("not_found", "Task not found");
     }
     requireOwnRun(principal, connection, READ_ACTION);
+    authorize(principal, READ_ACTION, {
+      id: connection.id,
+      kind: CONNECTION_KIND,
+      workspaceId: connection.workspaceId,
+    });
     let current = row;
     const stale =
       clock.now().getTime() - Date.parse(row.updatedAt) > GET_REFRESH_MS;
     if (!isTerminal(row.state) && row.nextPollAt !== null && stale) {
-      current = await refresh(row);
+      current = await refresh(row, { keepSchedule: true });
     }
     if (principal.kind === "run" && isTerminal(current.state)) {
-      await db
-        .update(a2aOutboundTasks)
-        .set({ resultReadAt: nowIso() })
-        .where(
-          and(
-            eq(a2aOutboundTasks.id, current.id),
-            isNull(a2aOutboundTasks.resultReadAt)
-          )
-        );
+      await markRead(current.id);
     }
-    return infoOf(current, connection.localAgentId);
+    return infoOf(current, connection);
   };
 
   // ---------------------------------------------------------------------
@@ -1144,7 +1236,10 @@ export const createOutboundService = ({
       return { ok: false };
     }
     if (row.remoteTaskId !== null) {
-      await refresh(row);
+      const after = await refresh(row, { keepSchedule: true });
+      if (isTerminal(after.state)) {
+        await wake(after);
+      }
     }
     return { ok: true };
   };
@@ -1178,12 +1273,7 @@ export const createOutboundService = ({
     const due = await db
       .select()
       .from(a2aOutboundTasks)
-      .where(
-        and(
-          lte(a2aOutboundTasks.nextPollAt, nowIso()),
-          sql`${a2aOutboundTasks.state} not in ('TASK_STATE_COMPLETED','TASK_STATE_FAILED','TASK_STATE_CANCELED','TASK_STATE_REJECTED')`
-        )
-      )
+      .where(and(lte(a2aOutboundTasks.nextPollAt, nowIso()), OPEN_STATES_SQL))
       .orderBy(asc(a2aOutboundTasks.nextPollAt))
       .limit(POLL_BATCH);
     let polled = 0;
@@ -1209,7 +1299,10 @@ export const createOutboundService = ({
         );
         return;
       }
-      await refresh(claimed);
+      const after = await refresh(claimed);
+      if (isTerminal(after.state)) {
+        await wake(after);
+      }
     });
     return polled;
   };
@@ -1217,20 +1310,36 @@ export const createOutboundService = ({
   // ---------------------------------------------------------------------
   // Approvals
 
-  /** The approval request behind a task, when it has been answered. */
-  const settledRequest = async (row: OutboundRow) => {
+  /** The approval card behind a task, answered or not. Null when none was ever opened. */
+  const cardOf = async (row: OutboundRow) => {
     const [request] = await db
       .select()
       .from(runRequests)
       .where(
         and(
           eq(runRequests.workspaceId, row.workspaceId),
+          eq(runRequests.runId, row.callingRunId),
           eq(runRequests.toolName, A2A_SEND_TOOL),
           eq(runRequests.toolUseId, `a2a:${row.id}`)
         )
       )
       .limit(1);
-    return request && request.status !== "pending" ? request : null;
+    return request ?? null;
+  };
+
+  /** The text the card showed, which is what a person approved. */
+  const shownText = (
+    request: { display: string },
+    fallback: string
+  ): string => {
+    try {
+      const shown = (
+        JSON.parse(request.display) as { input?: { text?: unknown } }
+      ).input?.text;
+      return typeof shown === "string" && shown.length > 0 ? shown : fallback;
+    } catch {
+      return fallback;
+    }
   };
 
   const approved = (answer: string | null): boolean => {
@@ -1242,7 +1351,7 @@ export const createOutboundService = ({
     }
   };
 
-  type SettledRequest = NonNullable<Awaited<ReturnType<typeof settledRequest>>>;
+  type SettledRequest = NonNullable<Awaited<ReturnType<typeof cardOf>>>;
 
   const deciderOf = (request: SettledRequest) =>
     request.answeredBy
@@ -1302,6 +1411,8 @@ export const createOutboundService = ({
         nextPollAt: later(FAST_POLL_MS),
         pollUntil: later(POLL_WINDOW_MS),
         state: "TASK_STATE_SUBMITTED",
+        // What goes out is what the person saw: the card holds the text as masked.
+        text: shownText(request, row.text),
         updatedAt: nowIso(),
       })
       .where(
@@ -1323,7 +1434,10 @@ export const createOutboundService = ({
       type: "a2a.message_approved",
       workspaceId: row.workspaceId,
     });
-    await dispatch(won);
+    const after = await dispatch(won);
+    if (isTerminal(after.state)) {
+      await wake(after);
+    }
   };
 
   /**
@@ -1335,9 +1449,22 @@ export const createOutboundService = ({
     if (row.state !== "TASK_STATE_AUTH_REQUIRED" || row.remoteTaskId !== null) {
       return;
     }
-    const request = await settledRequest(row);
-    const connection = request ? await connectionById(row.connectionId) : null;
-    if (!(request && connection)) {
+    const request = await cardOf(row);
+    if (!request) {
+      // A crash between the row and its card leaves a task nobody can answer.
+      if (
+        clock.now().getTime() - Date.parse(row.createdAt) >
+        NO_CARD_AFTER_MS
+      ) {
+        await failLocal(row, "No approval was asked for this message.");
+      }
+      return;
+    }
+    const connection =
+      request.status === "pending"
+        ? null
+        : await connectionById(row.connectionId);
+    if (!connection) {
       return;
     }
     if (request.status === "answered" && approved(request.answer)) {
@@ -1418,7 +1545,7 @@ export const createOutboundService = ({
     const body =
       row.state === "TASK_STATE_COMPLETED"
         ? (row.resultText ?? "")
-        : `The task ended as ${row.state.replace("TASK_STATE_", "").toLowerCase()}. ${row.resultText ?? ""}`.trim();
+        : `The task ended as ${row.state.replace("TASK_STATE_", "").toLowerCase()}.`;
     return `${name} answered your earlier message "${asked}":\n\n${body}`;
   };
 
@@ -1436,27 +1563,29 @@ export const createOutboundService = ({
     }
     const connection = await connectionById(row.connectionId);
     const callingRun = await loadRun(db, row.callingRunId, row.workspaceId);
+    // A revoked connection wakes nothing, whatever arrived before the revoke.
     if (
       !(
-        connection &&
+        connection?.status === "active" &&
         callingRun &&
         TERMINAL_STATUSES.includes(callingRun.status)
       )
     ) {
       return false;
     }
-    const { used } = await hourlyUse(db, clock, connection.id);
-    if (used >= connection.hourlyLimit) {
-      return false;
-    }
-    const claimedAt = nowIso();
+    const claimedAt = `${nowIso()}${WAKE_MARK}`;
+    const since = new Date(clock.now().getTime() - HOUR_MS).toISOString();
+    // One statement: the unread check, the live connection and the hourly limit,
+    // so several results at once cannot all take the last place.
     const [claimed] = await db
       .update(a2aOutboundTasks)
       .set({ resultReadAt: claimedAt })
       .where(
         and(
           eq(a2aOutboundTasks.id, row.id),
-          isNull(a2aOutboundTasks.resultReadAt)
+          isNull(a2aOutboundTasks.resultReadAt),
+          sql`exists (select 1 from ${a2aConnections} where ${a2aConnections.id} = ${connection.id} and ${a2aConnections.status} = 'active')`,
+          sql`${hourlyCountSql(connection.id, since)} < ${connection.hourlyLimit}`
         )
       )
       .returning({ id: a2aOutboundTasks.id });
@@ -1467,23 +1596,43 @@ export const createOutboundService = ({
       await startWakeRun(row, connection, callingRun);
       return true;
     } catch (error) {
-      // The start did not land, so the claim goes back for the next tick.
-      // The run's `requestId` is the task's, so a start that did land is not repeated.
-      await db
-        .update(a2aOutboundTasks)
-        .set({ resultReadAt: null })
-        .where(
-          and(
-            eq(a2aOutboundTasks.id, row.id),
-            eq(a2aOutboundTasks.resultReadAt, claimedAt)
-          )
-        );
-      console.error("A2A wake failed", error);
+      await settleFailedWake(row, claimedAt, error);
       return false;
     }
   };
 
-  /** The follow-up run: the same session, the calling run's reply target, the answer in the peer envelope. */
+  /**
+   * A start that did not land. A refusal that will not change (the session or
+   * agent is gone, the run is too deep) ends the wake with a plain read mark. Anything
+   * else gives the claim back for the next tick. The run's `requestId` is the
+   * task's, so a start that did land is never repeated.
+   */
+  const settleFailedWake = async (
+    row: OutboundRow,
+    claimedAt: string,
+    error: unknown
+  ): Promise<void> => {
+    const permanent =
+      error instanceof ForbiddenError ||
+      (error instanceof ServiceError && error.code !== "conflict");
+    await db
+      .update(a2aOutboundTasks)
+      .set({ resultReadAt: permanent ? nowIso() : null })
+      .where(
+        and(
+          eq(a2aOutboundTasks.id, row.id),
+          eq(a2aOutboundTasks.resultReadAt, claimedAt)
+        )
+      );
+    console.error("A2A wake failed", error instanceof Error ? error.name : "");
+  };
+
+  /**
+   * The follow-up run: the same session, the calling run's reply target, the
+   * answer in the peer envelope. It starts as a child of the calling run, so
+   * its depth, its actor and the chain `needsApproval` follows to a peer that
+   * started the work are the calling run's, not a fresh start.
+   */
   const startWakeRun = async (
     row: OutboundRow,
     connection: ConnectionRow,
@@ -1494,16 +1643,17 @@ export const createOutboundService = ({
       throw new ServiceError("not_found", "Session not found");
     }
     const started = await runs.startRun(
-      SYSTEM_PRINCIPAL,
+      {
+        agentId: callingRun.agentId,
+        kind: "run",
+        runId: callingRun.id,
+        workspaceId: row.workspaceId,
+      },
       {
         agentId: callingRun.agentId,
         input: {
           text: buildPeerEnvelope(
-            {
-              agentName: peerName(connection),
-              connectionId: connection.id,
-              host: hostOf(connection.peerOrigin),
-            },
+            peerOf(connection),
             answerText(row, connection)
           ),
         },
@@ -1518,7 +1668,6 @@ export const createOutboundService = ({
       actor: { id: connection.id, kind: "peer" },
       agentId: connection.localAgentId,
       payload: {
-        at: nowIso(),
         connectionId: connection.id,
         outboundTaskId: row.id,
         woke: true,
@@ -1530,7 +1679,12 @@ export const createOutboundService = ({
     });
   };
 
-  /** The tick's wakes: unread results on runs that have ended, from the last day. */
+  /**
+   * The tick's wakes: unread results whose calling run has ended, on a live
+   * connection, from the last day. The eligible rows are picked in the query
+   * and in random order, so rows that cannot wake (a start that keeps failing,
+   * a connection at its limit) cannot hold the same batch for ever.
+   */
   const wakeDue = async (principal: Principal): Promise<number> => {
     if (principal.kind !== "system") {
       throw new ForbiddenError(READ_ACTION);
@@ -1542,10 +1696,12 @@ export const createOutboundService = ({
         and(
           isNull(a2aOutboundTasks.resultReadAt),
           inArray(a2aOutboundTasks.state, [...WAKE_STATES]),
-          sql`${a2aOutboundTasks.updatedAt} > ${new Date(clock.now().getTime() - DAY_MS).toISOString()}`
+          sql`${a2aOutboundTasks.updatedAt} > ${new Date(clock.now().getTime() - DAY_MS).toISOString()}`,
+          sql`exists (select 1 from ${runRows} where ${runRows.id} = ${a2aOutboundTasks.callingRunId} and ${runRows.status} in ('done','failed','cancelled','interrupted'))`,
+          sql`exists (select 1 from ${a2aConnections} where ${a2aConnections.id} = ${a2aOutboundTasks.connectionId} and ${a2aConnections.status} = 'active')`
         )
       )
-      .orderBy(asc(a2aOutboundTasks.updatedAt))
+      .orderBy(sql`random()`)
       .limit(WAKE_BATCH);
     let woken = 0;
     await inChunks(unread, async (row) => {
@@ -1556,9 +1712,15 @@ export const createOutboundService = ({
     return woken;
   };
 
-  /** A revoked connection fails its open tasks locally and wakes nothing. */
+  /**
+   * A revoked connection fails its open tasks locally and wakes nothing, not
+   * even for a result that arrived before the revoke. A send card still
+   * waiting for a person is closed too, so nobody is asked to allow a message
+   * that can no longer go.
+   */
   const onConnectionRevoked = async (revoked: {
     connectionId: string;
+    workspaceId: string;
   }): Promise<void> => {
     await db
       .update(a2aOutboundTasks)
@@ -1572,7 +1734,27 @@ export const createOutboundService = ({
       .where(
         and(
           eq(a2aOutboundTasks.connectionId, revoked.connectionId),
-          sql`${a2aOutboundTasks.state} not in ('TASK_STATE_COMPLETED','TASK_STATE_FAILED','TASK_STATE_CANCELED','TASK_STATE_REJECTED')`
+          OPEN_STATES_SQL
+        )
+      );
+    await db
+      .update(a2aOutboundTasks)
+      .set({ resultReadAt: nowIso() })
+      .where(
+        and(
+          eq(a2aOutboundTasks.connectionId, revoked.connectionId),
+          isNull(a2aOutboundTasks.resultReadAt)
+        )
+      );
+    await db
+      .update(runRequests)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(runRequests.workspaceId, revoked.workspaceId),
+          eq(runRequests.toolName, A2A_SEND_TOOL),
+          eq(runRequests.status, "pending"),
+          sql`${runRequests.toolUseId} in (select 'a2a:' || ${a2aOutboundTasks.id} from ${a2aOutboundTasks} where ${a2aOutboundTasks.connectionId} = ${revoked.connectionId})`
         )
       );
   };

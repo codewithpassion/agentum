@@ -2,6 +2,7 @@
 // question a run raises for a person (V1). Browser safe: no drizzle imports.
 
 import {
+  A2A_SEND_TOOL,
   type AgentRuntime,
   APPROVAL_DECISIONS,
   CHOICES_MAX,
@@ -203,7 +204,9 @@ export const approvalSummary = (toolName: string, input: unknown): string => {
   if (toolName.includes("/")) {
     summary = `Call ${toolName}`;
   } else if (isRecord(input)) {
-    if (
+    if (toolName === A2A_SEND_TOOL && typeof input.peer === "string") {
+      summary = `Send a message to ${input.peer}`;
+    } else if (
       toolName.toLowerCase() === "bash" &&
       typeof input.command === "string"
     ) {

@@ -320,3 +320,19 @@ describe("createCardFetcher", () => {
     );
   });
 });
+
+test("a handler for our own origin that never answers is cut off by the timeout", async () => {
+  const peerFetch = createPeerFetch({
+    allowHttp: false,
+    fetch: () => Promise.reject(new Error("the network must not be used")),
+    localFetch: () => new Promise<Response>(() => undefined),
+    publicBaseUrl: "https://hm.test",
+    timeoutMs: 20,
+  });
+
+  const error = await peerFetch("https://hm.test/a2a/x", {}).catch(
+    (caught: unknown) => caught
+  );
+
+  expect((error as Error).name).toBe("TimeoutError");
+});

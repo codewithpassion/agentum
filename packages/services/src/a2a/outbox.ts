@@ -137,6 +137,8 @@ export const createOutboxService = (options: OutboxOptions) => {
         headers,
         method: "POST",
       });
+      // Only the status matters. Let go of the body without reading it.
+      await response.body?.cancel();
       return response.status;
     } catch {
       return null;
@@ -150,6 +152,12 @@ export const createOutboxService = (options: OutboxOptions) => {
     attempts: number,
     reason: string
   ): Promise<Outcome> => {
+    // The connection is told first and the row goes after, so a failure in
+    // between leaves the row to be tried again instead of a connection stuck
+    // in `activating` with nothing left to deliver.
+    if (row.kind === "pair_activate") {
+      await activation.activationAbandoned(SYSTEM_PRINCIPAL, row.connectionId);
+    }
     await db.delete(a2aOutbox).where(eq(a2aOutbox.id, row.id));
     await events.append({
       actor: { id: "tick", kind: "system" },
@@ -163,9 +171,6 @@ export const createOutboxService = (options: OutboxOptions) => {
       type: "a2a.outbox_dropped",
       workspaceId: row.workspaceId,
     });
-    if (row.kind === "pair_activate") {
-      await activation.activationAbandoned(SYSTEM_PRINCIPAL, row.connectionId);
-    }
     return "dropped";
   };
 
@@ -203,13 +208,13 @@ export const createOutboxService = (options: OutboxOptions) => {
     const status = await send(row);
     const attempts = row.attempts + 1;
     if (status !== null && status >= 200 && status < 300) {
-      await db.delete(a2aOutbox).where(eq(a2aOutbox.id, row.id));
       if (row.kind === "pair_activate") {
         await activation.activationDelivered(
           SYSTEM_PRINCIPAL,
           row.connectionId
         );
       }
+      await db.delete(a2aOutbox).where(eq(a2aOutbox.id, row.id));
       return "delivered";
     }
     if (

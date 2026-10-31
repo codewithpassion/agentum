@@ -352,3 +352,48 @@ describe("deliverDue", () => {
     expect(await rows()).toHaveLength(total - OUTBOX_BATCH);
   });
 });
+
+describe("a failure after the peer answered", () => {
+  const serviceWith = (
+    peer: { fetch: A2aFetch },
+    activation: {
+      activationAbandoned: () => Promise<void>;
+      activationDelivered: () => Promise<void>;
+    }
+  ) =>
+    createOutboxService({
+      activation,
+      clock: f.clock,
+      db: f.db,
+      events: f.events,
+      fetch: peer.fetch,
+      secretsKey: SECRETS_KEY,
+    });
+
+  test("an activation the connection could not take in leaves its row for the next try", async () => {
+    await f.connect({ peerKind: "harbourmaster", status: "activating" });
+    await queueActivation("obx_1");
+    const peer = fakePeer(200);
+
+    await serviceWith(peer, {
+      activationAbandoned: () => Promise.resolve(),
+      activationDelivered: () => Promise.reject(new Error("db down")),
+    }).deliverDue(f.system);
+
+    expect(await rows()).toHaveLength(1);
+  });
+
+  test("a give-up the connection could not take in leaves its row too", async () => {
+    await f.connect({ peerKind: "harbourmaster", status: "activating" });
+    await queueActivation("obx_1");
+    const peer = fakePeer(404);
+
+    await serviceWith(peer, {
+      activationAbandoned: () => Promise.reject(new Error("db down")),
+      activationDelivered: () => Promise.resolve(),
+    }).deliverDue(f.system);
+
+    expect(await rows()).toHaveLength(1);
+    expect(await droppedEvents()).toHaveLength(0);
+  });
+});

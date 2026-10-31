@@ -40,6 +40,14 @@ const originOf = (raw: string): string | null => {
   }
 };
 
+/** Rejects with the signal's reason when it aborts. Never resolves otherwise. */
+const timedOut = (signal: AbortSignal): Promise<never> =>
+  new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), {
+      once: true,
+    });
+  });
+
 const refused = (reason: string): Error =>
   new Error(`Request to a peer refused: ${reason}`);
 
@@ -52,12 +60,17 @@ export const createPeerFetch = (options: PeerFetchOptions): A2aFetch => {
   return async (url, init) => {
     const origin = originOf(url);
     if (localFetch && selfOrigin !== null && origin === selfOrigin) {
+      const signal = AbortSignal.timeout(timeoutMs);
       const request = new Request(url, {
         ...init,
         redirect: "manual",
-        signal: AbortSignal.timeout(timeoutMs),
+        signal,
       });
-      const response = await localFetch(request);
+      // The app's handler is not bound to the signal, so the wait is raced with it.
+      const response = await Promise.race([
+        localFetch(request),
+        timedOut(signal),
+      ]);
       if (isRedirect(response.status)) {
         throw refused("redirect");
       }
