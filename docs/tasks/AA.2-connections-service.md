@@ -19,7 +19,7 @@ Spec: `docs/v3/agent-connections.md`, the sections "Trust flows", "Policies on a
 - Harbourmaster pairing, both sides:
   - Inviter: `createInvite`, `join` (called by the route with the invite token), `approve`, `decline`. Invite is 7 days, single use, 5 failed tries, compare-and-set so two joins can't both win.
   - Joiner: `joinWithLink`, `activate` (called by the route with the token the joiner issued), `declined`.
-  - The check code: 6 characters from a hash of both tokens, the same on both sides.
+  - The check code: 8 characters from a hash of both tokens, the same on both sides, in the alphabet "Pairing code" in the design gives.
   - On the same deployment, take the peer's organisation name from our own workspace row and refuse a connection within one workspace. Refuse a second live connection between the same agent and the same peer card.
 - Access keys: `createAccessKey` for an outside client, token shown once, `peer_kind = a2a_inbound`.
 - External agents: `addOutbound` from a fetched card (injected), which keeps the approved origin and stores the credential encrypted with the secrets key. `refreshCard`, which returns the connection to `needs_approval` when the interface origin changes. Only the schemes the design lists are accepted.

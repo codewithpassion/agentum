@@ -38,7 +38,7 @@ Nothing a remote agent sends can start work without a person having created or a
 1. Alice opens Settings, Agent connections, picks her agent X and creates an invite. She gets a link, `https://<hmA>/connect/<token>`, shown once, valid 7 days, single use, at most 5 failed tries. Publishing X happens here if it isn't published yet.
 2. Bob pastes the link into Add connection on his Harbourmaster and picks his agent Y. Opening the link on the same deployment while signed in lands on that form directly.
 3. Bob's server calls `POST <hmA>/a2a/pair/join` with the invite as bearer and a body holding Y's card URL and a new `hm_a2a_` token that lets X call Y. Bob's row is `awaiting_peer`; Alice's is `needs_approval`.
-4. Alice sees it in Needs you: Y's name, the organisation it claims, the host it actually lives on, and a 6-character check code. Bob sees the same code, derived from a hash of both tokens, and can compare it with Alice if the link went through anything he doesn't trust. On the same deployment the organisation name comes from our own database, not the claim.
+4. Alice sees it in Needs you: Y's name, the organisation it claims, the host it actually lives on, and an 8-character check code, from the same alphabet as the pairing code below. Bob sees the same code, derived from a hash of both tokens, and can compare it with Alice if the link went through anything he doesn't trust. On the same deployment the organisation name comes from our own database, not the claim.
 5. Alice approves. Her server mints the token that lets Y call X and calls `POST <Y interface>/pair/activate` with Bob's token as bearer. That call succeeding proves the host really is Y's, because it had to answer on that origin holding a token only Bob's server issued. Both rows go `active`.
 
 If activation can't be delivered, Alice's row stays `activating` and the outbox retries.
@@ -46,6 +46,19 @@ If activation can't be delivered, Alice's row stays `activating` and the outbox 
 ### Outside client calling in
 
 A person picks an agent and a label ("Hermes on Sam's box") and gets an access key and the card URL, shown once. Creating the row is the approval. The policies below apply as normal. The peer has no URL of its own that we know, so nothing is sent to it except push notifications it asks for.
+
+### Pairing code, for an outside client we haven't given a key
+
+Hermes's own pairing approves people on chat platforms: an unknown sender gets a one-time code in reply, and the owner approves that code from the CLI. Its A2A platform doesn't use it. A2A peers there need a token and a place in `A2A_TRUSTED_PEERS`, so there is no pairing protocol to be wire-compatible with. This flow gives a Hermes agent the same experience against us, using only what `a2a_call` already does, and it copies Hermes's limits.
+
+It is off unless an admin or the agent's owner turns on "Accept pairing requests" for that agent.
+
+1. The Hermes operator makes up a long random token (at least 32 characters), sets it as `auth.token` for our agent in `a2a_agents`, and calls the agent.
+2. We don't recognise the token. With pairing on, `SendMessage` answers HTTP 200 with a `TASK_STATE_REJECTED` task whose status message holds an 8-character code and says nothing was delivered. A 401 wouldn't work, because Hermes replaces a 401's body with a generic auth error, while it reads `status.message` as the reply. The message text isn't stored. Every other operation still answers 401.
+3. The peer passes the code to our owner by their own means. The owner types it into the page and gives the connection a label. There is no approve button and no Needs you card, on purpose: only someone the owner actually heard from can get in, so a stranger's request can't be clicked through by mistake.
+4. The request's token hash becomes the connection's inbound token. The peer's next call works, under the default policies.
+
+Limits, from Hermes's `gateway/pairing.py`: 8 characters from an alphabet without `0`, `O`, `1` or `I`, hashed at rest, 1 hour expiry, at most 3 pending per agent, the same token gets its existing code back, lockout for 1 hour after 5 wrong codes, and codes never logged. With pairing off, or a token under 32 characters, the request gets the normal 401. Answering 200 to an unauthenticated caller bends the spec's "authenticate every request", which is why it is opt-in and per agent, and why it creates no task and starts no work.
 
 ### Calling out to an outside agent
 
@@ -108,9 +121,30 @@ Where the spec contradicts itself we pick one and write it down:
 
 `list_agents` also returns connected peers, with slugs of the form `<connection-slug>/<agent>`. `send_message` and `get_run` accept them and answer in the same shape, with no new tools, so an agent uses one habit for both. `outbound_policy` decides whether a person sees the text first.
 
-We register a per-task push webhook (`/a2a/webhooks/<taskId>`, its own token) when the peer's card supports it, and poll `GetTask` from the minute tick when it doesn't, for at most 24 hours.
+We register a per-task push webhook (`/a2a/webhooks/<taskId>/<token>`) when the peer's card supports it, and poll `GetTask` from the minute tick either way, for at most 24 hours, because a push may never come. A push is only a nudge to call `GetTask` straight away. Its body is never trusted (see "Hermes compatibility").
 
 When a result arrives and the calling run has already ended, the result starts a follow-up run in the same session with the calling run's reply target, so a Slack thread gets its answer. Results arriving while the calling run is still alive wait for `get_run`, and the minute tick wakes whatever the run left unread. Wakes count against the hourly limit.
+
+## Hermes compatibility
+
+Hermes is the first outside peer we must work with. It ships native A2A 1.0 in `plugins/platforms/a2a` (since v0.20, latest v0.22.5, read 1 November 2026), so a connection needs no plugin on its side. It speaks JSON-RPC only, uses bearer tokens, and has no invite flow, so it connects through "Give it a key" and "Call it". We follow the spec, and accept these habits of Hermes without loosening anything else.
+
+Hermes calling us:
+
+- It finds the card at `<base>/.well-known/agent-card.json`, so its `url` is `https://<host>/a2a/<publicId>`. Config goes in `a2a_agents` in `~/.hermes/config.yaml`, with `auth: { type: bearer, token }`. The key dialog shows this block ready to paste.
+- Text parts arrive as `{ "text": ..., "mediaType": "text/plain" }`. `mediaType` is a legal `Part` field, so a text part with it counts as text. Hermes issue #127707 records strict servers refusing this, and we must not be one.
+- It picks its own `contextId` on the first message. We accept client context ids.
+- `a2a_call` sends one blocking `SendMessage` with a 120 second default timeout and reads the reply from the first artifact, then from `status.message`. It doesn't poll or register a push, so a task returned unfinished never delivers its answer to that call. Every unfinished task we return therefore carries a `status.message` saying in plain words what it is waiting for. Accept-then-poll is an open Hermes PR (#141947).
+- Consequence for the default: at `inbound_policy = approve`, a Hermes agent gets "waiting for approval" and doesn't get the later answer by itself, though the answer stays in the session for its next message in that context. We keep `approve` as the default anyway, because safety beats convenience here. The page says this on a key connection, and a person who trusts the peer can choose `auto`. Tool approvals under `tool_policy = ask` can outlast the call in the same way.
+
+Us calling Hermes:
+
+- Its card declares `securitySchemes: { bearer: { type: "http", scheme: "bearer" } }` and `security`, not the proto's `httpAuthSecurityScheme` and `securityRequirements`, and it has extra fields (`url`, `stateTransitionHistory`). The client's card parser ignores unknown fields and reads both shapes as bearer. Our own cards use the proto's shape only.
+- Its JSON-RPC errors have no `data`. Parse `code` and `message` and don't require more.
+- It ignores `returnImmediately` and holds `SendMessage` open for up to 300 seconds (`A2A_REPLY_TIMEOUT`). So we always send our own `contextId`, cut the call off at our client timeout, and find the task with `ListTasks` filtered by that context, then poll `GetTask`. AA.8 confirms this against a real Hermes, including that it keeps working after we hang up.
+- Its push notifications don't send the configured `authentication`. They sign the body with `X-A2A-Signature` (HMAC-SHA256 under the peer's own secret, which we don't hold), and the text is cut to 2000 characters. So our webhook treats every push as a nudge: the URL holds the task's unguessable token, the body is never trusted, and the handler calls `GetTask` with our credential to read the real state. This is the rule for all peers, because A2A leaves webhook signing unspecified.
+
+To let us in, the Hermes operator needs `A2A_PEER_TOKENS` (the token we were given a name), `A2A_TRUSTED_PEERS` naming it, and `A2A_PUBLIC_URL` on an HTTPS address, because we refuse plain HTTP outside dev. The "Call it" dialog lists these.
 
 ## What the agent sees
 
@@ -125,7 +159,8 @@ The `tool_policy = ask` gate lives in `requests.needsApproval`, the check the cl
 
 All tables have `workspace_id`. Names are for AA.1 to finalise.
 
-- **`a2a_agent_cards`**: `agent_id` (unique), `public_id` (unique, random), `description`, `skills` JSON, `published_by`, `published_at`, `unpublished_at`.
+- **`a2a_agent_cards`**: `agent_id` (unique), `public_id` (unique, random), `description`, `skills` JSON, `pairing_open` (default false), `pairing_failures`, `pairing_locked_until`, `published_by`, `published_at`, `unpublished_at`.
+- **`a2a_pairing_requests`**: `agent_id`, `code_hash`, `token_hash` (unique with agent), `token_prefix`, `expires_at`, `created_at`.
 - **`a2a_connections`**: `local_agent_id`, `slug`, `peer_kind` (`harbourmaster`, `a2a_inbound`, `a2a_outbound`), `peer_label`, `peer_org`, `peer_card_url`, `peer_origin`, `peer_card` JSON, `peer_card_fetched_at`, `status` (`inviting`, `awaiting_peer`, `needs_approval`, `activating`, `active`, `declined`, `revoked`), invite columns (`invite_token_hash`, `invite_expires_at`, `invite_failures`), `check_code`, `inbound_token_hash`, `inbound_token_prefix`, `outbound_credential` (encrypted with the secrets key), `outbound_scheme`, the policy columns above, `created_by`, `approved_by`, `approved_at`, `revoked_by`, `revoked_at`, `last_in_at`, `last_out_at`.
 - **`a2a_tasks`** (we are the server): `connection_id`, `context_id`, `message_id` (unique with connection), `state`, `input_text`, `status_text`, `result_text`, `hops`, `run_id`, `decided_by`, `decided_at`, timestamps.
 - **`a2a_push_configs`**: `task_id`, `url`, encrypted `authentication`, encrypted `token`.
