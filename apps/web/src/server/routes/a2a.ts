@@ -251,6 +251,9 @@ const execute = async (
 ): Promise<Response> => {
   // Aborted when the client goes away: its request ends, or its stream is cancelled.
   const stopped = new AbortController();
+  if (c.req.raw.signal.aborted) {
+    stopped.abort();
+  }
   c.req.raw.signal.addEventListener("abort", () => stopped.abort(), {
     once: true,
   });
@@ -579,9 +582,10 @@ export const a2aRoutes = (options: A2aRoutesOptions = {}): Hono<AppEnv> => {
 
 /**
  * Mounts `/a2a` on the app. `compose` builds the services for these requests.
- * Mount it before the catch-all that hands requests to the pages, and never
- * under `cookieGroup()` or `csrf()`: callers are other servers with a bearer
- * token and no cookie.
+ * Mount it before `clerkMiddleware()` (on a dev instance Clerk redirects a
+ * browser-style request to its handshake) and before the catch-all that hands
+ * requests to the pages, and never under `cookieGroup()` or `csrf()`: callers
+ * are other servers with a bearer token and no cookie.
  */
 export const mountA2aRoutes = (
   app: Hono<AppEnv>,

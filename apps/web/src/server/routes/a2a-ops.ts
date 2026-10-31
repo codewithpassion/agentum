@@ -86,8 +86,9 @@ const changeEvents = (last: Task, task: Task): StreamResponse[] => {
 
 /**
  * The task first, then a status update each time the task changes, with an
- * artifact update ahead of the one that carries the result. It ends at a
- * settled state, after `timing.streamMs`, or when the client goes away.
+ * artifact update ahead of the one that carries the result, and a heartbeat
+ * while nothing changes. It ends at a settled state, after `timing.streamMs`,
+ * or when the client goes away.
  */
 async function* taskEvents(
   initial: Task,
