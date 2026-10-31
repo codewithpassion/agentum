@@ -6,6 +6,7 @@ import {
   statusWords,
   WHAT_A_CONNECTION_IS,
 } from "#/components/connections/connections-logic.ts";
+import { PairingSection } from "#/components/connections/pairing-section";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 
 /**
@@ -13,9 +14,11 @@ import type { RouterOutputs } from "#/integrations/trpc/types";
  * it is connected to. A peer's name and host are outside text, shown plain.
  */
 export function ConnectionsCard({
+  agentId,
   connections,
   published,
 }: {
+  agentId: string;
   connections: RouterOutputs["a2a"]["list"];
   published: RouterOutputs["a2a"]["published"];
 }) {
@@ -39,6 +42,15 @@ export function ConnectionsCard({
           ? `No connections. ${WHAT_A_CONNECTION_IS}`
           : `${live.length} ${live.length === 1 ? "connection" : "connections"}`}
       </p>
+      {isPublished && published !== null ? (
+        <div className="border-border border-t px-4 py-2">
+          <PairingSection
+            agentId={agentId}
+            key={agentId}
+            pairingOpen={published.pairingOpen}
+          />
+        </div>
+      ) : null}
       {live.length === 0 ? null : (
         <ul>
           {live.map((row) => {

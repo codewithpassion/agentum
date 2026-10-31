@@ -4,6 +4,7 @@ import type { AddDialogProps } from "#/components/connections/dialog-props";
 import {
   HermesCallHelp,
   HermesKeyHelp,
+  PairingHelp,
 } from "#/components/connections/hermes-help";
 import { PublishGate } from "#/components/connections/publish-gate";
 import { Button } from "#/components/ui/button";
@@ -192,6 +193,7 @@ function KeyTab({ agents, onDone, onMade }: TabProps) {
                   Create key
                 </Button>
               </DialogFooter>
+              <PairingHelp />
             </div>
           ) : (
             <KeyResult issued={issued} onDone={onDone} />

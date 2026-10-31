@@ -215,6 +215,19 @@ export const hermesConfigYaml = (input: {
 export const HERMES_APPROVAL_NOTE =
   'With approval on, a Hermes agent gets "waiting for approval" and not the later answer. The answer stays in the session for its next message in that context. Choose "Start a run at once" for this connection if you trust the peer.';
 
+/** The alternative to a key: an outside client pairs with a code, and needs no key from the owner. */
+export const PAIRING_INTRO =
+  "No key yet? An outside client can pair with a code instead. It needs no key from you, and only someone you hear from can get in.";
+
+/** How a Hermes agent pairs with a code, in the order it happens. */
+export const HERMES_PAIRING_STEPS: readonly string[] = [
+  "On the agent's page, turn on Accept pairing requests.",
+  "In Hermes, make up a long random token of at least 32 characters and set it as auth.token for this agent under a2a_agents in ~/.hermes/config.yaml.",
+  "Have Hermes send the agent any message. The reply is a rejected task whose message holds an 8-character pairing code. Nothing is delivered.",
+  "Give the code to the agent's owner. They type it in under Enter a pairing code on the agent's page and add a label.",
+  "Hermes's next message works, and each message waits for approval.",
+];
+
 /** What the Hermes operator sets so we may call their agent. */
 export const hermesCallEnvironment = (input: {
   publicUrl: string;
