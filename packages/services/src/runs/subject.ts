@@ -35,6 +35,8 @@ export const eventActor = (principal: Principal): Actor => {
       return { id: principal.triggerId, kind: "trigger" };
     case "machine":
       return { id: principal.machineId, kind: "system" };
+    case "peer":
+      return { id: principal.connectionId, kind: "peer" };
     default:
       return { id: "tick", kind: "system" };
   }
@@ -97,6 +99,14 @@ const subjectOfRun = async (
   };
 };
 
+/** Floors a peer's claimed hops and clamps them to the tree. NaN and missing count as 0. */
+const clampHops = (hops: number | undefined): number => {
+  const floored = Math.floor(hops ?? 0);
+  return Number.isNaN(floored)
+    ? 0
+    : Math.min(Math.max(floored, 0), MAX_RUN_DEPTH);
+};
+
 /**
  * The actor, the person the run is for, and the place in the run tree, for a
  * run started by `principal` on `agentId`.
@@ -131,6 +141,18 @@ export const deriveSubject = async (
       return {
         actor: { id: principal.triggerId, kind: "trigger" },
         depth: 0,
+        onBehalfOfUserId: null,
+        parentRunId: null,
+      };
+    case "peer":
+      // A peer belongs to one agent, like a trigger.
+      if (principal.agentId !== agentId) {
+        throw new ForbiddenError(START_ACTION);
+      }
+      return {
+        actor: { id: principal.connectionId, kind: "peer" },
+        // A peer can lie about hops, so this is only a clamp. The hourly limit is the real backstop.
+        depth: clampHops(principal.hops),
         onBehalfOfUserId: null,
         parentRunId: null,
       };

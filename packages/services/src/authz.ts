@@ -22,6 +22,12 @@ export const can = (
   if (principal.kind === "system") {
     return true;
   }
+  if (principal.kind === "peer") {
+    const allowed = action.startsWith("a2a.") || action === "runs.start";
+    if (!allowed) {
+      return false;
+    }
+  }
   if (principal.kind === "run" && principal.scopeArtifactId) {
     const ownRun =
       resource.kind === "run" &&

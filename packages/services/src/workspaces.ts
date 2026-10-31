@@ -49,6 +49,18 @@ export type Principal =
       triggerId: string;
       agentId: string;
     }
+  | {
+      kind: "peer";
+      workspaceId: string;
+      connectionId: string;
+      agentId: string;
+      /**
+       * Hops so far, read by the `/a2a` route from the message's metadata and
+       * set on the principal after `authenticate`, which has no body to read.
+       * Absent means 0. Never trusted past `MAX_RUN_DEPTH`.
+       */
+      hops?: number;
+    }
   | { kind: "system" };
 
 /** Every principal except `system`: the ones that act inside one workspace. */
