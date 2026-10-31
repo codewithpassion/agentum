@@ -40,3 +40,31 @@ export const checkCode = async (
 /** A fresh random code for a pairing invite. */
 export const randomPairingCode = (): string =>
   toCode(crypto.getRandomValues(new Uint8Array(PAIRING_CODE_LENGTH)));
+
+const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
+/** Keeps this HMAC apart from any other use of the secrets key. */
+const PAIRING_CONTEXT = "harbourmaster a2a pairing code";
+
+/**
+ * The code a pairing request shows its peer: an HMAC of the request id and the
+ * peer's token under the secrets key (standard base64 of 32 bytes). The same
+ * token on the same request always gets the same code, so the code never has
+ * to be stored, and nobody without the secrets key can work it out from the
+ * stored hashes.
+ */
+export const pairingRequestCode = async (
+  secretsKey: string,
+  requestId: string,
+  token: string
+): Promise<string> => {
+  const raw = Uint8Array.from(atob(secretsKey.trim()), (char) =>
+    char.charCodeAt(0)
+  );
+  const key = await crypto.subtle.importKey("raw", raw, HMAC, false, ["sign"]);
+  const signature = await crypto.subtle.sign(
+    HMAC.name,
+    key,
+    encoder.encode(`${PAIRING_CONTEXT}\n${requestId}\n${token}`)
+  );
+  return toCode(new Uint8Array(signature, 0, PAIRING_CODE_LENGTH));
+};

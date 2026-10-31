@@ -1,7 +1,9 @@
 import {
   HERMES_APPROVAL_NOTE,
+  HERMES_PAIRING_STEPS,
   hermesCallEnvironment,
   hermesConfigYaml,
+  PAIRING_INTRO,
 } from "#/components/connections/connections-logic";
 import { CopyBlock } from "#/components/connections/copy-block";
 
@@ -23,6 +25,21 @@ export function HermesKeyHelp({
         text={hermesConfigYaml({ cardUrl, name: agentName, token })}
       />
       <p className="text-muted-foreground text-sm">{HERMES_APPROVAL_NOTE}</p>
+    </div>
+  );
+}
+
+/** How an outside client pairs with a code instead of a key. */
+export function PairingHelp() {
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="font-medium text-sm">Or pair with a code</h3>
+      <p className="text-muted-foreground text-sm">{PAIRING_INTRO}</p>
+      <ol className="list-decimal pl-5 text-sm">
+        {HERMES_PAIRING_STEPS.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
     </div>
   );
 }

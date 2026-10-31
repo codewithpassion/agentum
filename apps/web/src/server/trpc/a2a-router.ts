@@ -9,6 +9,10 @@ import {
   previewCardInputSchema,
   publishInputSchema,
 } from "@repo/services/a2a/connections";
+import {
+  approvePairingInputSchema,
+  setPairingOpenInputSchema,
+} from "@repo/services/a2a/pairing";
 import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
@@ -38,6 +42,11 @@ export const a2aRouter = router({
     .input(taskInput)
     .mutation(({ ctx, input }) =>
       ctx.services.a2aTasks.approveTask(ctx.principal, input.taskId)
+    ),
+  approvePairingCode: workspaceProcedure
+    .input(approvePairingInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.connections.approvePairingCode(ctx.principal, input)
     ),
   createAccessKey: workspaceProcedure
     .input(accessKeyInputSchema)
@@ -103,6 +112,11 @@ export const a2aRouter = router({
     .input(connectionInput)
     .mutation(({ ctx, input }) =>
       ctx.services.connections.revoke(ctx.principal, input.connectionId)
+    ),
+  setPairingOpen: workspaceProcedure
+    .input(setPairingOpenInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.connections.setPairingOpen(ctx.principal, input)
     ),
   setPolicies: workspaceProcedure
     .input(policiesInputSchema)

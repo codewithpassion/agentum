@@ -30,6 +30,7 @@ import type {
   PairActivateBody,
   PairJoinBody,
 } from "@repo/services/a2a/connections";
+import { PAIRING_TOKEN_MIN } from "@repo/services/a2a/pairing";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { Context, Hono, MiddlewareHandler } from "hono";
@@ -232,6 +233,64 @@ const versionRefusal = (c: RouteContext): Refusal | null =>
         `This server speaks A2A ${A2A_PROTOCOL_VERSION}. Send ${A2A_VERSION_HEADER}: ${A2A_PROTOCOL_VERSION}.`
       );
 
+// ---------------------------------------------------------------------------
+// Pairing by code. The one answer an unauthenticated caller can get besides 401.
+
+/**
+ * What an unknown client is told: a rejected task whose status message holds
+ * the code, because Hermes reads `status.message` as the reply and swaps the
+ * body of a 401 for a generic error. Nothing is stored, so the ids are made up
+ * here and name nothing.
+ */
+const pairingTask = (code: string) => {
+  const id = `tsk_${crypto.randomUUID()}`;
+  const contextId = `ctx_${crypto.randomUUID()}`;
+  return {
+    contextId,
+    id,
+    status: {
+      message: {
+        contextId,
+        messageId: `${id}:rejected`,
+        parts: [
+          {
+            text: `Nothing was delivered. This agent does not know you yet. Pairing code: ${code}. Give the code to the agent's owner. It works for 1 hour. Once they have entered it, send your message again.`,
+          },
+        ],
+        role: "ROLE_AGENT",
+        taskId: id,
+      },
+      state: "TASK_STATE_REJECTED",
+      timestamp: new Date().toISOString(),
+    },
+  };
+};
+
+/**
+ * The agent of this path when it takes a pairing request from this bearer: the
+ * token is long enough, and the agent is published, accepting requests and not
+ * locked. Checked before any body is read, so with pairing off an unknown token
+ * costs nothing more than before.
+ */
+const pairingAgent = async (c: RouteContext): Promise<string | null> => {
+  const token = bearerOf(c);
+  if (token === null || token.length < PAIRING_TOKEN_MIN) {
+    return null;
+  }
+  return await c
+    .get("composed")
+    .services.connections.pairableAgent(c.req.param("publicId") ?? "");
+};
+
+/** The code for this bearer's request, or null when it is refused. */
+const pairingCode = async (
+  c: RouteContext,
+  agentId: string
+): Promise<string | null> =>
+  await c
+    .get("composed")
+    .services.connections.requestPairing(agentId, bearerOf(c) ?? "");
+
 const respond = (
   binding: Binding,
   outcome: OperationOutcome,
@@ -345,23 +404,47 @@ const restParams = (
   }
 };
 
+/** The operation an HTTP+JSON request names, from its method and the path under `/rest`. */
+const matchRest = (c: RouteContext): ReturnType<typeof matchRestRoute> => {
+  const url = new URL(c.req.url);
+  // The public id is random text and may itself contain "rest".
+  const marker = `/${c.req.param("publicId")}/rest`;
+  const rest = url.pathname.slice(url.pathname.indexOf(marker) + marker.length);
+  return matchRestRoute(c.req.method, rest);
+};
+
+/** A `message:send` from a client we don't know: the pairing answer, or null for the normal 401. */
+const restPairing = async (c: RouteContext): Promise<Response | null> => {
+  const match = matchRest(c);
+  if (match?.route.operation !== "SendMessage") {
+    return null;
+  }
+  const agentId = await pairingAgent(c);
+  if (agentId === null) {
+    return null;
+  }
+  const code = await pairingCode(c, agentId);
+  return code === null
+    ? null
+    : send(restBinding, { task: pairingTask(code) }, 200);
+};
+
 const restRequest = async (
   c: RouteContext,
   timing: A2aTiming
 ): Promise<Response> => {
   const peer = await authenticate(c);
   if (!peer) {
-    return failure(restBinding, { kind: "unauthorized" });
+    return (
+      (await restPairing(c)) ?? failure(restBinding, { kind: "unauthorized" })
+    );
   }
   const refusal = versionRefusal(c);
   if (refusal) {
     return failure(restBinding, refusal);
   }
   const url = new URL(c.req.url);
-  // The public id is random text and may itself contain "rest".
-  const marker = `/${c.req.param("publicId")}/rest`;
-  const rest = url.pathname.slice(url.pathname.indexOf(marker) + marker.length);
-  const match = matchRestRoute(c.req.method, rest);
+  const match = matchRest(c);
   if (!match) {
     return failure(restBinding, invalid("MethodNotFoundError"));
   }
@@ -387,13 +470,44 @@ const restRequest = async (
 // ---------------------------------------------------------------------------
 // JSON-RPC requests
 
+/**
+ * A `SendMessage` from a client we don't know: the pairing answer, or null for
+ * the normal 401. Only the envelope is read, for the method and the id, and
+ * the message in `params` is never looked at.
+ */
+const rpcPairing = async (c: RouteContext): Promise<Response | null> => {
+  const agentId = await pairingAgent(c);
+  if (agentId === null) {
+    return null;
+  }
+  const read = await readCappedBody(c.req.raw, MAX_BODY_BYTES);
+  if (!read.ok) {
+    return null;
+  }
+  const parsed = parseJsonRpcRequest(new TextDecoder().decode(read.bytes));
+  if (!parsed.ok || parsed.method !== "SendMessage") {
+    return null;
+  }
+  const code = await pairingCode(c, agentId);
+  return code === null
+    ? null
+    : send(
+        jsonRpcBinding(parsed.id),
+        buildJsonRpcResult(parsed.id, { task: pairingTask(code) }),
+        200
+      );
+};
+
 const rpcRequest = async (
   c: RouteContext,
   timing: A2aTiming
 ): Promise<Response> => {
   const peer = await authenticate(c);
   if (!peer) {
-    return failure(jsonRpcBinding(null), { kind: "unauthorized" });
+    return (
+      (await rpcPairing(c)) ??
+      failure(jsonRpcBinding(null), { kind: "unauthorized" })
+    );
   }
   const read = await readCappedBody(c.req.raw, MAX_BODY_BYTES);
   if (!read.ok) {

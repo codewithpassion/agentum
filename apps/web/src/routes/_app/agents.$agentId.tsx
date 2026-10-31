@@ -163,7 +163,11 @@ function AgentPage() {
             mailAllowed={allowedMailAddresses(rules)}
           />
           <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
-          <ConnectionsCard connections={connections} published={published} />
+          <ConnectionsCard
+            agentId={agent.id}
+            connections={connections}
+            published={published}
+          />
           <ComputerCard
             agent={agent}
             header={profile.header}

@@ -85,6 +85,7 @@ import {
   schemeLabel,
   tokenUrlOfLabel,
 } from "./card-peer.ts";
+import { createPairing } from "./pairing.ts";
 import { checkCode } from "./pairing-code.ts";
 import {
   ACCESS_TOKEN_PREFIX,
@@ -2363,10 +2364,11 @@ export const createConnectionsService = ({
   // Authenticating a peer
 
   /**
-   * The `peer` principal for an `hm_a2a_` token, or null. It re-reads the
-   * connection on every call and caches nothing, so a revoke takes effect on the
-   * next request. The connection must be `active`, and its agent published and
-   * active. When `publicId` is given, it must be the public id of the agent
+   * The `peer` principal for a bearer token, or null. Any token is looked up,
+   * not only `hm_a2a_` ones, because a client that paired by code chose its own.
+   * It re-reads the connection on every call and caches nothing, so a revoke
+   * takes effect on the next request. The connection must be `active`, and its
+   * agent published and active. When `publicId` is given, it must be the public id of the agent
    * the connection belongs to, so a key does not work under another agent's
    * path. This is not part of `createPrincipalResolver`, so the token works
    * only on the `/a2a` routes.
@@ -2375,9 +2377,6 @@ export const createConnectionsService = ({
     token: string,
     publicId?: string
   ): Promise<PeerPrincipal | null> => {
-    if (!token.startsWith(ACCESS_TOKEN_PREFIX)) {
-      return null;
-    }
     const [row] = await db
       .select({
         agentId: a2aConnections.localAgentId,
@@ -2477,7 +2476,21 @@ export const createConnectionsService = ({
     revokedListeners.push(listener);
   };
 
+  const pairing = createPairing({
+    actorOf,
+    atomic,
+    clock,
+    db,
+    freeSlug,
+    publishedCardOf,
+    record,
+    requireActiveAgent,
+    requireSummary,
+    secretsKey,
+  });
+
   return {
+    ...pairing,
     activate,
     activationAbandoned,
     activationDelivered,

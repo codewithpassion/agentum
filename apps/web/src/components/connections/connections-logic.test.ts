@@ -3,6 +3,7 @@ import {
   type ConnectionLike,
   clipMessage,
   directionsOn,
+  HERMES_PAIRING_STEPS,
   hermesConfigYaml,
   hermesUrlOfCardUrl,
   lastActivity,
@@ -155,6 +156,12 @@ test("widens: a change of several fields widens when any one of them does", () =
   expect(widens(current, { hourlyLimit: 50, inboundPolicy: "off" })).toBe(
     false
   );
+});
+
+test("the Hermes pairing steps run to five and name the token and code lengths", () => {
+  expect(HERMES_PAIRING_STEPS).toHaveLength(5);
+  expect(HERMES_PAIRING_STEPS[1]).toContain("32 characters");
+  expect(HERMES_PAIRING_STEPS[2]).toContain("8-character");
 });
 
 test("clipMessage keeps a short message as it is", () => {
