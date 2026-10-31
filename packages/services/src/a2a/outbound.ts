@@ -1383,10 +1383,9 @@ export const createOutboundService = ({
       .update(a2aOutboundTasks)
       .set({
         nextPollAt: null,
-        resultReadAt: nowIso(),
         resultText: answered
           ? "A person declined to send this message."
-          : "Nobody answered in time, so the message was not sent.",
+          : "Nobody approved this message in time, so it was not sent.",
         state: "TASK_STATE_REJECTED",
         updatedAt: nowIso(),
       })
@@ -1410,6 +1409,8 @@ export const createOutboundService = ({
         type: "a2a.message_declined",
         workspaceId: row.workspaceId,
       });
+      // The agent is told the message did not go, as it is told of an answer.
+      await wake(declined);
     }
   };
 
@@ -1562,10 +1563,16 @@ export const createOutboundService = ({
   };
 
   /** The answer, or for an end without one our own words. */
-  const answerBody = (row: OutboundRow): string =>
-    row.state === "TASK_STATE_COMPLETED"
-      ? (row.resultText ?? "")
-      : `The task ended as ${row.state.replace("TASK_STATE_", "").toLowerCase()}.`;
+  const answerBody = (row: OutboundRow): string => {
+    if (row.state === "TASK_STATE_COMPLETED") {
+      return row.resultText ?? "";
+    }
+    // A refusal of ours (nobody approved) carries our own words. A peer's has none.
+    if (row.state === "TASK_STATE_REJECTED" && row.resultText !== null) {
+      return row.resultText;
+    }
+    return `The task ended as ${row.state.replace("TASK_STATE_", "").toLowerCase()}.`;
+  };
 
   /**
    * The run's input: our line about what the answer is for, and the answer,
@@ -1576,11 +1583,15 @@ export const createOutboundService = ({
     const peer = peerOf(connection);
     const asked = capText(row.text, 160);
     const body = answerBody(row);
+    const lead =
+      row.state === "TASK_STATE_COMPLETED"
+        ? `${peer.agentName} answered your earlier message "${asked}":`
+        : `About your earlier message to ${peer.agentName} "${asked}":`;
     let cut = body.length;
     for (;;) {
       const wrapped = buildPeerEnvelope(
         peer,
-        `${peer.agentName} answered your earlier message "${asked}":\n\n${capText(body, cut)}`
+        `${lead}\n\n${capText(body, cut)}`
       );
       if (wrapped.length <= INPUT_TEXT_MAX || cut <= WAKE_TEXT_FLOOR) {
         return wrapped;

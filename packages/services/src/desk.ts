@@ -10,6 +10,7 @@
  * so another member's ui session or private Slack DM never shows.
  */
 import type { Database } from "@repo/db";
+import { a2aOutboundTasks } from "@repo/db/schema/a2a";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
@@ -41,6 +42,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
+import { isA2aApproval } from "./mail/approval.ts";
 import { mailSubjectsOf } from "./mail-subjects.ts";
 import { runTitleText } from "./mail-title-text.ts";
 import type { RequestRecord, RequestsService } from "./requests.ts";
@@ -388,15 +390,50 @@ export const createDeskService = ({
       member.workspaceId,
       pending.map((record) => record.agentId)
     );
-    return pending.map((record) => ({
-      agent: names.get(record.agentId) ?? record.agentId,
-      createdAt: record.createdAt,
-      expiresAt: record.expiresAt,
-      kind: record.kind,
-      requestId: record.id,
-      runId: record.runId,
-      ...describe(record),
-    }));
+    return await Promise.all(
+      pending.map(async (record) => {
+        const described = describe(record);
+        return {
+          agent: names.get(record.agentId) ?? record.agentId,
+          createdAt: record.createdAt,
+          expiresAt: record.expiresAt,
+          kind: record.kind,
+          requestId: record.id,
+          runId: record.runId,
+          ...described,
+          detail: (await sendDetail(record)) ?? described.detail,
+        };
+      })
+    );
+  };
+
+  /**
+   * The whole message behind an `a2a_send` card, never clipped: a person must
+   * see all of what an approval sends. It comes from the card's input, and from
+   * the task row when the card holds only a cut copy. Null for any other request.
+   */
+  const sendDetail = async (record: RequestRecord): Promise<string | null> => {
+    if (!(isA2aApproval(record) && "input" in record.display)) {
+      return null;
+    }
+    const { input } = record.display;
+    if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+      const shown = input as Record<string, unknown>;
+      if (typeof shown.text === "string") {
+        return `To ${String(shown.peer)} at ${String(shown.host)}, an agent outside this workspace:\n\n${shown.text}`;
+      }
+    }
+    const [task] = await db
+      .select({ text: a2aOutboundTasks.text })
+      .from(a2aOutboundTasks)
+      .where(
+        and(
+          eq(a2aOutboundTasks.id, record.toolUseId.slice("a2a:".length)),
+          eq(a2aOutboundTasks.workspaceId, record.workspaceId)
+        )
+      )
+      .limit(1);
+    return task ? `To an agent outside this workspace:\n\n${task.text}` : null;
   };
 
   /** The A2A messages and connections that wait on a person, before the draft filter. */

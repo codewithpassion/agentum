@@ -49,6 +49,7 @@ import {
 import { verifySlackRequest } from "./signature.ts";
 
 const CANT_ANSWER = "You can't answer this one.";
+const TRAILING_SLASHES = /\/+$/;
 
 /** What `run_requests.slack_message` holds: the card, by Slack's `api_app_id`. */
 const slackMessageSchema = z.strictObject({
@@ -292,15 +293,45 @@ export const createSlackRequests = ({
   };
 
   /** Posts the card of a request that just opened, where its run can be answered from. */
+  /**
+   * A message to an outside agent waits for a person. A Slack block holds about
+   * 3,000 characters and a person must see the whole message before it goes, so
+   * Slack gets a plain notice with a link and no buttons. It is answered in
+   * Harbourmaster, where the card shows in full. The notice is not kept as the
+   * request's Slack message, so nothing edits it later.
+   */
+  const postSendNotice = async (
+    row: typeof runRequests.$inferSelect,
+    destination: Destination
+  ): Promise<void> => {
+    let peer = "an outside agent";
+    try {
+      const shown = (JSON.parse(row.display) as { input?: { peer?: unknown } })
+        .input?.peer;
+      if (typeof shown === "string") {
+        peer = shown;
+      }
+    } catch {
+      // The notice still says a message waits.
+    }
+    const link = publicBaseUrl
+      ? ` Read it in full and answer at ${publicBaseUrl.replace(TRAILING_SLASHES, "")}/desk`
+      : " Open Harbourmaster to read it in full and answer.";
+    const posted = await withRetry(clock, () =>
+      destination.client.postMessage({
+        channel: destination.channel,
+        text: `A message to ${peer} is waiting for approval.${link}`,
+        threadTs: destination.threadTs,
+      })
+    );
+    if (posted.kind !== "ok") {
+      console.warn("Slack notice not posted", describeFailure(posted));
+    }
+  };
+
   const postCard = async (requestId: string): Promise<void> => {
     const row = await loadRow(requestId);
     if (!row || row.slackMessage !== null || row.status !== "pending") {
-      return;
-    }
-    // A Slack block holds about 3,000 characters, and a person must see the
-    // whole message before it goes to an outside agent. That card is answered
-    // in Harbourmaster, where it shows in full.
-    if (isA2aApproval(row)) {
       return;
     }
     const [run] = await db
@@ -325,6 +356,10 @@ export const createSlackRequests = ({
         ? await threadDestination(run, reply)
         : await dmDestination(run);
     if (!destination) {
+      return;
+    }
+    if (isA2aApproval(row)) {
+      await postSendNotice(row, destination);
       return;
     }
     const request = await cardOf(row);

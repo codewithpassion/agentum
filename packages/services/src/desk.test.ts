@@ -1054,3 +1054,36 @@ test("an A2A item for a draft agent is left out", async () => {
   expect((await get()).needsYou).toEqual([]);
   expect(await desk.needsYouCount(user())).toBe(0);
 });
+
+test("a message to an outside agent waits in Needs you with its open request, the peer in the title", async () => {
+  const started = await runs.startRun(user(), {
+    agentId: a1,
+    input: { text: "ask Hermes" },
+    session: { origin: "ui" },
+  });
+  await runs.claimRun(system, started.runId);
+  const request = await requests.open(system, {
+    input: {
+      connection: "hermes",
+      host: "h.example",
+      peer: "Hermes",
+      text: "Summarise the open pull requests.",
+    },
+    kind: "approval",
+    runId: started.runId,
+    toolKey: "a2a_send:con_1",
+    toolName: "a2a_send",
+    toolUseId: "a2a:aot_1",
+  });
+
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+
+  expect(rail.pending.map((record) => record.id)).toEqual([request.id]);
+  expect(rail.needsYou).toHaveLength(1);
+  expect(rail.needsYou[0]).toMatchObject({
+    id: request.id,
+    lane: "needs_you",
+    needsYouKind: "approval",
+    title: "Send a message to Hermes",
+  });
+});

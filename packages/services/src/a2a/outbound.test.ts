@@ -1254,3 +1254,63 @@ describe("what the second review found", () => {
     expect((await rowOf(info.runId)).state).toBe("TASK_STATE_FAILED");
   });
 });
+
+describe("approval expiry and long messages", () => {
+  test("a card nobody answers expires into a clear refusal, and nothing is sent", async () => {
+    await f.connectPeer({ outboundPolicy: "approve" });
+    const call = await f.callingRun();
+    const info = await sendFrom(call);
+
+    advanceMinutes(61);
+    await f.requests.expireDue(f.system);
+    await f.outbound.settleApprovals(f.system);
+
+    expect(f.peer.calls).toEqual([]);
+    const read = await f.outbound.get(call.principal, info.runId);
+    expect(read.status).toBe("failed");
+    expect(read.error).toBe(
+      "Nobody approved this message in time, so it was not sent."
+    );
+  });
+
+  test("the agent whose run ended is told the message was not approved", async () => {
+    await f.connectPeer({ outboundPolicy: "approve" });
+    const call = await f.callingRun();
+    await sendFrom(call);
+    await f.runs.completeRun(f.system, call.runId, { status: "done" });
+
+    advanceMinutes(61);
+    await f.requests.expireDue(f.system);
+    await f.outbound.settleApprovals(f.system);
+    await f.outbound.wakeDue(f.system);
+
+    const [wake] = (await f.db.select().from(runRows)).filter((run) =>
+      run.requestId?.startsWith("a2a-wake:")
+    );
+    expect(wake?.inputText).toContain("Nobody approved this message in time");
+  });
+
+  test("a message over 2,000 characters is sent exactly as the card showed it", async () => {
+    await f.connectPeer({ outboundPolicy: "approve" });
+    const call = await f.callingRun();
+    const text = `Long one. ${"word ".repeat(1000)}`;
+    await sendFrom(call, "req-1", text);
+    const [request] = await f.db.select().from(runRequests);
+    const shown = (
+      JSON.parse(request?.display ?? "{}") as { input: { text: string } }
+    ).input.text;
+
+    await f.requests.answer(member(), {
+      answer: { decision: "allow_once" },
+      requestId: request?.id ?? "",
+      via: "web",
+    });
+
+    expect(shown.length).toBeGreaterThan(2000);
+    const sent = f.peer.calls.at(0)?.params.message as {
+      parts: { text: string }[];
+    };
+    expect(sent.parts[0]?.text).toBe(shown);
+    expect(shown).toBe(text.trim());
+  });
+});

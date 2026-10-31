@@ -21,6 +21,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { isReadOnly } from "./automation-access.ts";
 import type { DeskService } from "./desk.ts";
 import { ServiceError } from "./errors.ts";
+import { isA2aApproval } from "./mail/approval.ts";
 import type { RequestsService } from "./requests.ts";
 import { INPUT_TEXT_MAX } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
@@ -36,6 +37,18 @@ const SCOPE_ACTION = "desk.scope";
 const WRITE_ACTION = "desk.write";
 
 const idString = z.string().min(1).max(200);
+
+/** Whether an `a2a_send` card carries the message as text, so a person saw all of it. */
+const cardHoldsText = (display: string): boolean => {
+  try {
+    return (
+      typeof (JSON.parse(display) as { input?: { text?: unknown } }).input
+        ?.text === "string"
+    );
+  } catch {
+    return false;
+  }
+};
 
 export const deskDecisionInputSchema = z.strictObject({
   answer: z.string().max(INPUT_TEXT_MAX).optional(),
@@ -225,7 +238,12 @@ export const createDeskApiService = ({
     // (not found), before the body decides anything.
     await requests.outcome(member, id);
     const [row] = await db
-      .select({ display: runRequests.display, kind: runRequests.kind })
+      .select({
+        display: runRequests.display,
+        kind: runRequests.kind,
+        toolName: runRequests.toolName,
+        toolUseId: runRequests.toolUseId,
+      })
       .from(runRequests)
       .where(
         and(
@@ -241,6 +259,16 @@ export const createDeskApiService = ({
       throw new ServiceError(
         "invalid",
         "Take over the computer in Harbourmaster."
+      );
+    }
+    if (
+      isA2aApproval(row) &&
+      input.decision !== "deny" &&
+      !cardHoldsText(row.display)
+    ) {
+      throw new ServiceError(
+        "invalid",
+        "This message is too long to approve here. Answer it in Harbourmaster, where it shows in full."
       );
     }
     const answer =
