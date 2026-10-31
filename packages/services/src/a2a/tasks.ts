@@ -164,8 +164,6 @@ type ConnectionRow = typeof a2aConnections.$inferSelect;
 /** What `move` writes besides the new state. */
 interface Patch {
   decidedBy?: string;
-  /** Queue push rows. Off when a revoke ends the task, because the peer hears nothing more. */
-  push?: boolean;
   resultText?: string | null;
   statusText: string | null;
 }
@@ -305,12 +303,10 @@ export const createA2aTasksService = ({
     if (!row) {
       return null;
     }
-    if (patch.push !== false) {
-      try {
-        await pushConfigs.queueFor(row);
-      } catch (error) {
-        console.error("A2A push not queued", row.id, error);
-      }
+    try {
+      await pushConfigs.queueFor(row);
+    } catch (error) {
+      console.error("A2A push not queued", row.id, error);
     }
     return row;
   };
