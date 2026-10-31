@@ -409,6 +409,31 @@ test("posts an approval card in the Slack thread of a Slack run", async () => {
   expect(readRequest()?.slackMessage).toBe(storedSlackMessage);
 });
 
+test("posts no Slack card for a message to an outside agent, which is answered where it shows in full", async () => {
+  seedRun(slackReply);
+  seedRequest({
+    display: JSON.stringify({
+      input: {
+        connection: "hermes",
+        host: "h.example",
+        peer: "Hermes",
+        text: "x",
+      },
+      summary: "Send a message to Hermes",
+      toolKey: "a2a_send:con_1",
+      toolName: "a2a_send",
+    }),
+    toolKey: "a2a_send:con_1",
+    toolName: "a2a_send",
+    toolUseId: "a2a:aot_1",
+  });
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  expect(callsTo("chat.postMessage")).toHaveLength(0);
+  expect(readRequest()?.slackMessage).toBeNull();
+});
+
 test("sends a web run's card as a DM to the linked Slack user", async () => {
   seedRun(null);
   seedRequest();

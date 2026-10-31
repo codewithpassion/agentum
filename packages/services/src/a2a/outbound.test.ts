@@ -4,6 +4,7 @@ import { a2aOutboundTasks } from "@repo/db/schema/a2a";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import { speakerEnvelopeSchema } from "@repo/protocol/live";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
@@ -1134,5 +1135,122 @@ describe("credentials", () => {
     expect(info.status).toBe("failed");
     expect(tokenRequests).toBe(0);
     expect(f.peer.calls).toEqual([]);
+  });
+});
+
+describe("what the second review found", () => {
+  const wakeRunsOf = async () =>
+    (await f.db.select().from(runRows)).filter((run) =>
+      run.requestId?.startsWith("a2a-wake:")
+    );
+
+  test("a retried send that hands over a finished answer marks it read", async () => {
+    await f.connectPeer();
+    const call = await f.callingRun();
+    await sendFrom(call);
+    f.peer.finish("rt-1", "Sunny");
+    advanceMinutes(2);
+    await f.outbound.pollDue(f.system);
+
+    const again = await sendFrom(call);
+    await f.runs.completeRun(f.system, call.runId, { status: "done" });
+    await f.outbound.wakeDue(f.system);
+
+    expect(unwrap(again.answer).text).toBe("Sunny");
+    expect(await wakeRunsOf()).toHaveLength(0);
+  });
+
+  test("a peer name of any length still wakes the agent and reads back", async () => {
+    await f.connectPeer({ peerLabel: "N".repeat(300) });
+    const call = await f.callingRun();
+    const info = await sendFrom(call);
+    await f.runs.completeRun(f.system, call.runId, { status: "done" });
+    f.peer.finish("rt-1", "Sunny");
+    advanceMinutes(2);
+
+    await f.outbound.pollDue(f.system);
+
+    expect(await wakeRunsOf()).toHaveLength(1);
+    const read = await f.outbound.get(call.principal, info.runId);
+    expect(unwrap(read.answer).text).toBe("Sunny");
+  });
+
+  test("an answer that grows past a run's input once escaped is cut and still wakes", async () => {
+    await f.connectPeer();
+    const call = await f.callingRun();
+    await sendFrom(call);
+    await f.runs.completeRun(f.system, call.runId, { status: "done" });
+    f.peer.finish("rt-1", "\u0001".repeat(30_000));
+    advanceMinutes(2);
+
+    await f.outbound.pollDue(f.system);
+
+    const [wake] = await wakeRunsOf();
+    expect(wake).toBeDefined();
+    expect((wake?.inputText ?? "").length).toBeLessThanOrEqual(100_000);
+  });
+
+  test("a wake that can never start is ended and logged, not retried for a day", async () => {
+    await f.connectPeer();
+    const call = await f.callingRun();
+    const info = await sendFrom(call);
+    await f.runs.completeRun(f.system, call.runId, { status: "done" });
+    await f.db
+      .update(sessions)
+      .set({ origin: "artifact" })
+      .where(eq(sessions.id, call.sessionId));
+    f.peer.finish("rt-1", "Sunny");
+    advanceMinutes(2);
+
+    await f.outbound.pollDue(f.system);
+    await f.outbound.wakeDue(f.system);
+
+    expect(await wakeRunsOf()).toHaveLength(0);
+    const row = await rowOf(info.runId);
+    expect(row.resultReadAt).not.toBeNull();
+    expect(row.resultReadAt?.endsWith("#wake")).toBe(false);
+    const logged = (await f.db.select().from(eventRows)).filter(
+      (event) =>
+        event.type === "a2a.result_received" &&
+        (event.payload ?? "").includes('"woke":false')
+    );
+    expect(logged).toHaveLength(1);
+  });
+
+  test("a revoke tells the stream the send card closed", async () => {
+    await f.connectPeer({ outboundPolicy: "approve" });
+    const call = await f.callingRun();
+    await sendFrom(call);
+
+    await f.connections.revoke(member(), OUTBOUND_CONNECTION);
+
+    expect(await eventTypes()).toContain("request.cancelled");
+  });
+
+  test("a card that did not carry the message as text sends nothing", async () => {
+    await f.connectPeer({ outboundPolicy: "approve" });
+    const call = await f.callingRun();
+    const info = await sendFrom(call);
+    const [request] = await f.db.select().from(runRequests);
+    await f.db
+      .update(runRequests)
+      .set({
+        display: JSON.stringify({
+          input: '{"text":"cut… [truncated]',
+          summary: "x",
+          toolKey: "k",
+          toolName: "a2a_send",
+        }),
+      })
+      .where(eq(runRequests.id, request?.id ?? ""));
+
+    await f.requests.answer(member(), {
+      answer: { decision: "allow_once" },
+      requestId: request?.id ?? "",
+      via: "web",
+    });
+
+    expect(f.peer.calls).toEqual([]);
+    expect((await rowOf(info.runId)).state).toBe("TASK_STATE_FAILED");
   });
 });

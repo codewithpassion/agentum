@@ -65,6 +65,7 @@ import { loadRun } from "../runs/queries.ts";
 import { MAX_RUN_DEPTH } from "../runs/subject.ts";
 import {
   type Clock,
+  INPUT_TEXT_MAX,
   type RunRecord,
   type StartRunInput,
   type StartRunOptions,
@@ -105,6 +106,9 @@ const TASK_NOT_FOUND_CODE = -32_001;
 const TRAILING_SLASHES = /\/+$/;
 const NOT_FOUND = 404;
 const NO_CARD_AFTER_MS = 5 * MINUTE_MS;
+const PEER_NAME_MAX = 100;
+/** An answer is cut to fit a run's input once escaped, never below this. */
+const WAKE_TEXT_FLOOR = 1000;
 
 const TERMINAL_STATES: readonly A2aTaskState[] = [
   "TASK_STATE_COMPLETED",
@@ -319,7 +323,8 @@ export const createOutboundService = ({
   };
 
   const peerOf = (connection: ConnectionRow) => ({
-    agentName: peerName(connection),
+    // The envelope allows 200 characters and a card's name has no limit.
+    agentName: capText(peerName(connection), PEER_NAME_MAX),
     connectionId: connection.id,
     host: hostOf(connection.peerOrigin),
   });
@@ -1113,6 +1118,14 @@ export const createOutboundService = ({
     return winner ? { winner } : await refuseFull(connection);
   };
 
+  /** A retry gets the task the first call made. A finished answer it hands over is read, so no wake repeats it. */
+  const recalled = async (row: OutboundRow): Promise<OutboundTaskInfo> => {
+    if (isTerminal(row.state)) {
+      await markRead(row.id);
+    }
+    return await view(row);
+  };
+
   /**
    * Sends a message to a peer, or recalls the task an earlier call with the
    * same `requestId` made. With `approve` nothing is sent until a person
@@ -1126,7 +1139,7 @@ export const createOutboundService = ({
     const { callingRun, connection } = await admit(principal, input);
     const earlier = await byRequestId(connection.id, input.requestId);
     if (earlier) {
-      return await view(earlier);
+      return await recalled(earlier);
     }
     const approve = connection.outboundPolicy === "approve";
     const card = cardInput(connection, input.text);
@@ -1143,7 +1156,7 @@ export const createOutboundService = ({
       input,
     });
     if ("winner" in created) {
-      return await view(created.winner);
+      return await recalled(created.winner);
     }
     const { id } = created;
     const row = await requireTask(id);
@@ -1327,18 +1340,19 @@ export const createOutboundService = ({
     return request ?? null;
   };
 
-  /** The text the card showed, which is what a person approved. */
-  const shownText = (
-    request: { display: string },
-    fallback: string
-  ): string => {
+  /**
+   * The text the card showed, which is what a person approved. Null when the
+   * card did not carry the message as text (its input was cut), because then
+   * nobody saw all of it.
+   */
+  const shownText = (request: { display: string }): string | null => {
     try {
       const shown = (
         JSON.parse(request.display) as { input?: { text?: unknown } }
       ).input?.text;
-      return typeof shown === "string" && shown.length > 0 ? shown : fallback;
+      return typeof shown === "string" && shown.length > 0 ? shown : null;
     } catch {
-      return fallback;
+      return null;
     }
   };
 
@@ -1405,6 +1419,14 @@ export const createOutboundService = ({
     connection: ConnectionRow,
     request: SettledRequest
   ): Promise<void> => {
+    const shown = shownText(request);
+    if (shown === null) {
+      await failLocal(
+        row,
+        "The approval card did not show the whole message, so nothing was sent."
+      );
+      return;
+    }
     const [won] = await db
       .update(a2aOutboundTasks)
       .set({
@@ -1412,7 +1434,7 @@ export const createOutboundService = ({
         pollUntil: later(POLL_WINDOW_MS),
         state: "TASK_STATE_SUBMITTED",
         // What goes out is what the person saw: the card holds the text as masked.
-        text: shownText(request, row.text),
+        text: shown,
         updatedAt: nowIso(),
       })
       .where(
@@ -1539,14 +1561,32 @@ export const createOutboundService = ({
     return session?.origin;
   };
 
-  const answerText = (row: OutboundRow, connection: ConnectionRow): string => {
-    const name = peerName(connection);
+  /** The answer, or for an end without one our own words. */
+  const answerBody = (row: OutboundRow): string =>
+    row.state === "TASK_STATE_COMPLETED"
+      ? (row.resultText ?? "")
+      : `The task ended as ${row.state.replace("TASK_STATE_", "").toLowerCase()}.`;
+
+  /**
+   * The run's input: our line about what the answer is for, and the answer,
+   * inside the peer envelope. JSON escaping can grow a text several times, so
+   * the answer is cut until the whole envelope fits a run's input.
+   */
+  const wakeInput = (row: OutboundRow, connection: ConnectionRow): string => {
+    const peer = peerOf(connection);
     const asked = capText(row.text, 160);
-    const body =
-      row.state === "TASK_STATE_COMPLETED"
-        ? (row.resultText ?? "")
-        : `The task ended as ${row.state.replace("TASK_STATE_", "").toLowerCase()}.`;
-    return `${name} answered your earlier message "${asked}":\n\n${body}`;
+    const body = answerBody(row);
+    let cut = body.length;
+    for (;;) {
+      const wrapped = buildPeerEnvelope(
+        peer,
+        `${peer.agentName} answered your earlier message "${asked}":\n\n${capText(body, cut)}`
+      );
+      if (wrapped.length <= INPUT_TEXT_MAX || cut <= WAKE_TEXT_FLOOR) {
+        return wrapped;
+      }
+      cut = Math.floor(cut / 2);
+    }
   };
 
   /**
@@ -1596,7 +1636,7 @@ export const createOutboundService = ({
       await startWakeRun(row, connection, callingRun);
       return true;
     } catch (error) {
-      await settleFailedWake(row, claimedAt, error);
+      await settleFailedWake(row, connection, claimedAt, error);
       return false;
     }
   };
@@ -1609,11 +1649,13 @@ export const createOutboundService = ({
    */
   const settleFailedWake = async (
     row: OutboundRow,
+    connection: ConnectionRow,
     claimedAt: string,
     error: unknown
   ): Promise<void> => {
     const permanent =
       error instanceof ForbiddenError ||
+      error instanceof z.ZodError ||
       (error instanceof ServiceError && error.code !== "conflict");
     await db
       .update(a2aOutboundTasks)
@@ -1624,6 +1666,22 @@ export const createOutboundService = ({
           eq(a2aOutboundTasks.resultReadAt, claimedAt)
         )
       );
+    if (permanent) {
+      // The answer stays readable with `get`. The log says it did not wake the agent.
+      await record({
+        actor: { id: connection.id, kind: "peer" },
+        agentId: connection.localAgentId,
+        payload: {
+          connectionId: connection.id,
+          outboundTaskId: row.id,
+          reason: error instanceof Error ? error.name : "error",
+          woke: false,
+        },
+        sessionId: row.sessionId,
+        type: "a2a.result_received",
+        workspaceId: row.workspaceId,
+      });
+    }
     console.error("A2A wake failed", error instanceof Error ? error.name : "");
   };
 
@@ -1651,12 +1709,7 @@ export const createOutboundService = ({
       },
       {
         agentId: callingRun.agentId,
-        input: {
-          text: buildPeerEnvelope(
-            peerOf(connection),
-            answerText(row, connection)
-          ),
-        },
+        input: { text: wakeInput(row, connection) },
         reply:
           callingRun.reply.kind === "a2a" ? { kind: "none" } : callingRun.reply,
         requestId: `a2a-wake:${row.id}`,
@@ -1746,7 +1799,7 @@ export const createOutboundService = ({
           isNull(a2aOutboundTasks.resultReadAt)
         )
       );
-    await db
+    const closed = await db
       .update(runRequests)
       .set({ status: "cancelled" })
       .where(
@@ -1756,7 +1809,21 @@ export const createOutboundService = ({
           eq(runRequests.status, "pending"),
           sql`${runRequests.toolUseId} in (select 'a2a:' || ${a2aOutboundTasks.id} from ${a2aOutboundTasks} where ${a2aOutboundTasks.connectionId} = ${revoked.connectionId})`
         )
-      );
+      )
+      .returning();
+    for (const card of closed) {
+      // Slack and the open browser cards close on this event, as for any cancelled request.
+      // biome-ignore lint/performance/noAwaitInLoops: ordered cancellation events
+      await events.append({
+        actor: { id: card.agentId, kind: "agent" },
+        agentId: card.agentId,
+        payload: { requestId: card.id },
+        runId: card.runId,
+        sessionId: card.sessionId,
+        type: "request.cancelled",
+        workspaceId: card.workspaceId,
+      });
+    }
   };
 
   return {

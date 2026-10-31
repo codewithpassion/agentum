@@ -17,6 +17,7 @@ import { findAgent } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
 import { isServiceError } from "../errors.ts";
 import type { EventRecord } from "../events.ts";
+import { isA2aApproval } from "../mail/approval.ts";
 import {
   outcomeOf,
   type RequestRow,
@@ -294,6 +295,12 @@ export const createSlackRequests = ({
   const postCard = async (requestId: string): Promise<void> => {
     const row = await loadRow(requestId);
     if (!row || row.slackMessage !== null || row.status !== "pending") {
+      return;
+    }
+    // A Slack block holds about 3,000 characters, and a person must see the
+    // whole message before it goes to an outside agent. That card is answered
+    // in Harbourmaster, where it shows in full.
+    if (isA2aApproval(row)) {
       return;
     }
     const [run] = await db
