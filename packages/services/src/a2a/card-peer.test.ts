@@ -3,7 +3,9 @@ import { type AgentCard, agentCardSchema } from "@repo/a2a/agent-card";
 import {
   chooseInterface,
   chooseOutboundScheme,
+  schemeKindOfLabel,
   schemeLabel,
+  tokenUrlOfLabel,
 } from "./card-peer.ts";
 
 const BASE = {
@@ -394,7 +396,18 @@ describe("schemeLabel", () => {
         scopes: [],
         tokenUrl: "https://auth.peer.example.com/token",
       })
-    ).toBe("oauth2_client_credentials");
+    ).toBe("oauth2_client_credentials:https://auth.peer.example.com/token");
+  });
+
+  test("reads the kind and the token URL back from a label", () => {
+    const oauth =
+      "oauth2_client_credentials:https://auth.peer.example.com/token";
+    expect(schemeKindOfLabel(oauth)).toBe("oauth2_client_credentials");
+    expect(tokenUrlOfLabel(oauth)).toBe("https://auth.peer.example.com/token");
+    expect(schemeKindOfLabel("api_key_header:X-Key")).toBe("api_key_header");
+    expect(tokenUrlOfLabel("bearer")).toBeNull();
+    expect(tokenUrlOfLabel(null)).toBeNull();
+    expect(schemeKindOfLabel(null)).toBeNull();
   });
 });
 

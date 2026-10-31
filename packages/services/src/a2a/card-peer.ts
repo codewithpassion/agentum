@@ -149,11 +149,32 @@ export const chooseOutboundScheme = (card: AgentCard): SchemeChoice => {
   return firstUsable(declared.map((scheme) => supportScheme(scheme)));
 };
 
-/** A short, stable label for logs and stored choices. */
-export const schemeLabel = (scheme: OutboundScheme): string =>
-  scheme.kind === "api_key_header"
-    ? `api_key_header:${scheme.headerName}`
-    : scheme.kind;
+const OAUTH_KIND = "oauth2_client_credentials";
+
+/**
+ * A short, stable label for logs and stored choices. The OAuth label carries
+ * the token URL, because the client secret goes there: a token URL that moves
+ * is a different label, and so a different destination to approve.
+ */
+export const schemeLabel = (scheme: OutboundScheme): string => {
+  if (scheme.kind === "api_key_header") {
+    return `api_key_header:${scheme.headerName}`;
+  }
+  if (scheme.kind === "oauth2_client_credentials") {
+    return `${OAUTH_KIND}:${scheme.tokenUrl}`;
+  }
+  return scheme.kind;
+};
+
+/** The kind in a stored label: the part before the first colon. */
+export const schemeKindOfLabel = (label: string | null): string | null =>
+  label === null ? null : (label.split(":", 1)[0] ?? null);
+
+/** The token URL in a stored OAuth label, or null for any other label. */
+export const tokenUrlOfLabel = (label: string | null): string | null =>
+  label?.startsWith(`${OAUTH_KIND}:`)
+    ? label.slice(OAUTH_KIND.length + 1)
+    : null;
 
 const CALLABLE_BINDINGS = ["JSONRPC", "HTTP+JSON"];
 

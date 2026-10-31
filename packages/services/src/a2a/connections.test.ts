@@ -221,10 +221,22 @@ const toNeedsApproval = async () => {
 /** A full pairing. Returns both ids and both tokens. */
 const pairFully = async () => {
   const pending = await toNeedsApproval();
-  await service.approve(ownerA, pending.aliceId);
+  await approveAs(ownerA, pending.aliceId);
   const aliceToken = activations.at(-1)?.token ?? "";
   return { ...pending, aliceToken };
 };
+
+/** What the page would send back: the destination it showed for the connection. */
+const seenOf = async (id: string) => {
+  const connection = await service.get(adminA, id);
+  return {
+    origin: connection.pendingOrigin ?? connection.peerOrigin ?? "",
+    tokenUrl: connection.pendingTokenUrl ?? connection.tokenUrl,
+  };
+};
+
+const approveAs = async (principal: Principal, id: string) =>
+  await service.approve(principal, id, await seenOf(id));
 
 const publishedFor = async (principal: Principal, agentId: string) => {
   const card = await service.getPublished(principal, agentId);
@@ -479,7 +491,7 @@ describe("pairing", () => {
   test("an activation that cannot be delivered leaves the row activating and the outbox holds it sealed", async () => {
     activateFails = true;
     const pending = await toNeedsApproval();
-    const approved = await service.approve(ownerA, pending.aliceId);
+    const approved = await approveAs(ownerA, pending.aliceId);
     expect(approved.status).toBe("activating");
     const [queued] = await db
       .select()
@@ -512,7 +524,7 @@ describe("pairing", () => {
   test("a revoke while the activation waits stops it from being delivered", async () => {
     activateFails = true;
     const pending = await toNeedsApproval();
-    await service.approve(ownerA, pending.aliceId);
+    await approveAs(ownerA, pending.aliceId);
     await service.revoke(memberA, pending.aliceId);
     expect(
       await db
@@ -669,7 +681,7 @@ describe("access keys and outside agents", () => {
       .from(eventRows)
       .where(eq(eventRows.type, "a2a.connection_reapproval_needed"));
     expect(logged).toHaveLength(1);
-    const approved = await service.approve(ownerA, connection.id);
+    const approved = await approveAs(ownerA, connection.id);
     expect(approved.status).toBe("active");
     expect(approved.peerOrigin).toBe("https://elsewhere.example.org");
   });
@@ -752,7 +764,7 @@ describe("who may act", () => {
     test(`${name} is refused on approve`, async () => {
       const pending = await toNeedsApproval();
       await expect(
-        service.approve(principal, pending.aliceId)
+        approveAs(principal, pending.aliceId)
       ).rejects.toBeInstanceOf(ForbiddenError);
       expect(rowOf(pending.aliceId)?.status).toBe("needs_approval");
     });
@@ -785,9 +797,9 @@ describe("who may act", () => {
 
   test("a non-owner member is refused on approve and allowed on revoke", async () => {
     const pending = await toNeedsApproval();
-    await expect(
-      service.approve(memberA, pending.aliceId)
-    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(approveAs(memberA, pending.aliceId)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
     expect(rowOf(pending.aliceId)?.status).toBe("needs_approval");
     const revoked = await service.revoke(memberA, pending.aliceId);
     expect(revoked.status).toBe("revoked");
@@ -795,9 +807,7 @@ describe("who may act", () => {
 
   test("an org admin and the agent's owner may approve", async () => {
     const first = await toNeedsApproval();
-    expect((await service.approve(adminA, first.aliceId)).status).toBe(
-      "active"
-    );
+    expect((await approveAs(adminA, first.aliceId)).status).toBe("active");
   });
 
   test("another workspace's connection is not found", async () => {
@@ -977,7 +987,7 @@ describe("secrets at rest", () => {
   test("no plaintext token or credential is in the database or in event payloads", async () => {
     activateFails = true;
     const pending = await toNeedsApproval();
-    await service.approve(ownerA, pending.aliceId);
+    await approveAs(ownerA, pending.aliceId);
     const outbound = await service.addOutbound(ownerA, {
       agentId: AGENT_X2,
       cardUrl: OUTSIDE_CARD_URL,
@@ -1170,7 +1180,7 @@ describe("hardening", () => {
     ).id;
     const refreshed = await racing.refreshCard(ownerA, connectionId);
     expect(refreshed.status).toBe("revoked");
-    await expect(service.approve(ownerA, connectionId)).rejects.toBeInstanceOf(
+    await expect(approveAs(ownerA, connectionId)).rejects.toBeInstanceOf(
       ServiceError
     );
   });
@@ -1187,7 +1197,7 @@ describe("hardening", () => {
     });
     const refreshed = await service.refreshCard(ownerA, connection.id);
     expect(refreshed.status).toBe("needs_approval");
-    await expect(service.approve(ownerA, connection.id)).rejects.toBeInstanceOf(
+    await expect(approveAs(ownerA, connection.id)).rejects.toBeInstanceOf(
       ServiceError
     );
   });
@@ -1328,7 +1338,7 @@ describe("hardening, round two", () => {
     expect((await service.refreshCard(ownerA, connection.id)).status).toBe(
       "needs_approval"
     );
-    await expect(service.approve(ownerA, connection.id)).rejects.toBeInstanceOf(
+    await expect(approveAs(ownerA, connection.id)).rejects.toBeInstanceOf(
       ServiceError
     );
     expect(rowOf(connection.id)?.status).toBe("needs_approval");
@@ -1338,7 +1348,7 @@ describe("hardening, round two", () => {
     const connection = await addOauth();
     peerCard = oauthCard("https://idp2.example.com/token");
     await service.refreshCard(ownerA, connection.id);
-    await service.approve(ownerA, connection.id);
+    await approveAs(ownerA, connection.id);
     const key = await importSecretsKey(SECRETS_KEY);
     const row = rowOf(connection.id);
     const plain = await decryptSecret(
@@ -1392,12 +1402,184 @@ describe("hardening, round two", () => {
   test("an activation the outbox gave up on ends the row", async () => {
     activateFails = true;
     const pending = await toNeedsApproval();
-    await service.approve(ownerA, pending.aliceId);
+    await approveAs(ownerA, pending.aliceId);
     await expect(
       service.activationAbandoned(ownerA, pending.aliceId)
     ).rejects.toBeInstanceOf(ForbiddenError);
     await service.activationAbandoned(SYSTEM_PRINCIPAL, pending.aliceId);
     expect(rowOf(pending.aliceId)?.status).toBe("revoked");
     expect(await db.select().from(a2aOutbox)).toHaveLength(0);
+  });
+
+  test("a token URL that moves host on the same origin goes back to a person and nothing is sealed to it before approval", async () => {
+    const connection = await addOauth();
+    peerCard = oauthCard("https://evil.example.net/token");
+    const refreshed = await service.refreshCard(ownerA, connection.id);
+    expect(refreshed.status).toBe("needs_approval");
+    expect(refreshed.peerOrigin).toBe("https://agent.example.com");
+    expect(refreshed.pendingOrigin).toBe("https://agent.example.com");
+    expect(refreshed.tokenUrl).toBe("https://idp.example.com/token");
+    expect(refreshed.pendingTokenUrl).toBe("https://evil.example.net/token");
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_reapproval_needed"));
+    expect(logged).toHaveLength(1);
+    expect(JSON.parse(logged[0]?.payload ?? "{}")).toMatchObject({
+      fromTokenUrl: "https://idp.example.com/token",
+      reason: "scheme",
+      toTokenUrl: "https://evil.example.net/token",
+    });
+    // Still the approved destination in the row and in the sealed credential.
+    const row = rowOf(connection.id);
+    expect(row?.outboundScheme).toBe(
+      "oauth2_client_credentials:https://idp.example.com/token"
+    );
+    const key = await importSecretsKey(SECRETS_KEY);
+    const sealed = JSON.parse(
+      await decryptSecret(
+        key,
+        {
+          field: "outbound_credential",
+          rowId: connection.id,
+          table: "a2a_connections",
+          workspaceId: W_ALICE,
+        },
+        row?.outboundCredential ?? ""
+      )
+    ) as { tokenUrl: string };
+    expect(sealed.tokenUrl).toBe("https://idp.example.com/token");
+    // An approval that carries the old token URL is refused.
+    await expect(
+      service.approve(ownerA, connection.id, {
+        origin: "https://agent.example.com",
+        tokenUrl: "https://idp.example.com/token",
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(rowOf(connection.id)?.status).toBe("needs_approval");
+  });
+
+  test("an approval carrying a stale destination is refused", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    const moveTo = (rpcUrl: string) =>
+      outsideCard({
+        supportedInterfaces: [
+          { protocolBinding: "JSONRPC", protocolVersion: "1.0", url: rpcUrl },
+        ],
+      });
+    peerCard = moveTo("https://decoy.example.com/rpc");
+    await service.refreshCard(ownerA, connection.id);
+    const shown = await seenOf(connection.id);
+    expect(shown).toEqual({
+      origin: "https://decoy.example.com",
+      tokenUrl: null,
+    });
+    peerCard = moveTo("https://other.example.net/rpc");
+    await service.refreshCard(ownerA, connection.id);
+    await expect(
+      service.approve(ownerA, connection.id, shown)
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(rowOf(connection.id)?.status).toBe("needs_approval");
+    expect(rowOf(connection.id)?.peerOrigin).toBe("https://agent.example.com");
+    // What the page shows now is approved.
+    const approved = await approveAs(ownerA, connection.id);
+    expect(approved.peerOrigin).toBe("https://other.example.net");
+  });
+
+  test("a pairing approval with the wrong origin or a token URL is refused", async () => {
+    const pending = await toNeedsApproval();
+    const shown = await seenOf(pending.aliceId);
+    await expect(
+      service.approve(ownerA, pending.aliceId, {
+        origin: "https://elsewhere.example.org",
+        tokenUrl: null,
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+    await expect(
+      service.approve(ownerA, pending.aliceId, {
+        ...shown,
+        tokenUrl: "https://idp.example.com/token",
+      })
+    ).rejects.toBeInstanceOf(ServiceError);
+    expect(rowOf(pending.aliceId)?.status).toBe("needs_approval");
+    expect(rowOf(pending.aliceId)?.inboundTokenHash).toBeNull();
+    expect((await service.approve(ownerA, pending.aliceId, shown)).status).toBe(
+      "active"
+    );
+  });
+
+  test("a refresh that races an approval does not store a card the person never saw", async () => {
+    const connection = await addOauth();
+    peerCard = oauthCard("https://idp2.example.com/token");
+    await service.refreshCard(ownerA, connection.id);
+    const racing = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      fetchCard: async () => {
+        await approveAs(ownerA, connection.id);
+        return oauthCard("https://idp3.example.com/token");
+      },
+      publicBaseUrl: BASE,
+      secretsKey: SECRETS_KEY,
+    });
+    await racing.refreshCard(ownerA, connection.id);
+    const row = rowOf(connection.id);
+    expect(row?.status).toBe("active");
+    expect(row?.outboundScheme).toBe(
+      "oauth2_client_credentials:https://idp2.example.com/token"
+    );
+    expect(row?.peerCard).toContain("idp2.example.com");
+    expect(row?.peerCard).not.toContain("idp3.example.com");
+    // The next refresh sees the new URL against the approved one and asks again.
+    peerCard = oauthCard("https://idp3.example.com/token");
+    expect((await service.refreshCard(ownerA, connection.id)).status).toBe(
+      "needs_approval"
+    );
+  });
+
+  test("an unreadable credential on approve is a conflict, not a crash", async () => {
+    const connection = await addOauth();
+    peerCard = oauthCard("https://idp2.example.com/token");
+    await service.refreshCard(ownerA, connection.id);
+    const wrongKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
+    const unreadable = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      publicBaseUrl: BASE,
+      secretsKey: wrongKey,
+    });
+    await expect(
+      unreadable.approve(ownerA, connection.id, await seenOf(connection.id))
+    ).rejects.toBeInstanceOf(ServiceError);
+  });
+
+  test("a corrupt stored card does not break the list", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    db.update(a2aConnections)
+      .set({ peerCard: "{not json", status: "needs_approval" })
+      .where(eq(a2aConnections.id, connection.id))
+      .run();
+    const listed = await service.list(ownerA);
+    expect(
+      listed.find((c) => c.id === connection.id)?.pendingOrigin
+    ).toBeNull();
+  });
+
+  test("activationAbandoned does nothing to a connection that is not activating", async () => {
+    const paired = await pairFully();
+    await service.activationAbandoned(SYSTEM_PRINCIPAL, paired.aliceId);
+    expect(rowOf(paired.aliceId)?.status).toBe("active");
   });
 });
