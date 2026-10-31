@@ -526,7 +526,7 @@ export function OutsideAgentDialog({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Connect an outside agent</DialogTitle>
           <DialogDescription>
@@ -539,10 +539,18 @@ export function OutsideAgentDialog({
             <TabsTrigger value="key">Give it a key</TabsTrigger>
             <TabsTrigger value="call">Call it</TabsTrigger>
           </TabsList>
-          <TabsContent className="pt-4" forceMount value="key">
+          <TabsContent
+            className="pt-4 data-[state=inactive]:hidden"
+            forceMount
+            value="key"
+          >
             <KeyTab agents={agents} onDone={finish} onMade={markMade} />
           </TabsContent>
-          <TabsContent className="pt-4" forceMount value="call">
+          <TabsContent
+            className="pt-4 data-[state=inactive]:hidden"
+            forceMount
+            value="call"
+          >
             <CallTab agents={agents} onDone={finish} onMade={markMade} />
           </TabsContent>
         </Tabs>

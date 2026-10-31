@@ -6,6 +6,7 @@
  * session or private Slack DM never shows. Writes happen in `runs`.
  */
 import type { Database } from "@repo/db";
+import { a2aConnections } from "@repo/db/schema/a2a";
 import { agents } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
@@ -83,6 +84,7 @@ export interface StartedBy {
     | "trigger"
     | "routine"
     | "handoff"
+    | "peer"
     | "system";
   label: string;
   /** For a handoff, the run that started this one. */
@@ -249,6 +251,24 @@ export const createTasksService = ({
     } satisfies StartedBy;
   };
 
+  /** A run an outside agent started: its connection's label, never anything it sent. */
+  const peerOf = async (run: RunRecord): Promise<StartedBy> => {
+    const [connection] = await db
+      .select({ label: a2aConnections.peerLabel })
+      .from(a2aConnections)
+      .where(
+        and(
+          eq(a2aConnections.id, run.actor.id),
+          eq(a2aConnections.workspaceId, run.workspaceId)
+        )
+      )
+      .limit(1);
+    return {
+      kind: "peer",
+      label: `${connection?.label?.trim() || "An outside agent"} (outside agent)`,
+    };
+  };
+
   const mailStarter = async (run: RunRecord): Promise<StartedBy> => {
     const [mail] = await db
       .select()
@@ -274,6 +294,23 @@ export const createTasksService = ({
       kind: "mail",
       label: `Mail from ${sender}: ${mail?.subject ?? "(no subject)"}`,
     };
+  };
+
+  /** Who started a run that no origin explains: its actor. */
+  const actorStarter = async (run: RunRecord): Promise<StartedBy> => {
+    if (run.actor.kind === "trigger") {
+      return await triggerOf(run);
+    }
+    if (run.actor.kind === "peer") {
+      return await peerOf(run);
+    }
+    if (run.actor.kind === "user") {
+      return {
+        kind: "person",
+        label: (await personName(run.actor.id)) ?? "A teammate",
+      };
+    }
+    return { kind: "system", label: "System" };
   };
 
   /**
@@ -307,16 +344,7 @@ export const createTasksService = ({
         label: title ? `Inbox thread: ${title}` : "Inbox thread",
       };
     }
-    if (run.actor.kind === "trigger") {
-      return await triggerOf(run);
-    }
-    if (run.actor.kind === "user") {
-      return {
-        kind: "person",
-        label: (await personName(run.actor.id)) ?? "A teammate",
-      };
-    }
-    return { kind: "system", label: "System" };
+    return await actorStarter(run);
   };
 
   /** The session's events, oldest first, up to `EVENTS_CAP`. */

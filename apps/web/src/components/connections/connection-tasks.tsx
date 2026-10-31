@@ -37,7 +37,11 @@ function TaskRow({ task }: { task: Task }) {
       )}
       {task.runId === null ? null : (
         <Link
-          className={buttonVariants({ size: "sm", variant: "link" })}
+          className={buttonVariants({
+            className: "self-start px-0",
+            size: "sm",
+            variant: "link",
+          })}
           params={{ runId: task.runId }}
           to="/tasks/$runId"
         >

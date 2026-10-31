@@ -75,7 +75,11 @@ function ConnectionHeader({ connection }: { connection: Connection }) {
   return (
     <div className="flex flex-col gap-3">
       <Link
-        className={buttonVariants({ size: "sm", variant: "link" })}
+        className={buttonVariants({
+          className: "self-start px-0",
+          size: "sm",
+          variant: "link",
+        })}
         to="/settings/agent-connections"
       >
         Back to connections

@@ -11,6 +11,7 @@
     "./a2a/pairing-code": "./src/a2a/pairing-code.ts",
     "./a2a/push-configs": "./src/a2a/push-configs.ts",
     "./a2a/tasks": "./src/a2a/tasks.ts",
+    "./a2a/urls": "./src/a2a/urls.ts",
     "./admin": "./src/admin.ts",
     "./admin-access": "./src/admin-access.ts",
     "./agent-builder/draft": "./src/agent-builder/draft.ts",

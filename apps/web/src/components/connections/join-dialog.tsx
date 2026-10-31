@@ -16,6 +16,7 @@ import {
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AddDialogProps } from "./dialog-props.ts";
+import { PublishGate } from "./publish-gate.tsx";
 
 interface JoinResult {
   checkCode: string;
@@ -84,7 +85,7 @@ export function JoinDialog({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Join with a link</DialogTitle>
           <DialogDescription>
@@ -122,11 +123,15 @@ export function JoinDialog({
             {error !== null && (
               <p className="text-destructive text-sm">{error}</p>
             )}
-            <DialogFooter>
-              <Button disabled={!canJoin} onClick={join}>
-                Join
-              </Button>
-            </DialogFooter>
+            {agentId === "" ? null : (
+              <PublishGate agentId={agentId}>
+                <DialogFooter>
+                  <Button disabled={!canJoin} onClick={join}>
+                    Join
+                  </Button>
+                </DialogFooter>
+              </PublishGate>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">

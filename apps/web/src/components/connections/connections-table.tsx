@@ -68,13 +68,7 @@ function ConnectionRow({
         {directions.length === 0 ? (
           <span className="text-muted-foreground">None</span>
         ) : (
-          <span className="flex flex-wrap gap-1">
-            {directions.map((direction) => (
-              <Badge key={direction} variant="outline">
-                {direction}
-              </Badge>
-            ))}
-          </span>
+          directions.join(", ")
         )}
       </ResponsiveCell>
       <ResponsiveCell label="Status">
@@ -99,25 +93,27 @@ function ConnectionRow({
           ? "never"
           : formatDistanceToNow(new Date(activity), { addSuffix: true })}
       </ResponsiveCell>
-      <ResponsiveActions className="text-right">
-        <Link
-          className={buttonVariants({ size: "sm", variant: "outline" })}
-          params={{ connectionId: connection.id }}
-          to="/settings/agent-connections/$connectionId"
-        >
-          Open
-        </Link>
-        {isEnded(connection.status) ? null : (
-          <ConfirmButton
-            description={revokeDescription}
-            onConfirm={revoke}
-            size="sm"
-            title="Revoke this connection?"
-            variant="outline"
+      <ResponsiveActions className="md:text-right">
+        <span className="flex flex-wrap gap-2 md:justify-end">
+          <Link
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+            params={{ connectionId: connection.id }}
+            to="/settings/agent-connections/$connectionId"
           >
-            Revoke
-          </ConfirmButton>
-        )}
+            Open
+          </Link>
+          {isEnded(connection.status) ? null : (
+            <ConfirmButton
+              description={revokeDescription}
+              onConfirm={revoke}
+              size="sm"
+              title="Revoke this connection?"
+              variant="outline"
+            >
+              Revoke
+            </ConfirmButton>
+          )}
+        </span>
       </ResponsiveActions>
     </TableRow>
   );

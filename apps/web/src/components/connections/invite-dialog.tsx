@@ -77,7 +77,7 @@ export function InviteDialog({ agents, onChanged, onClose }: AddDialogProps) {
 
   return (
     <Dialog onOpenChange={handleOpenChange} open>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Invite another Harbourmaster</DialogTitle>
           <DialogDescription>

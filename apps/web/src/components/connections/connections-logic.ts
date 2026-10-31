@@ -49,7 +49,8 @@ export const isPending = (status: A2aConnectionStatus): boolean =>
   status === "needs_approval";
 
 export const peerName = (connection: ConnectionLike): string =>
-  connection.peerLabel?.trim() || "Unnamed agent";
+  connection.peerLabel?.trim() ||
+  (connection.status === "inviting" ? "Invite not used yet" : "Unnamed agent");
 
 /** The host the peer lives on, or null when none is known (an outside client with a key). */
 export const peerHost = (connection: ConnectionLike): string | null => {

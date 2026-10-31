@@ -2,6 +2,7 @@
  * The title text of a run that may have started by mail. Pure, so the browser
  * can import it (the task receipt does); the database read is in `mail-subjects.ts`.
  */
+import { speakerEnvelopeSchema } from "@repo/protocol/live";
 import { mailTitle } from "./rail/logic.ts";
 
 /** The first words of the notice a run started by mail begins with. */
@@ -19,6 +20,24 @@ export const mailTitleOf = (
 };
 
 /**
+ * What a speaker envelope carries, when the input is one: a peer's message, a
+ * Slack turn. A run is titled by what was said, never by the wrapper.
+ */
+const spokenText = (inputText: string): string => {
+  if (!inputText.startsWith('{"harbourmaster_turn"')) {
+    return inputText;
+  }
+  try {
+    const parsed = speakerEnvelopeSchema.safeParse(JSON.parse(inputText));
+    return parsed.success
+      ? (parsed.data.harbourmaster_turn.text.split("\n")[0] ?? "")
+      : inputText;
+  } catch {
+    return inputText;
+  }
+};
+
+/**
  * The text a run is titled by: its mail subject when it has one, else its input
  * text. A run started by mail with no subject reads "Inbound mail", never its notice.
  */
@@ -27,7 +46,6 @@ export const runTitleText = (inputText: string, subject?: string): string => {
   if (title !== undefined) {
     return title;
   }
-  return inputText.startsWith(INBOUND_MAIL_PREFIX)
-    ? INBOUND_MAIL_TITLE
-    : inputText;
+  const spoken = spokenText(inputText);
+  return spoken.startsWith(INBOUND_MAIL_PREFIX) ? INBOUND_MAIL_TITLE : spoken;
 };
