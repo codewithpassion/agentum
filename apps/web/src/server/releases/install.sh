@@ -246,7 +246,7 @@ replace_on_rerun() {
   elif service_installed; then
     run_install_service --refresh
   else
-    say "No $SERVICE service is installed, so nothing was restarted. Restart the daemon yourself, or install the service with: $BIN install-service"
+    say "No $SERVICE service is installed, so nothing was restarted. Restart the daemon yourself, or install the service with: $BIN install-service --refresh"
   fi
 }
 
