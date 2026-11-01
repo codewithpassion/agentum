@@ -91,6 +91,43 @@ free GitHub plan, so its only trigger is `workflow_dispatch`. Add `push` and
 - An agent asks `agents.owner_user_id`, falling back to `created_by`. That is visibility only: any member can still answer any request.
 - Anything a person must act on should reach `desk.railSources`, or it won't show in Needs you.
 
+## Agent connections
+
+Harbourmaster speaks A2A 1.0 as server and client (`packages/a2a`,
+`packages/services/src/a2a`, `apps/web/src/server/routes/a2a.ts`). The spec is
+`docs/v3/agent-connections.md`, and each package has a README. Rules that are
+easy to break:
+
+- Tokens (`hm_a2a_`) work only on `/a2a`. `createPrincipalResolver` ignores them,
+  so a leaked key fails on `/mcp` and everywhere else. The `/a2a` routes are
+  mounted before Clerk and never under `cookieGroup()` or `csrf()`.
+- No MCP tool may create, approve, widen or revoke a connection. An API key, an
+  OAuth client, a run, a machine, a trigger and a peer are all refused by
+  `requireSession`. Only an org admin or the agent's owner on a browser session
+  connects, approves or widens. Any member may revoke or approve a message.
+- A peer's text is outside input. It reaches an agent only through the speaker
+  envelope with `from.kind: "peer"`, never as a message a member wrote, and a
+  peer run has `onBehalfOfUserId = null`.
+- Every `/a2a` request re-reads the connection row. Cache nothing about a
+  connection, or a revoke stops working on the next request.
+- Both bindings call `runOperation` in `routes/a2a-ops.ts`. Change an operation
+  there, once. Errors come from `A2A_ERRORS` in `packages/a2a/src/errors.ts`
+  (section 5.4 of the v1.0.0 spec: 409 for `TaskNotCancelableError`, 415 for
+  `ContentTypeNotSupportedError`), and both bindings answer `application/json`.
+  Params go through `acceptProtoNames` first, because ProtoJSON allows `task_id`.
+- `packages/a2a` imports only `zod`: no database, no Worker API, no other
+  workspace package.
+- Plain HTTP and loopback peers are for dev builds only. `allowLoopback` in
+  `createConnectionsService` and `createPushConfigs` and `allowHttp` in
+  `createPeerFetch` all come from `devFakeRuntime`. A production build refuses
+  both, and `compose-a2a.test.ts` and `a2a-transport.test.ts` test it.
+- After a change to the A2A server, client or pairing, run the interop scripts
+  from the repo root: `bun scripts/e2e/a2a-interop.ts` (the official SDK),
+  `a2a-tck.ts` (the official TCK), `a2a-hermes.ts` (a real Hermes) and
+  `a2a-two-deployments.ts` (two dev servers). They start real `vite dev`
+  Workers and sign in through the Clerk dev instance, and they say at the top
+  what they download and where. Third-party checkouts go outside the repo.
+
 ## Starting a new project
 
 A copy of this boilerplate becomes a project through `/project-init`. The user

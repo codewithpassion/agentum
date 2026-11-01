@@ -92,6 +92,36 @@ describe("createPeerFetch", () => {
     ]);
   });
 
+  test("a production build refuses plain http to localhost, a dev build reaches it", async () => {
+    const productionNetwork = fakeNetwork();
+    const production = createPeerFetch({
+      allowHttp: false,
+      fetch: productionNetwork.fetch,
+    });
+    for (const url of [
+      "http://localhost:3001/a2a",
+      "http://127.0.0.1:3001/a2a",
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: The two refusals are checked one after the other.
+      await expect(production(url, {})).rejects.toThrow(
+        "Request to a peer refused"
+      );
+    }
+    expect(productionNetwork.calls).toHaveLength(0);
+
+    const devNetwork = fakeNetwork();
+    const dev = createPeerFetch({ allowHttp: true, fetch: devNetwork.fetch });
+    const response = await dev("http://localhost:3001/a2a", {});
+    expect(response.status).toBe(200);
+    expect(devNetwork.calls.map((call) => call.url)).toEqual([
+      "http://localhost:3001/a2a",
+    ]);
+    // Dev opens this machine and nothing else private.
+    await expect(dev("http://10.0.0.1/a2a", {})).rejects.toThrow(
+      "Request to a peer refused"
+    );
+  });
+
   test("sends a request for the public base origin to localFetch, even for localhost", async () => {
     const network = fakeNetwork();
     const local = fakeLocal();

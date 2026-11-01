@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checkUrl, safeFetch } from "./safe-url.ts";
+import { checkUrl, isLoopbackHost, safeFetch } from "./safe-url.ts";
 
 const refused: [string, string][] = [
   ["http://example.com/run", "only https"],
@@ -84,6 +84,40 @@ test.each(allowed)("allows %s", (url) => {
 test("http is allowed only with the explicit flag", () => {
   expect(checkUrl("http://example.com/", { allowHttp: true }).ok).toBe(true);
   expect(checkUrl("http://127.0.0.1/", { allowHttp: true }).ok).toBe(false);
+});
+
+test("allowLoopback lets only this machine through, over http or https", () => {
+  const options = { allowLoopback: true };
+  for (const url of [
+    "http://localhost:3001/a2a",
+    "http://127.0.0.1:3001/a2a",
+    "http://127.1.2.3/",
+    "http://[::1]:3001/",
+    "https://localhost/",
+  ]) {
+    expect(checkUrl(url, options).ok).toBe(true);
+    expect(checkUrl(url).ok).toBe(false);
+  }
+  for (const url of [
+    "http://10.0.0.1/",
+    "http://192.168.1.5/",
+    "https://169.254.169.254/",
+    "http://internal.local/",
+    "http://example.com/",
+  ]) {
+    expect(checkUrl(url, options).ok).toBe(false);
+  }
+  expect(checkUrl("http://user:pw@localhost/", options).ok).toBe(false);
+});
+
+test("isLoopbackHost names localhost, 127.0.0.0/8 and ::1 only", () => {
+  expect(isLoopbackHost("localhost")).toBe(true);
+  expect(isLoopbackHost("LOCALHOST.")).toBe(true);
+  expect(isLoopbackHost("127.0.0.1")).toBe(true);
+  expect(isLoopbackHost("[::1]")).toBe(true);
+  expect(isLoopbackHost("128.0.0.1")).toBe(false);
+  expect(isLoopbackHost("10.0.0.1")).toBe(false);
+  expect(isLoopbackHost("example.com")).toBe(false);
 });
 
 test("safeFetch never follows a redirect and refuses a 3xx", async () => {

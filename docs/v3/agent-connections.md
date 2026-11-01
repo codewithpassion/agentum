@@ -20,7 +20,7 @@ Nothing a remote agent sends can start work without a person having created or a
 |---|---|---|
 | WebSockets or webhooks | Plain HTTPS: A2A requests, push notification webhooks, and SSE for clients that stream. No WebSockets | Runs take minutes and Workers don't hold state. A2A has no WebSocket binding, and this needs no new Durable Object |
 | A2A bindings | JSON-RPC and HTTP+JSON. No gRPC | The spec names no mandatory binding. gRPC needs HTTP/2 trailers end to end, and the other two cover every SDK we'd meet |
-| A2A capabilities | `streaming: true`, `pushNotifications: true`, `extendedAgentCard: false` | The extended card would hold nothing the public card lacks. The spec's `ExtendedAgentCardNotConfiguredError` is the conformant answer |
+| A2A capabilities | `streaming: true`, `pushNotifications: true`, `extendedAgentCard: false` | The extended card would hold nothing the public card lacks. With `extendedAgentCard: false`, spec section 3.3.4 asks for `UnsupportedOperationError`, so `GetExtendedAgentCard` answers that |
 | Part types | Text and JSON in, text out, in v1. Other parts get `ContentTypeNotSupportedError` | The card declares its modes, so this is conformant. Files need signed URLs in both directions and can follow |
 | Discovery | One card per published agent at `/a2a/<publicId>/.well-known/agent-card.json`. No card at the domain root | A deployment holds many workspaces. A root card would have to list them or say nothing. `publicId` is random, so agents can't be enumerated |
 | Transport for two workspaces on one deployment | The same HTTP requests, dispatched in-process when the target origin is `PUBLIC_BASE_URL` | A Worker can't fetch its own hostname. One code path means the local case tests the remote one |
@@ -110,12 +110,17 @@ A published agent has two interfaces on its card: `https://<host>/a2a/<publicId>
 Where the spec contradicts itself we pick one and write it down:
 
 - `SubscribeToTask` over REST: accept both `GET` (the proto) and `POST` (the prose).
-- A stream closes at a terminal or an interrupted state.
-- HTTP errors use the `google.rpc.Status` shape with `application/a2a+json`, and JSON-RPC errors carry `data` with an `ErrorInfo`.
+- A `SendStreamingMessage` stream closes at a terminal or an interrupted state (section 11.7). A `SubscribeToTask` stream closes only at a terminal state (section 3.1.6), so a client can subscribe to a task that waits for input and watch it move on once answered.
+- Both bindings answer `application/json` (sections 9.1 and 11.1). The examples in section 6 show `application/a2a+json`, and the official TCK checks `application/json`.
+- HTTP errors use the `google.rpc.Status` shape, and JSON-RPC errors carry `data` with an `ErrorInfo`. The status codes are those of section 5.4 of the v1.0.0 spec: 404 for `TaskNotFoundError`, 409 for `TaskNotCancelableError`, 415 for `ContentTypeNotSupportedError`, 502 for `InvalidAgentResponseError` and 400 for the rest.
+- ProtoJSON allows a field under its proto name, so `task_id` is read as `taskId` in a request. The contents of `metadata` and `data` parts are left alone.
+- JSON-RPC answers at the card's `.../rpc` and at `.../rpc/`, because `httpx` joins a `/` onto the URL it is given.
+- `DeleteTaskPushNotificationConfig` is idempotent (section 3.1.10): deleting a config that is gone answers success.
+- A repeated `messageId` returns the first task, which spec 3.3.1 allows ("MAY be idempotent").
 - A missing `A2A-Version` means 0.3, so it gets `VersionNotSupportedError`. We send `1.0`.
 - Auth failures answer HTTP 401 with `WWW-Authenticate` before any body is parsed, on both bindings. A task the connection can't see gets `TaskNotFoundError`, the same as one that doesn't exist.
 - `SendMessage` without `returnImmediately` blocks until a terminal or interrupted state, for at most 90 seconds, then returns the task as it stands. Cloudflare closes idle responses at about 100 seconds, so this is a deliberate limit on the spec's MUST, and the spec contradicts itself here too (3.1.1 against 3.2.2).
-- Push notifications send `Authorization: <scheme> <credentials>` when configured. The spec doesn't say how `token` travels, so it goes in `X-A2A-Notification-Token`.
+- Push notifications send `Authorization: <scheme> <credentials>` when configured. The spec doesn't say how `token` travels, so it goes in `X-A2A-Notification-Token`. A push goes out as soon as its task changes, and the minute tick retries what failed.
 
 ## Our agent calling a peer
 
@@ -145,6 +150,15 @@ Us calling Hermes:
 - Its push notifications don't send the configured `authentication`. They sign the body with `X-A2A-Signature` (HMAC-SHA256 under the peer's own secret, which we don't hold), and the text is cut to 2000 characters. So our webhook treats every push as a nudge: the URL holds the task's unguessable token, the body is never trusted, and the handler calls `GetTask` with our credential to read the real state. This is the rule for all peers, because A2A leaves webhook signing unspecified.
 
 To let us in, the Hermes operator needs `A2A_PEER_TOKENS` (the token we were given a name), `A2A_TRUSTED_PEERS` naming it, and `A2A_PUBLIC_URL` on an HTTPS address, because we refuse plain HTTP outside dev. The "Call it" dialog lists these.
+
+AA.8 ran all of this against a real Hermes v0.22.5. What it found:
+
+- `a2a_agents` is a map keyed by the agent's name, each entry with `url`, `auth: { type: bearer, token }` and `timeout`. The block the key dialog shows is right.
+- Hermes registers its client tools only when `a2a_agents` has an entry, `A2A_PORT` is set or the platform is on. A model sees them directly only with `tools.tool_search.enabled: "off"`, and otherwise through Hermes's `tool_search` bridge.
+- `a2a_discover` reads our card and prints "Auth required: no", because it knows only the 0.3 shape of `securitySchemes`. The calls themselves work with the key.
+- A send that times out gets its push webhook at our first poll, a minute after the send. A reply that finishes before then is read by that poll, and only a slower one arrives by push.
+- Hermes refuses a push callback to a loopback address unless it runs with no token at all. The local check of the push nudge therefore uses a Hermes without one. A deployed Hermes gets an https webhook, which it accepts.
+- Hermes serves each request on its own thread, so `ListTasks` and `GetTask` answer while a `SendMessage` is still held open.
 
 ## What the agent sees
 
@@ -186,6 +200,7 @@ A list with one row per connection: my agent, the peer's name and host, which di
 
 ## Not in this build
 
+- A cap on how long a task may wait for input. An agent runs one run at a time, so a task left in `input_required` holds the agent for every peer until someone answers or cancels it. The official TCK leaves such tasks behind, and its script cancels them as a person would.
 - Files in either direction.
 - Signed agent cards (JWS). HTTPS and the activation call establish the origin for now.
 - Token rotation. Revoke and reconnect instead.

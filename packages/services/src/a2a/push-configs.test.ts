@@ -108,6 +108,7 @@ describe("push configs of an inbound task", () => {
     expect(views).not.toContain("tok-1");
 
     await f.tasks.deletePushConfig(peerOf(), { id: "cfg-a", taskId: task.id });
+    await f.tasks.deletePushConfig(peerOf(), { id: "cfg-a", taskId: task.id });
     expect(
       (await f.tasks.listPushConfigs(peerOf(), { taskId: task.id })).map(
         (config) => config.id
@@ -274,13 +275,12 @@ describe("push configs of an inbound task", () => {
       await rejects(
         f.tasks.getPushConfig(peerOf(), { id: "nope", taskId: mine.id })
       ),
-      await rejects(
-        f.tasks.deletePushConfig(peerOf(), { id: "nope", taskId: mine.id })
-      ),
     ];
     for (const error of missing) {
       expect((error as A2aTaskError).errorName).toBe("TaskNotFoundError");
     }
+    // Delete is idempotent (spec 3.1.10): a config that is gone deletes without an error.
+    await f.tasks.deletePushConfig(peerOf(), { id: "nope", taskId: mine.id });
 
     const foreign = [
       await rejects(
@@ -305,6 +305,59 @@ describe("push configs of an inbound task", () => {
         taskId: theirs.id,
       })
     ).toHaveLength(1);
+  });
+
+  test("a webhook on localhost is refused unless the build is a dev build", async () => {
+    await f.connect();
+    const local = "http://localhost:9000/hook";
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Hi"));
+    const refused = await rejects(
+      f.tasks.createPushConfig(peerOf(), {
+        config: { url: local },
+        taskId: task.id,
+      })
+    );
+    expect((refused as Error).message).toContain("not allowed");
+
+    const dev = f.newTasks({ allowLoopback: true });
+    const created = await dev.createPushConfig(peerOf(), {
+      config: { url: local },
+      taskId: task.id,
+    });
+    expect(created.url).toBe(local);
+    // Dev opens this machine only. A private address stays refused.
+    const privateUrl = await rejects(
+      dev.createPushConfig(peerOf(), {
+        config: { url: "http://10.0.0.5/hook" },
+        taskId: task.id,
+      })
+    );
+    expect((privateUrl as Error).message).toContain("not allowed");
+  });
+
+  test("a state change that queued pushes tells the app, and one with no config does not", async () => {
+    let queued = 0;
+    const tasks = f.newTasks({
+      onPushQueued: () => {
+        queued += 1;
+      },
+    });
+    await f.connect({ inboundPolicy: "approve" });
+    const bare = await tasks.sendMessage(
+      peerOf(),
+      textMessage("m1", "No hook")
+    );
+    await tasks.approveTask(member(), bare.id);
+    expect(queued).toBe(0);
+
+    const hooked = await tasks.sendMessage(peerOf(), textMessage("m2", "Hook"));
+    await tasks.createPushConfig(peerOf(), {
+      config: { url: HOOK },
+      taskId: hooked.id,
+    });
+    await tasks.approveTask(member(), hooked.id);
+    expect(queued).toBe(1);
+    expect(await pushRows()).toHaveLength(1);
   });
 
   test("every state change queues one push per config, with the headers each config needs", async () => {

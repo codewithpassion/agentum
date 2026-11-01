@@ -35,7 +35,19 @@ const admin: Principal = {
   workspaceId: "w1",
 };
 
-test("'Call it' reads the card through the real transport, which is the injected peer fetch", async () => {
+const LOCAL_CARD_URL = "http://localhost:3001/.well-known/agent-card.json";
+const localCard = {
+  ...card,
+  supportedInterfaces: [
+    {
+      protocolBinding: "JSONRPC",
+      protocolVersion: "1.0",
+      url: "http://localhost:3001/a2a",
+    },
+  ],
+};
+
+const build = async (devFakeRuntime: boolean, answer: unknown = card) => {
   const db = migrated();
   await db.insert(workspaces).values({
     clerkOrgId: "org_w1",
@@ -59,11 +71,11 @@ test("'Call it' reads the card through the real transport, which is the injected
         },
       },
       clock: systemClock,
-      devFakeRuntime: false,
+      devFakeRuntime,
       fileBlobs: memoryFileBlobs(),
       peerFetch: (url) => {
         fetched.push(url);
-        return Promise.resolve(Response.json(card));
+        return Promise.resolve(Response.json(answer));
       },
       publicBaseUrl: "https://hm.test",
       relay: noopRelay,
@@ -75,6 +87,11 @@ test("'Call it' reads the card through the real transport, which is the injected
     name: "Alpha",
     runtime: "cloud",
   });
+  return { agent, fetched, services };
+};
+
+test("'Call it' reads the card through the real transport, which is the injected peer fetch", async () => {
+  const { agent, fetched, services } = await build(false);
 
   const connection = await services.connections.addOutbound(admin, {
     agentId: agent.id,
@@ -87,6 +104,29 @@ test("'Call it' reads the card through the real transport, which is the injected
     peerKind: "a2a_outbound",
     peerLabel: "Hermes",
     peerOrigin: "https://peer.test",
+    status: "active",
+  });
+});
+
+test("a production composition refuses an agent on localhost over plain http, a dev one takes it", async () => {
+  const production = await build(false, localCard);
+  await expect(
+    production.services.connections.addOutbound(admin, {
+      agentId: production.agent.id,
+      cardUrl: LOCAL_CARD_URL,
+      credential: "peer-token",
+    })
+  ).rejects.toThrow("That URL is not allowed");
+  expect(production.fetched).toEqual([]);
+
+  const dev = await build(true, localCard);
+  const connection = await dev.services.connections.addOutbound(admin, {
+    agentId: dev.agent.id,
+    cardUrl: LOCAL_CARD_URL,
+    credential: "peer-token",
+  });
+  expect(connection).toMatchObject({
+    peerOrigin: "http://localhost:3001",
     status: "active",
   });
 });

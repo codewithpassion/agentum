@@ -24,6 +24,8 @@ const FAIL_PREFIX = "fail ";
 const CALL_PREFIX = "call ";
 const ASK_PREFIX = "ask ";
 const GATED_PROMPT = "gated";
+const SAY_PREFIX = "say ";
+const TURN_PREFIX = '{"harbourmaster_turn"';
 
 /** The arguments of a `call` prompt: a JSON object, or `{}` when it is missing or not one. */
 const argsOf = (json: string): JsonObject => {
@@ -36,6 +38,25 @@ const argsOf = (json: string): JsonObject => {
       : {};
   } catch {
     return {};
+  }
+};
+
+/**
+ * What the sender typed. A message from another agent arrives wrapped in a
+ * `harbourmaster_turn` envelope (a peer over A2A, for one), and the commands
+ * below mean the text inside it. Anything else is the prompt as it is.
+ */
+const typedText = (prompt: string): string => {
+  if (!prompt.startsWith(TURN_PREFIX)) {
+    return prompt;
+  }
+  try {
+    const turn: unknown = JSON.parse(prompt);
+    const text = (turn as { harbourmaster_turn?: { text?: unknown } })
+      .harbourmaster_turn?.text;
+    return typeof text === "string" ? text : prompt;
+  } catch {
+    return prompt;
   }
 };
 
@@ -62,6 +83,8 @@ const textOf = (content: Message["content"] | undefined): string => {
  * with the JSON object as its arguments (`{}` when the JSON is missing or invalid), then
  * repeats what it said. `ask <question>`: calls the Pi tool `ask_user` with the question, then
  * repeats what it said. `gated`: calls the dev tool `dev_gated`, then repeats what it said.
+ * `say <text>`: answers with exactly that text. The commands read the text inside a
+ * `harbourmaster_turn` envelope, so they work for a message another agent sent.
  */
 export const fauxScript = (context: TranscriptContext): AssistantMessage => {
   const last = context.messages.at(-1);
@@ -72,7 +95,8 @@ export const fauxScript = (context: TranscriptContext): AssistantMessage => {
       ),
     ]);
   }
-  const prompt = last?.role === "user" ? textOf(last.content) : "";
+  const rawPrompt = last?.role === "user" ? textOf(last.content) : "";
+  const prompt = typedText(rawPrompt);
   if (prompt.startsWith(FAIL_PREFIX)) {
     return fauxAssistantMessage([], {
       errorMessage: prompt.slice(FAIL_PREFIX.length),
@@ -127,7 +151,10 @@ export const fauxScript = (context: TranscriptContext): AssistantMessage => {
   if (prompt === "slow") {
     return fauxAssistantMessage([fauxText("tick ".repeat(SLOW_REPEATS))]);
   }
-  return fauxAssistantMessage([fauxText(`echo: ${prompt}`)]);
+  if (prompt.startsWith(SAY_PREFIX)) {
+    return fauxAssistantMessage([fauxText(prompt.slice(SAY_PREFIX.length))]);
+  }
+  return fauxAssistantMessage([fauxText(`echo: ${rawPrompt}`)]);
 };
 
 /** The scripted provider. */

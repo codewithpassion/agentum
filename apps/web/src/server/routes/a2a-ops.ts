@@ -3,6 +3,7 @@
 // what an operation does can't drift between them. A binding only words the
 // answer: `body` is the result, `stream` is a run of `StreamResponse` events.
 import type { JsonRpcMethod } from "@repo/a2a/jsonrpc";
+import { acceptProtoNames } from "@repo/a2a/proto-names";
 import {
   type SendMessageRequest,
   sendMessageRequestSchema,
@@ -84,19 +85,23 @@ const changeEvents = (last: Task, task: Task): StreamResponse[] => {
   ];
 };
 
+/** When a stream closes. A message stream ends at a settled state (section 11.7), a subscription only at a terminal one (section 3.1.6). */
+type StreamEnd = (state: Task["status"]["state"]) => boolean;
+
 /**
  * The task first, then a status update each time the task changes, with an
  * artifact update ahead of the one that carries the result, and a heartbeat
- * while nothing changes. It ends at a settled state, after `timing.streamMs`,
+ * while nothing changes. It ends when `ends` says so, after `timing.streamMs`,
  * or when the client goes away.
  */
 async function* taskEvents(
   initial: Task,
   read: () => Promise<Task>,
-  { signal, timing }: Pick<OperationContext, "signal" | "timing">
+  { signal, timing }: Pick<OperationContext, "signal" | "timing">,
+  ends: StreamEnd = isSettledTaskState
 ): AsyncGenerator<StreamItem> {
   yield { task: initial };
-  if (isSettledTaskState(initial.status.state)) {
+  if (ends(initial.status.state)) {
     return;
   }
   const deadline = Date.now() + timing.streamMs;
@@ -122,7 +127,7 @@ async function* taskEvents(
     lastWrite = Date.now();
     yield* changeEvents(last, task);
     last = task;
-    if (isSettledTaskState(task.status.state)) {
+    if (ends(task.status.state)) {
       return;
     }
   }
@@ -182,8 +187,16 @@ const subscribe = async (
       "The task has ended. Read it with GetTask."
     );
   }
+  // A task waiting for input is still a task to follow: the stream stays open
+  // until its answer moves it on and it ends, or until `streamMs` runs out and
+  // the client resubscribes.
   return {
-    events: taskEvents(first, () => tasks.getTask(peer, { id }), rest),
+    events: taskEvents(
+      first,
+      () => tasks.getTask(peer, { id }),
+      rest,
+      isTerminalTaskState
+    ),
     kind: "stream",
   };
 };
@@ -203,7 +216,7 @@ export const runOperation = async (
   context: OperationContext
 ): Promise<OperationOutcome> => {
   const { peer, tasks } = context;
-  const params = paramsSchema.parse(rawParams ?? {});
+  const params = paramsSchema.parse(acceptProtoNames(rawParams ?? {}));
   switch (operation) {
     case "SendMessage":
       return await send(context, sendMessageRequestSchema.parse(params), false);
@@ -239,8 +252,10 @@ export const runOperation = async (
       await tasks.deletePushConfig(peer, pushRefOf(params));
       return body({});
     case "GetExtendedAgentCard":
+      // The card says `extendedAgentCard: false`, so section 3.3.4 of the spec
+      // asks for UnsupportedOperationError, not ExtendedAgentCardNotConfiguredError.
       throw new A2aTaskError(
-        "ExtendedAgentCardNotConfiguredError",
+        "UnsupportedOperationError",
         "This agent has no extended agent card."
       );
     default:

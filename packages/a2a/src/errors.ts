@@ -17,12 +17,12 @@ export interface ErrorSpec {
   reason: string;
 }
 
-/** Spec section 5.4, plus the default message of each. */
+/** Spec section 5.4 of the v1.0.0 specification, plus the default message of each. */
 export const A2A_ERRORS = {
   ContentTypeNotSupportedError: {
     code: -32_005,
     grpcStatus: "INVALID_ARGUMENT",
-    httpStatus: 400,
+    httpStatus: 415,
     message: "Content type not supported",
     reason: "CONTENT_TYPE_NOT_SUPPORTED",
   },
@@ -43,13 +43,13 @@ export const A2A_ERRORS = {
   InvalidAgentResponseError: {
     code: -32_006,
     grpcStatus: "INTERNAL",
-    httpStatus: 500,
+    httpStatus: 502,
     message: "Invalid agent response",
     reason: "INVALID_AGENT_RESPONSE",
   },
   PushNotificationNotSupportedError: {
     code: -32_003,
-    grpcStatus: "FAILED_PRECONDITION",
+    grpcStatus: "UNIMPLEMENTED",
     httpStatus: 400,
     message: "Push notification is not supported",
     reason: "PUSH_NOTIFICATION_NOT_SUPPORTED",
@@ -57,7 +57,7 @@ export const A2A_ERRORS = {
   TaskNotCancelableError: {
     code: -32_002,
     grpcStatus: "FAILED_PRECONDITION",
-    httpStatus: 400,
+    httpStatus: 409,
     message: "Task cannot be canceled",
     reason: "TASK_NOT_CANCELABLE",
   },
@@ -70,14 +70,14 @@ export const A2A_ERRORS = {
   },
   UnsupportedOperationError: {
     code: -32_004,
-    grpcStatus: "FAILED_PRECONDITION",
+    grpcStatus: "UNIMPLEMENTED",
     httpStatus: 400,
     message: "This operation is not supported",
     reason: "UNSUPPORTED_OPERATION",
   },
   VersionNotSupportedError: {
     code: -32_009,
-    grpcStatus: "FAILED_PRECONDITION",
+    grpcStatus: "UNIMPLEMENTED",
     httpStatus: 400,
     message: "Protocol version not supported",
     reason: "VERSION_NOT_SUPPORTED",
@@ -182,7 +182,7 @@ export const jsonRpcError = (name: ErrorName, options: ErrorOptions = {}) => {
 };
 export type JsonRpcErrorObject = ReturnType<typeof jsonRpcError>;
 
-/** The body of an HTTP+JSON error, a `google.rpc.Status`. Send it as `application/a2a+json`. */
+/** The body of an HTTP+JSON error, a `google.rpc.Status`. Send it as `application/json`. */
 export const restErrorBody = (name: ErrorName, options: ErrorOptions = {}) => {
   const spec = specOf(name);
   return {

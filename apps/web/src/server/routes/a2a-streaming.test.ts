@@ -263,7 +263,7 @@ const expectRefusal = async (call: Call, res: Response, want: Refusal) => {
 };
 
 const UNSUPPORTED: Refusal = {
-  grpcStatus: "FAILED_PRECONDITION",
+  grpcStatus: "UNIMPLEMENTED",
   httpStatus: 400,
   reason: "UNSUPPORTED_OPERATION",
   rpcCode: -32_004,
@@ -361,7 +361,36 @@ describe("subscriptions", () => {
         expect(status.taskId).toBe(taskId);
       });
 
-      test("when the task asks for input the stream ends with a status update carrying the status text", async () => {
+      test("a subscription to a task that waits for input stays open until the task ends", async () => {
+        const s = await session("auto");
+        const taskId = await f.seedTask(
+          s.connectionId,
+          "TASK_STATE_INPUT_REQUIRED",
+          { statusText: "Which file should I use?" }
+        );
+        const res = await subscribe(call, s, taskId);
+        const started = Date.now();
+        const moving = moveLater(taskId, "TASK_STATE_COMPLETED", {
+          resultText: "Done.",
+        });
+        const events = eventsOf(call, framesOf(await readStream(res)));
+        await moving;
+        expect(kindsOf(events)).toEqual([
+          "task",
+          "artifactUpdate",
+          "statusUpdate",
+        ]);
+        expect(member(events[0], "task").status.state).toBe(
+          "TASK_STATE_INPUT_REQUIRED"
+        );
+        expect(member(events[2], "statusUpdate").status.state).toBe(
+          "TASK_STATE_COMPLETED"
+        );
+        // It closed at the terminal state, not because the stream ran out of time.
+        expect(Date.now() - started).toBeLessThan(TIMING.streamMs);
+      });
+
+      test("when the task asks for input the stream carries the status update with the status text", async () => {
         const s = await session("auto");
         const taskId = await f.seedTask(s.connectionId, "TASK_STATE_WORKING");
         const res = await subscribe(call, s, taskId);

@@ -20,11 +20,7 @@ import {
   type JsonRpcMethod,
   parseJsonRpcRequest,
 } from "@repo/a2a/jsonrpc";
-import {
-  A2A_MEDIA_TYPE,
-  A2A_PROTOCOL_VERSION,
-  A2A_VERSION_HEADER,
-} from "@repo/a2a/protocol";
+import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER } from "@repo/a2a/protocol";
 import { matchRestRoute } from "@repo/a2a/rest";
 import type {
   PairActivateBody,
@@ -113,7 +109,9 @@ const jsonRpcBinding = (id: JsonRpcId | null): Binding => ({
 });
 
 const restBinding: Binding = {
-  contentType: A2A_MEDIA_TYPE,
+  // Sections 9.1 and 11.1 of the spec say `application/json` for both bindings,
+  // and the TCK checks it. The examples in section 6 use `application/a2a+json`.
+  contentType: "application/json",
   errorBody: (refusal) =>
     refusal.kind === "error"
       ? restErrorBody(refusal.name, refusal.options)
@@ -665,6 +663,9 @@ export const a2aRoutes = (options: A2aRoutesOptions = {}): Hono<AppEnv> => {
 
   routes.get("/:publicId/.well-known/agent-card.json", cardRequest);
   routes.post("/:publicId/rpc", (c) => rpcRequest(c, timing));
+  // httpx, which the TCK and Hermes-side Python clients use, joins "/" onto the
+  // interface URL, so a call to the card's `.../rpc` arrives as `.../rpc/`.
+  routes.post("/:publicId/rpc/", (c) => rpcRequest(c, timing));
   routes.all("/:publicId/rest/*", (c) => restRequest(c, timing));
 
   routes.post("/pair/join", (c) =>
