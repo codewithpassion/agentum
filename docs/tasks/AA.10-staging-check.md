@@ -29,3 +29,4 @@ Record each step above as passed, failed or not run in `docs/reviews/tasks/AA.10
 ## Log
 - 2026-11-02: created and dispatched once staging was deployed.
 - 2026-11-02: merged. All steps passed on staging except the full invite flow, which needs a second workspace there; left open for Dom. The join reached the inviter inside the Worker, so in-process dispatch works.
+- 2026-11-02: re-run on the final code, recorded in the review file. Outbound path passed on a real Worker with in-process dispatch. Full invite flow between two workspaces is still not run on a Worker.

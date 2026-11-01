@@ -41,3 +41,33 @@ All three connections revoked. Pairing turned off. Both throwaway agents archive
 ## For the controller
 
 The join, approve and activate cycle on a real Worker is not covered. It needs a second workspace on staging (a second Clerk organisation in `ALLOWED_ORG_IDS`), because an agent cannot connect to another agent in its own workspace. The fix here is not on staging until the next deploy.
+
+## Re-run on the final code (AA.10b, 2 November 2026)
+
+Worker version 71e2ea91 as deployed by the controller, main at efce71b8.
+
+# AA.10b: staging re-run on the final code
+
+Staging: https://harbourmaster-staging.rockyshoreslabs.io, Worker version 71e2ea91 as told by the coordinator (I did not read the version myself). Checked out detached at efce71b8, no code changed. Same method as AA.10: agent-login, agent-browser on headless Chrome, `@a2a-js/sdk` 1.3.0 as the outside client over real HTTPS. Throwaway agents "AA10b A" and "AA10b B" on the cloud runtime, both archived at the end.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Published agent with an access key, SDK message waits in Needs you, approve, completes with a real model | Passed. Card 200, valid with `@repo/a2a`. `SendMessage` answered `AUTH_REQUIRED`, Needs you showed it with Approve and Decline, after Approve the task went to `COMPLETED` with a real model's text. |
+| 1b | A tool call in that run asks a person | Not shown on this run. The model refused to use tools at the outside agent's request twice (a web fetch, and `list_agents`), and made no tool call. The ask was shown in step 4 instead, on a wake run (see 4). |
+| 2 | `auto`, blocking and streaming, both bindings | Passed. JSONRPC and HTTP+JSON each: blocking returned `COMPLETED` "pong" in 6.2 and 6.4 s. Streaming events arrived spread over the run (task 1.9 s, `WORKING` 3.9 s, artifact and `COMPLETED` 5.9 s on JSONRPC; 2.5, 4.5, 8.5 s on HTTP+JSON), so Cloudflare did not buffer it. |
+| 3 | Pairing on, code, token works, pairing off | Passed. A made-up token of over 32 characters got HTTP 200 `REJECTED` with an 8 character code. Entered with a label, the connection was Active and the same token's next call answered `AUTH_REQUIRED`. With pairing off, a new made-up token got 401. |
+| 4a | "Call it" from A to B's card with B's key, same workspace | Passed. The page accepted it (no same-workspace refusal for outside agents): card lookup of B's own card through the Worker, then Connect, status Active. |
+| 4b | Ask A in a session to message B, send card asks first | Passed. A's run (a member task) used `list_agents` (slug `aa10b-b-outbound/aa10b-b-outbound`) and `send_message`. The send waited, and Needs you showed "AA10b A asks before a2a send" with the full text "Reply with exactly the word ack." and Allow once or Deny. |
+| 4c | Approve, B handles it | Passed. After Allow once, B's key connection showed "AA10b caller A sent a message, Waiting for approval" (B's `approve` policy). After Approve, B's task went to `COMPLETED` with "ack" (in-process dispatch, all the way through). |
+| 4d | The answer gets back to A, with A's run ended | Passed. A's first run had ended. About a minute after B's answer a follow-up run started on A: "AA10b B (outbound) answered your earlier message", in A's thread, and A said "The peer AA10b B (outbound) replied 'ack'". |
+| 4e | The follow-up run has no person's delegation, and its tool calls ask | Passed for the tool ask, partly for the delegation. Round two told A to call `list_agents` when the answer arrived. The follow-up ("started by Handoff from AA10b A", not Dev User) called it, and Needs you showed "AA10b A asks before list agents, passed on by AA10b A" with Allow once or Deny and no "Always allow". The member run earlier called `list_agents` with no ask. The delegation is judged from "started by" on the run page. `onBehalfOfUserId` is not visible in the page, so I did not read it. |
+| 5 | Refresh on that connection | Passed for the button. "Refresh" is on the outbound connection's page, and clicking it answered `a2a.refreshCard` 200 with no error, no approval asked, status stayed Active. The refreshed time is not shown: the page has no such text and the connection's API data has no fetched-at field. Recorded, not a request failure. |
+| 6a | Revoke everything, next calls get 401 | Passed. All five connections revoked in the page. The outside client's key (A and B), the paired token: `ListTasks` (JSON-RPC and REST) and `SendMessage` 401, and `hm_a2a_` at `/mcp` 401. |
+| 6b | A run in flight is cancelled | Passed. A wake run on A was paused on a tool ask ("Needs your OK"). Revoking the outbound connection turned the run to Cancelled and the ask left Needs you. |
+| 6c | A's next outbound send after revoke is refused | Not run. |
+
+Observations, not failures: the send card's title shows the raw tool name "a2a send:con 01M6ANZ45VTP99YZWD3D83KCT8". The first throwaway agent made on the managed runtime cannot be published, so both agents were made on the cloud runtime.
+
+## Cleanup on staging
+
+All connections revoked, pairing off, both agents archived, both cards answer 404, Needs you holds none of my items. The `hm_a2a_` keys and the made-up token are dead. Nothing else was touched.
