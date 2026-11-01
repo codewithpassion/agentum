@@ -1,0 +1,1 @@
+CREATE INDEX `runs_live_status_idx` ON `runs` (`status`) WHERE "runs"."status" in ('queued', 'offered', 'running', 'waiting');

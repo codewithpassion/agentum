@@ -84,6 +84,24 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+/** Runs in these states may still read the skills and connectors of their agent. */
+export const LIVE_RUN_STATUSES: readonly RunStatus[] = [
+  "queued",
+  "offered",
+  "running",
+  "waiting",
+];
+
+/**
+ * `LIVE_RUN_STATUSES` as SQL literals. The partial index `runs_live_status_idx`
+ * is written with this text, and SQLite only uses a partial index for a query
+ * whose own condition repeats it, so a query that wants the index writes the
+ * same text, not bound parameters.
+ */
+export const LIVE_RUN_STATUS_LITERALS = LIVE_RUN_STATUSES.map(
+  (status) => `'${status}'`
+).join(", ");
+
 /**
  * `desk` is the external desk API (`/api/desk/*`) and nothing else: `/mcp` refuses it.
  * `admin` is `write` plus the setup tools: secrets, machines, keys. Only a workspace admin mints one.
@@ -147,7 +165,7 @@ export const A2A_OUTBOUND_POLICIES = ["off", "approve", "auto"] as const;
 export type A2aOutboundPolicy = (typeof A2A_OUTBOUND_POLICIES)[number];
 export const A2A_DEFAULT_OUTBOUND_POLICY: A2aOutboundPolicy = "approve";
 
-/** Tasks per hour per connection, both directions. */
+/** Per connection per hour: tasks both ways, the peer's answers and the wakes they start. */
 export const A2A_DEFAULT_HOURLY_LIMIT = 20;
 
 /**

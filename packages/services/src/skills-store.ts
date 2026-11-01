@@ -29,7 +29,11 @@ import {
   skillVersionFiles,
   skillVersions,
 } from "@repo/db/schema/skills";
-import type { EventType, SkillAuthorKind } from "@repo/db/shared";
+import {
+  type EventType,
+  LIVE_RUN_STATUSES,
+  type SkillAuthorKind,
+} from "@repo/db/shared";
 import { SKILLS_MAX_BYTES, SKILLS_MAX_FILES } from "@repo/protocol/skills";
 import {
   and,
@@ -48,7 +52,7 @@ import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { type Clock, LIVE_RUN_STATUSES } from "./runs/types.ts";
+import type { Clock } from "./runs/types.ts";
 import { packArchive, unpackArchive } from "./skills-store/archive.ts";
 import { isTextBytes, unifiedDiff } from "./skills-store/diff.ts";
 import {

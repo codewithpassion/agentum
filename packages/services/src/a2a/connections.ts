@@ -2063,7 +2063,9 @@ export const createConnectionsService = ({
    * Fetches the card of an outside agent again. When its interface moved to
    * another origin the connection goes back to `needs_approval`, and the
    * credential stays unsent until a person approves the new origin. A person
-   * or the minute tick may call this: it can only narrow access.
+   * or the minute tick may call this. It can only narrow where the credential
+   * goes, but it does replace the card's text, so every reader of that text
+   * (`list_agents` through `listPeers`) treats it as peer text.
    */
   const refreshCard = async (
     principal: Principal,

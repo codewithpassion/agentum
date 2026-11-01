@@ -911,16 +911,21 @@ export const createOutboundService = ({
   const oneLine = (text: string, max: number): string =>
     capText(text.replace(WHITESPACE_RUN, " ").trim(), max);
 
-  /** What the peer's card says it does. Empty when the connection holds no card. */
+  /**
+   * What the peer's card says it does, inside the peer envelope. A refresh can
+   * change it long after a person approved the connection, so it is peer text
+   * like an answer is. Empty when the connection holds no card.
+   */
   const descriptionOf = (connection: ConnectionRow): string => {
     if (!connection.peerCard) {
       return "";
     }
     try {
       const parsed = agentCardSchema.safeParse(JSON.parse(connection.peerCard));
-      return parsed.success
+      const text = parsed.success
         ? oneLine(parsed.data.description, PEER_DESCRIPTION_MAX)
         : "";
+      return text === "" ? "" : buildPeerEnvelope(peerOf(connection), text);
     } catch {
       return "";
     }
@@ -939,7 +944,7 @@ export const createOutboundService = ({
    * The peers the calling run's agent may message: its own active connections
    * with an outbound policy other than `off` and a destination a person
    * approved. Anyone but a run gets none, because a connection belongs to one
-   * agent.
+   * agent, and a run of a managed agent gets none because `send` refuses it.
    */
   const listPeers = async (principal: Principal): Promise<PeerInfo[]> => {
     if (principal.kind !== "run") {
@@ -949,6 +954,9 @@ export const createOutboundService = ({
       kind: CONNECTION_KIND,
       workspaceId: principal.workspaceId,
     });
+    if (await isManagedRun(principal)) {
+      return [];
+    }
     const rows = await db
       .select()
       .from(a2aConnections)
@@ -987,14 +995,20 @@ export const createOutboundService = ({
    * An agent moved to managed after it connected: its tools can't be held, and
    * a peer's text read in its run (`get_run`) would reach it with no gate.
    */
-  const refuseManagedRun = async (
+  const isManagedRun = async (
     principal: Extract<Principal, { kind: "run" }>
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     const agent = await findAgent(db, {
       id: principal.agentId,
       workspaceId: principal.workspaceId,
     });
-    if (agent?.runtime === "managed") {
+    return agent?.runtime === "managed";
+  };
+
+  const refuseManagedRun = async (
+    principal: Extract<Principal, { kind: "run" }>
+  ): Promise<void> => {
+    if (await isManagedRun(principal)) {
       throw new ServiceError("invalid", MANAGED_RUN_REFUSAL);
     }
   };

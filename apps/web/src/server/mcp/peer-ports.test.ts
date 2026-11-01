@@ -25,6 +25,10 @@ import {
   resolveRunComputer,
 } from "./ports.ts";
 
+/** The fake peer's card description, inside the peer envelope. */
+const PEER_ENVELOPE_OF_FAKE_PEER =
+  /^\{"harbourmaster_turn":\{"from":\{[^}]*"kind":"peer"[^}]*\}.*"text":"A fake peer"/;
+
 const PUBLIC_BASE_URL = "https://hm.test";
 const CONNECTION_ID = "con_peer";
 const PEER_TOOL_AGENT = "acme/helper";
@@ -206,7 +210,8 @@ test("list_agents for the owning run lists the local agents and the peer", async
     agents: expect.arrayContaining([
       expect.objectContaining({ id: agent.id, slug: agent.slug }),
       expect.objectContaining({
-        description: "A fake peer",
+        // The card's text arrives inside the peer envelope, as an answer does.
+        description: expect.stringMatching(PEER_ENVELOPE_OF_FAKE_PEER),
         host: "peer.test",
         peer: true,
         slug: PEER_TOOL_AGENT,

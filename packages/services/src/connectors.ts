@@ -32,6 +32,7 @@ import {
   type CredentialMode,
   type CredentialOwnerKind,
   type CredentialStatus,
+  LIVE_RUN_STATUSES,
 } from "@repo/db/shared";
 import { and, asc, eq, inArray, notExists, or } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -73,7 +74,7 @@ import {
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { type Clock, LIVE_RUN_STATUSES } from "./runs/types.ts";
+import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
 const CONNECTOR_KIND = "connector";

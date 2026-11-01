@@ -299,8 +299,9 @@ export function PoliciesPanel({
           value={shownHourly}
         />
         <p className="text-muted-foreground text-sm">
-          Tasks per hour on this connection, both directions. From {HOURLY_MIN}{" "}
-          to {HOURLY_MAX}.
+          Messages in the last hour on this connection: tasks it sent us, tasks
+          we sent it, its answers to our agent's questions, and wakes its
+          answers started. From {HOURLY_MIN} to {HOURLY_MAX}.
         </p>
         {hourly === null ? (
           <p className="text-destructive text-sm">

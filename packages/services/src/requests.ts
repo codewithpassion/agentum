@@ -724,6 +724,15 @@ export const createRequestsService = ({
       throw new ForbiddenError("requests.answer");
     }
     const parsed = answerSchemas[row.kind].parse(input.answer);
+    if ("decision" in parsed && parsed.decision === "always_allow") {
+      const run = await loadRun(db, row.runId, row.workspaceId);
+      if (run && (await peerRootsOf(db, run)).length > 0) {
+        throw new ServiceError(
+          "invalid",
+          "Always allow can't be set from work that started with a message from a peer. Allow it once instead."
+        );
+      }
+    }
     const masker = await secrets.maskerFor(row.workspaceId, row.agentId);
     // The row keeps what the person typed, which the runtime hands to the
     // model. Only the event and the clients' records are scrubbed.
