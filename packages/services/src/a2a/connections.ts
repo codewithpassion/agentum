@@ -45,10 +45,12 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -115,6 +117,8 @@ const BEARER_MIN = 32;
 const TEXT_MAX = 2000;
 /** Invites the tick ends in one go. */
 const EXPIRE_BATCH = 50;
+/** Outside agents whose card the daily refresh fetches in one tick. */
+export const REFRESH_BATCH = 20;
 
 /** Statuses of a connection that has ended. */
 const ENDED: readonly A2aConnectionStatus[] = ["declined", "revoked"];
@@ -2068,10 +2072,11 @@ export const createConnectionsService = ({
     const { label, movedAgain, needsPerson, origin } = compareCard(found, card);
     const flips = found.status === "active" && needsPerson;
     // One statement, so a stored card never gets ahead of the flip that goes
-    // with it, and `returning` says whether this call's write landed. It only
-    // matches the status this call read, so a revoke, an approval or another
-    // refresh that landed while the card was fetched keeps what it decided, and
-    // this call then logs nothing.
+    // with it, and `returning` says whether this call's write landed. The write
+    // matches the status and the stored card this call read, so it lands only if
+    // neither changed while the card was fetched. A revoke, an approval or
+    // another refresh that landed in that time keeps what it decided, and this
+    // call then logs nothing.
     const landed = await db
       .update(a2aConnections)
       .set({
@@ -2082,7 +2087,10 @@ export const createConnectionsService = ({
       .where(
         and(
           eq(a2aConnections.id, found.id),
-          eq(a2aConnections.status, found.status)
+          eq(a2aConnections.status, found.status),
+          found.peerCard === null
+            ? isNull(a2aConnections.peerCard)
+            : eq(a2aConnections.peerCard, found.peerCard)
         )
       )
       .returning({ id: a2aConnections.id });
@@ -2106,6 +2114,46 @@ export const createConnectionsService = ({
       });
     }
     return await requireSummary(found.id, found.workspaceId);
+  };
+
+  /**
+   * The minute tick's daily pass over outside agents. It refreshes the active
+   * ones whose card is a day old or has never been fetched, a bounded batch
+   * oldest first. A peer whose fetch fails keeps its row as it was, and the
+   * batch goes on. Returns how many refreshes succeeded.
+   */
+  const refreshDue = async (principal: Principal): Promise<number> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(REFRESH_ACTION);
+    }
+    const dayAgo = new Date(clock.now().getTime() - DAY_MS).toISOString();
+    const due = await db
+      .select({ id: a2aConnections.id })
+      .from(a2aConnections)
+      .where(
+        and(
+          eq(a2aConnections.peerKind, "a2a_outbound"),
+          eq(a2aConnections.status, "active"),
+          isNotNull(a2aConnections.peerCardUrl),
+          or(
+            isNull(a2aConnections.peerCardFetchedAt),
+            lte(a2aConnections.peerCardFetchedAt, dayAgo)
+          )
+        )
+      )
+      .orderBy(asc(a2aConnections.peerCardFetchedAt))
+      .limit(REFRESH_BATCH);
+    let refreshed = 0;
+    for (const { id } of due) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: one peer at a time keeps the tick's fetches bounded
+        await refreshCard(principal, id);
+        refreshed += 1;
+      } catch {
+        // The failed row is unchanged. The next peer still gets its turn.
+      }
+    }
+    return refreshed;
   };
 
   /** The sealed OAuth credential, or null when it cannot be unsealed or read. */
@@ -2581,6 +2629,7 @@ export const createConnectionsService = ({
     publicCard,
     publish,
     refreshCard,
+    refreshDue,
     revoke,
     setPolicies,
     unpublish,

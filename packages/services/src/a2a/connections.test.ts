@@ -20,6 +20,7 @@ import {
   INVITE_MAX_FAILURES,
   INVITE_TTL_MS,
   type PairingTransport,
+  REFRESH_BATCH,
 } from "./connections.ts";
 
 const BASE = "https://hm.test";
@@ -186,6 +187,18 @@ beforeEach(() => {
     transport,
   });
 });
+
+/** A second service on the same database, with its own card fetch. */
+const serviceFetching = (fetchCard: (url: string) => Promise<unknown>) =>
+  createConnectionsService({
+    atomic: sqliteAtomic(db),
+    clock,
+    db,
+    events,
+    fetchCard,
+    publicBaseUrl: BASE,
+    secretsKey: SECRETS_KEY,
+  });
 
 const publishBoth = async () => {
   await service.publish(ownerA, {
@@ -823,6 +836,169 @@ describe("access keys and outside agents", () => {
     const approved = await approveAs(ownerA, connection.id);
     expect(approved.status).toBe("active");
     expect(approved.peerOrigin).toBe("https://elsewhere.example.org");
+  });
+});
+
+describe("the daily card refresh", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const moveTo = (rpcUrl: string) =>
+    outsideCard({
+      supportedInterfaces: [
+        { protocolBinding: "JSONRPC", protocolVersion: "1.0", url: rpcUrl },
+      ],
+    });
+  const reapprovalEvents = () =>
+    db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_reapproval_needed"))
+      .all();
+
+  test("refreshDue refuses a person and a peer", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    nowMs += DAY;
+    const peer: Principal = {
+      agentId: AGENT_X,
+      connectionId: connection.id,
+      kind: "peer",
+      workspaceId: W_ALICE,
+    };
+    await expect(service.refreshDue(ownerA)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    await expect(service.refreshDue(peer)).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+    expect(rowOf(connection.id)?.peerCardFetchedAt).toBe(START);
+  });
+
+  test("a card that moved is flagged once a day later, and nothing else is sent", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    const outboxBefore = await db.select().from(a2aOutbox);
+    const fetches: string[] = [];
+    const ticking = serviceFetching((url) => {
+      fetches.push(url);
+      return Promise.resolve(moveTo("https://elsewhere.example.org/rpc"));
+    });
+    nowMs += DAY;
+    expect(await ticking.refreshDue(SYSTEM_PRINCIPAL)).toBe(1);
+    expect(rowOf(connection.id)?.status).toBe("needs_approval");
+    expect(reapprovalEvents()).toHaveLength(1);
+    expect(fetches).toEqual([OUTSIDE_CARD_URL]);
+    expect(await db.select().from(a2aOutbox)).toHaveLength(outboxBefore.length);
+    expect(activations).toHaveLength(0);
+  });
+
+  test("an unchanged card stays active and gets a new fetch time", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    nowMs += DAY;
+    expect(await service.refreshDue(SYSTEM_PRINCIPAL)).toBe(1);
+    const row = rowOf(connection.id);
+    expect(row?.status).toBe("active");
+    expect(row?.peerCardFetchedAt).toBe(new Date(nowMs).toISOString());
+    expect(reapprovalEvents()).toHaveLength(0);
+  });
+
+  test("a connection fetched less than a day ago is left alone", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    peerCard = moveTo("https://elsewhere.example.org/rpc");
+    const fetches: string[] = [];
+    const ticking = serviceFetching((url) => {
+      fetches.push(url);
+      return Promise.resolve(peerCard);
+    });
+    nowMs += DAY - 1;
+    expect(await ticking.refreshDue(SYSTEM_PRINCIPAL)).toBe(0);
+    expect(fetches).toHaveLength(0);
+    expect(rowOf(connection.id)?.status).toBe("active");
+    expect(rowOf(connection.id)?.peerCardFetchedAt).toBe(START);
+  });
+
+  test("a card that fails to fetch leaves its row as it was, and the next peer is refreshed", async () => {
+    const broken = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: "https://broken.example.com/agent-card.json",
+      credential: OUTSIDE_SECRET,
+    });
+    const healthy = await service.addOutbound(ownerA, {
+      agentId: AGENT_X2,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    const before = rowOf(broken.id);
+    nowMs += DAY;
+    const ticking = serviceFetching((url) =>
+      url.includes("broken")
+        ? Promise.reject(new Error("peer unreachable"))
+        : Promise.resolve(moveTo("https://elsewhere.example.org/rpc"))
+    );
+    expect(await ticking.refreshDue(SYSTEM_PRINCIPAL)).toBe(1);
+    const after = rowOf(broken.id);
+    expect(after?.status).toBe(before?.status);
+    expect(after?.peerCard).toBe(before?.peerCard ?? null);
+    expect(after?.peerCardFetchedAt).toBe(START);
+    expect(rowOf(healthy.id)?.status).toBe("needs_approval");
+  });
+
+  test("the oldest due cards go first and no more than a batch", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i <= REFRESH_BATCH; i += 1) {
+      nowMs = Date.parse(START) + i * 1000;
+      // biome-ignore lint/performance/noAwaitInLoops: each add stamps its own fetch time
+      const connection = await service.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: `https://agent.example.com/cards/${i}.json`,
+        credential: OUTSIDE_SECRET,
+      });
+      ids.push(connection.id);
+    }
+    nowMs = Date.parse(START) + DAY + 60 * 60 * 1000;
+    expect(await service.refreshDue(SYSTEM_PRINCIPAL)).toBe(REFRESH_BATCH);
+    const refreshedAt = new Date(nowMs).toISOString();
+    for (const id of ids.slice(0, REFRESH_BATCH)) {
+      expect(rowOf(id)?.peerCardFetchedAt).toBe(refreshedAt);
+    }
+    expect(rowOf(ids.at(-1) ?? "")?.peerCardFetchedAt).toBe(
+      new Date(Date.parse(START) + REFRESH_BATCH * 1000).toISOString()
+    );
+  });
+
+  test("a due refresh and a person's refresh of a moved card log once", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    nowMs += DAY;
+    const quick = serviceFetching(() =>
+      Promise.resolve(moveTo("https://first.example.com/rpc"))
+    );
+    // The person's refresh reads the connection, then the tick refreshes it
+    // while the card is fetched.
+    const slow = serviceFetching(async () => {
+      await quick.refreshDue(SYSTEM_PRINCIPAL);
+      return moveTo("https://second.example.net/rpc");
+    });
+    const refreshed = await slow.refreshCard(ownerA, connection.id);
+    expect(refreshed.status).toBe("needs_approval");
+    expect(refreshed.pendingOrigin).toBe("https://first.example.com");
+    expect(reapprovalEvents()).toHaveLength(1);
   });
 });
 
@@ -1768,5 +1944,105 @@ describe("hardening, round two", () => {
     expect(JSON.parse(logged[0]?.payload ?? "{}")).toMatchObject({
       toOrigin: "https://first.example.com",
     });
+  });
+
+  test("two refreshes that read the same moved card log once, and the slow one writes nothing", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    peerCard = outsideCard({
+      supportedInterfaces: [
+        {
+          protocolBinding: "JSONRPC",
+          protocolVersion: "1.0",
+          url: "https://first.example.com/rpc",
+        },
+      ],
+    });
+    await service.refreshCard(ownerA, connection.id);
+    // Both refreshes now read needs_approval with the card that moved to first.
+    const quick = serviceFetching(() =>
+      Promise.resolve(
+        outsideCard({
+          supportedInterfaces: [
+            {
+              protocolBinding: "JSONRPC",
+              protocolVersion: "1.0",
+              url: "https://second.example.net/rpc",
+            },
+          ],
+        })
+      )
+    );
+    const slow = serviceFetching(async () => {
+      await quick.refreshCard(ownerA, connection.id);
+      return outsideCard({
+        supportedInterfaces: [
+          {
+            protocolBinding: "JSONRPC",
+            protocolVersion: "1.0",
+            url: "https://third.example.org/rpc",
+          },
+        ],
+      });
+    });
+    const refreshed = await slow.refreshCard(ownerA, connection.id);
+    expect(refreshed.status).toBe("needs_approval");
+    expect(refreshed.pendingOrigin).toBe("https://second.example.net");
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_reapproval_needed"));
+    // The first flip and the quick refresh's move, not the slow one's.
+    expect(logged).toHaveLength(2);
+  });
+
+  test("a refresh that read the card before an approval does not put the connection back to needs_approval", async () => {
+    const connection = await service.addOutbound(ownerA, {
+      agentId: AGENT_X,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    const quick = serviceFetching(() =>
+      Promise.resolve(
+        outsideCard({
+          supportedInterfaces: [
+            {
+              protocolBinding: "JSONRPC",
+              protocolVersion: "1.0",
+              url: "https://first.example.com/rpc",
+            },
+          ],
+        })
+      )
+    );
+    // The slow refresh read the active connection. While its card loads, the
+    // card moves, a person approves the move, and only then does the slow one
+    // finish with a card that moves again.
+    const slow = serviceFetching(async () => {
+      await quick.refreshCard(ownerA, connection.id);
+      await approveAs(ownerA, connection.id);
+      return outsideCard({
+        supportedInterfaces: [
+          {
+            protocolBinding: "JSONRPC",
+            protocolVersion: "1.0",
+            url: "https://second.example.net/rpc",
+          },
+        ],
+      });
+    });
+    const refreshed = await slow.refreshCard(ownerA, connection.id);
+    expect(refreshed.status).toBe("active");
+    expect(refreshed.peerOrigin).toBe("https://first.example.com");
+    expect(rowOf(connection.id)?.status).toBe("active");
+    const logged = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.type, "a2a.connection_reapproval_needed"));
+    // Only the quick refresh's flip is logged.
+    expect(logged).toHaveLength(1);
   });
 });

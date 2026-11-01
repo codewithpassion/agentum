@@ -244,6 +244,10 @@ function ConnectionPage() {
     await runAction(() => getTrpc().a2a.revoke.mutate({ connectionId }));
   }, [connectionId, runAction]);
 
+  const refreshCard = useCallback(async () => {
+    await runAction(() => getTrpc().a2a.refreshCard.mutate({ connectionId }));
+  }, [connectionId, runAction]);
+
   const showCheckCode =
     connection.checkCode !== null &&
     CHECK_CODE_STATUSES.includes(connection.status);
@@ -290,6 +294,21 @@ function ConnectionPage() {
         </h2>
         <ConnectionTasks tasks={tasks} />
       </section>
+
+      {connection.peerKind === "a2a_outbound" && !isEnded(connection.status) ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-heading text-foreground text-xl">Agent card</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button disabled={busy} onClick={refreshCard} variant="outline">
+              Refresh
+            </Button>
+            <p className="text-muted-foreground text-sm">
+              Fetch the agent&apos;s card again. If it moved to another address
+              you will be asked to approve it.
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       {isEnded(connection.status) ? null : (
         <section className="flex flex-col gap-2">

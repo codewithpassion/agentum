@@ -263,3 +263,79 @@ describe("tool gate for a peer's run", () => {
     expect(row?.status).toBe("pending");
   });
 });
+
+describe("approval display for a peer's run", () => {
+  const APPROVAL = {
+    input: { command: "ls" },
+    kind: "approval" as const,
+    toolKey: "bash",
+    toolName: "bash",
+    toolUseId: "t1",
+  };
+
+  const storedDisplay = async (requestId: string) => {
+    const [row] = await f.db
+      .select()
+      .from(runRequests)
+      .where(eq(runRequests.id, requestId));
+    return JSON.parse(row?.display ?? "{}") as Record<string, unknown>;
+  };
+
+  test("a peer's run marks its approval as peer-run, stored and announced", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    const runId = await peerRun();
+    const opened: Record<string, unknown>[] = [];
+    f.events.onAppend((event) => {
+      if (event.type === "request.opened") {
+        opened.push(event.payload);
+      }
+      return Promise.resolve();
+    });
+    const approval = await f.requests.open(f.system, {
+      ...APPROVAL,
+      runId,
+    });
+    expect((await storedDisplay(approval.id)).peerRun).toBe(true);
+    expect(opened).toEqual([
+      expect.objectContaining({
+        display: expect.objectContaining({ peerRun: true }),
+      }),
+    ]);
+  });
+
+  test("a member's run does not carry the peer-run key", async () => {
+    const started = await f.runs.startRun(member(), {
+      agentId: AGENT,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    await f.runs.claimRun(f.system, started.runId);
+    const approval = await f.requests.open(f.system, {
+      ...APPROVAL,
+      runId: started.runId,
+    });
+    expect("peerRun" in (await storedDisplay(approval.id))).toBe(false);
+  });
+
+  test("a child run that a peer's run handed work to carries the peer-run key", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    // The child is claimed first: a queued peer run older than it would block the claim.
+    const started = await f.runs.startRun(member(), {
+      agentId: AGENT,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Go"));
+    const parentRunId = await runIdOf(task.id);
+    await f.db
+      .update(runRows)
+      .set({ parentRunId })
+      .where(eq(runRows.id, started.runId));
+    await f.runs.claimRun(f.system, started.runId);
+    const approval = await f.requests.open(f.system, {
+      ...APPROVAL,
+      runId: started.runId,
+    });
+    expect((await storedDisplay(approval.id)).peerRun).toBe(true);
+  });
+});

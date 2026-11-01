@@ -1,9 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { a2aConnections } from "@repo/db/schema/a2a";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
+import { eq } from "drizzle-orm";
 import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
@@ -17,6 +19,23 @@ const SKILLS = [
     tags: ["support"],
   },
 ];
+const PEER_CARD_URL = "https://peer.test/.well-known/agent-card.json";
+const PEER_CARD = {
+  capabilities: { pushNotifications: true },
+  defaultInputModes: ["text/plain"],
+  defaultOutputModes: ["text/plain"],
+  description: "Hermes on Sam's box",
+  name: "Hermes",
+  skills: [{ description: "Does things", id: "s", name: "s", tags: ["t"] }],
+  supportedInterfaces: [
+    {
+      protocolBinding: "JSONRPC",
+      protocolVersion: "1.0",
+      url: "https://peer.test/a2a",
+    },
+  ],
+  version: "1.0.0",
+};
 
 const CANNOT_CHANGE = /admin or the agent's owner/;
 
@@ -40,6 +59,7 @@ const infra = (): Infra => {
     clock: systemClock,
     devFakeRuntime: true,
     fileBlobs: memoryFileBlobs(),
+    peerFetch: () => Promise.resolve(Response.json(PEER_CARD)),
     publicBaseUrl: "https://hm.test",
     relay: noopRelay,
     secretsKey: SECRETS_KEY,
@@ -154,6 +174,58 @@ test("a member may not publish or create an invite or a key", async () => {
   await expect(
     member.a2a.createInvite({ agentId: agent.id })
   ).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
+test("a member may refresh the card of an outbound connection", async () => {
+  const { admin, agent, member } = await setup();
+  const outbound = await admin.a2a.addOutbound({
+    agentId: agent.id,
+    cardUrl: PEER_CARD_URL,
+  });
+
+  const refreshed = await member.a2a.refreshCard({
+    connectionId: outbound.id,
+  });
+
+  expect(refreshed).toMatchObject({ id: outbound.id, status: "active" });
+});
+
+test("refreshCard answers NOT_FOUND for an inbound key, an unknown id and an outbound with no card URL", async () => {
+  const { admin, agent, connectionId } = await setup();
+  const outbound = await admin.a2a.addOutbound({
+    agentId: agent.id,
+    cardUrl: PEER_CARD_URL,
+  });
+  await db
+    .update(a2aConnections)
+    .set({ peerCardUrl: null })
+    .where(eq(a2aConnections.id, outbound.id));
+
+  await expect(admin.a2a.refreshCard({ connectionId })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(
+    admin.a2a.refreshCard({ connectionId: "con_missing" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    admin.a2a.refreshCard({ connectionId: outbound.id })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("a caller without a session may not refresh a card", async () => {
+  const { connectionId } = await setup();
+  const composed = composeWith({
+    allowedOrgIds: ["org_a"],
+    db,
+    infra: infra(),
+  });
+  const caller = appRouter.createCaller(
+    await buildContext({ composed, session: { userId: null } })
+  );
+
+  await expect(caller.a2a.refreshCard({ connectionId })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
 });
 
 test("a caller without a session gets UNAUTHORIZED", async () => {
