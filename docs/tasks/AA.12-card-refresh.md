@@ -22,5 +22,5 @@ Don't touch `packages/services/src/a2a/outbound.ts`, `tasks.ts`, `requests.ts` o
 Every check listed under M4 in `docs/reviews/AA-1.md`, plus a test that N11's card omits the option on a peer-rooted run and keeps it on a member run. `bun run check && bun run test && bun run build` pass. The workerd `guest execution` and `ArtifactRoom` timeouts are known load flakes; if one is the only failure, run it alone and record that.
 
 ## Log
-- 2026-11-02: created from gate 1. Dispatched.
-- 2026-11-02: merged, review clean after 1 fix round. Migration 0038 adds `peer_card_tried_at`.
+- 2026-11-01: created from gate 1. Dispatched.
+- 2026-11-01: merged, review clean after 1 fix round. Migration 0038 adds `peer_card_tried_at`.
