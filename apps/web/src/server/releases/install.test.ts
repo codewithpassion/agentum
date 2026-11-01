@@ -219,9 +219,22 @@ describe("install.sh", () => {
     expect(result.stdout).toContain(`harbourmaster ${V2} is installed`);
     expect(readCalls(sandbox)).toEqual([
       "systemctl --user cat harbourmaster",
-      "harbourmaster install-service",
+      "harbourmaster install-service --refresh",
       "harbourmaster --version",
     ]);
+  });
+
+  test("a re-run where install-service exits 2 warns about lingering and still succeeds", async () => {
+    const sandbox = useSandbox();
+    const first = useServer(V1);
+    expect((await install(sandbox, first.origin)).exitCode).toBe(0);
+    enrolled(sandbox);
+
+    const second = useServer(V2, { "install-service": 2 });
+    const result = await install(sandbox, second.origin);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout + result.stderr).toContain("loginctl enable-linger");
   });
 
   test("a re-run where no service is installed replaces the binary and exits 0", async () => {

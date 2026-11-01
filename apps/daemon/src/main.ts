@@ -41,7 +41,10 @@ Commands:
                                      Enroll this machine with a Harbourmaster server.
   run                                Run the daemon in the foreground.
   status                             Show the daemon's config and service state.
-  install-service [--claude <path>]  Install the systemd user service and the hm-agent user.
+  install-service [--claude <path>] [--refresh]
+                                     Install the systemd user service and the hm-agent user.
+                                     --refresh only points the service at this binary and
+                                     restarts it, for an update.
 
 Run install-service before enroll, so that enroll reports single_user false on a
 machine where hm-agent is set up.
@@ -62,6 +65,7 @@ const parseCli = (argv: string[]) =>
     options: {
       claude: { type: "string" },
       help: { short: "h", type: "boolean" },
+      refresh: { type: "boolean" },
       server: { type: "string" },
       version: { short: "v", type: "boolean" },
     },
@@ -158,6 +162,7 @@ export const main = async (
       const options: InstallServiceOptions = {
         claudeBinary: values.claude,
         log,
+        refresh: values.refresh === true,
         run,
         ...(configPath === undefined ? {} : { configPath }),
       };

@@ -1357,7 +1357,8 @@ export const compose = (
           return (
             (await readManifest(env.FILES, "harbourmaster"))?.version ?? null
           );
-        } catch {
+        } catch (error) {
+          console.error("reading the latest daemon release failed", error);
           return null;
         }
       },

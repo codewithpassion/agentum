@@ -282,6 +282,38 @@ test("with a config present the unit is restarted last", async () => {
   ]);
 });
 
+test("refresh rewrites the unit and restarts it without touching the agent user or sudoers", async () => {
+  const configPath = join(tempDirectory(), "config.json");
+  writeFileSync(configPath, "{}\n");
+  const home = tempDirectory();
+  const { ran, run } = fakeHost();
+
+  const code = await installServiceCommand({
+    binaryPath: BINARY,
+    configPath,
+    getuid: () => 1000,
+    home,
+    log: collectingLogger([]),
+    platform: "linux",
+    refresh: true,
+    run,
+    tempDir: tempDirectory(),
+    username: USER,
+  });
+
+  expect(code).toBe(EXIT_OK);
+  expect(readFileSync(serviceUnitPath(home), "utf8")).toContain(
+    `ExecStart="${BINARY}" run`
+  );
+  expect(ran.filter((line) => line.startsWith("systemctl"))).toEqual([
+    "systemctl --user daemon-reload",
+    "systemctl --user enable harbourmaster",
+    "systemctl --user restart harbourmaster",
+  ]);
+  expect(hasLine(ran, "sudo")).toBe(false);
+  expect(hasLine(ran, "claude")).toBe(false);
+});
+
 test("with no config the unit is not restarted and the log says to enroll", async () => {
   const { ran, run } = fakeHost();
   const lines: string[] = [];

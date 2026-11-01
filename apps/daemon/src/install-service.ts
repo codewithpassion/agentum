@@ -73,6 +73,12 @@ export interface InstallServiceOptions {
   readonly home?: string;
   readonly log: Logger;
   readonly platform?: NodeJS.Platform;
+  /**
+   * Only point the unit at this binary and restart it. Leaves the agent user
+   * and the sudoers rule alone, which an update must not redo: the machine
+   * may have been set up with another `--claude`, or as `single_user`.
+   */
+  readonly refresh?: boolean;
   readonly run: CommandRunner;
   readonly tempDir?: string;
   readonly username?: string;
@@ -183,6 +189,37 @@ const provisionAgentUser = async (
   );
 };
 
+/**
+ * The agent user is optional. Any failure here means the machine runs Claude
+ * Code as the daemon's own user, and the install carries on.
+ */
+const setUpAgentUser = async (
+  options: InstallServiceOptions,
+  username: string
+): Promise<void> => {
+  const { log, run } = options;
+  let agentError: string | undefined;
+  try {
+    agentError = await provisionAgentUser(
+      {
+        claudeBinary: options.claudeBinary,
+        run,
+        tempDir: options.tempDir ?? tmpdir(),
+        username,
+      },
+      log
+    );
+  } catch (error) {
+    agentError = `agent user setup failed: ${errorMessage(error)}`;
+  }
+  if (agentError !== undefined) {
+    log.error(agentError);
+    log.info(
+      `single_user: this machine will run Claude Code as ${username}, the daemon's own user`
+    );
+  }
+};
+
 /** Returns the process exit code. */
 export const installServiceCommand = async (
   options: InstallServiceOptions
@@ -214,27 +251,8 @@ export const installServiceCommand = async (
   writeFileSync(unitPath, serviceUnit(options.binaryPath ?? process.execPath));
   log.info(`wrote ${unitPath}`);
 
-  // The agent user is optional. Any failure here means the machine runs Claude
-  // Code as the daemon's own user, and the install carries on.
-  let agentError: string | undefined;
-  try {
-    agentError = await provisionAgentUser(
-      {
-        claudeBinary: options.claudeBinary,
-        run,
-        tempDir: options.tempDir ?? tmpdir(),
-        username,
-      },
-      log
-    );
-  } catch (error) {
-    agentError = `agent user setup failed: ${errorMessage(error)}`;
-  }
-  if (agentError !== undefined) {
-    log.error(agentError);
-    log.info(
-      `single_user: this machine will run Claude Code as ${username}, the daemon's own user`
-    );
+  if (!options.refresh) {
+    await setUpAgentUser(options, username);
   }
 
   const systemctl = async (args: string[]): Promise<boolean> => {
