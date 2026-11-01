@@ -39,6 +39,7 @@ import type {
   EventType,
   RunStatus,
 } from "@repo/db/shared";
+import { LIVE_RUN_STATUS_LITERALS, LIVE_RUN_STATUSES } from "@repo/db/shared";
 import { questionDisplaySchema } from "@repo/protocol/requests";
 import {
   and,
@@ -64,7 +65,6 @@ import {
   type Clock,
   type Gateway,
   INPUT_TEXT_MAX,
-  LIVE_RUN_STATUSES,
   type StartRunInput,
   type StartRunOptions,
 } from "../runs/types.ts";
@@ -199,6 +199,37 @@ export interface A2aTasksOptions {
 }
 
 type ConnectionRow = typeof a2aConnections.$inferSelect;
+
+/**
+ * The query behind `liveRunsReaching`. Its live statuses are literals that
+ * repeat the condition of the partial index `runs_live_status_idx`, so the
+ * unscoped walk starts from that index and reads only the live runs, not all
+ * of `runs`. Bound parameters would not let SQLite use the index.
+ */
+export const liveRunsReachingSql = (
+  scope: { connectionId: string; workspaceId: string } | null,
+  limit: number
+) => sql`
+  with recursive up(live_id, parent_id, actor_kind, actor_id, hops) as (
+    select r.id, r.parent_run_id, r.actor_kind, r.actor_id, 0
+    from ${runRows} as r
+    where r.status in (${sql.raw(LIVE_RUN_STATUS_LITERALS)})
+      ${scope ? sql`and r.workspace_id = ${scope.workspaceId}` : sql``}
+    union all
+    select u.live_id, p.parent_run_id, p.actor_kind, p.actor_id, u.hops + 1
+    from up as u
+    join ${runRows} as p on p.id = u.parent_id
+    where u.hops <= ${MAX_RUN_DEPTH}
+  )
+  select distinct live_id as id from up
+  where actor_kind = 'peer'
+    and ${
+      scope
+        ? sql`actor_id = ${scope.connectionId}`
+        : sql`actor_id in (select id from ${a2aConnections} where status in ('declined', 'revoked'))`
+    }
+  limit ${limit}
+`;
 
 /** What `move` writes besides the new state. */
 interface Patch {
@@ -1623,31 +1654,9 @@ export const createA2aTasksService = ({
     scope: { connectionId: string; workspaceId: string } | null,
     limit: number
   ): Promise<string[]> => {
-    const live = sql.join(
-      LIVE_RUN_STATUSES.map((status) => sql`${status}`),
-      sql`, `
+    const rows = await db.all<{ id: string }>(
+      liveRunsReachingSql(scope, limit)
     );
-    const rows = await db.all<{ id: string }>(sql`
-      with recursive up(live_id, parent_id, actor_kind, actor_id, hops) as (
-        select r.id, r.parent_run_id, r.actor_kind, r.actor_id, 0
-        from ${runRows} as r
-        where r.status in (${live})
-          ${scope ? sql`and r.workspace_id = ${scope.workspaceId}` : sql``}
-        union all
-        select u.live_id, p.parent_run_id, p.actor_kind, p.actor_id, u.hops + 1
-        from up as u
-        join ${runRows} as p on p.id = u.parent_id
-        where u.hops <= ${MAX_RUN_DEPTH}
-      )
-      select distinct live_id as id from up
-      where actor_kind = 'peer'
-        and ${
-          scope
-            ? sql`actor_id = ${scope.connectionId}`
-            : sql`actor_id in (select id from ${a2aConnections} where status in ('declined', 'revoked'))`
-        }
-      limit ${limit}
-    `);
     return rows.map(({ id }) => id);
   };
 

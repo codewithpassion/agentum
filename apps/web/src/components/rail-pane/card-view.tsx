@@ -76,9 +76,7 @@ function CardBody({
           cc={heldMailCc(request)}
           expiry={expiryNote(card.expiresAt, nowMs)}
           offerAlways={
-            request?.kind === "approval"
-              ? offersAlwaysAllow(request.display)
-              : true
+            request?.kind === "approval" && offersAlwaysAllow(request.display)
           }
           onAnswer={answerMail}
           waitingOn={waitingOn}

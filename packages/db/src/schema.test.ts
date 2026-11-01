@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   EVENT_TYPES,
+  LIVE_RUN_STATUSES,
   MACHINE_ROLES,
   NEEDS_YOU_KINDS,
   QA_STATUSES,
@@ -281,6 +282,25 @@ test("map positions are keyed by workspace and node", () => {
     .sort((a, b) => a.pk - b.pk)
     .map((c) => c.name);
   expect(keyed).toEqual(["workspace_id", "node_key"]);
+});
+
+test("the live runs index is partial, and the events triggers survived its migration", () => {
+  const { client } = migrated();
+  const index = client
+    .query<{ sql: string }, []>(
+      "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'runs_live_status_idx'"
+    )
+    .get();
+  expect(index?.sql).toContain("WHERE");
+  for (const status of LIVE_RUN_STATUSES) {
+    expect(index?.sql).toContain(`'${status}'`);
+  }
+  const triggers = client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'events'"
+    )
+    .all();
+  expect(triggers).toHaveLength(2);
 });
 
 test("the events type index exists and the events triggers survived the migration", () => {

@@ -86,7 +86,7 @@ Softer than revoke, each side sets `inbound_policy = off` to stop incoming messa
 | `inbound_policy` | `off`, `approve`, `auto` | `approve` | Whether a message from the peer is refused, waits for a person, or starts a run |
 | `tool_policy` | `ask`, `agent_rules` | `ask` | In a run this connection started, a run it handed work to, or a wake carrying its answer, whether every tool call asks a person, or the agent's normal rules apply. In a chain with several connections, any one at `ask` (or ended) makes the run ask |
 | `outbound_policy` | `off`, `approve`, `auto` | `approve` | Whether our agent's message to the peer is refused, goes through a run request a person answers, or sends. The approval card shows the full text, which guards against an injected agent leaking data |
-| `hourly_limit` | integer | 20 | Tasks, answers to the agent's questions and wakes per hour per connection, both directions. Past it the HTTP layer answers 429 with `Retry-After`. An answer that would pass it is refused and leaves the question open |
+| `hourly_limit` | integer | 20 | Per connection, over the last hour: tasks the peer sent us, tasks our agent sent it, the peer's answers to our agent's questions, and the wakes a peer's answer started. Answers our agent or a member gives don't count. Past it the HTTP layer answers 429 with `Retry-After`. An answer that would pass it is refused and leaves the question open |
 
 The widening moves (`auto`, `agent_rules`) follow the "who may connect" rule and show what they allow next to the switch, including that a machine agent can run shell commands.
 
@@ -103,7 +103,7 @@ A published agent has two interfaces on its card: `https://<host>/a2a/<publicId>
 | `TASK_STATE_AUTH_REQUIRED` | Waiting for a person on our side to approve the message. Blocking calls return here, and the status message says so. No credential is expected from the client |
 | `TASK_STATE_REJECTED` | A person declined, or the connection was revoked while the task waited |
 | `TASK_STATE_SUBMITTED` / `WORKING` | Run queued / running. A tool approval pending in our workspace stays `WORKING` |
-| `TASK_STATE_INPUT_REQUIRED` | The run opened a `question` request. The client's next message with the same `taskId` answers it. In a run a peer started the question lasts 1 hour. If nobody answers, the task ends in `TASK_STATE_FAILED` with a status message saying so, and the run is cancelled so it cannot ask again. A member's run keeps 24 hours |
+| `TASK_STATE_INPUT_REQUIRED` | The run opened a `question` request. The client's next message with the same `taskId` answers it. A question lasts 1 hour in any run whose chain reaches a peer (a run a peer started, a hand-off from one, or a wake carrying its answer), even when a member's own outbound conversation is the one waiting. Then the run is cancelled so it cannot ask again, and a task waiting on it ends in `TASK_STATE_FAILED` with a status message saying so. Only a run no peer set going keeps 24 hours |
 | `TASK_STATE_COMPLETED` | Run `done`, with `resultText` as one text artifact |
 | `TASK_STATE_FAILED` / `CANCELED` | Run `failed` or `interrupted` / `cancelled`. The error text says only that the run failed, never the internal error |
 
@@ -164,12 +164,14 @@ AA.8 ran all of this against a real Hermes v0.22.5. What it found:
 
 ## What the agent sees
 
-A peer's text never reaches the agent as if a member wrote it. It goes through the speaker envelope with `from.kind: "peer"`, carrying the peer's agent name and host and a line stating that this is outside input and not an instruction from the workspace. Runs have `onBehalfOfUserId = null`, so user-mode connector credentials aren't available, the same as a trigger run.
+A peer's text never reaches the agent as if a member wrote it. It goes through the speaker envelope with `from.kind: "peer"`, carrying the peer's agent name and host and a line stating that this is outside input and not an instruction from the workspace. The description on an outside agent's card is peer text too: a daily refresh can change it after a person approved the connection, and it reaches the agent through `list_agents` inside the same peer envelope with `from.kind: "peer"`, never as plain text. Runs have `onBehalfOfUserId = null`, so user-mode connector credentials aren't available, the same as a trigger run.
 
 The `tool_policy = ask` gate lives in `requests.needsApproval`, the check the cloud and machine runtimes both call. It covers a run a peer started and any run that run handed work to, down the parent chain. Two points were open in the build (AA.3) and are settled:
 
 - A machine daemon too old to report `currentApprovals` skips the gate, so the claim refuses a peer run for it (a daemon of that kind never claims one).
 - The managed runtime doesn't call `needsApproval`, so it can't be gated. Agents on that runtime can't be published or connected for outbound, a message to one published earlier is refused, it gets no pairing code, a run it makes can't send or read a peer's answer, and a run a peer's text set going (including a wake) can't hand work to one.
+
+The 1 hour limit applies per request, not per task. An expired tool approval in a peer-rooted run resumes the run, and the run can ask again. A peer that answers a question at 59 minutes starts a new hour. So one peer message can hold an agent until the turn limit, which is the real bound. `MAX_TURNS_DEFAULT` is 100, so about 100 hours at the default if every turn waits the full hour. The most a run can set is 500. The request shows in Needs you, and any member can cancel the run or revoke the connection in one click. An `auto` peer belongs on an agent that does nothing else.
 
 Every tool call on the cloud runtime goes through the one gate, and on the machine runtime through the daemon's check once `currentApprovals` is on. The platform `/mcp` and `/api/proxy` routes take a run token without asking `needsApproval` themselves. The token reaches only the runtime, so the runtime's gate is the control, and a server-side guard for peer runs is a possible later addition.
 

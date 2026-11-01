@@ -9,12 +9,13 @@ import {
 } from "bun:test";
 import { a2aTasks } from "@repo/db/schema/a2a";
 import { runs as runRows } from "@repo/db/schema/runs";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   createOutboundFixture,
   OUTBOUND_CONNECTION,
   type OutboundFixture,
 } from "./outbound-fixture.ts";
+import { liveRunsReachingSql } from "./tasks.ts";
 import {
   AGENT,
   CONNECTION,
@@ -291,5 +292,38 @@ describe("revoke cancels the runs a peer's connection set going", () => {
 
     await f.tasks.sweep(f.system);
     expect(await childrenCancelled()).toBe(SWEEP_BATCH + 10);
+  });
+});
+
+/** A plan step that reads every row of `runs`. */
+const FULL_SCAN = /SCAN (r|runs)(?! USING)/;
+const RUNS_STATUS_INDEX = /USING INDEX runs_(live|workspace)_status_idx/;
+
+describe("the sweep's chain query", () => {
+  type Scope = { connectionId: string; workspaceId: string } | null;
+  const planOf = async (scope: Scope): Promise<string> =>
+    (
+      await f.db.all<{ detail: string }>(
+        sql`explain query plan ${liveRunsReachingSql(scope, SWEEP_BATCH)}`
+      )
+    )
+      .map(({ detail }) => detail)
+      .join("\n");
+
+  test("without a connection it starts from the live runs index", async () => {
+    const plan = await planOf(null);
+
+    expect(plan).toContain("USING INDEX runs_live_status_idx");
+    expect(plan).not.toMatch(FULL_SCAN);
+  });
+
+  test("with a connection it still reads only indexed runs", async () => {
+    const plan = await planOf({
+      connectionId: CONNECTION,
+      workspaceId: WORKSPACE,
+    });
+
+    expect(plan).toMatch(RUNS_STATUS_INDEX);
+    expect(plan).not.toMatch(FULL_SCAN);
   });
 });

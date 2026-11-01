@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
   index,
@@ -7,7 +8,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { RUN_STATUSES } from "../shared.ts";
+import { LIVE_RUN_STATUS_LITERALS, RUN_STATUSES } from "../shared.ts";
 import { agents } from "./agents.ts";
 import { artifacts } from "./artifacts.ts";
 import { sessions } from "./sessions.ts";
@@ -96,5 +97,10 @@ export const runs = sqliteTable(
     index("runs_workspace_status_idx").on(t.workspaceId, t.status),
     index("runs_workspace_finished_idx").on(t.workspaceId, t.finishedAt),
     index("runs_agent_status_idx").on(t.agentId, t.status),
+    // The live runs of every workspace, which the revoke sweep reads each
+    // minute. Live runs are few next to all of them.
+    index("runs_live_status_idx")
+      .on(t.status)
+      .where(sql`${t.status} in (${sql.raw(LIVE_RUN_STATUS_LITERALS)})`),
   ]
 );
