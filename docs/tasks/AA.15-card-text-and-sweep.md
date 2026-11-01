@@ -3,7 +3,7 @@ id: AA.15
 title: "Gate 2: card text is peer text, the revoke sweep stops scanning all runs, spec lines"
 milestone: AA
 size: S
-status: in_progress
+status: done
 depends_on: [AA.14]
 branch: task/AA.15-card-text-and-sweep
 lane: services
@@ -25,3 +25,4 @@ The check under M1 in `docs/reviews/AA-2.md`. A test that the sweep's query uses
 
 ## Log
 - 2026-11-02: created from gate 2. Dispatched. This is the last AA task from the gates: gate 2 was the second round, so anything still open afterwards stays recorded in the review file.
+- 2026-11-02: merged, review clean. Migration 0039 adds the partial index. The optional sweep skip was left out because a revoke relies on the sweep to finish its work.
