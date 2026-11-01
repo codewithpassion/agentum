@@ -12,7 +12,7 @@
 // takes messages without approval and has a high hourly limit, because the
 // suite sends far more than 20 tasks.
 //
-// First time: the script clones the TCK at `main` and installs it into a venv
+// First time: the script clones the TCK at a pinned commit and installs it into a venv
 // in its folder (needs git, uv and Python 3.11 or newer). Reports go to
 // `<work-dir>/tck-reports/<level>-<time>/`. The exit code is the TCK's.
 import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -111,7 +111,7 @@ const run = async (cmd: string[], cwd: string): Promise<void> => {
   }
 };
 
-/** Clones and installs the TCK when its folder is not there yet. */
+/** Clones and installs the TCK when its folder is not there yet, and checks that it is at the pinned commit. */
 const ensureTck = async (dir: string): Promise<void> => {
   if (!existsSync(join(dir, "run_tck.py"))) {
     await run(["git", "clone", "--quiet", TCK_REPO, dir], process.cwd());

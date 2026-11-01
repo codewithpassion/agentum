@@ -3,6 +3,12 @@ import { thirdPartyEnv } from "./a2a-harness.ts";
 
 test("third-party code gets the shell basics and what the caller adds, and no keys", () => {
   const saved = { ...process.env };
+  const touched = [
+    "OPENROUTER_API_KEY",
+    "CLERK_SECRET_KEY",
+    "ANTHROPIC_API_KEY",
+    "LC_ALL",
+  ];
   process.env.OPENROUTER_API_KEY = "sk-secret";
   process.env.CLERK_SECRET_KEY = "sk_secret";
   process.env.ANTHROPIC_API_KEY = "sk-ant-secret";
@@ -16,16 +22,13 @@ test("third-party code gets the shell basics and what the caller adds, and no ke
     expect(JSON.stringify(env)).not.toContain("secret");
     expect(Object.keys(env).some((name) => name.endsWith("_KEY"))).toBe(false);
   } finally {
-    for (const name of [
-      "OPENROUTER_API_KEY",
-      "CLERK_SECRET_KEY",
-      "ANTHROPIC_API_KEY",
-    ]) {
-      delete process.env[name];
-    }
-    process.env.LC_ALL = saved.LC_ALL ?? "";
-    if (saved.LC_ALL === undefined) {
-      delete process.env.LC_ALL;
+    for (const name of touched) {
+      const before = saved[name];
+      if (before === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = before;
+      }
     }
   }
 });
