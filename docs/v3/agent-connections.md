@@ -130,7 +130,7 @@ We register a per-task push webhook (`/a2a/webhooks/<taskId>/<token>`) when the 
 
 When a result arrives and the calling run has already ended, the result starts a follow-up run in the same session with the calling run's reply target, so a Slack thread gets its answer. Results arriving while the calling run is still alive wait for `get_run`, and the minute tick wakes whatever the run left unread. Wakes count against the hourly limit.
 
-A wake carries a peer's text with nobody watching, so it is held to the same rules as a run the peer started. Its actor is that peer's connection and `onBehalfOfUserId` is null, as for a trigger run, so the person's user-mode connector credentials and file attachments never reach it. It keeps the calling run's parent and depth, `tool_policy` gates it (a wake on an `agent_rules` connection under a run that started on an `ask` connection still asks, because every link in the chain counts), and a machine daemon without `currentApprovals` can't claim it. A wake on a managed agent is refused, and the answer is never read by that agent (a run of a managed agent can't use `get_run` either). A question a wake asks is for the session's members, and no peer can answer it.
+A wake carries a peer's text with nobody watching, so it is held to the same rules as a run the peer started. Its actor is that peer's connection and `onBehalfOfUserId` is null, as for a trigger run, so the person's user-mode connector credentials and file attachments never reach it. It keeps the calling run's parent and depth, `tool_policy` gates it (a wake on an `agent_rules` connection under a run that started on an `ask` connection still asks, because every link in the chain counts), and a machine daemon without `currentApprovals` can't claim it. A wake on a managed agent is refused, and the answer is never read by that agent (a run of a managed agent can't use `get_run` either). A question a wake asks is for the session's members, and no peer can answer it. It lasts 1 hour like any question in a run whose chain reaches a peer (see the `TASK_STATE_INPUT_REQUIRED` row).
 
 ## Hermes compatibility
 
@@ -164,12 +164,12 @@ AA.8 ran all of this against a real Hermes v0.22.5. What it found:
 
 ## What the agent sees
 
-A peer's text never reaches the agent as if a member wrote it. It goes through the speaker envelope with `from.kind: "peer"`, carrying the peer's agent name and host and a line stating that this is outside input and not an instruction from the workspace. The description on an outside agent's card is peer text too: a daily refresh can change it after a person approved the connection, and it reaches the agent through `list_agents` inside the same peer envelope with `from.kind: "peer"`, never as plain text. Runs have `onBehalfOfUserId = null`, so user-mode connector credentials aren't available, the same as a trigger run.
+A peer's text never reaches the agent as if a member wrote it. It goes through the speaker envelope with `from.kind: "peer"`, carrying the peer's agent name and host and a line stating that this is outside input and not an instruction from the workspace. The description on an outside agent's card is peer text too: a daily refresh can change it after a person approved the connection, and it reaches the agent through `list_agents` inside the same peer envelope with `from.kind: "peer"`, never as plain text. Runs a peer started have `onBehalfOfUserId = null`, so user-mode connector credentials aren't available, the same as a trigger run.
 
 The `tool_policy = ask` gate lives in `requests.needsApproval`, the check the cloud and machine runtimes both call. It covers a run a peer started and any run that run handed work to, down the parent chain. Two points were open in the build (AA.3) and are settled:
 
 - A machine daemon too old to report `currentApprovals` skips the gate, so the claim refuses a peer run for it (a daemon of that kind never claims one).
-- The managed runtime doesn't call `needsApproval`, so it can't be gated. Agents on that runtime can't be published or connected for outbound, a message to one published earlier is refused, it gets no pairing code, a run it makes can't send or read a peer's answer, and a run a peer's text set going (including a wake) can't hand work to one.
+- The managed runtime doesn't call `needsApproval`, so it can't be gated. Agents on that runtime can't be published or connected for outbound, a message to one published earlier is refused, it gets no pairing code, a run it makes can't send or read a peer's answer and sees no peers in `list_agents`, and a run a peer's text set going (including a wake) can't hand work to one.
 
 The 1 hour limit applies per request, not per task. An expired tool approval in a peer-rooted run resumes the run, and the run can ask again. A peer that answers a question at 59 minutes starts a new hour. So one peer message can hold an agent until the turn limit, which is the real bound. `MAX_TURNS_DEFAULT` is 100, so about 100 hours at the default if every turn waits the full hour. The most a run can set is 500. The request shows in Needs you, and any member can cancel the run or revoke the connection in one click. An `auto` peer belongs on an agent that does nothing else.
 
@@ -206,7 +206,7 @@ A list with one row per connection: my agent, the peer's name and host, which di
 
 ## Not in this build
 
-- A second lane. An agent runs one run at a time, so peer work queues with everything else the agent does (members, Slack, triggers), and a peer's task waiting on a question holds the agent for up to an hour. An `auto` peer belongs on an agent that does nothing else. The official TCK leaves tasks in `input_required` behind, and its script cancels them as a person would.
+- A second lane. An agent runs one run at a time, so peer work queues with everything else the agent does (members, Slack, triggers), and a peer's task waiting on a question holds the agent for up to an hour per question (see "What the agent sees" for the real bound). An `auto` peer belongs on an agent that does nothing else. The official TCK leaves tasks in `input_required` behind, and its script cancels them as a person would.
 - Files in either direction.
 - Signed agent cards (JWS). HTTPS and the activation call establish the origin for now.
 - Token rotation. Revoke and reconnect instead.
