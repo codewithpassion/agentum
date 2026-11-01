@@ -503,6 +503,13 @@ export const createRequestsService = ({
     const masker = await secrets.maskerFor(run.workspaceId, run.agentId);
     const toolKey = await approvalToolKey(run, input);
     if (input.kind === "takeover") {
+      // A message from outside has no business asking a person to take over a computer.
+      if ((await peerRootsOf(db, run)).length > 0) {
+        throw new ServiceError(
+          "conflict",
+          "A takeover can't be requested in work that started with a message from a peer"
+        );
+      }
       return {
         machineId: await takeoverComputer(run),
         reason: scrubText(masker, input.reason),

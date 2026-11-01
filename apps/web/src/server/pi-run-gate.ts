@@ -42,6 +42,7 @@ import {
   type RequestOutcome,
   toolKey,
 } from "@repo/protocol/requests";
+import { isServiceError } from "@repo/services/errors";
 import { z } from "zod";
 import {
   ASK_USER_DRY_RUN_TEXT,
@@ -316,12 +317,31 @@ export const createGate = ({
     description: REQUEST_TAKEOVER_TOOL.description,
     execute: async (args, api, context) => {
       const { reason } = takeoverArgsSchema.parse(args);
-      const request = await requests.open({
-        kind: "takeover",
-        reason,
-        runId: await runIdOf(),
-        toolUseId: api.callId,
-      });
+      const request = await requests
+        .open({
+          kind: "takeover",
+          reason,
+          runId: await runIdOf(),
+          toolUseId: api.callId,
+        })
+        .catch((error: unknown) => {
+          if (!isServiceError(error)) {
+            throw error;
+          }
+          // No computer, a takeover already open, or work a peer started: a result, not a failed run.
+          return error;
+        });
+      if (isServiceError(request)) {
+        return {
+          isError: true,
+          output: [
+            {
+              text: `No takeover was opened: ${request.message}. Go on without the computer or stop and say what you need.`,
+              type: "text",
+            },
+          ],
+        };
+      }
       const outcome = await outcomeOf(request, context);
       return {
         isError: outcome.status !== "answered",

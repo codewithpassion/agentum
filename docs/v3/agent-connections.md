@@ -173,6 +173,8 @@ The `tool_policy = ask` gate lives in `requests.needsApproval`, the check the cl
 
 Every tool call on the cloud runtime goes through the one gate, and on the machine runtime through the daemon's check once `currentApprovals` is on. The platform `/mcp` and `/api/proxy` routes take a run token without asking `needsApproval` themselves. The token reaches only the runtime, so the runtime's gate is the control, and a server-side guard for peer runs is a possible later addition.
 
+A run whose chain reaches a peer can't ask a person to take over a computer. `requests.open` refuses a takeover request for it, on every runtime, and `request_human_takeover` answers with the refusal while the run carries on. A message from outside has no business asking a person to take over a computer.
+
 ## Data model
 
 All tables have `workspace_id`. Names are for AA.1 to finalise.
