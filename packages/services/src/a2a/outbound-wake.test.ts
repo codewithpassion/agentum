@@ -232,7 +232,7 @@ describe("a wake's subject", () => {
 });
 
 describe("a wake on an agent moved to managed", () => {
-  test("an answer that arrives after the run ended starts no wake, stays readable, and is logged as not woken", async () => {
+  test("an answer that arrives after the run ended starts no wake, keeps its answer for the system, refuses a run of that agent, and is logged as not woken", async () => {
     await f.connectPeer();
     const call = await f.callingRun();
     const info = await f.outbound.send(call.principal, {

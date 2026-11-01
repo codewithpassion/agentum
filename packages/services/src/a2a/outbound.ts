@@ -1838,7 +1838,7 @@ export const createOutboundService = ({
         )
       );
     if (permanent) {
-      // The answer stays readable with `get`. The log says it did not wake the agent.
+      // The task keeps its answer, and the log says it did not wake the agent.
       await record({
         actor: { id: connection.id, kind: "peer" },
         agentId: connection.localAgentId,
