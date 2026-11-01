@@ -991,7 +991,6 @@ export const createRequestsService = ({
     for (const row of closed) {
       // biome-ignore lint/performance/noAwaitInLoops: notify before waking each runtime
       await announce(row, "request.expired", { kind: row.kind });
-      // biome-ignore lint/performance/noAwaitInLoops: one request at a time
       if (await endsRunWhenUnanswered(row)) {
         await cancelUnanswered(row);
       } else {
