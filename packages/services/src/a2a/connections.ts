@@ -88,6 +88,7 @@ import {
   schemeLabel,
   tokenUrlOfLabel,
 } from "./card-peer.ts";
+import { MANAGED_REFUSAL } from "./errors.ts";
 import { createPairing } from "./pairing.ts";
 import { checkCode } from "./pairing-code.ts";
 import {
@@ -1063,10 +1064,7 @@ export const createConnectionsService = ({
     const agent = await requireActiveAgent(agentId, user.workspaceId);
     requireAdminOrOwner(user, agent, PUBLISH_ACTION);
     if (agent.runtime === "managed") {
-      throw new ServiceError(
-        "invalid",
-        "Agents on the managed runtime can't be published yet, because their tool calls can't be held for approval. Move the agent to the cloud or machine runtime first."
-      );
+      throw new ServiceError("invalid", MANAGED_REFUSAL);
     }
     const existing = await findCard(agentId);
     const now = nowIso();
@@ -1893,6 +1891,9 @@ export const createConnectionsService = ({
     });
     const agent = await requireActiveAgent(agentId, user.workspaceId);
     requireAdminOrOwner(user, agent, OUTBOUND_ACTION);
+    if (agent.runtime === "managed") {
+      throw new ServiceError("invalid", MANAGED_REFUSAL);
+    }
     vetUrl(cardUrl);
     await refuseDuplicate(agentId, cardUrl);
     const card = await fetchPeerCard(cardUrl);
@@ -1985,6 +1986,9 @@ export const createConnectionsService = ({
     });
     const agent = await requireActiveAgent(agentId, user.workspaceId);
     requireAdminOrOwner(user, agent, OUTBOUND_ACTION);
+    if (agent.runtime === "managed") {
+      throw new ServiceError("invalid", MANAGED_REFUSAL);
+    }
     vetUrl(cardUrl);
     await refuseDuplicate(agentId, cardUrl);
     const card = await fetchPeerCard(cardUrl);

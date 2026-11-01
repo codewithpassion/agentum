@@ -388,6 +388,10 @@ const refuseForeignRequest = (
   }
 };
 
+/** A peer's request, or a wake carrying a peer's answer: a run a peer's text sets going. */
+const startsFromPeerText = (principal: Principal, options: StartRunOptions) =>
+  principal.kind === "peer" || options.wakeOf !== undefined;
+
 export const createRunsService = ({
   adapters,
   authorizeGuestGrant,
@@ -685,13 +689,18 @@ export const createRunsService = ({
         clock.now()
       );
     }
-    const subject = await deriveSubject(db, principal, agent.id);
+    const subject = await deriveSubject(
+      db,
+      principal,
+      agent.id,
+      options.wakeOf
+    );
     await refuseScopedHandoff(principal);
     await refusePeerHandoffToManaged(
       agent.runtime,
       subject.parentRunId,
       agent.workspaceId,
-      principal.kind === "peer"
+      startsFromPeerText(principal, options)
     );
     const fileIds = [...new Set(input.input.fileIds)];
     if (fileIds.length > 0 && subject.onBehalfOfUserId === null) {

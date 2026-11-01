@@ -71,7 +71,7 @@ The credential is sent only to the origin the person approved. A refreshed card 
 Every connection has a Revoke button on either side, in one click plus a confirm. Revoke:
 
 - marks the row `revoked`, so the token fails on the next request (every request re-reads the row, nothing is cached);
-- rejects tasks waiting on approval and cancels runs in flight for that connection;
+- rejects tasks waiting on approval and cancels every live run whose chain reaches that connection: its task runs, the runs they handed work to (a hand-off outlives its parent's end), and wakes carrying its answers;
 - marks outbound tasks failed locally and wakes nothing;
 - tells a Harbourmaster peer through `POST /pair/revoke`, best effort, so its page shows the state. The peer's access has already ended whether or not the notice lands.
 
@@ -84,7 +84,7 @@ Softer than revoke, each side sets `inbound_policy = off` to stop incoming messa
 | Setting | Values | Default | Effect |
 |---|---|---|---|
 | `inbound_policy` | `off`, `approve`, `auto` | `approve` | Whether a message from the peer is refused, waits for a person, or starts a run |
-| `tool_policy` | `ask`, `agent_rules` | `ask` | In a run this connection started, whether every tool call asks a person, or the agent's normal rules apply |
+| `tool_policy` | `ask`, `agent_rules` | `ask` | In a run this connection started, a run it handed work to, or a wake carrying its answer, whether every tool call asks a person, or the agent's normal rules apply. In a chain with several connections, any one at `ask` (or ended) makes the run ask |
 | `outbound_policy` | `off`, `approve`, `auto` | `approve` | Whether our agent's message to the peer is refused, goes through a run request a person answers, or sends. The approval card shows the full text, which guards against an injected agent leaking data |
 | `hourly_limit` | integer | 20 | Tasks per hour per connection, both directions. Past it the HTTP layer answers 429 with `Retry-After` |
 
@@ -130,6 +130,8 @@ We register a per-task push webhook (`/a2a/webhooks/<taskId>/<token>`) when the 
 
 When a result arrives and the calling run has already ended, the result starts a follow-up run in the same session with the calling run's reply target, so a Slack thread gets its answer. Results arriving while the calling run is still alive wait for `get_run`, and the minute tick wakes whatever the run left unread. Wakes count against the hourly limit.
 
+A wake carries a peer's text with nobody watching, so it is held to the same rules as a run the peer started. Its actor is that peer's connection and `onBehalfOfUserId` is null, as for a trigger run, so the person's user-mode connector credentials and file attachments never reach it. It keeps the calling run's parent and depth, `tool_policy` gates it (a wake on an `agent_rules` connection under a run that started on an `ask` connection still asks, because every link in the chain counts), and a machine daemon without `currentApprovals` can't claim it. A wake on a managed agent is refused, and the answer is never read by that agent (a run of a managed agent can't use `get_run` either). A question a wake asks is for the session's members, and no peer can answer it.
+
 ## Hermes compatibility
 
 Hermes is the first outside peer we must work with. It ships native A2A 1.0 in `plugins/platforms/a2a` (since v0.20, latest v0.22.5, read 1 November 2026), so a connection needs no plugin on its side. It speaks JSON-RPC only, uses bearer tokens, and has no invite flow, so it connects through "Give it a key" and "Call it". We follow the spec, and accept these habits of Hermes without loosening anything else.
@@ -167,7 +169,7 @@ A peer's text never reaches the agent as if a member wrote it. It goes through t
 The `tool_policy = ask` gate lives in `requests.needsApproval`, the check the cloud and machine runtimes both call. It covers a run a peer started and any run that run handed work to, down the parent chain. Two points were open in the build (AA.3) and are settled:
 
 - A machine daemon too old to report `currentApprovals` skips the gate, so the claim refuses a peer run for it (a daemon of that kind never claims one).
-- The managed runtime doesn't call `needsApproval`, so it can't be gated. Agents on that runtime can't be published, a message to one published earlier is refused, and a run a peer's text set going can't hand work to one.
+- The managed runtime doesn't call `needsApproval`, so it can't be gated. Agents on that runtime can't be published or connected for outbound, a message to one published earlier is refused, it gets no pairing code, a run it makes can't send or read a peer's answer, and a run a peer's text set going (including a wake) can't hand work to one.
 
 Every tool call on the cloud runtime goes through the one gate, and on the machine runtime through the daemon's check once `currentApprovals` is on. The platform `/mcp` and `/api/proxy` routes take a run token without asking `needsApproval` themselves. The token reaches only the runtime, so the runtime's gate is the control, and a server-side guard for peer runs is a possible later addition.
 

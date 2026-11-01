@@ -13,6 +13,7 @@ import type { AgentRecord } from "../agents.ts";
 import type { Payload } from "../events/payload.ts";
 import type { RequestRecord } from "../requests.ts";
 import type { Principal } from "../workspaces.ts";
+import type { WakeOf } from "./subject.ts";
 
 /** Time, injected so tests can move it. `sleep` is what `waitForRun` polls with. */
 export interface Clock {
@@ -112,6 +113,14 @@ export interface StartRunOptions {
    * Not in `startRunInputSchema` on purpose. An unknown id is "not found".
    */
   sessionId?: string;
+  /**
+   * The run is a wake: the follow-up an agent gets when a peer's answer comes
+   * in after its calling run ended. Its actor is that peer's connection and it
+   * carries no person's delegation, so `tool_policy` gates it, and it can't run
+   * on the managed runtime. Not in `startRunInputSchema` on purpose, and only
+   * a run principal's start honours it.
+   */
+  wakeOf?: WakeOf;
 }
 
 /** A run row with its JSON columns parsed. */

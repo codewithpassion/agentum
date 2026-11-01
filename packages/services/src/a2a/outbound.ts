@@ -48,7 +48,7 @@ import {
 } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
-import { slugify } from "../agents.ts";
+import { findAgent, slugify } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import {
   decryptSecret,
@@ -76,7 +76,7 @@ import { buildPeerEnvelope } from "../speaker-envelope.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { CONNECTION_KIND } from "./access.ts";
 import { schemeKindOfLabel, tokenUrlOfLabel } from "./card-peer.ts";
-import { A2aRateLimitError } from "./errors.ts";
+import { A2aRateLimitError, MANAGED_RUN_REFUSAL } from "./errors.ts";
 import { HOUR_MS, hourlyCountSql, hourlyUse, WAKE_MARK } from "./hourly.ts";
 import { interfaceBaseOfCardUrl } from "./urls.ts";
 
@@ -983,6 +983,22 @@ export const createOutboundService = ({
     return peers;
   };
 
+  /**
+   * An agent moved to managed after it connected: its tools can't be held, and
+   * a peer's text read in its run (`get_run`) would reach it with no gate.
+   */
+  const refuseManagedRun = async (
+    principal: Extract<Principal, { kind: "run" }>
+  ): Promise<void> => {
+    const agent = await findAgent(db, {
+      id: principal.agentId,
+      workspaceId: principal.workspaceId,
+    });
+    if (agent?.runtime === "managed") {
+      throw new ServiceError("invalid", MANAGED_RUN_REFUSAL);
+    }
+  };
+
   /** Everything a new task must pass before a row is written. */
   const admit = async (
     principal: Principal,
@@ -994,6 +1010,7 @@ export const createOutboundService = ({
     if (principal.dryRun) {
       throw new ServiceError("invalid", "A dry run sends nothing.");
     }
+    await refuseManagedRun(principal);
     const [connection] = await db
       .select()
       .from(a2aConnections)
@@ -1349,6 +1366,9 @@ export const createOutboundService = ({
       throw new ServiceError("not_found", "Task not found");
     }
     requireOwnRun(principal, connection, READ_ACTION);
+    if (principal.kind === "run") {
+      await refuseManagedRun(principal);
+    }
     authorize(principal, READ_ACTION, {
       id: connection.id,
       kind: CONNECTION_KIND,
@@ -1818,7 +1838,7 @@ export const createOutboundService = ({
         )
       );
     if (permanent) {
-      // The answer stays readable with `get`. The log says it did not wake the agent.
+      // The task keeps its answer, and the log says it did not wake the agent.
       await record({
         actor: { id: connection.id, kind: "peer" },
         agentId: connection.localAgentId,
@@ -1839,8 +1859,10 @@ export const createOutboundService = ({
   /**
    * The follow-up run: the same session, the calling run's reply target, the
    * answer in the peer envelope. It starts as a child of the calling run, so
-   * its depth, its actor and the chain `needsApproval` follows to a peer that
-   * started the work are the calling run's, not a fresh start.
+   * its depth and the chain `needsApproval` follows are the calling run's. Its
+   * actor is this connection's peer and it has no person's delegation, so a
+   * peer's answer can't use a member's connector credentials, `tool_policy`
+   * gates it, and a managed agent refuses it.
    */
   const startWakeRun = async (
     row: OutboundRow,
@@ -1866,7 +1888,7 @@ export const createOutboundService = ({
         requestId: `a2a-wake:${row.id}`,
         session: { origin: origin as StartRunInput["session"]["origin"] },
       },
-      { sessionId: row.sessionId }
+      { sessionId: row.sessionId, wakeOf: { connectionId: connection.id } }
     );
     await record({
       actor: { id: connection.id, kind: "peer" },

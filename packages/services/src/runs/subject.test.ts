@@ -28,6 +28,31 @@ test("a peer's run has no parent and no person behind it", async () => {
   });
 });
 
+test("only a run's start can be a wake: a peer's or a person's start ignores wakeOf", async () => {
+  const db = migrated();
+  const wakeOf = { connectionId: "conn-2" };
+  const person: Principal = {
+    isAdmin: false,
+    kind: "user",
+    userId: "user-1",
+    via: "session",
+    workspaceId: "ws-1",
+  };
+
+  expect(await deriveSubject(db, peer(), "agent-a", wakeOf)).toEqual({
+    actor: { id: "conn-1", kind: "peer" },
+    depth: 0,
+    onBehalfOfUserId: null,
+    parentRunId: null,
+  });
+  expect(await deriveSubject(db, person, "agent-a", wakeOf)).toEqual({
+    actor: { id: "user-1", kind: "user" },
+    depth: 0,
+    onBehalfOfUserId: "user-1",
+    parentRunId: null,
+  });
+});
+
 test("a peer may only start runs on its own agent", async () => {
   const db = migrated();
   await expect(deriveSubject(db, peer(), "agent-b")).rejects.toBeInstanceOf(

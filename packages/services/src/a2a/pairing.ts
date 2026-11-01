@@ -25,7 +25,7 @@ import {
 } from "@repo/db/schema/a2a";
 import { agents } from "@repo/db/schema/agents";
 import type { EventActorKind, EventType } from "@repo/db/shared";
-import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import type { AgentRecord } from "../agents.ts";
@@ -159,7 +159,7 @@ export const createPairing = ({
 
   /**
    * The agent a public id names, but only while a request may be made of it:
-   * published, active, accepting pairing requests and not locked. Null is every
+   * published, active, not on the managed runtime, accepting pairing requests and not locked. Null is every
    * other case, and the route answers its normal 401. For the route: no principal.
    */
   const pairableAgent = async (publicId: string): Promise<string | null> => {
@@ -180,7 +180,9 @@ export const createPairing = ({
             isNull(a2aAgentCards.pairingLockedUntil),
             lte(a2aAgentCards.pairingLockedUntil, now)
           ),
-          eq(agents.status, "active")
+          eq(agents.status, "active"),
+          // Published before it moved to managed: its messages are refused, so no code.
+          ne(agents.runtime, "managed")
         )
       )
       .limit(1);
