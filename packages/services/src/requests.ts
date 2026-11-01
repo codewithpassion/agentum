@@ -512,9 +512,11 @@ export const createRequestsService = ({
         masker?.maskDeep(input.input) ?? input.input
       );
       const binding = await effectBinding(run, toolKey, input.input);
+      const peerRun = (await peerRootsOf(db, run)).length > 0;
       return {
         ...(binding ? { effectBinding: binding } : {}),
         input: capInput(clean),
+        ...(peerRun ? { peerRun: true } : {}),
         summary: approvalSummary(input.toolName, clean),
         toolKey,
         toolName: input.toolName,

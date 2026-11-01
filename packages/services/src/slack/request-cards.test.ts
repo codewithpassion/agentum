@@ -61,6 +61,21 @@ describe("request cards", () => {
     }
   });
 
+  test("a peer run's approval card leaves out always allow", () => {
+    const peerCard = approvalCard({ ...approval, peerRun: true });
+    const actions = peerCard.blocks.find((block) => block.type === "actions");
+    expect(actions?.elements.map((button) => button.action_id)).toEqual([
+      "hm_req:req1:allow_once",
+      "hm_req:req1:deny",
+    ]);
+    const plainActions = approvalCard(approval).blocks.find(
+      (block) => block.type === "actions"
+    );
+    expect(plainActions?.elements.map((button) => button.action_id)).toEqual(
+      APPROVAL_DECISIONS.map((decision) => `hm_req:req1:${decision}`)
+    );
+  });
+
   test("input is fenced, escaped and cut including the fences", () => {
     const card = approvalCard({
       ...approval,

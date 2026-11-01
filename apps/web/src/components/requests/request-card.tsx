@@ -15,6 +15,7 @@ import {
   expiryText,
   type MailApprovalFields,
   mailApprovalFields,
+  offersAlwaysAllow,
   type QuestionInputs,
   questionAnswer,
   type RequestView,
@@ -345,7 +346,7 @@ function ApprovalCard({
         >
           Allow once
         </Button>
-        {a2a === null ? (
+        {offersAlwaysAllow(view.display) ? (
           <div className="flex flex-col gap-1 border-border border-t pt-2 max-sm:order-last sm:border-t-0 sm:pt-0">
             <Button
               className="w-full sm:w-auto"

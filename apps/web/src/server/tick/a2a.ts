@@ -1,9 +1,10 @@
 // Agent connection tick jobs for our side of a call: deliver due outbox rows
 // (the activation, revoke and decline notices, and push notifications), settle
 // approval cards, poll tasks we sent, wake agents whose answer arrived after
-// their run ended, and end invites that ran out. Each job takes a bounded
-// batch, so one tick stays short. Inbound tasks have their own sweep in
-// `a2a-tasks.ts`, which already runs every minute.
+// their run ended, end invites that ran out, and fetch the cards of outside
+// agents again once a day. Each job takes a bounded batch, so one tick stays
+// short. Inbound tasks have their own sweep in `a2a-tasks.ts`, which already
+// runs every minute.
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import type { TickJob } from "./registry.ts";
 
@@ -24,6 +25,10 @@ export const a2aJobs: readonly TickJob[] = [
   {
     name: "a2a.outbound-wakes",
     run: ({ services }) => services.a2aOutbound.wakeDue(SYSTEM_PRINCIPAL),
+  },
+  {
+    name: "a2a.card-refresh",
+    run: ({ services }) => services.connections.refreshDue(SYSTEM_PRINCIPAL),
   },
   {
     name: "a2a.invites-expire",

@@ -1,8 +1,10 @@
 import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
 import { createDeskService } from "../desk.ts";
+import { createConnectionsService } from "./connections.ts";
 import {
   AGENT,
   CONNECTION,
@@ -10,6 +12,7 @@ import {
   type Fixture,
   member,
   peerOf,
+  SECRETS_KEY,
   START,
   textMessage,
 } from "./tasks-fixture.ts";
@@ -141,6 +144,65 @@ test("a connection waiting for approval is an a2a_connection card, and other con
         text: null,
       },
       id: "con_pending",
+      needsYouKind: "a2a_connection",
+    },
+  ]);
+});
+
+/** An outside agent's card whose one interface sits at `url`, as `connections.test.ts` builds it. */
+const outsideCard = (url: string) => ({
+  capabilities: {},
+  defaultInputModes: ["text/plain"],
+  defaultOutputModes: ["text/plain"],
+  description: "An outside agent",
+  name: "Outside",
+  provider: { organization: "Acme", url: "https://acme.example" },
+  securityRequirements: [{ schemes: { bearer: { list: [] } } }],
+  securitySchemes: { bearer: { httpAuthSecurityScheme: { scheme: "bearer" } } },
+  skills: [
+    { description: "Does things", id: "do", name: "Do", tags: ["misc"] },
+  ],
+  supportedInterfaces: [
+    { protocolBinding: "JSONRPC", protocolVersion: "1.0", url },
+  ],
+  version: "1",
+});
+
+test("an outside agent whose card moved to another origin is a Needs you card with the new host", async () => {
+  let rpcUrl = "https://agent.example.com/rpc";
+  const connections = createConnectionsService({
+    atomic: sqliteAtomic(f.db),
+    clock: f.clock,
+    db: f.db,
+    events: f.events,
+    fetchCard: () => Promise.resolve(outsideCard(rpcUrl)),
+    publicBaseUrl: "https://hm.test",
+    secretsKey: SECRETS_KEY,
+  });
+  desk = createDeskService({
+    a2a: { connections, tasks: f.tasks },
+    clock: f.clock,
+    db: f.db,
+    inbox: { listThreads: () => Promise.resolve([]) },
+    requests: { listPending: () => Promise.resolve([]) },
+    routines: { list: () => Promise.resolve([]) },
+    skillsStore: { proposals: () => Promise.resolve([]) },
+    triggers: { list: () => Promise.resolve([]) },
+  });
+  const owner = member("u-owner");
+  const connection = await connections.addOutbound(owner, {
+    agentId: AGENT,
+    cardUrl: "https://agent.example.com/.well-known/agent-card.json",
+    credential: "sk-outside-agent-credential-12345",
+  });
+  expect(await needsYou()).toEqual([]);
+
+  rpcUrl = "https://elsewhere.example.org/rpc";
+  await connections.refreshCard(owner, connection.id);
+  expect(await needsYou()).toMatchObject([
+    {
+      a2a: { connectionId: connection.id, host: "elsewhere.example.org" },
+      id: connection.id,
       needsYouKind: "a2a_connection",
     },
   ]);
