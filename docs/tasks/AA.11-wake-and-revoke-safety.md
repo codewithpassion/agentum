@@ -3,7 +3,7 @@ id: AA.11
 title: "Gate 1: wakes carry no delegation and ask for tools, managed refused, revoke reaches the whole chain"
 milestone: AA
 size: M
-status: in_progress
+status: done
 depends_on: [AA.8]
 branch: task/AA.11-wake-and-revoke-safety
 lane: services
@@ -24,3 +24,4 @@ Every check listed under M1 (both parts), M2 and M3 in `docs/reviews/AA-1.md`, a
 
 ## Log
 - 2026-11-02: created from gate 1. Dispatched.
+- 2026-11-02: merged, review clean after 1 fix round.

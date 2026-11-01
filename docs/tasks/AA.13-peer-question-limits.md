@@ -3,9 +3,9 @@ id: AA.13
 title: "Gate 1: peer questions expire in an hour, answers count against the limit, unsupported media refused"
 milestone: AA
 size: S
-status: todo
+status: in_progress
 depends_on: [AA.11]
-branch: null
+branch: task/AA.13-peer-question-limits
 lane: services
 executor: claude
 ---
@@ -23,3 +23,4 @@ Every check listed under N13. Tests that a peer-rooted question expires at 1 hou
 
 ## Log
 - 2026-11-02: created from gate 1.
+- 2026-11-02: dispatched.
