@@ -3,7 +3,7 @@ id: AA.14
 title: "Gate 1: a peer-rooted run can't request a human takeover"
 milestone: AA
 size: S
-status: in_progress
+status: done
 depends_on: [AA.13]
 branch: task/AA.14-peer-takeover
 lane: services
@@ -22,3 +22,4 @@ Tests that a takeover request is refused for a run a peer started, a hand-off of
 
 ## Log
 - 2026-11-02: created from AA.13's review. Dispatched.
+- 2026-11-02: merged, review clean.
