@@ -3,7 +3,7 @@ id: AA.13
 title: "Gate 1: peer questions expire in an hour, answers count against the limit, unsupported media refused"
 milestone: AA
 size: S
-status: in_progress
+status: done
 depends_on: [AA.11]
 branch: task/AA.13-peer-question-limits
 lane: services
@@ -24,3 +24,4 @@ Every check listed under N13. Tests that a peer-rooted question expires at 1 hou
 ## Log
 - 2026-11-02: created from gate 1.
 - 2026-11-02: dispatched.
+- 2026-11-02: merged. The reviewer raised one must-fix, `request_human_takeover`, which the dispatcher left as out of scope. Controller moved it to AA.14. Hermes e2e 8 of 8.
