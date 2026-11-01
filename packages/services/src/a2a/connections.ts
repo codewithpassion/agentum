@@ -2167,9 +2167,9 @@ export const createConnectionsService = ({
         return true;
       })
     );
-    for (const outcome of outcomes) {
+    for (const [index, outcome] of outcomes.entries()) {
       if (outcome.status === "rejected") {
-        console.warn("Card refresh failed", outcome.reason);
+        console.warn("Card refresh failed", batch[index]?.id, outcome.reason);
       }
     }
     return outcomes.filter(

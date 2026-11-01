@@ -91,7 +91,7 @@ export const approvalCard = (request: ApprovalRequest): RequestCard => ({
     expiry(request.expiresAt),
     {
       elements: (Object.keys(labels) as (keyof typeof labels)[])
-        // An always-allow rule from a peer run does not stop its asks, so it is not offered.
+        // The rule Always allow saves applies to member runs, and a peer's run is gated by its connection, so it is not offered.
         .filter(
           (decision) =>
             !(request.peerRun === true && decision === "always_allow")
