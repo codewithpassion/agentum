@@ -61,6 +61,30 @@ test("createEnrollToken returns a code, and list shows an enrolled machine", asy
   expect(machines[0]).toMatchObject({ name: "laptop", status: "offline" });
 });
 
+test("newestDaemonVersion reads the published version, and needs a session", async () => {
+  const composed = composeWith({
+    allowedOrgIds: ALLOWED_ORG_IDS,
+    db,
+    infra: {
+      ...infra(),
+      latestDaemonVersion: () => Promise.resolve("0.1.0+abc1234"),
+    },
+  });
+  const caller = await callerFor(
+    { orgId: "org_a", userId: "user_1" },
+    composed
+  );
+  expect(await caller.machines.newestDaemonVersion()).toBe("0.1.0+abc1234");
+
+  const none = await callerFor({ orgId: "org_a", userId: "user_1" });
+  expect(await none.machines.newestDaemonVersion()).toBeNull();
+
+  const anonymous = await callerFor({ orgId: "org_a", userId: null });
+  await expect(anonymous.machines.newestDaemonVersion()).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+});
+
 test("revoke marks the machine revoked", async () => {
   const composed = servicesFor();
   const caller = await callerFor(

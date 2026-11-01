@@ -5,6 +5,7 @@ import {
   canRevoke,
   computerKind,
   computersOf,
+  isDaemonOutdated,
   revokeMachine,
   roleRows,
 } from "./machine-logic.ts";
@@ -129,5 +130,40 @@ describe("revokeMachine", () => {
     expect(await revokeMachine(() => Promise.reject("x"), "m1")).toBe(
       "Something went wrong."
     );
+  });
+});
+
+describe("isDaemonOutdated", () => {
+  const machine = {
+    daemonVersion: "0.1.0+aaa1111" as string | null,
+    roles: ["agent_host"] as MachineRole[],
+    status: "online" as MachineStatus,
+  };
+
+  test("flags a daemon that differs from the published one", () => {
+    expect(isDaemonOutdated(machine, "0.1.0+bbb2222")).toBe(true);
+    expect(
+      isDaemonOutdated({ ...machine, daemonVersion: "0.1.0" }, "0.1.0+bbb2222")
+    ).toBe(true);
+  });
+
+  test("leaves a current daemon alone", () => {
+    expect(isDaemonOutdated(machine, "0.1.0+aaa1111")).toBe(false);
+  });
+
+  test("says nothing without a published release or a reported version", () => {
+    expect(isDaemonOutdated(machine, null)).toBe(false);
+    expect(
+      isDaemonOutdated({ ...machine, daemonVersion: null }, "0.1.0+bbb2222")
+    ).toBe(false);
+  });
+
+  test("ignores a revoked machine and a computer-only one", () => {
+    expect(isDaemonOutdated({ ...machine, status: "revoked" }, "0.2.0+x")).toBe(
+      false
+    );
+    expect(
+      isDaemonOutdated({ ...machine, roles: ["computer"] }, "0.2.0+x")
+    ).toBe(false);
   });
 });

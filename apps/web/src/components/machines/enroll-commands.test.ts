@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   binaryCommand,
+  computerInstallCommand,
   DESKTOP_IMAGE,
   DESKTOP_SECCOMP_NOTE,
   daemonCommand,
+  daemonInstallCommand,
   dockerDesktopCommand,
   dockerHeadlessCommand,
   HEADLESS_IMAGE,
@@ -24,10 +26,18 @@ describe("image names", () => {
   });
 });
 
+describe("daemonInstallCommand", () => {
+  test("pipes the install script from the origin to sh with no code", () => {
+    expect(daemonInstallCommand(ORIGIN)).toBe(
+      `curl -fsSL ${ORIGIN}/install.sh | sh`
+    );
+  });
+});
+
 describe("daemonCommand", () => {
-  test("enrols with the code and server origin", () => {
+  test("installs the daemon and enrols it with the code", () => {
     expect(daemonCommand(ORIGIN, CODE)).toBe(
-      `harbourmaster enroll ${CODE} --server ${ORIGIN}`
+      `curl -fsSL ${ORIGIN}/install.sh | sh -s -- --code ${CODE}`
     );
   });
 });
@@ -80,10 +90,20 @@ describe("dockerDesktopCommand", () => {
   });
 });
 
+describe("computerInstallCommand", () => {
+  test("pipes the computer install script from the origin to sh with no code", () => {
+    expect(computerInstallCommand(ORIGIN)).toBe(
+      `curl -fsSL ${ORIGIN}/install-computer.sh | sh`
+    );
+  });
+});
+
 describe("binaryCommand", () => {
-  test("runs the binary with the origin and code and no desktop flag", () => {
+  test("installs the computer client and enrols it with the code", () => {
     const command = binaryCommand(ORIGIN, CODE);
-    expect(command).toBe(`hm-computer run --url ${ORIGIN} --code ${CODE}`);
+    expect(command).toBe(
+      `curl -fsSL ${ORIGIN}/install-computer.sh | sh -s -- --code ${CODE}`
+    );
     expect(command).not.toContain("--desktop");
   });
 });

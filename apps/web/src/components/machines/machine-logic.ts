@@ -62,6 +62,22 @@ export const canAddComputerRole = (
   machine.roles.includes("agent_host") &&
   !machine.roles.includes("computer");
 
+/**
+ * Whether a machine's daemon is older than the newest published one. Only a
+ * live machine with the agent_host role that has reported a version, against a
+ * release that exists. Any different version counts: builds are ordered by
+ * when they were published, not by their number.
+ */
+export const isDaemonOutdated = (
+  machine: Pick<MachineRecord, "daemonVersion" | "roles" | "status">,
+  latestVersion: string | null
+): boolean =>
+  latestVersion !== null &&
+  machine.status !== "revoked" &&
+  machine.roles.includes("agent_host") &&
+  machine.daemonVersion !== null &&
+  machine.daemonVersion !== latestVersion;
+
 /** The machines an agent can drive: a computer role, not revoked. */
 export const computersOf = <T extends Pick<MachineRecord, "roles" | "status">>(
   machines: T[]

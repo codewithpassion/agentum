@@ -8,10 +8,12 @@ import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { TableRow } from "#/components/ui/table";
 import type { MachineRecord } from "#/integrations/trpc/types";
+import { daemonInstallCommand } from "./enroll-commands";
 import {
   canAddComputerRole,
   canRevoke,
   computerKind,
+  isDaemonOutdated,
   type RoleTone,
   roleRows,
 } from "./machine-logic";
@@ -38,13 +40,19 @@ function lastSeen(machine: MachineRecord): string {
 }
 
 interface MachineRowProps {
+  /** The version of the newest published daemon, or null when there is none. */
+  latestDaemonVersion: string | null;
   machine: MachineRecord;
   onAddComputer: (machine: { id: string; name: string }) => void;
   onRevoke: (machine: { id: string; name: string }) => void;
+  /** This deployment's origin, for the update command. Null while it is unknown. */
+  origin: string | null;
 }
 
 export function MachineRow({
+  latestDaemonVersion,
   machine,
+  origin,
   onAddComputer,
   onRevoke,
 }: MachineRowProps) {
@@ -65,6 +73,26 @@ export function MachineRow({
           <span className="font-medium">{machine.name}</span>
           {machine.singleUser ? (
             <p className="text-muted-foreground text-sm">shared user</p>
+          ) : null}
+          {machine.daemonVersion === null ? null : (
+            <p className="text-muted-foreground text-sm">
+              Daemon {machine.daemonVersion}
+            </p>
+          )}
+          {isDaemonOutdated(machine, latestDaemonVersion) ? (
+            <p className="text-sm">
+              Newer daemon {latestDaemonVersion} available.
+              {origin === null ? null : (
+                <>
+                  {" "}
+                  Update by running{" "}
+                  <code className="break-all rounded bg-muted px-1 font-mono text-xs">
+                    {daemonInstallCommand(origin)}
+                  </code>{" "}
+                  on the machine.
+                </>
+              )}
+            </p>
           ) : null}
         </div>
       </ResponsiveCell>

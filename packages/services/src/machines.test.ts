@@ -123,13 +123,17 @@ const eventsOf = (
 ) => events.query(system, WORKSPACE, { types: [type] });
 
 /** Builds the service, with `allowedOrgIds` overridable for the org check. */
-const build = (allowedOrgIds: string[] = [ORG]): Service =>
+const build = (
+  allowedOrgIds: string[] = [ORG],
+  latestDaemonVersion?: () => Promise<string | null>
+): Service =>
   createMachinesService({
     allowedOrgIds,
     atomic: sqliteAtomic(db),
     clock,
     db,
     events,
+    latestDaemonVersion,
     relay,
   });
 
@@ -373,6 +377,28 @@ test("revoke ends the credential, closes sockets and reports an online machine o
   await expect(
     service.revoke(machinePrincipal("m-offline"), "m-offline")
   ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("newestDaemonVersion reads the published version for a member, and is null without one", async () => {
+  const withRelease = build([ORG], () => Promise.resolve("0.2.0+def5678"));
+  expect(await withRelease.newestDaemonVersion(user)).toBe("0.2.0+def5678");
+  expect(await service.newestDaemonVersion(user)).toBeNull();
+  await expect(withRelease.newestDaemonVersion(system)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+});
+
+test("markOnline stores the daemon version and a ping without one keeps it", async () => {
+  seedMachine("m1", { name: "laptop" });
+  const me = machinePrincipal("m1");
+
+  await service.markOnline(me, {
+    capabilities: { runtime: "claude" },
+    daemonVersion: "0.1.0+abc1234",
+  });
+  expect(machineRow("m1")).toMatchObject({ daemonVersion: "0.1.0+abc1234" });
+  await service.markOnline(me);
+  expect(machineRow("m1")).toMatchObject({ daemonVersion: "0.1.0+abc1234" });
 });
 
 test("markOnline brings a machine online once and stores what the daemon sent", async () => {

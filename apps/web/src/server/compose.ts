@@ -313,6 +313,7 @@ import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
 import { r2SkillBlobs } from "./r2-skills.ts";
 import { durableRelayPort } from "./relay-port.ts";
+import { readManifest } from "./releases/store.ts";
 import { TASK_EVENT_TYPES } from "./session-stream-frames.ts";
 import {
   type SessionStreamPort,
@@ -360,6 +361,8 @@ export interface Infra {
   guestsOff?: () => boolean;
   /** Whether a user is in a Clerk org right now, with no cache. Live link calls need it; without it they are refused. */
   isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
+  /** The version of the newest published daemon. Without it the machines page shows no update note. */
+  latestDaemonVersion?: () => Promise<string | null>;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
   live?: LiveInfra;
@@ -807,6 +810,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    latestDaemonVersion: infra.latestDaemonVersion,
     relay: infra.relay,
   });
   const managedKeys = createManagedKeysService({
@@ -1347,6 +1351,8 @@ export const compose = (
         publicBaseUrl: env.PUBLIC_BASE_URL,
       }),
       ...mailInfra(env),
+      latestDaemonVersion: async () =>
+        (await readManifest(env.FILES, "harbourmaster"))?.version ?? null,
       managedGatewayFor: ({ apiKey, environment }) =>
         connectManagedGateway(apiKey, {
           cache: environment,

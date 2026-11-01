@@ -26,6 +26,9 @@ export const machinesRouter = router({
   list: workspaceProcedure.query(({ ctx }) =>
     ctx.services.machines.list(ctx.principal)
   ),
+  newestDaemonVersion: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.machines.newestDaemonVersion(ctx.principal)
+  ),
   revoke: workspaceProcedure
     .input(z.strictObject({ machineId: z.string().min(1) }))
     .mutation(({ ctx, input }) =>

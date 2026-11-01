@@ -6,7 +6,21 @@ import {
 } from "@repo/protocol/machine";
 import pkg from "../package.json";
 
-export const DAEMON_VERSION: string = pkg.version;
+/**
+ * The build's version. A release build embeds `<package version>+<short commit>`
+ * through `bun build --define process.env.HM_DAEMON_VERSION=...`, so the real
+ * build reports itself. Without a define the package version stands.
+ */
+export const resolveVersion = (
+  embedded: string | undefined,
+  packageVersion: string
+): string =>
+  embedded === undefined || embedded === "" ? packageVersion : embedded;
+
+export const DAEMON_VERSION: string = resolveVersion(
+  process.env.HM_DAEMON_VERSION,
+  pkg.version
+);
 
 /** The optional features this daemon understands, sent with its claim and its hello. */
 export const DAEMON_FEATURES = [
