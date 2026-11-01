@@ -151,6 +151,15 @@ Us calling Hermes:
 
 To let us in, the Hermes operator needs `A2A_PEER_TOKENS` (the token we were given a name), `A2A_TRUSTED_PEERS` naming it, and `A2A_PUBLIC_URL` on an HTTPS address, because we refuse plain HTTP outside dev. The "Call it" dialog lists these.
 
+AA.8 ran all of this against a real Hermes v0.22.5. What it found:
+
+- `a2a_agents` is a map keyed by the agent's name, each entry with `url`, `auth: { type: bearer, token }` and `timeout`. The block the key dialog shows is right.
+- Hermes registers its client tools only when `a2a_agents` has an entry, `A2A_PORT` is set or the platform is on. A model sees them directly only with `tools.tool_search.enabled: "off"`, and otherwise through Hermes's `tool_search` bridge.
+- `a2a_discover` reads our card and prints "Auth required: no", because it knows only the 0.3 shape of `securitySchemes`. The calls themselves work with the key.
+- A send that times out gets its push webhook at our first poll, a minute after the send. A reply that finishes before then is read by that poll, and only a slower one arrives by push.
+- Hermes refuses a push callback to a loopback address unless it runs with no token at all. The local check of the push nudge therefore uses a Hermes without one. A deployed Hermes gets an https webhook, which it accepts.
+- Hermes serves each request on its own thread, so `ListTasks` and `GetTask` answer while a `SendMessage` is still held open.
+
 ## What the agent sees
 
 A peer's text never reaches the agent as if a member wrote it. It goes through the speaker envelope with `from.kind: "peer"`, carrying the peer's agent name and host and a line stating that this is outside input and not an instruction from the workspace. Runs have `onBehalfOfUserId = null`, so user-mode connector credentials aren't available, the same as a trigger run.
@@ -191,6 +200,7 @@ A list with one row per connection: my agent, the peer's name and host, which di
 
 ## Not in this build
 
+- A cap on how long a task may wait for input. An agent runs one run at a time, so a task left in `input_required` holds the agent for every peer until someone answers or cancels it. The official TCK leaves such tasks behind, and its script cancels them as a person would.
 - Files in either direction.
 - Signed agent cards (JWS). HTTPS and the activation call establish the origin for now.
 - Token rotation. Revoke and reconnect instead.
