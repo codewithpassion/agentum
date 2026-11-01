@@ -26,3 +26,4 @@ The check under M1 in `docs/reviews/AA-2.md`. A test that the sweep's query uses
 ## Log
 - 2026-11-02: created from gate 2. Dispatched. This is the last AA task from the gates: gate 2 was the second round, so anything still open afterwards stays recorded in the review file.
 - 2026-11-02: merged, review clean. Migration 0039 adds the partial index. The optional sweep skip was left out because a revoke relies on the sweep to finish its work.
+- 2026-11-02: production deployed at Dom's request: Worker version f885d00e, previous version 2f25ccf1.
