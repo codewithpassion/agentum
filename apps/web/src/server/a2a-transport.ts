@@ -136,26 +136,38 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 const CLIENT_ERROR_MIN = 400;
 const CLIENT_ERROR_END = 500;
 const REFUSAL_MAX_CHARS = 200;
+const REFUSAL_MAX_BYTES = 4096;
 
 /**
  * What the inviter said when it turned a join down. Only its own `error` text
- * of a 4xx answer, cut short, so the person sees why. Anything else stays out.
+ * of a 4xx answer, cut short, so the person sees why. A text that holds one of
+ * our `secrets`, or any other part of the answer, stays out.
  */
-const refusalOf = async (response: Response): Promise<string | null> => {
+const refusalOf = async (
+  response: Response,
+  secrets: readonly string[]
+): Promise<string | null> => {
   if (
     response.status < CLIENT_ERROR_MIN ||
     response.status >= CLIENT_ERROR_END
   ) {
     return null;
   }
-  const body: unknown = await response.json().catch(() => null);
+  const body: unknown = await readBounded(response, REFUSAL_MAX_BYTES)
+    .then((raw) => JSON.parse(raw) as unknown)
+    .catch(() => null);
   const text =
     typeof body === "object" && body !== null && "error" in body
       ? body.error
       : null;
-  return typeof text === "string" && text !== ""
-    ? text.slice(0, REFUSAL_MAX_CHARS)
-    : null;
+  if (
+    typeof text !== "string" ||
+    text === "" ||
+    secrets.some((secret) => text.includes(secret))
+  ) {
+    return null;
+  }
+  return text.slice(0, REFUSAL_MAX_CHARS);
 };
 
 export const createPairingTransport = (fetch: A2aFetch): PairingTransport => ({
@@ -178,8 +190,8 @@ export const createPairingTransport = (fetch: A2aFetch): PairingTransport => ({
       method: "POST",
     });
     if (!response.ok) {
-      const refusal = await refusalOf(response);
-      if (refusal !== null && !refusal.includes(inviteToken)) {
+      const refusal = await refusalOf(response, [inviteToken, body.token]);
+      if (refusal !== null) {
         throw new ServiceError("invalid", `The inviter refused: ${refusal}`);
       }
       throw new Error(`Peer join answered with status ${response.status}`);
