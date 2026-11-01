@@ -294,11 +294,14 @@ describe("parts, contexts and tasks", () => {
           { mediaType: "Text/Plain; charset=utf-8", text: "Hi" },
           { data: { a: 1 }, mediaType: "application/json" },
           { data: { b: 2 }, mediaType: "application/vnd.x+json" },
+          { mediaType: "", text: "!" },
         ],
         role: "ROLE_USER",
       },
     });
-    expect(task.history?.[0]?.parts[0]?.text).toBe('Hi\n\n{"a":1}\n\n{"b":2}');
+    expect(task.history?.[0]?.parts[0]?.text).toBe(
+      'Hi\n\n{"a":1}\n\n{"b":2}\n\n!'
+    );
   });
 
   test("a client chosen contextId is kept, and a new one is made when none is sent", async () => {
@@ -579,7 +582,7 @@ describe("a question from the run", () => {
     return { requestId: request.id, runId: run?.id ?? "", taskId: task.id };
   };
 
-  /** A question from a run a member started on the same agent, once the peer's run has ended. */
+  /** A question from a run a member started on the same agent, on the same agent. */
   const memberQuestion = async () => {
     const started = await f.runs.startRun(member(), {
       agentId: AGENT,

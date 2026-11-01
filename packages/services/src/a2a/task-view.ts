@@ -151,7 +151,7 @@ export const textOfParts = (parts: readonly Part[]): string => {
   for (const part of parts) {
     if (
       (part.text !== undefined || part.data !== undefined) &&
-      part.mediaType !== undefined &&
+      part.mediaType &&
       !isTextOrJsonType(part.mediaType)
     ) {
       throw new A2aTaskError(

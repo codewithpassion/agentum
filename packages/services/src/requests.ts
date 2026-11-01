@@ -960,9 +960,15 @@ export const createRequestsService = ({
     try {
       await runs.cancelRun(SYSTEM_PRINCIPAL, row.runId);
     } catch (error) {
-      // The run ended on its own in the meantime.
+      // A conflict is a run that ended on its own in the meantime. Anything
+      // else is logged, so one run that will not cancel does not stop the
+      // sweep over the other expired requests.
       if (!(error instanceof ServiceError && error.code === "conflict")) {
-        throw error;
+        console.error(
+          "Run not cancelled after its question expired",
+          row.runId,
+          error
+        );
       }
     }
   };
