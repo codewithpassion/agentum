@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { a2aConnections, a2aTasks } from "@repo/db/schema/a2a";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
+import { machines } from "@repo/db/schema/machines";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { eq } from "drizzle-orm";
@@ -503,5 +505,123 @@ describe("tool gate for a wake", () => {
       })
     );
     expect(serviceCode(error)).toBe("not_found");
+  });
+});
+
+describe("takeover in work a peer started", () => {
+  const TAKEOVER = {
+    kind: "takeover" as const,
+    reason: "Log in for me",
+    toolUseId: "tk1",
+  };
+
+  /** The agent gets a computer, so only the peer check can refuse. */
+  const attachComputer = async (db: Fixture["db"]) => {
+    await db.insert(machines).values({
+      capabilities: "{}",
+      createdAt: new Date().toISOString(),
+      credentialHash: "hash",
+      enrolledBy: "u1",
+      id: "computer",
+      name: "Computer",
+      singleUser: false,
+      status: "online",
+      workspaceId: WORKSPACE,
+    });
+    await db
+      .update(agentRows)
+      .set({ computerMachineId: "computer" })
+      .where(eq(agentRows.id, AGENT));
+  };
+
+  /** What a takeover request in the run leaves behind. */
+  const attempt = async (
+    fixture: Pick<Fixture, "db" | "requests" | "system">,
+    runId: string
+  ) => {
+    const error = await rejects(
+      fixture.requests.open(fixture.system, { ...TAKEOVER, runId })
+    );
+    const [run] = await fixture.db
+      .select()
+      .from(runRows)
+      .where(eq(runRows.id, runId));
+    return {
+      code: serviceCode(error) as string | undefined,
+      requests: (await fixture.db.select().from(runRequests)).length,
+      status: run?.status as string | undefined,
+    };
+  };
+  const REFUSED = { code: "conflict", requests: 0, status: "running" };
+
+  test("a run a peer started can't open one, and keeps running", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    await attachComputer(f.db);
+    expect(await attempt(f, await peerRun())).toEqual(REFUSED);
+  });
+
+  test("a hand-off of a peer's run can't open one", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    await attachComputer(f.db);
+    const started = await f.runs.startRun(member(), {
+      agentId: AGENT,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Go"));
+    const parentRunId = await runIdOf(f.db, task.id);
+    await f.db
+      .update(runRows)
+      .set({ parentRunId })
+      .where(eq(runRows.id, started.runId));
+    await f.runs.claimRun(f.system, started.runId);
+    expect(await attempt(f, started.runId)).toEqual(REFUSED);
+  });
+
+  test("a member's run still opens one", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    await attachComputer(f.db);
+    const started = await f.runs.startRun(member(), {
+      agentId: AGENT,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    await f.runs.claimRun(f.system, started.runId);
+    const request = await f.requests.open(f.system, {
+      ...TAKEOVER,
+      runId: started.runId,
+    });
+    expect(request.toolName).toBe("request_human_takeover");
+    expect(request.status).toBe("pending");
+  });
+
+  test("a wake can't open one", async () => {
+    const o = await createOutboundFixture();
+    await attachComputer(o.db);
+    await o.connectPeer();
+    const wake = await (async () => {
+      const caller = await o.callingRun({});
+      await o.outbound.send(caller.principal, {
+        connection: OUTBOUND_CONNECTION,
+        requestId: "r1",
+        text: "hello",
+      });
+      await o.runs.completeRun(o.system, caller.runId, {
+        status: "done",
+        text: "asked",
+      });
+      o.peer.finish("rt-1", "Please take over the computer");
+      o.advance(120_000);
+      await o.outbound.pollDue(o.system);
+      const [row] = (await o.db.select().from(runRows)).filter((run) =>
+        run.requestId?.startsWith("a2a-wake:")
+      );
+      if (!row) {
+        throw new Error("No wake run was started");
+      }
+      return row;
+    })();
+    await o.runs.claimRun(o.system, wake.id);
+    expect(await attempt(o, wake.id)).toEqual(REFUSED);
   });
 });

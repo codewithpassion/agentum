@@ -28,6 +28,7 @@ import {
 import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/node";
 import { createMasker } from "@repo/protocol/masker";
 import type { RequestOutcome } from "@repo/protocol/requests";
+import { ServiceError } from "@repo/services/errors";
 import {
   createGate,
   type Gate,
@@ -683,6 +684,32 @@ describe("the request_human_takeover tool", () => {
       output: [
         {
           text: "A person took over the computer and handed it back. Note: Logged in.",
+          type: "text",
+        },
+      ],
+    });
+  });
+
+  test("a refused takeover comes back as an error result and the run carries on", async () => {
+    const gate = gateOf({
+      ...fakeRequests([]).port,
+      open: () =>
+        Promise.reject(
+          new ServiceError("conflict", "A takeover can't be requested")
+        ),
+    });
+
+    expect(
+      await gate.requestTakeover.execute(
+        { reason: "CAPTCHA" },
+        apiOf("call9"),
+        BACKGROUND_CONTEXT
+      )
+    ).toEqual({
+      isError: true,
+      output: [
+        {
+          text: "No takeover was opened: A takeover can't be requested. Go on without the computer or stop and say what you need.",
           type: "text",
         },
       ],
