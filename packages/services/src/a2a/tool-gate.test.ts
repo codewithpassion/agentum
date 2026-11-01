@@ -271,6 +271,82 @@ describe("tool gate for a peer's run", () => {
   });
 });
 
+describe("approval display for a peer's run", () => {
+  const APPROVAL = {
+    input: { command: "ls" },
+    kind: "approval" as const,
+    toolKey: "bash",
+    toolName: "bash",
+    toolUseId: "t1",
+  };
+
+  const storedDisplay = async (requestId: string) => {
+    const [row] = await f.db
+      .select()
+      .from(runRequests)
+      .where(eq(runRequests.id, requestId));
+    return JSON.parse(row?.display ?? "{}") as Record<string, unknown>;
+  };
+
+  test("a peer's run marks its approval as peer-run, stored and announced", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    const runId = await peerRun();
+    const opened: Record<string, unknown>[] = [];
+    f.events.onAppend((event) => {
+      if (event.type === "request.opened") {
+        opened.push(event.payload);
+      }
+      return Promise.resolve();
+    });
+    const approval = await f.requests.open(f.system, {
+      ...APPROVAL,
+      runId,
+    });
+    expect((await storedDisplay(approval.id)).peerRun).toBe(true);
+    expect(opened).toEqual([
+      expect.objectContaining({
+        display: expect.objectContaining({ peerRun: true }),
+      }),
+    ]);
+  });
+
+  test("a member's run does not carry the peer-run key", async () => {
+    const started = await f.runs.startRun(member(), {
+      agentId: AGENT,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    await f.runs.claimRun(f.system, started.runId);
+    const approval = await f.requests.open(f.system, {
+      ...APPROVAL,
+      runId: started.runId,
+    });
+    expect("peerRun" in (await storedDisplay(approval.id))).toBe(false);
+  });
+
+  test("a child run that a peer's run handed work to carries the peer-run key", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    // The child is claimed first: a queued peer run older than it would block the claim.
+    const started = await f.runs.startRun(member(), {
+      agentId: AGENT,
+      input: { text: "go" },
+      session: { origin: "ui" },
+    });
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Go"));
+    const parentRunId = await runIdOf(f.db, task.id);
+    await f.db
+      .update(runRows)
+      .set({ parentRunId })
+      .where(eq(runRows.id, started.runId));
+    await f.runs.claimRun(f.system, started.runId);
+    const approval = await f.requests.open(f.system, {
+      ...APPROVAL,
+      runId: started.runId,
+    });
+    expect((await storedDisplay(approval.id)).peerRun).toBe(true);
+  });
+});
+
 describe("tool gate for a wake", () => {
   let o: OutboundFixture;
 
@@ -377,6 +453,25 @@ describe("tool gate for a wake", () => {
       .set({ status: "revoked" })
       .where(eq(a2aConnections.id, OUTBOUND_CONNECTION));
     expect(await wakeNeeds(wake.id, "bash")).toBe(true);
+  });
+
+  test("an approval on a wake of a member's run is marked peer-run, even on agent_rules", async () => {
+    await o.connectPeer({ toolPolicy: "agent_rules" });
+    const wake = await wakeAfter(await o.callingRun({}));
+    await o.runs.claimRun(o.system, wake.id);
+    const approval = await o.requests.open(o.system, {
+      input: { command: "ls" },
+      kind: "approval",
+      runId: wake.id,
+      toolKey: "bash",
+      toolName: "bash",
+      toolUseId: "t1",
+    });
+    const [row] = await o.db
+      .select()
+      .from(runRequests)
+      .where(eq(runRequests.id, approval.id));
+    expect(JSON.parse(row?.display ?? "{}").peerRun).toBe(true);
   });
 
   test("answerAsPeer refuses another connection's peer for a wake's question", async () => {

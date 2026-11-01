@@ -140,6 +140,9 @@ export const a2aConnections = sqliteTable(
     // JSON text.
     peerCard: text("peer_card"),
     peerCardFetchedAt: text("peer_card_fetched_at"),
+    // When the daily refresh last tried this card, whether or not the fetch
+    // worked, so a peer that stays down is retried hourly and not every minute.
+    peerCardTriedAt: text("peer_card_tried_at"),
     peerCardUrl: text("peer_card_url"),
     peerKind: text("peer_kind", { enum: A2A_PEER_KINDS }).notNull(),
     peerLabel: text("peer_label"),

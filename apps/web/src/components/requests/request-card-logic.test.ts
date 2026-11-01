@@ -7,6 +7,7 @@ import {
   expiryText,
   isConflict,
   mailApprovalFields,
+  offersAlwaysAllow,
   questionAnswer,
   type Settled,
   settledFromEvent,
@@ -499,5 +500,42 @@ describe("a2aSendFields", () => {
     expect(a2aSendFields(display("mail_send", send))).toBeNull();
     expect(a2aSendFields(display("a2a_send", { peer: "Hermes" }))).toBeNull();
     expect(a2aSendFields(display("a2a_send", "text"))).toBeNull();
+  });
+});
+
+describe("offersAlwaysAllow", () => {
+  const display = (
+    toolName: string,
+    extra: { peerRun?: boolean } = {}
+  ): Parameters<typeof offersAlwaysAllow>[0] => ({
+    input: { to: ["priya@example.com"] },
+    summary: "Use mail_send",
+    toolKey: `${toolName}:con_1`,
+    toolName,
+    ...extra,
+  });
+
+  test("is omitted on a peer-rooted run", () => {
+    expect(offersAlwaysAllow(display("mail_send", { peerRun: true }))).toBe(
+      false
+    );
+  });
+
+  test("is kept on the same display for a member run", () => {
+    expect(offersAlwaysAllow(display("mail_send"))).toBe(true);
+    expect(offersAlwaysAllow(display("mail_send", { peerRun: false }))).toBe(
+      true
+    );
+  });
+
+  test("is omitted for an a2a_send approval", () => {
+    expect(
+      offersAlwaysAllow({
+        input: { host: "hermes.example.com", peer: "Hermes", text: "Hi" },
+        summary: "Send a message to Hermes",
+        toolKey: "a2a_send:con_1",
+        toolName: "a2a_send",
+      })
+    ).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { isServiceError, type ServiceError } from "@repo/services/errors";
 import {
   createCardFetcher,
   createPairingTransport,
@@ -288,6 +289,107 @@ describe("createPairingTransport", () => {
     const { message } = error as Error;
     expect(message).toContain("401");
     expect(message).not.toContain(SECRET_BEARER);
+  });
+
+  test("join turns a 4xx answer with an error text into an invalid ServiceError that says why", async () => {
+    const network = fakeNetwork(() =>
+      Response.json(
+        {
+          error:
+            "An agent cannot connect to another agent in its own workspace",
+        },
+        { status: 400 }
+      )
+    );
+    const transport = createPairingTransport(network.fetch);
+
+    const error: unknown = await transport
+      .join({
+        body: { agentName: "Joiner", cardUrl: PUBLIC_URL, token: SECRET_TOKEN },
+        inviteToken: SECRET_BEARER,
+        origin: "https://peer.example.com",
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(isServiceError(error)).toBe(true);
+    const { code, message } = error as ServiceError;
+    expect(code).toBe("invalid");
+    expect(message).toContain("in its own workspace");
+    expect(message).not.toContain(SECRET_BEARER);
+  });
+
+  test.each([
+    ["the invite", SECRET_BEARER],
+    ["the new token", SECRET_TOKEN],
+  ])(
+    "join keeps a 4xx text that holds %s out of the message, even past the cut",
+    async (_name, secret) => {
+      const network = fakeNetwork(() =>
+        Response.json({ error: `${"x".repeat(190)}${secret}` }, { status: 400 })
+      );
+      const transport = createPairingTransport(network.fetch);
+
+      const error: unknown = await transport
+        .join({
+          body: {
+            agentName: "Joiner",
+            cardUrl: PUBLIC_URL,
+            token: SECRET_TOKEN,
+          },
+          inviteToken: SECRET_BEARER,
+          origin: "https://peer.example.com",
+        })
+        .catch((caught: unknown) => caught);
+
+      expect(isServiceError(error)).toBe(false);
+      expect((error as Error).message).not.toContain(secret.slice(0, 10));
+    }
+  );
+
+  test("join cuts a long 4xx text and ignores a 4xx answer with no error text", async () => {
+    const run = async (answer: Response): Promise<Error> => {
+      const transport = createPairingTransport(fakeNetwork(() => answer).fetch);
+      const outcome: unknown = await transport
+        .join({
+          body: {
+            agentName: "Joiner",
+            cardUrl: PUBLIC_URL,
+            token: SECRET_TOKEN,
+          },
+          inviteToken: SECRET_BEARER,
+          origin: "https://peer.example.com",
+        })
+        .catch((caught: unknown) => caught);
+      return outcome as Error;
+    };
+
+    const long = await run(
+      Response.json({ error: "y".repeat(500) }, { status: 400 })
+    );
+    expect(isServiceError(long)).toBe(true);
+    expect(long.message.length).toBeLessThan(260);
+
+    const none = await run(Response.json({ ok: false }, { status: 404 }));
+    expect(isServiceError(none)).toBe(false);
+    expect(none.message).toContain("404");
+  });
+
+  test("join keeps a 5xx answer a plain error, with no peer text in it", async () => {
+    const network = fakeNetwork(() =>
+      Response.json({ error: `boom ${SECRET_BEARER}` }, { status: 502 })
+    );
+    const transport = createPairingTransport(network.fetch);
+
+    const error: unknown = await transport
+      .join({
+        body: { agentName: "Joiner", cardUrl: PUBLIC_URL, token: SECRET_TOKEN },
+        inviteToken: SECRET_BEARER,
+        origin: "https://peer.example.com",
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(isServiceError(error)).toBe(false);
+    expect((error as Error).message).not.toContain(SECRET_BEARER);
   });
 
   test("join throws when the answer is not JSON and does not echo it", async () => {

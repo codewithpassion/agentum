@@ -39,6 +39,7 @@ export const approvalDisplaySchema = z.strictObject({
         APPROVAL_INPUT_MAX_BYTES,
       { message: `input is over ${APPROVAL_INPUT_MAX_BYTES} bytes` }
     ),
+  peerRun: z.boolean().optional(),
   summary: z.string().max(2000),
   toolKey: z.string(),
   toolName: z.string(),

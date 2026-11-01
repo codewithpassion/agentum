@@ -39,7 +39,8 @@ interface Base {
   expiresAt: number;
   requestId: string;
 }
-type ApprovalRequest = Base & Pick<ApprovalDisplay, "input" | "summary">;
+type ApprovalRequest = Base &
+  Pick<ApprovalDisplay, "input" | "peerRun" | "summary">;
 type QuestionRequest = Base & QuestionDisplay;
 type TakeoverRequest = Base &
   Pick<TakeoverDisplay, "reason"> & {
@@ -89,15 +90,19 @@ export const approvalCard = (request: ApprovalRequest): RequestCard => ({
     ),
     expiry(request.expiresAt),
     {
-      elements: (Object.keys(labels) as (keyof typeof labels)[]).map(
-        (decision) => ({
+      elements: (Object.keys(labels) as (keyof typeof labels)[])
+        // The rule Always allow saves applies to member runs, and a peer's run is gated by its connection, so it is not offered.
+        .filter(
+          (decision) =>
+            !(request.peerRun === true && decision === "always_allow")
+        )
+        .map((decision) => ({
           ...button(
             labels[decision],
             `hm_req:${request.requestId}:${decision}`
           ),
           ...(decision === "deny" ? { style: "danger" as const } : {}),
-        })
-      ),
+        })),
       type: "actions",
     },
   ],

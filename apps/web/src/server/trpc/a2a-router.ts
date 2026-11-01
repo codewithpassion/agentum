@@ -108,6 +108,11 @@ export const a2aRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.a2aPageReads.recentTasks(ctx.principal, input.connectionId)
     ),
+  refreshCard: workspaceProcedure
+    .input(connectionInput)
+    .mutation(({ ctx, input }) =>
+      ctx.services.connections.refreshCard(ctx.principal, input.connectionId)
+    ),
   revoke: workspaceProcedure
     .input(connectionInput)
     .mutation(({ ctx, input }) =>

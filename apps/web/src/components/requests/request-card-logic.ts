@@ -203,6 +203,15 @@ export const a2aSendFields = (
   return { host, peer, text };
 };
 
+/**
+ * True when the card offers "Always allow". The rule it saves applies to member
+ * runs, and a peer-rooted run is gated by its connection's tool policy and not
+ * by that rule alone, so a peer's run does not offer it. An outgoing message to
+ * an outside agent is always asked, so it does not either.
+ */
+export const offersAlwaysAllow = (display: ApprovalDisplay): boolean =>
+  display.peerRun !== true && a2aSendFields(display) === null;
+
 /** The answer to an approval. A blank note is left out. */
 export const approvalAnswer = (
   decision: ApprovalDecision,

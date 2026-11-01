@@ -3,7 +3,7 @@ id: AA.10
 title: "Agent connections staging check on real Workers"
 milestone: AA
 size: S
-status: in_progress
+status: done
 depends_on: [AA.8]
 branch: task/AA.10-staging-check
 lane: ops
@@ -28,3 +28,4 @@ Record each step above as passed, failed or not run in `docs/reviews/tasks/AA.10
 
 ## Log
 - 2026-11-02: created and dispatched once staging was deployed.
+- 2026-11-02: merged. All steps passed on staging except the full invite flow, which needs a second workspace there; left open for Dom. The join reached the inviter inside the Worker, so in-process dispatch works.
