@@ -106,6 +106,8 @@ export interface MachineRecord {
   /** Presence of the computer role, null when the machine has none. */
   computerStatus: ComputerStatus | null;
   createdAt: string;
+  /** The version the daemon reported in its last hello. Null before it first connects. */
+  daemonVersion: string | null;
   enrolledBy: string;
   id: string;
   lastSeenAt: string | null;
@@ -139,6 +141,7 @@ const toRecord = (row: MachineRow): MachineRecord => ({
   computerLastSeenAt: row.computerLastSeenAt,
   computerStatus: row.computerStatus,
   createdAt: row.createdAt,
+  daemonVersion: row.daemonVersion,
   enrolledBy: row.enrolledBy,
   id: row.id,
   lastSeenAt: row.lastSeenAt,
@@ -175,6 +178,7 @@ export const createMachinesService = ({
   clock,
   db,
   events,
+  latestDaemonVersion,
   relay,
 }: {
   allowedOrgIds: readonly string[];
@@ -182,6 +186,8 @@ export const createMachinesService = ({
   clock: Clock;
   db: Database;
   events: EventsService;
+  /** The version of the newest published daemon, or null when there is none. Without it the answer is null. */
+  latestDaemonVersion?: () => Promise<string | null>;
   relay: MachineRelayPort;
 }) => {
   const nowIso = () => clock.now().toISOString();
@@ -522,15 +528,32 @@ export const createMachinesService = ({
     await relay.revoke(machineId);
   };
 
+  /** The newest published daemon version, for the machines page to compare against. */
+  const newestDaemonVersion = async (
+    principal: Principal
+  ): Promise<string | null> => {
+    if (principal.kind === "system") {
+      throw new ForbiddenError(READ_ACTION);
+    }
+    authorize(principal, READ_ACTION, {
+      kind: MACHINE_KIND,
+      workspaceId: principal.workspaceId,
+    });
+    return (await latestDaemonVersion?.()) ?? null;
+  };
+
   /**
    * The relay heard from its machine (`hello` or a ping). Sets `online` and
-   * `last_seen_at`, and `capabilities` when the daemon sent them, and appends
+   * `last_seen_at`, and `capabilities` and `daemon_version` when the daemon sent them, and appends
    * `machine.online` when the status changed. "revoked" means the machine is
    * revoked or gone, and the relay must close the socket with 4401.
    */
   const markOnline = async (
     principal: Principal,
-    seen: { capabilities?: Record<string, unknown> } = {}
+    seen: {
+      capabilities?: Record<string, unknown>;
+      daemonVersion?: string;
+    } = {}
   ): Promise<"ok" | "revoked"> => {
     const machine = requireMachine(principal, PRESENCE_ACTION);
     authorize(machine, PRESENCE_ACTION, {
@@ -554,6 +577,9 @@ export const createMachinesService = ({
         ...(seen.capabilities
           ? { capabilities: JSON.stringify(seen.capabilities) }
           : {}),
+        ...(seen.daemonVersion === undefined
+          ? {}
+          : { daemonVersion: seen.daemonVersion }),
       })
       .where(and(scope, ne(machines.status, "revoked")))
       .returning({ id: machines.id });
@@ -888,6 +914,7 @@ export const createMachinesService = ({
     markComputerOnline,
     markOffline,
     markOnline,
+    newestDaemonVersion,
     pendingOffers,
     requireComputer,
     revoke,

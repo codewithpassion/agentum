@@ -1,7 +1,9 @@
 import type { MachineRole } from "@repo/db/shared";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { CommandBlock } from "#/components/machines/command-block";
+import { daemonInstallCommand } from "#/components/machines/enroll-commands";
 import { EnrollDialog } from "#/components/machines/enroll-dialog";
 import { MachineRow } from "#/components/machines/machine-row";
 import { RevokeDialog } from "#/components/machines/revoke-dialog";
@@ -18,7 +20,12 @@ import { getTrpc } from "#/integrations/trpc/client";
 export const Route = createFileRoute("/_app/settings/machines")({
   loader: async () => {
     try {
-      return await getTrpc().machines.list.query();
+      const trpc = getTrpc();
+      const [machines, latestDaemonVersion] = await Promise.all([
+        trpc.machines.list.query(),
+        trpc.machines.newestDaemonVersion.query(),
+      ]);
+      return { latestDaemonVersion, machines };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -38,12 +45,17 @@ interface DialogState {
 }
 
 function MachinesPage() {
-  const machines = Route.useLoaderData();
+  const { latestDaemonVersion, machines } = Route.useLoaderData();
   const router = useRouter();
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [revoking, setRevoking] = useState<{ id: string; name: string } | null>(
     null
   );
+  const [origin, setOrigin] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   const openEnrol = useCallback(() => setDialog({ role: "agent_host" }), []);
 
@@ -84,10 +96,18 @@ function MachinesPage() {
         </div>
       </div>
       {machines.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
-          No machines yet. Enrol one to run agents on it, or add a computer for
-          an agent to use.
-        </p>
+        <div className="flex flex-col gap-3">
+          <p className="text-muted-foreground text-sm">
+            No machines yet. Enrol one to run agents on it, or add a computer
+            for an agent to use.
+          </p>
+          {origin !== null && (
+            <CommandBlock
+              command={daemonInstallCommand(origin)}
+              heading="Install the harbourmaster daemon on a Linux machine"
+            />
+          )}
+        </div>
       ) : (
         <ResponsiveTable>
           <TableHeader>
@@ -104,9 +124,11 @@ function MachinesPage() {
             {machines.map((machine) => (
               <MachineRow
                 key={machine.id}
+                latestDaemonVersion={latestDaemonVersion}
                 machine={machine}
                 onAddComputer={addComputerTo}
                 onRevoke={setRevoking}
+                origin={origin}
               />
             ))}
           </TableBody>

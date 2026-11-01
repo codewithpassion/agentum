@@ -63,6 +63,24 @@ Commands at the root run across all apps via [Turborepo](https://turborepo.com):
 
 To run a command for a single app, use turbo's filter flag, e.g. `bunx turbo run dev --filter=web`, or `cd apps/web && bun run dev`.
 
+## Install the machine daemon
+
+The `harbourmaster` daemon runs agent tasks on a machine you own. It runs on Linux, on x64 or arm64. Install it from your deployment with one command, replacing `<your-deployment>` with its host name:
+
+```bash
+curl -fsSL https://<your-deployment>/install.sh | sh
+```
+
+The script downloads the binary, checks its SHA-256 hash, and puts it in `~/.local/bin`. It also sets up a systemd user service. Pass `--no-service` to skip that step.
+
+To enrol the machine in the same step, create an enrol code under Settings > Machines and add `-s -- --code <code>` to the command:
+
+```bash
+curl -fsSL https://<your-deployment>/install.sh | sh -s -- --code <code>
+```
+
+The command runs `harbourmaster enroll` for you. To update the daemon, run the same command again. The computer client, `hm-computer`, installs the same way from `https://<your-deployment>/install-computer.sh`.
+
 ## Deploy
 
 Local development needs none of this. You only need the accounts below when you want the app running on the internet.

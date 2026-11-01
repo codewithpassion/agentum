@@ -212,6 +212,7 @@ describe("MachineRelay hello", () => {
     const row = machineRow(identity.machineId);
     expect(row?.status).toBe("online");
     expect(row?.lastSeenAt).toBe(new Date(START).toISOString());
+    expect(row?.daemonVersion).toBe("0.1.0");
     expect(JSON.parse(row?.capabilities ?? "{}")).toEqual({
       agentSdk: "0.2.0",
       container: false,

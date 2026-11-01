@@ -156,10 +156,13 @@ export const createRelayCore = ({
    */
   const markOnline = async (
     who: MachinePrincipal,
-    capabilities?: Record<string, unknown>
+    seen: {
+      capabilities?: Record<string, unknown>;
+      daemonVersion?: string;
+    } = {}
   ): Promise<"failed" | "ok" | "revoked"> => {
     try {
-      return await machines.markOnline(who, { capabilities });
+      return await machines.markOnline(who, seen);
     } catch (error) {
       logFailure("marking the machine online", error);
       await storage.delete(LAST_WRITE_KEY);
@@ -242,7 +245,10 @@ export const createRelayCore = ({
       socket.serializeAttachment({ features: frame.features ?? [] });
       await heard(at, true);
       const status = await markOnline(who, {
-        ...frame.capabilities,
+        capabilities: {
+          ...frame.capabilities,
+          daemonVersion: frame.daemonVersion,
+        },
         daemonVersion: frame.daemonVersion,
       });
       if (status === "revoked") {

@@ -23,6 +23,8 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
+import installDaemonScript from "./server/releases/install.sh?raw";
+import installComputerScript from "./server/releases/install-computer.sh?raw";
 import { mountA2aRoutes } from "./server/routes/a2a.ts";
 import { mountA2aWebhooks } from "./server/routes/a2a-webhooks.ts";
 import { accessRoutes } from "./server/routes/access.ts";
@@ -30,6 +32,7 @@ import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
 import { devRoutes } from "./server/routes/dev.ts";
 import type { AppEnv } from "./server/routes/groups.ts";
+import { mountReleaseRoutes } from "./server/routes/releases.ts";
 import { runtimeRoutes } from "./server/routes/runtime.ts";
 import { tickJobs } from "./server/tick/jobs.ts";
 import { runTick } from "./server/tick/registry.ts";
@@ -76,6 +79,14 @@ mountArtifactContentRoutes(app, {
   bucket: (env) => env.FILES,
   viewKey: (env) => env.ARTIFACT_VIEW_KEY,
   workspaceId: (claims) => claims.workspaceId,
+});
+
+// The install scripts and the daemon and computer binaries (`/install.sh`,
+// `/releases/...`), public and read from R2. Before Clerk, so no sign-in
+// redirect can catch `curl`.
+mountReleaseRoutes(app, {
+  bucket: (env) => env.FILES,
+  scripts: { computer: installComputerScript, daemon: installDaemonScript },
 });
 
 app.route(

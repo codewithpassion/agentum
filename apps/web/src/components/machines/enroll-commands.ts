@@ -9,8 +9,11 @@ const CONTINUATION = " \\\n  ";
 
 const joinArguments = (parts: string[]): string => parts.join(CONTINUATION);
 
+export const daemonInstallCommand = (origin: string): string =>
+  `curl -fsSL ${origin}/install.sh | sh`;
+
 export const daemonCommand = (origin: string, code: string): string =>
-  `harbourmaster enroll ${code} --server ${origin}`;
+  `${daemonInstallCommand(origin)} -s -- --code ${code}`;
 
 export const dockerHeadlessCommand = (origin: string, code: string): string =>
   joinArguments([
@@ -31,5 +34,8 @@ export const dockerDesktopCommand = (origin: string, code: string): string =>
     `--url ${origin} --code ${code}`,
   ]);
 
+export const computerInstallCommand = (origin: string): string =>
+  `curl -fsSL ${origin}/install-computer.sh | sh`;
+
 export const binaryCommand = (origin: string, code: string): string =>
-  `hm-computer run --url ${origin} --code ${code}`;
+  `${computerInstallCommand(origin)} -s -- --code ${code}`;
