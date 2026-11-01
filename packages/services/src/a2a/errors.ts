@@ -40,3 +40,7 @@ export const isA2aRateLimitError = (
 /** Why an agent on the managed runtime can't take part in a connection. */
 export const MANAGED_REFUSAL =
   "Agents on the managed runtime can't be published yet, because their tool calls can't be held for approval. Move the agent to the cloud or machine runtime first.";
+
+/** Why a run of an agent on the managed runtime can't use a connection. */
+export const MANAGED_RUN_REFUSAL =
+  "An agent on the managed runtime can't use connections, because its tool calls can't be held for approval. Move the agent to the cloud or machine runtime first.";

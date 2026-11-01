@@ -121,6 +121,22 @@ describe("revoke cancels the runs a peer's connection set going", () => {
     expect(await statusOf(grandchild.id)).toBe("cancelled");
   });
 
+  test("a hand-off at full depth is cancelled too", async () => {
+    const parent = await peerRun();
+    await f.seedAgent("agt_b");
+    await f.seedAgent("agt_c");
+    await f.seedAgent("agt_d");
+    const first = await handOff(parent, "agt_b");
+    await f.runs.claimRun(f.system, first.id);
+    const second = await handOff(first, "agt_c");
+    await f.runs.claimRun(f.system, second.id);
+    const third = await handOff(second, "agt_d");
+
+    await f.connections.revoke(member(), CONNECTION);
+
+    expect(await statusOf(third.id)).toBe("cancelled");
+  });
+
   test("a child of a parent that completed before the revoke is cancelled", async () => {
     const parent = await peerRun();
     await f.seedAgent("agt_b");

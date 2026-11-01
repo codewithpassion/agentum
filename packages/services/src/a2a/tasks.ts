@@ -1544,7 +1544,12 @@ export const createA2aTasksService = ({
         await cancelRunQuietly(task.runId);
       }
     }
-    await cancelChainOf(revoked);
+    try {
+      await cancelChainOf(revoked);
+    } catch (error) {
+      // The sweep finds what is left. The events below still get written.
+      console.error("A2A revoke chain not cancelled", error);
+    }
     for (const [tasks, type] of [
       [waiting, "a2a.message_declined"],
       [live, "a2a.task_cancelled"],

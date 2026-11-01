@@ -169,7 +169,7 @@ A peer's text never reaches the agent as if a member wrote it. It goes through t
 The `tool_policy = ask` gate lives in `requests.needsApproval`, the check the cloud and machine runtimes both call. It covers a run a peer started and any run that run handed work to, down the parent chain. Two points were open in the build (AA.3) and are settled:
 
 - A machine daemon too old to report `currentApprovals` skips the gate, so the claim refuses a peer run for it (a daemon of that kind never claims one).
-- The managed runtime doesn't call `needsApproval`, so it can't be gated. Agents on that runtime can't be published or connected for outbound, a message to one published earlier is refused, it gets no pairing code, a run it makes can't send, and a run a peer's text set going (including a wake) can't hand work to one.
+- The managed runtime doesn't call `needsApproval`, so it can't be gated. Agents on that runtime can't be published or connected for outbound, a message to one published earlier is refused, it gets no pairing code, a run it makes can't send or read a peer's answer, and a run a peer's text set going (including a wake) can't hand work to one.
 
 Every tool call on the cloud runtime goes through the one gate, and on the machine runtime through the daemon's check once `currentApprovals` is on. The platform `/mcp` and `/api/proxy` routes take a run token without asking `needsApproval` themselves. The token reaches only the runtime, so the runtime's gate is the control, and a server-side guard for peer runs is a possible later addition.
 

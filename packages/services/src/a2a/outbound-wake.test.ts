@@ -11,7 +11,7 @@ import {
 } from "../connectors/test-seed.ts";
 import { createCredentialsService } from "../credentials.ts";
 import { importSecretsKey } from "../crypto.ts";
-import { MANAGED_REFUSAL } from "./errors.ts";
+import { MANAGED_REFUSAL, MANAGED_RUN_REFUSAL } from "./errors.ts";
 import {
   createOutboundFixture,
   OUTBOUND_CONNECTION,
@@ -254,8 +254,12 @@ describe("a wake on an agent moved to managed", () => {
     await f.outbound.pollDue(f.system);
 
     expect(await wakeRun()).toBeUndefined();
-    const read = await f.outbound.get(call.principal, info.runId);
+    // The system can still read it. A run of that agent can't: its tools can't be held.
+    const read = await f.outbound.get(f.system, info.runId);
     expect(read.answer).not.toBeNull();
+    await expect(f.outbound.get(call.principal, info.runId)).rejects.toThrow(
+      MANAGED_RUN_REFUSAL
+    );
     const logged = (await f.db.select().from(eventRows))
       .filter((event) => event.type === "a2a.result_received")
       .map((event) => JSON.parse(event.payload ?? "{}") as unknown);
@@ -278,7 +282,7 @@ describe("a wake on an agent moved to managed", () => {
         requestId: "r1",
         text: "hello",
       })
-    ).rejects.toThrow(MANAGED_REFUSAL);
+    ).rejects.toThrow(MANAGED_RUN_REFUSAL);
 
     expect(await f.db.select().from(a2aOutboundTasks)).toHaveLength(0);
     expect(f.peer.calls).toHaveLength(0);

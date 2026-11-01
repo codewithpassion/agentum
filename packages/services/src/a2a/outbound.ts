@@ -76,7 +76,7 @@ import { buildPeerEnvelope } from "../speaker-envelope.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { CONNECTION_KIND } from "./access.ts";
 import { schemeKindOfLabel, tokenUrlOfLabel } from "./card-peer.ts";
-import { A2aRateLimitError, MANAGED_REFUSAL } from "./errors.ts";
+import { A2aRateLimitError, MANAGED_RUN_REFUSAL } from "./errors.ts";
 import { HOUR_MS, hourlyCountSql, hourlyUse, WAKE_MARK } from "./hourly.ts";
 import { interfaceBaseOfCardUrl } from "./urls.ts";
 
@@ -983,6 +983,22 @@ export const createOutboundService = ({
     return peers;
   };
 
+  /**
+   * An agent moved to managed after it connected: its tools can't be held, and
+   * a peer's text read in its run (`get_run`) would reach it with no gate.
+   */
+  const refuseManagedRun = async (
+    principal: Extract<Principal, { kind: "run" }>
+  ): Promise<void> => {
+    const agent = await findAgent(db, {
+      id: principal.agentId,
+      workspaceId: principal.workspaceId,
+    });
+    if (agent?.runtime === "managed") {
+      throw new ServiceError("invalid", MANAGED_RUN_REFUSAL);
+    }
+  };
+
   /** Everything a new task must pass before a row is written. */
   const admit = async (
     principal: Principal,
@@ -994,15 +1010,7 @@ export const createOutboundService = ({
     if (principal.dryRun) {
       throw new ServiceError("invalid", "A dry run sends nothing.");
     }
-    // An agent moved to managed after it connected: its tools can't be held, and
-    // `get_run` in this run would read a peer's text with no gate.
-    const agent = await findAgent(db, {
-      id: principal.agentId,
-      workspaceId: principal.workspaceId,
-    });
-    if (agent?.runtime === "managed") {
-      throw new ServiceError("invalid", MANAGED_REFUSAL);
-    }
+    await refuseManagedRun(principal);
     const [connection] = await db
       .select()
       .from(a2aConnections)
@@ -1358,6 +1366,9 @@ export const createOutboundService = ({
       throw new ServiceError("not_found", "Task not found");
     }
     requireOwnRun(principal, connection, READ_ACTION);
+    if (principal.kind === "run") {
+      await refuseManagedRun(principal);
+    }
     authorize(principal, READ_ACTION, {
       id: connection.id,
       kind: CONNECTION_KIND,
