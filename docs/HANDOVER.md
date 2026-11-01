@@ -9,7 +9,8 @@ Rewritten 26 October 2026. v1 is built (milestones M0 to M9 and the C, F, P, R, 
 - Three runtimes behind one run model: `machine` (the Bun daemon running Claude Code as `hm-agent`), `cloud` (Pi Durable in the `PiRun` DO, isolate or Linux VM through `VmSession`) and `managed` (Anthropic Managed Agents through `ManagedPoller`).
 - Built around them: connectors with OAuth and the user, colleague and agent credential modes; a secrets vault with egress placeholders; the git-like skill store; triggers and routines; per-agent Slack apps; the forum inbox; the workspace library with sync onto machines and VMs; the append-only event log; the platform MCP server.
 - Open from v1: C.19 (secret scrub, 4 commits on its branch, needs review and merge), M1.4s, M8.4, SK.5 and W.10 (blocked or backlog). `bun run tasks` has the list.
-- Agent connections (AA, 2 Nov 2026): A2A 1.0 server and client, invites, access keys and pairing codes, compatible with Hermes. Staging runs it at Worker version 71e2ea91; production does not, pending Dom. It needs migrations 0036 to 0039 applied before `bun run deploy`, because the production script has no migration step. Spec: `docs/v3/agent-connections.md`. Reviews and open items: `docs/reviews/AA-1.md`, `AA-2.md`.
+- Agent connections (AA, 2 Nov 2026): A2A 1.0 server and client, invites, access keys and pairing codes, compatible with Hermes. Staging runs it at Worker version 0a65938e; production does not, pending Dom. It needs migrations 0036 to 0040 applied before `bun run deploy`, because the production script has no migration step. Spec: `docs/v3/agent-connections.md`. Reviews and open items: `docs/reviews/AA-1.md`, `AA-2.md`.
+- Daemon install (DI.1, 2 Nov 2026): `deploy` and `staging:deploy` build and publish `harbourmaster` and `hm-computer` to `releases/` in the `FILES` bucket, and machines install with `curl -fsSL <origin>/install.sh | sh`. Publishing refuses a dirty tree and needs Go or Docker.
 
 Read in this order:
 

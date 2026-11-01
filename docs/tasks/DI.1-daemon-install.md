@@ -3,7 +3,7 @@ id: DI.1
 title: "Daemon releases built at deploy and installed with one curl command from the site"
 milestone: DI
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/DI.1-daemon-install
 lane: ops
@@ -46,3 +46,4 @@ The real deployed check is the controller's: after the merge it deploys staging 
 
 ## Log
 - 2026-11-02: created from Dom's request. Dispatched.
+- 2026-11-02: merged, review clean after 2 fix rounds. Staging deployed at Worker version 0a65938e with release 0.1.0+7808e5a1. In a clean Debian container, `curl .../install.sh | sh -s -- --no-service` installed and verified the binary, `--version` reported the build, a bad code reached the server and was refused, and a re-run worked. Not run on a real host: `install-service`, a valid enrol, and `install-computer.sh`.
