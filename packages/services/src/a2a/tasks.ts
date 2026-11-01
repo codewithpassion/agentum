@@ -111,6 +111,8 @@ const NEVER_STARTED_AFTER_MS = 5 * MINUTE_MS;
  */
 const SWEEP_BATCH = 50;
 const SWEEP_CONNECTIONS = 20;
+/** Rounds of cancelling in one revoke. A run a cancelled run started in the meantime is caught by the next, and the sweep finishes the rest. */
+const REVOKE_ROUNDS = 5;
 const WAITING_LIST_CAP = 200;
 const MESSAGE_ID_MAX = 200;
 const CONTEXT_ID_MAX = 100;
@@ -1542,6 +1544,12 @@ export const createA2aTasksService = ({
         await cancelRunQuietly(task.runId);
       }
     }
+    try {
+      await cancelChainOf(revoked);
+    } catch (error) {
+      // The sweep finds what is left. The events below still get written.
+      console.error("A2A revoke chain not cancelled", error);
+    }
     for (const [tasks, type] of [
       [waiting, "a2a.message_declined"],
       [live, "a2a.task_cancelled"],
@@ -1561,6 +1569,80 @@ export const createA2aTasksService = ({
         }
       }
     }
+  };
+
+  /**
+   * Live runs whose chain of parents reaches a run a peer's connection set
+   * going: a run it started, a hand-off of one, or a wake carrying its answer.
+   * The walk goes up from each live run, so a hand-off still counts after its
+   * parent has ended. With `connectionId` it is that connection's chain.
+   * Without it, any connection that has ended. At most `limit` runs.
+   */
+  const liveRunsReaching = async (
+    scope: { connectionId: string; workspaceId: string } | null,
+    limit: number
+  ): Promise<string[]> => {
+    const live = sql.join(
+      LIVE_RUN_STATUSES.map((status) => sql`${status}`),
+      sql`, `
+    );
+    const rows = await db.all<{ id: string }>(sql`
+      with recursive up(live_id, parent_id, actor_kind, actor_id, hops) as (
+        select r.id, r.parent_run_id, r.actor_kind, r.actor_id, 0
+        from ${runRows} as r
+        where r.status in (${live})
+          ${scope ? sql`and r.workspace_id = ${scope.workspaceId}` : sql``}
+        union all
+        select u.live_id, p.parent_run_id, p.actor_kind, p.actor_id, u.hops + 1
+        from up as u
+        join ${runRows} as p on p.id = u.parent_id
+        where u.hops <= ${MAX_RUN_DEPTH}
+      )
+      select distinct live_id as id from up
+      where actor_kind = 'peer'
+        and ${
+          scope
+            ? sql`actor_id = ${scope.connectionId}`
+            : sql`actor_id in (select id from ${a2aConnections} where status in ('declined', 'revoked'))`
+        }
+      limit ${limit}
+    `);
+    return rows.map(({ id }) => id);
+  };
+
+  /**
+   * Cancels the live runs a revoked connection's peer set going, hand-offs and
+   * wakes included. A batch at a time, a few rounds: `runs.cancelRun` itself
+   * stays one run.
+   */
+  const cancelChainOf = async (revoked: {
+    connectionId: string;
+    workspaceId: string;
+  }): Promise<void> => {
+    for (let round = 0; round < REVOKE_ROUNDS; round += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: a cancelled run may have started another, so each round reads again
+      const ids = await liveRunsReaching(revoked, SWEEP_BATCH);
+      if (ids.length === 0) {
+        return;
+      }
+      for (const id of ids) {
+        // biome-ignore lint/performance/noAwaitInLoops: one cancel at a time keeps the log in order
+        await cancelRunQuietly(id);
+      }
+    }
+  };
+
+  /**
+   * Runs under an ended connection that no task points at: hand-offs, wakes,
+   * and children of a parent that ended. Returns how many it cancelled.
+   */
+  const cancelUnderEndedConnections = async (): Promise<number> => {
+    const ids = await liveRunsReaching(null, SWEEP_BATCH);
+    for (const id of ids) {
+      // biome-ignore lint/performance/noAwaitInLoops: each run is one cancel
+      await cancelRunQuietly(id);
+    }
+    return ids.length;
   };
 
   /** The least recently swept tasks first, the never swept ones by age. */
@@ -1699,6 +1781,7 @@ export const createA2aTasksService = ({
       await cancelRunQuietly(runId);
       acted += 1;
     }
+    acted += await cancelUnderEndedConnections();
     return acted;
   };
 
