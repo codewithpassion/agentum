@@ -36,3 +36,7 @@ export class A2aRateLimitError extends Error {
 export const isA2aRateLimitError = (
   error: unknown
 ): error is A2aRateLimitError => error instanceof A2aRateLimitError;
+
+/** Why an agent on the managed runtime can't take part in a connection. */
+export const MANAGED_REFUSAL =
+  "Agents on the managed runtime can't be published yet, because their tool calls can't be held for approval. Move the agent to the cloud or machine runtime first.";

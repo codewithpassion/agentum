@@ -70,11 +70,21 @@ const refuseBusyAncestor = async (
   }
 };
 
+/**
+ * A wake is a run an agent starts for itself when a peer's answer comes in
+ * after its calling run ended. It keeps the calling run's place in the tree,
+ * but the peer, not the person, is its actor, and it has no person's delegation.
+ */
+export interface WakeOf {
+  connectionId: string;
+}
+
 /** A run principal's subject comes from its parent run, which it cannot change. */
 const subjectOfRun = async (
   db: Database,
   principal: Extract<Principal, { kind: "run" }>,
-  agentId: string
+  agentId: string,
+  wakeOf?: WakeOf
 ): Promise<Subject> => {
   const parent = await loadRun(db, principal.runId, principal.workspaceId);
   if (!parent) {
@@ -90,6 +100,14 @@ const subjectOfRun = async (
       "invalid",
       `Runs can start other runs ${MAX_RUN_DEPTH} levels deep, no more`
     );
+  }
+  if (wakeOf) {
+    return {
+      actor: { id: wakeOf.connectionId, kind: "peer" },
+      depth,
+      onBehalfOfUserId: null,
+      parentRunId: parent.id,
+    };
   }
   return {
     actor: { id: principal.agentId, kind: "agent" },
@@ -109,12 +127,15 @@ const clampHops = (hops: number | undefined): number => {
 
 /**
  * The actor, the person the run is for, and the place in the run tree, for a
- * run started by `principal` on `agentId`.
+ * run started by `principal` on `agentId`. `wakeOf` comes from a trusted
+ * in-process caller and only changes a run principal's subject, so no
+ * principal a request can make reaches it.
  */
 export const deriveSubject = async (
   db: Database,
   principal: Principal,
-  agentId: string
+  agentId: string,
+  wakeOf?: WakeOf
 ): Promise<Subject> => {
   switch (principal.kind) {
     case "user":
@@ -132,7 +153,7 @@ export const deriveSubject = async (
         parentRunId: null,
       };
     case "run":
-      return await subjectOfRun(db, principal, agentId);
+      return await subjectOfRun(db, principal, agentId, wakeOf);
     case "trigger":
       // A trigger token belongs to one agent.
       if (principal.agentId !== agentId) {

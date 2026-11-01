@@ -249,6 +249,23 @@ describe("a request", () => {
     expect(await service.pairableAgent(publicId)).toBeNull();
     expect(await service.requestPairing(AGENT, tokenOf(1))).toBeNull();
   });
+
+  test("is refused once a published agent with pairing open moves to the managed runtime, and comes back on cloud", async () => {
+    await open();
+    db.update(agentRows)
+      .set({ runtime: "managed" })
+      .where(eq(agentRows.id, AGENT))
+      .run();
+    expect(await service.pairableAgent(publicId)).toBeNull();
+    expect(await service.requestPairing(AGENT, tokenOf(1))).toBeNull();
+    expect(requests()).toHaveLength(0);
+    db.update(agentRows)
+      .set({ runtime: "cloud" })
+      .where(eq(agentRows.id, AGENT))
+      .run();
+    expect(await service.pairableAgent(publicId)).toBe(AGENT);
+    expect(await service.requestPairing(AGENT, tokenOf(1))).not.toBeNull();
+  });
 });
 
 describe("a token that was paired elsewhere", () => {

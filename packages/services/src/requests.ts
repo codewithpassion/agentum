@@ -55,7 +55,7 @@ import {
 } from "./requests/records.ts";
 import { importRunTokenKey } from "./run-tokens.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
-import { peerRootOf } from "./runs/peer-root.ts";
+import { peerRootsOf } from "./runs/peer-root.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
@@ -372,31 +372,31 @@ export const createRequestsService = ({
     );
   };
   /**
-   * A run a peer started, or one it handed work to, asks for every tool while
-   * the peer's connection has `tool_policy = ask`. A peer's text is outside
-   * input, so a connection that is gone or ended asks too: only an active
-   * connection set to `agent_rules` opens the agent's own rules.
+   * A run a peer started, one it handed work to, or a wake carrying its answer
+   * asks for every tool while that peer's connection has `tool_policy = ask`.
+   * The whole chain counts: one link that asks, or has ended, makes the run ask.
+   * A peer's text is outside input, so a connection that is gone or ended asks
+   * too: only an active connection set to `agent_rules` opens the agent's own
+   * rules.
    */
   const peerAsksEveryTool = async (run: RunRecord): Promise<boolean> => {
-    const connectionId = await peerRootOf(db, run);
-    if (connectionId === null) {
+    const connectionIds = await peerRootsOf(db, run);
+    if (connectionIds.length === 0) {
       return false;
     }
-    const [connection] = await db
-      .select({
-        status: a2aConnections.status,
-        toolPolicy: a2aConnections.toolPolicy,
-      })
+    const trusting = await db
+      .select({ id: a2aConnections.id })
       .from(a2aConnections)
       .where(
         and(
-          eq(a2aConnections.id, connectionId),
-          eq(a2aConnections.workspaceId, run.workspaceId)
+          inArray(a2aConnections.id, connectionIds),
+          eq(a2aConnections.workspaceId, run.workspaceId),
+          eq(a2aConnections.status, "active"),
+          eq(a2aConnections.toolPolicy, "agent_rules")
         )
-      )
-      .limit(1);
-    return !(
-      connection?.status === "active" && connection.toolPolicy === "agent_rules"
+      );
+    return (
+      new Set(trusting.map((row) => row.id)).size < new Set(connectionIds).size
     );
   };
   const needsApproval = async (
@@ -808,7 +808,9 @@ export const createRequestsService = ({
       !(row && run) ||
       run.actor.kind !== "peer" ||
       run.actor.id !== principal.connectionId ||
-      run.agentId !== principal.agentId
+      run.agentId !== principal.agentId ||
+      // A run a peer started has no parent. A wake carries that peer's actor but sits under a run of ours, and no task links to it.
+      run.parentRunId !== null
     ) {
       throw new ServiceError("not_found", "Request not found");
     }

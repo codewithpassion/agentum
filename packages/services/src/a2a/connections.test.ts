@@ -21,6 +21,7 @@ import {
   INVITE_TTL_MS,
   type PairingTransport,
 } from "./connections.ts";
+import { MANAGED_REFUSAL } from "./errors.ts";
 
 const BASE = "https://hm.test";
 const START = "2026-11-01T10:00:00.000Z";
@@ -787,6 +788,35 @@ describe("access keys and outside agents", () => {
       })
     ).rejects.toBeInstanceOf(ServiceError);
     expect(fetched).toBe(false);
+  });
+
+  test("an agent on the managed runtime is refused, nothing is fetched, and nothing is written", async () => {
+    let fetched = false;
+    const guarded = createConnectionsService({
+      atomic: sqliteAtomic(db),
+      clock,
+      db,
+      events,
+      fetchCard: () => {
+        fetched = true;
+        return Promise.resolve(peerCard);
+      },
+      publicBaseUrl: BASE,
+      secretsKey: SECRETS_KEY,
+    });
+    db.update(agentRows)
+      .set({ runtime: "managed" })
+      .where(eq(agentRows.id, AGENT_X))
+      .run();
+    await expect(
+      guarded.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: OUTSIDE_CARD_URL,
+        credential: OUTSIDE_SECRET,
+      })
+    ).rejects.toThrow(MANAGED_REFUSAL);
+    expect(fetched).toBe(false);
+    expect(await db.select().from(a2aConnections)).toHaveLength(0);
   });
 
   test("the origin change returns a connection to needs_approval", async () => {

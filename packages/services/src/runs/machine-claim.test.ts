@@ -787,6 +787,51 @@ test("a run a peer's run handed work to cannot be claimed by a daemon without cu
   expect(status(child.runId)?.status).toBe("offered");
 });
 
+/** A wake: a run a peer's answer started under the run that asked, its peer the connection that answered. */
+const makeWake = async (caller: string) => {
+  const wake = await start(agentId);
+  db.update(runRows)
+    .set({
+      actorId: "conn-peer",
+      actorKind: "peer",
+      parentRunId: caller,
+      requestId: `a2a-wake:${wake.runId}`,
+    })
+    .where(eq(runRows.id, wake.runId))
+    .run();
+  // The calling run has ended, so the wake is not queued behind it.
+  db.update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, caller))
+    .run();
+  return wake.runId;
+};
+
+test("a wake cannot be claimed by a daemon without current approvals, and stays offered", async () => {
+  const caller = await start(agentId);
+  const wakeId = await makeWake(caller.runId);
+
+  const error = await rejection(claim("m1", wakeId));
+
+  expect(error).toBeInstanceOf(ForbiddenError);
+  expect(error.message).toContain("currentApprovalsRequired");
+  expect(status(wakeId)?.status).toBe("offered");
+});
+
+test("a wake claimed by a daemon with current approvals carries currentApprovals", async () => {
+  const caller = await start(agentId);
+  const wakeId = await makeWake(caller.runId);
+
+  const claimed = await runs.claimRunForMachine(machine("m1"), wakeId, {
+    currentApprovalsForDaemon: true,
+    platformUrl: PLATFORM,
+    requestsForDaemon: true,
+  });
+
+  expect(claimed.currentApprovals).toBe(true);
+  expect(status(wakeId)?.status).toBe("running");
+});
+
 test("an ordinary user run is claimed by a daemon without current approvals", async () => {
   const started = await start(agentId);
 
