@@ -10,7 +10,6 @@ import {
 } from "./a2a-fixture.ts";
 
 const JSON_TYPE = "application/json";
-const A2A_TYPE = "application/a2a+json";
 const ERROR_INFO_TYPE = "type.googleapis.com/google.rpc.ErrorInfo";
 const ERROR_DOMAIN = "a2a-protocol.org";
 
@@ -180,6 +179,26 @@ describe("SendMessage", () => {
     expect(
       normalize(rpcTask, [first.connectionId, second.connectionId])
     ).toEqual(normalize(restTask, [first.connectionId, second.connectionId]));
+  });
+
+  test("answers JSON-RPC at the card's URL with a trailing slash, as httpx sends it", async () => {
+    const connection = await f.connect(agent, "auto", "Python client");
+
+    const response = await rawPost(
+      "/rpc/",
+      connection.token,
+      JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "SendMessage",
+        params: textMessage("m-slash", "hi"),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      field(await response.json(), "result", "task", "status", "state")
+    ).toBe("TASK_STATE_COMPLETED");
   });
 
   test("accepts a Hermes text part with a mediaType on both bindings", async () => {
@@ -424,10 +443,10 @@ describe("CancelTask", () => {
       httpStatus: 200,
     });
     expect(restFailure(viaRest)).toEqual({
-      code: 400,
-      contentType: A2A_TYPE,
+      code: 409,
+      contentType: JSON_TYPE,
       details: [errorInfo("TASK_NOT_CANCELABLE")],
-      httpStatus: 400,
+      httpStatus: 409,
       status: "FAILED_PRECONDITION",
     });
   });
@@ -574,7 +593,7 @@ describe("push notification configs", () => {
 });
 
 describe("GetExtendedAgentCard", () => {
-  test("answers ExtendedAgentCardNotConfiguredError on both bindings", async () => {
+  test("answers UnsupportedOperationError on both bindings, as the card declares no extended card", async () => {
     const connection = await f.connect(agent);
 
     const viaRpc = await rpcCall(connection.token, "GetExtendedAgentCard", {});
@@ -585,17 +604,17 @@ describe("GetExtendedAgentCard", () => {
     );
 
     expect(rpcFailure(viaRpc)).toEqual({
-      code: -32_007,
+      code: -32_004,
       contentType: JSON_TYPE,
-      data: [errorInfo("EXTENDED_AGENT_CARD_NOT_CONFIGURED")],
+      data: [errorInfo("UNSUPPORTED_OPERATION")],
       httpStatus: 200,
     });
     expect(restFailure(viaRest)).toEqual({
       code: 400,
-      contentType: A2A_TYPE,
-      details: [errorInfo("EXTENDED_AGENT_CARD_NOT_CONFIGURED")],
+      contentType: JSON_TYPE,
+      details: [errorInfo("UNSUPPORTED_OPERATION")],
       httpStatus: 400,
-      status: "FAILED_PRECONDITION",
+      status: "UNIMPLEMENTED",
     });
   });
 });
@@ -621,7 +640,7 @@ describe("errors", () => {
     });
     expect(restFailure(viaRest)).toEqual({
       code: 404,
-      contentType: A2A_TYPE,
+      contentType: JSON_TYPE,
       details: [errorInfo("TASK_NOT_FOUND")],
       httpStatus: 404,
       status: "NOT_FOUND",
@@ -649,7 +668,7 @@ describe("errors", () => {
     });
     expect(restFailure(viaRest)).toEqual({
       code: 404,
-      contentType: A2A_TYPE,
+      contentType: JSON_TYPE,
       details: [errorInfo("TASK_NOT_FOUND")],
       httpStatus: 404,
       status: "NOT_FOUND",
@@ -682,10 +701,10 @@ describe("errors", () => {
         httpStatus: 200,
       });
       expect(restFailure(viaRest)).toEqual({
-        code: 400,
-        contentType: A2A_TYPE,
+        code: 415,
+        contentType: JSON_TYPE,
         details: [errorInfo("CONTENT_TYPE_NOT_SUPPORTED")],
-        httpStatus: 400,
+        httpStatus: 415,
         status: "INVALID_ARGUMENT",
       });
     }
@@ -710,7 +729,7 @@ describe("errors", () => {
     });
     expect(restFailure(viaRest)).toEqual({
       code: 400,
-      contentType: A2A_TYPE,
+      contentType: JSON_TYPE,
       details: [],
       httpStatus: 400,
       status: "INVALID_ARGUMENT",
@@ -777,7 +796,7 @@ describe("HTTP+JSON routing", () => {
 
     expect(restFailure(value)).toEqual({
       code: 404,
-      contentType: A2A_TYPE,
+      contentType: JSON_TYPE,
       details: [],
       httpStatus: 404,
       status: "NOT_FOUND",
@@ -794,7 +813,7 @@ describe("HTTP+JSON routing", () => {
 
     expect(restFailure(value)).toEqual({
       code: 400,
-      contentType: A2A_TYPE,
+      contentType: JSON_TYPE,
       details: [],
       httpStatus: 400,
       status: "INVALID_ARGUMENT",
@@ -850,7 +869,7 @@ describe("oversized bodies", () => {
 
     expect(restFailure(value)).toEqual({
       code: 400,
-      contentType: A2A_TYPE,
+      contentType: JSON_TYPE,
       details: [],
       httpStatus: 400,
       status: "INVALID_ARGUMENT",

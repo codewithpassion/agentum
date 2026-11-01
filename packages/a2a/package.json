@@ -10,6 +10,7 @@
     "./jsonrpc": "./src/jsonrpc.ts",
     "./messages": "./src/messages.ts",
     "./peer-fetch": "./src/peer-fetch.ts",
+    "./proto-names": "./src/proto-names.ts",
     "./protocol": "./src/protocol.ts",
     "./requests": "./src/requests.ts",
     "./rest": "./src/rest.ts",

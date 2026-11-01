@@ -68,10 +68,13 @@ const storedAuthSchema = z.object({
 });
 
 export const createPushConfigs = ({
+  allowLoopback = false,
   clock,
   db,
   secretsKey,
 }: {
+  /** Dev builds only: a webhook may be on localhost over plain http. */
+  allowLoopback?: boolean;
   clock: Clock;
   db: Database;
   secretsKey?: string;
@@ -102,7 +105,7 @@ export const createPushConfigs = ({
 
   /** A URL that passes the safe-URL guard, or a refusal in the person's words. */
   const vetUrl = (raw: string): string => {
-    const checked = checkUrl(raw);
+    const checked = checkUrl(raw, { allowLoopback });
     if (!checked.ok) {
       throw new ServiceError(
         "invalid",
@@ -255,12 +258,12 @@ export const createPushConfigs = ({
     return await Promise.all(rows.map(view));
   };
 
+  /** Idempotent, as spec 3.1.10 asks: deleting a config that is gone is the same as deleting it. */
   const remove = async (taskId: string, configId: string): Promise<void> => {
     const row = await rowOf(taskId, configId);
-    if (!row) {
-      throw notFound();
+    if (row) {
+      await db.delete(a2aPushConfigs).where(eq(a2aPushConfigs.id, row.id));
     }
-    await db.delete(a2aPushConfigs).where(eq(a2aPushConfigs.id, row.id));
   };
 
   /** The headers a push to this config carries, or null when it needs none. */

@@ -11,7 +11,7 @@ import type { PairingTransport } from "@repo/services/a2a/connections";
 import { safeFetch } from "@repo/services/connectors/safe-url";
 
 export interface PeerFetchOptions {
-  /** Plain http is allowed (dev builds only). */
+  /** Plain http, and a peer on localhost, are allowed (dev builds only). */
   allowHttp: boolean;
   /** The network. A bare `fetch` loses its receiver in workerd, so the caller wraps it. */
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
@@ -78,6 +78,7 @@ export const createPeerFetch = (options: PeerFetchOptions): A2aFetch => {
     }
     const result = await safeFetch(network, url, init, {
       allowHttp,
+      allowLoopback: allowHttp,
       timeoutMs,
     });
     if (!result.ok) {

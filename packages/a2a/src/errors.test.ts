@@ -16,7 +16,7 @@ const WORD_BREAK = /([a-z])([A-Z])/g;
 // Spec section 5.4, written out again so a typo in the table shows up here.
 const SPEC_ROWS: [A2aErrorName, number, number, string][] = [
   ["TaskNotFoundError", -32_001, 404, "TASK_NOT_FOUND"],
-  ["TaskNotCancelableError", -32_002, 400, "TASK_NOT_CANCELABLE"],
+  ["TaskNotCancelableError", -32_002, 409, "TASK_NOT_CANCELABLE"],
   [
     "PushNotificationNotSupportedError",
     -32_003,
@@ -24,8 +24,8 @@ const SPEC_ROWS: [A2aErrorName, number, number, string][] = [
     "PUSH_NOTIFICATION_NOT_SUPPORTED",
   ],
   ["UnsupportedOperationError", -32_004, 400, "UNSUPPORTED_OPERATION"],
-  ["ContentTypeNotSupportedError", -32_005, 400, "CONTENT_TYPE_NOT_SUPPORTED"],
-  ["InvalidAgentResponseError", -32_006, 500, "INVALID_AGENT_RESPONSE"],
+  ["ContentTypeNotSupportedError", -32_005, 415, "CONTENT_TYPE_NOT_SUPPORTED"],
+  ["InvalidAgentResponseError", -32_006, 502, "INVALID_AGENT_RESPONSE"],
   [
     "ExtendedAgentCardNotConfiguredError",
     -32_007,
@@ -97,6 +97,15 @@ describe("the A2A error table", () => {
     );
     expect(A2A_ERRORS.InvalidAgentResponseError.grpcStatus).toBe("INTERNAL");
     expect(A2A_ERRORS.VersionNotSupportedError.grpcStatus).toBe(
+      "UNIMPLEMENTED"
+    );
+    expect(A2A_ERRORS.UnsupportedOperationError.grpcStatus).toBe(
+      "UNIMPLEMENTED"
+    );
+    expect(A2A_ERRORS.PushNotificationNotSupportedError.grpcStatus).toBe(
+      "UNIMPLEMENTED"
+    );
+    expect(A2A_ERRORS.TaskNotCancelableError.grpcStatus).toBe(
       "FAILED_PRECONDITION"
     );
   });

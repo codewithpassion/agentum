@@ -21,7 +21,40 @@ const contextEndingWith = (message: Message): TranscriptContext =>
 const toolCallsOf = (message: AssistantMessage) =>
   message.content.filter((part) => part.type === "toolCall");
 
+const fromPeer = (text: string): string =>
+  JSON.stringify({
+    harbourmaster_turn: { from: { kind: "peer" }, text, via: "a2a" },
+  });
+
 describe("fauxScript", () => {
+  test("say <text> answers with exactly the text", () => {
+    const reply = fauxScript(contextEndingWith(userPrompt("say Hello there")));
+
+    expect(reply.stopReason).toBe("stop");
+    expect(reply.content).toEqual([{ text: "Hello there", type: "text" }]);
+  });
+
+  test("the commands read the text inside a peer envelope", () => {
+    const asked = fauxScript(
+      contextEndingWith(userPrompt(fromPeer("ask Which colour?")))
+    );
+    expect(toolCallsOf(asked)[0]?.name).toBe("ask_user");
+
+    const said = fauxScript(
+      contextEndingWith(userPrompt(fromPeer("say Done")))
+    );
+    expect(said.content).toEqual([{ text: "Done", type: "text" }]);
+  });
+
+  test("any other envelope text is echoed whole, as before", () => {
+    const envelope = fromPeer("hello");
+    const reply = fauxScript(contextEndingWith(userPrompt(envelope)));
+
+    expect(reply.content).toEqual([
+      { text: `echo: ${envelope}`, type: "text" },
+    ]);
+  });
+
   test("ask <question> calls ask_user with the question", () => {
     const reply = fauxScript(
       contextEndingWith(userPrompt("ask Which colour?"))

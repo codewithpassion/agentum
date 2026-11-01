@@ -55,7 +55,7 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { type AgentRecord, findAgent, slugify } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
-import { checkUrl } from "../connectors/safe-url.ts";
+import { checkUrl, isLoopbackHost } from "../connectors/safe-url.ts";
 import {
   constantTimeEqual,
   decryptSecret,
@@ -359,6 +359,8 @@ export interface PairingTransport {
 }
 
 export interface ConnectionsOptions {
+  /** Dev builds only: a peer may live on localhost over plain http. Production refuses both. */
+  allowLoopback?: boolean;
   atomic: Atomic;
   clock: Clock;
   db: Database;
@@ -514,6 +516,7 @@ const reasonOf = (needsPerson: boolean, originMoved: boolean): string => {
 const SYSTEM_ACTOR = { id: "tick", kind: "system" } as const;
 
 export const createConnectionsService = ({
+  allowLoopback = false,
   atomic,
   clock,
   db,
@@ -756,7 +759,7 @@ export const createConnectionsService = ({
 
   /** A URL that passes the safe-URL guard, or a refusal in the person's words. */
   const vetUrl = (raw: string): URL => {
-    const checked = checkUrl(raw);
+    const checked = checkUrl(raw, { allowLoopback });
     if (!checked.ok) {
       throw new ServiceError(
         "invalid",
@@ -788,7 +791,10 @@ export const createConnectionsService = ({
       return { org: local.workspaceName, origin: new URL(cardUrl).origin };
     }
     const url = vetUrl(cardUrl);
-    if (url.protocol !== "https:") {
+    if (
+      url.protocol !== "https:" &&
+      !(allowLoopback && isLoopbackHost(url.hostname))
+    ) {
       throw new ServiceError("invalid", "A peer must be reached over HTTPS");
     }
     return { org: claimedOrg?.trim() || null, origin: url.origin };

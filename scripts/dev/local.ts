@@ -17,14 +17,10 @@ import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 
 export const WEB_DIR = join(import.meta.dir, "..", "..", "apps", "web");
 export const ENV_FILE = join(WEB_DIR, ".env.local");
-export const D1_DIR = join(
-  WEB_DIR,
-  ".wrangler",
-  "state",
-  "v3",
-  "d1",
-  "miniflare-D1DatabaseObject"
-);
+/** The D1 folder under a wrangler state folder (`.wrangler/state` or a `--persist-to` path). */
+export const d1DirOf = (stateDir: string): string =>
+  join(stateDir, "v3", "d1", "miniflare-D1DatabaseObject");
+export const D1_DIR = d1DirOf(join(WEB_DIR, ".wrangler", "state"));
 export const ORG_KEY = "ALLOWED_ORG_IDS";
 export const WORKSPACE_NAME = "Dev Workspace";
 const DEV_USER_ID = "dev-script";
@@ -108,15 +104,17 @@ export const openSqlite = (file: string): Sqlite => {
  * a locked database instead of failing. The caller calls `close` when done.
  * Throws a LocalError when there is no database yet.
  */
-export const openLocalDatabase = (): {
+export const openLocalDatabase = (
+  d1Dir: string = D1_DIR
+): {
   close: () => void;
   db: BunSQLiteDatabase;
   file: string;
 } => {
-  const file = findLocalD1(D1_DIR);
+  const file = findLocalD1(d1Dir);
   if (!file) {
     throw new LocalError(
-      `No local D1 database in ${D1_DIR}. Run \`bunx wrangler d1 migrations apply DB --local\` in apps/web first.`
+      `No local D1 database in ${d1Dir}. Run \`bunx wrangler d1 migrations apply DB --local\` in apps/web first.`
     );
   }
   const client = openSqlite(file);

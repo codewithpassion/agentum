@@ -172,10 +172,17 @@ const pushTaskInputSchema = z.object({ taskId: idString });
 const pushConfigRefSchema = pushTaskInputSchema.extend({ id: idString });
 
 export interface A2aTasksOptions {
+  /** Dev builds only: a push webhook may be on localhost over plain http. */
+  allowLoopback?: boolean;
   atomic: Atomic;
   clock: Clock;
   db: Database;
   events: EventsService;
+  /**
+   * Called after a state change has queued push notifications, so the app can
+   * deliver them at once. The minute tick delivers whatever this did not.
+   */
+  onPushQueued?: () => void;
   requests: Pick<RequestsService, "answerAsPeer">;
   runs: {
     cancelRun: (principal: Principal, runId: string) => Promise<void>;
@@ -204,15 +211,22 @@ const eventPayload = (
 ) => ({ connectionId: row.connectionId, taskId: row.id, ...extra });
 
 export const createA2aTasksService = ({
+  allowLoopback,
   atomic,
   clock,
   db,
   events,
+  onPushQueued,
   requests,
   runs,
   secretsKey,
 }: A2aTasksOptions) => {
-  const pushConfigs = createPushConfigs({ clock, db, secretsKey });
+  const pushConfigs = createPushConfigs({
+    allowLoopback,
+    clock,
+    db,
+    secretsKey,
+  });
   const nowIso = () => clock.now().toISOString();
 
   // ---------------------------------------------------------------------
@@ -402,7 +416,13 @@ export const createA2aTasksService = ({
       ...pushes.map((row) => pushWhileMoved(row, { id, token })),
     ]);
     const after = await taskById(id);
-    return after?.moveToken === token ? after : null;
+    if (after?.moveToken !== token) {
+      return null;
+    }
+    if (pushes.length > 0) {
+      onPushQueued?.();
+    }
+    return after;
   };
 
   const fresh = async (id: string): Promise<TaskRow> => {

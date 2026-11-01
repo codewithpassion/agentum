@@ -13,6 +13,7 @@ const TRAILING_DOTS = /\.+$/;
 const HEX_RADIX = 16;
 const BYTE = 256;
 const V6_GROUPS = 8;
+const LOOPBACK_FIRST_OCTET = 127;
 /** Default per-request timeout; callers with a longer budget pass their own. */
 export const SAFE_FETCH_TIMEOUT_MS = 10_000;
 
@@ -170,23 +171,53 @@ function blockedHost(hostname: string): string | null {
   return null;
 }
 
+/**
+ * Whether the host is this machine: `localhost`, an address in 127.0.0.0/8 or
+ * `::1`. Only dev builds let a peer live there (see `allowLoopback`).
+ */
+export function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(TRAILING_DOTS, "");
+  if (host === "localhost") {
+    return true;
+  }
+  if (host === "[::1]") {
+    return true;
+  }
+  return parseV4(host)?.[0] === LOOPBACK_FIRST_OCTET;
+}
+
+/** The options of `checkUrl` and `safeFetch`. */
+export interface UrlOptions {
+  /** Plain http to a public host. For tests and dev builds. */
+  allowHttp?: boolean;
+  /**
+   * `localhost`, 127.0.0.0/8 and `::1`, over http or https. Dev builds only:
+   * two deployments on one machine reach each other there. Every other
+   * private range stays refused.
+   */
+  allowLoopback?: boolean;
+}
+
 /** Whether an action may fetch this URL. `allowHttp` exists for tests. */
-export function checkUrl(
-  raw: string,
-  options: { allowHttp?: boolean } = {}
-): UrlCheck {
+export function checkUrl(raw: string, options: UrlOptions = {}): UrlCheck {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     return { ok: false, reason: "not a valid URL" };
   }
-  const protocols = options.allowHttp ? ["https:", "http:"] : ["https:"];
+  const loopback =
+    options.allowLoopback === true && isLoopbackHost(url.hostname);
+  const protocols =
+    options.allowHttp || loopback ? ["https:", "http:"] : ["https:"];
   if (!protocols.includes(url.protocol)) {
     return { ok: false, reason: "only https URLs are allowed" };
   }
   if (url.username || url.password) {
     return { ok: false, reason: "URLs with credentials are refused" };
+  }
+  if (loopback) {
+    return { ok: true, url };
   }
   // The WHATWG parser already turns 127.1 or 0x7f000001 into dotted form,
   // and an embedded dotted IPv4 in IPv6 into hextets.
@@ -208,7 +239,7 @@ export async function safeFetch(
   fetchImpl: (input: string, init?: RequestInit) => Promise<Response>,
   raw: string,
   init: RequestInit = {},
-  options: { allowHttp?: boolean; timeoutMs?: number } = {}
+  options: UrlOptions & { timeoutMs?: number } = {}
 ): Promise<SafeFetchResult> {
   const checked = checkUrl(raw, options);
   if (!checked.ok) {

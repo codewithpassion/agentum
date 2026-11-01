@@ -157,6 +157,7 @@ export const createFixture = async (
         principal: Principal,
         input: { requestId: string; text: string }
       ) => Promise<unknown>;
+      onPushQueued?: () => void;
     } = {}
   ) =>
     createA2aTasksService({
@@ -164,6 +165,7 @@ export const createFixture = async (
       clock,
       db,
       events,
+      onPushQueued: override.onPushQueued,
       requests: {
         answerAsPeer: (p, i) =>
           override.answerAsPeer

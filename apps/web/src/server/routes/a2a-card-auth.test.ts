@@ -193,7 +193,7 @@ const BINDINGS: BindingCase[] = [
     versionStatus: 200,
   },
   {
-    contentType: "application/a2a+json",
+    contentType: "application/json",
     getTask: async (publicId, token, taskId, extra) =>
       await f.rest(
         publicId,
@@ -238,7 +238,7 @@ const BINDINGS: BindingCase[] = [
       error: {
         code: 400,
         details: [{ reason: "VERSION_NOT_SUPPORTED" }],
-        status: "FAILED_PRECONDITION",
+        status: "UNIMPLEMENTED",
       },
     },
     versionStatus: 400,

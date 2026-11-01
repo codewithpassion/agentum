@@ -277,7 +277,10 @@ import {
   createWikiSuggestionsService,
   type WikiSuggestionsService,
 } from "@repo/services/wiki/suggestions";
-import { createWorkspacesService } from "@repo/services/workspaces";
+import {
+  createWorkspacesService,
+  SYSTEM_PRINCIPAL,
+} from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import {
   createCardFetcher,
@@ -637,7 +640,10 @@ export const composeWith = ({
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   const peerFetch = peerFetchOf(infra.peerFetch);
   const a2aPageReads = createPageReads({ db, people: infra.people });
+  // Dev builds let a peer live on localhost over plain http, so two local
+  // deployments can reach each other. A deployed Worker refuses both.
   const connections = createConnectionsService({
+    allowLoopback: infra.devFakeRuntime,
     atomic: infra.atomic,
     clock: infra.clock,
     db,
@@ -646,13 +652,25 @@ export const composeWith = ({
     secretsKey: infra.secretsKey,
     ...pairingPortsOf(infra.peerFetch),
   });
+  // Delivers the push rows a task change queued. The outbox is built further
+  // down, so this reads it when it runs.
+  const deliverQueuedPushes = () => a2aOutbox.deliverDue(SYSTEM_PRINCIPAL);
   // Inbound A2A tasks. The runs and requests services are built below, and
   // this service's gateway goes into the runs service, so it reaches both lazily.
   const a2aTasks = createA2aTasksService({
+    allowLoopback: infra.devFakeRuntime,
     atomic: infra.atomic,
     clock: infra.clock,
     db,
     events,
+    // A push goes out as soon as its task changes. The minute tick is the backstop.
+    onPushQueued: () =>
+      infra.defer?.(
+        deliverQueuedPushes().then(
+          () => undefined,
+          () => undefined
+        )
+      ),
     requests: {
       answerAsPeer: (principal, input) =>
         requests.answerAsPeer(principal, input),

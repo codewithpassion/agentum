@@ -20,7 +20,7 @@ Nothing a remote agent sends can start work without a person having created or a
 |---|---|---|
 | WebSockets or webhooks | Plain HTTPS: A2A requests, push notification webhooks, and SSE for clients that stream. No WebSockets | Runs take minutes and Workers don't hold state. A2A has no WebSocket binding, and this needs no new Durable Object |
 | A2A bindings | JSON-RPC and HTTP+JSON. No gRPC | The spec names no mandatory binding. gRPC needs HTTP/2 trailers end to end, and the other two cover every SDK we'd meet |
-| A2A capabilities | `streaming: true`, `pushNotifications: true`, `extendedAgentCard: false` | The extended card would hold nothing the public card lacks. The spec's `ExtendedAgentCardNotConfiguredError` is the conformant answer |
+| A2A capabilities | `streaming: true`, `pushNotifications: true`, `extendedAgentCard: false` | The extended card would hold nothing the public card lacks. With `extendedAgentCard: false`, spec section 3.3.4 asks for `UnsupportedOperationError`, so `GetExtendedAgentCard` answers that |
 | Part types | Text and JSON in, text out, in v1. Other parts get `ContentTypeNotSupportedError` | The card declares its modes, so this is conformant. Files need signed URLs in both directions and can follow |
 | Discovery | One card per published agent at `/a2a/<publicId>/.well-known/agent-card.json`. No card at the domain root | A deployment holds many workspaces. A root card would have to list them or say nothing. `publicId` is random, so agents can't be enumerated |
 | Transport for two workspaces on one deployment | The same HTTP requests, dispatched in-process when the target origin is `PUBLIC_BASE_URL` | A Worker can't fetch its own hostname. One code path means the local case tests the remote one |
@@ -110,12 +110,17 @@ A published agent has two interfaces on its card: `https://<host>/a2a/<publicId>
 Where the spec contradicts itself we pick one and write it down:
 
 - `SubscribeToTask` over REST: accept both `GET` (the proto) and `POST` (the prose).
-- A stream closes at a terminal or an interrupted state.
-- HTTP errors use the `google.rpc.Status` shape with `application/a2a+json`, and JSON-RPC errors carry `data` with an `ErrorInfo`.
+- A `SendStreamingMessage` stream closes at a terminal or an interrupted state (section 11.7). A `SubscribeToTask` stream closes only at a terminal state (section 3.1.6), so a client can subscribe to a task that waits for input and watch it move on once answered.
+- Both bindings answer `application/json` (sections 9.1 and 11.1). The examples in section 6 show `application/a2a+json`, and the official TCK checks `application/json`.
+- HTTP errors use the `google.rpc.Status` shape, and JSON-RPC errors carry `data` with an `ErrorInfo`. The status codes are those of section 5.4 of the v1.0.0 spec: 404 for `TaskNotFoundError`, 409 for `TaskNotCancelableError`, 415 for `ContentTypeNotSupportedError`, 502 for `InvalidAgentResponseError` and 400 for the rest.
+- ProtoJSON allows a field under its proto name, so `task_id` is read as `taskId` in a request. The contents of `metadata` and `data` parts are left alone.
+- JSON-RPC answers at the card's `.../rpc` and at `.../rpc/`, because `httpx` joins a `/` onto the URL it is given.
+- `DeleteTaskPushNotificationConfig` is idempotent (section 3.1.10): deleting a config that is gone answers success.
+- A repeated `messageId` returns the first task, which spec 3.3.1 allows ("MAY be idempotent").
 - A missing `A2A-Version` means 0.3, so it gets `VersionNotSupportedError`. We send `1.0`.
 - Auth failures answer HTTP 401 with `WWW-Authenticate` before any body is parsed, on both bindings. A task the connection can't see gets `TaskNotFoundError`, the same as one that doesn't exist.
 - `SendMessage` without `returnImmediately` blocks until a terminal or interrupted state, for at most 90 seconds, then returns the task as it stands. Cloudflare closes idle responses at about 100 seconds, so this is a deliberate limit on the spec's MUST, and the spec contradicts itself here too (3.1.1 against 3.2.2).
-- Push notifications send `Authorization: <scheme> <credentials>` when configured. The spec doesn't say how `token` travels, so it goes in `X-A2A-Notification-Token`.
+- Push notifications send `Authorization: <scheme> <credentials>` when configured. The spec doesn't say how `token` travels, so it goes in `X-A2A-Notification-Token`. A push goes out as soon as its task changes, and the minute tick retries what failed.
 
 ## Our agent calling a peer
 
