@@ -9,6 +9,7 @@
 import type { A2aFetch } from "@repo/a2a/peer-fetch";
 import type { PairingTransport } from "@repo/services/a2a/connections";
 import { safeFetch } from "@repo/services/connectors/safe-url";
+import { ServiceError } from "@repo/services/errors";
 
 export interface PeerFetchOptions {
   /** Plain http, and a peer on localhost, are allowed (dev builds only). */
@@ -132,6 +133,31 @@ const parseJson = async (
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
+const CLIENT_ERROR_MIN = 400;
+const CLIENT_ERROR_END = 500;
+const REFUSAL_MAX_CHARS = 200;
+
+/**
+ * What the inviter said when it turned a join down. Only its own `error` text
+ * of a 4xx answer, cut short, so the person sees why. Anything else stays out.
+ */
+const refusalOf = async (response: Response): Promise<string | null> => {
+  if (
+    response.status < CLIENT_ERROR_MIN ||
+    response.status >= CLIENT_ERROR_END
+  ) {
+    return null;
+  }
+  const body: unknown = await response.json().catch(() => null);
+  const text =
+    typeof body === "object" && body !== null && "error" in body
+      ? body.error
+      : null;
+  return typeof text === "string" && text !== ""
+    ? text.slice(0, REFUSAL_MAX_CHARS)
+    : null;
+};
+
 export const createPairingTransport = (fetch: A2aFetch): PairingTransport => ({
   activate: async ({ bearer, token, url }) => {
     const response = await fetch(url, {
@@ -152,6 +178,10 @@ export const createPairingTransport = (fetch: A2aFetch): PairingTransport => ({
       method: "POST",
     });
     if (!response.ok) {
+      const refusal = await refusalOf(response);
+      if (refusal !== null && !refusal.includes(inviteToken)) {
+        throw new ServiceError("invalid", `The inviter refused: ${refusal}`);
+      }
       throw new Error(`Peer join answered with status ${response.status}`);
     }
     return parseJson(response, "join");
