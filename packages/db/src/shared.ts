@@ -635,6 +635,9 @@ export const APPROVAL_TTL_MS = 60 * 60_000;
 /** How long a question stays open: one day. */
 export const QUESTION_TTL_MS = 24 * 60 * 60_000;
 
+/** How long a question from a run a peer set going stays open: one hour. */
+export const PEER_QUESTION_TTL_MS = 60 * 60_000;
+
 /** How long a takeover request stays open: as long as a question. */
 export const TAKEOVER_TTL_MS = QUESTION_TTL_MS;
 

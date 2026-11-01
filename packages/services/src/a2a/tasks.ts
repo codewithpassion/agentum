@@ -918,8 +918,11 @@ export const createA2aTasksService = ({
   };
 
   /**
-   * Records that this message is answering `requestId`. False when the message
-   * was recorded before, which means this is a retry.
+   * Records that this message is answering `requestId`, while the connection is
+   * under its hourly limit, counted in the same statement so two answers at
+   * once cannot both take the last place. False when the message was recorded
+   * before, which means this is a retry. Past the limit it throws and writes
+   * nothing, so the question stays open.
    */
   const claimAnswer = async (
     connection: ConnectionRow,
@@ -927,20 +930,47 @@ export const createA2aTasksService = ({
     messageId: string,
     requestId: string
   ): Promise<boolean> => {
+    const since = new Date(clock.now().getTime() - HOUR_MS).toISOString();
+    const marker = {
+      connectionId: connection.id,
+      createdAt: nowIso(),
+      id: `ans_${ulid(clock.now().getTime())}`,
+      messageId,
+      requestId,
+      taskId: task.id,
+      workspaceId: connection.workspaceId,
+    };
     const [claimed] = await db
       .insert(a2aAnswerMarkers)
-      .values({
-        connectionId: connection.id,
-        createdAt: nowIso(),
-        id: `ans_${ulid(clock.now().getTime())}`,
-        messageId,
-        requestId,
-        taskId: task.id,
-        workspaceId: connection.workspaceId,
-      })
+      .select(
+        db
+          .select({
+            connectionId: sql<string>`${marker.connectionId}`.as(
+              "connectionId"
+            ),
+            createdAt: sql<string>`${marker.createdAt}`.as("createdAt"),
+            id: sql<string>`${marker.id}`.as("id"),
+            messageId: sql<string>`${marker.messageId}`.as("messageId"),
+            requestId: sql<string>`${marker.requestId}`.as("requestId"),
+            taskId: sql<string>`${marker.taskId}`.as("taskId"),
+            workspaceId: sql<string>`${marker.workspaceId}`.as("workspaceId"),
+          })
+          .from(sql`(select 1)`)
+          .where(
+            sql`${hourlyCountSql(connection.id, since)} < ${connection.hourlyLimit}`
+          )
+      )
       .onConflictDoNothing()
       .returning({ id: a2aAnswerMarkers.id });
-    return claimed !== undefined;
+    if (claimed) {
+      return true;
+    }
+    // A retry of an answer recorded a moment ago, or the connection is full.
+    if ((await markedTask(connection, messageId)) !== null) {
+      return false;
+    }
+    await enforceHourlyLimit(connection);
+    throw new A2aRateLimitError(1);
   };
 
   const questionStillOpen = async (requestId: string): Promise<boolean> => {
@@ -1462,8 +1492,19 @@ export const createA2aTasksService = ({
           statusText: STATUS_TEXT.cancelled,
         });
         return;
+      case "request.expired":
+        // Nobody answered a peer's question in time. The run is cancelled
+        // right after this event, so it cannot ask again.
+        if (event.payload.kind === "question") {
+          await move(task.id, RUNNING, "TASK_STATE_FAILED", {
+            statusText: STATUS_TEXT.unanswered,
+          });
+          return;
+        }
+        await settleQuestion(task);
+        return;
       default:
-        // A question opened, was answered, cancelled or expired.
+        // A question opened, was answered or cancelled.
         await settleQuestion(task);
     }
   };

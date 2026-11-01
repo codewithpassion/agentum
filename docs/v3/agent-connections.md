@@ -21,7 +21,7 @@ Nothing a remote agent sends can start work without a person having created or a
 | WebSockets or webhooks | Plain HTTPS: A2A requests, push notification webhooks, and SSE for clients that stream. No WebSockets | Runs take minutes and Workers don't hold state. A2A has no WebSocket binding, and this needs no new Durable Object |
 | A2A bindings | JSON-RPC and HTTP+JSON. No gRPC | The spec names no mandatory binding. gRPC needs HTTP/2 trailers end to end, and the other two cover every SDK we'd meet |
 | A2A capabilities | `streaming: true`, `pushNotifications: true`, `extendedAgentCard: false` | The extended card would hold nothing the public card lacks. With `extendedAgentCard: false`, spec section 3.3.4 asks for `UnsupportedOperationError`, so `GetExtendedAgentCard` answers that |
-| Part types | Text and JSON in, text out, in v1. Other parts get `ContentTypeNotSupportedError` | The card declares its modes, so this is conformant. Files need signed URLs in both directions and can follow |
+| Part types | Text and JSON in, text out, in v1. Other parts get `ContentTypeNotSupportedError`, and so does a text or data part whose `mediaType` is not a text or JSON type (`text/plain` from Hermes is fine) | The card declares its modes, so this is conformant. Files need signed URLs in both directions and can follow |
 | Discovery | One card per published agent at `/a2a/<publicId>/.well-known/agent-card.json`. No card at the domain root | A deployment holds many workspaces. A root card would have to list them or say nothing. `publicId` is random, so agents can't be enumerated |
 | Transport for two workspaces on one deployment | The same HTTP requests, dispatched in-process when the target origin is `PUBLIC_BASE_URL` | A Worker can't fetch its own hostname. One code path means the local case tests the remote one |
 | Auth | Bearer tokens, `hm_a2a_` prefix, hashed at rest, one per connection and direction | Same pattern as `hm_trg_` triggers, and the scheme A2A cards declare. Only the `/a2a` routes read the prefix, so a leaked key fails on `/mcp` and everywhere else |
@@ -86,7 +86,7 @@ Softer than revoke, each side sets `inbound_policy = off` to stop incoming messa
 | `inbound_policy` | `off`, `approve`, `auto` | `approve` | Whether a message from the peer is refused, waits for a person, or starts a run |
 | `tool_policy` | `ask`, `agent_rules` | `ask` | In a run this connection started, a run it handed work to, or a wake carrying its answer, whether every tool call asks a person, or the agent's normal rules apply. In a chain with several connections, any one at `ask` (or ended) makes the run ask |
 | `outbound_policy` | `off`, `approve`, `auto` | `approve` | Whether our agent's message to the peer is refused, goes through a run request a person answers, or sends. The approval card shows the full text, which guards against an injected agent leaking data |
-| `hourly_limit` | integer | 20 | Tasks per hour per connection, both directions. Past it the HTTP layer answers 429 with `Retry-After` |
+| `hourly_limit` | integer | 20 | Tasks, answers to the agent's questions and wakes per hour per connection, both directions. Past it the HTTP layer answers 429 with `Retry-After`. An answer that would pass it is refused and leaves the question open |
 
 The widening moves (`auto`, `agent_rules`) follow the "who may connect" rule and show what they allow next to the switch, including that a machine agent can run shell commands.
 
@@ -103,7 +103,7 @@ A published agent has two interfaces on its card: `https://<host>/a2a/<publicId>
 | `TASK_STATE_AUTH_REQUIRED` | Waiting for a person on our side to approve the message. Blocking calls return here, and the status message says so. No credential is expected from the client |
 | `TASK_STATE_REJECTED` | A person declined, or the connection was revoked while the task waited |
 | `TASK_STATE_SUBMITTED` / `WORKING` | Run queued / running. A tool approval pending in our workspace stays `WORKING` |
-| `TASK_STATE_INPUT_REQUIRED` | The run opened a `question` request. The client's next message with the same `taskId` answers it |
+| `TASK_STATE_INPUT_REQUIRED` | The run opened a `question` request. The client's next message with the same `taskId` answers it. In a run a peer started the question lasts 1 hour. If nobody answers, the task ends in `TASK_STATE_FAILED` with a status message saying so, and the run is cancelled so it cannot ask again. A member's run keeps 24 hours |
 | `TASK_STATE_COMPLETED` | Run `done`, with `resultText` as one text artifact |
 | `TASK_STATE_FAILED` / `CANCELED` | Run `failed` or `interrupted` / `cancelled`. The error text says only that the run failed, never the internal error |
 
@@ -202,7 +202,7 @@ A list with one row per connection: my agent, the peer's name and host, which di
 
 ## Not in this build
 
-- A cap on how long a task may wait for input. An agent runs one run at a time, so a task left in `input_required` holds the agent for every peer until someone answers or cancels it. The official TCK leaves such tasks behind, and its script cancels them as a person would.
+- A second lane. An agent runs one run at a time, so peer work queues with everything else the agent does (members, Slack, triggers), and a peer's task waiting on a question holds the agent for up to an hour. An `auto` peer belongs on an agent that does nothing else. The official TCK leaves tasks in `input_required` behind, and its script cancels them as a person would.
 - Files in either direction.
 - Signed agent cards (JWS). HTTPS and the activation call establish the origin for now.
 - Token rotation. Revoke and reconnect instead.
