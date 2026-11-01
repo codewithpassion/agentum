@@ -1351,8 +1351,16 @@ export const compose = (
         publicBaseUrl: env.PUBLIC_BASE_URL,
       }),
       ...mailInfra(env),
-      latestDaemonVersion: async () =>
-        (await readManifest(env.FILES, "harbourmaster"))?.version ?? null,
+      // A bucket error must not take the machines page down with it.
+      latestDaemonVersion: async () => {
+        try {
+          return (
+            (await readManifest(env.FILES, "harbourmaster"))?.version ?? null
+          );
+        } catch {
+          return null;
+        }
+      },
       managedGatewayFor: ({ apiKey, environment }) =>
         connectManagedGateway(apiKey, {
           cache: environment,

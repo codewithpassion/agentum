@@ -34,8 +34,9 @@ const V1 = "0.1.0+abc1234";
 const V2 = "0.2.0+def5678";
 const ENCODER = new TextEncoder();
 
+// The real daemon logs its version with this prefix.
 const daemonText = (version: string, exitCodes?: Record<string, number>) =>
-  stubDaemon(PRODUCT, version, exitCodes);
+  stubDaemon(PRODUCT, `[harbourmaster] ${version}`, exitCodes);
 
 const cleanups: (() => void)[] = [];
 
@@ -103,7 +104,7 @@ describe("install.sh", () => {
       "harbourmaster install-service",
       "harbourmaster --version",
     ]);
-    expect(result.stdout).toContain(V1);
+    expect(result.stdout).toContain(`harbourmaster ${V1} is installed`);
   });
 
   test("--code passes the code and the origin to enroll after install-service", async () => {
@@ -196,14 +197,17 @@ describe("install.sh", () => {
     expect(server.requests).toEqual([]);
   });
 
-  test("a re-run on an enrolled machine replaces the binary and restarts the service", async () => {
-    const sandbox = useSandbox();
-    const first = useServer(V1, { "install-service": 0 });
-    expect((await install(sandbox, first.origin)).exitCode).toBe(0);
-
+  const enrolled = (sandbox: Sandbox) => {
     mkdirSync(join(sandbox.home, ".harbourmaster"), { recursive: true });
     writeFileSync(join(sandbox.home, ".harbourmaster", "config.json"), "{}\n");
     rmSync(sandbox.callsLog, { force: true });
+  };
+
+  test("a re-run on an enrolled machine replaces the binary and installs the service again so it runs the new one", async () => {
+    const sandbox = useSandbox();
+    const first = useServer(V1, { "install-service": 0 });
+    expect((await install(sandbox, first.origin)).exitCode).toBe(0);
+    enrolled(sandbox);
 
     const second = useServer(V2, { "install-service": 0 });
     const result = await install(sandbox, second.origin);
@@ -212,11 +216,46 @@ describe("install.sh", () => {
     expect(readFileSync(binPath(sandbox), "utf8")).toBe(
       daemonText(V2, { "install-service": 0 })
     );
-    expect(result.stdout).toContain(V2);
+    expect(result.stdout).toContain(`harbourmaster ${V2} is installed`);
     expect(readCalls(sandbox)).toEqual([
-      "systemctl --user restart harbourmaster",
+      "systemctl --user cat harbourmaster",
+      "harbourmaster install-service",
       "harbourmaster --version",
     ]);
+  });
+
+  test("a re-run where no service is installed replaces the binary and exits 0", async () => {
+    const sandbox = useSandbox();
+    stubCommand(sandbox, "systemctl", ['[ "$2" = cat ] && exit 1']);
+    const first = useServer(V1, { "install-service": 0 });
+    expect(
+      (await install(sandbox, first.origin, ["--no-service"])).exitCode
+    ).toBe(0);
+    enrolled(sandbox);
+
+    const second = useServer(V2);
+    const result = await install(sandbox, second.origin);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("No harbourmaster service is installed");
+    expect(readCalls(sandbox)).toEqual([
+      "systemctl --user cat harbourmaster",
+      "harbourmaster --version",
+    ]);
+  });
+
+  test("a re-run with --code on an enrolled machine does not enrol again", async () => {
+    const sandbox = useSandbox();
+    const first = useServer(V1);
+    expect((await install(sandbox, first.origin)).exitCode).toBe(0);
+    enrolled(sandbox);
+
+    const second = useServer(V2);
+    const result = await install(sandbox, second.origin, ["--code", "USED-1"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("The code was not used");
+    expect(readCalls(sandbox).join("\n")).not.toContain("enroll");
   });
 
   test("install-service exit 2 prints the linger fix and the install still succeeds", async () => {

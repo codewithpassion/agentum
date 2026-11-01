@@ -204,6 +204,22 @@ describe("install-computer.sh", () => {
     expect(readCalls(sandbox)).toEqual(["hm-computer version"]);
   });
 
+  test("a re-run with --code on an enrolled machine does not enrol again", async () => {
+    const sandbox = useSandbox();
+    const first = useServer(V1);
+    expect((await install(sandbox, first.origin)).exitCode).toBe(0);
+    mkdirSync(join(sandbox.home, ".hm"), { recursive: true });
+    writeFileSync(join(sandbox.home, ".hm", "config.json"), "{}\n");
+    rmSync(sandbox.callsLog, { force: true });
+
+    const second = useServer(V2);
+    const result = await install(sandbox, second.origin, ["--code", "USED-1"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("The code was not used");
+    expect(readCalls(sandbox)).toEqual(["hm-computer version"]);
+  });
+
   test("the raw script parses under sh and dash", () => {
     for (const shell of ["sh", "dash"]) {
       const path = which(shell);

@@ -23,6 +23,7 @@ MACHINE_NAME=""
 GOOS=""
 GOARCH=""
 FILE=""
+url=""
 VERSION=""
 EXPECTED_SHA=""
 ACTUAL_SHA=""
@@ -165,6 +166,9 @@ enroll_machine() {
 next_step() {
   if [ -f "$CONFIG" ]; then
     say "This machine is already enrolled, so the existing enrolment is kept."
+    if [ -n "$CODE" ]; then
+      say "The code was not used. To enrol again, run: $BIN enroll --url $HM_ORIGIN --code <code>"
+    fi
     say "Restart hm-computer to load the new version. Run it with: $BIN run"
     return 0
   fi
@@ -186,7 +190,7 @@ main() {
   read_manifest
   install_binary
   check_path
-  if [ -n "$CODE" ]; then
+  if [ -n "$CODE" ] && [ ! -f "$CONFIG" ]; then
     enroll_machine
   else
     next_step

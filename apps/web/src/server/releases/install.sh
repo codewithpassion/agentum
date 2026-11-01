@@ -26,6 +26,8 @@ FILE=""
 VERSION=""
 EXPECTED_SHA=""
 ACTUAL_SHA=""
+ARCH=""
+url=""
 digest=""
 manifest=""
 manifest_url=""
@@ -174,15 +176,9 @@ has_systemd() {
   [ -d "${HM_SYSTEMD_RUN_DIR:-/run/systemd/system}" ] && command -v systemctl >/dev/null 2>&1
 }
 
-setup_service() {
-  if [ "$NO_SERVICE" -eq 1 ]; then
-    say "Skipped the service (--no-service)."
-    return 0
-  fi
-  if ! has_systemd; then
-    say "systemd was not found, so no service was installed. Once the machine is enrolled, run the daemon by hand: $BIN run"
-    return 0
-  fi
+# Runs `install-service`, which writes the unit for this binary, enables it
+# and, on an enrolled machine, restarts it. Exit 2 means lingering is off.
+run_install_service() {
   rc=0
   "$BIN" install-service </dev/null || rc=$?
   case "$rc" in
@@ -194,9 +190,25 @@ setup_service() {
       warn "Enable lingering with: loginctl enable-linger $(id -un) (this may need sudo)"
       ;;
     *)
-      die "$BIN install-service failed with exit code $rc (see the message above)"
+      die "$BIN install-service failed with exit code $rc (see the message above). To install without the service, run again with --no-service."
       ;;
   esac
+}
+
+service_installed() {
+  systemctl --user cat "$SERVICE" >/dev/null 2>&1 </dev/null
+}
+
+setup_service() {
+  if [ "$NO_SERVICE" -eq 1 ]; then
+    say "Skipped the service (--no-service)."
+    return 0
+  fi
+  if ! has_systemd; then
+    say "systemd was not found, so no service was installed. Once the machine is enrolled, run the daemon by hand: $BIN run"
+    return 0
+  fi
+  run_install_service
 }
 
 enroll_machine() {
@@ -215,17 +227,21 @@ enroll_machine() {
   fi
 }
 
+# The unit's ExecStart names the binary that ran install-service, so an
+# existing service is installed again to point at this one, and restarted.
 replace_on_rerun() {
   say "This machine is already enrolled, so only the binary was replaced."
+  if [ -n "$CODE" ]; then
+    say "The code was not used. To enrol this machine again, run: $BIN enroll <code> --server $HM_ORIGIN"
+  fi
   if [ "$NO_SERVICE" -eq 1 ]; then
-    say "Did not restart the daemon (--no-service). Restart it yourself to load the new binary."
-  elif has_systemd; then
-    if ! systemctl --user restart "$SERVICE" </dev/null; then
-      die "the binary was replaced, but systemctl could not restart $SERVICE (see the message above)"
-    fi
-    say "Restarted the $SERVICE service to load the new binary."
-  else
+    say "Did not touch the service (--no-service). Restart the daemon yourself to load the new binary."
+  elif ! has_systemd; then
     say "systemd was not found, so the daemon was not restarted. Restart it by hand: $BIN run"
+  elif service_installed; then
+    run_install_service
+  else
+    say "No $SERVICE service is installed, so nothing was restarted. Restart the daemon yourself, or install the service with: $BIN install-service"
   fi
 }
 
@@ -233,6 +249,8 @@ print_version() {
   if ! version_text=$("$BIN" --version </dev/null); then
     die "$BIN --version failed"
   fi
+  # The daemon logs its version with a "[harbourmaster] " prefix.
+  version_text=$(printf '%s\n' "$version_text" | sed 's/^\[[^]]*\] //')
   say "harbourmaster $version_text is installed at $BIN"
 }
 
@@ -245,7 +263,7 @@ main() {
   install_binary
   check_path
   check_claude
-  if [ -f "$CONFIG" ] && [ -z "$CODE" ]; then
+  if [ -f "$CONFIG" ]; then
     replace_on_rerun
   else
     setup_service

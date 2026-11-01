@@ -16,8 +16,9 @@ rm -rf "$package_dir/bin"
 mkdir -p "$package_dir/bin"
 targets=("linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64")
 
-# The name is the contract with the server's /install.sh, which fetches
-# <release_base>/latest/hm-computer_<os>_<arch>.
+# The names are the contract with apps/web/src/server/releases/manifest.ts, and
+# apps/web/scripts/publish-releases.ts uploads these files, so the server's
+# /install-computer.sh can fetch hm-computer_<os>_<arch>.
 for target in "${targets[@]}"; do
   goos="${target%%/*}"
   goarch="${target##*/}"

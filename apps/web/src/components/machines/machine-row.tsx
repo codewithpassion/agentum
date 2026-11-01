@@ -81,7 +81,7 @@ export function MachineRow({
           )}
           {isDaemonOutdated(machine, latestDaemonVersion) ? (
             <p className="text-sm">
-              Newer daemon {latestDaemonVersion} available.
+              Daemon update available ({latestDaemonVersion}).
               {origin === null ? null : (
                 <>
                   {" "}
