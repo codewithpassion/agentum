@@ -113,12 +113,24 @@ const run = async (cmd: string[], cwd: string): Promise<void> => {
 
 /** Clones and installs the TCK when its folder is not there yet. */
 const ensureTck = async (dir: string): Promise<void> => {
-  if (existsSync(join(dir, ".venv", "bin", "run-tck"))) {
-    return;
-  }
   if (!existsSync(join(dir, "run_tck.py"))) {
     await run(["git", "clone", "--quiet", TCK_REPO, dir], process.cwd());
     await run(["git", "checkout", "--quiet", TCK_COMMIT], dir);
+  }
+  const head = spawn(["git", "rev-parse", "HEAD"], {
+    cwd: dir,
+    env: thirdPartyEnv(),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const commit = (await new Response(head.stdout).text()).trim();
+  if (commit !== TCK_COMMIT) {
+    throw new E2eError(
+      `${dir} is at ${commit}, not ${TCK_COMMIT}. Remove it and run again.`
+    );
+  }
+  if (existsSync(join(dir, ".venv", "bin", "run-tck"))) {
+    return;
   }
   await run(["uv", "venv", "--quiet", ".venv"], dir);
   await run(["uv", "pip", "install", "--quiet", "-e", "."], dir);
@@ -238,7 +250,7 @@ const main = async (): Promise<number> => {
     );
     for (const failure of summary.failed) {
       console.log(
-        `  FAIL ${failure.id} (${failure.level}, ${failure.transports.join(", ")})`
+        `  FAIL ${failure.id} (${[failure.level, ...failure.transports].join(", ")})`
       );
     }
     console.log(
