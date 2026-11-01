@@ -3,7 +3,7 @@ id: AA.12
 title: "Gate 1: card refresh gets a caller, and peer-run tool cards lose Always allow"
 milestone: AA
 size: S
-status: in_progress
+status: done
 depends_on: [AA.8]
 branch: task/AA.12-card-refresh
 lane: web
@@ -23,3 +23,4 @@ Every check listed under M4 in `docs/reviews/AA-1.md`, plus a test that N11's ca
 
 ## Log
 - 2026-11-02: created from gate 1. Dispatched.
+- 2026-11-02: merged, review clean after 1 fix round. Migration 0038 adds `peer_card_tried_at`.
