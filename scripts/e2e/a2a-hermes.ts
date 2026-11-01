@@ -51,6 +51,7 @@ import {
   type PublishedAgent,
   publishAgent,
   queryRows,
+  thirdPartyEnv,
   waitUntil,
 } from "./a2a-harness.ts";
 
@@ -111,7 +112,12 @@ const expect = (condition: unknown, message: string): void => {
 // Hermes
 
 const run = async (cmd: string[], cwd: string): Promise<void> => {
-  const proc = spawn(cmd, { cwd, stderr: "inherit", stdout: "inherit" });
+  const proc = spawn(cmd, {
+    cwd,
+    env: thirdPartyEnv(),
+    stderr: "inherit",
+    stdout: "inherit",
+  });
   if ((await proc.exited) !== 0) {
     throw new E2eError(`${cmd.join(" ")} failed in ${cwd}`);
   }
@@ -132,6 +138,18 @@ const ensureHermes = async (dir: string, uv: string): Promise<void> => {
         dir,
       ],
       process.cwd()
+    );
+  }
+  const described = spawn(["git", "describe", "--tags", "--exact-match"], {
+    cwd: dir,
+    env: thirdPartyEnv(),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const tag = (await new Response(described.stdout).text()).trim();
+  if (tag !== HERMES_TAG) {
+    throw new E2eError(
+      `${dir} is at "${tag}", not ${HERMES_TAG}. Remove it and run again.`
     );
   }
   if (!existsSync(join(dir, ".venv", "bin", "hermes"))) {
@@ -217,7 +235,8 @@ const chat = async (
       "fake-model",
     ],
     {
-      env: { ...process.env, ...home.env },
+      cwd: home.dir,
+      env: thirdPartyEnv(home.env),
       stderr: "pipe",
       stdout: "pipe",
     }
@@ -242,7 +261,8 @@ const stopDaemon = async (
   home: HermesHome
 ): Promise<void> => {
   const proc = spawn([hermesBin(hermesDir), "gateway", "status"], {
-    env: { ...process.env, ...home.env },
+    cwd: home.dir,
+    env: thirdPartyEnv(home.env),
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -274,14 +294,14 @@ const startGateway = async (
 ): Promise<Gateway> => {
   const log = file(logFile);
   const proc = spawn([hermesBin(hermesDir), "gateway", "run"], {
+    cwd: home.dir,
     detached: true,
-    env: {
-      ...process.env,
+    env: thirdPartyEnv({
       ...home.env,
       A2A_AGENT_NAME: `hermes-${port}`,
       A2A_PORT: String(port),
       ...env,
-    },
+    }),
     stderr: log,
     stdout: log,
   });

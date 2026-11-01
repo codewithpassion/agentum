@@ -23,7 +23,7 @@ export const acceptProtoNames = (value: unknown): unknown => {
   for (const [key, item] of Object.entries(value)) {
     const name = camel(key);
     // The camelCase spelling wins when a sender gave both.
-    if (name !== key && name in value) {
+    if (name !== key && Object.hasOwn(value, name)) {
       continue;
     }
     out[name] = FREE_FORM.has(name) ? item : acceptProtoNames(item);

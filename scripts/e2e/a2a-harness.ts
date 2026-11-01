@@ -74,6 +74,25 @@ export const readEnvLocal = (): Record<string, string> => {
   return out;
 };
 
+const KEPT_ENV = /^(PATH|HOME|USER|SHELL|LANG|LC_[A-Z]+|TERM|TMPDIR|TZ)$/;
+
+/**
+ * The environment for code we did not write (Hermes, the TCK, the SDK and its
+ * sample agent). It gets the shell's basics and what the caller adds, and none
+ * of the keys that may sit in this shell, such as a model or Clerk key.
+ */
+export const thirdPartyEnv = (
+  extra: Record<string, string> = {}
+): Record<string, string> => {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value !== undefined && KEPT_ENV.test(name)) {
+      env[name] = value;
+    }
+  }
+  return { ...env, ...extra };
+};
+
 /** A port nothing listens on right now. */
 export const freePort = (): Promise<number> =>
   new Promise((resolve, reject) => {

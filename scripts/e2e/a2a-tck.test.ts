@@ -16,12 +16,14 @@ describe("summarise", () => {
           transports: { http_json: "PASS", jsonrpc: "FAIL" },
         },
         "CORE-X-003": { level: "MAY", status: "SKIPPED", transports: {} },
+        "CORE-X-004": { level: "MUST", status: "NOT TESTED", transports: {} },
       },
     });
     expect(summary.passed).toBe(1);
     expect(summary.failed.length).toBe(1);
     expect(summary.skipped).toBe(1);
-    expect(summary.total).toBe(3);
+    expect(summary.notTested).toBe(1);
+    expect(summary.total).toBe(4);
   });
 
   test("lists a failed requirement with only its failing transports", () => {
@@ -42,6 +44,7 @@ describe("summarise", () => {
   test("gives zeros for an empty report", () => {
     expect(summarise({})).toEqual({
       failed: [],
+      notTested: 0,
       passed: 0,
       skipped: 0,
       total: 0,

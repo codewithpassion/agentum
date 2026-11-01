@@ -46,6 +46,7 @@ import {
   type PublishedAgent,
   publishAgent,
   sleep,
+  thirdPartyEnv,
   waitUntil,
 } from "./a2a-harness.ts";
 
@@ -207,12 +208,13 @@ const startReceiver = async (): Promise<Receiver> => {
       });
       return new Response("ok");
     },
+    hostname: "127.0.0.1",
     port,
   });
   return {
     received,
     stop: () => server.stop(true),
-    url: `http://localhost:${port}/hook`,
+    url: `http://127.0.0.1:${port}/hook`,
   };
 };
 
@@ -482,7 +484,12 @@ const sdkCallsUs = async (
 
 const ensureSdk = async (dir: string): Promise<void> => {
   const run = async (cmd: string[], cwd: string) => {
-    const proc = spawn(cmd, { cwd, stderr: "inherit", stdout: "inherit" });
+    const proc = spawn(cmd, {
+      cwd,
+      env: thirdPartyEnv(),
+      stderr: "inherit",
+      stdout: "inherit",
+    });
     if ((await proc.exited) !== 0) {
       throw new E2eError(`${cmd.join(" ")} failed in ${cwd}`);
     }
@@ -512,12 +519,22 @@ const startSample = async (
   dir: string,
   logFile: string
 ): Promise<Subprocess> => {
+  const cardUrl = `http://localhost:${SAMPLE_PORT}/.well-known/agent-card.json`;
+  const taken = await fetch(cardUrl).then(
+    () => true,
+    () => false
+  );
+  if (taken) {
+    throw new E2eError(
+      `Something already answers on port ${SAMPLE_PORT}, which the SDK sample agent's card names. Stop it first.`
+    );
+  }
   const log = file(logFile);
   const proc = spawn(
     ["node_modules/.bin/tsx", "src/samples/agents/sample-agent/index.ts"],
     {
       cwd: dir,
-      env: { ...process.env, PORT: String(SAMPLE_PORT) },
+      env: thirdPartyEnv({ PORT: String(SAMPLE_PORT) }),
       stderr: log,
       stdout: log,
     }

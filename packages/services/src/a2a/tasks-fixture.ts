@@ -157,10 +157,12 @@ export const createFixture = async (
         principal: Principal,
         input: { requestId: string; text: string }
       ) => Promise<unknown>;
+      allowLoopback?: boolean;
       onPushQueued?: () => void;
     } = {}
   ) =>
     createA2aTasksService({
+      allowLoopback: override.allowLoopback,
       atomic,
       clock,
       db,

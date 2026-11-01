@@ -177,6 +177,20 @@ const runsOf = (deployment: Deployment, agentId: string): RunRow[] =>
     agentId
   );
 
+/**
+ * Whether one of the runs is a wake that carries `answer`: a finished run whose
+ * input is a peer's turn envelope holding the text. The run that sent the
+ * message names the text too, in its tool call, so only the envelope counts.
+ */
+const wokenBy = (rows: RunRow[], answer: string): boolean =>
+  rows.some(
+    (row) =>
+      row.status === "done" &&
+      row.input_text.startsWith('{"harbourmaster_turn"') &&
+      row.input_text.includes('"kind":"peer"') &&
+      row.input_text.includes(answer)
+  );
+
 // ---------------------------------------------------------------------------
 
 const scenario = async (a: Deployment, b: Deployment): Promise<void> => {
@@ -237,9 +251,6 @@ const scenario = async (a: Deployment, b: Deployment): Promise<void> => {
         `A is ${approved.status} after approving`
       );
       // The activation goes out through A's outbox, which the tick delivers.
-      await tickBoth("the activation", [a], () => false, 1).catch(
-        () => undefined
-      );
       await waitUntil(
         "both rows to be active",
         60_000,
@@ -321,14 +332,7 @@ const scenario = async (a: Deployment, b: Deployment): Promise<void> => {
       await tickBoth(
         "A's agent to be woken with the answer",
         [a, b],
-        () => {
-          const rows = runsOf(a, alice.agentId);
-          return (
-            rows.length >= 2 &&
-            rows.at(-1)?.status === "done" &&
-            rows.at(-1)?.input_text.includes("hello from alice") === true
-          );
-        },
+        () => wokenBy(runsOf(a, alice.agentId), "hello from alice"),
         120_000
       );
       expect(
@@ -383,14 +387,7 @@ const scenario = async (a: Deployment, b: Deployment): Promise<void> => {
       await tickBoth(
         "B's agent to be woken with A's answer",
         [a, b],
-        () => {
-          const rows = runsOf(b, bob.agentId);
-          return (
-            rows.length >= 2 &&
-            rows.at(-1)?.status === "done" &&
-            rows.at(-1)?.input_text.includes("hello from bob") === true
-          );
-        },
+        () => wokenBy(runsOf(b, bob.agentId), "hello from bob"),
         120_000
       );
       return "approved on B, taken on A, answered, B's follow-up run carries the answer";

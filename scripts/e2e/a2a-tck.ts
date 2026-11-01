@@ -28,11 +28,14 @@ import {
   publishAgent,
   rpc,
   sleep,
+  thirdPartyEnv,
 } from "./a2a-harness.ts";
 import { promptForMessageId } from "./a2a-tck-prompts.ts";
 import { startTckProxy } from "./a2a-tck-proxy.ts";
 
 const TCK_REPO = "https://github.com/a2aproject/a2a-tck";
+/** `main` of the TCK on 22 October 2026. The repo has no release after 1.0.0.alpha3. */
+const TCK_COMMIT = "d4d6fae7887f88ef607fb461c13e3b0e1802f19b";
 const HOURLY_LIMIT = 10_000;
 
 const REAP_AFTER_MS = 6000;
@@ -97,7 +100,12 @@ const startReaper = (origin: string, publicId: string, token: string) => {
 };
 
 const run = async (cmd: string[], cwd: string): Promise<void> => {
-  const proc = spawn(cmd, { cwd, stderr: "inherit", stdout: "inherit" });
+  const proc = spawn(cmd, {
+    cwd,
+    env: thirdPartyEnv(),
+    stderr: "inherit",
+    stdout: "inherit",
+  });
   if ((await proc.exited) !== 0) {
     throw new E2eError(`${cmd.join(" ")} failed in ${cwd}`);
   }
@@ -110,6 +118,7 @@ const ensureTck = async (dir: string): Promise<void> => {
   }
   if (!existsSync(join(dir, "run_tck.py"))) {
     await run(["git", "clone", "--quiet", TCK_REPO, dir], process.cwd());
+    await run(["git", "checkout", "--quiet", TCK_COMMIT], dir);
   }
   await run(["uv", "venv", "--quiet", ".venv"], dir);
   await run(["uv", "pip", "install", "--quiet", "-e", "."], dir);
@@ -117,7 +126,10 @@ const ensureTck = async (dir: string): Promise<void> => {
 
 export interface TckSummary {
   failed: { id: string; level: string; transports: string[] }[];
+  /** Requirements the suite has no test for on this server (card signing, scopes and others). */
+  notTested: number;
   passed: number;
+  /** Requirements whose tests skipped (gRPC, an optional capability the card does not declare). */
   skipped: number;
   total: number;
 }
@@ -131,7 +143,13 @@ interface PerRequirement {
 /** The pass, fail and skip counts of a TCK `compatibility.json`, by requirement. */
 export const summarise = (report: unknown): TckSummary => {
   const root = report as { per_requirement?: Record<string, PerRequirement> };
-  const summary: TckSummary = { failed: [], passed: 0, skipped: 0, total: 0 };
+  const summary: TckSummary = {
+    failed: [],
+    notTested: 0,
+    passed: 0,
+    skipped: 0,
+    total: 0,
+  };
   for (const [id, requirement] of Object.entries(root.per_requirement ?? {})) {
     summary.total += 1;
     if (requirement.status === "PASS") {
@@ -144,8 +162,10 @@ export const summarise = (report: unknown): TckSummary => {
           .filter(([, status]) => status === "FAIL")
           .map(([transport]) => transport),
       });
-    } else {
+    } else if (requirement.status === "SKIPPED") {
       summary.skipped += 1;
+    } else {
+      summary.notTested += 1;
     }
   }
   return summary;
@@ -197,6 +217,7 @@ const main = async (): Promise<number> => {
     console.log(`TCK against ${proxy.host} -> ${deployment.origin}`);
     const tck = spawn(args, {
       cwd: tckDir,
+      env: thirdPartyEnv(),
       stderr: "inherit",
       stdout: "inherit",
     });
@@ -213,7 +234,7 @@ const main = async (): Promise<number> => {
       JSON.parse(readFileSync(join(out, "compatibility.json"), "utf8"))
     );
     console.log(
-      `TCK: ${summary.passed} requirements passed, ${summary.failed.length} failed, ${summary.skipped} skipped, of ${summary.total}. Reports in ${out}`
+      `TCK: ${summary.passed} requirements passed, ${summary.failed.length} failed, ${summary.skipped} skipped, ${summary.notTested} not tested, of ${summary.total}. Reports in ${out}`
     );
     for (const failure of summary.failed) {
       console.log(

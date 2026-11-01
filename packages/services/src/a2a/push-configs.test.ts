@@ -307,6 +307,34 @@ describe("push configs of an inbound task", () => {
     ).toHaveLength(1);
   });
 
+  test("a webhook on localhost is refused unless the build is a dev build", async () => {
+    await f.connect();
+    const local = "http://localhost:9000/hook";
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Hi"));
+    const refused = await rejects(
+      f.tasks.createPushConfig(peerOf(), {
+        config: { url: local },
+        taskId: task.id,
+      })
+    );
+    expect((refused as Error).message).toContain("not allowed");
+
+    const dev = f.newTasks({ allowLoopback: true });
+    const created = await dev.createPushConfig(peerOf(), {
+      config: { url: local },
+      taskId: task.id,
+    });
+    expect(created.url).toBe(local);
+    // Dev opens this machine only. A private address stays refused.
+    const privateUrl = await rejects(
+      dev.createPushConfig(peerOf(), {
+        config: { url: "http://10.0.0.5/hook" },
+        taskId: task.id,
+      })
+    );
+    expect((privateUrl as Error).message).toContain("not allowed");
+  });
+
   test("a state change that queued pushes tells the app, and one with no config does not", async () => {
     let queued = 0;
     const tasks = f.newTasks({

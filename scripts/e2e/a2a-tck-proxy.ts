@@ -1,18 +1,25 @@
 // A header-adding proxy in front of one published agent, for the official
 // A2A TCK. The TCK's transport clients send no Authorization header, and the
 // server answers every `/a2a` call except the card with 401 without one. The
-// proxy adds the connection's key to `/a2a` requests that carry none, serves
+// proxy adds the connection's key to each request that carries none, serves
 // the card at the host root where the TCK looks for it, and points the card's
-// interfaces at itself so the TCK's calls come back through it. It changes
-// nothing else: the TCK runs unmodified and the server is not given an
-// unauthenticated mode.
+// interfaces at itself so the TCK's calls come back through it. The server is
+// not given an unauthenticated mode, and the TCK runs unmodified.
 //
-// The TCK's scenarios also say what the agent under test does for a message id
-// prefix (`tck-input-required` waits for input). A Harbourmaster agent is
-// driven by its prompt, not by a message id, so `promptFor` maps a prefix to the
-// text the dev-only `faux` model turns into that behaviour. The proxy rewrites
-// the text part of a `SendMessage` and nothing else. Every rewrite is listed in
-// the review file.
+// Two rewrites of a message, both about what the TCK assumes of its agent:
+//
+// - The TCK's scenarios say what the agent under test does for a message id
+//   prefix (`tck-input-required` waits for input). A Harbourmaster agent is
+//   driven by its prompt, so `promptFor` maps a prefix to the text the
+//   dev-only `faux` model turns into that behaviour. The list is
+//   `TCK_PROMPTS` in a2a-tck-prompts.ts, and only the first text part of a
+//   `SendMessage` changes.
+// - The TCK sends one message id for every test that needs a task and expects
+//   a new task each time. A server may treat a repeated message id as a retry
+//   (spec 3.3.1, "MAY be idempotent"), and ours does, so each send gets a
+//   message id of its own.
+//
+// It listens on 127.0.0.1 only, because it holds the key.
 
 import { serve } from "bun";
 
@@ -129,7 +136,7 @@ const cardAtProxy = async (
 export const startTckProxy = (options: TckProxyOptions): TckProxy => {
   const { port, promptFor, publicId, token, upstream } = options;
   const seen: TckProxy["seen"] = [];
-  const base = `http://localhost:${port}`;
+  const base = `http://127.0.0.1:${port}`;
   const cardPath = `/a2a/${publicId}/.well-known/agent-card.json`;
 
   const server = serve({
@@ -161,6 +168,8 @@ export const startTckProxy = (options: TckProxyOptions): TckProxy => {
       }
       return new Response(response.body, { headers, status: response.status });
     },
+    // Only this machine reaches it: it adds a key to what it forwards.
+    hostname: "127.0.0.1",
     // SSE streams stay open as long as the TCK reads them.
     idleTimeout: 0,
     port,

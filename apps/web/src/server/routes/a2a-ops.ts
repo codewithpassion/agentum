@@ -188,7 +188,8 @@ const subscribe = async (
     );
   }
   // A task waiting for input is still a task to follow: the stream stays open
-  // until its answer moves it on and it ends.
+  // until its answer moves it on and it ends, or until `streamMs` runs out and
+  // the client resubscribes.
   return {
     events: taskEvents(
       first,

@@ -1,7 +1,8 @@
 /**
  * Delivers the `a2a_outbox` rows: the pushes of a task's updates, the
- * activation of a paired connection, and the decline and revoke notices. A tick
- * takes the due rows, claims each one, and POSTs it through the injected
+ * activation of a paired connection, and the decline and revoke notices. A
+ * delivery pass (the minute tick, and the app after a task change that queued
+ * pushes) takes the due rows, claims each one, and POSTs it through the injected
  * `A2aFetch`. A failed row backs off. The last attempt drops it with an event
  * that names no url, header, token or response body. The spec is
  * docs/v3/agent-connections.md.

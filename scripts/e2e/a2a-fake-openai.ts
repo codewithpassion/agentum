@@ -186,6 +186,7 @@ export const startFakeOpenAi = (port: number): FakeOpenAi => {
       }
       return body.stream ? streamed(reply) : Response.json(reply);
     },
+    hostname: "127.0.0.1",
     idleTimeout: 0,
     port,
   });

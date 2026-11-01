@@ -8,14 +8,14 @@ Interop with the official A2A SDK and TCK, a real Hermes, two deployments, docs.
 
 ## What ran
 
-Every result here comes from outside code running against our server in a real `vite dev` Worker (workerd, D1, Durable Objects) with the dev-only `faux` model, so no model key was used. Every step a person takes went through the real tRPC routes, signed in as the dev user through a Clerk session made with the backend API of the dev instance. Nothing was stubbed in the server. Three outputs were read straight from the database, read only: the text of an outbound task, the runs of an agent and the state of a task. The three scripts exit 0 from the repo root, and the TCK driver exits with the TCK's own code.
+Every result here comes from code we did not write (the SDK, the TCK, Hermes) running against our server, except the two-deployments script, which is our server on both sides. All of it runs in a real `vite dev` Worker (workerd, D1, Durable Objects) with the dev-only `faux` model, so no model key was used. Every step a person takes went through the real tRPC routes, signed in as the dev user through a Clerk session made with the backend API of the dev instance. Nothing was stubbed in the server. Three outputs were read straight from the database, read only: the text of an outbound task, the runs of an agent and the state of a task. The SDK, Hermes and two-deployments scripts exit 0 from the repo root. The TCK driver exits with the TCK's own code, which is 1 because of the failures listed below.
 
 | Script | Result |
 |---|---|
 | `scripts/e2e/a2a-interop.ts` | 22 of 22 checks passed |
 | `scripts/e2e/a2a-hermes.ts` | 8 of 8 checks passed |
 | `scripts/e2e/a2a-two-deployments.ts` | 6 of 6 checks passed |
-| `scripts/e2e/a2a-tck.ts` | 87 requirements passed, 4 failed, 38 skipped, of 129 (see below) |
+| `scripts/e2e/a2a-tck.ts` | 87 requirements passed, 4 failed, 13 skipped and 25 not tested, of 129 (see below) |
 
 ### The official SDK
 
@@ -27,13 +27,13 @@ The SDK was the client for both bindings, JSON-RPC and HTTP+JSON, 10 checks each
 
 `a2aproject/a2a-tck` at `main`, commit d4d6fae7 (22 October 2026). The repo has no release after `1.0.0.alpha3`, and its `pyproject.toml` says 1.0.0. Both bindings the card declares were run (`jsonrpc`, `http_json`). gRPC is not declared on our card, so every gRPC case is skipped and none counts.
 
-The TCK ran unmodified. Three things stand between it and our server, all in `scripts/e2e/a2a-tck-proxy.ts` and `a2a-tck.ts`, and all of them are about the TCK's assumptions, not about the protocol:
+The TCK ran unmodified, at the pinned commit above, with only the shell's basic environment variables and none of the keys in the runner's shell. Three things stand between it and our server, all in `scripts/e2e/a2a-tck-proxy.ts` and `a2a-tck.ts`, and all of them are about the TCK's assumptions, not about the protocol:
 
 - The TCK's clients send no `Authorization` header and our server answers 401 to every call but the card. A proxy adds the key of an access key connection (inbound `auto`, hourly limit 10,000) and points the card's interface URLs at itself. The server has no unauthenticated mode.
 - The TCK's scenarios say what the agent under test does for a message id prefix (`tck-input-required` waits for input). A Harbourmaster agent follows its prompt, so the proxy rewrites the text part of a message to a `faux` command (`ask ...` for input-required, `say ...` for fixed text, see `a2a-tck-prompts.ts`). Nothing else in a request is changed except the message id.
 - The TCK sends one message id for every test that needs a task. Our server returns the first task for a repeated message id, which spec 3.3.1 allows, so the proxy gives each send an id of its own. The driver also cancels tasks left waiting for input once a send has been queued behind them for 6 seconds, because an agent runs one run at a time (see "Found, not fixed"). In the final run it cancelled 6.
 
-Per requirement level, final run: MUST 79 passed, 3 failed, 11 skipped, 21 not tested (gRPC only); SHOULD 5 passed, 2 skipped, 4 not tested; MAY 3 passed, 1 failed. The skips are gRPC (all of them), the extended card (the card says there is none), a required extension the card does not declare, and two multi-turn history cases that need a task to wait for input twice (see below).
+Per requirement level, final run: MUST 79 passed, 3 failed, 11 skipped, 21 not tested; SHOULD 5 passed, 2 skipped, 4 not tested; MAY 3 passed, 1 failed. A "not tested" requirement has no verdict in the TCK's report at all, so nothing here says whether it holds. The 21 MUST ones are card signing (CARD-SIGN-001 to 004), TLS (AUTH-TLS-001), server and in-task authentication (AUTH-SERVER-002, AUTH-INTASK-001 to 004), scopes (AUTH-SCOPE-001 to 003), version negotiation on the client and server (VER-CLIENT-001 and 002, VER-SERVER-001), the equivalence of bindings (BIND-EQUIV-001 to 004) and one gRPC case (GRPC-SVC-003). The 4 SHOULD ones are AUTH-TLS-002, AUTH-SERVER-001 and AUTH-INTASK-005 and 006. Our own tests cover some of these (signed cards are not in this build). The 11 MUST skips are the other gRPC cases (6), the extended card (CARD-EXT-001 and 002), and CORE-CAP-001, 002 and 004, which need a server without streaming, without push notifications and a required extension the card declares. The 2 SHOULD skips are CORE-HIST-005 and 006, two history cases that leave a task waiting for input and send it two follow-ups. Ours takes the first follow-up as the answer, the run ends, and the second is told the task has ended. That is how a question works here, not a protocol failure.
 
 What the TCK found and this task fixed, all in a mandatory category:
 
@@ -44,7 +44,7 @@ What the TCK found and this task fixed, all in a mandatory category:
 - The TCK sends proto field names (`task_id`) on JSON-RPC. ProtoJSON allows both spellings, so `acceptProtoNames` renames them, and leaves `metadata` and `data` contents alone.
 - `DeleteTaskPushNotificationConfig` of a config that is gone answered not found. Section 3.1.10 says it MUST be idempotent.
 - `SubscribeToTask` on a task waiting for input closed at once with that state. Section 3.1.6 says the stream ends at a terminal state, so it now stays open through `input_required`. A `SendStreamingMessage` stream still closes at an interrupted state, as section 11.7 says.
-- Push notifications went out only when the minute tick ran, so a client waited up to a minute for a state change it had asked to hear about. A state change that queues pushes now starts their delivery at once (`onPushQueued`, deferred), and the tick retries what failed. The TCK's four delivery requirements pass without any tick.
+- Push notifications went out only when the minute tick ran, so a client waited up to a minute for a state change it had asked to hear about. A state change that queues pushes now starts their delivery at once (`onPushQueued`, deferred), and the tick retries what failed. The TCK's three delivery requirements (PUSH-DELIVER-001 to 003) pass without any tick, where the app can defer the work. A composition with no `waitUntil` (the managed poller, the scheduled and email handlers) waits for the tick as before.
 
 Left open, one line each, for Dom to decide:
 
@@ -52,7 +52,6 @@ Left open, one line each, for Dom to decide:
 - DM-MSG-001 (MUST), two failures: the TCK asks for a `Message` as the reply to `SendMessage`. Every reply of ours is a `Task`, which the spec allows, but the TCK can only check a server that chooses to answer with a message.
 - CORE-SEND-003 (MUST), two failures: this requirement has no `expected_error` in the TCK, so its generic runner expects the send to succeed and fails for any server that answers `ContentTypeNotSupportedError`, which is what the requirement text asks for. The dedicated checks for the same error (-32005 on JSON-RPC, 415 on REST, `JSONRPC-SSE-002` and `HTTP_JSON-STATUS-001`) pass. Worth a report to the TCK repo.
 - CARD-CACHE-003 (MAY), one failure: no `Last-Modified` on the card. The card is built from the live agent name and the skills the owner published, so there is no reliable modified time. The `ETag` and `Cache-Control` headers are there and `If-None-Match` works.
-- Two history cases (CORE-HIST-005 and 006) skip: they leave a task waiting for input and send it two follow-ups. Ours takes the first follow-up as the answer, the run ends, and the second follow-up is told the task has ended. That is how a question works here, not a protocol failure.
 
 ### Hermes
 
@@ -60,7 +59,7 @@ A real Hermes v0.22.5, the latest release tag, cloned into `<work-dir>/hermes-ag
 
 Hermes calls us. A real Hermes agent loop (`hermes chat`, run in the gateway daemon) is told by the fake model to call `a2a_discover` and `a2a_call` on one of our published agents:
 
-- `a2a_discover` read the card (name, both interfaces, skills).
+- `a2a_discover` read the card (the script asserts its name and the JSON-RPC interface).
 - `a2a_call` with an `auto` key: the answer came back, state completed.
 - `a2a_call` with an `approve` key: the waiting message came back, state auth-required.
 - Pairing, with "Accept pairing requests" on and a made-up 70 character token: the first call returned the 8 character code as its reply. After `a2a.approvePairingCode` the next call was let through and held for approval by the default policy.
@@ -68,8 +67,8 @@ Hermes calls us. A real Hermes agent loop (`hermes chat`, run in the gateway dae
 We call Hermes. A real `hermes gateway run` with the `a2a` platform on, `A2A_PEER_TOKENS` and `A2A_TRUSTED_PEERS` set, and one of our agents connected to it through "Call it":
 
 - A message sent by a run's `send_message` tool got Hermes's agent's reply.
-- A reply that outlasts our 15 second client timeout (the fake model waits 27 seconds and answers 3000 characters): the send timed out, the minute tick found the task by our context with `ListTasks`, polled `GetTask`, and stored all 3000 characters. Hermes kept working after we hung up.
-- A push nudge past 2000 characters: the fake model waits 90 seconds. Our first poll, a minute after the send, found the task still working and registered the webhook. No tick ran after that. Hermes finished, pushed (its body cuts the text at 2000), and the task row held all 3000 characters, read through `GetTask` after the nudge. This check uses a second Hermes gateway with no token, because Hermes refuses a push to a loopback address unless it runs without one (its SSRF guard). A deployed Hermes gets an https webhook and accepts it.
+- A reply that outlasts our 15 second client timeout (the fake model waits 27 seconds and answers 3000 characters): the call to Hermes ran past our client timeout, and 80 seconds after the send the minute tick's poll had stored all 3000 characters from `ListTasks` by our context and `GetTask`. Hermes kept working after we hung up. The script asserts the stored text, not the timeout itself.
+- A push nudge past 2000 characters: the fake model waits 90 seconds. Our first poll, a minute after the send, found the task still working and registered the webhook. No tick ran after that. Hermes finished, pushed (its body cuts the text at 2000), and the task row held all 3000 characters, read through `GetTask` after the nudge. This check uses a second Hermes gateway with no token, because Hermes refuses a push to a loopback address unless it runs without one (its SSRF guard). A Hermes with a token that is pushed to over https was not run. Its acceptance is read from `security.py`.
 
 What this changed in the spec: `docs/v3/agent-connections.md` now says that the `a2a_agents` YAML shape is right (a map keyed by the agent's name, as the AA.7 key dialog shows it), that Hermes registers its client tools only when it has a peer configured, and that `a2a_discover` prints "Auth required: no" for our card because it knows only the 0.3 shape of `securitySchemes` (the calls work).
 
@@ -77,7 +76,7 @@ What this changed in the spec: `docs/v3/agent-connections.md` now says that the 
 
 Two `vite dev` Workers on separate ports and `.wrangler` state (`HM_STATE_DIR`, read by `apps/web/vite.config.ts`, with no inspector port so several start at once), so two databases, two Durable Object sets and a real request between them. Plain http to localhost is allowed in dev builds only: `allowLoopback` in the connections and push config services and `allowHttp` in `createPeerFetch` all come from `devFakeRuntime`. Tests cover the refusal in production: `a2a-transport.test.ts` (a production fetch never reaches the network for `http://localhost` or `127.0.0.1`, a dev one reaches localhost and still refuses `10.0.0.1`), `compose-a2a.test.ts` (a production composition refuses "Call it" to `http://localhost`, a dev one takes it) and `safe-url.test.ts`.
 
-The six checks: A invites and B joins over HTTP with the same check code on both sides; A approves and the activation reaches B through A's outbox, both rows active; A messages B, B holds it for approval, a person on B approves, B's agent answers, and A's ended run is woken with the answer (the wake); B messages A through the outbound approval card, A takes it, and B is woken the same way; A revokes, A's key stops working at once (B's next message is refused before A's notice reaches B) and B's row shows revoked once A's outbox delivers the notice; A's agent cannot send to B either.
+The six checks: A invites and B joins over HTTP with the same check code on both sides; A approves and the activation reaches B through A's outbox, both rows active; A messages B, B holds it for approval, a person on B approves, B's agent answers, and A's ended run is woken with the answer (the wake); B messages A through the outbound approval card, A takes it, and B is woken the same way; A revokes, A's key stops working at once (B's next message gets no answer and starts no run on A, before A's notice reaches B) and B's row shows revoked once A's outbox delivers the notice; A's agent cannot send to B either.
 
 ## Fixes beyond the TCK ones above
 
@@ -97,6 +96,10 @@ The six checks: A invites and B joins over HTTP with the same check code on both
 - Each script's person signs in with a new Clerk session of the dev user and revokes it on exit. A script killed in the middle leaves its session in the dev instance.
 - `a2a-tck.ts`'s reaper cancels every task that waits for input once a send has queued 6 seconds, so a TCK case that keeps such a task across a long wait could be cut short. None was in the final run.
 - `scripts/e2e/a2a-tck-proxy.ts` counts message ids with a module-level counter.
+- A task change that queues pushes runs a whole delivery pass (`deliverDue`, up to 50 rows of any workspace) in the request's `waitUntil`. Delivering only the rows just queued would keep one request from doing other tenants' work, and two passes at once can send a later state's push before an earlier one.
+- The scripts' dev Workers get the whole shell environment as Worker vars (`CLOUDFLARE_INCLUDE_PROCESS_ENV`), and state folders persist between runs, so a rerun in the same work folder can find an old approval card. Delete the folder for a clean run. Nothing stops `--work-dir` from pointing inside the repo.
+- The check that a tick-less push reaches us has a margin of 30 seconds (a 90 second reply against our first poll at 60). On a slow machine it fails loudly instead of passing falsely. It did once while the machine was busy.
+- The two deployment checks for a woken agent first passed on the run that sent the message, because its tool call names the same text. They now look for the peer's envelope.
 
 ## Ideas beyond the scope
 
