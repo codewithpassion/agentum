@@ -30,3 +30,14 @@ Signed in with `bun run agent-login --env staging` and drove the page with agent
 ## Cleanup on staging
 
 All three connections revoked. Pairing turned off. Both throwaway agents archived, and the card of "AA10 check agent", the one published and used for the key, answers 404. The second agent was published inside the failed join dialog and archived, and its card was not fetched afterwards. The invite was never used, and was revoked with the rest. Nothing else was changed. The first throwaway agent was made on the managed runtime and could not be published ("Agents on the managed runtime can't be published yet"), so it was archived and remade on the cloud runtime. `wrangler tail` (read only) was used once to read the join error.
+
+## Review
+
+- Round 1, at 1be65288: not clean, 2 must-fix. The invite filter ran after the 200 character cut, so a token across the cut got through. The record gave the inviter's refusal text as observed when it was inferred from the code. Fixed in eb83d3c8 (whole text checked, joiner token too, body read bounded to 4 KB, tests, the record reworded).
+- Round 2, at eb83d3c8: clean. Nits left: no test for a refusal body over 4 KB, the cut test's length bound is loose, `readBounded` says "Agent card" in its error and does not cancel the body when `content-length` is over the limit, `join-dialog.tsx` has no `break-words` on the error line (a 200 character unbroken text could scroll sideways at 375 px), and the `PairingTransport.join` doc does not mention that a refusal rejects with a `ServiceError`.
+
+`bun run check`, `bun run test` and `bun run build` pass at eb83d3c8 with no `drizzle` in `apps/web/dist/client`. The workerd `guest execution` test timed out once in a full run and passed alone and in the later full run.
+
+## For the controller
+
+The join, approve and activate cycle on a real Worker is not covered. It needs a second workspace on staging (a second Clerk organisation in `ALLOWED_ORG_IDS`), because an agent cannot connect to another agent in its own workspace. The fix here is not on staging until the next deploy.
