@@ -39,6 +39,8 @@ export const STATUS_TEXT = {
   interrupted: "The run was interrupted before it finished.",
   notStarted: "The message could not be started.",
   queued: "The agent has this message and will start shortly.",
+  unanswered:
+    "Nobody answered the agent's question in time, so the task was ended. Send a new message to start another.",
   working: "The agent is working on this message.",
 } as const;
 
@@ -128,14 +130,35 @@ export const toTask = (row: TaskRow, historyLength?: number): Task => {
   };
 };
 
+/** A text type (`text/plain` from Hermes, say) or a JSON type, parameters such as `charset` aside. */
+const isTextOrJsonType = (mediaType: string): boolean => {
+  const type = (mediaType.split(";")[0] ?? "").trim().toLowerCase();
+  return (
+    type.startsWith("text/") ||
+    type === "application/json" ||
+    type.endsWith("+json")
+  );
+};
+
 /**
  * The text of a message's parts. A JSON data part becomes JSON text, and a text
- * part with a `mediaType` (Hermes sends `text/plain`) is text. Files are not
- * supported, so a `raw` or `url` part is `ContentTypeNotSupportedError`.
+ * part with a `mediaType` (Hermes sends `text/plain`) is text. A text or data
+ * part whose `mediaType` is neither a text nor a JSON type is refused, and so
+ * are files: a `raw` or `url` part is `ContentTypeNotSupportedError`.
  */
 export const textOfParts = (parts: readonly Part[]): string => {
   const texts: string[] = [];
   for (const part of parts) {
+    if (
+      (part.text !== undefined || part.data !== undefined) &&
+      part.mediaType &&
+      !isTextOrJsonType(part.mediaType)
+    ) {
+      throw new A2aTaskError(
+        "ContentTypeNotSupportedError",
+        "Only text and JSON parts are supported."
+      );
+    }
     if (part.text !== undefined) {
       texts.push(part.text);
     } else if (part.data === undefined) {

@@ -6,6 +6,7 @@ import {
   a2aOutbox,
   a2aTasks,
 } from "@repo/db/schema/a2a";
+import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { eq } from "drizzle-orm";
@@ -177,6 +178,76 @@ describe("the hourly limit under concurrent sends", () => {
       );
     }
     expect(await f.db.select().from(a2aTasks)).toHaveLength(2);
+  });
+});
+
+describe("the hourly limit and a peer's answers", () => {
+  /** An `auto` connection with room for one answer after its task, and a run with two questions open. */
+  const full = async () => {
+    await f.connect({ hourlyLimit: 2, inboundPolicy: "auto" });
+    const task = await f.tasks.sendMessage(peerOf(), textMessage("m1", "Go"));
+    const row = await taskRow(task.id);
+    await f.runs.claimRun(f.system, row?.runId ?? "");
+    const runId = row?.runId ?? "";
+    await ask(runId, "First?", "q1");
+    f.advance(1000);
+    await ask(runId, "Second?", "q2");
+    return { taskId: task.id };
+  };
+  const openQuestions = async () =>
+    (await f.db.select().from(runRequests)).filter(
+      (row) => row.status === "pending"
+    ).length;
+
+  test("the answer that passes the limit is refused, leaves the question open and writes no marker", async () => {
+    const { taskId } = await full();
+    await f.tasks.sendMessage(peerOf(), textMessage("m2", "Yes", { taskId }));
+    const error = await rejects(
+      f.tasks.sendMessage(peerOf(), textMessage("m3", "Yes", { taskId }))
+    );
+    expect(error).toBeInstanceOf(A2aRateLimitError);
+    expect((error as A2aRateLimitError).retryAfterSeconds).toBe(60 * 60 - 1);
+    expect(await openQuestions()).toBe(1);
+    expect(await f.db.select().from(a2aAnswerMarkers)).toHaveLength(1);
+    const events = await f.db.select().from(eventRows);
+    expect(events.map((e) => e.type)).toContain("a2a.rate_limited");
+  });
+
+  test("a retried message id still returns the task at the limit", async () => {
+    const { taskId } = await full();
+    const answer = textMessage("m2", "Yes", { taskId });
+    await f.tasks.sendMessage(peerOf(), answer);
+    const again = await f.tasks.sendMessage(peerOf(), answer);
+    expect(again.id).toBe(taskId);
+    expect(await f.db.select().from(a2aAnswerMarkers)).toHaveLength(1);
+  });
+
+  test("the answer is accepted again an hour later", async () => {
+    const { taskId } = await full();
+    await f.tasks.sendMessage(peerOf(), textMessage("m2", "Yes", { taskId }));
+    f.advance(60 * 60_000);
+    const task = await f.tasks.sendMessage(
+      peerOf(),
+      textMessage("m3", "Yes", { taskId })
+    );
+    expect(task.id).toBe(taskId);
+    expect(await openQuestions()).toBe(0);
+  });
+
+  test("two answers at once cannot both take the last place", async () => {
+    const { taskId } = await full();
+    const results = await Promise.allSettled(
+      ["m2", "m3"].map((id) =>
+        f.tasks.sendMessage(peerOf(), textMessage(id, "Yes", { taskId }))
+      )
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const refused = results.filter((r) => r.status === "rejected");
+    expect(refused).toHaveLength(1);
+    expect((refused[0] as PromiseRejectedResult).reason).toBeInstanceOf(
+      A2aRateLimitError
+    );
+    expect(await f.db.select().from(a2aAnswerMarkers)).toHaveLength(1);
   });
 });
 

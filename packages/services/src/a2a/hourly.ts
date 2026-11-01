@@ -1,13 +1,17 @@
 /**
  * The hourly limit of a connection. It counts what the connection did in the
- * last hour: tasks the peer sent us, tasks we sent the peer, and the wakes a
- * peer's answer started. A wake has no row of its own, so it is counted on the
+ * last hour: tasks the peer sent us, tasks we sent the peer, the answers the
+ * peer gave to our agent's questions, and the wakes a peer's answer started. A wake has no row of its own, so it is counted on the
  * task it woke: the claim that lets a wake happen writes `result_read_at` as
  * the time followed by `WAKE_MARK`, and an agent's own read writes the plain
  * time. Count and claim are one statement, so wakes cannot overrun the limit.
  */
 import type { Database } from "@repo/db";
-import { a2aOutboundTasks, a2aTasks } from "@repo/db/schema/a2a";
+import {
+  a2aAnswerMarkers,
+  a2aOutboundTasks,
+  a2aTasks,
+} from "@repo/db/schema/a2a";
 import { and, eq, gt, like, sql } from "drizzle-orm";
 import type { Clock } from "../runs/types.ts";
 
@@ -29,21 +33,21 @@ const wakeClaimed = (connectionId: string, since: string) =>
   );
 
 /**
- * A SQL expression for the number of tasks and wakes of a connection since
+ * A SQL expression for the number of tasks, answers and wakes of a connection since
  * `since`, so an insert or a claim can check the limit in the same statement
  * that writes.
  */
 export const hourlyCountSql = (connectionId: string, since: string) =>
-  sql`((select count(*) from ${a2aTasks} where ${a2aTasks.connectionId} = ${connectionId} and ${a2aTasks.createdAt} > ${since}) + (select count(*) from ${a2aOutboundTasks} where ${a2aOutboundTasks.connectionId} = ${connectionId} and ${a2aOutboundTasks.createdAt} > ${since}) + (select count(*) from ${a2aOutboundTasks} where ${wakeClaimed(connectionId, since)}))`;
+  sql`((select count(*) from ${a2aTasks} where ${a2aTasks.connectionId} = ${connectionId} and ${a2aTasks.createdAt} > ${since}) + (select count(*) from ${a2aOutboundTasks} where ${a2aOutboundTasks.connectionId} = ${connectionId} and ${a2aOutboundTasks.createdAt} > ${since}) + (select count(*) from ${a2aAnswerMarkers} where ${a2aAnswerMarkers.connectionId} = ${connectionId} and ${a2aAnswerMarkers.createdAt} > ${since}) + (select count(*) from ${a2aOutboundTasks} where ${wakeClaimed(connectionId, since)}))`;
 
-/** Tasks and wakes in the last hour in both directions, and when the oldest one drops out. */
+/** Tasks, answers and wakes in the last hour in both directions, and when the oldest one drops out. */
 export const hourlyUse = async (
   db: Database,
   clock: Clock,
   connectionId: string
 ): Promise<{ oldest: string | null; used: number }> => {
   const since = new Date(clock.now().getTime() - HOUR_MS).toISOString();
-  const [inbound, outbound, wakes] = await Promise.all([
+  const [inbound, outbound, answers, wakes] = await Promise.all([
     db
       .select({ at: a2aTasks.createdAt })
       .from(a2aTasks)
@@ -63,10 +67,21 @@ export const hourlyUse = async (
         )
       ),
     db
+      .select({ at: a2aAnswerMarkers.createdAt })
+      .from(a2aAnswerMarkers)
+      .where(
+        and(
+          eq(a2aAnswerMarkers.connectionId, connectionId),
+          gt(a2aAnswerMarkers.createdAt, since)
+        )
+      ),
+    db
       .select({ at: wakeTime })
       .from(a2aOutboundTasks)
       .where(wakeClaimed(connectionId, since)),
   ]);
-  const times = [...inbound, ...outbound, ...wakes].map(({ at }) => at).sort();
+  const times = [...inbound, ...outbound, ...answers, ...wakes]
+    .map(({ at }) => at)
+    .sort();
   return { oldest: times[0] ?? null, used: times.length };
 };

@@ -9,6 +9,7 @@ import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
   APPROVAL_TTL_MS,
   type ComputerTakeoverRequestedPayload,
+  PEER_QUESTION_TTL_MS,
   QUESTION_TTL_MS,
   TAKEOVER_TTL_MS,
   TOOL_RULE_MODES,
@@ -55,7 +56,7 @@ import {
 } from "./requests/records.ts";
 import { importRunTokenKey } from "./run-tokens.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
-import { peerRootsOf } from "./runs/peer-root.ts";
+import { peerRootOf, peerRootsOf } from "./runs/peer-root.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock, RunRecord } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
@@ -583,6 +584,15 @@ export const createRequestsService = ({
       ? guestUnavailable()
       : new ServiceError("conflict", "A takeover is already pending");
 
+  /** A question from a run a peer set going lapses sooner than a member's, so a peer cannot hold the agent for a day. */
+  const ttlOf = async (
+    run: RunRecord,
+    kind: keyof typeof TTL
+  ): Promise<number> =>
+    kind === "question" && (await peerRootOf(db, run)) !== null
+      ? PEER_QUESTION_TTL_MS
+      : TTL[kind];
+
   const open = async (
     principal: Principal,
     raw: z.input<typeof openInputSchema>,
@@ -616,7 +626,7 @@ export const createRequestsService = ({
         deliveredAt: null,
         display: JSON.stringify(display),
         expiresAt: new Date(
-          now.getTime() + (options.ttlMs ?? TTL[input.kind])
+          now.getTime() + (options.ttlMs ?? (await ttlOf(run, input.kind)))
         ).toISOString(),
         id: ulid(),
         kind: input.kind,
@@ -940,6 +950,30 @@ export const createRequestsService = ({
       await clock.sleep(Math.min(WAIT_POLL_MS, remaining));
     }
   };
+  /** A peer's question that went unanswered ends its run, so the model cannot just ask again. */
+  const endsRunWhenUnanswered = async (row: RequestRow): Promise<boolean> => {
+    if (row.kind !== "question") {
+      return false;
+    }
+    const run = await loadRun(db, row.runId, row.workspaceId);
+    return run !== null && (await peerRootOf(db, run)) !== null;
+  };
+  const cancelUnanswered = async (row: RequestRow) => {
+    try {
+      await runs.cancelRun(SYSTEM_PRINCIPAL, row.runId);
+    } catch (error) {
+      // A conflict is a run that ended on its own in the meantime. Anything
+      // else is logged, so one run that will not cancel does not stop the
+      // sweep over the other expired requests.
+      if (!(error instanceof ServiceError && error.code === "conflict")) {
+        console.error(
+          "Run not cancelled after its question expired",
+          row.runId,
+          error
+        );
+      }
+    }
+  };
   const expireDue = async (principal: Principal) => {
     if (principal.kind !== "system") {
       throw new ForbiddenError("requests.expire");
@@ -956,8 +990,12 @@ export const createRequestsService = ({
       .returning();
     for (const row of closed) {
       // biome-ignore lint/performance/noAwaitInLoops: notify before waking each runtime
-      await announce(row, "request.expired");
-      await resume(row);
+      await announce(row, "request.expired", { kind: row.kind });
+      if (await endsRunWhenUnanswered(row)) {
+        await cancelUnanswered(row);
+      } else {
+        await resume(row);
+      }
     }
   };
   // Terminal runs have already stopped their runtime; cancellation never wakes it.

@@ -5,12 +5,14 @@ import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { PEER_QUESTION_TTL_MS, QUESTION_TTL_MS } from "@repo/db/shared";
 import { speakerEnvelopeSchema } from "@repo/protocol/live";
 import { and, eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
 import { MAX_RUN_DEPTH } from "../runs/subject.ts";
 import { A2aRateLimitError, A2aTaskError } from "./errors.ts";
 import {
+  AGENT,
   CONNECTION,
   createFixture,
   type Fixture,
@@ -262,6 +264,44 @@ describe("parts, contexts and tasks", () => {
       );
     }
     expect(await f.db.select().from(a2aTasks)).toHaveLength(0);
+  });
+
+  test("a text or data part with a media type that is not text or JSON is refused", async () => {
+    await f.connect();
+    for (const part of [
+      { mediaType: "image/png", text: "aGk=" },
+      { data: { a: 1 }, mediaType: "application/pdf" },
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: one refusal at a time
+      const error = await rejects(
+        f.tasks.sendMessage(peerOf(), {
+          message: { messageId: "m1", parts: [part], role: "ROLE_USER" },
+        })
+      );
+      expect((error as A2aTaskError).errorName).toBe(
+        "ContentTypeNotSupportedError"
+      );
+    }
+    expect(await f.db.select().from(a2aTasks)).toHaveLength(0);
+  });
+
+  test("text and JSON media types are accepted, with parameters and in any case", async () => {
+    await f.connect();
+    const task = await f.tasks.sendMessage(peerOf(), {
+      message: {
+        messageId: "m1",
+        parts: [
+          { mediaType: "Text/Plain; charset=utf-8", text: "Hi" },
+          { data: { a: 1 }, mediaType: "application/json" },
+          { data: { b: 2 }, mediaType: "application/vnd.x+json" },
+          { mediaType: "", text: "!" },
+        ],
+        role: "ROLE_USER",
+      },
+    });
+    expect(task.history?.[0]?.parts[0]?.text).toBe(
+      'Hi\n\n{"a":1}\n\n{"b":2}\n\n!'
+    );
   });
 
   test("a client chosen contextId is kept, and a new one is made when none is sent", async () => {
@@ -542,6 +582,24 @@ describe("a question from the run", () => {
     return { requestId: request.id, runId: run?.id ?? "", taskId: task.id };
   };
 
+  /** A question from a run a member started on the same agent, on the same agent. */
+  const memberQuestion = async () => {
+    const started = await f.runs.startRun(member(), {
+      agentId: AGENT,
+      input: { text: "Ask me" },
+      session: { origin: "ui" },
+    });
+    await f.runs.claimRun(f.system, started.runId);
+    const request = await f.requests.open(f.system, {
+      kind: "question",
+      questions: [{ question: "Which one?" }],
+      runId: started.runId,
+      toolName: "AskUserQuestion",
+      toolUseId: "mq1",
+    });
+    return request.id;
+  };
+
   test("moves the task to input required with the question as the status message", async () => {
     const { taskId } = await ask();
     const task = await f.tasks.getTask(peerOf(), { id: taskId });
@@ -633,6 +691,75 @@ describe("a question from the run", () => {
     expect((await f.tasks.getTask(peerOf(), { id: taskId })).status.state).toBe(
       "TASK_STATE_INPUT_REQUIRED"
     );
+  });
+
+  const lifetime = async (id: string) => {
+    const [row] = await f.db
+      .select()
+      .from(runRequests)
+      .where(eq(runRequests.id, id));
+    return Date.parse(row?.expiresAt ?? "") - Date.parse(row?.createdAt ?? "");
+  };
+
+  test("a question from a run a peer started lasts an hour", async () => {
+    const { requestId } = await ask();
+    expect(await lifetime(requestId)).toBe(PEER_QUESTION_TTL_MS);
+    expect(PEER_QUESTION_TTL_MS).toBe(60 * 60_000);
+  });
+
+  test("a member run's question keeps a day", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    expect(await lifetime(await memberQuestion())).toBe(QUESTION_TTL_MS);
+    expect(QUESTION_TTL_MS).toBe(24 * 60 * 60_000);
+  });
+
+  test("an unanswered peer question fails the task, cancels the run and frees the agent", async () => {
+    const { requestId, runId, taskId } = await ask();
+    f.advance(PEER_QUESTION_TTL_MS - 1);
+    await f.requests.expireDue(f.system);
+    expect((await f.tasks.getTask(peerOf(), { id: taskId })).status.state).toBe(
+      "TASK_STATE_INPUT_REQUIRED"
+    );
+    f.advance(1);
+    await f.requests.expireDue(f.system);
+    const task = await f.tasks.getTask(peerOf(), { id: taskId });
+    expect(task.status.state).toBe("TASK_STATE_FAILED");
+    expect(statusText(task)).toContain("Nobody answered");
+    const [request] = await f.db
+      .select()
+      .from(runRequests)
+      .where(eq(runRequests.id, requestId));
+    expect(request?.status).toBe("expired");
+    const [run] = await f.db
+      .select()
+      .from(runRows)
+      .where(eq(runRows.id, runId));
+    expect(run?.status).toBe("cancelled");
+    // The agent is free: the next message starts a run at once.
+    const next = await f.tasks.sendMessage(
+      peerOf(),
+      textMessage("m2", "Again")
+    );
+    const nextRun = await runOf(next.id);
+    expect(nextRun?.id).not.toBe(runId);
+    expect(f.dispatched).toContain(nextRun?.id ?? "");
+  });
+
+  test("a member run's question that expires still resumes the run", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    const id = await memberQuestion();
+    f.advance(QUESTION_TTL_MS);
+    await f.requests.expireDue(f.system);
+    const [request] = await f.db
+      .select()
+      .from(runRequests)
+      .where(eq(runRequests.id, id));
+    expect(request?.status).toBe("expired");
+    const [run] = await f.db
+      .select()
+      .from(runRows)
+      .where(eq(runRows.id, request?.runId ?? ""));
+    expect(run?.status).not.toBe("cancelled");
   });
 
   test("a tool approval in the workspace leaves the task working", async () => {

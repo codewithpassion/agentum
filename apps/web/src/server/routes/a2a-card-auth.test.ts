@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { agentCardSchema } from "@repo/a2a/agent-card";
 import { PAIRING_EXTENSION_URI } from "@repo/a2a/extensions";
+import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   type A2aFixture,
@@ -133,6 +135,13 @@ interface BindingCase {
     headers: Record<string, string>,
     taskId: string
   ) => Promise<Response>;
+  /** A message on an existing task, which answers the question it asks. */
+  sendAnswer: (
+    publicId: string,
+    token: string,
+    messageId: string,
+    taskId: string
+  ) => Promise<Response>;
   /** SendMessage with a message id, under a valid token. */
   sendMessage: (
     publicId: string,
@@ -148,6 +157,15 @@ interface BindingCase {
   /** The status of a refused version. */
   versionStatus: number;
 }
+
+const answerMessage = (messageId: string, taskId: string) => ({
+  message: {
+    messageId,
+    parts: [{ text: "Yes" }],
+    role: "ROLE_USER",
+    taskId,
+  },
+});
 
 const BINDINGS: BindingCase[] = [
   {
@@ -173,6 +191,13 @@ const BINDINGS: BindingCase[] = [
         headers: { "Content-Type": "application/json", ...headers },
         method: "POST",
       }),
+    sendAnswer: async (publicId, token, messageId, taskId) =>
+      await f.rpc(
+        publicId,
+        token,
+        "SendMessage",
+        answerMessage(messageId, taskId)
+      ),
     sendMessage: async (publicId, token, messageId) =>
       await f.rpc(publicId, token, "SendMessage", textMessage(messageId, "Hi")),
     taskIdOf: (body) =>
@@ -216,6 +241,14 @@ const BINDINGS: BindingCase[] = [
         headers,
         method: "GET",
       }),
+    sendAnswer: async (publicId, token, messageId, taskId) =>
+      await f.rest(
+        publicId,
+        token,
+        "POST",
+        "/message:send",
+        answerMessage(messageId, taskId)
+      ),
     sendMessage: async (publicId, token, messageId) =>
       await f.rest(
         publicId,
@@ -418,6 +451,68 @@ for (const binding of BINDINGS) {
       const retry = await binding.sendMessage(agent.publicId, token, "m1");
       expect(retry.status).toBe(200);
       expect(binding.taskIdOf(await readJson(retry))).toBe(taskId);
+    });
+
+    test("an answer past the limit answers 429 with Retry-After and leaves the question open", async () => {
+      const agent = await f.publish("limited-answers");
+      const { connectionId, token } = await f.connect(agent, "auto");
+      await f.composed.services.connections.setPolicies(f.admin, {
+        connectionId,
+        hourlyLimit: 2,
+      });
+      const first = await binding.sendMessage(agent.publicId, token, "m1");
+      const taskId = binding.taskIdOf(await readJson(first));
+      // The fake runtime finished the run at once. Put it back to waiting on two questions.
+      f.db.run(
+        sql`update runs set status = 'waiting', finished_at = null where id = (select run_id from a2a_tasks where id = ${taskId})`
+      );
+      f.db.run(
+        sql`update a2a_tasks set state = 'TASK_STATE_WORKING', result_text = null where id = ${taskId}`
+      );
+      const runId =
+        f.db.all<{ runId: string }>(
+          sql`select run_id as runId from a2a_tasks where id = ${taskId}`
+        )[0]?.runId ?? "";
+      for (const toolUseId of ["q1", "q2"]) {
+        // biome-ignore lint/performance/noAwaitInLoops: questions open in order
+        await f.composed.services.requests.open(SYSTEM_PRINCIPAL, {
+          kind: "question",
+          questions: [{ question: `Question ${toolUseId}?` }],
+          runId,
+          toolName: "AskUserQuestion",
+          toolUseId,
+        });
+      }
+
+      const answered = await binding.sendAnswer(
+        agent.publicId,
+        token,
+        "m2",
+        taskId
+      );
+      expect(answered.status).toBe(200);
+
+      const refused = await binding.sendAnswer(
+        agent.publicId,
+        token,
+        "m3",
+        taskId
+      );
+      expect(refused.status).toBe(429);
+      expect(refused.headers.get("Retry-After") ?? "").toMatch(WHOLE_NUMBER);
+      expect(await readJson(refused)).toMatchObject(binding.rateLimitedBody);
+      const open = f.db.all<{ open: number }>(
+        sql`select count(*) as open from run_requests where run_id = ${runId} and status = 'pending'`
+      )[0]?.open;
+      expect(open).toBe(1);
+
+      const retry = await binding.sendAnswer(
+        agent.publicId,
+        token,
+        "m2",
+        taskId
+      );
+      expect(retry.status).toBe(200);
     });
   });
 }
