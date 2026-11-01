@@ -4,7 +4,11 @@ Interop with the official A2A SDK and TCK, a real Hermes, two deployments, docs.
 
 ## Verdicts
 
-(Filled in below after each review round.)
+- Round 1, at d00826e9: not clean, 4 must-fix. The TCK summary counted "not tested" requirements as skipped and the record called the 21 not-tested MUST ones gRPC only. Hermes, the TCK and the SDK sample agent got the runner's whole shell environment. Fixed in e80cafdd, with an allowlist (`thirdPartyEnv`), a `notTested` count, an itemised record, loopback binds, a pinned TCK commit, a checked Hermes tag and stricter wake checks in the two-deployments script (they had first passed on the sending run).
+- Round 2, at e80cafdd: not clean, 1 must-fix. The record said two dedicated TCK checks for `ContentTypeNotSupportedError` passed, but both skipped, because the server accepts a wrong HTTP `Content-Type`. Fixed in 90ec2a8f, with a left-open line for it.
+- Round 3, at 90ec2a8f: not clean, 1 must-fix. A sentence added in round 2 said a different TCK setup would test the 25 not-tested requirements, and the TCK has no test for them. Reworded in the head commit of this branch. That change got no review round of its own, because two fix rounds were already used.
+
+`bun run check`, `bun run test` and `bun run build` pass at e80cafdd with no `drizzle` in `apps/web/dist/client`. The later commits touch only scripts and the record, and `bun run check` and the script tests pass at each.
 
 ## What ran
 
