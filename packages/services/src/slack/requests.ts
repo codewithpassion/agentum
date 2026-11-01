@@ -168,7 +168,12 @@ export const createSlackRequests = ({
     }
     return "questions" in display
       ? { ...base, questions: display.questions }
-      : { ...base, input: display.input, summary: display.summary };
+      : {
+          ...base,
+          input: display.input,
+          summary: display.summary,
+          ...(display.peerRun ? { peerRun: true } : {}),
+        };
   };
 
   /** The thread the run was started in, through the agent's app in that team. */

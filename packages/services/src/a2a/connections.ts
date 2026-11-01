@@ -119,6 +119,8 @@ const TEXT_MAX = 2000;
 const EXPIRE_BATCH = 50;
 /** Outside agents whose card the daily refresh fetches in one tick. */
 export const REFRESH_BATCH = 20;
+/** How long a card that failed to refresh waits before the tick tries it again. */
+const REFRESH_RETRY_MS = 60 * 60 * 1000;
 
 /** Statuses of a connection that has ended. */
 const ENDED: readonly A2aConnectionStatus[] = ["declined", "revoked"];
@@ -2119,41 +2121,60 @@ export const createConnectionsService = ({
   /**
    * The minute tick's daily pass over outside agents. It refreshes the active
    * ones whose card is a day old or has never been fetched, a bounded batch
-   * oldest first. A peer whose fetch fails keeps its row as it was, and the
-   * batch goes on. Returns how many refreshes succeeded.
+   * oldest first. Each row is marked as tried before its fetch, so a peer that
+   * stays down is retried hourly and cannot crowd the others out of the batch,
+   * and two overlapping ticks do not fetch the same card. A peer whose fetch
+   * fails keeps its stored card, fetch time and status, and the batch goes on.
+   * Returns how many refreshes succeeded.
    */
   const refreshDue = async (principal: Principal): Promise<number> => {
     if (principal.kind !== "system") {
       throw new ForbiddenError(REFRESH_ACTION);
     }
-    const dayAgo = new Date(clock.now().getTime() - DAY_MS).toISOString();
-    const due = await db
+    const now = clock.now().getTime();
+    const dayAgo = new Date(now - DAY_MS).toISOString();
+    const hourAgo = new Date(now - REFRESH_RETRY_MS).toISOString();
+    const due = and(
+      eq(a2aConnections.peerKind, "a2a_outbound"),
+      eq(a2aConnections.status, "active"),
+      isNotNull(a2aConnections.peerCardUrl),
+      or(
+        isNull(a2aConnections.peerCardFetchedAt),
+        lte(a2aConnections.peerCardFetchedAt, dayAgo)
+      ),
+      or(
+        isNull(a2aConnections.peerCardTriedAt),
+        lte(a2aConnections.peerCardTriedAt, hourAgo)
+      )
+    );
+    const batch = await db
       .select({ id: a2aConnections.id })
       .from(a2aConnections)
-      .where(
-        and(
-          eq(a2aConnections.peerKind, "a2a_outbound"),
-          eq(a2aConnections.status, "active"),
-          isNotNull(a2aConnections.peerCardUrl),
-          or(
-            isNull(a2aConnections.peerCardFetchedAt),
-            lte(a2aConnections.peerCardFetchedAt, dayAgo)
-          )
-        )
-      )
-      .orderBy(asc(a2aConnections.peerCardFetchedAt))
+      .where(due)
+      .orderBy(asc(a2aConnections.peerCardFetchedAt), asc(a2aConnections.id))
       .limit(REFRESH_BATCH);
-    let refreshed = 0;
-    for (const { id } of due) {
-      try {
-        // biome-ignore lint/performance/noAwaitInLoops: one peer at a time keeps the tick's fetches bounded
+    const outcomes = await Promise.allSettled(
+      batch.map(async ({ id }) => {
+        const [claimed] = await db
+          .update(a2aConnections)
+          .set({ peerCardTriedAt: nowIso() })
+          .where(and(eq(a2aConnections.id, id), due))
+          .returning({ id: a2aConnections.id });
+        if (!claimed) {
+          return false;
+        }
         await refreshCard(principal, id);
-        refreshed += 1;
-      } catch {
-        // The failed row is unchanged. The next peer still gets its turn.
+        return true;
+      })
+    );
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") {
+        console.warn("Card refresh failed", outcome.reason);
       }
     }
-    return refreshed;
+    return outcomes.filter(
+      (outcome) => outcome.status === "fulfilled" && outcome.value
+    ).length;
   };
 
   /** The sealed OAuth credential, or null when it cannot be unsealed or read. */

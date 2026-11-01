@@ -16,6 +16,7 @@ export function MailDecision({
   card,
   cc,
   expiry,
+  offerAlways = true,
   onAnswer,
   waitingOn,
 }: {
@@ -24,6 +25,8 @@ export function MailDecision({
   cc: readonly string[];
   /** "expires in 42 min", or null while plenty of time is left. */
   expiry: string | null;
+  /** Whether to offer "Always send to this address". Defaults to true. */
+  offerAlways?: boolean;
   onAnswer: (cardId: string, payload: AnswerPayload) => Promise<void>;
   /** Who it waits on, or null for anyone. */
   waitingOn: string | null;
@@ -117,15 +120,17 @@ export function MailDecision({
             Tell it what to change
           </Button>
         )}
-        <Button
-          className="text-muted-foreground"
-          disabled={pending}
-          onClick={always}
-          type="button"
-          variant="link"
-        >
-          Always send to this address
-        </Button>
+        {offerAlways ? (
+          <Button
+            className="text-muted-foreground"
+            disabled={pending}
+            onClick={always}
+            type="button"
+            variant="link"
+          >
+            Always send to this address
+          </Button>
+        ) : null}
         <span className="ml-auto text-muted-foreground text-sm">
           {waitingOn === null ? null : `Waiting on ${waitingOn}`}
           {waitingOn !== null && expiry !== null ? " · " : null}

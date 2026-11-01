@@ -29,6 +29,7 @@ const noop = () => Promise.resolve();
 const render = (props: {
   cc?: string[];
   expiry?: string | null;
+  offerAlways?: boolean;
   waitingOn?: string | null;
 }) =>
   renderToStaticMarkup(
@@ -36,6 +37,7 @@ const render = (props: {
       card={card}
       cc={props.cc ?? []}
       expiry={props.expiry ?? null}
+      offerAlways={props.offerAlways}
       onAnswer={noop}
       waitingOn={props.waitingOn ?? null}
     />
@@ -67,6 +69,13 @@ test("names who it waits on and shows the expiry only when given one", () => {
     "expires in 42 min"
   );
   expect(render({})).not.toContain("expires");
+});
+
+test("hides always-send when offerAlways is false and keeps the other answers", () => {
+  const html = render({ offerAlways: false });
+  expect(html).not.toContain("Always send to this address");
+  expect(html).toContain(">Send reply</button>");
+  expect(html).toContain(">Not this time</button>");
 });
 
 test("names the Cc recipients, who get the reply too", () => {

@@ -1,0 +1,1 @@
+ALTER TABLE `a2a_connections` ADD `peer_card_tried_at` text;

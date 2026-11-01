@@ -956,6 +956,52 @@ describe("the daily card refresh", () => {
     expect(rowOf(healthy.id)?.status).toBe("needs_approval");
   });
 
+  test("a card that fails is not fetched again for an hour, and dead peers do not crowd out the others", async () => {
+    const dead: string[] = [];
+    for (let i = 0; i < REFRESH_BATCH; i += 1) {
+      nowMs = Date.parse(START) + i * 1000;
+      // biome-ignore lint/performance/noAwaitInLoops: each add stamps its own fetch time
+      const connection = await service.addOutbound(ownerA, {
+        agentId: AGENT_X,
+        cardUrl: `https://dead.example.com/cards/${i}.json`,
+        credential: OUTSIDE_SECRET,
+      });
+      dead.push(connection.id);
+    }
+    nowMs = Date.parse(START) + (REFRESH_BATCH + 1) * 1000;
+    const healthy = await service.addOutbound(ownerA, {
+      agentId: AGENT_X2,
+      cardUrl: OUTSIDE_CARD_URL,
+      credential: OUTSIDE_SECRET,
+    });
+    const fetches: string[] = [];
+    const ticking = serviceFetching((url) => {
+      fetches.push(url);
+      return url.includes("dead")
+        ? Promise.reject(new Error("peer unreachable"))
+        : Promise.resolve(moveTo("https://elsewhere.example.org/rpc"));
+    });
+    nowMs = Date.parse(START) + DAY + 60 * 1000;
+    expect(await ticking.refreshDue(SYSTEM_PRINCIPAL)).toBe(0);
+    expect(fetches).toHaveLength(REFRESH_BATCH);
+    expect(rowOf(healthy.id)?.status).toBe("active");
+    // A minute later the dead peers sit out and the healthy one gets its turn.
+    nowMs += 60 * 1000;
+    fetches.length = 0;
+    expect(await ticking.refreshDue(SYSTEM_PRINCIPAL)).toBe(1);
+    expect(fetches).toEqual([OUTSIDE_CARD_URL]);
+    expect(rowOf(healthy.id)?.status).toBe("needs_approval");
+    for (const id of dead) {
+      expect(rowOf(id)?.peerCardFetchedAt).toStartWith("2026-");
+      expect(rowOf(id)?.status).toBe("active");
+    }
+    // An hour after the first try they are tried again.
+    nowMs = Date.parse(START) + DAY + 60 * 60 * 1000 + 60 * 1000;
+    fetches.length = 0;
+    expect(await ticking.refreshDue(SYSTEM_PRINCIPAL)).toBe(0);
+    expect(fetches).toHaveLength(REFRESH_BATCH);
+  });
+
   test("the oldest due cards go first and no more than a batch", async () => {
     const ids: string[] = [];
     for (let i = 0; i <= REFRESH_BATCH; i += 1) {

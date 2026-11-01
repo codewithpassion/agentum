@@ -4,6 +4,7 @@ import { NeedsYouBody } from "#/components/desk/needs-you-card.tsx";
 import {
   type AnswerPayload,
   mailApprovalFields,
+  offersAlwaysAllow,
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
 import { HowItGotHere } from "./how-it-got-here.tsx";
@@ -74,6 +75,11 @@ function CardBody({
           card={card}
           cc={heldMailCc(request)}
           expiry={expiryNote(card.expiresAt, nowMs)}
+          offerAlways={
+            request?.kind === "approval"
+              ? offersAlwaysAllow(request.display)
+              : true
+          }
           onAnswer={answerMail}
           waitingOn={waitingOn}
         />

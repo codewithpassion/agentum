@@ -45,10 +45,15 @@ let deps: TickDeps;
 const delivered: string[] = [];
 /** What the peer answers to a card fetch. */
 let cardAnswer: () => Response;
+let cardFetches = 0;
 
 beforeEach(async () => {
   delivered.length = 0;
-  cardAnswer = () => Response.json(cardAt("https://peer.test/a2a"));
+  cardFetches = 0;
+  cardAnswer = () => {
+    cardFetches += 1;
+    return Response.json(cardAt("https://peer.test/a2a"));
+  };
   db = migrated();
   const clock: Clock = { now: () => NOW, sleep: () => Promise.resolve() };
   const blobs = new Map<string, string>();
@@ -222,9 +227,11 @@ test("a card that moved to another origin sends the connection back to a person,
 
 test("an unchanged card stays active with a new fetch time", async () => {
   const id = await outsideAgent(DAY_AND_MORE_AGO);
+  cardFetches = 0;
 
   await runTick(a2aJobs, deps);
 
+  expect(cardFetches).toBe(1);
   const row = await rowOf(id);
   expect(row?.status).toBe("active");
   expect(row?.peerCardFetchedAt).toBe(NOW.toISOString());
@@ -239,7 +246,12 @@ test("a card fetch that fails leaves the row as it was", async () => {
   const report = await runTick(a2aJobs, deps);
 
   expect(report.jobs.every((job) => job.ok)).toBe(true);
-  expect(await rowOf(id)).toEqual(before);
+  const after = await rowOf(id);
+  expect(after?.peerCardTriedAt).toBe(NOW.toISOString());
+  expect({ ...after, peerCardTriedAt: null }).toEqual({
+    ...before,
+    peerCardTriedAt: null,
+  });
 });
 
 test("a card fetched within the day is left alone", async () => {
