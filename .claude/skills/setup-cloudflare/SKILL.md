@@ -94,7 +94,7 @@ user to run `bun run --cwd apps/web add-workspace --org <org id> --name <name>
 for `--remote` from `apps/web/.env.production.local`, so a deployment on the
 Clerk dev instance needs that file with the same `CLERK_SECRET_KEY` the Worker
 got. Without it, every sign-in
-lands on the "This organisation can't use Harbourmaster" screen.
+lands on the `NoAccess` screen, because an organisation needs a workspace row to get in.
 
 ## 6. Hand back
 

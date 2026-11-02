@@ -14,7 +14,7 @@ import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/")({
-  // `me` answers 401 unless the caller is a user in an allowed organisation.
+  // `me` answers 401 unless the caller is a user whose active organisation has a workspace row.
   // Success means the shell, 401 means the landing page.
   beforeLoad: async () => {
     try {

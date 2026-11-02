@@ -120,7 +120,7 @@ Repeat the `migrations apply --remote` whenever `packages/db` gains a new migrat
 bun run deploy
 ```
 
-That builds and runs `wrangler deploy`. The URL is printed at the end. If the app has Clerk, run `bun run add-workspace --org <Clerk organisation id> --name <name> --remote` in `apps/web` once, because an organisation without a `workspaces` row sees "This organisation can't use Harbourmaster". The app has no database page yet, so there is no in-app check of the database binding. TODO(M0): health check
+That builds and runs `wrangler deploy`. The URL is printed at the end. If the app has Clerk, run `bun run add-workspace --org <Clerk organisation id> --name <name> --remote` in `apps/web` once, because an organisation needs a `workspaces` row to get in, and without one its users see the `NoAccess` screen. The app has no database page yet, so there is no in-app check of the database binding. TODO(M0): health check
 
 ## Pull request previews
 
