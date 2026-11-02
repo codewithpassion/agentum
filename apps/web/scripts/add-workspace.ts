@@ -46,13 +46,13 @@ const wrangler = async (args: string[]): Promise<string> => {
 
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
-  const secretKey = resolveSecretKey(clerkEnvFor(args), {
+  const clerkEnv = clerkEnvFor(args);
+  const secretKey = resolveSecretKey(clerkEnv, {
     envLocal: await readEnvFile(".env.local"),
     process: process.env,
     productionLocal: await readEnvFile(".env.production.local"),
   });
 
-  const clerkEnv = clerkEnvFor(args);
   const clerk = createClerkClient({ secretKey });
   try {
     await clerk.organizations.getOrganization({ organizationId: args.orgId });

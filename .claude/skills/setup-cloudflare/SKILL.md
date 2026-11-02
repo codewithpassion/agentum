@@ -90,7 +90,10 @@ the uploaded names.
 A deployed app with Clerk admits an organisation only when a `workspaces` row
 has its id, and nobody on a fresh deployment is an admin to make one. Tell the
 user to run `bun run --cwd apps/web add-workspace --org <org id> --name <name>
---remote` once with the Clerk organisation's id. Without it, every sign-in
+--remote` once with the Clerk organisation's id. The script reads the Clerk key
+for `--remote` from `apps/web/.env.production.local`, so a deployment on the
+Clerk dev instance needs that file with the same `CLERK_SECRET_KEY` the Worker
+got. Without it, every sign-in
 lands on the "This organisation can't use Harbourmaster" screen.
 
 ## 6. Hand back

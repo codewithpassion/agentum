@@ -63,14 +63,14 @@ export const createA2aFixture = async (options: A2aRoutesOptions = {}) => {
     clerkOrgId: "org_a",
   });
   if (!workspace) {
-    throw new Error("org_a is not an allowed organisation");
+    throw new Error("org_a has no workspace row");
   }
   const workspaceId = workspace.id;
   const other = await composed.services.workspaces.forOrg({
     clerkOrgId: "org_b",
   });
   if (!other) {
-    throw new Error("org_b is not an allowed organisation");
+    throw new Error("org_b has no workspace row");
   }
   /** An admin of a second workspace on the same deployment, the other side of a pairing. */
   const bob: Principal = {

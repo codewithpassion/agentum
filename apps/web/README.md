@@ -6,7 +6,9 @@ Auth is [Clerk](https://clerk.com): `/login` signs in, the header shows the
 signed-in user. A Clerk organisation gets in when a `workspaces` row has its id,
 and `bun run add-workspace --org <id> --name <name> (--local | --remote [--env staging])`
 makes the first one of a deployment. It checks the organisation exists on the
-Clerk instance for that environment.
+Clerk instance for that environment: `--local` and `--env staging` use the key in
+`.env.local`, plain `--remote` uses the one in `.env.production.local` or the
+process environment.
 
 ## Architecture
 

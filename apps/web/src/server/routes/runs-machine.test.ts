@@ -96,7 +96,7 @@ beforeEach(async () => {
     clerkOrgId: ORG,
   });
   if (!workspace) {
-    throw new Error(`${ORG} is not an allowed organisation`);
+    throw new Error(`${ORG} has no workspace row`);
   }
   workspaceId = workspace.id;
   user = { kind: "user", userId: "user_1", via: "session", workspaceId };

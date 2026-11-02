@@ -37,9 +37,9 @@ export interface OAuthClaimDeps {
   /** The OAuth application's name, looked up only when its client is first seen. */
   clientName: (clientId: string) => Promise<string | null>;
   oauthClients: Pick<OAuthClientsService, "resolve">;
-  /** Clerk's verdict on the token: null when it is no valid OAuth access token. */
   /** The organisations Clerk lists for the user: one call, however many workspaces exist. */
   userOrgIds: UserOrgsCheck;
+  /** Clerk's verdict on the token: null when it is no valid OAuth access token. */
   verify: (token: string) => Promise<VerifiedOAuthToken | null>;
   workspaces: Pick<ReturnType<typeof createWorkspacesService>, "firstForOrgs">;
 }

@@ -15,7 +15,7 @@ export const appRouter = mergeRouters(
   router({
     /**
      * The caller's user id and workspace id. The example workspace procedure:
-     * it answers 401 unless the caller is a user in an allowed organisation.
+     * it answers 401 unless the caller is a user whose organisation has a workspace row.
      */
     me: workspaceProcedure.query(({ ctx }) => ({
       userId: ctx.principal.userId,

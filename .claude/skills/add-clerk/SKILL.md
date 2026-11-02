@@ -339,8 +339,8 @@ as the proof that the keys work. If Clerk rejects the address, ask the user for
 another and rerun both commands.
 
 Done when it prints `Created dev user` or `Updated password`. The dev login
-makes the dev organisation's workspace row itself the first time it runs, so
-nothing else is needed locally.
+makes the dev organisation's workspace row itself the first time it runs, so a
+local checkout needs no `add-workspace` run for it.
 
 ## 12. First workspace
 
@@ -350,12 +350,16 @@ to run, from `apps/web`, once per deployment with the organisation id from the
 Clerk dashboard:
 
 ```bash
-bun run add-workspace --org <org id> --name <name> --local
 bun run add-workspace --org <org id> --name <name> --remote
 ```
 
+Use `--local` instead for a local organisation that is not the dev login's.
 The script checks that the organisation exists on that environment's Clerk
-instance. Without a row, a signed-in user in that organisation sees the
+instance. `--remote` without `--env staging` reads the key from
+`apps/web/.env.production.local` or the process environment, and refuses the
+dev key found in `.env.local`. A deployment that uses the Clerk dev instance, as
+a fresh copy does, needs `CLERK_SECRET_KEY=<the key the Worker runs with>` in
+`apps/web/.env.production.local` first. Without a row, a signed-in user in that organisation sees the
 "This organisation can't use Harbourmaster" screen.
 
 ## 13. Docs

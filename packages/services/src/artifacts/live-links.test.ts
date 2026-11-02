@@ -593,6 +593,21 @@ describe("the granter (R2.11)", () => {
     expect(memberCalls).toHaveLength(0);
   });
 
+  test("a link whose workspace has no row is refused, and Clerk is not asked", async () => {
+    const link = await liveLink();
+    // D1's foreign keys would refuse this delete. A row that is gone while its
+    // artifacts remain is the case this guards.
+    db.client.run("PRAGMA foreign_keys = OFF");
+    db.delete(workspaces).where(eq(workspaces.id, "w1")).run();
+    const result = await service.callLink(
+      link.token,
+      { tool: LIST },
+      request()
+    );
+    expect(result.ok).toBe(false);
+    expect(memberCalls).toHaveLength(0);
+  });
+
   test("without a membership check or a runner nothing runs", async () => {
     const link = await liveLink();
     withRunner = false;

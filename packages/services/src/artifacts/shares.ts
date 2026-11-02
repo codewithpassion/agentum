@@ -984,7 +984,7 @@ export const createArtifactSharesService = ({
    * token is looked up by its hash and every check runs now, with no cache:
    * the link is alive, it is a live link, the tool is in `live_tools` and in
    * the shown version's approved grants, the granter still owns the artifact
-   * and belongs to an allowed org, and the rate limits hold. The tool then
+   * and belongs to its workspace's org, and the rate limits hold. The tool then
    * runs as the granter through B.5's runner, which scrubs and caps the result.
    * Every known link writes one `live_call` row with the tool key and the
    * outcome. An unknown token writes nothing and reads as not found.

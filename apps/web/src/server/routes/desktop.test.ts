@@ -112,7 +112,7 @@ beforeEach(async () => {
     clerkOrgId: "org_a",
   });
   if (!workspace) {
-    throw new Error("org_a is not an allowed organisation");
+    throw new Error("org_a has no workspace row");
   }
   workspaceId = workspace.id;
   relayRequests.length = 0;
@@ -253,7 +253,7 @@ test("a machine another workspace owns is a 404 on every route", async () => {
     clerkOrgId: "org_b",
   });
   if (!other) {
-    throw new Error("org_b is not an allowed organisation");
+    throw new Error("org_b has no workspace row");
   }
   const otherUser = {
     kind: "user" as const,
