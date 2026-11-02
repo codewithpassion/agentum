@@ -45,3 +45,5 @@ A row outside today's allowlist gains access when this ships, and an allowed org
 - 2026-11-02: dispatched.
 - 2026-11-02: review clean after 1 fix round. Merged and pushed. Not deployed: the rollout comparison in each environment comes first.
 - 2026-11-02: deployed to staging at c222660d (Worker version 21e568dd). All 10 rows matched the staging list, and the staging Worker secret is deleted. Sign-in still lands on the desk. Production not deployed.
+- 2026-11-02: production deployed at e834ab3a (Worker version 585be69b, was f885d00e), with Dom's go-ahead, and migration 0041 applied.
+- 2026-11-02: production Worker secret ALLOWED_ORG_IDS deleted. Sign-in rechecked after it. Admin delete turned off on the two production organisations, Dev Workspace and Harbour Edge Intelligence. ALLOWED_ORG_IDS removed from the local env files.

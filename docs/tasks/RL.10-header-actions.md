@@ -38,3 +38,4 @@ Dom's request, 2 November 2026: the board matters but is buried in the Find over
 - 2026-11-02: dispatched.
 - 2026-11-02: review clean after 0 fix rounds. Merged and pushed. Starting a task from New was not run end to end, because the local database has no agents. Check it on staging.
 - 2026-11-02: deployed to staging at c222660d. Board and a task started from New both checked in the browser there. Production not deployed.
+- 2026-11-02: production deployed at e834ab3a (Worker version 585be69b, was f885d00e), with Dom's go-ahead, and migration 0041 applied.

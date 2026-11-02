@@ -41,3 +41,4 @@ Dom's request, 2 November 2026: there is no way to create a new workspace, invit
 - 2026-11-02: dispatched.
 - 2026-11-02: review clean after 1 fix round. Merged and pushed. An invitation to a brand-new user is unverified, because the hosted sign-up stops at bot protection in headless Chrome.
 - 2026-11-02: deployed to staging at 94408471 (Worker version a04c0bb4). The menu lists the workspace, Manage members and New workspace. Create and switch were checked on the dev instance only, because staging uses the shared production Clerk. Milestone gate running.
+- 2026-11-02: production deployed at e834ab3a (Worker version 585be69b, was f885d00e), with Dom's go-ahead, and migration 0041 applied.
