@@ -3,7 +3,7 @@ id: WS.2
 title: "Switch workspace, create one, and invite people"
 milestone: WS
 size: M
-status: in_progress
+status: done
 depends_on: [WS.1, RL.10]
 branch: task/WS.2-workspace-switch-create-invite
 lane: web
@@ -39,3 +39,4 @@ Dom's request, 2 November 2026: there is no way to create a new workspace, invit
 ## Log
 - 2026-11-02: created from Dom's request.
 - 2026-11-02: dispatched.
+- 2026-11-02: review clean after 1 fix round. Merged and pushed. An invitation to a brand-new user is unverified, because the hosted sign-up stops at bot protection in headless Chrome.
