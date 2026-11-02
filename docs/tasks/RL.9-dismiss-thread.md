@@ -3,7 +3,7 @@ id: RL.9
 title: "Dismiss an inbox thread from Needs you"
 milestone: RL
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/RL.9-dismiss-thread
 lane: services
@@ -39,3 +39,4 @@ Dom's request, 2 November 2026: a thread in production ("Bruce migration compare
 ## Log
 - 2026-11-02: created from Dom's request.
 - 2026-11-02: dispatched.
+- 2026-11-02: review clean after 0 fix rounds. Merged and pushed. guest-execution.test.ts hit ECONNRESET once in the merge check under load, and passed on rerun. Migration 0041 still to apply to remote D1.
