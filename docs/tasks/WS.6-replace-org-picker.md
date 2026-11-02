@@ -35,3 +35,4 @@ A signed-in person with no active organisation gets a pending session, and `Pend
 ## Log
 - 2026-11-02: created from Dom's decision, and dispatched.
 - 2026-11-02: review clean after 1 fix round. Merged and pushed.
+- 2026-11-02: deployed to staging at 11d1ca2d (Worker version a526b2f3). An Agent Task sign-in for a user in one organisation with a row and one without landed on /desk in the one with a row, and the picker listed only that one. Test user and organisation deleted.
