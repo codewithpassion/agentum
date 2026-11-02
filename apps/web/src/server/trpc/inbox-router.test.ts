@@ -87,3 +87,20 @@ test("a caller without a session gets UNAUTHORIZED", async () => {
     code: "UNAUTHORIZED",
   });
 });
+
+test("dismissing a thread needs a workspace session, and the thread must be in it", async () => {
+  const owner = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const thread = await owner.inbox.createThread({ title: "Plans" });
+
+  const dismissed = await owner.inbox.clearAttention({ threadId: thread.id });
+  expect(dismissed.attentionClearedAt).not.toBeNull();
+
+  const signedOut = await callerFor({ orgId: "org_a", userId: null });
+  await expect(
+    signedOut.inbox.clearAttention({ threadId: thread.id })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  const other = await callerFor({ orgId: "org_b", userId: "user_2" });
+  await expect(
+    other.inbox.clearAttention({ threadId: thread.id })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
