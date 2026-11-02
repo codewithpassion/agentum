@@ -19,6 +19,9 @@ describe("safeRedirectPath", () => {
     "https://evil.example/",
     "/\\evil.example",
     "javascript:alert(1)",
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "/\r/evil.example",
   ])("rejects %p", (value) => {
     expect(safeRedirectPath(value)).toBeUndefined();
   });
