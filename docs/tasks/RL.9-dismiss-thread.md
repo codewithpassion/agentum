@@ -40,3 +40,4 @@ Dom's request, 2 November 2026: a thread in production ("Bruce migration compare
 - 2026-11-02: created from Dom's request.
 - 2026-11-02: dispatched.
 - 2026-11-02: review clean after 0 fix rounds. Merged and pushed. guest-execution.test.ts hit ECONNRESET once in the merge check under load, and passed on rerun. Migration 0041 still to apply to remote D1.
+- 2026-11-02: deployed to staging at c222660d, including migration 0041. Dismiss, the return on a new agent reply and a second dismiss all checked in the browser there. Production not deployed.

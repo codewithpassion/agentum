@@ -37,3 +37,4 @@ Dom's request, 2 November 2026: the board matters but is buried in the Find over
 - 2026-11-02: created from Dom's request.
 - 2026-11-02: dispatched.
 - 2026-11-02: review clean after 0 fix rounds. Merged and pushed. Starting a task from New was not run end to end, because the local database has no agents. Check it on staging.
+- 2026-11-02: deployed to staging at c222660d. Board and a task started from New both checked in the browser there. Production not deployed.
