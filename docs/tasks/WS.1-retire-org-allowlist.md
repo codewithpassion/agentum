@@ -3,7 +3,7 @@ id: WS.1
 title: "A workspace row admits an organisation, and ALLOWED_ORG_IDS goes away"
 milestone: WS
 size: L
-status: in_progress
+status: done
 depends_on: []
 branch: task/WS.1-retire-org-allowlist
 lane: services
@@ -43,3 +43,4 @@ A row outside today's allowlist gains access when this ships, and an allowed org
 ## Log
 - 2026-11-02: created from Dom's request.
 - 2026-11-02: dispatched.
+- 2026-11-02: review clean after 1 fix round. Merged and pushed. Not deployed: the rollout comparison in each environment comes first.
