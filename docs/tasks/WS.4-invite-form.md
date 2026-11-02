@@ -3,7 +3,7 @@ id: WS.4
 title: "Invite people from Harbourmaster, so a new user lands back in the workspace"
 milestone: WS
 size: M
-status: in_progress
+status: done
 depends_on: [WS.2]
 branch: task/WS.4-invite-form
 lane: services
@@ -37,3 +37,4 @@ An invitation sent from Clerk's organisation profile carries no redirect URL, so
 
 ## Log
 - 2026-11-02: created from the WS gate and Dom's decision, and dispatched.
+- 2026-11-02: review clean after 1 fix round. Merged and pushed. Tested on the dev instance with Clerk test addresses. Production is unproven, because its sessions stay pending with the choose-organization task.
