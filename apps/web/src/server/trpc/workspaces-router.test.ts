@@ -77,6 +77,23 @@ test("mine answers 401 when signed out", async () => {
   });
 });
 
+test("hasWorkspace answers for an org with and without a row, to a person with no active organisation", async () => {
+  const caller = await callerFor({ userId: "user_1" });
+  expect(await caller.workspaces.hasWorkspace({ org: "org_a" })).toEqual({
+    exists: true,
+  });
+  expect(
+    await caller.workspaces.hasWorkspace({ org: "org_other_app" })
+  ).toEqual({ exists: false });
+});
+
+test("hasWorkspace answers 401 when signed out", async () => {
+  const caller = await callerFor({ userId: null });
+  await expect(
+    caller.workspaces.hasWorkspace({ org: "org_a" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
 test("create makes a workspace for an admin and returns its org id", async () => {
   const caller = await callerFor({
     orgId: "org_a",

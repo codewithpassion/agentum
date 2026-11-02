@@ -191,7 +191,7 @@ dashboard too. Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and
 
 The workspace menu in the rail header (`apps/web/src/components/rail/workspace-menu.tsx`) lists only organisations with a `workspaces` row, so it is not Clerk's OrganizationSwitcher. `New workspace` is for org:admin only, and `workspaces.createFromSession` enforces that on the server, so hiding the button is not the check. Switching workspace ends in a full page load to `/desk`, because loaders, polls and the rail hold the old workspace's data. `signedInProcedure` in `init.ts` serves a signed-in user with no workspace (`ctx.userId`), while `workspaceProcedure` still answers 401. `context.ts` now carries `userId`, so a change to it goes into the add-clerk copy too.
 
-Invitations are sent from the same menu, `Invite people`, by `workspaces.inviteFromSession` (org admin on a browser session, organisation from the principal). Never send one from Clerk's organisation profile: it carries no redirect URL, so a new user lands on the Clerk instance's home URL, which on the shared production instance is another app. The profile is opened with its own invite button hidden. The invitation's `redirectUrl` is `PUBLIC_BASE_URL/accept-invitation?org=<id>`, so a deployment with an empty `PUBLIC_BASE_URL` (previews) cannot invite. `routes/accept-invitation.tsx` shows `<SignUp>` or `<SignIn>` by `__clerk_status`, and once signed in makes `org` the active organisation before `/desk`. Clerk's bot check blocks headless Chrome on that form, so test it with agent-browser `--headed` on a virtual display (`Xvfb :97`, `DISPLAY=:97`).
+Invitations are sent from the same menu, `Invite people`, by `workspaces.inviteFromSession` (org admin on a browser session, organisation from the principal). Never send one from Clerk's organisation profile: it carries no redirect URL, so a new user lands on the Clerk instance's home URL, which on the shared production instance is another app. The profile is opened with its own invite button hidden. The invitation's `redirectUrl` is `PUBLIC_BASE_URL/accept-invitation?org=<id>`, so a deployment with an empty `PUBLIC_BASE_URL` (previews) cannot invite. `routes/accept-invitation.tsx` shows `<SignUp>` or `<SignIn>` by `__clerk_status`. Once signed in it asks `workspaces.hasWorkspace` whether `org` has a `workspaces` row, and with no row it does nothing (no accept, no `setActive`). A member gets `setActive` then `/desk`. A person with a pending invitation sees `Join <organisation>`, and `accept()` runs only on that click, because the route can't verify a ticket on a signed-in session and a crafted link must not join anyone to anything. Clerk's bot check blocks headless Chrome on that form, so test it with agent-browser `--headed` on a virtual display (`Xvfb :97`, `DISPLAY=:97`).
 
 Org and user ids in D1 belong to one Clerk instance. Moving the app to another
 instance means rewriting them with `bun run migrate-clerk-ids` (dry run unless
@@ -233,8 +233,9 @@ name a user on that instance (the dev user is not there). The URL is a one-time
 credential: open it in a fresh browser session and don't paste it into logs or
 reports. The key is never printed. The session lands on the signed-in pages
 only when the user has an active organisation that has a workspace row. On the production
-instance (production only) Clerk does not activate it for an Agent Task
-session: the session stays `pending` with the `choose-organization` task, which
+instance Clerk does not activate an organisation for an Agent Task session. On
+any instance, including dev, a user with no active organisation gets the same:
+the session stays `pending` with the `choose-organization` task, which
 the app treats as signed out. `PendingSessionGate`
 (`src/integrations/clerk/pending-session-gate.tsx`) handles it. It activates
 the user's only organisation and reloads the page you asked for, and sends a

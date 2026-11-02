@@ -5,7 +5,7 @@ import {
   useSession,
 } from "@clerk/tanstack-react-start";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
   activationPlan,
@@ -13,6 +13,7 @@ import {
   invitationStep,
   parseInvitationSearch,
 } from "#/integrations/clerk/accept-invitation";
+import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/accept-invitation")({
   component: AcceptInvitationPage,
@@ -75,51 +76,82 @@ function GoToDesk() {
   return <Centered>Opening your workspace</Centered>;
 }
 
+type RowState = "loading" | "yes" | "no" | "failed";
+
 function ActivateOrganization({ org }: { org: string }) {
   const { isLoaded, setActive, userInvitations, userMemberships } =
     useOrganizationList({
-      userInvitations: { status: "pending" },
-      userMemberships: true,
+      userInvitations: { infinite: true, pageSize: 100, status: "pending" },
+      userMemberships: { infinite: true, pageSize: 100 },
     });
   const started = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [row, setRow] = useState<RowState>("loading");
   const loading =
-    !isLoaded || userMemberships.isLoading || userInvitations.isLoading;
+    !isLoaded ||
+    userMemberships.isLoading ||
+    userInvitations.isLoading ||
+    row === "loading";
 
   useEffect(() => {
-    if (loading || !setActive || started.current) {
+    let current = true;
+    getTrpc()
+      .workspaces.hasWorkspace.query({ org })
+      .then((result) => current && setRow(result.exists ? "yes" : "no"))
+      .catch(() => current && setRow("failed"));
+    return () => {
+      current = false;
+    };
+  }, [org]);
+
+  const confirm = useCallback(() => setConfirmed(true), []);
+
+  const plan = loading
+    ? null
+    : activationPlan({
+        confirmed,
+        hasRow: row === "yes",
+        invitations: (userInvitations.data ?? []).map((pending) => ({
+          id: pending.id,
+          organizationId: pending.publicOrganizationData.id,
+        })),
+        memberOrgIds: (userMemberships.data ?? []).map(
+          (membership) => membership.organization.id
+        ),
+        org,
+      });
+  const invitation =
+    plan && "invitationId" in plan
+      ? (userInvitations.data ?? []).find(
+          (candidate) => candidate.id === plan.invitationId
+        )
+      : undefined;
+
+  useEffect(() => {
+    if (!(plan && setActive) || started.current) {
       return;
     }
-    started.current = true;
-    const plan = activationPlan({
-      invitations: (userInvitations.data ?? []).map((invitation) => ({
-        id: invitation.id,
-        organizationId: invitation.publicOrganizationData.id,
-      })),
-      memberOrgIds: (userMemberships.data ?? []).map(
-        (membership) => membership.organization.id
-      ),
-      org,
-    });
     if (plan.kind === "none") {
+      started.current = true;
       setError(
-        "This invitation is not for the account you are signed in with."
+        row === "failed"
+          ? "Could not open the workspace you were invited to."
+          : "This invitation is not for the account you are signed in with."
       );
       return;
     }
-    const accepted =
-      plan.kind === "accept"
-        ? (userInvitations.data ?? [])
-            .find((invitation) => invitation.id === plan.invitationId)
-            ?.accept()
-        : Promise.resolve();
-    Promise.resolve(accepted)
+    if (plan.kind === "confirm") {
+      return;
+    }
+    started.current = true;
+    Promise.resolve(plan.kind === "accept" ? invitation?.accept() : undefined)
       .then(() => setActive({ organization: org }))
       .then(() => window.location.assign("/desk"))
       .catch(() =>
         setError("Could not open the workspace you were invited to.")
       );
-  }, [loading, org, setActive, userInvitations.data, userMemberships.data]);
+  }, [plan, row, invitation, org, setActive]);
 
   if (error !== null) {
     return (
@@ -131,6 +163,18 @@ function ActivateOrganization({ org }: { org: string }) {
           <Button asChild variant="outline">
             <Link to="/">Go to Harbourmaster</Link>
           </Button>
+        </div>
+      </Centered>
+    );
+  }
+  if (plan?.kind === "confirm" && invitation) {
+    return (
+      <Centered>
+        <div className="space-y-4">
+          <p className="text-sm">
+            Join {invitation.publicOrganizationData.name}?
+          </p>
+          <Button onClick={confirm}>Join</Button>
         </div>
       </Centered>
     );

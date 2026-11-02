@@ -14,6 +14,12 @@ export const workspacesRouter = router({
       );
       return { clerkOrgId: workspace.clerkOrgId };
     }),
+  /** Whether an organisation has a workspace row. Reveals nothing else about it. */
+  hasWorkspace: signedInProcedure
+    .input(z.strictObject({ org: z.string().min(1) }))
+    .query(async ({ ctx, input }) => ({
+      exists: await ctx.services.workspaces.hasWorkspace(input.org),
+    })),
   /** Emails an invitation to the current workspace. The caller must be an admin of it. */
   invite: workspaceProcedure
     .input(z.strictObject({ email: z.string(), role: z.enum(INVITE_ROLES) }))
