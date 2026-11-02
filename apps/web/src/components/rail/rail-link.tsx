@@ -22,6 +22,7 @@ export function RailLink({
   className,
   current,
   href,
+  label,
   onNavigate,
   title,
 }: {
@@ -29,6 +30,8 @@ export function RailLink({
   className?: string;
   current?: boolean;
   href: string;
+  /** Accessible name, for a link whose visible text is hidden. */
+  label?: string;
   onNavigate?: () => void;
   title?: string;
 }) {
@@ -47,6 +50,7 @@ export function RailLink({
   return (
     <a
       aria-current={current ? "true" : undefined}
+      aria-label={label}
       className={className}
       href={href}
       onClick={handleClick}

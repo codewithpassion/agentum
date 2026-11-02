@@ -1,5 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { APP_HEADER_MENU_SLOT } from "#/components/shell/header-menu-slot";
+import {
+  APP_HEADER_MENU_SLOT,
+  HeaderActionsSlot,
+} from "#/components/shell/header-menu-slot";
 import { useIsAppShell } from "#/hooks/use-app-shell";
 import { cn } from "#/lib/utils";
 import ClerkHeader from "../integrations/clerk/header-user.tsx";
@@ -39,6 +42,7 @@ export default function Header() {
         </h2>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <HeaderActionsSlot inAppShell={inAppShell} />
           <ClerkHeader />
 
           <ThemeToggle />
