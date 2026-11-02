@@ -35,3 +35,4 @@ A signed-in person opening `/accept-invitation?org=<id>` has any pending invitat
 ## Log
 - 2026-11-02: created from the WS gate, round 2, and dispatched.
 - 2026-11-02: review clean after 0 fix rounds. Merged and pushed.
+- 2026-11-02: deployed to staging at 0348b3db (Worker version 3bb522f1). A real emailed invitation to a brand-new address, sent from Invite people, signed up from the link while signed out and landed on /desk in the inviting workspace. Test user deleted. The signed-out existing-user path was tested in WS.4 and not repeated here.
