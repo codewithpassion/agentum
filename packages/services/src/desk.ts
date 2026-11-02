@@ -522,7 +522,14 @@ export const createDeskService = ({
     );
     const answered = threads.flatMap((thread) => {
       const post = latest.find((entry) => entry.threadId === thread.id);
-      return post?.authorKind === "agent" && !drafts.has(post.authorId)
+      // A dismissal holds until a post newer than it lands.
+      const dismissed =
+        post !== undefined &&
+        thread.attentionClearedAt !== null &&
+        thread.attentionClearedAt >= post.createdAt;
+      return post?.authorKind === "agent" &&
+        !drafts.has(post.authorId) &&
+        !dismissed
         ? [{ post, thread }]
         : [];
     });

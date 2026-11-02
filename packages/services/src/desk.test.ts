@@ -634,6 +634,45 @@ test("an inbox thread waits in Needs you while an agent's post is the newest, an
   expect(await desk.needsYouCount(user())).toBe(0);
 });
 
+test("a dismissed inbox thread leaves Needs you until an agent posts again, and a person's post keeps it out", async () => {
+  const inbox = createInboxService({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    events,
+    runs: { startRun: (principal, input) => runs.startRun(principal, input) },
+  });
+  const thread = await inbox.createThread(user(), { title: "Plans" });
+  const post = (authorKind: "agent" | "user", n: number) =>
+    db.insert(inboxPosts).values({
+      authorId: authorKind === "agent" ? a2 : "u1",
+      authorKind,
+      createdAt: new Date(NOW + n).toISOString(),
+      id: `zz-post-${authorKind}-${n}`,
+      text: "Here is the plan.",
+      threadId: thread.id,
+      workspaceId: "w1",
+    });
+  await post("agent", 1);
+  now = NOW + 2;
+  expect(ids((await get()).needsYou)).toEqual([thread.id]);
+
+  await inbox.clearAttention(user(), { threadId: thread.id });
+
+  expect((await get()).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user())).toBe(0);
+
+  await post("agent", 3);
+  now = NOW + 4;
+  expect(ids((await get()).needsYou)).toEqual([thread.id]);
+  expect(await desk.needsYouCount(user())).toBe(1);
+
+  await inbox.clearAttention(user(), { threadId: thread.id });
+  await post("user", 5);
+  expect((await get()).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user())).toBe(0);
+});
+
 test("another member's chat and a private DM never show, but shared sessions do", async () => {
   await waitingOnApproval(a1, "u2");
   const shared = await seed({ origin: "mcp", status: "running" });

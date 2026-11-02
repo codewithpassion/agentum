@@ -4,6 +4,7 @@ import {
   type NeedsYouKind,
 } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
 import { GrantApprovalCard } from "#/components/artifacts/grant-approval-card.tsx";
 import { parsePromoteApproval } from "#/components/artifacts/grant-approval-model.ts";
 import { A2aDecision } from "#/components/connections/a2a-decision.tsx";
@@ -16,8 +17,10 @@ import {
   agentInitials,
   agentTileColour,
 } from "#/components/shell/agent-tile.ts";
-import { buttonVariants } from "#/components/ui/button.tsx";
+import { errorMessage } from "#/components/triggers/format.ts";
+import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { SuggestionReview } from "#/components/wiki-suggestions/suggestion-review.tsx";
+import { getTrpc } from "#/integrations/trpc/client";
 import { ConflictResolver } from "./conflict-resolver.tsx";
 import { ProposalActions } from "./proposal-actions.tsx";
 
@@ -58,17 +61,54 @@ function AskFallback({ card }: { card: DeskCard }) {
   );
 }
 
-function ThreadBody({ card }: { card: DeskCard }) {
+export function ThreadBody({
+  card,
+  onChanged,
+}: {
+  card: DeskCard;
+  onChanged: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const dismiss = useCallback(async () => {
+    setPending(true);
+    setError(null);
+    try {
+      await getTrpc().inbox.clearAttention.mutate({ threadId: card.id });
+      onChanged();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPending(false);
+    }
+  }, [card.id, onChanged]);
+
   return (
     <div className="flex flex-col items-start gap-2">
       <p className="text-muted-foreground text-xs">{card.band.text}</p>
-      <Link
-        className={buttonVariants({ size: "sm", variant: "outline" })}
-        search={{ thread: card.id }}
-        to="/inbox"
-      >
-        Open thread
-      </Link>
+      <div className="flex flex-wrap gap-2">
+        <Link
+          className={buttonVariants({ size: "sm", variant: "outline" })}
+          search={{ thread: card.id }}
+          to="/inbox"
+        >
+          Open thread
+        </Link>
+        <Button
+          disabled={pending}
+          onClick={dismiss}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Dismiss
+        </Button>
+      </div>
+      {error === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -148,7 +188,7 @@ export function NeedsYouBody({
         </div>
       );
     case "inbox_reply":
-      return <ThreadBody card={card} />;
+      return <ThreadBody card={card} onChanged={onChanged} />;
     case "wiki_suggestion":
       return (
         <SuggestionReview

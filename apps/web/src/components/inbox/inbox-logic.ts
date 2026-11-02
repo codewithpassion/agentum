@@ -24,3 +24,21 @@ export const authorLabel = (
 
 export const canSend = (text: string, sending: boolean): boolean =>
   !sending && text.trim().length > 0;
+
+/**
+ * True when the newest post is an agent's and no person has dismissed the
+ * thread since. A dismissal at or after that post hides it, as on the server.
+ */
+export const threadWaits = (
+  thread: { attentionClearedAt: string | null },
+  posts: readonly Pick<InboxPost, "authorKind" | "createdAt">[]
+): boolean => {
+  const newest = posts.at(-1);
+  if (newest === undefined || newest.authorKind !== "agent") {
+    return false;
+  }
+  return (
+    thread.attentionClearedAt === null ||
+    thread.attentionClearedAt < newest.createdAt
+  );
+};

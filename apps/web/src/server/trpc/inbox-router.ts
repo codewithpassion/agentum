@@ -1,5 +1,6 @@
 // Inbox procedures: threads and posts of the user's workspace.
 import {
+  clearAttentionInputSchema,
   postInputSchema,
   threadCreateInputSchema,
   threadReadInputSchema,
@@ -7,6 +8,11 @@ import {
 import { router, workspaceProcedure } from "./init.ts";
 
 export const inboxRouter = router({
+  clearAttention: workspaceProcedure
+    .input(clearAttentionInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.inbox.clearAttention(ctx.principal, input)
+    ),
   createThread: workspaceProcedure
     .input(threadCreateInputSchema)
     .mutation(({ ctx, input }) =>
