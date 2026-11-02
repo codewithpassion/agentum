@@ -137,7 +137,7 @@ tRPC: `desk.rail` (query), `desk.clearAttention` (mutation), `members.list` (que
 
 Layout, top to bottom, at 320px wide on desktop:
 
-- Workspace name, then `Find` and a `New` button. `New` opens a small menu: New task, New agent. It reuses `NewTaskDialog`.
+- Workspace name, on its own row. Board, Find and New are not here: they sit on the right of the top bar, before the user button, in that order. Board links to `/desk?view=board` and is `aria-current` there. `New` opens a small menu under the button: New task, New agent. It reuses `NewTaskDialog`. Below `md` the three show icons only, with `aria-label`s.
 - The Mine and Everyone toggle, with its count on each side. It's stored in `localStorage` as `hm:rail-scope`. Hidden when the workspace has one member.
 - **Needs you** with its count. Each row is a link to `/desk?item=<id>`. It shows the title, the agent tile, the due label, the status, `+N more` when grouped, `for <name>` in Everyone, and `asked you too` when escalated. `problem` rows use the destructive colour on the left edge. Setup steps show here first, with links to `/settings/model-providers` and `/agents/new`.
 - **Working** with its count. At most 3 dim one-line rows with a slow pulse. A `N more working` row expands the rest. The status shows only on hover or in the title attribute.

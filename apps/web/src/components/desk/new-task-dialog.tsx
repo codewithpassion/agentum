@@ -31,10 +31,13 @@ const errorMessage = (error: unknown): string =>
 /** Starts a task for an agent and reports the new run's id. */
 export function NewTaskDialog({
   agents,
+  onOpenChange,
   onStarted,
   triggerLabel = "+ New task",
 }: {
   agents: readonly { id: string; name: string }[];
+  /** Called when the dialog opens or closes, for a parent that must stay mounted while it is open. */
+  onOpenChange?: (open: boolean) => void;
   onStarted: (runId: string) => void;
   triggerLabel?: string;
 }) {
@@ -52,9 +55,13 @@ export function NewTaskDialog({
     : (agents[0]?.id ?? "");
   const canStart = text.trim() !== "" && agentId !== "" && !pending;
 
-  const handleOpenChange = useCallback((next: boolean) => {
-    setOpen(next);
-  }, []);
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange]
+  );
 
   const handleAgentChange = useCallback((next: string) => {
     setAgentChoice(next);

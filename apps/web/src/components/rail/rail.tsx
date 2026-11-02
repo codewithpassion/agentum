@@ -1,11 +1,10 @@
 import { useOrganization } from "@clerk/tanstack-react-start";
 import { useRouterState } from "@tanstack/react-router";
-import { Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { PinnedArtifact } from "#/components/artifacts/pinned/pinned-logic";
 import { PinnedSidebarGroup } from "#/components/artifacts/pinned/pinned-sidebar";
 import { usePolledQuery } from "#/components/inbox/use-polled-query";
-import { Button } from "#/components/ui/button";
+import { HeaderActionsPortal } from "#/components/shell/header-menu-slot";
 import {
   Sidebar,
   SidebarContent,
@@ -15,9 +14,9 @@ import {
 } from "#/components/ui/sidebar";
 import { getTrpc } from "#/integrations/trpc/client";
 import { FindDialog } from "./find-dialog.tsx";
+import { RailHeaderActions } from "./rail-header-actions.tsx";
 import { RailLink } from "./rail-link.tsx";
 import { NeedsYouRow, SetupRow } from "./rail-needs-you.tsx";
-import { RailNewMenu } from "./rail-new-menu.tsx";
 import { RailQuestions } from "./rail-questions.tsx";
 import { ScopeToggle } from "./rail-scope-toggle.tsx";
 import { WorkingList } from "./rail-working.tsx";
@@ -106,16 +105,12 @@ export function Rail({ agents, pinned = [] }: RailProps) {
     <>
       <Sidebar className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]">
         <SidebarHeader className="gap-2 p-3 pb-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 flex-1 truncate font-heading text-lg">
-              {organization?.name ?? "Workspace"}
-            </span>
-            <Button onClick={openFind} type="button" variant="outline">
-              <Search data-icon="inline-start" />
-              Find
-            </Button>
-            <RailNewMenu agents={agents} onNavigate={closeMobileNav} />
-          </div>
+          <span
+            className="min-w-0 truncate font-heading text-lg"
+            title={organization?.name}
+          >
+            {organization?.name ?? "Workspace"}
+          </span>
           {showToggle && scope !== null ? (
             <ScopeToggle
               counts={view?.counts ?? null}
@@ -205,6 +200,13 @@ export function Rail({ agents, pinned = [] }: RailProps) {
           </nav>
         </SidebarFooter>
       </Sidebar>
+      <HeaderActionsPortal>
+        <RailHeaderActions
+          agents={agents}
+          onNavigate={closeMobileNav}
+          onOpenFind={openFind}
+        />
+      </HeaderActionsPortal>
       <FindDialog agents={agents} onOpenChange={setFindOpen} open={findOpen} />
     </>
   );
