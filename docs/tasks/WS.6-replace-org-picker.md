@@ -36,3 +36,4 @@ A signed-in person with no active organisation gets a pending session, and `Pend
 - 2026-11-02: created from Dom's decision, and dispatched.
 - 2026-11-02: review clean after 1 fix round. Merged and pushed.
 - 2026-11-02: deployed to staging at 11d1ca2d (Worker version a526b2f3). An Agent Task sign-in for a user in one organisation with a row and one without landed on /desk in the one with a row, and the picker listed only that one. Test user and organisation deleted.
+- 2026-11-02: production deployed at 2287a126 (Worker version 5309aa58, was bc42a9d2), with Dom's go-ahead. An Agent Task sign-in as the dev user landed on /desk in Dev Workspace, and the picker lists only that workspace, with no Join or create option. A real invitation on production is still to be tested. WS milestone closed after two gate rounds, with the nits recorded in docs/reviews/WS-1.md and WS-2.md.
