@@ -3,7 +3,7 @@ id: WS.6
 title: "Our own organisation picker, and no activation without a workspace row"
 milestone: WS
 size: S
-status: in_progress
+status: done
 depends_on: [WS.5]
 branch: task/WS.6-replace-org-picker
 lane: web
@@ -34,3 +34,4 @@ A signed-in person with no active organisation gets a pending session, and `Pend
 
 ## Log
 - 2026-11-02: created from Dom's decision, and dispatched.
+- 2026-11-02: review clean after 1 fix round. Merged and pushed.
