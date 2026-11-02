@@ -19,7 +19,12 @@ import { buildContext } from "./build-context.ts";
 export type Context = {
   principal: Principal | null;
   services: Services;
-  /** The signed-in user, even when their active organisation has no workspace row. Null when signed out. */
+  /**
+   * The signed-in user, even when their active organisation has no workspace
+   * row and even when the session is `pending` (a sign-in with no active
+   * organisation yet). Null when signed out. Never a way to a principal: that
+   * comes only from a session that is not pending.
+   */
   userId: string | null;
 };
 
@@ -30,9 +35,15 @@ export type Context = {
  */
 export const createHonoContext = (c: HonoContext<AppEnv>): Promise<Context> => {
   const { userId, orgId, orgRole } = getAuth(c) ?? {};
+  const pending = getAuth(c, { treatPendingAsSignedOut: false });
   return buildContext({
     composed: c.get("composed"),
-    session: { orgId, orgRole, userId: userId ?? null },
+    session: {
+      anyUserId: pending?.userId ?? null,
+      orgId,
+      orgRole,
+      userId: userId ?? null,
+    },
   });
 };
 
@@ -42,8 +53,9 @@ export const createHonoContext = (c: HonoContext<AppEnv>): Promise<Context> => {
  */
 export const createSsrContext = async (): Promise<Context> => {
   const { userId, orgId, orgRole } = await auth();
+  const pending = await auth({ treatPendingAsSignedOut: false });
   return buildContext({
     composed: compose(env, import.meta.env.DEV),
-    session: { orgId, orgRole, userId },
+    session: { anyUserId: pending.userId, orgId, orgRole, userId },
   });
 };

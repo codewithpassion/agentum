@@ -1,20 +1,22 @@
-export interface MembershipLike {
-  organization: { id: string };
+/** One workspace the person belongs to, as `workspaces.mine` returns it. */
+export interface WorkspaceRow {
+  clerkOrgId: string;
 }
 
 /**
- * Returns the organisation id when the user has exactly one organisation
- * membership, and undefined otherwise. Both the loaded list and the total
- * count must say one. Callers must also wait until the list has loaded, since
- * a list still being fetched reads as empty. Used to activate the user's only
- * organisation after an Agent Task sign-in.
+ * Returns the organisation id when the person belongs to exactly one
+ * organisation that has a `workspaces` row, and undefined otherwise. `mine` is
+ * the server's list, which already leaves out every organisation without a
+ * row, so an organisation of another app on the shared Clerk instance never
+ * counts. Callers must wait until the list has loaded, since an unloaded list
+ * reads as empty. Used to activate the person's only workspace after a sign-in
+ * with no active organisation.
  */
-export const soleOrganizationId = (
-  data: readonly MembershipLike[] | undefined,
-  count: number | undefined
+export const soleWorkspaceOrgId = (
+  mine: readonly WorkspaceRow[] | undefined
 ): string | undefined => {
-  if (data === undefined || count !== 1 || data.length !== 1) {
+  if (mine === undefined || mine.length !== 1) {
     return;
   }
-  return data[0]?.organization.id;
+  return mine[0]?.clerkOrgId;
 };

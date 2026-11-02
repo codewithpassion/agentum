@@ -9,8 +9,11 @@ export const buildContext = async ({
 }: {
   composed: Composed;
   session: {
+    /** The user of the session even when it is `pending`. Defaults to `userId`. */
+    anyUserId?: string | null;
     orgId?: string | null;
     orgRole?: string | null;
+    /** The user of the session, null when it is signed out or `pending`. The principal comes from this one. */
     userId: string | null;
   };
 }): Promise<Context> => {
@@ -22,5 +25,9 @@ export const buildContext = async ({
           orgRole: session.orgRole,
           userId: session.userId,
         });
-  return { principal, services, userId: session.userId };
+  return {
+    principal,
+    services,
+    userId: session.anyUserId ?? session.userId,
+  };
 };

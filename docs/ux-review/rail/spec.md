@@ -166,7 +166,7 @@ This is not Clerk's `OrganizationSwitcher`. That lists other apps' organisations
 
 `NoAccess` on `/` (`apps/web/src/routes/index.tsx`) shows the same list under "<org> has no Harbourmaster workspace", plus Sign out.
 
-`Members` and `New workspace` are not in Find. Find lists plain routes, and both are actions (a Clerk modal and a dialog), so they stay in the menu. `/choose-organization` still renders Clerk's `TaskChooseOrganization`, which can create an organisation and lists other apps' organisations on a shared instance. Picking one with no workspace row lands on `NoAccess`, which now explains it. It was left alone and not exercised in the WS.2 browser run.
+`Members` and `New workspace` are not in Find. Find lists plain routes, and both are actions (a Clerk modal and a dialog), so they stay in the menu. `/choose-organization` is our own list of the person's organisations that have a `workspaces` row (`workspaces.mine`). It offers no create and lists no invitations. Choosing one calls `setActive`, then loads the `redirect` page, or `/desk`.
 
 ## The main pane (RL.4)
 

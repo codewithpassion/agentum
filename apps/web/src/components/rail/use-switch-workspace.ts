@@ -3,11 +3,12 @@ import { useCallback, useState } from "react";
 import { switchErrorMessage } from "./workspace-menu-logic.ts";
 
 /**
- * Makes `organizationId` the active organisation and reloads onto `/desk`.
+ * Makes `organizationId` the active organisation and reloads onto `target`
+ * (`/desk` unless given).
  * The reload is a full page load because loaders, polls and the rail hold the
  * old workspace's data. A failed switch stays put and reports its error.
  */
-export function useSwitchWorkspace() {
+export function useSwitchWorkspace(target = "/desk") {
   const { setActive } = useOrganizationList();
   const [error, setError] = useState<string | null>(null);
 
@@ -18,9 +19,9 @@ export function useSwitchWorkspace() {
         throw new Error("Clerk has not loaded yet.");
       }
       await setActive({ organization: organizationId });
-      window.location.assign("/desk");
+      window.location.assign(target);
     },
-    [setActive]
+    [setActive, target]
   );
 
   /** `activate`, with a failure kept in `error` instead of thrown. */
