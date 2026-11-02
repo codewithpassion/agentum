@@ -31,7 +31,11 @@ function ChoiceItem({
   choice: WorkspaceChoice;
   onChoose: (organizationId: string) => void;
 }) {
-  const choose = useCallback(() => onChoose(choice.id), [choice.id, onChoose]);
+  const choose = useCallback(() => {
+    if (!choice.current) {
+      onChoose(choice.id);
+    }
+  }, [choice.current, choice.id, onChoose]);
   return (
     <DropdownMenuItem
       aria-current={choice.current ? "true" : undefined}
@@ -55,7 +59,7 @@ function ChoiceItem({
  * organisations that have a workspace row are listed, which is why this is
  * not Clerk's OrganizationSwitcher.
  */
-export function WorkspaceMenu() {
+export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
   const clerk = useClerk();
   const { organization } = useOrganization();
   const { userMemberships } = useOrganizationList({
@@ -84,10 +88,12 @@ export function WorkspaceMenu() {
   );
   const canCreate = canCreateWorkspace({ activeOrgId, mine: mine ?? [] });
 
-  const openMembers = useCallback(
-    () => clerk.openOrganizationProfile(),
-    [clerk]
-  );
+  // Below md the rail is a modal sheet, and its focus trap would block
+  // Clerk's modal, so the sheet closes first.
+  const openMembers = useCallback(() => {
+    onNavigate();
+    clerk.openOrganizationProfile();
+  }, [clerk, onNavigate]);
   const openCreate = useCallback(() => setCreating(true), []);
 
   return (

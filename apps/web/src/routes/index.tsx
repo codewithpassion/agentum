@@ -102,7 +102,7 @@ function NoAccess() {
       name: membership.organization.name,
     })),
   });
-  const subject = organization?.name ?? "Your account";
+  const subject = organization?.name ?? "This session";
   return (
     <div className="max-w-md space-y-4">
       <p className="font-medium">{subject} has no Harbourmaster workspace.</p>

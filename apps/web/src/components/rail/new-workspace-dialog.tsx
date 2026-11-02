@@ -3,6 +3,7 @@ import {
   type FormEvent,
   useCallback,
   useId,
+  useRef,
   useState,
 } from "react";
 import { Button } from "#/components/ui/button.tsx";
@@ -31,6 +32,8 @@ export function NewWorkspaceDialog({
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the workspace exists, so a retry after a failed switch does not make a second one.
+  const createdOrgId = useRef<string | null>(null);
   const nameId = useId();
   const canCreate = name.trim() !== "" && !pending;
 
@@ -47,21 +50,40 @@ export function NewWorkspaceDialog({
       setPending(true);
       setError(null);
       try {
-        const { clerkOrgId } = await getTrpc().workspaces.create.mutate({
-          name,
-        });
+        if (createdOrgId.current === null) {
+          const { clerkOrgId } = await getTrpc().workspaces.create.mutate({
+            name,
+          });
+          createdOrgId.current = clerkOrgId;
+        }
         // The page reloads once the switch lands, so the dialog stays pending.
-        await onCreated(clerkOrgId);
+        await onCreated(createdOrgId.current);
       } catch (caught) {
-        setError(switchErrorMessage(caught));
+        const reason = switchErrorMessage(caught);
+        setError(
+          createdOrgId.current === null
+            ? reason
+            : `The workspace was created, but switching to it failed: ${reason} Try again to switch.`
+        );
         setPending(false);
       }
     },
     [canCreate, name, onCreated]
   );
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        setName("");
+        setError(null);
+        createdOrgId.current = null;
+      }
+      onOpenChange(next);
+    },
+    [onOpenChange]
+  );
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <DialogHeader>

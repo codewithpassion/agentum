@@ -104,7 +104,7 @@ export function Rail({ agents, pinned = [] }: RailProps) {
     <>
       <Sidebar className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]">
         <SidebarHeader className="gap-2 p-3 pb-1">
-          <WorkspaceMenu />
+          <WorkspaceMenu onNavigate={closeMobileNav} />
           {showToggle && scope !== null ? (
             <ScopeToggle
               counts={view?.counts ?? null}
