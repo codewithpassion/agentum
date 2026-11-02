@@ -7,7 +7,7 @@ export interface InvitationSearch {
 
 /** What `/accept-invitation` shows or does. */
 export type InvitationStep =
-  /** A signed-in session: make the inviting organisation active, then open `/desk`. */
+  /** A signed-in session: check the organisation has a workspace, ask the person to join if they must, make it active, then open `/desk`. */
   | { kind: "activate"; org: string }
   /** A new person: the sign-up form takes the ticket. */
   | { kind: "sign-up" }
@@ -62,29 +62,41 @@ export function parseInvitationSearch(
 }
 
 /**
- * What a signed-in session must do to end up in `org`. A person who was
- * already signed in when they opened the link never spent the ticket, so the
- * invitation is still pending: accept it first. A member just activates.
+ * What a signed-in session must do to end up in `org`. An organisation with no
+ * `workspaces` row gets nothing: Harbourmaster has no say over it. A person
+ * who was already signed in when they opened the link never spent the ticket,
+ * so the invitation is still pending. It is accepted only once the person has
+ * confirmed, because the link alone, a ticket included, proves nothing about
+ * what they want. A member just activates.
  */
 export function activationPlan({
+  confirmed,
+  hasRow,
   invitations,
   memberOrgIds,
   org,
 }: {
+  confirmed: boolean;
+  hasRow: boolean;
   invitations: readonly { id: string; organizationId: string }[];
   memberOrgIds: readonly string[];
   org: string;
 }):
   | { kind: "activate" }
+  | { kind: "confirm"; invitationId: string }
   | { kind: "accept"; invitationId: string }
   | { kind: "none" } {
+  if (!hasRow) {
+    return { kind: "none" };
+  }
   if (memberOrgIds.includes(org)) {
     return { kind: "activate" };
   }
   const pending = invitations.find(
     (invitation) => invitation.organizationId === org
   );
-  return pending
-    ? { invitationId: pending.id, kind: "accept" }
-    : { kind: "none" };
+  if (!pending) {
+    return { kind: "none" };
+  }
+  return { invitationId: pending.id, kind: confirmed ? "accept" : "confirm" };
 }

@@ -55,9 +55,12 @@ test("the search parser reads Clerk's keys and ignores everything else", () => {
   });
 });
 
+const BASE = { confirmed: false, hasRow: true };
+
 test("a member of the organisation just activates it", () => {
   expect(
     activationPlan({
+      ...BASE,
       invitations: [{ id: "inv_1", organizationId: "org_a" }],
       memberOrgIds: ["org_a", "org_b"],
       org: "org_a",
@@ -65,22 +68,55 @@ test("a member of the organisation just activates it", () => {
   ).toEqual({ kind: "activate" });
 });
 
-test("a signed-in person with a pending invitation accepts it first", () => {
+test("a pending invitation waits for the person's confirmation, then accepts", () => {
+  const input = {
+    ...BASE,
+    invitations: [
+      { id: "inv_2", organizationId: "org_b" },
+      { id: "inv_1", organizationId: "org_a" },
+    ],
+    memberOrgIds: ["org_b"],
+    org: "org_a",
+  };
+  expect(activationPlan(input)).toEqual({
+    invitationId: "inv_1",
+    kind: "confirm",
+  });
+  expect(activationPlan({ ...input, confirmed: true })).toEqual({
+    invitationId: "inv_1",
+    kind: "accept",
+  });
+});
+
+test("an organisation with no workspace row gets neither accept nor activate", () => {
+  const pending = {
+    hasRow: false,
+    invitations: [{ id: "inv_1", organizationId: "org_a" }],
+    memberOrgIds: [],
+    org: "org_a",
+  };
+  expect(activationPlan({ ...pending, confirmed: false })).toEqual({
+    kind: "none",
+  });
+  expect(activationPlan({ ...pending, confirmed: true })).toEqual({
+    kind: "none",
+  });
   expect(
     activationPlan({
-      invitations: [
-        { id: "inv_2", organizationId: "org_b" },
-        { id: "inv_1", organizationId: "org_a" },
-      ],
-      memberOrgIds: ["org_b"],
+      confirmed: true,
+      hasRow: false,
+      invitations: [],
+      memberOrgIds: ["org_a"],
       org: "org_a",
     })
-  ).toEqual({ invitationId: "inv_1", kind: "accept" });
+  ).toEqual({ kind: "none" });
 });
 
 test("no membership and no invitation for the organisation means nothing to do", () => {
   expect(
     activationPlan({
+      ...BASE,
+      confirmed: true,
       invitations: [{ id: "inv_2", organizationId: "org_b" }],
       memberOrgIds: [],
       org: "org_a",

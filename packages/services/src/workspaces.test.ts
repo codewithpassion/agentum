@@ -53,6 +53,14 @@ test("forOrg returns the row an org has, and null with no row, creating nothing"
   expect(rowsFor("org_x")).toHaveLength(0);
 });
 
+test("hasWorkspace answers whether an org has a row, and creates nothing", async () => {
+  const svc = service();
+  await svc.create({ clerkOrgId: "org_a", name: "Acme" });
+  expect(await svc.hasWorkspace("org_a")).toBe(true);
+  expect(await svc.hasWorkspace("org_other_app")).toBe(false);
+  expect(rowsFor("org_other_app")).toHaveLength(0);
+});
+
 test("forOrg keeps the name a row has", async () => {
   const svc = service();
   await svc.create({ clerkOrgId: "org_a", name: "Acme" });

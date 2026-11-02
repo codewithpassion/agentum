@@ -430,11 +430,21 @@ export const createWorkspacesService = ({
     }));
   };
 
+  /**
+   * Whether `clerkOrgId` has a workspace row, and nothing else about it. The
+   * accept-invitation page asks before it offers to join or activate an
+   * organisation, because on a shared Clerk instance most organisations
+   * belong to other apps and this one has no say over them.
+   */
+  const hasWorkspace = async (clerkOrgId: string): Promise<boolean> =>
+    (await selectRow(clerkOrgId)) !== undefined;
+
   return {
     create,
     createFromSession,
     firstForOrgs,
     forOrg,
+    hasWorkspace,
     inviteFromSession,
     mine,
     sessionPrincipal,
