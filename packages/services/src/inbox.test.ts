@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
+import { inboxThreads as inboxThreadRows } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
@@ -384,6 +385,61 @@ test("threads belong to a workspace, and read-only keys only read", async () => 
     ForbiddenError
   );
   expect(allRuns()).toEqual([]);
+});
+
+test("dismissing a thread stamps who and when, and dismissing again moves the time forward", async () => {
+  build({ script: {} });
+  const threadId = await newThread();
+
+  const first = await inbox.clearAttention(user, { threadId });
+  nowMs += 1000;
+  const second = await inbox.clearAttention(user, { threadId });
+
+  expect(first.attentionClearedAt).toBe(START);
+  expect(second.attentionClearedAt).toBe(new Date(nowMs).toISOString());
+  const { thread } = await inbox.readThread(user, { threadId });
+  expect(thread.attentionClearedAt).toBe(second.attentionClearedAt);
+  const [row] = db.select().from(inboxThreadRows).all();
+  expect(row?.attentionClearedBy).toBe("u1");
+});
+
+test("another workspace's thread gives not found, and a run principal or a read-only key cannot dismiss", async () => {
+  build({ script: { alpha: null } });
+  await addAgents("alpha");
+  const threadId = await newThread();
+  const { runs: woken } = await say(threadId, "@alpha start");
+  const [alphaRun] = woken;
+  if (!alphaRun) {
+    throw new Error("alpha was not woken");
+  }
+  const asRun: Principal = {
+    agentId: agentId("alpha"),
+    kind: "run",
+    runId: alphaRun.runId,
+    workspaceId: WORKSPACE,
+  };
+  const readOnlyKey: Principal = {
+    ...user,
+    apiKey: { access: "read", id: "k1" },
+    via: "api_key",
+  };
+  const readOnlyClient: Principal = {
+    ...user,
+    oauthClient: { access: "read", clientId: "c1" },
+    via: "oauth",
+  };
+
+  await expect(
+    inbox.clearAttention(outsider, { threadId })
+  ).rejects.toMatchObject({ code: "not_found" });
+  for (const principal of [asRun, readOnlyKey, readOnlyClient]) {
+    // biome-ignore lint/performance/noAwaitInLoops: one refusal at a time keeps the failure readable
+    await expect(
+      inbox.clearAttention(principal, { threadId })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  }
+  const { thread } = await inbox.readThread(user, { threadId });
+  expect(thread.attentionClearedAt).toBeNull();
 });
 
 test("the thread list shows the most recently posted-to thread first", async () => {

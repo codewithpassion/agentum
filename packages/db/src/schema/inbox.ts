@@ -8,6 +8,11 @@ import { workspaces } from "./workspaces.ts";
 export const inboxThreads = sqliteTable(
   "inbox_threads",
   {
+    // When a person dismissed this thread from Needs you, and who. A newer
+    // agent post brings it back.
+    attentionClearedAt: text("attention_cleared_at"),
+    // Clerk user id.
+    attentionClearedBy: text("attention_cleared_by"),
     createdAt: createdAt(),
     // Clerk user id who opened the thread.
     createdBy: text("created_by").notNull(),

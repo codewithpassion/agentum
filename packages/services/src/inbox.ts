@@ -60,6 +60,11 @@ export type ThreadCreateInput = z.input<typeof threadCreateInputSchema>;
 
 export const threadReadInputSchema = z.strictObject({ threadId: idString });
 
+export const clearAttentionInputSchema = z.strictObject({
+  threadId: idString,
+});
+export type ClearAttentionInput = z.input<typeof clearAttentionInputSchema>;
+
 export const postInputSchema = z.strictObject({
   text: z.string().trim().min(1).max(INPUT_TEXT_MAX),
   threadId: idString,
@@ -67,6 +72,8 @@ export const postInputSchema = z.strictObject({
 export type PostInput = z.input<typeof postInputSchema>;
 
 export interface ThreadRecord {
+  /** When a person last dismissed the thread from Needs you, or null. */
+  attentionClearedAt: string | null;
   createdAt: string;
   createdBy: string;
   id: string;
@@ -124,6 +131,7 @@ interface PostOrigin {
 }
 
 const toThread = (row: ThreadRow): ThreadRecord => ({
+  attentionClearedAt: row.attentionClearedAt,
   createdAt: row.createdAt,
   createdBy: row.createdBy,
   id: row.id,
@@ -226,6 +234,8 @@ export const createInboxService = ({
     });
     const created = clock.now().toISOString();
     const row: ThreadRow = {
+      attentionClearedAt: null,
+      attentionClearedBy: null,
       createdAt: created,
       createdBy: writer.userId,
       id: nextId(clock.now().getTime()),
@@ -266,6 +276,34 @@ export const createInboxService = ({
       .orderBy(desc(inboxPosts.id))
       .limit(THREAD_READ_LIMIT);
     return { posts: rows.reverse().map(toPost), thread: toThread(thread) };
+  };
+
+  /**
+   * A person dismisses a thread from Needs you. It stays out until an agent
+   * posts again. Dismissing twice moves the time forward.
+   */
+  const clearAttention = async (
+    principal: Principal,
+    rawInput: ClearAttentionInput
+  ): Promise<ThreadRecord> => {
+    const { threadId } = clearAttentionInputSchema.parse(rawInput);
+    const writer = requireWriter(principal);
+    if (writer.kind !== "user") {
+      throw new ForbiddenError(POST_ACTION);
+    }
+    const thread = await requireThread(writer, threadId, POST_ACTION);
+    const cleared: Pick<
+      ThreadRow,
+      "attentionClearedAt" | "attentionClearedBy"
+    > = {
+      attentionClearedAt: clock.now().toISOString(),
+      attentionClearedBy: writer.userId,
+    };
+    await db
+      .update(inboxThreads)
+      .set(cleared)
+      .where(eq(inboxThreads.id, thread.id));
+    return toThread({ ...thread, ...cleared });
   };
 
   /** The post and the thread's `lastPostAt` in one atomic write, then `inbox.posted`. */
@@ -556,7 +594,14 @@ export const createInboxService = ({
 
   const gateway: Gateway = { deliver, kind: "inbox" };
 
-  return { createThread, gateway, listThreads, post, readThread };
+  return {
+    clearAttention,
+    createThread,
+    gateway,
+    listThreads,
+    post,
+    readThread,
+  };
 };
 
 export type InboxService = ReturnType<typeof createInboxService>;
