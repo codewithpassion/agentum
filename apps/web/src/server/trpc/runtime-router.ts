@@ -24,6 +24,7 @@ import { slackAppsRouter } from "./slack-apps-router.ts";
 import { takeoverRouter } from "./takeover-router.ts";
 import { tasksRouter } from "./tasks-router.ts";
 import { wikiRouter } from "./wiki-router.ts";
+import { workspacesRouter } from "./workspaces-router.ts";
 
 export const runtimeRouter = router({
   a2a: a2aRouter,
@@ -50,4 +51,5 @@ export const runtimeRouter = router({
   takeover: takeoverRouter,
   tasks: tasksRouter,
   wiki: wikiRouter,
+  workspaces: workspacesRouter,
 });

@@ -279,7 +279,9 @@ import {
 } from "@repo/services/wiki/suggestions";
 import {
   createWorkspacesService,
+  type OrganizationsPort,
   SYSTEM_PRINCIPAL,
+  type UserOrganization,
 } from "@repo/services/workspaces";
 import { drizzle } from "drizzle-orm/d1";
 import {
@@ -291,6 +293,10 @@ import { appStorePort } from "./app-store/port.ts";
 import { browserRunDriver, exportPrintPDF } from "./browser-run.ts";
 import { clerkMembers } from "./clerk-members.ts";
 import { clerkOrgName } from "./clerk-org-name.ts";
+import {
+  clerkOrganizations,
+  clerkUserOrganizations,
+} from "./clerk-organizations.ts";
 import { clerkPeople } from "./clerk-people.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { guestRuntimeOptions } from "./guest-runtime-options";
@@ -377,6 +383,8 @@ export interface Infra {
   memberDirectory?: MemberDirectory;
   /** Lists a Clerk organisation's members, for the rail and the owner pickers. Without it, owners cannot be set and Mine shows everything. */
   members?: MemberLister;
+  /** Makes and deletes Clerk organisations, for the New workspace menu entry. Without it, a workspace cannot be created in the app. */
+  organizations?: OrganizationsPort;
   /** Reads a Clerk organisation's name, for naming a workspace. Without it, a workspace is named by its org id. */
   orgName?: (clerkOrgId: string) => Promise<string | null>;
   /**
@@ -404,6 +412,8 @@ export interface Infra {
   streams?: SessionStreamPort;
   /** Runs a granted tool for artifacts (B.5). Tests replace it; the app builds the real one over its credentials. */
   toolRunner?: ToolRunner;
+  /** Lists the Clerk organisations a person belongs to, for the workspace menu. Without it, the menu lists none. */
+  userOrganizations?: (userId: string) => Promise<UserOrganization[]>;
   /** Asks Anthropic whether a key works. Without it, `managedKeys` checks only the key's shape. */
   validateAnthropicKey?: (apiKey: string) => Promise<boolean>;
   /** Asks the provider whether a key works. Without it, `modelKeys` checks only the key's shape. */
@@ -620,7 +630,9 @@ export const composeWith = ({
 
   const workspaces = createWorkspacesService({
     db,
+    organizations: infra.organizations,
     orgName: infra.orgName,
+    userOrganizations: infra.userOrganizations,
   });
   const events = createEventsService({
     blobs: infra.blobs,
@@ -1353,6 +1365,7 @@ export const compose = (
       managedPoller: durablePollerPort(env.MANAGED_POLLER),
       memberDirectory: clerkEmailMemberLookup(env.CLERK_SECRET_KEY),
       members: clerkMembers(env.CLERK_SECRET_KEY),
+      organizations: clerkOrganizations(env.CLERK_SECRET_KEY),
       orgName: clerkOrgName(env.CLERK_SECRET_KEY),
       people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,
@@ -1370,6 +1383,7 @@ export const compose = (
       skillBlobs: r2SkillBlobs(env.FILES),
       slackDirectory: clerkSlackDirectory(env.CLERK_SECRET_KEY),
       streams: streamPublisher(env.SESSION_STREAM, defer),
+      userOrganizations: clerkUserOrganizations(env.CLERK_SECRET_KEY),
       validateAnthropicKey,
       validateModelKey,
     },

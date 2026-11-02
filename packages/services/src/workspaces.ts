@@ -11,7 +11,9 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import type { ApiKeyAccess, OAuthClientAccess } from "@repo/db/shared";
 import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
+import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
+import { ServiceError } from "./errors.ts";
 import {
   RUN_TOKEN_PREFIX,
   SESSION_TOKEN_PREFIX,
@@ -84,6 +86,26 @@ const WORKSPACE_COLUMNS = {
   timezone: workspaces.timezone,
 };
 
+/** The Clerk side of making a workspace: an organisation, and undoing it. */
+export interface OrganizationsPort {
+  /** Makes the organisation with `createdBy` as its admin, and turns off admin delete on it. */
+  create: (input: {
+    createdBy: string;
+    name: string;
+  }) => Promise<{ id: string }>;
+  /** Deletes an organisation. */
+  remove: (clerkOrgId: string) => Promise<void>;
+}
+
+/** One organisation a person belongs to, and their Clerk role in it. */
+export interface UserOrganization {
+  clerkOrgId: string;
+  role: string;
+}
+
+/** The longest workspace name `createFromSession` accepts. */
+export const MAX_WORKSPACE_NAME_LENGTH = 80;
+
 /** The Clerk role of an organisation admin. */
 const ADMIN_ORG_ROLE = "org:admin";
 
@@ -98,9 +120,15 @@ const MEMBERSHIP_TTL_MS = 60_000;
 export const createWorkspacesService = ({
   db,
   orgName,
+  organizations,
+  userOrganizations,
 }: {
   db: Database;
   orgName?: (clerkOrgId: string) => Promise<string | null>;
+  /** Makes and deletes Clerk organisations. Without it, `createFromSession` is unavailable. */
+  organizations?: OrganizationsPort;
+  /** Lists the organisations Clerk says a person belongs to. Without it, `mine` is empty. */
+  userOrganizations?: (userId: string) => Promise<UserOrganization[]>;
 }) => {
   const selectRow = async (clerkOrgId: string) => {
     const [row] = await db
@@ -234,7 +262,89 @@ export const createWorkspacesService = ({
       : null;
   };
 
-  return { create, firstForOrgs, forOrg, sessionPrincipal };
+  /**
+   * A new workspace made by an org admin on a browser session: the Clerk
+   * organisation first, with the caller as its admin, then the row. A failed
+   * row deletes the organisation again, so a retry starts clean.
+   */
+  const createFromSession = async (
+    principal: Principal,
+    input: { name: string }
+  ): Promise<Workspace> => {
+    if (
+      principal.kind !== "user" ||
+      principal.via !== "session" ||
+      principal.isAdmin !== true
+    ) {
+      throw new ForbiddenError("create a workspace");
+    }
+    const name = input.name.trim();
+    if (name.length === 0 || name.length > MAX_WORKSPACE_NAME_LENGTH) {
+      throw new ServiceError(
+        "invalid",
+        `A workspace name is 1 to ${MAX_WORKSPACE_NAME_LENGTH} characters.`
+      );
+    }
+    if (!organizations) {
+      throw new Error(
+        "Creating workspaces needs the Clerk organisations port."
+      );
+    }
+    const { id } = await organizations.create({
+      createdBy: principal.userId,
+      name,
+    });
+    try {
+      return await create({ clerkOrgId: id, name });
+    } catch (error) {
+      await organizations.remove(id).catch(() => undefined);
+      throw error;
+    }
+  };
+
+  /**
+   * The workspaces a person can switch to: their Clerk memberships that have
+   * a row, with their role in each. Works whether or not the session's active
+   * organisation has a row. An organisation without a row, such as another
+   * app's on a shared Clerk instance, is left out.
+   */
+  const mine = async (
+    userId: string
+  ): Promise<{ clerkOrgId: string; role: string; workspaceId: string }[]> => {
+    const memberships = userOrganizations
+      ? await userOrganizations(userId)
+      : [];
+    if (memberships.length === 0) {
+      return [];
+    }
+    const rows = await db
+      .select({ clerkOrgId: workspaces.clerkOrgId, id: workspaces.id })
+      .from(workspaces)
+      .where(
+        inArray(
+          workspaces.clerkOrgId,
+          memberships.map((membership) => membership.clerkOrgId)
+        )
+      )
+      .orderBy(asc(workspaces.createdAt), asc(workspaces.id));
+    const roles = new Map(
+      memberships.map((membership) => [membership.clerkOrgId, membership.role])
+    );
+    return rows.map((row) => ({
+      clerkOrgId: row.clerkOrgId,
+      role: roles.get(row.clerkOrgId) ?? "",
+      workspaceId: row.id,
+    }));
+  };
+
+  return {
+    create,
+    createFromSession,
+    firstForOrgs,
+    forOrg,
+    mine,
+    sessionPrincipal,
+  };
 };
 
 /** The machine principal for an `hm_mach_` credential, or null if unknown or revoked. */

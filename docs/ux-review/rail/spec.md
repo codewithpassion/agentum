@@ -137,7 +137,7 @@ tRPC: `desk.rail` (query), `desk.clearAttention` (mutation), `members.list` (que
 
 Layout, top to bottom, at 320px wide on desktop:
 
-- Workspace name, on its own row. Board, Find and New are not here: they sit on the right of the top bar, before the user button, in that order. Board links to `/desk?view=board` and is `aria-current` there. `New` opens a small menu under the button: New task, New agent. It reuses `NewTaskDialog`. Below `md` the three show icons only, with `aria-label`s.
+- Workspace name, on its own row. It opens the workspace menu, see below. Board, Find and New are not here: they sit on the right of the top bar, before the user button, in that order. Board links to `/desk?view=board` and is `aria-current` there. `New` opens a small menu under the button: New task, New agent. It reuses `NewTaskDialog`. Below `md` the three show icons only, with `aria-label`s.
 - The Mine and Everyone toggle, with its count on each side. It's stored in `localStorage` as `hm:rail-scope`. Hidden when the workspace has one member.
 - **Needs you** with its count. Each row is a link to `/desk?item=<id>`. It shows the title, the agent tile, the due label, the status, `+N more` when grouped, `for <name>` in Everyone, and `asked you too` when escalated. `problem` rows use the destructive colour on the left edge. Setup steps show here first, with links to `/settings/model-providers` and `/agents/new`.
 - **Working** with its count. At most 3 dim one-line rows with a slow pulse. A `N more working` row expands the rest. The status shows only on hover or in the title attribute.
@@ -149,6 +149,18 @@ Data: one `useRail(scope)` hook on `usePolledQuery` with `DESK_POLL_INTERVAL_MS`
 `Everything` and `Ctrl/Cmd+K` open a `CommandDialog` from `components/ui/command.tsx`. It lists every route the sidebar and Settings list today, using today's page names plus a plainer word where it helps: Board (Desk), Agents, every agent by name, Map, Q&A, Library, Artifacts, Skills, Machines, Inbox, Sessions, Log, Routines, Triggers and each Settings page. A test in the style of `nav-registry.test.ts` compares the list against the route files, so no page is dropped.
 
 On phones the rail opens in the existing sheet, and `/desk` with no `item` shows the same list inline.
+
+## The workspace menu (WS.2)
+
+`apps/web/src/components/rail/workspace-menu.tsx`. The workspace name opens a menu. It lists the person's workspaces and marks the current one. The server's `workspaces.mine` decides which ones show, so only organisations with a `workspaces` row appear. Other apps' organisations on the shared Clerk instance never show. Names come from Clerk on the client, so a rename shows at once.
+
+`Manage members` opens Clerk's organisation profile, where invites and roles live. Any member can open it, and Clerk limits what a non-admin can change. `New workspace` shows only to an org:admin of the current workspace. The server enforces the same rule in `workspaces.createFromSession`. It creates the Clerk organisation with the caller as admin, turns off admin delete on it, then inserts the row. If the insert fails, it deletes the organisation.
+
+Switching workspace ends in a full page load to `/desk`. Loaders, polls and the rail hold the old workspace's data, so a soft navigation would show it. A failed switch stays where it is and shows the error.
+
+This is not Clerk's `OrganizationSwitcher`. That lists other apps' organisations, and its create button makes an organisation with no workspace row.
+
+`NoAccess` on `/` (`apps/web/src/routes/index.tsx`) shows the same list under "<org> has no Harbourmaster workspace", plus Sign out.
 
 ## The main pane (RL.4)
 

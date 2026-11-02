@@ -1,4 +1,3 @@
-import { useOrganization } from "@clerk/tanstack-react-start";
 import { useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import type { PinnedArtifact } from "#/components/artifacts/pinned/pinned-logic";
@@ -21,6 +20,7 @@ import { RailQuestions } from "./rail-questions.tsx";
 import { ScopeToggle } from "./rail-scope-toggle.tsx";
 import { WorkingList } from "./rail-working.tsx";
 import { useRail, useRailScope } from "./use-rail.ts";
+import { WorkspaceMenu } from "./workspace-menu.tsx";
 
 const MEMBERS_POLL_MS = 5 * 60_000;
 
@@ -66,7 +66,6 @@ interface RailProps {
 /** The sidebar: what waits on you, what is running, and Find for the rest. */
 export function Rail({ agents, pinned = [] }: RailProps) {
   const { setOpenMobile } = useSidebar();
-  const { organization } = useOrganization();
   const openId = useOpenItemId();
   const { scope: chosenScope, setScope } = useRailScope();
   const { data: members } = usePolledQuery(
@@ -105,12 +104,7 @@ export function Rail({ agents, pinned = [] }: RailProps) {
     <>
       <Sidebar className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]">
         <SidebarHeader className="gap-2 p-3 pb-1">
-          <span
-            className="min-w-0 truncate font-heading text-lg"
-            title={organization?.name}
-          >
-            {organization?.name ?? "Workspace"}
-          </span>
+          <WorkspaceMenu />
           {showToggle && scope !== null ? (
             <ScopeToggle
               counts={view?.counts ?? null}

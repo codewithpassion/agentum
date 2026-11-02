@@ -79,3 +79,17 @@ export const workspaceProcedure = t.procedure
     }
     return next({ ctx: { ...ctx, principal: ctx.principal } });
   });
+
+/**
+ * A signed-in user, whether or not their active organisation has a workspace
+ * row. Narrows `ctx.userId` to a string. For the workspace menu and the
+ * no-access page, where the person has no workspace to be a principal in.
+ */
+export const signedInProcedure = t.procedure
+  .use(mapServiceErrors)
+  .use(({ ctx, next }) => {
+    if (ctx.userId === null) {
+      throw new TRPCError({ code: "UNAUTHORIZED" });
+    }
+    return next({ ctx: { ...ctx, userId: ctx.userId } });
+  });
