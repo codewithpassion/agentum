@@ -2,6 +2,7 @@
 // listing the organisations a person belongs to. Kept apart from compose.ts so that file
 // stays free of Clerk imports and bun can test it.
 import { createClerkClient } from "@clerk/backend";
+import { isClerkAPIResponseError } from "@clerk/backend/errors";
 import type {
   OrganizationsPort,
   UserOrganization,
@@ -13,6 +14,13 @@ export interface OrganizationsSource {
     name: string;
     createdBy: string;
   }) => Promise<{ id: string }>;
+  createOrganizationInvitation: (params: {
+    organizationId: string;
+    emailAddress: string;
+    role: string;
+    inviterUserId: string;
+    redirectUrl: string;
+  }) => Promise<unknown>;
   deleteOrganization: (organizationId: string) => Promise<unknown>;
   updateOrganization: (
     organizationId: string,
@@ -32,6 +40,24 @@ export interface MembershipSource {
   }>;
 }
 
+/** Clerk error codes for the two invitation conflicts a person can fix. */
+const ALREADY_MEMBER_CODE = "already_a_member_in_organization";
+const ALREADY_INVITED_CODE = "duplicate_record";
+
+/** Which invitation conflict Clerk's error is, or null when it is anything else. */
+const invitationConflict = (
+  error: unknown
+): "already_invited" | "already_member" | null => {
+  if (!isClerkAPIResponseError(error)) {
+    return null;
+  }
+  const codes = error.errors.map((entry) => entry.code);
+  if (codes.includes(ALREADY_MEMBER_CODE)) {
+    return "already_member";
+  }
+  return codes.includes(ALREADY_INVITED_CODE) ? "already_invited" : null;
+};
+
 /** Memberships Clerk returns per page. */
 const MEMBERSHIP_PAGE = 100;
 
@@ -48,6 +74,30 @@ export const organizationsPort = (
       throw error;
     }
     return { id };
+  },
+  invite: async ({
+    clerkOrgId,
+    emailAddress,
+    inviterUserId,
+    redirectUrl,
+    role,
+  }) => {
+    try {
+      await source.createOrganizationInvitation({
+        emailAddress,
+        inviterUserId,
+        organizationId: clerkOrgId,
+        redirectUrl,
+        role,
+      });
+      return "invited";
+    } catch (error) {
+      const conflict = invitationConflict(error);
+      if (conflict) {
+        return conflict;
+      }
+      throw error;
+    }
   },
   remove: async (clerkOrgId) => {
     await source.deleteOrganization(clerkOrgId);
@@ -99,6 +149,8 @@ export const clerkOrganizations = (secretKey: string): OrganizationsPort => {
   return organizationsPort({
     createOrganization: (params) =>
       clerk.organizations.createOrganization(params),
+    createOrganizationInvitation: (params) =>
+      clerk.organizations.createOrganizationInvitation(params),
     deleteOrganization: (organizationId) =>
       clerk.organizations.deleteOrganization(organizationId),
     updateOrganization: (organizationId, params) =>

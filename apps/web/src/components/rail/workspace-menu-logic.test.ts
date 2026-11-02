@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   canCreateWorkspace,
+  canInvitePeople,
   switchErrorMessage,
   workspaceChoices,
 } from "./workspace-menu-logic.ts";
@@ -163,4 +164,11 @@ test("any other value gives the default", () => {
   expect(switchErrorMessage({ message: "nope" })).toBe(
     "Could not switch workspace."
   );
+});
+
+test("only an admin of the active workspace sees Invite people", () => {
+  expect(canInvitePeople({ activeOrgId: "org_a", mine })).toBe(true);
+  expect(canInvitePeople({ activeOrgId: "org_b", mine })).toBe(false);
+  expect(canInvitePeople({ activeOrgId: "org_x", mine })).toBe(false);
+  expect(canInvitePeople({ activeOrgId: null, mine })).toBe(false);
 });

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as AcceptInvitationRouteImport } from './routes/accept-invitation'
 import { Route as ChooseOrganizationRouteImport } from './routes/choose-organization'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as LoginRouteImport } from './routes/login'
@@ -57,6 +58,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AcceptInvitationRoute = AcceptInvitationRouteImport.update({
+  id: '/accept-invitation',
+  path: '/accept-invitation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChooseOrganizationRoute = ChooseOrganizationRouteImport.update({
@@ -257,6 +263,7 @@ const AppSettingsAgentConnectionsConnectionIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accept-invitation': typeof AcceptInvitationRoute
   '/choose-organization': typeof ChooseOrganizationRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
@@ -298,6 +305,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accept-invitation': typeof AcceptInvitationRoute
   '/choose-organization': typeof ChooseOrganizationRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
@@ -340,6 +348,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/accept-invitation': typeof AcceptInvitationRoute
   '/choose-organization': typeof ChooseOrganizationRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
@@ -383,6 +392,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/accept-invitation'
     | '/choose-organization'
     | '/dev-login'
     | '/login'
@@ -424,6 +434,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/accept-invitation'
     | '/choose-organization'
     | '/dev-login'
     | '/login'
@@ -465,6 +476,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/accept-invitation'
     | '/choose-organization'
     | '/dev-login'
     | '/login'
@@ -508,6 +520,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  AcceptInvitationRoute: typeof AcceptInvitationRoute
   ChooseOrganizationRoute: typeof ChooseOrganizationRoute
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
@@ -531,6 +544,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accept-invitation': {
+      id: '/accept-invitation'
+      path: '/accept-invitation'
+      fullPath: '/accept-invitation'
+      preLoaderRoute: typeof AcceptInvitationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/choose-organization': {
@@ -886,6 +906,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  AcceptInvitationRoute: AcceptInvitationRoute,
   ChooseOrganizationRoute: ChooseOrganizationRoute,
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
