@@ -147,7 +147,7 @@ test("a caller in an org outside ORG_IDS gets UNAUTHORIZED", async () => {
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
 
-test("a user of another allowed org cannot see, revoke or create on the first org's triggers", async () => {
+test("a user of another org with a workspace row cannot see, revoke or create on the first org's triggers", async () => {
   const owner = await callerFor({ orgId: "org_a", userId: "user_1" });
   const other = await callerFor({ orgId: "org_b", userId: "user_2" });
   const agent = await owner.agents.create(agentInput);

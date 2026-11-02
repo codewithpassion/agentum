@@ -3,7 +3,7 @@ id: WS.3
 title: "add-clerk's dev login makes the workspace row, and the WS docs are corrected"
 milestone: WS
 size: S
-status: in_progress
+status: done
 depends_on: [WS.1, WS.2]
 branch: task/WS.3-gate-skill-and-docs
 lane: docs
@@ -25,3 +25,4 @@ From the milestone gate, `docs/reviews/WS-1.md`, must-fix M2 and the wording nit
 
 ## Log
 - 2026-11-02: created from the WS gate, and dispatched.
+- 2026-11-02: review clean after 0 fix rounds. Merged and pushed. Docs, a skill and a comment only, so it needs no deploy on its own.

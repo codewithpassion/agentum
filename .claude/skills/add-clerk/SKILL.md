@@ -108,7 +108,8 @@ app.get("/api/health", (c) => {
 // One-click dev login: mints a one-time Clerk sign-in token for the dev user
 // and hands it to /dev-login to redeem client-side. Only active when
 // DEV_LOGIN_EMAIL is configured, which must never be set in a deployed
-// environment - that absence is the safety switch for this route.
+// environment - that absence is the safety switch for this route. A dev build
+// also makes the dev organisation's workspace row.
 app.get("/api/dev-login", async (c) => {
   const email = c.env.DEV_LOGIN_EMAIL;
   if (!email) {
@@ -135,6 +136,16 @@ app.get("/api/dev-login", async (c) => {
       `Dev login user ${email} has no organisation yet. Run "bun run create-dev-user" in apps/web.`,
       404
     );
+  }
+
+  // A workspace row is what admits an organisation. A clean `.wrangler` has
+  // none, so the dev login makes the one for the dev organisation, in dev
+  // builds only.
+  if (import.meta.env.DEV) {
+    await c.get("composed").services.workspaces.create({
+      clerkOrgId: membership.organization.id,
+      name: membership.organization.name,
+    });
   }
 
   const { token } = await clerkClient.signInTokens.createSignInToken({
@@ -360,7 +371,7 @@ instance. `--remote` without `--env staging` reads the key from
 dev key found in `.env.local`. A deployment that uses the Clerk dev instance, as
 a fresh copy does, needs `CLERK_SECRET_KEY=<the key the Worker runs with>` in
 `apps/web/.env.production.local` first. Without a row, a signed-in user in that organisation sees the
-"This organisation can't use Harbourmaster" screen.
+`NoAccess` screen, because an organisation needs a workspace row to get in.
 
 ## 13. Docs
 
