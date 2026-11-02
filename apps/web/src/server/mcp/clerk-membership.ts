@@ -13,6 +13,9 @@ export type OrgMemberCheck = (
   clerkOrgId: string
 ) => Promise<boolean>;
 
+/** The ids of the organisations a Clerk user belongs to right now. */
+export type UserOrgsCheck = (userId: string) => Promise<string[]>;
+
 /** `check`, with each answer reused for `ttlMs`. Errors are not kept. */
 export const cachedOrgMemberCheck = (
   check: OrgMemberCheck,
@@ -29,6 +32,18 @@ export const cachedOrgMemberCheck = (
     const member = await check(userId, clerkOrgId);
     answers.set(key, { expiresAt: current + ttlMs, member });
     return member;
+  };
+};
+
+/** One Clerk call for all of a user's organisations, with no cache. */
+export const clerkUserOrgIds = (secretKey: string): UserOrgsCheck => {
+  const clerk = createClerkClient({ secretKey });
+  return async (userId) => {
+    const { data } = await clerk.users.getOrganizationMembershipList({
+      limit: MEMBERSHIP_PAGE,
+      userId,
+    });
+    return data.map((membership) => membership.organization.id);
   };
 };
 

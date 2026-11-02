@@ -137,14 +137,12 @@ beforeEach(async () => {
     library,
   });
   triggers = createTriggersService({
-    allowedOrgIds: ["org_w1", "org_w2"],
     clock,
     db,
     events,
     runs,
   });
   routines = createRoutinesService({
-    allowedOrgIds: ["org_w1", "org_w2"],
     clock,
     db,
     events,
@@ -155,7 +153,6 @@ beforeEach(async () => {
     connectors,
     db,
     machines: createMachinesService({
-      allowedOrgIds: ["org_w1", "org_w2"],
       atomic,
       clock,
       db,

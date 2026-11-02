@@ -58,7 +58,6 @@ beforeEach(async () => {
   const clock: Clock = { now: () => NOW, sleep: () => Promise.resolve() };
   const blobs = new Map<string, string>();
   const { services } = composeWith({
-    allowedOrgIds: [],
     db,
     infra: {
       atomic: sqliteAtomic(db),

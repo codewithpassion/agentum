@@ -68,7 +68,7 @@ const mapServiceErrors = t.middleware(async ({ next }) => {
 export const publicProcedure = t.procedure;
 
 /**
- * A signed-in user with an active allowed organisation. Narrows
+ * A signed-in user whose active organisation has a workspace row. Narrows
  * `ctx.principal` to the user principal. Everyone else gets 401.
  */
 export const workspaceProcedure = t.procedure

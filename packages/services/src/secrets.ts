@@ -60,7 +60,6 @@ const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Names the Worker, Claude Code or the OS read, which a secret must not set. */
 const RESERVED_NAMES = new Set([
   "ALL_PROXY",
-  "ALLOWED_ORG_IDS",
   "BASH_ENV",
   "CURL_CA_BUNDLE",
   "ENV",

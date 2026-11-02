@@ -197,7 +197,7 @@ const buildCore = (store: RelayStorage = storage, statusChanged?: () => void) =>
   });
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated([ORG]);
   nowMs = START;
   background = [];
   heartbeats = new Map();
@@ -207,7 +207,6 @@ beforeEach(async () => {
   storage = new FakeStorage();
   const blobs = new Map<string, string>();
   ({ services } = composeWith({
-    allowedOrgIds: [ORG],
     db,
     infra: {
       atomic: sqliteAtomic(db),

@@ -15,7 +15,7 @@ import {
 import type { AppEnv } from "./groups.ts";
 import { machineRoutes } from "./machines.ts";
 
-const ALLOWED_ORG_IDS = ["org_a"];
+const ORG_IDS = ["org_a"];
 const CONNECT = "http://localhost/api/machines/connect";
 const COMPUTER = "http://localhost/api/machines/computer";
 
@@ -108,9 +108,8 @@ app.use("*", async (c, next) => {
 app.route("/api/machines", machineRoutes());
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(ORG_IDS);
   composed = composeWith({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     infra: infra(),
   });
@@ -118,7 +117,7 @@ beforeEach(async () => {
     clerkOrgId: "org_a",
   });
   if (!workspace) {
-    throw new Error("org_a is not an allowed organisation");
+    throw new Error("org_a has no workspace row");
   }
   workspaceId = workspace.id;
   relayRequests.length = 0;

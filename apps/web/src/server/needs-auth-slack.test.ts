@@ -15,7 +15,7 @@ let db: ReturnType<typeof migrated>;
 let posted: { method: string; body: Record<string, unknown> }[];
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(["org_a"]);
   posted = [];
 });
 
@@ -42,7 +42,6 @@ const fakeSlack: Infra["fetch"] = (input, init) => {
 test("a connector.needs_auth event appended for a Slack thread sends one private Connect message to the owner", async () => {
   const store = new Map<string, string>();
   const composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

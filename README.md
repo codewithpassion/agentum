@@ -7,7 +7,8 @@ A [Turborepo](https://turborepo.com) monorepo, managed with Bun workspaces.
 - [`apps/web`](apps/web) — the [TanStack Start](https://tanstack.com/start) front end, deployed on Cloudflare Workers, with [Cloudflare D1](https://developers.cloudflare.com/d1/) for data. See its [README](apps/web/README.md) for architecture and setup.
 
 Auth is [Clerk](https://clerk.com): `/login` signs in, the header shows the
-signed-in user.
+signed-in user. A Clerk organisation gets in when a `workspaces` row has its id.
+`bun run add-workspace` in `apps/web` makes the first one of a deployment.
 
 ## Packages
 
@@ -119,7 +120,7 @@ Repeat the `migrations apply --remote` whenever `packages/db` gains a new migrat
 bun run deploy
 ```
 
-That builds and runs `wrangler deploy`. The URL is printed at the end. The app has no database page yet, so there is no in-app check of the database binding. TODO(M0): health check
+That builds and runs `wrangler deploy`. The URL is printed at the end. If the app has Clerk, run `bun run add-workspace --org <Clerk organisation id> --name <name> --remote` in `apps/web` once, because an organisation without a `workspaces` row sees "This organisation can't use Harbourmaster". The app has no database page yet, so there is no in-app check of the database binding. TODO(M0): health check
 
 ## Pull request previews
 

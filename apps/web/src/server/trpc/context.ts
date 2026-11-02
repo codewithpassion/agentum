@@ -1,7 +1,7 @@
 // What every tRPC procedure receives as `ctx`: the services, and who is
 // calling. `principal` is the user in their workspace, or null when signed
-// out, without an organisation, or in an organisation that is not in
-// ALLOWED_ORG_IDS. `workspaceProcedure` rejects the null case.
+// out, without an organisation, or in an organisation with no workspace row.
+// `workspaceProcedure` rejects the null case.
 
 import { env } from "cloudflare:workers";
 import { getAuth } from "@clerk/hono";

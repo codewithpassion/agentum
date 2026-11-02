@@ -70,7 +70,6 @@ const setup = (
   }
   const calls: { host: string; names: readonly string[]; ws: string }[] = [];
   const service = createAppGrantsService({
-    allowedOrgIds: ["org_w1"],
     db,
     isOrgMember: member,
     secrets: {
@@ -169,7 +168,6 @@ test("memberPrincipal asks Clerk again and builds a session principal", async ()
 test("memberPrincipal refuses without a membership check", async () => {
   const { db } = { db: migrated() };
   const service = createAppGrantsService({
-    allowedOrgIds: ["org_w1"],
     db,
     secrets: { proxyForNames: () => Promise.resolve([]) },
   });

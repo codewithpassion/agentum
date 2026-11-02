@@ -8,12 +8,12 @@ import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
-const ALLOWED_ORG_IDS = ["org_a"];
+const ORG_IDS = ["org_a"];
 
 let db: ReturnType<typeof migrated>;
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(ORG_IDS);
 });
 
 const infra = (): Infra => {
@@ -37,7 +37,6 @@ const infra = (): Infra => {
 const callerFor = async (
   session: { orgId?: string | null; userId: string | null },
   composed: Composed = composeWith({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     infra: infra(),
   })

@@ -89,13 +89,12 @@ const directory: SlackDirectory = {
 };
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated([ORG]);
   nowMs = Date.parse("2026-10-16T10:00:00.000Z");
   startMs = nowMs;
   deferred = [];
   slackCalls = [];
   composed = composeWith({
-    allowedOrgIds: [ORG],
     db,
     infra: {
       atomic: sqliteAtomic(db),

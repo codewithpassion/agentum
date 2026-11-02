@@ -19,7 +19,7 @@ import {
 import { desktopRoutes } from "./desktop.ts";
 import type { AppEnv } from "./groups.ts";
 
-const ALLOWED_ORG_IDS = ["org_a", "org_b"];
+const ORG_IDS = ["org_a", "org_b"];
 const ORIGIN = "http://localhost";
 const UPGRADE = { Upgrade: "websocket", Origin: ORIGIN };
 
@@ -89,7 +89,6 @@ const infra = (relay: MachineRelayPort): Infra => {
 /** Builds the services over the same database, with the given relay stub. */
 const useRelay = (relay: MachineRelayPort) => {
   composed = composeWith({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     infra: infra(relay),
   });
@@ -106,14 +105,14 @@ app.route(
 );
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(ORG_IDS);
   useRelay(noopRelay);
   session = { orgId: "org_a", userId: "user_1" };
   const workspace = await composed.services.workspaces.forOrg({
     clerkOrgId: "org_a",
   });
   if (!workspace) {
-    throw new Error("org_a is not an allowed organisation");
+    throw new Error("org_a has no workspace row");
   }
   workspaceId = workspace.id;
   relayRequests.length = 0;
@@ -254,7 +253,7 @@ test("a machine another workspace owns is a 404 on every route", async () => {
     clerkOrgId: "org_b",
   });
   if (!other) {
-    throw new Error("org_b is not an allowed organisation");
+    throw new Error("org_b has no workspace row");
   }
   const otherUser = {
     kind: "user" as const,

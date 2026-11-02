@@ -13,7 +13,7 @@ import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
-const ALLOWED_ORG_IDS = ["org_a", "org_b"];
+const ORG_IDS = ["org_a", "org_b"];
 const START = "2026-10-17T10:00:00.000Z";
 const SKILL = "release-notes";
 const ORG_A = { orgId: "org_a", userId: "user_1" };
@@ -24,7 +24,7 @@ const LOGO = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 let db: ReturnType<typeof migrated>;
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(ORG_IDS);
 });
 
 const infra = (): Infra => {
@@ -46,8 +46,7 @@ const infra = (): Infra => {
   };
 };
 
-const servicesFor = (): Composed =>
-  composeWith({ allowedOrgIds: ALLOWED_ORG_IDS, db, infra: infra() });
+const servicesFor = (): Composed => composeWith({ db, infra: infra() });
 
 const callerFor = async (
   session: { orgId?: string | null; userId: string | null },

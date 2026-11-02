@@ -15,7 +15,6 @@ for await (const chunk of process.stdin) {
 const directory = await mkdtemp(join(tmpdir(), "guest-execution-"));
 const options = {
   bindings: {
-    ALLOWED_ORG_IDS: "org_w1",
     ARTIFACT_VIEW_KEY: "production-integration-private-test-key",
     CLERK_SECRET_KEY: "sk_test_fixture",
     MAIL_DOMAIN: "",

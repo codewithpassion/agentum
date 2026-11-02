@@ -104,9 +104,8 @@ const userIn = async (clerkOrgId: string, userId: string): Promise<User> => {
 };
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a", "org_b"]);
   composed = composeWith({
-    allowedOrgIds: ["org_a", "org_b"],
     db,
     infra: infra(),
   });

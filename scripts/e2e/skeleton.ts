@@ -113,7 +113,7 @@ const onlineMachine = async (
   wanted: string | undefined
 ): Promise<string> => {
   const principal = await devUserPrincipal(db, orgId);
-  const machines = await localMachines(db, orgId).list(principal);
+  const machines = await localMachines(db).list(principal);
   const machine = machines.find((candidate) =>
     wanted === undefined
       ? candidate.status === "online"

@@ -13,7 +13,7 @@ import { composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
-const ALLOWED_ORG_IDS = ["org_a"];
+const ORG_IDS = ["org_a"];
 const PUBLIC_ORIGIN = "https://mcp.stub-test.com";
 const TOKEN = "router-test-token-0123456789";
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(5)).toString("base64");
@@ -22,7 +22,7 @@ let db: ReturnType<typeof migrated>;
 let stub: StubMcp;
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(ORG_IDS);
   stub = startStubMcp({ token: TOKEN });
 });
 
@@ -60,7 +60,6 @@ const callerFor = async (session: {
   appRouter.createCaller(
     await buildContext({
       composed: composeWith({
-        allowedOrgIds: ALLOWED_ORG_IDS,
         db,
         infra: infra(),
       }),

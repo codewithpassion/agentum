@@ -8,8 +8,8 @@ import {
   createPrincipalResolver,
   type Principal,
 } from "@repo/services/workspaces";
-import { type Composed, parseOrgIds } from "../compose.ts";
-import type { OrgMemberCheck } from "./clerk-membership.ts";
+import type { Composed } from "../compose.ts";
+import type { OrgMemberCheck, UserOrgsCheck } from "./clerk-membership.ts";
 import type { VerifiedOAuthToken } from "./clerk-oauth.ts";
 import { oauthClaimVerifier } from "./oauth-auth.ts";
 
@@ -18,6 +18,8 @@ export interface BearerAuthOptions {
   clientName: (env: Env) => (clientId: string) => Promise<string | null>;
   /** The membership check for the bindings of this request. */
   isOrgMember: (env: Env) => OrgMemberCheck;
+  /** The organisations Clerk lists for a user, for a first-seen OAuth client's home workspace. */
+  userOrgIds: (env: Env) => UserOrgsCheck;
   /** Clerk's verdict on an OAuth access token for the bindings of this request. */
   verifyOAuthToken: (
     env: Env
@@ -30,19 +32,15 @@ export const authenticateBearer = async (
   options: BearerAuthOptions,
   authorization: string | null
 ): Promise<Principal | null> => {
-  const allowedOrgIds = parseOrgIds(env.ALLOWED_ORG_IDS);
   const resolver = createPrincipalResolver({
-    allowedOrgIds,
     db: composed.db,
     isOrgMember: options.isOrgMember(env),
     runTokenKey: await importRunTokenKey(env.RUN_TOKEN_KEY),
     // Only a token that is not an `hm_` credential gets here.
     verifyClerkOAuthToken: oauthClaimVerifier({
-      allowedOrgIds,
       clientName: (clientId) => options.clientName(env)(clientId),
-      isOrgMember: (userId, clerkOrgId) =>
-        options.isOrgMember(env)(userId, clerkOrgId),
       oauthClients: composed.services.oauthClients,
+      userOrgIds: (userId) => options.userOrgIds(env)(userId),
       verify: (token) => options.verifyOAuthToken(env)(token),
       workspaces: composed.services.workspaces,
     }),

@@ -44,10 +44,9 @@ const commandEvents = async (workspaceId: string) =>
   ).map((event) => event);
 
 beforeEach(async () => {
-  const db = migrated();
+  const db = migrated(["org_a", "org_b"]);
   blobs = memoryLibraryBlobs();
   composed = composeWith({
-    allowedOrgIds: ["org_a", "org_b"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

@@ -18,9 +18,8 @@ let slug: string;
 let run: Principal;
 
 beforeEach(async () => {
-  const db = migrated();
+  const db = migrated(["org_a"]);
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

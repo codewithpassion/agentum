@@ -153,13 +153,11 @@ const summaryColumns = {
 };
 
 export const createTriggersService = ({
-  allowedOrgIds,
   clock,
   db,
   events: eventsService,
   runs,
 }: {
-  allowedOrgIds: readonly string[];
   clock: Clock;
   db: Database;
   events: EventsService;
@@ -167,8 +165,8 @@ export const createTriggersService = ({
 }) => {
   /**
    * The trigger principal for `Authorization: Bearer hm_trg_...`, or null. A
-   * revoked trigger, an unknown token and a workspace outside
-   * `allowedOrgIds` are all null.
+   * revoked trigger, an unknown token and a workspace with no row are all
+   * null.
    */
   const authenticate = async (
     authorization: string | null
@@ -182,13 +180,11 @@ export const createTriggersService = ({
       return null;
     }
     const [workspace] = await db
-      .select({ clerkOrgId: workspaces.clerkOrgId })
+      .select({ id: workspaces.id })
       .from(workspaces)
       .where(eq(workspaces.id, principal.workspaceId))
       .limit(1);
-    return workspace && allowedOrgIds.includes(workspace.clerkOrgId)
-      ? principal
-      : null;
+    return workspace ? principal : null;
   };
 
   const findSummary = async (

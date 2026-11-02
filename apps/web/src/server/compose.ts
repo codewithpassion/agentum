@@ -493,7 +493,6 @@ export interface Composed {
 /** The bindings and secrets `compose` reads. */
 export type ComposeEnv = Pick<
   Env,
-  | "ALLOWED_ORG_IDS"
   | "ARTIFACT_ROOM"
   | "LIVE_ARTIFACT_MAINTENANCE"
   | "APP_STORE"
@@ -518,13 +517,6 @@ export type ComposeEnv = Pick<
     GOOGLE_OAUTH_CLIENT_ID?: string;
     GOOGLE_OAUTH_CLIENT_SECRET?: string;
   };
-
-/** Splits a comma separated list of ids, trimmed, dropping empty entries. */
-export const parseOrgIds = (raw: string | undefined): string[] =>
-  (raw ?? "")
-    .split(",")
-    .map((id) => id.trim())
-    .filter((id) => id.length > 0);
 
 /** A peer fetch that refuses everything, for a composition that has none. */
 const peerFetchOf = (configured: A2aFetch | undefined): A2aFetch =>
@@ -597,11 +589,9 @@ const lazyGuestService = (
 };
 
 export const composeWith = ({
-  allowedOrgIds,
   db,
   infra,
 }: {
-  allowedOrgIds: readonly string[];
   db: Database;
   infra: Infra;
 }): Composed => {
@@ -629,7 +619,6 @@ export const composeWith = ({
   ];
 
   const workspaces = createWorkspacesService({
-    allowedOrgIds,
     db,
     orgName: infra.orgName,
   });
@@ -752,7 +741,6 @@ export const composeWith = ({
     }),
   });
   const artifactShares = createArtifactSharesService({
-    allowedOrgIds,
     atomic: infra.atomic,
     clock: infra.clock,
     db,
@@ -805,7 +793,6 @@ export const composeWith = ({
   });
   const runSkills = createRunSkillsService({ skillsStore });
   const machines = createMachinesService({
-    allowedOrgIds,
     atomic: infra.atomic,
     clock: infra.clock,
     db,
@@ -920,7 +907,6 @@ export const composeWith = ({
     secrets,
   });
   const artifactApp = createAppGrantsService({
-    allowedOrgIds,
     db,
     isOrgMember: infra.isOrgMember,
     secrets,
@@ -1041,7 +1027,6 @@ export const composeWith = ({
     skills: (run) => createManagedSkillsSource({ runSkills, skillsStore }, run),
   });
   const routines = createRoutinesService({
-    allowedOrgIds,
     clock: infra.clock,
     db,
     events,
@@ -1088,7 +1073,6 @@ export const composeWith = ({
     secretsKey: infra.secretsKey,
   });
   const triggers = createTriggersService({
-    allowedOrgIds,
     clock: infra.clock,
     db,
     events,
@@ -1309,7 +1293,6 @@ export const compose = (
   const db = drizzle(env.DB);
   let composed: Composed;
   composed = composeWith({
-    allowedOrgIds: parseOrgIds(env.ALLOWED_ORG_IDS),
     db,
     infra: {
       // An empty `ARTIFACT_LINKS_OFF` leaves links on.

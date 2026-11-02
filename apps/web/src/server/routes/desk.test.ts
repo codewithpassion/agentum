@@ -61,7 +61,6 @@ const fakeNamespace = {
 };
 
 const env = {
-  ALLOWED_ORG_IDS: "org_a",
   RUN_TOKEN_KEY,
   SESSION_STREAM:
     fakeNamespace as unknown as DurableObjectNamespace<SessionStream>,
@@ -149,7 +148,7 @@ const rowOf = (requestId: string) =>
   db.select().from(runRequests).where(eq(runRequests.id, requestId)).get();
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   const store = new Map<string, string>();
   members = new Set(["u1@org_a", "u2@org_a"]);
   emails = new Map([
@@ -170,7 +169,6 @@ beforeEach(async () => {
     );
   };
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),
@@ -195,7 +193,7 @@ beforeEach(async () => {
     clerkOrgId: "org_a",
   });
   if (!workspace) {
-    throw new Error("org_a is not an allowed organisation");
+    throw new Error("org_a has no workspace row");
   }
   workspaceId = workspace.id;
   const enrol = await composed.services.machines.createEnrollToken(

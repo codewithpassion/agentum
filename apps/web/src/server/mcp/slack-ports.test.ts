@@ -146,11 +146,10 @@ const installSlackApp = async (agentId: string, appId: string) => {
 };
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   const store = new Map<string, string>();
   posts = [];
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

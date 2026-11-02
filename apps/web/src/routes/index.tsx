@@ -52,7 +52,7 @@ function Landing() {
 }
 
 // A signed-in user reaches the landing page only when `me` answered 401: the
-// active organisation is missing or not in ALLOWED_ORG_IDS.
+// active organisation is missing or has no workspace row.
 function NoAccess() {
   return (
     <div className="max-w-md space-y-4">

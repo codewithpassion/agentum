@@ -12,7 +12,7 @@ beforeEach(() => {
   db = migrated();
 });
 
-const service = () => createWorkspacesService({ allowedOrgIds: ["org_a"], db });
+const service = () => createWorkspacesService({ db });
 
 const rowsFor = (clerkOrgId: string) =>
   db
@@ -21,36 +21,40 @@ const rowsFor = (clerkOrgId: string) =>
     .where(eq(workspaces.clerkOrgId, clerkOrgId))
     .all();
 
-test("forOrg creates the workspace once and returns the same row after", async () => {
+test("create makes the workspace once and returns the same row after", async () => {
   const svc = service();
-  const first = await svc.forOrg({ clerkOrgId: "org_a" });
-  const second = await svc.forOrg({ clerkOrgId: "org_a" });
+  const first = await svc.create({ clerkOrgId: "org_a", name: "Acme" });
+  const second = await svc.create({ clerkOrgId: "org_a", name: "Other" });
   expect(second).toEqual(first);
   expect(first).toMatchObject({
     clerkOrgId: "org_a",
-    name: "org_a",
+    name: "Acme",
     timezone: "UTC",
   });
-  expect(first?.id).toMatch(ULID);
+  expect(first.id).toMatch(ULID);
   expect(rowsFor("org_a")).toHaveLength(1);
 });
 
-test("forOrg names a new workspace after the given name and keeps that name", async () => {
+test("forOrg returns the row an org has, and null with no row, creating nothing", async () => {
   const svc = service();
-  await svc.forOrg({ clerkOrgId: "org_a", name: "Acme" });
-  const later = await svc.forOrg({ clerkOrgId: "org_a", name: "Other" });
-  expect(later?.name).toBe("Acme");
-  expect(rowsFor("org_a")).toHaveLength(1);
-});
-
-test("forOrg returns null and creates nothing for an org that is not allowed", async () => {
-  expect(await service().forOrg({ clerkOrgId: "org_x" })).toBeNull();
+  expect(await svc.forOrg({ clerkOrgId: "org_a" })).toBeNull();
+  expect(rowsFor("org_a")).toHaveLength(0);
+  const made = await svc.create({ clerkOrgId: "org_a", name: "Acme" });
+  expect(await svc.forOrg({ clerkOrgId: "org_a" })).toEqual(made);
+  expect(await svc.forOrg({ clerkOrgId: "org_x", name: "X" })).toBeNull();
   expect(rowsFor("org_x")).toHaveLength(0);
 });
 
-test("sessionPrincipal returns the user principal of the workspace for an allowed org", async () => {
+test("forOrg keeps the name a row has", async () => {
   const svc = service();
-  const workspace = await svc.forOrg({ clerkOrgId: "org_a" });
+  await svc.create({ clerkOrgId: "org_a", name: "Acme" });
+  const later = await svc.forOrg({ clerkOrgId: "org_a", name: "Other" });
+  expect(later?.name).toBe("Acme");
+});
+
+test("sessionPrincipal returns the user principal of the workspace for an org with a row", async () => {
+  const svc = service();
+  const workspace = await svc.create({ clerkOrgId: "org_a", name: "Acme" });
   const principal = await svc.sessionPrincipal({
     orgId: "org_a",
     userId: "user_1",
@@ -60,11 +64,12 @@ test("sessionPrincipal returns the user principal of the workspace for an allowe
     userId: "user_1",
     via: "session",
   });
-  expect(principal?.workspaceId).toBe(workspace?.id);
+  expect(principal?.workspaceId).toBe(workspace.id);
 });
 
 test("sessionPrincipal marks an organisation admin and nobody else", async () => {
   const svc = service();
+  await svc.create({ clerkOrgId: "org_a", name: "Acme" });
   const roles = ["org:admin", "org:member", null, undefined];
   const flags = await Promise.all(
     roles.map(async (orgRole) => {
@@ -79,8 +84,9 @@ test("sessionPrincipal marks an organisation admin and nobody else", async () =>
   expect(flags).toEqual([true, false, false, false]);
 });
 
-test("sessionPrincipal is null without an org or for an org that is not allowed", async () => {
+test("sessionPrincipal is null without an org, and for an org with no row, which stays without one", async () => {
   const svc = service();
+  await svc.create({ clerkOrgId: "org_a", name: "Acme" });
   expect(
     await svc.sessionPrincipal({ orgId: null, userId: "user_1" })
   ).toBeNull();
@@ -93,14 +99,33 @@ test("sessionPrincipal is null without an org or for an org that is not allowed"
   expect(rowsFor("org_x")).toHaveLength(0);
 });
 
-test("concurrent first calls for one org leave one row with one id", async () => {
+test("concurrent creates for one org leave one row with one id", async () => {
   const svc = service();
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => svc.forOrg({ clerkOrgId: "org_a" }))
+    Array.from({ length: 5 }, () =>
+      svc.create({ clerkOrgId: "org_a", name: "Acme" })
+    )
   );
-  const ids = new Set(results.map((workspace) => workspace?.id));
+  const ids = new Set(results.map((workspace) => workspace.id));
   expect(ids.size).toBe(1);
   expect(rowsFor("org_a")).toHaveLength(1);
+});
+
+test("firstForOrgs returns the oldest workspace among the orgs, and null for none", async () => {
+  const svc = service();
+  expect(await svc.firstForOrgs([])).toBeNull();
+  expect(await svc.firstForOrgs(["org_a"])).toBeNull();
+  const a = await svc.create({ clerkOrgId: "org_a", name: "A" });
+  await svc.create({ clerkOrgId: "org_b", name: "B" });
+  await db
+    .update(workspaces)
+    .set({ createdAt: "2020-01-01T00:00:00.000Z" })
+    .where(eq(workspaces.clerkOrgId, "org_b"));
+  expect((await svc.firstForOrgs(["org_a", "org_b"]))?.clerkOrgId).toBe(
+    "org_b"
+  );
+  expect(await svc.firstForOrgs(["org_a", "org_z"])).toEqual(a);
+  expect(await svc.firstForOrgs(["org_z"])).toBeNull();
 });
 
 const withNames = (
@@ -108,7 +133,6 @@ const withNames = (
   calls: string[] = []
 ) =>
   createWorkspacesService({
-    allowedOrgIds: ["org_a"],
     db,
     orgName: (clerkOrgId) => {
       calls.push(clerkOrgId);
@@ -116,20 +140,20 @@ const withNames = (
     },
   });
 
-test("forOrg names a new workspace after the Clerk organisation", async () => {
+test("forOrg names a row still named by its org id after the Clerk organisation", async () => {
+  await service().create({ clerkOrgId: "org_a", name: "org_a" });
   const workspace = await withNames({ org_a: "Acme Pty" }).forOrg({
     clerkOrgId: "org_a",
   });
   expect(workspace?.name).toBe("Acme Pty");
 });
 
-test("forOrg falls back to the org id when Clerk has no name or fails", async () => {
+test("forOrg leaves the org id as the name when Clerk has no name or fails", async () => {
+  await service().create({ clerkOrgId: "org_a", name: "org_a" });
   expect((await withNames({}).forOrg({ clerkOrgId: "org_a" }))?.name).toBe(
     "org_a"
   );
-  db = migrated();
   const failing = createWorkspacesService({
-    allowedOrgIds: ["org_a"],
     db,
     orgName: () => Promise.reject(new Error("Clerk is down")),
   });
@@ -137,14 +161,13 @@ test("forOrg falls back to the org id when Clerk has no name or fails", async ()
 });
 
 test("forOrg renames a row still named by its org id once Clerk has a name", async () => {
-  const first = await service().forOrg({ clerkOrgId: "org_a" });
-  expect(first?.name).toBe("org_a");
+  const first = await service().create({ clerkOrgId: "org_a", name: "org_a" });
   const later = await withNames({ org_a: "Acme Pty" }).forOrg({
     clerkOrgId: "org_a",
   });
   expect(later).toEqual({
     clerkOrgId: "org_a",
-    id: first?.id as string,
+    id: first.id,
     name: "Acme Pty",
     timezone: "UTC",
   });
@@ -154,7 +177,8 @@ test("forOrg renames a row still named by its org id once Clerk has a name", asy
 test("forOrg leaves a named workspace alone and does not call Clerk", async () => {
   const calls: string[] = [];
   const svc = withNames({ org_a: "Acme Pty" }, calls);
+  await service().create({ clerkOrgId: "org_a", name: "Acme" });
   await svc.forOrg({ clerkOrgId: "org_a" });
   await svc.forOrg({ clerkOrgId: "org_a" });
-  expect(calls).toEqual(["org_a"]);
+  expect(calls).toEqual([]);
 });

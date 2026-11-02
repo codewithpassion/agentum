@@ -20,7 +20,6 @@ const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
 );
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(9)).toString("base64");
 const env = {
-  ALLOWED_ORG_IDS: "org_a",
   PUBLIC_BASE_URL: "https://harbourmaster.example.com",
   RUN_TOKEN_KEY,
 } as unknown as Env;
@@ -107,10 +106,9 @@ const toolNames = async (token: string): Promise<string[]> =>
 const allEventText = () => JSON.stringify(db.select().from(events).all());
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),
@@ -133,7 +131,7 @@ beforeEach(async () => {
     clerkOrgId: "org_a",
   });
   if (!workspace) {
-    throw new Error("org_a is not an allowed organisation");
+    throw new Error("org_a has no workspace row");
   }
   workspaceId = workspace.id;
   app = new Hono<AppEnv>();
@@ -149,6 +147,7 @@ beforeEach(async () => {
       dev: false,
       isOrgMember: () => () => Promise.resolve(true),
       log: () => undefined,
+      userOrgIds: () => () => Promise.resolve([]),
       verifyOAuthToken: () => () => Promise.resolve(null),
     })
   );

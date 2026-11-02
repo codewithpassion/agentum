@@ -74,7 +74,7 @@ export const describeMachines = async (
   orgId: string
 ): Promise<string> => {
   const principal = await devUserPrincipal(db, orgId);
-  const machines = await localMachines(db, orgId).list(principal);
+  const machines = await localMachines(db).list(principal);
   const machineBlock =
     machines.length === 0
       ? "No machines."

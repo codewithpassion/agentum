@@ -159,13 +159,12 @@ const machineEvents = () =>
     .all();
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated([ORG]);
   nowMs = START;
   open = [];
   storage = new FakeStorage();
   const blobs = new Map<string, string>();
   ({ services } = composeWith({
-    allowedOrgIds: [ORG],
     db,
     infra: {
       atomic: sqliteAtomic(db),

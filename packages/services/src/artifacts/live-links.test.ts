@@ -62,7 +62,6 @@ let runError: Error | null;
 let memberAnswer: boolean;
 let memberCalls: [string, string][];
 let memberThrows: boolean;
-let allowedOrgs: string[];
 let withRunner: boolean;
 let storeCalls: {
   area: string;
@@ -77,7 +76,6 @@ let withStore: boolean;
 const build = () => {
   const store = new Map<string, string>();
   return createArtifactSharesService({
-    allowedOrgIds: allowedOrgs,
     atomic: sqliteAtomic(db),
     clock: { now: () => new Date(nowMs) },
     db,
@@ -180,7 +178,6 @@ beforeEach(() => {
   memberAnswer = true;
   memberCalls = [];
   memberThrows = false;
-  allowedOrgs = ["org_w1"];
   withRunner = true;
   withStore = true;
   storeCalls = [];
@@ -596,13 +593,19 @@ describe("the granter (R2.11)", () => {
     expect(memberCalls).toHaveLength(0);
   });
 
-  test("a workspace whose org is no longer allowed is refused", async () => {
+  test("a link whose workspace has no row is refused, and Clerk is not asked", async () => {
     const link = await liveLink();
-    allowedOrgs = [];
-    service = build();
-    expect(
-      await service.callLink(link.token, { tool: LIST }, request())
-    ).toEqual({ ok: false, reason: "forbidden" });
+    // D1's foreign keys would refuse this delete. A row that is gone while its
+    // artifacts remain is the case this guards.
+    db.client.run("PRAGMA foreign_keys = OFF");
+    db.delete(workspaces).where(eq(workspaces.id, "w1")).run();
+    const result = await service.callLink(
+      link.token,
+      { tool: LIST },
+      request()
+    );
+    expect(result.ok).toBe(false);
+    expect(memberCalls).toHaveLength(0);
   });
 
   test("without a membership check or a runner nothing runs", async () => {

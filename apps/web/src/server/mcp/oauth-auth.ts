@@ -12,7 +12,7 @@ import type {
   createWorkspacesService,
   VerifiedOAuthClaim,
 } from "@repo/services/workspaces";
-import type { OrgMemberCheck } from "./clerk-membership.ts";
+import type { UserOrgsCheck } from "./clerk-membership.ts";
 import type { VerifiedOAuthToken } from "./clerk-oauth.ts";
 
 /** Why a valid Clerk token is still refused with a 403. */
@@ -34,34 +34,29 @@ export class OAuthDeniedError extends Error {
 }
 
 export interface OAuthClaimDeps {
-  allowedOrgIds: readonly string[];
   /** The OAuth application's name, looked up only when its client is first seen. */
   clientName: (clientId: string) => Promise<string | null>;
-  isOrgMember: OrgMemberCheck;
   oauthClients: Pick<OAuthClientsService, "resolve">;
+  /** The organisations Clerk lists for the user: one call, however many workspaces exist. */
+  userOrgIds: UserOrgsCheck;
   /** Clerk's verdict on the token: null when it is no valid OAuth access token. */
   verify: (token: string) => Promise<VerifiedOAuthToken | null>;
-  workspaces: Pick<ReturnType<typeof createWorkspacesService>, "forOrg">;
+  workspaces: Pick<ReturnType<typeof createWorkspacesService>, "firstForOrgs">;
 }
 
 /**
- * The workspace a new client is recorded in: the first allowed organisation
- * the user belongs to. Null when they belong to none, so a stranger on the
- * Clerk instance cannot put clients in anyone's queue.
+ * The workspace a new client is recorded in: the oldest workspace among the
+ * user's organisations. Null when they have none, so a stranger on a shared
+ * Clerk instance, or a member of an organisation with no workspace row,
+ * cannot put clients in anyone's queue.
  */
 const homeWorkspaceId = async (
   deps: OAuthClaimDeps,
   userId: string
 ): Promise<string | null> => {
-  const orgs = deps.allowedOrgIds;
-  const member = await Promise.all(
-    orgs.map((orgId) => deps.isOrgMember(userId, orgId))
+  const workspace = await deps.workspaces.firstForOrgs(
+    await deps.userOrgIds(userId)
   );
-  const clerkOrgId = orgs.find((_, index) => member[index]);
-  if (clerkOrgId === undefined) {
-    return null;
-  }
-  const workspace = await deps.workspaces.forOrg({ clerkOrgId });
   return workspace ? workspace.id : null;
 };
 

@@ -15,8 +15,6 @@ import type { ProxyMatch, SecretsService } from "../secrets.ts";
 import type { Principal } from "../workspaces.ts";
 
 export interface AppGrantsDeps {
-  /** The Clerk orgs the app serves (`ALLOWED_ORG_IDS`). */
-  allowedOrgIds?: readonly string[];
   db: Database;
   /** Whether a user is in a Clerk org right now, with no cache. Without it, no member call runs. */
   isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
@@ -24,7 +22,6 @@ export interface AppGrantsDeps {
 }
 
 export const createAppGrantsService = ({
-  allowedOrgIds = [],
   db,
   isOrgMember,
   secrets,
@@ -56,7 +53,7 @@ export const createAppGrantsService = ({
   /**
    * The user principal for a member whose page or app server calls a tool.
    * The view token is minutes old, so membership is asked again, uncached:
-   * null when the workspace is unknown or outside `allowedOrgIds`, or the
+   * null when the workspace has no row, or the
    * person has left the org. Admin rights are not carried, so a private
    * artifact of someone else stays closed to an admin's app calls.
    */
@@ -66,12 +63,7 @@ export const createAppGrantsService = ({
   ): Promise<Extract<Principal, { kind: "user" }> | null> => {
     const clerkOrgId = await workspaceClerkOrgId(db, workspaceId);
     if (
-      !(
-        clerkOrgId &&
-        isOrgMember &&
-        allowedOrgIds.includes(clerkOrgId) &&
-        (await isOrgMember(userId, clerkOrgId))
-      )
+      !(clerkOrgId && isOrgMember && (await isOrgMember(userId, clerkOrgId)))
     ) {
       return null;
     }

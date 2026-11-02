@@ -9,7 +9,7 @@ import { machines } from "@repo/db/schema/machines";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { ApiKeyAccess, OAuthClientAccess } from "@repo/db/shared";
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hashToken } from "./crypto.ts";
 import {
@@ -91,16 +91,14 @@ const ADMIN_ORG_ROLE = "org:admin";
 const MEMBERSHIP_TTL_MS = 60_000;
 
 /**
- * Workspace access by Clerk org. `allowedOrgIds` is the set of orgs this
- * deployment serves; an org outside it has no workspace here. `orgName` reads
- * the organisation's name from Clerk; null means Clerk has none.
+ * Workspace access by Clerk org. An org has access exactly when a `workspaces`
+ * row carries its id, and only `create` makes a row. `orgName` reads the
+ * organisation's name from Clerk; null means Clerk has none.
  */
 export const createWorkspacesService = ({
-  allowedOrgIds,
   db,
   orgName,
 }: {
-  allowedOrgIds: readonly string[];
   db: Database;
   orgName?: (clerkOrgId: string) => Promise<string | null>;
 }) => {
@@ -130,10 +128,9 @@ export const createWorkspacesService = ({
   };
 
   /**
-   * The workspace for `clerkOrgId`, created on the first call. Null when the
-   * org is not in `allowedOrgIds`. The name is `name`, else the Clerk
-   * organisation's name, else the org id. A row whose name still equals its
-   * org id is looked up again and renamed once Clerk has a name.
+   * The workspace row for `clerkOrgId`, or null when it has none: this never
+   * creates one. A row whose name still equals its org id is looked up again
+   * and renamed once Clerk has a name, or to `name` when the caller has one.
    */
   const forOrg = async ({
     clerkOrgId,
@@ -142,34 +139,46 @@ export const createWorkspacesService = ({
     clerkOrgId: string;
     name?: string;
   }): Promise<Workspace | null> => {
-    if (!allowedOrgIds.includes(clerkOrgId)) {
-      return null;
-    }
-    let row = await selectRow(clerkOrgId);
-    if (row && row.name !== clerkOrgId) {
-      return row;
+    const row = await selectRow(clerkOrgId);
+    if (!row || row.name !== clerkOrgId) {
+      return row ?? null;
     }
     const resolved = name ?? (await lookupName(clerkOrgId));
-    if (!row) {
-      // Two concurrent first calls both insert; the unique clerk_org_id keeps one.
-      await db
-        .insert(workspaces)
-        .values({
-          clerkOrgId,
-          createdAt: new Date().toISOString(),
-          id: ulid(),
-          name: resolved ?? clerkOrgId,
-          timezone: "UTC",
-        })
-        .onConflictDoNothing();
-      row = await selectRow(clerkOrgId);
-    } else if (resolved && resolved !== row.name) {
-      await db
-        .update(workspaces)
-        .set({ name: resolved })
-        .where(eq(workspaces.clerkOrgId, clerkOrgId));
-      row = await selectRow(clerkOrgId);
+    if (!resolved || resolved === row.name) {
+      return row;
     }
+    await db
+      .update(workspaces)
+      .set({ name: resolved })
+      .where(eq(workspaces.clerkOrgId, clerkOrgId));
+    return (await selectRow(clerkOrgId)) ?? row;
+  };
+
+  /**
+   * Makes the workspace for `clerkOrgId`, or returns the one it has. For
+   * system callers only: the add-workspace script and the create-workspace
+   * screen. A request never reaches this on its own, so an organisation made
+   * anywhere else on the Clerk instance gets no workspace.
+   */
+  const create = async ({
+    clerkOrgId,
+    name,
+  }: {
+    clerkOrgId: string;
+    name: string;
+  }): Promise<Workspace> => {
+    // Two concurrent calls both insert; the unique clerk_org_id keeps one.
+    await db
+      .insert(workspaces)
+      .values({
+        clerkOrgId,
+        createdAt: new Date().toISOString(),
+        id: ulid(),
+        name: name.trim() || clerkOrgId,
+        timezone: "UTC",
+      })
+      .onConflictDoNothing();
+    const row = await selectRow(clerkOrgId);
     if (!row) {
       throw new Error(`Workspace for ${clerkOrgId} is missing after insert.`);
     }
@@ -177,9 +186,29 @@ export const createWorkspacesService = ({
   };
 
   /**
+   * The oldest workspace whose org is one of `clerkOrgIds`, or null. The
+   * OAuth path uses it with the orgs Clerk lists for the user, so it needs
+   * one Clerk call however many workspaces exist.
+   */
+  const firstForOrgs = async (
+    clerkOrgIds: readonly string[]
+  ): Promise<Workspace | null> => {
+    if (clerkOrgIds.length === 0) {
+      return null;
+    }
+    const [row] = await db
+      .select(WORKSPACE_COLUMNS)
+      .from(workspaces)
+      .where(inArray(workspaces.clerkOrgId, [...clerkOrgIds]))
+      .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
+      .limit(1);
+    return row ?? null;
+  };
+
+  /**
    * The user principal for a Clerk session. Clerk signs the org claim, so
-   * there is no membership call here. Null without an org or outside
-   * `allowedOrgIds`.
+   * there is no membership call here. Null without an org, or when the org
+   * has no workspace row.
    */
   const sessionPrincipal = async ({
     orgId,
@@ -205,7 +234,7 @@ export const createWorkspacesService = ({
       : null;
   };
 
-  return { forOrg, sessionPrincipal };
+  return { create, firstForOrgs, forOrg, sessionPrincipal };
 };
 
 /** The machine principal for an `hm_mach_` credential, or null if unknown or revoked. */
@@ -267,7 +296,6 @@ export interface VerifiedOAuthClaim {
 }
 
 export interface PrincipalResolverOptions {
-  allowedOrgIds: readonly string[];
   db: Database;
   /** Whether `userId` is a member of the Clerk org right now. Errors propagate. */
   isOrgMember: (userId: string, clerkOrgId: string) => Promise<boolean>;
@@ -309,7 +337,6 @@ export const bearerToken = (authorization: string | null): string | null => {
  * is not caught, so a Clerk outage fails the request instead of answering 401.
  */
 export const createPrincipalResolver = ({
-  allowedOrgIds,
   db,
   isOrgMember,
   now = Date.now,
@@ -406,19 +433,19 @@ export const createPrincipalResolver = ({
       : null;
   };
 
-  /** The workspace row for `workspaceId`, if its org is in `allowedOrgIds`. */
-  const allowedWorkspace = async (workspaceId: string) => {
+  /** The workspace row for `workspaceId`, or null when there is none. */
+  const workspaceRow = async (workspaceId: string) => {
     const [row] = await db
       .select(WORKSPACE_COLUMNS)
       .from(workspaces)
       .where(eq(workspaces.id, workspaceId))
       .limit(1);
-    return row && allowedOrgIds.includes(row.clerkOrgId) ? row : null;
+    return row ?? null;
   };
 
   /**
    * A user candidate needs its org membership. The workspace row is loaded
-   * first, so a disallowed org never reaches Clerk.
+   * first, so a workspace with no row never reaches Clerk.
    */
   const passesMembership = async (
     candidate: WorkspacePrincipal,
@@ -440,7 +467,7 @@ export const createPrincipalResolver = ({
     if (!candidate) {
       return null;
     }
-    const workspace = await allowedWorkspace(candidate.workspaceId);
+    const workspace = await workspaceRow(candidate.workspaceId);
     if (!workspace) {
       return null;
     }

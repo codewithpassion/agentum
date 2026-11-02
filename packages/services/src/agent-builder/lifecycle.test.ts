@@ -616,14 +616,12 @@ describe("dry run on the real services", () => {
       library,
     });
     const triggers = createTriggersService({
-      allowedOrgIds: ["org_ws_1"],
       clock,
       db,
       events,
       runs,
     });
     const routines = createRoutinesService({
-      allowedOrgIds: ["org_ws_1"],
       clock,
       db,
       events,
@@ -776,14 +774,12 @@ describe("create on the real services", () => {
       library,
     });
     const triggers = createTriggersService({
-      allowedOrgIds: ["org_ws_1"],
       clock,
       db,
       events,
       runs,
     });
     const routines = createRoutinesService({
-      allowedOrgIds: ["org_ws_1"],
       clock,
       db,
       events,
@@ -798,7 +794,6 @@ describe("create on the real services", () => {
       fetch: unused,
     });
     const machines = createMachinesService({
-      allowedOrgIds: ["org_ws_1"],
       atomic,
       clock,
       db,

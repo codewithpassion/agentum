@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseEnv } from "node:util";
 // Creates the UX review persona and its Clerk organisation on the instance
-// staging uses (the dev instance), then prints the org id for ALLOWED_ORG_IDS.
+// staging uses (the dev instance), then prints the org id for `bun run add-workspace --remote --env staging`.
 // Idempotent. Run from this folder: bun provision-sim.ts
 import { createClerkClient } from "@clerk/backend";
 

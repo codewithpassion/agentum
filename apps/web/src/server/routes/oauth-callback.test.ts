@@ -81,12 +81,11 @@ app.use("*", async (c, next) => {
 app.route("/", connectorOAuthRoutes({ session: () => session }));
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a", "org_b"]);
   stub = startStubMcp({ oauth: true });
   requested = [];
   session = USER_A;
   composed = composeWith({
-    allowedOrgIds: ["org_a", "org_b"],
     db,
     infra: infra(),
   });

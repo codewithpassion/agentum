@@ -131,7 +131,6 @@ test("a created secret resolves to its owner through the principal resolver", as
     name: "agent",
   });
   const { resolve } = createPrincipalResolver({
-    allowedOrgIds: [`org_${WORKSPACE}`],
     db,
     isOrgMember: () => Promise.resolve(true),
     now: () => nowMs,
@@ -156,7 +155,6 @@ test("a desk key resolves with the desk access", async () => {
     name: "flightdex",
   });
   const { resolve } = createPrincipalResolver({
-    allowedOrgIds: [`org_${WORKSPACE}`],
     db,
     isOrgMember: () => Promise.resolve(true),
     now: () => nowMs,

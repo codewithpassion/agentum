@@ -18,10 +18,9 @@ let user: Principal;
 let readKey: Principal;
 
 beforeEach(async () => {
-  const db = migrated();
+  const db = migrated(["org_a"]);
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

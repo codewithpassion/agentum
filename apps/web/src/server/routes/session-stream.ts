@@ -174,7 +174,7 @@ const jsonError = (
   error: string
 ) => c.json({ error }, status);
 
-/** The user behind the Clerk session, or null when there is none or it has no allowed org. */
+/** The user behind the Clerk session, or null when there is none or its org has no workspace row. */
 const authenticate = async (
   c: RouteContext,
   deps: SessionStreamRouteDeps

@@ -15,7 +15,7 @@ const enrollMachine = async (
   name = MACHINE_NAME
 ): Promise<string> => {
   const code = await mintEnrollCode({ db, machineName: name, orgId: ORG });
-  const enrolled = await localMachines(db, ORG).enroll({
+  const enrolled = await localMachines(db).enroll({
     code,
     singleUser: false,
   });
@@ -34,7 +34,7 @@ test("mintEnrollCode returns a code the machines service enrols once", async () 
   });
   expect(code.startsWith("hm_enr_")).toBe(true);
 
-  const machines = localMachines(db, ORG);
+  const machines = localMachines(db);
   const enrolled = await machines.enroll({ code, singleUser: false });
   expect(enrolled?.machineId).toBeString();
   expect(await machines.enroll({ code, singleUser: false })).toBeNull();
@@ -63,7 +63,7 @@ test("describeMachines lists the presence events of a machine", async () => {
   const machineId = await enrollMachine(db);
   const { workspaceId } = await devUserPrincipal(db, ORG);
   const machine = { kind: "machine" as const, machineId, workspaceId };
-  const machines = localMachines(db, ORG);
+  const machines = localMachines(db);
 
   await machines.markOnline(machine);
   await machines.markOffline(machine, "disconnected");
@@ -80,7 +80,7 @@ test("describeMachines shows only the 20 newest presence events", async () => {
   const machineId = await enrollMachine(db);
   const { workspaceId } = await devUserPrincipal(db, ORG);
   const machine = { kind: "machine" as const, machineId, workspaceId };
-  const machines = localMachines(db, ORG);
+  const machines = localMachines(db);
 
   // 260 online and offline flips make 520 events, more than one page of 500.
   for (let cycle = 0; cycle < 260; cycle += 1) {

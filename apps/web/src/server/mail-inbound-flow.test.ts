@@ -126,7 +126,6 @@ beforeEach(() => {
     })
     .run();
   ({ services } = composeWith({
-    allowedOrgIds: [],
     db,
     infra: {
       atomic: sqliteAtomic(db),

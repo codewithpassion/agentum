@@ -31,11 +31,10 @@ let workspaceId: string;
 let userPrincipal: Principal;
 
 beforeEach(async () => {
-  const db = migrated();
+  const db = migrated(["org_a"]);
   const store = new Map<string, string>();
   clockNow = new Date("2026-10-19T08:00:00.000Z");
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),
