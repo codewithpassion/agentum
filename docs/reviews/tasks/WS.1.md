@@ -32,4 +32,4 @@ Checks on the final tree: `bun run check`, `bun run test` and `bun run build` pa
 ## For Dom
 
 - Before deploying to staging or production, list `workspaces` in that environment and compare it with that environment's `ALLOWED_ORG_IDS`. A row outside the list gains access when this ships, and an allowed org that never visited has no row and loses it. Add missing rows with `bun run add-workspace --org <id> --name <name> --remote [--env staging]`, then remove the Worker secret after the deploy.
-- `--remote` without `--env staging` reads `CLERK_SECRET_KEY` from `apps/web/.env.production.local` or the process environment. Staging and production share one Clerk instance, so the production key must be in that file.
+- `--remote` without `--env staging` reads `CLERK_SECRET_KEY` from `apps/web/.env.production.local` or the process environment, so the production key must be in that file. `--remote --env staging` reads the dev key from `apps/web/.env.local`: staging runs on the Clerk dev instance (`faithful-falcon-1887.clerk.accounts.dev`), not the production one.

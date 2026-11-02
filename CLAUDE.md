@@ -230,7 +230,7 @@ Production uses the production Clerk instance and reads its key from
 name a user on that instance (the dev user is not there). The URL is a one-time
 credential: open it in a fresh browser session and don't paste it into logs or
 reports. The key is never printed. The session lands on the signed-in pages
-only when the user has an allowed organisation active. On the production
+only when the user has an active organisation that has a workspace row. On the production
 instance (production only) Clerk does not activate it for an Agent Task
 session: the session stays `pending` with the `choose-organization` task, which
 the app treats as signed out. `PendingSessionGate`
