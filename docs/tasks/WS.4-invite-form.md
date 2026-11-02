@@ -39,3 +39,4 @@ An invitation sent from Clerk's organisation profile carries no redirect URL, so
 - 2026-11-02: created from the WS gate and Dom's decision, and dispatched.
 - 2026-11-02: review clean after 1 fix round. Merged and pushed. Tested on the dev instance with Clerk test addresses. Production is unproven, because its sessions stay pending with the choose-organization task.
 - 2026-11-02: deployed to staging at b5bb5f26 (Worker version a89b12be). The menu item and dialog checked there. Gate round 2 found a must-fix in /accept-invitation, so WS.5 goes before production.
+- 2026-11-02: production deployed at 7c2ed6cf (Worker version bc42a9d2, was 585be69b), with Dom's go-ahead. The first attempt stopped on a Cloudflare authentication error during the release upload, before the Worker deploy, and the retry passed. Invite people shows on production. A real invitation on production is still to be tested.

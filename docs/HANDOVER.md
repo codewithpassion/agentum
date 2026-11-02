@@ -11,7 +11,7 @@ Rewritten 26 October 2026. v1 is built (milestones M0 to M9 and the C, F, P, R, 
 - Open from v1: C.19 (secret scrub, 4 commits on its branch, needs review and merge), M1.4s, M8.4, SK.5 and W.10 (blocked or backlog). `bun run tasks` has the list.
 - Agent connections (AA, 1 Nov 2026): A2A 1.0 server and client, invites, access keys and pairing codes, compatible with Hermes. Production runs it at Worker version f885d00e (1 Nov 2026). `bun run deploy` has no migration step, so apply new migrations with `wrangler d1 migrations apply DB --remote` first. Spec: `docs/v3/agent-connections.md`. Reviews and open items: `docs/reviews/AA-1.md`, `AA-2.md`.
 - Daemon install (DI.1, 1 Nov 2026): `deploy` and `staging:deploy` build and publish `harbourmaster` and `hm-computer` to `releases/` in the `FILES` bucket, and machines install with `curl -fsSL <origin>/install.sh | sh`. Publishing refuses a dirty tree and needs Go or Docker.
-- Workspaces (WS.1, WS.2, 2 Nov 2026): a `workspaces` row admits an organisation, and the rail menu switches and creates workspaces. Thread Dismiss (RL.9) and the top bar (RL.10) shipped with them. Production runs them at Worker version 585be69b (2 Nov 2026). Inviting a brand-new user through `Manage members` can misroute on the shared production Clerk instance until WS.4 ships.
+- Workspaces (WS.1, WS.2, 2 Nov 2026): a `workspaces` row admits an organisation, and the rail menu switches and creates workspaces. Thread Dismiss (RL.9) and the top bar (RL.10) shipped with them. Invitations go through `Invite people` (WS.4, WS.5). Production runs them at Worker version bc42a9d2 (2 Nov 2026). A real invitation on production is still untested.
 
 Read in this order:
 

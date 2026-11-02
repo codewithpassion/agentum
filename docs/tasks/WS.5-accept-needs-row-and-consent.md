@@ -36,3 +36,4 @@ A signed-in person opening `/accept-invitation?org=<id>` has any pending invitat
 - 2026-11-02: created from the WS gate, round 2, and dispatched.
 - 2026-11-02: review clean after 0 fix rounds. Merged and pushed.
 - 2026-11-02: deployed to staging at 0348b3db (Worker version 3bb522f1). A real emailed invitation to a brand-new address, sent from Invite people, signed up from the link while signed out and landed on /desk in the inviting workspace. Test user deleted. The signed-out existing-user path was tested in WS.4 and not repeated here.
+- 2026-11-02: production deployed at 7c2ed6cf (Worker version bc42a9d2, was 585be69b), with Dom's go-ahead. The first attempt stopped on a Cloudflare authentication error during the release upload, before the Worker deploy, and the retry passed. Invite people shows on production. A real invitation on production is still to be tested.
