@@ -23,9 +23,11 @@ export const Route = createFileRoute("/accept-invitation")({
 // Where the email link from `workspaces.invite` lands. Clerk appends
 // `__clerk_ticket` and `__clerk_status` to the redirect URL the server set, and
 // the server adds `org`. The sign-up or sign-in form spends the ticket and
-// returns here signed in, and `ActivateOrganization` then makes the inviting
-// organisation active, so a person in several organisations still lands in
-// the one that invited them.
+// returns here signed in, and `ActivateOrganization` then checks that the
+// organisation has a `workspaces` row and makes it active, so a person in
+// several organisations still lands in the one that invited them. A person who
+// arrives already signed in, with the invitation still pending, must click
+// `Join` before it is accepted.
 function AcceptInvitationPage() {
   const search = Route.useSearch();
   const { isLoaded, session } = useSession();
