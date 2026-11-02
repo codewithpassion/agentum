@@ -3,7 +3,7 @@ id: WS.5
 title: "Accepting an invitation needs the person's say-so and a workspace row"
 milestone: WS
 size: S
-status: in_progress
+status: done
 depends_on: [WS.4]
 branch: task/WS.5-accept-needs-row-and-consent
 lane: web
@@ -34,3 +34,4 @@ A signed-in person opening `/accept-invitation?org=<id>` has any pending invitat
 
 ## Log
 - 2026-11-02: created from the WS gate, round 2, and dispatched.
+- 2026-11-02: review clean after 0 fix rounds. Merged and pushed.
