@@ -3,7 +3,7 @@ id: RL.10
 title: "Board, Find and New move to the top bar"
 milestone: RL
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/RL.10-header-actions
 lane: web
@@ -36,3 +36,4 @@ Dom's request, 2 November 2026: the board matters but is buried in the Find over
 ## Log
 - 2026-11-02: created from Dom's request.
 - 2026-11-02: dispatched.
+- 2026-11-02: review clean after 0 fix rounds. Merged and pushed. Starting a task from New was not run end to end, because the local database has no agents. Check it on staging.

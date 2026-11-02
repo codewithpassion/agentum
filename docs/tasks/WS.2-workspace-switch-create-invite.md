@@ -3,9 +3,9 @@ id: WS.2
 title: "Switch workspace, create one, and invite people"
 milestone: WS
 size: M
-status: todo
+status: in_progress
 depends_on: [WS.1, RL.10]
-branch: null
+branch: task/WS.2-workspace-switch-create-invite
 lane: web
 executor: claude
 ---
@@ -38,3 +38,4 @@ Dom's request, 2 November 2026: there is no way to create a new workspace, invit
 
 ## Log
 - 2026-11-02: created from Dom's request.
+- 2026-11-02: dispatched.
