@@ -25,9 +25,9 @@ import {
   canSendInvite,
   DEFAULT_INVITE_ROLE,
   INVITE_ROLE_OPTIONS,
+  inviteErrorMessage,
   inviteSentMessage,
 } from "./invite-logic.ts";
-import { switchErrorMessage } from "./workspace-menu-logic.ts";
 
 /** Asks for an email address and a role, and has the server email an invitation into this workspace. */
 export function InviteDialog({
@@ -68,7 +68,7 @@ export function InviteDialog({
         setSent(inviteSentMessage(email));
         setEmail("");
       } catch (caught) {
-        setError(switchErrorMessage(caught));
+        setError(inviteErrorMessage(caught));
       } finally {
         setPending(false);
       }

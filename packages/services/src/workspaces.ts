@@ -354,8 +354,14 @@ export const createWorkspacesService = ({
     if (!INVITE_ROLES.includes(input.role)) {
       throw new ServiceError("invalid", "Choose Member or Admin.");
     }
-    if (!(organizations && publicBaseUrl)) {
-      throw new Error("Invitations need the Clerk port and PUBLIC_BASE_URL.");
+    if (!publicBaseUrl) {
+      throw new ServiceError(
+        "invalid",
+        "Invitations are not set up on this deployment."
+      );
+    }
+    if (!organizations) {
+      throw new Error("Inviting people needs the Clerk organisations port.");
     }
     const [row] = await db
       .select({ clerkOrgId: workspaces.clerkOrgId })
@@ -383,7 +389,7 @@ export const createWorkspacesService = ({
     if (status === "already_invited") {
       throw new ServiceError(
         "conflict",
-        `${emailAddress} already has a pending invitation. Revoke it under Manage members to send a new one.`
+        `${emailAddress} already has a pending invitation.`
       );
     }
     return { email: emailAddress };

@@ -427,7 +427,21 @@ test("inviteFromSession explains each Clerk conflict", async () => {
     })
   ).rejects.toMatchObject({
     code: "conflict",
-    message:
-      "a@b.co already has a pending invitation. Revoke it under Manage members to send a new one.",
+    message: "a@b.co already has a pending invitation.",
   });
+});
+
+test("inviteFromSession says so when the deployment has no base URL", async () => {
+  const { port, state } = fakeOrganizations();
+  const svc = createWorkspacesService({ db, organizations: port });
+  const workspace = await svc.create({ clerkOrgId: "org_a", name: "A" });
+  await expect(
+    svc.inviteFromSession(
+      { ...adminSession, workspaceId: workspace.id },
+      { email: "a@b.co", role: "org:member" }
+    )
+  ).rejects.toMatchObject({
+    message: "Invitations are not set up on this deployment.",
+  });
+  expect(state.invited).toEqual([]);
 });

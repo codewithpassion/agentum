@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  activationPlan,
   invitationReturnPath,
   invitationStep,
   parseInvitationSearch,
@@ -52,4 +53,37 @@ test("the search parser reads Clerk's keys and ignores everything else", () => {
     status: undefined,
     ticket: undefined,
   });
+});
+
+test("a member of the organisation just activates it", () => {
+  expect(
+    activationPlan({
+      invitations: [{ id: "inv_1", organizationId: "org_a" }],
+      memberOrgIds: ["org_a", "org_b"],
+      org: "org_a",
+    })
+  ).toEqual({ kind: "activate" });
+});
+
+test("a signed-in person with a pending invitation accepts it first", () => {
+  expect(
+    activationPlan({
+      invitations: [
+        { id: "inv_2", organizationId: "org_b" },
+        { id: "inv_1", organizationId: "org_a" },
+      ],
+      memberOrgIds: ["org_b"],
+      org: "org_a",
+    })
+  ).toEqual({ invitationId: "inv_1", kind: "accept" });
+});
+
+test("no membership and no invitation for the organisation means nothing to do", () => {
+  expect(
+    activationPlan({
+      invitations: [{ id: "inv_2", organizationId: "org_b" }],
+      memberOrgIds: [],
+      org: "org_a",
+    })
+  ).toEqual({ kind: "none" });
 });

@@ -8,6 +8,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
+  activationPlan,
   invitationReturnPath,
   invitationStep,
   parseInvitationSearch,
@@ -75,21 +76,50 @@ function GoToDesk() {
 }
 
 function ActivateOrganization({ org }: { org: string }) {
-  const { isLoaded, setActive } = useOrganizationList();
+  const { isLoaded, setActive, userInvitations, userMemberships } =
+    useOrganizationList({
+      userInvitations: { status: "pending" },
+      userMemberships: true,
+    });
   const started = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const loading =
+    !isLoaded || userMemberships.isLoading || userInvitations.isLoading;
 
   useEffect(() => {
-    if (!(isLoaded && setActive) || started.current) {
+    if (loading || !setActive || started.current) {
       return;
     }
     started.current = true;
-    setActive({ organization: org })
+    const plan = activationPlan({
+      invitations: (userInvitations.data ?? []).map((invitation) => ({
+        id: invitation.id,
+        organizationId: invitation.publicOrganizationData.id,
+      })),
+      memberOrgIds: (userMemberships.data ?? []).map(
+        (membership) => membership.organization.id
+      ),
+      org,
+    });
+    if (plan.kind === "none") {
+      setError(
+        "This invitation is not for the account you are signed in with."
+      );
+      return;
+    }
+    const accepted =
+      plan.kind === "accept"
+        ? (userInvitations.data ?? [])
+            .find((invitation) => invitation.id === plan.invitationId)
+            ?.accept()
+        : Promise.resolve();
+    Promise.resolve(accepted)
+      .then(() => setActive({ organization: org }))
       .then(() => window.location.assign("/desk"))
       .catch(() =>
         setError("Could not open the workspace you were invited to.")
       );
-  }, [isLoaded, org, setActive]);
+  }, [loading, org, setActive, userInvitations.data, userMemberships.data]);
 
   if (error !== null) {
     return (

@@ -3,6 +3,7 @@ import {
   canSendInvite,
   DEFAULT_INVITE_ROLE,
   INVITE_ROLE_OPTIONS,
+  inviteErrorMessage,
   inviteSentMessage,
   MEMBER_PROFILE_APPEARANCE,
 } from "./invite-logic.ts";
@@ -29,4 +30,12 @@ test("the member profile hides Clerk's own invite button", () => {
   expect(MEMBER_PROFILE_APPEARANCE.elements.membersPageInviteButton).toEqual({
     display: "none",
   });
+});
+
+test("a failed send shows the error's message, or a default", () => {
+  expect(inviteErrorMessage(new Error(" Nope. "))).toBe("Nope.");
+  expect(
+    inviteErrorMessage(Object.assign(new Error("ignored"), { message: "  " }))
+  ).toBe("Could not send the invitation.");
+  expect(inviteErrorMessage("x")).toBe("Could not send the invitation.");
 });

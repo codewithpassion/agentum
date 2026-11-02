@@ -60,3 +60,31 @@ export function parseInvitationSearch(
     ticket: asString(raw.__clerk_ticket),
   };
 }
+
+/**
+ * What a signed-in session must do to end up in `org`. A person who was
+ * already signed in when they opened the link never spent the ticket, so the
+ * invitation is still pending: accept it first. A member just activates.
+ */
+export function activationPlan({
+  invitations,
+  memberOrgIds,
+  org,
+}: {
+  invitations: readonly { id: string; organizationId: string }[];
+  memberOrgIds: readonly string[];
+  org: string;
+}):
+  | { kind: "activate" }
+  | { kind: "accept"; invitationId: string }
+  | { kind: "none" } {
+  if (memberOrgIds.includes(org)) {
+    return { kind: "activate" };
+  }
+  const pending = invitations.find(
+    (invitation) => invitation.organizationId === org
+  );
+  return pending
+    ? { invitationId: pending.id, kind: "accept" }
+    : { kind: "none" };
+}

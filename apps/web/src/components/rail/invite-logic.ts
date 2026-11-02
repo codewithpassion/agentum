@@ -22,6 +22,12 @@ export function canSendInvite({
   return email.trim() !== "" && !pending;
 }
 
+/** Text for a failed send: the error's message, or a default when there is none. */
+export function inviteErrorMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message.trim() : "";
+  return text === "" ? "Could not send the invitation." : text;
+}
+
 /** What the dialog says once Clerk has queued the email. */
 export function inviteSentMessage(email: string): string {
   return `Invitation sent to ${email.trim()}.`;
