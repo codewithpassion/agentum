@@ -2,7 +2,14 @@ import { beforeEach, expect, test } from "bun:test";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
-import { createWorkspacesService } from "./workspaces.ts";
+import { ForbiddenError } from "./authz.ts";
+import { ServiceError } from "./errors.ts";
+import {
+  createWorkspacesService,
+  MAX_WORKSPACE_NAME_LENGTH,
+  type Principal,
+  SYSTEM_PRINCIPAL,
+} from "./workspaces.ts";
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -181,4 +188,133 @@ test("forOrg leaves a named workspace alone and does not call Clerk", async () =
   await svc.forOrg({ clerkOrgId: "org_a" });
   await svc.forOrg({ clerkOrgId: "org_a" });
   expect(calls).toEqual([]);
+});
+
+// createFromSession and mine
+
+const adminSession = {
+  isAdmin: true,
+  kind: "user" as const,
+  userId: "user_1",
+  via: "session" as const,
+  workspaceId: "w",
+};
+
+const fakeOrganizations = () => {
+  const state = {
+    made: [] as { createdBy: string; name: string }[],
+    removed: [] as string[],
+  };
+  return {
+    port: {
+      create: (input: { createdBy: string; name: string }) => {
+        state.made.push(input);
+        return Promise.resolve({ id: `org_new_${state.made.length}` });
+      },
+      remove: (id: string) => {
+        state.removed.push(id);
+        return Promise.resolve();
+      },
+    },
+    state,
+  };
+};
+
+test("createFromSession lets an admin make an organisation and its row", async () => {
+  const { port, state } = fakeOrganizations();
+  const svc = createWorkspacesService({ db, organizations: port });
+  const made = await svc.createFromSession(adminSession, { name: "  Fresh  " });
+  expect(made).toMatchObject({ clerkOrgId: "org_new_1", name: "Fresh" });
+  expect(state.made).toEqual([{ createdBy: "user_1", name: "Fresh" }]);
+  expect(rowsFor("org_new_1")).toHaveLength(1);
+});
+
+test("createFromSession refuses a non-admin and every non-session principal", async () => {
+  const { port, state } = fakeOrganizations();
+  const svc = createWorkspacesService({ db, organizations: port });
+  const refused: Principal[] = [
+    { ...adminSession, isAdmin: false },
+    { ...adminSession, isAdmin: undefined },
+    { ...adminSession, via: "api_key" },
+    { ...adminSession, via: "oauth" },
+    { ...adminSession, via: "slack" },
+    { agentId: "a", kind: "run", runId: "r", workspaceId: "w" },
+    { kind: "machine", machineId: "m", workspaceId: "w" },
+    { agentId: "a", kind: "trigger", triggerId: "t", workspaceId: "w" },
+    { agentId: "a", connectionId: "c", kind: "peer", workspaceId: "w" },
+    SYSTEM_PRINCIPAL,
+  ];
+  await Promise.all(
+    refused.map((principal) =>
+      expect(
+        svc.createFromSession(principal, { name: "Fresh" })
+      ).rejects.toBeInstanceOf(ForbiddenError)
+    )
+  );
+  expect(state.made).toEqual([]);
+});
+
+test("createFromSession refuses a blank or oversized name before touching Clerk", async () => {
+  const { port, state } = fakeOrganizations();
+  const svc = createWorkspacesService({ db, organizations: port });
+  await Promise.all(
+    ["", "   ", "x".repeat(MAX_WORKSPACE_NAME_LENGTH + 1)].map((name) =>
+      expect(
+        svc.createFromSession(adminSession, { name })
+      ).rejects.toBeInstanceOf(ServiceError)
+    )
+  );
+  await svc.createFromSession(adminSession, {
+    name: "x".repeat(MAX_WORKSPACE_NAME_LENGTH),
+  });
+  expect(state.made).toHaveLength(1);
+});
+
+test("createFromSession deletes the organisation when the row fails", async () => {
+  const { port, state } = fakeOrganizations();
+  const failing = new Proxy(db, {
+    get: (target, prop, receiver) =>
+      prop === "insert"
+        ? () => {
+            throw new Error("insert failed");
+          }
+        : Reflect.get(target, prop, receiver),
+  });
+  const svc = createWorkspacesService({ db: failing, organizations: port });
+  await expect(
+    svc.createFromSession(adminSession, { name: "Fresh" })
+  ).rejects.toThrow("insert failed");
+  expect(state.removed).toEqual(["org_new_1"]);
+});
+
+test("mine lists the memberships that have a row with their role, and leaves the rest out", async () => {
+  const svc = createWorkspacesService({
+    db,
+    userOrganizations: (userId) =>
+      Promise.resolve(
+        userId === "user_1"
+          ? [
+              { clerkOrgId: "org_a", role: "org:admin" },
+              { clerkOrgId: "org_b", role: "org:member" },
+              { clerkOrgId: "org_norow", role: "org:admin" },
+            ]
+          : []
+      ),
+  });
+  const a = await svc.create({ clerkOrgId: "org_a", name: "A" });
+  await svc.create({ clerkOrgId: "org_b", name: "B" });
+  await svc.create({ clerkOrgId: "org_theirs", name: "Theirs" });
+  const mine = await svc.mine("user_1");
+  expect(
+    mine
+      .map((entry) => [entry.clerkOrgId, entry.role])
+      .sort((x, y) => String(x[0]).localeCompare(String(y[0])))
+  ).toEqual([
+    ["org_a", "org:admin"],
+    ["org_b", "org:member"],
+  ]);
+  expect(mine.find((entry) => entry.clerkOrgId === "org_a")?.workspaceId).toBe(
+    a.id
+  );
+  expect(await svc.mine("user_2")).toEqual([]);
 });

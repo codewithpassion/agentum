@@ -19,6 +19,8 @@ import { buildContext } from "./build-context.ts";
 export type Context = {
   principal: Principal | null;
   services: Services;
+  /** The signed-in user, even when their active organisation has no workspace row. Null when signed out. */
+  userId: string | null;
 };
 
 /**

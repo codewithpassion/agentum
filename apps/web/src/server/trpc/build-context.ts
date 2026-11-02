@@ -22,5 +22,5 @@ export const buildContext = async ({
           orgRole: session.orgRole,
           userId: session.userId,
         });
-  return { principal, services };
+  return { principal, services, userId: session.userId };
 };
