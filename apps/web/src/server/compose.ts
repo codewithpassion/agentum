@@ -632,6 +632,7 @@ export const composeWith = ({
     db,
     organizations: infra.organizations,
     orgName: infra.orgName,
+    publicBaseUrl: infra.publicBaseUrl,
     userOrganizations: infra.userOrganizations,
   });
   const events = createEventsService({

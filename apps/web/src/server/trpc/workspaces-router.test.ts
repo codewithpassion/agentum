@@ -10,10 +10,12 @@ import { appRouter } from "./router.ts";
 
 let db: ReturnType<typeof migrated>;
 let made: { createdBy: string; name: string }[];
+let invited: { clerkOrgId: string; redirectUrl: string; role: string }[];
 
 beforeEach(() => {
   db = migrated(["org_a"]);
   made = [];
+  invited = [];
 });
 
 const infra = (): Infra => {
@@ -35,8 +37,13 @@ const infra = (): Infra => {
         made.push(input);
         return Promise.resolve({ id: `org_new_${made.length}` });
       },
+      invite: ({ clerkOrgId, redirectUrl, role }) => {
+        invited.push({ clerkOrgId, redirectUrl, role });
+        return Promise.resolve("invited");
+      },
       remove: () => Promise.resolve(),
     },
+    publicBaseUrl: "https://app.test",
     relay: noopRelay,
     userOrganizations: () =>
       Promise.resolve([
@@ -100,4 +107,37 @@ test("create answers FORBIDDEN to a non-admin and BAD_REQUEST to a blank name", 
     code: "BAD_REQUEST",
   });
   expect(made).toEqual([]);
+});
+
+test("invite emails an invitation from the caller's workspace, for an admin only", async () => {
+  const admin = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
+  expect(
+    await admin.workspaces.invite({
+      email: "new@example.com",
+      role: "org:member",
+    })
+  ).toEqual({ email: "new@example.com" });
+  expect(invited).toEqual([
+    {
+      clerkOrgId: "org_a",
+      redirectUrl: "https://app.test/accept-invitation?org=org_a",
+      role: "org:member",
+    },
+  ]);
+  const member = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:member",
+    userId: "user_2",
+  });
+  await expect(
+    member.workspaces.invite({ email: "new@example.com", role: "org:member" })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(
+    admin.workspaces.invite({ email: "nope", role: "org:member" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect(invited).toHaveLength(1);
 });

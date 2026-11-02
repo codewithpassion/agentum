@@ -11,6 +11,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import type { ApiKeyAccess, OAuthClientAccess } from "@repo/db/shared";
 import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
+import { z } from "zod";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
@@ -93,9 +94,31 @@ export interface OrganizationsPort {
     createdBy: string;
     name: string;
   }) => Promise<{ id: string }>;
+  /**
+   * Sends an organisation invitation by email. `redirectUrl` is where the
+   * invitee lands after the email link. Returns a status instead of throwing
+   * for the two conflicts a person can fix: the address already belongs to a
+   * member, or already has a pending invitation.
+   */
+  invite: (input: {
+    clerkOrgId: string;
+    emailAddress: string;
+    inviterUserId: string;
+    redirectUrl: string;
+    role: InviteRole;
+  }) => Promise<"already_invited" | "already_member" | "invited">;
   /** Deletes an organisation. */
   remove: (clerkOrgId: string) => Promise<void>;
 }
+
+/** The roles `inviteFromSession` hands out: the Clerk roles `Member` and `Admin`. */
+export const INVITE_ROLES = ["org:member", "org:admin"] as const;
+export type InviteRole = (typeof INVITE_ROLES)[number];
+
+const EMAIL_SCHEMA = z.email();
+
+/** Where an invitation email sends the invitee, under `PUBLIC_BASE_URL`. */
+export const ACCEPT_INVITATION_PATH = "/accept-invitation";
 
 /** One organisation a person belongs to, and their Clerk role in it. */
 export interface UserOrganization {
@@ -121,12 +144,15 @@ export const createWorkspacesService = ({
   db,
   orgName,
   organizations,
+  publicBaseUrl,
   userOrganizations,
 }: {
   db: Database;
   orgName?: (clerkOrgId: string) => Promise<string | null>;
   /** Makes and deletes Clerk organisations. Without it, `createFromSession` is unavailable. */
   organizations?: OrganizationsPort;
+  /** `PUBLIC_BASE_URL`. Invitation links land under it. Without it, `inviteFromSession` is unavailable. */
+  publicBaseUrl?: string;
   /** Lists the organisations Clerk says a person belongs to. Without it, `mine` is empty. */
   userOrganizations?: (userId: string) => Promise<UserOrganization[]>;
 }) => {
@@ -303,6 +329,67 @@ export const createWorkspacesService = ({
   };
 
   /**
+   * Invites a person to the caller's workspace by email, from a browser
+   * session of an org admin. The organisation comes from the principal's
+   * workspace, never from the client. The email link lands on
+   * `/accept-invitation` of this deployment, carrying the organisation id so
+   * the new member's session can make it active.
+   */
+  const inviteFromSession = async (
+    principal: Principal,
+    input: { email: string; role: InviteRole }
+  ): Promise<{ email: string }> => {
+    if (
+      principal.kind !== "user" ||
+      principal.via !== "session" ||
+      principal.isAdmin !== true
+    ) {
+      throw new ForbiddenError("invite people");
+    }
+    const parsed = EMAIL_SCHEMA.safeParse(input.email.trim());
+    if (!parsed.success) {
+      throw new ServiceError("invalid", "Enter a valid email address.");
+    }
+    const emailAddress = parsed.data;
+    if (!INVITE_ROLES.includes(input.role)) {
+      throw new ServiceError("invalid", "Choose Member or Admin.");
+    }
+    if (!(organizations && publicBaseUrl)) {
+      throw new Error("Invitations need the Clerk port and PUBLIC_BASE_URL.");
+    }
+    const [row] = await db
+      .select({ clerkOrgId: workspaces.clerkOrgId })
+      .from(workspaces)
+      .where(eq(workspaces.id, principal.workspaceId))
+      .limit(1);
+    if (!row) {
+      throw new ServiceError("not_found", "Workspace not found.");
+    }
+    const redirectUrl = new URL(ACCEPT_INVITATION_PATH, publicBaseUrl);
+    redirectUrl.searchParams.set("org", row.clerkOrgId);
+    const status = await organizations.invite({
+      clerkOrgId: row.clerkOrgId,
+      emailAddress,
+      inviterUserId: principal.userId,
+      redirectUrl: redirectUrl.toString(),
+      role: input.role,
+    });
+    if (status === "already_member") {
+      throw new ServiceError(
+        "conflict",
+        `${emailAddress} is already a member of this workspace.`
+      );
+    }
+    if (status === "already_invited") {
+      throw new ServiceError(
+        "conflict",
+        `${emailAddress} already has a pending invitation. Revoke it under Manage members to send a new one.`
+      );
+    }
+    return { email: emailAddress };
+  };
+
+  /**
    * The workspaces a person can switch to: their Clerk memberships that have
    * a row, with their role in each. Works whether or not the session's active
    * organisation has a row. An organisation without a row, such as another
@@ -342,6 +429,7 @@ export const createWorkspacesService = ({
     createFromSession,
     firstForOrgs,
     forOrg,
+    inviteFromSession,
     mine,
     sessionPrincipal,
   };

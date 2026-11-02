@@ -7,6 +7,7 @@ import { ServiceError } from "./errors.ts";
 import {
   createWorkspacesService,
   MAX_WORKSPACE_NAME_LENGTH,
+  type OrganizationsPort,
   type Principal,
   SYSTEM_PRINCIPAL,
 } from "./workspaces.ts";
@@ -200,8 +201,13 @@ const adminSession = {
   workspaceId: "w",
 };
 
-const fakeOrganizations = () => {
+type InviteInput = Parameters<OrganizationsPort["invite"]>[0];
+
+const fakeOrganizations = (
+  inviteResult: Awaited<ReturnType<OrganizationsPort["invite"]>> = "invited"
+) => {
   const state = {
+    invited: [] as InviteInput[],
     made: [] as { createdBy: string; name: string }[],
     removed: [] as string[],
   };
@@ -210,6 +216,10 @@ const fakeOrganizations = () => {
       create: (input: { createdBy: string; name: string }) => {
         state.made.push(input);
         return Promise.resolve({ id: `org_new_${state.made.length}` });
+      },
+      invite: (input: InviteInput) => {
+        state.invited.push(input);
+        return Promise.resolve(inviteResult);
       },
       remove: (id: string) => {
         state.removed.push(id);
@@ -317,4 +327,107 @@ test("mine lists the memberships that have a row with their role, and leaves the
     a.id
   );
   expect(await svc.mine("user_2")).toEqual([]);
+});
+
+// inviteFromSession
+
+const BASE_URL = "https://app.test";
+
+const inviteService = async (
+  inviteResult?: Awaited<ReturnType<OrganizationsPort["invite"]>>
+) => {
+  const { port, state } = fakeOrganizations(inviteResult);
+  const svc = createWorkspacesService({
+    db,
+    organizations: port,
+    publicBaseUrl: BASE_URL,
+  });
+  const workspace = await svc.create({ clerkOrgId: "org_a", name: "A" });
+  const principal = { ...adminSession, workspaceId: workspace.id };
+  return { principal, state, svc };
+};
+
+test("inviteFromSession sends the principal's organisation, the caller and the redirect URL", async () => {
+  const { principal, state, svc } = await inviteService();
+  expect(
+    await svc.inviteFromSession(principal, {
+      email: "  New@Example.com ",
+      role: "org:admin",
+    })
+  ).toEqual({ email: "New@Example.com" });
+  expect(state.invited).toEqual([
+    {
+      clerkOrgId: "org_a",
+      emailAddress: "New@Example.com",
+      inviterUserId: "user_1",
+      redirectUrl: `${BASE_URL}/accept-invitation?org=org_a`,
+      role: "org:admin",
+    },
+  ]);
+});
+
+test("inviteFromSession refuses a non-admin and every non-session principal", async () => {
+  const { principal, state, svc } = await inviteService();
+  const refused: Principal[] = [
+    { ...principal, isAdmin: false },
+    { ...principal, isAdmin: undefined },
+    { ...principal, via: "api_key" },
+    { ...principal, via: "oauth" },
+    { ...principal, via: "slack" },
+    { agentId: "a", kind: "run", runId: "r", workspaceId: "w" },
+    { kind: "machine", machineId: "m", workspaceId: "w" },
+    { agentId: "a", kind: "trigger", triggerId: "t", workspaceId: "w" },
+    { agentId: "a", connectionId: "c", kind: "peer", workspaceId: "w" },
+    SYSTEM_PRINCIPAL,
+  ];
+  await Promise.all(
+    refused.map((who) =>
+      expect(
+        svc.inviteFromSession(who, { email: "a@b.co", role: "org:member" })
+      ).rejects.toBeInstanceOf(ForbiddenError)
+    )
+  );
+  expect(state.invited).toEqual([]);
+});
+
+test("inviteFromSession refuses a bad email or role before touching Clerk", async () => {
+  const { principal, state, svc } = await inviteService();
+  await Promise.all(
+    ["", "   ", "nope", "a@", "@b.co", "a b@c.co"].map((email) =>
+      expect(
+        svc.inviteFromSession(principal, { email, role: "org:member" })
+      ).rejects.toBeInstanceOf(ServiceError)
+    )
+  );
+  await expect(
+    svc.inviteFromSession(principal, {
+      email: "a@b.co",
+      role: "org:owner" as "org:admin",
+    })
+  ).rejects.toBeInstanceOf(ServiceError);
+  expect(state.invited).toEqual([]);
+});
+
+test("inviteFromSession explains each Clerk conflict", async () => {
+  const member = await inviteService("already_member");
+  await expect(
+    member.svc.inviteFromSession(member.principal, {
+      email: "a@b.co",
+      role: "org:member",
+    })
+  ).rejects.toMatchObject({
+    code: "conflict",
+    message: "a@b.co is already a member of this workspace.",
+  });
+  const invited = await inviteService("already_invited");
+  await expect(
+    invited.svc.inviteFromSession(invited.principal, {
+      email: "a@b.co",
+      role: "org:member",
+    })
+  ).rejects.toMatchObject({
+    code: "conflict",
+    message:
+      "a@b.co already has a pending invitation. Revoke it under Manage members to send a new one.",
+  });
 });

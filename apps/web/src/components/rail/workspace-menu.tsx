@@ -14,10 +14,13 @@ import {
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
 import { getTrpc } from "#/integrations/trpc/client";
+import { InviteDialog } from "./invite-dialog.tsx";
+import { MEMBER_PROFILE_APPEARANCE } from "./invite-logic.ts";
 import { NewWorkspaceDialog } from "./new-workspace-dialog.tsx";
 import { useSwitchWorkspace } from "./use-switch-workspace.ts";
 import {
   canCreateWorkspace,
+  canInvitePeople,
   type WorkspaceChoice,
   workspaceChoices,
 } from "./workspace-menu-logic.ts";
@@ -55,7 +58,8 @@ function ChoiceItem({
 
 /**
  * The workspace name in the rail header, as a menu: the person's workspaces
- * with the current one marked, then Manage members and New workspace. Only
+ * with the current one marked, then Manage members, Invite people (admins)
+ * and New workspace. Only
  * organisations that have a workspace row are listed, which is why this is
  * not Clerk's OrganizationSwitcher.
  */
@@ -72,6 +76,7 @@ export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
   );
   const { activate, error, switchTo } = useSwitchWorkspace();
   const [creating, setCreating] = useState(false);
+  const [inviting, setInviting] = useState(false);
   const activeOrgId = organization?.id ?? null;
 
   const choices = useMemo(
@@ -87,14 +92,16 @@ export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
     [activeOrgId, mine, userMemberships.data]
   );
   const canCreate = canCreateWorkspace({ activeOrgId, mine: mine ?? [] });
+  const canInvite = canInvitePeople({ activeOrgId, mine: mine ?? [] });
 
   // Below md the rail is a modal sheet, and its focus trap would block
   // Clerk's modal, so the sheet closes first.
   const openMembers = useCallback(() => {
     onNavigate();
-    clerk.openOrganizationProfile();
+    clerk.openOrganizationProfile({ appearance: MEMBER_PROFILE_APPEARANCE });
   }, [clerk, onNavigate]);
   const openCreate = useCallback(() => setCreating(true), []);
+  const openInvite = useCallback(() => setInviting(true), []);
 
   return (
     <>
@@ -122,6 +129,11 @@ export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
           <DropdownMenuItem onSelect={openMembers}>
             Manage members
           </DropdownMenuItem>
+          {canInvite ? (
+            <DropdownMenuItem onSelect={openInvite}>
+              Invite people
+            </DropdownMenuItem>
+          ) : null}
           {canCreate ? (
             <DropdownMenuItem onSelect={openCreate}>
               New workspace
@@ -134,6 +146,7 @@ export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
           {error}
         </p>
       )}
+      <InviteDialog onOpenChange={setInviting} open={inviting} />
       <NewWorkspaceDialog
         onCreated={activate}
         onOpenChange={setCreating}

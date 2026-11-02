@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ClerkAPIResponseError } from "@clerk/backend/errors";
 import {
   type MembershipSource,
   type OrganizationsSource,
@@ -15,6 +16,12 @@ const fakeOrganizations = (
     createOrganization: (params) => {
       calls.push(`create:${params.name}:${params.createdBy}`);
       return Promise.resolve({ id: "org_new" });
+    },
+    createOrganizationInvitation: (params) => {
+      calls.push(
+        `invite:${params.organizationId}:${params.emailAddress}:${params.role}:${params.inviterUserId}:${params.redirectUrl}`
+      );
+      return Promise.resolve(undefined);
     },
     deleteOrganization: (organizationId) => {
       calls.push(`delete:${organizationId}`);
@@ -51,6 +58,7 @@ test("create deletes the organisation and rethrows when the update fails", async
 test("create still rethrows the update error when the cleanup delete fails", async () => {
   const port = organizationsPort({
     createOrganization: () => Promise.resolve({ id: "org_new" }),
+    createOrganizationInvitation: () => Promise.resolve(undefined),
     deleteOrganization: () => Promise.reject(new Error("delete failed")),
     updateOrganization: () => Promise.reject(new Error("update failed")),
   });
@@ -63,6 +71,57 @@ test("remove deletes the organisation", async () => {
   const source = fakeOrganizations();
   await organizationsPort(source).remove("org_old");
   expect(source.calls).toEqual(["delete:org_old"]);
+});
+
+const invitation = {
+  clerkOrgId: "org_a",
+  emailAddress: "new@example.com",
+  inviterUserId: "user_1",
+  redirectUrl: "https://app.test/accept-invitation?org=org_a",
+  role: "org:member" as const,
+};
+
+const clerkError = (code: string) =>
+  new ClerkAPIResponseError("Unprocessable", {
+    data: [{ code, long_message: code, message: code }],
+    status: 422,
+  });
+
+test("invite sends the organisation, address, role, inviter and redirect URL to Clerk", async () => {
+  const source = fakeOrganizations();
+  expect(await organizationsPort(source).invite(invitation)).toBe("invited");
+  expect(source.calls).toEqual([
+    "invite:org_a:new@example.com:org:member:user_1:https://app.test/accept-invitation?org=org_a",
+  ]);
+});
+
+test("invite turns Clerk's two conflict errors into statuses", async () => {
+  const member = organizationsPort(
+    fakeOrganizations({
+      createOrganizationInvitation: () =>
+        Promise.reject(clerkError("already_a_member_in_organization")),
+    })
+  );
+  const invited = organizationsPort(
+    fakeOrganizations({
+      createOrganizationInvitation: () =>
+        Promise.reject(clerkError("duplicate_record")),
+    })
+  );
+  expect(await member.invite(invitation)).toBe("already_member");
+  expect(await invited.invite(invitation)).toBe("already_invited");
+});
+
+test("invite rethrows any other Clerk error", async () => {
+  const port = organizationsPort(
+    fakeOrganizations({
+      createOrganizationInvitation: () =>
+        Promise.reject(clerkError("form_param_format_invalid")),
+    })
+  );
+  await expect(port.invite(invitation)).rejects.toBeInstanceOf(
+    ClerkAPIResponseError
+  );
 });
 
 const memberships = (

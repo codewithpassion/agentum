@@ -56,8 +56,8 @@ export function workspaceChoices({
   });
 }
 
-/** Only an org admin of the active workspace may create a workspace. */
-export function canCreateWorkspace({
+/** Whether the person is an org admin of the active workspace. */
+function isActiveAdmin({
   mine,
   activeOrgId,
 }: {
@@ -67,6 +67,12 @@ export function canCreateWorkspace({
   const active = mine.find((workspace) => workspace.clerkOrgId === activeOrgId);
   return active?.role === ADMIN_ROLE;
 }
+
+/** Only an org admin of the active workspace may create a workspace. */
+export const canCreateWorkspace = isActiveAdmin;
+
+/** Only an org admin of the active workspace sees `Invite people`. The server checks it again. */
+export const canInvitePeople = isActiveAdmin;
 
 /** Text for a failed switch: the error's message, or the default when there is none. */
 export function switchErrorMessage(error: unknown): string {
