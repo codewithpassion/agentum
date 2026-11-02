@@ -53,4 +53,4 @@ My attempt to upload the mock-up into `agents/northbank-chief-of-staff` landed i
 
 ## Re-recording
 
-`tooling/record.ts` needs an empty workspace from `tooling/provision-final.ts`, with its org id in `ALLOWED_ORG_IDS`, and unused agent addresses. Model output changes per run, so check the captions against the frames. The final video joins two sessions, because the first stopped on a selector after the approval scene, and one caption in the dry-run scene was replaced with an ffmpeg overlay. `RESUME=1` continues a run from that point.
+`tooling/record.ts` needs an empty workspace from `tooling/provision-final.ts`, whose org gets a workspace row from `add-workspace`, and unused agent addresses. Model output changes per run, so check the captions against the frames. The final video joins two sessions, because the first stopped on a selector after the approval scene, and one caption in the dry-run scene was replaced with an ffmpeg overlay. `RESUME=1` continues a run from that point.

@@ -22,7 +22,6 @@ const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
   "base64"
 );
 const env = {
-  ALLOWED_ORG_IDS: "org_a",
   PUBLIC_BASE_URL: "https://harbourmaster.example.com",
   RUN_TOKEN_KEY,
 } as unknown as Env;
@@ -36,6 +35,7 @@ let members: Set<string>;
 let oauthTokens: Map<string, VerifiedOAuthToken>;
 let clerkDown: boolean;
 let clientNameCalls: string[];
+let userOrgCalls: number;
 let logs: Record<string, unknown>[];
 let app: Hono<AppEnv>;
 let agentA: string;
@@ -186,10 +186,9 @@ const callTool = async (
 };
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),
@@ -211,13 +210,14 @@ beforeEach(async () => {
     clerkOrgId: "org_a",
   });
   if (!workspace) {
-    throw new Error("org_a is not an allowed organisation");
+    throw new Error("org_a has no workspace row");
   }
   workspaceId = workspace.id;
   members = new Set(["u1@org_a", "u2@org_a"]);
   oauthTokens = new Map();
   clerkDown = false;
   clientNameCalls = [];
+  userOrgCalls = 0;
   logs = [];
   app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
@@ -238,6 +238,14 @@ beforeEach(async () => {
       isOrgMember: () => (userId, clerkOrgId) =>
         Promise.resolve(members.has(`${userId}@${clerkOrgId}`)),
       log: (entry) => logs.push(entry),
+      userOrgIds: () => (userId) => {
+        userOrgCalls += 1;
+        return Promise.resolve(
+          [...members]
+            .filter((member) => member.startsWith(`${userId}@`))
+            .map((member) => member.slice(userId.length + 1))
+        );
+      },
       verifyOAuthToken: () => (token) => {
         if (clerkDown) {
           return Promise.reject(
@@ -912,11 +920,37 @@ describe("Clerk OAuth and the client gate", () => {
     expect((await post(colleague, list)).status).toBe(200);
   });
 
-  test("a user in none of the allowed orgs gets 403 forbidden and records nothing", async () => {
+  test("a user in no org with a workspace row gets 403 forbidden and records nothing", async () => {
     const response = await post(oauthToken("u9"), list);
     expect(response.status).toBe(403);
     expect((await body(response)).error).toBe("forbidden");
     expect(await clients()).toEqual([]);
+  });
+
+  test("a member of a Clerk org with no workspace row gets 403 forbidden and records nothing", async () => {
+    members.add("u9@org_unlisted");
+    const response = await post(oauthToken("u9"), list);
+    expect(response.status).toBe(403);
+    expect((await body(response)).error).toBe("forbidden");
+    expect(await clients()).toEqual([]);
+    expect(
+      await composed.services.workspaces.forOrg({ clerkOrgId: "org_unlisted" })
+    ).toBeNull();
+  });
+
+  test("a new client's home workspace takes one Clerk call, however many workspaces exist", async () => {
+    await Promise.all(
+      ["org_b", "org_c", "org_d"].map((org) =>
+        composed.services.workspaces.create({ clerkOrgId: org, name: org })
+      )
+    );
+    const response = await post(oauthToken("u2"), list);
+    expect(response.status).toBe(403);
+    expect(String((await body(response)).message)).toContain(
+      "not approved yet"
+    );
+    expect(userOrgCalls).toBe(1);
+    expect(await clients()).toHaveLength(1);
   });
 
   test("a Clerk outage is 503 with Retry-After, never 401", async () => {

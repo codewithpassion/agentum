@@ -47,7 +47,6 @@ const relay = (): MachineRelayPort => ({
 
 const compose = () => {
   composed = composeWith({
-    allowedOrgIds: [ORG],
     db,
     infra: {
       atomic: sqliteAtomic(db),
@@ -72,7 +71,7 @@ const compose = () => {
 };
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated([ORG]);
   announced = [];
   pulled = [];
   deferred = [];

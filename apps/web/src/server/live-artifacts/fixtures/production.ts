@@ -79,6 +79,7 @@ app.route(
     clientName: () => async () => null,
     dev: true,
     isOrgMember: () => async () => false,
+    userOrgIds: () => async () => [],
     verifyOAuthToken: () => async () => null,
   })
 );

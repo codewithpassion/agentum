@@ -215,7 +215,6 @@ beforeEach(async () => {
     .run();
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_w1"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

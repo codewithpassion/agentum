@@ -21,10 +21,9 @@ let db: ReturnType<typeof migrated>;
 let composed: Composed;
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(["org_a"]);
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

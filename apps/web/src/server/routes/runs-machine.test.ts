@@ -23,7 +23,7 @@ import type { AppEnv } from "./groups.ts";
 import { machineRoutes } from "./machines.ts";
 
 const ORG = "org_a";
-const ALLOWED_ORG_IDS = [ORG];
+const ORG_IDS = [ORG];
 const KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 const LEASE_MS = 90_000;
 const STEP_MS = 60_000;
@@ -86,10 +86,9 @@ app.use("*", async (c, next) => {
 app.route("/api/machines", machineRoutes());
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(ORG_IDS);
   nowMs = Date.now();
   composed = composeWith({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     infra: infra(),
   });
@@ -314,7 +313,6 @@ test("a run token resolves while heartbeats keep the lease, and stops once the l
     await (await claim(credential, started.runId)).json()
   );
   const resolver = createPrincipalResolver({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     isOrgMember: () => Promise.resolve(false),
     runTokenKey: await importRunTokenKey(KEY),
@@ -387,7 +385,6 @@ test("an aborted completion of a running run drops the run token and frees the a
     await (await claim(credential, first.runId)).json()
   );
   const resolver = createPrincipalResolver({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     isOrgMember: () => Promise.resolve(false),
     runTokenKey: await importRunTokenKey(KEY),

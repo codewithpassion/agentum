@@ -54,9 +54,8 @@ const verifyClerkOAuthToken = (
     : Promise.resolve(oauthAnswer);
 };
 
-const resolverFor = (allowedOrgIds: readonly string[] = ["org_a"]) =>
+const resolverFor = () =>
   createPrincipalResolver({
-    allowedOrgIds,
     db,
     isOrgMember,
     now: () => clock,
@@ -307,9 +306,7 @@ test("a managed session token resolves to a run principal for the session's runn
     sessionId: "session_9",
     workspaceId: "ws_x",
   });
-  expect(await resolverFor(["org_a", "org_x"]).resolve(bearer(stranger))).toBe(
-    null
-  );
+  expect(await resolverFor().resolve(bearer(stranger))).toBe(null);
 });
 
 test("a machine token resolves to a machine principal", async () => {
@@ -395,15 +392,21 @@ test("an oauth principal who is not a member resolves to null", async () => {
   expect(await resolverFor().resolve(bearer("oauth-token"))).toBeNull();
 });
 
-test("tokens of workspaces outside allowedOrgIds resolve to null", async () => {
+test("tokens of a workspace with no row resolve to null, and Clerk is not asked", async () => {
   oauthAnswer = { ...claim, userId: "user_1", workspaceId: "ws_x" };
   members.add("user_1@org_x");
+  // D1 enforces the foreign keys, so the tokens' children go first in real life.
+  // A row that is gone while its tokens remain is the case this guards.
+  db.client.run("PRAGMA foreign_keys = OFF");
+  db.delete(workspaces).where(eq(workspaces.id, "ws_x")).run();
+  const callsBefore = memberCalls;
   const { resolve } = resolverFor();
   expect(await resolve(bearer(otherOrgRunToken))).toBeNull();
   expect(await resolve(bearer(otherOrgTokens.machine))).toBeNull();
   expect(await resolve(bearer(otherOrgTokens.trigger))).toBeNull();
   expect(await resolve(bearer(otherOrgTokens.apiKey))).toBeNull();
   expect(await resolve(bearer("oauth-token"))).toBeNull();
+  expect(memberCalls).toBe(callsBefore);
 });
 
 test("a missing, empty or malformed Authorization header resolves to null", async () => {

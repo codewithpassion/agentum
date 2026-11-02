@@ -217,14 +217,11 @@ const judge = (
 };
 
 export const createRoutinesService = ({
-  allowedOrgIds,
   clock,
   db,
   events,
   runs: runsService,
 }: {
-  /** Routines of a workspace outside this list stop firing, like its triggers. */
-  allowedOrgIds: readonly string[];
   clock: Clock;
   db: Database;
   events: EventsService;
@@ -617,17 +614,12 @@ export const createRoutinesService = ({
   const fireDue = async (principal: Principal): Promise<FireDueResult> => {
     requireSystem(principal, FIRE_ACTION);
     const result: FireDueResult = { failed: [], fired: [], readBack: [] };
-    if (allowedOrgIds.length === 0) {
-      return result;
-    }
     const due = (
       await db
         .select({ routine: triggers })
         .from(triggers)
-        .innerJoin(workspaces, eq(workspaces.id, triggers.workspaceId))
         .where(
           and(
-            inArray(workspaces.clerkOrgId, [...allowedOrgIds]),
             eq(triggers.kind, ROUTINE_KIND),
             isNull(triggers.revokedAt),
             isNull(triggers.disabledAt),

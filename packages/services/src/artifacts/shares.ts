@@ -192,8 +192,6 @@ export type LinkOpenResult =
   | { ok: false };
 
 export interface ArtifactSharesDeps {
-  /** The Clerk orgs the app serves (`ALLOWED_ORG_IDS`). A live call needs its granter in one. */
-  allowedOrgIds?: readonly string[];
   atomic: Atomic;
   clock: Pick<Clock, "now">;
   db: Database;
@@ -309,7 +307,6 @@ const linkOutcome = (
 };
 
 export const createArtifactSharesService = ({
-  allowedOrgIds = [],
   atomic,
   clock,
   db,
@@ -955,7 +952,7 @@ export const createArtifactSharesService = ({
     };
   };
 
-  /** The granter must still own the artifact and sit in an allowed org (R2.11). No cache. */
+  /** The granter must still own the artifact and sit in its workspace's org (R2.11). No cache. */
   const granterStillValid = async (share: {
     clerkOrgId: string;
     grantedBy: string | null;
@@ -963,7 +960,6 @@ export const createArtifactSharesService = ({
   }): Promise<boolean> =>
     share.grantedBy !== null &&
     share.ownerUserId === share.grantedBy &&
-    allowedOrgIds.includes(share.clerkOrgId) &&
     isOrgMember !== undefined &&
     (await isOrgMember(share.grantedBy, share.clerkOrgId));
 

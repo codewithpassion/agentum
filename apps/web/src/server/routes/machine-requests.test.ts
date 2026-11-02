@@ -84,10 +84,10 @@ app.use("*", async (c, next) => {
 app.route("/api/machines", machineRoutes());
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated([ORG]);
   nowMs = Date.now();
   await importRunTokenKey(KEY);
-  composed = composeWith({ allowedOrgIds: [ORG], db, infra: infra() });
+  composed = composeWith({ db, infra: infra() });
   const workspace = await composed.services.workspaces.forOrg({
     clerkOrgId: ORG,
   });

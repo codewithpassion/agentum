@@ -29,7 +29,6 @@ import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
 const OTHER_WORKSPACE = "w2";
-const ORG = `org_${WORKSPACE}`;
 const START = "2026-10-16T10:00:00.000Z";
 const MINUTE = 60 * 1000;
 
@@ -122,13 +121,9 @@ const eventsOf = (
     | "agent.updated"
 ) => events.query(system, WORKSPACE, { types: [type] });
 
-/** Builds the service, with `allowedOrgIds` overridable for the org check. */
-const build = (
-  allowedOrgIds: string[] = [ORG],
-  latestDaemonVersion?: () => Promise<string | null>
-): Service =>
+/** Builds the service. */
+const build = (latestDaemonVersion?: () => Promise<string | null>): Service =>
   createMachinesService({
-    allowedOrgIds,
     atomic: sqliteAtomic(db),
     clock,
     db,
@@ -292,7 +287,13 @@ test("two concurrent enrolls on one code leave exactly one winner and one machin
   expect(db.select().from(machines).all()).toHaveLength(1);
 });
 
-test("authenticate accepts only a live machine credential in an allowed workspace", async () => {
+/** Deletes the workspace row with its machines still there, which D1's foreign keys would refuse. */
+const dropWorkspaceRow = () => {
+  db.client.run("PRAGMA foreign_keys = OFF");
+  db.delete(workspaces).where(eq(workspaces.id, WORKSPACE)).run();
+};
+
+test("authenticate accepts only a live machine credential in a workspace with a row", async () => {
   const { code } = await service.createEnrollToken(user, { machineName: "A" });
   const enrolled = await service.enroll({ code, singleUser: false });
   if (!enrolled) {
@@ -310,11 +311,20 @@ test("authenticate accepts only a live machine credential in an allowed workspac
   ).toBeNull();
   expect(await service.authenticate(null)).toBeNull();
   expect(await service.authenticate(`Bearer ${code}`)).toBeNull();
-  expect(
-    await build(["org_other"]).authenticate(`Bearer ${enrolled.credential}`)
-  ).toBeNull();
 
   await service.revoke(user, enrolled.machineId);
+  expect(
+    await service.authenticate(`Bearer ${enrolled.credential}`)
+  ).toBeNull();
+});
+
+test("authenticate gives null for a machine whose workspace has no row", async () => {
+  const { code } = await service.createEnrollToken(user, { machineName: "A" });
+  const enrolled = await service.enroll({ code, singleUser: false });
+  if (!enrolled) {
+    throw new Error("enroll returned null");
+  }
+  dropWorkspaceRow();
   expect(
     await service.authenticate(`Bearer ${enrolled.credential}`)
   ).toBeNull();
@@ -380,7 +390,7 @@ test("revoke ends the credential, closes sockets and reports an online machine o
 });
 
 test("newestDaemonVersion reads the published version for a member, and is null without one", async () => {
-  const withRelease = build([ORG], () => Promise.resolve("0.2.0+def5678"));
+  const withRelease = build(() => Promise.resolve("0.2.0+def5678"));
   expect(await withRelease.newestDaemonVersion(user)).toBe("0.2.0+def5678");
   expect(await service.newestDaemonVersion(user)).toBeNull();
   await expect(withRelease.newestDaemonVersion(system)).rejects.toBeInstanceOf(
@@ -752,11 +762,9 @@ test("enroll adds the computer role to a daemon machine and keeps both credentia
   expect(
     await service.authenticate(`Bearer ${daemon.credential}`, "computer")
   ).toBeNull();
+  dropWorkspaceRow();
   expect(
-    await build(["org_other"]).authenticate(
-      `Bearer ${computer.credential}`,
-      "computer"
-    )
+    await service.authenticate(`Bearer ${computer.credential}`, "computer")
   ).toBeNull();
 
   const [listed] = await service.list(user);

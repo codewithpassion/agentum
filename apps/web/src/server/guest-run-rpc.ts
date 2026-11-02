@@ -31,6 +31,7 @@ export const guestRunRpc =
         dev: false,
         isOrgMember: () => () => Promise.resolve(false),
         log: () => undefined,
+        userOrgIds: () => () => Promise.resolve([]),
         verifyOAuthToken: () => () => Promise.resolve(null),
       })
     );

@@ -11,9 +11,8 @@ import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
 test("wiki procedures create, list and read pages through composition", async () => {
-  const db = migrated();
+  const db = migrated(["org"]);
   const composed = composeWith({
-    allowedOrgIds: ["org"],
     db,
     infra: {
       atomic: sqliteAtomic(db),
@@ -42,9 +41,8 @@ test("wiki procedures create, list and read pages through composition", async ()
 });
 
 test("wiki suggestions are reviewable through tRPC and appear on the desk", async () => {
-  const db = migrated();
+  const db = migrated(["org"]);
   const composed = composeWith({
-    allowedOrgIds: ["org"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

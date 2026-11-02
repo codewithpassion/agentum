@@ -66,10 +66,9 @@ const firedEvents = (runId: string) =>
   });
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

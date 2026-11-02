@@ -70,12 +70,11 @@ const infra = (): Infra => {
 };
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   published = [];
   posted = [];
   portFails = false;
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: infra(),
   });

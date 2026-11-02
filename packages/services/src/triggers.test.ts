@@ -232,7 +232,6 @@ beforeEach(async () => {
     gateways: [],
   });
   service = createTriggersService({
-    allowedOrgIds: [`org_${WORKSPACE}`, `org_${OTHER_WORKSPACE}`],
     clock,
     db,
     events,
@@ -579,22 +578,17 @@ test("authenticate gives null for an unknown token, a wrong prefix, or no header
   expect(await service.authenticate(null)).toBeNull();
 });
 
-test("authenticate gives null when the workspace's org is not allowed", async () => {
+test("authenticate gives null when the trigger's workspace has no row", async () => {
   const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "Hook",
   });
-  const onlyOther = createTriggersService({
-    allowedOrgIds: [`org_${OTHER_WORKSPACE}`],
-    clock,
-    db,
-    events,
-    runs,
-  });
+  // D1's foreign keys would refuse this delete. A row that is gone while its
+  // trigger remains is the case this guards.
+  db.client.run("PRAGMA foreign_keys = OFF");
+  db.delete(workspaceRows).where(eq(workspaceRows.id, WORKSPACE)).run();
 
-  expect(
-    await onlyOther.authenticate(`Bearer ${secretOf(created)}`)
-  ).toBeNull();
+  expect(await service.authenticate(`Bearer ${secretOf(created)}`)).toBeNull();
 });
 
 test("fire with waitMs returns the finished echo run", async () => {

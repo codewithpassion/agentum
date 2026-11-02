@@ -4,7 +4,10 @@
 // "/", so that would apply to every request.
 import { getAuth } from "@clerk/hono";
 import { Hono } from "hono";
-import { clerkOrgMemberCheck } from "../mcp/clerk-membership.ts";
+import {
+  clerkOrgMemberCheck,
+  clerkUserOrgIds,
+} from "../mcp/clerk-membership.ts";
 import {
   clerkOAuthClientName,
   clerkOAuthTokenVerifier,
@@ -26,6 +29,7 @@ accessRoutes.route(
     clientName: (env) => clerkOAuthClientName(env.CLERK_SECRET_KEY),
     dev: import.meta.env.DEV,
     isOrgMember: (env) => clerkOrgMemberCheck(env.CLERK_SECRET_KEY),
+    userOrgIds: (env) => clerkUserOrgIds(env.CLERK_SECRET_KEY),
     verifyOAuthToken: (env) => clerkOAuthTokenVerifier(env.CLERK_SECRET_KEY),
   })
 );

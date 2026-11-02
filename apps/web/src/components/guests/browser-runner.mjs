@@ -19,7 +19,6 @@ const { script, output } = JSON.parse(input);
 const directory = await mkdtemp(join(tmpdir(), "live-production-"));
 const options = {
   bindings: {
-    ALLOWED_ORG_IDS: "org_w1",
     ARTIFACT_LINKS_OFF: "",
     ARTIFACT_VIEW_KEY: "production-integration-private-test-key",
     CLERK_SECRET_KEY: "sk_test_fixture",

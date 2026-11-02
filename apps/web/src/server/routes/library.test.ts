@@ -43,10 +43,9 @@ app.use("*", async (c, next) => {
 app.route("/", libraryRoutes({ session: () => session }));
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(["org_a", "org_b"]);
   session = USER_A;
   composed = composeWith({
-    allowedOrgIds: ["org_a", "org_b"],
     db,
     infra: infra(),
   });

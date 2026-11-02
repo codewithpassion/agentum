@@ -55,7 +55,6 @@ let clock: Clock;
 let dispatched: string[];
 let crashDispatches: number;
 let failWrites: number;
-let allowedOrgIds: string[];
 let onClockRead: (() => void) | null;
 let agents: AgentsService;
 let runs: RunsService;
@@ -153,7 +152,6 @@ beforeEach(async () => {
   dispatched = [];
   crashDispatches = 0;
   failWrites = 0;
-  allowedOrgIds = [`org_${WORKSPACE}`, `org_${OTHER_WORKSPACE}`];
   const store = new Map<string, string>();
   const blobs = {
     get: (key: string) => Promise.resolve(store.get(key) ?? null),
@@ -205,7 +203,6 @@ beforeEach(async () => {
     gateways: [],
   });
   service = createRoutinesService({
-    allowedOrgIds,
     clock,
     db,
     events,
@@ -263,7 +260,6 @@ test("routines and http triggers stay out of each other's lists", async () => {
     db,
   });
   const triggers = createTriggersService({
-    allowedOrgIds: [`org_${WORKSPACE}`],
     clock,
     db,
     events,
@@ -626,16 +622,44 @@ test("a half-hourly Sydney routine keeps real time across both changes", async (
   }
 });
 
-test("a routine whose organisation is no longer allowed stops firing", async () => {
-  await makeRoutine("* * * * *");
+test("the tick fires the routines of every workspace", async () => {
+  db.insert(machines)
+    .values({
+      capabilities: "{}",
+      createdAt: START,
+      credentialHash: "h2",
+      enrolledBy: "u9",
+      id: "m2",
+      name: "m2",
+      singleUser: false,
+      status: "online",
+      workspaceId: OTHER_WORKSPACE,
+    })
+    .run();
+  const otherAgent = await agents.create(outsider, {
+    machineId: "m2",
+    model: "m",
+    name: "Other worker",
+    runtime: "machine",
+  });
+  const first = await makeRoutine("* * * * *");
+  const second = await service.create(outsider, {
+    agentId: otherAgent.id,
+    cron: "* * * * *",
+    name: "Other routine",
+    prompt: "Do the other thing",
+  });
   advance(MINUTE_MS);
-  allowedOrgIds.splice(0);
 
-  expect((await tick()).fired).toEqual([]);
-  expect(allRuns()).toEqual([]);
+  const result = await tick();
 
-  allowedOrgIds.push(`org_${WORKSPACE}`);
-  expect((await tick()).fired).toHaveLength(1);
+  expect(result.fired).toHaveLength(2);
+  const firedFor = allRuns()
+    .filter((run) => result.fired.includes(run.id))
+    .map((run) => run.workspaceId)
+    .sort();
+  expect(firedFor).toEqual([WORKSPACE, OTHER_WORKSPACE]);
+  expect(first.id).not.toBe(second.id);
 });
 
 const endRun = (runId: string | undefined, status: "done" | "failed") =>

@@ -53,11 +53,10 @@ const driver: BrowserDriver = {
 beforeEach(async () => {
   navigations = [];
   relayCalls = [];
-  const database = migrated();
+  const database = migrated(["org_a"]);
   db = database;
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db: database,
     infra: {
       atomic: sqliteAtomic(database),

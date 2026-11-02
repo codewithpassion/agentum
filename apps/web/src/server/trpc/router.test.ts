@@ -7,16 +7,16 @@ import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import { eq } from "drizzle-orm";
-import { composeWith, type Infra, parseOrgIds } from "../compose.ts";
+import { composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
-const ALLOWED_ORG_IDS = ["org_a"];
+const ORG_IDS = ["org_a"];
 
 let db: ReturnType<typeof migrated>;
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(ORG_IDS);
 });
 
 const infra = (): Infra => {
@@ -44,7 +44,6 @@ const callerFor = async (session: {
   appRouter.createCaller(
     await buildContext({
       composed: composeWith({
-        allowedOrgIds: ALLOWED_ORG_IDS,
         db,
         infra: infra(),
       }),
@@ -59,13 +58,13 @@ const workspaceRows = (clerkOrgId: string) =>
     .where(eq(workspaces.clerkOrgId, clerkOrgId))
     .all();
 
-test("me returns the user and the workspace row for the active org", async () => {
+test("me returns the user and the workspace row of the active org", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
 
   const me = await caller.me();
   const [row] = workspaceRows("org_a");
   if (!row) {
-    throw new Error("me did not create a workspace row for org_a");
+    throw new Error("org_a has no workspace row");
   }
   expect(me).toEqual({ userId: "user_1", workspaceId: row.id });
 });
@@ -78,7 +77,7 @@ test("calling me again keeps one workspace row", async () => {
   expect(workspaceRows("org_a")).toHaveLength(1);
 });
 
-test("signed out, no org, and a disallowed org are all 401", async () => {
+test("signed out, no org, and an org with no workspace row are all 401", async () => {
   await expect(
     (await callerFor({ orgId: "org_a", userId: null })).me()
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
@@ -93,14 +92,12 @@ test("signed out, no org, and a disallowed org are all 401", async () => {
   expect(workspaceRows("org_b")).toHaveLength(0);
 });
 
-test("parseOrgIds splits, trims and drops empty entries", () => {
-  expect(parseOrgIds(undefined)).toEqual([]);
-  expect(parseOrgIds("")).toEqual([]);
-  expect(parseOrgIds("   ")).toEqual([]);
-  expect(parseOrgIds("org_a")).toEqual(["org_a"]);
-  expect(parseOrgIds(" org_a , org_b ")).toEqual(["org_a", "org_b"]);
-  expect(parseOrgIds("org_a,")).toEqual(["org_a"]);
-  expect(parseOrgIds(",org_a,,org_b,")).toEqual(["org_a", "org_b"]);
+test("the first request by a member of an unknown org creates no row", async () => {
+  const caller = await callerFor({ orgId: "org_new", userId: "user_1" });
+  await expect(caller.me()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(caller.me()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  expect(workspaceRows("org_new")).toHaveLength(0);
+  expect(db.select().from(workspaces).all()).toHaveLength(1);
 });
 
 const agentInput = {

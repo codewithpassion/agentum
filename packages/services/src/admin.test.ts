@@ -117,7 +117,6 @@ beforeEach(() => {
       runs: { startRun: () => Promise.reject(new Error("no runs in tests")) },
     }),
     machines: createMachinesService({
-      allowedOrgIds: ["org_w1"],
       atomic,
       clock,
       db,

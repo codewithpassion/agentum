@@ -9,7 +9,7 @@ import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
-const ALLOWED_ORG_IDS = ["org_a"];
+const ORG_IDS = ["org_a"];
 const DAY_START = "2026-10-26T00:00:00.000Z";
 const AGENT = { model: "m", name: "Rail agent", runtime: "fake" } as const;
 
@@ -17,7 +17,7 @@ let db: ReturnType<typeof migrated>;
 let listedOrgs: string[];
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(ORG_IDS);
   listedOrgs = [];
 });
 
@@ -50,7 +50,6 @@ const infra = (withMembers = true): Infra => {
 
 const servicesFor = (withMembers = true): Composed =>
   composeWith({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     infra: infra(withMembers),
   });

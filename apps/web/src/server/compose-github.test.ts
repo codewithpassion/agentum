@@ -32,9 +32,8 @@ const setup = (githubToken?: string) => {
       return Promise.resolve(SHA);
     },
   };
-  const db = migrated();
+  const db = migrated(["org_a"]);
   const composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

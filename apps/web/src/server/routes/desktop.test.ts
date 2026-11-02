@@ -19,7 +19,7 @@ import {
 import { desktopRoutes } from "./desktop.ts";
 import type { AppEnv } from "./groups.ts";
 
-const ALLOWED_ORG_IDS = ["org_a", "org_b"];
+const ORG_IDS = ["org_a", "org_b"];
 const ORIGIN = "http://localhost";
 const UPGRADE = { Upgrade: "websocket", Origin: ORIGIN };
 
@@ -89,7 +89,6 @@ const infra = (relay: MachineRelayPort): Infra => {
 /** Builds the services over the same database, with the given relay stub. */
 const useRelay = (relay: MachineRelayPort) => {
   composed = composeWith({
-    allowedOrgIds: ALLOWED_ORG_IDS,
     db,
     infra: infra(relay),
   });
@@ -106,7 +105,7 @@ app.route(
 );
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(ORG_IDS);
   useRelay(noopRelay);
   session = { orgId: "org_a", userId: "user_1" };
   const workspace = await composed.services.workspaces.forOrg({

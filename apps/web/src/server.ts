@@ -146,7 +146,8 @@ app.get("/api/health", (c) => {
 // One-click dev login: mints a one-time Clerk sign-in token for the dev user
 // and hands it to /dev-login to redeem client-side. Only active when
 // DEV_LOGIN_EMAIL is configured, which must never be set in a deployed
-// environment - that absence is the safety switch for this route.
+// environment - that absence is the safety switch for this route. A dev build
+// also makes the dev organisation's workspace row.
 app.get("/api/dev-login", async (c) => {
   const email = c.env.DEV_LOGIN_EMAIL;
   if (!email) {
@@ -173,6 +174,16 @@ app.get("/api/dev-login", async (c) => {
       `Dev login user ${email} has no organisation yet. Run "bun run create-dev-user" in apps/web.`,
       404
     );
+  }
+
+  // A workspace row is what admits an organisation. A clean `.wrangler` has
+  // none, so the dev login makes the one for the dev organisation, in dev
+  // builds only.
+  if (import.meta.env.DEV) {
+    await c.get("composed").services.workspaces.create({
+      clerkOrgId: membership.organization.id,
+      name: membership.organization.name,
+    });
   }
 
   const { token } = await clerkClient.signInTokens.createSignInToken({

@@ -185,11 +185,10 @@ const testInfra = (): Infra => ({
 });
 
 /** Another HTTP request: fresh services over the same database and infra, which keep no memory of the first. */
-const freshRequest = (): Composed =>
-  composeWith({ allowedOrgIds: [ORG], db, infra });
+const freshRequest = (): Composed => composeWith({ db, infra });
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated([ORG]);
   nowMs = Date.parse("2026-10-16T10:00:00.000Z");
   deferred = [];
   dropDeferred = false;

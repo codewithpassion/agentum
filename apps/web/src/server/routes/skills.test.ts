@@ -50,9 +50,8 @@ app.use("*", async (c, next) => {
 app.route("/", skillsRoutes());
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: infra(),
   });

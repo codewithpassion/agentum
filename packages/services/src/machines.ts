@@ -173,7 +173,6 @@ const requireMachine = (
 };
 
 export const createMachinesService = ({
-  allowedOrgIds,
   atomic,
   clock,
   db,
@@ -181,7 +180,6 @@ export const createMachinesService = ({
   latestDaemonVersion,
   relay,
 }: {
-  allowedOrgIds: readonly string[];
   atomic: Atomic;
   clock: Clock;
   db: Database;
@@ -416,8 +414,8 @@ export const createMachinesService = ({
   /**
    * The machine principal for `Authorization: Bearer hm_mach_...` as one role,
    * or null. A daemon credential never opens the computer role and the reverse.
-   * A revoked machine, an unknown credential and a workspace outside
-   * `allowedOrgIds` are all null.
+   * A revoked machine, an unknown credential and a workspace with no row are
+   * all null.
    */
   const authenticate = async (
     authorization: string | null,
@@ -435,13 +433,11 @@ export const createMachinesService = ({
       return null;
     }
     const [workspace] = await db
-      .select({ clerkOrgId: workspaces.clerkOrgId })
+      .select({ id: workspaces.id })
       .from(workspaces)
       .where(eq(workspaces.id, principal.workspaceId))
       .limit(1);
-    return workspace && allowedOrgIds.includes(workspace.clerkOrgId)
-      ? principal
-      : null;
+    return workspace ? principal : null;
   };
 
   const list = async (principal: Principal): Promise<MachineRecord[]> => {

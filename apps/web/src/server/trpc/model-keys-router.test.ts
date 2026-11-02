@@ -8,7 +8,7 @@ import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
 
-const ALLOWED_ORG_IDS = ["org_a", "org_b"];
+const ORG_IDS = ["org_a", "org_b"];
 const PROVIDER = "openrouter" as const;
 const KEY = "sk-or-v1-test-0000";
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
@@ -16,7 +16,7 @@ const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
 let db: ReturnType<typeof migrated>;
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(ORG_IDS);
 });
 
 const infra = (): Infra => {
@@ -38,8 +38,7 @@ const infra = (): Infra => {
   };
 };
 
-const servicesFor = (): Composed =>
-  composeWith({ allowedOrgIds: ALLOWED_ORG_IDS, db, infra: infra() });
+const servicesFor = (): Composed => composeWith({ db, infra: infra() });
 
 const callerFor = async (
   session: { orgId?: string | null; userId: string | null },

@@ -3,7 +3,7 @@
 // apps/web/.wrangler, opened with bun:sqlite and foreign keys on. Run the
 // scripts from the repo root.
 import { Database as Sqlite } from "bun:sqlite";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "@repo/db";
 import { sqliteAtomic } from "@repo/db/atomic";
@@ -21,7 +21,6 @@ export const ENV_FILE = join(WEB_DIR, ".env.local");
 export const d1DirOf = (stateDir: string): string =>
   join(stateDir, "v3", "d1", "miniflare-D1DatabaseObject");
 export const D1_DIR = d1DirOf(join(WEB_DIR, ".wrangler", "state"));
-export const ORG_KEY = "ALLOWED_ORG_IDS";
 export const WORKSPACE_NAME = "Dev Workspace";
 const DEV_USER_ID = "dev-script";
 
@@ -40,37 +39,35 @@ export const memoryBlobs = (): Blobs => {
   };
 };
 
-/** The first org id in a comma separated `ALLOWED_ORG_IDS` value, or null. */
-export const firstOrgId = (value: string): string | null =>
-  value
-    .split(",")
-    .map((entry) => entry.trim())
-    .find((entry) => entry !== "") ?? null;
-
-/** The value of the `ALLOWED_ORG_IDS=` line in an env file, or undefined. */
-const orgIdsFromEnvFile = (text: string): string | undefined => {
-  const line = text
-    .split("\n")
-    .find((candidate) => candidate.startsWith(`${ORG_KEY}=`));
-  return line?.slice(ORG_KEY.length + 1);
+/**
+ * The Clerk org id of the oldest workspace in the local database, or null when
+ * there is no database or no workspace yet. A dev login or `bun run
+ * add-workspace --local` makes the first one.
+ */
+export const readOrgId = (d1Dir: string = D1_DIR): string | null => {
+  const file = findLocalD1(d1Dir);
+  if (!file) {
+    return null;
+  }
+  const client = openSqlite(file);
+  try {
+    const row = client
+      .query<{ id: string }, []>(
+        "SELECT clerk_org_id AS id FROM workspaces ORDER BY created_at, id LIMIT 1"
+      )
+      .get();
+    return row?.id ?? null;
+  } finally {
+    client.close();
+  }
 };
 
-/** The first allowed org id from the environment or `.env.local`, or null. */
-export const readOrgId = (): string | null => {
-  const value =
-    process.env[ORG_KEY] ??
-    (existsSync(ENV_FILE)
-      ? orgIdsFromEnvFile(readFileSync(ENV_FILE, "utf8"))
-      : undefined);
-  return value === undefined ? null : firstOrgId(value);
-};
-
-/** The org id from `readOrgId`, or a LocalError that says how to set it. */
+/** The org id from `readOrgId`, or a LocalError that says how to make a workspace. */
 export const requireOrgId = (): string => {
   const orgId = readOrgId();
   if (!orgId) {
     throw new LocalError(
-      `ALLOWED_ORG_IDS is not set in ${ENV_FILE}. Run \`bun run create-dev-user\` in apps/web first.`
+      `The local database in ${D1_DIR} has no workspace. Sign in once with the dev login, or run \`bun run add-workspace --org <id> --name <name> --local\` in apps/web.`
     );
   }
   return orgId;
@@ -125,18 +122,15 @@ export const openLocalDatabase = (
   };
 };
 
-/** The dev workspace's user principal. Creates the workspace on first use. */
+/** The dev workspace's user principal. Makes the workspace row when the org has none. */
 export const devUserPrincipal = async (
   db: Database,
   orgId: string
 ): Promise<Extract<Principal, { kind: "user" }>> => {
-  const workspace = await createWorkspacesService({
-    allowedOrgIds: [orgId],
-    db,
-  }).forOrg({ clerkOrgId: orgId, name: WORKSPACE_NAME });
-  if (!workspace) {
-    throw new LocalError(`Organisation ${orgId} is not allowed.`);
-  }
+  const workspace = await createWorkspacesService({ db }).create({
+    clerkOrgId: orgId,
+    name: WORKSPACE_NAME,
+  });
   return {
     kind: "user",
     userId: DEV_USER_ID,
@@ -149,10 +143,9 @@ export const devUserPrincipal = async (
 export const localEvents = (db: Database) =>
   createEventsService({ blobs: memoryBlobs(), db });
 
-/** The machines service for the dev org, with a no-op relay. */
-export const localMachines = (db: BunSQLiteDatabase, orgId: string) =>
+/** The machines service over the local database, with a no-op relay. */
+export const localMachines = (db: BunSQLiteDatabase) =>
   createMachinesService({
-    allowedOrgIds: [orgId],
     atomic: sqliteAtomic(db),
     clock: systemClock,
     db,

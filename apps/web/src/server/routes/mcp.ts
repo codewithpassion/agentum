@@ -246,6 +246,7 @@ export const mcpRoutes = ({
   dev,
   isOrgMember,
   log = defaultLog,
+  userOrgIds,
   verifyOAuthToken,
 }: McpRouteOptions) => {
   const routes = bearerGroup();
@@ -262,7 +263,7 @@ export const mcpRoutes = ({
   const authenticate = (c: RouteContext): Promise<Principal | null> =>
     authenticateBearer(
       { composed: c.get("composed"), env: c.env },
-      { clientName, isOrgMember, verifyOAuthToken },
+      { clientName, isOrgMember, userOrgIds, verifyOAuthToken },
       c.req.header("Authorization") ?? null
     );
 

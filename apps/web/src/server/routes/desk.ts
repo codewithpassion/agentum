@@ -150,6 +150,7 @@ const runOfBlock = (block: string): string | true | null => {
 /** Keys only: a token that is not an `hm_` credential verifies to nothing. */
 const noOAuth = {
   clientName: () => () => Promise.resolve(null),
+  userOrgIds: () => () => Promise.resolve([]),
   verifyOAuthToken: () => () => Promise.resolve(null),
 } satisfies Omit<BearerAuthOptions, "isOrgMember">;
 

@@ -43,11 +43,10 @@ let nowMs: number;
 beforeEach(async () => {
   nowMs = Date.now();
   fakePeer = createFakePeer();
-  const database = migrated();
+  const database = migrated(["org_a"]);
   db = database;
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db: database,
     infra: {
       atomic: sqliteAtomic(database),

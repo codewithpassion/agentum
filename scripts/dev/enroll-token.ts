@@ -25,7 +25,7 @@ export const mintEnrollCode = async ({
   orgId: string;
 }): Promise<string> => {
   const principal = await devUserPrincipal(db, orgId);
-  const { code } = await localMachines(db, orgId).createEnrollToken(principal, {
+  const { code } = await localMachines(db).createEnrollToken(principal, {
     machineName,
   });
   return code;

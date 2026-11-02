@@ -1,11 +1,9 @@
 #!/usr/bin/env bun
 // Creates (or updates) the Clerk user used by the one-click dev login
-// (see /api/dev-login), gives it a dev organisation, and adds that
-// organisation to ALLOWED_ORG_IDS in apps/web/.env.local. Reads
-// CLERK_SECRET_KEY / DEV_LOGIN_EMAIL / DEV_LOGIN_PASSWORD from
-// apps/web/.env.local.
+// (see /api/dev-login) and gives it a dev organisation. The dev login makes
+// the organisation's workspace row. Reads CLERK_SECRET_KEY / DEV_LOGIN_EMAIL /
+// DEV_LOGIN_PASSWORD from apps/web/.env.local.
 import { createClerkClient } from "@clerk/backend";
-import { file, write } from "bun";
 
 const secretKey = process.env.CLERK_SECRET_KEY;
 const email = process.env.DEV_LOGIN_EMAIL;
@@ -63,29 +61,3 @@ console.log(
     ? `Dev user already belongs to organisation ${orgId}.`
     : `Created organisation Dev Workspace (${orgId}).`
 );
-
-const envPath = `${import.meta.dir}/../.env.local`;
-const envFile = file(envPath);
-const envText = (await envFile.exists()) ? await envFile.text() : "";
-const key = "ALLOWED_ORG_IDS=";
-const lines = envText.split("\n");
-const current = lines.find((line) => line.startsWith(key));
-
-if (current === undefined) {
-  const prefix =
-    envText === "" || envText.endsWith("\n") ? envText : `${envText}\n`;
-  await write(envPath, `${prefix}${key}${orgId}\n`);
-  console.log(`Added ${key}${orgId} to apps/web/.env.local.`);
-} else {
-  const ids = current.slice(key.length).split(",").filter(Boolean);
-  if (ids.includes(orgId)) {
-    console.log(`${orgId} is already in ALLOWED_ORG_IDS.`);
-  } else {
-    const next = [...ids, orgId].join(",");
-    const updated = lines.map((line) =>
-      line.startsWith(key) ? `${key}${next}` : line
-    );
-    await write(envPath, updated.join("\n"));
-    console.log(`Added ${orgId} to ALLOWED_ORG_IDS in apps/web/.env.local.`);
-  }
-}

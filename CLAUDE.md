@@ -177,13 +177,17 @@ Clerk. `apps/web/src/server.ts` runs `@clerk/hono`'s `clerkMiddleware()`, so
 `getAuth(c)` works in any Hono route; `src/start.ts` wires the same auth into
 TanStack Start, and `src/routes/__root.tsx` wraps the app in `<ClerkProvider>`.
 `src/server/trpc/context.ts` turns the session's user id and active
-organisation into `ctx.principal`, so `workspaceProcedure` admits users in an
-allowed organisation and answers 401 to everyone else. A workspace is one Clerk
-organisation, created on its first request, and only organisations listed in
-`ALLOWED_ORG_IDS` (comma separated) get one. Turn on Clerk's restricted sign-up
-and Organizations in the Clerk dashboard too.
-Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`
-and `ALLOWED_ORG_IDS` on a deployed Worker with `wrangler secret put`.
+organisation into `ctx.principal`, so `workspaceProcedure` admits users whose
+active organisation has a `workspaces` row and answers 401 to everyone else. A
+workspace is one Clerk organisation, and the row is what admits it: no request
+makes one, so a Clerk organisation created anywhere else never gets in. Only
+`workspaces.create` makes a row. A deployment's first workspace has no admin to
+do that, so run `bun run add-workspace --org <id> --name <name> (--local |
+--remote [--env staging])` from `apps/web`. It checks the organisation exists on
+the Clerk instance for that environment and inserts through `wrangler d1
+execute`. Turn on Clerk's restricted sign-up and Organizations in the Clerk
+dashboard too. Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and
+`VITE_CLERK_PUBLISHABLE_KEY` on a deployed Worker with `wrangler secret put`.
 
 Org and user ids in D1 belong to one Clerk instance. Moving the app to another
 instance means rewriting them with `bun run migrate-clerk-ids` (dry run unless
@@ -202,10 +206,11 @@ automation, instead of going through Clerk's UI. Only active when
 `DEV_LOGIN_EMAIL`/`DEV_LOGIN_PASSWORD` are set in `apps/web/.env.local` (never
 set these in a deployed environment, since their absence is what disables the
 route). Create/refresh the dev user with `bun run create-dev-user` from
-`apps/web`. It also creates a "Dev Workspace" organisation for the user and
-adds its id to `ALLOWED_ORG_IDS` in `.env.local`; `/dev-login` makes that
-organisation active, so the login lands on the app and not on Clerk's
-create-organization screen.
+`apps/web`. It also creates a "Dev Workspace" organisation for the user.
+`GET /api/dev-login` makes that organisation's workspace row in dev builds, so
+one click works on a clean `.wrangler`, and `/dev-login` makes the organisation
+active, so the login lands on the app and not on Clerk's create-organization
+screen.
 
 ## Agent Task login
 

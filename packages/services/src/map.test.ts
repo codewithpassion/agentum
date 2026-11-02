@@ -445,12 +445,10 @@ const editor = () => {
   const profile = createAgentsService(common);
   const triggerService = createTriggersService({
     ...common,
-    allowedOrgIds: [],
     runs: {} as RunsService,
   });
   const routines = createRoutinesService({
     ...common,
-    allowedOrgIds: [],
     runs: {} as RunsService,
   });
   const connectors = createConnectorsService({ ...common, fetch });
@@ -461,7 +459,6 @@ const editor = () => {
   });
   const machines = createMachinesService({
     ...common,
-    allowedOrgIds: [],
     relay: {} as MachineRelayPort,
   });
   const map = createMapService({

@@ -59,7 +59,6 @@ const build = async (devFakeRuntime: boolean, answer: unknown = card) => {
   const fetched: string[] = [];
   const store = new Map<string, string>();
   const { services } = composeWith({
-    allowedOrgIds: ["org_w1"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

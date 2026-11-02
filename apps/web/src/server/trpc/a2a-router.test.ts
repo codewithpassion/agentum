@@ -42,7 +42,7 @@ const CANNOT_CHANGE = /admin or the agent's owner/;
 let db: ReturnType<typeof migrated>;
 
 beforeEach(() => {
-  db = migrated();
+  db = migrated(["org_a"]);
 });
 
 const infra = (): Infra => {
@@ -80,7 +80,6 @@ const callerFor = async (
 /** An admin owns an agent and holds one key connection on it. A member sits beside them. */
 const setup = async () => {
   const composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: infra(),
   });
@@ -215,7 +214,6 @@ test("refreshCard answers NOT_FOUND for an inbound key, an unknown id and an out
 test("a caller without a session may not refresh a card", async () => {
   const { connectionId } = await setup();
   const composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: infra(),
   });
@@ -230,7 +228,6 @@ test("a caller without a session may not refresh a card", async () => {
 
 test("a caller without a session gets UNAUTHORIZED", async () => {
   const composed = composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: infra(),
   });

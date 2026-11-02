@@ -175,12 +175,8 @@ const clerkJson = async (
   return body;
 };
 
-/**
- * A signed-in person for a deployment: the dev user, in the dev organisation,
- * with a session made through Clerk's backend API. Tokens live a minute, so
- * each call asks for a fresh one.
- */
-export const createPerson = async (origin: string): Promise<Person> => {
+/** The dev user of the Clerk dev instance, from `apps/web/.env.local`. */
+const devUser = async (): Promise<{ secretKey: string; userId: string }> => {
   const env = readEnvLocal();
   const secretKey = env.CLERK_SECRET_KEY;
   const email = env.DEV_LOGIN_EMAIL;
@@ -199,6 +195,58 @@ export const createPerson = async (origin: string): Promise<Person> => {
       `No Clerk user for ${email}. Run \`bun run create-dev-user\` in apps/web.`
     );
   }
+  return { secretKey, userId };
+};
+
+/**
+ * Makes the workspace row for the dev user's organisation in a deployment's
+ * database, since no request makes one. Run after the migrations and before
+ * the first request.
+ */
+const seedWorkspace = async (stateDir: string): Promise<void> => {
+  const { secretKey, userId } = await devUser();
+  const memberships = (await clerkJson(
+    secretKey,
+    `/users/${userId}/organization_memberships`
+  )) as unknown as {
+    data: { organization: { id: string; name: string } }[];
+  };
+  const organisation = memberships.data.at(0)?.organization;
+  if (!organisation) {
+    throw new E2eError(
+      "The dev user has no organisation. Run `bun run create-dev-user` in apps/web."
+    );
+  }
+  const dir = join(stateDir, "v3", "d1", "miniflare-D1DatabaseObject");
+  const file = readdirSync(dir)
+    .filter((entry) => entry.endsWith(".sqlite") && entry !== "metadata.sqlite")
+    .map((entry) => join(dir, entry))
+    .at(0);
+  if (!file) {
+    throw new E2eError(`no database in ${dir}`);
+  }
+  const db = new Database(file);
+  try {
+    db.query(
+      "INSERT INTO workspaces (id, clerk_org_id, name, timezone, created_at) VALUES (?, ?, ?, 'UTC', ?) ON CONFLICT (clerk_org_id) DO NOTHING"
+    ).run(
+      crypto.randomUUID(),
+      organisation.id,
+      organisation.name,
+      new Date().toISOString()
+    );
+  } finally {
+    db.close();
+  }
+};
+
+/**
+ * A signed-in person for a deployment: the dev user, in the dev organisation,
+ * with a session made through Clerk's backend API. Tokens live a minute, so
+ * each call asks for a fresh one.
+ */
+export const createPerson = async (origin: string): Promise<Person> => {
+  const { secretKey, userId } = await devUser();
   const session = (await clerkJson(secretKey, "/sessions", {
     body: JSON.stringify({ user_id: userId }),
     method: "POST",
@@ -366,6 +414,7 @@ export const createDeployment = (options: DeploymentOptions): Deployment => {
           `wrangler d1 migrations apply failed. See ${join(dir, "migrate.log")}`
         );
       }
+      await seedWorkspace(stateDir);
       logFd = openSync(logFile, "a");
       const proc = spawn(
         ["bunx", "vite", "dev", "--port", String(port), "--strictPort"],

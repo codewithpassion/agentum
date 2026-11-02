@@ -38,10 +38,9 @@ export interface Published {
 }
 
 export const createA2aFixture = async (options: A2aRoutesOptions = {}) => {
-  const db = migrated();
+  const db = migrated(["org_a", "org_b"]);
   const store = new Map<string, string>();
   const composed: Composed = composeWith({
-    allowedOrgIds: ["org_a", "org_b"],
     db,
     infra: {
       atomic: sqliteAtomic(db),

@@ -59,7 +59,6 @@ const relay: MachineRelayPort = {
 const composeAt = (clock: Clock): Composed => {
   const store = new Map<string, string>();
   return composeWith({
-    allowedOrgIds: ["org_a"],
     db,
     infra: {
       atomic: sqliteAtomic(db),
@@ -86,7 +85,7 @@ const composeAt = (clock: Clock): Composed => {
 };
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a"]);
   calls = [];
   control = null;
   takeOutcome = {

@@ -323,7 +323,6 @@ beforeEach(async () => {
     .run();
   const store = new Map<string, string>();
   composed = composeWith({
-    allowedOrgIds: ["org_w1"],
     db,
     infra: {
       atomic: sqliteAtomic(db),
@@ -853,7 +852,6 @@ describe("refreshing", () => {
           )
         : toStub(input, init);
     composed = composeWith({
-      allowedOrgIds: ["org_w1"],
       db,
       infra: {
         atomic: sqliteAtomic(db),
@@ -886,7 +884,6 @@ describe("refreshing", () => {
         ? Promise.resolve(new Response("busy", { status: 503 }))
         : toStub(input, init);
     composed = composeWith({
-      allowedOrgIds: ["org_w1"],
       db,
       infra: {
         atomic: sqliteAtomic(db),

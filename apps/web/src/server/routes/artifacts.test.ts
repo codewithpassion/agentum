@@ -125,10 +125,9 @@ beforeEach(async () => {
   toolRuns = [];
   toolError = null;
   storeData = new Map([["stats", '{"total":3}']]);
-  const db = migrated();
+  const db = migrated(["org_a", "org_b"]);
   testDb = db;
   composed = composeWith({
-    allowedOrgIds: ["org_a", "org_b"],
     db,
     infra: infra(db),
   });
@@ -205,7 +204,6 @@ describe("POST /api/share/:token/open", () => {
     // The same database, now on a Worker with the variable set.
     linksOff = true;
     composed = composeWith({
-      allowedOrgIds: ["org_a"],
       db: composed.db,
       infra: infra(composed.db as ReturnType<typeof migrated>),
     });

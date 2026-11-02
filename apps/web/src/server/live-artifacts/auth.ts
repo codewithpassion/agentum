@@ -1,7 +1,10 @@
 import { createClerkClient } from "@clerk/backend";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import type { Composed } from "../compose";
-import { clerkOrgMemberCheckFresh } from "../mcp/clerk-membership";
+import {
+  clerkOrgMemberCheckFresh,
+  clerkUserOrgIds,
+} from "../mcp/clerk-membership";
 import { clerkOAuthVerifier } from "../mcp/clerk-oauth";
 import { clerkOAuthClientName } from "../mcp/clerk-oauth-client";
 import { authenticateBearer } from "../mcp/principal-resolver";
@@ -29,14 +32,7 @@ export const freshMember = async (
       userId,
     }),
   ]);
-  if (
-    !(
-      orgId &&
-      env.ALLOWED_ORG_IDS.split(",")
-        .map((s) => s.trim())
-        .includes(orgId)
-    )
-  ) {
+  if (!orgId) {
     return null;
   }
   const membership = memberships.data.find((m) => m.organization.id === orgId);
@@ -74,6 +70,7 @@ export const authenticateRoomMember = async (
       {
         clientName: (e) => clerkOAuthClientName(e.CLERK_SECRET_KEY),
         isOrgMember: (e) => clerkOrgMemberCheckFresh(e.CLERK_SECRET_KEY),
+        userOrgIds: (e) => clerkUserOrgIds(e.CLERK_SECRET_KEY),
         verifyOAuthToken: () =>
           clerkOAuthVerifier({
             verify: (token) => clerk.idPOAuthAccessToken.verify(token),

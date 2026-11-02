@@ -3,7 +3,10 @@
 A [TanStack Start](https://tanstack.com/start) app deployed on Cloudflare Workers, with [Hono](https://hono.dev) as the top-level `fetch` handler and [Cloudflare D1](https://developers.cloudflare.com/d1/) for data.
 
 Auth is [Clerk](https://clerk.com): `/login` signs in, the header shows the
-signed-in user.
+signed-in user. A Clerk organisation gets in when a `workspaces` row has its id,
+and `bun run add-workspace --org <id> --name <name> (--local | --remote [--env staging])`
+makes the first one of a deployment. It checks the organisation exists on the
+Clerk instance for that environment.
 
 ## Architecture
 
@@ -17,8 +20,8 @@ signed-in user.
 
 `src/server/trpc/` holds the API:
 
-- `context.ts` builds `ctx` for each call: the services from [`@repo/services`](../../packages/services) on this request's `drizzle(env.DB)`, and `principal`, the signed-in user in their workspace, or null. The principal comes from the Clerk session (`getAuth(c)` over HTTP, `auth()` during SSR): its active organisation must be in `ALLOWED_ORG_IDS`, and the workspace for that organisation is created on the first request. `build-context.ts` holds the part that has no Clerk or Worker imports, so tests can build a `ctx` from a fake session.
-- `init.ts` defines `publicProcedure` (anyone) and `workspaceProcedure` (a user with an active, allowed organisation, 401 otherwise; narrows `ctx.principal` to the user principal).
+- `context.ts` builds `ctx` for each call: the services from [`@repo/services`](../../packages/services) on this request's `drizzle(env.DB)`, and `principal`, the signed-in user in their workspace, or null. The principal comes from the Clerk session (`getAuth(c)` over HTTP, `auth()` during SSR): its active organisation must have a `workspaces` row, and no request makes one. `build-context.ts` holds the part that has no Clerk or Worker imports, so tests can build a `ctx` from a fake session.
+- `init.ts` defines `publicProcedure` (anyone) and `workspaceProcedure` (a user whose active organisation has a workspace row, 401 otherwise; narrows `ctx.principal` to the user principal).
 - `router.ts` is the app router: `me` (returns `{ userId, workspaceId }`, the example).
 - `routers/<name>.ts` holds one router per area. Keep them thin: an input schema from the service, then one service call.
 

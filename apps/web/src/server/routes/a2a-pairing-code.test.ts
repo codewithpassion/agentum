@@ -25,7 +25,6 @@ const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
   "base64"
 );
 const MCP_ENV = {
-  ALLOWED_ORG_IDS: "org_a",
   PUBLIC_BASE_URL: "https://hm.test",
   RUN_TOKEN_KEY,
 } as unknown as Env;
@@ -294,6 +293,7 @@ describe("with pairing on", () => {
         clientName: () => () => Promise.resolve(null),
         dev: false,
         isOrgMember: () => () => Promise.resolve(true),
+        userOrgIds: () => () => Promise.resolve([]),
         verifyOAuthToken: () => () => Promise.resolve(null),
       })
     );

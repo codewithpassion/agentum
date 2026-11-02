@@ -157,14 +157,12 @@ beforeEach(async () => {
     library,
   });
   const triggers = createTriggersService({
-    allowedOrgIds: ["org_w1", "org_w3"],
     clock,
     db,
     events,
     runs,
   });
   const routines = createRoutinesService({
-    allowedOrgIds: ["org_w1", "org_w3"],
     clock,
     db,
     events,

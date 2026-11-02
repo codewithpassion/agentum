@@ -71,11 +71,10 @@ app.use("*", async (c, next) => {
 app.route("/", filesRoutes({ session: () => session }));
 
 beforeEach(async () => {
-  db = migrated();
+  db = migrated(["org_a", "org_b"]);
   fileBlobs = memoryFileBlobs();
   session = USER_A;
   composed = composeWith({
-    allowedOrgIds: ["org_a", "org_b"],
     db,
     infra: infra(),
   });
