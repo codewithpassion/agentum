@@ -1,41 +1,23 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test";
-import { soleOrganizationId } from "./sole-organization.ts";
+import { soleWorkspaceOrgId } from "./sole-organization.ts";
 
-const membership = (id: string) => ({ organization: { id } });
+const row = (clerkOrgId: string) => ({ clerkOrgId });
 
-describe("soleOrganizationId", () => {
-  test("returns the id of the only membership when data and count are both one", () => {
-    expect(soleOrganizationId([membership("org_a")], 1)).toBe("org_a");
+describe("soleWorkspaceOrgId", () => {
+  test("returns the id of the only workspace", () => {
+    expect(soleWorkspaceOrgId([row("org_a")])).toBe("org_a");
   });
 
-  test("returns undefined when data is undefined", () => {
-    expect(soleOrganizationId(undefined, 1)).toBeUndefined();
+  test("returns undefined while the list has not loaded", () => {
+    expect(soleWorkspaceOrgId(undefined)).toBeUndefined();
   });
 
-  test("returns undefined when count is undefined", () => {
-    expect(
-      soleOrganizationId([membership("org_a")], undefined)
-    ).toBeUndefined();
+  test("returns undefined when the person has no workspace", () => {
+    expect(soleWorkspaceOrgId([])).toBeUndefined();
   });
 
-  test("returns undefined when the user has no memberships", () => {
-    expect(soleOrganizationId([], 0)).toBeUndefined();
-  });
-
-  test("returns undefined when the user has two memberships", () => {
-    expect(
-      soleOrganizationId([membership("org_a"), membership("org_b")], 2)
-    ).toBeUndefined();
-  });
-
-  test("returns undefined when count disagrees with a single loaded item", () => {
-    expect(soleOrganizationId([membership("org_a")], 2)).toBeUndefined();
-  });
-
-  test("returns undefined when count is one but data holds two items", () => {
-    expect(
-      soleOrganizationId([membership("org_a"), membership("org_b")], 1)
-    ).toBeUndefined();
+  test("returns undefined when the person has two workspaces", () => {
+    expect(soleWorkspaceOrgId([row("org_a"), row("org_b")])).toBeUndefined();
   });
 });
