@@ -94,7 +94,7 @@ Findings from 3 Nov 2026, read-only:
 
 A Clerk production instance serves one root domain. `agentumbot.io` is a different root domain, so one of these is needed:
 
-**Option A: satellite domain on the existing instance.** Add `agentumbot.io` as a satellite (Dashboard, Domains, Satellites, or Backend API `POST /v1/domains` with `is_satellite: true`; it is a paid add-on). Add the CNAME `clerk.agentumbot.io` it asks for. Code changes: `isSatellite: true`, `domain: "agentumbot.io"` and `signInUrl` on the primary (an app on `rockyshoreslabs.io`) in `clerkMiddleware()` in `src/server.ts`, in `src/start.ts`, and on `<ClerkProvider>` in `src/routes/__root.tsx`. Sign-in happens on the primary domain and syncs back. Users, organisations and ids stay as they are. Costs: the add-on, a sign-in hop through `rockyshoreslabs.io`, and `routes/accept-invitation.tsx` and the `/login` page render `<SignUp>`/`<SignIn>` in place, which a satellite cannot do, so those flows need rework. Agent Task login on production needs checking on a satellite.
+**Option A: satellite domain on the existing instance.** Add `agentumbot.io` as a satellite (Dashboard, Domains, Satellites, or Backend API `POST /v1/domains` with `is_satellite: true`; it is a paid add-on). Add the CNAME `clerk.agentumbot.io` it asks for. Code changes: `isSatellite: true`, `domain: "agentumbot.io"` and `signInUrl` on the primary (an app on `rockyshoreslabs.io`) in `clerkMiddleware()` in `src/server.ts`, in `src/start.ts`, and on `<ClerkProvider>` in `src/routes/__root.tsx`. Sign-in happens on the primary domain and syncs back. Users, organisations and ids stay as they are. Costs: the add-on, a sign-in hop through `rockyshoreslabs.io`, and `routes/accept-invitation.tsx` and the `/login` page render `<SignUp>`/`<SignIn>` in place, which a satellite cannot do, so those flows need rework. Agent Task login on production needs checking on a satellite. The satellite flags are static options, but `harbourmaster.rockyshoreslabs.io` sits on the primary domain: with the flags set it would be treated as satellite traffic and lose its session. Either set them per request from the hostname, or make the legacy host redirect-only for pages that need a session.
 
 **Option B: a new production instance with `agentumbot.io` as primary.** Clean first-party sign-in on agentumbot.io and no shared-instance coupling. Costs: new keys, the five Clerk DNS records on agentumbot.io, every user signs up again, organisations are recreated, and the D1 org and user ids are rewritten with `bun run migrate-clerk-ids` and a new mapping from `build-clerk-id-map` (the X.1 runbook, `docs/reviews/tasks/X.1.md`).
 
@@ -163,9 +163,9 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 
 ## Staging cutover
 
-1. Stop writes on the old Worker. In the dashboard, `harbourmaster-staging`: nothing to do for crons (staging has none). Detach its custom domain only if you want a clean stop; the deploy in step 5 moves it anyway.
+1. Cut the old Worker's traffic: detach `harbourmaster-staging.rockyshoreslabs.io` from `harbourmaster-staging` in the dashboard (staging has no cron). This does not stop every write, see "What still writes" under Production.
 2. Final R2 sync: `bun scripts/migrate-v2/r2.ts --env staging --apply`.
-3. Copy D1: `bun scripts/migrate-v2/d1.ts --env staging --apply`. It checks both databases applied the same migrations and the new one is empty, exports the old rows (`--no-schema`), drops the `d1_migrations` rows the new database already has, imports, and compares row counts table by table. The schema comes from step 4 above, not from the dump: a full export creates tables in name order with each table's rows straight after, so `agents` rows arrive before the `workspaces` table exists and SQLite refuses them even with deferred foreign keys. The `events` triggers block only UPDATE and DELETE, so the INSERT-only import passes them.
+3. Copy D1, as late as possible: `bun scripts/migrate-v2/d1.ts --env staging --apply`, then go straight on to steps 4 and 5. It checks both databases applied the same migrations and the new one is empty, exports the old rows (`--no-schema`), drops the `d1_migrations` rows the new database already has, imports, and compares row counts table by table. The schema comes from step 4 above, not from the dump: a full export creates tables in name order with each table's rows straight after, so `agents` rows arrive before the `workspaces` table exists and SQLite refuses them even with deferred foreign keys. The `events` triggers block only UPDATE and DELETE, so the INSERT-only import passes them.
 4. Build and patch: `bun run staging:build && bun scripts/migrate-v2/do-transfer.ts --apply`.
 5. Deploy that exact file, no rebuild in between:
 
@@ -185,7 +185,9 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 Announce the window first.
 
 1. Run the `computer images` workflow on the new repository.
-2. Stop the old Worker's writes. Dashboard, `harbourmaster`, Settings: remove the cron trigger (the minute tick writes D1). Detach `harbourmaster.rockyshoreslabs.io` so no request writes to the old database after the export; users see the domain down for the length of the window. Inbound mail still reaches `harbourmaster` until step 7; a sender's server retries a failed delivery.
+2. Cut the old Worker's traffic. Dashboard, `harbourmaster`, Settings: remove the cron trigger (the minute tick writes D1) and detach `harbourmaster.rockyshoreslabs.io`. Users see the domain down for the length of the window.
+
+   **What still writes.** Detaching the domain does not stop the old Worker. Until the deploy in step 6 moves the Durable Objects: `ManagedPoller`, `GuestRun`, `LiveArtifactMaintenance` and `MachineRelay` alarms keep firing on the old Worker and write D1; hibernated daemon sockets stay open after the route goes and their heartbeats write `last_seen`; the old queue consumer drains mail events; inbound mail reaches `harbourmaster` until step 7. Rows those paths write between the D1 export and the deploy stay in the old database and are lost. Keep that gap to a minute or two: run step 4 immediately before steps 5 and 6.
 3. Final R2 sync: `bun scripts/migrate-v2/r2.ts --env production --apply`.
 4. Copy D1: `bun scripts/migrate-v2/d1.ts --env production --apply`. Option B: run the Clerk id rewrite on `agentum-v2` now.
 5. Build and patch: `bun run build && bun scripts/migrate-v2/do-transfer.ts --apply`.
@@ -208,7 +210,7 @@ Before the deploy in step 6 nothing has changed for users except the downtime: r
 
 After it, the namespaces belong to `agentum-v2`. To go back:
 
-1. Move the custom domains back to `harbourmaster` (dashboard, or deploy the old Worker from the pre-cutover commit, which declares them). Put its cron back. Detach `agentumbot.io` from `agentum-v2` and, if v1 should have it again, redeploy v1 with it.
+1. Move the custom domains back to `harbourmaster` in the dashboard (Workers, `harbourmaster`, Domains). Do not redeploy the old Worker from the pre-cutover commit: its config still creates classes whose namespaces now belong to `agentum-v2`, and whether Cloudflare refuses that upload or accepts it is untested. Put its cron back. Detach `agentumbot.io` from `agentum-v2` and, if v1 should have it again, redeploy v1 with it.
 2. The old Worker's Durable Object bindings forward to the moved namespaces while `agentum-v2` exists, so do not delete `agentum-v2`. The old Worker then runs its own code against those objects. That is safe as long as the new code has not changed their storage format, which this cutover does not.
 3. D1 writes made on `agentum-v2` stay in `agentum-v2`. The old database has everything up to the export, so the window's writes are lost unless copied back by hand. That is the reason for the window.
 4. Point the Email Routing rules back: run `email-rules.ts` with the names swapped, or edit them in the dashboard.
