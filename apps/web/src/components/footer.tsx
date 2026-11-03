@@ -24,7 +24,7 @@ export default function Footer({ shell = false }: FooterProps) {
     >
       <div className={shell ? undefined : "page-wrap"}>
         <p className="m-0 text-center text-sm sm:text-left">
-          &copy; {year} Harbourmaster
+          &copy; {year} Agentum
         </p>
       </div>
     </footer>

@@ -163,7 +163,7 @@ function ActivateOrganization({ org }: { org: string }) {
             {error}
           </p>
           <Button asChild variant="outline">
-            <Link to="/">Go to Harbourmaster</Link>
+            <Link to="/">Go to Agentum</Link>
           </Button>
         </div>
       </Centered>
