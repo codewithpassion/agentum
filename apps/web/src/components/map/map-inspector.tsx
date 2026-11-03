@@ -38,7 +38,7 @@ import { agentIdOf, initialsOf } from "./map-logic.ts";
 
 const CHIP = "rounded-full border border-border px-2 py-0.5 text-xs";
 const WARN_CHIP =
-  "rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100";
+  "rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 text-xs text-warning";
 
 type MapGraphView = RouterOutputs["map"]["graph"];
 type MapNodeView = MapGraphView["nodes"][number];

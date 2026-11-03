@@ -31,7 +31,7 @@ function resolveTheme(mode: ThemeMode, prefersDark: boolean): "light" | "dark" {
 
 function getInitialMode(): ThemeMode {
   if (typeof window === "undefined") {
-    return "auto";
+    return "dark";
   }
 
   const stored = window.localStorage.getItem("theme");
@@ -39,7 +39,7 @@ function getInitialMode(): ThemeMode {
     return stored;
   }
 
-  return "auto";
+  return "dark";
 }
 
 function applyThemeMode(mode: ThemeMode) {
@@ -59,7 +59,7 @@ function applyThemeMode(mode: ThemeMode) {
 }
 
 export default function ThemeToggle() {
-  const [mode, setMode] = useState<ThemeMode>("auto");
+  const [mode, setMode] = useState<ThemeMode>("dark");
 
   useEffect(() => {
     const initialMode = getInitialMode();

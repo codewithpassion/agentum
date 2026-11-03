@@ -75,7 +75,7 @@ export function SuggestionBanner({
         const agentName = list.agentNames.get(suggestion.agentId) ?? "An agent";
         return (
           <div
-            className="flex flex-col gap-2 rounded-[10px] border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40"
+            className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
             data-testid="wiki-suggestion"
             key={suggestion.id}
           >

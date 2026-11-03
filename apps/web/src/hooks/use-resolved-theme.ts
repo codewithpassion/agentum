@@ -15,10 +15,10 @@ function getSnapshot(): ResolvedTheme {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
-// Light is the reference surface and the SSR shell renders
-// <html class="light">, so that is the correct server-side answer.
+// Dark is the default and the SSR shell renders <html class="dark">, so
+// that is the correct server-side answer.
 function getServerSnapshot(): ResolvedTheme {
-  return "light";
+  return "dark";
 }
 
 export function useResolvedTheme(): ResolvedTheme {

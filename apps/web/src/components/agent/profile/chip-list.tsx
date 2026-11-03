@@ -4,7 +4,7 @@ import type { Chip } from "./profile-logic.ts";
 export const TONE_CLASS: Record<Chip["tone"], string> = {
   default: "border-border bg-background text-foreground",
   on: "border-primary bg-primary/10 text-primary",
-  warn: "border-amber-400 bg-amber-100 text-amber-900",
+  warn: "border-warning/40 bg-warning/15 text-warning",
 };
 
 export const CHIP_CLASS =

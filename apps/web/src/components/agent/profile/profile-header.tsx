@@ -73,7 +73,7 @@ export function ProfileHeader({
             {runtimeWords(header.runtime, header.machine)}
           </span>
           {status === null ? null : (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 text-xs">
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 font-semibold text-warning text-xs">
               {status.runId === null ? (
                 status.label
               ) : (

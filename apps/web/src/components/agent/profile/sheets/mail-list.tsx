@@ -14,7 +14,7 @@ const TONE_CLASS: Record<MailTone, string> = {
   bad: "border-destructive text-destructive",
   default: "border-border",
   on: "border-primary bg-primary/10 text-primary",
-  warn: "border-amber-400 bg-amber-100 text-amber-900",
+  warn: "border-warning/40 bg-warning/15 text-warning",
 };
 
 const loadRows = (agentId: string): Promise<MailThreadRow[]> =>

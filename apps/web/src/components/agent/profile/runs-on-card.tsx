@@ -34,8 +34,8 @@ export function RunsOnCard({
                 <span
                   className={`rounded-full px-2 py-0.5 font-semibold text-xs ${
                     option.machineState === "Online"
-                      ? "bg-emerald-100 text-emerald-900"
-                      : "bg-amber-100 text-amber-900"
+                      ? "bg-success/15 text-success"
+                      : "bg-warning/15 text-warning"
                   }`}
                 >
                   {option.machineState}

@@ -46,7 +46,7 @@ const AGENT_SURFACE: Record<TileStatus, string> = {
   idle: "border-[1.5px] border-border bg-card",
   ok: "border-[1.5px] border-emerald-600 bg-card",
   running: "border-[1.5px] border-emerald-600 bg-card",
-  waiting: "border-2 border-amber-500 bg-amber-50 dark:bg-amber-950",
+  waiting: "border-2 border-warning bg-warning/10",
 };
 
 const AGENT_BADGE: Partial<
@@ -54,7 +54,7 @@ const AGENT_BADGE: Partial<
 > = {
   ok: { className: "bg-emerald-600", glyph: "✓" },
   running: { className: "bg-emerald-600", glyph: "…" },
-  waiting: { className: "bg-amber-500", glyph: "!" },
+  waiting: { className: "bg-warning", glyph: "!" },
 };
 
 const MAX_PORT_CHIPS = 4;

@@ -20,11 +20,10 @@ import {
 } from "./task-logic.ts";
 
 const CARD_CLASS =
-  "overflow-hidden rounded-[10px] border bg-card text-card-foreground";
-const PAUSED_CLASS =
-  "border-amber-400 ring-4 ring-amber-100 dark:ring-amber-950";
+  "overflow-hidden rounded-lg border bg-card text-card-foreground";
+const PAUSED_CLASS = "border-warning ring-4 ring-warning/20";
 const REQUEST_BOX_CLASS =
-  "flex flex-col gap-3 rounded-[10px] border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40";
+  "flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm";
 
 const TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
@@ -122,7 +121,7 @@ function ReceiptCard({
           </div>
         </div>
         {paused ? (
-          <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900 text-xs dark:bg-amber-950 dark:text-amber-100">
+          <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 font-medium text-warning text-xs">
             Needs you
           </span>
         ) : null}

@@ -6,7 +6,7 @@ import { isLocked, type Locked } from "./builder-logic.ts";
 const CHIP_BASE =
   "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs";
 const CHIP_ON = "border-primary bg-primary/10 text-primary";
-const CHIP_WARN = "border-amber-400 bg-amber-100 text-amber-900";
+const CHIP_WARN = "border-warning/40 bg-warning/15 text-warning";
 const CHIP_DEFAULT = "border-border bg-background text-foreground";
 
 const toneClass = (selected: boolean, warn: boolean): string => {

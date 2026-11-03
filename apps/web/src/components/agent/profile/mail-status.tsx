@@ -9,7 +9,7 @@ const TONE_CLASS = {
   bad: "border-destructive text-destructive",
   default: "border-border",
   on: "border-primary text-primary",
-  warn: "border-amber-300 bg-amber-100 text-amber-900",
+  warn: "border-warning/40 bg-warning/15 text-warning",
 } as const;
 
 /** The agent's mail address, its status, and a retry when provisioning failed or is still pending. */
