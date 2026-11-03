@@ -1,4 +1,4 @@
-# Harbourmaster
+# Agentum
 
 A [Turborepo](https://turborepo.com) monorepo, managed with Bun workspaces.
 
@@ -66,7 +66,7 @@ To run a command for a single app, use turbo's filter flag, e.g. `bunx turbo run
 
 ## Install the machine daemon
 
-The `harbourmaster` daemon runs agent tasks on a machine you own. It runs on Linux, on x64 or arm64. Install it from your deployment with one command, replacing `<your-deployment>` with its host name:
+The `agentum` daemon runs agent tasks on a machine you own. It runs on Linux, on x64 or arm64. Install it from your deployment with one command, replacing `<your-deployment>` with its host name:
 
 ```bash
 curl -fsSL https://<your-deployment>/install.sh | sh
@@ -80,7 +80,11 @@ To enrol the machine in the same step, create an enrol code under Settings > Mac
 curl -fsSL https://<your-deployment>/install.sh | sh -s -- --code <code>
 ```
 
-The command runs `harbourmaster enroll` for you. To update the daemon, run the same command again. The computer client, `hm-computer`, installs the same way from `https://<your-deployment>/install-computer.sh`.
+The command runs `agentum enroll` for you. To update the daemon, run the same command again.
+
+A machine installed before the rename from Harbourmaster keeps working. The daemon reads its old `~/.harbourmaster/config.json` and keeps the agents' old work folder. Running the install command again stops and removes the old `harbourmaster` service and sets up `agentum` in its place. You can then delete `~/.local/bin/harbourmaster`.
+
+The computer client, `hm-computer`, installs the same way from `https://<your-deployment>/install-computer.sh`.
 
 ## Deploy
 

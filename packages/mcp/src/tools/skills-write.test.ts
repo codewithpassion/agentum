@@ -365,7 +365,7 @@ describe("skill write tools: inputs reach the ports", () => {
 
 describe("skill write tools: proposal text", () => {
   const PROPOSED_SENTENCE =
-    "Version 4 is proposed. It stays unused until a person approves it in the Harbourmaster UI. To test it, read it with skill_show (version 4) and run its scripts with run_skill_script, passing version 4.";
+    "Version 4 is proposed. It stays unused until a person approves it in the Agentum UI. To test it, read it with skill_show (version 4) and run its scripts with run_skill_script, passing version 4.";
 
   test("a proposed version says it is proposed, with its number", async () => {
     const result = await callTool(

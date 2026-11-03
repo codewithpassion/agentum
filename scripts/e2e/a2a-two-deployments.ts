@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Two Harbourmaster deployments on one machine, talking over real HTTP. Each
+// Two Agentum deployments on one machine, talking over real HTTP. Each
 // is its own `vite dev` Worker with its own `.wrangler` state, so there are
 // two databases, two Durable Object sets and a real request between them (a
 // deployment never calls its own origin, and a request to the other one is not

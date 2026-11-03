@@ -4,7 +4,7 @@
 // MCP handler made for that request alone, so nothing is shared between
 // callers. A Clerk OAuth token is accepted too, once its client is approved
 // (`oauth-auth.ts`). Mount with `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
-import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { createAgentumMcpServer } from "@repo/mcp/server";
 import { isReadOnly } from "@repo/services/automation-access";
 import type { Principal } from "@repo/services/workspaces";
 import { createMcpHandler } from "agents/mcp/server";
@@ -95,7 +95,7 @@ const unauthorized = (
   metadataUrl: string | null,
   hadToken: boolean
 ): Response => {
-  const params = ['realm="harbourmaster"'];
+  const params = ['realm="agentum"'];
   if (metadataUrl) {
     params.push(`resource_metadata="${metadataUrl}"`);
   }
@@ -223,7 +223,7 @@ const clientNotApproved = (
 ): Response => {
   const where = origin
     ? `Open ${origin}/settings/connected-apps`
-    : "Open Harbourmaster, then Settings > Connected apps";
+    : "Open Agentum, then Settings > Connected apps";
   const state =
     error.reason === "revoked" ? "was revoked" : "is not approved yet";
   return Response.json(
@@ -434,7 +434,7 @@ export const mcpRoutes = ({
       await composed.services.mail.agent.hasActiveMailbox(principal);
     const handler = createMcpHandler(
       () =>
-        createHarbourmasterMcpServer(ports, {
+        createAgentumMcpServer(ports, {
           dryRun:
             principal.kind === "run" && principal.dryRun === true
               ? {

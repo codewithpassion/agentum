@@ -33,9 +33,9 @@ export const mentionEmailAdapter = (
     const url = `${origin}/a/${encodeURIComponent(input.artifactId)}#comment-${encodeURIComponent(input.threadId)}`;
     const text = `You were mentioned in ${title}.\n\n${excerpt}\n\n${url}`;
     await sender.send({
-      from: { email: from, name: "Harbourmaster" },
+      from: { email: from, name: "Agentum" },
       // A stable diagnostic header, not a claim of provider deduplication.
-      headers: { "X-Harbourmaster-Delivery": input.deliveryId },
+      headers: { "X-Agentum-Delivery": input.deliveryId },
       html: `<p>You were mentioned in ${escapeHtml(title)}.</p><blockquote>${escapeHtml(excerpt)}</blockquote><p><a href="${escapeHtml(url)}">Open artifact</a></p>`,
       subject: `Mention in ${title}`,
       text,

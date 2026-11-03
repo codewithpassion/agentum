@@ -83,7 +83,7 @@ const unauthorized = (): Response =>
   Response.json(
     { error: "unauthorized" },
     {
-      headers: { "WWW-Authenticate": 'Bearer realm="harbourmaster"' },
+      headers: { "WWW-Authenticate": 'Bearer realm="agentum"' },
       status: UNAUTHORIZED,
     }
   );

@@ -7,7 +7,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 // closeKind is why a session ended, which is the only thing the reconnect loop needs to know.

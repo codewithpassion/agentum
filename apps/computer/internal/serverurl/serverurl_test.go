@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/serverurl"
+	"agentum.dev/computer/internal/serverurl"
 )
 
 // Both the enrollment code and the machine credential cross this URL. Plaintext to anything

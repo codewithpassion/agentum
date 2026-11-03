@@ -63,7 +63,7 @@ export function parseInvitationSearch(
 
 /**
  * What a signed-in session must do to end up in `org`. An organisation with no
- * `workspaces` row gets nothing: Harbourmaster has no say over it. A person
+ * `workspaces` row gets nothing: Agentum has no say over it. A person
  * who was already signed in when they opened the link never spent the ticket,
  * so the invitation is still pending. It is accepted only once the person has
  * confirmed, because the link alone, a ticket included, proves nothing about

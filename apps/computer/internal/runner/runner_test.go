@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/runner"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/runner"
 )
 
 func newTestRunner(t *testing.T, options runner.Options) *runner.Runner {

@@ -2,7 +2,7 @@
   {
     "type": "system",
     "subtype": "init",
-    "cwd": "/home/hm-agent/harbourmaster/01HW0RKSPACE00000000000001/01HAGENT0PELICAN000000001/work",
+    "cwd": "/home/hm-agent/agentum/01HW0RKSPACE00000000000001/01HAGENT0PELICAN000000001/work",
     "session_id": "0b9e4c5a-6f1d-4d6e-9a53-2c8e1f7a4b10",
     "mcp_servers": [
       {
@@ -145,7 +145,7 @@
           "id": "toolu_3",
           "name": "Read",
           "input": {
-            "file_path": "/home/hm-agent/harbourmaster/01HW0RKSPACE00000000000001/01HAGENT0PELICAN000000001/work/hello.txt"
+            "file_path": "/home/hm-agent/agentum/01HW0RKSPACE00000000000001/01HAGENT0PELICAN000000001/work/hello.txt"
           },
           "caller": {
             "type": "direct"

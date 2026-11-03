@@ -21,7 +21,7 @@ export const REPO_ROOT = resolve(import.meta.dir, "../../..");
 
 /** Where each product's build leaves its binaries, relative to the repo root. */
 const ARTIFACT_DIRS: Record<Product, string> = {
-  harbourmaster: "apps/daemon/dist",
+  agentum: "apps/daemon/dist",
   "hm-computer": "apps/computer/bin",
 };
 

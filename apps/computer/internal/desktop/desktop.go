@@ -19,8 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/runner"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/runner"
 )
 
 // DefaultDisplay is the X display number the desktop takes unless told otherwise.

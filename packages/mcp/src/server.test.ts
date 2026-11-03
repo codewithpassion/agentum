@@ -3,8 +3,8 @@ import type { Client } from "@modelcontextprotocol/client";
 import type { McpPorts } from "./ports";
 import { errorResult } from "./result";
 import {
-  createHarbourmasterMcpServer,
-  harbourmasterTools,
+  agentumTools,
+  createAgentumMcpServer,
   type ServerOptions,
   TOOL_NAMES,
 } from "./server";
@@ -177,7 +177,7 @@ const withClient = async (
   options: ServerOptions = {}
 ) => {
   const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(fakePorts, options)
+    createAgentumMcpServer(fakePorts, options)
   );
   try {
     await run(client);
@@ -231,7 +231,7 @@ describe("tools/list", () => {
 
   test("cancel_run is listed for a write caller only", () => {
     const names = (readOnly: boolean) =>
-      harbourmasterTools(fakePorts, { readOnly }).map((tool) => tool.name);
+      agentumTools(fakePorts, { readOnly }).map((tool) => tool.name);
     expect(names(false)).toContain("cancel_run");
     expect(names(true)).not.toContain("cancel_run");
   });
@@ -288,7 +288,7 @@ describe("errorResult", () => {
     const result = errorResult(new Error("secret db password"));
     expect(result.isError).toBe(true);
     expect(textOf(result)).toBe(
-      "The request failed. Try again; if it keeps failing, check Harbourmaster."
+      "The request failed. Try again; if it keeps failing, check Agentum."
     );
     expect(textOf(result)).not.toContain("secret");
   });
@@ -318,7 +318,7 @@ describe("computer and browser capabilities", () => {
       for (const browser of [false, true]) {
         for (const readOnly of [false, true]) {
           for (const bound of [fakePorts, ports]) {
-            const names = harbourmasterTools(bound, {
+            const names = agentumTools(bound, {
               browser,
               computer,
               readOnly,
@@ -379,7 +379,7 @@ test("computer and browser calls work over MCP and writes respect dry run", asyn
     },
   };
   const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(ports, {
+    createAgentumMcpServer(ports, {
       browser: true,
       computer: { desktop: true },
     })
@@ -417,7 +417,7 @@ test("computer and browser calls work over MCP and writes respect dry run", asyn
   }
   const skipped: unknown[] = [];
   const dry = await connectClient(
-    createHarbourmasterMcpServer(ports, {
+    createAgentumMcpServer(ports, {
       browser: true,
       computer: { desktop: true },
       dryRun: {
@@ -449,7 +449,7 @@ test("computer and browser calls work over MCP and writes respect dry run", asyn
 test("registered deck writes respect read-only and dry-run gates", async () => {
   const recorded: unknown[] = [];
   const dry = await connectClient(
-    createHarbourmasterMcpServer(fakePorts, {
+    createAgentumMcpServer(fakePorts, {
       dryRun: {
         record: async (entry) => {
           recorded.push(entry);
@@ -475,7 +475,7 @@ test("registered deck writes respect read-only and dry-run gates", async () => {
     await dry.close();
   }
   const readOnly = await connectClient(
-    createHarbourmasterMcpServer(fakePorts, { readOnly: true })
+    createAgentumMcpServer(fakePorts, { readOnly: true })
   );
   try {
     const names = (await readOnly.client.listTools()).tools.map((t) => t.name);

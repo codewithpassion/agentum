@@ -1,5 +1,5 @@
 /**
- * Agent connections: publishing an agent, pairing it with another Harbourmaster,
+ * Agent connections: publishing an agent, pairing it with another Agentum,
  * giving an outside client an access key, calling an outside agent, and
  * withdrawing any of them. The spec is docs/v3/agent-connections.md.
  *
@@ -1161,7 +1161,7 @@ export const createConnectionsService = ({
   };
 
   // ---------------------------------------------------------------------
-  // Harbourmaster to Harbourmaster: the inviter
+  // Agentum to Agentum: the inviter
 
   /** Makes an invite for a published agent. The link is the only copy of the token. */
   const createInvite = async (
@@ -1342,7 +1342,7 @@ export const createConnectionsService = ({
 
   /**
    * A person approves a connection that waits for them. For another
-   * Harbourmaster this mints the token that lets the joiner call us, queues the
+   * Agentum this mints the token that lets the joiner call us, queues the
    * activation call and tries to deliver it at once. The row is `activating`
    * until the joiner confirms. For an outside agent whose card moved to another
    * origin it approves the new origin.
@@ -1371,7 +1371,7 @@ export const createConnectionsService = ({
     if (row.peerKind === "a2a_outbound") {
       return await approveNewOrigin(user, row, looked);
     }
-    // A Harbourmaster peer has no token URL, and its origin is the one shown.
+    // A Agentum peer has no token URL, and its origin is the one shown.
     refuseUnseen(looked, { origin: row.peerOrigin, tokenUrl: null });
     if (
       row.peerKind !== "harbourmaster" ||
@@ -1568,7 +1568,7 @@ export const createConnectionsService = ({
   };
 
   // ---------------------------------------------------------------------
-  // Harbourmaster to Harbourmaster: the joiner
+  // Agentum to Agentum: the joiner
 
   /**
    * Bob pastes the invite link and picks his agent. Our server calls the
@@ -1909,7 +1909,7 @@ export const createConnectionsService = ({
     if (!choice.ok) {
       throw new ServiceError(
         "invalid",
-        `That agent wants ${choice.wanted}, which Harbourmaster does not support`
+        `That agent wants ${choice.wanted}, which Agentum does not support`
       );
     }
     if (choice.scheme.kind === "oauth2_client_credentials") {
@@ -2004,7 +2004,7 @@ export const createConnectionsService = ({
     if (!choice.ok) {
       throw new ServiceError(
         "invalid",
-        `That agent wants ${choice.wanted}, which Harbourmaster does not support`
+        `That agent wants ${choice.wanted}, which Agentum does not support`
       );
     }
     const tokenUrl =
@@ -2406,7 +2406,7 @@ export const createConnectionsService = ({
   /**
    * Ends a connection. Any person on a session may: cutting access should not
    * need the right person awake. The token fails on its next use because
-   * `authenticate` re-reads the row. A Harbourmaster peer is told through the
+   * `authenticate` re-reads the row. A Agentum peer is told through the
    * outbox, best effort. A second revoke changes nothing.
    */
   const revoke = async (

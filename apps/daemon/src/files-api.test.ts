@@ -9,7 +9,7 @@ import { RunApiError } from "./run-api.ts";
 const RUN_TOKEN = "hm_run_token_for_tests_0123456789";
 const SECRET = "sk-live-do-not-leak";
 const FILE_ID = "01HZXA3N5P7Q9R1S3T5V7W9X1Y";
-const SERVER = "https://harbourmaster.example.workers.dev";
+const SERVER = "https://agentum.example.workers.dev";
 const NOT_FOUND = 404;
 const FORBIDDEN = 403;
 const SERVER_ERROR = 500;

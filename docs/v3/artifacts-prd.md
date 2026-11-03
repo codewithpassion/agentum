@@ -4,28 +4,28 @@ Written 27 Oct 2026 from Dom's voice brief of the same day. Status: draft for Do
 
 ## Summary
 
-Agents in Harbourmaster will publish artifacts: HTML pages, markdown documents and data dashboards. An artifact shows as a card with a live preview in the task thread. It opens at its own link inside a thin Harbourmaster frame with its title, owner, version and share controls. At first only workspace members can open it. Then its owner can make a revocable "anyone with the link" share, and every open, anonymous ones included, lands in an access log. Later phases turn artifacts into versioned micro apps with server-side code and per-app storage, add Git sync, and add richer sharing.
+Agents in Agentum will publish artifacts: HTML pages, markdown documents and data dashboards. An artifact shows as a card with a live preview in the task thread. It opens at its own link inside a thin Agentum frame with its title, owner, version and share controls. At first only workspace members can open it. Then its owner can make a revocable "anyone with the link" share, and every open, anonymous ones included, lands in an access log. Later phases turn artifacts into versioned micro apps with server-side code and per-app storage, add Git sync, and add richer sharing.
 
 Artifacts live on the app's own origin, as Dom decided on 27 Oct 2026: `/a/<uuid>` is the framed view and the content sits under it. The one rule this design won't bend is that artifact code never runs with the app's origin. Every content response carries `Content-Security-Policy: sandbox allow-scripts allow-forms` without `allow-same-origin`, so the page runs in an opaque origin even when someone opens its URL directly, and the viewer embeds it in an iframe with the same sandbox. The main Worker serves the content. There is no second Worker and no second domain.
 
 ## Problem
 
-Harbourmaster is the front end of Dom's AI OS (`~/devel/ai-os-integration/README.md`). Its agents already write files, but a file an agent writes cannot become a page people look at:
+Agentum is the front end of Dom's AI OS (`~/devel/ai-os-integration/README.md`). Its agents already write files, but a file an agent writes cannot become a page people look at:
 
 - `GET /files/:id` serves HTML, SVG and XML as downloads under `Content-Security-Policy: sandbox; default-src 'none'` (`apps/web/src/server/routes/files.ts:36-60`, `fileResponseHeaders` at line 99).
 - `/api/library/download` always answers `application/octet-stream` with `attachment` (`apps/web/src/server/routes/library.ts:34-63`).
 - The library page shows an `.html` file as source in a textarea (`apps/web/src/components/library/library-file-panel.tsx:410`).
 - There is no `<iframe>`, `srcdoc` or `postMessage` anywhere in `apps/web/src` (sweep of 27 Oct 2026).
 
-Those rules are right for the app's origin and must stay. The gap is a safe place to render agent-made pages, a way to show them where the work happens, and a way to share them with people who don't have a Harbourmaster login.
+Those rules are right for the app's origin and must stay. The gap is a safe place to render agent-made pages, a way to show them where the work happens, and a way to share them with people who don't have a Agentum login.
 
-Claude's desktop app has "dashboards" and claude.ai has artifacts, which are close to what Dom wants, but they live in Claude, not in the AI OS, and they can't use Harbourmaster's agents, library, connectors or audit trail.
+Claude's desktop app has "dashboards" and claude.ai has artifacts, which are close to what Dom wants, but they live in Claude, not in the AI OS, and they can't use Agentum's agents, library, connectors or audit trail.
 
 ## Goals
 
 1. An agent on any runtime can create and update an artifact with platform tools, and can test it before it tells a person it is done.
 2. People see the artifact where they already work. It shows as a card in the task thread, in the task view, and in an Artifacts area.
-3. Every artifact has its own link that opens inside a Harbourmaster frame with its title, owner, version and share controls.
+3. Every artifact has its own link that opens inside a Agentum frame with its title, owner, version and share controls.
 4. Untrusted HTML and JavaScript are served from the app's host but always run in an opaque origin, with no access to the user's Clerk session.
 5. Sharing outside the workspace is deliberate, managed (listed, revocable, expiring) and logged, including anonymous opens.
 6. Artifacts can grow into micro apps with server parts and storage that run inside the AI OS (phase 2).
@@ -74,9 +74,9 @@ Facts below come from public docs as of 27 Oct 2026, unless marked otherwise.
 
 The MCP Apps extension (SEP-1865, stable since 26 Jan 2026) standardises the same idea for MCP hosts: HTML resources at `ui://`, rendered in a sandboxed iframe on an origin different from the host's, talking to the host through JSON-RPC 2.0 over `postMessage` (`ui/initialize`, `ui/open-link`, `ui/message`, `tools/call`). The host proxies tool calls and rejects tools not marked for apps. Pages declare `connectDomains` and `resourceDomains`, and hosts may tighten but never loosen the CSP. ([spec](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx)) OpenAI's Apps SDK now speaks the same bridge ([developers.openai.com](https://developers.openai.com/apps-sdk/build/chatgpt-ui)).
 
-What Harbourmaster copies: UUID paths on the main domain for the viewer, private or org-scoped by default, sandboxed content, a CDN allowlist CSP, versions with stale-publish refusal, an org switch for external sharing, viewer-rights connector calls that never run for anonymous viewers, the "user-generated and unverified" label, and the MCP Apps message names for the bridge. What it adds: agents as authors with a test tool, an access log of anonymous opens, share-link expiry and per-link revocation, and (phase 2) server parts.
+What Agentum copies: UUID paths on the main domain for the viewer, private or org-scoped by default, sandboxed content, a CDN allowlist CSP, versions with stale-publish refusal, an org switch for external sharing, viewer-rights connector calls that never run for anonymous viewers, the "user-generated and unverified" label, and the MCP Apps message names for the bridge. What it adds: agents as authors with a test tool, an access log of anonymous opens, share-link expiry and per-link revocation, and (phase 2) server parts.
 
-## What exists in Harbourmaster today
+## What exists in Agentum today
 
 | Area | What is there | Where |
 |---|---|---|
@@ -87,7 +87,7 @@ What Harbourmaster copies: UUID paths on the main domain for the viewer, private
 | Thread | assistant-ui, one fallback renderer for all tool calls, data parts for requests and attachments | `apps/web/src/components/thread/assistant-message-container.tsx:91-101`, `thread-parts.ts:60-72`, fold in `packages/protocol/src/thread.ts:441` |
 | Live stream | `SessionStream` DO, SSE with replay, gated by `STREAM_EVENT_TYPES` | `apps/web/src/server/session-stream.ts`, `apps/web/src/server/session-stream-frames.ts:13` |
 | Task view | Receipt, action log and slots (Files, Computer, Mail, Thread) | `apps/web/src/components/task/task-page.tsx:289-325`, `slots.tsx` |
-| Platform tools | One MCP server named `harbourmaster`, zod schemas, annotation presets, dry-run gate on non-read-only tools | `packages/mcp/src/tools/define.ts`, `packages/mcp/src/server.ts`, `packages/mcp/src/register.ts` |
+| Platform tools | One MCP server named `agentum`, zod schemas, annotation presets, dry-run gate on non-read-only tools | `packages/mcp/src/tools/define.ts`, `packages/mcp/src/server.ts`, `packages/mcp/src/register.ts` |
 | Tool approval | Rule keys `harbourmaster/<tool>` work in all three runtimes | `packages/protocol/src/requests.ts`, `apps/web/src/server/pi-run-gate.ts`, `apps/daemon/src/approvals.ts`, `packages/services/src/managed/gateway.ts` |
 | Browser | Browser Run through `@cloudflare/playwright`, SSRF guard, screenshots to the task folder | `apps/web/src/server/browser-run.ts`, `packages/services/src/browser/` |
 | Untrusted code | Dynamic Worker per run through the `LOADER` binding, with a `ScriptHost` capability binding made by `ctx.exports` with props | `apps/web/src/server/skill-scripts/dynamic-worker-sandbox.ts`, `apps/web/src/server/script-host.ts`, `apps/web/wrangler.jsonc` (`worker_loaders`) |
@@ -138,7 +138,7 @@ Relation to the desk. Phase 1 adds nothing to the desk. Phase 2 lets a person pi
 
 ### 2. How agents create, update and test artifacts
 
-Five platform tools in a new `packages/mcp/src/tools/artifacts.ts`, registered like the wiki tools (`packages/mcp/src/tools/wiki.ts`). They reach every runtime through the existing `harbourmaster` MCP server: Pi through `pi-run-mcp.ts`, Managed Agents through `mcp_toolset` in `managed/gateway.ts`, machines through `q.setMcpServers` in `apps/daemon/src/executor.ts`.
+Five platform tools in a new `packages/mcp/src/tools/artifacts.ts`, registered like the wiki tools (`packages/mcp/src/tools/wiki.ts`). They reach every runtime through the existing `agentum` MCP server: Pi through `pi-run-mcp.ts`, Managed Agents through `mcp_toolset` in `managed/gateway.ts`, machines through `q.setMcpServers` in `apps/daemon/src/executor.ts`.
 
 | Tool | Annotation | Does |
 |---|---|---|
@@ -183,13 +183,13 @@ Agents on the Linux VM can also test logic with `bun test` on their own files be
 
 ### 3. Hosting and isolation
 
-This is the security core. Dom decided on 27 Oct 2026 that artifacts live on the app's own origin under a path with a UUID, the way claude.ai uses `claude.ai/artifacts/<uuid>`: `https://harbourmaster.rockyshoreslabs.io/a/<uuid>` is the framed view, and the content is served under it. A dedicated subdomain may come later only if it proves necessary, and it is not in phase 1 or 2.
+This is the security core. Dom decided on 27 Oct 2026 that artifacts live on the app's own origin under a path with a UUID, the way claude.ai uses `claude.ai/artifacts/<uuid>`: `https://agentumbot.io/a/<uuid>` is the framed view, and the content is served under it. A dedicated subdomain may come later only if it proves necessary, and it is not in phase 1 or 2.
 
 So the isolation has to come from the browser's sandbox, not from a second origin. The rule: untrusted HTML and JS always run in an opaque origin. They must never be able to read the app's cookies, DOM or storage, send credentialed requests to `/api/*` and read the answer, register a service worker, or navigate the top window.
 
 #### What the content could steal
 
-Clerk's `__session` cookie holds a session JWT that lives about a minute. Clerk's docs say it is set on the application's root domain and is not HttpOnly, because Clerk's client SDKs read it ([Clerk XSS leak protection](https://clerk.com/docs/guides/secure/best-practices/xss-leak-protection), [GitHub discussion #336](https://github.com/clerk/javascript/discussions/336)). Clerk says it uses `SameSite=Lax` ([Clerk cookies](https://clerk.com/docs/guides/how-clerk-works/cookies)), and the docs don't state the path, which is `/` in practice (to confirm in devtools in A.4's check). The long-lived `__client` cookie is HttpOnly and sits on the Frontend API domain, not the app's. Harbourmaster's own code sets no cookie attributes: a search of `apps/web/src` for `SameSite`, `HttpOnly` and `__session` finds nothing, so Clerk's defaults are what ship.
+Clerk's `__session` cookie holds a session JWT that lives about a minute. Clerk's docs say it is set on the application's root domain and is not HttpOnly, because Clerk's client SDKs read it ([Clerk XSS leak protection](https://clerk.com/docs/guides/secure/best-practices/xss-leak-protection), [GitHub discussion #336](https://github.com/clerk/javascript/discussions/336)). Clerk says it uses `SameSite=Lax` ([Clerk cookies](https://clerk.com/docs/guides/how-clerk-works/cookies)), and the docs don't state the path, which is `/` in practice (to confirm in devtools in A.4's check). The long-lived `__client` cookie is HttpOnly and sits on the Frontend API domain, not the app's. Agentum's own code sets no cookie attributes: a search of `apps/web/src` for `SameSite`, `HttpOnly` and `__session` finds nothing, so Clerk's defaults are what ship.
 
 A script running same-origin with the app could therefore read `__session` from `document.cookie` and call every tRPC procedure as the viewer for that minute, refreshing it as Clerk does. Any artifact that ever runs with the app's origin is a full account takeover for whoever opens it. Everything below exists to stop that.
 
@@ -199,7 +199,7 @@ A script running same-origin with the app could therefore read `__session` from 
 |---|---|---|
 | A. Sandboxed iframe attribute only (`sandbox="allow-scripts"`) | Opaque origin inside the frame. Opening the content URL directly, or a link to it, runs the page same-origin with the session. | Not enough on its own. |
 | B. `Content-Security-Policy: sandbox allow-scripts …` response header, without `allow-same-origin` | The document gets an opaque origin wherever it loads, top-level included. The repo already uses this header on `/files/:id` (`apps/web/src/server/routes/files.ts:57-60`). Supported by all current browsers, not in `<meta>` ([MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox)). | Required. |
-| C. Both B and A, plus a redirect of top-level opens to the frame, path-scoped CSP sources and no CORS credentials | Each layer covers a different failure: B covers direct opens, A survives the frame navigating itself (iframe sandbox flags persist across navigations), the redirect keeps the Harbourmaster frame around the content. | Picked. |
+| C. Both B and A, plus a redirect of top-level opens to the frame, path-scoped CSP sources and no CORS credentials | Each layer covers a different failure: B covers direct opens, A survives the frame navigating itself (iframe sandbox flags persist across navigations), the redirect keeps the Agentum frame around the content. | Picked. |
 | D. `srcdoc` iframe with inlined content | No URL to open directly, but assets need inlining and the frame can't load relative files. | Rejected. |
 | E. A subdomain or separate domain | Real origin isolation. | Deferred by Dom's decision. Triggers to revisit are below. |
 
@@ -215,7 +215,7 @@ Every content response, success or error, passes through one header wrapper that
 
 The route refuses before it serves:
 
-- A request with `Sec-Fetch-Dest: document` (a top-level open) and a member or link token answers 302 to `/a/<uuid>`, without the token. Pasted content URLs always land in the Harbourmaster frame with its owner line and warning label. Test tokens for Browser Run are exempt.
+- A request with `Sec-Fetch-Dest: document` (a top-level open) and a member or link token answers 302 to `/a/<uuid>`, without the token. Pasted content URLs always land in the Agentum frame with its owner line and warning label. Test tokens for Browser Run are exempt.
 - A request with the `Service-Worker: script` header answers 403, and no content response ever sets `Service-Worker-Allowed`. An opaque origin can't register a service worker anyway, so this guards against a header slip.
 
 Content paths skip `clerkMiddleware()` and the compose middleware. The route needs only the `FILES` bucket and the view-token key, and reads the version's manifest from R2. Skipping Clerk keeps its handshake redirects out of iframe loads and keeps the session machinery away from untrusted bytes.
@@ -251,7 +251,7 @@ PR previews now work too. A preview serves content on its own `workers.dev` URL,
 #### Residual risks, stated plainly
 
 1. Same site, possibly same process. The content is same-site with the app. Chrome can put sandboxed iframes in their own process, but whether every browser Dom's viewers use does is unverified. Google's guidance is that the CSP sandbox alone may not stop Spectre-class attacks ([web.dev](https://web.dev/articles/securely-hosting-user-data)). A working side-channel attack could read the app page's memory, including the one-minute session JWT. This is the main thing a separate origin would buy.
-2. Phishing on the real domain. Artifact content appears under `harbourmaster.rockyshoreslabs.io` in the address bar. The frame label, the top-open redirect and the blocked modals reduce it, but a convincing fake inside the frame is still on our domain. Worse, if Google Safe Browsing or a mail filter flags one phishing artifact, it may flag the whole host, and the app goes down with it.
+2. Phishing on the real domain. Artifact content appears under `agentumbot.io` in the address bar. The frame label, the top-open redirect and the blocked modals reduce it, but a convincing fake inside the frame is still on our domain. Worse, if Google Safe Browsing or a mail filter flags one phishing artifact, it may flag the whole host, and the app goes down with it.
 3. One missing header is a full compromise. If any content response, an error page, a redirect or a cached copy, reaches the browser without the CSP sandbox, that page runs same-origin with the session. The single wrapper, tests over every path and status, and `Cache-Control: private` (so no shared cache can strip or mix headers) are the defence, but it is a sharp edge.
 4. Opaque origins limit what artifacts can do: no real `localStorage`, no IndexedDB, no service workers, no cookies of their own, no OAuth popups. Phase 1 pages and dashboards don't need them. Phase 2 storage goes through the bridge.
 5. The cookie and fetch behaviour of opaque origins rests on the specs and on Chrome and Firefox probes. Safari can't be driven by the repo's browser tooling, so a person checks it by hand in A.11.
@@ -275,7 +275,7 @@ Options:
 | Option | Keys in the page | Works for anonymous viewers | Verdict |
 |---|---|---|---|
 | Direct calls from the page to connector APIs | Yes | Leaks the owner's keys to everyone | Rejected. |
-| A scoped bearer token handed to the page, which then calls a Harbourmaster API | Token in page JS, readable by anything the page loads from a CDN | Would carry the owner's rights to anonymous viewers | Rejected. |
+| A scoped bearer token handed to the page, which then calls a Agentum API | Token in page JS, readable by anything the page loads from a CDN | Would carry the owner's rights to anonymous viewers | Rejected. |
 | Snapshot data shipped in the version | None | Yes, and the sharer sees what's in it | Phase 1. |
 | A `postMessage` bridge to the app frame, which calls a tRPC procedure with the viewer's own session and the artifact's declared grants | None | No, by rule | Phase 2. |
 
@@ -366,14 +366,14 @@ Lawfulness. Under the EU's *Breyer* ruling, a dynamic IP address can be personal
 
 ### 7. Versioning and Git sync (phase 3)
 
-Mapping: one Git repository per workspace (or per app, Dom's choice), one folder per artifact named by a slug, one commit per version. The commit message is the version message, the author is the agent or person, and a trailer `Harbourmaster-Version: <versionId>` ties the commit back. The version stores `source_commit_sha`, as skill versions do (`packages/db/src/schema/skills.ts`).
+Mapping: one Git repository per workspace (or per app, Dom's choice), one folder per artifact named by a slug, one commit per version. The commit message is the version message, the author is the agent or person, and a trailer `Agentum-Version: <versionId>` ties the commit back. The version stores `source_commit_sha`, as skill versions do (`packages/db/src/schema/skills.ts`).
 
 Direction, in two steps:
 
-1. Push only. Each new version becomes a commit on a branch Harbourmaster owns. This needs write access the platform lacks: today `GITHUB_TOKEN` is optional and used only to read (`compose.ts:926-928`). A GitHub App installation token per workspace is the clean way, and it is new work.
+1. Push only. Each new version becomes a commit on a branch Agentum owns. This needs write access the platform lacks: today `GITHUB_TOKEN` is optional and used only to read (`compose.ts:926-928`). A GitHub App installation token per workspace is the clean way, and it is new work.
 2. Pull. A change on the tracked branch becomes a `proposed` version that a person approves, reusing the skills importer: `resolve` (ref to sha) and `tree` (codeload tarball, subfolder, limits) in `apps/web/src/server/github-skill-source.ts`, a sparse `artifact_sources` table like `skill_sources` with `checked_at` polling from the tick (`apps/web/src/server/tick/automation.ts`), and an update notice in Needs you like `skill.update_available`.
 
-There are no branches or merges inside Harbourmaster. A pull on a stale base is refused like a stale `artifact_update`, and the person resolves it in Git.
+There are no branches or merges inside Agentum. A pull on a stale base is refused like a stale `artifact_update`, and the person resolves it in Git.
 
 ### 8. UI
 
@@ -381,7 +381,7 @@ Navigation. A new "Artifacts" item in `mainNavItems` (`apps/web/src/components/s
 
 Artifacts page `/artifacts`. A grid of cards: thumbnail (from `artifact_test`) or kind icon, title, owner, author agent, version number, updated time, and an audience badge (Private, Workspace, Link). Filters: kind, made by (agent or person), shared by link. On phones the grid becomes a single column of rows, following MB.2's stacked-row pattern (`docs/tasks/MB.2-mobile-tables-confirms.md`).
 
-Thread card. A new `artifact` part in the thread fold (`packages/protocol/src/thread.ts`), rendered as a `data-artifact` part next to `request` and `attachment` (`thread-parts.ts:60-72`, `assistant-message-container.tsx:91-101`), after the tool call that made it. Desktop: title, kind icon, "v3", Open and a live preview iframe at 360 px tall, lazy-loaded, with a click-to-interact overlay so scrolling the thread doesn't get caught inside it. Phones (below `MOBILE_BREAKPOINT` 768, `apps/web/src/hooks/use-mobile.ts`): the thumbnail and an Open button, because the thread viewport is capped at `max-h-[60vh]` (`thread-container.tsx`). Tool names arrive with runtime prefixes (`mcp__harbourmaster__…`, `harbourmaster_…`), so the card keys on the event, not on the tool name.
+Thread card. A new `artifact` part in the thread fold (`packages/protocol/src/thread.ts`), rendered as a `data-artifact` part next to `request` and `attachment` (`thread-parts.ts:60-72`, `assistant-message-container.tsx:91-101`), after the tool call that made it. Desktop: title, kind icon, "v3", Open and a live preview iframe at 360 px tall, lazy-loaded, with a click-to-interact overlay so scrolling the thread doesn't get caught inside it. Phones (below `MOBILE_BREAKPOINT` 768, `apps/web/src/hooks/use-mobile.ts`): the thumbnail and an Open button, because the thread viewport is capped at `max-h-[60vh]` (`thread-container.tsx`). Tool names arrive with runtime prefixes (`mcp__harbourmaster__…`, `agentum_…`), so the card keys on the event, not on the tool name.
 
 Task view. An "Artifacts" slot in the right column (`task-page.tsx:300-324`, `SlotCard` in `slots.tsx:12`) lists what the run published.
 
@@ -393,7 +393,7 @@ Share dialog. On desktop a dialog, on phones a full-width bottom sheet capped to
 
 Access log. A tab on the artifact page: time, link or member, place, network, browser, outcome, with a filter by link. Phones get stacked rows.
 
-Share page `/s/$token`. A thinner bar: title, "Shared from <workspace> on Harbourmaster", "Content is user-generated and unverified.", and "Opens of this link are logged." A dead link shows one plain page: "This link is not available."
+Share page `/s/$token`. A thinner bar: title, "Shared from <workspace> on Agentum", "Content is user-generated and unverified.", and "Opens of this link are logged." A dead link shows one plain page: "This link is not available."
 
 Workspace setting. Settings gains an "Artifacts" section with the link-sharing switch (admins only).
 
@@ -603,7 +603,7 @@ Sharing and the log
 
 ### Phase 3: Git sync
 
-- R3.1 A workspace can connect a GitHub repo through a GitHub App installation, and each new version of a linked artifact becomes one commit with a `Harbourmaster-Version` trailer.
+- R3.1 A workspace can connect a GitHub repo through a GitHub App installation, and each new version of a linked artifact becomes one commit with a `Agentum-Version` trailer.
 - R3.2 A commit on the tracked branch becomes a `proposed` version within the update-check interval, and approving it makes it current.
 - R3.3 A pull on a stale base is refused and shown in Needs you.
 

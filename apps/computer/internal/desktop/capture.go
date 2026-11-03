@@ -17,7 +17,7 @@ import (
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 // screenshotBudget bounds one capture end to end, inside the server's 5 s timeout.

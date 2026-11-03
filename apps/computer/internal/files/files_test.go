@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"harbourmaster.dev/computer/internal/files"
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/files"
+	"agentum.dev/computer/internal/protocol"
 )
 
 func chunkRequest(transferID string, path string, seq int, data []byte, final bool, digest *string) protocol.FilePutRequest {

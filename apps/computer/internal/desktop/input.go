@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 // typeDelayMS is xdotool's per-character delay: its 12 ms default makes 512 characters take

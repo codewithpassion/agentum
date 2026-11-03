@@ -104,8 +104,8 @@ test("encodeTool and decodeTool round-trip every tool kind", () => {
 });
 
 test("MIME names are fixed strings", () => {
-  expect(TOOL_MIME).toBe("application/x-harbourmaster-tool");
-  expect(NEW_NODE_MIME).toBe("application/x-harbourmaster-new-node");
+  expect(TOOL_MIME).toBe("application/x-agentum-tool");
+  expect(NEW_NODE_MIME).toBe("application/x-agentum-new-node");
 });
 
 test("decodeTool rejects bad JSON", () => {

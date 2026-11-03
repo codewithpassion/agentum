@@ -25,13 +25,11 @@ export function ConnectInstructions({ link }: { link: string }) {
       </h1>
       <p className="text-muted-foreground text-sm">
         This is a link to connect one of your agents to an agent in another
-        Harbourmaster.
+        Agentum.
       </p>
       <ol className="list-decimal space-y-1 pl-5 text-sm">
         <li>Copy this link.</li>
-        <li>
-          Open your own Harbourmaster and go to Settings, Agent connections.
-        </li>
+        <li>Open your own Agentum and go to Settings, Agent connections.</li>
         <li>Choose Join with a link, paste the link and pick your agent.</li>
       </ol>
       <div className="flex flex-wrap gap-2">

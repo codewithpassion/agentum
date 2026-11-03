@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: camelCase keys, boolean columns, the
+// Modified by Agentum: camelCase keys, boolean columns, the
 // `dedupe_key` and `body_is_html` columns, and no API key table.
 
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";

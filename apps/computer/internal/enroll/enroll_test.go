@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/enroll"
+	"agentum.dev/computer/internal/enroll"
 )
 
 func fixture(t *testing.T, name string) []byte {

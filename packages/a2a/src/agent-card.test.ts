@@ -49,7 +49,7 @@ describe("buildAgentCard", () => {
     expect(card.capabilities.extendedAgentCard).toBe(false);
     expect(card.capabilities.extensions).toEqual([
       {
-        description: "Invite based pairing of two Harbourmaster deployments.",
+        description: "Invite based pairing of two Agentum deployments.",
         required: false,
         uri: PAIRING_EXTENSION_URI,
       },

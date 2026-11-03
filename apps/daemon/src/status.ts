@@ -1,4 +1,4 @@
-// `harbourmaster status`: what the daemon is configured to do and whether its
+// `agentum status`: what the daemon is configured to do and whether its
 // service runs. It never prints the credential.
 
 import type { CommandRunner } from "./command.ts";

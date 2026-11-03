@@ -7,7 +7,7 @@ import type {
   SlackSendResult,
 } from "../ports";
 import { ToolError } from "../result";
-import { createHarbourmasterMcpServer } from "../server";
+import { createAgentumMcpServer } from "../server";
 import { connectClient, textOf } from "../testing";
 
 const DESTINATIONS: SlackDestinations = {
@@ -99,9 +99,7 @@ const callTool = async (
   name: string,
   args: Record<string, unknown>
 ) => {
-  const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(ports)
-  );
+  const { client, close } = await connectClient(createAgentumMcpServer(ports));
   try {
     return await client.callTool({ arguments: args, name });
   } finally {
@@ -127,7 +125,7 @@ describe("slack_destinations", () => {
 
   test("tells the agent to write a mention text, and says so in the tool description", async () => {
     const { client, close } = await connectClient(
-      createHarbourmasterMcpServer(fakePorts())
+      createAgentumMcpServer(fakePorts())
     );
     try {
       const { tools } = await client.listTools();
@@ -409,7 +407,7 @@ describe("slack_send", () => {
 
   test("describes the mention syntax in the tool description and the text field", async () => {
     const { client, close } = await connectClient(
-      createHarbourmasterMcpServer(fakePorts())
+      createAgentumMcpServer(fakePorts())
     );
     try {
       const { tools } = await client.listTools();

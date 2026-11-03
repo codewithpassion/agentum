@@ -110,7 +110,7 @@ export const createGuestMcpServer = (
   deps: Parameters<typeof guestTools>[0]
 ) => {
   const server = new McpServer(
-    { name: "harbourmaster-guest", version: "0.1.0" },
+    { name: "agentum-guest", version: "0.1.0" },
     { capabilities: { tools: { listChanged: false } } }
   );
   registerTools(server, guestTools(deps));

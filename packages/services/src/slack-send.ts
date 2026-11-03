@@ -181,7 +181,7 @@ export const createSlackSendService = ({
     }
     throw new ServiceError(
       "not_found",
-      `"${to}" is not a channel the bot is in or a linked person. Only people who linked their Slack account to Harbourmaster can be messaged, so ask them to message this agent in Slack once. Call slack_destinations to see the targets.`
+      `"${to}" is not a channel the bot is in or a linked person. Only people who linked their Slack account to Agentum can be messaged, so ask them to message this agent in Slack once. Call slack_destinations to see the targets.`
     );
   };
 

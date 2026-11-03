@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
-import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
 import { isReadOnly } from "@repo/services/automation-access";
 import { memoryFileBlobs } from "@repo/services/files/memory";
@@ -62,7 +62,7 @@ beforeEach(async () => {
 const connect = async (principal: Principal) => {
   const ports = createMcpPorts({ principal, services: composed.services });
   const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(ports, {
+    createAgentumMcpServer(ports, {
       qa: true,
       readOnly: isReadOnly(principal),
     })

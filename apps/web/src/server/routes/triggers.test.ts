@@ -226,7 +226,7 @@ describe("POST /api/triggers/:id", () => {
     const missing = await fire(triggerId, body);
     expect(missing.status).toBe(401);
     expect(missing.headers.get("WWW-Authenticate")).toBe(
-      'Bearer realm="harbourmaster"'
+      'Bearer realm="agentum"'
     );
 
     const malformed = await fire(triggerId, body, null, {

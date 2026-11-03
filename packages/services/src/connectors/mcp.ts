@@ -18,7 +18,7 @@ export interface CachedTool {
  */
 
 const PROTOCOL_VERSION = "2025-06-18";
-const CLIENT_INFO = { name: "harbourmaster", version: "1.0.0" } as const;
+const CLIENT_INFO = { name: "agentum", version: "1.0.0" } as const;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const UNAUTHORIZED = 401;
 const FORBIDDEN = 403;

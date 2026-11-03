@@ -291,7 +291,7 @@ const WAIT_TRIES = 200;
 const EDIT_ROUNDS = 10;
 
 beforeEach(() => {
-  workDir = mkdtempSync(join(tmpdir(), "harbourmaster-library-sync-"));
+  workDir = mkdtempSync(join(tmpdir(), "agentum-library-sync-"));
   remote = createMemoryRemote();
   worker = fakeWorker(remote);
   lines = [];

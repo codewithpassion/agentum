@@ -57,7 +57,7 @@ export const BlockDragHandles = Extension.create({
                     handle.addEventListener("dragstart", (event) => {
                       dragged = node.attrs.id;
                       event.dataTransfer?.setData(
-                        "application/x-harbourmaster-block",
+                        "application/x-agentum-block",
                         String(node.attrs.id)
                       );
                       if (event.dataTransfer) {

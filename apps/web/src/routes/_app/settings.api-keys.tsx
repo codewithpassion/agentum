@@ -191,7 +191,7 @@ function ApiKeysPage() {
         </p>
         {origin === null ? null : (
           <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-foreground text-xs">
-            {`claude mcp add --transport http harbourmaster ${origin}/mcp --header "Authorization: Bearer <your key>"`}
+            {`claude mcp add --transport http agentum ${origin}/mcp --header "Authorization: Bearer <your key>"`}
           </pre>
         )}
       </div>

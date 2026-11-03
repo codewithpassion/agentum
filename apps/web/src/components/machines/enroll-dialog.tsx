@@ -62,7 +62,7 @@ const dialogDescription = (
   if (token.role === "computer") {
     return "Run one of these commands on the machine. Each one enrols it with the computer role. The binary command also installs hm-computer, and you start it afterwards with hm-computer run.";
   }
-  return "Run this command on the machine you want to enrol. It installs the harbourmaster daemon and enrols the machine.";
+  return "Run this command on the machine you want to enrol. It installs the agentum daemon and enrols the machine.";
 };
 
 interface RoleChoiceProps {

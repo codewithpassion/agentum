@@ -267,7 +267,7 @@ describe("the gate", () => {
     const response = await relay(null);
 
     expect(response.headers.get("WWW-Authenticate")).toBe(
-      'Bearer realm="harbourmaster"'
+      'Bearer realm="agentum"'
     );
     expect(await response.json()).toEqual({ error: "unauthorized" });
   });

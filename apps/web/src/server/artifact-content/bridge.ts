@@ -154,7 +154,7 @@ export const BRIDGE_JS = `(function () {
   function request(method, params) {
     return new Promise(function (resolve, reject) {
       if (!port) {
-        reject(new Error("Harbourmaster bridge is not connected"));
+        reject(new Error("Agentum bridge is not connected"));
         return;
       }
       var id = nextId;
@@ -391,7 +391,7 @@ export const BRIDGE_JS = `(function () {
         var text =
           typeof message.error.message === "string"
             ? message.error.message
-            : "Harbourmaster bridge request failed";
+            : "Agentum bridge request failed";
         var failure = new Error(text);
         failure.code = message.error.code;
         entry.reject(failure);
@@ -475,7 +475,7 @@ export const BRIDGE_JS = `(function () {
     var tries = 0;
     var timer = null;
     var initParams = {
-      appInfo: { name: "harbourmaster-bridge", version: "1" },
+      appInfo: { name: "agentum-bridge", version: "1" },
       protocolVersion: PROTOCOL_VERSION,
     };
     if (nonce !== null) {

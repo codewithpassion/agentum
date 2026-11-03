@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: the migration runner goes through drizzle, so it
+// Modified by Agentum: the migration runner goes through drizzle, so it
 // runs in a Durable Object and under bun:sqlite alike, and migration 9 is new.
 
 import { sql } from "drizzle-orm";
@@ -99,7 +99,7 @@ export const MAILBOX_MIGRATIONS: Migration[] = [
     ],
   },
   {
-    // New in Harbourmaster. The unique index makes a second delivery of the
+    // New in Agentum. The unique index makes a second delivery of the
     // same mail a conflict instead of a second row.
     name: "9_add_dedupe_key_and_body_kind",
     statements: [

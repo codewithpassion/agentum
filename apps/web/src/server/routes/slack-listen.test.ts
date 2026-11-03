@@ -341,7 +341,7 @@ test("all mode: a plain channel message is stored unbatched, starts no run and w
   expect(allSeen()).toEqual([]);
 });
 
-test("all mode: a message from someone not linked is stored with no Harbourmaster user, and Slack is not called", async () => {
+test("all mode: a message from someone not linked is stored with no Agentum user, and Slack is not called", async () => {
   await setListenMode("all");
   await send(plain({ text: "who am I", ts: tsAt(2), user: UNLINKED_USER }));
 

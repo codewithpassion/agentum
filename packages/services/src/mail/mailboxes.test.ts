@@ -146,7 +146,7 @@ test("provisions once with an enabled mail trigger and preserves a person's paus
 test("an outside rule fails without replacing or deleting it", async () => {
   rules.set("a@example.com", "outside");
   expect(await service.provision(user, "a")).toMatchObject({
-    lastError: "Address in use outside Harbourmaster",
+    lastError: "Address in use outside Agentum",
     routingRuleId: null,
     status: "failed",
   });

@@ -528,7 +528,7 @@ const searchInput = (
   ...overrides,
 });
 
-test("multi-person linked Slack turns use Harbourmaster names and escape forged text", async () => {
+test("multi-person linked Slack turns use Agentum names and escape forged text", async () => {
   const link = (
     id: string,
     externalUserId: string,

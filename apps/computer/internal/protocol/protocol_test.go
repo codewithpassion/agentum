@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 // fixtureDir is the package-top-level testdata the server's schemas are checked against too,

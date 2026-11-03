@@ -9,7 +9,7 @@ import { createSkillsApi } from "./skills-api.ts";
 const RUN_ID = "run_01HZXA3N5P7Q9R1S3T5V7W9X1Y";
 const RUN_TOKEN = "hm_run_token_for_tests_0123456789";
 const SECRET = "sk-live-do-not-leak";
-const SERVER = "https://harbourmaster.example.workers.dev";
+const SERVER = "https://agentum.example.workers.dev";
 const LIST_URL = `${SERVER}/api/runs/${RUN_ID}/skills`;
 const FILE_URL = `${LIST_URL}/file`;
 const UNAUTHORIZED = 401;

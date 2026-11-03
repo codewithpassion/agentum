@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: rewritten without zod or Durable Object stubs, with the thread resolution order of the V5.2 decision.
+// Modified by Agentum: rewritten without zod or Durable Object stubs, with the thread resolution order of the V5.2 decision.
 
 export interface ThreadReader {
   findThreadByIds: (ids: string[]) => string | null;

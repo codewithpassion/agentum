@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentInfo, McpPorts, RunInfo } from "../ports";
-import { createHarbourmasterMcpServer, type ServerOptions } from "../server";
+import { createAgentumMcpServer, type ServerOptions } from "../server";
 import { connectClient, textOf } from "../testing";
 
 const LOCAL: AgentInfo = { id: "agt_1", name: "Ops Bot", slug: "ops-bot" };
@@ -102,9 +102,7 @@ const callTool = async (
   name: string,
   args: Record<string, unknown>
 ) => {
-  const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(ports)
-  );
+  const { client, close } = await connectClient(createAgentumMcpServer(ports));
   try {
     return await client.callTool({ arguments: args, name });
   } finally {
@@ -221,7 +219,7 @@ describe("send_message to a peer", () => {
 describe("peer tool descriptions", () => {
   test("list_agents, send_message and get_run mention peers, and the first two say a person may approve", async () => {
     const { client, close } = await connectClient(
-      createHarbourmasterMcpServer(fakePorts({}))
+      createAgentumMcpServer(fakePorts({}))
     );
     try {
       const { tools } = await client.listTools();
@@ -251,7 +249,7 @@ describe("dry run with peers", () => {
       },
     };
     const { client, close } = await connectClient(
-      createHarbourmasterMcpServer(
+      createAgentumMcpServer(
         fakePorts({ getRun: () => Promise.resolve(RUN) }),
         options
       )
@@ -285,7 +283,7 @@ describe("dry run with peers", () => {
 describe("tool names with every optional feature on", () => {
   test("nobody should add a connection tool by accident: no name has connection, invite or pair", async () => {
     const { client, close } = await connectClient(
-      createHarbourmasterMcpServer(
+      createAgentumMcpServer(
         {
           ...fakePorts({}),
           admin: anyPort(),

@@ -84,7 +84,7 @@ export const createGithubSkillFetcher = (): GithubSkillFetcher => {
     const response = await fetch(url, {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": "Harbourmaster",
+        "User-Agent": "Agentum",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       redirect: "error",

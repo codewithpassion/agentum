@@ -38,7 +38,7 @@ const fakeLocal = (status = 200) => {
 };
 
 const PUBLIC_URL = "https://peer.example.com/a2a";
-const BASE = "https://harbour.example.com";
+const BASE = "https://agentum.example.com";
 
 describe("createPeerFetch", () => {
   test("refuses private addresses without calling the network", async () => {

@@ -8,10 +8,16 @@
 // through sudo. In single-user mode it is a plain directory under the daemon's
 // home.
 
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { AGENT_HOME, AGENT_MKDIR, AGENT_RM, AS_AGENT } from "./agent-user.ts";
+import {
+  AGENT_HOME,
+  AGENT_MKDIR,
+  AGENT_RM,
+  AGENT_STAT,
+  AS_AGENT,
+} from "./agent-user.ts";
 import type { CommandRunner } from "./command.ts";
 
 /** Where a run's input files are downloaded, relative to the work directory. */
@@ -22,6 +28,14 @@ export const SCRATCH_DIR = "tmp";
 
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
+/** The folder under the home that holds every work directory. */
+export const WORK_ROOT = "agentum";
+/**
+ * The folder an install from before the rename to Agentum used. When it
+ * exists the daemon keeps using it, so the agents keep their files.
+ */
+export const LEGACY_WORK_ROOT = "harbourmaster";
+
 const assertSafeId = (name: string, id: string): void => {
   if (!SAFE_ID.test(id)) {
     throw new Error(
@@ -30,15 +44,16 @@ const assertSafeId = (name: string, id: string): void => {
   }
 };
 
-/** `<home>/harbourmaster/<workspaceId>/<agentId>/work` */
+/** `<home>/<root>/<workspaceId>/<agentId>/work`, `<root>` being `agentum` by default. */
 export const workDirPath = (
   home: string,
   workspaceId: string,
-  agentId: string
+  agentId: string,
+  root: string = WORK_ROOT
 ): string => {
   assertSafeId("workspaceId", workspaceId);
   assertSafeId("agentId", agentId);
-  return join(home, "harbourmaster", workspaceId, agentId, "work");
+  return join(home, root, workspaceId, agentId, "work");
 };
 
 export interface PrepareWorkDirOptions {
@@ -68,7 +83,10 @@ export const prepareWorkDir = async (
   const { agentId, run, singleUser, workspaceId } = options;
   const daemonHome = options.daemonHome ?? homedir();
   if (singleUser) {
-    const dir = workDirPath(daemonHome, workspaceId, agentId);
+    const root = existsSync(join(daemonHome, LEGACY_WORK_ROOT))
+      ? LEGACY_WORK_ROOT
+      : WORK_ROOT;
+    const dir = workDirPath(daemonHome, workspaceId, agentId, root);
     mkdirSync(dir, { recursive: true });
     rmSync(join(dir, ".claude"), { force: true, recursive: true });
     rmSync(join(dir, ".mcp.json"), { force: true, recursive: true });
@@ -78,7 +96,15 @@ export const prepareWorkDir = async (
     return dir;
   }
 
-  const dir = workDirPath(AGENT_HOME, workspaceId, agentId);
+  // Checked before anything runs, so a bad id throws before the stat.
+  workDirPath(AGENT_HOME, workspaceId, agentId);
+  const legacy = await run([
+    ...AS_AGENT,
+    AGENT_STAT,
+    join(AGENT_HOME, LEGACY_WORK_ROOT),
+  ]);
+  const root = legacy.exitCode === 0 ? LEGACY_WORK_ROOT : WORK_ROOT;
+  const dir = workDirPath(AGENT_HOME, workspaceId, agentId, root);
   await runStep(run, "mkdir", [...AS_AGENT, AGENT_MKDIR, "-p", dir]);
   await runStep(run, "rm", [
     ...AS_AGENT,

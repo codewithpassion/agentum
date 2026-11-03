@@ -7,7 +7,7 @@ import { wellKnownRoutes } from "./well-known.ts";
 const CLERK_HOST = "clerk.example.com";
 const ISSUER = `https://${CLERK_HOST}`;
 const PUBLISHABLE_KEY = `pk_test_${btoa(`${CLERK_HOST}$`)}`;
-const PROD_BASE_URL = "https://harbourmaster.example.com";
+const PROD_BASE_URL = "https://agentum.example.com";
 const AS_DOCUMENT = {
   authorization_endpoint: `${ISSUER}/oauth/authorize`,
   issuer: ISSUER,
@@ -49,7 +49,7 @@ const setup = (
   return { app, get, logs };
 };
 
-const origin = "https://harbourmaster.example.com";
+const origin = "https://agentum.example.com";
 
 describe("protected resource metadata", () => {
   test("names the origin's /mcp as the resource and the Clerk issuer", async () => {
@@ -62,7 +62,7 @@ describe("protected resource metadata", () => {
       authorization_servers: [ISSUER],
       bearer_methods_supported: ["header"],
       resource: `${origin}/mcp`,
-      resource_name: "Harbourmaster",
+      resource_name: "Agentum",
       scopes_supported: ["profile", "email"],
     });
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");

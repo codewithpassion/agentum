@@ -59,5 +59,5 @@ test("actual EMAIL adapter capture retries a failed transport and deduplicates a
     `https://app.example.com/a/${artifactId}#comment-`
   );
   expect(captured[0]?.text?.length).toBeLessThan(800);
-  expect(captured[0]?.headers?.["X-Harbourmaster-Delivery"]).toBeTruthy();
+  expect(captured[0]?.headers?.["X-Agentum-Delivery"]).toBeTruthy();
 });

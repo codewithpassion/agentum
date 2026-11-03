@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 var (

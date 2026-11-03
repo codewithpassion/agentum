@@ -41,7 +41,7 @@ test("redacts a Proxy-Authorization header", () => {
   ).toEqual({ headers: { "Proxy-Authorization": "[redacted]" } });
 });
 
-test("redacts a Harbourmaster key token in a string value", () => {
+test("redacts a Agentum key token in a string value", () => {
   expect(
     stripSecrets({ note: "hm_key_abcdefghijklmnop", safe: "hm_key_short" })
   ).toEqual({ note: "[redacted]", safe: "hm_key_short" });

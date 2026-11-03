@@ -91,7 +91,7 @@ const RESERVED_PREFIXES = [
   "CLERK_",
   "DYLD_",
   "GIT_",
-  "HARBOURMASTER_",
+  "AGENTUM_",
   "HM_",
   "LD_",
   "PERL5",
@@ -102,7 +102,7 @@ const RESERVED_PREFIXES = [
   "RUBYLIB",
   "XDG_",
 ];
-/** Harbourmaster's own tokens start with this: a run token, a key, a machine credential. */
+/** Agentum's own tokens start with this: a run token, a key, a machine credential. */
 const TOKEN_PREFIX = "hm_";
 const NUL = "\0";
 
@@ -134,7 +134,7 @@ const valueSchema = z
     message: "A value cannot hold a NUL character",
   })
   .refine((value) => !value.startsWith(TOKEN_PREFIX), {
-    message: "That looks like a Harbourmaster token, which cannot be stored",
+    message: "That looks like a Agentum token, which cannot be stored",
   });
 
 const modeSchema = z.enum(SECRET_MODES);

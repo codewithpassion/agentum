@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/policy"
+	"agentum.dev/computer/internal/policy"
 )
 
 func mustNew(t *testing.T, options policy.Options) *policy.Policy {

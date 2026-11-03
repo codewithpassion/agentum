@@ -58,7 +58,7 @@ function SharePage() {
           {data.title}
         </h1>
         <span className="text-muted-foreground">
-          Shared from {data.workspaceName} on Harbourmaster
+          Shared from {data.workspaceName} on Agentum
         </span>
         <span className="text-muted-foreground">
           Content is user-generated and unverified.

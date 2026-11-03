@@ -69,7 +69,7 @@ export const slackTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: READ_ONLY,
     description:
-      "Lists where slack_send can reach: the channels the agent's Slack bot is a member of, and the people who linked their Slack account to Harbourmaster (for DMs). Nobody else can be messaged. Use a channel name or a person's email as the `to` of slack_send. Each entry shows its mention text. To tag someone or point at a channel in a message, write that mention text (<@U…> for a person, <#C…> for a channel) in the message.",
+      "Lists where slack_send can reach: the channels the agent's Slack bot is a member of, and the people who linked their Slack account to Agentum (for DMs). Nobody else can be messaged. Use a channel name or a person's email as the `to` of slack_send. Each entry shows its mention text. To tag someone or point at a channel in a message, write that mention text (<@U…> for a person, <#C…> for a channel) in the message.",
     inputSchema: z.strictObject({}),
     name: "slack_destinations",
     run: async () => {
@@ -137,7 +137,7 @@ export const slackTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: READ_ONLY,
     description:
-      'Full-text search over the Slack messages Harbourmaster stored for this agent. It covers only messages stored since "All messages in its channels" was turned on for the agent\'s Slack app, plus the messages that mentioned the agent or replied in its threads, so it does not see older history (use slack_history for that). Every word of the query must appear, case does not matter. Results are newest first, at most 50.',
+      'Full-text search over the Slack messages Agentum stored for this agent. It covers only messages stored since "All messages in its channels" was turned on for the agent\'s Slack app, plus the messages that mentioned the agent or replied in its threads, so it does not see older history (use slack_history for that). Every word of the query must appear, case does not matter. Results are newest first, at most 50.',
     inputSchema: z.strictObject({
       channel: z
         .string()

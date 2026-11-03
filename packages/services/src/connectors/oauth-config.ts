@@ -9,7 +9,7 @@ import {
 
 /**
  * What discovery learned about a connector's OAuth server, stored as JSON in
- * `connectors.oauth`. `client` is the OAuth client Harbourmaster uses at that
+ * `connectors.oauth`. `client` is the OAuth client Agentum uses at that
  * server: registered on the fly, or typed in by a person when the server has
  * no registration endpoint. Its secret is AES-GCM ciphertext. The whole object
  * stays on the server; the connector summary only says whether a client exists.

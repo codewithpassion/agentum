@@ -38,7 +38,7 @@ const PLACEHOLDERS = ["[redacted]", "[secret:"];
 const WELL_KNOWN_TOKENS: readonly RegExp[] = [
   // sk-, sk-ant-, sk-or-
   new RegExp(`(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{${SK_MIN},}`, "g"),
-  // hm_mach_, hm_run_, hm_enr_ and the other Harbourmaster credentials, with
+  // hm_mach_, hm_run_, hm_enr_ and the other Agentum credentials, with
   // the run token's `.signature` tail
   new RegExp(
     `(?<![A-Za-z0-9_])hm_[a-z]+_[A-Za-z0-9_-]{${HM_MIN},}(?:\\.[A-Za-z0-9_-]{${HM_MIN},})?`,

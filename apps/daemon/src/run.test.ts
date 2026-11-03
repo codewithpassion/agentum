@@ -13,11 +13,11 @@ const CONFIG: DaemonConfig = {
   claudeBinary: "/usr/local/bin/claude",
   credential: "hm_mach_secret_for_tests",
   machineId: "mch_test",
-  server: "https://harbour.example.com",
+  server: "https://agentum.example.com",
   singleUser: false,
 };
 const DAEMON_VERSION = "0.1.0-test";
-const CONNECT_URL = "wss://harbour.example.com/api/machines/connect";
+const CONNECT_URL = "wss://agentum.example.com/api/machines/connect";
 const HELLO_ACK = JSON.stringify({
   machineId: "mch_test",
   serverTime: "2026-10-16T10:00:00.000Z",

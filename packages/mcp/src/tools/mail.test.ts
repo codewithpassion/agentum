@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { MailThreadView, McpPorts } from "../ports";
 import { ToolError } from "../result";
 import {
-  createHarbourmasterMcpServer,
-  harbourmasterTools,
+  agentumTools,
+  createAgentumMcpServer,
   type ServerOptions,
 } from "../server";
 import { connectClient, textOf } from "../testing";
@@ -104,7 +104,7 @@ const callTool = async (
   options: ServerOptions = { mail: true }
 ) => {
   const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(ports, options)
+    createAgentumMcpServer(ports, options)
   );
   try {
     return await client.callTool({ arguments: args, name });
@@ -332,7 +332,7 @@ describe("mail tools", () => {
     await Promise.all(
       disabledCases.map(async ([ports, options]) => {
         expect(
-          harbourmasterTools(ports, options).some((tool) =>
+          agentumTools(ports, options).some((tool) =>
             tool.name.startsWith("mail_")
           )
         ).toBe(false);
@@ -341,8 +341,8 @@ describe("mail tools", () => {
         );
       })
     );
-    const tools = harbourmasterTools(mailPorts(), { mail: true }).filter(
-      (tool) => tool.name.startsWith("mail_")
+    const tools = agentumTools(mailPorts(), { mail: true }).filter((tool) =>
+      tool.name.startsWith("mail_")
     );
     expect(tools.map((tool) => tool.name)).toEqual([
       "mail_list",

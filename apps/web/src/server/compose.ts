@@ -1350,9 +1350,7 @@ export const compose = (
       // A bucket error must not take the machines page down with it.
       latestDaemonVersion: async () => {
         try {
-          return (
-            (await readManifest(env.FILES, "harbourmaster"))?.version ?? null
-          );
+          return (await readManifest(env.FILES, "agentum"))?.version ?? null;
         } catch (error) {
           console.error("reading the latest daemon release failed", error);
           return null;

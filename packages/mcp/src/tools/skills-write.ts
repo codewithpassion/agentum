@@ -53,7 +53,7 @@ const fileWrite = z.strictObject({
 });
 
 const PROPOSED_NOTE = (number: number): string =>
-  `Version ${number} is proposed. It stays unused until a person approves it in the Harbourmaster UI. To test it, read it with skill_show (version ${number}) and run its scripts with run_skill_script, passing version ${number}.`;
+  `Version ${number} is proposed. It stays unused until a person approves it in the Agentum UI. To test it, read it with skill_show (version ${number}) and run its scripts with run_skill_script, passing version ${number}.`;
 
 /** Says what a version is, and that a proposal waits for a person. */
 const versionLine = (verb: string, created: SkillVersionInfo): string => {
@@ -67,7 +67,7 @@ export const skillWriteTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Creates a skill: a named set of files that agents can carry and run. When a run creates it, the new version is a proposal that waits for a person to approve it in the Harbourmaster UI.",
+      "Creates a skill: a named set of files that agents can carry and run. When a run creates it, the new version is a proposal that waits for a person to approve it in the Agentum UI.",
     inputSchema: z.strictObject({
       files: z
         .array(fileWrite)

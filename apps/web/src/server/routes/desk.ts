@@ -81,7 +81,7 @@ const unauthorized = (hadToken: boolean): Response =>
     { error: hadToken ? "invalid_token" : "unauthorized" },
     {
       headers: {
-        "WWW-Authenticate": `Bearer realm="harbourmaster"${
+        "WWW-Authenticate": `Bearer realm="agentum"${
           hadToken ? ', error="invalid_token"' : ""
         }`,
       },

@@ -607,7 +607,7 @@ test("readRun refuses another member's run and unknown runs", async () => {
   });
 });
 
-test("desk decisions direct takeovers to Harbourmaster", async () => {
+test("desk decisions direct takeovers to Agentum", async () => {
   const request = await openBash(await start(), "ls");
   await db
     .update(runRequests)
@@ -623,7 +623,7 @@ test("desk decisions direct takeovers to Harbourmaster", async () => {
     desk.decide(member, request.id, { decision: "allow_once" })
   ).rejects.toMatchObject({
     code: "invalid",
-    message: "Take over the computer in Harbourmaster.",
+    message: "Take over the computer in Agentum.",
   });
   expect(await requests.outcome(system, request.id)).toBeNull();
 });

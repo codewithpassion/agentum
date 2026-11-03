@@ -1,7 +1,7 @@
 import { guestAskSchema } from "@repo/protocol/guest";
 import type { GuestGrant } from "@repo/protocol/live";
 
-const PREFIX = "harbourmaster:guest-ask:";
+const PREFIX = "agentum:guest-ask:";
 export const pendingAskKey = (grant: GuestGrant) =>
   `${PREFIX}${JSON.stringify([grant.workspaceId, grant.guestId, grant.artifactId])}`;
 

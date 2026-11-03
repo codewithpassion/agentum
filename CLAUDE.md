@@ -93,7 +93,7 @@ free GitHub plan, so its only trigger is `workflow_dispatch`. Add `push` and
 
 ## Agent connections
 
-Harbourmaster speaks A2A 1.0 as server and client (`packages/a2a`,
+Agentum speaks A2A 1.0 as server and client (`packages/a2a`,
 `packages/services/src/a2a`, `apps/web/src/server/routes/a2a.ts`). The spec is
 `docs/v3/agent-connections.md`, and each package has a README. Rules that are
 easy to break:

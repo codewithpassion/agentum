@@ -1,7 +1,7 @@
 // One line per state change on stdout, errors on stderr. The daemon is a
 // service whose output is read from journalctl.
 
-const PREFIX = "harbourmaster";
+const PREFIX = "agentum";
 
 export interface Logger {
   error: (message: string) => void;

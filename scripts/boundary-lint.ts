@@ -1,5 +1,5 @@
 /**
- * boundary-lint: a regex backstop for Harbourmaster's import boundaries (see CLAUDE.md,
+ * boundary-lint: a regex backstop for Agentum's import boundaries (see CLAUDE.md,
  * "Database" and "Services and tRPC"). It is a line-oriented scanner, not an AST analyzer.
  * It reads only import specifiers: static `from "..."`, bare `import "..."`, dynamic
  * `import("...")` and `require("...")`.

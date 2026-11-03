@@ -213,7 +213,7 @@ describe("storing", () => {
     ["SECRETS_KEY", { name: "SECRETS_KEY" }],
     ["a lowercase run token key", { name: "run_token_key" }],
     ["an ANTHROPIC_ name", { name: "ANTHROPIC_API_KEY" }],
-    ["a HARBOURMASTER_ name", { name: "HARBOURMASTER_RELAY_TOKEN" }],
+    ["a AGENTUM_ name", { name: "AGENTUM_RELAY_TOKEN" }],
     ["PATH", { name: "PATH" }],
     ["a proxy variable", { name: "https_proxy" }],
     ["a CA bundle variable", { name: "NODE_EXTRA_CA_CERTS" }],
@@ -223,7 +223,7 @@ describe("storing", () => {
     ["BUN_OPTIONS", { name: "BUN_OPTIONS" }],
     ["BUN_CONFIG_REGISTRY", { name: "BUN_CONFIG_REGISTRY" }],
     ["a short value", { value: "short" }],
-    ["a Harbourmaster token", { value: "hm_run_abcdefghijklmnop" }],
+    ["a Agentum token", { value: "hm_run_abcdefghijklmnop" }],
     ["a value with a NUL", { value: "abcdefgh\0ij" }],
   ])("refuses %s", async (_label, change) => {
     const input = {

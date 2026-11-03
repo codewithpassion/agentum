@@ -30,40 +30,32 @@ describe("release contract", () => {
   });
 
   test("fileKey and manifestKey live under releases/<product>", () => {
-    expect(fileKey("harbourmaster", VERSION, "harbourmaster-linux-x64")).toBe(
-      "releases/harbourmaster/1.2.3+abc1234/harbourmaster-linux-x64"
+    expect(fileKey("agentum", VERSION, "agentum-linux-x64")).toBe(
+      "releases/agentum/1.2.3+abc1234/agentum-linux-x64"
     );
     expect(manifestKey("hm-computer")).toBe("releases/hm-computer/latest.json");
   });
 
   test("isReleaseFile accepts a file the product ships", () => {
-    expect(
-      isReleaseFile("harbourmaster", VERSION, "harbourmaster-linux-x64")
-    ).toBe(true);
+    expect(isReleaseFile("agentum", VERSION, "agentum-linux-x64")).toBe(true);
     expect(
       isReleaseFile("hm-computer", VERSION, "hm-computer_linux_arm64")
     ).toBe(true);
   });
 
   test("isReleaseFile rejects path tricks", () => {
-    expect(isReleaseFile("harbourmaster", VERSION, "../latest.json")).toBe(
+    expect(isReleaseFile("agentum", VERSION, "../latest.json")).toBe(false);
+    expect(isReleaseFile("agentum", VERSION, "agentum-linux-x64/../x")).toBe(
       false
     );
-    expect(
-      isReleaseFile("harbourmaster", VERSION, "harbourmaster-linux-x64/../x")
-    ).toBe(false);
   });
 
   test("isReleaseFile rejects an unknown product, file or version", () => {
-    expect(isReleaseFile("other", VERSION, "harbourmaster-linux-x64")).toBe(
+    expect(isReleaseFile("other", VERSION, "agentum-linux-x64")).toBe(false);
+    expect(isReleaseFile("agentum", VERSION, "agentum")).toBe(false);
+    expect(isReleaseFile("agentum", "1.2+abc1234", "agentum-linux-x64")).toBe(
       false
     );
-    expect(isReleaseFile("harbourmaster", VERSION, "harbourmaster")).toBe(
-      false
-    );
-    expect(
-      isReleaseFile("harbourmaster", "1.2+abc1234", "harbourmaster-linux-x64")
-    ).toBe(false);
   });
 
   test("serializeManifest parses as JSON and satisfies the schema", () => {

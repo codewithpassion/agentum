@@ -25,7 +25,7 @@
   "mcpServers": {
     "harbourmaster": {
       "type": "http",
-      "url": "https://harbourmaster.example.workers.dev/mcp",
+      "url": "https://agentum.example.workers.dev/mcp",
       "headers": {
         "authorization": "Bearer hm_run_7Fq2KxR9mWt4LpZc1Ns8VbYd"
       }

@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -14,20 +15,21 @@ import type { CommandResult, CommandRunner } from "./command.ts";
 import { EXIT_FAILURE, EXIT_LINGER_MISSING, EXIT_OK } from "./exit-codes.ts";
 import {
   installServiceCommand,
+  LEGACY_SERVICE_NAME,
   SERVICE_NAME,
   serviceUnit,
   serviceUnitPath,
 } from "./install-service.ts";
 import { collectingLogger } from "./log.ts";
 
-const BINARY = "/usr/local/bin/harbourmaster";
+const BINARY = "/usr/local/bin/agentum";
 const CLAUDE = "/opt/claude/bin/claude";
 const USER = "dom";
 
 const dirs: string[] = [];
 
 const tempDirectory = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "harbourmaster-install-"));
+  const dir = mkdtempSync(join(tmpdir(), "agentum-install-"));
   dirs.push(dir);
   return dir;
 };
@@ -83,8 +85,8 @@ test("serviceUnit quotes ExecStart and keeps the restart rules", () => {
 });
 
 test("serviceUnit escapes a path with a space, a percent sign and a dollar sign", () => {
-  expect(serviceUnit("/opt/my apps/50%off/a$b/harbourmaster")).toContain(
-    'ExecStart="/opt/my apps/50%%off/a$$b/harbourmaster" run\n'
+  expect(serviceUnit("/opt/my apps/50%off/a$b/agentum")).toContain(
+    'ExecStart="/opt/my apps/50%%off/a$$b/agentum" run\n'
   );
 });
 
@@ -127,9 +129,10 @@ test("the happy path writes the unit, the agent user and the sudoers rule", asyn
   );
   expect(ran).toContain(`sudo visudo -cf ${staged}`);
   expect(ran).toContain(
-    `sudo install -m 0440 -o root -g root ${staged} /etc/sudoers.d/harbourmaster-${USER}`
+    `sudo install -m 0440 -o root -g root ${staged} /etc/sudoers.d/agentum-${USER}`
   );
   expect(stagedContent).toBe(sudoersFile(USER, CLAUDE));
+  expect(ran).toContain(`sudo rm -f /etc/sudoers.d/harbourmaster-${USER}`);
   expect(readdirSync(tmp)).toEqual([]);
   expect(code).toBe(EXIT_OK);
 });
@@ -277,8 +280,8 @@ test("with a config present the unit is restarted last", async () => {
   const systemctl = ran.filter((line) => line.startsWith("systemctl"));
   expect(systemctl).toEqual([
     "systemctl --user daemon-reload",
-    "systemctl --user enable harbourmaster",
-    "systemctl --user restart harbourmaster",
+    "systemctl --user enable agentum",
+    "systemctl --user restart agentum",
   ]);
 });
 
@@ -307,8 +310,8 @@ test("refresh rewrites the unit and restarts it without touching the agent user 
   );
   expect(ran.filter((line) => line.startsWith("systemctl"))).toEqual([
     "systemctl --user daemon-reload",
-    "systemctl --user enable harbourmaster",
-    "systemctl --user restart harbourmaster",
+    "systemctl --user enable agentum",
+    "systemctl --user restart agentum",
   ]);
   expect(hasLine(ran, "sudo")).toBe(false);
   expect(hasLine(ran, "claude")).toBe(false);
@@ -333,12 +336,12 @@ test("with no config the unit is not restarted and the log says to enroll", asyn
 
   expect(ran.filter((line) => line.startsWith("systemctl"))).toEqual([
     "systemctl --user daemon-reload",
-    "systemctl --user enable harbourmaster",
+    "systemctl --user enable agentum",
   ]);
   expect(
     lines.some((line) =>
       line.includes(
-        `harbourmaster enroll <code> --server <url>, then systemctl --user restart ${SERVICE_NAME}`
+        `agentum enroll <code> --server <url>, then systemctl --user restart ${SERVICE_NAME}`
       )
     )
   ).toBe(true);
@@ -441,6 +444,57 @@ test("darwin returns failure and writes nothing", async () => {
 
 test("the unit lives under the home directory's systemd user folder", () => {
   expect(serviceUnitPath("/home/dom")).toBe(
-    "/home/dom/.config/systemd/user/harbourmaster.service"
+    "/home/dom/.config/systemd/user/agentum.service"
   );
+});
+
+test("an install from before the rename has its harbourmaster unit stopped and removed", async () => {
+  const configPath = join(tempDirectory(), "config.json");
+  writeFileSync(configPath, "{}\n");
+  const home = tempDirectory();
+  const legacyPath = serviceUnitPath(home, LEGACY_SERVICE_NAME);
+  mkdirSync(join(home, ".config", "systemd", "user"), { recursive: true });
+  writeFileSync(legacyPath, serviceUnit("/home/dom/.local/bin/harbourmaster"));
+  const { ran, run } = fakeHost();
+
+  const code = await installServiceCommand({
+    binaryPath: BINARY,
+    configPath,
+    getuid: () => 1000,
+    home,
+    log: collectingLogger([]),
+    platform: "linux",
+    refresh: true,
+    run,
+    tempDir: tempDirectory(),
+    username: USER,
+  });
+
+  expect(code).toBe(EXIT_OK);
+  expect(existsSync(legacyPath)).toBe(false);
+  expect(readFileSync(serviceUnitPath(home), "utf8")).toBe(serviceUnit(BINARY));
+  expect(ran.filter((line) => line.startsWith("systemctl"))).toEqual([
+    "systemctl --user disable --now harbourmaster",
+    "systemctl --user daemon-reload",
+    "systemctl --user enable agentum",
+    "systemctl --user restart agentum",
+  ]);
+});
+
+test("without a harbourmaster unit nothing old is stopped", async () => {
+  const { ran, run } = fakeHost();
+
+  await installServiceCommand({
+    binaryPath: BINARY,
+    getuid: () => 1000,
+    home: tempDirectory(),
+    log: collectingLogger([]),
+    platform: "linux",
+    refresh: true,
+    run,
+    tempDir: tempDirectory(),
+    username: USER,
+  });
+
+  expect(hasLine(ran, "systemctl --user disable")).toBe(false);
 });

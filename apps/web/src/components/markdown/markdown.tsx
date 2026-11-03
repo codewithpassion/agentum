@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 
 const linkClassName = "underline underline-offset-2";
 
-// Only Harbourmaster's own image routes. Absolute URLs never match: the host is unknown during SSR.
+// Only Agentum's own image routes. Absolute URLs never match: the host is unknown during SSR.
 const OWN_IMAGE_SRC =
   /^\/files\/[A-Za-z0-9_-]+$|^\/api\/library\/download\?[^\s#]*$/;
 

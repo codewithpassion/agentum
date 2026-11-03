@@ -28,15 +28,15 @@ import {
 } from "./install-harness.ts";
 
 const INSTALL_SH = fileURLToPath(new URL("./install.sh", import.meta.url));
-const PRODUCT = "harbourmaster";
-const FILE = "harbourmaster-linux-x64";
+const PRODUCT = "agentum";
+const FILE = "agentum-linux-x64";
 const V1 = "0.1.0+abc1234";
 const V2 = "0.2.0+def5678";
 const ENCODER = new TextEncoder();
 
 // The real daemon logs its version with this prefix.
 const daemonText = (version: string, exitCodes?: Record<string, number>) =>
-  stubDaemon(PRODUCT, `[harbourmaster] ${version}`, exitCodes);
+  stubDaemon(PRODUCT, `[agentum] ${version}`, exitCodes);
 
 const cleanups: (() => void)[] = [];
 
@@ -101,10 +101,10 @@ describe("install.sh", () => {
     );
     expect(() => accessSync(binPath(sandbox), constants.X_OK)).not.toThrow();
     expect(readCalls(sandbox)).toEqual([
-      "harbourmaster install-service",
-      "harbourmaster --version",
+      "agentum install-service",
+      "agentum --version",
     ]);
-    expect(result.stdout).toContain(`harbourmaster ${V1} is installed`);
+    expect(result.stdout).toContain(`agentum ${V1} is installed`);
   });
 
   test("--code passes the code and the origin to enroll after install-service", async () => {
@@ -122,9 +122,9 @@ describe("install.sh", () => {
 
     expect(result.exitCode).toBe(0);
     expect(readCalls(sandbox)).toEqual([
-      "harbourmaster install-service",
-      `harbourmaster enroll ABC-123 --server ${server.origin}`,
-      "harbourmaster --version",
+      "agentum install-service",
+      `agentum enroll ABC-123 --server ${server.origin}`,
+      "agentum --version",
     ]);
   });
 
@@ -135,7 +135,7 @@ describe("install.sh", () => {
     const result = await install(sandbox, server.origin, ["--no-service"]);
 
     expect(result.exitCode).toBe(0);
-    expect(readCalls(sandbox)).toEqual(["harbourmaster --version"]);
+    expect(readCalls(sandbox)).toEqual(["agentum --version"]);
   });
 
   test("--no-service with --code still enrols", async () => {
@@ -150,8 +150,8 @@ describe("install.sh", () => {
 
     expect(result.exitCode).toBe(0);
     expect(readCalls(sandbox)).toEqual([
-      `harbourmaster enroll XYZ --server ${server.origin}`,
-      "harbourmaster --version",
+      `agentum enroll XYZ --server ${server.origin}`,
+      "agentum --version",
     ]);
   });
 
@@ -178,7 +178,7 @@ describe("install.sh", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "harbourmaster supports Linux x64 and arm64 only"
+      "agentum supports Linux x64 and arm64 only"
     );
     expect(server.requests).toEqual([]);
   });
@@ -192,14 +192,14 @@ describe("install.sh", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "harbourmaster supports Linux x64 and arm64 only"
+      "agentum supports Linux x64 and arm64 only"
     );
     expect(server.requests).toEqual([]);
   });
 
   const enrolled = (sandbox: Sandbox) => {
-    mkdirSync(join(sandbox.home, ".harbourmaster"), { recursive: true });
-    writeFileSync(join(sandbox.home, ".harbourmaster", "config.json"), "{}\n");
+    mkdirSync(join(sandbox.home, ".agentum"), { recursive: true });
+    writeFileSync(join(sandbox.home, ".agentum", "config.json"), "{}\n");
     rmSync(sandbox.callsLog, { force: true });
   };
 
@@ -216,11 +216,36 @@ describe("install.sh", () => {
     expect(readFileSync(binPath(sandbox), "utf8")).toBe(
       daemonText(V2, { "install-service": 0 })
     );
-    expect(result.stdout).toContain(`harbourmaster ${V2} is installed`);
+    expect(result.stdout).toContain(`agentum ${V2} is installed`);
     expect(readCalls(sandbox)).toEqual([
+      "systemctl --user cat agentum",
+      "agentum install-service --refresh",
+      "agentum --version",
+    ]);
+  });
+
+  test("a machine installed before the rename to Agentum counts as enrolled and has its harbourmaster service replaced", async () => {
+    const sandbox = useSandbox();
+    // Only the old unit exists: `systemctl --user cat agentum` fails.
+    stubCommand(sandbox, "systemctl", [
+      '[ "$2" = cat ] && [ "$3" = agentum ] && exit 1',
+    ]);
+    mkdirSync(join(sandbox.home, ".harbourmaster"), { recursive: true });
+    writeFileSync(join(sandbox.home, ".harbourmaster", "config.json"), "{}\n");
+    mkdirSync(binDir(sandbox), { recursive: true });
+    writeFileSync(join(binDir(sandbox), "harbourmaster"), "old daemon\n");
+    const server = useServer(V2, { "install-service": 0 });
+
+    const result = await install(sandbox, server.origin);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("already enrolled");
+    expect(result.stdout).toContain("harbourmaster binary is no longer used");
+    expect(readCalls(sandbox)).toEqual([
+      "systemctl --user cat agentum",
       "systemctl --user cat harbourmaster",
-      "harbourmaster install-service --refresh",
-      "harbourmaster --version",
+      "agentum install-service --refresh",
+      "agentum --version",
     ]);
   });
 
@@ -250,10 +275,11 @@ describe("install.sh", () => {
     const result = await install(sandbox, second.origin);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("No harbourmaster service is installed");
+    expect(result.stdout).toContain("No agentum service is installed");
     expect(readCalls(sandbox)).toEqual([
+      "systemctl --user cat agentum",
       "systemctl --user cat harbourmaster",
-      "harbourmaster --version",
+      "agentum --version",
     ]);
   });
 
@@ -293,8 +319,8 @@ describe("install.sh", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("systemd was not found");
-    expect(result.stdout).toContain("harbourmaster run");
-    expect(readCalls(sandbox)).toEqual(["harbourmaster --version"]);
+    expect(result.stdout).toContain("agentum run");
+    expect(readCalls(sandbox)).toEqual(["agentum --version"]);
   });
 
   test("the raw script parses under sh and dash", () => {

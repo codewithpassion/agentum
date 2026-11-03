@@ -207,7 +207,7 @@ const sudoDisk = (run: CommandRunner, workDir: string): WorkDisk => {
         }
         if (SUDO_REFUSED_STDERR.some((text) => result.stderr.includes(text))) {
           throw new Error(
-            "sudo refused find as hm-agent: run harbourmaster install-service again to allow it"
+            "sudo refused find as hm-agent: run agentum install-service again to allow it"
           );
         }
         throw new Error(`find failed: ${result.stderr.trim()}`);

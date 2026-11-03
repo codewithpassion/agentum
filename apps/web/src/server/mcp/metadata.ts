@@ -1,4 +1,4 @@
-// OAuth discovery for the MCP endpoint. Harbourmaster is only the
+// OAuth discovery for the MCP endpoint. Agentum is only the
 // resource server; Clerk is the authorization server. These are the pure
 // parts: which origin the documents describe, the Clerk issuer, the protected
 // resource metadata (RFC 9728) and a small cached proxy of Clerk's own
@@ -126,7 +126,7 @@ export const protectedResourceMetadata = (options: {
   authorization_servers: [options.issuer],
   bearer_methods_supported: ["header"],
   resource: `${options.origin}${options.route}`,
-  resource_name: "Harbourmaster",
+  resource_name: "Agentum",
   scopes_supported: [...OAUTH_SCOPES],
 });
 

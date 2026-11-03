@@ -95,7 +95,7 @@ app.route(
     compose: (env) => compose(env, false),
     page: async () =>
       new Response(
-        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Shared with you · Harbourmaster</title></head><body><div id="guest-root"></div><script type="module" src="${guestEntry}"></script></body></html>`,
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Shared with you · Agentum</title></head><body><div id="guest-root"></div><script type="module" src="${guestEntry}"></script></body></html>`,
         {
           headers: {
             "Cache-Control": "no-store",

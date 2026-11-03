@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 const (

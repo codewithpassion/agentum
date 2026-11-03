@@ -1,4 +1,4 @@
-// Maps Claude Agent SDK messages to Harbourmaster run events and result summaries.
+// Maps Claude Agent SDK messages to Agentum run events and result summaries.
 import type {
   SDKAssistantMessage,
   SDKMessage,

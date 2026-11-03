@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { harbourmasterTools } from "../server";
+import { agentumTools } from "../server";
 import { textOf } from "../testing";
 import { READ_ONLY, WRITE_CREATE, WRITE_UPDATE } from "./define";
 import { callTool, fakePorts } from "./library-wiki.test-helpers";
@@ -75,7 +75,7 @@ test("suggest requires a nonempty summary", async () => {
 });
 
 test("new tools have read/write annotations for the dry-run gate", () => {
-  const tools = harbourmasterTools(fakePorts());
+  const tools = agentumTools(fakePorts());
   for (const name of [
     "library_list",
     "library_read",
@@ -95,7 +95,7 @@ test("new tools have read/write annotations for the dry-run gate", () => {
 });
 
 test("read-only callers retain the new reads and omit the new writes", () => {
-  const names = harbourmasterTools(fakePorts(), { readOnly: true }).map(
+  const names = agentumTools(fakePorts(), { readOnly: true }).map(
     (tool) => tool.name
   );
   for (const name of [

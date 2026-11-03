@@ -110,7 +110,7 @@ export interface PostedInfo {
 
 /**
  * Where a routine or trigger stands. `awaiting_approval` is a proposal from an
- * agent's run: it is off until a person approves it in the Harbourmaster UI.
+ * agent's run: it is off until a person approves it in the Agentum UI.
  */
 export type AutomationStatus = "active" | "awaiting_approval" | "paused";
 

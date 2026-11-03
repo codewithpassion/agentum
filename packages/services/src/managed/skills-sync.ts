@@ -6,7 +6,7 @@
  * already resolved each skill to one version. The sandbox mounts a listed
  * skill, with every file of it, under `/workspace/skills/<name>/`.
  *
- * `managed_skill_versions` remembers the upload of each Harbourmaster skill id
+ * `managed_skill_versions` remembers the upload of each Agentum skill id
  * and version number, shared by every agent that carries it. All versions of
  * one skill are versions of one Anthropic skill.
  *
@@ -86,7 +86,7 @@ export const createSkillsSync = ({
   };
 
   const displayTitle = (skillId: string, name: string) =>
-    `harbourmaster ${skillId} ${name}`.slice(0, DISPLAY_TITLE_MAX);
+    `agentum ${skillId} ${name}`.slice(0, DISPLAY_TITLE_MAX);
 
   /** A new Anthropic skill, holding the first uploaded version of a skill. */
   const createdSkill = async (

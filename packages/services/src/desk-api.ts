@@ -209,7 +209,7 @@ export const createDeskApiService = ({
     if (questions.length !== 1 || !only) {
       throw new ServiceError(
         "invalid",
-        "This request has several questions. Answer it in Harbourmaster."
+        "This request has several questions. Answer it in Agentum."
       );
     }
     const text =
@@ -255,10 +255,7 @@ export const createDeskApiService = ({
       throw new ServiceError("not_found", "Request not found");
     }
     if (row.kind === "takeover") {
-      throw new ServiceError(
-        "invalid",
-        "Take over the computer in Harbourmaster."
-      );
+      throw new ServiceError("invalid", "Take over the computer in Agentum.");
     }
     if (
       isA2aApproval(row) &&
@@ -267,7 +264,7 @@ export const createDeskApiService = ({
     ) {
       throw new ServiceError(
         "invalid",
-        "This message is too long to approve here. Answer it in Harbourmaster, where it shows in full."
+        "This message is too long to approve here. Answer it in Agentum, where it shows in full."
       );
     }
     const answer =

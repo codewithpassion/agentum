@@ -23,13 +23,13 @@ import (
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
 
-	"harbourmaster.dev/computer/internal/agent"
-	"harbourmaster.dev/computer/internal/audit"
-	"harbourmaster.dev/computer/internal/desktop"
-	"harbourmaster.dev/computer/internal/files"
-	"harbourmaster.dev/computer/internal/policy"
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/runner"
+	"agentum.dev/computer/internal/agent"
+	"agentum.dev/computer/internal/audit"
+	"agentum.dev/computer/internal/desktop"
+	"agentum.dev/computer/internal/files"
+	"agentum.dev/computer/internal/policy"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/runner"
 )
 
 // launchDesktop brings a desktop up in a fresh state directory the way the daemon does, and

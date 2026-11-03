@@ -28,7 +28,7 @@ export const guestEmailAdapter = (
   ) => {
     const text = `${input.inviterName} from ${input.workspaceName} shared ${input.artifactTitle} with you (${input.role}).\nExpires: ${input.expiresAt ?? "No expiry"}\n${detail}`;
     await sender.send({
-      from: { email: from, name: "Harbourmaster" },
+      from: { email: from, name: "Agentum" },
       html: `<p>${escapeHtml(text).replaceAll("\n", "<br>")}</p>`,
       subject,
       text,
@@ -39,7 +39,7 @@ export const guestEmailAdapter = (
     sendCode: (input) =>
       send(
         input,
-        "Your Harbourmaster sign-in code",
+        "Your Agentum sign-in code",
         `${input.code}\nCode expires: ${input.codeExpiresAt}`
       ),
     sendInvitation: (input) =>

@@ -22,7 +22,7 @@ const triggerId = z
   .describe("A trigger id, as list_triggers returns.");
 
 const APPROVAL =
-  "It is stored off and waits for a person to approve it in the Harbourmaster UI (Triggers page).";
+  "It is stored off and waits for a person to approve it in the Agentum UI (Triggers page).";
 
 /** A trigger's line. It carries no secret or token prefix: those show only where the tool says so. */
 const triggerLine = (trigger: TriggerInfo): string => {
@@ -68,7 +68,7 @@ export const triggerTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Creates an HTTP trigger that starts an agent when an outside system calls it with the trigger's secret. The secret is shown once, in this result, so the caller must store it now. When an agent calls this, the result is a proposal that stays off until a person approves it in the Harbourmaster UI. An agent cannot enable anything.",
+      "Creates an HTTP trigger that starts an agent when an outside system calls it with the trigger's secret. The secret is shown once, in this result, so the caller must store it now. When an agent calls this, the result is a proposal that stays off until a person approves it in the Agentum UI. An agent cannot enable anything.",
     inputSchema: z.strictObject({
       agentId,
       name: z
@@ -91,7 +91,7 @@ export const triggerTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_UPDATE,
     description:
-      "Switches a trigger on or off. Setting enabled to true turns on a trigger that is off, or approves one that is awaiting approval. An agent can only switch its own agent's triggers off: it cannot enable anything, and its proposals wait for a person to approve them in the Harbourmaster UI.",
+      "Switches a trigger on or off. Setting enabled to true turns on a trigger that is off, or approves one that is awaiting approval. An agent can only switch its own agent's triggers off: it cannot enable anything, and its proposals wait for a person to approve them in the Agentum UI.",
     inputSchema: z.strictObject({
       enabled: z
         .boolean()

@@ -46,7 +46,7 @@
     {
       "payload": {
         "input": {
-          "file_path": "/home/hm-agent/harbourmaster/01HW0RKSPACE00000000000001/01HAGENT0PELICAN000000001/work/hello.txt"
+          "file_path": "/home/hm-agent/agentum/01HW0RKSPACE00000000000001/01HAGENT0PELICAN000000001/work/hello.txt"
         },
         "name": "Read",
         "toolUseId": "toolu_3"

@@ -13,7 +13,7 @@ import {
 } from "./a2a-fixture.ts";
 
 const ACCESS_PREFIX = "hm_a2a_";
-const WWW_AUTHENTICATE = 'Bearer realm="harbourmaster"';
+const WWW_AUTHENTICATE = 'Bearer realm="agentum"';
 const CARD_PATH = "/.well-known/agent-card.json";
 const MAX_AGE = /max-age=\d+/;
 const WHOLE_NUMBER = /^\d+$/;

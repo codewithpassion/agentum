@@ -23,7 +23,7 @@ import type { SkillsApi } from "./skills-api.ts";
 import { SKILLS_DIR, syncSkills } from "./skills-sync.ts";
 import { createWorkFiles } from "./work-files.ts";
 
-const WORK_DIR = "/home/hm-agent/harbourmaster/w1/a1/work";
+const WORK_DIR = "/home/hm-agent/agentum/w1/a1/work";
 const NOT_FOUND = 404;
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 
@@ -107,7 +107,7 @@ const noRunner: CommandRunner = () =>
 const dirs: string[] = [];
 
 const tempWorkDir = (): string => {
-  const root = mkdtempSync(join(tmpdir(), "harbourmaster-skills-sync-"));
+  const root = mkdtempSync(join(tmpdir(), "agentum-skills-sync-"));
   dirs.push(root);
   const workDir = join(root, "work");
   mkdirSync(workDir);

@@ -16,9 +16,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"harbourmaster.dev/computer/internal/conn"
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/serverurl"
+	"agentum.dev/computer/internal/conn"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/serverurl"
 )
 
 func discardLogger() *slog.Logger {

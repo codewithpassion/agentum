@@ -10,8 +10,8 @@ export type MapTool =
   | { kind: "connector" | "skill" | "computer"; id: string }
   | { kind: "browser" };
 
-export const TOOL_MIME = "application/x-harbourmaster-tool";
-export const NEW_NODE_MIME = "application/x-harbourmaster-new-node";
+export const TOOL_MIME = "application/x-agentum-tool";
+export const NEW_NODE_MIME = "application/x-agentum-new-node";
 
 const toolSchema = z.union([
   z.object({

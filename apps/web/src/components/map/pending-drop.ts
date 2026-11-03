@@ -2,7 +2,7 @@
 // exists once the builder finishes. The drop point waits in sessionStorage
 // until the map shows a new agent, then is saved as that agent's position.
 
-const STORAGE_KEY = "harbourmaster.map.agent-drop";
+const STORAGE_KEY = "agentum.map.agent-drop";
 const MAX_AGE_MS = 60 * 60 * 1000;
 const AGENT_PREFIX = "agent:";
 

@@ -60,7 +60,7 @@ beforeEach(async () => {
       devFakeRuntime: true,
       fileBlobs: memoryFileBlobs(),
       libraryBlobs: blobs,
-      publicBaseUrl: "https://harbourmaster.example.com",
+      publicBaseUrl: "https://agentum.example.com",
       relay: noopRelay,
       runTokenKey: RUN_TOKEN_KEY,
       secretsKey: SECRETS_KEY,
@@ -283,8 +283,8 @@ const networkPorts = (principal: Principal): McpPorts =>
   createMcpPorts({
     fetch: fakeFetch,
     principal,
-    publicBaseUrl: "https://harbourmaster.example.com",
-    requestHost: "harbourmaster.example.com",
+    publicBaseUrl: "https://agentum.example.com",
+    requestHost: "agentum.example.com",
     services: composed.services,
   });
 

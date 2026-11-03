@@ -15,7 +15,7 @@ export const connectClient = async (
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
-  const client = new Client({ name: "harbourmaster-test", version: "0.0.0" });
+  const client = new Client({ name: "agentum-test", version: "0.0.0" });
   await client.connect(clientTransport);
   return {
     client,

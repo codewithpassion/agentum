@@ -691,7 +691,7 @@ export const createManagedService = ({
       workspaceId: run.workspaceId,
     });
     const vaultId = await gateway.createVault({
-      displayName: `harbourmaster ${run.sessionId}`,
+      displayName: `agentum ${run.sessionId}`,
     });
     try {
       for (const server of servers) {
@@ -776,7 +776,7 @@ export const createManagedService = ({
       run.inputText,
       run.inputFileIds.length === 0
         ? ""
-        : `[${run.inputFileIds.length} attached file(s) could not be passed to you: managed agents cannot read Harbourmaster files. Say so if you need what was in them.]`,
+        : `[${run.inputFileIds.length} attached file(s) could not be passed to you: managed agents cannot read Agentum files. Say so if you need what was in them.]`,
       taskFolderNote(agent.slug, run.id),
     ]
       .filter((part) => part !== "")

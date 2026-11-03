@@ -507,7 +507,7 @@ describe("createPushConfig", () => {
   const config = {
     authentication: { credentials: "peer-secret", scheme: "bearer" },
     token: "tok-hook",
-    url: "https://harbourmaster.example.com/a2a/webhooks/task-1/tok",
+    url: "https://agentum.example.com/a2a/webhooks/task-1/tok",
   };
 
   test("sends the superset body on both bindings", async () => {

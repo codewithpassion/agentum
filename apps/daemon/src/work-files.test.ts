@@ -12,7 +12,7 @@ import type { CommandResult, CommandRunner } from "./command.ts";
 import { createWorkFiles, insideWorkDir } from "./work-files.ts";
 
 const AS_AGENT = ["sudo", "-n", "-u", "hm-agent"];
-const WORK_DIR = "/home/hm-agent/harbourmaster/w1/a1/work";
+const WORK_DIR = "/home/hm-agent/agentum/w1/a1/work";
 const BYTES = new TextEncoder().encode("hello world\n");
 
 interface Recorded {
@@ -56,7 +56,7 @@ const commandsOf = (calls: Recorded[]): string[][] =>
 const dirs: string[] = [];
 
 const tempDirectory = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "harbourmaster-work-files-"));
+  const dir = mkdtempSync(join(tmpdir(), "agentum-work-files-"));
   dirs.push(dir);
   return dir;
 };

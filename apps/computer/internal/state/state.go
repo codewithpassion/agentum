@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 const (

@@ -15,8 +15,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/serverurl"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/serverurl"
 )
 
 // ErrRevoked ends the loop for good; the caller turns it into exit code 3.

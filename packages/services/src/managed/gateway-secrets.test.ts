@@ -59,7 +59,7 @@ describe("createEnvironmentVariableCredential", () => {
     const credentials: unknown[] = [];
     await gatewayWith(credentials).createEnvironmentVariableCredential({
       hosts: ["hm.example"],
-      name: "HARBOURMASTER_RELAY_TOKEN",
+      name: "AGENTUM_RELAY_TOKEN",
       value: "hm_ses_test",
       vaultId: "vlt_1",
     });
@@ -73,11 +73,11 @@ describe("createEnvironmentVariableCredential", () => {
               allowed_hosts: ["hm.example"],
               type: "limited",
             },
-            secret_name: "HARBOURMASTER_RELAY_TOKEN",
+            secret_name: "AGENTUM_RELAY_TOKEN",
             secret_value: "hm_ses_test",
             type: "environment_variable",
           },
-          display_name: "HARBOURMASTER_RELAY_TOKEN",
+          display_name: "AGENTUM_RELAY_TOKEN",
         },
         vaultId: "vlt_1",
       },

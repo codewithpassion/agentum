@@ -5,7 +5,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 // The budget is split evenly across the two streams, and each stream keeps a head and a tail:

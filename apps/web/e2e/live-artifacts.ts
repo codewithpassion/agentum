@@ -17,7 +17,7 @@ import type { LiveArtifactsRouter } from "../src/integrations/trpc/types";
 
 const base = process.env.HM_SERVER ?? "http://localhost:3118";
 const evidence = resolve(
-  process.env.HM_LIVE_EVIDENCE ?? `/tmp/harbourmaster-l8-browser-${Date.now()}`
+  process.env.HM_LIVE_EVIDENCE ?? `/tmp/agentum-l8-browser-${Date.now()}`
 );
 await mkdir(evidence, { recursive: true });
 const browser = await chromium.launch({ headless: true });

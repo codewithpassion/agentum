@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
-	"harbourmaster.dev/computer/internal/enroll"
-	"harbourmaster.dev/computer/internal/serverurl"
-	"harbourmaster.dev/computer/internal/state"
+	"agentum.dev/computer/internal/enroll"
+	"agentum.dev/computer/internal/serverurl"
+	"agentum.dev/computer/internal/state"
 )
 
 type enrollFlags struct {
@@ -29,7 +29,7 @@ type enrollFlags struct {
 // require renaming operator flags or introducing a positional code.
 func bindEnrollFlags(set *flag.FlagSet) *enrollFlags {
 	flags := &enrollFlags{}
-	set.StringVar(&flags.url, "url", os.Getenv(state.EnvURL), "base URL of the Harbourmaster server, for example https://hm.example.com")
+	set.StringVar(&flags.url, "url", os.Getenv(state.EnvURL), "base URL of the Agentum server, for example https://hm.example.com")
 	set.StringVar(&flags.code, "code", os.Getenv(state.EnvEnrollCode), "single-use enrollment code; prefer "+state.EnvEnrollCode+" or --code-stdin, because a flag is visible in ps")
 	set.BoolVar(&flags.codeStdin, "code-stdin", false, "read the enrollment code from standard input")
 	set.StringVar(&flags.name, "name", "", "hostname to report instead of this machine's own")
@@ -82,7 +82,7 @@ func runEnroll(args []string) int {
 	if err != nil {
 		switch {
 		case errors.Is(err, enroll.ErrCodeRejected):
-			fmt.Fprintln(os.Stderr, "The enrollment code was refused. Codes are single use; issue a new Harbourmaster enrollment code.")
+			fmt.Fprintln(os.Stderr, "The enrollment code was refused. Codes are single use; issue a new Agentum enrollment code.")
 			return exitFailure
 		case errors.Is(err, serverurl.ErrInsecure), errors.Is(err, enroll.ErrRedirected):
 			fmt.Fprintln(os.Stderr, err.Error())

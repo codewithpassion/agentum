@@ -1,6 +1,6 @@
 # Working process
 
-How Harbourmaster gets built. The controller follows all of it. Subagents get their part through briefs written from the templates at the end.
+How Agentum gets built. The controller follows all of it. Subagents get their part through briefs written from the templates at the end.
 
 ## Roles
 
@@ -74,7 +74,7 @@ Start agents without a `name`. The starting agent stops an agent with TaskStop o
 ### Dispatcher
 
 ```text
-You are the dispatcher for Harbourmaster task <id>, <title>.
+You are the dispatcher for Agentum task <id>, <title>.
 Task file: /home/roboto/devel/harbourmaster/docs/tasks/<file>. It is the whole spec.
 Worktree: /home/roboto/devel/harbourmaster-wt/<id>, on branch task/<id>-<slug>.
 
@@ -102,7 +102,7 @@ A browser step in the task's check is yours. Run `bunx wrangler d1 migrations ap
 ### Worker
 
 ```text
-You are a worker on Harbourmaster task <id>, in the worktree /home/roboto/devel/harbourmaster-wt/<id>.
+You are a worker on Agentum task <id>, in the worktree /home/roboto/devel/harbourmaster-wt/<id>.
 Files you may change: <files>.
 Change: <what to do>.
 Check: <command>.
@@ -113,7 +113,7 @@ Keep working until the check passes. A check counts only if it exercises the cha
 ### Reviewer
 
 ```text
-Review Harbourmaster task <id> at commit <sha> (branch task/<id>-<slug>).
+Review Agentum task <id> at commit <sha> (branch task/<id>-<slug>).
 Task file: /home/roboto/devel/harbourmaster/docs/tasks/<file>.
 <Re-review only: Review the commits after <previous sha>.>
 <Milestone gate instead: Review git diff <milestone>-start..<sha> as a whole against the milestone's section of docs/architecture/build-plan.html (v1) or docs/v2/build-plan.md (v2).>
@@ -150,7 +150,7 @@ Then continue at step 5. The review in step 7 is never skipped for Codex code, a
 ### Codex
 
 ```text
-You implement Harbourmaster task <id>, <title>, in this git worktree. The task file below is the whole spec.
+You implement Agentum task <id>, <title>, in this git worktree. The task file below is the whole spec.
 
 Rules:
 - Read CLAUDE.md at the worktree root first, then the files the task names.

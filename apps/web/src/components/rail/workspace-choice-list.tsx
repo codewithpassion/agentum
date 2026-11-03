@@ -42,7 +42,7 @@ export function WorkspaceChoiceList({
 }) {
   return (
     <div className="max-w-md space-y-4">
-      <p className="font-medium">{subject} has no Harbourmaster workspace.</p>
+      <p className="font-medium">{subject} has no Agentum workspace.</p>
       {choices.length > 0 ? (
         <>
           <p className="text-muted-foreground text-sm">

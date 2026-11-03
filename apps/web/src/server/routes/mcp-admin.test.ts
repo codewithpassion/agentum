@@ -20,11 +20,11 @@ const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
 );
 const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(9)).toString("base64");
 const env = {
-  PUBLIC_BASE_URL: "https://harbourmaster.example.com",
+  PUBLIC_BASE_URL: "https://agentum.example.com",
   RUN_TOKEN_KEY,
 } as unknown as Env;
-const MCP_URL = "https://harbourmaster.example.com/mcp";
-const HOST = "harbourmaster.example.com";
+const MCP_URL = "https://agentum.example.com/mcp";
+const HOST = "agentum.example.com";
 const SECRET_VALUE = "sk-proxy-0123456789abcdef-VALUE";
 
 const ADMIN_TOOLS = [

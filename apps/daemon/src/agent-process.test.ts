@@ -19,7 +19,7 @@ const SDK_OPTIONS = {
     "Be Pelican",
   ],
   command: "/usr/local/bin/claude",
-  cwd: "/home/hm-agent/harbourmaster/w1/a1/work",
+  cwd: "/home/hm-agent/agentum/w1/a1/work",
   env: { HOME: "/home/dom" },
   signal: new AbortController().signal,
 };
@@ -48,14 +48,14 @@ test("multi-user puts sudo -u hm-agent in front and hands the work dir to sudo",
 test("multi-user preserves the named variables right after -H and before -D", () => {
   const { args } = agentCommand(SDK_OPTIONS, false, [
     "OPENAI_API_KEY",
-    "HARBOURMASTER_RELAY_TOKEN",
+    "AGENTUM_RELAY_TOKEN",
   ]);
   expect(args.slice(0, 7)).toEqual([
     "-n",
     "-u",
     "hm-agent",
     "-H",
-    "--preserve-env=OPENAI_API_KEY,HARBOURMASTER_RELAY_TOKEN",
+    "--preserve-env=OPENAI_API_KEY,AGENTUM_RELAY_TOKEN",
     "-D",
     SDK_OPTIONS.cwd,
   ]);

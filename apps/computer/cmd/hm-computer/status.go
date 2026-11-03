@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"harbourmaster.dev/computer/internal/audit"
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/state"
+	"agentum.dev/computer/internal/audit"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/state"
 )
 
 // statusReport is what `status` prints. It is local only: nothing here needs the server, so

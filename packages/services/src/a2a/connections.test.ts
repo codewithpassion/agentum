@@ -1259,7 +1259,7 @@ describe("who may act", () => {
 });
 
 describe("revoking", () => {
-  test("a revoke queues a notice to a Harbourmaster peer and the peer's access ends on its notice", async () => {
+  test("a revoke queues a notice to a Agentum peer and the peer's access ends on its notice", async () => {
     const paired = await pairFully();
     await service.revoke(memberA, paired.aliceId);
     const [notice] = await db

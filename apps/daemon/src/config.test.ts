@@ -37,10 +37,22 @@ afterEach(() => {
   rmSync(home, { force: true, recursive: true });
 });
 
-test("the default path is ~/.harbourmaster/config.json", () => {
-  expect(defaultConfigPath("/home/dom")).toBe(
-    "/home/dom/.harbourmaster/config.json"
-  );
+test("the default path is ~/.agentum/config.json", () => {
+  expect(defaultConfigPath("/home/dom")).toBe("/home/dom/.agentum/config.json");
+});
+
+test("an install from before the rename keeps reading ~/.harbourmaster/config.json", () => {
+  const legacy = join(home, ".harbourmaster", "config.json");
+  writeConfig(CONFIG, legacy);
+  expect(defaultConfigPath(home)).toBe(legacy);
+  expect(readConfig(defaultConfigPath(home))).toEqual(CONFIG);
+});
+
+test("~/.agentum/config.json wins when both configs exist", () => {
+  writeConfig(CONFIG, join(home, ".harbourmaster", "config.json"));
+  const current = join(home, ".agentum", "config.json");
+  writeConfig(CONFIG, current);
+  expect(defaultConfigPath(home)).toBe(current);
 });
 
 test("a written config reads back the same", () => {
@@ -53,17 +65,17 @@ test("the file is mode 600 and the directory mode 700", () => {
   const path = defaultConfigPath(home);
   writeConfig(CONFIG, path);
   expect(modeOf(path)).toBe("600");
-  expect(modeOf(join(home, ".harbourmaster"))).toBe("700");
+  expect(modeOf(join(home, ".agentum"))).toBe("700");
 });
 
 test("writing tightens a directory and file that were wider", () => {
   const path = defaultConfigPath(home);
   writeConfig(CONFIG, path);
   chmodSync(path, 0o644);
-  chmodSync(join(home, ".harbourmaster"), 0o755);
+  chmodSync(join(home, ".agentum"), 0o755);
   writeConfig(CONFIG, path);
   expect(modeOf(path)).toBe("600");
-  expect(modeOf(join(home, ".harbourmaster"))).toBe("700");
+  expect(modeOf(join(home, ".agentum"))).toBe("700");
 });
 
 test("a missing file says to enrol", () => {

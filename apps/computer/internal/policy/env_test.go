@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/policy"
+	"agentum.dev/computer/internal/policy"
 )
 
 func refusedNames(t *testing.T, p *policy.Policy, names ...string) []string {

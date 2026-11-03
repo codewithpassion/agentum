@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Stands in for the Harbourmaster machine daemon so the Worker can be tested by
+// Stands in for the Agentum machine daemon so the Worker can be tested by
 // hand. With `--code` it enrolls and stores the credential in a state file. It
 // then opens one relay connection and prints every frame it receives as a JSON
 // line on stdout. Errors go to stderr. Run from the repo root. With `--echo` it

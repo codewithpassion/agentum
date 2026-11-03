@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: the queries of the inbox's MailboxDO as plain
+// Modified by Agentum: the queries of the inbox's MailboxDO as plain
 // functions over a drizzle instance, so bun can test them. Rate-limit and
 // thread-window cutoffs are computed here as ISO strings (the inbox compared
 // them with SQLite's space-separated datetime(), which let a whole UTC day

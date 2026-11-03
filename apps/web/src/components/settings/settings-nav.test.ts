@@ -7,7 +7,7 @@ test("groups appear in order", () => {
   expect(settingsNav.map((group) => group.label)).toEqual([
     "Agents run on",
     "Agents can use",
-    "Access to Harbourmaster",
+    "Access to Agentum",
   ]);
 });
 

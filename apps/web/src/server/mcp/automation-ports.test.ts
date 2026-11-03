@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
 import type { RoutineInfo, TriggerInfo } from "@repo/mcp/ports";
-import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
 import { isReadOnly } from "@repo/services/automation-access";
 import type { EventFilters, EventRecord } from "@repo/services/events";
@@ -69,7 +69,7 @@ beforeEach(async () => {
 /** An MCP session for `principal`, with the tools that principal may see. */
 const connect = async (principal: Principal) => {
   const ports = createMcpPorts({ principal, services: composed.services });
-  const server = createHarbourmasterMcpServer(ports, {
+  const server = createAgentumMcpServer(ports, {
     readOnly: isReadOnly(principal),
   });
   const { client, close } = await connectClient(server);

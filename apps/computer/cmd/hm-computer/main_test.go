@@ -13,9 +13,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/serverurl"
-	"harbourmaster.dev/computer/internal/state"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/serverurl"
+	"agentum.dev/computer/internal/state"
 )
 
 func TestCommandExitCodes(t *testing.T) {

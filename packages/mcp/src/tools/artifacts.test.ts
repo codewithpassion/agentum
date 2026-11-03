@@ -6,7 +6,7 @@ import type {
   ArtifactTestInfo,
 } from "../ports";
 import { ToolError } from "../result";
-import { harbourmasterTools } from "../server";
+import { agentumTools } from "../server";
 import { textOf } from "../testing";
 import { READ_ONLY, WRITE_CREATE, WRITE_UPDATE } from "./define";
 import { callTool, fakePorts } from "./library-wiki.test-helpers";
@@ -46,7 +46,7 @@ const call = (
 const html = { path: "index.html", text: "<h1>Hi</h1>" };
 
 describe("registration", () => {
-  const tools = harbourmasterTools(fakePorts({ artifacts: port() }));
+  const tools = agentumTools(fakePorts({ artifacts: port() }));
   const find = (name: string) => tools.find((tool) => tool.name === name);
 
   test("the tools carry the spec's annotations", () => {
@@ -59,12 +59,12 @@ describe("registration", () => {
   });
 
   test("they are offered only when the app supplies the port", () => {
-    const names = harbourmasterTools(fakePorts()).map((tool) => tool.name);
+    const names = agentumTools(fakePorts()).map((tool) => tool.name);
     expect(names.some((name) => name.startsWith("artifact_"))).toBe(false);
   });
 
   test("a read-only caller gets the three read tools", () => {
-    const names = harbourmasterTools(fakePorts({ artifacts: port() }), {
+    const names = agentumTools(fakePorts({ artifacts: port() }), {
       readOnly: true,
     })
       .map((tool) => tool.name)

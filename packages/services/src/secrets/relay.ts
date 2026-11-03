@@ -1,7 +1,7 @@
 /** Where the explicit relay lives and how an agent reaches it. */
 
 /** The environment variable that holds the relay token, where the agent can use it. */
-export const RELAY_TOKEN_ENV = "HARBOURMASTER_RELAY_TOKEN";
+export const RELAY_TOKEN_ENV = "AGENTUM_RELAY_TOKEN";
 
 /** The route prefix: `/api/egress/<host>/<path>`. */
 export const RELAY_PATH = "/api/egress";
