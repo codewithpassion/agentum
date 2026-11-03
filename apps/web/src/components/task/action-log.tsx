@@ -4,7 +4,7 @@ import { logTagClass } from "./task-logic.ts";
 /** The task's action log, oldest first, in a scrolling card. */
 export function ActionLog({ entries }: { entries: ActionLogEntry[] }) {
   return (
-    <div className="rounded-[10px] border bg-card p-3 text-card-foreground">
+    <div className="rounded-lg border bg-card p-3 text-card-foreground">
       <h2 className="mb-1.5 font-semibold text-[15px]">Action log</h2>
       {entries.length === 0 ? (
         <p className="text-muted-foreground text-sm">Nothing logged yet.</p>

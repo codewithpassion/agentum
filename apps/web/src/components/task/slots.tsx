@@ -22,7 +22,7 @@ export function SlotCard({
 }) {
   return (
     <section
-      className="flex flex-col gap-2.5 rounded-[10px] border bg-card p-3 text-card-foreground"
+      className="flex flex-col gap-2.5 rounded-lg border bg-card p-3 text-card-foreground"
       data-testid={testId}
       id={id}
     >

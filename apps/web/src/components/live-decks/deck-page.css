@@ -1,8 +1,8 @@
 .live-deck-page {
   min-height: 100dvh;
   padding: 12px;
-  color: #172033;
-  background: #f1f3f7;
+  color: var(--foreground);
+  background: var(--background);
 }
 .live-deck-page > header {
   display: flex;
@@ -15,9 +15,9 @@
 .live-deck-page > section[role="dialog"] {
   padding: 16px;
   margin-top: 12px;
-  background: white;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .ld-collaboration label,
 .ld-collaboration textarea {
@@ -34,8 +34,8 @@
   min-height: 40px;
   padding: 8px;
   margin: 4px;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .ld-collaboration select {
   max-width: 100%;

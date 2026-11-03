@@ -8,7 +8,7 @@ import { cardLink, cardSubtitle } from "./desk-logic.ts";
 import { StatusBandLine } from "./status-band.tsx";
 
 const CARD_CLASS =
-  "block overflow-hidden rounded-[10px] border bg-card text-card-foreground no-underline";
+  "block overflow-hidden rounded-lg border bg-card text-card-foreground no-underline";
 
 /** A Running or Done today card: the agent, the title, and the status band. */
 export function DeskCardView({

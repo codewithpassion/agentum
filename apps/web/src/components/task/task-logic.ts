@@ -148,23 +148,22 @@ export const splitOtherRuns = (
 });
 
 const TAG_CLASSES: Record<ActionLogKind, string> = {
-  error: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-100",
-  note: "bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-100",
+  error: "bg-destructive/15 text-destructive",
+  note: "bg-info/15 text-info",
   thought: "bg-muted text-muted-foreground",
   tool_call:
     "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100",
-  tool_result:
-    "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
+  tool_result: "bg-success/15 text-success",
 };
 
 /** The Tailwind classes of an action log kind tag. */
 export const logTagClass = (kind: ActionLogKind): string => TAG_CLASSES[kind];
 
 const PILL_CLASSES: Record<BandTone, string> = {
-  error: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-100",
-  ok: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
-  running: "bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-100",
-  waiting: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100",
+  error: "bg-destructive/15 text-destructive",
+  ok: "bg-success/15 text-success",
+  running: "bg-info/15 text-info",
+  waiting: "bg-warning/15 text-warning",
 };
 
 /** The Tailwind classes of a status pill of the given tone. */

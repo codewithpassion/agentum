@@ -37,9 +37,7 @@ export function MailStrip({
                 <span>{inCountText(row.in)}</span>
                 <span
                   className={
-                    row.held > 0
-                      ? "font-medium text-amber-700 dark:text-amber-300"
-                      : undefined
+                    row.held > 0 ? "font-medium text-warning" : undefined
                   }
                 >
                   {heldCountText(row.held)}

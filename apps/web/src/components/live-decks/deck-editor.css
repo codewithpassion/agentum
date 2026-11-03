@@ -4,16 +4,19 @@
   width: 960px;
   height: 540px;
   overflow: hidden;
+  /* Slides are authored content: their default ink must not follow the app
+     theme, which is white on dark. */
+  color: #111827;
   isolation: isolate;
 }
 .ld-editor {
   min-height: 600px;
   overflow: hidden;
   font: 14px system-ui;
-  color: #172033;
-  background: #f1f3f7;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
+  color: var(--foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .ld-editor header,
 .ld-toolbar,
@@ -23,8 +26,8 @@
   gap: 8px;
   align-items: center;
   padding: 12px;
-  background: white;
-  border-bottom: 1px solid #dbe1ea;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
 }
 .ld-editor button,
 .ld-editor input,
@@ -33,9 +36,9 @@
   padding: 6px;
   font: inherit;
   color: inherit;
-  background: white;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .ld-editor button {
   cursor: pointer;
@@ -45,7 +48,7 @@
   opacity: 0.55;
 }
 .ld-editor button[aria-current="true"] {
-  outline: 3px solid #3b82f6;
+  outline: 3px solid var(--ring);
 }
 .ld-editor fieldset {
   min-width: 0;
@@ -67,7 +70,7 @@
   max-height: 760px;
   padding: 12px;
   overflow: auto;
-  border-right: 1px solid #dbe1ea;
+  border-right: 1px solid var(--border);
 }
 .ld-thumbnail {
   margin-bottom: 16px;
@@ -106,7 +109,7 @@
   outline-offset: 2px;
 }
 .ld-element:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--ring);
 }
 .ld-element img {
   width: 100%;
@@ -137,7 +140,7 @@
   min-height: 1em;
 }
 .ld-selected {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--ring);
 }
 .ld-resize,
 .ld-rotate {
@@ -189,8 +192,8 @@
 .ld-inspector-fieldset {
   max-height: 800px;
   overflow: auto;
-  background: white;
-  border-left: 1px solid #dbe1ea !important;
+  background: var(--card);
+  border-left: 1px solid var(--border) !important;
 }
 .ld-inspector {
   padding: 12px;
@@ -228,7 +231,7 @@
   padding: 16px;
   overflow: auto;
   color: white;
-  background: #101624;
+  background: var(--df-deep-black);
 }
 .ld-presentation nav {
   display: flex;

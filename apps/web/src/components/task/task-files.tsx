@@ -16,9 +16,9 @@ import {
 export type TaskFilesView = RouterOutputs["tasks"]["files"];
 
 const TAG = "self-start rounded px-1.5 py-px font-mono text-[11px]";
-const NEW_TAG = `${TAG} bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100`;
-const EDIT_TAG = `${TAG} bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-100`;
-const CONFLICT_TAG = `${TAG} bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100`;
+const NEW_TAG = `${TAG} bg-success/15 text-success`;
+const EDIT_TAG = `${TAG} bg-info/15 text-info`;
+const CONFLICT_TAG = `${TAG} bg-warning/15 text-warning`;
 const ROW = "grid grid-cols-[92px_1fr] gap-2.5 border-t py-1.5 text-sm";
 const LINK = "underline underline-offset-2";
 

@@ -224,7 +224,7 @@ export function DraftCard({
             <GapNote gaps={gapsOn("address")} />
           </div>
         </div>
-        <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 text-xs">
+        <span className="ml-auto rounded-full bg-warning/15 px-2 py-0.5 font-semibold text-warning text-xs">
           Draft
         </span>
       </header>
@@ -385,7 +385,7 @@ export function DraftCard({
       </div>
 
       {gaps.length === 0 ? null : (
-        <div className="mt-3 rounded-lg border border-amber-400 bg-amber-100 p-3 text-amber-900 text-sm">
+        <div className="mt-3 rounded-lg border border-warning/40 bg-warning/15 p-3 text-sm text-warning">
           <p className="font-semibold">{decideText(gaps.length)}</p>
           {gaps.map((gap) => (
             <p key={`${gap.field}:${gap.question}`}>{gap.question}</p>

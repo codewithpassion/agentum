@@ -25,7 +25,7 @@ import { ConflictResolver } from "./conflict-resolver.tsx";
 import { ProposalActions } from "./proposal-actions.tsx";
 
 const BOX_CLASS =
-  "flex flex-col gap-3 rounded-[10px] border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40";
+  "flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm";
 
 const headingFor = (agentName: string, kind: NeedsYouKind | undefined) =>
   kind === undefined ? agentName : NEEDS_YOU_HEADINGS[kind](agentName);

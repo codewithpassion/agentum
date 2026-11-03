@@ -33,7 +33,7 @@ export default function Header() {
         ) : null}
         <h2 className="m-0 flex-shrink-0 text-base">
           <Link
-            className="inline-flex items-center gap-2.5 font-heading text-foreground text-xl no-underline"
+            className="inline-flex items-center gap-2.5 font-display text-foreground text-xl no-underline"
             to="/"
           >
             <span className="h-2.5 w-2.5 rounded-full bg-primary" />
