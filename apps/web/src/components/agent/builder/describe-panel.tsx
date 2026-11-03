@@ -7,6 +7,8 @@ import {
 import { templates } from "@repo/services/agent-builder/templates";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useCallback, useId, useRef, useState } from "react";
+import { runOnSendShortcut } from "#/components/composer/send-shortcut";
+import { SubmitKeys } from "#/components/composer/submit-keys";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
@@ -148,6 +150,10 @@ export function DescribePanel({
             id={descriptionId}
             maxLength={DESCRIPTION_LIMIT}
             onChange={handleDescription}
+            onKeyDown={runOnSendShortcut(
+              !busy && description.trim() !== "",
+              onDraft
+            )}
             value={description}
           />
         </div>
@@ -210,6 +216,7 @@ export function DescribePanel({
             type="button"
           >
             {draftLabel(busy, hasDraft)}
+            <SubmitKeys />
           </Button>
           {hasDraft ? (
             <span className="text-muted-foreground text-xs">

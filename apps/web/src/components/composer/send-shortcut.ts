@@ -22,10 +22,13 @@ export const isMacPlatform = (userAgent: string): boolean =>
 export const sendShortcutLabel = (mac: boolean): string =>
   mac ? "⌘+Enter to send" : "Ctrl+Enter to send";
 
-/** Submits the form that contains a textarea on the send shortcut. Other keys keep their default. */
-export const submitOnSendShortcut = (
+/** The keys the indicator on a button shows. */
+export const submitKeysLabel = (mac: boolean): string =>
+  mac ? "⌘ ↵" : "Ctrl ↵";
+
+const takeSendShortcut = (
   event: KeyboardEvent<HTMLTextAreaElement>
-): void => {
+): boolean => {
   if (
     !isSendShortcut({
       ctrlKey: event.ctrlKey,
@@ -34,11 +37,33 @@ export const submitOnSendShortcut = (
       metaKey: event.metaKey,
     })
   ) {
-    return;
+    return false;
   }
   event.preventDefault();
-  event.currentTarget.form?.requestSubmit();
+  return true;
 };
+
+/**
+ * Submits the form that contains a textarea on the send shortcut. Other keys
+ * keep their default. `requestSubmit` ignores a disabled submit button, so the
+ * form's submit handler has to check its own pending state.
+ */
+export const submitOnSendShortcut = (
+  event: KeyboardEvent<HTMLTextAreaElement>
+): void => {
+  if (takeSendShortcut(event)) {
+    event.currentTarget.form?.requestSubmit();
+  }
+};
+
+/** The same shortcut for a textarea with no form. It calls `action` only while `enabled`. */
+export const runOnSendShortcut =
+  (enabled: boolean, action: () => void) =>
+  (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (takeSendShortcut(event) && enabled) {
+      action();
+    }
+  };
 
 /** The hint for a touch screen, where there is no Ctrl or Cmd key. */
 export const TOUCH_SEND_LABEL = "Tap Send to send";

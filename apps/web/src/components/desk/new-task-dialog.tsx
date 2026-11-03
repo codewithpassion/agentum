@@ -5,6 +5,8 @@ import {
   useId,
   useState,
 } from "react";
+import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
+import { SubmitKeys } from "#/components/composer/submit-keys.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Dialog,
@@ -109,7 +111,7 @@ export function NewTaskDialog({
           {triggerLabel}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>New task</DialogTitle>
         </DialogHeader>
@@ -137,9 +139,10 @@ export function NewTaskDialog({
             <div className="grid gap-2">
               <Label htmlFor={textId}>What should it do?</Label>
               <Textarea
+                className="max-h-[60dvh] min-h-40 sm:min-h-64"
                 id={textId}
                 onChange={handleTextChange}
-                rows={4}
+                onKeyDown={submitOnSendShortcut}
                 value={text}
               />
               {error === null ? null : (
@@ -151,6 +154,7 @@ export function NewTaskDialog({
             <DialogFooter>
               <Button disabled={!canStart} type="submit">
                 Start task
+                <SubmitKeys />
               </Button>
             </DialogFooter>
           </form>

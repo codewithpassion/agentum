@@ -26,6 +26,8 @@ import {
   useCallback,
   useState,
 } from "react";
+import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
+import { SubmitKeys } from "#/components/composer/submit-keys";
 import { Button } from "#/components/ui/button";
 import {
   Field,
@@ -236,6 +238,9 @@ export function AgentForm({
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      if (pending) {
+        return;
+      }
       setPending(true);
       setError(null);
       try {
@@ -248,7 +253,7 @@ export function AgentForm({
         setPending(false);
       }
     },
-    [onSubmit, values]
+    [onSubmit, pending, values]
   );
 
   return (
@@ -268,6 +273,7 @@ export function AgentForm({
           <Textarea
             id="agent-instructions"
             onChange={handleInstructions}
+            onKeyDown={submitOnSendShortcut}
             value={values.instructions}
           />
         </Field>
@@ -436,6 +442,7 @@ export function AgentForm({
       <div className="sticky -bottom-6 z-10 -mx-4 flex flex-wrap items-center gap-2 border-border border-t bg-background px-4 pt-3 pb-9 md:contents">
         <Button disabled={pending} type="submit">
           {submitLabel}
+          <SubmitKeys />
         </Button>
         {extraAction === undefined ? null : (
           <span className="md:hidden">{extraAction}</span>

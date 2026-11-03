@@ -1,4 +1,6 @@
 import { type ChangeEvent, useCallback, useState } from "react";
+import { runOnSendShortcut } from "#/components/composer/send-shortcut";
+import { SubmitKeys } from "#/components/composer/submit-keys";
 import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import {
@@ -417,6 +419,7 @@ export function CreateRoutineDialog({
             <Textarea
               id="routine-prompt"
               onChange={handlePromptChange}
+              onKeyDown={runOnSendShortcut(canCreate, createRoutine)}
               value={prompt}
             />
             <p className="text-muted-foreground text-sm">
@@ -429,6 +432,7 @@ export function CreateRoutineDialog({
           <DialogFooter>
             <Button disabled={!canCreate} onClick={createRoutine}>
               Create routine
+              <SubmitKeys />
             </Button>
           </DialogFooter>
         </div>

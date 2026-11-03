@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
+import { SubmitKeys } from "#/components/composer/submit-keys";
 import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import {
@@ -111,6 +112,7 @@ export function AskDialog({ onAsked }: AskDialogProps) {
             type="submit"
           >
             Ask
+            <SubmitKeys />
           </Button>
           {error === null ? null : (
             <p className="text-destructive text-sm">{error}</p>

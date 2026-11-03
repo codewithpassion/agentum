@@ -5,13 +5,17 @@ import { AssistantMessageContainer } from "./assistant-message-container.tsx";
 import { UserEditComposerContainer } from "./user-edit-composer-container.tsx";
 import { UserMessageContainer } from "./user-message-container.tsx";
 
-/** The message list, scrolled to the newest message, with the composer under it. */
+/**
+ * The message list, scrolled to the newest message, with the composer under it.
+ * The bottom padding holds the corners of a spinning "Working" icon. Without
+ * it they stick out of the list as they turn, and the scrollbar flickers.
+ */
 export function ThreadContainer({ composer }: { composer: ReactNode }) {
   return (
     <ThreadPrimitive.Root className="flex flex-col gap-3">
       <ThreadPrimitive.Viewport
         autoScroll
-        className="flex max-h-[60dvh] min-h-24 flex-col gap-4 overflow-y-auto"
+        className="flex max-h-[60dvh] min-h-24 flex-col gap-4 overflow-y-auto pb-1"
       >
         <ThreadPrimitive.Empty>
           <p className="text-muted-foreground text-sm">

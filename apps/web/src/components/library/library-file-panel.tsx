@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { runOnSendShortcut } from "#/components/composer/send-shortcut";
+import { SubmitKeys } from "#/components/composer/submit-keys";
 import {
   baseName,
   downloadUrl,
@@ -422,6 +424,7 @@ function TextEditor({
         className="w-full rounded-lg border border-input bg-transparent p-2.5 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         data-testid="library-editor"
         onChange={edit}
+        onKeyDown={runOnSendShortcut(draft !== text && !saving, save)}
         rows={24}
         spellCheck={false}
         value={draft}
@@ -434,6 +437,7 @@ function TextEditor({
           type="button"
         >
           {labels.save}
+          <SubmitKeys />
         </Button>
         {saved ? (
           <p

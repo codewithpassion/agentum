@@ -5,6 +5,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { runOnSendShortcut } from "#/components/composer/send-shortcut.ts";
+import { SubmitKeys } from "#/components/composer/submit-keys.tsx";
 import {
   type SuggestionStatus,
   suggestionStatusText,
@@ -263,6 +265,7 @@ export function SuggestionReview({
             className="w-full rounded-lg border border-input bg-transparent p-2.5 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             data-testid="suggestion-editor"
             onChange={handleDraftChange}
+            onKeyDown={runOnSendShortcut(!busy, handleAcceptEdited)}
             rows={20}
             spellCheck={false}
             value={draft}
@@ -283,6 +286,7 @@ export function SuggestionReview({
               type="button"
             >
               Accept edited text
+              <SubmitKeys />
             </Button>
           </DialogFooter>
         </DialogContent>

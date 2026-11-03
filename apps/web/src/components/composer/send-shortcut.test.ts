@@ -3,7 +3,9 @@ import type { KeyboardEvent } from "react";
 import {
   isMacPlatform,
   isSendShortcut,
+  runOnSendShortcut,
   sendShortcutLabel,
+  submitKeysLabel,
   submitOnSendShortcut,
 } from "./send-shortcut.ts";
 
@@ -120,4 +122,25 @@ test("submitOnSendShortcut does nothing on plain Enter", () => {
   const { event, calls } = stubEvent({});
   submitOnSendShortcut(event);
   expect(calls).toEqual({ preventDefault: 0, requestSubmit: 0 });
+});
+
+test("submitKeysLabel names Cmd on Mac and Ctrl elsewhere", () => {
+  expect(submitKeysLabel(true)).toBe("⌘ ↵");
+  expect(submitKeysLabel(false)).toBe("Ctrl ↵");
+});
+
+test("runOnSendShortcut runs the action on Ctrl+Enter, only while enabled", () => {
+  let ran = 0;
+  const action = () => {
+    ran += 1;
+  };
+  runOnSendShortcut(true, action)(stubEvent({ ctrlKey: true }).event);
+  expect(ran).toBe(1);
+  const disabled = stubEvent({ ctrlKey: true });
+  runOnSendShortcut(false, action)(disabled.event);
+  expect(ran).toBe(1);
+  // A disabled button still swallows the newline the shortcut would type.
+  expect(disabled.calls.preventDefault).toBe(1);
+  runOnSendShortcut(true, action)(stubEvent({}).event);
+  expect(ran).toBe(1);
 });
