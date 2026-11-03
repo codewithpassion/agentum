@@ -7,7 +7,7 @@
 // thread and polls the thread until the agent's reply shows up. The thread is
 // the first one `inbox_list` returns, unless `--thread <id>` names one. Run from
 // the repo root:
-// `bun scripts/smoke-mcp.ts --key hm_key_... [--server <url>] [--agent <slug>] [--thread <id>]`.
+// `bun scripts/smoke-mcp.ts --key ag_key_... [--server <url>] [--agent <slug>] [--thread <id>]`.
 import { parseArgs } from "node:util";
 import { runCli } from "./dev/local.ts";
 
@@ -216,7 +216,7 @@ export const main = async (argv: string[]): Promise<void> => {
     strict: true,
   });
   if (!values.key) {
-    throw new Error("Pass an API key: --key hm_key_...");
+    throw new Error("Pass an API key: --key ag_key_...");
   }
   await runSmoke({
     agent: values.agent,

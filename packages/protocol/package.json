@@ -19,7 +19,8 @@
     "./live": "./src/live.ts",
     "./member-mentions": "./src/member-mentions.ts",
     "./element-ask": "./src/element-ask.ts",
-    "./deck": "./src/deck.ts"
+    "./deck": "./src/deck.ts",
+    "./token-prefixes": "./src/token-prefixes.ts"
   },
   "scripts": {
     "test": "bun test",

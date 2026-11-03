@@ -281,7 +281,7 @@ const settleRow = (values: {
     .run();
 
 const clickPayload = ({
-  actionId = `hm_req:${REQUEST}:deny`,
+  actionId = `ag_req:${REQUEST}:deny`,
   channel = CHANNEL,
   slackUserId = LINKED_SLACK_ID,
 }: {
@@ -404,7 +404,7 @@ test("posts an approval card in the Slack thread of a Slack run", async () => {
   const blocks = JSON.stringify(post?.body?.blocks);
   expect(blocks).toContain('"type":"actions"');
   for (const decision of ["allow_once", "always_allow", "deny"]) {
-    expect(blocks).toContain(`"action_id":"hm_req:${REQUEST}:${decision}"`);
+    expect(blocks).toContain(`"action_id":"ag_req:${REQUEST}:${decision}"`);
   }
   expect(readRequest()?.slackMessage).toBe(storedSlackMessage);
 });
@@ -885,7 +885,7 @@ test("cancel takeover calls cancel after response and updates the card", async (
   seedRequest({ ...takeoverSeed, slackMessage: storedSlackMessage });
   linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
   const result = await gateway.interact(
-    await signedClick(clickPayload({ actionId: `hm_req:${REQUEST}:cancel` }))
+    await signedClick(clickPayload({ actionId: `ag_req:${REQUEST}:cancel` }))
   );
   expect(cancelCalls).toHaveLength(0);
   await runAfter(result);
@@ -911,7 +911,7 @@ test("unlinked users cannot cancel takeover and Slack cannot hand it back", asyn
     await gateway.interact(
       await signedClick(
         clickPayload({
-          actionId: `hm_req:${REQUEST}:cancel`,
+          actionId: `ag_req:${REQUEST}:cancel`,
           slackUserId: STRANGER_SLACK_ID,
         })
       )

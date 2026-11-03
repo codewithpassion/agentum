@@ -3,7 +3,7 @@
 // The TCK's own scenarios are in `scenarios/*.feature` of its checkout. See
 // a2a-tck-proxy.ts for why a message id has to be turned into a prompt.
 //
-// Left out on purpose, because a Agentum agent has no such behaviour:
+// Left out on purpose, because an Agentum agent has no such behaviour:
 // `tck-reject-task` (a task is rejected by a person declining it, or by a
 // revoke), `tck-message-response` (a reply is always a task), and the file and
 // data artifacts (files and JSON output are not in this build).

@@ -48,7 +48,7 @@ test("no origin means nothing to approve", () => {
 
 const agentum = { ...base, peerKind: "harbourmaster" };
 
-test("a card approves a Agentum peer whose host is still the one it showed", () => {
+test("a card approves an Agentum peer whose host is still the one it showed", () => {
   expect(approvalFromCard(agentum, "a.example")).toEqual({
     seen: { origin: "https://a.example", tokenUrl: null },
   });

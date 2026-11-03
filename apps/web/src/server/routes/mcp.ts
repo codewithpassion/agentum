@@ -1,4 +1,4 @@
-// The platform MCP endpoint, `/mcp`. Bearer authenticated: an `hm_key_` API
+// The platform MCP endpoint, `/mcp`. Bearer authenticated: an `ag_key_` API
 // key, or the `hm_run_` token of a running agent. Per request it resolves the
 // principal, builds the tool ports bound to it and hands the request to an
 // MCP handler made for that request alone, so nothing is shared between

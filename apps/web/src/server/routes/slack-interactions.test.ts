@@ -307,7 +307,7 @@ const submission = (
   type: "view_submission",
   user: { id: slackUser },
   view: {
-    callback_id: `hm_req_modal:${requestId}`,
+    callback_id: `ag_req_modal:${requestId}`,
     state: { values },
   },
 });
@@ -349,14 +349,14 @@ test("a bad signature, an unknown app or a body that is not an interaction is re
   const requestId = await openWithCard(() => openApproval(runId));
   slackCalls = [];
 
-  const forged = await send(blockAction(`hm_req:${requestId}:deny`), {
+  const forged = await send(blockAction(`ag_req:${requestId}:deny`), {
     signingSecret: "not the secret",
   });
   expect(forged.status).toBe(UNAUTHORIZED);
   expect(await forged.text()).toContain("Slack");
 
   const unknown = await send(
-    blockAction(`hm_req:${requestId}:deny`, SLACK_DOM, "A0OTHER")
+    blockAction(`ag_req:${requestId}:deny`, SLACK_DOM, "A0OTHER")
   );
   expect(unknown.status).toBe(UNAUTHORIZED);
 
@@ -394,7 +394,7 @@ test("a Deny click is acknowledged before the answer, then answers and settles t
   const requestId = await openWithCard(() => openApproval(runId));
   slackCalls = [];
 
-  const response = await send(blockAction(`hm_req:${requestId}:deny`));
+  const response = await send(blockAction(`ag_req:${requestId}:deny`));
   expect(response.status).toBe(OK);
   expect(await response.text()).toBe("");
 
@@ -431,7 +431,7 @@ test("the Answer button on a question card opens the modal with the click's trig
   );
   slackCalls = [];
 
-  const response = await send(blockAction(`hm_req:${requestId}:modal`));
+  const response = await send(blockAction(`ag_req:${requestId}:modal`));
   expect(response.status).toBe(OK);
   expect(await response.text()).toBe("");
   await runAfterJobs();
@@ -439,7 +439,7 @@ test("the Answer button on a question card opens the modal with the click's trig
   const [opened] = callsTo("views.open");
   expect(opened?.body.trigger_id).toBe(TRIGGER_ID);
   expect(opened?.body.view).toMatchObject({
-    callback_id: `hm_req_modal:${requestId}`,
+    callback_id: `ag_req_modal:${requestId}`,
     type: "modal",
   });
   expect((await requestRow(requestId)).status).toBe("pending");
@@ -479,7 +479,7 @@ test("a choice button on a one-question request answers with that choice", async
   const requestId = await openWithCard(() => openQuestion(runId));
   slackCalls = [];
 
-  const response = await send(blockAction(`hm_req:${requestId}:choice:0:1`));
+  const response = await send(blockAction(`ag_req:${requestId}:choice:0:1`));
   expect(response.status).toBe(OK);
   await runAfterJobs();
 
@@ -496,7 +496,7 @@ test("a click from a Slack user with no identity link is refused privately and c
   slackCalls = [];
 
   const response = await send(
-    blockAction(`hm_req:${requestId}:deny`, SLACK_STRANGER)
+    blockAction(`ag_req:${requestId}:deny`, SLACK_STRANGER)
   );
   expect(response.status).toBe(OK);
   expect(await response.text()).toBe("");
@@ -528,7 +528,7 @@ test("a user who cannot see the run's session is refused on a click and on a sub
     .where(eq(sessionRows.id, session.id));
   slackCalls = [];
 
-  const click = await send(blockAction(`hm_req:${requestId}:modal`));
+  const click = await send(blockAction(`ag_req:${requestId}:modal`));
   expect(click.status).toBe(OK);
   await runAfterJobs();
   expect(callsTo("views.open")).toEqual([]);
@@ -568,7 +568,7 @@ test("a second Slack click after a web answer changes nothing and the card says 
   const { answeredAt } = await requestRow(requestId);
   slackCalls = [];
 
-  const response = await send(blockAction(`hm_req:${requestId}:deny`));
+  const response = await send(blockAction(`ag_req:${requestId}:deny`));
   expect(response.status).toBe(OK);
   await runAfterJobs();
 

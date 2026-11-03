@@ -8,6 +8,7 @@
  * the role it is asked for. The relay acts as the machine it hosts: it passes
  * that machine's principal to the presence methods.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
@@ -26,6 +27,7 @@ import {
 } from "@repo/db/shared";
 import type { HelloMessage } from "@repo/protocol/computer";
 import { machineEnrollRequestSchema } from "@repo/protocol/machine";
+import { ENROLL_CODE, MACHINE_CREDENTIAL } from "@repo/protocol/token-prefixes";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -45,8 +47,10 @@ import {
   type Principal,
 } from "./workspaces.ts";
 
-export const ENROLL_TOKEN_PREFIX = "hm_enr_";
-export const MACHINE_CREDENTIAL_PREFIX = "hm_mach_";
+/** The prefix new enroll codes get. Check with `ENROLL_CODE` from token-prefixes. */
+export const ENROLL_TOKEN_PREFIX = ENROLL_CODE.issue;
+/** The prefix new credentials get. Check with `MACHINE_CREDENTIAL`. */
+export const MACHINE_CREDENTIAL_PREFIX = MACHINE_CREDENTIAL.issue;
 /** Long enough to paste the command onto a machine, short enough to matter. */
 export const ENROLL_TTL_MS = 15 * 60 * 1000;
 /** Runs one `hello` offers at most. The minute sweep offers the rest. */
@@ -422,7 +426,7 @@ export const createMachinesService = ({
     role: AuthenticateRole = "agent_host"
   ): Promise<MachinePrincipal | null> => {
     const token = bearerToken(authorization);
-    if (!token?.startsWith(MACHINE_CREDENTIAL_PREFIX)) {
+    if (!(token && MACHINE_CREDENTIAL.matches(token))) {
       return null;
     }
     const principal =

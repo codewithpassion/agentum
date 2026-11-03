@@ -74,6 +74,9 @@ break:
 - Server code (`#/server/**`, drizzle, `cloudflare:workers`) must not reach the
   browser bundle. After touching the client, `bun run build` and grep
   `apps/web/dist/client` for `drizzle` to check. CI runs the same grep.
+- Token prefixes live in `@repo/protocol/token-prefixes`. New tokens get `issue`
+  (`ag_`), and production still holds `hm_` ones, so check a prefix with
+  `matches`, `strip` or `pattern`, never a `startsWith` on one literal.
 
 ## CI
 
@@ -98,7 +101,8 @@ Agentum speaks A2A 1.0 as server and client (`packages/a2a`,
 `docs/v3/agent-connections.md`, and each package has a README. Rules that are
 easy to break:
 
-- Tokens (`hm_a2a_`) work only on `/a2a`. `createPrincipalResolver` ignores them,
+- Tokens (`ag_a2a_`, and `hm_a2a_` from before the rename) work only on `/a2a`.
+  `createPrincipalResolver` ignores both prefixes,
   so a leaked key fails on `/mcp` and everywhere else. The `/a2a` routes are
   mounted before Clerk and never under `cookieGroup()` or `csrf()`.
 - No MCP tool may create, approve, widen or revoke a connection. An API key, an

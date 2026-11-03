@@ -1,6 +1,6 @@
 /**
  * The key-authenticated admin API (X.10): setup that was UI-only, for an
- * `hm_key_` key. Each method checks the key, calls the service the UI uses and
+ * `ag_key_` key. Each method checks the key, calls the service the UI uses and
  * writes one `admin.action` event naming the key (id and name) as the actor.
  *
  * Creating agents and inbox threads takes a `write` key. Everything else

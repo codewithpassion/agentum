@@ -7,9 +7,7 @@ import {
 import { type GuestGrant, guestGrantSchema } from "@repo/protocol/live";
 import { hashToken } from "../crypto.ts";
 import type { Clock } from "../runs/types.ts";
-
-const INVITE = /^hm_invite_[A-Za-z0-9_-]{43}$/;
-const SESSION = /^hm_guest_[A-Za-z0-9_-]{43}$/;
+import { isGuestInvitationToken, isGuestSessionToken } from "./security.ts";
 
 export const createGuestAccessReader = (deps: {
   clock: Clock;
@@ -18,7 +16,7 @@ export const createGuestAccessReader = (deps: {
   guestsOff: () => boolean;
 }) => ({
   async invitation(workspaceId: string, token: string) {
-    if (deps.guestsOff() || !INVITE.test(token)) {
+    if (deps.guestsOff() || !isGuestInvitationToken(token)) {
       return null;
     }
     return await findGuestInvitation(deps.db, {
@@ -36,7 +34,7 @@ export const createGuestAccessReader = (deps: {
     sessionToken: string;
     workspaceId: string;
   }): Promise<GuestGrant | null> {
-    if (deps.guestsOff() || !SESSION.test(input.sessionToken)) {
+    if (deps.guestsOff() || !isGuestSessionToken(input.sessionToken)) {
       return null;
     }
     const row = await findGuestSessionGrant(deps.db, {

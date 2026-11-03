@@ -51,9 +51,9 @@ const SUMMARY_CONTENT = "Launch is on track.";
 const SUMMARY_TEXT = "Here is the summary.";
 const DM_FILE_THREAD_TS = "1789171203.000300";
 const UNLINKED_TEXT =
-  "I don't know you yet. Ask a Agentum admin of this workspace to invite you, using the same email address as your Slack profile.";
+  "I don't know you yet. Ask an Agentum admin of this workspace to invite you, using the same email address as your Slack profile.";
 const HIDDEN_EMAIL_TEXT =
-  "I can't see the email address on your Slack profile, so I can't match you to a Agentum account. Ask a Agentum admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
+  "I can't see the email address on your Slack profile, so I can't match you to an Agentum account. Ask an Agentum admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 
 type Fixture = Record<string, unknown> & { event: Record<string, unknown> };
 

@@ -10,6 +10,12 @@ import {
   requestOutcomeSchema,
 } from "./requests.ts";
 import { runStopSchema } from "./safeguards.ts";
+import {
+  ENROLL_CODE,
+  MACHINE_CREDENTIAL,
+  RUN_TOKEN,
+  type TokenPrefix,
+} from "./token-prefixes.ts";
 
 /**
  * The header a daemon sends with its claim to list the optional features it
@@ -46,11 +52,15 @@ export const CLOSE_CODES = {
   replaced: 1012,
 } as const;
 
+/** Either prefix of a token kind, at the start. */
+const startsWith = (kind: TokenPrefix): RegExp =>
+  new RegExp(`^${kind.pattern}`);
+
 const isoTimestampSchema = z.iso.datetime({ offset: true });
 const jsonRecordSchema = z.record(z.string(), z.json());
 
 export const enrollRequestSchema = z.strictObject({
-  code: z.string().startsWith("hm_enr_").max(200),
+  code: z.string().regex(startsWith(ENROLL_CODE)).max(200),
   singleUser: z.boolean(),
 });
 export type EnrollRequest = z.infer<typeof enrollRequestSchema>;
@@ -62,7 +72,7 @@ export type EnrollRequest = z.infer<typeof enrollRequestSchema>;
 export const computerEnrollRequestSchema = z.strictObject({
   arch: z.string().min(1).max(64),
   clientVersion: z.string().min(1).max(64),
-  code: z.string().startsWith("hm_enr_").max(200),
+  code: z.string().regex(startsWith(ENROLL_CODE)).max(200),
   hostname: z.string().min(1).max(255),
   os: z.string().min(1).max(64),
   role: z.literal("computer"),
@@ -77,7 +87,7 @@ export const machineEnrollRequestSchema = z.union([
 export type MachineEnrollRequest = z.infer<typeof machineEnrollRequestSchema>;
 
 export const enrollResponseSchema = z.strictObject({
-  credential: z.string().startsWith("hm_mach_"),
+  credential: z.string().regex(startsWith(MACHINE_CREDENTIAL)),
   machineId: z.string(),
 });
 export type EnrollResponse = z.infer<typeof enrollResponseSchema>;
@@ -197,7 +207,7 @@ export const claimResponseSchema = z.strictObject({
     // The daemon lays out its work directories by workspace and agent.
     workspaceId: z.string(),
   }),
-  runToken: z.string().startsWith("hm_run_"),
+  runToken: z.string().regex(startsWith(RUN_TOKEN)),
   session: z.strictObject({
     id: z.string(),
     runtimeMachineId: z.string().nullable(),

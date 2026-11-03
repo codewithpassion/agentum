@@ -121,7 +121,7 @@ try {
           .run();
         const token = invitation.mail
           .at(-1)
-          .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
+          .text.match(/(?:ag|hm)_invite_[A-Za-z0-9_-]+/)[0];
         const context = await browser.newContext({ viewport });
         const page = await context.newPage();
         // Drain the current handshake AND prevent queued work from starting
@@ -462,7 +462,7 @@ try {
         });
         const nextToken = nextGuest.mail
           .at(-1)
-          .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
+          .text.match(/(?:ag|hm)_invite_[A-Za-z0-9_-]+/)[0];
         await page.goto(`${base}/g/${nextToken}`);
         await page.getByRole("button", { name: "Send me a code" }).click();
         await expect(page.getByLabel("6-digit code")).toBeVisible();

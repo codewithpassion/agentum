@@ -8,7 +8,7 @@
 //
 // - Only a token that looks like an OAuth access token is sent at all: the
 //   `oat_` prefix, or a JWT whose header `typ` is `at+jwt` (RFC 9068), the
-//   same test as the SDK's unexported `isOAuthJwt`. `hm_key_`, `ak_`, `mt_`,
+//   same test as the SDK's unexported `isOAuthJwt`. `ag_key_`, `ak_`, `mt_`,
 //   session JWTs and garbage end as invalid without a network call.
 // - A 200 answer is still refused when `revoked`, `expired`, `expiration` in
 //   the past, a `type` other than an OAuth access token, a subject that is

@@ -1,5 +1,5 @@
 // The external desk API (contract C4), `/api/desk/*`. An outside app (flightdex)
-// calls it from its own server with an `hm_key_` key that has the `desk` scope
+// calls it from its own server with an `ag_key_` key that has the `desk` scope
 // and an `X-On-Behalf-Of: <email>` header naming the member it acts for. A
 // connected app's OAuth token is not a credential here: it is never sent to
 // Clerk, so it cannot register a client either. The service decides who may
@@ -147,7 +147,7 @@ const runOfBlock = (block: string): string | true | null => {
   }
 };
 
-/** Keys only: a token that is not an `hm_` credential verifies to nothing. */
+/** Keys only: a token that is not an `ag_` or `hm_` credential verifies to nothing. */
 const noOAuth = {
   clientName: () => () => Promise.resolve(null),
   userOrgIds: () => () => Promise.resolve([]),

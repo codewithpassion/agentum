@@ -4,6 +4,8 @@
  * one ticket id and a short lifetime. The room still verifies the ticket,
  * consumes its id and re-reads access, so a replayed or forged assertion buys
  * nothing: a valid ticket id is single use. */
+
+import { ROOM_ADMISSION } from "@repo/protocol/token-prefixes";
 import {
   constantTimeEqual,
   fromBase64Url,
@@ -22,7 +24,6 @@ export const ADMISSION_SECONDS = 30;
 /** The route and the room run in different isolates. */
 const CLOCK_SKEW_SECONDS = 2;
 
-const PREFIX = "hm_adm_";
 const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -59,7 +60,7 @@ export const signRoomAdmission = async (
   key: string
 ): Promise<string> => {
   const payload = toBase64Url(encoder.encode(JSON.stringify(admission)));
-  return `${PREFIX}${payload}.${toBase64Url(await mac(key, payload))}`;
+  return `${ROOM_ADMISSION.issue}${payload}.${toBase64Url(await mac(key, payload))}`;
 };
 
 const isAdmission = (value: unknown): value is RoomAdmission => {
@@ -90,10 +91,11 @@ export const verifyRoomAdmission = async (
   expected: { artifactId: string; jti: string; workspaceId: string },
   nowSeconds: number
 ): Promise<RoomAdmission | null> => {
-  if (!(key && header.startsWith(PREFIX)) || header.length > 8192) {
+  const body = ROOM_ADMISSION.strip(header);
+  if (!key || body === null || header.length > 8192) {
     return null;
   }
-  const parts = header.slice(PREFIX.length).split(".");
+  const parts = body.split(".");
   const [payload, signatureText] = parts;
   if (parts.length !== 2 || !payload || !signatureText) {
     return null;

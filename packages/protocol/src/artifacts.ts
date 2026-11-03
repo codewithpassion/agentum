@@ -17,9 +17,10 @@ import {
   ARTIFACT_VIEWER_KINDS,
 } from "@repo/db/shared";
 import { z } from "zod";
+import { ARTIFACT_SHARE_TOKEN, ARTIFACT_VIEW_TOKEN } from "./token-prefixes.ts";
 
 /**
- * What a `hm_view_` token says. `expiresAt` is Unix seconds. `shareId` is set
+ * What a view token (`ag_view_`, formerly `hm_view_`) says. `expiresAt` is Unix seconds. `shareId` is set
  * for a link viewer, `userId` for a member.
  */
 export const viewTokenClaimsSchema = z.strictObject({
@@ -49,11 +50,11 @@ export const viewTokenClaimsSchema = z.strictObject({
 });
 export type ViewTokenClaims = z.infer<typeof viewTokenClaimsSchema>;
 
-/** Prefix of a view token, which the content URL carries. */
-export const ARTIFACT_VIEW_TOKEN_PREFIX = "hm_view_";
+/** Prefix of new view tokens, which the content URL carries. Check with `ARTIFACT_VIEW_TOKEN`. */
+export const ARTIFACT_VIEW_TOKEN_PREFIX = ARTIFACT_VIEW_TOKEN.issue;
 
-/** Prefix of a share link token, which `/s/<token>` carries. */
-export const ARTIFACT_SHARE_TOKEN_PREFIX = "hm_share_";
+/** Prefix of new share link tokens, which `/s/<token>` carries. Check with `ARTIFACT_SHARE_TOKEN`. */
+export const ARTIFACT_SHARE_TOKEN_PREFIX = ARTIFACT_SHARE_TOKEN.issue;
 
 /** Folder inside the content path that the platform owns. Agents can't write it. */
 export const ARTIFACT_RESERVED_PREFIX = "_hm/";

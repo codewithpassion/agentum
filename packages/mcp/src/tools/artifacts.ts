@@ -4,6 +4,10 @@ import {
   ARTIFACT_MAX_FILES,
 } from "@repo/db/shared";
 import { artifactPathSchema } from "@repo/protocol/artifacts";
+import {
+  ARTIFACT_SHARE_TOKEN,
+  ARTIFACT_VIEW_TOKEN,
+} from "@repo/protocol/token-prefixes";
 import { z } from "zod";
 import type {
   ArtifactFileInput,
@@ -24,7 +28,10 @@ import {
 import type { LivePort } from "./live";
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
-const TOKEN_IN_TEXT = /hm_(?:view|share)_[A-Za-z0-9_.~%-]+/g;
+const TOKEN_IN_TEXT = new RegExp(
+  `(?:${ARTIFACT_VIEW_TOKEN.pattern}|${ARTIFACT_SHARE_TOKEN.pattern})[A-Za-z0-9_.~%-]+`,
+  "g"
+);
 const TRAILING_PADDING = /[=]+$/;
 const BUILD_GUIDE =
   "Build the files in your task folder (agents/<slug>/tasks/<runId>/) with relative paths, keep any data in data.json next to index.html, and run artifact_test before you tell anyone you are done.";
@@ -281,8 +288,10 @@ const publishedText = (verb: string, published: ArtifactPublished): string =>
 
 /** Tokens can appear in URLs the page requested; the agent never sees them. */
 const redact = (text: string): string =>
-  text.replace(TOKEN_IN_TEXT, (match) =>
-    match.startsWith("hm_view_") ? "hm_view_[redacted]" : "hm_share_[redacted]"
+  text.replace(
+    TOKEN_IN_TEXT,
+    (match) =>
+      `${ARTIFACT_VIEW_TOKEN.prefixOf(match) ?? ARTIFACT_SHARE_TOKEN.prefixOf(match)}[redacted]`
   );
 
 const testData = (info: ArtifactTestInfo): ArtifactTestInfo => ({

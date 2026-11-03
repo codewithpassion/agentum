@@ -50,6 +50,15 @@ type TakeoverRequest = Base &
 export type CardRequest = ApprovalRequest | QuestionRequest | TakeoverRequest;
 const TRAILING_SLASHES = /\/+$/;
 const INDEX = /^(0|[1-9]\d*)$/;
+/**
+ * The first part of a card button's `action_id` and of the modal's
+ * `callback_id`. Cards posted before the rename still carry the `hm_` ones,
+ * and a click on them must still answer, so both are parsed.
+ */
+const ACTION_ID = "ag_req";
+const ACTION_IDS = new Set([ACTION_ID, "hm_req"]);
+const MODAL_ID = "ag_req_modal";
+const MODAL_IDS = new Set([MODAL_ID, "hm_req_modal"]);
 const isChoiceAction = (parts: string[]): boolean =>
   parts.length === 5 &&
   parts[2] === "choice" &&
@@ -99,7 +108,7 @@ export const approvalCard = (request: ApprovalRequest): RequestCard => ({
         .map((decision) => ({
           ...button(
             labels[decision],
-            `hm_req:${request.requestId}:${decision}`
+            `${ACTION_ID}:${request.requestId}:${decision}`
           ),
           ...(decision === "deny" ? { style: "danger" as const } : {}),
         })),
@@ -124,10 +133,10 @@ export const questionCard = (request: QuestionRequest): RequestCard => ({
             ? q.choices.map((choice, i) =>
                 button(
                   choice,
-                  `hm_req:${request.requestId}:choice:${index}:${i}`
+                  `${ACTION_ID}:${request.requestId}:choice:${index}:${i}`
                 )
               )
-            : [button("Answer", `hm_req:${request.requestId}:modal`)],
+            : [button("Answer", `${ACTION_ID}:${request.requestId}:modal`)],
         type: "actions",
       },
     ]),
@@ -149,13 +158,19 @@ export const takeoverCard = (request: TakeoverRequest): RequestCard => ({
         ...(request.publicBaseUrl
           ? [
               {
-                ...button("Open screen", `hm_req:${request.requestId}:screen`),
+                ...button(
+                  "Open screen",
+                  `${ACTION_ID}:${request.requestId}:screen`
+                ),
                 url: `${request.publicBaseUrl.replace(TRAILING_SLASHES, "")}/tasks/${encodeURIComponent(request.runId)}#computer`,
               },
             ]
           : []),
         {
-          ...button("Cancel request", `hm_req:${request.requestId}:cancel`),
+          ...button(
+            "Cancel request",
+            `${ACTION_ID}:${request.requestId}:cancel`
+          ),
           style: "danger",
         },
       ],
@@ -240,7 +255,7 @@ export const modalView = (request: QuestionRequest): RequestModal => ({
         : []),
     ];
   }),
-  callback_id: `hm_req_modal:${request.requestId}`,
+  callback_id: `${MODAL_ID}:${request.requestId}`,
   close: plain("Cancel"),
   submit: plain("Submit"),
   title: plain("Answer questions"),
@@ -398,7 +413,7 @@ const parseAction = (
 ): Parsed => {
   const [clicked] = action.actions;
   const parts = (clicked?.action_id ?? "").split(":");
-  if (parts[0] !== "hm_req") {
+  if (!ACTION_IDS.has(parts[0] ?? "")) {
     return { ok: false, reason: clicked ? "foreign" : "invalid" };
   }
   const requestId = z.string().min(1).parse(parts[1]);
@@ -447,7 +462,7 @@ const parseSubmission = (
   questions: Questions | undefined
 ): Parsed => {
   const parts = view.callback_id.split(":");
-  if (parts[0] !== "hm_req_modal") {
+  if (!MODAL_IDS.has(parts[0] ?? "")) {
     return { ok: false, reason: "foreign" };
   }
   if (parts.length !== 2) {

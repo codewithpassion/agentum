@@ -84,7 +84,7 @@ export interface DecryptedCredential {
 
 export interface NeedsAuth {
   cause: NeedsAuthCause;
-  /** A Agentum page, never a provider URL. Null when no person can connect. */
+  /** An Agentum page, never a provider URL. Null when no person can connect. */
   connectPath: string | null;
   ok: false;
   ownerId: string | null;

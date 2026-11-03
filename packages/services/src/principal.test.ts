@@ -8,6 +8,12 @@ import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import {
+  A2A_ACCESS_TOKEN,
+  API_KEY,
+  MACHINE_CREDENTIAL,
+  TRIGGER_TOKEN,
+} from "@repo/protocol/token-prefixes";
 import { eq } from "drizzle-orm";
 import { hashedToken } from "./crypto.ts";
 import {
@@ -110,9 +116,10 @@ const addSession = (id: string, workspaceId: string, agentId: string) =>
 const addMachine = async (
   id: string,
   workspaceId: string,
-  status: "online" | "revoked"
+  status: "online" | "revoked",
+  prefix = MACHINE_CREDENTIAL.issue
 ) => {
-  const { hash, token } = await hashedToken("hm_mach_");
+  const { hash, token } = await hashedToken(prefix);
   db.insert(machines)
     .values({
       capabilities: "[]",
@@ -129,8 +136,13 @@ const addMachine = async (
   return token;
 };
 
-const addTrigger = async (id: string, workspaceId: string, agentId: string) => {
-  const { hash, token } = await hashedToken("hm_trg_");
+const addTrigger = async (
+  id: string,
+  workspaceId: string,
+  agentId: string,
+  prefix = TRIGGER_TOKEN.issue
+) => {
+  const { hash, token } = await hashedToken(prefix);
   db.insert(triggers)
     .values({
       agentId,
@@ -151,9 +163,10 @@ const addApiKey = async (
   id: string,
   workspaceId: string,
   createdBy: string,
-  revoked: boolean
+  revoked: boolean,
+  prefix = API_KEY.issue
 ) => {
-  const { hash, token } = await hashedToken("hm_key_");
+  const { hash, token } = await hashedToken(prefix);
   db.insert(apiKeys)
     .values({
       access: "write",
@@ -162,7 +175,7 @@ const addApiKey = async (
       id,
       keyHash: hash,
       name: id,
-      prefix: "hm_key_",
+      prefix,
       revokedAt: revoked ? new Date().toISOString() : null,
       workspaceId,
     })
@@ -377,10 +390,65 @@ test("an OAuth token the verifier refuses resolves to null", async () => {
   expect(oauthCalls).toBe(1);
 });
 
-test("an hm_enr_ token resolves to null and never reaches the OAuth verifier", async () => {
+test("an enroll code resolves to null and never reaches the OAuth verifier", async () => {
   expect(await resolverFor().resolve(bearer("hm_enr_abcdef"))).toBeNull();
+  expect(await resolverFor().resolve(bearer("ag_enr_abcdef"))).toBeNull();
   expect(oauthCalls).toBe(0);
 });
+
+test.each(["ag_", "hm_"])(
+  "keys, triggers and machine credentials resolve under the %s prefix (hm_ is from before the rename)",
+  async (namespace) => {
+    const { resolve } = resolverFor();
+    const machine = await addMachine(
+      `mach_${namespace}`,
+      "ws_a",
+      "online",
+      `${namespace}mach_`
+    );
+    const trigger = await addTrigger(
+      `trg_${namespace}`,
+      "ws_a",
+      "agent_1",
+      `${namespace}trg_`
+    );
+    const apiKey = await addApiKey(
+      `key_${namespace}`,
+      "ws_a",
+      "user_1",
+      false,
+      `${namespace}key_`
+    );
+    expect(await resolve(bearer(machine))).toMatchObject({
+      kind: "machine",
+      machineId: `mach_${namespace}`,
+    });
+    expect(await resolve(bearer(trigger))).toMatchObject({
+      kind: "trigger",
+      triggerId: `trg_${namespace}`,
+    });
+    expect(await resolve(bearer(apiKey))).toMatchObject({
+      apiKey: { id: `key_${namespace}` },
+      kind: "user",
+    });
+    expect(oauthCalls).toBe(0);
+  }
+);
+
+test("new keys and triggers are issued with ag_", () => {
+  expect(API_KEY.issue).toBe("ag_key_");
+  expect(TRIGGER_TOKEN.issue).toBe("ag_trg_");
+});
+
+test.each([...A2A_ACCESS_TOKEN.accepted])(
+  "an A2A token (%s) resolves to null and never reaches the OAuth verifier",
+  async (prefix) => {
+    expect(
+      await resolverFor().resolve(bearer(`${prefix}${"x".repeat(43)}`))
+    ).toBeNull();
+    expect(oauthCalls).toBe(0);
+  }
+);
 
 test("an api key whose minter is no longer a member resolves to null", async () => {
   members.delete("user_1@org_a");

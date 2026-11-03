@@ -92,7 +92,7 @@ export const managedSkills = sqliteTable(
 );
 
 /**
- * The Anthropic session behind a Agentum session, with the vault that
+ * The Anthropic session behind an Agentum session, with the vault that
  * holds its session token. `cursor_*` is how far its events have been read.
  * A session that ended any way but a clean turn is closed and never reused.
  */

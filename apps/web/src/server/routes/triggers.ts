@@ -1,5 +1,5 @@
 // The ingest route for HTTP triggers, `POST /api/triggers/:id`. The caller
-// presents the trigger's own bearer token (`hm_trg_`). The service decides
+// presents the trigger's own bearer token (`ag_trg_`). The service decides
 // what the token may do, so this file checks the header and the id, parses
 // the body, and maps what the services refuse to a status. Mount with
 // `automationRoutes.route("/api/triggers", triggerRoutes())`.

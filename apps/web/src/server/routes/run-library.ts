@@ -1,7 +1,7 @@
 // Library HTTP routes for the daemon. Two prefixes serve the same handlers:
 // `/api/runs/:id/library` takes a run token (`hm_run_`, bearer) that must name
 // the run in the URL, and `/api/session/library` takes a run or managed
-// session token (`hm_run_` or `hm_ses_`, bearer) and checks no run id, because
+// session token (`hm_run_` or `ag_ses_`, bearer) and checks no run id, because
 // a managed session's run changes every turn. `/api/session/library/run` answers
 // the id of the run the token names. The cookie session is never read. The
 // services decide what the caller may do, so this file only authenticates and

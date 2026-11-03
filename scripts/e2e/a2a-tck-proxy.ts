@@ -9,7 +9,7 @@
 // Two rewrites of a message, both about what the TCK assumes of its agent:
 //
 // - The TCK's scenarios say what the agent under test does for a message id
-//   prefix (`tck-input-required` waits for input). A Agentum agent is
+//   prefix (`tck-input-required` waits for input). An Agentum agent is
 //   driven by its prompt, so `promptFor` maps a prefix to the text the
 //   dev-only `faux` model turns into that behaviour. The list is
 //   `TCK_PROMPTS` in a2a-tck-prompts.ts, and only the first text part of a

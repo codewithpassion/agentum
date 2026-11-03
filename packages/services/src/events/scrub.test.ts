@@ -108,6 +108,14 @@ test.each([
     "use [redacted] here",
   ],
   ["the hm_mach_ prefix alone", "the hm_mach_ prefix alone"],
+  [
+    "run ag_mach_abcdefghijklmnopqrstuvwxyz0123456789 now",
+    "run [redacted] now",
+  ],
+  [
+    "use ag_run_abcdefghijklmnop1234.abcdefghijklmnop5678 here",
+    "use [redacted] here",
+  ],
 ])("redacts credential fields written as text: %s", (input, expected) => {
   expect(redactText(input)).toBe(expected);
   expect(scrubInput(input)).toBe(expected);

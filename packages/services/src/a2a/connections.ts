@@ -1371,7 +1371,7 @@ export const createConnectionsService = ({
     if (row.peerKind === "a2a_outbound") {
       return await approveNewOrigin(user, row, looked);
     }
-    // A Agentum peer has no token URL, and its origin is the one shown.
+    // An Agentum peer has no token URL, and its origin is the one shown.
     refuseUnseen(looked, { origin: row.peerOrigin, tokenUrl: null });
     if (
       row.peerKind !== "harbourmaster" ||
@@ -2406,7 +2406,7 @@ export const createConnectionsService = ({
   /**
    * Ends a connection. Any person on a session may: cutting access should not
    * need the right person awake. The token fails on its next use because
-   * `authenticate` re-reads the row. A Agentum peer is told through the
+   * `authenticate` re-reads the row. An Agentum peer is told through the
    * outbox, best effort. A second revoke changes nothing.
    */
   const revoke = async (
@@ -2508,7 +2508,7 @@ export const createConnectionsService = ({
 
   /**
    * The `peer` principal for a bearer token, or null. Any token is looked up,
-   * not only `hm_a2a_` ones, because a client that paired by code chose its own.
+   * not only `ag_a2a_` ones, because a client that paired by code chose its own.
    * It re-reads the connection on every call and caches nothing, so a revoke
    * takes effect on the next request. The connection must be `active`, and its
    * agent published and active. When `publicId` is given, it must be the public id of the agent

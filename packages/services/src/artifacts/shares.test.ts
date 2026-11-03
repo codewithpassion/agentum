@@ -17,6 +17,7 @@ import {
 } from "@repo/protocol/artifacts";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
+import { hashToken } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
 import { createEventsService } from "../events.ts";
 import type { Principal } from "../workspaces.ts";
@@ -398,7 +399,7 @@ describe("link shares", () => {
     });
     expect(second.expiresAt).toBeNull();
     expect(second.versionId).toBeNull();
-    expect(first.url).toStartWith(`${ORIGIN}/s/hm_share_`);
+    expect(first.url).toStartWith(`${ORIGIN}/s/ag_share_`);
     expect(first.url).not.toBe(second.url);
 
     advance(HOUR);
@@ -418,7 +419,7 @@ describe("link shares", () => {
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ id: share.id, status: "active" });
     expect(listed[0]?.url).toBe(`${ORIGIN}/s/`);
-    expect(JSON.stringify(listed)).not.toContain("hm_share_");
+    expect(JSON.stringify(listed)).not.toContain("ag_share_");
   });
 
   test("an API key or an agent cannot read links, open as a member or read the log", async () => {
@@ -515,7 +516,7 @@ describe("link shares", () => {
     expect(JSON.stringify([created, revoked])).not.toContain(
       tokenOf(share.url)
     );
-    expect(JSON.stringify([created, revoked])).not.toContain("hm_share_");
+    expect(JSON.stringify([created, revoked])).not.toContain("ag_share_");
   });
 
   test("status is revoked, expired or active, and revoked wins", async () => {
@@ -705,6 +706,17 @@ describe("link open", () => {
       ok: false,
     });
     expect(db.select().from(artifactViews).all()).toHaveLength(0);
+  });
+
+  test("a link from before the rename, hm_share_, still opens", async () => {
+    const { share, token } = await create();
+    expect(token).toStartWith("ag_share_");
+    const legacy = `hm_share_${token.slice("ag_share_".length)}`;
+    db.update(artifactShares)
+      .set({ tokenHash: await hashToken(legacy) })
+      .where(eq(artifactShares.id, share.id))
+      .run();
+    expect((await service.openLink(legacy, request())).ok).toBe(true);
   });
 
   test("turning the workspace switch back on reopens existing links", async () => {
@@ -901,7 +913,7 @@ describe("secrets and addresses at rest (R1.13, R1.31)", () => {
 
     const dump = dumpDatabase();
     expect(dump).not.toContain(token);
-    expect(dump).not.toContain("hm_share_");
+    expect(dump).not.toContain("ag_share_");
     expect(dump).not.toContain(ARTIFACT_VIEW_TOKEN_PREFIX);
     expect(dump).not.toContain(IP);
     expect(dump).not.toContain(IP6);

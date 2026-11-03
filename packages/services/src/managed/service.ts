@@ -13,7 +13,7 @@
  * 3. read the session's events, store the messages and tool calls as run
  *    events, move the lease, and when the session goes idle, complete the run.
  *
- * The session token (`hm_ses_`, see run-tokens.ts) is how a managed agent
+ * The session token (`ag_ses_`, see run-tokens.ts) is how a managed agent
  * reaches `/mcp` and the connector proxy: the MCP servers are fixed on the
  * Anthropic agent, so the credential rides per session in a vault.
  */

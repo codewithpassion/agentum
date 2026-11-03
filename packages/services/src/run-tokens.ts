@@ -3,6 +3,8 @@
  * by the agent for the whole run. The payload is base64url JSON
  * `[runId, agentId, workspaceId, issuedAtMs]`; the signature is HMAC-SHA256
  * over `hm_run_<payload>` under `RUN_TOKEN_KEY` (32 random bytes, base64).
+ * The prefixes live in `@repo/protocol/token-prefixes`: `ag_run_` and
+ * `hm_run_` both verify, each signed over the prefix it carries.
  *
  * The token alone proves who minted it, not that it is still good. A token is
  * valid on use when all of these hold: the signature checks, it is at most 12
@@ -17,15 +19,21 @@ import type { Database } from "@repo/db";
 import { managedSessions } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import {
+  RUN_TOKEN,
+  SESSION_TOKEN,
+  type TokenPrefix,
+} from "@repo/protocol/token-prefixes";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { CryptoError, fromBase64Url, toBase64Url } from "./crypto.ts";
 import { MANAGED_CLAIMER } from "./managed/types.ts";
 import { currentGuestRun } from "./runs/guest-scope.ts";
 
-export const RUN_TOKEN_PREFIX = "hm_run_";
+/** The prefix new run tokens get. */
+export const RUN_TOKEN_PREFIX = RUN_TOKEN.issue;
 /**
- * `hm_ses_<payload>.<signature>`: one token per managed session, signed like a
+ * `ag_ses_<payload>.<signature>` (formerly `hm_ses_`): one token per managed session, signed like a
  * run token over `[sessionId, agentId, workspaceId, issuedAtMs]`. A managed
  * agent's MCP servers are fixed when the Anthropic agent is registered, so a
  * run cannot hand it a token. The token rides in the session's own vault
@@ -33,7 +41,7 @@ export const RUN_TOKEN_PREFIX = "hm_run_";
  * run. It has
  * no age limit: the `managed_sessions` row says whether it is still good.
  */
-export const SESSION_TOKEN_PREFIX = "hm_ses_";
+export const SESSION_TOKEN_PREFIX = SESSION_TOKEN.issue;
 export const RUN_TOKEN_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /** How far ahead of `now` an issue time may be, for clock drift between Workers. */
@@ -143,10 +151,11 @@ export const signSessionToken = (
 /** The payload of a token whose prefix and signature check, else null. */
 const openFields = async (
   key: CryptoKey,
-  prefix: string,
+  kind: TokenPrefix,
   token: string
 ): Promise<z.infer<typeof payloadSchema> | null> => {
-  if (!token.startsWith(prefix)) {
+  const prefix = kind.prefixOf(token);
+  if (prefix === null) {
     return null;
   }
   const parts = token.split(".");
@@ -182,7 +191,7 @@ const openToken = async (
   key: CryptoKey,
   token: string
 ): Promise<RunTokenClaims | null> => {
-  const fields = await openFields(key, RUN_TOKEN_PREFIX, token);
+  const fields = await openFields(key, RUN_TOKEN, token);
   if (!fields) {
     return null;
   }
@@ -270,7 +279,7 @@ export const verifySessionToken = async ({
   now?: Date;
   token: string;
 }): Promise<RunTokenResult> => {
-  const fields = await openFields(key, SESSION_TOKEN_PREFIX, token);
+  const fields = await openFields(key, SESSION_TOKEN, token);
   if (!fields) {
     return { ok: false, reason: "invalid" };
   }
@@ -327,6 +336,6 @@ export const verifyAgentToken = (args: {
   now?: Date;
   token: string;
 }): Promise<RunTokenResult> =>
-  args.token.startsWith(SESSION_TOKEN_PREFIX)
+  SESSION_TOKEN.matches(args.token)
     ? verifySessionToken(args)
     : verifyRunToken(args);

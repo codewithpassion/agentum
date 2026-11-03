@@ -1,6 +1,6 @@
 /**
  * HTTP triggers: a way to start one agent from outside with a per-trigger
- * bearer token (`hm_trg_`). A person makes, pauses and revokes triggers. The
+ * bearer token (`ag_trg_`). A person makes, pauses and revokes triggers. The
  * secret is shown once, at creation, and the table keeps only its SHA-256. A
  * caller with the token calls `fire`, which starts a run through `startRun`
  * as the trigger itself: the run is on behalf of nobody.
@@ -10,6 +10,7 @@
  * for it, least of all the run. A person approves it (`approve`), which
  * mints the token and shows it once, or rejects it.
  */
+
 import type { Database } from "@repo/db";
 import { findMapTrigger } from "@repo/db/map";
 import { agents } from "@repo/db/schema/agents";
@@ -17,6 +18,7 @@ import { events } from "@repo/db/schema/events";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { isPendingProposal, type TriggerKind } from "@repo/db/shared";
+import { TRIGGER_TOKEN } from "@repo/protocol/token-prefixes";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -48,7 +50,8 @@ import {
   type Principal,
 } from "./workspaces.ts";
 
-export const TRIGGER_TOKEN_PREFIX = "hm_trg_";
+/** The prefix new trigger tokens get. Check with `TRIGGER_TOKEN` from token-prefixes. */
+export const TRIGGER_TOKEN_PREFIX = TRIGGER_TOKEN.issue;
 /** Characters of the random part shown back, so triggers can be told apart. */
 const HINT_LENGTH = 4;
 /** The longest `requestId` a caller may send. It is stored with a prefix. */
@@ -164,7 +167,7 @@ export const createTriggersService = ({
   runs: RunsService;
 }) => {
   /**
-   * The trigger principal for `Authorization: Bearer hm_trg_...`, or null. A
+   * The trigger principal for `Authorization: Bearer ag_trg_...`, or null. A
    * revoked trigger, an unknown token and a workspace with no row are all
    * null.
    */
@@ -172,7 +175,7 @@ export const createTriggersService = ({
     authorization: string | null
   ): Promise<TriggerPrincipal | null> => {
     const token = bearerToken(authorization);
-    if (!token?.startsWith(TRIGGER_TOKEN_PREFIX)) {
+    if (!(token && TRIGGER_TOKEN.matches(token))) {
       return null;
     }
     const principal = await findTriggerByToken(db, token);

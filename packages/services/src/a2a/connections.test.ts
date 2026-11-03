@@ -8,7 +8,7 @@ import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "../agents.ts";
 import { can, ForbiddenError } from "../authz.ts";
-import { decryptSecret, importSecretsKey } from "../crypto.ts";
+import { decryptSecret, hashToken, importSecretsKey } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
 import { createEventsService, type EventsService } from "../events.ts";
 import { deriveSubject, eventActor } from "../runs/subject.ts";
@@ -596,7 +596,7 @@ describe("access keys and outside agents", () => {
       agentId: AGENT_X,
       label: "Hermes on Sam's box",
     });
-    expect(key.token).toStartWith("hm_a2a_");
+    expect(key.token).toStartWith("ag_a2a_");
     expect(key.connection.peerKind).toBe("a2a_inbound");
     expect(key.connection.status).toBe("active");
     expect(key.connection.tokenPrefix).toBe(key.token.slice(0, 11));
@@ -604,6 +604,22 @@ describe("access keys and outside agents", () => {
     const principal = await service.authenticate(key.token);
     expect(principal?.connectionId).toBe(key.connection.id);
     expect(JSON.stringify(await service.list(ownerA))).not.toContain(key.token);
+  });
+
+  test("a key from before the rename, hm_a2a_, still authenticates", async () => {
+    await publishBoth();
+    const key = await service.createAccessKey(ownerA, {
+      agentId: AGENT_X,
+      label: "Old key",
+    });
+    const legacy = `hm_a2a_${key.token.slice("ag_a2a_".length)}`;
+    await db
+      .update(a2aConnections)
+      .set({ inboundTokenHash: await hashToken(legacy) })
+      .where(eq(a2aConnections.id, key.connection.id));
+    expect((await service.authenticate(legacy))?.connectionId).toBe(
+      key.connection.id
+    );
   });
 
   test("authenticate refuses anything but an active connection's token", async () => {
@@ -1259,7 +1275,7 @@ describe("who may act", () => {
 });
 
 describe("revoking", () => {
-  test("a revoke queues a notice to a Agentum peer and the peer's access ends on its notice", async () => {
+  test("a revoke queues a notice to an Agentum peer and the peer's access ends on its notice", async () => {
     const paired = await pairFully();
     await service.revoke(memberA, paired.aliceId);
     const [notice] = await db

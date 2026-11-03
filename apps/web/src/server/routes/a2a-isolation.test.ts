@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { clerkMiddleware } from "@clerk/hono";
+import { a2aConnections } from "@repo/db/schema/a2a";
+import { hashToken } from "@repo/services/crypto";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import type { MiddlewareHandler } from "hono/types";
@@ -55,7 +58,7 @@ beforeEach(async () => {
   );
 });
 
-describe("an hm_a2a_ key works nowhere but /a2a", () => {
+describe("an A2A key works nowhere but /a2a", () => {
   test("the key is a valid credential under its own agent's path", async () => {
     const res = await f.rpc(
       publicId,
@@ -100,6 +103,37 @@ describe("an hm_a2a_ key works nowhere but /a2a", () => {
       env
     );
     expect(res.status).toBe(401);
+  });
+
+  test("new keys are ag_a2a_, and a pre-rename hm_a2a_ key works on /a2a and is refused on /mcp", async () => {
+    expect(token).toStartWith("ag_a2a_");
+    const legacy = `hm_a2a_${token.slice("ag_a2a_".length)}`;
+    await f.composed.db
+      .update(a2aConnections)
+      .set({ inboundTokenHash: await hashToken(legacy) })
+      .where(eq(a2aConnections.inboundTokenHash, await hashToken(token)));
+    const ok = await f.rpc(
+      publicId,
+      legacy,
+      "SendMessage",
+      textMessage("m2", "hi")
+    );
+    expect(ok.status).toBe(200);
+    const refused = await app.request(
+      "https://hm.test/mcp",
+      {
+        body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }),
+        headers: {
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${legacy}`,
+          "Content-Type": "application/json",
+          Host: "hm.test",
+        },
+        method: "POST",
+      },
+      env
+    );
+    expect(refused.status).toBe(401);
   });
 });
 

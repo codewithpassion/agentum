@@ -4,9 +4,7 @@ import { artifacts } from "@repo/db/schema/artifacts";
 import { guestInvites, guestSessions } from "@repo/db/schema/live-artifacts";
 import { eq, or } from "drizzle-orm";
 import { hashToken } from "../crypto.ts";
-
-const INVITATION = /^hm_invite_[A-Za-z0-9_-]{43}$/;
-const SESSION = /^hm_guest_[A-Za-z0-9_-]{43}$/;
+import { isGuestInvitationToken, isGuestSessionToken } from "./security.ts";
 
 export const createGuestScopeDiscovery = (db: Database) => ({
   async artifact(artifactId: string) {
@@ -18,7 +16,7 @@ export const createGuestScopeDiscovery = (db: Database) => ({
     return row?.workspaceId ?? null;
   },
   async invitation(token: string) {
-    if (!INVITATION.test(token)) {
+    if (!isGuestInvitationToken(token)) {
       return null;
     }
     const [row] = await db
@@ -29,7 +27,7 @@ export const createGuestScopeDiscovery = (db: Database) => ({
     return row?.workspaceId ?? null;
   },
   async session(token: string) {
-    if (!SESSION.test(token)) {
+    if (!isGuestSessionToken(token)) {
       return null;
     }
     const hash = await hashToken(token);

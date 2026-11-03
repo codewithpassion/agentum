@@ -26,11 +26,11 @@ import {
   GUEST_CODE_SECONDS,
   GUEST_SESSION_SECONDS,
   guestSessionCookie,
+  isGuestInvitationToken,
   newGuestCode,
   newGuestSessionToken,
 } from "./security.ts";
 
-const INVITE = /^hm_invite_[A-Za-z0-9_-]{43}$/;
 const CODE = /^\d{6}$/;
 const encoder = new TextEncoder();
 const refusal = () => new ServiceError("not_found", "Guest access unavailable");
@@ -130,7 +130,11 @@ export const createGuestAuthService = async (deps: GuestAuthDeps) => {
   };
   const sendCode = async (input: GuestRequestCodeInput) => {
     const ipPrefix = truncateIp(input.ip);
-    if (deps.guestsOff() || !INVITE.test(input.inviteToken) || !ipPrefix) {
+    if (
+      deps.guestsOff() ||
+      !isGuestInvitationToken(input.inviteToken) ||
+      !ipPrefix
+    ) {
       return;
     }
     const at = clock.now();
@@ -190,7 +194,7 @@ export const createGuestAuthService = async (deps: GuestAuthDeps) => {
     });
   };
   const verify = async (input: GuestVerifyInput) => {
-    if (deps.guestsOff() || !INVITE.test(input.inviteToken)) {
+    if (deps.guestsOff() || !isGuestInvitationToken(input.inviteToken)) {
       throw refusal();
     }
     const at = clock.now();

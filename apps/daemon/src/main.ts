@@ -38,7 +38,7 @@ const USAGE = `Usage: agentum <command> [options]
 
 Commands:
   enroll <code> --server <url> [--claude <path>]
-                                     Enroll this machine with a Agentum server.
+                                     Enroll this machine with an Agentum server.
   run                                Run the daemon in the foreground.
   status                             Show the daemon's config and service state.
   install-service [--claude <path>] [--refresh]

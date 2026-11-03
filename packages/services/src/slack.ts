@@ -83,9 +83,9 @@ const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
 const REFUSAL_WINDOW_MS = 10 * 60 * 1000;
 const NO_TEXT_WITH_FILES = "(see the attached files)";
 const UNLINKED_REPLY =
-  "I don't know you yet. Ask a Agentum admin of this workspace to invite you, using the same email address as your Slack profile.";
+  "I don't know you yet. Ask an Agentum admin of this workspace to invite you, using the same email address as your Slack profile.";
 const HIDDEN_EMAIL_REPLY =
-  "I can't see the email address on your Slack profile, so I can't match you to a Agentum account. Ask a Agentum admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
+  "I can't see the email address on your Slack profile, so I can't match you to an Agentum account. Ask an Agentum admin of this workspace to invite you, and make your email visible to apps in your Slack profile.";
 const LINKED_REPLY =
   "I linked your Slack account to your Agentum account. Please send your message again.";
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;

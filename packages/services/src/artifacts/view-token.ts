@@ -1,5 +1,5 @@
 /**
- * The `hm_view_` token that lets a browser open one artifact version: the
+ * The view token (`ag_view_`, or `hm_view_` from before the rename) that lets a browser open one artifact version: the
  * claims as base64url JSON, a dot, then the base64url HMAC-SHA-256 of that
  * payload string. Pure Web Crypto. The key comes in as a parameter, so this
  * module never reads env.
@@ -9,9 +9,9 @@ import {
   type ViewTokenClaims,
   viewTokenClaimsSchema,
 } from "@repo/protocol/artifacts";
+import { ARTIFACT_VIEW_TOKEN } from "@repo/protocol/token-prefixes";
 import { constantTimeEqual, fromBase64Url, toBase64Url } from "../crypto.ts";
 
-const PREFIX = "hm_view_";
 const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
 
 const encoder = new TextEncoder();
@@ -37,7 +37,7 @@ export const signViewToken = async (
   const payload = toBase64Url(
     encoder.encode(JSON.stringify(viewTokenClaimsSchema.parse(claims)))
   );
-  return `${PREFIX}${payload}.${toBase64Url(await mac(key, payload))}`;
+  return `${ARTIFACT_VIEW_TOKEN.issue}${payload}.${toBase64Url(await mac(key, payload))}`;
 };
 
 /**
@@ -50,10 +50,11 @@ export const verifyViewToken = async (
   key: string,
   nowSeconds: number
 ): Promise<ViewTokenClaims | null> => {
-  if (!token.startsWith(PREFIX)) {
+  const body = ARTIFACT_VIEW_TOKEN.strip(token);
+  if (body === null) {
     return null;
   }
-  const parts = token.slice(PREFIX.length).split(".");
+  const parts = body.split(".");
   const [payload, signatureText] = parts;
   if (parts.length !== 2 || !payload || !signatureText) {
     return null;

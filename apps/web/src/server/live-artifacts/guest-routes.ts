@@ -4,8 +4,9 @@ import { createGuestScopeDiscovery } from "@repo/services/live-guests/http-scope
 import {
   clearGuestSessionCookie,
   GUEST_COOKIE,
+  LEGACY_GUEST_COOKIE,
 } from "@repo/services/live-guests/security";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { type Composed, compose } from "../compose";
 import type { AppEnv } from "../routes/groups";
@@ -19,6 +20,10 @@ import {
 import { guestOpenMetadata } from "./guest-metadata";
 import { guestReplay, guestStream } from "./guest-stream";
 import { roomStub } from "./namespace";
+
+/** The guest session cookie, under its current name or the one from before the rename. */
+const sessionCookie = (c: Context<AppEnv>): string =>
+  getCookie(c, GUEST_COOKIE) ?? getCookie(c, LEGACY_GUEST_COOKIE) ?? "";
 
 const cookieToken = (cookie: string) =>
   cookie.split(";")[0]?.slice(GUEST_COOKIE.length + 1) ?? "";
@@ -124,7 +129,7 @@ export const guestRoutes = (
   });
   app.post("/api/guest/signout", async (c) => {
     const composed = c.get("composed");
-    const sessionToken = getCookie(c, GUEST_COOKIE) ?? "";
+    const sessionToken = sessionCookie(c);
     const workspaceId = await createGuestScopeDiscovery(composed.db).session(
       sessionToken
     );
@@ -134,6 +139,9 @@ export const guestRoutes = (
         ? await service.signout({ sessionToken, workspaceId })
         : { cookie: clearGuestSessionCookie() };
     c.header("Set-Cookie", result.cookie);
+    c.header("Set-Cookie", clearGuestSessionCookie(LEGACY_GUEST_COOKIE), {
+      append: true,
+    });
     return c.json({ signedOut: true });
   });
   app.get("/g/a/:artifactId", (c) =>
@@ -162,7 +170,7 @@ export const guestRoutes = (
     }
     const credential = {
       artifactId,
-      sessionToken: getCookie(c, GUEST_COOKIE) ?? "",
+      sessionToken: sessionCookie(c),
       workspaceId,
     };
     // Rotate first: the cookie may be the previous token of a rotation whose
@@ -226,7 +234,7 @@ export const guestRoutes = (
     }
     const credential = {
       artifactId,
-      sessionToken: getCookie(c, GUEST_COOKIE) ?? "",
+      sessionToken: sessionCookie(c),
       workspaceId,
     };
     const rotated = await service.renew(credential);
@@ -257,7 +265,7 @@ export const guestRoutes = (
     }
     const credential = {
       artifactId,
-      sessionToken: getCookie(c, GUEST_COOKIE) ?? "",
+      sessionToken: sessionCookie(c),
       workspaceId,
     };
     if (

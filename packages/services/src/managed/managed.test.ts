@@ -1182,6 +1182,25 @@ describe("session tokens", () => {
     expect((await verify(asRun)).ok).toBe(false);
   });
 
+  test("session tokens are issued as ag_ses_, and a pre-rename hm_ses_ token still works", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+    const token = tokenOf("vlt_1");
+    expect(token).toStartWith("ag_ses_");
+    // The signature covers the prefix, so the legacy token is re-signed.
+    const signed = `hm_ses_${token.slice("ag_ses_".length).split(".")[0]}`;
+    const signature = await crypto.subtle.sign(
+      "HMAC",
+      tokenKey,
+      new TextEncoder().encode(signed)
+    );
+    const legacy = `${signed}.${Buffer.from(signature).toString("base64url")}`;
+
+    expect(await verify(legacy)).toMatchObject({ claims: { runId }, ok: true });
+    expect((await verify(token.replace("ag_ses_", "hm_ses_"))).ok).toBe(false);
+  });
+
   test("the second run, for another person, resolves that person's credential", async () => {
     const secretsKey = await importSecretsKey(SECRETS_KEY);
     await seedConnector(db, {

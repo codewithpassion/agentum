@@ -21,6 +21,19 @@ test("reads the artifact from the path and the version from the token", () => {
   );
 });
 
+test("reads ag_view_ tokens and pre-rename hm_view_ ones alike", () => {
+  const payload = Buffer.from(JSON.stringify({ versionId: "ver_1" })).toString(
+    "base64url"
+  );
+  for (const prefix of ["ag_view_", "hm_view_"]) {
+    expect(contentRef(url(`${prefix}${payload}.sig`))).toEqual({
+      artifactId: ARTIFACT_ID,
+      versionId: "ver_1",
+    });
+  }
+  expect(contentRef(url(`xx_view_${payload}.sig`))).toBeNull();
+});
+
 test("gives null for anything that is not a view-token content url", () => {
   expect(contentRef("")).toBeNull();
   expect(contentRef("/a/not-a-uuid/c/hm_view_x/")).toBeNull();

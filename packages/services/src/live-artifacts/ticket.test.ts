@@ -60,6 +60,21 @@ describe("room tickets", () => {
       await verifyRoomTicket("hm_room_bad.bad", "test key", expected)
     ).toBeNull();
   });
+  test("issues ag_room_ and still verifies a pre-rename hm_room_ ticket", async () => {
+    const ticket = await signRoomTicket(claims, "test key");
+    expect(ticket).toStartWith("ag_room_");
+    const legacy = ticket.replace("ag_room_", "hm_room_");
+    expect(await verifyRoomTicket(legacy, "test key", expected)).toEqual(
+      claims
+    );
+    expect(
+      await verifyRoomTicket(
+        ticket.replace("ag_room_", "xx_room_"),
+        "test key",
+        expected
+      )
+    ).toBeNull();
+  });
   test("refuses invalid claims when signing", async () => {
     await expect(
       signRoomTicket({ ...claims, color: "red" }, "test key")

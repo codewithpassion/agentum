@@ -20,6 +20,7 @@ import { runs } from "@repo/db/schema/runs";
 import { agentSecrets, secrets } from "@repo/db/schema/secrets";
 import { SECRET_MODES, type SecretMode } from "@repo/db/shared";
 import { createMasker, type Masker } from "@repo/protocol/masker";
+import { isPlatformToken } from "@repo/protocol/token-prefixes";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -102,8 +103,6 @@ const RESERVED_PREFIXES = [
   "RUBYLIB",
   "XDG_",
 ];
-/** Agentum's own tokens start with this: a run token, a key, a machine credential. */
-const TOKEN_PREFIX = "hm_";
 const NUL = "\0";
 
 const nameSchema = z
@@ -133,8 +132,9 @@ const valueSchema = z
   .refine((value) => !value.includes(NUL), {
     message: "A value cannot hold a NUL character",
   })
-  .refine((value) => !value.startsWith(TOKEN_PREFIX), {
-    message: "That looks like a Agentum token, which cannot be stored",
+  // Our own tokens (`ag_` or `hm_`): a run token, a key, a machine credential.
+  .refine((value) => !isPlatformToken(value), {
+    message: "That looks like an Agentum token, which cannot be stored",
   });
 
 const modeSchema = z.enum(SECRET_MODES);

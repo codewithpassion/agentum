@@ -23,7 +23,7 @@ const claims = (overrides: Partial<ViewTokenClaims> = {}): ViewTokenClaims => ({
 });
 
 const payloadOf = (token: string) =>
-  token.slice("hm_view_".length).split(".")[0] ?? "";
+  token.slice("ag_view_".length).split(".")[0] ?? "";
 const signatureOf = (token: string) => token.split(".")[1] ?? "";
 
 /** A raw signed token for `payload`, skipping the schema to reach the checks after it. */
@@ -40,7 +40,7 @@ const signRaw = async (payload: string, key: string): Promise<string> => {
     cryptoKey,
     encoder.encode(payload)
   );
-  return `hm_view_${payload}.${toBase64Url(new Uint8Array(mac))}`;
+  return `ag_view_${payload}.${toBase64Url(new Uint8Array(mac))}`;
 };
 
 const encodeJson = (json: unknown) =>
@@ -56,7 +56,7 @@ describe("signViewToken and verifyViewToken", () => {
         viewer,
       });
       const token = await signViewToken(input, KEY);
-      expect(token.startsWith("hm_view_")).toBe(true);
+      expect(token.startsWith("ag_view_")).toBe(true);
       expect(await verifyViewToken(token, KEY, NOW)).toEqual(input);
     }
   );
@@ -67,7 +67,7 @@ describe("signViewToken and verifyViewToken", () => {
       decoder.decode(fromBase64Url(payloadOf(token)) ?? new Uint8Array())
     ) as Record<string, unknown>;
     changed.expiresAt = NOW + 86_400;
-    const forged = `hm_view_${toBase64Url(encoder.encode(JSON.stringify(changed)))}.${signatureOf(token)}`;
+    const forged = `ag_view_${toBase64Url(encoder.encode(JSON.stringify(changed)))}.${signatureOf(token)}`;
     expect(await verifyViewToken(forged, KEY, NOW)).toBeNull();
   });
 
@@ -87,7 +87,7 @@ describe("signViewToken and verifyViewToken", () => {
   test("rejects a payload swapped from artifact A to artifact B", async () => {
     const tokenA = await signViewToken(claims({ artifactId: ARTIFACT_A }), KEY);
     const tokenB = await signViewToken(claims({ artifactId: ARTIFACT_B }), KEY);
-    const swapped = `hm_view_${payloadOf(tokenB)}.${signatureOf(tokenA)}`;
+    const swapped = `ag_view_${payloadOf(tokenB)}.${signatureOf(tokenA)}`;
     expect(await verifyViewToken(swapped, KEY, NOW)).toBeNull();
   });
 
@@ -122,11 +122,11 @@ describe("signViewToken and verifyViewToken", () => {
   test.each([
     ["an empty string", ""],
     ["a wrong prefix", "hm_tok_abc.def"],
-    ["the prefix alone", "hm_view_"],
+    ["the prefix alone", "ag_view_"],
     ["garbage", "garbage"],
-    ["a missing signature", "hm_view_abc"],
-    ["extra parts", "hm_view_a.b.c"],
-    ["non base64url text", "hm_view_!!!.???"],
+    ["a missing signature", "ag_view_abc"],
+    ["extra parts", "ag_view_a.b.c"],
+    ["non base64url text", "ag_view_!!!.???"],
   ])("returns null for %s", async (_label, token) => {
     expect(await verifyViewToken(token, KEY, NOW)).toBeNull();
   });
@@ -134,8 +134,15 @@ describe("signViewToken and verifyViewToken", () => {
   test("returns null for a valid token with its prefix changed", async () => {
     const token = await signViewToken(claims(), KEY);
     expect(
-      await verifyViewToken(token.replace("hm_view_", "hm_tok_"), KEY, NOW)
+      await verifyViewToken(token.replace("ag_view_", "ag_tok_"), KEY, NOW)
     ).toBeNull();
+  });
+
+  test("a token from before the rename, hm_view_, still verifies", async () => {
+    const token = await signViewToken(claims(), KEY);
+    expect(
+      await verifyViewToken(token.replace("ag_view_", "hm_view_"), KEY, NOW)
+    ).toEqual(claims());
   });
 
   test("the token does not contain the key", async () => {

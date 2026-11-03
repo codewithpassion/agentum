@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs one Codex job in a Agentum task worktree, with no sandbox and no
+# Runs one Codex job in an Agentum task worktree, with no sandbox and no
 # approval prompts. Codex's bwrap sandbox fails on this host, so the guard is the
 # worktree check below: Codex only ever runs inside a disposable checkout.
 # Usage: scripts/codex-task.sh <worktree> <brief file> <log dir>

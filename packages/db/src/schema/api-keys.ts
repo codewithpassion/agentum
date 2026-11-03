@@ -4,7 +4,7 @@ import { API_KEY_ACCESS } from "../shared.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
- * Keys for the platform MCP server (`hm_key_`). Created in M0.1 for the
+ * Keys for the platform MCP server (`ag_key_`). Created in M0.1 for the
  * principal resolver; the service is `@repo/services/api-keys`. Only the
  * SHA-256 of the secret is stored.
  */

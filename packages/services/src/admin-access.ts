@@ -1,5 +1,5 @@
 /**
- * Who may use the key-authenticated admin API (X.10). Only an `hm_key_` key
+ * Who may use the key-authenticated admin API (X.10). Only an `ag_key_` key
  * does: a signed-in person has the UI, a run or a connected app has no way
  * in. Setup calls need an `admin` key; creating agents and inbox threads also
  * takes a `write` key.

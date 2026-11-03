@@ -20,10 +20,10 @@ import {
   GUEST_PREVIOUS_TOKEN_GRACE_SECONDS,
   GUEST_SESSION_SECONDS,
   guestSessionCookie,
+  isGuestSessionToken,
   newGuestSessionToken,
 } from "./security.ts";
 
-const SESSION = /^hm_guest_[A-Za-z0-9_-]{43}$/;
 const refused = () => new ServiceError("not_found", "Guest access unavailable");
 interface SessionInput {
   artifactId: string;
@@ -48,7 +48,7 @@ export const createGuestSessionLifecycle = (deps: {
   guestsOff: () => boolean;
 }) => {
   const rotate = async (input: SessionInput, metadata?: GuestOpenMetadata) => {
-    if (deps.guestsOff() || !SESSION.test(input.sessionToken)) {
+    if (deps.guestsOff() || !isGuestSessionToken(input.sessionToken)) {
       throw refused();
     }
     const at = deps.clock.now();
@@ -139,7 +139,7 @@ export const createGuestSessionLifecycle = (deps: {
     renew: (input: SessionInput) => rotate(input),
     /** Sign-out works even when guest access has been disabled. */
     async signout(input: { sessionToken: string; workspaceId: string }) {
-      if (SESSION.test(input.sessionToken)) {
+      if (isGuestSessionToken(input.sessionToken)) {
         await deps.atomic([
           deleteGuestSessionStatement(deps.db, {
             at: deps.clock.now().toISOString(),

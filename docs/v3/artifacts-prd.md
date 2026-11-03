@@ -17,7 +17,7 @@ Agentum is the front end of Dom's AI OS (`~/devel/ai-os-integration/README.md`).
 - The library page shows an `.html` file as source in a textarea (`apps/web/src/components/library/library-file-panel.tsx:410`).
 - There is no `<iframe>`, `srcdoc` or `postMessage` anywhere in `apps/web/src` (sweep of 27 Oct 2026).
 
-Those rules are right for the app's origin and must stay. The gap is a safe place to render agent-made pages, a way to show them where the work happens, and a way to share them with people who don't have a Agentum login.
+Those rules are right for the app's origin and must stay. The gap is a safe place to render agent-made pages, a way to show them where the work happens, and a way to share them with people who don't have an Agentum login.
 
 Claude's desktop app has "dashboards" and claude.ai has artifacts, which are close to what Dom wants, but they live in Claude, not in the AI OS, and they can't use Agentum's agents, library, connectors or audit trail.
 
@@ -25,7 +25,7 @@ Claude's desktop app has "dashboards" and claude.ai has artifacts, which are clo
 
 1. An agent on any runtime can create and update an artifact with platform tools, and can test it before it tells a person it is done.
 2. People see the artifact where they already work. It shows as a card in the task thread, in the task view, and in an Artifacts area.
-3. Every artifact has its own link that opens inside a Agentum frame with its title, owner, version and share controls.
+3. Every artifact has its own link that opens inside an Agentum frame with its title, owner, version and share controls.
 4. Untrusted HTML and JavaScript are served from the app's host but always run in an opaque origin, with no access to the user's Clerk session.
 5. Sharing outside the workspace is deliberate, managed (listed, revocable, expiring) and logged, including anonymous opens.
 6. Artifacts can grow into micro apps with server parts and storage that run inside the AI OS (phase 2).
@@ -275,7 +275,7 @@ Options:
 | Option | Keys in the page | Works for anonymous viewers | Verdict |
 |---|---|---|---|
 | Direct calls from the page to connector APIs | Yes | Leaks the owner's keys to everyone | Rejected. |
-| A scoped bearer token handed to the page, which then calls a Agentum API | Token in page JS, readable by anything the page loads from a CDN | Would carry the owner's rights to anonymous viewers | Rejected. |
+| A scoped bearer token handed to the page, which then calls an Agentum API | Token in page JS, readable by anything the page loads from a CDN | Would carry the owner's rights to anonymous viewers | Rejected. |
 | Snapshot data shipped in the version | None | Yes, and the sharer sees what's in it | Phase 1. |
 | A `postMessage` bridge to the app frame, which calls a tRPC procedure with the viewer's own session and the artifact's declared grants | None | No, by rule | Phase 2. |
 

@@ -1,5 +1,5 @@
 // The principal for an `Authorization: Bearer` header, shared by the bearer
-// routes that take an `hm_key_` key, a run token or a Clerk OAuth token
+// routes that take an `ag_key_` key, a run token or a Clerk OAuth token
 // (`/mcp`) and the ones that take keys only (`/api/desk`, which passes an
 // OAuth verifier that accepts nothing). The membership check, the OAuth client
 // gate and the run token key come from the bindings of the request.
@@ -36,7 +36,7 @@ export const authenticateBearer = async (
     db: composed.db,
     isOrgMember: options.isOrgMember(env),
     runTokenKey: await importRunTokenKey(env.RUN_TOKEN_KEY),
-    // Only a token that is not an `hm_` credential gets here.
+    // Only a token that is not an `ag_` or `hm_` credential gets here.
     verifyClerkOAuthToken: oauthClaimVerifier({
       clientName: (clientId) => options.clientName(env)(clientId),
       oauthClients: composed.services.oauthClients,

@@ -30,7 +30,7 @@ const HOST = "https://hm.example.com";
 
 let composed: Composed;
 /** A view token that was not redacted. */
-const RAW_VIEW_TOKEN = /hm_view_(?!\[redacted\])/;
+const RAW_VIEW_TOKEN = /(?:ag|hm)_view_(?!\[redacted\])/;
 
 let user: Extract<Principal, { kind: "user" }>;
 let run: Extract<Principal, { kind: "run" }>;
@@ -225,7 +225,7 @@ test("a run publishes, updates, reads, lists and tests an artifact", async () =>
 
     // The fake page reported URLs with the token: they come back redacted (R1.13).
     for (const output of [tested.text, JSON.stringify(tested.data)]) {
-      expect(output).toContain("hm_view_[redacted]");
+      expect(output).toContain("ag_view_[redacted]");
       expect(output).not.toMatch(RAW_VIEW_TOKEN);
     }
   } finally {
