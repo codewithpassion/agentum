@@ -1,7 +1,7 @@
 /**
  * The desk as an outside app sees it (contract C4, `/api/desk/*`): what waits
  * on a person, a decision on it, and a message to the workspace's controller.
- * Thin over the requests and runs services. The outside app holds an `hm_key_`
+ * Thin over the requests and runs services. The outside app holds an `ag_key_`
  * key with the `desk` scope and names the member it acts for by email. A
  * connected app's OAuth token is refused: any approved MCP app would gain a
  * person's power to answer approvals. The member's own token on the shared

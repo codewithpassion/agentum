@@ -1,4 +1,5 @@
 import { createClerkClient } from "@clerk/backend";
+import { GUEST_COOKIES } from "@repo/services/live-guests/security";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import type { Composed } from "../compose";
 import {
@@ -90,7 +91,9 @@ export const authenticateRoomMember = async (
       .get("Cookie")
       ?.split(";")
       .map((value) => value.trim())
-      .filter((value) => !value.startsWith("__Host-hm_guest=")) ?? [];
+      .filter(
+        (value) => !GUEST_COOKIES.some((name) => value.startsWith(`${name}=`))
+      ) ?? [];
   if (!cookies.length) {
     return null;
   }

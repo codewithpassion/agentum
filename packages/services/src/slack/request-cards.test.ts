@@ -46,7 +46,7 @@ describe("request cards", () => {
     expect(JSON.stringify(card.blocks)).toContain("[secret:TOKEN]");
     const actions = card.blocks.find((block) => block.type === "actions");
     expect(actions?.elements.map((button) => button.action_id)).toEqual(
-      APPROVAL_DECISIONS.map((decision) => `hm_req:req1:${decision}`)
+      APPROVAL_DECISIONS.map((decision) => `ag_req:req1:${decision}`)
     );
     expect(actions?.elements[2]?.style).toBe("danger");
     for (const [i, decision] of APPROVAL_DECISIONS.entries()) {
@@ -65,14 +65,14 @@ describe("request cards", () => {
     const peerCard = approvalCard({ ...approval, peerRun: true });
     const actions = peerCard.blocks.find((block) => block.type === "actions");
     expect(actions?.elements.map((button) => button.action_id)).toEqual([
-      "hm_req:req1:allow_once",
-      "hm_req:req1:deny",
+      "ag_req:req1:allow_once",
+      "ag_req:req1:deny",
     ]);
     const plainActions = approvalCard(approval).blocks.find(
       (block) => block.type === "actions"
     );
     expect(plainActions?.elements.map((button) => button.action_id)).toEqual(
-      APPROVAL_DECISIONS.map((decision) => `hm_req:req1:${decision}`)
+      APPROVAL_DECISIONS.map((decision) => `ag_req:req1:${decision}`)
     );
   });
 
@@ -98,8 +98,8 @@ describe("request cards", () => {
     expect(card.text).toContain("Where?");
     const actions = card.blocks.filter((block) => block.type === "actions");
     expect(actions[0]?.elements.map((button) => button.action_id)).toEqual([
-      "hm_req:req1:choice:0:0",
-      "hm_req:req1:choice:0:1",
+      "ag_req:req1:choice:0:0",
+      "ag_req:req1:choice:0:1",
     ]);
     expect(JSON.stringify(card.blocks)).not.toContain('"value"');
     const clicked = click(actions[0]?.elements[1]);
@@ -114,7 +114,7 @@ describe("request cards", () => {
     });
     expect(
       parseInteraction(
-        click({ action_id: "hm_req:req1:choice:0:9" }),
+        click({ action_id: "ag_req:req1:choice:0:9" }),
         single.questions
       ).ok
     ).toBe(false);
@@ -126,7 +126,7 @@ describe("request cards", () => {
     expect(actions).toHaveLength(3);
     for (const row of actions) {
       expect(row.elements.map((button) => button.action_id)).toEqual([
-        "hm_req:req1:modal",
+        "ag_req:req1:modal",
       ]);
       expect(row.elements[0]?.text.text).toBe("Answer");
     }
@@ -148,7 +148,7 @@ describe("request cards", () => {
 
   test("modal has text for every question, radios and checkboxes, then parses", () => {
     const view = modalView(question);
-    expect(view.callback_id).toBe("hm_req_modal:req1");
+    expect(view.callback_id).toBe("ag_req_modal:req1");
     expect(JSON.stringify(view)).not.toContain("private_metadata");
     expect(
       view.blocks.filter((block) => block.element.type === "plain_text_input")
@@ -233,18 +233,60 @@ describe("request cards", () => {
     ).toContain("Cancelled");
   });
 
+  test("cards posted before the rename, with hm_req ids, still answer", () => {
+    expect(
+      parseInteraction(click({ action_id: "hm_req:req1:deny" }))
+    ).toMatchObject({
+      answer: { decision: "deny" },
+      ok: true,
+      requestId: "req1",
+    });
+    expect(
+      parseInteraction(
+        click({ action_id: "hm_req:req1:choice:0:1" }),
+        single.questions
+      )
+    ).toMatchObject({ answer: { answers: { "Where?": "There" } }, ok: true });
+    expect(
+      parseInteraction(
+        {
+          ...identity,
+          type: "view_submission",
+          view: {
+            callback_id: "hm_req_modal:req1",
+            state: {
+              values: {
+                c0: {
+                  choice: {
+                    selected_option: { value: "0" },
+                    type: "radio_buttons",
+                  },
+                },
+                q0: { text: { type: "plain_text_input", value: null } },
+              },
+            },
+          },
+        },
+        single.questions
+      )
+    ).toMatchObject({ answer: { answers: { "Where?": "Here" } }, ok: true });
+    expect(parseInteraction(click({ action_id: "xx_req:req1:deny" })).ok).toBe(
+      false
+    );
+  });
+
   test("foreign and malformed payloads are ignored without throwing", () => {
     for (const payload of [
       null,
       {},
       click({ action_id: "foreign" }),
-      click({ action_id: "hm_req:req1:bogus" }),
-      click({ action_id: "hm_req:req1:choice:0" }),
+      click({ action_id: "ag_req:req1:bogus" }),
+      click({ action_id: "ag_req:req1:choice:0" }),
       {
         ...identity,
         type: "view_submission",
         view: {
-          callback_id: "hm_req_modal:req1",
+          callback_id: "ag_req_modal:req1",
           state: { values: {} },
         },
       },
@@ -267,13 +309,13 @@ test("takeover card has a screen link and only cancellation control", () => {
   const actions = card.blocks.find((block) => block.type === "actions");
   expect(actions?.elements).toEqual([
     {
-      action_id: "hm_req:req1:screen",
+      action_id: "ag_req:req1:screen",
       text: { text: "Open screen", type: "plain_text" },
       type: "button",
       url: "https://hm.test/tasks/run1#computer",
     },
     {
-      action_id: "hm_req:req1:cancel",
+      action_id: "ag_req:req1:cancel",
       style: "danger",
       text: { text: "Cancel request", type: "plain_text" },
       type: "button",

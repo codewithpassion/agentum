@@ -1,3 +1,4 @@
+import { NAMESPACE_PATTERN } from "@repo/protocol/token-prefixes";
 import type { Payload } from "./payload.ts";
 
 type PayloadValue = Payload[string];
@@ -38,10 +39,10 @@ const PLACEHOLDERS = ["[redacted]", "[secret:"];
 const WELL_KNOWN_TOKENS: readonly RegExp[] = [
   // sk-, sk-ant-, sk-or-
   new RegExp(`(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{${SK_MIN},}`, "g"),
-  // hm_mach_, hm_run_, hm_enr_ and the other Harbourmaster credentials, with
-  // the run token's `.signature` tail
+  // Our own credentials, `ag_` or `hm_` (machine credentials, run tokens,
+  // enroll codes and the rest), with the run token's `.signature` tail
   new RegExp(
-    `(?<![A-Za-z0-9_])hm_[a-z]+_[A-Za-z0-9_-]{${HM_MIN},}(?:\\.[A-Za-z0-9_-]{${HM_MIN},})?`,
+    `(?<![A-Za-z0-9_])${NAMESPACE_PATTERN}[a-z]+_[A-Za-z0-9_-]{${HM_MIN},}(?:\\.[A-Za-z0-9_-]{${HM_MIN},})?`,
     "g"
   ),
   new RegExp(`(?<![A-Za-z0-9_])gh[pousr]_[A-Za-z0-9]{${GH_MIN},}`, "g"),

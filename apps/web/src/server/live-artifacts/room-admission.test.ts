@@ -40,6 +40,15 @@ test("a fresh assertion for this room and ticket id verifies", async () => {
   expect(got?.sessionId).toBe("sess_1");
 });
 
+test("assertions are signed as ag_adm_, and a pre-rename hm_adm_ one still verifies", async () => {
+  const good = await signRoomAdmission(admission(), key);
+  expect(good).toStartWith("ag_adm_");
+  expect((await verify(good.replace("ag_adm_", "hm_adm_")))?.principal).toEqual(
+    principal
+  );
+  expect(await verify(good.replace("ag_adm_", "xx_adm_"))).toBeNull();
+});
+
 test("forged, tampered and wrong-key assertions are refused", async () => {
   const good = await signRoomAdmission(admission(), key);
   expect(

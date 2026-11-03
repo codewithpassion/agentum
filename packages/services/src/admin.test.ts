@@ -332,7 +332,7 @@ describe("an admin key", () => {
       access: "desk",
       name: "desk",
     });
-    expect(desk.secret.startsWith("hm_key_")).toBe(true);
+    expect(desk.secret.startsWith("ag_key_")).toBe(true);
     expect(desk.key.access).toBe("desk");
     const revoked = await admin.revokeApiKey(adminKey, { keyId: desk.key.id });
     expect(revoked.revokedAt).not.toBeNull();

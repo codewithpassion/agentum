@@ -14,7 +14,7 @@ import { type Composed, composeWith } from "../compose.ts";
 import { createMcpPorts } from "./ports.ts";
 
 const CRON = "0 9 * * 1-5";
-const TRIGGER_PREFIX = "hm_trg_";
+const TRIGGER_PREFIX = "ag_trg_";
 const PROPOSAL_TEXT = "waits for a person to approve it";
 const AUTOMATION_WRITE_TOOLS = [
   "create_routine",

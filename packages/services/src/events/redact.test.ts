@@ -45,6 +45,9 @@ test("redacts a Harbourmaster key token in a string value", () => {
   expect(
     stripSecrets({ note: "hm_key_abcdefghijklmnop", safe: "hm_key_short" })
   ).toEqual({ note: "[redacted]", safe: "hm_key_short" });
+  expect(stripSecrets({ note: "ag_key_abcdefghijklmnop" })).toEqual({
+    note: "[redacted]",
+  });
 });
 
 test("redacts credential suffixes with numeric versions and preserves ordinary fields", () => {

@@ -50,7 +50,7 @@ func Do(ctx context.Context, client *http.Client, baseURL string, request Reques
 	if err != nil {
 		return Result{}, err
 	}
-	if !strings.HasPrefix(request.Code, "hm_enr_") || len(request.Code) > 200 {
+	if !hasTokenPrefix(request.Code, "enr") || len(request.Code) > 200 {
 		return Result{}, errors.New("an enrollment code is required")
 	}
 	// The role is fixed by this client, never supplied by an operator.
@@ -95,7 +95,7 @@ func Do(ctx context.Context, client *http.Client, baseURL string, request Reques
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return Result{}, fmt.Errorf("parse the enrollment response from %s: %w", endpoint, err)
 	}
-	if decoded.MachineID == "" || !strings.HasPrefix(decoded.Credential, "hm_mach_") {
+	if decoded.MachineID == "" || !hasTokenPrefix(decoded.Credential, "mach") {
 		return Result{}, fmt.Errorf("the enrollment response from %s carried no credential", endpoint)
 	}
 	return decoded, nil
@@ -143,4 +143,10 @@ func errorDetail(raw []byte) string {
 		return summarise([]byte(failure.Error))
 	}
 	return summarise(raw)
+}
+
+// hasTokenPrefix reports whether token starts with ag_<kind>_ or, from before the rename,
+// hm_<kind>_. The server may issue either, so both are accepted.
+func hasTokenPrefix(token, kind string) bool {
+	return strings.HasPrefix(token, "ag_"+kind+"_") || strings.HasPrefix(token, "hm_"+kind+"_")
 }

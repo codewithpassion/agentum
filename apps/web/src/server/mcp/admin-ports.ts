@@ -1,5 +1,5 @@
 // The `admin` group of the platform MCP tools (X.10): setup calls for an
-// `hm_key_` key, over the admin service. The service checks the key and
+// `ag_key_` key, over the admin service. The service checks the key and
 // writes the audit event; this adapter only maps shapes. Nothing returned
 // carries a secret value.
 import type {

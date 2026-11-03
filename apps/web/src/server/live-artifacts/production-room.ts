@@ -21,7 +21,7 @@ import type {
 } from "@repo/services/live-artifacts/service";
 import { verifyRoomTicket } from "@repo/services/live-artifacts/ticket";
 import { createGuestArtifacts } from "@repo/services/live-guests/artifacts";
-import { GUEST_COOKIE } from "@repo/services/live-guests/security";
+import { GUEST_COOKIES } from "@repo/services/live-guests/security";
 import type { SpeakerRoom } from "@repo/services/speaker-envelope";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { applyUpdate, Doc, encodeStateAsUpdate, XmlElement } from "yjs";
@@ -347,11 +347,15 @@ export class ArtifactRoom extends Room {
             .get("Cookie")
             ?.split(";")
             .map((v) => v.trim()) ?? [];
-        const matches = cookies.filter((v) => v.startsWith(`${GUEST_COOKIE}=`));
-        if (matches.length !== 1) {
+        // The current cookie name wins; the pre-rename one is the fallback.
+        const name = GUEST_COOKIES.find((n) =>
+          cookies.some((v) => v.startsWith(`${n}=`))
+        );
+        const matches = cookies.filter((v) => v.startsWith(`${name}=`));
+        if (!name || matches.length !== 1) {
           return null;
         }
-        const sessionToken = matches[0]?.slice(GUEST_COOKIE.length + 1) ?? "";
+        const sessionToken = matches[0]?.slice(name.length + 1) ?? "";
         const row = await guestAccess().sessionReference({
           ...scope,
           sessionToken,

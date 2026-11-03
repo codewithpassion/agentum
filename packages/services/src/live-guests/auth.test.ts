@@ -146,7 +146,7 @@ const setup = async () => {
 const wrongCode = (actual: string) =>
   actual === "000000" ? "111111" : "000000";
 const cookieToken = (cookie: string) =>
-  cookie.split(";")[0]?.slice("__Host-hm_guest=".length) ?? "";
+  cookie.split(";")[0]?.slice("__Host-ag_guest=".length) ?? "";
 const lastCode = (h: Awaited<ReturnType<typeof setup>>) => {
   const mail = h.mails.at(-1);
   if (!mail) {

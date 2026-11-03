@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { MACHINE_CREDENTIAL } from "@repo/protocol/token-prefixes";
 import { z } from "zod";
 
 const CONFIG_MODE = 0o600;
@@ -20,7 +21,7 @@ export const configSchema = z.strictObject({
   // The resolved `claude` the daemon runs, or null when there is none on the
   // PATH. With `singleUser` false it is also the path the sudoers rule names.
   claudeBinary: z.string().nullable(),
-  credential: z.string().startsWith("hm_mach_"),
+  credential: z.string().refine(MACHINE_CREDENTIAL.matches),
   machineId: z.string().min(1),
   // Origin of the Harbourmaster Worker, no trailing slash.
   server: z.url(),

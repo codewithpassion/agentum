@@ -1,3 +1,4 @@
+import { NAMESPACE_PATTERN } from "@repo/protocol/token-prefixes";
 import type { z } from "zod";
 
 type JsonValue = z.infer<ReturnType<typeof z.json>>;
@@ -32,8 +33,9 @@ const URL_SECRET_KEY_SUFFIX =
 const KEY_SEPARATORS = /[-_]/g;
 const SECRET_VALUE =
   /^(?:(?:bearer|basic|token)\s+\S+|(?:authorization|cookie):\s*\S+)$/i;
-const HARBOURMASTER_TOKEN =
-  /^hm_[a-z]+_[A-Za-z0-9_-]{16,}(?:\.[A-Za-z0-9_-]{16,})?$/;
+const HARBOURMASTER_TOKEN = new RegExp(
+  `^${NAMESPACE_PATTERN}[a-z]+_[A-Za-z0-9_-]{16,}(?:\\.[A-Za-z0-9_-]{16,})?$`
+);
 const API_TOKEN = /^sk-[A-Za-z0-9_-]{16,}$/;
 const HTTP_SCHEME = /^\s*https?:/i;
 const URL_WHITESPACE = /[\t\r\n]/;

@@ -509,6 +509,28 @@ describe("artifact_test", () => {
     expect(textOf(result)).toContain("hm_view_[redacted]/missing.js");
   });
 
+  test("redacts ag_ view and share tokens too", async () => {
+    const renamed: ArtifactTestInfo = {
+      ...report,
+      consoleMessages: [{ level: "error", text: "at /s/ag_share_xyz" }],
+      failedRequests: [
+        {
+          status: 404,
+          url: "https://app.example/a/x/c/ag_view_abc.def/missing.js",
+        },
+      ],
+    };
+    const result = await call(
+      port({ test: () => Promise.resolve(renamed) }),
+      "artifact_test",
+      { artifactId: ID }
+    );
+    expect(JSON.stringify(result)).not.toContain("ag_view_abc");
+    expect(JSON.stringify(result)).not.toContain("ag_share_xyz");
+    expect(textOf(result)).toContain("ag_view_[redacted]/missing.js");
+    expect(textOf(result)).toContain("ag_share_[redacted]");
+  });
+
   test("a clean run says so", async () => {
     const result = await call(
       port({

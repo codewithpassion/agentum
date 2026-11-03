@@ -3,9 +3,9 @@ import {
   type RoomTicketClaims,
   roomTicketClaimsSchema,
 } from "@repo/protocol/live";
+import { ROOM_TICKET } from "@repo/protocol/token-prefixes";
 import { constantTimeEqual, fromBase64Url, toBase64Url } from "../crypto.ts";
 
-const PREFIX = "hm_room_";
 const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -30,7 +30,7 @@ export const signRoomTicket = async (
   const payload = toBase64Url(
     encoder.encode(JSON.stringify(roomTicketClaimsSchema.parse(claims)))
   );
-  return `${PREFIX}${payload}.${toBase64Url(await mac(key, payload))}`;
+  return `${ROOM_TICKET.issue}${payload}.${toBase64Url(await mac(key, payload))}`;
 };
 
 /** Verifies the signature and room binding; callers must atomically consume jti. */
@@ -39,10 +39,11 @@ export const verifyRoomTicket = async (
   key: string,
   expected: { artifactId: string; workspaceId: string; nowSeconds: number }
 ): Promise<RoomTicketClaims | null> => {
-  if (!token.startsWith(PREFIX)) {
+  const body = ROOM_TICKET.strip(token);
+  if (body === null) {
     return null;
   }
-  const parts = token.slice(PREFIX.length).split(".");
+  const parts = body.split(".");
   const [payload, signatureText] = parts;
   if (parts.length !== 2 || !payload || !signatureText) {
     return null;

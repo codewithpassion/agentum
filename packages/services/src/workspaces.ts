@@ -9,17 +9,22 @@ import { machines } from "@repo/db/schema/machines";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { ApiKeyAccess, OAuthClientAccess } from "@repo/db/shared";
+import {
+  API_KEY,
+  isPlatformToken,
+  MACHINE_CREDENTIAL,
+  RUN_TOKEN,
+  SESSION_TOKEN,
+  type TokenPrefix,
+  TRIGGER_TOKEN,
+} from "@repo/protocol/token-prefixes";
 import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
-import {
-  RUN_TOKEN_PREFIX,
-  SESSION_TOKEN_PREFIX,
-  verifyAgentToken,
-} from "./run-tokens.ts";
+import { verifyAgentToken } from "./run-tokens.ts";
 
 /** Who is calling. `system` is the minute tick, in-process only. */
 export type Principal =
@@ -451,7 +456,7 @@ export const createWorkspacesService = ({
   };
 };
 
-/** The machine principal for an `hm_mach_` credential, or null if unknown or revoked. */
+/** The machine principal for a machine credential (`hm_mach_` or `ag_mach_`), or null if unknown or revoked. */
 export const findMachineByCredential = async (
   db: Database,
   token: string
@@ -471,7 +476,7 @@ export const findMachineByCredential = async (
     : null;
 };
 
-/** The trigger principal for an `hm_trg_` token, or null if unknown, revoked or paused. */
+/** The trigger principal for a trigger token (`ag_trg_` or `hm_trg_`), or null if unknown, revoked or paused. */
 export const findTriggerByToken = async (
   db: Database,
   token: string
@@ -526,7 +531,6 @@ export interface PrincipalResolverOptions {
 }
 
 const BEARER_SCHEME = "bearer";
-const HM_PREFIX = "hm_";
 
 /**
  * The token in `Authorization: Bearer <token>`, or null. The scheme is case
@@ -618,19 +622,25 @@ export const createPrincipalResolver = ({
       : null;
   };
 
-  /** Lookups by token prefix. Any other `hm_` token, such as `hm_enr_`, is refused. */
-  const lookupsByPrefix: ReadonlyArray<
-    readonly [string, (token: string) => Promise<WorkspacePrincipal | null>]
+  /**
+   * Lookups by token kind, either prefix (`ag_` or `hm_`). Any other platform
+   * token, such as an enroll code or an A2A token, is refused.
+   */
+  const lookupsByKind: ReadonlyArray<
+    readonly [
+      TokenPrefix,
+      (token: string) => Promise<WorkspacePrincipal | null>,
+    ]
   > = [
-    [RUN_TOKEN_PREFIX, lookupRun],
-    [SESSION_TOKEN_PREFIX, lookupRun],
-    ["hm_mach_", (token) => findMachineByCredential(db, token)],
-    ["hm_trg_", (token) => findTriggerByToken(db, token)],
-    ["hm_key_", lookupApiKey],
+    [RUN_TOKEN, lookupRun],
+    [SESSION_TOKEN, lookupRun],
+    [MACHINE_CREDENTIAL, (token) => findMachineByCredential(db, token)],
+    [TRIGGER_TOKEN, (token) => findTriggerByToken(db, token)],
+    [API_KEY, lookupApiKey],
   ];
 
-  const lookupHmToken = (token: string) => {
-    const match = lookupsByPrefix.find(([prefix]) => token.startsWith(prefix));
+  const lookupPlatformToken = (token: string) => {
+    const match = lookupsByKind.find(([kind]) => kind.matches(token));
     return match ? match[1](token) : Promise.resolve(null);
   };
 
@@ -675,8 +685,8 @@ export const createPrincipalResolver = ({
     if (!token) {
       return null;
     }
-    const candidate = token.startsWith(HM_PREFIX)
-      ? await lookupHmToken(token)
+    const candidate = isPlatformToken(token)
+      ? await lookupPlatformToken(token)
       : await lookupClerkToken(token);
     if (!candidate) {
       return null;

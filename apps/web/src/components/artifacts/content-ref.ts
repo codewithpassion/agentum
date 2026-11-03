@@ -1,7 +1,5 @@
-import {
-  ARTIFACT_VIEW_TOKEN_PREFIX,
-  parseArtifactContentPath,
-} from "@repo/protocol/artifacts";
+import { parseArtifactContentPath } from "@repo/protocol/artifacts";
+import { ARTIFACT_VIEW_TOKEN } from "@repo/protocol/token-prefixes";
 
 export interface ContentRef {
   artifactId: string;
@@ -35,12 +33,14 @@ export const contentRef = (contentUrl: string): ContentRef | null => {
     return null;
   }
   const parsed = parseArtifactContentPath(pathname);
-  if (parsed === null || !parsed.token.startsWith(ARTIFACT_VIEW_TOKEN_PREFIX)) {
+  if (parsed === null) {
     return null;
   }
-  const [payload = ""] = parsed.token
-    .slice(ARTIFACT_VIEW_TOKEN_PREFIX.length)
-    .split(".");
+  const body = ARTIFACT_VIEW_TOKEN.strip(parsed.token);
+  if (body === null) {
+    return null;
+  }
+  const [payload = ""] = body.split(".");
   const json = payload ? decodeBase64Url(payload) : null;
   if (json === null) {
     return null;

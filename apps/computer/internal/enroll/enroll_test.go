@@ -187,6 +187,26 @@ func TestUnreachableServer(t *testing.T) {
 	}
 }
 
+// The server issues ag_ codes and credentials after the rename, and hm_ ones from before stay
+// valid, so the client takes both and refuses anything else.
+func TestBothTokenPrefixesAreAccepted(t *testing.T) {
+	for _, pair := range [][2]string{{"ag_enr_code", "ag_mach_new"}, {"hm_enr_code", "hm_mach_old"}, {"ag_enr_code", "hm_mach_old"}} {
+		t.Run(pair[0]+"/"+pair[1], func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"machineId":"m","credential":"` + pair[1] + `"}`))
+			}))
+			defer server.Close()
+			result, err := enroll.Do(context.Background(), server.Client(), server.URL, enroll.Request{Code: pair[0]})
+			if err != nil || result.Credential != pair[1] {
+				t.Fatalf("result = %+v, error = %v", result, err)
+			}
+		})
+	}
+	if _, err := enroll.Do(context.Background(), nil, "https://example.invalid", enroll.Request{Code: "xx_enr_code"}); err == nil {
+		t.Fatal("a code with another prefix was accepted")
+	}
+}
+
 func TestMalformedSuccess(t *testing.T) {
 	for _, body := range []string{`not json`, `{"machineId":"m"}`, `{"machineId":"m","credential":"wrong_prefix"}`, `{"data":{"machineId":"m","credential":"hm_mach_old"}}`} {
 		t.Run(body, func(t *testing.T) {

@@ -12,7 +12,7 @@ import { workspaces } from "./workspaces.ts";
 
 /**
  * Ways to start one agent from outside or on a clock. An `http` trigger holds
- * the SHA-256 of its `hm_trg_` token and nothing else, so the secret cannot be
+ * the SHA-256 of its `ag_trg_` token and nothing else, so the secret cannot be
  * read back. A `routine` has no token; it holds a cron, a timezone, a prompt
  * and the next slot to fire (`next_run_at`, an ISO instant). The tick fires it
  * and moves `next_run_at` in one atomic write with the run. A routine switches

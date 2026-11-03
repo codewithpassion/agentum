@@ -7,8 +7,7 @@ import type { GuestGrant } from "@repo/protocol/live";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
 import { hashToken } from "../crypto.ts";
-
-const SESSION_TOKEN = /^hm_guest_[A-Za-z0-9_-]{43}$/;
+import { isGuestSessionToken } from "../live-guests/security.ts";
 
 export const guestUnavailable = () => new ForbiddenError("runs.guest_access");
 
@@ -18,7 +17,7 @@ export const authenticateGuestRun = async (
   token: string | undefined,
   at: string
 ) => {
-  if (!(token && SESSION_TOKEN.test(token))) {
+  if (!(token && isGuestSessionToken(token))) {
     throw guestUnavailable();
   }
   const row = await findGuestSessionGrant(db, {

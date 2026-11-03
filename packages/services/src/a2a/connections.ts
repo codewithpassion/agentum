@@ -2508,7 +2508,7 @@ export const createConnectionsService = ({
 
   /**
    * The `peer` principal for a bearer token, or null. Any token is looked up,
-   * not only `hm_a2a_` ones, because a client that paired by code chose its own.
+   * not only `ag_a2a_` ones, because a client that paired by code chose its own.
    * It re-reads the connection on every call and caches nothing, so a revoke
    * takes effect on the next request. The connection must be `active`, and its
    * agent published and active. When `publicId` is given, it must be the public id of the agent

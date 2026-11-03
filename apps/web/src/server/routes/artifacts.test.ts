@@ -164,7 +164,7 @@ describe("POST /api/share/:token/open", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     const body = (await res.json()) as { contentUrl: string; title: string };
     expect(body.title).toBe("Report");
-    expect(body.contentUrl).toContain(`/a/${artifactId}/c/hm_view_`);
+    expect(body.contentUrl).toContain(`/a/${artifactId}/c/ag_view_`);
   });
 
   it("R1.29 answers revoked, expired, unknown and malformed links with one body", async () => {

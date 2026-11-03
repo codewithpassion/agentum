@@ -98,7 +98,10 @@ try {
     assert.equal(response.status, 200, await response.clone().text());
     const result = await response.json();
     const text = result.mail.at(-1).text;
-    return { ...result, token: text.match(/hm_invite_[A-Za-z0-9_-]+/)[0] };
+    return {
+      ...result,
+      token: text.match(/(?:ag|hm)_invite_[A-Za-z0-9_-]+/)[0],
+    };
   };
   const browser = await chromium.launch({ headless: true });
   const base = new URL(await runtime.ready).origin.replace(

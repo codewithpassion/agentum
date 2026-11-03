@@ -313,6 +313,41 @@ test("a token is refused when its run belongs to another workspace or agent", as
   ]);
 });
 
+/** A run token signed over `prefix`, as the issuer would make it. */
+const signWithPrefix = async (prefix: string, claims: RunTokenClaims) => {
+  const payload = Buffer.from(
+    JSON.stringify([
+      claims.runId,
+      claims.agentId,
+      claims.workspaceId,
+      claims.issuedAt,
+    ])
+  ).toString("base64url");
+  const signed = `${prefix}${payload}`;
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(signed)
+  );
+  return `${signed}.${Buffer.from(signature).toString("base64url")}`;
+};
+
+test("run tokens verify under both ag_run_ and hm_run_, each signed over its own prefix", async () => {
+  // Still issued as hm_run_ until installed daemons accept ag_run_.
+  expect(RUN_TOKEN_PREFIX).toBe("hm_run_");
+  const results = await Promise.all(
+    ["ag_run_", "hm_run_"].map(async (prefix) =>
+      verify(await signWithPrefix(prefix, claimsFor()), CLAIMED_AT)
+    )
+  );
+  expect(results.map((result) => result.ok)).toEqual([true, true]);
+  // Swapping the prefix without re-signing breaks the signature.
+  const legacy = await signWithPrefix("hm_run_", claimsFor());
+  expect(
+    await verify(legacy.replace("hm_run_", "ag_run_"), CLAIMED_AT)
+  ).toEqual({ ok: false, reason: "invalid" });
+});
+
 test("a signed payload with the wrong shape is refused", async () => {
   const payload = Buffer.from(JSON.stringify({ runId: "run_1" })).toString(
     "base64url"

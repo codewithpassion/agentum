@@ -19,9 +19,14 @@ import type { GuestEmailPort } from "./ports.ts";
 import {
   clearGuestSessionCookie,
   createGuestCodeHasher,
+  GUEST_COOKIES,
   guestSessionCookie,
+  isGuestInvitationToken,
+  isGuestSessionToken,
+  LEGACY_GUEST_COOKIE,
   newGuestCode,
   newGuestSessionToken,
+  newInvitationToken,
 } from "./security.ts";
 
 import { createGuestSessionLifecycle } from "./sessions.ts";
@@ -382,13 +387,13 @@ describe("guest sessions (existing authenticated rows)", () => {
     });
     expect(await h.reader.resolve(input)).toBeNull();
     const rotated =
-      opened.cookie.split(";")[0]?.slice("__Host-hm_guest=".length) ?? "";
+      opened.cookie.split(";")[0]?.slice("__Host-ag_guest=".length) ?? "";
     const next = { ...input, sessionToken: rotated };
     expect(await h.reader.resolve(next)).not.toBeNull();
     const renewed = await service.renew(next);
     expect(renewed.expiresAt).toBe("2026-10-27T12:00:00.000Z");
     const token =
-      renewed.cookie.split(";")[0]?.slice("__Host-hm_guest=".length) ?? "";
+      renewed.cookie.split(";")[0]?.slice("__Host-ag_guest=".length) ?? "";
     await service.signout({ sessionToken: token, workspaceId: "w1" });
     expect(
       await h.reader.resolve({ ...input, sessionToken: token })
@@ -467,12 +472,34 @@ describe("guest credentials", () => {
     const { token } = await newGuestSessionToken();
     const cookie = guestSessionCookie(token);
     expect(cookie).toBe(
-      `__Host-hm_guest=${token}; Max-Age=43200; Path=/; HttpOnly; Secure; SameSite=Lax`
+      `__Host-ag_guest=${token}; Max-Age=43200; Path=/; HttpOnly; Secure; SameSite=Lax`
     );
     expect(cookie).not.toContain("Domain");
     expect(clearGuestSessionCookie()).toContain("Max-Age=0");
     expect(() => guestSessionCookie(`${token}; Domain=evil.com`)).toThrow();
     expect(() => guestSessionCookie(token, 43_201)).toThrow();
+  });
+  test("tokens are issued with ag_, and pre-rename hm_ tokens and cookie still count", async () => {
+    const { token } = await newGuestSessionToken();
+    const { token: invitation } = await newInvitationToken();
+    expect(token).toStartWith("ag_guest_");
+    expect(invitation).toStartWith("ag_invite_");
+    const body = token.slice("ag_guest_".length);
+    expect(isGuestSessionToken(`hm_guest_${body}`)).toBe(true);
+    expect(isGuestSessionToken(`xx_guest_${body}`)).toBe(false);
+    expect(
+      isGuestInvitationToken(
+        `hm_invite_${invitation.slice("ag_invite_".length)}`
+      )
+    ).toBe(true);
+    expect(isGuestInvitationToken(`hm_guest_${body}`)).toBe(false);
+    expect(guestSessionCookie(`hm_guest_${body}`)).toStartWith(
+      "__Host-ag_guest=hm_guest_"
+    );
+    expect(GUEST_COOKIES).toEqual(["__Host-ag_guest", "__Host-hm_guest"]);
+    expect(clearGuestSessionCookie(LEGACY_GUEST_COOKIE)).toStartWith(
+      "__Host-hm_guest=; Max-Age=0"
+    );
   });
   test("GuestGrant remains distinct from Principal", () => {
     const typeCheck = (
@@ -602,7 +629,7 @@ describe("guest session survives an interrupted committed rotation", () => {
       guestsOff: off,
     });
   const tokenOf = (cookie: string) =>
-    cookie.split(";")[0]?.slice("__Host-hm_guest=".length) ?? "";
+    cookie.split(";")[0]?.slice("__Host-ag_guest=".length) ?? "";
   const asToken = (
     input: { artifactId: string; workspaceId: string },
     sessionToken: string

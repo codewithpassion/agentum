@@ -3,14 +3,23 @@
  * work, no database.
  */
 
-export const ACCESS_TOKEN_PREFIX = "hm_a2a_";
-export const INVITE_TOKEN_PREFIX = "hm_inv_";
+import {
+  A2A_ACCESS_TOKEN,
+  A2A_INVITE_TOKEN,
+} from "@repo/protocol/token-prefixes";
+
+/** The prefix new access tokens get. Valid only on `/a2a`, `hm_a2a_` too. */
+export const ACCESS_TOKEN_PREFIX = A2A_ACCESS_TOKEN.issue;
+/** The prefix new invite tokens get. Check with `isInviteToken`. */
+export const INVITE_TOKEN_PREFIX = A2A_INVITE_TOKEN.issue;
 
 const CARD_FILE = "/.well-known/agent-card.json";
 const TRAILING_SLASHES = /\/+$/;
 const CONNECTION_PATH = /^\/connect\/([^/]+)$/;
 const CARD_PATH = /^\/a2a\/([^/]+)(?:\/|$)/;
-const INVITE_TOKEN = /^hm_inv_(con_[0-9A-Za-z]+)\.[A-Za-z0-9_-]+$/;
+const INVITE_TOKEN = new RegExp(
+  `^${A2A_INVITE_TOKEN.pattern}(con_[0-9A-Za-z]+)\\.[A-Za-z0-9_-]+$`
+);
 
 /** The interface base of a published agent: `https://<host>/a2a/<publicId>`. */
 export const interfaceBase = (baseUrl: string, publicId: string): string =>
@@ -69,5 +78,11 @@ export const parseInviteLink = (
  * The connection an invite token belongs to. The id travels in the token so a
  * wrong secret can still be counted against its invite.
  */
-export const connectionIdOfInvite = (inviteToken: string): string | null =>
-  INVITE_TOKEN.exec(inviteToken)?.[1] ?? null;
+export const connectionIdOfInvite = (inviteToken: string): string | null => {
+  const match: RegExpExecArray | null = INVITE_TOKEN.exec(inviteToken);
+  return match === null ? null : (match[1] ?? null);
+};
+
+/** Whether `value` starts like an invite token, `ag_inv_` or `hm_inv_`. */
+export const isInviteToken = (value: string): boolean =>
+  A2A_INVITE_TOKEN.matches(value);

@@ -224,6 +224,7 @@ describe("storing", () => {
     ["BUN_CONFIG_REGISTRY", { name: "BUN_CONFIG_REGISTRY" }],
     ["a short value", { value: "short" }],
     ["a Harbourmaster token", { value: "hm_run_abcdefghijklmnop" }],
+    ["a renamed platform token", { value: "ag_key_abcdefghijklmnop" }],
     ["a value with a NUL", { value: "abcdefgh\0ij" }],
   ])("refuses %s", async (_label, change) => {
     const input = {

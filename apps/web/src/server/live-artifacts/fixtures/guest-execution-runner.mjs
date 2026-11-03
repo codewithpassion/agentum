@@ -112,7 +112,7 @@ try {
     .run();
   const inviteToken = invite.mail
     .at(-1)
-    .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
+    .text.match(/(?:ag|hm)_invite_[A-Za-z0-9_-]+/)[0];
   await post(`/api/guest/${inviteToken}/code`, {}, false);
   const mail = await (await request("/fixture/mail")).json();
   const code = mail.at(-1).text.match(/\b\d{6}\b/)[0];
@@ -244,8 +244,8 @@ try {
     check(
       !(
         text.includes("PRIVATE MUST") ||
-        text.includes("hm_run_") ||
-        text.includes("hm_guest_")
+        /(?:ag|hm)_run_/.test(text) ||
+        /(?:ag|hm)_guest_/.test(text)
       ),
       "no private instructions or credentials in captured inference"
     );
@@ -302,7 +302,7 @@ try {
     .run();
   const deckToken = deckCreated.mail
     .at(-1)
-    .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
+    .text.match(/(?:ag|hm)_invite_[A-Za-z0-9_-]+/)[0];
   await post(`/api/guest/${deckToken}/code`, {}, false);
   const deckMail = await (await request("/fixture/mail")).json();
   const deckCode = deckMail.at(-1).text.match(/\b\d{6}\b/)[0];
@@ -406,7 +406,7 @@ try {
         .run();
       const token = created.mail
         .at(-1)
-        .text.match(/hm_invite_[A-Za-z0-9_-]+/)[0];
+        .text.match(/(?:ag|hm)_invite_[A-Za-z0-9_-]+/)[0];
       await post(`/api/guest/${token}/code`, {}, false);
       const messages = await (await request("/fixture/mail")).json();
       const verified = await post(

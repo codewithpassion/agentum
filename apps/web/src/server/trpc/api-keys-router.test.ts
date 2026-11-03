@@ -41,14 +41,14 @@ const callerFor = async (
   composed: Composed = servicesFor()
 ) => appRouter.createCaller(await buildContext({ composed, session }));
 
-test("create returns an hm_key_ secret, and list shows the key without it", async () => {
+test("create returns an ag_key_ secret, and list shows the key without it", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
 
   const { key, secret } = await caller.apiKeys.create({
     access: "read",
     name: "laptop",
   });
-  expect(secret.startsWith("hm_key_")).toBe(true);
+  expect(secret.startsWith("ag_key_")).toBe(true);
 
   const keys = await caller.apiKeys.list();
   expect(keys).toHaveLength(1);
@@ -58,7 +58,7 @@ test("create returns an hm_key_ secret, and list shows the key without it", asyn
     name: "laptop",
     revokedAt: null,
   });
-  expect(keys[0]?.prefix).toBe(secret.slice(0, "hm_key_".length + 4));
+  expect(keys[0]?.prefix).toBe(secret.slice(0, "ag_key_".length + 4));
   expect(Object.keys(keys[0] ?? {})).not.toContain("secret");
   expect(JSON.stringify(keys)).not.toContain(secret);
 });

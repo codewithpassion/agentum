@@ -47,7 +47,7 @@ const agentInput = {
   runtime: "fake",
 } as const;
 
-const TRIGGER_PREFIX = "hm_trg_";
+const TRIGGER_PREFIX = "ag_trg_";
 
 const secretOf = (secret: string | null): string => {
   if (secret === null) {
@@ -56,7 +56,7 @@ const secretOf = (secret: string | null): string => {
   return secret;
 };
 
-test("create returns an hm_trg_ secret, and list shows the trigger without it", async () => {
+test("create returns an ag_trg_ secret, and list shows the trigger without it", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
   const agent = await caller.agents.create({ ...agentInput, name: "Echo" });
 

@@ -239,7 +239,7 @@ beforeEach(async () => {
   });
 });
 
-test("create returns an hm_trg_ secret and a summary without hash fields", async () => {
+test("create returns an ag_trg_ secret and a summary without hash fields", async () => {
   const created = await service.create(user, {
     agentId: fakeAgentId,
     name: "  Ping  ",
@@ -247,7 +247,7 @@ test("create returns an hm_trg_ secret and a summary without hash fields", async
   const secret = secretOf(created);
   const { trigger } = created;
 
-  expect(secret.startsWith("hm_trg_")).toBe(true);
+  expect(secret.startsWith("ag_trg_")).toBe(true);
   expect(trigger.id.startsWith("trg_")).toBe(true);
   expect(trigger).toEqual({
     agentId: fakeAgentId,
@@ -262,7 +262,7 @@ test("create returns an hm_trg_ secret and a summary without hash fields", async
     proposedByAgentId: null,
     proposedByRunId: null,
     revokedAt: null,
-    tokenPrefix: secret.slice(0, "hm_trg_".length + 4),
+    tokenPrefix: secret.slice(0, "ag_trg_".length + 4),
   });
   expect(Object.keys(trigger)).not.toContain("tokenHash");
 });
@@ -318,7 +318,7 @@ test("create refuses Slack, machine and trigger principals, and allows an API-ke
     agentId: fakeAgentId,
     name: "Hook",
   });
-  expect(secretOf(created).startsWith("hm_trg_")).toBe(true);
+  expect(secretOf(created).startsWith("ag_trg_")).toBe(true);
 });
 
 test("a signed-in user's create is logged as the user, with the session named", async () => {
@@ -373,8 +373,8 @@ test("an API-key or OAuth user with write access can create, and the log names t
     name: "Client",
   });
 
-  expect(secretOf(byKey).startsWith("hm_trg_")).toBe(true);
-  expect(secretOf(byClient).startsWith("hm_trg_")).toBe(true);
+  expect(secretOf(byKey).startsWith("ag_trg_")).toBe(true);
+  expect(secretOf(byClient).startsWith("ag_trg_")).toBe(true);
   expect(
     payloadOf(eventFor("trigger.created", byKey.trigger.id))
   ).toMatchObject({ principal: { keyId: "key1", via: "api_key" } });
@@ -571,11 +571,28 @@ test("authenticate gives null for an unknown token, a wrong prefix, or no header
     agentId: fakeAgentId,
     name: "Hook",
   });
-  const wrongPrefix = `hm_key_${secretOf(created).slice("hm_trg_".length)}`;
+  const wrongPrefix = `hm_key_${secretOf(created).slice("ag_trg_".length)}`;
 
   expect(await service.authenticate("Bearer hm_trg_unknownsecret")).toBeNull();
   expect(await service.authenticate(`Bearer ${wrongPrefix}`)).toBeNull();
   expect(await service.authenticate(null)).toBeNull();
+});
+
+test("authenticate takes a token from before the rename, hm_trg_", async () => {
+  const created = await service.create(user, {
+    agentId: fakeAgentId,
+    name: "Hook",
+  });
+  const legacy = `hm_trg_${secretOf(created).slice("ag_trg_".length)}`;
+  db.update(triggerRows)
+    .set({ tokenHash: await hashToken(legacy) })
+    .where(eq(triggerRows.id, created.trigger.id))
+    .run();
+
+  expect(await service.authenticate(`Bearer ${legacy}`)).toMatchObject({
+    kind: "trigger",
+    triggerId: created.trigger.id,
+  });
 });
 
 test("authenticate gives null when the trigger's workspace has no row", async () => {
@@ -750,7 +767,7 @@ test("a run's create is a tokenless proposal, paused and logged as the agent", a
   });
 
   expect(created.secret).toBeNull();
-  expect(JSON.stringify(created)).not.toContain("hm_trg_");
+  expect(JSON.stringify(created)).not.toContain("ag_trg_");
   expect(created.trigger).toMatchObject({
     approvedAt: null,
     disabledAt: new Date(nowMs).toISOString(),
@@ -766,7 +783,7 @@ test("a run's create is a tokenless proposal, paused and logged as the agent", a
     tokenHash: null,
     tokenPrefix: null,
   });
-  expect(JSON.stringify(row)).not.toContain("hm_trg_");
+  expect(JSON.stringify(row)).not.toContain("ag_trg_");
   expect(await service.authenticate("Bearer hm_trg_anything")).toBeNull();
 
   const event = eventFor("trigger.created", created.trigger.id);
@@ -848,9 +865,9 @@ test("approving a proposal mints its one token, shows it once, and the token fir
 
   const approved = await service.approve(user, proposal.id);
   const secret = secretOf(approved);
-  const hint = secret.slice(0, "hm_trg_".length + 4);
+  const hint = secret.slice(0, "ag_trg_".length + 4);
 
-  expect(secret.startsWith("hm_trg_")).toBe(true);
+  expect(secret.startsWith("ag_trg_")).toBe(true);
   expect(approved.trigger).toMatchObject({
     approvedAt: new Date(nowMs).toISOString(),
     disabledAt: null,

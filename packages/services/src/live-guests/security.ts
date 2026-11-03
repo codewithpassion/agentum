@@ -1,7 +1,16 @@
 /** Credential primitives only. No credential is logged or included in a URL here. */
+import {
+  GUEST_INVITATION_TOKEN,
+  GUEST_SESSION_TOKEN,
+} from "@repo/protocol/token-prefixes";
 import { hashedToken, toBase64Url } from "../crypto.ts";
 
-export const GUEST_COOKIE = "__Host-hm_guest";
+/** The cookie a guest session is set in. */
+export const GUEST_COOKIE = "__Host-ag_guest";
+/** The cookie name from before the rename. Read as a fallback and cleared on sign-out. */
+export const LEGACY_GUEST_COOKIE = "__Host-hm_guest";
+/** Both names, current first. */
+export const GUEST_COOKIES = [GUEST_COOKIE, LEGACY_GUEST_COOKIE] as const;
 export const GUEST_SESSION_SECONDS = 12 * 60 * 60;
 /** How long after a rotation its replaced token may still rotate once more. It
  * covers a response lost to navigation or a restart, and nothing longer. */
@@ -9,11 +18,23 @@ export const GUEST_PREVIOUS_TOKEN_GRACE_SECONDS = 120;
 export const GUEST_CODE_SECONDS = 10 * 60;
 export const GUEST_CODE_TRIES = 5;
 const CODE = /^\d{6}$/;
-const SESSION = /^hm_guest_[A-Za-z0-9_-]{43}$/;
+const INVITATION = new RegExp(
+  `^${GUEST_INVITATION_TOKEN.pattern}[A-Za-z0-9_-]{43}$`
+);
+const SESSION = new RegExp(`^${GUEST_SESSION_TOKEN.pattern}[A-Za-z0-9_-]{43}$`);
 const encoder = new TextEncoder();
 
-export const newInvitationToken = () => hashedToken("hm_invite_");
-export const newGuestSessionToken = () => hashedToken("hm_guest_");
+/** Whether `token` has the shape of a guest invitation token, either prefix. */
+export const isGuestInvitationToken = (token: string): boolean =>
+  INVITATION.test(token);
+/** Whether `token` has the shape of a guest session token, either prefix. */
+export const isGuestSessionToken = (token: string): boolean =>
+  SESSION.test(token);
+
+export const newInvitationToken = () =>
+  hashedToken(GUEST_INVITATION_TOKEN.issue);
+export const newGuestSessionToken = () =>
+  hashedToken(GUEST_SESSION_TOKEN.issue);
 
 /** Rejection sampling avoids modulo bias in the six decimal digits. */
 export const newGuestCode = (): string => {
@@ -85,8 +106,8 @@ export const guestSessionCookie = (
   }
   return `${GUEST_COOKIE}=${token}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=Lax`;
 };
-export const clearGuestSessionCookie = (): string =>
-  `${GUEST_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
+export const clearGuestSessionCookie = (name: string = GUEST_COOKIE): string =>
+  `${name}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
 
 /** Private keyed abuse-ledger subjects. Keep the pepper stable for at least the
  * longest active rate window; rotating it requires retiring existing windows.

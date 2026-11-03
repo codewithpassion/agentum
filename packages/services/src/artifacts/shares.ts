@@ -37,7 +37,6 @@ import {
 import type { Atomic } from "@repo/db/atomic";
 import { ARTIFACT_VIEW_KEEP_DAYS } from "@repo/db/shared";
 import {
-  ARTIFACT_SHARE_TOKEN_PREFIX,
   type ArtifactShare,
   type ArtifactsCreateShareInput,
   type ArtifactsOpenInput,
@@ -61,6 +60,7 @@ import {
   shareStorageInputSchema,
   type ViewTokenClaims,
 } from "@repo/protocol/artifacts";
+import { ARTIFACT_SHARE_TOKEN } from "@repo/protocol/token-prefixes";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import {
@@ -664,7 +664,7 @@ export const createArtifactSharesService = ({
       ? await checkedLiveTools(artifact, versionId, parsed.liveTools ?? [])
       : null;
     const id = ulid(now.getTime());
-    const { hash, token } = await hashedToken(ARTIFACT_SHARE_TOKEN_PREFIX);
+    const { hash, token } = await hashedToken(ARTIFACT_SHARE_TOKEN.issue);
     const row: ArtifactShareRow = {
       artifactId: artifact.id,
       createdAt: now.toISOString(),
@@ -889,7 +889,7 @@ export const createArtifactSharesService = ({
     request: ShareRequestInfo
   ): Promise<LinkOpenResult> => {
     // Without a signing key no link can open: refuse like any dead link, before a view row is written.
-    if (!(viewKey && token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX))) {
+    if (!(viewKey && ARTIFACT_SHARE_TOKEN.matches(token))) {
       return { ok: false };
     }
     const share = await getShareByHash(db, await hashToken(token));
@@ -995,7 +995,7 @@ export const createArtifactSharesService = ({
     request: ShareRequestInfo
   ): Promise<LinkCallResult> => {
     const call = shareCallInputSchema.parse(input);
-    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+    if (!ARTIFACT_SHARE_TOKEN.matches(token)) {
       return { ok: false, reason: "not_found" };
     }
     const share = await getShareByHash(db, await hashToken(token));
@@ -1023,7 +1023,7 @@ export const createArtifactSharesService = ({
     reason: "rate_limited" | "refused",
     request: ShareRequestInfo
   ): Promise<void> => {
-    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+    if (!ARTIFACT_SHARE_TOKEN.matches(token)) {
       return;
     }
     const share = await getShareByHash(db, await hashToken(token));
@@ -1255,7 +1255,7 @@ export const createArtifactSharesService = ({
     input: ShareStorageInput
   ): Promise<LinkStorageResult> => {
     const parsed = shareStorageInputSchema.parse(input);
-    if (!token.startsWith(ARTIFACT_SHARE_TOKEN_PREFIX)) {
+    if (!ARTIFACT_SHARE_TOKEN.matches(token)) {
       return { ok: false, reason: "not_found" };
     }
     const share = await getShareByHash(db, await hashToken(token));

@@ -12,7 +12,7 @@ import {
   textMessage,
 } from "./a2a-fixture.ts";
 
-const ACCESS_PREFIX = "hm_a2a_";
+const ACCESS_PREFIX = "ag_a2a_";
 const WWW_AUTHENTICATE = 'Bearer realm="harbourmaster"';
 const CARD_PATH = "/.well-known/agent-card.json";
 const MAX_AGE = /max-age=\d+/;
@@ -311,7 +311,7 @@ const refusedBy = async (
       );
     case "token without the prefix":
       if (!token.startsWith(ACCESS_PREFIX)) {
-        throw new Error("The access key has no hm_a2a_ prefix to strip.");
+        throw new Error("The access key has no ag_a2a_ prefix to strip.");
       }
       return await binding.getTask(
         agent.publicId,

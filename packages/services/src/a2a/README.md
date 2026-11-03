@@ -14,7 +14,7 @@ Tokens are shown once and stored as SHA-256 hashes. The credential we present to
 
 | Module | What it owns |
 | --- | --- |
-| `connections.ts` | Publishing (`publish`, `unpublish`), invites and joins (`createInvite`, `join`, `approve`, `decline`), access keys (`createAccessKey`), outbound connections (`addOutbound`), policies (`setPolicies`), `revoke`, and peer authentication (`authenticate`, which turns an `hm_a2a_` token into a `peer` principal). |
+| `connections.ts` | Publishing (`publish`, `unpublish`), invites and joins (`createInvite`, `join`, `approve`, `decline`), access keys (`createAccessKey`), outbound connections (`addOutbound`), policies (`setPolicies`), `revoke`, and peer authentication (`authenticate`, which turns an `ag_a2a_` or `hm_a2a_` token into a `peer` principal). |
 | `pairing.ts` | Pairing by code for an outside client that has no key yet (`createPairing`). The client's request stores the hash of its token and gets an 8-character code back. The owner types the code in, and the token becomes the inbound token of a new connection. The limits follow Hermes's `gateway/pairing.py`. |
 | `pairing-code.ts` | Pure Web Crypto. `randomPairingCode` and `pairingRequestCode` make the pairing codes, and `checkCode` makes the check code that both sides of an invite compare. It never touches the database. |
 | `tasks.ts` | Inbound A2A tasks (`createA2aTasksService`). A peer's message becomes an `a2a_tasks` row. The inbound policy refuses it, holds it for a person, or starts a run. The module also owns approval, decline, cancel, and the `gateway` that the runs service calls with a finished run's reply. A task moves only through `move`, a compare-and-set on the state it expects. |
@@ -26,7 +26,7 @@ Tokens are shown once and stored as SHA-256 hashes. The credential we present to
 | `needs-you.ts` | Types only: `WaitingMessage` and `A2aNeedsYouSource`. The desk depends on this shape and not on the services that fill it. |
 | `card-peer.ts` | Reads the agent card of a peer we call out to. Pure, with no database and no fetch. `chooseOutboundScheme` picks the one auth scheme v1 can send, and `chooseInterface` picks the one interface we can call. When nothing fits, it says what it refused. |
 | `task-view.ts` | `toTask` turns a task row into an A2A `Task`. The status words for each state are here too (`STATUS_TEXT`, `questionStatusText`). Pure. |
-| `urls.ts` | The shapes of published and pairing URLs. `interfaceBase` gives `https://<host>/a2a/<publicId>`, `cardUrlOf` adds the card file name, and `connectLinkOf` gives the invite link. Access tokens start with `hm_a2a_` (`ACCESS_TOKEN_PREFIX`) and invites with `hm_inv_` (`INVITE_TOKEN_PREFIX`). |
+| `urls.ts` | The shapes of published and pairing URLs. `interfaceBase` gives `https://<host>/a2a/<publicId>`, `cardUrlOf` adds the card file name, and `connectLinkOf` gives the invite link. New access tokens start with `ag_a2a_` (`ACCESS_TOKEN_PREFIX`) and invites with `ag_inv_` (`INVITE_TOKEN_PREFIX`). `hm_a2a_` and `hm_inv_` tokens from before the rename are still accepted (`isInviteToken`, `connectionIdOfInvite`). |
 | `errors.ts` | `A2aTaskError` carries a name from the A2A spec. `A2aRateLimitError` carries `retryAfterSeconds`, which the route sends as `Retry-After` with a 429. Anything else the module refuses is a `ServiceError` or a `ForbiddenError`. |
 | `access.ts` | Who may touch a connection. `requireSession` admits only a signed-in browser session. `requireAdminOrOwner` adds the org admin or the agent's owner. `requireReader` admits anyone who may look. Every method of the connections service starts here. |
 | `outbound-fixture.ts` | Test code only. It wires the real runs, requests, events and connections services, an outbound service over the same database, and a fake peer at `https://peer.test`. |
@@ -36,7 +36,7 @@ Tokens are shown once and stored as SHA-256 hashes. The credential we present to
 
 A connection's token resolves through `authenticate` to a `peer` principal. The principal may call `a2a.*` actions and `runs.start`, as `authz.can` enforces, and it works on the one agent the connection belongs to. Every request re-reads the connection row, and nothing is cached between requests. A revoke therefore takes effect on the next request.
 
-`createPrincipalResolver` does not handle `hm_a2a_` tokens. A token is accepted only on the `/a2a` routes.
+`createPrincipalResolver` does not handle A2A tokens, `ag_a2a_` or `hm_a2a_`. A token is accepted only on the `/a2a` routes.
 
 ## Rules that are easy to break
 

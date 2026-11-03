@@ -6,14 +6,11 @@
 // because the paths are full, not prefixed.
 
 import { MAX_FILE_BYTES } from "@repo/db/shared";
+import { RUN_TOKEN } from "@repo/protocol/token-prefixes";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { FileRecord } from "@repo/services/files";
-import {
-  importRunTokenKey,
-  RUN_TOKEN_PREFIX,
-  verifyRunToken,
-} from "@repo/services/run-tokens";
+import { importRunTokenKey, verifyRunToken } from "@repo/services/run-tokens";
 import { bearerToken, type Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -158,14 +155,14 @@ const jsonError = (
 ) => c.json({ error }, status);
 
 /**
- * The principal a `hm_run_` token names, or null. A missing key, a bad key or
+ * The principal a run token (`hm_run_` or `ag_run_`) names, or null. A missing key, a bad key or
  * a token that does not verify are all null, never a 500.
  */
 export const runPrincipal = async (
   c: RouteContext,
   token: string
 ): Promise<Principal | null> => {
-  if (!(token.startsWith(RUN_TOKEN_PREFIX) && c.env.RUN_TOKEN_KEY)) {
+  if (!(RUN_TOKEN.matches(token) && c.env.RUN_TOKEN_KEY)) {
     return null;
   }
   let key: CryptoKey;

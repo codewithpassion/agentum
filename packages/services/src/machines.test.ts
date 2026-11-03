@@ -287,6 +287,27 @@ test("two concurrent enrolls on one code leave exactly one winner and one machin
   expect(db.select().from(machines).all()).toHaveLength(1);
 });
 
+test("credentials and codes are still issued as hm_, and ag_ ones are accepted for the flip", async () => {
+  // Installed daemons check these prefixes and know only hm_ (see token-prefixes.ts).
+  expect(MACHINE_CREDENTIAL_PREFIX).toBe("hm_mach_");
+  expect(ENROLL_TOKEN_PREFIX).toBe("hm_enr_");
+  const { code } = await service.createEnrollToken(user, { machineName: "A" });
+  const enrolled = await service.enroll({ code, singleUser: false });
+  if (!enrolled) {
+    throw new Error("enroll returned null");
+  }
+  const renamed = `ag_mach_${enrolled.credential.slice("hm_mach_".length)}`;
+  db.update(machines)
+    .set({ credentialHash: await hashToken(renamed) })
+    .where(eq(machines.id, enrolled.machineId))
+    .run();
+
+  expect(await service.authenticate(`Bearer ${renamed}`)).toMatchObject({
+    kind: "machine",
+    machineId: enrolled.machineId,
+  });
+});
+
 /** Deletes the workspace row with its machines still there, which D1's foreign keys would refuse. */
 const dropWorkspaceRow = () => {
   db.client.run("PRAGMA foreign_keys = OFF");

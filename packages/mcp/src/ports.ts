@@ -712,7 +712,7 @@ export interface AdminSecretRule {
 }
 
 /**
- * The setup calls for an `hm_key_` key (X.10). Offered only to a write key
+ * The setup calls for an `ag_key_` key (X.10). Offered only to a write key
  * (`createAgent`, `updateAgent`, `createInboxThread`) or an admin key (all).
  * `agent` is a slug or an id.
  */

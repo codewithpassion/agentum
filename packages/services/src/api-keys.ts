@@ -1,12 +1,14 @@
 /**
- * API keys: `hm_key_` secrets a user mints for the MCP endpoint. The secret
+ * API keys: `ag_key_` secrets a user mints for the MCP endpoint. The secret
  * is shown once, at creation. The table keeps only its SHA-256, so nothing
  * here can hand a secret back. `touch` records a use at most every five
  * minutes, so a busy agent does not turn every request into a write.
  */
+
 import type { Database } from "@repo/db";
 import { apiKeys } from "@repo/db/schema/api-keys";
 import { API_KEY_ACCESS, type ApiKeyAccess } from "@repo/db/shared";
+import { API_KEY } from "@repo/protocol/token-prefixes";
 import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -18,7 +20,8 @@ import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
-export const API_KEY_PREFIX = "hm_key_";
+/** The prefix new keys get. Check with `API_KEY` from token-prefixes. */
+export const API_KEY_PREFIX = API_KEY.issue;
 /** Characters of the random part shown back to the owner, so keys can be told apart. */
 const HINT_LENGTH = 4;
 /** `last_used_at` is rewritten only once its stored value is this old. */
