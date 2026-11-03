@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "harbourmaster",
+  "name": "agentum-v2",
   "compatibility_date": "2026-08-19",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
@@ -25,8 +25,14 @@
   // The Linux VM of a cloud agent session (task C.14): a Sandbox SDK container,
   // one per session, built from container/Dockerfile. Needs the Containers
   // feature on the account and Docker on the machine that deploys.
+  //
+  // The app name is pinned to the one the old `harbourmaster` Worker made
+  // (wrangler would derive `agentum-v2-vmsession`). The VmSession namespace
+  // keeps its id through the transfer (docs/v3/agentum-v2-cutover.md), and that
+  // namespace is attached to this application.
   "containers": [
     {
+      "name": "harbourmaster-vmsession",
       "class_name": "VmSession",
       "scheduling_policy": "durable_object",
       "images": { "base": { "dockerfile": "./container/Dockerfile" } }
@@ -43,34 +49,46 @@
   // domain are made by hand (docs/reviews/tasks/N.4.md). Production and
   // staging each have their own queue. Previews have no consumer.
   "queues": {
-    "consumers": [{ "queue": "harbourmaster-mail-events" }]
+    "consumers": [{ "queue": "agentum-v2-mail-events" }]
   },
   // The agents' browser (task V6.11), Browser Run through @cloudflare/playwright.
   // Usage beyond the included hours is billed to the account.
   "browser": { "binding": "BROWSER" },
-  // Migrations are not per environment, so they live at the top level only.
-  // Never edit a tag that has shipped, add the next one.
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["MachineRelay"] },
-    { "tag": "v2", "new_sqlite_classes": ["PiRun"] },
-    { "tag": "v3", "new_sqlite_classes": ["ManagedPoller"] },
-    { "tag": "v4", "new_sqlite_classes": ["VmSession"] },
-    { "tag": "v5", "new_sqlite_classes": ["SessionStream"] },
-    { "tag": "v6", "new_sqlite_classes": ["MailboxDO"] },
-    { "tag": "v7", "new_sqlite_classes": ["AppStore"] },
-    {
-      "tag": "v8",
-      "new_sqlite_classes": ["ArtifactRoom", "LiveArtifactMaintenance"]
+  // Durable Object classes, declared with `exports` (the declarative form of
+  // the legacy `migrations` array, which a Worker cannot use together with it).
+  // The old `harbourmaster` Worker shipped tags v1..v9 (all new_sqlite_classes).
+  // `agentum-v2` starts with none: its first deploy takes the old namespaces
+  // with a one-off legacy `transferred_classes` migration that
+  // scripts/migrate-v2/do-transfer.ts patches into the built config, and every
+  // later deploy uses this map. Never deploy this file to a Worker that has not
+  // had that transfer: it would make empty namespaces under the same names.
+  // Inherited by env.staging and its previews (each preview gets its own namespaces).
+  "exports": {
+    "MachineRelay": { "type": "durable-object", "storage": "sqlite" },
+    "PiRun": { "type": "durable-object", "storage": "sqlite" },
+    "ManagedPoller": { "type": "durable-object", "storage": "sqlite" },
+    "VmSession": { "type": "durable-object", "storage": "sqlite" },
+    "SessionStream": { "type": "durable-object", "storage": "sqlite" },
+    "MailboxDO": { "type": "durable-object", "storage": "sqlite" },
+    "AppStore": { "type": "durable-object", "storage": "sqlite" },
+    "ArtifactRoom": { "type": "durable-object", "storage": "sqlite" },
+    "LiveArtifactMaintenance": {
+      "type": "durable-object",
+      "storage": "sqlite"
     },
-    { "tag": "v9", "new_sqlite_classes": ["GuestRun"] }
-  ],
+    "GuestRun": { "type": "durable-object", "storage": "sqlite" }
+  },
   // The minute tick (src/server/tick). Crons are not per environment either:
   // only the production Worker runs them.
   "triggers": { "crons": ["* * * * *"] },
   // The public origin of the deployed app, used to build links back to it.
   // Local dev overrides it from .env.local (see .env.example).
   "vars": {
-    "PUBLIC_BASE_URL": "https://harbourmaster.rockyshoreslabs.io",
+    "PUBLIC_BASE_URL": "https://agentumbot.io",
+    // Old hostnames this Worker still answers on (comma separated). A browser
+    // page load there gets a 301 to PUBLIC_BASE_URL; API calls, webhooks and
+    // machine sockets are served in place (src/server/legacy-host.ts).
+    "LEGACY_HOSTS": "harbourmaster.rockyshoreslabs.io",
     // How long a Linux VM sits idle before it snapshots /workspace and sleeps.
     "LINUX_VM_IDLE_SECONDS": "180",
     // Agent mail (task V5.7). An empty MAIL_DOMAIN turns mail off. Production
@@ -78,7 +96,7 @@
     // Email Sending on for it, in the rockyshoreslabs.io zone.
     "MAIL_DOMAIN": "agents.rockyshoreslabs.io",
     "MAIL_ZONE_ID": "4dd028fe52d70f89e51383e1689d601a",
-    "MAIL_WORKER_NAME": "harbourmaster",
+    "MAIL_WORKER_NAME": "agentum-v2",
     // Any non-empty value turns every share-link open off in this environment.
     "ARTIFACT_LINKS_OFF": ""
   },
@@ -109,21 +127,24 @@
     }
   ],
   "routes": [
+    { "pattern": "agentumbot.io", "custom_domain": true },
+    // The old hostname, kept for LEGACY_HOSTS. It moves here from `harbourmaster`.
     { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
   ],
-  "r2_buckets": [{ "binding": "FILES", "bucket_name": "harbourmaster-files" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "agentum-v2-files" }],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "harbourmaster",
-      // Filled in by `wrangler d1 create` (the setup-cloudflare skill does it).
-      // Local development ignores the value.
-      "database_id": "9641ef87-1cff-4136-86fc-9b0ae3f27cd6",
+      "database_name": "agentum-v2",
+      // Filled in from `wrangler d1 create agentum-v2` during the cutover
+      // (docs/v3/agentum-v2-cutover.md). Local development ignores the value.
+      // The old `harbourmaster` database is 9641ef87-1cff-4136-86fc-9b0ae3f27cd6.
+      "database_id": "AGENTUM_V2_D1_ID_PLACEHOLDER",
       "migrations_dir": "../../packages/db/migrations"
     }
   ],
   "env": {
-    // The Worker every pull request preview hangs off (`boilerplate-staging`).
+    // The Worker every pull request preview hangs off (`agentum-v2-staging`).
     // Previews never touch production. See README "Pull request previews".
     "staging": {
       "preview_urls": true,
@@ -132,6 +153,7 @@
       "triggers": { "crons": [] },
       // Routes are inherited: staging must name its own, or it takes production's domain.
       "routes": [
+        { "pattern": "staging.agentumbot.io", "custom_domain": true },
         {
           "pattern": "harbourmaster-staging.rockyshoreslabs.io",
           "custom_domain": true
@@ -155,8 +177,10 @@
           }
         ]
       },
+      // Pinned to the old staging application, as at the top level.
       "containers": [
         {
+          "name": "harbourmaster-vmsession-staging",
           "class_name": "VmSession",
           "scheduling_policy": "durable_object",
           "images": { "base": { "dockerfile": "./container/Dockerfile" } }
@@ -165,17 +189,18 @@
       "worker_loaders": [{ "binding": "LOADER" }],
       "send_email": [{ "name": "EMAIL" }],
       "queues": {
-        "consumers": [{ "queue": "harbourmaster-staging-mail-events" }]
+        "consumers": [{ "queue": "agentum-v2-staging-mail-events" }]
       },
       "browser": { "binding": "BROWSER" },
       "vars": {
-        "PUBLIC_BASE_URL": "https://harbourmaster-staging.rockyshoreslabs.io",
+        "PUBLIC_BASE_URL": "https://staging.agentumbot.io",
+        "LEGACY_HOSTS": "harbourmaster-staging.rockyshoreslabs.io",
         "LINUX_VM_IDLE_SECONDS": "180",
         "MAIL_DOMAIN": "rockyshoreslabs.io",
         // The zone id of rockyshoreslabs.io, from the zone's Overview page.
         // Mailboxes stay "provisioning pending" until it is set.
         "MAIL_ZONE_ID": "4dd028fe52d70f89e51383e1689d601a",
-        "MAIL_WORKER_NAME": "harbourmaster-staging",
+        "MAIL_WORKER_NAME": "agentum-v2-staging",
         // Any non-empty value turns every share-link open off in this environment.
         "ARTIFACT_LINKS_OFF": ""
       },
@@ -206,14 +231,16 @@
         }
       ],
       "r2_buckets": [
-        { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
+        { "binding": "FILES", "bucket_name": "agentum-v2-staging-files" }
       ],
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "harbourmaster-staging",
-          // Filled in by the setup-previews skill.
-          "database_id": "dadd800c-8151-4878-bb14-e25e1f345c0a",
+          "database_name": "agentum-v2-staging",
+          // Filled in from `wrangler d1 create agentum-v2-staging` during the
+          // cutover. The old `harbourmaster-staging` database is
+          // dadd800c-8151-4878-bb14-e25e1f345c0a.
+          "database_id": "AGENTUM_V2_STAGING_D1_ID_PLACEHOLDER",
           "migrations_dir": "../../packages/db/migrations"
         }
       ],
@@ -248,6 +275,7 @@
         // holds it. Mail is off in previews: an empty MAIL_DOMAIN.
         "vars": {
           "PUBLIC_BASE_URL": "",
+          "LEGACY_HOSTS": "",
           "LINUX_VM_IDLE_SECONDS": "180",
           "MAIL_DOMAIN": "",
           "MAIL_ZONE_ID": "",
@@ -283,7 +311,7 @@
         ],
         // Previews share the staging bucket; keys are per workspace.
         "r2_buckets": [
-          { "binding": "FILES", "bucket_name": "harbourmaster-staging-files" }
+          { "binding": "FILES", "bucket_name": "agentum-v2-staging-files" }
         ],
         "d1_databases": [
           {

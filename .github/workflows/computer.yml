@@ -40,8 +40,8 @@ jobs:
           file: apps/computer/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ env.OWNER }}/harbourmaster-computer:latest
-            ghcr.io/${{ env.OWNER }}/harbourmaster-computer:${{ github.sha }}
+            ghcr.io/${{ env.OWNER }}/agentum-computer:latest
+            ghcr.io/${{ env.OWNER }}/agentum-computer:${{ github.sha }}
           cache-from: type=gha,scope=computer
           cache-to: type=gha,mode=max,scope=computer
 
@@ -51,7 +51,7 @@ jobs:
           file: apps/computer/Dockerfile.desktop
           push: true
           tags: |
-            ghcr.io/${{ env.OWNER }}/harbourmaster-computer-desktop:latest
-            ghcr.io/${{ env.OWNER }}/harbourmaster-computer-desktop:${{ github.sha }}
+            ghcr.io/${{ env.OWNER }}/agentum-computer-desktop:latest
+            ghcr.io/${{ env.OWNER }}/agentum-computer-desktop:${{ github.sha }}
           cache-from: type=gha,scope=computer-desktop
           cache-to: type=gha,mode=max,scope=computer-desktop

@@ -125,7 +125,7 @@ export const baseUrlFor = (args: AgentLoginArgs): string => {
     if (args.pr === undefined) {
       throw new Error("--env preview needs --pr <number>.");
     }
-    return `https://pr-${args.pr}-harbourmaster-staging.dominik-fretz.workers.dev`;
+    return `https://pr-${args.pr}-agentum-v2-staging.dominik-fretz.workers.dev`;
   }
   return BASE_URLS[args.env];
 };

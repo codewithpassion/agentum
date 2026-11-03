@@ -183,8 +183,8 @@ describe("uploadPlan", () => {
 describe("bucketNameFor", () => {
   test("reads the FILES bucket from the real wrangler.jsonc", async () => {
     const text = await file(WRANGLER_JSONC).text();
-    expect(bucketNameFor("production", text)).toBe("harbourmaster-files");
-    expect(bucketNameFor("staging", text)).toBe("harbourmaster-staging-files");
+    expect(bucketNameFor("production", text)).toBe("agentum-v2-files");
+    expect(bucketNameFor("staging", text)).toBe("agentum-v2-staging-files");
   });
 
   test("refuses a config with no FILES binding for the env", () => {

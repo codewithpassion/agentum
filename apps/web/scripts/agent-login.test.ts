@@ -112,7 +112,7 @@ describe("baseUrlFor", () => {
 
   test("preview uses the PR number", () => {
     expect(baseUrlFor(parseArgs(["--env", "preview", "--pr", "12"]))).toBe(
-      "https://pr-12-harbourmaster-staging.dominik-fretz.workers.dev"
+      "https://pr-12-agentum-v2-staging.dominik-fretz.workers.dev"
     );
   });
 

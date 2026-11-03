@@ -18,10 +18,10 @@ const CODE = "hm_enr_abc123";
 describe("image names", () => {
   test("are built from the image owner", () => {
     expect(HEADLESS_IMAGE).toBe(
-      `ghcr.io/${IMAGE_OWNER}/harbourmaster-computer:latest`
+      `ghcr.io/${IMAGE_OWNER}/agentum-computer:latest`
     );
     expect(DESKTOP_IMAGE).toBe(
-      `ghcr.io/${IMAGE_OWNER}/harbourmaster-computer-desktop:latest`
+      `ghcr.io/${IMAGE_OWNER}/agentum-computer-desktop:latest`
     );
   });
 });
