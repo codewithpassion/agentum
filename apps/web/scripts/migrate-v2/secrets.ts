@@ -2,6 +2,7 @@
 // Lists the old Worker's secret names and writes a `--secrets-file` template
 // for the new one (docs/v3/agentum-v2-cutover.md). Names only: Cloudflare never
 // returns a secret's value, so the values come from wherever Dom keeps them.
+// SECRETS_KEY and RUN_TOKEN_KEY get new values from keys.ts instead.
 // Usage, from apps/web:
 //   bun scripts/migrate-v2/secrets.ts --env staging|production [--apply]
 // Without --apply it prints the names. With --apply it also writes the template
@@ -13,6 +14,7 @@ import {
   NAMES,
   parseMoveArgs,
   parseSecretNames,
+  ROTATED,
   secretsTemplate,
 } from "./helpers.ts";
 import { WORK_DIR, wrangler } from "./wrangler.ts";
@@ -24,10 +26,16 @@ const main = async () => {
     await wrangler(["secret", "list", "--name", oldWorker, "--format", "json"])
   );
   console.log(`${oldWorker} has ${secretNames.length} secrets:`);
+  const note = (name: string) => {
+    if (KEEP_VALUE.has(name)) {
+      return "  (same value, required)";
+    }
+    return (ROTATED as readonly string[]).includes(name)
+      ? "  (new value, from keys.ts)"
+      : "";
+  };
   for (const name of secretNames) {
-    console.log(
-      `  ${name}${KEEP_VALUE.has(name) ? "  (same value, required)" : ""}`
-    );
+    console.log(`  ${name}${note(name)}`);
   }
   if (!apply) {
     console.log("Dry run. --apply writes the --secrets-file template.");

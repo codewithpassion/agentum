@@ -8,6 +8,10 @@
 // (`--no-schema`, a read), and with --apply imports them and compares row
 // counts table by table. Stop the old Worker's writes first, or rows written
 // after the export are lost.
+// Then it scrubs: the new Worker has a new SECRETS_KEY and RUN_TOKEN_KEY, so
+// every value only the old keys could read goes to the state the app shows
+// for a missing one (`SCRUB_STEPS` in helpers.ts). The dry run prints what
+// the scrub would change, counted on the old database.
 import { mkdir } from "node:fs/promises";
 import { file, write } from "bun";
 import {
@@ -19,12 +23,49 @@ import {
   NAMES,
   nonEmptyTables,
   parseMoveArgs,
+  scrubCountQuery,
+  scrubSql,
   TABLES_QUERY,
 } from "./helpers.ts";
 import { d1Rows, WORK_DIR, wrangler } from "./wrangler.ts";
 
 const names = (rows: Record<string, unknown>[]) =>
   rows.map((row) => String(row.name));
+
+const printScrub = (heading: string, row: Record<string, unknown>) => {
+  console.log(heading);
+  for (const [step, n] of Object.entries(row)) {
+    console.log(`  ${String(n)} ${step}`);
+  }
+};
+
+/** Clears what only the old keys could read, then checks nothing is left. */
+const scrubEncrypted = async (database: string) => {
+  printScrub(
+    `Scrubbing ${database}:`,
+    (await d1Rows(database, scrubCountQuery()))[0] ?? {}
+  );
+  const scrubFile = `${WORK_DIR}/${database}-scrub.sql`;
+  await write(scrubFile, scrubSql(new Date().toISOString()));
+  await wrangler([
+    "d1",
+    "execute",
+    database,
+    "--remote",
+    "--file",
+    scrubFile,
+    "-y",
+  ]);
+  const left = Object.entries(
+    (await d1Rows(database, scrubCountQuery()))[0] ?? {}
+  ).filter(([, n]) => Number(n) > 0);
+  if (left.length > 0) {
+    throw new Error(
+      `The scrub left rows behind: ${left.map(([step, n]) => `${String(n)} ${step}`).join(", ")}.`
+    );
+  }
+  console.log("Scrubbed.");
+};
 
 const counts = async (database: string, tables: string[]) =>
   (await d1Rows(database, countQuery(tables)))[0] ?? {};
@@ -72,7 +113,11 @@ const main = async () => {
   );
 
   if (!apply) {
-    console.log(`Dry run. --apply imports it into ${newD1}.`);
+    printScrub(
+      `After the import, the scrub would change in ${newD1}:`,
+      (await d1Rows(oldD1, scrubCountQuery()))[0] ?? {}
+    );
+    console.log(`Dry run. --apply imports it into ${newD1} and scrubs it.`);
     return;
   }
   await wrangler([
@@ -91,6 +136,7 @@ const main = async () => {
     );
   }
   console.log(`Imported. Row counts match in all ${tables.length} tables.`);
+  await scrubEncrypted(newD1);
 };
 
 try {

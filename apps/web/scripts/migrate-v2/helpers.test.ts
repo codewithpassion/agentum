@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { migrated } from "@repo/db/test-db";
+import { importSecretsKey } from "@repo/services/crypto";
+import { importRunTokenKey } from "@repo/services/run-tokens";
 import {
   countMismatches,
   countQuery,
   DO_CLASSES,
   dataForImport,
   extraKeys,
+  fillSecrets,
   migrationGap,
+  newKey,
   nonEmptyTables,
   parseMoveArgs,
   parseSecretNames,
@@ -13,6 +18,9 @@ import {
   type RoutingRule,
   repointedRule,
   rulesForWorker,
+  SCRUB_STEPS,
+  scrubCountQuery,
+  scrubSql,
   secretsTemplate,
   transferConfig,
 } from "./helpers.ts";
@@ -224,9 +232,119 @@ describe("secrets", () => {
     ).toEqual(["A", "SECRETS_KEY"]);
   });
 
-  test("the template holds names only and marks the must-keep ones", () => {
-    const text = secretsTemplate(["A", "SECRETS_KEY"], "harbourmaster");
+  test("the template holds names only and marks the kept and rotated ones", () => {
+    const text = secretsTemplate(
+      ["A", "ARTIFACT_VIEW_KEY", "SECRETS_KEY"],
+      "harbourmaster"
+    );
     expect(text).toContain("\nA=\n");
-    expect(text).toContain("or the copied data breaks.\nSECRETS_KEY=\n");
+    expect(text).toContain("or the copied data breaks.\nARTIFACT_VIEW_KEY=\n");
+    expect(text).toContain(
+      "written by scripts/migrate-v2/keys.ts.\nSECRETS_KEY=\n"
+    );
+  });
+
+  test("a new key is 32 random bytes that both key importers accept", async () => {
+    const key = newKey();
+    expect(atob(key)).toHaveLength(32);
+    expect(newKey()).not.toBe(key);
+    await importSecretsKey(key);
+    await importRunTokenKey(key);
+  });
+
+  test("fillSecrets fills empty lines and never replaces a value", () => {
+    const file = secretsTemplate(
+      ["A", "RUN_TOKEN_KEY", "SECRETS_KEY"],
+      "harbourmaster"
+    );
+    const filled = fillSecrets(file, { RUN_TOKEN_KEY: "r", SECRETS_KEY: "s" });
+    expect(filled).toContain("\nRUN_TOKEN_KEY=r\n");
+    expect(filled).toContain("\nSECRETS_KEY=s\n");
+    expect(filled).toContain("\nA=\n");
+    expect(() => fillSecrets(filled, { SECRETS_KEY: "t" })).toThrow(
+      "has a value already"
+    );
+    expect(() => fillSecrets(file, { MISSING: "x" })).toThrow("no MISSING=");
+  });
+});
+
+describe("scrub", () => {
+  const NOW = "2026-11-03T00:00:00.000Z";
+  const WS = "ws_org_a";
+
+  const counts = (db: ReturnType<typeof migrated>) =>
+    db.client.query(scrubCountQuery()).get() as Record<string, number>;
+
+  test("every statement runs on the current schema and leaves nothing to scrub", () => {
+    const db = migrated(["org_a"]);
+    db.client.run(scrubSql(NOW));
+    expect(Object.values(counts(db)).every((n) => n === 0)).toBe(true);
+    expect(Object.keys(counts(db))).toHaveLength(SCRUB_STEPS.length);
+  });
+
+  test("credentials need auth and sealed OAuth clients go, the shared one stays", () => {
+    const db = migrated(["org_a"]);
+    const oauth = (client: Record<string, unknown>) =>
+      JSON.stringify({ client, tokenEndpoint: "https://t.example/token" });
+    const insertConnector = db.client.prepare(
+      "INSERT INTO connectors (id, workspace_id, name, url, auth_kind, status, created_by, created_at, oauth) VALUES (?, ?, ?, 'https://mcp.example', 'oauth', 'ok', 'u', ?, ?)"
+    );
+    insertConnector.run(
+      "c_reg",
+      WS,
+      "registered",
+      NOW,
+      oauth({ clientId: "a", clientSecret: "v1:x:y", source: "registered" })
+    );
+    insertConnector.run(
+      "c_man",
+      WS,
+      "manual",
+      NOW,
+      oauth({ clientId: "b", clientSecret: "v1:x:y", source: "manual" })
+    );
+    insertConnector.run(
+      "c_pub",
+      WS,
+      "public client",
+      NOW,
+      oauth({ clientId: "c", clientSecret: null, source: "registered" })
+    );
+    insertConnector.run(
+      "c_shared",
+      WS,
+      "google",
+      NOW,
+      oauth({ clientId: "d", clientSecret: "v1:x:y", source: "shared" })
+    );
+    db.client.run(
+      `INSERT INTO credentials (id, workspace_id, connector_id, owner_id, owner_kind, secret, status, created_by, created_at, updated_at) VALUES ('cr1', '${WS}', 'c_reg', 'u', 'user', 'v1:x:y', 'ok', 'u', '${NOW}', '${NOW}'), ('cr2', '${WS}', 'c_man', 'u', 'user', 'v1:x:y', 'revoked', 'u', '${NOW}', '${NOW}')`
+    );
+    expect(counts(db)).toMatchObject({
+      "connector credentials set to needs_auth": 1,
+      "connector OAuth clients with a client secret removed": 2,
+    });
+
+    db.client.run(scrubSql(NOW));
+
+    const clients = db.client
+      .query(
+        "SELECT id, json_extract(oauth, '$.client.clientId') AS client, json_extract(oauth, '$.tokenEndpoint') AS endpoint FROM connectors ORDER BY id"
+      )
+      .all();
+    expect(clients).toEqual([
+      { client: null, endpoint: "https://t.example/token", id: "c_man" },
+      { client: "c", endpoint: "https://t.example/token", id: "c_pub" },
+      { client: null, endpoint: "https://t.example/token", id: "c_reg" },
+      { client: "d", endpoint: "https://t.example/token", id: "c_shared" },
+    ]);
+    expect(
+      db.client
+        .query("SELECT id, status, version FROM credentials ORDER BY id")
+        .all()
+    ).toEqual([
+      { id: "cr1", status: "needs_auth", version: 2 },
+      { id: "cr2", status: "revoked", version: 1 },
+    ]);
   });
 });

@@ -24,8 +24,15 @@ Agentum v1 (Worker `agentum`) keeps `agentum.rockyshoreslabs.io`, D1 `agentum` a
 ## Decisions Dom makes before starting
 
 1. **Clerk for agentumbot.io.** See "Clerk" below. Pick satellite domain or new production instance. The cutover cannot finish without one.
-2. **Secret values.** Cloudflare never returns a secret's value. `SECRETS_KEY`, `RUN_TOKEN_KEY` and `ARTIFACT_VIEW_KEY` must go onto the new Worker with exactly the old values, or every encrypted connector credential, run token and share link in the copied database stops working. Find them before the window. Only `ARTIFACT_VIEW_KEY` is in `apps/web/.env.production.local` today.
-3. **Maintenance window length.** Production D1 is about 4 MB and R2 about 1.2 GB (3 Nov 2026), so 30 minutes is enough with the R2 pre-copy.
+2. **Maintenance window length.** Production D1 is about 4 MB and R2 about 1.2 GB (3 Nov 2026), so 30 minutes is enough with the R2 pre-copy.
+
+## Secret keys
+
+Cloudflare never returns a secret's value, and the old `SECRETS_KEY` and `RUN_TOKEN_KEY` values are lost (the copies in `.env.local` do not match staging). Dom decided to rotate them: the new Worker gets new keys from `scripts/migrate-v2/keys.ts`. `ARTIFACT_VIEW_KEY` is known (`apps/web/.env.production.local`, `apps/web/.env.staging`), so it goes over unchanged and share links and live artifact guest sessions keep working.
+
+Everything the copied database holds under the old `SECRETS_KEY` becomes unreadable, and everything signed with the old `RUN_TOKEN_KEY` stops verifying. `d1.ts --apply` scrubs the new database right after the import (`SCRUB_STEPS` in `scripts/migrate-v2/helpers.ts`): each value goes to the state the app already shows when a person removes or revokes it, so pages say "not set", "needs sign-in" or "revoked" instead of failing on a decrypt error. The dry run prints what the scrub would change. On staging data (3 Nov 2026) that was 9 workspace secrets, 2 connector credentials, 22 open managed sessions, 6 Anthropic keys, 2 model keys and 1 Slack app. "What people must redo after the cutover" below lists what people do afterwards.
+
+No Durable Object stores a value encrypted with `SECRETS_KEY` or signed with `RUN_TOKEN_KEY`. `PiRun` keeps run and workspace ids and signs a new run token for each run. `ArtifactRoom` and the live artifact guest sessions use `ARTIFACT_VIEW_KEY`.
 
 ## How the Durable Objects move
 
@@ -64,7 +71,7 @@ The legacy transfer needs one deploy and nothing from the old Worker. Cloudflare
 2. `bunx wrangler containers list` shows `harbourmaster-vmsession-staging` with a new LAST MODIFIED and no `agentum-v2-vmsession-staging`. `bunx wrangler containers info <id>` names the VmSession namespace.
 3. An agent mailbox shows its old mail. An app artifact shows its stored data. A live artifact opens with its content.
 4. A Linux VM agent starts and its home folder has its old files.
-5. A managed run started before the window finishes.
+5. A run that was running at the export does not finish: its run token or managed session was signed with the old `RUN_TOKEN_KEY`. Check it ends as `interrupted` once its lease has passed (the minute tick's reaper does this), and is not left `running`.
 
 If any fails, stop and roll staging back before touching production.
 
@@ -108,7 +115,7 @@ Things outside this repository that hold the old hostname or names:
 |---|---|---|
 | MCP connectors in Claude and other clients | each user's client, URL `https://harbourmaster.rockyshoreslabs.io/mcp` | re-add as `https://agentumbot.io/mcp`. The old URL fails the host check. Clerk OAuth clients themselves live on the Clerk instance and keep working with Option A. |
 | Google OAuth client | Google Cloud console, client in `GOOGLE_OAUTH_CLIENT_ID` | add redirect URI `https://agentumbot.io/api/connectors/oauth/callback` (and `https://staging.agentumbot.io/...`). Keep the old one until no connect flow is in flight. |
-| Connector OAuth clients from dynamic registration | stored per connector, registered with the old redirect URI | connectors that registered dynamically need reconnecting if the provider checks the redirect URI. Find them in `connectors` rows after the move. |
+| Connector OAuth clients from dynamic registration | stored per connector, registered with the old redirect URI | the scrub removes the ones with a client secret. The rest register again on the next connect, because their redirect URI no longer matches. |
 | A2A peers | peers' configs, our agent cards | peers that fetched our card keep the old URL. It is served in place. Pushed webhook URLs stored at peers point at the old host, served in place too. Our own card now advertises agentumbot.io. |
 | A2A extension URIs | `packages/a2a/src/extensions.ts` | unchanged on purpose. They are identifiers that peers compare, never fetched. |
 | Slack app | api.slack.com app config: event, interactivity and slash-command request URLs, OAuth redirect URL | change to agentumbot.io. The old URLs keep working through the legacy host. |
@@ -156,16 +163,16 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 4. Apply the schema to the new databases: `bunx wrangler d1 migrations apply DB --remote --env staging` and `bunx wrangler d1 migrations apply DB --remote`.
 5. Make an R2 API token with Object Read & Write on the four buckets (Dashboard, R2, Manage API tokens). Export `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
 6. Pre-copy R2: `bun scripts/migrate-v2/r2.ts --env production --apply` (and staging). It copies only missing or changed keys, so the run inside the window is short.
-7. Secrets: `bun scripts/migrate-v2/secrets.ts --env production --apply` lists the old Worker's secret names (on 3 Nov 2026: `ARTIFACT_VIEW_KEY`, `CF_EMAIL_ROUTING_TOKEN`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `RUN_TOKEN_KEY`, `SECRETS_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`; staging the same minus the last) and writes `.wrangler/migrate-v2/agentum-v2.secrets.env` with empty values. Fill it in. Never commit it, and delete it after the deploy.
+7. Secrets: `bun scripts/migrate-v2/secrets.ts --env production --apply` lists the old Worker's secret names (on 3 Nov 2026: `ARTIFACT_VIEW_KEY`, `CF_EMAIL_ROUTING_TOKEN`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `RUN_TOKEN_KEY`, `SECRETS_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`; staging the same minus the last) and writes `.wrangler/migrate-v2/agentum-v2.secrets.env` with empty values. Then `bun scripts/migrate-v2/keys.ts --env production --apply` writes new `SECRETS_KEY` and `RUN_TOKEN_KEY` values (32 random bytes each, standard base64) into that file. It prints neither key and refuses to replace a line that already has a value, so it is safe to run twice. Fill in the rest by hand, with `ARTIFACT_VIEW_KEY` exactly as before. Never commit the file, and delete it after the deploy. Do the same with `--env staging` for `agentum-v2-staging.secrets.env`.
 8. Make the Clerk change for the chosen option (Option B: also the id rewrite inside the window, after the D1 copy).
 9. Remove `agentumbot.io` from v1's `wrangler.jsonc` (in the agentum repository) so v1 deploys stop claiming it.
-10. Dry runs, all read-only: `bun scripts/migrate-v2/d1.ts --env staging`, `bun scripts/migrate-v2/email-rules.ts --env staging` (with `CF_EMAIL_ROUTING_TOKEN` set), `bun run staging:build && bun scripts/migrate-v2/do-transfer.ts`, and `bunx wrangler deploy --dry-run -c dist/server/wrangler.json`.
+10. Dry runs, all read-only: `bun scripts/migrate-v2/d1.ts --env staging` (it also prints what the scrub would change), `bun scripts/migrate-v2/email-rules.ts --env staging` (with `CF_EMAIL_ROUTING_TOKEN` set), `bun run staging:build && bun scripts/migrate-v2/do-transfer.ts`, and `bunx wrangler deploy --dry-run -c dist/server/wrangler.json`.
 
 ## Staging cutover
 
 1. Cut the old Worker's traffic: detach `harbourmaster-staging.rockyshoreslabs.io` from `harbourmaster-staging` in the dashboard (staging has no cron). This does not stop every write, see "What still writes" under Production.
 2. Final R2 sync: `bun scripts/migrate-v2/r2.ts --env staging --apply`.
-3. Copy D1, as late as possible: `bun scripts/migrate-v2/d1.ts --env staging --apply`, then go straight on to steps 4 and 5. It checks both databases applied the same migrations and the new one is empty, exports the old rows (`--no-schema`), drops the `d1_migrations` rows the new database already has, imports, and compares row counts table by table. The schema comes from step 4 above, not from the dump: a full export creates tables in name order with each table's rows straight after, so `agents` rows arrive before the `workspaces` table exists and SQLite refuses them even with deferred foreign keys. The `events` triggers block only UPDATE and DELETE, so the INSERT-only import passes them.
+3. Copy D1, as late as possible: `bun scripts/migrate-v2/d1.ts --env staging --apply`, then go straight on to steps 4 and 5. It checks both databases applied the same migrations and the new one is empty, exports the old rows (`--no-schema`), drops the `d1_migrations` rows the new database already has, imports, compares row counts table by table, and then scrubs what only the old keys could read (see "Secret keys"). The scrub writes `.wrangler/migrate-v2/<database>-scrub.sql`, runs it, and fails if any step still counts a row. If it fails after the import, fix the cause and run that file with `bunx wrangler d1 execute <database> --remote --file <file>`: running `d1.ts` again refuses, because the new database is no longer empty. The schema comes from step 4 above, not from the dump: a full export creates tables in name order with each table's rows straight after, so `agents` rows arrive before the `workspaces` table exists and SQLite refuses them even with deferred foreign keys. The `events` triggers block only UPDATE and DELETE, so the INSERT-only import passes them.
 4. Build and patch: `bun run staging:build && bun scripts/migrate-v2/do-transfer.ts --apply`.
 5. Deploy that exact file, no rebuild in between:
 
@@ -182,14 +189,14 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 
 ## Production cutover
 
-Announce the window first.
+Announce the window first. Tell people that runs still going when the window starts are lost and must be started again, and that some keys and connections need redoing afterwards (see "What people must redo after the cutover").
 
 1. Run the `computer images` workflow on the new repository.
 2. Cut the old Worker's traffic. Dashboard, `harbourmaster`, Settings: remove the cron trigger (the minute tick writes D1) and detach `harbourmaster.rockyshoreslabs.io`. Users see the domain down for the length of the window.
 
    **What still writes.** Detaching the domain does not stop the old Worker. Until the deploy in step 6 moves the Durable Objects: `ManagedPoller`, `GuestRun`, `LiveArtifactMaintenance` and `MachineRelay` alarms keep firing on the old Worker and write D1; hibernated daemon sockets stay open after the route goes and their heartbeats write `last_seen`; the old queue consumer drains mail events; inbound mail reaches `harbourmaster` until step 7. Rows those paths write between the D1 export and the deploy stay in the old database and are lost. Keep that gap to a minute or two: run step 4 immediately before steps 5 and 6.
 3. Final R2 sync: `bun scripts/migrate-v2/r2.ts --env production --apply`.
-4. Copy D1: `bun scripts/migrate-v2/d1.ts --env production --apply`. Option B: run the Clerk id rewrite on `agentum-v2` now.
+4. Copy D1: `bun scripts/migrate-v2/d1.ts --env production --apply`. It scrubs after the import, as on staging. Option B: run the Clerk id rewrite on `agentum-v2` now.
 5. Build and patch: `bun run build && bun scripts/migrate-v2/do-transfer.ts --apply`.
 6. Deploy:
 
@@ -203,6 +210,28 @@ Announce the window first.
 8. Smoke-check as on staging, on `https://agentumbot.io`, with `bun run agent-login --env production --email <a user on the instance>`. Add: the minute tick runs (a scheduled trigger appears in `bunx wrangler tail agentum-v2`), a share link opened on the old host lands on agentumbot.io, an MCP client added at `https://agentumbot.io/mcp` lists tools.
 9. Rebuild with the committed config and deploy again (`bun run deploy`).
 10. Delete the filled secrets file. Update external dependencies from the table.
+
+## What people must redo after the cutover
+
+The rotated keys make these values unreadable. The scrub clears them, so the app shows each one as missing. Nothing reaches "Needs you" for them (`desk.railSources` covers requests, stuck runs and A2A approvals only), so tell each workspace's admins directly. The dry run's counts say which kinds a deployment has.
+
+| What | Key | What breaks | State after the scrub | Who acts |
+|---|---|---|---|---|
+| Workspace secrets (`secrets.value_enc`) | `SECRETS_KEY` | an agent granted the secret fails each run that reads it | deleted, with their grants (`agent_secrets`) | a member re-creates each secret (name, mode, rules, hosts) and grants it to its agents again |
+| Connector credentials, header and OAuth (`credentials.secret`) | `SECRETS_KEY` | connector calls fail to decrypt | `needs_auth`, the state an expired login has | each person, or the agent owner for agent credentials, reconnects the connector |
+| Connector OAuth clients with a client secret, registered or typed in (`connectors.oauth` client) | `SECRETS_KEY` | the next sign-in fails at the token exchange | client removed | nobody for registered clients: the next connect registers again. For a typed-in client, an admin types the client id and secret again |
+| The deployment's shared Google client on a connector | `SECRETS_KEY` | nothing | unchanged: it is sealed again on every connect | nobody |
+| Anthropic keys for managed agents (`workspace_anthropic_keys`) | `SECRETS_KEY` | managed runs fail to decrypt the key | deleted, with the managed agents, skills and sessions made under them, as removing the key does | an admin enters the key again in workspace settings. Managed agents register again on their next run |
+| Model provider keys (`workspace_model_keys`) | `SECRETS_KEY` | cloud runs on that provider fail | deleted ("not set") | an admin enters each key again |
+| Slack apps (`slack_apps` bot token, signing secret, client secret) | `SECRETS_KEY` | Slack events fail the signature check, replies fail | `revoked`, as Revoke does | the agent owner pastes the bot token and signing secret again from api.slack.com, which brings the same app back |
+| A2A connections we call out on (`a2a_connections.outbound_credential`) | `SECRETS_KEY` | our agent cannot call the peer | `revoked` (staging had none live) | the agent owner or an admin connects again. An Agentum peer is not told, so its side still shows the connection: its owner revokes it and pairs again |
+| A2A push configs a peer set with a token (`a2a_push_configs`) | `SECRETS_KEY` | pushes to the peer fail | deleted | nobody: the peer polls the task, or sets a new push config |
+| Queued A2A deliveries (`a2a_outbox`) | `SECRETS_KEY` | they could never be sent | deleted | nobody: they were notices to peers in flight |
+| Push webhook tokens of our open outbound A2A tasks | `SECRETS_KEY` (derived) | a task approved after the cutover gives the peer a token whose hash does not match the stored one, so the peer's pushes for it are refused | unchanged | nobody: polling finishes the task |
+| Share link URLs on the artifact Links list (`artifact_shares.token_encrypted`) | `SECRETS_KEY` | the owner could not copy an old link again | unchanged. The list shows the link without its token and no Copy button | nobody: old links still open, because opening checks the token's hash. To pass a link on again, make a new one |
+| Waiting A2A pairing requests (`a2a_pairing_requests`) | `SECRETS_KEY` (derived) | a code shown before the cutover still works, but a client that asks again gets a new code that does not match the stored hash | unchanged | the owner types the first code, or the client asks again once the request has expired |
+| Run tokens (`hm_run_`, `ag_run_`) of runs in flight, and outbound effect receipts waiting for approval | `RUN_TOKEN_KEY` | the run loses MCP, proxy, file and library access, and an approved effect cannot be used | the run ends `interrupted` when its lease passes, and shows under Needs you as stuck | the person who started it runs it again |
+| Managed session tokens (`ag_ses_`) | `RUN_TOKEN_KEY` | the managed agent's MCP calls fail | sessions closed or deleted with the Anthropic key | nobody: the next run opens a new session |
 
 ## Rollback
 

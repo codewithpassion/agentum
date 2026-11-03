@@ -69,6 +69,7 @@ import {
   hashedToken,
   hashToken,
   importSecretsKey,
+  isCryptoError,
   type SecretBinding,
 } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
@@ -337,6 +338,27 @@ export const createArtifactSharesService = ({
   });
 
   /**
+   * The link's token, or "" when the stored copy cannot be decrypted: a link
+   * made under an earlier `SECRETS_KEY` still opens through its hash, it just
+   * cannot be copied again.
+   */
+  const storedToken = async (row: ArtifactShareRow): Promise<string> => {
+    const key = await cryptoKey();
+    try {
+      return await decryptSecret(
+        key,
+        shareBinding(row.workspaceId, row.id),
+        row.tokenEncrypted
+      );
+    } catch (error: unknown) {
+      if (isCryptoError(error)) {
+        return "";
+      }
+      throw error;
+    }
+  };
+
+  /**
    * The share as the API shows it. `showUrl` false (a member who may not
    * manage links) leaves the token out: the URL is `<origin>/s/` and nothing
    * is decrypted, so the bearer secret stays with the owner and admins.
@@ -346,13 +368,7 @@ export const createArtifactSharesService = ({
     now: Date,
     showUrl: boolean
   ): Promise<ArtifactShare> => {
-    const token = showUrl
-      ? await decryptSecret(
-          await cryptoKey(),
-          shareBinding(row.workspaceId, row.id),
-          row.tokenEncrypted
-        )
-      : "";
+    const token = showUrl ? await storedToken(row) : "";
     return {
       artifactId: row.artifactId,
       createdAt: row.createdAt,

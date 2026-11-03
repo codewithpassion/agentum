@@ -422,6 +422,22 @@ describe("link shares", () => {
     expect(JSON.stringify(listed)).not.toContain("ag_share_");
   });
 
+  test("a link whose stored token no longer decrypts lists without its token and still opens", async () => {
+    const share = await service.createShare(owner, { artifactId: ARTIFACT });
+    // The cutover to Agentum v2 rotated SECRETS_KEY: the ciphertext stays, the key that made it is gone.
+    secretsKey = btoa(
+      String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))
+    );
+    const rotated = build();
+    const listed = await rotated.shares(owner, { artifactId: ARTIFACT });
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ id: share.id, status: "active" });
+    expect(listed[0]?.url).toBe(`${ORIGIN}/s/`);
+    expect(await rotated.openLink(tokenOf(share.url), request())).toMatchObject(
+      { ok: true }
+    );
+  });
+
   test("an API key or an agent cannot read links, open as a member or read the log", async () => {
     for (const caller of [keyUser, run("agent_maker")]) {
       // biome-ignore lint/performance/noAwaitInLoops: the calls run one after another on purpose
