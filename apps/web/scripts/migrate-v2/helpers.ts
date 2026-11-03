@@ -123,7 +123,10 @@ export const transferConfig = (built: BuiltConfig): BuiltConfig => {
   if (migrations !== undefined && migrations.length > 0) {
     throw new Error("The built config already has migrations.");
   }
-  const { exports: _dropped, ...rest } = built;
+  // The containers go too: Cloudflare refuses a container on a class the
+  // script has not declared SQLite, and a transfer declares nothing. The
+  // second deploy, with the committed config, attaches them again.
+  const { containers: _containers, exports: _dropped, ...rest } = built;
   return {
     ...rest,
     migrations: [

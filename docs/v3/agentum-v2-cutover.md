@@ -219,7 +219,7 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 1. Cut the old Worker's traffic: detach `harbourmaster-staging.rockyshoreslabs.io` from `harbourmaster-staging` in the dashboard (staging has no cron). This does not stop every write, see "What still writes" under Production.
 2. Final R2 sync: `bun scripts/migrate-v2/r2.ts --env staging --apply`.
 3. Copy D1, as late as possible: `bun scripts/migrate-v2/d1.ts --env staging --apply`, then go straight on to steps 4 and 5. It checks both databases applied the same migrations and the new one is empty, exports the old rows (`--no-schema`), drops the `d1_migrations` rows the new database already has, imports, compares row counts table by table, and then scrubs what only the old keys could read (see "Secret keys"). The scrub writes `.wrangler/migrate-v2/<database>-scrub.sql`, runs it, and fails if any step still counts a row. If it fails after the import, fix the cause and run that file with `bunx wrangler d1 execute <database> --remote --file <file>`: running `d1.ts` again refuses, because the new database is no longer empty. The schema comes from step 4 above, not from the dump: a full export creates tables in name order with each table's rows straight after, so `agents` rows arrive before the `workspaces` table exists and SQLite refuses them even with deferred foreign keys. The `events` triggers block only UPDATE and DELETE, so the INSERT-only import passes them.
-4. Build and patch: `bun run staging:build && bun scripts/migrate-v2/do-transfer.ts --apply`.
+4. Build and patch: `bun run staging:build && bun scripts/migrate-v2/do-transfer.ts --apply`. The patched config leaves out `containers`, because Cloudflare refuses a container on a class the script has not declared SQLite and a transfer declares nothing. Linux VMs are down from this deploy until the second one in the step after the smoke checks, so go straight on.
 5. Deploy that exact file, no rebuild in between:
 
    ```bash
@@ -252,7 +252,7 @@ Announce the window first. Tell people that runs still going when the window sta
    **What still writes.** Detaching the domain does not stop the old Worker. Until the deploy in step 6 moves the Durable Objects: `ManagedPoller`, `GuestRun`, `LiveArtifactMaintenance` and `MachineRelay` alarms keep firing on the old Worker and write D1; hibernated daemon sockets stay open after the route goes and their heartbeats write `last_seen`; the old queue consumer drains mail events; inbound mail reaches `harbourmaster` until step 7. Rows those paths write between the D1 export and the deploy stay in the old database and are lost. Keep that gap to a minute or two: run step 4 immediately before steps 5 and 6.
 3. Final R2 sync: `bun scripts/migrate-v2/r2.ts --env production --apply`.
 4. Copy D1: `bun scripts/migrate-v2/d1.ts --env production --apply`. Then run the Clerk steps 1 to 6 under "Clerk", "Users and organisations": export `agentum-v2`, `copy-clerk-users --apply`, `build-clerk-id-map`, the dry runs, the bookmark, and `migrate-clerk-ids --apply` on `agentum-v2`.
-5. Build and patch: `bun run build && bun scripts/migrate-v2/do-transfer.ts --apply`.
+5. Build and patch: `bun run build && bun scripts/migrate-v2/do-transfer.ts --apply`. The patched config leaves out `containers`, because Cloudflare refuses a container on a class the script has not declared SQLite and a transfer declares nothing. Linux VMs are down from this deploy until the second one in the step after the smoke checks, so go straight on.
 6. Deploy:
 
    ```bash

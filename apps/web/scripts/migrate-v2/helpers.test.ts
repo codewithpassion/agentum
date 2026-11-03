@@ -60,12 +60,14 @@ const exportsMap = Object.fromEntries(
 describe("transferConfig", () => {
   test("swaps exports for one transfer migration from the old Worker", () => {
     const out = transferConfig({
+      containers: [{ class_name: "VmSession" }],
       exports: exportsMap,
       main: "index.js",
       migrations: [],
       name: "agentum-v2-staging",
     });
     expect(out.exports).toBeUndefined();
+    expect(out.containers).toBeUndefined();
     expect(out.main).toBe("index.js");
     const [migration] = out.migrations as {
       tag: string;
