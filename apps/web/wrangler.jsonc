@@ -139,7 +139,7 @@
       // Filled in from `wrangler d1 create agentum-v2` during the cutover
       // (docs/v3/agentum-v2-cutover.md). Local development ignores the value.
       // The old `harbourmaster` database is 9641ef87-1cff-4136-86fc-9b0ae3f27cd6.
-      "database_id": "AGENTUM_V2_D1_ID_PLACEHOLDER",
+      "database_id": "63fdab15-25c5-46a5-863b-e60cf04cf649",
       "migrations_dir": "../../packages/db/migrations"
     }
   ],
@@ -240,7 +240,7 @@
           // Filled in from `wrangler d1 create agentum-v2-staging` during the
           // cutover. The old `harbourmaster-staging` database is
           // dadd800c-8151-4878-bb14-e25e1f345c0a.
-          "database_id": "AGENTUM_V2_STAGING_D1_ID_PLACEHOLDER",
+          "database_id": "9d1ca8fc-9c6e-489a-810b-f0c37df53dfb",
           "migrations_dir": "../../packages/db/migrations"
         }
       ],

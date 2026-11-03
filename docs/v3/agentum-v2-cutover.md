@@ -145,21 +145,7 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
    ```
 
 2. Put the two D1 ids into `apps/web/wrangler.jsonc` in place of `AGENTUM_V2_STAGING_D1_ID_PLACEHOLDER` and `AGENTUM_V2_D1_ID_PLACEHOLDER`, and commit. Previews keep their own placeholders.
-3. Subscribe the new queues to Email Sending events:
-
-   ```bash
-   bunx wrangler queues subscription create agentum-v2-staging-mail-events \
-     --source email.sending --zone-id 4dd028fe52d70f89e51383e1689d601a \
-     --domain rockyshoreslabs.io \
-     --events message.bounced,message.failed,message.rejected \
-     --name agentum-v2-staging-mail-events
-   bunx wrangler queues subscription create agentum-v2-mail-events \
-     --source email.sending --zone-id 4dd028fe52d70f89e51383e1689d601a \
-     --domain agents.rockyshoreslabs.io \
-     --events message.bounced,message.failed,message.rejected \
-     --name agentum-v2-mail-events
-   ```
-
+3. Email Sending events: Cloudflare allows one subscription per domain, so the new queues are subscribed inside the window, in the "Repoint mail" step. Note the old subscription ids now: `bunx wrangler queues subscription list harbourmaster-staging-mail-events` and the same for `harbourmaster-mail-events`.
 4. Apply the schema to the new databases: `bunx wrangler d1 migrations apply DB --remote --env staging` and `bunx wrangler d1 migrations apply DB --remote`.
 5. Make an R2 API token with Object Read & Write on the four buckets (Dashboard, R2, Manage API tokens). Export `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
 6. Pre-copy R2: `bun scripts/migrate-v2/r2.ts --env production --apply` (and staging). It copies only missing or changed keys, so the run inside the window is short.
@@ -182,7 +168,16 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
    ```
 
    Deploying from a terminal, wrangler asks to move `harbourmaster-staging.rockyshoreslabs.io` from the old Worker: answer yes. Without a terminal (CI, a piped shell) wrangler moves custom domains held by other Workers without asking.
-6. Repoint mail: `bun scripts/migrate-v2/email-rules.ts --env staging --apply`.
+6. Repoint mail: `bun scripts/migrate-v2/email-rules.ts --env staging --apply`. Then move the Email Sending subscription: `bunx wrangler queues subscription delete harbourmaster-staging-mail-events --id <old id>`, then create the new one:
+
+   ```bash
+   bunx wrangler queues subscription create agentum-v2-staging-mail-events \
+     --source email.sending --zone-id 4dd028fe52d70f89e51383e1689d601a \
+     --domain rockyshoreslabs.io \
+     --events message.bounced,message.failed,message.rejected \
+     --name agentum-v2-staging-mail-events
+   ```
+
 7. Run the Durable Object checks above, then smoke-check: sign in on `https://staging.agentumbot.io` with `bun run agent-login --env staging`; `/api/health`; open `/desk`; send mail to a staging agent address and see it arrive; open `https://harbourmaster-staging.rockyshoreslabs.io/desk` in a browser and land on `staging.agentumbot.io/desk`; a daemon enrolled on the old host reconnects.
 8. Rebuild with the committed config and deploy again (`bun run staging:deploy`), so the Worker switches from the transfer migration to `exports`. The output should report no Durable Object changes.
 9. Run a test PR on the new repository once its Actions secrets exist.
@@ -206,7 +201,16 @@ Announce the window first. Tell people that runs still going when the window sta
    ```
 
    This takes `agentumbot.io` from v1's `agentum` Worker and `harbourmaster.rockyshoreslabs.io` from `harbourmaster` (wrangler asks in a terminal and does it silently without one). v1 keeps `agentum.rockyshoreslabs.io`. `www.agentumbot.io` has no record today; add one only if wanted.
-7. Repoint mail: `bun scripts/migrate-v2/email-rules.ts --env production --apply`.
+7. Repoint mail: `bun scripts/migrate-v2/email-rules.ts --env production --apply`. Then move the Email Sending subscription: `bunx wrangler queues subscription delete harbourmaster-mail-events --id <old id>`, then create the new one:
+
+   ```bash
+   bunx wrangler queues subscription create agentum-v2-mail-events \
+     --source email.sending --zone-id 4dd028fe52d70f89e51383e1689d601a \
+     --domain agents.rockyshoreslabs.io \
+     --events message.bounced,message.failed,message.rejected \
+     --name agentum-v2-mail-events
+   ```
+
 8. Smoke-check as on staging, on `https://agentumbot.io`, with `bun run agent-login --env production --email <a user on the instance>`. Add: the minute tick runs (a scheduled trigger appears in `bunx wrangler tail agentum-v2`), a share link opened on the old host lands on agentumbot.io, an MCP client added at `https://agentumbot.io/mcp` lists tools.
 9. Rebuild with the committed config and deploy again (`bun run deploy`).
 10. Delete the filled secrets file. Update external dependencies from the table.
