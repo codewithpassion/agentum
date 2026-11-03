@@ -5,6 +5,7 @@ import {
   buildMapping,
   buildPlan,
   type ClerkLookup,
+  chunks,
   discover,
   type Mapping,
   parseMapping,
@@ -412,5 +413,23 @@ describe("what counts as a Clerk id", () => {
     );
     const { occurrences } = await discover(sqliteDriver(db.client));
     expect(occurrences.filter((o) => o.table === "later")).toEqual([]);
+  });
+});
+
+describe("chunks", () => {
+  test("keeps order and splits before a run would pass the limit", () => {
+    expect(chunks(["aaaa", "bbbb", "cc", "dddddddddd"], 10)).toEqual([
+      ["aaaa", "bbbb"],
+      ["cc"],
+      ["dddddddddd"],
+    ]);
+  });
+
+  test("a statement longer than the limit gets a chunk of its own", () => {
+    expect(chunks(["x".repeat(20), "y"], 5)).toEqual([["x".repeat(20)], ["y"]]);
+  });
+
+  test("no statements, no chunks", () => {
+    expect(chunks([], 10)).toEqual([]);
   });
 });

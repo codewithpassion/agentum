@@ -414,6 +414,26 @@ export const run = async (
   return { exitCode: verified ? 0 : 1, report: report.join("\n") };
 };
 
+/** Splits statements into runs whose joined length stays under `max`. */
+export const chunks = (statements: string[], max: number): string[][] => {
+  const out: string[][] = [];
+  let current: string[] = [];
+  let size = 0;
+  for (const statement of statements) {
+    if (current.length > 0 && size + statement.length > max) {
+      out.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(statement);
+    size += statement.length + 2;
+  }
+  if (current.length > 0) {
+    out.push(current);
+  }
+  return out;
+};
+
 /** A driver over a local SQLite file, for the copy of production D1 and tests. */
 export const sqliteDriver = (db: Database): Driver => ({
   exec: (statements) => {

@@ -10,6 +10,7 @@
 import { Database } from "bun:sqlite";
 import { file, spawn, write } from "bun";
 import {
+  chunks,
   type Driver,
   parseMapping,
   run,
@@ -38,26 +39,6 @@ const wrangler = async (args: string[]): Promise<string> => {
 };
 
 const SELECT_CHUNK_CHARS = 50_000;
-
-/** Splits statements into runs whose joined length stays under `max`. */
-const chunks = (statements: string[], max: number): string[][] => {
-  const out: string[][] = [];
-  let current: string[] = [];
-  let size = 0;
-  for (const statement of statements) {
-    if (current.length > 0 && size + statement.length > max) {
-      out.push(current);
-      current = [];
-      size = 0;
-    }
-    current.push(statement);
-    size += statement.length + 2;
-  }
-  if (current.length > 0) {
-    out.push(current);
-  }
-  return out;
-};
 
 const wranglerDriver = (
   binding: string,
