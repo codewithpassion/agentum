@@ -10,9 +10,9 @@ import { PendingSessionGate } from "./pending-session-gate";
 // colorNeutral drives borders and hover fills, so it takes a dark shade on
 // light and a light shade on dark.
 //
-// Clerk paints links with colorPrimary, and terracotta text on the light
-// footer is only 2.7:1. The light theme darkens those links (5.1:1 there). In dark
-// mode terracotta already passes, and colorModalBackdrop is set because it
+// Clerk paints links with colorPrimary, and Delta Foxtrot orange text on the
+// light footer is only about 2.6:1. The light theme darkens those links (about
+// 5:1 there). In dark mode orange already passes, and colorModalBackdrop is set because it
 // would otherwise follow colorNeutral and turn the backdrop near-white.
 
 // Every sign-in, sign-up and session-task URL points at the app. Clerk builds
@@ -28,25 +28,25 @@ const routing = {
 };
 
 const shared = {
-  borderRadius: "0.75rem",
-  colorPrimary: "#d97757",
-  colorPrimaryForeground: "#181818",
-  fontFamily: '"DM Sans", ui-sans-serif, system-ui, sans-serif',
+  borderRadius: "0",
+  colorPrimary: "#ff7733",
+  colorPrimaryForeground: "#1a1a1a",
+  fontFamily: '"Roboto", ui-sans-serif, system-ui, sans-serif',
 };
 
 const light = {
   ...shared,
-  colorBackground: "#faf9f5",
-  colorDanger: "#b8382e",
-  colorForeground: "#181818",
+  colorBackground: "#f5f5f5",
+  colorDanger: "#d4153a",
+  colorForeground: "#1a1a1a",
   colorInput: "#ffffff",
-  colorInputForeground: "#181818",
-  colorMuted: "#efede6",
-  colorMutedForeground: "#6b6862",
-  colorNeutral: "#181818",
+  colorInputForeground: "#1a1a1a",
+  colorMuted: "#ebebeb",
+  colorMutedForeground: "#5c5c5c",
+  colorNeutral: "#1a1a1a",
 };
 
-const lightLink = { color: "#a34728" };
+const lightLink = { color: "#b04a12" };
 const lightElements = {
   footerActionLink: lightLink,
   formFieldAction: lightLink,
@@ -56,15 +56,15 @@ const lightElements = {
 
 const dark = {
   ...shared,
-  colorBackground: "#222120",
-  colorDanger: "#e5695a",
-  colorForeground: "#faf9f5",
-  colorInput: "#2c2b29",
-  colorInputForeground: "#faf9f5",
+  colorBackground: "#212121",
+  colorDanger: "#ff3859",
+  colorForeground: "#ffffff",
+  colorInput: "#2a2a2a",
+  colorInputForeground: "#ffffff",
   colorModalBackdrop: "rgba(0, 0, 0, 0.73)",
-  colorMuted: "#2c2b29",
-  colorMutedForeground: "#a19d96",
-  colorNeutral: "#faf9f5",
+  colorMuted: "#2a2a2a",
+  colorMutedForeground: "#a5a5a5",
+  colorNeutral: "#ffffff",
 };
 
 export default function AppClerkProvider({
