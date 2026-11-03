@@ -106,19 +106,19 @@ describe("baseUrlFor", () => {
 
   test("staging", () => {
     expect(baseUrlFor(parseArgs(["--env", "staging"]))).toBe(
-      "https://harbourmaster-staging.rockyshoreslabs.io"
+      "https://staging.agentumbot.io"
     );
   });
 
   test("preview uses the PR number", () => {
     expect(baseUrlFor(parseArgs(["--env", "preview", "--pr", "12"]))).toBe(
-      "https://pr-12-harbourmaster-staging.dominik-fretz.workers.dev"
+      "https://pr-12-agentum-v2-staging.dominik-fretz.workers.dev"
     );
   });
 
   test("production", () => {
     expect(baseUrlFor(parseArgs(["--env", "production"]))).toBe(
-      "https://harbourmaster.rockyshoreslabs.io"
+      "https://agentumbot.io"
     );
   });
 
@@ -139,7 +139,7 @@ describe("redirectUrlFor", () => {
     expect(redirectUrlFor(parseArgs([]))).toBe("http://localhost:3000/");
     expect(
       redirectUrlFor(parseArgs(["--env", "staging", "--redirect", "/tasks/1"]))
-    ).toBe("https://harbourmaster-staging.rockyshoreslabs.io/tasks/1");
+    ).toBe("https://staging.agentumbot.io/tasks/1");
     expect(
       redirectUrlFor(
         parseArgs(["--base-url", "http://x.test/", "--redirect", "/a"])

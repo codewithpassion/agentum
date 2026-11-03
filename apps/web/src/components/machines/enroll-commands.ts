@@ -1,6 +1,6 @@
 export const IMAGE_OWNER = "codewithpassion";
-export const HEADLESS_IMAGE = `ghcr.io/${IMAGE_OWNER}/harbourmaster-computer:latest`;
-export const DESKTOP_IMAGE = `ghcr.io/${IMAGE_OWNER}/harbourmaster-computer-desktop:latest`;
+export const HEADLESS_IMAGE = `ghcr.io/${IMAGE_OWNER}/agentum-computer:latest`;
+export const DESKTOP_IMAGE = `ghcr.io/${IMAGE_OWNER}/agentum-computer-desktop:latest`;
 
 export const DESKTOP_SECCOMP_NOTE =
   "Chromium needs the seccomp profile packaging/desktop/seccomp.json from the apps/computer folder of the repository. Run this command from inside apps/computer.";

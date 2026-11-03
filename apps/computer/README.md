@@ -41,8 +41,8 @@ See `hm-computer run --help` for command and path policy flags.
 
 ## Docker
 
-Two images carry the daemon. `harbourmaster-computer` is headless: the daemon on busybox, for
-commands and files. `harbourmaster-computer-desktop` adds Xvfb, Openbox, Chromium, xdotool and
+Two images carry the daemon. `agentum-computer` is headless: the daemon on busybox, for
+commands and files. `agentum-computer-desktop` adds Xvfb, Openbox, Chromium, xdotool and
 xclip on display `:99`, for agents that drive a screen. Both run as uid 1000 and keep private
 state in the `/var/lib/hm-computer` volume.
 
@@ -55,7 +55,7 @@ Headless:
 ```sh
 docker run -d --restart unless-stopped --name hm-computer \
   -v hm-computer:/var/lib/hm-computer \
-  ghcr.io/<owner>/harbourmaster-computer:latest \
+  ghcr.io/<owner>/agentum-computer:latest \
   --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
 ```
 
@@ -69,7 +69,7 @@ docker run -d --restart unless-stopped --name hm-computer-desktop \
   --security-opt no-new-privileges \
   --security-opt seccomp=packaging/desktop/seccomp.json \
   -v hm-computer-desktop:/var/lib/hm-computer \
-  ghcr.io/<owner>/harbourmaster-computer-desktop:latest \
+  ghcr.io/<owner>/agentum-computer-desktop:latest \
   --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
 ```
 
@@ -87,7 +87,7 @@ directory, and use `hm-computer:local` or `hm-computer-desktop:local` in place o
 once with the seccomp profile and once with Docker's default.
 
 Publishing: the `computer images` workflow (`.github/workflows/computer.yml`) builds both images
-and pushes them to `ghcr.io/<owner>/harbourmaster-computer` and `-desktop`, tagged `latest` and
+and pushes them to `ghcr.io/<owner>/agentum-computer` and `-desktop`, tagged `latest` and
 the commit. It starts only by hand (`workflow_dispatch`). After the first run, set each package's
 visibility to public on GitHub so `docker pull` works without a login.
 

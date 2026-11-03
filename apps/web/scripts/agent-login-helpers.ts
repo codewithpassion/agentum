@@ -26,8 +26,8 @@ const PR_NUMBER = /^\d+$/;
 const LINE_BREAK = /\r?\n/;
 const TRAILING_SLASHES = /\/+$/;
 const LOCAL_BASE_URL = "http://localhost:3000";
-const STAGING_BASE_URL = "https://harbourmaster-staging.rockyshoreslabs.io";
-const PRODUCTION_BASE_URL = "https://harbourmaster.rockyshoreslabs.io";
+const STAGING_BASE_URL = "https://staging.agentumbot.io";
+const PRODUCTION_BASE_URL = "https://agentumbot.io";
 
 const isAgentLoginEnv = (value: string): value is AgentLoginEnv =>
   (ENVS as readonly string[]).includes(value);
@@ -125,7 +125,7 @@ export const baseUrlFor = (args: AgentLoginArgs): string => {
     if (args.pr === undefined) {
       throw new Error("--env preview needs --pr <number>.");
     }
-    return `https://pr-${args.pr}-harbourmaster-staging.dominik-fretz.workers.dev`;
+    return `https://pr-${args.pr}-agentum-v2-staging.dominik-fretz.workers.dev`;
   }
   return BASE_URLS[args.env];
 };
