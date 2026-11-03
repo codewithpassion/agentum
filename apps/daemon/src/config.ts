@@ -1,9 +1,10 @@
-// The daemon's on-disk config, `~/.harbourmaster/config.json`. It holds the
+// The daemon's on-disk config, `~/.agentum/config.json`. It holds the
 // machine credential, so the file is mode 600 and the directory mode 700, both
 // owned by the daemon's user. That is what keeps `hm-agent` out of it.
 
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -22,14 +23,22 @@ export const configSchema = z.strictObject({
   claudeBinary: z.string().nullable(),
   credential: z.string().startsWith("hm_mach_"),
   machineId: z.string().min(1),
-  // Origin of the Harbourmaster Worker, no trailing slash.
+  // Origin of the Agentum Worker, no trailing slash.
   server: z.url(),
   singleUser: z.boolean(),
 });
 export type DaemonConfig = z.infer<typeof configSchema>;
 
-export const defaultConfigPath = (home: string = homedir()): string =>
-  join(home, ".harbourmaster", "config.json");
+/**
+ * `~/.agentum/config.json`, unless only the config of an install from before
+ * the rename to Agentum exists. Then it is that one, `~/.harbourmaster/`, so
+ * an existing install keeps its credential.
+ */
+export const defaultConfigPath = (home: string = homedir()): string => {
+  const current = join(home, ".agentum", "config.json");
+  const legacy = join(home, ".harbourmaster", "config.json");
+  return !existsSync(current) && existsSync(legacy) ? legacy : current;
+};
 
 /**
  * Reads and validates the config. A thrown message names the path and the
@@ -43,7 +52,7 @@ export const readConfig = (
     raw = readFileSync(path, "utf8");
   } catch (error) {
     throw new Error(
-      `No config at ${path}. Run \`harbourmaster enroll <code> --server <url>\` first.`,
+      `No config at ${path}. Run \`agentum enroll <code> --server <url>\` first.`,
       { cause: error }
     );
   }

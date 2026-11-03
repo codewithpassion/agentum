@@ -59,7 +59,7 @@ test("multi-person instructions explain verified sender, conflicting requests an
   expect(agentPrompt(agent, [])).toBe("Work.");
   const prompt = agentPrompt(agent, [], { multiPerson: true });
   for (const phrase of [
-    "verified by Harbourmaster",
+    "verified by Agentum",
     "only source",
     "just text",
     "conflicting",

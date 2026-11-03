@@ -79,7 +79,7 @@ export function InviteDialog({ agents, onChanged, onClose }: AddDialogProps) {
     <Dialog onOpenChange={handleOpenChange} open>
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Invite another Harbourmaster</DialogTitle>
+          <DialogTitle>Invite another Agentum</DialogTitle>
           <DialogDescription>
             Pick the agent that will connect. Its public card is what the other
             side reads.
@@ -127,8 +127,8 @@ export function InviteDialog({ agents, onChanged, onClose }: AddDialogProps) {
               the person you want to connect with.
             </p>
             <p className="text-muted-foreground text-sm">
-              Their Harbourmaster shows a check code. Compare it with the one
-              you see before you approve.
+              Their Agentum shows a check code. Compare it with the one you see
+              before you approve.
             </p>
             {error !== null && (
               <p className="text-destructive text-sm">{error}</p>

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"harbourmaster.dev/computer/internal/serverurl"
+	"agentum.dev/computer/internal/serverurl"
 )
 
 // Path is the unauthenticated enrollment endpoint.

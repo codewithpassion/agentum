@@ -233,7 +233,7 @@ export const createMailService = ({
       if (!routingRuleId) {
         const existing = await port.findRule(row.address);
         if (existing && !existing.managed) {
-          throw new Error("Address in use outside Harbourmaster");
+          throw new Error("Address in use outside Agentum");
         }
         // A managed rule is ours from an earlier try that died before it saved the id.
         routingRuleId = existing

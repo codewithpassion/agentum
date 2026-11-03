@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 func intp(value int) *int       { return &value }

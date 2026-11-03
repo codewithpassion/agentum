@@ -1,5 +1,5 @@
 [Unit]
-Description=Harbourmaster remote computer agent
+Description=Agentum remote computer agent
 After=network-online.target
 Wants=network-online.target
 

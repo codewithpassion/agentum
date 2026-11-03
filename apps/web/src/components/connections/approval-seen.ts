@@ -29,7 +29,7 @@ export const approvalSeen = (summary: {
  * The destination to approve from a Needs you card, which shows only a host.
  * An outside agent we call has a credential that goes to the address, so it is
  * approved on its own page where the full origin and token URL show. A
- * Harbourmaster peer is approved only while its address is still the host the
+ * Agentum peer is approved only while its address is still the host the
  * card named.
  */
 export const approvalFromCard = (

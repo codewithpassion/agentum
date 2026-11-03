@@ -22,10 +22,10 @@ const RUN_TOKEN_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString(
   "base64"
 );
 const env = {
-  PUBLIC_BASE_URL: "https://harbourmaster.example.com",
+  PUBLIC_BASE_URL: "https://agentum.example.com",
   RUN_TOKEN_KEY,
 } as unknown as Env;
-const MCP_URL = "https://harbourmaster.example.com/mcp";
+const MCP_URL = "https://agentum.example.com/mcp";
 const MINUTE_MS = 60_000;
 
 let db: ReturnType<typeof migrated>;
@@ -145,7 +145,7 @@ const readRpc = async (response: Response): Promise<unknown> => {
   return JSON.parse(text);
 };
 
-const HOST = "harbourmaster.example.com";
+const HOST = "agentum.example.com";
 
 const post = (token: string | null, body: string, host = HOST) =>
   app.request(
@@ -785,7 +785,7 @@ describe("Clerk OAuth and the client gate", () => {
     expect(response.status).toBe(401);
     const challenge = response.headers.get("WWW-Authenticate") ?? "";
     expect(challenge).toContain(
-      'resource_metadata="https://harbourmaster.example.com/.well-known/oauth-protected-resource/mcp"'
+      'resource_metadata="https://agentum.example.com/.well-known/oauth-protected-resource/mcp"'
     );
     expect(challenge).not.toContain("error=");
   });
@@ -806,7 +806,7 @@ describe("Clerk OAuth and the client gate", () => {
     expect(answer.error).toBe("client_not_approved");
     expect(String(answer.message)).toContain(CLIENT_ID);
     expect(String(answer.message)).toContain(
-      "https://harbourmaster.example.com/settings/connected-apps"
+      "https://agentum.example.com/settings/connected-apps"
     );
     expect(await clients()).toMatchObject([
       { clientId: CLIENT_ID, name: `App ${CLIENT_ID}`, status: "pending" },

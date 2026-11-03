@@ -1,4 +1,4 @@
-// `harbourmaster enroll <code> --server <url>`: trade the enrolment code for a
+// `agentum enroll <code> --server <url>`: trade the enrolment code for a
 // machine credential, then write the config. The code arrives in argv, so it is
 // visible to `ps`; it is single use and the server rejects a second try.
 
@@ -11,11 +11,11 @@ import { canRunAsAgent, resolveClaudeBinary } from "./agent-user.ts";
 import type { CommandRunner } from "./command.ts";
 import { defaultConfigPath, writeConfig } from "./config.ts";
 import { EXIT_FAILURE, EXIT_OK } from "./exit-codes.ts";
+import { SERVICE_NAME } from "./install-service.ts";
 import type { Logger } from "./log.ts";
 
 const TRAILING_SLASHES = /\/+$/;
 const ENROLL_PATH = "/api/machines/enroll";
-const SERVICE_UNIT = "harbourmaster";
 
 export interface EnrollOptions {
   claudeBinary?: string;
@@ -39,13 +39,13 @@ const readJson = async (response: Response): Promise<unknown> => {
 
 /** Whether the daemon's user has the systemd user unit installed. */
 const isInstalledAsService = async (run: CommandRunner): Promise<boolean> => {
-  const unit = await run(["systemctl", "--user", "cat", SERVICE_UNIT]);
+  const unit = await run(["systemctl", "--user", "cat", SERVICE_NAME]);
   return unit.exitCode === 0;
 };
 
 const describeSingleUser = (claudeFound: boolean): string =>
   claudeFound
-    ? "single_user is true because hm-agent is not set up, so Claude Code will run as this user. Run `harbourmaster install-service` before enrolling to have it run as hm-agent."
+    ? "single_user is true because hm-agent is not set up, so Claude Code will run as this user. Run `agentum install-service` before enrolling to have it run as hm-agent."
     : "single_user is true because no claude binary was found on the PATH, so Claude Code will run as this user.";
 
 /** Returns the process exit code. Never logs the code or the credential. */
@@ -124,8 +124,8 @@ export const enrollCommand = async (
   }
   log.info(`config written to ${path}`);
   const next = (await isInstalledAsService(run))
-    ? `systemctl --user restart ${SERVICE_UNIT}`
-    : "harbourmaster run";
+    ? `systemctl --user restart ${SERVICE_NAME}`
+    : "agentum run";
   log.info(`next step: ${next}`);
   return EXIT_OK;
 };

@@ -1,6 +1,6 @@
 # Agent connections (`a2a`)
 
-The services behind agent connections: publishing an agent, pairing it with another Harbourmaster or an outside A2A client, and the A2A tasks that move between the two sides. The spec is [`docs/v3/agent-connections.md`](../../../../docs/v3/agent-connections.md). The `/a2a` routes live in `apps/web/src/server/routes/a2a.ts`, and the page calls go through `apps/web/src/server/trpc/a2a-router.ts`.
+The services behind agent connections: publishing an agent, pairing it with another Agentum or an outside A2A client, and the A2A tasks that move between the two sides. The spec is [`docs/v3/agent-connections.md`](../../../../docs/v3/agent-connections.md). The `/a2a` routes live in `apps/web/src/server/routes/a2a.ts`, and the page calls go through `apps/web/src/server/trpc/a2a-router.ts`.
 
 ## How it is built
 

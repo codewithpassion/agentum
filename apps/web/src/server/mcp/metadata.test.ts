@@ -9,7 +9,7 @@ import {
   resolveIssuer,
 } from "./metadata.ts";
 
-const PROD = "https://harbourmaster.example.com";
+const PROD = "https://agentum.example.com";
 
 // A made-up instance host, encoded the way Clerk encodes it.
 const HOST = "example-instance-12.clerk.accounts.dev";
@@ -41,7 +41,7 @@ test("production names PUBLIC_BASE_URL and never reflects the Host", () => {
   const prod = { dev: false, publicBaseUrl: PROD };
   expect(mcpOrigin(`${PROD}/mcp`, prod)).toBe(PROD);
   // Behind a proxy the Worker may see http; PUBLIC_BASE_URL keeps https.
-  expect(mcpOrigin("http://harbourmaster.example.com/mcp", prod)).toBe(PROD);
+  expect(mcpOrigin("http://agentum.example.com/mcp", prod)).toBe(PROD);
   expect(mcpOrigin("https://evil.example/mcp", prod)).toBe(PROD);
   expect(mcpOrigin("http://localhost:3100/mcp", prod)).toBe(PROD);
   expect(

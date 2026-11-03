@@ -1,4 +1,4 @@
-// What the `harbourmaster` binary's exit status means. The systemd unit reads
+// What the `agentum` binary's exit status means. The systemd unit reads
 // code 3 to decide never to restart: a rejected credential cannot be fixed by
 // trying again, while any other failure is a crash that should be restarted.
 

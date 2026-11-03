@@ -361,7 +361,7 @@ const readTree = async (
 
 const requestHeaders = (token?: string, accept?: string): Headers => {
   const headers = new Headers({
-    "User-Agent": "Harbourmaster-GitHub-Skill-Fetcher",
+    "User-Agent": "Agentum-GitHub-Skill-Fetcher",
   });
   if (accept) {
     headers.set("Accept", accept);

@@ -32,8 +32,7 @@ const URL_SECRET_KEY_SUFFIX =
 const KEY_SEPARATORS = /[-_]/g;
 const SECRET_VALUE =
   /^(?:(?:bearer|basic|token)\s+\S+|(?:authorization|cookie):\s*\S+)$/i;
-const HARBOURMASTER_TOKEN =
-  /^hm_[a-z]+_[A-Za-z0-9_-]{16,}(?:\.[A-Za-z0-9_-]{16,})?$/;
+const AGENTUM_TOKEN = /^hm_[a-z]+_[A-Za-z0-9_-]{16,}(?:\.[A-Za-z0-9_-]{16,})?$/;
 const API_TOKEN = /^sk-[A-Za-z0-9_-]{16,}$/;
 const HTTP_SCHEME = /^\s*https?:/i;
 const URL_WHITESPACE = /[\t\r\n]/;
@@ -116,7 +115,7 @@ export function stripSecrets(value: JsonValue): JsonValue {
     const trimmed = value.trim();
     if (
       SECRET_VALUE.test(trimmed) ||
-      HARBOURMASTER_TOKEN.test(trimmed) ||
+      AGENTUM_TOKEN.test(trimmed) ||
       API_TOKEN.test(trimmed)
     ) {
       return "[redacted]";

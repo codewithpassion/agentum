@@ -1,7 +1,7 @@
 // The A2A server, mounted at `/a2a` with `mountA2aRoutes`. Per published agent
 // (`/a2a/<publicId>`) it serves the agent card, the JSON-RPC binding (`/rpc`),
 // the HTTP+JSON binding (`/rest/...`) and the pairing calls of two
-// Harbourmaster deployments. Thin, like `triggers.ts`: read a capped body,
+// Agentum deployments. Thin, like `triggers.ts`: read a capped body,
 // authenticate, call a service, word the answer. The rules live in
 // `@repo/services/a2a/*`, and the operations in `a2a-ops.ts`, shared by both
 // bindings. The spec is docs/v3/agent-connections.md ("A2A mapping").
@@ -52,7 +52,7 @@ import { type AppEnv, bearerGroup } from "./groups.ts";
 type RouteContext = Context<AppEnv>;
 
 const MAX_BODY_BYTES = 256 * 1024;
-const WWW_AUTHENTICATE = 'Bearer realm="harbourmaster"';
+const WWW_AUTHENTICATE = 'Bearer realm="agentum"';
 const BEARER = /^Bearer\s+(\S+)$/i;
 const CARD_MAX_AGE_SECONDS = 300;
 const ETAG_LENGTH = 32;
@@ -584,7 +584,7 @@ const cardRequest = async (c: RouteContext): Promise<Response> => {
 };
 
 // ---------------------------------------------------------------------------
-// Pairing. Plain JSON, not A2A: one Harbourmaster calling another.
+// Pairing. Plain JSON, not A2A: one Agentum calling another.
 
 const pairError = (c: RouteContext, error: unknown): Response => {
   if (isForbiddenError(error)) {

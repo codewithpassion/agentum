@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: tests for the mailbox store against an in-memory
+// Modified by Agentum: tests for the mailbox store against an in-memory
 // SQLite database, with a fixed clock so every time boundary is exact.
 
 import { describe, expect, test } from "bun:test";

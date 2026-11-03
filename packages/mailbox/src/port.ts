@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: the MailboxPort over a mailbox Durable Object, the
+// Modified by Agentum: the MailboxPort over a mailbox Durable Object, the
 // FILES bucket and the send_email binding. It follows the send and receive
 // flows of agentic-inbox-hei (workers/lib/tools.ts and workers/index.ts),
 // without verifyDraft, deferred delivery or quoted replies.

@@ -1,14 +1,14 @@
 # Agent connections
 
-Written 31 October 2026 from Dom's request: connect a Harbourmaster agent to agents in other workspaces and to agents run by other people, with a trust relationship, approvals, a list of connections, and a way to withdraw access. Dom's answer on scope: both other Harbourmaster agents and any A2A agent, with a full A2A implementation.
+Written 31 October 2026 from Dom's request: connect a Agentum agent to agents in other workspaces and to agents run by other people, with a trust relationship, approvals, a list of connections, and a way to withdraw access. Dom's answer on scope: both other Agentum agents and any A2A agent, with a full A2A implementation.
 
 Tasks are `AA.*` in `docs/tasks/`. This file is the spec for all of them.
 
 ## The short version
 
-Harbourmaster speaks A2A 1.0, the open agent-to-agent protocol, as both server and client. A person publishes an agent, then connects it to a peer. Three kinds of peer use the same connection row, the same run path and the same withdraw button:
+Agentum speaks A2A 1.0, the open agent-to-agent protocol, as both server and client. A person publishes an agent, then connects it to a peer. Three kinds of peer use the same connection row, the same run path and the same withdraw button:
 
-- **Another Harbourmaster**, on this deployment or on another one. Connected with an invite link and approved on both sides. A2A has no pairing mechanism (spec section 7.3 calls credential acquisition out-of-band), so pairing is a small extension of ours.
+- **Another Agentum**, on this deployment or on another one. Connected with an invite link and approved on both sides. A2A has no pairing mechanism (spec section 7.3 calls credential acquisition out-of-band), so pairing is a small extension of ours.
 - **An outside A2A client calling in**, such as Hermes with an A2A plugin. A person mints an access key for that one agent and hands it over.
 - **An outside A2A agent we call out to.** A person pastes its agent card URL and credential.
 
@@ -33,10 +33,10 @@ Nothing a remote agent sends can start work without a person having created or a
 
 ## Trust flows
 
-### Harbourmaster to Harbourmaster
+### Agentum to Agentum
 
 1. Alice opens Settings, Agent connections, picks her agent X and creates an invite. She gets a link, `https://<hmA>/connect/<token>`, shown once, valid 7 days, single use, at most 5 failed tries. Publishing X happens here if it isn't published yet.
-2. Bob pastes the link into Add connection on his Harbourmaster and picks his agent Y. Opening the link on the same deployment while signed in lands on that form directly.
+2. Bob pastes the link into Add connection on his Agentum and picks his agent Y. Opening the link on the same deployment while signed in lands on that form directly.
 3. Bob's server calls `POST <hmA>/a2a/pair/join` with the invite as bearer and a body holding Y's card URL and a new `hm_a2a_` token that lets X call Y. Bob's row is `awaiting_peer`; Alice's is `needs_approval`.
 4. Alice sees it in Needs you: Y's name, the organisation it claims, the host it actually lives on, and an 8-character check code, from the same alphabet as the pairing code below. Bob sees the same code, derived from a hash of both tokens, and can compare it with Alice if the link went through anything he doesn't trust. On the same deployment the organisation name comes from our own database, not the claim.
 5. Alice approves. Her server mints the token that lets Y call X and calls `POST <Y interface>/pair/activate` with Bob's token as bearer. That call succeeding proves the host really is Y's, because it had to answer on that origin holding a token only Bob's server issued. Both rows go `active`.
@@ -73,7 +73,7 @@ Every connection has a Revoke button on either side, in one click plus a confirm
 - marks the row `revoked`, so the token fails on the next request (every request re-reads the row, nothing is cached);
 - rejects tasks waiting on approval and cancels every live run whose chain reaches that connection: its task runs, the runs they handed work to (a hand-off outlives its parent's end), and wakes carrying its answers;
 - marks outbound tasks failed locally and wakes nothing;
-- tells a Harbourmaster peer through `POST /pair/revoke`, best effort, so its page shows the state. The peer's access has already ended whether or not the notice lands.
+- tells a Agentum peer through `POST /pair/revoke`, best effort, so its page shows the state. The peer's access has already ended whether or not the notice lands.
 
 A revoked connection stays listed with who revoked it and when. Reconnecting takes a new invite. Archiving an agent revokes its connections, and unpublishing refuses new tasks and removes the card.
 
@@ -94,7 +94,7 @@ The widening moves (`auto`, `agent_rules`) follow the "who may connect" rule and
 
 A published agent has two interfaces on its card: `https://<host>/a2a/<publicId>/rpc` (`JSONRPC`) and `https://<host>/a2a/<publicId>/rest` (`HTTP+JSON`), both `protocolVersion: "1.0"`. Its `securitySchemes` declares bearer. The card's description and skills are text the owner reviews when publishing. They are never taken from `instructions`.
 
-| A2A | Harbourmaster |
+| A2A | Agentum |
 |---|---|
 | Authenticated client | A connection, resolved to a `peer` principal limited to `a2a.*` and `runs.start` on one agent |
 | `contextId` | A session: origin `a2a`, external key `<connectionId>:<contextId>` |
@@ -183,7 +183,7 @@ All tables have `workspace_id`. Names are for AA.1 to finalise.
 
 - **`a2a_agent_cards`**: `agent_id` (unique), `public_id` (unique, random), `description`, `skills` JSON, `pairing_open` (default false), `pairing_failures`, `pairing_locked_until`, `published_by`, `published_at`, `unpublished_at`.
 - **`a2a_pairing_requests`**: `agent_id`, `code_hash`, `token_hash` (unique with agent), `token_prefix`, `expires_at`, `created_at`.
-- **`a2a_connections`**: `local_agent_id`, `slug`, `peer_kind` (`harbourmaster`, `a2a_inbound`, `a2a_outbound`), `peer_label`, `peer_org`, `peer_card_url`, `peer_origin`, `peer_card` JSON, `peer_card_fetched_at`, `status` (`inviting`, `awaiting_peer`, `needs_approval`, `activating`, `active`, `declined`, `revoked`), invite columns (`invite_token_hash`, `invite_expires_at`, `invite_failures`), `check_code`, `inbound_token_hash`, `inbound_token_prefix`, `outbound_credential` (encrypted with the secrets key), `outbound_scheme`, the policy columns above, `created_by`, `approved_by`, `approved_at`, `revoked_by`, `revoked_at`, `last_in_at`, `last_out_at`.
+- **`a2a_connections`**: `local_agent_id`, `slug`, `peer_kind` (`agentum`, `a2a_inbound`, `a2a_outbound`), `peer_label`, `peer_org`, `peer_card_url`, `peer_origin`, `peer_card` JSON, `peer_card_fetched_at`, `status` (`inviting`, `awaiting_peer`, `needs_approval`, `activating`, `active`, `declined`, `revoked`), invite columns (`invite_token_hash`, `invite_expires_at`, `invite_failures`), `check_code`, `inbound_token_hash`, `inbound_token_prefix`, `outbound_credential` (encrypted with the secrets key), `outbound_scheme`, the policy columns above, `created_by`, `approved_by`, `approved_at`, `revoked_by`, `revoked_at`, `last_in_at`, `last_out_at`.
 - **`a2a_tasks`** (we are the server): `connection_id`, `context_id`, `message_id` (unique with connection), `state`, `input_text`, `status_text`, `result_text`, `hops`, `run_id`, `decided_by`, `decided_at`, timestamps.
 - **`a2a_push_configs`**: `task_id`, `url`, encrypted `authentication`, encrypted `token`.
 - **`a2a_outbound_tasks`** (we are the client): `connection_id`, `calling_run_id`, `session_id`, `request_id`, `remote_task_id`, `context_id`, `state`, `text`, `result_text`, `webhook_token_hash`, `next_poll_at`, `poll_until`, `result_read_at`.
@@ -198,7 +198,7 @@ New shared values: `a2a` in `SESSION_ORIGINS`, `peer` in `EVENT_ACTOR_KINDS`, an
 - `apps/web/src/server/routes/a2a.ts`: the bearer group mounted at `/a2a`. Thin, same shape as `routes/triggers.ts`.
 - `apps/web/src/server/trpc/a2a-router.ts`: the page's calls.
 - `apps/web/src/server/tick/a2a.ts`: outbox delivery, polling and wakes.
-- UI: `/settings/agent-connections` under "Access to Harbourmaster" (the settings nav feeds Find), `/connect/$token`, a section on the agent profile, and Needs you items through `desk.railSources`.
+- UI: `/settings/agent-connections` under "Access to Agentum" (the settings nav feeds Find), `/connect/$token`, a section on the agent profile, and Needs you items through `desk.railSources`.
 
 ## What the page shows
 

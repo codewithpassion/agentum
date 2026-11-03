@@ -21,9 +21,9 @@ export type RunPrincipal = Extract<Principal, { kind: "run" }>;
 export type FailedResult = Exclude<SlackCallResult, { kind: "ok" }>;
 
 export const NO_APP =
-  "This agent has no Slack app installed. Ask a workspace owner to install one for it in Harbourmaster, then try again.";
+  "This agent has no Slack app installed. Ask a workspace owner to install one for it in Agentum, then try again.";
 export const MISSING_SCOPE =
-  "The agent's Slack app is missing a permission (missing_scope). A workspace owner must add the im:write scope (and the message.channels and message.groups events) to the app in Slack, reinstall it, and paste the new bot token in Harbourmaster.";
+  "The agent's Slack app is missing a permission (missing_scope). A workspace owner must add the im:write scope (and the message.channels and message.groups events) to the app in Slack, reinstall it, and paste the new bot token in Agentum.";
 
 /** Turns a failed Slack call into the refusal an agent can act on. */
 export const slackFailure = (result: FailedResult): ServiceError => {

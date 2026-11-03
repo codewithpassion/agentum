@@ -1,4 +1,4 @@
-// Command hm-computer connects a machine you own to Harbourmaster, so an agent's commands
+// Command hm-computer connects a machine you own to Agentum, so an agent's commands
 // and file transfers run here instead of in a disposable sandbox.
 package main
 
@@ -55,7 +55,7 @@ func run(args []string) int {
 }
 
 func usage(to *os.File) {
-	fmt.Fprint(to, `hm-computer — connect a machine you own to Harbourmaster
+	fmt.Fprint(to, `hm-computer — connect a machine you own to Agentum
 
 Usage:
   hm-computer enroll --url <base> --code <code> [--name <name>] [--state-dir <dir>] [--desktop]

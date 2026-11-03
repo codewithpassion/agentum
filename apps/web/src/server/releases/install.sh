@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the harbourmaster machine daemon on Linux.
+# Installs the agentum machine daemon on Linux.
 #
 #   curl -fsSL <origin>/install.sh | sh
 #   curl -fsSL <origin>/install.sh | sh -s -- --code <code>
@@ -10,11 +10,15 @@
 set -eu
 
 HM_ORIGIN="@@HM_ORIGIN@@"
-PRODUCT="harbourmaster"
-SERVICE="harbourmaster"
+PRODUCT="agentum"
+SERVICE="agentum"
 BIN_DIR="${HOME:?HOME is not set}/.local/bin"
 BIN="$BIN_DIR/$PRODUCT"
-CONFIG="$HOME/.harbourmaster/config.json"
+CONFIG="$HOME/.agentum/config.json"
+# An install from before the rename to Agentum. The daemon still reads its
+# config, and install-service replaces its unit with the agentum one.
+LEGACY_NAME="harbourmaster"
+LEGACY_CONFIG="$HOME/.$LEGACY_NAME/config.json"
 
 # Set by the steps below and read by the ones after them.
 CODE=""
@@ -51,7 +55,7 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [--code <code>] [--no-service] [-h|--help]
 
-Installs the harbourmaster daemon to $HOME/.local/bin/harbourmaster.
+Installs the agentum daemon to $HOME/.local/bin/agentum.
 
 Options:
   --code <code>  Enrol this machine with a code from Settings > Machines.
@@ -100,7 +104,7 @@ check_platform() {
     *) ARCH="" ;;
   esac
   if [ "$OS_NAME" != "Linux" ] || [ -z "$ARCH" ]; then
-    die "harbourmaster supports Linux x64 and arm64 only, and this machine is $OS_NAME $MACHINE_NAME."
+    die "agentum supports Linux x64 and arm64 only, and this machine is $OS_NAME $MACHINE_NAME."
   fi
   FILE="$PRODUCT-linux-$ARCH"
 }
@@ -184,7 +188,7 @@ run_install_service() {
   "$BIN" install-service "$@" </dev/null || rc=$?
   case "$rc" in
     0)
-      say "The harbourmaster systemd user service now runs $BIN."
+      say "The agentum systemd user service now runs $BIN."
       ;;
     2)
       warn "the service is installed, but lingering is off, so it stops when you log out."
@@ -198,9 +202,13 @@ run_install_service() {
 
 # The unit file is checked too, because `systemctl --user` fails when the user
 # bus is out of reach (under `su -`, say) though the unit is there.
+unit_installed() {
+  [ -f "$HOME/.config/systemd/user/$1.service" ] ||
+    systemctl --user cat "$1" >/dev/null 2>&1 </dev/null
+}
+
 service_installed() {
-  [ -f "$HOME/.config/systemd/user/$SERVICE.service" ] ||
-    systemctl --user cat "$SERVICE" >/dev/null 2>&1 </dev/null
+  unit_installed "$SERVICE" || unit_installed "$LEGACY_NAME"
 }
 
 setup_service() {
@@ -245,6 +253,9 @@ replace_on_rerun() {
     say "systemd was not found, so the daemon was not restarted. Restart it by hand: $BIN run"
   elif service_installed; then
     run_install_service --refresh
+    if [ -f "$BIN_DIR/$LEGACY_NAME" ]; then
+      say "The old $BIN_DIR/$LEGACY_NAME binary is no longer used. You can delete it."
+    fi
   else
     say "No $SERVICE service is installed, so nothing was restarted. Restart the daemon yourself, or install the service with: $BIN install-service --refresh"
   fi
@@ -254,9 +265,9 @@ print_version() {
   if ! version_text=$("$BIN" --version </dev/null); then
     die "$BIN --version failed"
   fi
-  # The daemon logs its version with a "[harbourmaster] " prefix.
+  # The daemon logs its version with a "[agentum] " prefix.
   version_text=$(printf '%s\n' "$version_text" | sed 's/^\[[^]]*\] //')
-  say "harbourmaster $version_text is installed at $BIN"
+  say "agentum $version_text is installed at $BIN"
 }
 
 main() {
@@ -268,7 +279,7 @@ main() {
   install_binary
   check_path
   check_claude
-  if [ -f "$CONFIG" ]; then
+  if [ -f "$CONFIG" ] || [ -f "$LEGACY_CONFIG" ]; then
     replace_on_rerun
   else
     setup_service

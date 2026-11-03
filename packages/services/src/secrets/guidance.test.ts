@@ -18,7 +18,7 @@ test("env names and relay addresses are named, never a value", () => {
   });
   expect(text).toContain("PLAIN_KEY");
   expect(text).toContain("https://hm.example/api/egress/api.openai.com/<path>");
-  expect(text).toContain("HARBOURMASTER_RELAY_TOKEN");
+  expect(text).toContain("AGENTUM_RELAY_TOKEN");
 });
 
 test("a wildcard host asks for the complete host", () => {

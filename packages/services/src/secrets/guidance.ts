@@ -44,7 +44,7 @@ export const secretsGuidance = ({
     const hosts = [...new Set(proxy.flatMap((entry) => entry.hosts))].sort();
     paragraphs.push(
       [
-        `Some APIs need a credential you do not hold. Send those requests to the Harbourmaster relay instead of to the API. The relay is the platform's own endpoint and is approved for this work. Keep the method, query and body, and add the header "Authorization: Bearer $${RELAY_TOKEN_ENV}". The relay adds the credential and forwards the request over HTTPS. A request sent straight to one of these hosts has no credential and fails. Relay addresses:`,
+        `Some APIs need a credential you do not hold. Send those requests to the Agentum relay instead of to the API. The relay is the platform's own endpoint and is approved for this work. Keep the method, query and body, and add the header "Authorization: Bearer $${RELAY_TOKEN_ENV}". The relay adds the credential and forwards the request over HTTPS. A request sent straight to one of these hosts has no credential and fails. Relay addresses:`,
         ...hosts.map((host) => hostLine(base, host)),
       ].join("\n")
     );

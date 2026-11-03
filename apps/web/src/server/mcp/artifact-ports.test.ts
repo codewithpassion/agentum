@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { taskFolderPath } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
-import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
 import { ServiceError } from "@repo/services/errors";
 import { memoryFileBlobs } from "@repo/services/files/memory";
@@ -137,7 +137,7 @@ const connect = async () => {
     services: composed.services,
   });
   const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(ports, {})
+    createAgentumMcpServer(ports, {})
   );
   return {
     call: async (name: string, args: Record<string, unknown>) => {

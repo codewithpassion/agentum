@@ -4,7 +4,7 @@ import { slackApps } from "@repo/db/schema/slack";
 import { identityLinks } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import type { SlackDestinations, SlackSendResult } from "@repo/mcp/ports";
-import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
 import { isReadOnly } from "@repo/services/automation-access";
 import type { Fetcher } from "@repo/services/connectors/mcp";
@@ -72,7 +72,7 @@ const slackFetch: Fetcher = (input, init) => {
 /** An MCP session for `principal`, with the tools that principal may see. */
 const connect = async (principal: Principal) => {
   const ports = createMcpPorts({ principal, services: composed.services });
-  const server = createHarbourmasterMcpServer(ports, {
+  const server = createAgentumMcpServer(ports, {
     readOnly: isReadOnly(principal),
   });
   const { client, close } = await connectClient(server);

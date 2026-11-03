@@ -1,5 +1,5 @@
 // OAuth discovery documents for the MCP endpoint, under `/.well-known`. Mount
-// with `app.route("/.well-known", wellKnownRoutes({ dev }))`. Harbourmaster is
+// with `app.route("/.well-known", wellKnownRoutes({ dev }))`. Agentum is
 // only the resource server; Clerk is the authorization server. The pure
 // document builders live in `../mcp/metadata.ts`.
 import type { Context, Hono } from "hono";

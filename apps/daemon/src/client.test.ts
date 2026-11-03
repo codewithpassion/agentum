@@ -10,7 +10,7 @@ import {
 } from "./client.ts";
 import { collectingLogger } from "./log.ts";
 
-const SERVER = "https://harbour.example.com/";
+const SERVER = "https://agentum.example.com/";
 const CREDENTIAL = "hm_mach_test";
 const DAEMON_VERSION = "0.1.0-test";
 
@@ -202,8 +202,8 @@ describe("replacement and capabilities", () => {
 
 describe("buildConnectUrl", () => {
   test("switches http to ws and https to wss, with the connect path", () => {
-    expect(buildConnectUrl("https://harbour.example.com/")).toBe(
-      "wss://harbour.example.com/api/machines/connect"
+    expect(buildConnectUrl("https://agentum.example.com/")).toBe(
+      "wss://agentum.example.com/api/machines/connect"
     );
     expect(buildConnectUrl("http://localhost:3000///")).toBe(
       "ws://localhost:3000/api/machines/connect"
@@ -217,7 +217,7 @@ describe("connection", () => {
     client.start();
 
     const socket = latest(sockets.created);
-    expect(socket.url).toBe("wss://harbour.example.com/api/machines/connect");
+    expect(socket.url).toBe("wss://agentum.example.com/api/machines/connect");
     expect(socket.headers).toEqual({ Authorization: `Bearer ${CREDENTIAL}` });
     expect(socket.sent).toEqual([]);
 
@@ -282,7 +282,7 @@ describe("connection", () => {
 
     expect(sockets.created).toHaveLength(2);
     expect(latest(sockets.created).url).toBe(
-      "wss://harbour.example.com/api/machines/connect"
+      "wss://agentum.example.com/api/machines/connect"
     );
   });
 

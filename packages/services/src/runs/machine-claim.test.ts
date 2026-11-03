@@ -434,7 +434,7 @@ test("a claim carries the agent's env secrets, the relay token and the relay gui
   const claimed = await claim("m1", started.runId);
 
   expect(claimed.env).toEqual({
-    HARBOURMASTER_RELAY_TOKEN: claimed.runToken,
+    AGENTUM_RELAY_TOKEN: claimed.runToken,
     PLAIN_KEY: ENV_VALUE,
   });
   expect(claimed.instructions.startsWith("Be brief.")).toBe(true);
@@ -478,7 +478,7 @@ test("an agent with a proxy secret only gets the relay token, and one with no gr
   await secrets.setGrants(user, agentId, [proxied.id]);
 
   const granted = await claim("m1", (await start(agentId)).runId);
-  expect(Object.keys(granted.env ?? {})).toEqual(["HARBOURMASTER_RELAY_TOKEN"]);
+  expect(Object.keys(granted.env ?? {})).toEqual(["AGENTUM_RELAY_TOKEN"]);
 
   const bare = await claim("m2", (await start(otherAgentId)).runId);
   expect(bare.env).toBeUndefined();

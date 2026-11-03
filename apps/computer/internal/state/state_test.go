@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/state"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/state"
 )
 
 // The credential is the whole of this machine's authority; nothing else on a shared box may

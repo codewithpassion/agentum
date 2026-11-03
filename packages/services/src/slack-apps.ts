@@ -130,7 +130,7 @@ const refusalText = (result: SlackCallResult<object>): string => {
 };
 
 const describeAgent = (name: string): string =>
-  `${name} is an agent in Harbourmaster. Mention it in a channel or message it directly.`;
+  `${name} is an agent in Agentum. Mention it in a channel or message it directly.`;
 
 export const createSlackAppsService = ({
   atomic,

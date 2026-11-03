@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { QA_BODY_MAX, QA_STATUSES, QA_TITLE_MAX } from "@repo/db/shared";
 import type { QaAnswerInfo, QaPort, QaQuestionInfo } from "../ports";
 import { ToolError } from "../result";
-import { createHarbourmasterMcpServer, harbourmasterTools } from "../server";
+import { agentumTools, createAgentumMcpServer } from "../server";
 import { connectClient, textOf } from "../testing";
 import { READ_ONLY, UNTRUSTED_NOTICE, WRITE_CREATE } from "./define";
 import { callTool, fakePorts } from "./library-wiki.test-helpers";
@@ -42,9 +42,7 @@ const CALLS: [string, Record<string, unknown>][] = [
 ];
 
 const qaNames = (ports = qaPorts(), options = {}) =>
-  harbourmasterTools(ports, options).filter((tool) =>
-    tool.name.startsWith("qa_")
-  );
+  agentumTools(ports, options).filter((tool) => tool.name.startsWith("qa_"));
 
 describe("Q&A registration", () => {
   test("requires both the option and port and retains only reads for read-only callers", () => {
@@ -64,7 +62,7 @@ describe("Q&A registration", () => {
 
   test("advertises annotations, shared limits and the board versus ask-user distinction", async () => {
     const { client, close } = await connectClient(
-      createHarbourmasterMcpServer(qaPorts(), { qa: true })
+      createAgentumMcpServer(qaPorts(), { qa: true })
     );
     try {
       const { tools } = await client.listTools();

@@ -93,7 +93,7 @@ function Invitation({ token }: { token: string }) {
   };
   return (
     <main className="guest-landing">
-      <p>Harbourmaster · Shared with you</p>
+      <p>Agentum · Shared with you</p>
       {landing ? (
         <>
           <h1>{landing.artifactTitle}</h1>

@@ -27,7 +27,7 @@ interface Timer {
 
 type Scope = "viewer" | "shared";
 
-interface HarbourmasterApi {
+interface AgentumApi {
   openLink: (url: string) => Promise<unknown>;
   ready: Promise<unknown>;
   request: (method: string, params?: unknown) => Promise<unknown>;
@@ -180,7 +180,7 @@ const makeEnv = (
     clearTimeoutStub
   );
 
-  const harbourmaster = win.harbourmaster as HarbourmasterApi;
+  const harbourmaster = win.harbourmaster as AgentumApi;
 
   return {
     click: (target: unknown): FakeClickEvent => {
@@ -255,7 +255,7 @@ describe("bridge handshake", () => {
     expect(parsed.id).toBe(1);
     expect(parsed.params.protocolVersion).toBe("2026-01-26");
     expect(parsed.params.appInfo).toEqual({
-      name: "harbourmaster-bridge",
+      name: "agentum-bridge",
       version: "1",
     });
 
@@ -569,7 +569,7 @@ describe("bridge nonce", () => {
     expect(
       uiInitializeRequestSchema.parse(env.posted[0]?.message).params
     ).toEqual({
-      appInfo: { name: "harbourmaster-bridge", version: "1" },
+      appInfo: { name: "agentum-bridge", version: "1" },
       nonce: "abc123",
       protocolVersion: "2026-01-26",
     });

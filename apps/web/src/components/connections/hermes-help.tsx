@@ -48,7 +48,7 @@ export function PairingHelp() {
 export function HermesCallHelp() {
   const settings = hermesCallEnvironment({
     publicUrl: "https://<your Hermes address>",
-    tokenName: "harbourmaster",
+    tokenName: "agentum",
   });
 
   return (

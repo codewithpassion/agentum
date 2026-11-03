@@ -54,13 +54,17 @@ export const sudoersLine = (user: string, claudeBinary: string): string =>
 
 /** The whole drop-in file for `user`. */
 export const sudoersFile = (user: string, claudeBinary: string): string =>
-  `# Managed by harbourmaster install-service.\n${sudoersLine(user, claudeBinary)}\n`;
+  `# Managed by agentum install-service.\n${sudoersLine(user, claudeBinary)}\n`;
 
 /**
  * Where the drop-in for `user` lives. sudo skips files in sudoers.d whose name
  * contains a dot, so anything outside letters, digits, `_` and `-` becomes `_`.
  */
 export const sudoersPath = (user: string): string =>
+  `${SUDOERS_DIR}/agentum-${user.replace(FILE_NAME_UNSAFE, "_")}`;
+
+/** The drop-in an install from before the rename to Agentum wrote. */
+export const legacySudoersPath = (user: string): string =>
   `${SUDOERS_DIR}/harbourmaster-${user.replace(FILE_NAME_UNSAFE, "_")}`;
 
 /**

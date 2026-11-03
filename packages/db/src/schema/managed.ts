@@ -46,7 +46,7 @@ export const managedAgents = sqliteTable("managed_agents", {
 
 /**
  * One version of a central skill (SK.2) uploaded to Anthropic's Skills API,
- * keyed on the Harbourmaster skill id and version number. A version is
+ * keyed on the Agentum skill id and version number. A version is
  * uploaded once and reused by every agent that carries it. The versions of one
  * skill go under one Anthropic skill, so its rows share `anthropic_skill_id`.
  * Two launches racing to upload different first versions can leave two.
@@ -57,9 +57,9 @@ export const managedSkillVersions = sqliteTable(
     anthropicSkillId: text("anthropic_skill_id").notNull(),
     anthropicVersion: text("anthropic_version").notNull(),
     createdAt: createdAt(),
-    // The Harbourmaster skill id.
+    // The Agentum skill id.
     skillId: text("skill_id").notNull(),
-    // The Harbourmaster version number.
+    // The Agentum version number.
     version: integer("version").notNull(),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
@@ -92,7 +92,7 @@ export const managedSkills = sqliteTable(
 );
 
 /**
- * The Anthropic session behind a Harbourmaster session, with the vault that
+ * The Anthropic session behind a Agentum session, with the vault that
  * holds its session token. `cursor_*` is how far its events have been read.
  * A session that ended any way but a clean turn is closed and never reused.
  */

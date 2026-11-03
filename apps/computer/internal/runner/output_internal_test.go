@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 func TestShortOutputIsKeptWhole(t *testing.T) {

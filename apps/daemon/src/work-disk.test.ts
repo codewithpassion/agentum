@@ -13,7 +13,7 @@ import type { CommandResult, CommandRunner } from "./command.ts";
 import { createWorkDisk } from "./work-disk.ts";
 
 const AS_AGENT = ["sudo", "-n", "-u", "hm-agent"];
-const WORK_DIR = "/home/hm-agent/harbourmaster/w1/a1/work";
+const WORK_DIR = "/home/hm-agent/agentum/w1/a1/work";
 const BYTES = new TextEncoder().encode("hello world\n");
 const FILE_MODE = "81a4";
 const FOLDER_MODE = "41ed";
@@ -54,7 +54,7 @@ const binariesOf = (calls: Recorded[]): string[] =>
 const dirs: string[] = [];
 
 const tempDirectory = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "harbourmaster-work-disk-"));
+  const dir = mkdtempSync(join(tmpdir(), "agentum-work-disk-"));
   dirs.push(dir);
   return dir;
 };
@@ -403,7 +403,7 @@ test("multi-user list says what to do when sudo does not allow find", async () =
       singleUser: false,
       workDir: WORK_DIR,
     }).list("library")
-  ).rejects.toThrow("run harbourmaster install-service again");
+  ).rejects.toThrow("run agentum install-service again");
 });
 
 test("multi-user refuses paths outside the work directory before running anything", async () => {

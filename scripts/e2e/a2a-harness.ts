@@ -51,7 +51,7 @@ export const sleep = (ms: number): Promise<void> =>
 
 /** The default work folder: scratch files, logs and databases live here. */
 export const defaultWorkDir = (): string =>
-  process.env.A2A_E2E_DIR ?? join(tmpdir(), "harbourmaster-a2a-e2e");
+  process.env.A2A_E2E_DIR ?? join(tmpdir(), "agentum-a2a-e2e");
 
 /** `KEY=value` lines of `apps/web/.env.local`. */
 export const readEnvLocal = (): Record<string, string> => {

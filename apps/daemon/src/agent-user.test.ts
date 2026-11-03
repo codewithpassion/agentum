@@ -59,8 +59,8 @@ test("the drop-in file ends with a newline and holds the one rule", () => {
 });
 
 test("the drop-in path has no dot, which sudo would skip", () => {
-  expect(sudoersPath("dom")).toBe("/etc/sudoers.d/harbourmaster-dom");
-  expect(sudoersPath("john.doe")).toBe("/etc/sudoers.d/harbourmaster-john_doe");
+  expect(sudoersPath("dom")).toBe("/etc/sudoers.d/agentum-dom");
+  expect(sudoersPath("john.doe")).toBe("/etc/sudoers.d/agentum-john_doe");
 });
 
 test("resolveClaudeBinary keeps the path which finds, symlinks included", async () => {

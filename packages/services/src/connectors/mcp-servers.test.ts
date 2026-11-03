@@ -73,7 +73,7 @@ describe("buildMcpServers", () => {
   });
 
   test("gives a connector named harbourmaster the -2 suffix", () => {
-    const servers = build([{ id: "c1", name: "HarbourMaster" }]);
+    const servers = build([{ id: "c1", name: "Harbourmaster" }]);
 
     expect(Object.keys(servers)).toEqual(["harbourmaster", "harbourmaster-2"]);
     expect(servers).toMatchObject({

@@ -107,7 +107,7 @@ export const stubUname = (
 
 /**
  * The text of a stub daemon binary. It logs its argv, prints `version` for
- * `versionArg` (`--version` for harbourmaster, `version` for hm-computer), and
+ * `versionArg` (`--version` for agentum, `version` for hm-computer), and
  * exits with `exitCodes[subcommand]` for a subcommand listed there, so a test
  * can make `install-service` exit 2.
  */

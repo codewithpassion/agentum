@@ -44,10 +44,10 @@ test("passes XDG_ names", () => {
   expect(env).toEqual({ XDG_CONFIG_HOME: "/home/hm/.config" });
 });
 
-test("drops unknown names, including secret-shaped and Harbourmaster ones", () => {
+test("drops unknown names, including secret-shaped and Agentum ones", () => {
   const env = buildAgentEnv({
+    AGENTUM_URL: "https://example.test",
     ANTHROPIC_API_KEY: "sk-ant-1",
-    HARBOURMASTER_URL: "https://example.test",
     HM_CREDENTIAL: "x",
     PATH: "/usr/bin",
     SLACK_BOT_TOKEN: "xoxb-1",

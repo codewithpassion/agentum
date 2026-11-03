@@ -581,9 +581,9 @@ const weCallHermes = async (
       tokenHome,
       tokenPort,
       {
-        A2A_PEER_TOKENS: `harbourmaster:${token}`,
+        A2A_PEER_TOKENS: `agentum:${token}`,
         A2A_PUBLIC_URL: `http://127.0.0.1:${tokenPort}`,
-        A2A_TRUSTED_PEERS: "harbourmaster",
+        A2A_TRUSTED_PEERS: "agentum",
       },
       join(workDir, "hermes-gateway-token.log")
     );

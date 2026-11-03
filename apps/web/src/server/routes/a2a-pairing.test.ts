@@ -17,7 +17,7 @@ import {
 } from "./a2a-fixture.ts";
 
 const JOIN_PATH = "/a2a/pair/join";
-const WWW_AUTHENTICATE = 'Bearer realm="harbourmaster"';
+const WWW_AUTHENTICATE = 'Bearer realm="agentum"';
 const INVALID_INVITE = "This invite is not valid.";
 const NOT_FOUND = "Connection not found";
 const NOT_WAITING = "Connection is not waiting for activation";

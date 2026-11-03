@@ -61,7 +61,7 @@ const skillTools = (ports: McpPorts, readOnly: boolean): ToolDefinition[] =>
     : [...skillReadTools(ports), ...skillWriteTools(ports)];
 
 /** Every tool this server offers, bound to the ports it calls. */
-export const harbourmasterTools = (
+export const agentumTools = (
   ports: McpPorts,
   {
     readOnly = false,
@@ -124,7 +124,7 @@ const unusedPort = (): Promise<never> =>
   Promise.reject(new Error("Only the tool names are read."));
 
 /** Default tool names in registration order; mail, Q&A, computer and browser groups require opt-in. */
-export const TOOL_NAMES = harbourmasterTools({
+export const TOOL_NAMES = agentumTools({
   approveSkillVersion: unusedPort,
   artifacts: {
     create: unusedPort,
@@ -193,7 +193,7 @@ export const TOOL_NAMES = harbourmasterTools({
  * Clerk; the web app owns HTTP and authentication, and passes the ports the
  * tools call.
  */
-export const createHarbourmasterMcpServer = (
+export const createAgentumMcpServer = (
   ports: McpPorts,
   options: ServerOptions = {}
 ): McpServer => {
@@ -201,9 +201,9 @@ export const createHarbourmasterMcpServer = (
   // list changes: a client then never opens a `subscriptions/listen` stream
   // that could not receive an event anyway.
   const server = new McpServer(
-    { name: "harbourmaster", version: packageJson.version },
+    { name: "agentum", title: "Agentum", version: packageJson.version },
     { capabilities: { tools: { listChanged: false } } }
   );
-  registerTools(server, harbourmasterTools(ports, options), options);
+  registerTools(server, agentumTools(ports, options), options);
   return server;
 };

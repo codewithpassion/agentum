@@ -68,12 +68,12 @@ export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 /** Where the provider sends the browser back to, on the app's own origin. */
 export const OAUTH_CALLBACK_PATH = "/api/connectors/oauth/callback";
 
-const CLIENT_NAME = "Harbourmaster";
+const CLIENT_NAME = "Agentum";
 const AGENT_PREFIX = "agent:";
 const WHITESPACE = /\s/;
 const LAST_CONTROL_CODE = 0x1f;
 const DELETE_CODE = 0x7f;
-const SAME_ORIGIN_PROBE = "https://harbourmaster.invalid";
+const SAME_ORIGIN_PROBE = "https://agentum.invalid";
 const SECRET_FIELD_CLIENT = "oauth.clientSecret";
 const MAX_RETURN_TO_LENGTH = 2048;
 const MAX_ERROR_LENGTH = 300;

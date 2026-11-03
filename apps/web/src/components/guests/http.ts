@@ -7,10 +7,7 @@ export class GuestHttp {
       // The host cookie is shared across tabs. Hold the browser lock through
       // response consumption and the initial socket admission barrier too.
       if (typeof navigator !== "undefined" && navigator.locks) {
-        return await navigator.locks.request(
-          "harbourmaster-guest-cookie",
-          action
-        );
+        return await navigator.locks.request("agentum-guest-cookie", action);
       }
       return action();
     });

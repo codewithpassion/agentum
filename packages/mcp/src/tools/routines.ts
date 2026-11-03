@@ -22,7 +22,7 @@ const routineId = z
   .describe("A routine id, as list_routines returns.");
 
 const APPROVAL =
-  "It is stored off and waits for a person to approve it in the Harbourmaster UI (Routines page).";
+  "It is stored off and waits for a person to approve it in the Agentum UI (Routines page).";
 
 const routineLine = (routine: RoutineInfo): string => {
   const line = `${routine.id} ${routine.status} "${routine.name}" for ${routine.agentName}: cron "${routine.cron}" in ${routine.timezone}`;
@@ -50,7 +50,7 @@ export const routineTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Creates a routine that starts an agent on a cron schedule. The cron is five fields read in the given timezone: '0 9 * * 1-5' is 09:00 on weekdays, '*/15 * * * *' is every 15 minutes. When an agent calls this, the result is a proposal that stays off until a person approves it in the Harbourmaster UI. An agent cannot enable anything.",
+      "Creates a routine that starts an agent on a cron schedule. The cron is five fields read in the given timezone: '0 9 * * 1-5' is 09:00 on weekdays, '*/15 * * * *' is every 15 minutes. When an agent calls this, the result is a proposal that stays off until a person approves it in the Agentum UI. An agent cannot enable anything.",
     inputSchema: z.strictObject({
       agentId,
       cron: z
@@ -94,7 +94,7 @@ export const routineTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_UPDATE,
     description:
-      "Switches a routine on or off. Setting enabled to true turns on a routine that is off, or approves one that is awaiting approval. An agent can only switch its own agent's routines off: it cannot enable anything, and its proposals wait for a person to approve them in the Harbourmaster UI.",
+      "Switches a routine on or off. Setting enabled to true turns on a routine that is off, or approves one that is awaiting approval. An agent can only switch its own agent's routines off: it cannot enable anything, and its proposals wait for a person to approve them in the Agentum UI.",
     inputSchema: z.strictObject({
       enabled: z
         .boolean()

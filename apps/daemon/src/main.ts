@@ -1,4 +1,4 @@
-// The `harbourmaster` command line. This file reads argv and picks the command;
+// The `agentum` command line. This file reads argv and picks the command;
 // each command lives in its own module and returns its exit code.
 
 import { parseArgs } from "node:util";
@@ -34,11 +34,11 @@ const DEFAULT_DEPS: MainDeps = {
   wsFactory: bunWebSocketFactory,
 };
 
-const USAGE = `Usage: harbourmaster <command> [options]
+const USAGE = `Usage: agentum <command> [options]
 
 Commands:
   enroll <code> --server <url> [--claude <path>]
-                                     Enroll this machine with a Harbourmaster server.
+                                     Enroll this machine with a Agentum server.
   run                                Run the daemon in the foreground.
   status                             Show the daemon's config and service state.
   install-service [--claude <path>] [--refresh]

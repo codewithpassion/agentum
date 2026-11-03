@@ -15,7 +15,7 @@ import { createRunApi, RunApiError, UNREADABLE_ANSWER } from "./run-api.ts";
 const CREDENTIAL = "hm_mach_credential_for_tests_0123456789";
 const SECRET = "sk-live-do-not-leak";
 const RUN_ID = "01HZXA3N5P7Q9R1S3T5V7W9X1Y";
-const SERVER = "https://harbourmaster.example.workers.dev";
+const SERVER = "https://agentum.example.workers.dev";
 const RUN_BASE = `${SERVER}/api/machines/runs/${RUN_ID}`;
 const ERROR_TEXT_LIMIT = 200;
 const FORBIDDEN = 403;

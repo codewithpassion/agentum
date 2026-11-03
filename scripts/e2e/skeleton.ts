@@ -122,7 +122,7 @@ const onlineMachine = async (
   if (!machine) {
     throw new LocalError(
       wanted === undefined
-        ? "No machine is online. Start the daemon (`harbourmaster run`) against this server first."
+        ? "No machine is online. Start the daemon (`agentum run`) against this server first."
         : `Machine ${wanted} was not found.`
     );
   }

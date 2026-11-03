@@ -922,7 +922,7 @@ describe("wakes", () => {
   });
 });
 
-describe("a Harbourmaster peer", () => {
+describe("a Agentum peer", () => {
   test("the call goes to the peer's /rpc under the origin from the invite", async () => {
     await f.connectPeer({
       outboundScheme: "bearer",

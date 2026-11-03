@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/protocol"
 )
 
 // clipboardBudget keeps a clipboard op inside the server's 3 s timeout, even when the selection

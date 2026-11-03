@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
-import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { memoryLibraryBlobs } from "@repo/services/library/memory";
@@ -55,7 +55,7 @@ beforeEach(async () => {
 
 const connect = async (principal: Principal) => {
   const ports = createMcpPorts({ principal, services: composed.services });
-  const { client } = await connectClient(createHarbourmasterMcpServer(ports));
+  const { client } = await connectClient(createAgentumMcpServer(ports));
   return (name: string, args: Record<string, unknown>) =>
     client.callTool({ arguments: args, name });
 };

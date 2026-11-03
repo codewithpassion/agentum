@@ -180,7 +180,7 @@ describe("automation tools: inputs and results", () => {
       { agentId: "agt_1", cron: "*/15 * * * *", name: "Poll", prompt: "Poll." }
     );
     expect(textOf(result)).toContain(
-      "It is stored off and waits for a person to approve it in the Harbourmaster UI (Routines page)."
+      "It is stored off and waits for a person to approve it in the Agentum UI (Routines page)."
     );
   });
 
@@ -231,7 +231,7 @@ describe("automation tools: inputs and results", () => {
     });
     expect(textOf(result)).toContain("hm_trg_ab12...");
     expect(textOf(result)).toContain(
-      "It is stored off and waits for a person to approve it in the Harbourmaster UI (Triggers page)."
+      "It is stored off and waits for a person to approve it in the Agentum UI (Triggers page)."
     );
   });
 
@@ -265,7 +265,7 @@ describe("automation tools: inputs and results", () => {
     expect(textOf(result)).not.toContain("hm_trg_");
     expect(textOf(result)).not.toContain("Secret");
     expect(textOf(result)).toContain(
-      "It is stored off and waits for a person to approve it in the Harbourmaster UI (Triggers page)."
+      "It is stored off and waits for a person to approve it in the Agentum UI (Triggers page)."
     );
   });
 

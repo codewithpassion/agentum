@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"harbourmaster.dev/computer/internal/audit"
-	"harbourmaster.dev/computer/internal/desktop"
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/audit"
+	"agentum.dev/computer/internal/desktop"
+	"agentum.dev/computer/internal/protocol"
 )
 
 // errNoDesktop answers a desktop op on a computer that never started one.

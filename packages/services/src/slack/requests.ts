@@ -303,7 +303,7 @@ export const createSlackRequests = ({
    * A message to an outside agent waits for a person. A Slack block holds about
    * 3,000 characters and a person must see the whole message before it goes, so
    * Slack gets a plain notice with a link and no buttons. It is answered in
-   * Harbourmaster, where the card shows in full. The notice is not kept as the
+   * Agentum, where the card shows in full. The notice is not kept as the
    * request's Slack message, so nothing edits it later.
    */
   const postSendNotice = async (
@@ -325,7 +325,7 @@ export const createSlackRequests = ({
     }
     const link = publicBaseUrl
       ? ` Read it in full and answer at ${publicBaseUrl.replace(TRAILING_SLASHES, "")}/desk?item=${encodeURIComponent(row.id)}`
-      : " Open Harbourmaster to read it in full and answer.";
+      : " Open Agentum to read it in full and answer.";
     const posted = await withRetry(clock, () =>
       destination.client.postMessage({
         channel: destination.channel,
@@ -431,7 +431,7 @@ export const createSlackRequests = ({
     await job;
   };
 
-  /** The Harbourmaster user behind a Slack user, as the principal that answers. */
+  /** The Agentum user behind a Slack user, as the principal that answers. */
   const principalOf = async (
     app: SlackAppRow,
     slackUserId: string

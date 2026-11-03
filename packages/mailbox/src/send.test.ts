@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: tests for the pure send helpers.
+// Modified by Agentum: tests for the pure send helpers.
 
 import { describe, expect, test } from "bun:test";
 import type { OutgoingDraft } from "@repo/services/mail/types";

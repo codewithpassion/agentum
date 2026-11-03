@@ -6,7 +6,7 @@ import type {
   AdminSecretInfo,
   McpPorts,
 } from "../ports";
-import { harbourmasterTools, TOOL_NAMES } from "../server";
+import { agentumTools, TOOL_NAMES } from "../server";
 import { textOf } from "../testing";
 import { callTool, fakePorts } from "./library-wiki.test-helpers";
 
@@ -86,7 +86,7 @@ const recordingAdmin = () => {
 const portsWith = (admin: AdminPort): McpPorts => fakePorts({ admin });
 
 const namesFor = (ports: McpPorts, options = {}): string[] =>
-  harbourmasterTools(ports, options)
+  agentumTools(ports, options)
     .map((tool) => tool.name)
     .filter((name) => ADMIN_NAMES.includes(name))
     .sort();
@@ -238,7 +238,7 @@ describe("admin tools call their port with the input", () => {
     );
     expect(calls.deleteConnector).toEqual([{ connectorId: "conn_1" }]);
     expect(textOf(result)).toContain("conn_1");
-    const tool = harbourmasterTools(portsWith(port), { admin: "admin" }).find(
+    const tool = agentumTools(portsWith(port), { admin: "admin" }).find(
       (candidate) => candidate.name === "delete_connector"
     );
     expect(tool?.annotations?.destructiveHint).toBe(true);

@@ -165,7 +165,7 @@ type Faux = ReturnType<typeof import("./pi-run-faux.ts")["createFaux"]>;
 
 /**
  * One session's cloud runs on Pi Durable (`docs/reviews/spike-pi-durable.md`).
- * The object is named by the Harbourmaster session id. Each run is one Pi
+ * The object is named by the Agentum session id. Each run is one Pi
  * submission whose operation id is the run id, so the session keeps one
  * conversation across its runs. The object reports into the run lifecycle in
  * process, as the system principal, the way the fake runtime does.

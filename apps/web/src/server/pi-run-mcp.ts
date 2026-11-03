@@ -51,7 +51,7 @@ const SSE_DATA_PREFIX_LENGTH = SSE_DATA_PREFIX.length;
 
 const INITIALIZE_PARAMS = {
   capabilities: {},
-  clientInfo: { name: "harbourmaster-cloud-runtime", version: "0" },
+  clientInfo: { name: "agentum-cloud-runtime", version: "0" },
   protocolVersion: PROTOCOL_VERSION,
 };
 

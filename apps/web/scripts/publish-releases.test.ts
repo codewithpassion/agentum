@@ -105,12 +105,12 @@ describe("buildManifest", () => {
   });
 
   test("refuses a missing or extra file", () => {
-    const files = filesFor("harbourmaster");
+    const files = filesFor("agentum");
+    expect(() => buildManifest("agentum", VERSION, files.slice(1))).toThrow(
+      "must ship"
+    );
     expect(() =>
-      buildManifest("harbourmaster", VERSION, files.slice(1))
-    ).toThrow("must ship");
-    expect(() =>
-      buildManifest("harbourmaster", VERSION, [
+      buildManifest("agentum", VERSION, [
         ...files,
         { bytes: new Uint8Array(), name: "stray" },
       ])
@@ -120,7 +120,7 @@ describe("buildManifest", () => {
 
 describe("shouldSkip", () => {
   const manifestText = serializeManifest(
-    buildManifest("harbourmaster", VERSION, filesFor("harbourmaster"))
+    buildManifest("agentum", VERSION, filesFor("agentum"))
   );
 
   test("skips when latest.json already names this version", () => {
@@ -165,21 +165,17 @@ describe("uploadPlan", () => {
   });
 
   test("binaries come from disk, latest.json from its body", () => {
-    const manifest = buildManifest(
-      "harbourmaster",
-      VERSION,
-      filesFor("harbourmaster")
-    );
-    const [first, ...rest] = uploadPlan("harbourmaster", VERSION, manifest);
+    const manifest = buildManifest("agentum", VERSION, filesFor("agentum"));
+    const [first, ...rest] = uploadPlan("agentum", VERSION, manifest);
     expect(first).toEqual({
       contentType: "application/octet-stream",
-      filePath: artifactPath("harbourmaster", "harbourmaster-linux-x64"),
-      key: fileKey("harbourmaster", VERSION, "harbourmaster-linux-x64"),
+      filePath: artifactPath("agentum", "agentum-linux-x64"),
+      key: fileKey("agentum", VERSION, "agentum-linux-x64"),
     });
     expect(rest.at(-1)).toEqual({
       body: serializeManifest(manifest),
       contentType: "application/json",
-      key: manifestKey("harbourmaster"),
+      key: manifestKey("agentum"),
     });
   });
 });
@@ -257,12 +253,10 @@ describe("publish", () => {
       uploader,
     });
 
-    expect(requested).toEqual(["harbourmaster", "hm-computer"]);
+    expect(requested).toEqual(["agentum", "hm-computer"]);
     expect(puts.map((put) => put.key)).toEqual([
-      ...PRODUCT_FILES.harbourmaster.map((name) =>
-        fileKey("harbourmaster", VERSION, name)
-      ),
-      manifestKey("harbourmaster"),
+      ...PRODUCT_FILES.agentum.map((name) => fileKey("agentum", VERSION, name)),
+      manifestKey("agentum"),
       ...PRODUCT_FILES["hm-computer"].map((name) =>
         fileKey("hm-computer", VERSION, name)
       ),
@@ -274,10 +268,10 @@ describe("publish", () => {
 
   test("skips a product whose latest.json already names this version", async () => {
     const live = serializeManifest(
-      buildManifest("harbourmaster", VERSION, filesFor("harbourmaster"))
+      buildManifest("agentum", VERSION, filesFor("agentum"))
     );
     const { uploader, puts } = fakeUploader({
-      latest: { [manifestKey("harbourmaster")]: live },
+      latest: { [manifestKey("agentum")]: live },
     });
     const { build, requested } = fakeBuild();
 
@@ -292,13 +286,13 @@ describe("publish", () => {
     });
 
     expect(requested).toEqual(["hm-computer"]);
-    expect(puts.some((put) => put.key.includes("/harbourmaster/"))).toBe(false);
+    expect(puts.some((put) => put.key.includes("/agentum/"))).toBe(false);
     expect(puts).toHaveLength(PRODUCT_FILES["hm-computer"].length + 1);
   });
 
   test("uploads nothing when every product is already live", async () => {
     const latest = Object.fromEntries(
-      (["harbourmaster", "hm-computer"] as const).map((product) => [
+      (["agentum", "hm-computer"] as const).map((product) => [
         manifestKey(product),
         serializeManifest(buildManifest(product, VERSION, filesFor(product))),
       ])
@@ -353,11 +347,7 @@ describe("publish", () => {
   });
 
   test("a failed binary upload leaves latest.json unwritten", async () => {
-    const failing = fileKey(
-      "harbourmaster",
-      VERSION,
-      "harbourmaster-linux-arm64"
-    );
+    const failing = fileKey("agentum", VERSION, "agentum-linux-arm64");
     const { uploader, puts, store } = fakeUploader({ failOn: failing });
     const { build } = fakeBuild();
 
@@ -374,8 +364,8 @@ describe("publish", () => {
     ).rejects.toThrow("failed");
 
     expect(puts.map((put) => put.key)).toEqual([
-      fileKey("harbourmaster", VERSION, "harbourmaster-linux-x64"),
+      fileKey("agentum", VERSION, "agentum-linux-x64"),
     ]);
-    expect(store.has(manifestKey("harbourmaster"))).toBe(false);
+    expect(store.has(manifestKey("agentum"))).toBe(false);
   });
 });

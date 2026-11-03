@@ -1,7 +1,7 @@
 /**
- * The Slack app manifest builder for Harbourmaster.
+ * The Slack app manifest builder for Agentum.
  *
- * Each Harbourmaster agent is a Slack app. The owner pastes the JSON from
+ * Each Agentum agent is a Slack app. The owner pastes the JSON from
  * `manifestJson` into Slack's "Create app from manifest" form, then pastes the
  * bot token back. The manifest is built here, from a name, a description and
  * the public origin, so the request URL points at the deployment that is
@@ -28,7 +28,7 @@
  * - `im:history` reads direct messages, which is the `message.im` event.
  * - `im:write` opens a DM with a linked member for `slack_send`.
  * - `users:read` looks up members. It also serves `bots.info`, which
- *   Harbourmaster uses to learn the app id when a token is pasted.
+ *   Agentum uses to learn the app id when a token is pasted.
  * - `users:read.email` reads a member's email address to match them to an
  *   account.
  */

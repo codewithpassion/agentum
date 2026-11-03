@@ -131,10 +131,10 @@ const run = (
 };
 
 const buildDaemon = (version: string): void => {
-  mkdirSync(artifactDir("harbourmaster"), { recursive: true });
-  for (const name of PRODUCT_FILES.harbourmaster) {
-    // harbourmaster-linux-x64 is built with --target=bun-linux-x64.
-    const target = name.replace("harbourmaster-", "bun-");
+  mkdirSync(artifactDir("agentum"), { recursive: true });
+  for (const name of PRODUCT_FILES.agentum) {
+    // agentum-linux-x64 is built with --target=bun-linux-x64.
+    const target = name.replace("agentum-", "bun-");
     run(
       [
         "bun",
@@ -144,7 +144,7 @@ const buildDaemon = (version: string): void => {
         `--target=${target}`,
         "src/main.ts",
         "--outfile",
-        artifactPath("harbourmaster", name),
+        artifactPath("agentum", name),
         "--define",
         `process.env.HM_DAEMON_VERSION=${JSON.stringify(version)}`,
       ],
@@ -160,7 +160,7 @@ const buildComputer = (version: string): void => {
 };
 
 const BUILDERS: Record<Product, (version: string) => void> = {
-  harbourmaster: buildDaemon,
+  agentum: buildDaemon,
   "hm-computer": buildComputer,
 };
 

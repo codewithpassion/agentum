@@ -39,7 +39,7 @@ export class ToolError extends Error {
 
 /** Said instead of anything internal when a non-`ToolError` escapes. */
 const GENERIC_ERROR =
-  "The request failed. Try again; if it keeps failing, check Harbourmaster.";
+  "The request failed. Try again; if it keeps failing, check Agentum.";
 
 export const toolResult = (payload: ToolPayload): CallToolResult => ({
   content: [

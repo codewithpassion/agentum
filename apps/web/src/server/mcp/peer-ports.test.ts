@@ -3,7 +3,7 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { a2aConnections, a2aOutboundTasks } from "@repo/db/schema/a2a";
 import { runs } from "@repo/db/schema/runs";
 import { migrated } from "@repo/db/test-db";
-import { createHarbourmasterMcpServer } from "@repo/mcp/server";
+import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
 import { memoryFileBlobs } from "@repo/services/files/memory";
@@ -165,7 +165,7 @@ const connect = async (
     relay: composed.relay,
     services: composed.services,
   });
-  const server = createHarbourmasterMcpServer(ports, {
+  const server = createAgentumMcpServer(ports, {
     browser: await resolveRunBrowser(composed.services, principal),
     computer: computer ? { desktop: computer.desktop } : undefined,
     dryRun: options.dryRun,

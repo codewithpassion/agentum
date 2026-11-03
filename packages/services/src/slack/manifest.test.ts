@@ -10,7 +10,7 @@ import {
   slackInteractionsUrl,
 } from "./manifest.ts";
 
-const ORIGIN = "https://harbour.example.com";
+const ORIGIN = "https://agentum.example.com";
 const DESCRIPTION = "Answers questions about the release.";
 
 const input = (

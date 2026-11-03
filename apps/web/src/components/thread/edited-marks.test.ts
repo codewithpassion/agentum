@@ -5,7 +5,7 @@ import {
   readEditedMarks,
 } from "./edited-marks.ts";
 
-const KEY = "harbourmaster:edited-messages";
+const KEY = "agentum:edited-messages";
 
 const memory = (
   initial: Record<string, string> = {}

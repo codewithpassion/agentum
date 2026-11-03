@@ -251,7 +251,7 @@ describe("authentication", () => {
     for (const res of responses) {
       expect(res.status).toBe(401);
       expect(res.headers.get("WWW-Authenticate")).toBe(
-        'Bearer realm="harbourmaster"'
+        'Bearer realm="agentum"'
       );
     }
   });

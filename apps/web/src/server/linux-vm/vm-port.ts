@@ -28,7 +28,7 @@ export interface VmExecInput {
   command: string;
   /** Defaults to the workdir. */
   cwd?: string;
-  /** What the command sees besides a minimal PATH. No Harbourmaster secret ever goes here. */
+  /** What the command sees besides a minimal PATH. No Agentum secret ever goes here. */
   env?: Record<string, string>;
   /** Most bytes kept of each of stdout and stderr. The rest is read and dropped. */
   maxOutputBytes: number;

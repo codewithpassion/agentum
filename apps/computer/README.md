@@ -1,6 +1,6 @@
-# Harbourmaster computer client
+# Agentum computer client
 
-`hm-computer` connects a machine to Harbourmaster over an outbound WebSocket.
+`hm-computer` connects a machine to Agentum over an outbound WebSocket.
 It runs shell commands, transfers files, and optionally provides a Linux virtual
 desktop. It needs no inbound port. Commands run as the user running the client.
 
@@ -10,12 +10,12 @@ From the repository root:
 
 ```sh
 bun run --cwd apps/computer build:local
-apps/computer/bin/hm-computer enroll --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
+apps/computer/bin/hm-computer enroll --url https://agentum.example.com --code hm_enr_YOUR_CODE
 apps/computer/bin/hm-computer run
 apps/computer/bin/hm-computer status --json
 ```
 
-Use a single-use `hm_enr_` code issued by Harbourmaster. The CLI retains the
+Use a single-use `hm_enr_` code issued by Agentum. The CLI retains the
 ported `--url` and `--code` flags (there is no positional code or `--server` flag).
 To keep the code out of argv, use `--code-stdin` or `HM_ENROLL_CODE` instead.
 `HM_URL` provides the server URL. HTTPS is required except on loopback for local
@@ -46,7 +46,7 @@ commands and files. `harbourmaster-computer-desktop` adds Xvfb, Openbox, Chromiu
 xclip on display `:99`, for agents that drive a screen. Both run as uid 1000 and keep private
 state in the `/var/lib/hm-computer` volume.
 
-Issue a single-use `hm_enr_` code in Harbourmaster, then enrol and run in one command. The
+Issue a single-use `hm_enr_` code in Agentum, then enrol and run in one command. The
 entrypoints end in `hm-computer run`, so `--url` and `--code` enrol the computer on first start. The
 credential lands in the volume, and later starts ignore the spent code.
 
@@ -56,7 +56,7 @@ Headless:
 docker run -d --restart unless-stopped --name hm-computer \
   -v hm-computer:/var/lib/hm-computer \
   ghcr.io/<owner>/harbourmaster-computer:latest \
-  --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
+  --url https://agentum.example.com --code hm_enr_YOUR_CODE
 ```
 
 Desktop. Chromium keeps its sandbox, which the default Docker seccomp profile refuses, so pass
@@ -70,7 +70,7 @@ docker run -d --restart unless-stopped --name hm-computer-desktop \
   --security-opt seccomp=packaging/desktop/seccomp.json \
   -v hm-computer-desktop:/var/lib/hm-computer \
   ghcr.io/<owner>/harbourmaster-computer-desktop:latest \
-  --url https://harbourmaster.example.com --code hm_enr_YOUR_CODE
+  --url https://agentum.example.com --code hm_enr_YOUR_CODE
 ```
 
 `--cap-add SYS_CHROOT` is required with `--cap-drop ALL`. Chromium's sandbox calls `chroot`, and the

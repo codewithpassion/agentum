@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/audit"
-	"harbourmaster.dev/computer/internal/policy"
-	"harbourmaster.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/audit"
+	"agentum.dev/computer/internal/policy"
+	"agentum.dev/computer/internal/protocol"
 )
 
 func errorCode(t *testing.T, reply protocol.Reply) string {

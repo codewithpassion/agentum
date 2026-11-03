@@ -288,7 +288,7 @@ export const adminSetupTools = (port: AdminPort): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Makes a one-time enrolment code that enrols a machine or computer with Harbourmaster. The result carries the code and its expiry, and the code is shown once: it cannot be read again, so pass it on at once. role is agent_host or computer. machineName names a new machine; machineId points at an existing one.",
+      "Makes a one-time enrolment code that enrols a machine or computer with Agentum. The result carries the code and its expiry, and the code is shown once: it cannot be read again, so pass it on at once. role is agent_host or computer. machineName names a new machine; machineId points at an existing one.",
     inputSchema: z.strictObject({
       machineId: machineId.optional(),
       machineName: name.optional(),

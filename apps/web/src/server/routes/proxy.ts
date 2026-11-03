@@ -72,7 +72,7 @@ const unauthorized = (): Response =>
   Response.json(
     { error: "unauthorized" },
     {
-      headers: { "WWW-Authenticate": 'Bearer realm="harbourmaster"' },
+      headers: { "WWW-Authenticate": 'Bearer realm="agentum"' },
       status: UNAUTHORIZED,
     }
   );
@@ -187,8 +187,8 @@ const needsAuthText = (refusal: NeedsAuth, origin: string): string => {
       return "This machine runs every agent as one user, so another person's login cannot be used on it, and this connector takes only people's logins.";
     default:
       return refusal.ownerKind === "agent"
-        ? `This connector needs a login for the agent. Open ${link} while signed in to Harbourmaster to connect it.`
-        : `This connector needs your login. Open ${link} while signed in to Harbourmaster to connect it.`;
+        ? `This connector needs a login for the agent. Open ${link} while signed in to Agentum to connect it.`
+        : `This connector needs your login. Open ${link} while signed in to Agentum to connect it.`;
   }
 };
 

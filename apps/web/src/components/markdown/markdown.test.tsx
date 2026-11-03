@@ -60,7 +60,7 @@ test("images from absolute URLs render as links, not images", () => {
   expect(html).toContain(">https://evil.example/a.png?d=secret</a>");
 });
 
-test("Harbourmaster file images render as images", () => {
+test("Agentum file images render as images", () => {
   const html = renderToStaticMarkup(
     <Markdown>{"![x](/files/abc123)"}</Markdown>
   );

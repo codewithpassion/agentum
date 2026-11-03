@@ -208,7 +208,7 @@ const awaitCallback = (state: string): Promise<string> =>
         }
         resolve(code);
         return new Response(
-          "Harbourmaster MCP OAuth smoke: done, you can close this tab."
+          "Agentum MCP OAuth smoke: done, you can close this tab."
         );
       },
       hostname: CALLBACK_HOST,
@@ -380,7 +380,7 @@ const awaitApproval = async (
   );
   say(`     message: ${first.message ?? "(none)"}`);
   say(
-    `\nApprove "${APP_NAME}" under Harbourmaster > Settings > Connected apps (/settings/connected-apps). Polling every 3 s for up to 3 minutes...\n`
+    `\nApprove "${APP_NAME}" under Agentum > Settings > Connected apps (/settings/connected-apps). Polling every 3 s for up to 3 minutes...\n`
   );
   const deadline = performance.now() + APPROVAL_TIMEOUT_MS;
   const poll = async (): Promise<void> => {

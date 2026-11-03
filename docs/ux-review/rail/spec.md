@@ -164,7 +164,7 @@ Switching workspace ends in a full page load to `/desk`. Loaders, polls and the 
 
 This is not Clerk's `OrganizationSwitcher`. That lists other apps' organisations, and its create button makes an organisation with no workspace row.
 
-`NoAccess` on `/` (`apps/web/src/routes/index.tsx`) shows the same list under "<org> has no Harbourmaster workspace", plus Sign out.
+`NoAccess` on `/` (`apps/web/src/routes/index.tsx`) shows the same list under "<org> has no Agentum workspace", plus Sign out.
 
 `Members` and `New workspace` are not in Find. Find lists plain routes, and both are actions (a Clerk modal and a dialog), so they stay in the menu. `/choose-organization` is our own list of the person's organisations that have a `workspaces` row (`workspaces.mine`). It offers no create and lists no invitations. Choosing one calls `setActive`, then loads the `redirect` page, or `/desk`.
 

@@ -131,7 +131,7 @@ try {
           Promise.all([
             page.waitForNavigation({ waitUntil: "domcontentloaded" }),
             page.evaluate((destination) => {
-              navigator.locks.request("harbourmaster-guest-cookie", () => {
+              navigator.locks.request("agentum-guest-cookie", () => {
                 if (destination) {
                   location.assign(destination);
                 } else {
@@ -198,7 +198,7 @@ try {
             .run();
           const ready = await page.evaluate(
             (artifactId) =>
-              navigator.locks.request("harbourmaster-guest-cookie", async () =>
+              navigator.locks.request("agentum-guest-cookie", async () =>
                 (
                   await fetch(
                     `/api/guest/artifacts/${artifactId}/ask-availability`
@@ -221,7 +221,7 @@ try {
         // Query through the browser queue after the policy changes, never mock readiness.
         const unavailable = await page.evaluate(
           (artifactId) =>
-            navigator.locks.request("harbourmaster-guest-cookie", async () =>
+            navigator.locks.request("agentum-guest-cookie", async () =>
               (
                 await fetch(
                   `/api/guest/artifacts/${artifactId}/ask-availability`
@@ -450,7 +450,7 @@ try {
         check(
           await page.evaluate(() =>
             Object.keys(sessionStorage).every(
-              (key) => !key.startsWith("harbourmaster:guest-ask:")
+              (key) => !key.startsWith("agentum:guest-ask:")
             )
           ),
           "signout on B clears pending asks from A"
@@ -602,7 +602,7 @@ try {
             });
             await page.evaluate(
               ({ artifactId, hold }) => {
-                navigator.locks.request("harbourmaster-guest-cookie", () => {
+                navigator.locks.request("agentum-guest-cookie", () => {
                   location.reload();
                   if (hold) {
                     return new Promise(() => {
@@ -611,7 +611,7 @@ try {
                   }
                 });
                 navigator.locks
-                  .request("harbourmaster-guest-cookie", async () => {
+                  .request("agentum-guest-cookie", async () => {
                     await fetch(
                       `/api/guest/artifacts/${artifactId}/ask-availability?reload-probe=1`
                     );

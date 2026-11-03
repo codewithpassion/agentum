@@ -9,16 +9,16 @@ import (
 	"strings"
 	"time"
 
-	"harbourmaster.dev/computer/internal/agent"
-	"harbourmaster.dev/computer/internal/audit"
-	"harbourmaster.dev/computer/internal/conn"
-	"harbourmaster.dev/computer/internal/desktop"
-	"harbourmaster.dev/computer/internal/files"
-	"harbourmaster.dev/computer/internal/policy"
-	"harbourmaster.dev/computer/internal/protocol"
-	"harbourmaster.dev/computer/internal/runner"
-	"harbourmaster.dev/computer/internal/serverurl"
-	"harbourmaster.dev/computer/internal/state"
+	"agentum.dev/computer/internal/agent"
+	"agentum.dev/computer/internal/audit"
+	"agentum.dev/computer/internal/conn"
+	"agentum.dev/computer/internal/desktop"
+	"agentum.dev/computer/internal/files"
+	"agentum.dev/computer/internal/policy"
+	"agentum.dev/computer/internal/protocol"
+	"agentum.dev/computer/internal/runner"
+	"agentum.dev/computer/internal/serverurl"
+	"agentum.dev/computer/internal/state"
 )
 
 // nameList collects a repeatable flag, because one value per flag reads better in a unit file
@@ -37,7 +37,7 @@ func (n *nameList) Set(value string) error {
 
 func runServe(args []string) int {
 	set := flag.NewFlagSet("run", flag.ContinueOnError)
-	url := set.String("url", os.Getenv(state.EnvURL), "base URL of the Harbourmaster server; defaults to the enrolled one")
+	url := set.String("url", os.Getenv(state.EnvURL), "base URL of the Agentum server; defaults to the enrolled one")
 	code := set.String("code", os.Getenv(state.EnvEnrollCode), "enrollment code to use when this computer is not enrolled yet")
 	codeStdin := set.Bool("code-stdin", false, "read the enrollment code from standard input")
 	name := set.String("name", "", "hostname to report instead of this machine's own")

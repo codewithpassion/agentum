@@ -46,20 +46,20 @@ test("no origin means nothing to approve", () => {
   expect(approvalSeen({ ...base, peerOrigin: null })).toBeNull();
 });
 
-const harbourmaster = { ...base, peerKind: "harbourmaster" };
+const agentum = { ...base, peerKind: "harbourmaster" };
 
-test("a card approves a Harbourmaster peer whose host is still the one it showed", () => {
-  expect(approvalFromCard(harbourmaster, "a.example")).toEqual({
+test("a card approves a Agentum peer whose host is still the one it showed", () => {
+  expect(approvalFromCard(agentum, "a.example")).toEqual({
     seen: { origin: "https://a.example", tokenUrl: null },
   });
 });
 
 test("a card refuses a host that moved, an outside agent and a missing address", () => {
-  expect(approvalFromCard(harbourmaster, "b.example")).toHaveProperty("reason");
+  expect(approvalFromCard(agentum, "b.example")).toHaveProperty("reason");
   expect(
     approvalFromCard({ ...base, peerKind: "a2a_outbound" }, "a.example")
   ).toHaveProperty("reason");
   expect(
-    approvalFromCard({ ...harbourmaster, peerOrigin: null }, "a.example")
+    approvalFromCard({ ...agentum, peerOrigin: null }, "a.example")
   ).toHaveProperty("reason");
 });

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LiveCommentThread } from "@repo/protocol/live";
 import { effectiveAskKeys } from "@repo/protocol/requests";
 import { ToolError } from "../result";
-import { harbourmasterTools, TOOL_NAMES } from "../server";
+import { agentumTools, TOOL_NAMES } from "../server";
 import { textOf } from "../testing";
 import { READ_ONLY, WRITE_CREATE, WRITE_UPDATE } from "./define";
 import { callTool, fakePorts } from "./library-wiki.test-helpers";
@@ -166,7 +166,7 @@ describe("live document schemas", () => {
 });
 
 test("registration, annotations, names and read-only filtering", () => {
-  const tools = harbourmasterTools(fakePorts({ live: port() }));
+  const tools = agentumTools(fakePorts({ live: port() }));
   for (const [name, annotation] of [
     ["document_read", READ_ONLY],
     ["document_comments", READ_ONLY],
@@ -179,12 +179,10 @@ test("registration, annotations, names and read-only filtering", () => {
     expect(TOOL_NAMES).toContain(name);
   }
   expect(
-    harbourmasterTools(fakePorts()).some((tool) =>
-      tool.name.startsWith("document_")
-    )
+    agentumTools(fakePorts()).some((tool) => tool.name.startsWith("document_"))
   ).toBe(false);
   expect(
-    harbourmasterTools(fakePorts({ live: port() }), { readOnly: true })
+    agentumTools(fakePorts({ live: port() }), { readOnly: true })
       .filter((tool) => tool.name.startsWith("document_"))
       .map((tool) => tool.name)
   ).toEqual(["document_read", "document_comments"]);

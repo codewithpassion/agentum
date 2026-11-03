@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"harbourmaster.dev/computer/internal/audit"
+	"agentum.dev/computer/internal/audit"
 )
 
 func TestRecordsAreOneJSONLinePerOperation(t *testing.T) {

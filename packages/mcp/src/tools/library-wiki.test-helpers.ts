@@ -1,5 +1,5 @@
 import type { McpPorts } from "../ports";
-import { createHarbourmasterMcpServer, type ServerOptions } from "../server";
+import { createAgentumMcpServer, type ServerOptions } from "../server";
 import { connectClient } from "../testing";
 
 const uncalled = (name: string) => (): Promise<never> =>
@@ -60,7 +60,7 @@ export const callTool = async (
   options: ServerOptions = {}
 ) => {
   const { client, close } = await connectClient(
-    createHarbourmasterMcpServer(ports, options)
+    createAgentumMcpServer(ports, options)
   );
   try {
     return await client.callTool({ arguments: args, name });

@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 
-export const PRODUCTS = ["harbourmaster", "hm-computer"] as const;
+export const PRODUCTS = ["agentum", "hm-computer"] as const;
 export type Product = (typeof PRODUCTS)[number];
 
 /** Every release key starts with this. Nothing else writes under it. */
@@ -12,7 +12,7 @@ export const RELEASE_PREFIX = "releases/";
 
 /** The files each product ships. The install scripts pick one by OS and architecture. */
 export const PRODUCT_FILES: Record<Product, readonly string[]> = {
-  harbourmaster: ["harbourmaster-linux-x64", "harbourmaster-linux-arm64"],
+  agentum: ["agentum-linux-x64", "agentum-linux-arm64"],
   "hm-computer": [
     "hm-computer_linux_amd64",
     "hm-computer_linux_arm64",

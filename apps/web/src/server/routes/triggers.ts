@@ -112,7 +112,7 @@ export const triggerRoutes = () => {
       .services.triggers.authenticate(c.req.header("Authorization") ?? null);
     if (!principal) {
       return c.json({ error: "Invalid trigger token." }, UNAUTHORIZED, {
-        "WWW-Authenticate": 'Bearer realm="harbourmaster"',
+        "WWW-Authenticate": 'Bearer realm="agentum"',
       });
     }
     const triggerId = c.req.param("id");

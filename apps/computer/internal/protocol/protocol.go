@@ -1,4 +1,4 @@
-// Package protocol is the v1 wire contract between a computer and the Harbourmaster relay: one JSON
+// Package protocol is the v1 wire contract between a computer and the Agentum relay: one JSON
 // text frame per message, snake_case fields. The golden fixtures under testdata/protocol are the
 // shared reference for the server's schemas. Treat the shapes as frozen: a change to an existing
 // shape needs a new Version. New ops may be added under v1 only behind a hello capability, which

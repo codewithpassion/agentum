@@ -37,11 +37,11 @@ const setup = (seed: Record<string, string> = {}) => {
 };
 
 const published = {
-  "releases/harbourmaster/0.1.0+abc1234/harbourmaster-linux-x64": BINARY,
-  "releases/harbourmaster/latest.json": '{"version":"0.1.0+abc1234"}',
+  "releases/agentum/0.1.0+abc1234/agentum-linux-x64": BINARY,
+  "releases/agentum/latest.json": '{"version":"0.1.0+abc1234"}',
   "releases/hm-computer/0.1.0+abc1234/hm-computer_linux_amd64": BINARY,
-  "releases/secret/0.1.0+abc1234/harbourmaster-linux-x64": "not for you",
-  "releases/harbourmaster/0.1.0+abc1234/notes.txt": "not a release file",
+  "releases/secret/0.1.0+abc1234/agentum-linux-x64": "not for you",
+  "releases/agentum/0.1.0+abc1234/notes.txt": "not a release file",
   "other/key": "private",
 };
 
@@ -75,7 +75,7 @@ describe("latest.json", () => {
   it("answers 404 before any release exists", async () => {
     const { app } = setup();
     const responses = await Promise.all(
-      ["harbourmaster", "hm-computer"].map((product) =>
+      ["agentum", "hm-computer"].map((product) =>
         get(app, `/releases/${product}/latest.json`)
       )
     );
@@ -84,7 +84,7 @@ describe("latest.json", () => {
 
   it("serves the manifest as JSON with a short cache", async () => {
     const { app } = setup(published);
-    const response = await get(app, "/releases/harbourmaster/latest.json");
+    const response = await get(app, "/releases/agentum/latest.json");
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/json");
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
@@ -104,7 +104,7 @@ describe("release files", () => {
     const { app } = setup(published);
     const response = await get(
       app,
-      "/releases/harbourmaster/0.1.0+abc1234/harbourmaster-linux-x64"
+      "/releases/agentum/0.1.0+abc1234/agentum-linux-x64"
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Length")).toBe(String(BINARY.length));
@@ -128,7 +128,7 @@ describe("release files", () => {
     const { app } = setup(published);
     const response = await get(
       app,
-      "/releases/harbourmaster/0.1.0+abc1234/harbourmaster-linux-x64",
+      "/releases/agentum/0.1.0+abc1234/agentum-linux-x64",
       { "If-None-Match": `"etag-${BINARY.length}"` }
     );
     expect(response.status).toBe(304);
@@ -138,7 +138,7 @@ describe("release files", () => {
     const { app } = setup(published);
     const response = await get(
       app,
-      "/releases/harbourmaster/0.1.0+abc1234/harbourmaster-linux-arm64"
+      "/releases/agentum/0.1.0+abc1234/agentum-linux-arm64"
     );
     expect(response.status).toBe(404);
   });
@@ -147,9 +147,9 @@ describe("release files", () => {
     const { app, asked } = setup(published);
     const responses = await Promise.all(
       [
-        "/releases/harbourmaster/0.1.0+abc1234/notes.txt",
-        "/releases/harbourmaster/0.1.0+abc1234/hm-computer_linux_amd64",
-        "/releases/hm-computer/0.1.0+abc1234/harbourmaster-linux-x64",
+        "/releases/agentum/0.1.0+abc1234/notes.txt",
+        "/releases/agentum/0.1.0+abc1234/hm-computer_linux_amd64",
+        "/releases/hm-computer/0.1.0+abc1234/agentum-linux-x64",
       ].map((path) => get(app, path))
     );
     expect(responses.map((response) => response.status)).toEqual([
@@ -161,15 +161,15 @@ describe("release files", () => {
   it("never asks the bucket for a key outside the release prefix", async () => {
     const { app, asked } = setup(published);
     const attempts = [
-      "/releases/harbourmaster/..%2F..%2Fother/harbourmaster-linux-x64",
-      "/releases/harbourmaster/0.1.0%2F..%2F..%2Fother%2Fkey/harbourmaster-linux-x64",
-      "/releases/harbourmaster/0.1.0+abc1234/..%2Flatest.json",
-      "/releases/harbourmaster/0.1.0+abc1234/%2e%2e%2f%2e%2e%2fother%2Fkey",
-      "/releases/harbourmaster/%2e%2e/harbourmaster-linux-x64",
-      "/releases/harbourmaster/0.1.0+abc1234/../../../other/key",
-      "/releases/secret/0.1.0+abc1234/harbourmaster-linux-x64",
+      "/releases/agentum/..%2F..%2Fother/agentum-linux-x64",
+      "/releases/agentum/0.1.0%2F..%2F..%2Fother%2Fkey/agentum-linux-x64",
+      "/releases/agentum/0.1.0+abc1234/..%2Flatest.json",
+      "/releases/agentum/0.1.0+abc1234/%2e%2e%2f%2e%2e%2fother%2Fkey",
+      "/releases/agentum/%2e%2e/agentum-linux-x64",
+      "/releases/agentum/0.1.0+abc1234/../../../other/key",
+      "/releases/secret/0.1.0+abc1234/agentum-linux-x64",
       "/releases/..%2Fother/latest.json",
-      "/releases/harbourmaster/0.1.0+abc1234/harbourmaster-linux-x64/extra",
+      "/releases/agentum/0.1.0+abc1234/agentum-linux-x64/extra",
       "/releases/other/key",
       "/releases/",
       "/releases",

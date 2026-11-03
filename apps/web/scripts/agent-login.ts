@@ -35,7 +35,7 @@ const main = async () => {
 
   const clerkClient = createClerkClient({ secretKey });
   const agentTask = await clerkClient.agentTasks.create({
-    agentName: "harbourmaster-agent-login",
+    agentName: "agentum-agent-login",
     onBehalfOf: { identifier: email },
     permissions: "*",
     redirectUrl: redirectUrlFor(args),

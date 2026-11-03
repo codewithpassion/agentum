@@ -104,7 +104,7 @@ function MachinesPage() {
           {origin !== null && (
             <CommandBlock
               command={daemonInstallCommand(origin)}
-              heading="Install the harbourmaster daemon on a Linux machine"
+              heading="Install the agentum daemon on a Linux machine"
             />
           )}
         </div>

@@ -1,4 +1,4 @@
-module harbourmaster.dev/computer
+module agentum.dev/computer
 
 go 1.23
 

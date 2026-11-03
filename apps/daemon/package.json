@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build --compile --minify src/main.ts --outfile dist/harbourmaster",
-    "build:release": "bun build --compile --minify --target=bun-linux-x64 src/main.ts --outfile dist/harbourmaster-linux-x64 && bun build --compile --minify --target=bun-linux-arm64 src/main.ts --outfile dist/harbourmaster-linux-arm64",
+    "build": "bun build --compile --minify src/main.ts --outfile dist/agentum",
+    "build:release": "bun build --compile --minify --target=bun-linux-x64 src/main.ts --outfile dist/agentum-linux-x64 && bun build --compile --minify --target=bun-linux-arm64 src/main.ts --outfile dist/agentum-linux-arm64",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

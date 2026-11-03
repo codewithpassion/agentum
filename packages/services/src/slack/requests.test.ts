@@ -47,7 +47,7 @@ const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(7)).toString("base64");
 const CLERK_USER = "u1";
 /** The Slack id of the person linked to `CLERK_USER`. */
 const LINKED_SLACK_ID = "U0DOMINIK";
-/** A Slack user with no Harbourmaster link. */
+/** A Slack user with no Agentum link. */
 const STRANGER_SLACK_ID = "U0STRANGER";
 const CANT_ANSWER = "You can't answer this one.";
 const BAD_SIGNATURE = `v0=${"0".repeat(64)}`;

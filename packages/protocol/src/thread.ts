@@ -1,4 +1,4 @@
-// Written from Harbourmaster's event contract; no trueforge code is adapted.
+// Written from Agentum's event contract; no trueforge code is adapted.
 import type { EventType, RequestStatus, RunStatus } from "@repo/db/shared";
 import {
   type ArtifactThreadPart,

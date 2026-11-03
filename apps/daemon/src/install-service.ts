@@ -1,4 +1,4 @@
-// `harbourmaster install-service`: a systemd user unit so the daemon survives a
+// `agentum install-service`: a systemd user unit so the daemon survives a
 // reboot, plus the `hm-agent` Unix user that Claude Code runs as. The command
 // runs as the daemon's own user and calls `sudo` for the steps that need root.
 //
@@ -18,6 +18,7 @@ import {
   AGENT_HOME,
   AGENT_USER,
   canRunAsAgent,
+  legacySudoersPath,
   resolveClaudeBinary,
   sudoersFile,
   sudoersPath,
@@ -27,13 +28,17 @@ import { defaultConfigPath } from "./config.ts";
 import { EXIT_FAILURE, EXIT_LINGER_MISSING, EXIT_OK } from "./exit-codes.ts";
 import type { Logger } from "./log.ts";
 
-export const SERVICE_NAME = "harbourmaster";
+export const SERVICE_NAME = "agentum";
+/** The unit an install from before the rename to Agentum runs under. */
+export const LEGACY_SERVICE_NAME = "harbourmaster";
 
 const ROOT_UID = 0;
 const SUDOERS_FILE_MODE = 0o600;
 
-export const serviceUnitPath = (home: string = homedir()): string =>
-  join(home, ".config", "systemd", "user", `${SERVICE_NAME}.service`);
+export const serviceUnitPath = (
+  home: string = homedir(),
+  name: string = SERVICE_NAME
+): string => join(home, ".config", "systemd", "user", `${name}.service`);
 
 /**
  * Quotes a path for `ExecStart=`. Backslash and quote get a backslash in front,
@@ -48,7 +53,7 @@ const systemdQuote = (value: string): string =>
     .replaceAll("$", () => "$$")}"`;
 
 export const serviceUnit = (binaryPath: string): string => `[Unit]
-Description=Harbourmaster daemon
+Description=Agentum daemon
 
 [Service]
 ExecStart=${systemdQuote(binaryPath)} run
@@ -138,6 +143,8 @@ const installSudoersRule = async (
     if (installed.exitCode !== 0) {
       return `could not install ${target}: ${installed.stderr.trim()}`;
     }
+    // The rule now lives under the new name, so the old drop-in is a copy.
+    await run(["sudo", "rm", "-f", legacySudoersPath(username)]);
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
@@ -220,6 +227,37 @@ const setUpAgentUser = async (
   }
 };
 
+/**
+ * Stops and removes the unit of an install from before the rename to Agentum.
+ * Left running, it would hold the same credential as the new unit.
+ */
+const retireLegacyUnit = async (
+  home: string,
+  run: CommandRunner,
+  log: Logger
+): Promise<void> => {
+  const legacyPath = serviceUnitPath(home, LEGACY_SERVICE_NAME);
+  if (!existsSync(legacyPath)) {
+    return;
+  }
+  const stopped = await run([
+    "systemctl",
+    "--user",
+    "disable",
+    "--now",
+    LEGACY_SERVICE_NAME,
+  ]);
+  if (stopped.exitCode !== 0) {
+    log.error(
+      `systemctl --user disable --now ${LEGACY_SERVICE_NAME} failed: ${stopped.stderr.trim()}`
+    );
+  }
+  rmSync(legacyPath, { force: true });
+  log.info(
+    `removed the old ${LEGACY_SERVICE_NAME} unit, ${SERVICE_NAME} replaces it`
+  );
+};
+
 /** Returns the process exit code. */
 export const installServiceCommand = async (
   options: InstallServiceOptions
@@ -250,6 +288,7 @@ export const installServiceCommand = async (
   mkdirSync(dirname(unitPath), { recursive: true });
   writeFileSync(unitPath, serviceUnit(options.binaryPath ?? process.execPath));
   log.info(`wrote ${unitPath}`);
+  await retireLegacyUnit(home, run, log);
 
   if (!options.refresh) {
     await setUpAgentUser(options, username);
@@ -282,7 +321,7 @@ export const installServiceCommand = async (
   } else {
     // Restarting without a config would crash-loop under Restart=on-failure.
     log.info(
-      `this machine is not enrolled yet. Next: harbourmaster enroll <code> --server <url>, then systemctl --user restart ${SERVICE_NAME}`
+      `this machine is not enrolled yet. Next: agentum enroll <code> --server <url>, then systemctl --user restart ${SERVICE_NAME}`
     );
   }
   log.info(`follow it with: journalctl --user -u ${SERVICE_NAME} -f`);

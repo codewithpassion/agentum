@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 //
-// Modified by Harbourmaster: the send flow lives in port.ts; this file keeps the pure helpers.
+// Modified by Agentum: the send flow lives in port.ts; this file keeps the pure helpers.
 
 import type { OutgoingDraft } from "@repo/services/mail/types";
 import { buildThreadingHeaders } from "./threading.ts";

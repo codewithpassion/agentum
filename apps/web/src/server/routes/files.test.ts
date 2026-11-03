@@ -27,7 +27,7 @@ const ORIGIN = "http://localhost";
 const WORKER_ENV = { RUN_TOKEN_KEY: KEY };
 const SAME_SITE = { "Sec-Fetch-Site": "same-origin" };
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
-const BOUNDARY = "harbourmaster-test-boundary";
+const BOUNDARY = "agentum-test-boundary";
 
 interface Session {
   orgId: string | null;

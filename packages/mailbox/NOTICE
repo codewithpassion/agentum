@@ -1,4 +1,4 @@
-Harbourmaster mailbox module
+Agentum mailbox module
 
 This package ports mailbox logic from agentic-inbox-hei
 (git@github.com:codewithpassion/agentic-inbox.git), read at commit c6bd070.
@@ -7,8 +7,8 @@ Copyright (c) 2026 Cloudflare, Inc.
 Licensed under the Apache License, Version 2.0. The full text is in
 LICENSE-APACHE-2.0.
 
-Ported files keep the Cloudflare copyright header. A file that Harbourmaster
-changed carries a line saying so. Files written for Harbourmaster are MIT, like
+Ported files keep the Cloudflare copyright header. A file that Agentum
+changed carries a line saying so. Files written for Agentum are MIT, like
 the rest of the repository.
 
 Ported from the inbox: the mailbox schema and its migrations, the email,

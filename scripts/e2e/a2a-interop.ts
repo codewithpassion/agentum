@@ -643,7 +643,7 @@ const usCallSdk = async (
         const run = await runAgent(
           deployment,
           caller.id,
-          `call harbourmaster_send_message ${JSON.stringify({ agent: slug, text: "hello from harbourmaster", waitMs: 20_000 })}`
+          `call harbourmaster_send_message ${JSON.stringify({ agent: slug, text: "hello from agentum", waitMs: 20_000 })}`
         );
         expect(run.status === "done", `run ended ${run.status}: ${run.error}`);
         expect(

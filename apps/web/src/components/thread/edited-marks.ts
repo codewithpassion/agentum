@@ -9,7 +9,7 @@ export interface MarkStorage {
   setItem: (key: string, value: string) => void;
 }
 
-const KEY = "harbourmaster:edited-messages";
+const KEY = "agentum:edited-messages";
 
 const resolve = (
   storage: MarkStorage | null | undefined

@@ -219,7 +219,7 @@ export interface EmailRoutingPort {
    * `managed` is required: true when the rule carries the `harbourmaster:<address>`
    * name `createRule` gives, which lets a retry adopt a rule whose id never
    * reached the mailbox row. An adapter that always says false makes such a
-   * retry fail with "Address in use outside Harbourmaster".
+   * retry fail with "Address in use outside Agentum".
    */
   findRule: (
     address: string

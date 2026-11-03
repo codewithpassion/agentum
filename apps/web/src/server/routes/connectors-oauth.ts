@@ -69,7 +69,7 @@ const refusal = (c: RouteContext, error: unknown): Response => {
 const AGENT_PREFIX = "agent:";
 
 /**
- * True when the navigation came from a Harbourmaster page. Browsers send
+ * True when the navigation came from a Agentum page. Browsers send
  * `Sec-Fetch-Site`; when it is missing, the `Referer` origin has to match.
  */
 const isSameOrigin = (c: RouteContext): boolean => {

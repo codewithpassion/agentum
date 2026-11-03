@@ -70,7 +70,7 @@ export const peerHost = (connection: ConnectionLike): string | null => {
 const KIND_WORDS: Record<A2aPeerKind, string> = {
   a2a_inbound: "Outside agent with a key",
   a2a_outbound: "Outside agent we call",
-  harbourmaster: "Harbourmaster",
+  harbourmaster: "Agentum",
 };
 
 export const kindWords = (kind: A2aPeerKind): string => KIND_WORDS[kind];
@@ -245,7 +245,7 @@ export const hermesCallEnvironment = (input: {
   },
   {
     name: "A2A_PUBLIC_URL",
-    note: "Hermes's own address. It must be HTTPS: Harbourmaster refuses plain HTTP.",
+    note: "Hermes's own address. It must be HTTPS: Agentum refuses plain HTTP.",
     value: input.publicUrl,
   },
 ];

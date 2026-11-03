@@ -30,6 +30,6 @@ export const settingsNav: readonly SettingsNavGroup[] = [
       { label: "Connected apps", to: "/settings/connected-apps" },
       { label: "Agent connections", to: "/settings/agent-connections" },
     ],
-    label: "Access to Harbourmaster",
+    label: "Access to Agentum",
   },
 ];

@@ -29,8 +29,8 @@ const fakeRun =
   (command) =>
     Promise.resolve(answers[command.join(" ")] ?? failed);
 
-const CAT = "systemctl --user cat harbourmaster";
-const IS_ACTIVE = "systemctl --user is-active harbourmaster";
+const CAT = "systemctl --user cat agentum";
+const IS_ACTIVE = "systemctl --user is-active agentum";
 
 let home = "";
 let path = "";

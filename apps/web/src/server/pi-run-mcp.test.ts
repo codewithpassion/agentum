@@ -117,7 +117,7 @@ describe("listMcpTools", () => {
     ]);
     expect(at(calls, 0).body.params).toEqual({
       capabilities: {},
-      clientInfo: { name: "harbourmaster-cloud-runtime", version: "0" },
+      clientInfo: { name: "agentum-cloud-runtime", version: "0" },
       protocolVersion: "2025-06-18",
     });
     expect(at(calls, 0).url).toBe(URL_);

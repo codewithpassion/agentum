@@ -234,7 +234,7 @@ export const markBatchedStatements = (
   return statements;
 };
 
-/** A search result. `clerkEmail` is the linked Harbourmaster user's email, when the Slack user is linked. */
+/** A search result. `clerkEmail` is the linked Agentum user's email, when the Slack user is linked. */
 export interface SearchHit {
   channelId: string;
   clerkEmail: string | null;
@@ -249,7 +249,7 @@ export interface SearchInput {
   appId: string;
   channelId?: string;
   limit: number;
-  /** A Slack user id, or the email of the Harbourmaster user linked to one. */
+  /** A Slack user id, or the email of the Agentum user linked to one. */
   person?: string;
   query: string;
   /** ISO time, inclusive. */

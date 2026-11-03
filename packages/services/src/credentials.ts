@@ -84,7 +84,7 @@ export interface DecryptedCredential {
 
 export interface NeedsAuth {
   cause: NeedsAuthCause;
-  /** A Harbourmaster page, never a provider URL. Null when no person can connect. */
+  /** A Agentum page, never a provider URL. Null when no person can connect. */
   connectPath: string | null;
   ok: false;
   ownerId: string | null;
@@ -150,7 +150,7 @@ const oauthSecretSchema = z.object({
   refreshToken: z.string().nullable(),
 });
 
-/** `/connect/:id?as=user` or `?as=agent:<id>`: a signed-in Harbourmaster page. */
+/** `/connect/:id?as=user` or `?as=agent:<id>`: a signed-in Agentum page. */
 export const connectPathFor = (
   connectorId: string,
   owner: { id: string | null; kind: CredentialOwnerKind }

@@ -5,7 +5,7 @@ import { createEmailRoutingPort } from "./email-routing.ts";
 const BASE =
   "https://api.cloudflare.com/client/v4/zones/zone-1/email/routing/rules";
 const TOKEN = "cf-token-secret";
-const WORKER = "harbourmaster-worker";
+const WORKER = "agentum-worker";
 const LIMIT_MESSAGE =
   "Email Routing rule limit reached for this domain (about 200 rules)";
 

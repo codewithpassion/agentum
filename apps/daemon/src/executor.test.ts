@@ -582,7 +582,7 @@ const setup = (setupOptions: SetupOptions) => {
           fetch: setupOptions.wireFetch,
           masker,
           runId: claim.run.id,
-          server: "https://harbourmaster.example.workers.dev",
+          server: "https://agentum.example.workers.dev",
         });
       }
       return api;
@@ -787,7 +787,7 @@ describe("the options passed to query", () => {
     expect(run.optionsSeen[0]?.cwd).toBe(
       join(
         home,
-        "harbourmaster",
+        "agentum",
         run.claim.run.workspaceId,
         run.claim.run.agentId,
         "work"
@@ -799,13 +799,14 @@ describe("the options passed to query", () => {
     const run = setup({ script: toolRunScript(), singleUser: false });
     await run.execution.finished;
     expect(run.runCommands.map((command) => command.slice(0, 5))).toEqual([
+      ["sudo", "-n", "-u", "hm-agent", "/usr/bin/stat"],
       ["sudo", "-n", "-u", "hm-agent", "/bin/mkdir"],
       ["sudo", "-n", "-u", "hm-agent", "/bin/rm"],
       ["sudo", "-n", "-u", "hm-agent", "/bin/mkdir"],
     ]);
-    expect(
-      run.optionsSeen[0]?.cwd?.startsWith("/home/hm-agent/harbourmaster/")
-    ).toBe(true);
+    expect(run.optionsSeen[0]?.cwd?.startsWith("/home/hm-agent/agentum/")).toBe(
+      true
+    );
   });
 });
 
@@ -1025,8 +1026,8 @@ describe("files on a multi-user machine", () => {
     });
     await run.execution.finished;
     const inbox = `${remoteWorkDirOf(claim)}/inbox`;
-    // The first three commands prepare the work directory.
-    expect(run.runCommands.slice(3)).toEqual([
+    // The first four commands prepare the work directory.
+    expect(run.runCommands.slice(4)).toEqual([
       [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
       [...AS_AGENT, AGENT_DD, `of=${inbox}/notes.txt`, "status=none"],
       [...AS_AGENT, AGENT_MKDIR, "-p", inbox],
@@ -1306,7 +1307,7 @@ describe("the agent's secrets", () => {
   const secretsClaim = () =>
     claimWith((c) => {
       c.env = {
-        HARBOURMASTER_RELAY_TOKEN: RELAY,
+        AGENTUM_RELAY_TOKEN: RELAY,
         MY_API_KEY: MY_KEY,
         OPENAI_API_KEY: OPENAI,
       };
@@ -1317,7 +1318,7 @@ describe("the agent's secrets", () => {
     await run.execution.finished;
     const env = run.optionsSeen[0]?.env ?? {};
     expect(env.OPENAI_API_KEY).toBe(OPENAI);
-    expect(env.HARBOURMASTER_RELAY_TOKEN).toBe(RELAY);
+    expect(env.AGENTUM_RELAY_TOKEN).toBe(RELAY);
     expect(env.MY_API_KEY).toBe(MY_KEY);
     expect(env.HOME).toBe("/home/dom");
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
@@ -1327,7 +1328,7 @@ describe("the agent's secrets", () => {
     const run = setup({ claim: secretsClaim(), script: toolRunScript() });
     await run.execution.finished;
     expect(run.preserveEnvSeen).toEqual([
-      ["HARBOURMASTER_RELAY_TOKEN", "MY_API_KEY", "OPENAI_API_KEY"],
+      ["AGENTUM_RELAY_TOKEN", "MY_API_KEY", "OPENAI_API_KEY"],
     ]);
   });
 
