@@ -9,8 +9,12 @@ import { usePolledQuery } from "#/components/inbox/use-polled-query";
 import { useSwitchWorkspace } from "#/components/rail/use-switch-workspace";
 import { WorkspaceChoiceList } from "#/components/rail/workspace-choice-list";
 import { workspaceChoices } from "#/components/rail/workspace-menu-logic";
-import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { AuthPanel, LandingPage, PublicShell } from "#/modules/landing";
+
+const TITLE = "Agentum | Agents that do the work";
+const DESCRIPTION =
+  "Describe an agent in plain words. Give it tools, a schedule and a computer. When it needs a decision, it asks you.";
 
 export const Route = createFileRoute("/")({
   // `me` answers 401 unless the caller is a user whose active organisation has a workspace row.
@@ -30,28 +34,33 @@ export const Route = createFileRoute("/")({
     throw redirect({ to: "/desk" });
   },
   component: Landing,
+  head: () => ({
+    meta: [
+      { title: TITLE },
+      { content: DESCRIPTION, name: "description" },
+      { content: TITLE, property: "og:title" },
+      { content: DESCRIPTION, property: "og:description" },
+    ],
+  }),
 });
+
+const PUBLIC_LINKS = [{ href: "/", label: "Home", secondary: true }];
 
 function Landing() {
   return (
-    <main className="page-wrap px-4 pt-14 pb-8">
-      <section className="rise-in pt-6 pb-4 sm:pt-10">
-        <h1 className="display-title mb-5 max-w-3xl text-5xl text-foreground leading-[1.05] sm:text-6xl">
-          Harbourmaster
-        </h1>
-        <p className="mb-8 max-w-2xl text-base text-muted-foreground sm:text-lg">
-          An agent platform.
-        </p>
-        <Show when="signed-out">
-          <Button asChild>
-            <a href="/login">Sign in</a>
-          </Button>
-        </Show>
-        <Show when="signed-in">
-          <NoAccess />
-        </Show>
-      </section>
-    </main>
+    <>
+      <Show when="signed-out">
+        <LandingPage signInHref="/login" />
+      </Show>
+      <Show when="signed-in">
+        <PublicShell homeHref="/" links={PUBLIC_LINKS}>
+          {/* The app's dark tokens, so the shadcn controls read on DF black. */}
+          <AuthPanel className="dark">
+            <NoAccess />
+          </AuthPanel>
+        </PublicShell>
+      </Show>
+    </>
   );
 }
 
