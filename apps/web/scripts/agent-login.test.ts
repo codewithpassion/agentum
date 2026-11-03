@@ -284,7 +284,7 @@ describe("resolveSecretKey", () => {
         productionLocal: {},
       })
     ).toThrow(
-      "Production needs CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
+      "Production needs CLERK_SECRET_KEY in apps/web/.env.agentum-production.local or in the process environment."
     );
   });
 

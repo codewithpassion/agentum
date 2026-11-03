@@ -1,18 +1,22 @@
 #!/usr/bin/env bun
 // One-off companion to migrate-clerk-ids.ts: writes the mapping file by
-// looking the old ids up on the dev Clerk instance and finding the same people
-// (by email) and organisations (by name) on the production instance. Reads the
-// old ids from the database. Read-only on both instances and on the database.
+// looking the old ids up on the old Clerk instance and finding the same people
+// (by email) and organisations (by name) on the new instance. Reads the old
+// ids from the database. Read-only on both instances and on the database.
 // Usage, from apps/web:
-//   bun scripts/build-clerk-id-map.ts --out <file> --db <sqlite file> [--ignore-unresolved]
+//   bun scripts/build-clerk-id-map.ts --out <file> --db <sqlite file> [--from <env file>] [--to <env file>] [--ignore-unresolved]
 // --db is a SQLite copy of the database: `wrangler d1 export` it and load the
 // dump into a file with sqlite3 or bun:sqlite.
-// Keys: the dev secret key is CLERK_SECRET_KEY in .env.local, the production
-// one is CLERK_SECRET_KEY in .env.production.local or CLERK_PROD_SECRET_KEY.
+// Keys: CLERK_SECRET_KEY of the old instance comes from --from (default
+// .env.local, the dev instance, as in X.1), that of the new one from --to
+// (default .env.production.local) or CLERK_PROD_SECRET_KEY. Both paths are
+// relative to apps/web. The Agentum v2 cutover runs with
+// --from .env.production.local --to .env.agentum-production.local.
 // An "ignore" list in the output file (ids of other systems that look like
 // Clerk ids) is kept and skipped. --ignore-unresolved adds every id that the
-// dev instance reports as not found (404) to it and prints each one; ids that
-// exist on dev but have no single match on production stay UNRESOLVED.
+// old instance reports as not found (404) to it and prints each one; ids that
+// exist on the old instance but have no single match on the new one stay
+// UNRESOLVED.
 // Editing the file by hand and re-running rewrites orgs and users, so add to
 // "ignore" last, or edit orgs and users last and don't re-run.
 // Exits 1 when an id doesn't resolve to exactly one new id; the file still
@@ -56,7 +60,7 @@ const lookup = (secretKey: string): ClerkLookup => {
       );
       const email = (primary ?? user.emailAddresses[0])?.emailAddress;
       if (email === undefined) {
-        throw new Error(`${userId} has no email address on the dev instance.`);
+        throw new Error(`${userId} has no email address on the old instance.`);
       }
       return email;
     },
@@ -95,14 +99,19 @@ const main = async () => {
   }
   const driver = sqliteDriver(new Database(dbPath, { readonly: true }));
 
-  const devKey: string | undefined = (await readEnvFile(".env.local"))
+  const fromFile = arg("--from") ?? ".env.local";
+  const toFile = arg("--to") ?? ".env.production.local";
+  const oldKey: string | undefined = (await readEnvFile(fromFile))
     .CLERK_SECRET_KEY;
-  const prodKey: string | undefined =
+  const newKey: string | undefined =
     process.env.CLERK_PROD_SECRET_KEY ??
-    (await readEnvFile(".env.production.local")).CLERK_SECRET_KEY;
-  if (!(devKey?.startsWith("sk_test_") && prodKey?.startsWith("sk_live_"))) {
+    (await readEnvFile(toFile)).CLERK_SECRET_KEY;
+  if (
+    !(oldKey?.startsWith("sk_") && newKey?.startsWith("sk_live_")) ||
+    oldKey === newKey
+  ) {
     throw new Error(
-      "Need the dev key (sk_test_) as CLERK_SECRET_KEY in apps/web/.env.local and the production key (sk_live_) as CLERK_SECRET_KEY in apps/web/.env.production.local or CLERK_PROD_SECRET_KEY."
+      `Need the old instance's key as CLERK_SECRET_KEY in apps/web/${fromFile} and a different production key (sk_live_) as CLERK_SECRET_KEY in apps/web/${toFile} or CLERK_PROD_SECRET_KEY.`
     );
   }
 
@@ -118,8 +127,8 @@ const main = async () => {
   const { occurrences } = await discover(driver);
   const { ignored, mapping, unresolved } = await buildMapping(
     occurrences.map((occurrence) => occurrence.token),
-    lookup(devKey),
-    lookup(prodKey),
+    lookup(oldKey),
+    lookup(newKey),
     { ignore, ignoreUnresolved: argv.includes("--ignore-unresolved") }
   );
   await write(out, `${JSON.stringify(mapping, null, 2)}\n`);

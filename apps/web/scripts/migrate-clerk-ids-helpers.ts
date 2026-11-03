@@ -1,7 +1,8 @@
 /**
  * Helpers for migrate-clerk-ids.ts, the one-off script that rewrites Clerk org
  * and user ids in the database when the app moves from one Clerk instance to
- * another (X.1: dev instance to the shared production instance).
+ * another (X.1: dev instance to the shared production instance; the Agentum v2
+ * cutover: that instance to the Agentum production instance).
  *
  * It does not keep a list of columns. It reads the schema, scans every text
  * column for `user_...` and `org_...` tokens, and rewrites each mapped token
@@ -462,9 +463,9 @@ export interface BuildOptions {
   /** Ids to skip, kept in the file's ignore list. */
   ignore?: readonly string[];
   /**
-   * Put ids that the dev instance doesn't know in the ignore list instead of
-   * reporting them. An id that exists on dev but has no single match on the
-   * production instance is always reported: it is a real id.
+   * Put ids that the old instance doesn't know in the ignore list instead of
+   * reporting them. An id that exists on the old instance but has no single match on the
+   * new instance is always reported: it is a real id.
    */
   ignoreUnresolved?: boolean;
 }
@@ -481,7 +482,7 @@ const resolveOrg = async (
 ): Promise<Resolved> => {
   const name = await dev.nameOf(oldId);
   if (name === undefined) {
-    return { foreign: true, oldId, why: "not found on the dev instance" };
+    return { foreign: true, oldId, why: "not found on the old instance" };
   }
   const [id, ...others] = await prod.orgIdsByName(name);
   return id !== undefined && others.length === 0
@@ -489,7 +490,7 @@ const resolveOrg = async (
     : {
         foreign: false,
         oldId,
-        why: `${others.length + (id === undefined ? 0 : 1)} organisation(s) named "${name}" on the production instance`,
+        why: `${others.length + (id === undefined ? 0 : 1)} organisation(s) named "${name}" on the new instance`,
       };
 };
 
@@ -500,7 +501,7 @@ const resolveUser = async (
 ): Promise<Resolved> => {
   const email = (await dev.emailOf(oldId))?.toLowerCase();
   if (email === undefined) {
-    return { foreign: true, oldId, why: "not found on the dev instance" };
+    return { foreign: true, oldId, why: "not found on the old instance" };
   }
   const [id, ...others] = await prod.userIdsByEmail(email);
   return id !== undefined && others.length === 0
@@ -508,7 +509,7 @@ const resolveUser = async (
     : {
         foreign: false,
         oldId,
-        why: `${others.length + (id === undefined ? 0 : 1)} user(s) with ${email} on the production instance`,
+        why: `${others.length + (id === undefined ? 0 : 1)} user(s) with ${email} on the new instance`,
       };
 };
 

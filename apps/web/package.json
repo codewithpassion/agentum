@@ -8,9 +8,10 @@
   "scripts": {
     "add-workspace": "bun scripts/add-workspace.ts",
     "agent-login": "bun scripts/agent-login.ts",
-    "build": "vite build && bun scripts/check-dev-only.ts",
+    "build": "vite build --mode agentum-production && bun scripts/check-dev-only.ts",
     "build-clerk-id-map": "bun scripts/build-clerk-id-map.ts",
     "cf-typegen": "wrangler types",
+    "copy-clerk-users": "bun scripts/copy-clerk-users.ts",
     "create-dev-user": "bun scripts/create-dev-user.ts",
     "deploy": "bun run build && bun scripts/publish-releases.ts --env production && wrangler deploy",
     "dev": "wrangler d1 migrations apply DB --local && vite dev --port 3000",

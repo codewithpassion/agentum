@@ -16,7 +16,11 @@ import {
   selectSql,
   wranglerTarget,
 } from "./add-workspace-helpers.ts";
-import { parseEnvFile, resolveSecretKey } from "./agent-login-helpers.ts";
+import {
+  PRODUCTION_KEY_FILE,
+  parseEnvFile,
+  resolveSecretKey,
+} from "./agent-login-helpers.ts";
 
 const WEB_DIR = `${import.meta.dir}/..`;
 
@@ -50,7 +54,7 @@ const main = async () => {
   const secretKey = resolveSecretKey(clerkEnv, {
     envLocal: await readEnvFile(".env.local"),
     process: process.env,
-    productionLocal: await readEnvFile(".env.production.local"),
+    productionLocal: await readEnvFile(PRODUCTION_KEY_FILE),
   });
 
   const clerk = createClerkClient({ secretKey });

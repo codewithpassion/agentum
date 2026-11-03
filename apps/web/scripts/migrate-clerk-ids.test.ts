@@ -282,8 +282,8 @@ describe("buildMapping", () => {
       users: { [OLD_USER]: { email: "a@b.co", id: NEW_USER } },
     });
     expect(result.unresolved).toEqual([
-      `${mk("org", "gone")} (not found on the dev instance)`,
-      `${mk("user", "gone")} (not found on the dev instance)`,
+      `${mk("org", "gone")} (not found on the old instance)`,
+      `${mk("user", "gone")} (not found on the old instance)`,
     ]);
     // What it writes is what the migration reads.
     expect(parseMapping(JSON.stringify(result.mapping)).ids.get(OLD_USER)).toBe(
@@ -374,7 +374,7 @@ describe("what counts as a Clerk id", () => {
     });
     expect(kept.mapping.ignore).toEqual([BRAIN_USER]);
     expect(kept.unresolved).toEqual([
-      `${mk("org", "gone")} (not found on the dev instance)`,
+      `${mk("org", "gone")} (not found on the old instance)`,
     ]);
 
     const all = await buildMapping(ids, lookup, lookup, {
@@ -383,7 +383,7 @@ describe("what counts as a Clerk id", () => {
     });
     expect(all.unresolved).toEqual([]);
     expect(all.ignored).toEqual([
-      `${mk("org", "gone")} (not found on the dev instance)`,
+      `${mk("org", "gone")} (not found on the old instance)`,
     ]);
     expect(all.mapping.ignore).toEqual([BRAIN_USER, mk("org", "gone")].sort());
     expect(

@@ -6,6 +6,7 @@
 import { createClerkClient } from "@clerk/backend";
 import { file } from "bun";
 import {
+  PRODUCTION_KEY_FILE,
   parseArgs,
   parseEnvFile,
   redirectUrlFor,
@@ -23,7 +24,7 @@ const main = async () => {
   const secretKey = resolveSecretKey(args.env, {
     envLocal,
     process: process.env,
-    productionLocal: await readEnvFile(".env.production.local"),
+    productionLocal: await readEnvFile(PRODUCTION_KEY_FILE),
   });
 
   const email = args.email ?? envLocal.DEV_LOGIN_EMAIL;
