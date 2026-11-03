@@ -192,16 +192,26 @@ the Clerk instance for that environment and inserts through `wrangler d1
 execute`. Turn on Clerk's restricted sign-up and Organizations in the Clerk
 dashboard too. Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and
 `VITE_CLERK_PUBLISHABLE_KEY` on a deployed Worker with `wrangler secret put`.
+Production runs on the production instance of the Clerk application "Agentum",
+on `agentumbot.io` (frontend API `clerk.agentumbot.io`). It belongs to Agentum
+alone. Staging, previews and local use the Clerk development instance. The
+production keys live in the gitignored `apps/web/.env.agentum-production.local`,
+and `bun run build` reads the publishable key from it through `vite build --mode
+agentum-production`. The old shared production instance on `rockyshoreslabs.io`
+also serves another app, so never change its settings.
 
 The workspace menu in the rail header (`apps/web/src/components/rail/workspace-menu.tsx`) lists only organisations with a `workspaces` row, so it is not Clerk's OrganizationSwitcher. `New workspace` is for org:admin only, and `workspaces.createFromSession` enforces that on the server, so hiding the button is not the check. Switching workspace ends in a full page load to `/desk`, because loaders, polls and the rail hold the old workspace's data. `signedInProcedure` in `init.ts` serves a signed-in user with no workspace (`ctx.userId`), while `workspaceProcedure` still answers 401. `context.ts` now carries `userId`, so a change to it goes into the add-clerk copy too. The `/choose-organization` picker lists the same rows (`workspaces.mine`) with no create or invitations. `ctx.userId` covers pending sessions, `ctx.principal` does not.
 
-Invitations are sent from the same menu, `Invite people`, by `workspaces.inviteFromSession` (org admin on a browser session, organisation from the principal). Never send one from Clerk's organisation profile: it carries no redirect URL, so a new user lands on the Clerk instance's home URL, which on the shared production instance is another app. The profile is opened with its own invite button hidden. The invitation's `redirectUrl` is `PUBLIC_BASE_URL/accept-invitation?org=<id>`, so a deployment with an empty `PUBLIC_BASE_URL` (previews) cannot invite. `routes/accept-invitation.tsx` shows `<SignUp>` or `<SignIn>` by `__clerk_status`. Once signed in it asks `workspaces.hasWorkspace` whether `org` has a `workspaces` row, and with no row it does nothing (no accept, no `setActive`). A member gets `setActive` then `/desk`. A person with a pending invitation sees `Join <organisation>`, and `accept()` runs only on that click, because the route can't verify a ticket on a signed-in session and a crafted link must not join anyone to anything. Clerk's bot check blocks headless Chrome on that form, so test it with agent-browser `--headed` on a virtual display (`Xvfb :97`, `DISPLAY=:97`).
+Invitations are sent from the same menu, `Invite people`, by `workspaces.inviteFromSession` (org admin on a browser session, organisation from the principal). Never send one from Clerk's organisation profile: it carries no redirect URL, so a new user lands on the Clerk instance's home URL and not on `/accept-invitation`. The profile is opened with its own invite button hidden. The invitation's `redirectUrl` is `PUBLIC_BASE_URL/accept-invitation?org=<id>`, so a deployment with an empty `PUBLIC_BASE_URL` (previews) cannot invite. `routes/accept-invitation.tsx` shows `<SignUp>` or `<SignIn>` by `__clerk_status`. Once signed in it asks `workspaces.hasWorkspace` whether `org` has a `workspaces` row, and with no row it does nothing (no accept, no `setActive`). A member gets `setActive` then `/desk`. A person with a pending invitation sees `Join <organisation>`, and `accept()` runs only on that click, because the route can't verify a ticket on a signed-in session and a crafted link must not join anyone to anything. Clerk's bot check blocks headless Chrome on that form, so test it with agent-browser `--headed` on a virtual display (`Xvfb :97`, `DISPLAY=:97`).
 
 Org and user ids in D1 belong to one Clerk instance. Moving the app to another
 instance means rewriting them with `bun run migrate-clerk-ids` (dry run unless
 `--apply`; `build-clerk-id-map` writes its mapping file), as X.1 did for the
-shared production instance. The `events` triggers are dropped and put back
-around that rewrite. The runbook is `docs/reviews/tasks/X.1.md`.
+old shared production instance. The Agentum v2 cutover does it again, from that
+instance to the Agentum one, after `bun run copy-clerk-users` has made the
+users and organisations there. The `events` triggers are dropped and put back
+around that rewrite. The runbooks are `docs/reviews/tasks/X.1.md` and the Clerk
+section of `docs/v3/agentum-v2-cutover.md`.
 
 ## Dev login (testing)
 
@@ -231,8 +241,8 @@ dev login is off. Flags: `--env local|staging|preview|production` (default
 `--base-url <url>` (overrides the environment's base URL). Local, staging and
 preview use `CLERK_SECRET_KEY` from `apps/web/.env.local` (the Clerk dev
 instance; staging is built with `--mode staging` and holds the dev keys).
-Production uses the production Clerk instance and reads its key from
-`apps/web/.env.production.local` or the process environment, and `--email` must
+Production uses the Agentum production Clerk instance and reads its key from
+`apps/web/.env.agentum-production.local` or the process environment, and `--email` must
 name a user on that instance (the dev user is not there). The URL is a one-time
 credential: open it in a fresh browser session and don't paste it into logs or
 reports. The key is never printed. The session lands on the signed-in pages

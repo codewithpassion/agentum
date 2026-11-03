@@ -7,8 +7,8 @@ signed-in user. A Clerk organisation gets in when a `workspaces` row has its id,
 and `bun run add-workspace --org <id> --name <name> (--local | --remote [--env staging])`
 makes the first one of a deployment. It checks the organisation exists on the
 Clerk instance for that environment: `--local` and `--env staging` use the key in
-`.env.local`, plain `--remote` uses the one in `.env.production.local` or the
-process environment.
+`.env.local`, plain `--remote` uses the one in `.env.agentum-production.local`
+or the process environment.
 
 ## Architecture
 
@@ -56,7 +56,7 @@ signs the dev user in without the sign-in screen. Open it in a fresh browser
 session. Other flags: `--env local|staging|preview|production`, `--pr <n>` for
 preview, `--email`, `--redirect <path>`, `--base-url`. Local, staging and
 preview read `CLERK_SECRET_KEY` from `.env.local`. Production reads it from
-`.env.production.local` or the process environment. Treat the URL as a
+`.env.agentum-production.local` or the process environment. Treat the URL as a
 password. Local development also has the one-click dev login on `/login`.
 
 ## Build & deploy

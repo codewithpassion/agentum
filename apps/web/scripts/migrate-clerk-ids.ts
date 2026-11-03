@@ -10,6 +10,7 @@
 import { Database } from "bun:sqlite";
 import { file, spawn, write } from "bun";
 import {
+  chunks,
   type Driver,
   parseMapping,
   run,
@@ -37,6 +38,8 @@ const wrangler = async (args: string[]): Promise<string> => {
   return out;
 };
 
+const SELECT_CHUNK_CHARS = 50_000;
+
 const wranglerDriver = (
   binding: string,
   target: string[],
@@ -47,20 +50,27 @@ const wranglerDriver = (
     await write(path, `${statements.join("\n")}\n`);
     await wrangler(["d1", "execute", binding, ...target, "--file", path, "-y"]);
   },
+  // One wrangler call per chunk: a schema with many tables makes a single
+  // --command too long for the process argument limit (E2BIG).
   select: async (statements) => {
-    const out = await wrangler([
-      "d1",
-      "execute",
-      binding,
-      ...target,
-      "--json",
-      "--command",
-      statements.join(";\n"),
-    ]);
-    const parsed = JSON.parse(out.slice(out.indexOf("["))) as {
-      results: Record<string, unknown>[];
-    }[];
-    return parsed.map((statement) => statement.results);
+    const results: Record<string, unknown>[][] = [];
+    for (const chunk of chunks(statements, SELECT_CHUNK_CHARS)) {
+      // biome-ignore lint/performance/noAwaitInLoops: one wrangler process at a time
+      const out = await wrangler([
+        "d1",
+        "execute",
+        binding,
+        ...target,
+        "--json",
+        "--command",
+        chunk.join(";\n"),
+      ]);
+      const parsed = JSON.parse(out.slice(out.indexOf("["))) as {
+        results: Record<string, unknown>[];
+      }[];
+      results.push(...parsed.map((statement) => statement.results));
+    }
+    return results;
   },
 });
 

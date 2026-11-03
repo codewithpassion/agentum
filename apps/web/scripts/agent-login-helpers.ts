@@ -173,6 +173,13 @@ const usable = (value: string | undefined): string | undefined => {
 };
 
 /**
+ * The gitignored file, in apps/web, that holds the keys of the Agentum
+ * production Clerk instance (agentumbot.io). The production build reads its
+ * publishable key through `vite build --mode agentum-production`.
+ */
+export const PRODUCTION_KEY_FILE = ".env.agentum-production.local";
+
+/**
  * Picks the Clerk secret key for the env. Local, staging and preview use the dev
  * key in apps/web/.env.local. Production uses its own Clerk instance, so it
  * takes the key file, or the process environment, which bun fills from
@@ -201,6 +208,6 @@ export const resolveSecretKey = (
     return processKey;
   }
   throw new Error(
-    "Production needs CLERK_SECRET_KEY in apps/web/.env.production.local or in the process environment."
+    `Production needs CLERK_SECRET_KEY in apps/web/${PRODUCTION_KEY_FILE} or in the process environment.`
   );
 };
