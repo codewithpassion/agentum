@@ -3,8 +3,10 @@ import { migrated } from "@repo/db/test-db";
 import { importSecretsKey } from "@repo/services/crypto";
 import { importRunTokenKey } from "@repo/services/run-tokens";
 import {
+  CYCLE_BREAKS,
   countMismatches,
   countQuery,
+  cycleBreakQuery,
   DO_CLASSES,
   dataForImport,
   extraKeys,
@@ -12,6 +14,8 @@ import {
   migrationGap,
   newKey,
   nonEmptyTables,
+  orderedImport,
+  parentsFirst,
   parseMoveArgs,
   parseSecretNames,
   planCopy,
@@ -113,6 +117,61 @@ const dataDump = [
 ].join("\n");
 
 describe("D1 import", () => {
+  test("parentsFirst puts every parent table before its children", () => {
+    const keys = [
+      { column: "workspace_id", parent: "workspaces", table: "agents" },
+      { column: "agent_id", parent: "agents", table: "runs" },
+      { column: "parent_run_id", parent: "runs", table: "runs" },
+      { column: "run_id", parent: "runs", table: "artifacts" },
+      { column: "scope_artifact_id", parent: "artifacts", table: "runs" },
+    ];
+    expect(
+      parentsFirst(["artifacts", "runs", "agents", "workspaces"], keys)
+    ).toEqual(["workspaces", "agents", "runs", "artifacts"]);
+  });
+
+  test("parentsFirst refuses a cycle CYCLE_BREAKS does not break", () => {
+    expect(() =>
+      parentsFirst(
+        ["a", "b"],
+        [
+          { column: "b_id", parent: "b", table: "a" },
+          { column: "a_id", parent: "a", table: "b" },
+        ]
+      )
+    ).toThrow("cycle");
+  });
+
+  test("cycleBreakQuery counts the rows that use each break", () => {
+    expect(CYCLE_BREAKS.length).toBeGreaterThan(0);
+    expect(cycleBreakQuery()).toBe(
+      `SELECT (SELECT count(*) FROM "runs" WHERE "scope_artifact_id" IS NOT NULL) AS "runs.scope_artifact_id";`
+    );
+  });
+
+  test("orderedImport regroups the INSERTs and keeps sqlite_sequence last", () => {
+    const data = [
+      "PRAGMA defer_foreign_keys=TRUE;",
+      `INSERT INTO "agents" ("id") VALUES('a1');`,
+      `INSERT INTO "runs" ("id") VALUES('r1');`,
+      `INSERT INTO "workspaces" ("id") VALUES('w1');`,
+      `INSERT INTO "agents" ("id") VALUES('a2');`,
+      "DELETE FROM sqlite_sequence;",
+      `INSERT INTO "sqlite_sequence" ("name","seq") VALUES('d1_migrations',1);`,
+    ].join("\n");
+    expect(
+      orderedImport(data, ["workspaces", "agents", "runs"]).split("\n")
+    ).toEqual([
+      "PRAGMA defer_foreign_keys=TRUE;",
+      `INSERT INTO "workspaces" ("id") VALUES('w1');`,
+      `INSERT INTO "agents" ("id") VALUES('a1');`,
+      `INSERT INTO "agents" ("id") VALUES('a2');`,
+      `INSERT INTO "runs" ("id") VALUES('r1');`,
+      "DELETE FROM sqlite_sequence;",
+      `INSERT INTO "sqlite_sequence" ("name","seq") VALUES('d1_migrations',1);`,
+    ]);
+  });
+
   test("dataForImport drops only the d1_migrations rows", () => {
     expect(dataForImport(dataDump).split("\n")).toEqual([
       "PRAGMA defer_foreign_keys=TRUE;",

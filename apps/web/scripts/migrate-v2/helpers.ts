@@ -195,6 +195,111 @@ export const dataForImport = (sql: string): string => {
   return lines.filter((line) => !D1_MIGRATIONS_ROW.test(line)).join("\n");
 };
 
+/** Every foreign key of the schema, one row per column, from the new database. */
+export const FOREIGN_KEYS_QUERY = `SELECT m.name AS "table", p."table" AS parent, p."from" AS "column" FROM sqlite_master m, pragma_foreign_key_list(m.name) p WHERE m.type = 'table';`;
+
+export interface ForeignKey {
+  column: string;
+  parent: string;
+  table: string;
+}
+
+/**
+ * Foreign keys left out of the parents-first order, because they close a
+ * cycle between tables. The import refuses to run while an old row uses one
+ * (`cycleBreakQuery`), so leaving them out cannot order a child first.
+ */
+export const CYCLE_BREAKS: readonly ForeignKey[] = [
+  { column: "scope_artifact_id", parent: "artifacts", table: "runs" },
+];
+
+const isBreak = (key: ForeignKey) =>
+  CYCLE_BREAKS.some(
+    (b) =>
+      b.table === key.table &&
+      b.column === key.column &&
+      b.parent === key.parent
+  );
+
+/**
+ * `tables` with every parent before its children. D1 runs a large import file
+ * as several transactions and checks foreign keys at each commit, so
+ * `defer_foreign_keys` at the top of the dump does not cover a child row that
+ * arrives before its parent table. Self-references stay in dump order (rowid),
+ * which puts a parent run before the runs it started. Throws on a cycle that
+ * `CYCLE_BREAKS` does not break.
+ */
+export const parentsFirst = (
+  tables: string[],
+  keys: ForeignKey[]
+): string[] => {
+  const parents = new Map(tables.map((t) => [t, new Set<string>()]));
+  for (const key of keys) {
+    if (key.table !== key.parent && !isBreak(key)) {
+      parents.get(key.table)?.add(key.parent);
+    }
+  }
+  const order: string[] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (table: string, path: string[]) => {
+    if (state.get(table) === "done") {
+      return;
+    }
+    if (state.get(table) === "visiting") {
+      throw new Error(
+        `Foreign keys form a cycle: ${[...path, table].join(" -> ")}. Add a break to CYCLE_BREAKS.`
+      );
+    }
+    state.set(table, "visiting");
+    for (const parent of [...(parents.get(table) ?? [])].sort()) {
+      if (parents.has(parent)) {
+        visit(parent, [...path, table]);
+      }
+    }
+    state.set(table, "done");
+    order.push(table);
+  };
+  for (const table of [...tables].sort()) {
+    visit(table, []);
+  }
+  return order;
+};
+
+/** Counts the old rows that use a `CYCLE_BREAKS` key, as one result row. */
+export const cycleBreakQuery = (): string =>
+  `SELECT ${CYCLE_BREAKS.map(
+    (b) =>
+      `(SELECT count(*) FROM "${b.table}" WHERE "${b.column}" IS NOT NULL) AS "${b.table}.${b.column}"`
+  ).join(", ")};`;
+
+const INSERT_TABLE = /^INSERT INTO [`"]?([A-Za-z0-9_]+)[`"]? /;
+const STATEMENT_START = /^[A-Z]+ /;
+
+/**
+ * The import file with its INSERTs regrouped in `order`. The pragma stays
+ * first; `sqlite_sequence` lines and tables outside `order` go last, in dump
+ * order. A line that starts no statement belongs to the one before it.
+ */
+export const orderedImport = (data: string, order: string[]): string => {
+  const [pragma, ...rest] = data.split("\n");
+  const groups = new Map<string, string[]>();
+  const tail: string[] = [];
+  let current = tail;
+  for (const line of rest) {
+    const table = INSERT_TABLE.exec(line)?.[1];
+    if (table && order.includes(table)) {
+      current = groups.get(table) ?? [];
+      groups.set(table, current);
+    } else if (table || STATEMENT_START.test(line)) {
+      current = tail;
+    }
+    current.push(line);
+  }
+  return [pragma, ...order.flatMap((t) => groups.get(t) ?? []), ...tail].join(
+    "\n"
+  );
+};
+
 /** Tables that already hold rows: the import needs an empty database. */
 export const nonEmptyTables = (counts: Record<string, unknown>): string[] =>
   Object.keys(counts).filter((table) => Number(counts[table]) > 0);

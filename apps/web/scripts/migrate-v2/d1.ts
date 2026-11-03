@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { Database } from "bun:sqlite";
 // Copies the old D1 database into the new one (docs/v3/agentum-v2-cutover.md).
 // Dry run unless --apply. Usage, from apps/web:
 //   bun scripts/migrate-v2/d1.ts --env staging|production [--apply]
@@ -12,16 +13,21 @@
 // every value only the old keys could read goes to the state the app shows
 // for a missing one (`SCRUB_STEPS` in helpers.ts). The dry run prints what
 // the scrub would change, counted on the old database.
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { file, write } from "bun";
 import {
   countMismatches,
   countQuery,
+  cycleBreakQuery,
   dataForImport,
+  FOREIGN_KEYS_QUERY,
+  type ForeignKey,
   MIGRATIONS_QUERY,
   migrationGap,
   NAMES,
   nonEmptyTables,
+  orderedImport,
+  parentsFirst,
   parseMoveArgs,
   scrubCountQuery,
   scrubSql,
@@ -70,6 +76,63 @@ const scrubEncrypted = async (database: string) => {
 const counts = async (database: string, tables: string[]) =>
   (await d1Rows(database, countQuery(tables)))[0] ?? {};
 
+const MIGRATIONS_DIR = new URL(
+  "../../../../packages/db/migrations/",
+  import.meta.url
+).pathname;
+
+/**
+ * An in-memory copy of the schema, built from the same migrations both
+ * databases applied (the script checks that first). D1 refuses
+ * `pragma_foreign_key_list`, so the foreign keys are read here instead.
+ */
+const localSchema = async (): Promise<Database> => {
+  const db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);"
+  );
+  const migrations = (await readdir(MIGRATIONS_DIR))
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  const sources = await Promise.all(
+    migrations.map((name) => file(`${MIGRATIONS_DIR}${name}`).text())
+  );
+  for (const source of sources) {
+    db.exec(source.replaceAll("--> statement-breakpoint", ""));
+  }
+  return db;
+};
+
+/**
+ * Loads the import file into the local schema with foreign keys checked on
+ * every INSERT, not at commit. If that passes, no split D1 makes of the file
+ * can put a child row before its parent. The export writes one statement per
+ * line (`dataForImport`), and every line runs on its own, because one exec of
+ * many statements can stop early without an error.
+ */
+const checkOrderLocally = (db: Database, data: string) => {
+  db.exec("PRAGMA foreign_keys=ON;");
+  db.exec("BEGIN;");
+  const lines = data
+    .split("\n")
+    .slice(1)
+    .filter((line) => line.trim() !== "");
+  for (const [index, line] of lines.entries()) {
+    try {
+      db.run(line);
+    } catch (error: unknown) {
+      throw new Error(
+        `The import order fails locally at statement ${index + 2}: ${line.slice(0, 80)}`,
+        { cause: error }
+      );
+    }
+  }
+  db.exec("COMMIT;");
+  console.log(
+    `Local check: ${lines.length} statements load in order with foreign keys on.`
+  );
+};
+
 const main = async () => {
   const { apply, env } = parseMoveArgs(process.argv.slice(2));
   const { oldD1, newD1 } = NAMES[env];
@@ -100,7 +163,22 @@ const main = async () => {
     "--output",
     dump,
   ]);
-  const data = dataForImport(await file(dump).text());
+  const breaks = Object.entries(
+    (await d1Rows(oldD1, cycleBreakQuery()))[0] ?? {}
+  ).filter(([, n]) => Number(n) > 0);
+  if (breaks.length > 0) {
+    throw new Error(
+      `Rows use a foreign key CYCLE_BREAKS leaves out of the order: ${breaks.map(([k, n]) => `${k} (${String(n)})`).join(", ")}.`
+    );
+  }
+  const schema = await localSchema();
+  const keys = schema.query(FOREIGN_KEYS_QUERY).all() as ForeignKey[];
+  const data = orderedImport(
+    dataForImport(await file(dump).text()),
+    parentsFirst(tables, keys)
+  );
+  checkOrderLocally(schema, data);
+  schema.close();
   const importFile = `${WORK_DIR}/${oldD1}-import.sql`;
   await write(importFile, data);
   const before = await counts(oldD1, tables);
