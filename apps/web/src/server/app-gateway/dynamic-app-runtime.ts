@@ -64,7 +64,7 @@ export const dynamicAppRuntime = (deps: DynamicAppRuntimeDeps) => {
   return {
     handle: ({ bundle, host, request }: AppRuntimeInput) =>
       harnessOf(bundle, host).handle(request, deps.hostStub(host)),
-    reply: ({
+    reply: async ({
       bundle,
       host,
       message,
@@ -72,6 +72,15 @@ export const dynamicAppRuntime = (deps: DynamicAppRuntimeDeps) => {
       bundle: AppRuntimeInput["bundle"];
       host: AppHostProps;
       message: AppReplyMessage;
-    }) => harnessOf(bundle, host).reply(message, deps.hostStub(host)),
+    }) => {
+      const found = await bundle(host.artifactId, host.versionId);
+      if (!found) {
+        return;
+      }
+      await harnessOf(async () => found, host).reply(
+        message,
+        deps.hostStub(host)
+      );
+    },
   };
 };

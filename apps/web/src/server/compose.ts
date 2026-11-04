@@ -891,7 +891,12 @@ export const composeWith = ({
   events.onAppend(slackRequests.onEvent);
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
-  const appReplies = createAppReplies({ db, events, invoke: infra.appReply });
+  const appReplies = createAppReplies({
+    db,
+    defer: infra.defer,
+    events,
+    invoke: infra.appReply,
+  });
   const gateways: Gateway[] = [
     inbox.gateway,
     slackGateway,

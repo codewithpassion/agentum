@@ -1,4 +1,3 @@
-import { triggers } from "@repo/db/schema/triggers";
 /**
  * Grants, promote and hand-to for app artifacts (PRD R2.4, R2.9, phase 2).
  *
@@ -15,7 +14,6 @@ import {
   type ArtifactGrantRow,
   type ArtifactRow,
   approvedGrants,
-  claimGrants,
   claimProposedVersion,
   findArtifact,
   findGrant,
@@ -30,16 +28,25 @@ import {
   setCurrentVersionStatement,
   setHandedToStatement,
 } from "@repo/db/artifact-grants";
-import type { Atomic } from "@repo/db/atomic";
+import type { Atomic, Statement } from "@repo/db/atomic";
 import { artifactGrants } from "@repo/db/schema/artifacts";
 import { runRequests } from "@repo/db/schema/requests";
+import { triggers } from "@repo/db/schema/triggers";
 import type { ArtifactGrantKind, ArtifactGrantStatus } from "@repo/db/shared";
 import {
   artifactsDecideGrantInputSchema,
   artifactsHandToInputSchema,
   artifactsPromoteInputSchema,
 } from "@repo/protocol/artifacts";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  getTableColumns,
+  inArray,
+  notInArray,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
@@ -277,11 +284,12 @@ export const createArtifactGrantsService = ({
   };
 
   /** Grant approval is consent to clear a revoke; it never resumes a paused trigger. */
-  const approveAppAgent = async (
+  const approveAppAgentStatement = async (
     artifact: ArtifactRow,
     agentId: string,
     userId: string,
-    consent: boolean
+    consent: boolean,
+    guard: SQL = sql`true`
   ) => {
     const agent = await findAgent(db, {
       id: agentId,
@@ -294,40 +302,43 @@ export const createArtifactGrantsService = ({
       );
     }
     const now = clock.now().toISOString();
-    await db
-      .insert(triggers)
-      .values({
-        agentId,
-        approvedAt: now,
-        artifactId: artifact.id,
-        createdAt: now,
-        createdBy: userId,
-        id: ulid(),
-        kind: "app",
-        name: artifact.title,
-        workspaceId: artifact.workspaceId,
-      })
-      .onConflictDoUpdate({
-        set: consent
-          ? { approvedAt: now, proposedByAgentId: null, revokedAt: null }
-          : { proposedByAgentId: null },
-        target: [triggers.artifactId, triggers.agentId],
-        targetWhere: sql`${triggers.artifactId} is not null`,
-      });
+    const values: Record<string, string | number | null> = {
+      agentId,
+      approvedAt: now,
+      artifactId: artifact.id,
+      consecutiveErrors: 0,
+      createdAt: now,
+      createdBy: userId,
+      id: ulid(),
+      kind: "app",
+      name: artifact.title,
+      workspaceId: artifact.workspaceId,
+    };
+    // INSERT SELECT lets a racing decision upsert only while its grant is pending.
+    const fields = Object.keys(getTableColumns(triggers)).map(
+      (key) => sql`${values[key] ?? null}`
+    );
+    // Wrap the thenable so this async helper leaves execution to atomic.
+    return {
+      statement: db
+        .insert(triggers)
+        .select(sql`select ${sql.join(fields, sql`, `)} where ${guard}`)
+        .onConflictDoUpdate({
+          set: consent
+            ? { approvedAt: now, proposedByAgentId: null, revokedAt: null }
+            : { proposedByAgentId: null },
+          target: [triggers.artifactId, triggers.agentId],
+          targetWhere: sql`${triggers.artifactId} is not null`,
+        }),
+    };
   };
 
-  const pauseDroppedAgents = async (
-    artifact: ArtifactRow,
-    versionId: string
-  ) => {
-    const approved = await approvedGrants(db, {
-      versionId,
-      workspaceId: artifact.workspaceId,
-    });
-    const ids = approved.filter((g) => g.kind === "agent").map((g) => g.target);
-    await db
+  const pauseDroppedAgentsStatement = (artifact: ArtifactRow, ids: string[]) =>
+    db
       .update(triggers)
-      .set({ disabledAt: clock.now().toISOString() })
+      .set({
+        disabledAt: sql`coalesce(${triggers.disabledAt}, ${clock.now().toISOString()})`,
+      })
       .where(
         and(
           eq(triggers.artifactId, artifact.id),
@@ -335,6 +346,29 @@ export const createArtifactGrantsService = ({
           ids.length ? notInArray(triggers.agentId, ids) : undefined
         )
       );
+
+  const liveVersionStatements = async (
+    artifact: ArtifactRow,
+    version: { id: string; number: number }
+  ) => {
+    const approved = await approvedGrants(db, {
+      versionId: version.id,
+      workspaceId: artifact.workspaceId,
+    });
+    return [
+      setCurrentVersionStatement(db, {
+        artifactId: artifact.id,
+        now: clock.now().toISOString(),
+        versionId: version.id,
+        versionNumber: version.number,
+      }),
+      pauseDroppedAgentsStatement(
+        artifact,
+        approved
+          .filter((grant) => grant.kind === "agent")
+          .map((grant) => grant.target)
+      ),
+    ];
   };
 
   /**
@@ -419,23 +453,31 @@ export const createArtifactGrantsService = ({
         workspaceId: artifact.workspaceId,
       };
     });
-    if (rows.length > 0) {
-      await atomic([insertGrants(db, rows)]);
-    }
-    for (const row of rows) {
-      if (row.kind === "agent" && row.status === "approved") {
-        // biome-ignore lint/performance/noAwaitInLoops: one trigger per approved grant
-        await approveAppAgent(
-          artifact,
-          row.target,
-          row.decidedBy ?? "system",
-          byPerson
-        );
-      }
-    }
+    const statements: Statement[] = rows.length ? [insertGrants(db, rows)] : [];
+    const triggerWrites = await Promise.all(
+      rows
+        .filter((row) => row.kind === "agent" && row.status === "approved")
+        .map((row) =>
+          approveAppAgentStatement(
+            artifact,
+            row.target,
+            row.decidedBy ?? "system",
+            byPerson
+          )
+        )
+    );
+    statements.push(...triggerWrites.map((write) => write.statement));
     if (artifact.currentVersionId === version.id) {
-      await pauseDroppedAgents(artifact, version.id);
+      statements.push(
+        pauseDroppedAgentsStatement(
+          artifact,
+          rows
+            .filter((row) => row.kind === "agent" && row.status === "approved")
+            .map((row) => row.target)
+        )
+      );
     }
+    await atomic(statements);
     return rows.map(grantRecord);
   };
 
@@ -476,6 +518,50 @@ export const createArtifactGrantsService = ({
     return !current || version.number > current.number;
   };
 
+  const decidedAgentStatements = async (
+    artifact: ArtifactRow,
+    grants: ArtifactGrantRow[],
+    decision: "approved" | "rejected",
+    userId: string
+  ) => {
+    const writes = await Promise.all(
+      grants
+        .filter((grant) => grant.kind === "agent")
+        .map(async (grant) => {
+          const guard = sql`exists (select 1 from ${artifactGrants} where ${artifactGrants.id} = ${grant.id} and ${artifactGrants.status} = 'pending')`;
+          if (decision === "approved") {
+            return await approveAppAgentStatement(
+              artifact,
+              grant.target,
+              userId,
+              true,
+              guard
+            );
+          }
+          if (grant.versionId !== artifact.currentVersionId) {
+            return null;
+          }
+          return {
+            statement: db
+              .update(triggers)
+              .set({
+                disabledAt: sql`coalesce(${triggers.disabledAt}, ${clock.now().toISOString()})`,
+              })
+              .where(
+                and(
+                  eq(triggers.artifactId, artifact.id),
+                  eq(triggers.agentId, grant.target),
+                  guard
+                )
+              ),
+          };
+        })
+    );
+    return writes
+      .filter((write) => write !== null)
+      .map((write) => write.statement);
+  };
+
   /**
    * Writes one decision over some grants of a version, with an event each. A
    * rejection rejects the version. When `goLive` is set (a promote was asked
@@ -494,14 +580,36 @@ export const createArtifactGrantsService = ({
     if (!first) {
       return "stale";
     }
-    const claimed = new Set(
-      await claimGrants(db, {
-        decidedAt: clock.now().toISOString(),
-        decidedBy: userId,
-        ids: grants.map((grant) => grant.id),
-        status: decision,
-      })
+    let claimed = new Set<string>();
+    const statements: Statement[] = await decidedAgentStatements(
+      artifact,
+      grants,
+      decision,
+      userId
     );
+    statements.push(
+      db
+        .update(artifactGrants)
+        .set({
+          decidedAt: clock.now().toISOString(),
+          decidedBy: userId,
+          status: decision,
+        })
+        .where(
+          and(
+            inArray(
+              artifactGrants.id,
+              grants.map((grant) => grant.id)
+            ),
+            eq(artifactGrants.status, "pending")
+          )
+        )
+        .returning({ id: artifactGrants.id })
+    );
+    await atomic(statements, (results) => {
+      const rows = z.array(z.object({ id: z.string() })).parse(results.at(-1));
+      claimed = new Set(rows.map((row) => row.id));
+    });
     const won = grants.filter((grant) => claimed.has(grant.id));
     if (won.length === 0) {
       return "stale";
@@ -510,22 +618,7 @@ export const createArtifactGrantsService = ({
       await atomic([rejectVersionStatement(db, first.versionId)]);
     }
     for (const grant of won) {
-      if (grant.kind === "agent") {
-        if (decision === "approved") {
-          // biome-ignore lint/performance/noAwaitInLoops: keep each decision and trigger ordered
-          await approveAppAgent(artifact, grant.target, userId, true);
-        } else {
-          await db
-            .update(triggers)
-            .set({ disabledAt: clock.now().toISOString() })
-            .where(
-              and(
-                eq(triggers.artifactId, artifact.id),
-                eq(triggers.agentId, grant.target)
-              )
-            );
-        }
-      }
+      // biome-ignore lint/performance/noAwaitInLoops: preserve grant event order
       await events.append({
         actor: { id: userId, kind: "user" },
         payload: {
@@ -674,6 +767,7 @@ export const createArtifactGrantsService = ({
     if (
       grant.kind === "agent" &&
       grant.status === "approved" &&
+      grant.versionId === artifact.currentVersionId &&
       input.decision === "rejected"
     ) {
       const now = clock.now().toISOString();
@@ -693,7 +787,7 @@ export const createArtifactGrantsService = ({
           ),
         db
           .update(triggers)
-          .set({ disabledAt: now })
+          .set({ disabledAt: sql`coalesce(${triggers.disabledAt}, ${now})` })
           .where(
             and(
               eq(triggers.artifactId, artifact.id),
@@ -806,15 +900,7 @@ export const createArtifactGrantsService = ({
     if (!(await claimProposedVersion(db, version.id))) {
       return false;
     }
-    await atomic([
-      setCurrentVersionStatement(db, {
-        artifactId: artifact.id,
-        now: clock.now().toISOString(),
-        versionId: version.id,
-        versionNumber: version.number,
-      }),
-    ]);
-    await pauseDroppedAgents(artifact, version.id);
+    await atomic(await liveVersionStatements(artifact, version));
     await announcePromoted(artifact, version, actor);
     return true;
   };
@@ -889,15 +975,7 @@ export const createArtifactGrantsService = ({
       (await newerThanCurrent(artifact, version))
     ) {
       // A go-live that stopped after publishing the version: finish it.
-      await atomic([
-        setCurrentVersionStatement(db, {
-          artifactId: artifact.id,
-          now: clock.now().toISOString(),
-          versionId: version.id,
-          versionNumber: version.number,
-        }),
-      ]);
-      await pauseDroppedAgents(artifact, version.id);
+      await atomic(await liveVersionStatements(artifact, version));
       await announcePromoted(artifact, version, await actorOf(principal));
       return { status: "promoted", version: version.number };
     }

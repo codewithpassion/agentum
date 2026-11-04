@@ -1,56 +1,73 @@
 import { expect, test } from "bun:test";
-import { file } from "bun";
+import { file, Glob } from "bun";
 import ts from "typescript";
 
-for (const path of [
-  "../../server.ts",
-  "../pi-run.ts",
-  "../managed-poller.ts",
-  "../linux-vm/vm-session.ts",
-  "../guest-run.ts",
-  "../script-host.ts",
-  "../relay.ts",
-  "../trpc/context.ts",
-  "../live-artifacts/production-room.ts",
-  "../live-artifacts/maintenance.ts",
-  "../live-artifacts/guest-routes.ts",
-  "../live-artifacts/routes.ts",
-  "../live-artifacts/fixtures/guest.ts",
-  "../live-artifacts/fixtures/guest-execution.ts",
-  "../live-artifacts/fixtures/production.ts",
-]) {
-  test(`${path}: every run-finishing composition passes exports`, async () => {
-    const text = await file(new URL(path, import.meta.url)).text();
+const EXPORTS_ARGUMENT = /exports$|^exportsOf\(ctx\)$/;
+const root = new URL("../../", import.meta.url);
+
+const readOnlyServerCall = (node: ts.CallExpression, source: ts.SourceFile) => {
+  if (node.getText(source) !== "compose(env, false)") {
+    return false;
+  }
+  const { parent } = node;
+  // These exact callbacks only authorize public artifact/guest reads.
+  return (
+    (ts.isCallExpression(parent) &&
+      parent.getText(source) === "guestEmbeds(env, compose(env, false))" &&
+      parent.parent.parent.getText(source) ===
+        "guestEmbeds(env, compose(env, false)).authorize(claims)") ||
+    (ts.isArrowFunction(parent) &&
+      ts.isPropertyAssignment(parent.parent) &&
+      parent.parent.getText(source) ===
+        "compose: (env) => compose(env, false)" &&
+      ts.isObjectLiteralExpression(parent.parent.parent) &&
+      ts.isCallExpression(parent.parent.parent.parent) &&
+      parent.parent.parent.parent.expression.getText(source) === "guestRoutes")
+  );
+};
+
+test("every source compose caller that can finish a run passes exports", async () => {
+  let checked = 0;
+  let readOnly = 0;
+  for await (const path of new Glob("**/*.{ts,tsx}").scan(root.pathname)) {
+    if (path.endsWith(".test.ts") || path.endsWith(".test.tsx")) {
+      continue;
+    }
+    const text = await file(new URL(path, root)).text();
     const source = ts.createSourceFile(
       path,
       text,
       ts.ScriptTarget.Latest,
       true
     );
-    let checked = 0;
     const visit = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
         node.expression.getText(source) === "compose"
       ) {
-        // The two early server compositions only authorize room/embed reads.
-        const readOnly =
-          path === "../../server.ts" &&
-          node.arguments[1]?.getText(source) === "false";
-        if (!readOnly) {
-          checked += 1;
-          expect(node.arguments[3]?.getText(source)).toBeDefined();
-          expect(node.arguments[3]?.getText(source).endsWith("exports")).toBe(
-            true
+        if (path === "server.ts" && readOnlyServerCall(node, source)) {
+          readOnly += 1;
+        } else if (path === "server/secrets-outbound.ts") {
+          // SecretsOutbound only fills approved outbound headers and announces
+          // secret injection; it cannot complete a run or deliver a reply.
+          expect(node.getText(source)).toBe(
+            "compose(this.env, import.meta.env.DEV)"
           );
+        } else {
+          checked += 1;
+          expect(
+            node.arguments[3]?.getText(source),
+            `${path}: ${node.getText(source)}`
+          ).toMatch(EXPORTS_ARGUMENT);
         }
       }
       ts.forEachChild(node, visit);
     };
     visit(source);
-    expect(checked).toBeGreaterThan(0);
-  });
-}
+  }
+  expect(checked).toBeGreaterThan(0);
+  expect(readOnly).toBe(2);
+});
 
 test("AppHost composition receives the Worker's exports", async () => {
   const entry = await file(

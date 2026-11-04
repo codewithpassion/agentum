@@ -15,6 +15,8 @@ import { artifactGrants, artifacts } from "@repo/db/schema/artifacts";
 import { triggers } from "@repo/db/schema/triggers";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { ForbiddenError } from "../authz.ts";
+import { ServiceError } from "../errors.ts";
 import { INPUT_TEXT_MAX } from "../runs/types.ts";
 import type { ProxyMatch, SecretsService } from "../secrets.ts";
 import type { TriggersService } from "../triggers.ts";
@@ -82,14 +84,19 @@ export const createAppGrantsService = ({
     props: { artifactId: string; versionId: string; workspaceId: string },
     raw: { agent: string; text: string; state?: string; sessionKey?: string }
   ): Promise<{ runId: string }> => {
-    const input = z
+    const parsed = z
       .strictObject({
         agent: z.string().min(1).max(200),
-        sessionKey: z.string().min(1).max(200).optional(),
+        // app:<26-character trigger ULID>:<key> must fit idString (200).
+        sessionKey: z.string().min(1).max(169).optional(),
         state: z.string().max(4096).default(""),
         text: z.string().min(1).max(INPUT_TEXT_MAX),
       })
-      .parse(raw);
+      .safeParse(raw);
+    if (!parsed.success) {
+      throw new ServiceError("invalid", "Invalid startRun input");
+    }
+    const input = parsed.data;
     const [grant] = await db
       .select({ id: artifactGrants.id })
       .from(artifacts)
@@ -111,7 +118,7 @@ export const createAppGrantsService = ({
       )
       .limit(1);
     if (!grant) {
-      throw new Error(
+      throw new ForbiddenError(
         "not_granted: the live version has no approved agent grant"
       );
     }
@@ -130,7 +137,7 @@ export const createAppGrantsService = ({
       )
       .limit(1);
     if (!(trigger && fire)) {
-      throw new Error("forbidden: app trigger is unavailable");
+      throw new ForbiddenError("forbidden: app trigger is unavailable");
     }
     const { run } = await fire(
       {

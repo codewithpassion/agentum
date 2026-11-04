@@ -68,6 +68,9 @@ const CREATE_ACTION = "triggers.create";
 const LIST_ACTION = "triggers.list";
 const REVOKE_ACTION = "triggers.revoke";
 const ENABLE_ACTION = "triggers.setEnabled";
+const appSessionKey = (triggerId: string, sessionKey?: string) =>
+  sessionKey === undefined ? undefined : `app:${triggerId}:${sessionKey}`;
+
 const APPROVE_ACTION = "triggers.approve";
 const REJECT_ACTION = "triggers.reject";
 const FIRE_ACTION = "triggers.fire";
@@ -223,7 +226,8 @@ export const createTriggersService = ({
     movable = false
   ) => {
     const summary = movable
-      ? await findMapTrigger(db, workspaceId, triggerId)
+      ? ((await findSummary(triggerId, workspaceId)) ??
+        (await findMapTrigger(db, workspaceId, triggerId)))
       : await requireSummary(triggerId, workspaceId);
     if (!summary) {
       throw new ServiceError("not_found", "Trigger not found");
@@ -247,6 +251,9 @@ export const createTriggersService = ({
       workspaceId: user.workspaceId,
     });
     const current = await requireLive(triggerId, user.workspaceId, true);
+    if (current.kind === "app") {
+      throw new ServiceError("invalid", "App triggers cannot be reassigned");
+    }
     if (isPendingProposal(current)) {
       throw new ServiceError(
         "conflict",
@@ -437,7 +444,11 @@ export const createTriggersService = ({
     }
     await db
       .update(triggers)
-      .set({ disabledAt: enabled ? null : clock.now().toISOString() })
+      .set({
+        disabledAt: enabled
+          ? null
+          : sql`coalesce(${triggers.disabledAt}, ${clock.now().toISOString()})`,
+      })
       .where(
         and(
           eq(triggers.id, triggerId),
@@ -597,7 +608,10 @@ export const createTriggersService = ({
         input.requestId === undefined
           ? undefined
           : `trigger:${triggerId}:${input.requestId}`,
-      session: { externalKey: app?.sessionKey, origin: "trigger" },
+      session: {
+        externalKey: appSessionKey(triggerId, app?.sessionKey),
+        origin: "trigger",
+      },
     });
     if (!(await alreadyAnnounced(started.runId))) {
       await eventsService.append({

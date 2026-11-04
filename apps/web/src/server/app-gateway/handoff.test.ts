@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import {
   artifactGrants,
@@ -11,6 +11,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import { migrated } from "@repo/db/test-db";
 import { noopRelay } from "@repo/services/machines/types";
+import { createRunsService } from "@repo/services/runs";
 import { systemClock } from "@repo/services/runs/types";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
@@ -19,7 +20,12 @@ import { createAppHost } from "./app-host-core.ts";
 import { fakePorts } from "./fakes.ts";
 import type { AppHostProps, AppReplyMessage } from "./types.ts";
 
-const setup = async (fake = true, throws = false, missingExports = false) => {
+const setup = async (
+  fake = true,
+  throws = false,
+  missingExports = false,
+  overrides: Partial<Infra> = {}
+) => {
   const db = migrated(["org_a"]);
   const replies: { host: AppHostProps; message: AppReplyMessage }[] = [];
   const storage = fakePorts();
@@ -54,6 +60,15 @@ const setup = async (fake = true, throws = false, missingExports = false) => {
     relay: noopRelay,
     runTokenKey: Buffer.from(new Uint8Array(32)).toString("base64"),
     secretsKey: Buffer.from(new Uint8Array(32)).toString("base64"),
+  };
+  Object.assign(infra, overrides);
+  const deferred: Promise<void>[] = [];
+  infra.defer ??= (work) => {
+    deferred.push(work);
+  };
+  const flush = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.all(deferred.splice(0));
   };
   const { services } = composeWith({ db, infra });
   const workspace = await services.workspaces.forOrg({ clerkOrgId: "org_a" });
@@ -131,7 +146,7 @@ const setup = async (fake = true, throws = false, missingExports = false) => {
       versionId: "v1",
       workspaceId: workspace.id,
     });
-  return { agent, db, grant, host, replies, services, storage };
+  return { agent, db, flush, grant, host, replies, services, storage, user };
 };
 
 test("endpoint hand-off requires a live approved grant and enabled trigger", async () => {
@@ -147,7 +162,7 @@ test("endpoint hand-off requires a live approved grant and enabled trigger", asy
 });
 
 test("dev fake runtime hands off as nobody and replies into shared storage", async () => {
-  const { db, host, grant, agent, replies, storage } = await setup();
+  const { db, host, grant, agent, replies, storage, flush } = await setup();
   await grant();
   const app = {
     async fetch(request: Request, env: { AGENTUM: typeof host }) {
@@ -174,8 +189,9 @@ test("dev fake runtime hands off as nobody and replies into shared storage", asy
     state: "token",
   });
   expect(await db.select().from(sessions)).toMatchObject([
-    { externalKey: "channel", origin: "trigger" },
+    { externalKey: "app:trigger:channel", origin: "trigger" },
   ]);
+  await flush();
   expect(replies).toMatchObject([
     {
       host: { viewer: { kind: "reply", runId } },
@@ -197,9 +213,10 @@ test("dev fake runtime hands off as nobody and replies into shared storage", asy
 });
 
 test("a throwing reply records one app.reply_failed event without retry", async () => {
-  const { db, host, grant, agent } = await setup(true, true);
+  const { db, host, grant, agent, flush } = await setup(true, true);
   await grant();
   await host.startRun({ agent: agent.id, text: "hello" });
+  await flush();
   expect(
     (await db.select().from(events)).filter(
       (e) => e.type === "app.reply_failed"
@@ -208,7 +225,7 @@ test("a throwing reply records one app.reply_failed event without retry", async 
 });
 
 test("failed runs deliver failed status through the runs event hook", async () => {
-  const { host, grant, agent, services, replies } = await setup(false);
+  const { host, grant, agent, services, replies, flush } = await setup(false);
   await grant();
   // Finish through the public run service so its event hook delivers the failure.
   const { runId } = await host.startRun({
@@ -221,15 +238,17 @@ test("failed runs deliver failed status through the runs event hook", async () =
     error: "failed",
     status: "failed",
   });
+  await flush();
   expect(replies).toMatchObject([
     { message: { state: "failure-state", status: "failed" } },
   ]);
 });
 
 test("missing Worker exports records app.reply_failed", async () => {
-  const { db, host, grant, agent } = await setup(true, false, true);
+  const { db, host, grant, agent, flush } = await setup(true, false, true);
   await grant();
   await host.startRun({ agent: agent.id, text: "hello" });
+  await flush();
   expect(
     (await db.select().from(events)).filter(
       (e) => e.type === "app.reply_failed"
@@ -239,7 +258,7 @@ test("missing Worker exports records app.reply_failed", async () => {
 
 for (const status of ["cancelled", "interrupted"] as const) {
   test(`${status} runs deliver their terminal status`, async () => {
-    const { host, grant, agent, services, replies } = await setup(false);
+    const { host, grant, agent, services, replies, flush } = await setup(false);
     await grant();
     const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
     await services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
@@ -250,6 +269,7 @@ for (const status of ["cancelled", "interrupted"] as const) {
         status: "aborted",
       });
     }
+    await flush();
     expect(replies).toMatchObject([{ message: { status } }]);
   });
 }
@@ -264,7 +284,8 @@ test("deleting an app closes hand-off", async () => {
 });
 
 test("delivery resolves the current version rather than the run's starting version", async () => {
-  const { db, host, grant, agent, services, replies } = await setup(false);
+  const { db, host, grant, agent, services, replies, flush } =
+    await setup(false);
   await grant();
   const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
   await db.update(artifacts).set({ currentVersionId: "v2" });
@@ -273,6 +294,7 @@ test("delivery resolves the current version rather than the run's starting versi
     status: "done",
     text: "reply",
   });
+  await flush();
   expect(replies).toMatchObject([
     { host: { versionId: "v2" }, message: { text: "reply" } },
   ]);
@@ -283,13 +305,184 @@ test("state and session keys enforce their limits before starting a run", async 
   await grant();
   await expect(
     host.startRun({ agent: agent.id, state: "s".repeat(4097), text: "hello" })
-  ).rejects.toThrow();
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: "Invalid startRun input",
+  });
   await expect(
     host.startRun({
       agent: agent.id,
-      sessionKey: "k".repeat(201),
+      sessionKey: "k".repeat(171),
       text: "hello",
     })
-  ).rejects.toThrow();
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: "Invalid startRun input",
+  });
   expect(await db.select().from(runs)).toHaveLength(0);
+});
+
+test("two apps using the same session key get separate sessions", async () => {
+  const { db, host, grant, agent, services, user, flush } = await setup();
+  await grant();
+  const [first] = await db.select().from(artifacts);
+  const [version] = await db.select().from(artifactVersions);
+  if (!(first && version)) {
+    throw new Error("missing app");
+  }
+  await db
+    .insert(artifacts)
+    .values({ ...first, currentVersionId: "v2", id: "app2" });
+  await db
+    .insert(artifactVersions)
+    .values({ ...version, artifactId: "app2", id: "v2" });
+  await services.artifactGrants.recordVersionGrants(user, {
+    artifactId: "app2",
+    files: [
+      { path: "server/index.js", text: "export default {}" },
+      {
+        path: "agentum.json",
+        text: JSON.stringify({ agents: [{ agent: agent.id }] }),
+      },
+    ],
+    versionId: "v2",
+  });
+  await host.startRun({
+    agent: agent.id,
+    sessionKey: "channel",
+    text: "hello",
+  });
+  await services.artifactApp.startRun(
+    { artifactId: "app2", versionId: "v2", workspaceId: user.workspaceId },
+    { agent: agent.id, sessionKey: "channel", text: "hello" }
+  );
+  await flush();
+  const rows = await db.select().from(sessions);
+  expect(rows).toHaveLength(2);
+  expect(new Set(rows.map((row) => row.externalKey)).size).toBe(2);
+});
+
+for (const cancel of [false, true]) {
+  test(`a never resolving reply does not delay ${cancel ? "cancel" : "completion"}`, async () => {
+    const work: Promise<void>[] = [];
+    let release!: () => void;
+    const { host, grant, agent, services, flush } = await setup(
+      false,
+      false,
+      false,
+      {
+        appReply: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+        defer: (promise) => {
+          work.push(promise);
+        },
+      }
+    );
+    await grant();
+    const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
+    await services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+    try {
+      const operation = cancel
+        ? services.runs.cancelRun(SYSTEM_PRINCIPAL, runId)
+        : services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+            status: "done",
+            text: "done",
+          });
+      expect(
+        await Promise.race([
+          operation.then(() => "done"),
+          new Promise((resolve) => setTimeout(() => resolve("blocked"), 100)),
+        ])
+      ).toBe("done");
+      await flush();
+      expect(work.length).toBeGreaterThan(0);
+    } finally {
+      release?.();
+      await Promise.all(work);
+    }
+  });
+}
+
+test("a throwing delivery lookup cannot fail completeRun", async () => {
+  const { createAppReplies } = await import("@repo/services/artifacts/replies");
+  const { db, host, grant, agent, services, flush } = await setup(false);
+  await grant();
+  const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
+  await services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  let lookups = 0;
+  const failingDb = new Proxy(db, {
+    get(target, key) {
+      if (key === "select") {
+        return () => {
+          lookups += 1;
+          throw new Error("D1 unavailable");
+        };
+      }
+      return Reflect.get(target, key);
+    },
+  });
+  const replies = createAppReplies({ db: failingDb, events: services.events });
+  const runService = createRunsService({
+    adapters: [],
+    atomic: sqliteAtomic(db),
+    blobs: { get: async () => null, put: async () => undefined },
+    clock: systemClock,
+    db,
+    devFakeRuntime: false,
+    gateways: [replies.gateway],
+  });
+  await expect(
+    runService.completeRun(SYSTEM_PRINCIPAL, runId, {
+      status: "done",
+      text: "done",
+    })
+  ).resolves.toBeUndefined();
+  await flush();
+  expect(lookups).toBe(1);
+});
+
+test("app triggers refuse reassignment and repeated pauses preserve disabledAt", async () => {
+  const { db, agent, services, user } = await setup(false);
+  await expect(
+    services.triggers.reassign(user, "trigger", agent.id)
+  ).rejects.toThrow("App triggers cannot be reassigned");
+  await db.update(triggers).set({ disabledAt: "original" });
+  await services.triggers.setEnabled(user, {
+    enabled: false,
+    triggerId: "trigger",
+  });
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBe("original");
+});
+
+test("a reply that exceeds 30 seconds records app.reply_failed", async () => {
+  const { host, grant, agent, services, db, flush } = await setup(
+    false,
+    false,
+    false,
+    { appReply: () => new Promise(() => undefined) }
+  );
+  await grant();
+  const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
+  await services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  const original = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+    handler: () => void,
+    ms: number
+  ) => original(handler, ms === 30_000 ? 1 : ms)) as typeof setTimeout);
+  try {
+    await services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+      status: "done",
+      text: "done",
+    });
+    await flush();
+    expect(
+      (await db.select().from(events)).filter(
+        (event) => event.type === "app.reply_failed"
+      )
+    ).toHaveLength(1);
+  } finally {
+    timer.mockRestore();
+  }
 });

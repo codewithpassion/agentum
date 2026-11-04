@@ -15,16 +15,21 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 export type Statement = BatchItem<"sqlite"> & { run: () => unknown };
 
 /** Runs all statements or none, in order. Rejects if any of them fails. */
-export type Atomic = (statements: readonly Statement[]) => Promise<void>;
+export type Atomic = (
+  statements: readonly Statement[],
+  /** Observe RETURNING rows after a successful commit. Non-returning results are driver-specific. */
+  onResults?: (results: unknown[]) => void
+) => Promise<void>;
 
 /** D1: one `db.batch`, which D1 runs as a single transaction. */
 export const d1Atomic =
   (db: Pick<DrizzleD1Database, "batch">): Atomic =>
-  async (statements) => {
+  async (statements, onResults) => {
     // D1 rejects an empty batch, and the type wants a non-empty tuple.
     const [first, ...rest] = statements;
     if (first) {
-      await db.batch([first, ...rest]);
+      const results = await db.batch([first, ...rest]);
+      onResults?.(results);
     }
   };
 
@@ -34,13 +39,23 @@ export const d1Atomic =
  */
 export const sqliteAtomic =
   (db: { transaction: (fn: () => void) => unknown }): Atomic =>
-  (statements) => {
+  (statements, onResults) => {
     try {
+      const results: unknown[] = [];
       db.transaction(() => {
         for (const statement of statements) {
-          statement.run();
+          if (
+            onResults &&
+            "all" in statement &&
+            typeof statement.all === "function"
+          ) {
+            results.push(statement.all());
+          } else {
+            results.push(statement.run());
+          }
         }
       });
+      onResults?.(results);
       return Promise.resolve();
     } catch (error) {
       return Promise.reject(error);

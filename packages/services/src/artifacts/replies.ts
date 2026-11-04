@@ -26,10 +26,12 @@ export type AppReply = (
 
 export const createAppReplies = ({
   db,
+  defer,
   events,
   invoke,
 }: {
   db: Database;
+  defer?: (work: Promise<void>) => void;
   events: EventsService;
   invoke?: AppReply;
 }) => {
@@ -38,11 +40,13 @@ export const createAppReplies = ({
     runId: string,
     message: Omit<AppReplyMessage, "runId" | "state">
   ) => {
-    const [run] = await db
-      .select()
-      .from(runs)
-      .where(eq(runs.id, runId))
-      .limit(1);
+    let run: typeof runs.$inferSelect | undefined;
+    try {
+      [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+    } catch {
+      // Delivery lookup failures must never escape into run completion.
+      return;
+    }
     if (!run) {
       return;
     }
@@ -66,21 +70,34 @@ export const createAppReplies = ({
       if (!app?.currentVersionId) {
         return;
       }
-      await invoke(
-        {
-          artifactId: app.id,
-          meta: {
-            ipPrefix: null,
-            place: null,
-            userAgent: null,
-            visitorHash: "",
-          },
-          versionId: app.currentVersionId,
-          viewer: { kind: "reply", runId },
-          workspaceId: app.workspaceId,
-        },
-        { ...message, runId, state: target.state }
-      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          invoke(
+            {
+              artifactId: app.id,
+              meta: {
+                ipPrefix: null,
+                place: null,
+                userAgent: null,
+                visitorHash: "",
+              },
+              versionId: app.currentVersionId,
+              viewer: { kind: "reply", runId },
+              workspaceId: app.workspaceId,
+            },
+            { ...message, runId, state: target.state }
+          ),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("App reply timed out")),
+              30_000
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
     } catch {
       // Opaque state can contain credentials: never log it or the app's error.
       await events.append({
@@ -94,49 +111,63 @@ export const createAppReplies = ({
       });
     }
   };
+  const schedule = (work: () => Promise<void>) => {
+    // Own every rejection, including lookup and failure-event storage errors.
+    const pending = Promise.resolve()
+      .then(work)
+      .catch(() => undefined);
+    defer?.(pending);
+  };
   const gateway: Gateway = {
-    deliver: async (target, message, context) => {
+    deliver: (target, message, context) => {
       if (target.kind === "app") {
-        await deliver(target, context.runId, {
-          ...message,
-          status: "finished",
-        });
+        schedule(() =>
+          deliver(target, context.runId, {
+            ...message,
+            status: "finished",
+          })
+        );
       }
+      return Promise.resolve();
     },
     kind: "app",
   };
-  const onEvent = async (event: EventRecord) => {
+  const onEvent = (event: EventRecord) => {
     if (
       !(
         event.runId &&
         ["run.failed", "run.cancelled", "run.interrupted"].includes(event.type)
       )
     ) {
-      return;
+      return Promise.resolve();
     }
-    const [run] = await db
-      .select()
-      .from(runs)
-      .where(eq(runs.id, event.runId))
-      .limit(1);
-    if (!run?.reply) {
-      return;
-    }
-    const target = JSON.parse(run.reply) as ReplyTarget;
-    if (target.kind !== "app") {
-      return;
-    }
-    const statuses = {
-      "run.cancelled": "cancelled",
-      "run.failed": "failed",
-      "run.interrupted": "interrupted",
-    } as const;
-    const status = statuses[event.type as keyof typeof statuses];
-    await deliver(target, run.id, {
-      fileIds: [],
-      status,
-      text: run.resultText ?? "",
+    const { runId } = event;
+    schedule(async () => {
+      const [run] = await db
+        .select()
+        .from(runs)
+        .where(eq(runs.id, runId))
+        .limit(1);
+      if (!run?.reply) {
+        return;
+      }
+      const target = JSON.parse(run.reply) as ReplyTarget;
+      if (target.kind !== "app") {
+        return;
+      }
+      const statuses = {
+        "run.cancelled": "cancelled",
+        "run.failed": "failed",
+        "run.interrupted": "interrupted",
+      } as const;
+      const status = statuses[event.type as keyof typeof statuses];
+      await deliver(target, run.id, {
+        fileIds: [],
+        status,
+        text: run.resultText ?? "",
+      });
     });
+    return Promise.resolve();
   };
   return { gateway, onEvent };
 };
