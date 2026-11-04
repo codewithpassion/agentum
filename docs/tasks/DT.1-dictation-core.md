@@ -3,7 +3,7 @@ id: DT.1
 title: Dictation component, service, and the main prompt boxes
 milestone: DT
 size: L
-status: in_progress
+status: done
 depends_on: []
 branch: task/DT.1-dictation-core
 lane: web
@@ -28,3 +28,4 @@ Spec: `docs/v3/dictation.md`. Requested by Dom on 5 Nov 2026.
 
 ## Log
 - 2026-11-05: opened at Dom's request. Dom chose the workspace key, Haiku through OpenRouter, members only, and Parakeet over Nemotron after the latency test.
+- 2026-11-05: Codex implemented (e31eb025..f1ff637c). Opus review found 3 major and 6 minor; Codex fixed 8 in 46847883 (native-rate capture with resampling, failure recovery, preview growth, placeholder, mirror metrics, saved mic, RMS voice detection, tooltip). The reused rate limiters stay, noted as fragile. Merged as 6f12885b; check, test, build and bundle grep pass. The live browser check moves to staging, after Dom adds an OpenRouter key there.

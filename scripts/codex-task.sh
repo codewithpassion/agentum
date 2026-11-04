@@ -43,7 +43,10 @@ timeout -k 30 "${CODEX_TASK_TIMEOUT:-90m}" codex exec \
   - <"$brief" >"$events" 2>"$log_dir/codex.stderr.log"
 code=$?
 
-if grep -qi "usage limit" "$events" "$log_dir/codex.stderr.log" 2>/dev/null; then
+# Only Codex's own error events count. Grepping the whole log also matched file
+# text Codex read (docs/workflow.md mentions "usage limit").
+if jq -r 'select(.type == "error" or .type == "turn.failed") | tostring' "$events" 2>/dev/null | grep -qi "usage limit" ||
+  grep -qi "usage limit" "$log_dir/codex.stderr.log" 2>/dev/null; then
   limit="yes"
 else
   limit="no"
