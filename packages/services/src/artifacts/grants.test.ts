@@ -850,3 +850,43 @@ test("publishing declarations persists pending endpoint and agent grant rows", a
     { kind: "endpoint", status: "pending", target: "discord" },
   ]);
 });
+
+test("approving endpoint grants creates one stable public address, including person-authored grants", async () => {
+  const { artifactEndpoints } = await import("@repo/db/schema/artifacts");
+  await addVersion("v2", 2);
+  const [grant] = await record("v2", { endpoints: [{ name: "discord" }] });
+  expect(db.select().from(artifactEndpoints).all()).toHaveLength(0);
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grant?.id,
+  });
+  const [endpoint] = db.select().from(artifactEndpoints).all();
+  if (!endpoint) {
+    throw new Error("Missing endpoint");
+  }
+  expect(endpoint).toMatchObject({
+    artifactId: ARTIFACT,
+    disabledAt: null,
+    name: "discord",
+  });
+  await addVersion("v3", 3, { authorId: "u1", authorKind: "user" });
+  await record("v3", { endpoints: [{ name: "discord" }] }, owner);
+  expect(db.select().from(artifactEndpoints).all()).toEqual([endpoint]);
+});
+
+test("Needs you agent grants snapshot the agent name rather than displaying its id", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { agents: [{ agent: agentId }] });
+  const result = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  expect(result.status).toBe("waiting");
+  const display = db.select().from(runRequests).all().at(-1)?.display;
+  const { input } = JSON.parse(display ?? "{}");
+  expect(input.grants[0]).toMatchObject({
+    name: expect.any(String),
+    target: agentId,
+  });
+  expect(input.grants[0].name).not.toBe(agentId);
+});

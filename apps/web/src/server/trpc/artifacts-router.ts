@@ -59,6 +59,20 @@ export const artifactsRouter = router({
           : error;
       }
     }),
+  changeEndpoint: workspaceProcedure
+    .input(
+      z.object({
+        action: z.enum(["disable", "enable", "rotate"]),
+        id: z.string().min(1),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      ctx.services.artifactEndpoints.change(
+        ctx.principal,
+        input.id,
+        input.action
+      )
+    ),
   decideGrant: workspaceProcedure
     .input(artifactsDecideGrantInputSchema)
     .output(artifactsDecideGrantOutputSchema)
@@ -66,6 +80,11 @@ export const artifactsRouter = router({
       await ctx.services.artifactGrants.decideGrant(ctx.principal, input);
       return {};
     }),
+  endpoints: workspaceProcedure
+    .input(z.object({ artifactId: z.string().min(1) }))
+    .query(({ ctx, input }) =>
+      ctx.services.artifactEndpoints.list(ctx.principal, input.artifactId)
+    ),
   get: workspaceProcedure
     .input(artifactsGetInputSchema)
     .output(artifactsGetOutputSchema)

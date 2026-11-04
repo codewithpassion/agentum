@@ -244,15 +244,26 @@ test("the startRun contract is present as a not_granted stub", async () => {
 
 test("endpoint viewer can read/write shared storage, but viewer storage and tools are forbidden", async () => {
   const ports = fakePorts();
-  const host = createAppHost({ ...base, viewer: { kind: "endpoint", endpointId: "ep" } }, ports);
-  expect(await host.whoami()).toEqual({ viewer: "endpoint", dataMode: null });
+  const host = createAppHost(
+    { ...base, viewer: { endpointId: "ep", kind: "endpoint" } },
+    ports
+  );
+  expect(await host.whoami()).toEqual({ dataMode: null, viewer: "endpoint" });
   await host.setItem("shared", "k", "v");
   expect(await host.getItem("shared", "k")).toBe("v");
   expect(await host.listItems("shared")).toEqual([{ key: "k", value: "v" }]);
   await host.deleteItem("shared", "k");
   expect(await host.getItem("shared", "k")).toBeNull();
-  for (const operation of [() => host.getItem("viewer", "k"), () => host.listItems("viewer"), () => host.setItem("viewer", "k", "v"), () => host.deleteItem("viewer", "k"), () => host.callTool("x/y", {})]) {
-    expect(await failure(operation())).toStartWith("forbidden:");
-  }
+  await Promise.all(
+    [
+      () => host.getItem("viewer", "k"),
+      () => host.listItems("viewer"),
+      () => host.setItem("viewer", "k", "v"),
+      () => host.deleteItem("viewer", "k"),
+      () => host.callTool("x/y", {}),
+    ].map(async (operation) => {
+      expect(await failure(operation())).toStartWith("forbidden:");
+    })
+  );
   expect(ports.calls.seen).toEqual([]);
 });

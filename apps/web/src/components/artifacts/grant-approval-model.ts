@@ -15,6 +15,7 @@ const promoteInputSchema = z.object({
     z.object({
       id: z.string(),
       kind: z.enum(ARTIFACT_GRANT_KINDS),
+      name: z.string().optional(),
       target: z.string(),
     })
   ),
@@ -62,7 +63,12 @@ export const parsePromoteApproval = (
     unique(grants.filter((g) => g.kind === kind).map((g) => g.target));
   return {
     ...rest,
-    agents: targets("agent"),
+    // The request snapshots display names; targets remain ids for granting.
+    agents: unique(
+      grants
+        .filter((g) => g.kind === "agent")
+        .map((g) => g.name ?? "Unavailable agent")
+    ),
     endpoints: targets("endpoint"),
     grantIds: grants.map((grant) => grant.id),
     hosts: targets("host"),

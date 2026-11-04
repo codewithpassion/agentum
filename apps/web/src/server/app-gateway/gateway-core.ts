@@ -28,6 +28,7 @@ const UNAUTHORIZED_BODY = "Unauthorized.";
 const LINK_GONE_BODY = "This link is no longer available.";
 
 /** `/a/<uuid>/c/<token>` then `/api` and anything below it. */
+const ENDPOINT_PREFIX = /^\/hooks\/[^/]+/;
 const API_PATH = /^\/a\/[^/]+\/c\/[^/]+(\/api(?:\/.*)?)$/;
 
 export interface AppGatewayDeps {
@@ -87,11 +88,12 @@ const viewerOf = async (
 /** The request the app sees: path from `/api` on with the query, no token, no cookies. */
 const forwardedRequest = async (
   request: Request,
-  path: string
+  path: string,
+  keepAuthorization = false
 ): Promise<Request | Response> => {
   const url = new URL(request.url);
   const target = new URL(`${path}${url.search}`, url.origin);
-  const headers = forwardedRequestHeaders(request.headers);
+  const headers = forwardedRequestHeaders(request.headers, keepAuthorization);
   if (request.method === "GET" || request.method === "HEAD") {
     return new Request(target, { headers, method: request.method });
   }
@@ -196,6 +198,47 @@ export const handleAppRequest = async (
 ): Promise<Response> => {
   try {
     return await serve(request, claims, deps);
+  } catch {
+    return finished(text(502, BAD_GATEWAY_BODY), deps);
+  }
+};
+
+/** Public ingress shares the runtime and byte-preserving gateway, with no view token or preflight shortcut. */
+export const handleEndpointRequest = async (
+  request: Request,
+  endpoint: {
+    artifactId: string;
+    versionId: string;
+    workspaceId: string;
+    endpointId: string;
+  },
+  deps: AppGatewayDeps
+): Promise<Response> => {
+  try {
+    const path =
+      new URL(request.url).pathname.replace(ENDPOINT_PREFIX, "") || "/";
+    const forwarded = await forwardedRequest(request, path, true);
+    if (forwarded instanceof Response) {
+      return finished(forwarded, deps);
+    }
+    return finished(
+      await runApp(
+        {
+          bundle: (artifactId, versionId) =>
+            deps.ports.source.bundle(artifactId, versionId),
+          host: {
+            artifactId: endpoint.artifactId,
+            meta: await deps.requestMeta(request, endpoint.workspaceId),
+            versionId: endpoint.versionId,
+            viewer: { endpointId: endpoint.endpointId, kind: "endpoint" },
+            workspaceId: endpoint.workspaceId,
+          },
+          request: forwarded,
+        },
+        deps
+      ),
+      deps
+    );
   } catch {
     return finished(text(502, BAD_GATEWAY_BODY), deps);
   }
