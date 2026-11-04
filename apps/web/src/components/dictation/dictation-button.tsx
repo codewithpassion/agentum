@@ -47,7 +47,7 @@ export function DictationButton({ dictation: d }: { dictation: Dictation }) {
     <div className="inline-flex items-center gap-1">
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex" title={title}>
+          <span className="inline-flex">
             <Button
               aria-label={d.busy ? "Stop dictation" : "Start dictation"}
               aria-pressed={d.busy}

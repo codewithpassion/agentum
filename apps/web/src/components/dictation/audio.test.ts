@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { createSegmenter, encodeWav, polishOrRaw } from "./audio.ts";
+import {
+  createResampler,
+  createSegmenter,
+  encodeWav,
+  polishOrRaw,
+} from "./audio.ts";
 
 test("WAV header and clamped PCM16", () => {
   const wav = encodeWav(new Float32Array([-2, -1, 0, 1, 2]));
@@ -39,4 +44,35 @@ test("polish falls back on error, timeout and length ratio", async () => {
   expect(await polishOrRaw(raw, () => new Promise(() => undefined), 5)).toBe(
     raw
   );
+});
+
+test("resampling preserves duration and continuity across capture blocks", () => {
+  for (const rate of [44_100, 48_000]) {
+    const input = Float32Array.from({ length: rate }, (_, i) => i / rate);
+    const whole = createResampler(rate)(input);
+    const resample = createResampler(rate);
+    const chunks = [
+      resample(input.slice(0, 2048)),
+      resample(input.slice(2048)),
+    ] as const;
+    expect(whole.length).toBe(16_000);
+    expect([...chunks[0], ...chunks[1]]).toEqual([...whole]);
+    expect(whole[8000]).toBeCloseTo(0.5, 3);
+  }
+});
+test("speech requires three 20ms RMS frames, rejecting spikes and short noise", () => {
+  const s = createSegmenter();
+  const spikes = new Float32Array(320 * 10);
+  for (let i = 0; i < spikes.length; i += 320) {
+    spikes[i] = 0.1;
+  }
+  s.push(spikes);
+  expect(s.flush().length).toBe(0);
+  s.push(new Float32Array(640).fill(0.2));
+  expect(s.snapshot().length).toBe(0);
+  expect(s.flush().length).toBe(0);
+  s.push(new Float32Array(959).fill(0.2));
+  expect(s.snapshot().length).toBe(0);
+  s.push(new Float32Array([0.2]));
+  expect(s.flush().length).toBe(960);
 });

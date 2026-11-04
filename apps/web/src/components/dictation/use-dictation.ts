@@ -47,17 +47,6 @@ const storedDevice = () => {
     return "";
   }
 };
-const resolveDevice = async (chosen: string) => {
-  if (!chosen) {
-    return "";
-  }
-  const listed = await navigator.mediaDevices.enumerateDevices();
-  return listed.some(
-    (device) => device.deviceId === chosen && device.kind === "audioinput"
-  )
-    ? chosen
-    : "";
-};
 export function useDictation(options: DictationOptions) {
   const latest = useRef(options);
   latest.current = options;
@@ -98,9 +87,7 @@ export function useDictation(options: DictationOptions) {
   const fail = () => {
     discard();
     if (mounted.current) {
-      setError(
-        "Dictation failed. Check microphone permission, your audio input and the workspace provider key, then try again."
-      );
+      setError("Nothing could be transcribed. Please try again.");
       setPhase("error");
     }
   };
@@ -122,11 +109,7 @@ export function useDictation(options: DictationOptions) {
         s.final[index] = result.text;
         paint(s);
       })
-      .catch(() => {
-        if (session.current === s) {
-          fail();
-        }
-      });
+      .catch(() => undefined);
     s.requests.push(promise);
   };
   const finish = async () => {
@@ -174,7 +157,11 @@ export function useDictation(options: DictationOptions) {
         }
       });
     }
-    discard();
+    if (text) {
+      discard();
+    } else {
+      fail();
+    }
   };
   const start = async () => {
     if (session.current || !available) {
@@ -200,14 +187,7 @@ export function useDictation(options: DictationOptions) {
     setError(null);
     setPreview("");
     try {
-      const chosen = await resolveDevice(selectedDevice.current);
-      if (chosen !== selectedDevice.current) {
-        selectedDevice.current = chosen;
-        setDeviceId(chosen);
-      }
-      if (session.current !== s) {
-        return;
-      }
+      const chosen = selectedDevice.current;
       const capture = await (latest.current.capture ?? startCapture)(
         (samples) => {
           if (session.current !== s || s.finishing) {
@@ -253,16 +233,7 @@ export function useDictation(options: DictationOptions) {
               paint(s);
             }
           })
-          .catch(() => {
-            // An interim belongs only to its open segment; finals and polishing supersede it.
-            if (
-              session.current === s &&
-              !s.finishing &&
-              s.revision === revision
-            ) {
-              fail();
-            }
-          })
+          .catch(() => undefined)
           .finally(() => {
             inFlight = false;
           });

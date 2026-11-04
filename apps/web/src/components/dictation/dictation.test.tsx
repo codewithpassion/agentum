@@ -85,6 +85,7 @@ function Harness({
     <>
       <textarea
         onChange={() => undefined}
+        placeholder="Write a message"
         readOnly={state.busy}
         ref={inputRef}
         value={value}
@@ -248,7 +249,8 @@ test("no key disables mic and directs to Model providers", async () => {
     'button[aria-label="Start dictation"]'
   );
   expect(button?.disabled).toBe(true);
-  expect(button?.parentElement?.title).toContain("Settings, Model providers");
+  expect(button?.parentElement?.hasAttribute("title")).toBe(false);
+  expect(button?.getAttribute("aria-label")).toBe("Start dictation");
   await act(async () => root.unmount());
 });
 test("Escape during polishing discards late response without inserting", async () => {
@@ -446,3 +448,184 @@ test("preview makes room at a mid-text caret and restores input glyphs on cancel
   expect(input.style.color).toBe(original);
   await act(async () => root.unmount());
 });
+
+test("interim rejection keeps listening and final rejection retains other segments and interim", async () => {
+  let push: (samples: Float32Array) => void = () => undefined;
+  let interim = 0;
+  let finals = 0;
+  let polished = "";
+  const { input, root } = await mount({
+    adapter: {
+      ...defaultAdapter,
+      polish: async ({ text }) => {
+        polished = text;
+        return { text };
+      },
+      transcribe: ({ final }) => {
+        if (final) {
+          finals += 1;
+          return finals === 1
+            ? Promise.resolve({ text: "first" })
+            : Promise.reject(new Error("final"));
+        }
+        interim += 1;
+        return interim === 1
+          ? Promise.reject(new Error("interim"))
+          : Promise.resolve({ text: "second" });
+      },
+    },
+    captureInput: async (samples) => {
+      push = samples;
+      return { devices: [], stop: () => undefined };
+    },
+  });
+  await act(async () => {
+    state.press();
+    state.release();
+  });
+  await settle();
+  await act(async () => push(new Float32Array(1600).fill(0.2)));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+  });
+  expect(state.phase).toBe("listening");
+  await act(async () => {
+    push(new Float32Array(11_200));
+    push(new Float32Array(1600).fill(0.2));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+  });
+  expect(state.preview).toBe("first second");
+  await act(async () => {
+    state.press();
+    state.release();
+  });
+  await settle();
+  expect(polished).toBe("first second");
+  expect(input.value).toBe("before first secondafter");
+  expect(state.error).toBeNull();
+  await act(async () => root.unmount());
+});
+test("saved mic is attempted before permission reveals devices and stays selected", async () => {
+  localStorage.setItem("dictation.microphone", "saved");
+  let chosen = "";
+  const { root } = await mount({
+    captureInput: async (_samples, _level, id) => {
+      chosen = id;
+      return {
+        devices: [
+          {
+            deviceId: "saved",
+            kind: "audioinput",
+            label: "Saved mic",
+          } as MediaDeviceInfo,
+        ],
+        stop: () => undefined,
+      };
+    },
+  });
+  await act(async () => {
+    state.press();
+    state.release();
+  });
+  await settle();
+  expect(chosen).toBe("saved");
+  expect(state.deviceId).toBe("saved");
+  expect(state.devices[0]?.label).toBe("Saved mic");
+  await act(async () => root.unmount());
+  localStorage.removeItem("dictation.microphone");
+});
+test("preview grows to the textarea max, hides placeholder and synchronizes scrolling", async () => {
+  let revisions = 0;
+  const { node, input, root } = await mount({
+    adapter: {
+      ...defaultAdapter,
+      transcribe: async () => {
+        revisions += 1;
+        return { text: `preview ${revisions}` };
+      },
+    },
+  });
+  input.style.cssText =
+    "height: 40px; max-height: 120px; padding: 4px 8px; box-sizing: border-box; font-family: monospace; font-size: 14px; word-spacing: 2px;";
+  Object.defineProperty(input, "clientWidth", {
+    configurable: true,
+    value: 180,
+  });
+  await act(async () => {
+    state.press();
+    state.release();
+  });
+  await settle();
+  const overlay = node.querySelector<HTMLDivElement>('[aria-hidden="true"]');
+  if (!overlay) {
+    throw new Error("Missing mirror");
+  }
+  let measuredHeight = 80;
+  Object.defineProperty(overlay, "scrollHeight", {
+    configurable: true,
+    get: () => measuredHeight,
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+  });
+  expect(input.style.height).toBe("80px");
+  expect(input.value).toBe("before preview 1after");
+  measuredHeight = 200;
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+  });
+  expect(input.style.height).toBe("120px");
+  expect(input.placeholder).toBe("");
+  expect(overlay.style.width).toBe("164px");
+  expect(overlay.style.fontFamily).toBe("monospace");
+  expect(overlay.style.wordSpacing).toBe("2px");
+  expect(input.scrollTop).toBeGreaterThan(0);
+  expect(overlay.scrollTop).toBe(input.scrollTop);
+  input.scrollTop = 25;
+  input.dispatchEvent(new dom.Event("scroll") as unknown as Event);
+  expect(overlay.scrollTop).toBe(25);
+  await act(async () => state.cancel());
+  expect(input.placeholder).toBe("Write a message");
+  expect(input.style.height).toBe("40px");
+  expect(input.value).toBe("before after");
+  await act(async () => root.unmount());
+});
+
+test.each([false, true])(
+  "no transcription reports a short error only at finish (silence: %s)",
+  async (silence) => {
+    let calls = 0;
+    const { input, root } = await mount({
+      adapter: {
+        ...defaultAdapter,
+        transcribe: () => {
+          calls += 1;
+          return Promise.reject(new Error("failed"));
+        },
+      },
+      captureInput: async (samples) => {
+        samples(new Float32Array(1600).fill(silence ? 0 : 0.2));
+        return { devices: [], stop: () => undefined };
+      },
+    });
+    await act(async () => {
+      state.press();
+      state.release();
+    });
+    await settle();
+    expect(state.phase).toBe("listening");
+    expect(state.error).toBeNull();
+    await act(async () => {
+      state.press();
+      state.release();
+    });
+    await settle();
+    expect(state.phase).toBe("error");
+    expect(state.error).toBe("Nothing could be transcribed. Please try again.");
+    expect(input.value).toBe("before after");
+    expect(calls).toBe(silence ? 0 : 1);
+    await act(async () => root.unmount());
+  }
+);

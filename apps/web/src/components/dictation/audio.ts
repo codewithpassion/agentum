@@ -1,4 +1,30 @@
 export const SAMPLE_RATE = 16_000;
+// Weighted averaging keeps fractional frames across blocks (including 44.1kHz input).
+export function createResampler(inputRate: number) {
+  let weight = 0;
+  let sum = 0;
+  return (input: Float32Array): Float32Array => {
+    if (inputRate === SAMPLE_RATE) {
+      return new Float32Array(input);
+    }
+    const output: number[] = [];
+    for (const sample of input) {
+      let remaining = SAMPLE_RATE;
+      while (remaining > 0) {
+        const take = Math.min(remaining, inputRate - weight);
+        sum += sample * take;
+        weight += take;
+        remaining -= take;
+        if (weight === inputRate) {
+          output.push(sum / inputRate);
+          weight = 0;
+          sum = 0;
+        }
+      }
+    }
+    return Float32Array.from(output);
+  };
+}
 export function encodeWav(samples: Float32Array): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(44 + samples.length * 2);
   const v = new DataView(bytes.buffer);
@@ -39,11 +65,17 @@ export function createSegmenter() {
   let samples: number[] = [];
   let quiet = 0;
   let speech = false;
+  let voicedFrames = 0;
+  let frameSamples = 0;
+  let frameEnergy = 0;
   const flush = () => {
     const result = speech ? Float32Array.from(samples) : new Float32Array();
     samples = [];
     quiet = 0;
     speech = false;
+    voicedFrames = 0;
+    frameSamples = 0;
+    frameEnergy = 0;
     return result;
   };
   return {
@@ -52,12 +84,20 @@ export function createSegmenter() {
       const complete: Float32Array[] = [];
       for (const sample of block) {
         samples.push(sample);
-        if (Math.abs(sample) > 0.015) {
-          quiet = 0;
-          speech = true;
-        } else {
-          quiet += 1;
+        frameEnergy += sample * sample;
+        frameSamples += 1;
+        if (frameSamples < SAMPLE_RATE * 0.02) {
+          continue;
         }
+        if (Math.sqrt(frameEnergy / frameSamples) > 0.015) {
+          quiet = 0;
+          voicedFrames += 1;
+          speech ||= voicedFrames >= 3;
+        } else {
+          quiet += frameSamples;
+        }
+        frameSamples = 0;
+        frameEnergy = 0;
         if (
           samples.length >= SAMPLE_RATE * 15 ||
           (speech && quiet >= SAMPLE_RATE * 0.7)
