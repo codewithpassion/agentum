@@ -49,6 +49,7 @@ export const createArtifactPorts = ({
   publicBaseUrl?: string;
   services: Pick<
     Services,
+    | "artifactErrors"
     | "artifactEndpoints"
     | "agents"
     | "artifactGrants"
@@ -69,7 +70,9 @@ export const createArtifactPorts = ({
     files: number;
     version: number;
     versionId: string;
+    status?: "live" | "waiting" | "proposed";
   }): ArtifactPublished => ({
+    ...(result.status ? { status: result.status } : {}),
     artifactId: result.artifactId,
     bytes: result.bytes,
     files: result.files,
@@ -219,7 +222,12 @@ export const createArtifactPorts = ({
               versionId: readVersion.id,
             })
           : [];
+        const appErrors = await services.artifactErrors.list(
+          principal,
+          artifactId
+        );
         return {
+          ...(appErrors === undefined ? {} : { appErrors }),
           artifactId: card.artifactId,
           audience: card.audience,
           currentVersion: card.currentVersion.number,
@@ -283,8 +291,18 @@ export const createArtifactPorts = ({
         };
       }),
     update: (input) =>
-      guarded(async () =>
-        published(await services.artifacts.update(principal, input))
-      ),
+      guarded(async () => {
+        const result = await services.artifacts.update(principal, input);
+        const versions = await services.artifacts.versions(
+          principal,
+          input.artifactId
+        );
+        const version = versions.find((row) => row.id === result.versionId);
+        let status: ArtifactPublished["status"] = "live";
+        if (version?.status === "proposed") {
+          status = principal.kind === "run" ? "proposed" : "waiting";
+        }
+        return published({ ...result, status });
+      }),
   };
 };

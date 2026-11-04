@@ -6,6 +6,7 @@
  * from other tasks comes in as a port.
  */
 import type { ViewTokenClaims } from "@repo/protocol/artifacts";
+import type { AppErrorTarget } from "@repo/services/artifacts/errors";
 import { readCappedBody } from "../mcp/body.ts";
 import {
   filteredResponse,
@@ -35,6 +36,11 @@ export interface AppGatewayDeps {
   /** The A.4 content wrapper: CSP, nosniff and the rest, set on every answer. */
   applyContentHeaders: (response: Response) => Response;
   ports: Pick<AppGatewayPorts, "shares" | "source">;
+  recordError?: (
+    target: AppErrorTarget,
+    entry: string,
+    error: unknown
+  ) => Promise<void>;
   /** The visitor hash and request details for R2.13 and R2.14 (the hash uses A.3's daily salt). */
   requestMeta: (
     request: Request,
@@ -120,7 +126,8 @@ const timer = (ms: number) => {
 
 const runApp = async (
   input: AppRuntimeInput,
-  deps: AppGatewayDeps
+  deps: AppGatewayDeps,
+  entry = "fetch page"
 ): Promise<Response> => {
   const wall = timer(deps.wallMs ?? APP_WALL_MS);
   try {
@@ -131,7 +138,8 @@ const runApp = async (
     return answer === "timeout"
       ? text(504, TIMEOUT_BODY)
       : filteredResponse(answer);
-  } catch {
+  } catch (error) {
+    await deps.recordError?.(input.host, entry, error).catch(() => undefined);
     return text(502, BAD_GATEWAY_BODY);
   } finally {
     wall.clear();
@@ -211,6 +219,7 @@ export const handleEndpointRequest = async (
     versionId: string;
     workspaceId: string;
     endpointId: string;
+    name?: string;
   },
   deps: AppGatewayDeps
 ): Promise<Response> => {
@@ -235,7 +244,8 @@ export const handleEndpointRequest = async (
           },
           request: forwarded,
         },
-        deps
+        deps,
+        `fetch ${endpoint.name ?? endpoint.endpointId}`
       ),
       deps
     );

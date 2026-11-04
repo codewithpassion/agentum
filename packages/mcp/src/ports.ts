@@ -210,6 +210,7 @@ export interface ArtifactPublished {
   artifactId: string;
   bytes: number;
   files: number;
+  status?: "live" | "waiting" | "proposed";
   /** The sign-in URL, `https://<app>/a/<artifactId>`. */
   url: string;
   version: number;
@@ -233,6 +234,14 @@ export interface ArtifactFileText {
 }
 
 export interface ArtifactReadInfo {
+  appErrors?: {
+    time: string;
+    version: number;
+    versionId: string;
+    entry: string;
+    message: string;
+    dropped: number;
+  }[];
   artifactId: string;
   audience: string;
   currentVersion: number;

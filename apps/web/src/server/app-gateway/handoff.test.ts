@@ -214,7 +214,10 @@ test("dev fake runtime hands off as nobody and replies into shared storage", asy
 });
 
 test("a throwing reply records one app.reply_failed event without retry", async () => {
-  const { db, host, grant, agent, flush } = await setup(true, true);
+  const { db, host, grant, agent, flush, services, user } = await setup(
+    true,
+    true
+  );
   await grant();
   await host.startRun({ agent: agent.id, text: "hello" });
   await flush();
@@ -223,7 +226,20 @@ test("a throwing reply records one app.reply_failed event without retry", async 
       (e) => e.type === "app.reply_failed"
     )
   ).toHaveLength(1);
-  expect((await db.select().from(events)).filter((e) => e.type === "app.error").map((e) => JSON.parse(e.payload ?? "{}"))).toMatchObject([{ entry: "reply", message: "boom" }]);
+  expect(
+    (await db.select().from(events))
+      .filter((e) => e.type === "app.error")
+      .map((e) => JSON.parse(e.payload ?? "{}"))
+  ).toMatchObject([{ entry: "reply", message: "boom" }]);
+  expect(await services.artifactErrors.list(user, "app")).toMatchObject([
+    { entry: "reply", message: "boom", version: 1 },
+  ]);
+  expect(
+    await services.artifactErrors.list(
+      { ...user, userId: "someone-else" },
+      "app"
+    )
+  ).toBeUndefined();
 });
 
 test("failed runs deliver failed status through the runs event hook", async () => {

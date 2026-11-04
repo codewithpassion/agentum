@@ -588,7 +588,7 @@ export const createArtifactsService = ({
       })
     );
 
-  /** An agent's app version waits `proposed` for `artifact_promote`; a person's goes live at once. */
+  /** Initial publication: run apps wait for promote; a person gets a current version. */
   const statusFor = (member: Member, kind: ArtifactKind) =>
     kind === "app" && member.kind === "run" ? "proposed" : "published";
 
@@ -902,7 +902,9 @@ export const createArtifactsService = ({
       number,
       parentNumber: baseNumber,
     });
-    const status = statusFor(member, row.kind);
+    // Keep the live pointer until grants have been carried from it.
+    const status =
+      row.kind === "app" ? "proposed" : statusFor(member, row.kind);
     await writeBlobs(member.workspaceId, content.files, fresh);
     await writeManifest(member.workspaceId, draft);
     const title = input.title ?? row.title;

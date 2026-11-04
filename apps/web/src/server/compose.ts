@@ -1,4 +1,8 @@
 import {
+  type AppErrorSlot,
+  createArtifactErrorsService,
+} from "@repo/services/artifacts/errors";
+import {
   type AppReply,
   createAppReplies,
 } from "@repo/services/artifacts/replies";
@@ -349,6 +353,7 @@ const unavailableAppStore: AppStorePort = {
 };
 
 export interface Infra {
+  appErrorSlot?: AppErrorSlot;
   appReply?: AppReply;
   /** The app storage Durable Object behind its port. B.8 wires it; without it, storage answers "unavailable". */
   appStore?: AppStorePort;
@@ -449,6 +454,7 @@ export interface Services {
   artifactApp: AppGrantsService;
   artifactCalls: ArtifactToolPort;
   artifactEndpoints: ArtifactEndpointsService;
+  artifactErrors: ReturnType<typeof createArtifactErrorsService>;
   artifactGrants: ArtifactGrantsService;
   artifactPins: ArtifactPinsService;
   artifactShares: ArtifactSharesService;
@@ -896,9 +902,15 @@ export const composeWith = ({
   events.onAppend(slackRequests.onEvent);
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
+  const artifactErrors = createArtifactErrorsService({
+    db,
+    events,
+    slot: infra.appErrorSlot,
+  });
   const appReplies = createAppReplies({
     db,
     defer: infra.defer,
+    errors: artifactErrors,
     events,
     invoke: infra.appReply,
   });
@@ -1257,6 +1269,7 @@ export const composeWith = ({
       artifactApp,
       artifactCalls,
       artifactEndpoints,
+      artifactErrors,
       artifactGrants,
       artifactPins,
       artifactShares,
@@ -1348,6 +1361,8 @@ export const compose = (
   composed = composeWith({
     db,
     infra: {
+      appErrorSlot: async (artifactId) =>
+        env.APP_STORE.get(env.APP_STORE.idFromName(artifactId)).errorSlot(),
       // An empty `ARTIFACT_LINKS_OFF` leaves links on.
       appReply:
         exports && env.LOADER

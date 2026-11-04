@@ -565,7 +565,10 @@ export const createDeskService = ({
             eq(artifacts.workspaceId, member.workspaceId),
             isNull(artifacts.deletedAt),
             eq(artifactVersions.authorKind, "user"),
-            eq(artifactVersions.id, artifacts.currentVersionId),
+            or(
+              eq(artifactVersions.id, artifacts.currentVersionId),
+              eq(artifactVersions.status, "proposed")
+            ),
             eq(artifactGrants.status, "pending"),
             eq(artifacts.ownerUserId, member.userId)
           )

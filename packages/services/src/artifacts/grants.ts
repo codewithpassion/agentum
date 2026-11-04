@@ -2,8 +2,8 @@
  * Grants, promote and hand-to for app artifacts (PRD R2.4, R2.9, phase 2).
  *
  * A version that asks for tools, secrets, hosts, endpoints or agents gets one `artifact_grants`
- * row per ask. A row a person made, or that the current version already holds
- * approved, is `approved`; every other row waits `pending` for a person.
+ * row per ask. A row its author approved on a browser session, or that the
+ * current version already holds approved, is `approved`; the rest wait `pending`.
  * `promote` makes a proposed version current once none of its rows is pending.
  * When some are, an agent's promote opens an approval in Needs you and
  * returns `waiting`, and the person's `decideGrant` answers that approval.
@@ -423,9 +423,9 @@ export const createArtifactGrantsService = ({
   /**
    * Writes the grant rows of a new version from its `agentum.json`. Call it
    * once the version row exists. Calling it again for the same version returns
-   * the rows already there. A person's own version is approved as written. An
-   * agent's version is approved only where the current version already holds
-   * the same approved grant, and waits pending for the rest.
+   * the rows already there. A person’s browser-session version is approved as
+   * written. Other versions carry the current version’s approved grants and
+   * wait pending for the rest.
    */
   const recordVersionGrants = async (
     principal: Principal,
@@ -508,6 +508,16 @@ export const createArtifactGrantsService = ({
       )
     );
     await atomic(statements);
+    // A person's update is a proposal only while it needs new consent. Run
+    // proposals still require promote even when every grant is carried.
+    if (
+      version.authorKind === "user" &&
+      version.status === "proposed" &&
+      rows.every((row) => row.status === "approved") &&
+      (await newerThanCurrent(artifact, version))
+    ) {
+      await goLiveVersion(artifact, version, await actorOf(principal));
+    }
     return rows.map(grantRecord);
   };
 
@@ -864,7 +874,7 @@ export const createArtifactGrantsService = ({
       [grant],
       input.decision,
       principal.userId,
-      asked > 0
+      asked > 0 || version.authorKind === "user"
     );
     if (outcome === "stale") {
       throw new ServiceError("conflict", "Grant already decided");
@@ -1027,8 +1037,7 @@ export const createArtifactGrantsService = ({
     if (
       principal.kind !== "user" ||
       principal.via === "session" ||
-      version.authorKind !== "user" ||
-      artifact.currentVersionId !== version.id
+      version.authorKind !== "user"
     ) {
       return null;
     }
@@ -1044,8 +1053,8 @@ export const createArtifactGrantsService = ({
   };
 
   /**
-   * Promotes a run-authored app once its grants are approved. A current
-   * user-authored version waits on its grouped grant card in Needs you.
+   * Promotes a run-authored app once its grants are approved. A person’s
+   * pending version waits on its grouped grant card in Needs you.
    */
   const promote = async (
     principal: Principal,
@@ -1061,8 +1070,8 @@ export const createArtifactGrantsService = ({
       );
     }
     const version = await requireVersion(artifact, input.versionId);
-    // User-authored apps keep the publish convention. MCP is not consent;
-    // Needs you lists their grants directly because they have no run card.
+    // MCP is not consent. Needs you lists user-authored pending grants
+    // directly because these versions have no authoring run card.
     const waitingForPerson = await pendingForMcpUser(
       principal,
       artifact,

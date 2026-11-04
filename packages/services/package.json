@@ -169,6 +169,7 @@
     "./live-guests/service": "./src/live-guests/service.ts",
     "./live-exports": "./src/live-exports/service.ts",
     "./artifacts/replies": "./src/artifacts/replies.ts",
+    "./artifacts/errors": "./src/artifacts/errors.ts",
     "./artifacts/endpoints": "./src/artifacts/endpoints.ts"
   },
   "scripts": {

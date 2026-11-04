@@ -480,6 +480,27 @@ describe("artifact_read and artifact_list", () => {
     expect(textOf(result)).toContain("<h1>Hi</h1>");
   });
 
+  test("read includes manager app errors in structured content and text", async () => {
+    const appErrors = [
+      {
+        dropped: 4,
+        entry: "reply",
+        message: "reply broke",
+        time: "2026-11-05T00:00:00.000Z",
+        version: 2,
+        versionId: "ver_2",
+      },
+    ];
+    const result = await call(
+      port({ read: () => Promise.resolve({ ...info, appErrors }) }),
+      "artifact_read",
+      { artifactId: ID }
+    );
+    expect(result.structuredContent).toMatchObject({ appErrors });
+    expect(textOf(result)).toContain("reply broke");
+    expect(textOf(result)).toContain("4 dropped");
+  });
+
   test("list returns items and the next cursor", async () => {
     const items = [
       {
@@ -654,7 +675,7 @@ describe("artifact_promote", () => {
     expect(textOf(result)).toBe("Version 3 is now live.");
   });
 
-  test("a waiting version tells the agent to stop", async () => {
+  test("a waiting version explains approval and reading the result", async () => {
     const result = await call(
       port({
         promote: () => Promise.resolve({ status: "waiting", version: 2 }),
@@ -665,7 +686,9 @@ describe("artifact_promote", () => {
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).toContain("Version 2 waits for a person");
     expect(textOf(result)).toContain("Needs you");
-    expect(textOf(result)).toContain("do not retry");
+    expect(textOf(result)).toContain(
+      "Approve in Needs you, then check with artifact_read"
+    );
   });
 
   test("dry run skips the promote and records it", async () => {

@@ -46,6 +46,20 @@ export const createAppStoreCore = (
         key
       );
     },
+    // Separate from app-readable kv: app code cannot clear its own flood guard.
+    // The next admitted event reports drops since the previous admitted event.
+    errorSlot: (now: number): { dropped: number } | null => {
+      const [row] = sql.exec("SELECT at, dropped FROM app_errors WHERE id = 1");
+      if (row && now - Number(row.at) < 10_000) {
+        sql.exec("UPDATE app_errors SET dropped = dropped + 1 WHERE id = 1");
+        return null;
+      }
+      sql.exec(
+        "INSERT INTO app_errors (id, at, dropped) VALUES (1, ?, 0) ON CONFLICT(id) DO UPDATE SET at = excluded.at, dropped = 0",
+        now
+      );
+      return { dropped: Number(row?.dropped ?? 0) };
+    },
 
     get: (area: StorageArea, viewerKey: string, key: string): string | null => {
       const rows = sql.exec(
@@ -59,6 +73,9 @@ export const createAppStoreCore = (
     },
 
     init: (): void => {
+      sql.exec(
+        "CREATE TABLE IF NOT EXISTS app_errors (id INTEGER PRIMARY KEY CHECK(id = 1), at INTEGER NOT NULL, dropped INTEGER NOT NULL)"
+      );
       sql.exec(
         "CREATE TABLE IF NOT EXISTS kv (area TEXT NOT NULL, viewer TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY (area, viewer, k))"
       );
