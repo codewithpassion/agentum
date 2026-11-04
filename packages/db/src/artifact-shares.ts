@@ -269,7 +269,7 @@ export const insertViewStatement = (
 
 export type ArtifactViewRow = Omit<
   typeof artifactViews.$inferSelect,
-  "visitorHash" | "workspaceId"
+  "guestId" | "visitorHash" | "workspaceId"
 >;
 
 /**
@@ -296,7 +296,6 @@ export const listViews = (
         city: artifactViews.city,
         country: artifactViews.country,
         createdAt: artifactViews.createdAt,
-        guestId: artifactViews.guestId,
         id: artifactViews.id,
         ipPrefix: artifactViews.ipPrefix,
         outcome: artifactViews.outcome,
