@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   artifactEndpoints,
@@ -19,15 +19,56 @@ export const endpointsForArtifact = (db: Database, artifactId: string) =>
   db
     .select()
     .from(artifactEndpoints)
-    .where(eq(artifactEndpoints.artifactId, artifactId));
+    .where(eq(artifactEndpoints.artifactId, artifactId))
+    .orderBy(desc(artifactEndpoints.createdAt), desc(sql`rowid`));
 export const insertEndpointStatement = (
   db: Database,
   row: typeof artifactEndpoints.$inferInsert
 ) => db.insert(artifactEndpoints).values(row);
+/** Provision only the first address for a name, including disabled history. */
 export const ensureEndpointStatement = (
   db: Database,
-  row: typeof artifactEndpoints.$inferInsert
-) => db.insert(artifactEndpoints).values(row).onConflictDoNothing();
+  row: {
+    id: string;
+    artifactId: string;
+    workspaceId: string;
+    name: string;
+    createdAt: string;
+  },
+  grantId: string
+) =>
+  db
+    .insert(artifactEndpoints)
+    .select(
+      db
+        .select({
+          artifactId: sql<string>`${row.artifactId}`.as("artifactId"),
+          createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
+          disabledAt: sql<null>`null`.as("disabledAt"),
+          id: sql<string>`${row.id}`.as("id"),
+          name: sql<string>`${row.name}`.as("name"),
+          workspaceId: sql<string>`${row.workspaceId}`.as("workspaceId"),
+        })
+        .from(artifactGrants)
+        .where(
+          and(
+            eq(artifactGrants.id, grantId),
+            eq(artifactGrants.status, "approved"),
+            notExists(
+              db
+                .select({ id: artifactEndpoints.id })
+                .from(artifactEndpoints)
+                .where(
+                  and(
+                    eq(artifactEndpoints.artifactId, row.artifactId),
+                    eq(artifactEndpoints.name, row.name)
+                  )
+                )
+            )
+          )
+        )
+    )
+    .onConflictDoNothing();
 export const setEndpointDisabledStatement = (
   db: Database,
   id: string,
@@ -48,6 +89,7 @@ export const resolveEndpoint = async (db: Database, id: string) => {
     .select({
       artifactId: artifacts.id,
       endpointId: artifactEndpoints.id,
+      name: artifactEndpoints.name,
       versionId: artifactVersions.id,
       workspaceId: artifacts.workspaceId,
     })

@@ -2,7 +2,6 @@ import type { Database } from "@repo/db";
 import {
   endpointById,
   endpointsForArtifact,
-  ensureEndpointStatement,
   insertEndpointStatement,
   insertEndpointView,
   resolveEndpoint,
@@ -15,6 +14,7 @@ import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
+import { canManage } from "./policy.ts";
 
 const TRAILING_SLASH = /\/$/;
 
@@ -51,7 +51,10 @@ export const createArtifactEndpointsService = ({
     });
     if (
       artifact?.kind !== "app" ||
-      !(principal.isAdmin || artifact.ownerUserId === principal.userId)
+      !canManage(artifact, {
+        isAdmin: principal.isAdmin === true,
+        userId: principal.userId,
+      })
     ) {
       throw new ServiceError("not_found", "Artifact not found");
     }
@@ -65,24 +68,18 @@ export const createArtifactEndpointsService = ({
     name: row.name,
     url: `${publicBaseUrl.replace(TRAILING_SLASH, "")}/hooks/${row.id}`,
   });
-  const ensure = async (
-    artifactId: string,
-    workspaceId: string,
-    name: string
-  ) => {
-    await atomic([
-      ensureEndpointStatement(db, {
-        artifactId,
-        createdAt: clock.now().toISOString(),
-        id: endpointId(),
-        name,
-        workspaceId,
-      }),
-    ]);
-  };
   const list = async (principal: Principal, artifactId: string) => {
     await requireManager(principal, artifactId);
-    return (await endpointsForArtifact(db, artifactId)).map(present);
+    const newest = new Map<
+      string,
+      NonNullable<Awaited<ReturnType<typeof endpointById>>>
+    >();
+    for (const row of await endpointsForArtifact(db, artifactId)) {
+      if (!newest.has(row.name)) {
+        newest.set(row.name, row);
+      }
+    }
+    return [...newest.values()].map(present);
   };
   const change = async (
     principal: Principal,
@@ -130,7 +127,7 @@ export const createArtifactEndpointsService = ({
     return present({ ...row, disabledAt: action === "disable" ? now : null });
   };
   const recordCall = async (
-    id: string,
+    endpoint: NonNullable<Awaited<ReturnType<typeof resolveEndpoint>>>,
     meta: {
       ipPrefix: string | null;
       place: string | null;
@@ -139,37 +136,26 @@ export const createArtifactEndpointsService = ({
     },
     outcome: ArtifactViewOutcome
   ) => {
-    const row = await endpointById(db, id);
-    // Unknown ids cannot be audited: artifact_views requires an artifact FK.
-    if (!row) {
-      return;
-    }
-    const artifact = await findArtifact(db, {
-      id: row.artifactId,
-      workspaceId: row.workspaceId,
-    });
-    // EP.1 has no endpoint surface. live_call records server ingress without a person/share.
     await insertEndpointView(db, {
-      artifactId: row.artifactId,
+      artifactId: endpoint.artifactId,
+      country: meta.place,
       createdAt: clock.now().toISOString(),
       id: ulid(),
       ipPrefix: meta.ipPrefix,
       outcome,
       surface: "live_call",
+      toolKey: `endpoint:${endpoint.name}`,
       userAgent: meta.userAgent,
-      versionId: artifact?.currentVersionId,
+      versionId: endpoint.versionId,
       visitorHash: meta.visitorHash || null,
-      workspaceId: row.workspaceId,
+      workspaceId: endpoint.workspaceId,
     });
   };
   return {
     change,
-    ensure,
     list,
     recordCall,
     resolve: (id: string) => resolveEndpoint(db, id),
-    workspaceIdOf: async (id: string) =>
-      (await endpointById(db, id))?.workspaceId ?? null,
   };
 };
 export type ArtifactEndpointsService = ReturnType<

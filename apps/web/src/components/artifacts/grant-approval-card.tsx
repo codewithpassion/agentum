@@ -59,7 +59,7 @@ export function GrantApprovalView({
       ))}
       {items.endpoints.length > 0 && (
         <p className="text-muted-foreground text-xs">
-          Anyone on the internet can call this address; the app's code must
+          Anyone on the internet can call this address, so the app's code must
           check who is calling.
         </p>
       )}

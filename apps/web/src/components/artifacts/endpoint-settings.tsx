@@ -16,7 +16,9 @@ export function EndpointList({
   busy,
   onCopy,
   onChange,
+  copiedUrl = null,
 }: {
+  copiedUrl?: string | null;
   endpoints: Endpoint[];
   busy: boolean;
   onCopy: (url: string) => void;
@@ -31,6 +33,7 @@ export function EndpointList({
       {endpoints.map((endpoint) => (
         <EndpointRow
           busy={busy}
+          copied={copiedUrl === endpoint.url}
           endpoint={endpoint}
           key={endpoint.id}
           onChange={onChange}
@@ -44,11 +47,13 @@ export function EndpointList({
 function EndpointRow({
   endpoint,
   busy,
+  copied,
   onCopy,
   onChange,
 }: {
   endpoint: Endpoint;
   busy: boolean;
+  copied: boolean;
   onCopy: (url: string) => void;
   onChange: (id: string, action: Action) => void;
 }) {
@@ -70,7 +75,7 @@ function EndpointRow({
       <p className="break-all font-mono text-xs">{endpoint.url}</p>
       <div className="flex gap-2">
         <Button disabled={busy} onClick={copy} size="sm" variant="outline">
-          Copy
+          {copied ? "Copied" : "Copy"}
         </Button>
         <Button disabled={busy} onClick={toggle} size="sm" variant="outline">
           {endpoint.disabledAt ? "Enable" : "Disable"}
@@ -87,6 +92,7 @@ function EndpointRow({
 export function EndpointSettings({ artifactId }: { artifactId: string }) {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     const rows = await getTrpc().artifacts.endpoints.query({ artifactId });
@@ -117,12 +123,16 @@ export function EndpointSettings({ artifactId }: { artifactId: string }) {
     [load]
   );
   const copy = useCallback((url: string) => {
-    navigator.clipboard.writeText(url).catch((e) => setError(errorMessage(e)));
+    navigator.clipboard
+      .writeText(url)
+      .then(() => setCopiedUrl(url))
+      .catch((e) => setError(errorMessage(e)));
   }, []);
   return (
     <div className="space-y-2">
       <EndpointList
         busy={busy}
+        copiedUrl={copiedUrl}
         endpoints={endpoints}
         onChange={change}
         onCopy={copy}

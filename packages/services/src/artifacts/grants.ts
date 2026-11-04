@@ -15,7 +15,7 @@ import {
   type ArtifactGrantRow,
   type ArtifactRow,
   approvedGrants,
-  claimGrants,
+  claimGrantsStatement,
   claimProposedVersion,
   findArtifact,
   findGrant,
@@ -293,6 +293,26 @@ export const createArtifactGrantsService = ({
     );
   };
 
+  const endpointStatements = (
+    artifact: ArtifactRow,
+    grants: { id: string; kind: ArtifactGrantKind; target: string }[]
+  ) =>
+    grants
+      .filter((grant) => grant.kind === "endpoint")
+      .map((grant) =>
+        ensureEndpointStatement(
+          db,
+          {
+            artifactId: artifact.id,
+            createdAt: clock.now().toISOString(),
+            id: endpointId(),
+            name: grant.target,
+            workspaceId: artifact.workspaceId,
+          },
+          grant.id
+        )
+      );
+
   /**
    * Writes the grant rows of a new version from its `agentum.json`. Call it
    * once the version row exists. Calling it again for the same version returns
@@ -352,17 +372,10 @@ export const createArtifactGrantsService = ({
     if (rows.length > 0) {
       await atomic([
         insertGrants(db, rows),
-        ...rows
-          .filter((row) => row.kind === "endpoint" && row.status === "approved")
-          .map((row) =>
-            ensureEndpointStatement(db, {
-              artifactId: artifact.id,
-              createdAt: now,
-              id: endpointId(),
-              name: row.target,
-              workspaceId: artifact.workspaceId,
-            })
-          ),
+        ...endpointStatements(
+          artifact,
+          rows.filter((row) => row.status === "approved")
+        ),
       ]);
     }
     return rows.map(grantRecord);
@@ -423,13 +436,24 @@ export const createArtifactGrantsService = ({
     if (!first) {
       return "stale";
     }
-    const claimed = new Set(
-      await claimGrants(db, {
-        decidedAt: clock.now().toISOString(),
-        decidedBy: userId,
-        ids: grants.map((grant) => grant.id),
-        status: decision,
-      })
+    const claimed = new Set<string>();
+    await atomic(
+      [
+        claimGrantsStatement(db, {
+          decidedAt: clock.now().toISOString(),
+          decidedBy: userId,
+          ids: grants.map((grant) => grant.id),
+          status: decision,
+        }),
+        ...(decision === "approved"
+          ? endpointStatements(artifact, grants)
+          : []),
+      ],
+      (results) => {
+        for (const row of results[0] as { id: string }[]) {
+          claimed.add(row.id);
+        }
+      }
     );
     const won = grants.filter((grant) => claimed.has(grant.id));
     if (won.length === 0) {
@@ -437,21 +461,6 @@ export const createArtifactGrantsService = ({
     }
     if (decision === "rejected") {
       await atomic([rejectVersionStatement(db, first.versionId)]);
-    }
-    if (decision === "approved") {
-      await atomic(
-        won
-          .filter((grant) => grant.kind === "endpoint")
-          .map((grant) =>
-            ensureEndpointStatement(db, {
-              artifactId: artifact.id,
-              createdAt: clock.now().toISOString(),
-              id: endpointId(),
-              name: grant.target,
-              workspaceId: artifact.workspaceId,
-            })
-          )
-      );
     }
     for (const grant of won) {
       // biome-ignore lint/performance/noAwaitInLoops: events keep the order of the grants

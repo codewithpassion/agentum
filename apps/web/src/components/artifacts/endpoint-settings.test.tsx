@@ -31,3 +31,23 @@ test("endpoint settings show complete addresses and Copy, Disable/Enable and Rot
     expect(html).toContain(`>${action}</button>`);
   }
 });
+
+test("copied address receives visible feedback", () => {
+  const html = renderToStaticMarkup(
+    <EndpointList
+      busy={false}
+      copiedUrl="https://agentum.test/hooks/one"
+      endpoints={[
+        {
+          disabledAt: null,
+          id: "one",
+          name: "discord",
+          url: "https://agentum.test/hooks/one",
+        },
+      ]}
+      onChange={noop}
+      onCopy={noop}
+    />
+  );
+  expect(html).toContain(">Copied</button>");
+});

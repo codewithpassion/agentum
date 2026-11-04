@@ -5,7 +5,9 @@ import { mountEndpointRoutes } from "./endpoints.ts";
 import { fakePorts } from "./fakes.ts";
 import type { AppRuntimeInput } from "./ports.ts";
 
-const setup = () => {
+const setup = (failLogging = false) => {
+  const work: Promise<unknown>[] = [];
+  const access: string[] = [];
   const active = new Set(["approved"]);
   const seen: AppRuntimeInput[] = [];
   const keys: string[] = [];
@@ -24,29 +26,36 @@ const setup = () => {
       endpoints: {
         recordCall: (_id, _meta, outcome) => {
           logs.push(outcome);
+          if (failLogging) {
+            return Promise.reject(new Error("Logging unavailable"));
+          }
           return Promise.resolve();
         },
-        resolve: (id) =>
-          Promise.resolve(
+        resolve: (id) => {
+          access.push("resolve");
+          return Promise.resolve(
             active.has(id)
               ? {
                   artifactId: "a",
                   endpointId: id,
+                  name: "discord",
                   versionId: "v",
                   workspaceId: "w",
                 }
               : null
-          ),
-        workspaceIdOf: () => Promise.resolve(null),
+          );
+        },
       },
       ports: fakePorts(),
-      requestMeta: () =>
-        Promise.resolve({
+      requestMeta: () => {
+        access.push("meta");
+        return Promise.resolve({
           ipPrefix: null,
           place: null,
           userAgent: null,
           visitorHash: "h",
-        }),
+        });
+      },
       runtime: {
         handle: (input) => {
           seen.push(input);
@@ -63,19 +72,27 @@ const setup = () => {
     }),
   });
   return {
+    access,
     active,
     app,
+    call: (path: string, init?: RequestInit) =>
+      app.request(path, init, undefined, {
+        passThroughOnException: () => undefined,
+        props: {},
+        waitUntil: (task: Promise<unknown>) => work.push(task),
+      }),
     keys,
     limit: () => {
       limited = true;
     },
     logs,
     seen,
+    work,
   };
 };
 
 test("unknown, disabled, missing and pending grant ids have the same fixed 404", async () => {
-  const { app, seen } = setup();
+  const { app, seen, logs, access } = setup();
   await Promise.all(
     ["unknown", "disabled", "missing-grant", "pending"].map(async (id) => {
       const response = await app.request(`/hooks/${id}`);
@@ -84,6 +101,8 @@ test("unknown, disabled, missing and pending grant ids have the same fixed 404",
     })
   );
   expect(seen).toHaveLength(0);
+  expect(logs).toEqual([]);
+  expect(access).not.toContain("meta");
 });
 
 test("raw bytes, suffix, query and authorization reach endpoint app; headers are filtered", async () => {
@@ -142,18 +161,23 @@ test("root and OPTIONS reach app; rotation closes old id; endpoint and IP limits
       })
     ).status
   ).toBe(429);
-  expect(h.keys).toContain("api:endpoint:rotated");
+  expect(h.keys).not.toContain("api:endpoint:rotated");
   expect(h.keys.some((key) => key.startsWith("api:endpoint:rotated:ip:"))).toBe(
     true
   );
-  expect(h.logs.at(-1)).toBe("rate_limited");
+  expect(h.logs).not.toContain("rate_limited");
 });
 
 test("HTTP ingress rechecks database grants and live versions; disable, enable and rotate apply immediately", async () => {
   const { migrated } = await import("@repo/db/test-db");
   const { sqliteAtomic } = await import("@repo/db/atomic");
-  const { artifactGrants, artifacts, artifactVersions, artifactViews } =
-    await import("@repo/db/schema/artifacts");
+  const {
+    artifactEndpoints,
+    artifactGrants,
+    artifacts,
+    artifactVersions,
+    artifactViews,
+  } = await import("@repo/db/schema/artifacts");
   const { createArtifactEndpointsService } = await import(
     "@repo/services/artifacts/endpoints"
   );
@@ -199,7 +223,13 @@ test("HTTP ingress rechecks database grants and live versions; disable, enable a
     clock: { now: () => new Date(now) },
     db,
   });
-  await endpoints.ensure("artifact", workspaceId, "discord");
+  await db.insert(artifactEndpoints).values({
+    artifactId: "artifact",
+    createdAt: now,
+    id: "test-endpoint",
+    name: "discord",
+    workspaceId,
+  });
   const owner = {
     kind: "user",
     userId: "owner",
@@ -227,7 +257,13 @@ test("HTTP ingress rechecks database grants and live versions; disable, enable a
       runtime: { handle: () => Promise.resolve(new Response("app")) },
     }),
   });
-  const call = (id = endpoint.id) => app.request(`/hooks/${id}`);
+  const work: Promise<unknown>[] = [];
+  const call = (id = endpoint.id) =>
+    app.request(`/hooks/${id}`, undefined, undefined, {
+      passThroughOnException: () => undefined,
+      props: {},
+      waitUntil: (task: Promise<unknown>) => work.push(task),
+    });
   expect((await call()).status).toBe(404);
   await db.insert(artifactGrants).values({
     createdAt: now,
@@ -243,6 +279,53 @@ test("HTTP ingress rechecks database grants and live versions; disable, enable a
   expect((await call()).status).toBe(200);
   await endpoints.change(owner, endpoint.id, "disable");
   expect((await call()).status).toBe(404);
+  // A new live version carries the approved endpoint declaration after disable.
+  await db.insert(artifactVersions).values({
+    artifactId: "artifact",
+    authorId: "owner",
+    authorKind: "user",
+    createdAt: now,
+    entry: "index.html",
+    fileCount: 1,
+    id: "version-2",
+    manifestKey: "m2",
+    message: "",
+    number: 2,
+    status: "published",
+    totalBytes: 1,
+    workspaceId,
+  });
+  const { ensureEndpointStatement } = await import(
+    "@repo/db/artifact-endpoints"
+  );
+  await sqliteAtomic(db)([
+    db.insert(artifactGrants).values({
+      createdAt: now,
+      id: "grant-2",
+      kind: "endpoint",
+      status: "approved",
+      target: "discord",
+      versionId: "version-2",
+      workspaceId,
+    }),
+    ensureEndpointStatement(
+      db,
+      {
+        artifactId: "artifact",
+        createdAt: now,
+        id: "must-not-reopen",
+        name: "discord",
+        workspaceId,
+      },
+      "grant-2"
+    ),
+    db.update(artifacts).set({ currentVersionId: "version-2" }),
+  ]);
+  expect(await endpoints.list(owner, "artifact")).toMatchObject([
+    { disabledAt: now, id: endpoint.id },
+  ]);
+  expect(await db.select().from(artifactEndpoints)).toHaveLength(1);
+  expect((await call()).status).toBe(404);
   await endpoints.change(owner, endpoint.id, "enable");
   expect((await call()).status).toBe(200);
   const rotated = await endpoints.change(owner, endpoint.id, "rotate");
@@ -251,5 +334,34 @@ test("HTTP ingress rechecks database grants and live versions; disable, enable a
   await db.update(artifacts).set({ currentVersionId: null });
   expect((await call(rotated.id)).status).toBe(404);
   expect((await call("unknown")).status).toBe(404);
-  expect(await db.select().from(artifactViews)).toHaveLength(8);
+  await Promise.all(work);
+  expect(await db.select().from(artifactViews)).toHaveLength(3);
+});
+
+test("limiter rejects every id before resolution or privacy writes", async () => {
+  const h = setup();
+  h.limit();
+  await Promise.all(
+    ["unknown", "disabled", "approved", "rotated"].map(async (id) => {
+      const response = await h.app.request(`/hooks/${id}`, {
+        headers: { "CF-Connecting-IP": "1.2.3.4" },
+      });
+      expect(response.status).toBe(429);
+    })
+  );
+  expect(h.access).toEqual([]);
+  expect(h.logs).toEqual([]);
+  expect(h.keys).toEqual(
+    ["unknown", "disabled", "approved", "rotated"].map(
+      (id) => `api:endpoint:${id}:ip:1.2.3.0/24`
+    )
+  );
+});
+
+test("request waitUntil owns logging and logging failure preserves the app response", async () => {
+  const h = setup(true);
+  const response = await h.call("/hooks/approved");
+  expect(response.status).toBe(200);
+  expect(h.work).toHaveLength(1);
+  await Promise.all(h.work);
 });

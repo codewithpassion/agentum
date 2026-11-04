@@ -10,8 +10,6 @@ import { eq } from "drizzle-orm";
 import { createArtifactEndpointsService } from "./endpoints.ts";
 import { harness, principals } from "./test-harness.ts";
 
-const ENDPOINT_ID = /^[A-Za-z0-9_-]{32}$/;
-
 const setup = () => {
   const h = harness();
   const now = new Date().toISOString();
@@ -67,18 +65,29 @@ const setup = () => {
         workspaceId: "w1",
       })
       .run();
-  return { ...h, approve, now, service };
+  const seed = () =>
+    h.atomic([
+      h.db
+        .insert(artifactEndpoints)
+        .values({
+          artifactId: "a",
+          createdAt: now,
+          id: "01234567890123456789012345678901",
+          name: "discord",
+          workspaceId: "w1",
+        })
+        .onConflictDoNothing(),
+    ]);
+  return { ...h, approve, now, seed, service };
 };
 
-test("endpoint approval provisioning is stable, resolves only the live approved grant", async () => {
-  const { db, service, approve } = setup();
-  await service.ensure("a", "w1", "discord");
-  await service.ensure("a", "w1", "discord");
+test("endpoint resolves only the live approved grant", async () => {
+  const { db, service, approve, seed } = setup();
+  await seed();
   const [row] = db.select().from(artifactEndpoints).all();
   if (!row) {
     throw new Error("Missing endpoint");
   }
-  expect(row.id).toMatch(ENDPOINT_ID);
   expect(db.select().from(artifactEndpoints).all()).toHaveLength(1);
   expect(await service.resolve(row.id)).toBeNull();
   approve();
@@ -96,9 +105,9 @@ test("endpoint approval provisioning is stable, resolves only the live approved 
 });
 
 test("owner/admin can disable, enable and rotate; other members and credentials cannot manage", async () => {
-  const { service, approve } = setup();
+  const { service, approve, seed } = setup();
   approve();
-  await service.ensure("a", "w1", "discord");
+  await seed();
   const [row] = await service.list(principals.owner, "a");
   if (!row) {
     throw new Error("Missing endpoint");
@@ -124,23 +133,32 @@ test("owner/admin can disable, enable and rotate; other members and credentials 
   const next = await service.change(principals.owner, row.id, "rotate");
   expect(await service.resolve(row.id)).toBeNull();
   expect(await service.resolve(next.id)).not.toBeNull();
+  expect(await service.list(principals.owner, "a")).toEqual([next]);
   await expect(
     service.change(principals.owner, row.id, "enable")
   ).rejects.toThrow();
 });
 
 test("known endpoint calls log privacy metadata and rate limited outcomes", async () => {
-  const { db, service } = setup();
-  await service.ensure("a", "w1", "discord");
+  const { db, service, approve, seed } = setup();
+  approve();
+  await seed();
   const [row] = db.select().from(artifactEndpoints).all();
   if (!row) {
     throw new Error("Missing endpoint");
   }
+  await db.update(artifacts).set({ currentVersionId: null });
   await service.recordCall(
-    row.id,
+    {
+      artifactId: "a",
+      endpointId: row.id,
+      name: "discord",
+      versionId: "v",
+      workspaceId: "w1",
+    },
     {
       ipPrefix: "1.2.3.0/24",
-      place: null,
+      place: "AU",
       userAgent: "test",
       visitorHash: "hash",
     },
@@ -153,10 +171,13 @@ test("known endpoint calls log privacy metadata and rate limited outcomes", asyn
       .where(eq(artifactViews.artifactId, "a"))
       .get()
   ).toMatchObject({
+    country: "AU",
     outcome: "rate_limited",
     shareId: null,
     surface: "live_call",
+    toolKey: "endpoint:discord",
     userId: null,
+    versionId: "v",
     visitorHash: "hash",
   });
 });

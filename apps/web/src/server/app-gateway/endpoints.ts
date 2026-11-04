@@ -7,10 +7,7 @@ import { handleEndpointRequest } from "./gateway-core.ts";
 import type { ApiLimiter, AppGatewayWiring } from "./mount.ts";
 
 interface EndpointWiring extends AppGatewayWiring {
-  endpoints: Pick<
-    ArtifactEndpointsService,
-    "resolve" | "recordCall" | "workspaceIdOf"
-  >;
+  endpoints: Pick<ArtifactEndpointsService, "resolve" | "recordCall">;
 }
 export const mountEndpointRoutes = (
   app: Hono<AppEnv>,
@@ -30,32 +27,17 @@ export const mountEndpointRoutes = (
     };
     try {
       const id = c.req.param("id") ?? "";
-      const wiring = deps.wiring(c);
-      const endpoint = await wiring.endpoints.resolve(id);
-      const workspaceId =
-        endpoint?.workspaceId ?? (await wiring.endpoints.workspaceIdOf(id));
-      const meta = workspaceId
-        ? await wiring.requestMeta(c.req.raw, workspaceId)
-        : { ipPrefix: null, place: null, userAgent: null, visitorHash: "" };
-      if (!endpoint) {
-        await wiring.endpoints.recordCall(id, meta, "refused");
-        return finish(new Response("Not found.", { status: 404 }));
-      }
       const limiter = deps.limiter?.(c.env);
       const ip = c.req.header("CF-Connecting-IP");
       const prefix = ip ? truncateIp(ip) : null;
-      // One endpoint budget and an endpoint-scoped IP-prefix budget, using the existing binding.
-      const keys = [
-        `api:endpoint:${id}`,
-        `api:endpoint:${id}:ip:${prefix ?? "unknown"}`,
-      ];
       if (
         limiter &&
-        !(await Promise.all(keys.map((key) => limiter.limit({ key })))).every(
-          (result) => result.success
-        )
+        !(
+          await limiter.limit({
+            key: `api:endpoint:${id}:ip:${prefix ?? "unknown"}`,
+          })
+        ).success
       ) {
-        await wiring.endpoints.recordCall(id, meta, "rate_limited");
         return finish(
           new Response("Too many requests.", {
             headers: { "Retry-After": "60" },
@@ -63,16 +45,32 @@ export const mountEndpointRoutes = (
           })
         );
       }
+      const wiring = deps.wiring(c);
+      const endpoint = await wiring.endpoints.resolve(id);
+      if (!endpoint) {
+        return finish(new Response("Not found.", { status: 404 }));
+      }
+      const meta = await wiring.requestMeta(c.req.raw, endpoint.workspaceId);
       const response = await handleEndpointRequest(c.req.raw, endpoint, {
         ...wiring,
         applyContentHeaders: finish,
         requestMeta: () => Promise.resolve(meta),
       });
-      await wiring.endpoints.recordCall(
-        id,
-        meta,
-        response.status >= 500 ? "error" : "ok"
-      );
+      const log = Promise.resolve()
+        .then(() =>
+          wiring.endpoints.recordCall(
+            endpoint,
+            meta,
+            response.status >= 500 ? "error" : "ok"
+          )
+        )
+        .catch(() => undefined);
+      // Hono tests may have no execution context; Workers always supplies it.
+      try {
+        c.executionCtx.waitUntil(log);
+      } catch {
+        /* The caught log still runs. */
+      }
       return response;
     } catch {
       return finish(

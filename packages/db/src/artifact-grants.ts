@@ -140,7 +140,7 @@ export const insertGrants = (db: Database, rows: ArtifactGrantInsert[]) =>
  * decided. It is the arbiter between callers that race: only the one whose
  * update changed a row writes the event, so an event is written once.
  */
-export const claimGrants = async (
+export const claimGrantsStatement = (
   db: Database,
   query: {
     decidedAt: string;
@@ -148,11 +148,8 @@ export const claimGrants = async (
     ids: string[];
     status: Exclude<ArtifactGrantStatus, "pending">;
   }
-): Promise<string[]> => {
-  if (query.ids.length === 0) {
-    return [];
-  }
-  const rows = await db
+) =>
+  db
     .update(artifactGrants)
     .set({
       decidedAt: query.decidedAt,
@@ -166,8 +163,6 @@ export const claimGrants = async (
       )
     )
     .returning({ id: artifactGrants.id });
-  return rows.map((row) => row.id);
-};
 
 /** A proposed version a person declined. */
 export const rejectVersionStatement = (db: Database, versionId: string) =>

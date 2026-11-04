@@ -9,22 +9,29 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 /**
  * An unexecuted insert, update or delete, e.g. `db.insert(runs).values(row)`.
- * Pass writes only. A select would type-check, but its rows are discarded.
+ * Pass writes only. Use `returning()` to capture rows through `onResults`.
  * Do not await it or call `.run()`: `atomic` does that.
  */
-export type Statement = BatchItem<"sqlite"> & { run: () => unknown };
+export type Statement = BatchItem<"sqlite"> & {
+  run: () => unknown;
+  all: () => unknown;
+};
 
-/** Runs all statements or none, in order. Rejects if any of them fails. */
-export type Atomic = (statements: readonly Statement[]) => Promise<void>;
+/** Runs all statements or none, in order. Optional results are delivered after commit. */
+export type Atomic = (
+  statements: readonly Statement[],
+  onResults?: (results: unknown[]) => void
+) => Promise<void>;
 
 /** D1: one `db.batch`, which D1 runs as a single transaction. */
 export const d1Atomic =
   (db: Pick<DrizzleD1Database, "batch">): Atomic =>
-  async (statements) => {
+  async (statements, onResults) => {
     // D1 rejects an empty batch, and the type wants a non-empty tuple.
     const [first, ...rest] = statements;
     if (first) {
-      await db.batch([first, ...rest]);
+      const results = await db.batch([first, ...rest]);
+      onResults?.(results);
     }
   };
 
@@ -34,13 +41,19 @@ export const d1Atomic =
  */
 export const sqliteAtomic =
   (db: { transaction: (fn: () => void) => unknown }): Atomic =>
-  (statements) => {
+  (statements, onResults) => {
     try {
+      const results: unknown[] = [];
       db.transaction(() => {
         for (const statement of statements) {
-          statement.run();
+          if (onResults) {
+            results.push(statement.all());
+          } else {
+            statement.run();
+          }
         }
       });
+      onResults?.(results);
       return Promise.resolve();
     } catch (error) {
       return Promise.reject(error);
