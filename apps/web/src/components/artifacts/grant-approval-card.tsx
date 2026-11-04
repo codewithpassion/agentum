@@ -51,6 +51,18 @@ export function GrantApprovalView({
       <AccessList items={items.tools} label="Tools" />
       <AccessList items={items.hosts} label="Hosts" />
       <AccessList items={items.secrets} label="Secrets" />
+      {items.endpoints.map((name) => (
+        <p
+          className="text-xs"
+          key={`endpoint:${name}`}
+        >{`Public address: ${name}`}</p>
+      ))}
+      {items.agents.map((agentId) => (
+        <p
+          className="text-xs"
+          key={`agent:${agentId}`}
+        >{`Hand off to agent ${agentId}`}</p>
+      ))}
       <p className="text-muted-foreground text-xs">{expiresText}</p>
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">

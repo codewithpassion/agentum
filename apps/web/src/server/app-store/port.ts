@@ -38,7 +38,7 @@ export const appStorePort = (
 const DEFAULT_LIST_LIMIT = 100;
 
 /**
- * One viewer's storage calls, shaped like the `HM` storage methods. It scopes
+ * One viewer's storage calls, shaped like the `AgentumHost` storage methods. It scopes
  * each call to the viewer and refuses a write that `canWrite` denies with
  * `forbidden`, so AppHost and B.5 apply the same rule.
  */

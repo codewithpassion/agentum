@@ -27,7 +27,9 @@ const display = (
 
 test("parsePromoteApproval reads the lists and keeps limit rows only as ids", () => {
   expect(parsePromoteApproval(display())).toEqual({
+    agents: [],
     artifactId: "a1",
+    endpoints: [],
     grantIds: ["g1", "g2", "g3", "g4", "g5"],
     hosts: ["api.example.com"],
     secrets: ["API_KEY"],
@@ -73,4 +75,31 @@ test("decideAll skips an already decided grant and stops at another error", asyn
     })
   ).rejects.toThrow("boom");
   expect(seen).toEqual(["a", "b"]);
+});
+
+test("endpoint and agent grants parse and are all approved", async () => {
+  const parsed = parsePromoteApproval(
+    display({
+      input: {
+        artifactId: "a1",
+        grants: [
+          { id: "endpoint", kind: "endpoint", target: "discord" },
+          { id: "agent", kind: "agent", target: "agent_1" },
+        ],
+        title: "Bot",
+        version: 1,
+        versionId: "v1",
+      },
+    })
+  );
+  if (parsed === null) {
+    throw new Error("Expected an app promotion approval");
+  }
+  expect(parsed).toMatchObject({ agents: ["agent_1"], endpoints: ["discord"] });
+  const calls: string[] = [];
+  await decideAll(parsed.grantIds, "approved", (id, decision) => {
+    calls.push(`${id}:${decision}`);
+    return Promise.resolve();
+  });
+  expect(calls).toEqual(["endpoint:approved", "agent:approved"]);
 });

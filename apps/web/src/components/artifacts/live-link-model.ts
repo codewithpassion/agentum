@@ -1,3 +1,4 @@
+import type { ArtifactGrantKind } from "@repo/db/shared";
 import { format } from "date-fns";
 import type { ExpiryChoice } from "./share-model";
 
@@ -5,7 +6,7 @@ export type DataMode = "live" | "snapshot";
 
 /** The part of a grant row the share dialog reads. */
 export interface GrantLike {
-  kind: "host" | "secret" | "tool";
+  kind: ArtifactGrantKind;
   status: "approved" | "pending" | "rejected";
   target: string;
 }

@@ -6,6 +6,7 @@ import {
   NEEDS_YOU_KINDS,
   QA_STATUSES,
   REQUEST_KINDS,
+  TRIGGER_KINDS,
 } from "./shared.ts";
 import { migrated } from "./test-db.ts";
 
@@ -45,6 +46,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "artifact_ask_dispatches",
     "artifact_comment_threads",
     "artifact_comments",
+    "artifact_endpoints",
     "artifact_grants",
     "artifact_live_changes",
     "artifact_members",
@@ -123,7 +125,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(83);
+  expect(tables.length).toBe(84);
 
   for (const table of tables) {
     const column = client
@@ -362,4 +364,54 @@ test("live columns preserve existing defaults and event immutability triggers", 
     "events_no_delete",
     "events_no_update",
   ]);
+});
+
+test("endpoint rows have a partial unique name index and triggers have a nullable artifact reference", () => {
+  const { client } = migrated();
+  const columns = client
+    .query<Column, []>("PRAGMA table_info(artifact_endpoints)")
+    .all();
+  expect(columns.map((c) => c.name).sort()).toEqual([
+    "artifact_id",
+    "created_at",
+    "disabled_at",
+    "id",
+    "name",
+    "workspace_id",
+  ]);
+  expect(columns.find((c) => c.name === "disabled_at")?.notnull).toBe(0);
+  const index = client
+    .query<{ sql: string }, []>(
+      "SELECT sql FROM sqlite_master WHERE name = 'artifact_endpoints_active_name_unique'"
+    )
+    .get();
+  expect(index?.sql).toContain("WHERE");
+  expect(indexColumns(client, "artifact_endpoints_active_name_unique")).toEqual(
+    ["artifact_id", "name"]
+  );
+  expect(
+    client
+      .query<Column, []>("PRAGMA table_info(triggers)")
+      .all()
+      .find((c) => c.name === "artifact_id")?.notnull
+  ).toBe(0);
+});
+
+test("app triggers have an artifact index and a partial unique artifact-agent key", () => {
+  const { client } = migrated();
+  expect(TRIGGER_KINDS).toContain("app");
+  expect(indexColumns(client, "triggers_artifact_idx")).toEqual([
+    "artifact_id",
+  ]);
+  expect(indexColumns(client, "triggers_artifact_agent_unique")).toEqual([
+    "artifact_id",
+    "agent_id",
+  ]);
+  const index = client
+    .query<{ sql: string }, []>(
+      "SELECT sql FROM sqlite_master WHERE name = 'triggers_artifact_agent_unique'"
+    )
+    .get();
+  expect(index?.sql).toContain("CREATE UNIQUE INDEX");
+  expect(index?.sql).toContain('"artifact_id" is not null');
 });

@@ -27,10 +27,10 @@ const withHosts = (hosts: unknown) =>
   parseManifest([manifestFile({ hosts }), serverFile]);
 
 describe("parseManifest", () => {
-  test("no harbourmaster.json at the root gives an empty manifest", () => {
+  test("no agentum.json at the root gives an empty manifest", () => {
     expect(parseManifest([])).toEqual(emptyManifest());
     expect(
-      parseManifest([{ path: "app/harbourmaster.json", text: "not json" }])
+      parseManifest([{ path: "app/agentum.json", text: "not json" }])
     ).toEqual(emptyManifest());
   });
 
@@ -59,6 +59,8 @@ describe("parseManifest", () => {
 
     const manifest = parseManifest(files);
     expect(manifest).toEqual({
+      agents: [],
+      endpoints: [],
       hosts: ["api.example.com", "cdn.example.org"],
       secrets: ["API_KEY", "_TOKEN2"],
       tools: [
@@ -292,6 +294,7 @@ describe("declaredGrants", () => {
   test("a tool with empty limits adds no limits row", () => {
     expect(
       declaredGrants({
+        ...emptyManifest(),
         hosts: [],
         secrets: [],
         tools: [{ limits: {}, tool: "mail/send" }],
@@ -302,6 +305,7 @@ describe("declaredGrants", () => {
   test("duplicate grants are dropped", () => {
     expect(
       declaredGrants({
+        ...emptyManifest(),
         hosts: ["a.example.com"],
         secrets: [],
         tools: [{ tool: "mail/send" }, { tool: "mail/send" }],
@@ -327,4 +331,62 @@ describe("canonicalJson", () => {
     expect(canonicalJson([2, 1])).toBe("[2,1]");
     expect(canonicalJson({ list: ["b", "a"] })).toBe('{"list":["b","a"]}');
   });
+});
+
+test("endpoint and agent declarations parse and become grants", () => {
+  const parsed = parseManifest([
+    manifestFile({
+      agents: [{ agent: "agent-1" }],
+      endpoints: [{ name: "discord" }],
+    }),
+    serverFile,
+  ]);
+  expect(parsed.endpoints).toEqual([{ name: "discord" }]);
+  expect(parsed.agents).toEqual([{ agent: "agent-1" }]);
+  expect(declaredGrants(parsed)).toEqual([
+    { kind: "agent", target: "agent-1" },
+    { kind: "endpoint", target: "discord" },
+  ]);
+});
+
+test("endpoints and agents need server code, unique entries and at most five entries", () => {
+  for (const [field, entry] of [
+    ["endpoints", { name: "discord" }],
+    ["agents", { agent: "agent-1" }],
+  ] as const) {
+    parseFails([manifestFile({ [field]: [entry] })], "server/");
+    parseFails(
+      [manifestFile({ [field]: [entry, entry] }), serverFile],
+      "declared twice"
+    );
+    parseFails(
+      [
+        manifestFile({
+          [field]: Array.from({ length: 6 }, (_, i) =>
+            field === "endpoints" ? { name: `e-${i}` } : { agent: `a-${i}` }
+          ),
+        }),
+        serverFile,
+      ],
+      field
+    );
+  }
+});
+
+test("endpoint names and agent ids are bounded", () => {
+  for (const name of ["", "Discord", "a_b", "a".repeat(41)]) {
+    parseFails(
+      [manifestFile({ endpoints: [{ name }] }), serverFile],
+      "endpoints"
+    );
+  }
+  for (const agent of ["", "a".repeat(201)]) {
+    parseFails([manifestFile({ agents: [{ agent }] }), serverFile], "agents");
+  }
+  expect(
+    parseManifest([
+      manifestFile({ endpoints: [{ name: "a".repeat(40) }] }),
+      serverFile,
+    ]).endpoints
+  ).toHaveLength(1);
 });

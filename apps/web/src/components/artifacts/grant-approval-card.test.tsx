@@ -6,7 +6,9 @@ import type { PromoteApproval } from "./grant-approval-model.ts";
 const noop = () => undefined;
 
 const items = (overrides: Partial<PromoteApproval> = {}): PromoteApproval => ({
+  agents: [],
   artifactId: "a1",
+  endpoints: [],
   grantIds: ["g1", "g2", "g3", "g4"],
   hosts: ["api.example.com"],
   secrets: ["API_KEY"],

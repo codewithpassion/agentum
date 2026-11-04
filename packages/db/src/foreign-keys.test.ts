@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { agents, browserSessions } from "./schema/agents.ts";
 import {
+  artifactEndpoints,
   artifactGrants,
   artifactPins,
   artifactShares,
@@ -1181,4 +1182,88 @@ test("live tables enforce parent foreign keys, guest grants and active uniquenes
   ).toThrow(FK);
   expect(c.query("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(() => insert("guest_identities", { ...rows[0]?.[1] })).toThrow(FK);
+});
+
+test("endpoints enforce parents and active name uniqueness; app triggers allow null but require a real artifact", () => {
+  const db = migrated();
+  seedRun(db);
+  db.insert(artifacts).values(artifactRow()).run();
+  const endpoint = {
+    artifactId: "ar1",
+    createdAt: NOW,
+    id: "ep1",
+    name: "discord",
+    workspaceId: "w1",
+  };
+  for (const overrides of [
+    { artifactId: "missing" },
+    { workspaceId: "missing" },
+  ]) {
+    expect(() =>
+      db
+        .insert(artifactEndpoints)
+        .values({ ...endpoint, ...overrides })
+        .run()
+    ).toThrow(FK);
+  }
+  db.insert(artifactEndpoints).values(endpoint).run();
+  expect(() =>
+    db
+      .insert(artifactEndpoints)
+      .values({ ...endpoint, id: "ep2" })
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  db.update(artifactEndpoints)
+    .set({ disabledAt: NOW })
+    .where(eq(artifactEndpoints.id, "ep1"))
+    .run();
+  db.insert(artifactEndpoints)
+    .values({ ...endpoint, id: "ep2" })
+    .run();
+  expect(() =>
+    db
+      .update(artifactEndpoints)
+      .set({ disabledAt: null })
+      .where(eq(artifactEndpoints.id, "ep1"))
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  const trigger = {
+    agentId: "a1",
+    createdAt: NOW,
+    createdBy: "u1",
+    id: "app-trigger",
+    kind: "app" as const,
+    name: "app",
+    workspaceId: "w1",
+  };
+  expect(() =>
+    db
+      .insert(triggers)
+      .values({ ...trigger, artifactId: "missing" })
+      .run()
+  ).toThrow(FK);
+  db.insert(triggers)
+    .values({ ...trigger, artifactId: "ar1" })
+    .run();
+  expect(() =>
+    db
+      .insert(triggers)
+      .values({ ...trigger, artifactId: "ar1", id: "duplicate" })
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  db.insert(agents).values(agent("a2", "w1")).run();
+  db.insert(triggers)
+    .values({ ...trigger, agentId: "a2", artifactId: "ar1", id: "other-agent" })
+    .run();
+  db.insert(triggers)
+    .values({ ...trigger, id: "another-plain-trigger" })
+    .run();
+  db.insert(triggers)
+    .values({ ...trigger, id: "plain-trigger" })
+    .run();
+  expect(
+    db.select().from(triggers).where(eq(triggers.id, "plain-trigger")).get()
+      ?.artifactId
+  ).toBeNull();
+  expect(db.client.query("PRAGMA foreign_key_check").all()).toEqual([]);
 });

@@ -21,6 +21,8 @@ test("liveToolOptions keeps approved tool grants without argument limits", () =>
     grant({ status: "rejected", target: "cal.list" }),
     grant({ kind: "host", target: "api.example.com" }),
     grant({ kind: "secret", target: "KEY" }),
+    grant({ kind: "endpoint", target: "discord" }),
+    grant({ kind: "agent", target: "agent-1" }),
     grant({ target: "gmail.search" }),
     grant({ target: "docs.read" }),
   ]);

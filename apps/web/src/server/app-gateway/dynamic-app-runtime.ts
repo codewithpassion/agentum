@@ -3,7 +3,7 @@
  * cached by the loader under `app:<versionId>`, with a loader config that
  * holds nothing about the viewer: the callback runs once per id, so anything
  * in it would stick to whoever loaded the Worker first
- * (`docs/v3/phase2-spike.md` Q2). Each request instead makes a new `HM` stub
+ * (`docs/v3/phase2-spike.md` Q2). Each request instead makes a new `AgentumHost` stub
  * and passes it to the generated harness as an RPC argument.
  */
 
@@ -18,7 +18,7 @@ const MAX_SUBREQUESTS = 50;
 const CPU_MS = 10_000;
 
 interface Harness {
-  handle: (request: Request, hm: unknown) => Promise<Response>;
+  handle: (request: Request, host: unknown) => Promise<Response>;
 }
 
 export interface DynamicAppRuntimeDeps {

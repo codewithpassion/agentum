@@ -3,7 +3,7 @@ import type { Atomic, Statement } from "./atomic.ts";
 import type { Database } from "./database.ts";
 import { mapPositions } from "./schema/map.ts";
 import { triggers as triggerRows } from "./schema/triggers.ts";
-import type { MapWireKind } from "./shared.ts";
+import type { MapTriggerKind, MapWireKind } from "./shared.ts";
 
 export interface GraphAgent {
   computerId: string | null;
@@ -28,7 +28,7 @@ export const graphNodes = async (db: Database, workspaceId: string) => {
     db.all<{
       id: string;
       agentId: string;
-      kind: "http" | "routine" | "mail" | "slack";
+      kind: MapTriggerKind;
       label: string;
     }>(sql`
       select t.id, t.agent_id as agentId, t.kind,

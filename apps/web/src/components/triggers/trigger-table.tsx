@@ -68,6 +68,10 @@ function TriggerRow({
   );
   const pending = isAwaitingApproval(trigger);
   const label = statusLabel(trigger);
+  let tokenLabel = pending ? "none yet" : `${trigger.tokenPrefix}…`;
+  if (trigger.kind === "app") {
+    tokenLabel = "No token";
+  }
 
   let actions: ReactNode = null;
   if (pending) {
@@ -88,7 +92,11 @@ function TriggerRow({
           {paused ? "Resume" : "Pause"}
         </Button>{" "}
         <ConfirmButton
-          description={`Revoke "${trigger.name}"? Its URL token stops working and cannot be restored.`}
+          description={
+            trigger.kind === "app"
+              ? `Revoke "${trigger.name}"? The app can no longer start this agent.`
+              : `Revoke "${trigger.name}"? Its URL token stops working and cannot be restored.`
+          }
           onConfirm={revoke}
           size="sm"
           title="Revoke trigger?"
@@ -105,6 +113,9 @@ function TriggerRow({
       <ResponsiveCell className="font-medium" label="Name">
         <div>
           <div>{trigger.name}</div>
+          {trigger.kind === "app" ? (
+            <Badge variant="secondary">App</Badge>
+          ) : null}
           {pending ? (
             <div className="font-normal text-muted-foreground text-xs">
               Proposed by {trigger.agentName}
@@ -119,7 +130,7 @@ function TriggerRow({
         className="font-mono text-muted-foreground text-xs"
         label="Token"
       >
-        {pending ? "none yet" : `${trigger.tokenPrefix}…`}
+        {tokenLabel}
       </ResponsiveCell>
       <ResponsiveCell className="text-muted-foreground" label="Last fired">
         {lastFiredLabel(trigger.lastFiredAt)}

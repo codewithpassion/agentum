@@ -1,7 +1,7 @@
 /**
  * The module map of an app's server part, for one Dynamic Worker. The app's
  * `server/` files go in as they are, and a harness module hands each request
- * the `HM` binding and the app's `fetch`. Nothing is wrapped or rewritten.
+ * the `AgentumHost` binding and the app's `fetch`. Nothing is wrapped or rewritten.
  * `checkServerBundle` runs at publish, so a bad bundle is refused before a
  * viewer loads it.
  */
@@ -16,13 +16,13 @@ import type { SandboxFile } from "../skill-scripts/sandbox-port.ts";
 export const APP_SERVER_ENTRY = "server/index.js";
 export const APP_HARNESS = "__harness.js";
 
-/** The module the Worker runs. It names the app's default export and the `HM` binding, and nothing else. */
+/** The module the Worker runs. It names the app's default export and the `AgentumHost` binding, and nothing else. */
 export const HARNESS_SOURCE = [
   'import { WorkerEntrypoint } from "cloudflare:workers";',
   'import app from "./server/index.js";',
   "export class Harness extends WorkerEntrypoint {",
-  "  async handle(request, hm) {",
-  "    return app.fetch(request, { ...this.env, HM: hm }, this.ctx);",
+  "  async handle(request, agentum) {",
+  "    return app.fetch(request, { ...this.env, AGENTUM: agentum }, this.ctx);",
   "  }",
   "}",
   'export default { fetch: () => new Response("use Harness", { status: 404 }) };',

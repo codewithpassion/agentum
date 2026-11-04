@@ -45,7 +45,7 @@ const artifactId = z
 const kind = z
   .enum(["page", "doc", "dashboard", "app"])
   .describe(
-    "page: static HTML (entry index.html). doc: Markdown (entry index.md). dashboard: an HTML page that reads data files shipped in the same version, such as data.json. app: index.html plus server/index.js (JavaScript only, export default { fetch(request, env) }, reads env.HM) and harbourmaster.json."
+    "page: static HTML (entry index.html). doc: Markdown (entry index.md). dashboard: an HTML page that reads data files shipped in the same version, such as data.json. app: index.html plus server/index.js (JavaScript only, export default { fetch(request, env) }, reads env.AGENTUM) and agentum.json."
   );
 
 const file = z.strictObject({

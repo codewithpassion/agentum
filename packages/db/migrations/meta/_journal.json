@@ -302,6 +302,20 @@
       "when": 1793772491610,
       "tag": "0042_kind_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1793792863669,
+      "tag": "0043_woozy_iron_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1793793829213,
+      "tag": "0044_keen_earthquake",
+      "breakpoints": true
     }
   ]
 }

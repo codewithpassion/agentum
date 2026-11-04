@@ -119,7 +119,7 @@ export const INPUT_FILES_MAX = 20;
 /** Largest file the upload route and the files service accept: 50 MB. */
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-export const TRIGGER_KINDS = ["http", "routine", "mail"] as const;
+export const TRIGGER_KINDS = ["http", "routine", "mail", "app"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 /** A proposal from an agent's run that no person has approved yet. */
@@ -908,7 +908,7 @@ export const MAP_NODE_KINDS = ["trigger", "agent", "output"] as const;
 export type MapNodeKind = (typeof MAP_NODE_KINDS)[number];
 
 /** What starts an agent. `slack` is an agent's Slack app, which is not a `triggers` row. */
-export const MAP_TRIGGER_KINDS = ["http", "routine", "mail", "slack"] as const;
+export const MAP_TRIGGER_KINDS = [...TRIGGER_KINDS, "slack"] as const;
 export type MapTriggerKind = (typeof MAP_TRIGGER_KINDS)[number];
 
 /** Where an agent's work lands. */
@@ -1045,7 +1045,13 @@ export type ArtifactShareKind = (typeof ARTIFACT_SHARE_KINDS)[number];
 export const ARTIFACT_SHARE_DATA_MODES = ["snapshot", "live"] as const;
 export type ArtifactShareDataMode = (typeof ARTIFACT_SHARE_DATA_MODES)[number];
 
-export const ARTIFACT_GRANT_KINDS = ["tool", "secret", "host"] as const;
+export const ARTIFACT_GRANT_KINDS = [
+  "tool",
+  "secret",
+  "host",
+  "endpoint",
+  "agent",
+] as const;
 export type ArtifactGrantKind = (typeof ARTIFACT_GRANT_KINDS)[number];
 
 export const ARTIFACT_GRANT_STATUSES = [

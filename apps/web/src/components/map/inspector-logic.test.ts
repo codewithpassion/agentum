@@ -140,6 +140,7 @@ describe("countOf", () => {
 
 describe("trigger and output words", () => {
   test("names each trigger kind", () => {
+    expect(triggerWord("app")).toBe("App");
     expect(triggerWord("mail")).toBe("Mail");
     expect(triggerWord("routine")).toBe("Schedule");
     expect(triggerWord("http")).toBe("HTTP");

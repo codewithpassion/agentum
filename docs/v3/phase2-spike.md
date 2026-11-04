@@ -8,7 +8,7 @@ Task B.1, 27 Oct 2026. Spec: `docs/v3/artifacts-prd.md` sections 3 to 5. The thr
 |---|---|
 | Storage | `AppStore`, one SQLite Durable Object per artifact. Not Facets. |
 | Loader | `env.LOADER.get("app:<versionId>", …)` works as the PRD says, with one change: the viewer must not be baked into the cached Worker (Q2). |
-| Network | `globalOutbound: null` blocks `fetch` and `connect`. An outbound entrypoint with a host list works, and it reads the approved hosts at call time. Skip `HM.fetch`: global `fetch` through the gateway already is the filtered fetch. |
+| Network | `globalOutbound: null` blocks `fetch` and `connect`. An outbound entrypoint with a host list works, and it reads the approved hosts at call time. Skip `AgentumHost.fetch`: global `fetch` through the gateway already is the filtered fetch. |
 | Local dev | All of it behaves the same under `wrangler dev` and `vite dev`. |
 | R2.8 | No trigger fires for phase 2 as scoped. Stay on the app origin. One trigger waits on Dom (see R2.8). |
 
@@ -36,11 +36,11 @@ Consequences for B.2: when the version is published, parse every `server/` file 
 
 ## Q2. AppHost over RPC, and the viewer problem
 
-Run: `ctx.exports.AppHost({ props })` as `env.HM` in the loader config, called from the loaded code.
+Run: `ctx.exports.AppHost({ props })` as `env.AGENTUM` in the loader config, called from the loaded code.
 
-- It works. The app called `HM.whoami()`, `HM.kvPut()` and `HM.kvGet()` over RPC and the host wrote through the `AppStore` DO. `Object.keys(env.HM)` is empty, so the app holds a stub and cannot read the props.
-- **Baked props are wrong for viewers.** `get(id, cb)` runs the callback once per id, so `env.HM` keeps the props of whoever loaded the Worker first. Requests for `viewer=alice` then `viewer=bob` both answered `viewer: "alice"`. The same happens to a facet's `env`. Putting the viewer in the loader callback would hand the first viewer's rights to everyone after.
-- **Fix, tested.** The platform adds a generated main module (`__harness.js` in the spike) that imports the app's `server/index.js` and exports `class Harness extends WorkerEntrypoint { handle(request, hm) { return app.fetch(request, { ...this.env, HM: hm }, this.ctx) } }`. The gateway makes a fresh `HM` stub per request, `ctx.exports.AppHost({ props: { …, viewer } })`, and passes it as an RPC argument: `worker.getEntrypoint("Harness").handle(request, hm)`. Alice then bob gave `viewer: "alice"` then `"bob"` on one cached Worker. The `Request` goes in and the `Response` comes back over RPC. The app author still writes `export default { fetch(request, env) }` and reads `env.HM`.
+- It works. The app called `AgentumHost.whoami()`, `AgentumHost.kvPut()` and `AgentumHost.kvGet()` over RPC and the host wrote through the `AppStore` DO. `Object.keys(env.AGENTUM)` is empty, so the app holds a stub and cannot read the props.
+- **Baked props are wrong for viewers.** `get(id, cb)` runs the callback once per id, so `env.AGENTUM` keeps the props of whoever loaded the Worker first. Requests for `viewer=alice` then `viewer=bob` both answered `viewer: "alice"`. The same happens to a facet's `env`. Putting the viewer in the loader callback would hand the first viewer's rights to everyone after.
+- **Fix, tested.** The platform adds a generated main module (`__harness.js` in the spike) that imports the app's `server/index.js` and exports `class Harness extends WorkerEntrypoint { handle(request, agentum) { return app.fetch(request, { ...this.env, AGENTUM: agentum }, this.ctx) } }`. The gateway makes a fresh `AgentumHost` stub per request, `ctx.exports.AppHost({ props: { …, viewer } })`, and passes it as an RPC argument: `worker.getEntrypoint("Harness").handle(request, agentum)`. Alice then bob gave `viewer: "alice"` then `"bob"` on one cached Worker. The `Request` goes in and the `Response` comes back over RPC. The app author still writes `export default { fetch(request, env) }` and reads `env.AGENTUM`.
 - A review spot-check kept a stub in module state and used it on a later request: it failed with `Cannot perform I/O on behalf of a different request`, and `dup()` is not callable over RPC. So a stub is bound to its request. The residual case is app code handing work through module state to a concurrent request that holds a stub with more rights; that is the app's own isolate and its own users.
 - `getEntrypoint("Harness", { props })` also works and shows up as `this.ctx.props` in the harness (tested, returned `{ viewer: "carol" }`), but props must not carry the viewer's rights, only the stub does.
 - Every public method of `AppHost` is callable by the app. Keep helpers `#private` and expose only the interface below.
@@ -59,14 +59,14 @@ Run: `AppStore` is a SQLite DO with one `kv(area, viewer, k, v)` table, reached 
 
 - Facets work in local dev (`wrangler dev` and `vite dev`) at wrangler 4.151.1 and compatibility date 2026-08-19, with no extra flag. The docs page was updated 12 Oct 2026. `facets.delete("app")` emptied the database.
 - **Cap.** In `AppStore`, `ctx.storage.sql.databaseSize` plus the incoming value is checked before each write. Filling the shared area in 1 MB values refused write 20 at 19,968,000 bytes with `quota_exceeded`. That is within one value of 20,971,520, so the cap holds. A facet got no cap: its own code wrote 26,263,552 bytes with no error, the supervisor's `databaseSize` stayed at 16,384, and I found no supervisor-side API for the facet's size or a limit.
-- **Viewer and area rules.** In `AppStore` the host decides the viewer from the verified token, so the app cannot forge it. In a facet the app's own SQL decides: my test facet took the viewer from a query parameter and, because it reads every row with no viewer filter, returned alice's rows to bob. Its `env.HM` also kept alice (the Q2 caching). R2.3 (reachable only through `HM`) and R2.6 (a snapshot link never writes) would rest on the app author's code.
+- **Viewer and area rules.** In `AppStore` the host decides the viewer from the verified token, so the app cannot forge it. In a facet the app's own SQL decides: my test facet took the viewer from a query parameter and, because it reads every row with no viewer filter, returned alice's rows to bob. Its `env.AGENTUM` also kept alice (the Q2 caching). R2.3 (reachable only through `AgentumHost`) and R2.6 (a snapshot link never writes) would rest on the app author's code.
 - **Pages without a server part.** The bridge calls storage with no server code loaded (R2.5 dashboards, B.5's storage procedures). A facet needs an exported class, so those apps would need a platform-written one anyway.
 - **Platform control.** `AppStore` gives the platform size, export, wipe and per-viewer delete with plain SQL (size and writes ran, wipe did not). A facet's data is readable only through the app's code.
-- Facets would be the better fit if apps needed arbitrary SQL, joins or their own schema. R2.3 asks for a key-value store with two areas, so that is not needed now. If a later phase wants SQL, add a facet beside `AppStore` for that app kind. Nothing in the `HM` interface below blocks it.
+- Facets would be the better fit if apps needed arbitrary SQL, joins or their own schema. R2.3 asks for a key-value store with two areas, so that is not needed now. If a later phase wants SQL, add a facet beside `AppStore` for that app kind. Nothing in the `AgentumHost` interface below blocks it.
 
 Pick: `AppStore`, keyed by artifact id so data survives versions. Cost is DO pricing either way.
 
-## The `HM` interface (B.2 and B.3 build to this)
+## The `AgentumHost` interface (B.2 and B.3 build to this)
 
 ```ts
 /** From the verified content token, never from app code. */
@@ -92,8 +92,8 @@ export interface AppHostProps {
 
 export type StorageArea = "viewer" | "shared";
 
-/** The `env.HM` an app server sees. Every call is an RPC to `AppHost`. Values are JSON text, so the app calls JSON.stringify and parse. */
-export interface HM {
+/** The `env.AGENTUM` an app server sees. Every call is an RPC to `AppHost`. Values are JSON text, so the app calls JSON.stringify and parse. */
+export interface AgentumHost {
   whoami(): Promise<{ viewer: "member" | "link"; dataMode: "snapshot" | "live" | null }>;
   getItem(area: StorageArea, key: string): Promise<string | null>;
   /** Refuses with `forbidden` when the viewer may not write the area, and `quota_exceeded` above the cap. */
@@ -107,7 +107,7 @@ export interface HM {
 export type AppErrorCode = "forbidden" | "quota_exceeded" | "not_granted" | "rate_limited" | "too_large";
 ```
 
-`AppHost extends WorkerEntrypoint<Env, AppHostProps>` implements `HM` and holds the ports below. For a member it builds a fresh `Principal` per call and re-checks membership (B.5's `callTool` takes a `Principal`). For a link viewer `callTool` goes through B.6's `ShareGrant` entry, not B.5's member path, with `meta` for the limits and the access-log row. Because the claims come from the content token, `AppHost` re-checks the share (revoked, expired, switch off) on every storage write and tool call, as R2.12 requires for calls. Errors cross RPC as `Error` with the code as `message` prefix (`quota_exceeded: …`), as the spike's `AppStore` threw them.
+`AppHost extends WorkerEntrypoint<Env, AppHostProps>` implements `AgentumHost` and holds the ports below. For a member it builds a fresh `Principal` per call and re-checks membership (B.5's `callTool` takes a `Principal`). For a link viewer `callTool` goes through B.6's `ShareGrant` entry, not B.5's member path, with `meta` for the limits and the access-log row. Because the claims come from the content token, `AppHost` re-checks the share (revoked, expired, switch off) on every storage write and tool call, as R2.12 requires for calls. Errors cross RPC as `Error` with the code as `message` prefix (`quota_exceeded: …`), as the spike's `AppStore` threw them.
 
 The storage port is what B.3 implements and B.2 (`AppHost`) and B.5 (tRPC storage procedures, bridge) call. It is the only place that touches the DO.
 
@@ -141,7 +141,7 @@ Proposed `canWrite` (R2.6 fixes only the first line, the rest is my default for 
 ## Rules for the gateway
 
 1. Cache id `app:<versionId>`, loader config with no viewer data in it.
-2. Per request: new `HM` stub, `getEntrypoint("Harness").handle(request, hm)`.
+2. Per request: new `AgentumHost` stub, `getEntrypoint("Harness").handle(request, agentum)`.
 3. Header allowlist on the response (Q3), then the A.4 wrapper. Catch a rejection and answer 502 with a fixed body.
 4. Publish-time parse of `server/` files; module type by extension.
 5. `globalOutbound` is always `ctx.exports.AppOutbound({ props: { workspaceId, artifactId, versionId } })` with no host list in the props, because the loader config is cached per version and approvals happen after load (B.4's decideGrant, `artifact_test` on proposed versions). `AppOutbound` reads the approved hosts through the grants port on each request, refuses everything when there are none, and fills secret placeholders like `SecretsOutbound`.
@@ -149,7 +149,7 @@ Proposed `canWrite` (R2.6 fixes only the first line, the rest is my default for 
 
 ## Q5. Local `vite dev`
 
-Run: the same spike under `vite dev` with `cloudflare()` from `@cloudflare/vite-plugin`, the plugin `apps/web/vite.config.ts` uses, after a full `wrangler dev` pass. Load and warm reuse, the bad bundle text, per-request `HM`, `null` and allowlist outbound, the `AppStore` cap and the facet all gave the same answers as `wrangler dev`, read from the curl output at the time (bodies were not saved to a log). Skill scripts already depend on the same runtime (`pi-run.ts` calls `dynamicWorkerSandbox(this.env.LOADER, …)`). The `local-worker-loader.ts` stand-in is for `bun test` only and cannot run an RPC `HM` or a DO, so B.2's real-loader test needs `wrangler dev` or `vite dev` or Miniflare, as the task says. Caveat: the CPU limit (Q1) and `connect()` (Q3) differ from production.
+Run: the same spike under `vite dev` with `cloudflare()` from `@cloudflare/vite-plugin`, the plugin `apps/web/vite.config.ts` uses, after a full `wrangler dev` pass. Load and warm reuse, the bad bundle text, per-request `AgentumHost`, `null` and allowlist outbound, the `AppStore` cap and the facet all gave the same answers as `wrangler dev`, read from the curl output at the time (bodies were not saved to a log). Skill scripts already depend on the same runtime (`pi-run.ts` calls `dynamicWorkerSandbox(this.env.LOADER, …)`). The `local-worker-loader.ts` stand-in is for `bun test` only and cannot run an RPC `AgentumHost` or a DO, so B.2's real-loader test needs `wrangler dev` or `vite dev` or Miniflare, as the task says. Caveat: the CPU limit (Q1) and `connect()` (Q3) differ from production.
 
 ## Wrangler entries for B.8
 
@@ -165,7 +165,7 @@ Run: the same spike under `vite dev` with `cloudflare()` from `@cloudflare/vite-
 
 | Trigger (PRD section 3) | Phase 2 as scoped | Verdict |
 |---|---|---|
-| App needs real-origin features: cookies, IndexedDB, service worker, WebAuthn, OAuth popup | Pages stay in the opaque origin. State goes through `HM` and the bridge, the server part is reached by `fetch` with the token in the path, tools are granted without a popup, and an app wanting OAuth does it server-side with approved hosts and secret placeholders. | Not triggered. An app that needs offline storage or WebAuthn is out of scope and would trigger it. |
+| App needs real-origin features: cookies, IndexedDB, service worker, WebAuthn, OAuth popup | Pages stay in the opaque origin. State goes through `AgentumHost` and the bridge, the server part is reached by `fetch` with the token in the path, tools are granted without a popup, and an app wanting OAuth does it server-side with approved hosts and secret placeholders. | Not triggered. An app that needs offline storage or WebAuthn is out of scope and would trigger it. |
 | A header slip or browser bug lets content run with the app origin | A process trigger, not scope. Phase 2 adds a second source of responses, app code, whose headers are app-chosen (Q3). | Not triggered. B.2 must allowlist headers, and A.4's every-status test must also cover `/api/*`, 502s and OPTIONS. |
 | Safe Browsing or mail-filter flag against the host | Not caused by phase 2 scope. Server parts with approved hosts can send traffic from our network, which is already gated by host approval (R2.2). | Not triggered. |
 | Public listing (phase 4), or link shares reaching many outside viewers | No listing in phase 2. Live links (R2.10 to R2.15) let anyone with a link run read-only tools with the owner's rights, which raises the cost of a phishing page more than phase 1 did. | Not triggered by scope. Re-check when live links go to many outside viewers, or before phase 4. |

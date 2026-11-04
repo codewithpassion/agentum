@@ -3,16 +3,16 @@ import { createAppHost } from "./app-host-core.ts";
 import { appOutboundFetch } from "./app-outbound-core.ts";
 import type { AppGatewayPorts } from "./ports.ts";
 import type {
+  AgentumHost,
   AppHostProps,
   AppOutboundProps,
-  HM,
   StorageArea,
 } from "./types.ts";
 
 /**
  * The two entrypoints a Dynamic Worker reaches through `ctx.exports`, built
  * over one set of ports (B.8 gives them `compose`'s, a test gives fakes):
- * `AppHost` is the `HM` stub of one request, `AppOutbound` is the loaded
+ * `AppHost` is the `AgentumHost` stub of one request, `AppOutbound` is the loaded
  * Worker's `globalOutbound`. The Worker's entry module exports both under
  * these names. The app holds only a stub, so it cannot read the props, and
  * every public method of `AppHost` is callable by the app: helpers stay
@@ -21,9 +21,18 @@ import type {
 export const defineAppEntrypoints = (
   portsOf: (env: Env) => AppGatewayPorts
 ) => {
-  class AppHost extends WorkerEntrypoint<Env, AppHostProps> implements HM {
-    #host(): HM {
+  class AppHost
+    extends WorkerEntrypoint<Env, AppHostProps>
+    implements AgentumHost
+  {
+    #host(): AgentumHost {
       return createAppHost(this.ctx.props, portsOf(this.env));
+    }
+
+    startRun(
+      input: Parameters<AgentumHost["startRun"]>[0]
+    ): ReturnType<AgentumHost["startRun"]> {
+      return this.#host().startRun(input);
     }
 
     callTool(toolKey: string, args: unknown): Promise<unknown> {
@@ -50,7 +59,7 @@ export const defineAppEntrypoints = (
       return this.#host().setItem(area, key, value);
     }
 
-    whoami(): ReturnType<HM["whoami"]> {
+    whoami(): ReturnType<AgentumHost["whoami"]> {
       return this.#host().whoami();
     }
   }

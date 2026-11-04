@@ -13,7 +13,7 @@ After this ships, a bot is an app artifact: data, made through the MCP tools, ap
 
 ## Rename first
 
-The manifest `harbourmaster.json` becomes `agentum.json`, and the binding app code reads, `env.HM`, becomes `env.AGENTUM`. Production has no app artifacts, so there is no fallback for the old names. The docs (`artifacts-prd.md`, `phase2-spike.md`) change with the code.
+The manifest is `agentum.json`, and app code reads the `env.AGENTUM` binding. Production has no app artifacts, so there is no fallback for the old names. The docs (`artifacts-prd.md`, `phase2-spike.md`) change with the code.
 
 ## Manifest
 

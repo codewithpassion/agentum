@@ -283,7 +283,7 @@ Phase 1 dashboards read data files in their own version with relative `fetch('da
 
 Phase 2 adds live calls through the bridge, modelled on MCP Apps and on Claude's artifact connectors:
 
-- The version declares grants in `harbourmaster.json`: which connector tools and platform read tools it may call, and with which argument limits.
+- The version declares grants in `agentum.json`: which connector tools and platform read tools it may call, and with which argument limits.
 - The page sends `tools/call` to the frame over the bridge's `MessageChannel` port. The frame calls `artifacts.callTool` over tRPC as the signed-in viewer (`workspaceProcedure`). The service checks the grant list, runs the tool through the existing credentials path with the viewer's own credential (`credentials.resolve` in `packages/services/src/credentials.ts:591`), and returns the scrubbed result.
 - Only `readOnlyHint` tools can be granted in phase 2. A grant that a version adds or widens needs a person's approval, through the propose and approve flow skills already use.
 - Link viewers get what the share allows (Dom's decision, 27 Oct 2026). The person who creates a link picks its data mode: `snapshot` (the default) or `live`. A snapshot link answers every `tools/call` with an error, so its viewers see only the data files in the version. A live link lets anyone holding it run a fixed list of read-only tools with the artifact owner's rights. This is the main exfiltration path, so the live mode carries the safeguards below as requirements (R2.6 and R2.10 to R2.15), not as defaults.
@@ -311,9 +311,9 @@ Options:
 How it runs:
 
 - The content route sends `/a/<uuid>/c/<token>/api/*` to an `AppGateway` module in the main Worker, with the verified token claims (artifact, version, viewer). It answers CORS preflights for that path with `Access-Control-Allow-Origin: *` and no credentials, because the page calls it from an opaque origin.
-- `AppGateway` loads the version's `server/` bundle with `env.LOADER.get("app:<versionId>", …)`, so a version stays warm and a new version is a new Worker. Its `env` holds one binding, `HM`, made with `ctx.exports.AppHost({ props: { artifactId, versionId, viewer } })` as `ScriptHost` is today. `HM` offers storage, granted tool calls and a filtered `fetch`.
+- `AppGateway` loads the version's `server/` bundle with `env.LOADER.get("app:<versionId>", …)`, so a version stays warm and a new version is a new Worker. Its `env` holds one binding, `AGENTUM`, made with `ctx.exports.AppHost({ props: { artifactId, versionId, viewer } })` as `ScriptHost` is today. `AGENTUM` offers storage, granted tool calls and a filtered `fetch`.
 - `globalOutbound` is an outbound entrypoint that allows only hosts the app declares and adds secrets through placeholders, like `SecretsOutbound` (`apps/web/src/server/secrets-outbound.ts`). With no hosts declared it is `null`, which blocks the network ([egress control](https://developers.cloudflare.com/dynamic-workers/usage/egress-control/)).
-- Storage is one SQLite Durable Object per app, `AppStore`, with a per-viewer area and a shared area, reached only through `HM` from the server part or through the bridge from the page. Pages can't use the browser's own storage in an opaque origin. Durable Object Facets, which give dynamically loaded code its own SQLite that the supervisor's database can't see, are the alternative to evaluate in the phase 2 spike ([facets](https://developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/)).
+- Storage is one SQLite Durable Object per app, `AppStore`, with a per-viewer area and a shared area, reached only through `AGENTUM` from the server part or through the bridge from the page. Pages can't use the browser's own storage in an opaque origin. Durable Object Facets, which give dynamically loaded code its own SQLite that the supervisor's database can't see, are the alternative to evaluate in the phase 2 spike ([facets](https://developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/)).
 - Limits: per-request CPU as the parent Worker, 50 subrequests (`MAX_SUBREQUESTS` in `dynamic-worker-sandbox.ts`), 20 MB of storage per app to start, the same as Claude's artifact storage.
 - Secrets: an app names secrets from the vault; a person grants them, as `grant_secret` does for agents (`packages/mcp/src/tools/admin.ts`). Values never reach the app's code, only placeholders that the outbound entrypoint fills.
 - Versions of apps go live only on promote. An agent publishes a version as `proposed`, tests it with `artifact_test` and `bun test`, and calls `artifact_promote`. A version that adds grants, secrets or hosts waits for a person in Needs you.
@@ -587,7 +587,7 @@ Sharing and the log
 
 - R2.1 An `app` artifact can include `server/` code that runs in a Dynamic Worker per version, reached at `/a/<uuid>/c/<token>/api/*`.
 - R2.2 App server code has no network unless the version declares hosts and a person approved them.
-- R2.3 App storage is per app, with a per-viewer area and a shared area, capped at 20 MB, reachable only through `HM`.
+- R2.3 App storage is per app, with a per-viewer area and a shared area, capped at 20 MB, reachable only through `AGENTUM`.
 - R2.4 An agent's app version is `proposed` until `artifact_promote`; a version that adds grants, secrets or hosts waits for a person in Needs you.
 - R2.5 A page calls a granted read-only tool through the bridge, and it runs with the signed-in viewer's own credential.
 - R2.6 On a snapshot link, a link viewer's `tools/call`, storage write or server call that needs a person's rights is refused.

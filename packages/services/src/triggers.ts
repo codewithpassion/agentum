@@ -19,7 +19,7 @@ import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { isPendingProposal, type TriggerKind } from "@repo/db/shared";
 import { TRIGGER_TOKEN } from "@repo/protocol/token-prefixes";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -150,8 +150,7 @@ const summaryColumns = {
   proposedByAgentId: triggers.proposedByAgentId,
   proposedByRunId: triggers.proposedByRunId,
   revokedAt: triggers.revokedAt,
-  // Only `http` rows are read through these columns. They have one, except a
-  // proposal that nobody approved yet.
+  // App triggers and HTTP proposals have no token.
   tokenPrefix: sql<string>`coalesce(${triggers.tokenPrefix}, '')`,
 };
 
@@ -202,7 +201,7 @@ export const createTriggersService = ({
         and(
           eq(triggers.id, triggerId),
           eq(triggers.workspaceId, workspaceId),
-          eq(triggers.kind, "http")
+          inArray(triggers.kind, ["http", "app"])
         )
       )
       .limit(1);
@@ -352,7 +351,7 @@ export const createTriggersService = ({
       .where(
         and(
           eq(triggers.workspaceId, reader.workspaceId),
-          eq(triggers.kind, "http"),
+          inArray(triggers.kind, ["http", "app"]),
           onlyAgent === undefined ? undefined : eq(triggers.agentId, onlyAgent)
         )
       )
@@ -375,7 +374,7 @@ export const createTriggersService = ({
       workspaceId: user.workspaceId,
     });
     const current = await requireLive(triggerId, user.workspaceId);
-    if (!isPendingProposal(current)) {
+    if (current.kind !== "http" || !isPendingProposal(current)) {
       throw new ServiceError("conflict", "Trigger is not waiting for approval");
     }
     const { hash, token } = await hashedToken(TRIGGER_TOKEN_PREFIX);
@@ -477,7 +476,7 @@ export const createTriggersService = ({
         and(
           eq(triggers.id, triggerId),
           eq(triggers.workspaceId, actor.workspaceId),
-          eq(triggers.kind, "http"),
+          inArray(triggers.kind, ["http", "app"]),
           isNull(triggers.revokedAt)
         )
       )
@@ -486,7 +485,7 @@ export const createTriggersService = ({
       await recordChange(eventsService, actor, {
         agentId: current.agentId,
         change: "deleted",
-        kind: "http",
+        kind: current.kind,
         name: current.name,
         triggerId,
         workspaceId: actor.workspaceId,
@@ -507,7 +506,7 @@ export const createTriggersService = ({
       workspaceId: user.workspaceId,
     });
     const current = await requireLive(triggerId, user.workspaceId);
-    if (!isPendingProposal(current)) {
+    if (current.kind !== "http" || !isPendingProposal(current)) {
       throw new ServiceError("conflict", "Trigger is not waiting for approval");
     }
     const rejected = await db

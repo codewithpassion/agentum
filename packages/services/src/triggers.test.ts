@@ -1009,3 +1009,48 @@ test("setEnabled on a revoked trigger gives not_found", async () => {
   expect(error).toBeInstanceOf(ServiceError);
   expect(error).toMatchObject({ code: "not_found" });
 });
+
+test("app triggers are listed, paused, resumed and revoked without minting a token", async () => {
+  db.insert(triggerRows)
+    .values({
+      agentId: fakeAgentId,
+      approvedAt: START,
+      createdAt: START,
+      createdBy: "u1",
+      id: "app-trigger",
+      kind: "app",
+      name: "Discord app",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect(await service.list(user)).toMatchObject([
+    { id: "app-trigger", kind: "app", tokenPrefix: "" },
+  ]);
+  expect(await service.list(outsider)).toEqual([]);
+  expect(
+    (
+      await service.setEnabled(user, {
+        enabled: false,
+        triggerId: "app-trigger",
+      })
+    ).trigger.disabledAt
+  ).not.toBeNull();
+  const resumed = await service.setEnabled(user, {
+    enabled: true,
+    triggerId: "app-trigger",
+  });
+  expect(resumed.secret).toBeNull();
+  expect(resumed.trigger.disabledAt).toBeNull();
+  await expect(service.approve(user, "app-trigger")).rejects.toThrow(
+    "not waiting for approval"
+  );
+  expect((await service.revoke(user, "app-trigger")).revokedAt).not.toBeNull();
+  expect(triggerRow("app-trigger")?.tokenHash).toBeNull();
+  const changes = db
+    .select()
+    .from(eventRows)
+    .all()
+    .filter((row) => row.type === "trigger.deleted");
+  expect(changes).toHaveLength(1);
+  expect(JSON.parse(changes[0]?.payload ?? "{}").kind).toBe("app");
+});
