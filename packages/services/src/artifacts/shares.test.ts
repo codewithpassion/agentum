@@ -13,6 +13,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import {
   ARTIFACT_VIEW_TOKEN_PREFIX,
+  artifactsViewsOutputSchema,
   parseArtifactContentPath,
 } from "@repo/protocol/artifacts";
 import { eq } from "drizzle-orm";
@@ -860,6 +861,7 @@ describe("access log", () => {
     }
     const first = await service.views(owner, { artifactId: ARTIFACT });
     expect(first.items).toHaveLength(50);
+    expect(artifactsViewsOutputSchema.parse(first)).toEqual(first);
     expect(first.next).toBeDefined();
     expect(first.items.every((row) => !("visitorHash" in row))).toBe(true);
     const second = await service.views(owner, {
