@@ -913,15 +913,13 @@ test("a person's live version dropping an agent pauses its trigger", async () =>
 
 test("an agent outside the artifact workspace cannot get an app trigger", async () => {
   await addVersion("v2", 2);
-  await db
-    .insert(workspaces)
-    .values({
-      clerkOrgId: "org2",
-      createdAt: NOW,
-      id: "w2",
-      name: "Other",
-      timezone: "UTC",
-    });
+  await db.insert(workspaces).values({
+    clerkOrgId: "org2",
+    createdAt: NOW,
+    id: "w2",
+    name: "Other",
+    timezone: "UTC",
+  });
   const events = createEventsService({
     blobs: { get: async () => null, put: async () => undefined },
     db,
