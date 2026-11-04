@@ -1054,3 +1054,24 @@ test("app triggers are listed, paused, resumed and revoked without minting a tok
   expect(changes).toHaveLength(1);
   expect(JSON.parse(changes[0]?.payload ?? "{}").kind).toBe("app");
 });
+
+test("app rows cannot be approved or rejected as agent proposals", async () => {
+  await db.insert(triggerRows).values({
+    agentId: fakeAgentId,
+    approvedAt: null,
+    createdAt: START,
+    createdBy: "u1",
+    id: "app-proposal",
+    kind: "app",
+    name: "app",
+    proposedByAgentId: fakeAgentId,
+    workspaceId: WORKSPACE,
+  });
+  await expect(service.approve(user, "app-proposal")).rejects.toThrow(
+    "not waiting for approval"
+  );
+  await expect(service.reject(user, "app-proposal")).rejects.toThrow(
+    "not waiting for approval"
+  );
+  expect(triggerRow("app-proposal")?.revokedAt).toBeNull();
+});

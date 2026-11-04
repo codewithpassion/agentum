@@ -62,6 +62,29 @@ describe("sqliteAtomic", () => {
   });
 });
 
+test("atomic exposes returning rows only after a successful commit", async () => {
+  const results: unknown[][] = [];
+  await sqliteAtomic(db)(
+    [db.insert(files).values(file("a")).returning({ id: files.id })],
+    (rows) => {
+      results.push(rows);
+    }
+  );
+  expect(results).toEqual([[[{ id: "a" }]]]);
+  await expect(
+    sqliteAtomic(db)(
+      [
+        db.insert(files).values(file("b")).returning(),
+        db.insert(files).values(file("a")),
+      ],
+      (rows) => {
+        results.push(rows);
+      }
+    )
+  ).rejects.toThrow();
+  expect(results).toHaveLength(1);
+});
+
 test("atomic returns claimed rows only after the whole batch commits", async () => {
   const captured: unknown[][] = [];
   await sqliteAtomic(db)(

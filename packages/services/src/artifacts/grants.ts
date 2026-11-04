@@ -15,7 +15,6 @@ import {
   type ArtifactGrantRow,
   type ArtifactRow,
   approvedGrants,
-  claimGrantsStatement,
   claimProposedVersion,
   findArtifact,
   findGrant,
@@ -30,15 +29,25 @@ import {
   setCurrentVersionStatement,
   setHandedToStatement,
 } from "@repo/db/artifact-grants";
-import type { Atomic } from "@repo/db/atomic";
+import type { Atomic, Statement } from "@repo/db/atomic";
+import { artifactGrants } from "@repo/db/schema/artifacts";
 import { runRequests } from "@repo/db/schema/requests";
+import { triggers } from "@repo/db/schema/triggers";
 import type { ArtifactGrantKind, ArtifactGrantStatus } from "@repo/db/shared";
 import {
   artifactsDecideGrantInputSchema,
   artifactsHandToInputSchema,
   artifactsPromoteInputSchema,
 } from "@repo/protocol/artifacts";
-import { and, eq } from "drizzle-orm";
+import {
+  and,
+  eq,
+  getTableColumns,
+  inArray,
+  notInArray,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
@@ -250,10 +259,19 @@ export const createArtifactGrantsService = ({
     declared: DeclaredGrant[]
   ) => {
     for (const grant of declared) {
+      if (
+        grant.kind === "agent" &&
+        // biome-ignore lint/performance/noAwaitInLoops: validate each declared agent in its workspace
+        !(await findAgent(db, { id: grant.target, workspaceId }))
+      ) {
+        throw new ServiceError(
+          "invalid",
+          "Agent is not in the artifact workspace"
+        );
+      }
       if (grant.kind !== "tool" || grant.target.includes(LIMITS_SEPARATOR)) {
         continue;
       }
-      // biome-ignore lint/performance/noAwaitInLoops: at most 50 tools, and the first refusal ends it
       const found = await tools.lookup(workspaceId, grant.target, agentId);
       if (!found) {
         throw new ServiceError("invalid", `Unknown tool ${grant.target}`);
@@ -265,6 +283,94 @@ export const createArtifactGrantsService = ({
         );
       }
     }
+  };
+
+  /** Grant approval is consent to clear a revoke; it never resumes a paused trigger. */
+  const approveAppAgentStatement = async (
+    artifact: ArtifactRow,
+    agentId: string,
+    userId: string,
+    consent: boolean,
+    guard: SQL = sql`true`
+  ) => {
+    const agent = await findAgent(db, {
+      id: agentId,
+      workspaceId: artifact.workspaceId,
+    });
+    if (!agent) {
+      throw new ServiceError(
+        "invalid",
+        "Agent is not in the artifact workspace"
+      );
+    }
+    const now = clock.now().toISOString();
+    const values: Record<string, string | number | null> = {
+      agentId,
+      approvedAt: now,
+      artifactId: artifact.id,
+      consecutiveErrors: 0,
+      createdAt: now,
+      createdBy: userId,
+      id: ulid(),
+      kind: "app",
+      name: artifact.title,
+      workspaceId: artifact.workspaceId,
+    };
+    // INSERT SELECT lets a racing decision upsert only while its grant is pending.
+    const fields = Object.keys(getTableColumns(triggers)).map(
+      (key) => sql`${values[key] ?? null}`
+    );
+    // Wrap the thenable so this async helper leaves execution to atomic.
+    return {
+      statement: db
+        .insert(triggers)
+        .select(sql`select ${sql.join(fields, sql`, `)} where ${guard}`)
+        .onConflictDoUpdate({
+          set: consent
+            ? { approvedAt: now, proposedByAgentId: null, revokedAt: null }
+            : { proposedByAgentId: null },
+          target: [triggers.artifactId, triggers.agentId],
+          targetWhere: sql`${triggers.artifactId} is not null`,
+        }),
+    };
+  };
+
+  const pauseDroppedAgentsStatement = (artifact: ArtifactRow, ids: string[]) =>
+    db
+      .update(triggers)
+      .set({
+        disabledAt: sql`coalesce(${triggers.disabledAt}, ${clock.now().toISOString()})`,
+      })
+      .where(
+        and(
+          eq(triggers.artifactId, artifact.id),
+          eq(triggers.kind, "app"),
+          ids.length ? notInArray(triggers.agentId, ids) : undefined
+        )
+      );
+
+  const liveVersionStatements = async (
+    artifact: ArtifactRow,
+    version: { id: string; number: number }
+  ) => {
+    const approved = await approvedGrants(db, {
+      versionId: version.id,
+      workspaceId: artifact.workspaceId,
+    });
+    return [
+      setCurrentVersionStatement(db, {
+        artifactId: artifact.id,
+        now: clock.now().toISOString(),
+        versionId: version.id,
+        versionNumber: version.number,
+      }),
+      pauseDroppedAgentsStatement(
+        artifact,
+        approved
+          .filter((grant) => grant.kind === "agent")
+          .map((grant) => grant.target)
+      ),
+    ];
   };
 
   /**
@@ -369,15 +475,37 @@ export const createArtifactGrantsService = ({
         workspaceId: artifact.workspaceId,
       };
     });
-    if (rows.length > 0) {
-      await atomic([
-        insertGrants(db, rows),
-        ...endpointStatements(
+    const statements: Statement[] = rows.length ? [insertGrants(db, rows)] : [];
+    const triggerWrites = await Promise.all(
+      rows
+        .filter((row) => row.kind === "agent" && row.status === "approved")
+        .map((row) =>
+          approveAppAgentStatement(
+            artifact,
+            row.target,
+            row.decidedBy ?? "system",
+            byPerson
+          )
+        )
+    );
+    statements.push(...triggerWrites.map((write) => write.statement));
+    if (artifact.currentVersionId === version.id) {
+      statements.push(
+        pauseDroppedAgentsStatement(
           artifact,
-          rows.filter((row) => row.status === "approved")
-        ),
-      ]);
+          rows
+            .filter((row) => row.kind === "agent" && row.status === "approved")
+            .map((row) => row.target)
+        )
+      );
     }
+    statements.push(
+      ...endpointStatements(
+        artifact,
+        rows.filter((row) => row.status === "approved")
+      )
+    );
+    await atomic(statements);
     return rows.map(grantRecord);
   };
 
@@ -418,6 +546,50 @@ export const createArtifactGrantsService = ({
     return !current || version.number > current.number;
   };
 
+  const decidedAgentStatements = async (
+    artifact: ArtifactRow,
+    grants: ArtifactGrantRow[],
+    decision: "approved" | "rejected",
+    userId: string
+  ) => {
+    const writes = await Promise.all(
+      grants
+        .filter((grant) => grant.kind === "agent")
+        .map(async (grant) => {
+          const guard = sql`exists (select 1 from ${artifactGrants} where ${artifactGrants.id} = ${grant.id} and ${artifactGrants.status} = 'pending')`;
+          if (decision === "approved") {
+            return await approveAppAgentStatement(
+              artifact,
+              grant.target,
+              userId,
+              true,
+              guard
+            );
+          }
+          if (grant.versionId !== artifact.currentVersionId) {
+            return null;
+          }
+          return {
+            statement: db
+              .update(triggers)
+              .set({
+                disabledAt: sql`coalesce(${triggers.disabledAt}, ${clock.now().toISOString()})`,
+              })
+              .where(
+                and(
+                  eq(triggers.artifactId, artifact.id),
+                  eq(triggers.agentId, grant.target),
+                  guard
+                )
+              ),
+          };
+        })
+    );
+    return writes
+      .filter((write) => write !== null)
+      .map((write) => write.statement);
+  };
+
   /**
    * Writes one decision over some grants of a version, with an event each. A
    * rejection rejects the version. When `goLive` is set (a promote was asked
@@ -436,25 +608,42 @@ export const createArtifactGrantsService = ({
     if (!first) {
       return "stale";
     }
-    const claimed = new Set<string>();
-    await atomic(
-      [
-        claimGrantsStatement(db, {
+    let claimed = new Set<string>();
+    const statements: Statement[] = await decidedAgentStatements(
+      artifact,
+      grants,
+      decision,
+      userId
+    );
+    const claimIndex = statements.length;
+    statements.push(
+      db
+        .update(artifactGrants)
+        .set({
           decidedAt: clock.now().toISOString(),
           decidedBy: userId,
-          ids: grants.map((grant) => grant.id),
           status: decision,
-        }),
-        ...(decision === "approved"
-          ? endpointStatements(artifact, grants)
-          : []),
-      ],
-      (results) => {
-        for (const row of results[0] as { id: string }[]) {
-          claimed.add(row.id);
-        }
-      }
+        })
+        .where(
+          and(
+            inArray(
+              artifactGrants.id,
+              grants.map((grant) => grant.id)
+            ),
+            eq(artifactGrants.status, "pending")
+          )
+        )
+        .returning({ id: artifactGrants.id })
     );
+    if (decision === "approved") {
+      statements.push(...endpointStatements(artifact, grants));
+    }
+    await atomic(statements, (results) => {
+      const rows = z
+        .array(z.object({ id: z.string() }))
+        .parse(results[claimIndex]);
+      claimed = new Set(rows.map((row) => row.id));
+    });
     const won = grants.filter((grant) => claimed.has(grant.id));
     if (won.length === 0) {
       return "stale";
@@ -463,7 +652,7 @@ export const createArtifactGrantsService = ({
       await atomic([rejectVersionStatement(db, first.versionId)]);
     }
     for (const grant of won) {
-      // biome-ignore lint/performance/noAwaitInLoops: events keep the order of the grants
+      // biome-ignore lint/performance/noAwaitInLoops: preserve grant event order
       await events.append({
         actor: { id: userId, kind: "user" },
         payload: {
@@ -607,6 +796,54 @@ export const createArtifactGrantsService = ({
     ) {
       throw new ServiceError("not_found", "Grant not found");
     }
+    // Agent grants use a rejection of an approved row as revocation. Unlike a
+    // declined proposal, revoking a live grant leaves the published version live.
+    if (
+      grant.kind === "agent" &&
+      grant.status === "approved" &&
+      grant.versionId === artifact.currentVersionId &&
+      input.decision === "rejected"
+    ) {
+      const now = clock.now().toISOString();
+      await atomic([
+        db
+          .update(artifactGrants)
+          .set({
+            decidedAt: now,
+            decidedBy: principal.userId,
+            status: "rejected",
+          })
+          .where(
+            and(
+              eq(artifactGrants.id, grant.id),
+              eq(artifactGrants.status, "approved")
+            )
+          ),
+        db
+          .update(triggers)
+          .set({ disabledAt: sql`coalesce(${triggers.disabledAt}, ${now})` })
+          .where(
+            and(
+              eq(triggers.artifactId, artifact.id),
+              eq(triggers.agentId, grant.target)
+            )
+          ),
+      ]);
+      await events.append({
+        actor: { id: principal.userId, kind: "user" },
+        payload: {
+          artifactId: artifact.id,
+          decision: "rejected",
+          grantId: grant.id,
+          kind: grant.kind,
+          target: grant.target,
+          versionId: grant.versionId,
+        },
+        type: "artifact.grant_decided",
+        workspaceId: artifact.workspaceId,
+      });
+      return;
+    }
     if (grant.status !== "pending") {
       throw new ServiceError("conflict", "Grant already decided");
     }
@@ -716,14 +953,7 @@ export const createArtifactGrantsService = ({
     if (!(await claimProposedVersion(db, version.id))) {
       return false;
     }
-    await atomic([
-      setCurrentVersionStatement(db, {
-        artifactId: artifact.id,
-        now: clock.now().toISOString(),
-        versionId: version.id,
-        versionNumber: version.number,
-      }),
-    ]);
+    await atomic(await liveVersionStatements(artifact, version));
     await announcePromoted(artifact, version, actor);
     return true;
   };
@@ -798,14 +1028,7 @@ export const createArtifactGrantsService = ({
       (await newerThanCurrent(artifact, version))
     ) {
       // A go-live that stopped after publishing the version: finish it.
-      await atomic([
-        setCurrentVersionStatement(db, {
-          artifactId: artifact.id,
-          now: clock.now().toISOString(),
-          versionId: version.id,
-          versionNumber: version.number,
-        }),
-      ]);
+      await atomic(await liveVersionStatements(artifact, version));
       await announcePromoted(artifact, version, await actorOf(principal));
       return { status: "promoted", version: version.number };
     }

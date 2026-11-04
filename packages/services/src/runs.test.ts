@@ -1056,6 +1056,8 @@ test("completeRun hands the reply target's gateway the trusted context", async (
         agentId: fakeAgentId,
         onBehalfOfUserId: "u1",
         runId: started.runId,
+        sessionId: started.sessionId,
+        workspaceId: "w1",
       },
       message: { fileIds: [], text: "Echo: hi" },
       target: { kind: "inbox", threadId: "th1" },

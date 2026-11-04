@@ -265,6 +265,7 @@ export const FILE_SOURCES = ["upload", "slack", "run", "library"] as const;
 export type FileSource = (typeof FILE_SOURCES)[number];
 
 export const EVENT_TYPES = [
+  "app.reply_failed",
   "run.queued",
   "run.started",
   "run.cancelled",

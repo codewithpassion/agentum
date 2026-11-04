@@ -8,6 +8,7 @@ import type { SandboxFile } from "../skill-scripts/sandbox-port.ts";
 import type {
   AppHostProps,
   AppRequestMeta,
+  AppStartRunInput,
   AppStorePort,
   AppViewer,
   StorageArea,
@@ -76,6 +77,10 @@ export interface AppGatewayPorts {
   grants: AppGrantsPort;
   shares: ShareCheckPort;
   source: AppSourcePort;
+  startRun?: (
+    props: AppHostProps,
+    input: AppStartRunInput
+  ) => Promise<{ runId: string }>;
   store: AppStorePort;
 }
 

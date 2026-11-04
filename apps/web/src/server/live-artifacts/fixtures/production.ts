@@ -69,7 +69,15 @@ mountArtifactContentRoutes(app, {
 });
 app.route("/", liveRoomRoutes());
 app.use("*", async (c, next) => {
-  c.set("composed", compose(c.env, false));
+  c.set(
+    "composed",
+    compose(
+      c.env,
+      false,
+      (w) => c.executionCtx.waitUntil(w),
+      c.executionCtx.exports
+    )
+  );
   await next();
 });
 app.route("/", liveImageRoutes());

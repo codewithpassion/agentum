@@ -1,3 +1,4 @@
+import { exports } from "cloudflare:workers";
 import { defineAppEntrypoints } from "./app-gateway/entrypoints.ts";
 import { type AppGatewayEnv, appGatewayPortsOf } from "./app-gateway/wiring.ts";
 
@@ -7,5 +8,5 @@ import { type AppGatewayEnv, appGatewayPortsOf } from "./app-gateway/wiring.ts";
  * `ctx.exports` can reach them.
  */
 export const { AppHost, AppOutbound } = defineAppEntrypoints((env: Env) =>
-  appGatewayPortsOf(env as AppGatewayEnv, import.meta.env.DEV)
+  appGatewayPortsOf(env as AppGatewayEnv, import.meta.env.DEV, exports)
 );

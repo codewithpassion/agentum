@@ -13,7 +13,10 @@ export class LiveArtifactMaintenance extends DurableObject<Env> {
   }
   override async alarm() {
     await this.ctx.storage.setAlarm(Date.now() + 2000);
-    const live = requiredLive(compose(this.env, false).services);
+    const live = requiredLive(
+      compose(this.env, false, (w) => this.ctx.waitUntil(w), this.ctx.exports)
+        .services
+    );
     const sweeps = [
       live.retryInvalidations,
       live.retryDispatches,

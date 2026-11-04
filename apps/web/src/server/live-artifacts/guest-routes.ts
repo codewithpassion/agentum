@@ -1,3 +1,4 @@
+import { exports, waitUntil } from "cloudflare:workers";
 import { guestVerifySchema } from "@repo/protocol/guest";
 import { createGuestArtifacts } from "@repo/services/live-guests/artifacts";
 import { createGuestScopeDiscovery } from "@repo/services/live-guests/http-scope";
@@ -33,7 +34,9 @@ export interface GuestRouteDeps {
   page?: (request: Request) => Promise<Response>;
 }
 export const guestRoutes = (
-  deps: GuestRouteDeps = { compose: (env) => compose(env, false) }
+  deps: GuestRouteDeps = {
+    compose: (env) => compose(env, false, waitUntil, exports),
+  }
 ) => {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {

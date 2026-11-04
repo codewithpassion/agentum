@@ -11,11 +11,20 @@ import {
   versionWorkspaceId,
   workspaceClerkOrgId,
 } from "@repo/db/artifact-app";
+import { artifactGrants, artifacts } from "@repo/db/schema/artifacts";
+import { triggers } from "@repo/db/schema/triggers";
+import { and, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
+import { ForbiddenError } from "../authz.ts";
+import { ServiceError } from "../errors.ts";
+import { INPUT_TEXT_MAX } from "../runs/types.ts";
 import type { ProxyMatch, SecretsService } from "../secrets.ts";
+import type { TriggersService } from "../triggers.ts";
 import type { Principal } from "../workspaces.ts";
 
 export interface AppGrantsDeps {
   db: Database;
+  fire?: TriggersService["fire"];
   /** Whether a user is in a Clerk org right now, with no cache. Without it, no member call runs. */
   isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   secrets: Pick<SecretsService, "proxyForNames">;
@@ -23,6 +32,7 @@ export interface AppGrantsDeps {
 
 export const createAppGrantsService = ({
   db,
+  fire,
   isOrgMember,
   secrets,
 }: AppGrantsDeps) => {
@@ -70,11 +80,85 @@ export const createAppGrantsService = ({
     return { kind: "user", userId, via: "session", workspaceId };
   };
 
+  const startRun = async (
+    props: { artifactId: string; versionId: string; workspaceId: string },
+    raw: { agent: string; text: string; state?: string; sessionKey?: string }
+  ): Promise<{ runId: string }> => {
+    const parsed = z
+      .strictObject({
+        agent: z.string().min(1).max(200),
+        // app:<26-character trigger ULID>:<key> must fit idString (200).
+        sessionKey: z.string().min(1).max(169).optional(),
+        state: z.string().max(4096).default(""),
+        text: z.string().min(1).max(INPUT_TEXT_MAX),
+      })
+      .safeParse(raw);
+    if (!parsed.success) {
+      throw new ServiceError("invalid", "Invalid startRun input");
+    }
+    const input = parsed.data;
+    const [grant] = await db
+      .select({ id: artifactGrants.id })
+      .from(artifacts)
+      .innerJoin(
+        artifactGrants,
+        eq(artifactGrants.versionId, artifacts.currentVersionId)
+      )
+      .where(
+        and(
+          eq(artifacts.id, props.artifactId),
+          eq(artifacts.kind, "app"),
+          isNull(artifacts.deletedAt),
+          eq(artifacts.workspaceId, props.workspaceId),
+          eq(artifacts.currentVersionId, props.versionId),
+          eq(artifactGrants.kind, "agent"),
+          eq(artifactGrants.target, input.agent),
+          eq(artifactGrants.status, "approved")
+        )
+      )
+      .limit(1);
+    if (!grant) {
+      throw new ForbiddenError(
+        "not_granted: the live version has no approved agent grant"
+      );
+    }
+    const [trigger] = await db
+      .select()
+      .from(triggers)
+      .where(
+        and(
+          eq(triggers.artifactId, props.artifactId),
+          eq(triggers.agentId, input.agent),
+          eq(triggers.workspaceId, props.workspaceId),
+          eq(triggers.kind, "app"),
+          isNull(triggers.disabledAt),
+          isNull(triggers.revokedAt)
+        )
+      )
+      .limit(1);
+    if (!(trigger && fire)) {
+      throw new ForbiddenError("forbidden: app trigger is unavailable");
+    }
+    const { run } = await fire(
+      {
+        agentId: trigger.agentId,
+        kind: "trigger",
+        triggerId: trigger.id,
+        workspaceId: trigger.workspaceId,
+      },
+      trigger.id,
+      { text: input.text },
+      { sessionKey: input.sessionKey, state: input.state }
+    );
+    return { runId: run.id };
+  };
+
   return {
     approvedHosts,
     declaresHosts,
     memberPrincipal,
     secretRules,
+    startRun,
     versionWorkspaceId: (
       artifactId: string,
       versionId: string

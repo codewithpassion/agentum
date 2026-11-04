@@ -158,3 +158,32 @@ describe("dynamicAppRuntime", () => {
     await expect(fake.configs.get("app:v1")).rejects.toThrow("no server part");
   });
 });
+
+test("reply skips a live version with no server part", async () => {
+  const runtime = dynamicAppRuntime({
+    hostStub: () => {
+      throw new Error("must not create host");
+    },
+    loader: {
+      get: () => {
+        throw new Error("must not load worker");
+      },
+    } as unknown as WorkerLoader,
+    outboundStub: () => {
+      throw new Error("must not create outbound");
+    },
+  });
+  await expect(
+    runtime.reply({
+      bundle: async () => null,
+      host: host({ kind: "reply", runId: "r1" }),
+      message: {
+        fileIds: [],
+        runId: "r1",
+        state: "",
+        status: "finished",
+        text: "done",
+      },
+    })
+  ).resolves.toBeUndefined();
+});

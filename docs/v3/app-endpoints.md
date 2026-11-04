@@ -51,7 +51,7 @@ Decision, recorded in the PRD's risk table: an endpoint is open to anyone on the
 
 - `agent` must be the id of an approved `agent` grant on the live version. Approving that grant makes a tokenless trigger row for the agent, with a new nullable `triggers.artifact_id`, or reuses one. The run starts through the triggers service as that trigger principal, so it is on behalf of nobody, shows up under Triggers, and pausing or revoking that trigger stops the hand-off.
 - `state` is an opaque string of at most 4096 characters, such as Discord's interaction token. It is stored on the reply target and handed back with the reply.
-- `sessionKey` (optional, at most 200 characters) continues one session per key, for example a Discord channel.
+- `sessionKey` (optional, at most 169 characters) continues one session per key within the app’s trigger, for example a Discord channel. The session external key is `app:<triggerId>:<sessionKey>`, so apps never share conversations.
 - Allowed on `endpoint` viewers only. Every other viewer is refused with `forbidden`.
 
 The reply target is a new `ReplyTarget` kind `{ kind: "app", artifactId, state }`. An `app` gateway in `compose.ts` delivers it. It calls the live version's `reply` export, never `fetch`, with the viewer `{ kind: "reply", runId }`:

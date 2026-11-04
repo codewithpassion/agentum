@@ -8,6 +8,7 @@ import {
 import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
@@ -850,6 +851,217 @@ test("publishing declarations persists pending endpoint and agent grant rows", a
     { kind: "agent", status: "pending", target: otherAgentId },
     { kind: "endpoint", status: "pending", target: "discord" },
   ]);
+});
+
+test("agent approval creates a tokenless trigger and reuses revoked and paused rows", async () => {
+  await addVersion("v2", 2);
+  const [grant] = await record("v2", { agents: [{ agent: otherAgentId }] });
+  if (!grant) {
+    throw new Error("missing grant");
+  }
+  await service.decideGrant(owner, { decision: "approved", grantId: grant.id });
+  const [first] = await db.select().from(triggers);
+  expect(first).toMatchObject({
+    agentId: otherAgentId,
+    artifactId: ARTIFACT,
+    disabledAt: null,
+    kind: "app",
+    proposedByAgentId: null,
+    tokenHash: null,
+  });
+  if (!first) {
+    throw new Error("missing trigger");
+  }
+  await db
+    .update(triggers)
+    .set({ disabledAt: NOW, revokedAt: NOW })
+    .where(eq(triggers.id, first.id));
+  await addVersion("v3", 3);
+  const [next] = await record("v3", { agents: [{ agent: otherAgentId }] });
+  if (!next) {
+    throw new Error("missing grant");
+  }
+  await service.decideGrant(owner, { decision: "approved", grantId: next.id });
+  expect(await db.select().from(triggers)).toMatchObject([
+    { disabledAt: NOW, id: first.id, revokedAt: null },
+  ]);
+});
+
+test("a person's live version dropping an agent pauses its trigger", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v2", { agents: [{ agent: otherAgentId }] }, owner);
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBeNull();
+  await addVersion("v3", 3, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v3" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v3", {}, owner);
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBe(NOW);
+});
+
+test("an agent outside the artifact workspace cannot get an app trigger", async () => {
+  await addVersion("v2", 2);
+  await db.insert(workspaces).values({
+    clerkOrgId: "org2",
+    createdAt: NOW,
+    id: "w2",
+    name: "Other",
+    timezone: "UTC",
+  });
+  const events = createEventsService({
+    blobs: { get: async () => null, put: async () => undefined },
+    db,
+  });
+  const foreign = await createAgentsService({ db, events }).create(
+    { ...owner, workspaceId: "w2" },
+    { model: "m", name: "Foreign", runtime: "cloud" }
+  );
+  await expect(
+    record("v2", { agents: [{ agent: foreign.id }] })
+  ).rejects.toThrow("artifact workspace");
+  expect(await db.select().from(triggers)).toEqual([]);
+});
+
+test("a person can revoke an approved agent grant and its trigger stays paused", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  const [grant] = await record(
+    "v2",
+    { agents: [{ agent: otherAgentId }] },
+    owner
+  );
+  if (!grant) {
+    throw new Error("missing grant");
+  }
+  await service.decideGrant(owner, { decision: "rejected", grantId: grant.id });
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBe(NOW);
+  expect(await versionStatus("v2")).toBe("published");
+  expect(
+    (await service.list(owner, { artifactId: ARTIFACT, versionId: "v2" }))[0]
+      ?.status
+  ).toBe("rejected");
+});
+
+test("rejecting a superseded approved grant cannot pause the live trigger", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  const [old] = await record(
+    "v2",
+    { agents: [{ agent: otherAgentId }] },
+    owner
+  );
+  await addVersion("v3", 3, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v3" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v3", { agents: [{ agent: otherAgentId }] }, owner);
+  if (!old) {
+    throw new Error("missing grant");
+  }
+  await expect(
+    service.decideGrant(owner, { decision: "rejected", grantId: old.id })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBeNull();
+});
+
+test("dropping an agent preserves the original pause time", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v2", { agents: [{ agent: otherAgentId }] }, owner);
+  await db.update(triggers).set({ disabledAt: "original" });
+  await addVersion("v3", 3, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v3" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v3", {}, owner);
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBe("original");
+});
+
+test("a failed trigger insert rolls back the approved grant rows", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  // Simulate a storage failure on the second write of the transaction.
+  db.run(
+    `CREATE TRIGGER fail_app_trigger BEFORE INSERT ON triggers BEGIN SELECT RAISE(ABORT, 'trigger unavailable'); END`
+  );
+  await expect(
+    record("v2", { agents: [{ agent: otherAgentId }] }, owner)
+  ).rejects.toThrow();
+  expect(
+    await db
+      .select()
+      .from(artifactGrants)
+      .where(eq(artifactGrants.versionId, "v2"))
+  ).toEqual([]);
+});
+
+test("a failed trigger upsert rolls back a pending grant approval", async () => {
+  await addVersion("v2", 2);
+  const [grant] = await record("v2", { agents: [{ agent: otherAgentId }] });
+  if (!grant) {
+    throw new Error("missing grant");
+  }
+  db.run(
+    `CREATE TRIGGER fail_app_trigger BEFORE INSERT ON triggers BEGIN SELECT RAISE(ABORT, 'trigger unavailable'); END`
+  );
+  await expect(
+    service.decideGrant(owner, { decision: "approved", grantId: grant.id })
+  ).rejects.toThrow();
+  expect(
+    (
+      await db
+        .select()
+        .from(artifactGrants)
+        .where(eq(artifactGrants.id, grant.id))
+    )[0]?.status
+  ).toBe("pending");
 });
 
 test("approving endpoint grants creates one stable public address, including person-authored grants", async () => {

@@ -194,5 +194,6 @@ export const createAppGatewayPorts = ({
       services.artifactShares.shareState(shareId, artifactId),
   },
   source: { bundle: bundleOf(services, bucket) },
+  startRun: (props, input) => services.artifactApp.startRun(props, input),
   store,
 });
