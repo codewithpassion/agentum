@@ -3,7 +3,7 @@ id: EP.1
 title: App endpoints contract and the agentum.json rename
 milestone: EP
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/EP.1-app-endpoints-contract
 lane: db
@@ -28,3 +28,4 @@ Spec: `docs/v3/app-endpoints.md`. This is the contract task: it alone changes `p
 ## Log
 - 2026-11-04: dispatched.
 - 2026-11-04: Dom asked for Codex (gpt-6.1-sol) to implement and Claude to review. Haiku run stopped, its partial rename committed as 34650149, re-dispatched to Codex.
+- 2026-11-04: review clean after 1 fix round, merged as 7fc11718.

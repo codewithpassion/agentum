@@ -9,10 +9,13 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 /**
  * An unexecuted insert, update or delete, e.g. `db.insert(runs).values(row)`.
- * Pass writes only. A select would type-check, but its rows are discarded.
+ * Pass writes only. Use `returning()` to capture rows through `onResults`.
  * Do not await it or call `.run()`: `atomic` does that.
  */
-export type Statement = BatchItem<"sqlite"> & { run: () => unknown };
+export type Statement = BatchItem<"sqlite"> & {
+  run: () => unknown;
+  all: () => unknown;
+};
 
 /** Runs all statements or none, in order. Rejects if any of them fails. */
 export type Atomic = (
@@ -21,7 +24,10 @@ export type Atomic = (
   onResults?: (results: unknown[]) => void
 ) => Promise<void>;
 
-/** D1: one `db.batch`, which D1 runs as a single transaction. */
+/**
+ * D1: one `db.batch`, which D1 runs as a single transaction.
+ * If `onResults` throws, `atomic` rejects after the writes have committed.
+ */
 export const d1Atomic =
   (db: Pick<DrizzleD1Database, "batch">): Atomic =>
   async (statements, onResults) => {
@@ -36,6 +42,7 @@ export const d1Atomic =
 /**
  * bun:sqlite: one `db.transaction`, rolled back if a statement throws.
  * `run()` executes synchronously, which a sync transaction callback needs.
+ * If `onResults` throws, `atomic` rejects after the writes have committed.
  */
 export const sqliteAtomic =
   (db: { transaction: (fn: () => void) => unknown }): Atomic =>

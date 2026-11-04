@@ -73,3 +73,13 @@ test("disables both buttons while busy", () => {
   );
   expect(html.match(/disabled=""/g)?.length).toBe(2);
 });
+
+test("endpoint card warns about public access and agent card shows its name", () => {
+  const html = render({
+    items: items({ agents: ["Support bot"], endpoints: ["discord"] }),
+  });
+  expect(html).toContain(
+    "Anyone on the internet can call this address, so the app&#x27;s code must check who is calling."
+  );
+  expect(html).toContain("Hand off to agent Support bot");
+});

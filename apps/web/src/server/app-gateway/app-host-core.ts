@@ -42,19 +42,16 @@ type Caller =
       viewer: AppViewer;
     }
   | { kind: "test" }
-  | { kind: "reply" };
+  | { kind: "reply" }
+  | { kind: "endpoint" };
 
 const callerOf = async (props: AppHostProps, ports: Ports): Promise<Caller> => {
   const { viewer } = props;
-  // EP.1 exposes the contract; EP.2/EP.3 implement these viewers' capabilities.
   if (viewer.kind === "reply") {
     return { kind: "reply" };
   }
   if (viewer.kind === "endpoint") {
-    throw appError(
-      "not_granted",
-      "app endpoint capabilities are not available yet"
-    );
+    return { kind: "endpoint" };
   }
   if (viewer.kind === "test") {
     return { kind: "test" };
@@ -131,14 +128,21 @@ export const createAppHost = (
   });
 
   /** A test viewer reads the shared area and nothing of a person's own. */
-  const hasNothingIn = (caller: Caller, area: StorageArea): boolean =>
-    caller.kind === "test" && area === "viewer";
+  const hasNothingIn = (caller: Caller, area: StorageArea): boolean => {
+    if (caller.kind === "endpoint" && area === "viewer") {
+      throw appError("forbidden", "endpoint viewers have no viewer storage");
+    }
+    return caller.kind === "test" && area === "viewer";
+  };
 
   const mayWrite = async (area: StorageArea): Promise<Caller> => {
     const caller = await callerOf(props, ports);
-    if (caller.kind === "reply") {
+    if (caller.kind === "reply" || caller.kind === "endpoint") {
       if (area !== "shared") {
-        throw appError("forbidden", "reply viewers have no viewer storage");
+        throw appError(
+          "forbidden",
+          `${caller.kind} viewers have no viewer storage`
+        );
       }
       return caller;
     }
@@ -149,8 +153,12 @@ export const createAppHost = (
   };
 
   const call = (caller: Caller, toolKey: string, args: unknown) => {
-    if (caller.kind === "test" || caller.kind === "reply") {
-      throw appError("forbidden", "a test viewer cannot call tools");
+    if (
+      caller.kind === "test" ||
+      caller.kind === "reply" ||
+      caller.kind === "endpoint"
+    ) {
+      throw appError("forbidden", "this viewer cannot call tools");
     }
     if (typeof toolKey !== "string" || !TOOL_KEY.test(toolKey)) {
       throw appError("not_granted", String(toolKey));

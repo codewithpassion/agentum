@@ -84,7 +84,12 @@ test("endpoint and agent grants parse and are all approved", async () => {
         artifactId: "a1",
         grants: [
           { id: "endpoint", kind: "endpoint", target: "discord" },
-          { id: "agent", kind: "agent", target: "agent_1" },
+          {
+            id: "agent",
+            kind: "agent",
+            name: "Support bot",
+            target: "agent_1",
+          },
         ],
         title: "Bot",
         version: 1,
@@ -95,7 +100,10 @@ test("endpoint and agent grants parse and are all approved", async () => {
   if (parsed === null) {
     throw new Error("Expected an app promotion approval");
   }
-  expect(parsed).toMatchObject({ agents: ["agent_1"], endpoints: ["discord"] });
+  expect(parsed).toMatchObject({
+    agents: ["Support bot"],
+    endpoints: ["discord"],
+  });
   const calls: string[] = [];
   await decideAll(parsed.grantIds, "approved", (id, decision) => {
     calls.push(`${id}:${decision}`);

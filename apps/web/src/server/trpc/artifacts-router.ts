@@ -42,6 +42,12 @@ const CALL_ERROR_CODES = {
   not_granted: "FORBIDDEN",
   too_large: "PAYLOAD_TOO_LARGE",
 } as const;
+const endpointSchema = z.strictObject({
+  disabledAt: z.string().nullable(),
+  id: z.string(),
+  name: z.string(),
+  url: z.string(),
+});
 export const artifactsRouter = router({
   callTool: workspaceProcedure
     .input(artifactsCallToolInputSchema)
@@ -59,6 +65,21 @@ export const artifactsRouter = router({
           : error;
       }
     }),
+  changeEndpoint: workspaceProcedure
+    .input(
+      z.object({
+        action: z.enum(["disable", "enable", "rotate"]),
+        id: z.string().min(1),
+      })
+    )
+    .output(endpointSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.artifactEndpoints.change(
+        ctx.principal,
+        input.id,
+        input.action
+      )
+    ),
   decideGrant: workspaceProcedure
     .input(artifactsDecideGrantInputSchema)
     .output(artifactsDecideGrantOutputSchema)
@@ -66,6 +87,12 @@ export const artifactsRouter = router({
       await ctx.services.artifactGrants.decideGrant(ctx.principal, input);
       return {};
     }),
+  endpoints: workspaceProcedure
+    .input(z.object({ artifactId: z.string().min(1) }))
+    .output(z.array(endpointSchema))
+    .query(({ ctx, input }) =>
+      ctx.services.artifactEndpoints.list(ctx.principal, input.artifactId)
+    ),
   get: workspaceProcedure
     .input(artifactsGetInputSchema)
     .output(artifactsGetOutputSchema)

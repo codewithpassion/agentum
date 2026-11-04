@@ -22,6 +22,7 @@ import { type Principal, SYSTEM_PRINCIPAL as system } from "../workspaces.ts";
 import { createArtifactGrantsService, type ToolCatalog } from "./grants.ts";
 import { agentCanUpdate } from "./policy.ts";
 
+const ENDPOINT_ID = /^[A-Za-z0-9_-]{32}$/;
 const NOW = "2026-10-27T00:00:00.000Z";
 const ARTIFACT = "0b6f4c2e-8a1d-4f3e-9c2b-7d5e1a2b3c4d";
 const PAGE = "5e2d9a14-3c7b-4f80-a6d1-2f9e8b7c6a50";
@@ -1060,5 +1061,98 @@ test("a failed trigger upsert rolls back a pending grant approval", async () => 
         .from(artifactGrants)
         .where(eq(artifactGrants.id, grant.id))
     )[0]?.status
+  ).toBe("pending");
+});
+
+test("approving endpoint grants creates one stable public address, including person-authored grants", async () => {
+  const { artifactEndpoints } = await import("@repo/db/schema/artifacts");
+  await addVersion("v2", 2);
+  const [grant] = await record("v2", { endpoints: [{ name: "discord" }] });
+  expect(db.select().from(artifactEndpoints).all()).toHaveLength(0);
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grant?.id,
+  });
+  const [endpoint] = db.select().from(artifactEndpoints).all();
+  if (!endpoint) {
+    throw new Error("Missing endpoint");
+  }
+  expect(endpoint.id).toMatch(ENDPOINT_ID);
+  expect(endpoint).toMatchObject({
+    artifactId: ARTIFACT,
+    disabledAt: null,
+    name: "discord",
+  });
+  await addVersion("v3", 3, { authorId: "u1", authorKind: "user" });
+  await record("v3", { endpoints: [{ name: "discord" }] }, owner);
+  expect(db.select().from(artifactEndpoints).all()).toEqual([endpoint]);
+});
+
+test("Needs you agent grants snapshot the agent name rather than displaying its id", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { agents: [{ agent: agentId }] });
+  const result = await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  expect(result.status).toBe("waiting");
+  const display = db.select().from(runRequests).all().at(-1)?.display;
+  const { input } = JSON.parse(display ?? "{}");
+  expect(input.grants[0]).toMatchObject({
+    name: expect.any(String),
+    target: agentId,
+  });
+  expect(input.grants[0].name).not.toBe(agentId);
+});
+
+test("disabled endpoints stay disabled when an agent publishes a carried approval", async () => {
+  const { artifactEndpoints } = await import("@repo/db/schema/artifacts");
+  const { createArtifactEndpointsService } = await import("./endpoints.ts");
+  const endpoints = createArtifactEndpointsService({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(NOW) },
+    db,
+  });
+  await addVersion("v2", 2);
+  const [grant] = await record("v2", { endpoints: [{ name: "discord" }] });
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grant?.id,
+  });
+  await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v2",
+  });
+  const [row] = await endpoints.list(owner, ARTIFACT);
+  if (!row) {
+    throw new Error("Missing endpoint");
+  }
+  await endpoints.change(owner, row.id, "disable");
+  await addVersion("v3", 3);
+  expect(
+    await record("v3", { endpoints: [{ name: "discord" }] })
+  ).toMatchObject([{ status: "approved" }]);
+  await service.promote(runPrincipal, {
+    artifactId: ARTIFACT,
+    versionId: "v3",
+  });
+  expect(db.select().from(artifactEndpoints).all()).toHaveLength(1);
+  expect(await endpoints.resolve(row.id)).toBeNull();
+  expect((await endpoints.list(owner, ARTIFACT))[0]?.disabledAt).not.toBeNull();
+});
+
+test("failed endpoint provisioning rolls back the grant approval", async () => {
+  const { sql } = await import("drizzle-orm");
+  await addVersion("v2", 2);
+  const [grant] = await record("v2", { endpoints: [{ name: "discord" }] });
+  await db.run(
+    sql`CREATE TRIGGER fail_endpoint BEFORE INSERT ON artifact_endpoints BEGIN SELECT RAISE(ABORT, 'endpoint insert failed'); END`
+  );
+  await expect(
+    service.decideGrant(owner, { decision: "approved", grantId: grant?.id })
+  ).rejects.toThrow();
+  expect(
+    (await service.list(owner, { artifactId: ARTIFACT, versionId: "v2" }))[0]
+      ?.status
   ).toBe("pending");
 });

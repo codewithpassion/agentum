@@ -10,6 +10,7 @@
  */
 
 import type { Database } from "@repo/db";
+import { ensureEndpointStatement } from "@repo/db/artifact-endpoints";
 import {
   type ArtifactGrantRow,
   type ArtifactRow,
@@ -58,6 +59,7 @@ import type { RequestsService } from "../requests.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Clock } from "../runs/types.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
+import { endpointId } from "./endpoints.ts";
 import {
   type DeclaredGrant,
   declaredGrants,
@@ -397,6 +399,26 @@ export const createArtifactGrantsService = ({
     );
   };
 
+  const endpointStatements = (
+    artifact: ArtifactRow,
+    grants: { id: string; kind: ArtifactGrantKind; target: string }[]
+  ) =>
+    grants
+      .filter((grant) => grant.kind === "endpoint")
+      .map((grant) =>
+        ensureEndpointStatement(
+          db,
+          {
+            artifactId: artifact.id,
+            createdAt: clock.now().toISOString(),
+            id: endpointId(),
+            name: grant.target,
+            workspaceId: artifact.workspaceId,
+          },
+          grant.id
+        )
+      );
+
   /**
    * Writes the grant rows of a new version from its `agentum.json`. Call it
    * once the version row exists. Calling it again for the same version returns
@@ -477,6 +499,12 @@ export const createArtifactGrantsService = ({
         )
       );
     }
+    statements.push(
+      ...endpointStatements(
+        artifact,
+        rows.filter((row) => row.status === "approved")
+      )
+    );
     await atomic(statements);
     return rows.map(grantRecord);
   };
@@ -587,6 +615,7 @@ export const createArtifactGrantsService = ({
       decision,
       userId
     );
+    const claimIndex = statements.length;
     statements.push(
       db
         .update(artifactGrants)
@@ -606,8 +635,13 @@ export const createArtifactGrantsService = ({
         )
         .returning({ id: artifactGrants.id })
     );
+    if (decision === "approved") {
+      statements.push(...endpointStatements(artifact, grants));
+    }
     await atomic(statements, (results) => {
-      const rows = z.array(z.object({ id: z.string() })).parse(results.at(-1));
+      const rows = z
+        .array(z.object({ id: z.string() }))
+        .parse(results[claimIndex]);
       claimed = new Set(rows.map((row) => row.id));
     });
     const won = grants.filter((grant) => claimed.has(grant.id));
@@ -846,6 +880,22 @@ export const createArtifactGrantsService = ({
     if (latest?.status === "pending") {
       return latest.id;
     }
+    const agentNames = new Map(
+      await Promise.all(
+        pending
+          .filter((row) => row.kind === "agent")
+          .map(
+            async (row) =>
+              [
+                row.target,
+                await findAgent(db, {
+                  id: row.target,
+                  workspaceId: artifact.workspaceId,
+                }).then((agent) => (agent ? agent.name : "Unavailable agent")),
+              ] as const
+          )
+      )
+    );
     const asks = pending.map((row) => row.target);
     const opened = await requests.open(SYSTEM_PRINCIPAL, {
       input: {
@@ -853,6 +903,9 @@ export const createArtifactGrantsService = ({
         grants: pending.map((row) => ({
           id: row.id,
           kind: row.kind,
+          ...(row.kind === "agent"
+            ? { name: agentNames.get(row.target) ?? "Unavailable agent" }
+            : {}),
           target: row.target,
         })),
         query: `${artifact.title} v${version.number} asks for ${asks.join(", ")}`,

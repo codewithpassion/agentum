@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import type { MiddlewareHandler } from "hono/types";
 import guestEntry from "./guest-entry.tsx?worker&url";
+import { mountEndpointRoutes } from "./server/app-gateway/endpoints.ts";
 import { mountAppGatewayRoutes } from "./server/app-gateway/mount.ts";
 import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
@@ -73,6 +74,12 @@ app.use("*", frameGuard);
 mountAppGatewayRoutes(app, {
   limiter: (env) => (env as Partial<Env>).APP_API_LIMIT,
   viewKey: (env) => env.ARTIFACT_VIEW_KEY,
+  wiring: (c) => appGatewayWiring(c.env, c.executionCtx, import.meta.env.DEV),
+});
+
+// Public app ingress is deliberately before Clerk and all cookie/CSRF groups.
+mountEndpointRoutes(app, {
+  limiter: (env) => (env as Partial<Env>).APP_API_LIMIT,
   wiring: (c) => appGatewayWiring(c.env, c.executionCtx, import.meta.env.DEV),
 });
 

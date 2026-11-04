@@ -84,3 +84,25 @@ test("atomic exposes returning rows only after a successful commit", async () =>
   ).rejects.toThrow();
   expect(results).toHaveLength(1);
 });
+
+test("atomic returns claimed rows only after the whole batch commits", async () => {
+  const captured: unknown[][] = [];
+  await sqliteAtomic(db)(
+    [
+      db.insert(files).values(file("a")).returning({ id: files.id }),
+      db.insert(files).values(file("b")),
+    ],
+    (results) => captured.push(results)
+  );
+  expect(captured[0]?.[0]).toEqual([{ id: "a" }]);
+  await expect(
+    sqliteAtomic(db)(
+      [
+        db.insert(files).values(file("c")).returning({ id: files.id }),
+        db.insert(files).values(file("a")),
+      ],
+      (results) => captured.push(results)
+    )
+  ).rejects.toThrow();
+  expect(captured).toHaveLength(1);
+});

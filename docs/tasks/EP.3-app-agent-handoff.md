@@ -3,9 +3,9 @@ id: EP.3
 title: Hand-off from app code to an agent, and replies back to the app
 milestone: EP
 size: L
-status: todo
+status: in_progress
 depends_on: [EP.1]
-branch: null
+branch: task/EP.3-app-agent-handoff
 lane: services
 executor: codex
 ---
@@ -31,3 +31,4 @@ Spec: `docs/v3/app-endpoints.md`, section "Hand-off to an agent".
 - `bun run check && bun run test && bun run build` pass.
 
 ## Log
+- 2026-11-04: dispatched to Codex.

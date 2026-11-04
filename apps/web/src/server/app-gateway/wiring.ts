@@ -4,6 +4,7 @@
  * meets `compose`.
  */
 
+import type { ArtifactEndpointsService } from "@repo/services/artifacts/endpoints";
 import { appStorePort } from "../app-store/port.ts";
 import { type ComposeEnv, compose } from "../compose.ts";
 import { createAppGatewayPorts } from "./compose-ports.ts";
@@ -54,7 +55,7 @@ export const appGatewayWiring = (
   env: AppGatewayEnv,
   ctx: GatewayContext,
   dev: boolean
-): AppGatewayWiring => {
+): AppGatewayWiring & { endpoints: ArtifactEndpointsService } => {
   const { services } = compose(
     env,
     dev,
@@ -69,6 +70,7 @@ export const appGatewayWiring = (
   const exported = exportsOf(ctx);
   return {
     declaresHosts: (versionId) => services.artifactApp.declaresHosts(versionId),
+    endpoints: services.artifactEndpoints,
     ports,
     requestMeta: async (request, workspaceId) => {
       const meta = await services.artifactShares.visitorMeta(workspaceId, {

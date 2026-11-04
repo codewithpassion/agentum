@@ -55,12 +55,16 @@ export const filteredResponse = (answer: Response): Response => {
 };
 
 /** The request headers the app sees. */
-export const forwardedRequestHeaders = (from: Headers): Headers => {
+export const forwardedRequestHeaders = (
+  from: Headers,
+  keepAuthorization = false
+): Headers => {
   const headers = new Headers(from);
   for (const name of [...headers.keys()]) {
     if (
-      DROPPED_REQUEST_HEADERS.includes(name) ||
-      DROPPED_REQUEST_PREFIXES.some((prefix) => name.startsWith(prefix))
+      (DROPPED_REQUEST_HEADERS.includes(name) ||
+        DROPPED_REQUEST_PREFIXES.some((prefix) => name.startsWith(prefix))) &&
+      !(keepAuthorization && name === "authorization")
     ) {
       headers.delete(name);
     }
