@@ -9,8 +9,11 @@ import {
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AccessLog } from "#/components/artifacts/access-log.tsx";
 import { ArtifactFrame } from "#/components/artifacts/artifact-frame.tsx";
+import {
+  ArtifactActivity,
+  CallsTabTrigger,
+} from "#/components/artifacts/calls.tsx";
 import { ElementAskViewer } from "#/components/artifacts/element-ask-viewer.tsx";
 import { ShareDialog } from "#/components/artifacts/share-dialog.tsx";
 import { HandToDialog } from "#/components/artifacts/viewer/hand-to-dialog.tsx";
@@ -135,7 +138,7 @@ function StaticArtifactViewerPage() {
   const [pinned, setPinned] = useState<ReadonlySet<PinSurface>>(new Set());
   const [promoting, setPromoting] = useState(false);
   const [waitingVersionId, setWaitingVersionId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"artifact" | "log">("artifact");
+  const [tab, setTab] = useState<"artifact" | "log" | "calls">("artifact");
 
   const Frame =
     detail.kind === "page" || detail.kind === "dashboard"
@@ -320,7 +323,8 @@ function StaticArtifactViewerPage() {
   const openHistory = useCallback(() => setHistoryOpen(true), []);
   const openShare = useCallback(() => setShareOpen(true), []);
   const changeTab = useCallback(
-    (value: string) => setTab(value === "log" ? "log" : "artifact"),
+    (value: string) =>
+      setTab(value === "log" || value === "calls" ? value : "artifact"),
     []
   );
 
@@ -357,12 +361,17 @@ function StaticArtifactViewerPage() {
             <TabsTrigger className="h-10 md:h-8" value="log">
               Access log
             </TabsTrigger>
+            <CallsTabTrigger canManage={detail.canManage} kind={detail.kind} />
           </TabsList>
         </Tabs>
       ) : null}
-      {tab === "log" && detail.canManage ? (
+      {tab !== "artifact" && detail.canManage ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <AccessLog artifactId={artifactId} />
+          <ArtifactActivity
+            artifactId={artifactId}
+            kind={detail.kind}
+            tab={tab}
+          />
         </div>
       ) : (
         <div

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, notExists, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   artifactEndpoints,
@@ -130,3 +130,36 @@ export const resolveEndpoint = async (db: Database, id: string) => {
     );
   return row ?? null;
 };
+
+/** Endpoint diagnostics omit visitor and network identifiers at the query boundary. */
+export const listEndpointCalls = (
+  db: Database,
+  input: { artifactId: string; workspaceId: string; cursor?: string }
+) =>
+  db
+    .select({
+      durationMs: artifactViews.durationMs,
+      endpoint: sql<string>`substr(${artifactViews.toolKey}, 10)`,
+      id: artifactViews.id,
+      outcome: artifactViews.outcome,
+      place: artifactViews.country,
+      statusCode: artifactViews.statusCode,
+      time: artifactViews.createdAt,
+      version: artifactVersions.number,
+    })
+    .from(artifactViews)
+    .leftJoin(
+      artifactVersions,
+      eq(artifactVersions.id, artifactViews.versionId)
+    )
+    .where(
+      and(
+        eq(artifactViews.artifactId, input.artifactId),
+        eq(artifactViews.workspaceId, input.workspaceId),
+        eq(artifactViews.surface, "live_call"),
+        sql`substr(${artifactViews.toolKey}, 1, 9) = 'endpoint:'`,
+        input.cursor ? lt(artifactViews.id, input.cursor) : undefined
+      )
+    )
+    .orderBy(desc(artifactViews.id))
+    .limit(51);

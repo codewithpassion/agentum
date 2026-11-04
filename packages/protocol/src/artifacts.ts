@@ -877,3 +877,37 @@ export type ShareCallResponse = z.infer<typeof shareCallResponseSchema>;
 
 export const shareCallErrorSchema = z.strictObject({ error: z.string() });
 export type ShareCallError = z.infer<typeof shareCallErrorSchema>;
+
+export const artifactsCallsInputSchema = z.strictObject({
+  artifactId: artifactIdSchema,
+  cursor: z.string().min(1).optional(),
+});
+export type ArtifactsCallsInput = z.infer<typeof artifactsCallsInputSchema>;
+export const artifactCallSchema = z.strictObject({
+  durationMs: z.number().int().nonnegative().nullable(),
+  endpoint: z.string().min(1),
+  id: z.string().min(1),
+  outcome: z.enum(ARTIFACT_VIEW_OUTCOMES),
+  place: z.string().nullable(),
+  statusCode: z.number().int().nullable(),
+  time: z.string(),
+  version: z.number().int().nullable(),
+});
+export type ArtifactCall = z.infer<typeof artifactCallSchema>;
+export const artifactsCallsOutputSchema = z.strictObject({
+  items: z.array(artifactCallSchema),
+  next: z.string().min(1).optional(),
+});
+export const artifactsAppErrorsInputSchema = z.strictObject({
+  artifactId: artifactIdSchema,
+});
+export const appErrorSchema = z.strictObject({
+  dropped: z.number().int().nonnegative(),
+  entry: z.string(),
+  message: z.string(),
+  time: z.string(),
+  version: z.number().int(),
+  versionId: z.string(),
+});
+export type AppError = z.infer<typeof appErrorSchema>;
+export const artifactsAppErrorsOutputSchema = z.array(appErrorSchema);

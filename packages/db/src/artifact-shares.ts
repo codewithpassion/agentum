@@ -269,7 +269,7 @@ export const insertViewStatement = (
 
 export type ArtifactViewRow = Omit<
   typeof artifactViews.$inferSelect,
-  "visitorHash" | "workspaceId"
+  "visitorHash" | "workspaceId" | "statusCode" | "durationMs"
 >;
 
 /**
