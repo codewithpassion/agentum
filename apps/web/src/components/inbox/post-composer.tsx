@@ -3,11 +3,18 @@ import {
   type FormEvent,
   useCallback,
   useId,
+  useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { SendHint } from "#/components/composer/send-hint";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { StickyComposer } from "#/components/composer/sticky-composer";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { canSend } from "#/components/inbox/inbox-logic";
 import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
@@ -27,6 +34,14 @@ export function PostComposer({ onSent, threadId }: PostComposerProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: sending,
+    getValue: () => text,
+    inputRef,
+    setValue: setText,
+  });
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => setText(event.target.value),
     []
@@ -35,7 +50,7 @@ export function PostComposer({ onSent, threadId }: PostComposerProps) {
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!canSend(text, sending)) {
+      if (!canSend(text, sending || dictation.busy)) {
         return;
       }
       setSending(true);
@@ -50,7 +65,7 @@ export function PostComposer({ onSent, threadId }: PostComposerProps) {
         setSending(false);
       }
     },
-    [text, sending, threadId, onSent]
+    [text, sending, dictation.busy, threadId, onSent]
   );
 
   return (
@@ -60,18 +75,27 @@ export function PostComposer({ onSent, threadId }: PostComposerProps) {
         onSubmit={handleSubmit}
       >
         <Label htmlFor={textId}>Message</Label>
-        <Textarea
-          aria-describedby={hintId}
-          id={textId}
-          onChange={handleChange}
-          onKeyDown={submitOnSendShortcut}
-          value={text}
-        />
+        <div className="relative">
+          <Textarea
+            aria-describedby={hintId}
+            id={textId}
+            onChange={handleChange}
+            onKeyDown={submitOnSendShortcut}
+            readOnly={dictation.busy}
+            ref={inputRef}
+            value={text}
+          />
+          <DictationPreview dictation={dictation} />
+        </div>
+        <DictationButton dictation={dictation} />
         <p className="text-muted-foreground text-xs" id={hintId}>
           Mention an agent with @slug to start a run.
         </p>
         <div className="flex items-center gap-2">
-          <Button disabled={!canSend(text, sending)} type="submit">
+          <Button
+            disabled={!canSend(text, sending || dictation.busy)}
+            type="submit"
+          >
             Send
           </Button>
           <SendHint />

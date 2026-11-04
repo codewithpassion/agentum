@@ -6,6 +6,12 @@ import {
   useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
@@ -168,6 +174,14 @@ function ControlBar({
   const noteId = useId();
   const [finishing, setFinishing] = useState(false);
   const [note, setNote] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: busy || !finishing,
+    getValue: () => note,
+    inputRef,
+    setValue: setNote,
+  });
   const startFinishing = useCallback(() => setFinishing(true), []);
   const keepDriving = useCallback(() => setFinishing(false), []);
   const changeNote = useCallback(
@@ -175,31 +189,45 @@ function ControlBar({
     []
   );
   const handBack = useCallback(async () => {
+    if (busy || dictation.busy) {
+      return;
+    }
     if (await onHandBack(note.trim())) {
       setNote("");
       setFinishing(false);
     }
-  }, [note, onHandBack]);
+  }, [note, onHandBack, busy, dictation.busy]);
   return (
     <div className="flex flex-col gap-2">
       {finishing ? (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={noteId}>Note for the agent (optional)</Label>
-          <Textarea
-            disabled={busy}
-            id={noteId}
-            maxLength={NOTE_MAX_CHARS}
-            onChange={changeNote}
-            placeholder="Logged in as accounts@…"
-            rows={2}
-            value={note}
-          />
+          <div className="relative">
+            <Textarea
+              disabled={busy}
+              id={noteId}
+              maxLength={NOTE_MAX_CHARS}
+              onChange={changeNote}
+              placeholder="Logged in as accounts@…"
+              readOnly={dictation.busy}
+              ref={inputRef}
+              rows={2}
+              value={note}
+            />
+            <DictationPreview dictation={dictation} />
+          </div>
+          <DictationButton dictation={dictation} />
         </div>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {finishing ? (
           <>
-            <Button disabled={busy} onClick={handBack} size="sm" type="button">
+            <Button
+              disabled={busy || dictation.busy}
+              onClick={handBack}
+              size="sm"
+              type="button"
+            >
               Hand back
             </Button>
             <Button

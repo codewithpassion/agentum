@@ -1,11 +1,18 @@
 import {
   ComposerPrimitive,
   MessagePrimitive,
+  useAui,
   useAuiState,
 } from "@assistant-ui/react";
-import { type FormEvent, useCallback } from "react";
+import { type FormEvent, useCallback, useRef } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { SendHint } from "#/components/composer/send-hint.tsx";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 
@@ -15,16 +22,25 @@ import { Message, MessageContent } from "#/components/ui/message.tsx";
  * the thread, so the agent still remembers it, and the form says so.
  */
 export function UserEditComposerContainer() {
+  const aui = useAui();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: false,
+    getValue: () => aui.message().composer().getState().text,
+    inputRef,
+    setValue: (value) => aui.message().composer().setText(value),
+  });
   const empty = useAuiState(
     (state) => state.message.composer.text.trim() === ""
   );
   const blockEmpty = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
-      if (empty) {
+      if (empty || dictation.busy) {
         event.preventDefault();
       }
     },
-    [empty]
+    [empty, dictation.busy]
   );
   return (
     <MessagePrimitive.Root data-role="user">
@@ -34,12 +50,18 @@ export function UserEditComposerContainer() {
             className="flex w-full flex-col gap-2 rounded-xl border bg-card p-3"
             onSubmit={blockEmpty}
           >
-            <ComposerPrimitive.Input
-              aria-label="Edit message"
-              className="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              onKeyDown={submitOnSendShortcut}
-              submitMode="none"
-            />
+            <div className="relative">
+              <ComposerPrimitive.Input
+                aria-label="Edit message"
+                className="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                onKeyDown={submitOnSendShortcut}
+                readOnly={dictation.busy}
+                ref={inputRef}
+                submitMode="none"
+              />
+              <DictationPreview dictation={dictation} />
+            </div>
+            <DictationButton dictation={dictation} />
             <p className="text-muted-foreground text-xs">
               This sends a new message and starts a new run. The agent still
               remembers the earlier message.
@@ -52,7 +74,11 @@ export function UserEditComposerContainer() {
                 </Button>
               </ComposerPrimitive.Cancel>
               <ComposerPrimitive.Send asChild>
-                <Button disabled={empty} size="sm" type="submit">
+                <Button
+                  disabled={empty || dictation.busy}
+                  size="sm"
+                  type="submit"
+                >
                   Edit and resend
                 </Button>
               </ComposerPrimitive.Send>

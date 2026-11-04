@@ -4,10 +4,17 @@ import {
   type FormEvent,
   useCallback,
   useId,
+  useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { SubmitKeys } from "#/components/composer/submit-keys";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import {
@@ -38,6 +45,14 @@ export function AskDialog({ onAsked }: AskDialogProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: !open || sending,
+    getValue: () => body,
+    inputRef,
+    setValue: setBody,
+  });
   const handleTitleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setTitle(event.target.value),
     []
@@ -51,7 +66,7 @@ export function AskDialog({ onAsked }: AskDialogProps) {
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!canSubmitQuestion(title, body, sending)) {
+      if (!canSubmitQuestion(title, body, sending || dictation.busy)) {
         return;
       }
       setSending(true);
@@ -71,7 +86,7 @@ export function AskDialog({ onAsked }: AskDialogProps) {
         setSending(false);
       }
     },
-    [title, body, sending, onAsked]
+    [title, body, sending, dictation.busy, onAsked]
   );
 
   return (
@@ -99,16 +114,24 @@ export function AskDialog({ onAsked }: AskDialogProps) {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={bodyId}>Details</Label>
-            <Textarea
-              id={bodyId}
-              maxLength={QA_BODY_MAX}
-              onChange={handleBodyChange}
-              onKeyDown={submitOnSendShortcut}
-              value={body}
-            />
+            <div className="relative">
+              <Textarea
+                id={bodyId}
+                maxLength={QA_BODY_MAX}
+                onChange={handleBodyChange}
+                onKeyDown={submitOnSendShortcut}
+                readOnly={dictation.busy}
+                ref={inputRef}
+                value={body}
+              />
+              <DictationPreview dictation={dictation} />
+            </div>
+            <DictationButton dictation={dictation} />
           </div>
           <Button
-            disabled={!canSubmitQuestion(title, body, sending)}
+            disabled={
+              !canSubmitQuestion(title, body, sending || dictation.busy)
+            }
             type="submit"
           >
             Ask

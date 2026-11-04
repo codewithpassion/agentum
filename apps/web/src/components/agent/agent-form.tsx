@@ -24,10 +24,17 @@ import {
   type FormEvent,
   type ReactNode,
   useCallback,
+  useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { SubmitKeys } from "#/components/composer/submit-keys";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { Button } from "#/components/ui/button";
 import {
   Field,
@@ -179,6 +186,14 @@ export function AgentForm({
     []
   );
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: pending,
+    getValue: () => values.instructions,
+    inputRef,
+    setValue: (value) => update("instructions", value),
+  });
   const handleName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) =>
       update("name", event.target.value),
@@ -238,7 +253,7 @@ export function AgentForm({
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (pending) {
+      if (pending || dictation.busy) {
         return;
       }
       setPending(true);
@@ -253,7 +268,7 @@ export function AgentForm({
         setPending(false);
       }
     },
-    [onSubmit, pending, values]
+    [onSubmit, pending, dictation.busy, values]
   );
 
   return (
@@ -270,12 +285,18 @@ export function AgentForm({
         </Field>
         <Field>
           <FieldLabel htmlFor="agent-instructions">Instructions</FieldLabel>
-          <Textarea
-            id="agent-instructions"
-            onChange={handleInstructions}
-            onKeyDown={submitOnSendShortcut}
-            value={values.instructions}
-          />
+          <div className="relative">
+            <Textarea
+              id="agent-instructions"
+              onChange={handleInstructions}
+              onKeyDown={submitOnSendShortcut}
+              readOnly={dictation.busy}
+              ref={inputRef}
+              value={values.instructions}
+            />
+            <DictationPreview dictation={dictation} />
+          </div>
+          <DictationButton dictation={dictation} />
         </Field>
         <Field>
           <FieldLabel htmlFor="agent-model">Model</FieldLabel>
@@ -440,7 +461,7 @@ export function AgentForm({
         </p>
       )}
       <div className="sticky -bottom-6 z-10 -mx-4 flex flex-wrap items-center gap-2 border-border border-t bg-background px-4 pt-3 pb-9 md:contents">
-        <Button disabled={pending} type="submit">
+        <Button disabled={pending || dictation.busy} type="submit">
           {submitLabel}
           <SubmitKeys />
         </Button>

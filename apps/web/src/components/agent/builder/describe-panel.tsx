@@ -6,9 +6,22 @@ import {
 } from "@repo/db/shared";
 import { templates } from "@repo/services/agent-builder/templates";
 import { Link } from "@tanstack/react-router";
-import { type ChangeEvent, useCallback, useId, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { runOnSendShortcut } from "#/components/composer/send-shortcut";
 import { SubmitKeys } from "#/components/composer/submit-keys";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
@@ -75,6 +88,7 @@ export interface DescribePanelProps {
   /** The button reads "Redraft" when true, else "Draft". */
   hasDraft: boolean;
   onDescription: (text: string) => void;
+  onDictationBusyChange?: (busy: boolean) => void;
   onDraft: () => void;
   /** The page fills the box and the voice. */
   onTemplate: (id: AgentTemplateId) => void;
@@ -91,6 +105,7 @@ export function DescribePanel({
   error,
   hasDraft,
   onDescription,
+  onDictationBusyChange,
   onDraft,
   onTemplate,
   onVoice,
@@ -101,6 +116,18 @@ export function DescribePanel({
   const fileInput = useRef<HTMLInputElement>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: busy,
+    getValue: () => description,
+    inputRef,
+    setValue: onDescription,
+  });
+  useEffect(() => {
+    onDictationBusyChange?.(dictation.busy);
+    return () => onDictationBusyChange?.(false);
+  }, [dictation.busy, onDictationBusyChange]);
   const openFilePicker = useCallback(() => fileInput.current?.click(), []);
 
   const handleDescription = useCallback(
@@ -145,17 +172,23 @@ export function DescribePanel({
           >
             1 · What should it do?
           </Label>
-          <Textarea
-            className="min-h-[150px]"
-            id={descriptionId}
-            maxLength={DESCRIPTION_LIMIT}
-            onChange={handleDescription}
-            onKeyDown={runOnSendShortcut(
-              !busy && description.trim() !== "",
-              onDraft
-            )}
-            value={description}
-          />
+          <div className="relative">
+            <Textarea
+              className="min-h-[150px]"
+              id={descriptionId}
+              maxLength={DESCRIPTION_LIMIT}
+              onChange={handleDescription}
+              onKeyDown={runOnSendShortcut(
+                !(busy || dictation.busy) && description.trim() !== "",
+                onDraft
+              )}
+              readOnly={dictation.busy}
+              ref={inputRef}
+              value={description}
+            />
+            <DictationPreview dictation={dictation} />
+          </div>
+          <DictationButton dictation={dictation} />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -211,7 +244,7 @@ export function DescribePanel({
 
         <div className="flex flex-wrap items-center gap-3">
           <Button
-            disabled={busy || description.trim() === ""}
+            disabled={busy || dictation.busy || description.trim() === ""}
             onClick={onDraft}
             type="button"
           >

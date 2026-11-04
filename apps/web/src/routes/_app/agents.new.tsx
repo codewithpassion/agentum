@@ -72,6 +72,9 @@ function NewAgent() {
   const [drafted, setDrafted] = useState<Drafted | undefined>();
   const [locked, setLocked] = useState<Locked>({});
   const [addressEdit, setAddressEdit] = useState<string | undefined>();
+  const [descriptionDictating, setDescriptionDictating] = useState(false);
+  const [draftDictating, setDraftDictating] = useState(false);
+  const dictating = descriptionDictating || draftDictating;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftAgentId, setDraftAgentId] = useState<string | undefined>();
@@ -124,6 +127,9 @@ function NewAgent() {
   );
 
   const runDraft = useCallback(async () => {
+    if (dictating || busy || pending !== null) {
+      return;
+    }
     const blocker = draft === undefined ? null : redraftBlocker(draft);
     setError(blocker);
     if (blocker !== null) {
@@ -145,7 +151,7 @@ function NewAgent() {
     } finally {
       setBusy(false);
     }
-  }, [description, draft, locked, templateId, voice]);
+  }, [description, draft, locked, templateId, voice, dictating, busy, pending]);
 
   const gaps =
     drafted === undefined ? [] : openGaps(drafted.gaps, drafted.draft, locked);
@@ -191,7 +197,7 @@ function NewAgent() {
   );
 
   const runDry = useCallback(async () => {
-    if (draft === undefined) {
+    if (draft === undefined || dictating || busy || pending !== null) {
       return;
     }
     await act("run", async () => {
@@ -202,10 +208,10 @@ function NewAgent() {
       });
       setRunId(started.runId);
     });
-  }, [act, draft, ensureSaved]);
+  }, [act, draft, ensureSaved, dictating, busy, pending]);
 
   const createAgent = useCallback(async () => {
-    if (draft === undefined) {
+    if (draft === undefined || dictating || busy || pending !== null) {
       return;
     }
     await act("create", async () => {
@@ -232,7 +238,17 @@ function NewAgent() {
         to: "/agents/$agentId",
       });
     });
-  }, [act, address, draft, ensureSaved, navigate, router]);
+  }, [
+    act,
+    address,
+    draft,
+    ensureSaved,
+    navigate,
+    router,
+    dictating,
+    busy,
+    pending,
+  ]);
 
   const discardDraft = useCallback(
     () =>
@@ -261,11 +277,12 @@ function NewAgent() {
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3.5">
           <DescribePanel
-            busy={busy}
+            busy={busy || draftDictating || pending !== null}
             description={description}
             error={error}
             hasDraft={draft !== undefined}
             onDescription={setDescription}
+            onDictationBusyChange={setDescriptionDictating}
             onDraft={runDraft}
             onTemplate={pickTemplate}
             onVoice={pickVoice}
@@ -285,23 +302,29 @@ function NewAgent() {
             <DraftCard
               address={address}
               catalog={catalog}
+              disabled={busy || descriptionDictating || pending !== null}
               draft={draft}
               gaps={gaps}
               locked={locked}
               onAddress={setAddressEdit}
+              onDictationBusyChange={setDraftDictating}
               onEdit={edit}
             />
           )}
           {draft === undefined ? null : (
             <DryRunPanel
-              createBlocker={createBlocker(gaps)}
+              createBlocker={
+                dictating ? "Finish dictation first." : createBlocker(gaps)
+              }
               error={panelError}
               onCreate={createAgent}
               onDiscard={discardDraft}
               onRun={runDry}
               onSample={editSample}
               pending={pending}
-              runBlocker={redraftBlocker(draft)}
+              runBlocker={
+                dictating ? "Finish dictation first." : redraftBlocker(draft)
+              }
               runId={runId}
               sample={draft.sampleInput}
             />
