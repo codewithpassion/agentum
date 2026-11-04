@@ -1,5 +1,5 @@
 /**
- * An app's `harbourmaster.json`: the tools it asks for, the hosts it may reach
+ * An app's `agentum.json`: the tools it asks for, the hosts it may reach
  * and the secrets it may read. Pure functions over plain text: no database and
  * no I/O, so the caller reads the version's files and passes them in.
  */
@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { ServiceError } from "../errors.ts";
 
-export const MANIFEST_PATH = "harbourmaster.json";
+export const MANIFEST_PATH = "agentum.json";
 export const SERVER_DIR = "server/";
 
 const MAX_TOOLS = 50;
@@ -154,7 +154,7 @@ const firstDuplicate = (values: readonly string[]): string | null => {
 
 /**
  * Reads the manifest out of an app version's files. A version with no root
- * `harbourmaster.json` declares nothing. Every other failure throws
+ * `agentum.json` declares nothing. Every other failure throws
  * `ServiceError("invalid")`.
  */
 export const parseManifest = (

@@ -283,7 +283,7 @@ Phase 1 dashboards read data files in their own version with relative `fetch('da
 
 Phase 2 adds live calls through the bridge, modelled on MCP Apps and on Claude's artifact connectors:
 
-- The version declares grants in `harbourmaster.json`: which connector tools and platform read tools it may call, and with which argument limits.
+- The version declares grants in `agentum.json`: which connector tools and platform read tools it may call, and with which argument limits.
 - The page sends `tools/call` to the frame over the bridge's `MessageChannel` port. The frame calls `artifacts.callTool` over tRPC as the signed-in viewer (`workspaceProcedure`). The service checks the grant list, runs the tool through the existing credentials path with the viewer's own credential (`credentials.resolve` in `packages/services/src/credentials.ts:591`), and returns the scrubbed result.
 - Only `readOnlyHint` tools can be granted in phase 2. A grant that a version adds or widens needs a person's approval, through the propose and approve flow skills already use.
 - Link viewers get what the share allows (Dom's decision, 27 Oct 2026). The person who creates a link picks its data mode: `snapshot` (the default) or `live`. A snapshot link answers every `tools/call` with an error, so its viewers see only the data files in the version. A live link lets anyone holding it run a fixed list of read-only tools with the artifact owner's rights. This is the main exfiltration path, so the live mode carries the safeguards below as requirements (R2.6 and R2.10 to R2.15), not as defaults.

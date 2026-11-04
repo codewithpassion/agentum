@@ -27,10 +27,10 @@ const withHosts = (hosts: unknown) =>
   parseManifest([manifestFile({ hosts }), serverFile]);
 
 describe("parseManifest", () => {
-  test("no harbourmaster.json at the root gives an empty manifest", () => {
+  test("no agentum.json at the root gives an empty manifest", () => {
     expect(parseManifest([])).toEqual(emptyManifest());
     expect(
-      parseManifest([{ path: "app/harbourmaster.json", text: "not json" }])
+      parseManifest([{ path: "app/agentum.json", text: "not json" }])
     ).toEqual(emptyManifest());
   });
 

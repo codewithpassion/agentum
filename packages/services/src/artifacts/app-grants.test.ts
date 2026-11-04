@@ -47,7 +47,7 @@ const setup = () => {
 const app = (manifest: object) => [
   { path: "index.html", text: "<p>app</p>" },
   { path: "server/index.js", text: "export default {}" },
-  { path: "harbourmaster.json", text: JSON.stringify(manifest) },
+  { path: "agentum.json", text: JSON.stringify(manifest) },
 ];
 
 const grantsOf = async (

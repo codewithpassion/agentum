@@ -49,7 +49,7 @@ const catalog: ToolCatalog = {
 const manifest = (body: object) => [
   { path: "index.html", text: "<p>hi</p>" },
   { path: "server/index.js", text: "export default {}" },
-  { path: "harbourmaster.json", text: JSON.stringify(body) },
+  { path: "agentum.json", text: JSON.stringify(body) },
 ];
 
 let db: ReturnType<typeof migrated>;

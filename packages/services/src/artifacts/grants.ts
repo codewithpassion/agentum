@@ -292,7 +292,7 @@ export const createArtifactGrantsService = ({
   };
 
   /**
-   * Writes the grant rows of a new version from its `harbourmaster.json`. Call it
+   * Writes the grant rows of a new version from its `agentum.json`. Call it
    * once the version row exists. Calling it again for the same version returns
    * the rows already there. A person's own version is approved as written. An
    * agent's version is approved only where the current version already holds

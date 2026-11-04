@@ -563,7 +563,7 @@ describe("app artifacts", () => {
         files: [
           html,
           { path: "server/index.js", text: "export default {};" },
-          { path: "harbourmaster.json", text: "{}" },
+          { path: "agentum.json", text: "{}" },
         ],
         kind: "app",
         title: "App",

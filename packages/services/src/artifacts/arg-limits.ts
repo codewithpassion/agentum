@@ -1,5 +1,5 @@
 /**
- * Argument limits a version declares per tool (`harbourmaster.json` `limits`).
+ * Argument limits a version declares per tool (`agentum.json` `limits`).
  *
  * B.4 stores them as a tool grant whose target is `<tool>#<canonical json>`.
  * A call is checked against every such row of its version before the tool
