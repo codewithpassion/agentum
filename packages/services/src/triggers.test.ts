@@ -1,5 +1,6 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { artifactGrants, artifacts, artifactVersions } from "@repo/db/schema/artifacts";
 import { events as eventRows } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -11,6 +12,7 @@ import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import { type AgentsService, createAgentsService } from "./agents.ts";
+import { createAppGrantsService } from "./artifacts/app-grants.ts";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
@@ -26,7 +28,7 @@ import {
   type TriggerPrincipal,
   type TriggersService,
 } from "./triggers.ts";
-import type { Principal } from "./workspaces.ts";
+import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
 const OTHER_WORKSPACE = "w2";
@@ -229,7 +231,7 @@ beforeEach(async () => {
     clock,
     db,
     devFakeRuntime: true,
-    gateways: [],
+    gateways: [{ deliver: async () => undefined, kind: "app" }],
   });
   service = createTriggersService({
     clock,
@@ -1130,4 +1132,96 @@ test("runs cannot pause or resume app triggers; person keys and OAuth clients ca
     { enabled: true, triggerId: "app-person" }
   );
   expect(triggerRow("app-person")?.disabledAt).toBeNull();
+});
+
+
+const appStart = async (defer?: (work: Promise<void>) => void) => {
+  await db.insert(artifacts).values({
+    id: "app", workspaceId: WORKSPACE, kind: "app", title: "Bot",
+    audience: "workspace", ownerUserId: "u1", createdById: "u1",
+    createdByKind: "user", createdAt: START, updatedAt: START,
+  });
+  await db.insert(artifactVersions).values({
+    id: "version", artifactId: "app", workspaceId: WORKSPACE, number: 1,
+    authorId: "u1", authorKind: "user", createdAt: START, entry: "index.html",
+    fileCount: 1, manifestKey: "manifest", message: "Bot", status: "published", totalBytes: 1,
+  });
+  await db.update(artifacts).set({ currentVersionId: "version" }).where(eq(artifacts.id, "app"));
+  await db.insert(artifactGrants).values({
+    id: "grant", versionId: "version", workspaceId: WORKSPACE,
+    kind: "agent", target: spyAgentId, status: "approved", createdAt: START,
+  });
+  await db.insert(triggerRows).values({
+    id: "app-trigger", artifactId: "app", agentId: spyAgentId, workspaceId: WORKSPACE,
+    kind: "app", name: "Bot", createdAt: START, createdBy: "u1",
+  });
+  service = createTriggersService({ clock, db, defer, events, runs });
+  const app = createAppGrantsService({
+    db, fire: service.fire, secrets: { proxyForNames: async () => [] },
+  });
+  return () => app.startRun(
+    { artifactId: "app", versionId: "version", workspaceId: WORKSPACE },
+    { agent: spyAgentId, text: "Ask", state: "reply-token", sessionKey: "channel" }
+  );
+};
+
+test("app startRun answers with a persisted run while its deferred offer is held", async () => {
+  const work: Promise<void>[] = [];
+  const release = Promise.withResolvers<void>();
+  const offer = runs.offerQueuedRun;
+  const offered = spyOn(runs, "offerQueuedRun").mockImplementation(async (principal, runId) => {
+    await release.promise;
+    await offer(principal, runId);
+  });
+  try {
+    const start = await appStart((job) => { work.push(job); });
+    const { runId } = await start();
+    expect(runRow(runId)?.status).toBe("queued");
+    expect(dispatched).toEqual([]);
+    expect(work).toHaveLength(1);
+    expect(offered).toHaveBeenCalledWith(SYSTEM_PRINCIPAL, runId);
+    release.resolve();
+    await Promise.all(work);
+    expect(dispatched).toEqual([runId]);
+  } finally {
+    release.resolve();
+    await Promise.all(work);
+    offered.mockRestore();
+  }
+});
+
+test("app startRun without defer offers inline before returning", async () => {
+  const start = await appStart();
+  const { runId } = await start();
+  expect(dispatched).toEqual([runId]);
+});
+
+test("token triggers still offer inline when the composition has defer", async () => {
+  const work: Promise<void>[] = [];
+  service = createTriggersService({ clock, db, defer: (job) => { work.push(job); }, events, runs });
+  const { principal, trigger } = await makeTrigger(spyAgentId);
+  const { run } = await service.fire(principal, trigger.id, { text: "Hook" });
+  expect(dispatched).toEqual([run.id]);
+  expect(work).toEqual([]);
+});
+
+test("the sweep offers an app run after its deferred offer fails and is logged", async () => {
+  const work: Promise<void>[] = [];
+  const failure = new Error("offer unavailable");
+  const offered = spyOn(runs, "offerQueuedRun").mockRejectedValue(failure);
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const start = await appStart((job) => { work.push(job); });
+    const { runId } = await start();
+    await Promise.all(work);
+    expect(logged).toHaveBeenCalledWith("App run offer failed", failure);
+    expect(runRow(runId)?.status).toBe("queued");
+    expect(dispatched).toEqual([]);
+    advance(61 * 1000);
+    expect((await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL)).offered).toContain(runId);
+    expect(dispatched).toEqual([runId]);
+  } finally {
+    offered.mockRestore();
+    logged.mockRestore();
+  }
 });

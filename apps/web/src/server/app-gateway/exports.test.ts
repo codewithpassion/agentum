@@ -76,11 +76,12 @@ test("every source compose caller that can finish a run passes exports and defer
   expect(readOnly).toBe(2);
 });
 
-test("AppHost composition receives the Worker's exports", async () => {
+test("AppHost composition receives the Worker's exports and waitUntil", async () => {
   const entry = await file(
     new URL("../app-entrypoints.ts", import.meta.url)
   ).text();
   const wiring = await file(new URL("./wiring.ts", import.meta.url)).text();
   expect(entry).toContain("exports");
+  expect(wiring).toContain('import { waitUntil } from "cloudflare:workers"');
   expect(wiring).toContain("compose(env, dev, waitUntil, exports)");
 });
