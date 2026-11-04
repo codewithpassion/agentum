@@ -2,6 +2,12 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import type { ThreadEvent } from "@repo/protocol/thread";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { useSessionEvents } from "#/components/task/use-session-events";
 import { ThreadContainer } from "#/components/thread/thread-container";
 import {
@@ -132,8 +138,16 @@ export function AgentComposer({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: !canAsk || busy,
+    getValue: () => text,
+    inputRef,
+    setValue: setText,
+  });
   const submit = async () => {
-    if (busy || !text.trim()) {
+    if (!canAsk || busy || dictation.busy || !text.trim()) {
       return;
     }
     setBusy(true);
@@ -165,15 +179,24 @@ export function AgentComposer({
       )}
       <label>
         Ask the agent
-        <textarea
-          aria-label="Ask the agent"
-          disabled={!canAsk || busy}
-          maxLength={16_000}
-          onChange={(event) => setText(event.target.value)}
-          value={text}
-        />
+        <div className="relative">
+          <textarea
+            aria-label="Ask the agent"
+            disabled={!canAsk || busy}
+            maxLength={16_000}
+            onChange={(event) => setText(event.target.value)}
+            readOnly={dictation.busy}
+            ref={inputRef}
+            value={text}
+          />
+          <DictationPreview dictation={dictation} />
+        </div>
       </label>
-      <ToolButton disabled={!canAsk || busy || !text.trim()} onClick={submit}>
+      <DictationButton dictation={dictation} />
+      <ToolButton
+        disabled={!canAsk || busy || dictation.busy || !text.trim()}
+        onClick={submit}
+      >
         {busy ? "Sending…" : "Send to agent"}
       </ToolButton>
       {!canAsk && <p>Your role allows reading this thread.</p>}

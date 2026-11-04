@@ -11,6 +11,12 @@ import {
   useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import {
   agentInitials,
   agentTileColour,
@@ -48,11 +54,13 @@ export interface DraftCardProps {
   /** The address local part, page state. */
   address: string;
   catalog: BuilderCatalog;
+  disabled?: boolean;
   draft: AgentDraft;
   /** Open gaps only, already filtered. */
   gaps: ProfileGap[];
   locked: Locked;
   onAddress: (local: string) => void;
+  onDictationBusyChange?: (busy: boolean) => void;
   onEdit: (patch: Partial<AgentDraft>) => void;
 }
 
@@ -65,9 +73,35 @@ export function DraftCard({
   locked,
   onAddress,
   onEdit,
+  onDictationBusyChange,
+  disabled = false,
 }: DraftCardProps) {
   const [hint, setHint] = useState<string | undefined>();
   const [rulesText, setRulesText] = useState(draft.rules.join("\n"));
+  const doesRef = useRef<HTMLTextAreaElement>(null);
+  const doesDictation = useDictation({
+    adapter: dictationAdapter,
+    disabled,
+    getValue: () => draft.does,
+    inputRef: doesRef,
+    setValue: (value) => onEdit({ does: value }),
+  });
+  const rulesRef = useRef<HTMLTextAreaElement>(null);
+  const rulesDictation = useDictation({
+    adapter: dictationAdapter,
+    disabled,
+    getValue: () => rulesText,
+    inputRef: rulesRef,
+    setValue: (value) => {
+      setRulesText(value);
+      onEdit({ rules: rulesOf(value) });
+    },
+  });
+  const dictationBusy = doesDictation.busy || rulesDictation.busy;
+  useEffect(() => {
+    onDictationBusyChange?.(dictationBusy);
+    return () => onDictationBusyChange?.(false);
+  }, [dictationBusy, onDictationBusyChange]);
   const latestAddress = useRef(address);
 
   useEffect(() => {
@@ -232,11 +266,17 @@ export function DraftCard({
       <div className="mt-3">
         <Row label="Does">
           <div className="flex flex-col gap-1.5">
-            <Textarea
-              aria-label="Does"
-              onChange={changeDoes}
-              value={draft.does}
-            />
+            <div className="relative">
+              <Textarea
+                aria-label="Does"
+                onChange={changeDoes}
+                readOnly={doesDictation.busy}
+                ref={doesRef}
+                value={draft.does}
+              />
+              <DictationPreview dictation={doesDictation} />
+            </div>
+            <DictationButton dictation={doesDictation} />
             <KeptNote field="does" locked={locked} />
             <GapNote gaps={gapsOn("does")} />
           </div>
@@ -260,13 +300,19 @@ export function DraftCard({
 
         <Row label="Rules">
           <div className="flex flex-col gap-1.5">
-            <Textarea
-              aria-label="Rules"
-              onBlur={commitRules}
-              onChange={changeRulesText}
-              placeholder="One rule per line"
-              value={rulesText}
-            />
+            <div className="relative">
+              <Textarea
+                aria-label="Rules"
+                onBlur={commitRules}
+                onChange={changeRulesText}
+                placeholder="One rule per line"
+                readOnly={rulesDictation.busy}
+                ref={rulesRef}
+                value={rulesText}
+              />
+              <DictationPreview dictation={rulesDictation} />
+            </div>
+            <DictationButton dictation={rulesDictation} />
             <KeptNote field="rules" locked={locked} />
             <GapNote gaps={gapsOn("rules")} />
           </div>

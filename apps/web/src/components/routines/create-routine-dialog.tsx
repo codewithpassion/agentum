@@ -1,6 +1,12 @@
-import { type ChangeEvent, useCallback, useState } from "react";
+import { type ChangeEvent, useCallback, useRef, useState } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { runOnSendShortcut } from "#/components/composer/send-shortcut";
 import { SubmitKeys } from "#/components/composer/submit-keys";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import {
@@ -264,10 +270,18 @@ export function CreateRoutineDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: pending,
+    getValue: () => prompt,
+    inputRef,
+    setValue: setPrompt,
+  });
   const targetAgentId = agentId ?? chosenAgentId;
   const cron = buildCron(kind, fields, customCron);
   const canCreate =
-    !pending &&
+    !(pending || dictation.busy) &&
     name.trim() !== "" &&
     targetAgentId !== "" &&
     prompt.trim() !== "" &&
@@ -337,7 +351,7 @@ export function CreateRoutineDialog({
   );
 
   const createRoutine = useCallback(async () => {
-    if (cron === null) {
+    if (!canCreate) {
       return;
     }
     const zone = timezone.trim();
@@ -356,7 +370,7 @@ export function CreateRoutineDialog({
       setError(errorMessage(caught));
       setPending(false);
     }
-  }, [cron, name, onCreated, prompt, targetAgentId, timezone]);
+  }, [canCreate, cron, name, onCreated, prompt, targetAgentId, timezone]);
 
   return (
     <Dialog onOpenChange={handleOpenChange} open>
@@ -416,12 +430,18 @@ export function CreateRoutineDialog({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="routine-prompt">Prompt</Label>
-            <Textarea
-              id="routine-prompt"
-              onChange={handlePromptChange}
-              onKeyDown={runOnSendShortcut(canCreate, createRoutine)}
-              value={prompt}
-            />
+            <div className="relative">
+              <Textarea
+                id="routine-prompt"
+                onChange={handlePromptChange}
+                onKeyDown={runOnSendShortcut(canCreate, createRoutine)}
+                readOnly={dictation.busy}
+                ref={inputRef}
+                value={prompt}
+              />
+              <DictationPreview dictation={dictation} />
+            </div>
+            <DictationButton dictation={dictation} />
             <p className="text-muted-foreground text-sm">
               What the agent is asked each time the routine runs
             </p>
