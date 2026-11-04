@@ -3,7 +3,7 @@ id: AL.3
 title: Apps on the rail and in Find
 milestone: AL
 size: XS
-status: in_progress
+status: done
 depends_on: []
 branch: AL.3-apps-on-rail
 lane: web
@@ -17,3 +17,4 @@ Spec: `docs/v3/app-calls.md`, AL.3.
 - `bun run check && bun run test`.
 
 ## Log
+- 2026-11-05: Codex added Apps to the rail footer (four columns, footer pulled out as RailFooter for a render test) and to Find (9e1454ff). Controller review: RailLink takes the query string; check, test, build and bundle scan pass. Merged.
