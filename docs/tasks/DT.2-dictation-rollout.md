@@ -3,7 +3,7 @@ id: DT.2
 title: Dictation in the remaining prompt boxes
 milestone: DT
 size: S
-status: todo
+status: done
 depends_on: [DT.1]
 branch: task/DT.2-dictation-rollout
 lane: web
@@ -20,3 +20,4 @@ Spec: `docs/v3/dictation.md`, "Boxes", DT.2 list.
 - `bun run check && bun run test && bun run build`.
 
 ## Log
+- 2026-11-05: Codex wired all 13 boxes (a7c96298, 9f758b8d) with the module unchanged. Controller review: same pattern in each box, send blocked while dictating; agents.new also guards re-entry while a step runs. Merged; check, test, build and bundle grep pass.
