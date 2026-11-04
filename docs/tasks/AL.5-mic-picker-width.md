@@ -3,7 +3,7 @@ id: AL.5
 title: Wider microphone picker
 milestone: AL
 size: XS
-status: in_progress
+status: done
 depends_on: []
 branch: AL.5-mic-picker-width
 lane: web
@@ -23,3 +23,4 @@ Cause: `DropdownMenuContent` in `apps/web/src/components/dictation/dictation-but
 - `bun run check && bun run test`.
 
 ## Log
+- 2026-11-05: Codex gave the picker its own width (w-max, 18 to 28rem, viewport-capped), align start, whole-word wrapping (2fc96a87). Controller review: tailwind-merge replaces the trigger-width default. Merged.
