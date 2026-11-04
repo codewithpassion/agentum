@@ -13,6 +13,10 @@ import { AccessLog } from "#/components/artifacts/access-log.tsx";
 import { ArtifactFrame } from "#/components/artifacts/artifact-frame.tsx";
 import { ElementAskViewer } from "#/components/artifacts/element-ask-viewer.tsx";
 import { ShareDialog } from "#/components/artifacts/share-dialog.tsx";
+import {
+  ArtifactSource,
+  ArtifactTabs,
+} from "#/components/artifacts/source.tsx";
 import { HandToDialog } from "#/components/artifacts/viewer/hand-to-dialog.tsx";
 import { VersionHistorySheet } from "#/components/artifacts/viewer/version-history-sheet.tsx";
 import { ViewerBar } from "#/components/artifacts/viewer/viewer-bar.tsx";
@@ -41,7 +45,6 @@ import {
   AlertDialogTitle,
 } from "#/components/ui/alert-dialog";
 import { Spinner } from "#/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/a/$artifactId")({
@@ -135,7 +138,7 @@ function StaticArtifactViewerPage() {
   const [pinned, setPinned] = useState<ReadonlySet<PinSurface>>(new Set());
   const [promoting, setPromoting] = useState(false);
   const [waitingVersionId, setWaitingVersionId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"artifact" | "log">("artifact");
+  const [tab, setTab] = useState<"artifact" | "log" | "source">("artifact");
 
   const Frame =
     detail.kind === "page" || detail.kind === "dashboard"
@@ -320,7 +323,8 @@ function StaticArtifactViewerPage() {
   const openHistory = useCallback(() => setHistoryOpen(true), []);
   const openShare = useCallback(() => setShareOpen(true), []);
   const changeTab = useCallback(
-    (value: string) => setTab(value === "log" ? "log" : "artifact"),
+    (value: string) =>
+      setTab(value === "log" || value === "source" ? value : "artifact"),
     []
   );
 
@@ -344,27 +348,24 @@ function StaticArtifactViewerPage() {
         shownNumber={shownNumber}
         versions={versions}
       />
-      {detail.canManage ? (
-        <Tabs
-          className="shrink-0 border-border border-b px-3"
-          onValueChange={changeTab}
-          value={tab}
-        >
-          <TabsList variant="line">
-            <TabsTrigger className="h-10 md:h-8" value="artifact">
-              Artifact
-            </TabsTrigger>
-            <TabsTrigger className="h-10 md:h-8" value="log">
-              Access log
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      ) : null}
+      <ArtifactTabs
+        canManage={detail.canManage}
+        onValueChange={changeTab}
+        value={tab}
+      />
       {tab === "log" && detail.canManage ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           <AccessLog artifactId={artifactId} />
         </div>
-      ) : (
+      ) : null}
+      {tab === "source" ? (
+        <ArtifactSource
+          artifactId={artifactId}
+          key={`${artifactId}:${shownNumber}`}
+          version={shownNumber}
+        />
+      ) : null}
+      {tab === "artifact" || (tab === "log" && !detail.canManage) ? (
         <div
           className="flex min-h-0 flex-1 items-center justify-center bg-background"
           ref={frameWrapRef}
@@ -387,7 +388,7 @@ function StaticArtifactViewerPage() {
             />
           ) : null}
         </div>
-      )}
+      ) : null}
       <ShareDialog
         artifactId={artifactId}
         dataFiles={dataFiles}

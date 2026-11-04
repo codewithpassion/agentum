@@ -3,10 +3,13 @@
 
 import { ARTIFACT_PIN_SURFACES } from "@repo/db/shared";
 import {
+  ARTIFACT_SOURCE_MAX_BYTES,
   artifactsCallToolInputSchema,
   artifactsCallToolOutputSchema,
   artifactsDecideGrantInputSchema,
   artifactsDecideGrantOutputSchema,
+  artifactsFilesInputSchema,
+  artifactsFilesOutputSchema,
   artifactsGetInputSchema,
   artifactsGetOutputSchema,
   artifactsHandToInputSchema,
@@ -17,6 +20,8 @@ import {
   artifactsPinOutputSchema,
   artifactsPromoteInputSchema,
   artifactsPromoteOutputSchema,
+  artifactsReadFileInputSchema,
+  artifactsReadFileOutputSchema,
   artifactsRemoveInputSchema,
   artifactsRemoveOutputSchema,
   artifactsRenameInputSchema,
@@ -93,6 +98,12 @@ export const artifactsRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.artifactEndpoints.list(ctx.principal, input.artifactId)
     ),
+  files: workspaceProcedure
+    .input(artifactsFilesInputSchema)
+    .output(artifactsFilesOutputSchema)
+    .query(({ ctx, input }) =>
+      ctx.services.artifacts.files(ctx.principal, input)
+    ),
   get: workspaceProcedure
     .input(artifactsGetInputSchema)
     .output(artifactsGetOutputSchema)
@@ -150,6 +161,24 @@ export const artifactsRouter = router({
         throw new ServiceError("conflict", "The grants need a decision first");
       }
       return { version: result.version };
+    }),
+  readFile: workspaceProcedure
+    .input(artifactsReadFileInputSchema)
+    .output(artifactsReadFileOutputSchema)
+    .query(async ({ ctx, input }) => {
+      const read = await ctx.services.artifacts.readFile(ctx.principal, input);
+      const bytes = new TextEncoder().encode(read.text);
+      const truncated = bytes.length > ARTIFACT_SOURCE_MAX_BYTES;
+      return {
+        ...read,
+        text: truncated
+          ? new TextDecoder().decode(
+              bytes.subarray(0, ARTIFACT_SOURCE_MAX_BYTES),
+              { stream: true }
+            )
+          : read.text,
+        truncated,
+      };
     }),
   remove: workspaceProcedure
     .input(artifactsRemoveInputSchema)

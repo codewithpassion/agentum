@@ -48,6 +48,7 @@ import {
   artifactManifestSchema,
   artifactPathSchema,
   contentTypeForPath,
+  isArtifactTextFile,
 } from "@repo/protocol/artifacts";
 import { and, eq, inArray } from "drizzle-orm";
 import { zipSync } from "fflate";
@@ -91,7 +92,6 @@ const CREATABLE_KINDS: readonly ArtifactKind[] = [
   "dashboard",
   "app",
 ];
-const TEXT_TYPE = /^(text\/|application\/(json|xml|javascript))|\+xml/;
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 type RunPrincipal = Extract<Principal, { kind: "run" }>;
@@ -1423,6 +1423,23 @@ export const createArtifactsService = ({
     };
   };
 
+  /** Metadata of the files of the version on screen, without blob keys or hashes. */
+  const listFiles = async (
+    principal: Principal,
+    input: { artifactId: string; version?: number }
+  ) => {
+    const member = reader(principal, "artifacts.read");
+    const row = await visible(member, input.artifactId);
+    const version = await versionOf(member, row, input.version);
+    return {
+      entry: version.entry,
+      files: (await versionFiles(db, member.workspaceId, version.id)).map(
+        ({ contentType, path, size }) => ({ contentType, path, size })
+      ),
+      version: version.number,
+    };
+  };
+
   /** The text of one file of a version (the current one by default; the entry by default). */
   const readFile = async (
     principal: Principal,
@@ -1449,7 +1466,7 @@ export const createArtifactsService = ({
     if (!file) {
       throw new ServiceError("not_found", `File ${path} not found`);
     }
-    if (!TEXT_TYPE.test(file.contentType)) {
+    if (!isArtifactTextFile(file.contentType)) {
       throw invalid(`${path} is not a text file (${file.contentType})`);
     }
     const blob = await blobs.get(blobKey(member.workspaceId, file.sha256));
@@ -1468,6 +1485,7 @@ export const createArtifactsService = ({
   return {
     create,
     download,
+    files: listFiles,
     get,
     hasLiveVersion,
     list,
