@@ -3,7 +3,7 @@ id: AL.2
 title: Calls tab for app endpoints
 milestone: AL
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: AL.2-app-calls-tab
 lane: web
@@ -18,3 +18,4 @@ Spec: `docs/v3/app-calls.md`, AL.2.
 - `bun run check && bun run test && bun run build`, then the bundle grep for `drizzle` in `apps/web/dist/client`.
 
 ## Log
+- 2026-11-05: Codex added status_code and duration_ms (migration 0045), artifacts.calls and artifacts.appErrors (owner or admin), and the Calls tab (dcc22c7a). Controller merge: resolved with AL.1 and AL.4, Calls joins ArtifactTabs, dropped count shown only when above zero. Full check and test pass on the integration branch.
