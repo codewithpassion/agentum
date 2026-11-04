@@ -104,6 +104,13 @@ export const findEntries: readonly FindEntry[] = [
   },
   {
     group: "What agents use",
+    hint: "Artifacts",
+    icon: Component,
+    label: "Apps",
+    to: "/artifacts?kind=app",
+  },
+  {
+    group: "What agents use",
     hint: "Machines",
     icon: Server,
     label: "Computers",

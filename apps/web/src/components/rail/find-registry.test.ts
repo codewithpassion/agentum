@@ -72,6 +72,16 @@ test("every entry has a label and a group", () => {
   }
 });
 
+test("Apps is in What agents use and opens the app artifacts list", () => {
+  expect(findEntries.filter((entry) => entry.label === "Apps")).toEqual([
+    expect.objectContaining({
+      group: "What agents use",
+      hint: "Artifacts",
+      to: "/artifacts?kind=app",
+    }),
+  ]);
+});
+
 test("agentFindEntries links each agent by id", () => {
   expect(
     agentFindEntries([
