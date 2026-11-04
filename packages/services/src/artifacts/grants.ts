@@ -39,15 +39,7 @@ import {
   artifactsHandToInputSchema,
   artifactsPromoteInputSchema,
 } from "@repo/protocol/artifacts";
-import {
-  and,
-  eq,
-  getTableColumns,
-  inArray,
-  notInArray,
-  type SQL,
-  sql,
-} from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
@@ -336,43 +328,19 @@ export const createArtifactGrantsService = ({
     };
   };
 
-  const pauseDroppedAgentsStatement = (artifact: ArtifactRow, ids: string[]) =>
-    db
-      .update(triggers)
-      .set({
-        disabledAt: sql`coalesce(${triggers.disabledAt}, ${clock.now().toISOString()})`,
-      })
-      .where(
-        and(
-          eq(triggers.artifactId, artifact.id),
-          eq(triggers.kind, "app"),
-          ids.length ? notInArray(triggers.agentId, ids) : undefined
-        )
-      );
-
-  const liveVersionStatements = async (
+  // Version changes never pause app triggers. startRun checks the live grant;
+  // disabledAt belongs to explicit pauses and grant revocations.
+  const liveVersionStatements = (
     artifact: ArtifactRow,
     version: { id: string; number: number }
-  ) => {
-    const approved = await approvedGrants(db, {
+  ) => [
+    setCurrentVersionStatement(db, {
+      artifactId: artifact.id,
+      now: clock.now().toISOString(),
       versionId: version.id,
-      workspaceId: artifact.workspaceId,
-    });
-    return [
-      setCurrentVersionStatement(db, {
-        artifactId: artifact.id,
-        now: clock.now().toISOString(),
-        versionId: version.id,
-        versionNumber: version.number,
-      }),
-      pauseDroppedAgentsStatement(
-        artifact,
-        approved
-          .filter((grant) => grant.kind === "agent")
-          .map((grant) => grant.target)
-      ),
-    ];
-  };
+      versionNumber: version.number,
+    }),
+  ];
 
   /**
    * Refuses a manifest before a version is written: it must parse and ask only
@@ -491,16 +459,6 @@ export const createArtifactGrantsService = ({
         )
     );
     statements.push(...triggerWrites.map((write) => write.statement));
-    if (artifact.currentVersionId === version.id) {
-      statements.push(
-        pauseDroppedAgentsStatement(
-          artifact,
-          rows
-            .filter((row) => row.kind === "agent" && row.status === "approved")
-            .map((row) => row.target)
-        )
-      );
-    }
     statements.push(
       ...endpointStatements(
         artifact,
@@ -969,7 +927,7 @@ export const createArtifactGrantsService = ({
     if (!(await claimProposedVersion(db, version.id))) {
       return false;
     }
-    await atomic(await liveVersionStatements(artifact, version));
+    await atomic(liveVersionStatements(artifact, version));
     await announcePromoted(artifact, version, actor);
     return true;
   };
@@ -1091,7 +1049,7 @@ export const createArtifactGrantsService = ({
       (await newerThanCurrent(artifact, version))
     ) {
       // A go-live that stopped after publishing the version: finish it.
-      await atomic(await liveVersionStatements(artifact, version));
+      await atomic(liveVersionStatements(artifact, version));
       await announcePromoted(artifact, version, await actorOf(principal));
       return { status: "promoted", version: version.number };
     }

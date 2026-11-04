@@ -439,7 +439,7 @@ export const createTriggersService = ({
     }
     const current = await requireLive(triggerId, actor.workspaceId);
     requireOwnAgent(actor, current.agentId, ENABLE_ACTION);
-    if (enabled && isPendingProposal(current)) {
+    if (enabled && current.kind === "http" && isPendingProposal(current)) {
       return await approve(actor, triggerId);
     }
     await db

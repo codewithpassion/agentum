@@ -18,7 +18,9 @@ import { createEventsService } from "../events.ts";
 import { createRequestsService } from "../requests.ts";
 import type { RuntimeAdapter } from "../runs/types.ts";
 import { createRunsService } from "../runs.ts";
+import { createTriggersService } from "../triggers.ts";
 import { type Principal, SYSTEM_PRINCIPAL as system } from "../workspaces.ts";
+import { createAppGrantsService } from "./app-grants.ts";
 import { createArtifactGrantsService, type ToolCatalog } from "./grants.ts";
 import { agentCanUpdate } from "./policy.ts";
 
@@ -60,6 +62,7 @@ const manifest = (body: object) => [
 
 let db: ReturnType<typeof migrated>;
 let service: ReturnType<typeof createArtifactGrantsService>;
+let appGrants: ReturnType<typeof createAppGrantsService>;
 let requests: ReturnType<typeof createRequestsService>;
 let agentId: string;
 let otherAgentId: string;
@@ -111,7 +114,12 @@ const setup = async () => {
     clock,
     db,
     devFakeRuntime: false,
-    gateways: [],
+    gateways: [{ deliver: async () => undefined, kind: "app" }],
+  });
+  appGrants = createAppGrantsService({
+    db,
+    fire: createTriggersService({ clock, db, events, runs }).fire,
+    secrets: { proxyForNames: async () => [] },
   });
   const agents = createAgentsService({ db, events });
   agentId = (
@@ -887,7 +895,7 @@ test("agent approval creates a tokenless trigger and reuses revoked and paused r
   ]);
 });
 
-test("a person's live version dropping an agent pauses its trigger", async () => {
+test("a person's live version dropping an agent leaves its trigger enabled", async () => {
   await addVersion("v2", 2, {
     authorId: "u1",
     authorKind: "user",
@@ -909,7 +917,7 @@ test("a person's live version dropping an agent pauses its trigger", async () =>
     .set({ currentVersionId: "v3" })
     .where(eq(artifacts.id, ARTIFACT));
   await record("v3", {}, owner);
-  expect((await db.select().from(triggers))[0]?.disabledAt).toBe(NOW);
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBeNull();
 });
 
 test("an agent outside the artifact workspace cannot get an app trigger", async () => {
@@ -1249,4 +1257,75 @@ test("a browser promotion counts grants and directs the person to Needs you", as
   ).rejects.toThrow(
     "2 grants wait for approval in Needs you. Approve them there, then promote this version."
   );
+});
+
+test("publishing a person's version with a pending agent grant never pauses its trigger", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v2", { agents: [{ agent: otherAgentId }] }, owner);
+  await addVersion("v3", 3, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v3" })
+    .where(eq(artifacts.id, ARTIFACT));
+  // A person's API-key update still needs session consent for new grants.
+  const [grant] = await record(
+    "v3",
+    { agents: [{ agent: otherAgentId }] },
+    { ...owner, via: "api_key" }
+  );
+  if (!grant) {
+    throw new Error("missing agent grant");
+  }
+  expect(grant.status).toBe("pending");
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBeNull();
+  const props = { artifactId: ARTIFACT, versionId: "v3", workspaceId: "w1" };
+  const input = { agent: otherAgentId, text: "hello" };
+  await expect(appGrants.startRun(props, input)).rejects.toThrow(
+    "no approved agent grant"
+  );
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grant.id,
+  });
+  const started = await appGrants.startRun(props, input);
+  expect(
+    (await db.select().from(runRows).where(eq(runRows.id, started.runId)))[0]
+      ?.agentId
+  ).toBe(otherAgentId);
+});
+
+test("promoting a version without an agent never pauses its trigger", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v2", { agents: [{ agent: otherAgentId }] }, owner);
+  await addVersion("v3", 3);
+  await record("v3", {});
+  await service.promote(owner, { artifactId: ARTIFACT, versionId: "v3" });
+  expect(await currentVersion()).toBe("v3");
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBeNull();
+  await expect(
+    appGrants.startRun(
+      { artifactId: ARTIFACT, versionId: "v3", workspaceId: "w1" },
+      { agent: otherAgentId, text: "hello" }
+    )
+  ).rejects.toThrow("no approved agent grant");
 });

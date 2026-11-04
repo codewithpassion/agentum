@@ -1075,3 +1075,29 @@ test("app rows cannot be approved or rejected as agent proposals", async () => {
   );
   expect(triggerRow("app-proposal")?.revokedAt).toBeNull();
 });
+
+test("a person can pause and resume an app trigger with proposal metadata", async () => {
+  await db.insert(triggerRows).values({
+    agentId: fakeAgentId,
+    approvedAt: null,
+    createdAt: START,
+    createdBy: "u1",
+    id: "app-with-proposal",
+    kind: "app",
+    name: "App",
+    proposedByAgentId: fakeAgentId,
+    workspaceId: WORKSPACE,
+  });
+  await service.setEnabled(user, {
+    enabled: false,
+    triggerId: "app-with-proposal",
+  });
+  expect(triggerRow("app-with-proposal")?.disabledAt).not.toBeNull();
+  const resumed = await service.setEnabled(user, {
+    enabled: true,
+    triggerId: "app-with-proposal",
+  });
+  expect(resumed.secret).toBeNull();
+  expect(resumed.trigger.disabledAt).toBeNull();
+  expect(triggerRow("app-with-proposal")?.tokenHash).toBeNull();
+});
