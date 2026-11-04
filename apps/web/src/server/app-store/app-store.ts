@@ -17,6 +17,14 @@ export class AppStore extends DurableObject<Env> {
     this.#core.init();
   }
 
+  errorSlot(restoreDropped?: number): { dropped: number } | null {
+    if (restoreDropped !== undefined) {
+      this.#core.restoreErrorDrops(restoreDropped);
+      return null;
+    }
+    return this.#core.errorSlot(Date.now());
+  }
+
   deleteItem(area: StorageArea, viewerKey: string, key: string): void {
     this.#core.delete(area, viewerKey, key);
   }

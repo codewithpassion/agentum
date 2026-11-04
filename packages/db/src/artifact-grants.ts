@@ -180,7 +180,11 @@ export const setCurrentVersionStatement = (
 ) =>
   db
     .update(artifacts)
-    .set({ currentVersionId: query.versionId, updatedAt: query.now })
+    .set({
+      currentVersionId: query.versionId,
+      thumbnailKey: sql`(select ${artifactVersions.thumbnailKey} from ${artifactVersions} where ${artifactVersions.id} = ${query.versionId})`,
+      updatedAt: query.now,
+    })
     .where(
       and(
         eq(artifacts.id, query.artifactId),

@@ -71,8 +71,10 @@ export const appGatewayWiring = (
   const exported = exportsOf(ctx);
   return {
     declaresHosts: (versionId) => services.artifactApp.declaresHosts(versionId),
+    defer: (work) => ctx.waitUntil(work),
     endpoints: services.artifactEndpoints,
     ports,
+    recordError: services.artifactErrors.record,
     requestMeta: async (request, workspaceId) => {
       const meta = await services.artifactShares.visitorMeta(workspaceId, {
         cf: (request as { cf?: { country?: string | null } }).cf ?? null,

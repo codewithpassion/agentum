@@ -2,8 +2,8 @@
  * Grants, promote and hand-to for app artifacts (PRD R2.4, R2.9, phase 2).
  *
  * A version that asks for tools, secrets, hosts, endpoints or agents gets one `artifact_grants`
- * row per ask. A row a person made, or that the current version already holds
- * approved, is `approved`; every other row waits `pending` for a person.
+ * row per ask. A row its author approved on a browser session, or that the
+ * current version already holds approved, is `approved`; the rest wait `pending`.
  * `promote` makes a proposed version current once none of its rows is pending.
  * When some are, an agent's promote opens an approval in Needs you and
  * returns `waiting`, and the person's `decideGrant` answers that approval.
@@ -39,15 +39,7 @@ import {
   artifactsHandToInputSchema,
   artifactsPromoteInputSchema,
 } from "@repo/protocol/artifacts";
-import {
-  and,
-  eq,
-  getTableColumns,
-  inArray,
-  notInArray,
-  type SQL,
-  sql,
-} from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
@@ -72,6 +64,7 @@ import {
   canManage,
   canOpen,
 } from "./policy.ts";
+import { replacementVersions } from "./replacements.ts";
 
 /** The `toolKey` the Needs you card shows for a promote request. */
 const PROMOTE_TOOL_KEY = "harbourmaster/artifact_promote";
@@ -336,43 +329,19 @@ export const createArtifactGrantsService = ({
     };
   };
 
-  const pauseDroppedAgentsStatement = (artifact: ArtifactRow, ids: string[]) =>
-    db
-      .update(triggers)
-      .set({
-        disabledAt: sql`coalesce(${triggers.disabledAt}, ${clock.now().toISOString()})`,
-      })
-      .where(
-        and(
-          eq(triggers.artifactId, artifact.id),
-          eq(triggers.kind, "app"),
-          ids.length ? notInArray(triggers.agentId, ids) : undefined
-        )
-      );
-
-  const liveVersionStatements = async (
+  // Version changes never pause app triggers. startRun checks the live grant;
+  // disabledAt belongs to explicit pauses and grant revocations.
+  const liveVersionStatements = (
     artifact: ArtifactRow,
     version: { id: string; number: number }
-  ) => {
-    const approved = await approvedGrants(db, {
+  ) => [
+    setCurrentVersionStatement(db, {
+      artifactId: artifact.id,
+      now: clock.now().toISOString(),
       versionId: version.id,
-      workspaceId: artifact.workspaceId,
-    });
-    return [
-      setCurrentVersionStatement(db, {
-        artifactId: artifact.id,
-        now: clock.now().toISOString(),
-        versionId: version.id,
-        versionNumber: version.number,
-      }),
-      pauseDroppedAgentsStatement(
-        artifact,
-        approved
-          .filter((grant) => grant.kind === "agent")
-          .map((grant) => grant.target)
-      ),
-    ];
-  };
+      versionNumber: version.number,
+    }),
+  ];
 
   /**
    * Refuses a manifest before a version is written: it must parse and ask only
@@ -423,9 +392,9 @@ export const createArtifactGrantsService = ({
   /**
    * Writes the grant rows of a new version from its `agentum.json`. Call it
    * once the version row exists. Calling it again for the same version returns
-   * the rows already there. A person's own version is approved as written. An
-   * agent's version is approved only where the current version already holds
-   * the same approved grant, and waits pending for the rest.
+   * the rows already there. A person’s browser-session version is approved as
+   * written. Other versions carry the current version’s approved grants and
+   * wait pending for the rest.
    */
   const recordVersionGrants = async (
     principal: Principal,
@@ -491,16 +460,6 @@ export const createArtifactGrantsService = ({
         )
     );
     statements.push(...triggerWrites.map((write) => write.statement));
-    if (artifact.currentVersionId === version.id) {
-      statements.push(
-        pauseDroppedAgentsStatement(
-          artifact,
-          rows
-            .filter((row) => row.kind === "agent" && row.status === "approved")
-            .map((row) => row.target)
-        )
-      );
-    }
     statements.push(
       ...endpointStatements(
         artifact,
@@ -508,6 +467,16 @@ export const createArtifactGrantsService = ({
       )
     );
     await atomic(statements);
+    // A person's update is a proposal only while it needs new consent. Run
+    // proposals still require promote even when every grant is carried.
+    if (
+      version.authorKind === "user" &&
+      version.status === "proposed" &&
+      rows.every((row) => row.status === "approved") &&
+      (await newerThanCurrent(artifact, version))
+    ) {
+      await goLiveVersion(artifact, version, await actorOf(principal));
+    }
     return rows.map(grantRecord);
   };
 
@@ -864,7 +833,7 @@ export const createArtifactGrantsService = ({
       [grant],
       input.decision,
       principal.userId,
-      asked > 0
+      asked > 0 || version.authorKind === "user"
     );
     if (outcome === "stale") {
       throw new ServiceError("conflict", "Grant already decided");
@@ -959,7 +928,7 @@ export const createArtifactGrantsService = ({
     if (!(await claimProposedVersion(db, version.id))) {
       return false;
     }
-    await atomic(await liveVersionStatements(artifact, version));
+    await atomic(liveVersionStatements(artifact, version));
     await announcePromoted(artifact, version, actor);
     return true;
   };
@@ -1022,30 +991,46 @@ export const createArtifactGrantsService = ({
   const pendingForMcpUser = async (
     principal: Principal,
     artifact: ArtifactRow,
-    version: { id: string; authorKind: string }
+    version: { id: string; authorKind: string; number: number }
   ): Promise<PromoteResult | null> => {
     if (
       principal.kind !== "user" ||
       principal.via === "session" ||
-      version.authorKind !== "user" ||
-      artifact.currentVersionId !== version.id
+      version.authorKind !== "user"
     ) {
       return null;
     }
-    const pending = (
-      await listGrants(db, {
-        versionId: version.id,
-        workspaceId: artifact.workspaceId,
-      })
-    ).filter((row) => row.status === "pending");
+    const rows = await listGrants(db, {
+      versionId: version.id,
+      workspaceId: artifact.workspaceId,
+    });
+    const rejected = rows.filter((row) => row.status === "rejected");
+    if (rejected.length) {
+      throw new ServiceError(
+        "conflict",
+        `This version was rejected: ${rejected.map((row) => `${row.kind} ${row.target}`).join(", ")}. Create a new version.`
+      );
+    }
+    const [replacement] = await replacementVersions(db, {
+      artifactId: sql`${artifact.id}`,
+      currentVersionId: sql`${artifact.currentVersionId}`,
+      number: sql`${version.number}`,
+    });
+    if (replacement && version.id !== artifact.currentVersionId) {
+      throw new ServiceError(
+        "conflict",
+        `This version was replaced by version ${replacement.number}. Create a new version.`
+      );
+    }
+    const pending = rows.filter((row) => row.status === "pending");
     return pending.length
       ? { pending: pending.map(grantRecord), status: "waiting" }
       : null;
   };
 
   /**
-   * Promotes a run-authored app once its grants are approved. A current
-   * user-authored version waits on its grouped grant card in Needs you.
+   * Promotes a run-authored app once its grants are approved. A person’s
+   * pending version waits on its grouped grant card in Needs you.
    */
   const promote = async (
     principal: Principal,
@@ -1061,8 +1046,8 @@ export const createArtifactGrantsService = ({
       );
     }
     const version = await requireVersion(artifact, input.versionId);
-    // User-authored apps keep the publish convention. MCP is not consent;
-    // Needs you lists their grants directly because they have no run card.
+    // MCP is not consent. Needs you lists user-authored pending grants
+    // directly because these versions have no authoring run card.
     const waitingForPerson = await pendingForMcpUser(
       principal,
       artifact,
@@ -1082,7 +1067,7 @@ export const createArtifactGrantsService = ({
       (await newerThanCurrent(artifact, version))
     ) {
       // A go-live that stopped after publishing the version: finish it.
-      await atomic(await liveVersionStatements(artifact, version));
+      await atomic(liveVersionStatements(artifact, version));
       await announcePromoted(artifact, version, await actorOf(principal));
       return { status: "promoted", version: version.number };
     }

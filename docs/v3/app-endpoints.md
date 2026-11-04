@@ -1,6 +1,6 @@
 # App endpoints and agent hand-off
 
-Status: approved by Dom on 4 Nov 2026. Tasks EP.1 to EP.4.
+Status: approved by Dom on 4 Nov 2026. Tasks EP.1 to EP.5.
 
 ## Why
 
@@ -88,10 +88,12 @@ For both callers, a bot ships a one-line `index.html`, `server/index.js` and
 
 A run’s app version is proposed until `artifact_promote`. That call opens one
 approval card listing all pending grants. Approval makes the version live.
-A person’s app version is current immediately after `artifact_create` or
-`artifact_update`. New grants wait in one card in Needs you for that current
-version. One Approve decides them all. Approval activates its endpoints and
-agent hand-off; no second `artifact_promote` is needed. `artifact_promote`
+A person’s initial app version is current after `artifact_create`, with new
+MCP grants pending in Needs you. An `artifact_update` carries approvals from
+the version that was live before it. If all grants are approved, the update
+goes live immediately. Otherwise it stays proposed and the old version keeps
+serving. One Approve in Needs you decides the pending grants and makes the
+new version live; no second `artifact_promote` is needed. `artifact_promote`
 reports `waiting` while those grants are pending. `artifact_read` returns the
 requested version’s grants with status `pending`, `approved` or `rejected`.
 
@@ -126,6 +128,21 @@ before approval. It tests the page; send signed endpoint requests separately.
 The `reply` status values are `finished`, `failed`, `cancelled`, `interrupted`.
 In the Discord example, `sessionKey: channel_id` shares one agent session per
 channel. `/role` requires a server member and returns a message in DMs.
+
+## App errors
+
+A throwing `fetch` or `reply`, or a runtime failure, records `app.error` with
+artifact id, version id, entry (`fetch <endpoint name>`, `fetch page`, or
+`reply`) and the error message truncated to 500 characters. Fetch failures
+keep the fixed 502 response. Reply failures also keep `app.reply_failed`.
+`artifact_read` includes the latest 10 errors across versions for callers who
+can manage the artifact, with time, version, entry, message and dropped count.
+
+The existing per-artifact AppStore keeps a private durable error timestamp and
+counter. It admits at most one error per sliding 10 seconds, shared by fetch
+and reply across versions. The next admitted event reports how many errors
+were dropped since the previous one. Storage outages must not change the
+caller's response.
 
 ## Out of scope
 

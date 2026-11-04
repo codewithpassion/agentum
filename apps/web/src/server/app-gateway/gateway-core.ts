@@ -6,6 +6,7 @@
  * from other tasks comes in as a port.
  */
 import type { ViewTokenClaims } from "@repo/protocol/artifacts";
+import type { AppErrorTarget } from "@repo/services/artifacts/errors";
 import { readCappedBody } from "../mcp/body.ts";
 import {
   filteredResponse,
@@ -34,7 +35,13 @@ const API_PATH = /^\/a\/[^/]+\/c\/[^/]+(\/api(?:\/.*)?)$/;
 export interface AppGatewayDeps {
   /** The A.4 content wrapper: CSP, nosniff and the rest, set on every answer. */
   applyContentHeaders: (response: Response) => Response;
+  defer?: (work: Promise<void>) => void;
   ports: Pick<AppGatewayPorts, "shares" | "source">;
+  recordError?: (
+    target: AppErrorTarget,
+    entry: string,
+    error: unknown
+  ) => Promise<void>;
   /** The visitor hash and request details for R2.13 and R2.14 (the hash uses A.3's daily salt). */
   requestMeta: (
     request: Request,
@@ -118,9 +125,22 @@ const timer = (ms: number) => {
   return { clear: () => clearTimeout(handle), expired };
 };
 
+const recordError = (
+  input: AppRuntimeInput,
+  deps: AppGatewayDeps,
+  entry: string,
+  error: unknown
+): void => {
+  const work = Promise.resolve()
+    .then(() => deps.recordError?.(input.host, entry, error))
+    .catch(() => undefined);
+  deps.defer?.(work);
+};
+
 const runApp = async (
   input: AppRuntimeInput,
-  deps: AppGatewayDeps
+  deps: AppGatewayDeps,
+  entry = "fetch page"
 ): Promise<Response> => {
   const wall = timer(deps.wallMs ?? APP_WALL_MS);
   try {
@@ -128,10 +148,13 @@ const runApp = async (
       deps.runtime.handle(input),
       wall.expired,
     ]);
-    return answer === "timeout"
-      ? text(504, TIMEOUT_BODY)
-      : filteredResponse(answer);
-  } catch {
+    if (answer === "timeout") {
+      recordError(input, deps, entry, new Error("timed out"));
+      return text(504, TIMEOUT_BODY);
+    }
+    return filteredResponse(answer);
+  } catch (error) {
+    recordError(input, deps, entry, error);
     return text(502, BAD_GATEWAY_BODY);
   } finally {
     wall.clear();
@@ -211,6 +234,7 @@ export const handleEndpointRequest = async (
     versionId: string;
     workspaceId: string;
     endpointId: string;
+    name?: string;
   },
   deps: AppGatewayDeps
 ): Promise<Response> => {
@@ -235,7 +259,8 @@ export const handleEndpointRequest = async (
           },
           request: forwarded,
         },
-        deps
+        deps,
+        `fetch ${endpoint.name ?? endpoint.endpointId}`
       ),
       deps
     );

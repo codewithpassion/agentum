@@ -49,6 +49,7 @@ export const createArtifactPorts = ({
   publicBaseUrl?: string;
   services: Pick<
     Services,
+    | "artifactErrors"
     | "artifactEndpoints"
     | "agents"
     | "artifactGrants"
@@ -69,7 +70,13 @@ export const createArtifactPorts = ({
     files: number;
     version: number;
     versionId: string;
+    status?: ArtifactPublished["status"];
+    hasLiveVersion?: boolean;
   }): ArtifactPublished => ({
+    ...(result.status ? { status: result.status } : {}),
+    ...(result.hasLiveVersion === undefined
+      ? {}
+      : { hasLiveVersion: result.hasLiveVersion }),
     artifactId: result.artifactId,
     bytes: result.bytes,
     files: result.files,
@@ -199,7 +206,18 @@ export const createArtifactPorts = ({
         });
         return result.status === "promoted"
           ? { status: "promoted" as const, version: result.version }
-          : { status: "waiting" as const, version: target.number };
+          : {
+              approval:
+                principal.kind === "run"
+                  ? ("run" as const)
+                  : ("person" as const),
+              hasLiveVersion: await services.artifacts.hasLiveVersion(
+                principal,
+                artifactId
+              ),
+              status: "waiting" as const,
+              version: target.number,
+            };
       }),
     read: ({ artifactId, path, version }) =>
       guarded(async () => {
@@ -219,7 +237,12 @@ export const createArtifactPorts = ({
               versionId: readVersion.id,
             })
           : [];
+        const appErrors = await services.artifactErrors.list(
+          principal,
+          artifactId
+        );
         return {
+          ...(appErrors === undefined ? {} : { appErrors }),
           artifactId: card.artifactId,
           audience: card.audience,
           currentVersion: card.currentVersion.number,
@@ -283,8 +306,32 @@ export const createArtifactPorts = ({
         };
       }),
     update: (input) =>
-      guarded(async () =>
-        published(await services.artifacts.update(principal, input))
-      ),
+      guarded(async () => {
+        const result = await services.artifacts.update(principal, input);
+        const versions = await services.artifacts.versions(
+          principal,
+          input.artifactId
+        );
+        const version = versions.find((row) => row.id === result.versionId);
+        let status: ArtifactPublished["status"] = "live";
+        if (version?.status === "proposed") {
+          status = principal.kind === "run" ? "proposed" : "waiting";
+          if (
+            versions.some(
+              (row) => row.status === "published" && row.number > version.number
+            )
+          ) {
+            status = "superseded";
+          }
+        }
+        return published({
+          ...result,
+          hasLiveVersion: await services.artifacts.hasLiveVersion(
+            principal,
+            input.artifactId
+          ),
+          status,
+        });
+      }),
   };
 };

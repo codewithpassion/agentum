@@ -9,6 +9,7 @@ import {
   type ReplyTarget,
   replyTargetSchema,
 } from "../runs/types.ts";
+import type { createArtifactErrorsService } from "./errors.ts";
 
 export interface AppReplyHost {
   artifactId: string;
@@ -34,17 +35,20 @@ export const createAppReplies = ({
   defer,
   events,
   invoke,
+  errors,
 }: {
   db: Database;
   defer?: (work: Promise<void>) => void;
   events: EventsService;
   invoke?: AppReply;
+  errors?: Pick<ReturnType<typeof createArtifactErrorsService>, "record">;
 }) => {
   interface Diagnostics {
     agentId?: string | null;
     artifactId?: string;
     runId: string;
     sessionId?: string | null;
+    versionId?: string;
     workspaceId?: string;
   }
   const reportFailure = async (ids: Diagnostics) => {
@@ -84,7 +88,20 @@ export const createAppReplies = ({
       deadline,
       Promise.resolve().then(() => work(() => expired)),
     ])
-      .catch(() => reportFailure(ids))
+      .catch(async (error) => {
+        if (ids.artifactId && ids.workspaceId && ids.versionId) {
+          await errors?.record(
+            {
+              artifactId: ids.artifactId,
+              versionId: ids.versionId,
+              workspaceId: ids.workspaceId,
+            },
+            "reply",
+            error
+          );
+        }
+        await reportFailure(ids);
+      })
       .finally(() => clearTimeout(timer))
       .catch(() => undefined);
     defer?.(pending);
@@ -111,9 +128,6 @@ export const createAppReplies = ({
       sessionId: run.sessionId,
       workspaceId: run.workspaceId,
     });
-    if (!invoke) {
-      throw new Error("Worker exports are unavailable");
-    }
     const [app] = await db
       .select()
       .from(artifacts)
@@ -129,6 +143,10 @@ export const createAppReplies = ({
     // An app without a live version has nothing to receive a reply.
     if (expired() || !app?.currentVersionId) {
       return;
+    }
+    ids.versionId = app.currentVersionId;
+    if (!invoke) {
+      throw new Error("Worker exports are unavailable");
     }
     await invoke(
       {

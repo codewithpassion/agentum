@@ -1,3 +1,4 @@
+import { Database as Sqlite } from "bun:sqlite";
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runs } from "@repo/db/schema/runs";
@@ -5,12 +6,15 @@ import { taskFolderPath } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
+import { createArtifactErrorsService } from "@repo/services/artifacts/errors";
 import { ServiceError } from "@repo/services/errors";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
+import { handleEndpointRequest } from "../app-gateway/gateway-core.ts";
+import { createAppStoreCore } from "../app-store/app-store-core.ts";
 import type {
   ArtifactTestBrowser,
   ArtifactTestPage,
@@ -83,6 +87,7 @@ beforeEach(async () => {
   composed = composeWith({
     db,
     infra: {
+      appErrorSlot: async () => ({ dropped: 0 }),
       artifactViewKey: "test-view-key",
       atomic: sqliteAtomic(db),
       blobs: {
@@ -277,6 +282,7 @@ const fakePromotePorts = (
         promote: (_principal: unknown, input: never) => promote(input),
       },
       artifacts: {
+        hasLiveVersion: () => Promise.resolve(false),
         versions: () =>
           Promise.resolve([
             { id: "ver_2", number: 2 },
@@ -305,6 +311,8 @@ test("promote of a numbered version that waits carries that number", async () =>
     Promise.resolve({ pending: [], requestId: "req_1", status: "waiting" })
   );
   expect(await ports.promote({ artifactId: "a1", version: 2 })).toEqual({
+    approval: "run",
+    hasLiveVersion: false,
     status: "waiting",
     version: 2,
   });
@@ -518,3 +526,440 @@ for (const via of ["api_key", "oauth"] as const) {
     }
   });
 }
+
+test("MCP app updates carry approvals and hold new grants without replacing live", async () => {
+  const principal = {
+    ...user,
+    apiKey: { access: "write" as const, id: "key" },
+    via: "api_key" as const,
+  };
+  const port = createArtifactPorts({ principal, services: composed.services });
+  const files = (hosts: string[], text: string) => [
+    { path: "index.html", text },
+    {
+      path: "server/index.js",
+      text: `export default { fetch() { return new Response('${text}'); } };`,
+    },
+    {
+      path: "agentum.json",
+      text: JSON.stringify({ endpoints: [{ name: "bot" }], hosts }),
+    },
+  ];
+  const first = await port.create({
+    entry: "index.html",
+    files: files(["example.com"], "one"),
+    kind: "app",
+    title: "Bot",
+  });
+  for (const grant of await composed.services.artifactGrants.list(user, {
+    artifactId: first.artifactId,
+    versionId: first.versionId,
+  })) {
+    // biome-ignore lint/performance/noAwaitInLoops: Decide each grant in order.
+    await composed.services.artifactGrants.decideGrant(user, {
+      decision: "approved",
+      grantId: grant.id,
+    });
+  }
+  const [endpoint] = await composed.services.artifactEndpoints.list(
+    user,
+    first.artifactId
+  );
+  if (!endpoint) {
+    throw new Error("Missing endpoint");
+  }
+  const serve = async () => {
+    const resolved = await composed.services.artifactEndpoints.resolve(
+      endpoint.id
+    );
+    if (!resolved) {
+      throw new Error("Endpoint stopped serving");
+    }
+    return handleEndpointRequest(
+      new Request(`https://app.test/hooks/${endpoint.id}`),
+      resolved,
+      {
+        applyContentHeaders: (response) => response,
+        ports: {
+          shares: {
+            state: () => Promise.resolve({ ok: false, reason: "unknown" }),
+          },
+          source: { bundle: () => Promise.resolve(null) },
+        },
+        requestMeta: () =>
+          Promise.resolve({
+            ipPrefix: null,
+            place: null,
+            userAgent: null,
+            visitorHash: "",
+          }),
+        runtime: {
+          handle: (input) =>
+            Promise.resolve(new Response(input.host.versionId)),
+        },
+      }
+    );
+  };
+  const same = await port.update({
+    artifactId: first.artifactId,
+    baseVersion: 1,
+    files: files(["example.com"], "two"),
+  });
+  expect(
+    (await port.read({ artifactId: first.artifactId })).grants.every(
+      (grant) => grant.status === "approved"
+    )
+  ).toBe(true);
+  expect(
+    (await port.read({ artifactId: first.artifactId })).currentVersion
+  ).toBe(2);
+  const currentResponse = await serve();
+  expect(currentResponse.status).toBe(200);
+  expect(await currentResponse.text()).toBe(same.versionId);
+  const proposed = await port.update({
+    artifactId: first.artifactId,
+    baseVersion: 2,
+    files: files(["example.com", "new.example.com"], "three"),
+  });
+  expect((await port.read({ artifactId: first.artifactId })).file.text).toBe(
+    "two"
+  );
+  expect(await (await serve()).text()).toBe(same.versionId);
+  expect(await port.promote({ artifactId: first.artifactId })).toMatchObject({
+    status: "waiting",
+  });
+  const rail = await composed.services.desk.railSources(user, {
+    dayStart: new Date().toISOString(),
+  });
+  expect(JSON.stringify(rail.needsYou)).toContain(proposed.versionId);
+  const grants = await composed.services.artifactGrants.list(user, {
+    artifactId: first.artifactId,
+    versionId: proposed.versionId,
+  });
+  expect(grants.filter((grant) => grant.status === "pending")).toMatchObject([
+    { kind: "host", target: "new.example.com" },
+  ]);
+  for (const grant of grants.filter((row) => row.status === "pending")) {
+    // biome-ignore lint/performance/noAwaitInLoops: Decide each grant in order.
+    await composed.services.artifactGrants.decideGrant(user, {
+      decision: "approved",
+      grantId: grant.id,
+    });
+  }
+  expect((await port.read({ artifactId: first.artifactId })).file.text).toBe(
+    "three"
+  );
+  expect(same.version).toBe(2);
+  expect(await (await serve()).text()).toBe(proposed.versionId);
+  expect(same.status).toBe("live");
+  expect(proposed.status).toBe("waiting");
+});
+
+test("artifact_read returns only managers' last ten bounded app errors", async () => {
+  const port = createArtifactPorts({
+    principal: user,
+    services: composed.services,
+  });
+  const app = await port.create({
+    entry: "index.html",
+    files: [{ path: "index.html", text: "Errors" }],
+    kind: "app",
+    title: "Errors",
+  });
+  await composed.services.artifacts.setAudience(
+    user,
+    app.artifactId,
+    "workspace"
+  );
+  const stranger = { ...user, isAdmin: false, userId: "another-member" };
+  const failed = await handleEndpointRequest(
+    new Request("https://app.test/hooks/id"),
+    { ...app, endpointId: "id", name: "bot", workspaceId: user.workspaceId },
+    {
+      applyContentHeaders: (response) => response,
+      ports: {
+        shares: {
+          state: () => Promise.resolve({ ok: false, reason: "unknown" }),
+        },
+        source: { bundle: () => Promise.resolve(null) },
+      },
+      recordError: composed.services.artifactErrors.record,
+      requestMeta: () =>
+        Promise.resolve({
+          ipPrefix: null,
+          place: null,
+          userAgent: null,
+          visitorHash: "",
+        }),
+      runtime: { handle: () => Promise.reject(new Error("fetch broke")) },
+    }
+  );
+  expect(failed.status).toBe(502);
+  expect(
+    (await port.read({ artifactId: app.artifactId })).appErrors
+  ).toMatchObject([{ entry: "fetch bot", message: "fetch broke" }]);
+  for (let i = 0; i < 12; i += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: Preserve event order for the latest ten check.
+    await composed.services.artifactErrors.record(
+      {
+        artifactId: app.artifactId,
+        versionId: app.versionId,
+        workspaceId: user.workspaceId,
+      },
+      i % 2 ? "reply" : "fetch bot",
+      new Error(`${i}:${"x".repeat(600)}`)
+    );
+  }
+  const read = await port.read({ artifactId: app.artifactId });
+  expect(read.appErrors).toHaveLength(10);
+  expect(read.appErrors?.[0]).toMatchObject({
+    entry: "reply",
+    versionId: app.versionId,
+  });
+  expect(
+    read.appErrors?.every(
+      (error) => error.message.length === 500 && !!error.time
+    )
+  ).toBe(true);
+  const other = createArtifactPorts({
+    principal: stranger,
+    services: composed.services,
+  });
+  expect(
+    (await other.read({ artifactId: app.artifactId })).appErrors
+  ).toBeUndefined();
+});
+
+test("app errors under concurrent load write one event and report dropped errors on the next admission", async () => {
+  const port = createArtifactPorts({
+    principal: user,
+    services: composed.services,
+  });
+  const app = await port.create({
+    entry: "index.html",
+    files: [{ path: "index.html", text: "Flood" }],
+    kind: "app",
+    title: "Flood",
+  });
+  const sqlite = new Sqlite(":memory:");
+  const core = createAppStoreCore({
+    exec: (q, ...p) => sqlite.query(q).all(...p) as Record<string, unknown>[],
+  });
+  core.init();
+  let now = 1000;
+  const errors = createArtifactErrorsService({
+    db,
+    events: composed.services.events,
+    slot: () => Promise.resolve(core.errorSlot(now)),
+  });
+  const target = {
+    artifactId: app.artifactId,
+    versionId: app.versionId,
+    workspaceId: user.workspaceId,
+  };
+  await Promise.all(
+    Array.from({ length: 100 }, () =>
+      errors.record(target, "fetch bot", new Error("broken"))
+    )
+  );
+  expect(await errors.list(user, app.artifactId)).toMatchObject([
+    { dropped: 0 },
+  ]);
+  now += 10_000;
+  await errors.record(target, "reply", new Error("broken again"));
+  const recorded = await errors.list(user, app.artifactId);
+  expect(recorded).toHaveLength(2);
+  expect(recorded?.[0]).toMatchObject({ dropped: 99, entry: "reply" });
+  sqlite.close();
+});
+
+test("failed app error writes preserve prior drops and count the failed event", async () => {
+  const sqlite = new Sqlite(":memory:");
+  const core = createAppStoreCore({
+    exec: (q, ...p) => sqlite.query(q).all(...p) as Record<string, unknown>[],
+  });
+  core.init();
+  let now = 1000;
+  core.errorSlot(now);
+  core.errorSlot(now);
+  now += 10_000;
+  const errors = createArtifactErrorsService({
+    db,
+    events: {
+      ...composed.services.events,
+      append: () => Promise.reject(new Error("D1 unavailable")),
+    },
+    slot: (_id, dropped) => {
+      if (dropped !== undefined) {
+        core.restoreErrorDrops(dropped);
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(core.errorSlot(now));
+    },
+  });
+  await errors.record(
+    { artifactId: "app", versionId: "v1", workspaceId: user.workspaceId },
+    "reply",
+    new Error("broken")
+  );
+  now += 10_000;
+  expect(core.errorSlot(now)).toEqual({ dropped: 2 });
+  sqlite.close();
+});
+
+test("new app proposals replace older Needs you cards and cards name the version", async () => {
+  const principal = { ...user, via: "api_key" as const };
+  const port = createArtifactPorts({ principal, services: composed.services });
+  const files = (host: string) => [
+    { path: "server/index.js", text: "export default {}" },
+    { path: "index.html", text: "App" },
+    { path: "agentum.json", text: JSON.stringify({ hosts: [host] }) },
+  ];
+  const app = await port.create({
+    entry: "index.html",
+    files: [{ path: "index.html", text: "one" }],
+    kind: "app",
+    title: "Versioned",
+  });
+  const second = await port.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: files("second.example"),
+  });
+  const newer = await port.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: files("third.example"),
+  });
+  const cards = (
+    await composed.services.desk.railSources(user, {
+      dayStart: new Date().toISOString(),
+    })
+  ).needsYou;
+  expect(cards.some((card) => card.id === second.versionId)).toBe(false);
+  expect(
+    cards.find((card) => card.id === newer.versionId)?.band.text
+  ).toContain("version 3");
+  const third = await port.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: [{ path: "index.html", text: "Live" }],
+  });
+  expect(third.status).toBe("live");
+  const after = (
+    await composed.services.desk.railSources(user, {
+      dayStart: new Date().toISOString(),
+    })
+  ).needsYou;
+  expect(after.some((card) => card.id === newer.versionId)).toBe(false);
+});
+
+test("an update overtaken by a newer live version reports superseded", async () => {
+  const principal = { ...user, via: "api_key" as const };
+  const port = createArtifactPorts({ principal, services: composed.services });
+  const app = await port.create({
+    entry: "index.html",
+    files: [{ path: "index.html", text: "one" }],
+    kind: "app",
+    title: "Race",
+  });
+  const services = {
+    ...composed.services,
+    artifacts: {
+      ...composed.services.artifacts,
+      update: async (
+        ...args: Parameters<typeof composed.services.artifacts.update>
+      ) => {
+        const result = await composed.services.artifacts.update(...args);
+        await composed.services.artifacts.update(user, {
+          artifactId: app.artifactId,
+          baseVersion: 1,
+          files: [{ path: "index.html", text: "newer" }],
+        });
+        return result;
+      },
+    },
+  };
+  const racing = createArtifactPorts({ principal, services });
+  const result = await racing.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: [
+      { path: "server/index.js", text: "export default {}" },
+      { path: "index.html", text: "two" },
+      {
+        path: "agentum.json",
+        text: JSON.stringify({ hosts: ["new.example"] }),
+      },
+    ],
+  });
+  expect(result.status).toBe("superseded");
+});
+
+for (const isCurrent of [false, true]) {
+  test(`promote uses the current pointer for live version presence: ${isCurrent}`, async () => {
+    const ports = createArtifactPorts({
+      principal: user,
+      services: {
+        artifactGrants: {
+          promote: () => Promise.resolve({ pending: [], status: "waiting" }),
+        },
+        artifacts: {
+          hasLiveVersion: () => Promise.resolve(isCurrent),
+          versions: () =>
+            Promise.resolve([
+              { id: "v1", number: 1, status: "published" },
+              { id: "v2", number: 2, status: "proposed" },
+            ]),
+        },
+      } as never,
+    });
+    expect(
+      await ports.promote({ artifactId: "app", version: 2 })
+    ).toMatchObject({ hasLiveVersion: isCurrent });
+  });
+}
+
+test("an MCP update before first promotion reports no live version", async () => {
+  const ports = createArtifactPorts({
+    principal: { ...user, via: "api_key" },
+    services: composed.services,
+  });
+  const first = await ports.create({
+    entry: "index.html",
+    files: [
+      { path: "index.html", text: "one" },
+      { path: "server/index.ts", text: "export default {}" },
+      {
+        path: "agentum.json",
+        text: JSON.stringify({ hosts: ["example.com"] }),
+      },
+    ],
+    kind: "app",
+    title: "New bot",
+  });
+  const { artifacts, artifactVersions } = await import(
+    "@repo/db/schema/artifacts"
+  );
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: null })
+    .where(eq(artifacts.id, first.artifactId));
+  await db
+    .update(artifactVersions)
+    .set({ status: "proposed" })
+    .where(eq(artifactVersions.id, first.versionId));
+  const updated = await ports.update({
+    artifactId: first.artifactId,
+    baseVersion: 1,
+    files: [
+      { path: "index.html", text: "two" },
+      { path: "server/index.ts", text: "export default {}" },
+      {
+        path: "agentum.json",
+        text: JSON.stringify({ hosts: ["example.com"] }),
+      },
+    ],
+  });
+  expect(updated).toMatchObject({ hasLiveVersion: false, status: "waiting" });
+});

@@ -278,6 +278,7 @@ const defaultEntry = (artifactKind: ArtifactKindInput): string =>
  * token a port might return never reaches the agent (R1.13).
  */
 const publishedData = (published: ArtifactPublished): ArtifactPublished => ({
+  ...(published.status ? { status: published.status } : {}),
   artifactId: published.artifactId,
   bytes: published.bytes,
   files: published.files,
@@ -286,8 +287,18 @@ const publishedData = (published: ArtifactPublished): ArtifactPublished => ({
   versionId: published.versionId,
 });
 
-const publishedText = (verb: string, published: ArtifactPublished): string =>
-  `${verb} artifact ${published.artifactId} version ${published.version} (${published.files} files, ${published.bytes} bytes). Open it at ${published.url} (needs sign-in). Run artifact_test before you say it is done.`;
+const publishedText = (verb: string, published: ArtifactPublished): string => {
+  const messages = {
+    live: "This version is live. ",
+    proposed:
+      "This version is proposed. Use artifact_promote to request approval. ",
+    superseded:
+      "This version was superseded by a newer live version. Check with artifact_read. ",
+    waiting: `${published.hasLiveVersion ? "The live version keeps serving." : "Nothing is live until a person approves."} Ask them to approve in Needs you, then check with artifact_read. `,
+  };
+  const state = published.status ? messages[published.status] : "";
+  return `${verb} artifact ${published.artifactId} version ${published.version} (${published.files} files, ${published.bytes} bytes). ${state}Open it at ${published.url} (needs sign-in). Run artifact_test before you say it is done.`;
+};
 
 /** Tokens can appear in URLs the page requested; the agent never sees them. */
 const redact = (text: string): string =>
@@ -432,7 +443,7 @@ export const artifactTools = (
   }),
   defineTool({
     annotations: WRITE_UPDATE,
-    description: `See artifact_create for the app guide and full Discord example. Publishes a new version of an artifact you own or your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. For a run, the app version is proposed until artifact_promote. For a person, the new version is current immediately, with new grants pending in Needs you. Approving them activates its endpoints and agent hand-off with no second artifact_promote. artifact_test opens the latest non-rejected version. ${BUILD_GUIDE}`,
+    description: `See artifact_create for the app guide and full Discord example. Publishes a new version of an artifact you own or your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. For a run, the app version is proposed until artifact_promote. For a person, an update with all grants approved goes live immediately. Otherwise it stays proposed. If a live version exists, it keeps serving; for a first version, nothing is live until approval. Ask them to approve in Needs you, then check with artifact_read. Approval makes it live with no second artifact_promote. artifact_test opens the latest non-rejected version. ${BUILD_GUIDE}`,
     inputSchema: updateInput,
     name: "artifact_update",
     run: async (input) => {
@@ -448,12 +459,13 @@ export const artifactTools = (
   defineTool({
     annotations: READ_ONLY,
     description:
-      "Reads an artifact: title, kind, audience, the version list, the requested version’s grants with status pending, approved or rejected, active approved endpoint URLs and the text of one file (the entry file unless you give path). Reads the current version by default; pass version to see a proposed version’s grants. Use it before artifact_update to get the current version number, or to read a published page. Text files only.",
+      "Reads an artifact: title, kind, audience, the version list, the requested version’s grants with status pending, approved or rejected, active approved endpoint URLs, the last 10 app errors for callers who can manage the artifact, and the text of one file (the entry file unless you give path). Reads the current version by default; pass version to see a proposed version’s grants. Use it before artifact_update to get the current version number, or to read a published page. Text files only.",
     inputSchema: readInput,
     name: "artifact_read",
     run: async (input) => {
       const info = await port.read(input);
       const data = {
+        ...(info.appErrors === undefined ? {} : { appErrors: info.appErrors }),
         artifactId: info.artifactId,
         audience: info.audience,
         currentVersion: info.currentVersion,
@@ -480,6 +492,10 @@ export const artifactTools = (
           ),
           ...info.grants.map(
             (grant) => `Grant ${grant.kind}: ${grant.target} (${grant.status})`
+          ),
+          ...(info.appErrors ?? []).map(
+            (error) =>
+              `App error ${error.time}, version ${error.version}, ${error.entry}: ${error.message} (${error.dropped} dropped)`
           ),
           "Versions:",
           ...versionLines,
@@ -529,7 +545,7 @@ export const artifactTools = (
   defineTool({
     annotations: WRITE_UPDATE,
     description:
-      "See artifact_create for the app guide and full Discord example. Asks to make a version of an app artifact live (the latest unless you give version). For a run’s proposed version, this opens its approval card and approval makes it live; if it waits, stop and do not retry. A person’s app is already current; approving its grants in Needs you activates endpoints and agent hand-off with no second artifact_promote. For a person over MCP, this tool reports waiting while approval is pending: ask them to approve in Needs you, then check with artifact_read (current version by default; pass version to see a proposed version’s grants).",
+      "See artifact_create for the app guide and full Discord example. Asks to make a version of an app artifact live (the latest unless you give version). For a run’s proposed version, this opens its approval card and approval makes it live; if it waits, a person must approve in Needs you. Stop and do not retry. A person’s update goes live when all grants are approved. Otherwise it stays proposed. If a live version exists, it keeps serving; for a first version, nothing is live until approval. Approval makes it live with no second artifact_promote. For a person over MCP, this tool reports waiting while approval is pending: ask them to approve in Needs you, then check with artifact_read (current version by default; pass version to see a proposed version’s grants).",
     inputSchema: promoteInput,
     name: "artifact_promote",
     run: async (input) => {
@@ -539,7 +555,7 @@ export const artifactTools = (
         text:
           result.status === "promoted"
             ? `Version ${result.version} is now live.`
-            : `Version ${result.version} waits for a person to approve its grants in Needs you. Stop here and do not retry.`,
+            : `Version ${result.version} waits for a person to approve its grants in Needs you. ${result.approval === "person" ? "Ask them to approve in Needs you, then check with artifact_read." : "Stop and do not retry; a person must approve."} ${result.hasLiveVersion ? "The live version keeps serving." : "Nothing is live until approval."}`,
       };
     },
     title: "Promote an artifact version",

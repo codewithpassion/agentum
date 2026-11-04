@@ -38,10 +38,13 @@ import {
   isNull,
   max,
   ne,
+  notExists,
   or,
+  sql,
 } from "drizzle-orm";
 import { z } from "zod";
 import type { A2aNeedsYouSource } from "./a2a/needs-you.ts";
+import { replacementVersions } from "./artifacts/replacements.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
@@ -551,6 +554,7 @@ export const createDeskService = ({
           artifactId: artifacts.id,
           at: artifactGrants.createdAt,
           id: artifactVersions.id,
+          number: artifactVersions.number,
           ownerUserId: artifacts.ownerUserId,
           title: artifacts.title,
         })
@@ -565,7 +569,19 @@ export const createDeskService = ({
             eq(artifacts.workspaceId, member.workspaceId),
             isNull(artifacts.deletedAt),
             eq(artifactVersions.authorKind, "user"),
-            eq(artifactVersions.id, artifacts.currentVersionId),
+            or(
+              eq(artifactVersions.id, artifacts.currentVersionId),
+              and(
+                eq(artifactVersions.status, "proposed"),
+                notExists(
+                  replacementVersions(db, {
+                    artifactId: sql`${artifacts.id}`,
+                    currentVersionId: sql`${artifacts.currentVersionId}`,
+                    number: sql`${artifactVersions.number}`,
+                  })
+                )
+              )
+            ),
             eq(artifactGrants.status, "pending"),
             eq(artifacts.ownerUserId, member.userId)
           )
@@ -639,7 +655,7 @@ export const createDeskService = ({
           artifactId: grant.artifactId,
           at: grant.at,
           band: {
-            text: "Approve this app version’s access",
+            text: `Approve access for version ${grant.number}`,
             tone: "waiting",
           },
           id: grant.id,

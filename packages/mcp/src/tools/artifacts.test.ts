@@ -480,6 +480,27 @@ describe("artifact_read and artifact_list", () => {
     expect(textOf(result)).toContain("<h1>Hi</h1>");
   });
 
+  test("read includes manager app errors in structured content and text", async () => {
+    const appErrors = [
+      {
+        dropped: 4,
+        entry: "reply",
+        message: "reply broke",
+        time: "2026-11-05T00:00:00.000Z",
+        version: 2,
+        versionId: "ver_2",
+      },
+    ];
+    const result = await call(
+      port({ read: () => Promise.resolve({ ...info, appErrors }) }),
+      "artifact_read",
+      { artifactId: ID }
+    );
+    expect(result.structuredContent).toMatchObject({ appErrors });
+    expect(textOf(result)).toContain("reply broke");
+    expect(textOf(result)).toContain("4 dropped");
+  });
+
   test("list returns items and the next cursor", async () => {
     const items = [
       {
@@ -654,10 +675,16 @@ describe("artifact_promote", () => {
     expect(textOf(result)).toBe("Version 3 is now live.");
   });
 
-  test("a waiting version tells the agent to stop", async () => {
+  test("a waiting version explains approval and reading the result", async () => {
     const result = await call(
       port({
-        promote: () => Promise.resolve({ status: "waiting", version: 2 }),
+        promote: () =>
+          Promise.resolve({
+            approval: "person",
+            hasLiveVersion: true,
+            status: "waiting",
+            version: 2,
+          }),
       }),
       "artifact_promote",
       { artifactId: ID }
@@ -665,7 +692,9 @@ describe("artifact_promote", () => {
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).toContain("Version 2 waits for a person");
     expect(textOf(result)).toContain("Needs you");
-    expect(textOf(result)).toContain("do not retry");
+    expect(textOf(result)).toContain(
+      "Ask them to approve in Needs you, then check with artifact_read"
+    );
   });
 
   test("dry run skips the promote and records it", async () => {
@@ -791,3 +820,66 @@ test("artifact_update preserves the adapter's refusal to replace a live document
     message: "Use document_edit for a live document.",
   });
 });
+
+test("a waiting run stops for a person and never asks the run to approve", async () => {
+  const result = await call(
+    port({
+      promote: () =>
+        Promise.resolve({
+          approval: "run",
+          hasLiveVersion: false,
+          status: "waiting",
+          version: 1,
+        }),
+    }),
+    "artifact_promote",
+    { artifactId: ID }
+  );
+  expect(textOf(result)).toContain("Stop and do not retry");
+  expect(textOf(result)).not.toContain("Approve in Needs you");
+  expect(textOf(result)).not.toContain("live version keeps serving");
+  expect(textOf(result)).toContain("Nothing is live until approval");
+});
+
+test("a person's first version does not claim a live version keeps serving", async () => {
+  const result = await call(
+    port({
+      promote: () =>
+        Promise.resolve({
+          approval: "person",
+          hasLiveVersion: false,
+          status: "waiting",
+          version: 1,
+        }),
+    }),
+    "artifact_promote",
+    { artifactId: ID }
+  );
+  expect(textOf(result)).toContain(
+    "Ask them to approve in Needs you, then check with artifact_read"
+  );
+  expect(textOf(result)).toContain("Nothing is live until approval");
+  expect(textOf(result)).not.toContain("live version keeps serving");
+});
+
+for (const hasLiveVersion of [false, true]) {
+  test(`a waiting update reports whether a current version exists: ${hasLiveVersion}`, async () => {
+    const result = await call(
+      port({
+        update: () =>
+          Promise.resolve({ ...published, hasLiveVersion, status: "waiting" }),
+      }),
+      "artifact_update",
+      { artifactId: ID, baseVersion: 1, files: [html] }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toContain(
+      hasLiveVersion
+        ? "The live version keeps serving."
+        : "Nothing is live until a person approves."
+    );
+    if (!hasLiveVersion) {
+      expect(textOf(result)).not.toContain("live version keeps serving");
+    }
+  });
+}

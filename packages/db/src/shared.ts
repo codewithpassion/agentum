@@ -266,6 +266,7 @@ export type FileSource = (typeof FILE_SOURCES)[number];
 
 export const EVENT_TYPES = [
   "app.reply_failed",
+  "app.error",
   "run.queued",
   "run.started",
   "run.cancelled",

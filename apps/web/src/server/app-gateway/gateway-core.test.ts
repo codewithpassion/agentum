@@ -308,3 +308,78 @@ describe("handleAppRequest: header rules", () => {
     expect(answer.headers.get("location")).toBeNull();
   });
 });
+
+test("throwing fetch records the version and entry and keeps the fixed 502", async () => {
+  const t = setup(() => {
+    throw new Error("fetch broke");
+  });
+  const recorded: unknown[] = [];
+  t.deps.recordError = (input, entry, error) => {
+    recorded.push({ entry, input, message: (error as Error).message });
+    return Promise.resolve();
+  };
+  const response = await t.run("/api/test");
+  expect(response.status).toBe(502);
+  expect(await response.text()).toBe("The app's server could not answer.");
+  expect(recorded).toMatchObject([
+    {
+      entry: "fetch page",
+      input: { artifactId: ARTIFACT, versionId: "ver-1" },
+      message: "fetch broke",
+    },
+  ]);
+});
+
+test("failure diagnostics are deferred without delaying the 502", async () => {
+  const t = setup(() => {
+    throw new Error("broken");
+  });
+  const work: Promise<void>[] = [];
+  let finish = () => {
+    /* Replaced when recording begins. */
+  };
+  t.deps.defer = (pending) => work.push(pending);
+  t.deps.recordError = () =>
+    new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  const response = await Promise.race([
+    t.run("/api"),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 100)),
+  ]);
+  expect(response?.status).toBe(502);
+  expect(work).toHaveLength(1);
+  finish();
+  await Promise.all(work);
+});
+
+test("wall timeout records a timed out app error through defer", async () => {
+  const t = setup(
+    () =>
+      new Promise<Response>(() => {
+        /* Simulate a runtime that never answers. */
+      })
+  );
+  const recorded: unknown[] = [];
+  const work: Promise<void>[] = [];
+  t.deps.wallMs = 1;
+  t.deps.defer = (pending) => work.push(pending);
+  t.deps.recordError = (target, entry, error) => {
+    recorded.push({
+      entry,
+      message: String(error instanceof Error ? error.message : error),
+      target,
+    });
+    return Promise.resolve();
+  };
+  expect((await t.run("/api")).status).toBe(504);
+  await Promise.all(work);
+  expect(work).toHaveLength(1);
+  expect(recorded).toMatchObject([
+    {
+      entry: "fetch page",
+      message: "timed out",
+      target: { artifactId: ARTIFACT, versionId: "ver-1" },
+    },
+  ]);
+});

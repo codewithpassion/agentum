@@ -153,7 +153,9 @@ export const mountAppGatewayRoutes = (
       }
       return await handleAppRequest(c.req.raw, claims, {
         applyContentHeaders: finish,
+        defer: wiring.defer,
         ports: wiring.ports,
+        recordError: wiring.recordError,
         requestMeta: wiring.requestMeta,
         runtime: wiring.runtime,
         wallMs: wiring.wallMs,

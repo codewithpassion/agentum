@@ -1179,3 +1179,82 @@ test("only the current user app version has one grant card, regardless of grant 
   ).toMatchObject([{ artifactId: "app", id: "v2" }]);
   expect(await desk.needsYouCount(user())).toBe(1);
 });
+
+for (const scenario of [
+  "run",
+  "rejected",
+  "person",
+  "person_without_pending",
+  "current",
+] as const) {
+  test(`a newer ${scenario} version only hides a person's grant card when actionable or current`, async () => {
+    const { artifacts, artifactVersions, artifactGrants } = await import(
+      "@repo/db/schema/artifacts"
+    );
+    const at = new Date(NOW).toISOString();
+    await db.insert(artifacts).values({
+      audience: "private",
+      createdAt: at,
+      createdById: "u1",
+      createdByKind: "user",
+      currentVersionId: scenario === "current" ? "v2" : null,
+      id: "app",
+      kind: "app",
+      ownerUserId: "u1",
+      title: "Bot",
+      updatedAt: at,
+      workspaceId: "w1",
+    });
+    let newerStatus: "published" | "proposed" | "rejected" = "proposed";
+    if (scenario === "current") {
+      newerStatus = "published";
+    }
+    if (scenario === "rejected") {
+      newerStatus = "rejected";
+    }
+    await db.insert(artifactVersions).values(
+      [1, 2].map((number) => ({
+        artifactId: "app",
+        authorId: "u1",
+        authorKind:
+          number === 2 && scenario === "run"
+            ? ("agent" as const)
+            : ("user" as const),
+        createdAt: at,
+        entry: "index.html",
+        fileCount: 1,
+        id: `v${number}`,
+        manifestKey: "manifest",
+        message: "",
+        number,
+        status: number === 2 ? newerStatus : ("proposed" as const),
+        totalBytes: 1,
+        workspaceId: "w1",
+      }))
+    );
+    await db.insert(artifactGrants).values(
+      [1, 2].map((number) => ({
+        createdAt: at,
+        id: `g${number}`,
+        kind: "host" as const,
+        status:
+          number === 2 && scenario === "person_without_pending"
+            ? ("approved" as const)
+            : ("pending" as const),
+        target: "example.com",
+        versionId: `v${number}`,
+        workspaceId: "w1",
+      }))
+    );
+    const rail = await desk.railSources(user(), { dayStart: DAY_START });
+    const cards = rail.needsYou.filter(
+      (card) => card.needsYouKind === "artifact_grant"
+    );
+    expect(cards.map((card) => card.id)).toEqual(
+      scenario === "person" || scenario === "current" ? ["v2"] : ["v1"]
+    );
+    expect(cards[0]?.band.text).toBe(
+      `Approve access for version ${scenario === "person" || scenario === "current" ? 2 : 1}`
+    );
+  });
+}
