@@ -3,7 +3,7 @@ id: EP.6
 title: Answer startRun before the run is offered
 milestone: EP
 size: S
-status: in_progress
+status: done
 depends_on: [EP.5]
 branch: task/EP.6-app-startrun-fast
 lane: services
@@ -31,3 +31,4 @@ Found on staging on 5 Nov 2026. Spec: `docs/v3/app-endpoints.md`, "Hand-off to a
 
 ## Log
 - 2026-11-05: opened at Dom's request ("Do 6, then deploy") and dispatched to Codex.
+- 2026-11-05: Codex implemented (7d853995, ade5674f). Controller review: fire passes offerLater only on the app path with a defer, offers through waitUntil, and logs a failed offer for the sweep. app-bot e2e PASS with the reply delivered. Merged as c4f53c53; check, test and build pass.
