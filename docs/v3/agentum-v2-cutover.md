@@ -242,6 +242,12 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 8. Rebuild with the committed config and deploy again (`bun run staging:deploy`), so the Worker switches from the transfer migration to `exports`. The output should report no Durable Object changes.
 9. Run a test PR on the new repository once its Actions secrets exist.
 
+## Status (4 Nov 2026)
+
+Staging cut over on 3 Nov. Production phase 1 cut over on 4 Nov: `agentum-v2` holds the data, the Durable Objects, the mail rule and the minute tick, with rotated keys. It serves the app on harbourmaster.rockyshoreslabs.io with the old Clerk instance, because the Agentum Clerk instance does not exist yet. agentumbot.io moved off v1 and redirects page loads there (`LEGACY_HOSTS`). The old `harbourmaster` Worker has no domain, no cron and no Durable Objects.
+
+Phase 2, once the Agentum Clerk instance and its DNS exist: the Clerk steps under "Clerk" (copy users and organisations, rewrite ids), then in `wrangler.jsonc` set `PUBLIC_BASE_URL` to `https://agentumbot.io` and `LEGACY_HOSTS` to `harbourmaster.rockyshoreslabs.io`, set the `build` script back to `--mode agentum-production`, put the new `CLERK_*` secrets on the Worker, and deploy. No data moves.
+
 ## Production cutover
 
 Announce the window first. Tell people that runs still going when the window starts are lost and must be started again, and that some keys and connections need redoing afterwards (see "What people must redo after the cutover").
