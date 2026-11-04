@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../routes/groups.ts";
 import { mountEndpointRoutes } from "./endpoints.ts";
@@ -11,6 +11,7 @@ const setup = (failLogging = false) => {
   const active = new Set(["approved"]);
   const seen: AppRuntimeInput[] = [];
   const keys: string[] = [];
+  const counts = new Map<string, number>();
   const logs: string[] = [];
   let limited = false;
   const app = new Hono<AppEnv>();
@@ -18,7 +19,9 @@ const setup = (failLogging = false) => {
     limiter: () => ({
       limit: ({ key }) => {
         keys.push(key);
-        return Promise.resolve({ success: !limited });
+        const count = (counts.get(key) ?? 0) + 1;
+        counts.set(key, count);
+        return Promise.resolve({ success: !limited && count <= 300 });
       },
     }),
     wiring: () => ({
@@ -351,17 +354,84 @@ test("limiter rejects every id before resolution or privacy writes", async () =>
   );
   expect(h.access).toEqual([]);
   expect(h.logs).toEqual([]);
-  expect(h.keys).toEqual(
-    ["unknown", "disabled", "approved", "rotated"].map(
-      (id) => `api:endpoint:${id}:ip:1.2.3.0/24`
-    )
+  expect(h.keys.toSorted()).toEqual(
+    Array.from({ length: 4 }, () => [
+      "api:endpoints:ip:1.2.3.0/24",
+      "api:endpoints:ip:1.2.3.0/24:overflow",
+    ])
+      .flat()
+      .toSorted()
   );
 });
 
-test("request waitUntil owns logging and logging failure preserves the app response", async () => {
-  const h = setup(true);
-  const response = await h.call("/hooks/approved");
-  expect(response.status).toBe(200);
-  expect(h.work).toHaveLength(1);
+test("IP-only budget stops random ids before D1 reads and resets for another prefix", async () => {
+  const h = setup();
+  for (let index = 0; index < 600; index += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: exercise sequential limiter consumption
+    const response = await h.call(`/hooks/random-${index}`, {
+      headers: { "CF-Connecting-IP": "1.2.3.4" },
+    });
+    expect(response.status).toBe(404);
+  }
+  expect(h.access).toHaveLength(600);
+  h.keys.length = 0;
+  const response = await h.call("/hooks/another-random-id", {
+    headers: { "CF-Connecting-IP": "1.2.3.99" },
+  });
+  expect(response.status).toBe(429);
+  expect(response.headers.get("Retry-After")).toBe("60");
+  expect(h.keys).toEqual([
+    "api:endpoints:ip:1.2.3.0/24",
+    "api:endpoints:ip:1.2.3.0/24:overflow",
+  ]);
+  expect(h.access).toHaveLength(600);
+  expect(h.logs).toEqual([]);
+  expect(
+    (
+      await h.call("/hooks/new-prefix", {
+        headers: { "CF-Connecting-IP": "1.2.4.4" },
+      })
+    ).status
+  ).toBe(404);
+});
+
+test("per-endpoint budget rejects at 300 before the IP-only budget is exhausted", async () => {
+  const h = setup();
+  for (let index = 0; index < 300; index += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: exercise sequential limiter consumption
+    expect((await h.call("/hooks/approved")).status).toBe(200);
+  }
+  expect((await h.call("/hooks/approved")).status).toBe(429);
+  expect(h.access).toHaveLength(600);
+  h.active.add("other-endpoint");
+  expect((await h.call("/hooks/other-endpoint")).status).toBe(200);
   await Promise.all(h.work);
+});
+
+test("request waitUntil logs recordCall failure with ids only and preserves the app response", async () => {
+  const error = spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const h = setup(true);
+    const response = await h.call("/hooks/approved", {
+      body: "private body",
+      headers: { authorization: "Bearer secret" },
+      method: "POST",
+    });
+    expect(response.status).toBe(200);
+    expect(h.work).toHaveLength(1);
+    await Promise.all(h.work);
+    expect(error.mock.calls).toEqual([
+      [
+        "Failed to record endpoint call",
+        {
+          artifactId: "a",
+          endpointId: "approved",
+          versionId: "v",
+          workspaceId: "w",
+        },
+      ],
+    ]);
+  } finally {
+    error.mockRestore();
+  }
 });

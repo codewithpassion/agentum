@@ -17,13 +17,19 @@ export type Statement = BatchItem<"sqlite"> & {
   all: () => unknown;
 };
 
-/** Runs all statements or none, in order. Optional results are delivered after commit. */
+/**
+ * Runs all statements or none, in order. Optional results are delivered after commit.
+ * If `onResults` throws, `atomic` rejects after the writes have committed.
+ */
 export type Atomic = (
   statements: readonly Statement[],
   onResults?: (results: unknown[]) => void
 ) => Promise<void>;
 
-/** D1: one `db.batch`, which D1 runs as a single transaction. */
+/**
+ * D1: one `db.batch`, which D1 runs as a single transaction.
+ * If `onResults` throws, `atomic` rejects after the writes have committed.
+ */
 export const d1Atomic =
   (db: Pick<DrizzleD1Database, "batch">): Atomic =>
   async (statements, onResults) => {
@@ -38,6 +44,7 @@ export const d1Atomic =
 /**
  * bun:sqlite: one `db.transaction`, rolled back if a statement throws.
  * `run()` executes synchronously, which a sync transaction callback needs.
+ * If `onResults` throws, `atomic` rejects after the writes have committed.
  */
 export const sqliteAtomic =
   (db: { transaction: (fn: () => void) => unknown }): Atomic =>

@@ -9,6 +9,28 @@ import type { ApiLimiter, AppGatewayWiring } from "./mount.ts";
 interface EndpointWiring extends AppGatewayWiring {
   endpoints: Pick<ArtifactEndpointsService, "resolve" | "recordCall">;
 }
+/** Check the IP-only budget before spending an endpoint budget or reading D1. */
+const withinLimits = async (
+  limiter: ApiLimiter,
+  id: string,
+  prefix: string
+): Promise<boolean> => {
+  // APP_API_LIMIT allows 300 checks/minute per key. Two fixed IP-only
+  // buckets allow 600/minute across all ids; overflow never depends on id.
+  const ipKey = `api:endpoints:ip:${prefix}`;
+  const primary = await limiter.limit({ key: ipKey });
+  if (
+    !(
+      primary.success ||
+      (await limiter.limit({ key: `${ipKey}:overflow` })).success
+    )
+  ) {
+    return false;
+  }
+  return (await limiter.limit({ key: `api:endpoint:${id}:ip:${prefix}` }))
+    .success;
+};
+
 export const mountEndpointRoutes = (
   app: Hono<AppEnv>,
   deps: {
@@ -30,14 +52,7 @@ export const mountEndpointRoutes = (
       const limiter = deps.limiter?.(c.env);
       const ip = c.req.header("CF-Connecting-IP");
       const prefix = ip ? truncateIp(ip) : null;
-      if (
-        limiter &&
-        !(
-          await limiter.limit({
-            key: `api:endpoint:${id}:ip:${prefix ?? "unknown"}`,
-          })
-        ).success
-      ) {
+      if (limiter && !(await withinLimits(limiter, id, prefix ?? "unknown"))) {
         return finish(
           new Response("Too many requests.", {
             headers: { "Retry-After": "60" },
@@ -64,7 +79,14 @@ export const mountEndpointRoutes = (
             response.status >= 500 ? "error" : "ok"
           )
         )
-        .catch(() => undefined);
+        .catch(() => {
+          console.error("Failed to record endpoint call", {
+            artifactId: endpoint.artifactId,
+            endpointId: endpoint.endpointId,
+            versionId: endpoint.versionId,
+            workspaceId: endpoint.workspaceId,
+          });
+        });
       // Hono tests may have no execution context; Workers always supplies it.
       try {
         c.executionCtx.waitUntil(log);
