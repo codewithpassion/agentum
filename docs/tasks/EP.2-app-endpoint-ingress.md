@@ -3,9 +3,9 @@ id: EP.2
 title: Public endpoint route for app artifacts
 milestone: EP
 size: M
-status: todo
+status: in_progress
 depends_on: [EP.1]
-branch: null
+branch: task/EP.2-app-endpoint-ingress
 lane: worker
 executor: codex
 ---
@@ -33,3 +33,4 @@ Spec: `docs/v3/app-endpoints.md`, section "Endpoints". Read `apps/web/src/server
 - `bun run check && bun run test && bun run build` pass.
 
 ## Log
+- 2026-11-04: dispatched to Codex.
