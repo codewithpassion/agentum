@@ -8,7 +8,7 @@
   "scripts": {
     "add-workspace": "bun scripts/add-workspace.ts",
     "agent-login": "bun scripts/agent-login.ts",
-    "build": "vite build --mode agentum-production && bun scripts/check-dev-only.ts",
+    "build": "vite build --mode production && bun scripts/check-dev-only.ts",
     "build-clerk-id-map": "bun scripts/build-clerk-id-map.ts",
     "cf-typegen": "wrangler types",
     "copy-clerk-users": "bun scripts/copy-clerk-users.ts",

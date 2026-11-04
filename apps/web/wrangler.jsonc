@@ -84,11 +84,15 @@
   // The public origin of the deployed app, used to build links back to it.
   // Local dev overrides it from .env.local (see .env.example).
   "vars": {
-    "PUBLIC_BASE_URL": "https://agentumbot.io",
+    // Phase 1 of the Agentum v2 cutover (docs/v3/agentum-v2-cutover.md):
+    // production stays on the old hostname and the old Clerk instance until
+    // the Agentum Clerk instance exists. Phase 2 sets agentumbot.io here, puts
+    // harbourmaster.rockyshoreslabs.io in LEGACY_HOSTS and adds its route.
+    "PUBLIC_BASE_URL": "https://harbourmaster.rockyshoreslabs.io",
     // Old hostnames this Worker still answers on (comma separated). A browser
     // page load there gets a 301 to PUBLIC_BASE_URL; API calls, webhooks and
     // machine sockets are served in place (src/server/legacy-host.ts).
-    "LEGACY_HOSTS": "harbourmaster.rockyshoreslabs.io",
+    "LEGACY_HOSTS": "",
     // How long a Linux VM sits idle before it snapshots /workspace and sleeps.
     "LINUX_VM_IDLE_SECONDS": "180",
     // Agent mail (task V5.7). An empty MAIL_DOMAIN turns mail off. Production
@@ -127,8 +131,8 @@
     }
   ],
   "routes": [
-    { "pattern": "agentumbot.io", "custom_domain": true },
-    // The old hostname, kept for LEGACY_HOSTS. It moves here from `harbourmaster`.
+    // Phase 1: only the old hostname, moved here from `harbourmaster`.
+    // agentumbot.io stays on v1 until phase 2.
     { "pattern": "harbourmaster.rockyshoreslabs.io", "custom_domain": true }
   ],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "agentum-v2-files" }],

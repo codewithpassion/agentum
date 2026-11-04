@@ -273,7 +273,7 @@ Announce the window first. Tell people that runs still going when the window sta
 
 8. Smoke-check as on staging, on `https://agentumbot.io`, with `bun run agent-login --env production --email dominik.fretz@harbouredgeintelligence.com` (any user `copy-clerk-users` made works). Sign in once with Google too. Add: the minute tick runs (a scheduled trigger appears in `bunx wrangler tail agentum-v2`), a share link opened on the old host lands on agentumbot.io, an MCP client added at `https://agentumbot.io/mcp` lists tools.
 9. Rebuild with the committed config and deploy again (`bun run deploy`).
-10. Delete the filled secrets file. Update external dependencies from the table.
+10. Move the filled secrets file to `~/.config/agentum/agentum-v2.secrets.env` (mode 600) and put the new keys in the password manager. Update external dependencies from the table.
 
 ## What people must redo after the cutover
 
