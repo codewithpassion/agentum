@@ -119,6 +119,15 @@ const dataDump = [
 ].join("\n");
 
 describe("D1 import", () => {
+  test("migrationGap skips the boilerplate leftover and nothing else", () => {
+    expect(
+      migrationGap(["0000_notes.sql", "0000_init.sql"], ["0000_init.sql"])
+    ).toEqual([]);
+    expect(
+      migrationGap(["0000_other.sql", "0000_init.sql"], ["0000_init.sql"])
+    ).toEqual(["only old: 0000_other.sql"]);
+  });
+
   test("parentsFirst puts every parent table before its children", () => {
     const keys = [
       { column: "workspace_id", parent: "workspaces", table: "agents" },

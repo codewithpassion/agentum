@@ -158,6 +158,13 @@ export const TABLES_QUERY =
 export const MIGRATIONS_QUERY = "SELECT name FROM d1_migrations ORDER BY id;";
 
 /** Migrations one database has applied and the other has not. */
+/**
+ * Migrations the old production database applied that the repository no
+ * longer has. `0000_notes.sql` came from the boilerplate on 15 Oct 2026,
+ * before the real schema, and left an empty `notes` table nothing uses.
+ */
+export const LEFTOVER_OLD_MIGRATIONS = new Set(["0000_notes.sql"]);
+
 export const migrationGap = (
   oldNames: string[],
   newNames: string[]
@@ -166,7 +173,7 @@ export const migrationGap = (
   const inOld = new Set(oldNames);
   return [
     ...oldNames
-      .filter((name) => !inNew.has(name))
+      .filter((name) => !(inNew.has(name) || LEFTOVER_OLD_MIGRATIONS.has(name)))
       .map((name) => `only old: ${name}`),
     ...newNames
       .filter((name) => !inOld.has(name))
