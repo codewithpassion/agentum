@@ -7,7 +7,7 @@ status: todo
 depends_on: [EP.1]
 branch: null
 lane: services
-executor: claude
+executor: codex
 ---
 
 Spec: `docs/v3/app-endpoints.md`, section "Hand-off to an agent".

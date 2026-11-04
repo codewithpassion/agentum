@@ -7,7 +7,7 @@ status: todo
 depends_on: [EP.2, EP.3]
 branch: null
 lane: mcp
-executor: claude
+executor: codex
 ---
 
 Spec: `docs/v3/app-endpoints.md`, section "MCP".

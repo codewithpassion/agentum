@@ -7,7 +7,7 @@ status: todo
 depends_on: [EP.1]
 branch: null
 lane: worker
-executor: claude
+executor: codex
 ---
 
 Spec: `docs/v3/app-endpoints.md`, section "Endpoints". Read `apps/web/src/server/app-gateway/` first: the route reuses the gateway, the runtime and the header rules.

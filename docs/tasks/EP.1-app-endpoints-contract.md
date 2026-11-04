@@ -7,7 +7,7 @@ status: in_progress
 depends_on: []
 branch: task/EP.1-app-endpoints-contract
 lane: db
-executor: claude
+executor: codex
 ---
 
 Spec: `docs/v3/app-endpoints.md`. This is the contract task: it alone changes `packages/db/src/schema` and generates the migration.
@@ -27,3 +27,4 @@ Spec: `docs/v3/app-endpoints.md`. This is the contract task: it alone changes `p
 
 ## Log
 - 2026-11-04: dispatched.
+- 2026-11-04: Dom asked for Codex (gpt-6.1-sol) to implement and Claude to review. Haiku run stopped, its partial rename committed as 34650149, re-dispatched to Codex.
