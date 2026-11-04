@@ -4,16 +4,23 @@ import {
   endpointsForArtifact,
   insertEndpointStatement,
   insertEndpointView,
+  listEndpointCalls,
   resolveEndpoint,
   setEndpointDisabledStatement,
 } from "@repo/db/artifact-endpoints";
 import { findArtifact } from "@repo/db/artifact-grants";
 import type { Atomic } from "@repo/db/atomic";
 import type { ArtifactViewOutcome } from "@repo/db/shared";
+import {
+  type ArtifactsCallsInput,
+  artifactsAppErrorsInputSchema,
+  artifactsCallsInputSchema,
+} from "@repo/protocol/artifacts";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
+import type { createArtifactErrorsService } from "./errors.ts";
 import { agentCanSee, canManage, canOpen } from "./policy.ts";
 
 const TRAILING_SLASH = /\/$/;
@@ -29,9 +36,11 @@ export const createArtifactEndpointsService = ({
   db,
   atomic,
   clock,
+  errors,
   publicBaseUrl = "",
 }: {
   db: Database;
+  errors: Pick<ReturnType<typeof createArtifactErrorsService>, "list">;
   atomic: Atomic;
   clock: { now: () => Date };
   publicBaseUrl?: string;
@@ -134,9 +143,11 @@ export const createArtifactEndpointsService = ({
       userAgent: string | null;
       visitorHash: string;
     },
-    outcome: ArtifactViewOutcome
+    outcome: ArtifactViewOutcome,
+    measurement: { statusCode: number; durationMs: number }
   ) => {
     await insertEndpointView(db, {
+      ...measurement,
       artifactId: endpoint.artifactId,
       country: meta.place,
       createdAt: clock.now().toISOString(),
@@ -185,8 +196,29 @@ export const createArtifactEndpointsService = ({
     );
     return activeRows.filter((row) => row !== null);
   };
+  const calls = async (principal: Principal, input: ArtifactsCallsInput) => {
+    const parsed = artifactsCallsInputSchema.parse(input);
+    const artifact = await requireManager(principal, parsed.artifactId);
+    const rows = await listEndpointCalls(db, {
+      ...parsed,
+      workspaceId: artifact.workspaceId,
+    });
+    const items = rows.slice(0, 50);
+    const last = items.at(-1);
+    return rows.length > 50 && last ? { items, next: last.id } : { items };
+  };
+  const appErrors = async (
+    principal: Principal,
+    input: { artifactId: string }
+  ) => {
+    const { artifactId } = artifactsAppErrorsInputSchema.parse(input);
+    await requireManager(principal, artifactId);
+    return (await errors.list(principal, artifactId)) ?? [];
+  };
   return {
     active,
+    appErrors,
+    calls,
     change,
     list,
     recordCall,

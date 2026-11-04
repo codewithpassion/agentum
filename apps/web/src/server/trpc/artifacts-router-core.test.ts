@@ -2,6 +2,10 @@ import { expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import {
+  artifactsFilesOutputSchema,
+  artifactsReadFileOutputSchema,
+} from "@repo/protocol/artifacts";
 import { createArtifactsService } from "@repo/services/artifacts/service";
 import { createEventsService } from "@repo/services/events";
 import { createLibraryService } from "@repo/services/library";
@@ -86,6 +90,8 @@ test("a private artifact of another user is not found", async () => {
   const calls = [
     () => other.get({ artifactId }),
     () => other.versions({ artifactId }),
+    () => other.files({ artifactId }),
+    () => other.readFile({ artifactId, path: "index.html" }),
     () => other.rename({ artifactId, title: "Mine" }),
     () => other.restore({ artifactId, version: 1 }),
     () => other.setAudience({ artifactId, audience: "workspace" }),
@@ -183,4 +189,83 @@ test("list filters by the run that wrote a version", async () => {
   const api = caller(u1).artifacts;
   expect((await api.list({})).items).toHaveLength(1);
   expect((await api.list({ runId: "r-none" })).items).toEqual([]);
+});
+
+test("source queries follow the chosen version and are available to readers", async () => {
+  const { caller, made, service, files } = setup();
+  const artifactId = await made();
+  await service.update(u1, {
+    artifactId,
+    baseVersion: 1,
+    files: files("second"),
+  });
+  await caller(u1).artifacts.setAudience({ artifactId, audience: "workspace" });
+  const api = caller(u2).artifacts;
+  const listed = await api.files({ artifactId, version: 1 });
+  expect(artifactsFilesOutputSchema.parse(listed)).toEqual(listed);
+  expect(listed).toMatchObject({
+    entry: "index.html",
+    files: [
+      { contentType: "text/html; charset=utf-8", path: "index.html", size: 10 },
+    ],
+    version: 1,
+  });
+  const old = await api.readFile({
+    artifactId,
+    path: "index.html",
+    version: 1,
+  });
+  expect(artifactsReadFileOutputSchema.parse(old)).toEqual(old);
+  expect(old).toMatchObject({
+    text: "<h1>x</h1>",
+    truncated: false,
+    version: 1,
+  });
+  expect(await api.readFile({ artifactId, path: "index.html" })).toMatchObject({
+    text: "second",
+    version: 2,
+  });
+  expect((await api.files({ artifactId })).version).toBe(2);
+  expect(
+    artifactsFilesOutputSchema.safeParse({ ...listed, secret: "hidden" })
+      .success
+  ).toBe(false);
+  expect(
+    artifactsReadFileOutputSchema.safeParse({ ...old, secret: "hidden" })
+      .success
+  ).toBe(false);
+  await expect(api.files({ artifactId, version: 99 })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(
+    api.readFile({ artifactId, path: "missing.txt" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller(null).artifacts.files({ artifactId })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller(null).artifacts.readFile({ artifactId, path: "index.html" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
+test("source text previews stop at 512 KB on a UTF-8 boundary", async () => {
+  const { caller, service } = setup();
+  const { artifactId } = await service.create(u1, {
+    files: [
+      { path: "index.html", text: `${"a".repeat(512 * 1024 - 1)}éend` },
+      { base64: "cG5n", path: "image.png" },
+    ],
+    kind: "page",
+    title: "Large",
+  });
+  const read = await caller(u1).artifacts.readFile({
+    artifactId,
+    path: "index.html",
+  });
+  expect(read.truncated).toBe(true);
+  expect(read.text).toBe("a".repeat(512 * 1024 - 1));
+  expect(read.size).toBe(512 * 1024 + 4);
+  await expect(
+    caller(u1).artifacts.readFile({ artifactId, path: "image.png" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });

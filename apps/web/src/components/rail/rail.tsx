@@ -168,31 +168,7 @@ export function Rail({ agents, pinned = [] }: RailProps) {
           <RailQuestions onNavigate={closeMobileNav} />
           <PinnedSidebarGroup onNavigate={closeMobileNav} pins={pinned} />
         </SidebarContent>
-        <SidebarFooter className="border-sidebar-border border-t">
-          <nav aria-label="Rail" className="grid grid-cols-3 gap-0.5">
-            <RailLink
-              className={FOOT_LINK_CLASS}
-              href="/agents"
-              onNavigate={closeMobileNav}
-            >
-              Agents
-            </RailLink>
-            <RailLink
-              className={FOOT_LINK_CLASS}
-              href="/library"
-              onNavigate={closeMobileNav}
-            >
-              Files
-            </RailLink>
-            <button
-              className={FOOT_LINK_CLASS}
-              onClick={openFind}
-              type="button"
-            >
-              Everything
-            </button>
-          </nav>
-        </SidebarFooter>
+        <RailFooter onNavigate={closeMobileNav} onOpenFind={openFind} />
       </Sidebar>
       <HeaderActionsPortal>
         <RailHeaderActions
@@ -203,5 +179,44 @@ export function Rail({ agents, pinned = [] }: RailProps) {
       </HeaderActionsPortal>
       <FindDialog agents={agents} onOpenChange={setFindOpen} open={findOpen} />
     </>
+  );
+}
+
+export function RailFooter({
+  onNavigate,
+  onOpenFind,
+}: {
+  onNavigate: () => void;
+  onOpenFind: () => void;
+}) {
+  return (
+    <SidebarFooter className="border-sidebar-border border-t">
+      <nav aria-label="Rail" className="grid grid-cols-4 gap-0.5">
+        <RailLink
+          className={FOOT_LINK_CLASS}
+          href="/agents"
+          onNavigate={onNavigate}
+        >
+          Agents
+        </RailLink>
+        <RailLink
+          className={FOOT_LINK_CLASS}
+          href="/artifacts?kind=app"
+          onNavigate={onNavigate}
+        >
+          Apps
+        </RailLink>
+        <RailLink
+          className={FOOT_LINK_CLASS}
+          href="/library"
+          onNavigate={onNavigate}
+        >
+          Files
+        </RailLink>
+        <button className={FOOT_LINK_CLASS} onClick={onOpenFind} type="button">
+          Everything
+        </button>
+      </nav>
+    </SidebarFooter>
   );
 }

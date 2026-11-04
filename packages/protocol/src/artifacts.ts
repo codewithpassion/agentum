@@ -877,3 +877,69 @@ export type ShareCallResponse = z.infer<typeof shareCallResponseSchema>;
 
 export const shareCallErrorSchema = z.strictObject({ error: z.string() });
 export type ShareCallError = z.infer<typeof shareCallErrorSchema>;
+
+/** Source inspection uses the same visibility and version rules as Download. */
+export const artifactsFilesInputSchema = z.strictObject({
+  artifactId: z.uuid(),
+  version: z.int().positive().optional(),
+});
+export const artifactSourceFileSchema = z.strictObject({
+  contentType: z.string().min(1),
+  path: artifactPathSchema,
+  size: z.int().nonnegative(),
+});
+export type ArtifactSourceFile = z.infer<typeof artifactSourceFileSchema>;
+export const artifactsFilesOutputSchema = z.strictObject({
+  entry: artifactPathSchema,
+  files: z.array(artifactSourceFileSchema),
+  version: z.int().positive(),
+});
+export type ArtifactsFilesOutput = z.infer<typeof artifactsFilesOutputSchema>;
+export const artifactsReadFileInputSchema = artifactsFilesInputSchema.extend({
+  path: artifactPathSchema,
+});
+export const ARTIFACT_SOURCE_MAX_BYTES = 512 * 1024;
+const ARTIFACT_TEXT_TYPE = /^(text\/|application\/(json|xml|javascript))|\+xml/;
+export const isArtifactTextFile = (contentType: string): boolean =>
+  ARTIFACT_TEXT_TYPE.test(contentType);
+export const artifactsReadFileOutputSchema = artifactSourceFileSchema.extend({
+  text: z.string(),
+  truncated: z.boolean(),
+  version: z.int().positive(),
+});
+export type ArtifactsReadFileOutput = z.infer<
+  typeof artifactsReadFileOutputSchema
+>;
+export const artifactsCallsInputSchema = z.strictObject({
+  artifactId: artifactIdSchema,
+  cursor: z.string().min(1).optional(),
+});
+export type ArtifactsCallsInput = z.infer<typeof artifactsCallsInputSchema>;
+export const artifactCallSchema = z.strictObject({
+  durationMs: z.number().int().nonnegative().nullable(),
+  endpoint: z.string().min(1),
+  id: z.string().min(1),
+  outcome: z.enum(ARTIFACT_VIEW_OUTCOMES),
+  place: z.string().nullable(),
+  statusCode: z.number().int().nullable(),
+  time: z.string(),
+  version: z.number().int().nullable(),
+});
+export type ArtifactCall = z.infer<typeof artifactCallSchema>;
+export const artifactsCallsOutputSchema = z.strictObject({
+  items: z.array(artifactCallSchema),
+  next: z.string().min(1).optional(),
+});
+export const artifactsAppErrorsInputSchema = z.strictObject({
+  artifactId: artifactIdSchema,
+});
+export const appErrorSchema = z.strictObject({
+  dropped: z.number().int().nonnegative(),
+  entry: z.string(),
+  message: z.string(),
+  time: z.string(),
+  version: z.number().int(),
+  versionId: z.string(),
+});
+export type AppError = z.infer<typeof appErrorSchema>;
+export const artifactsAppErrorsOutputSchema = z.array(appErrorSchema);

@@ -1121,6 +1121,7 @@ test("disabled endpoints stay disabled when an agent publishes a carried approva
     atomic: sqliteAtomic(db),
     clock: { now: () => new Date(NOW) },
     db,
+    errors: { list: () => Promise.resolve([]) },
   });
   await addVersion("v2", 2);
   const [grant] = await record("v2", { endpoints: [{ name: "discord" }] });
