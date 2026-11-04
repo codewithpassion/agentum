@@ -32,7 +32,7 @@ The manifest is `agentum.json`, and app code reads the `env.AGENTUM` binding. Pr
 
 - Address: `https://<PUBLIC_BASE_URL>/hooks/<endpoint id>/<path>`. The id is random, 32 URL-safe characters. A row in `artifact_endpoints` (id, artifact_id, workspace_id, name, created_at, disabled_at) holds it. It is made when a version declaring that name is first approved, and it stays across versions.
 - A request is served by the artifact's live version only when that version has an approved `endpoint` grant for the name. Otherwise 404. A disabled row also gives 404.
-- A member can copy, disable, enable and rotate an endpoint in the artifact's settings. Rotating disables the row and makes a new one with a new id.
+- A member can copy, disable, enable and rotate an endpoint in the artifact's settings. Rotating disables the row and makes a new one with a new id. Rotated-away addresses are history and are not listed in settings.
 - The route is mounted like `/a2a`: before Clerk, never under `cookieGroup()` or `csrf()`.
 - The app gets the request as sent: method, path after `/hooks/<id>`, query and the raw body unchanged, so it can check a signature. Request headers drop as today (cookie, `cf-*`, `x-forwarded-*` and the rest), except `authorization`, which an endpoint request keeps. Response headers go through the same allowlist.
 - The viewer is `{ kind: "endpoint", endpointId }`. On it, `env.AGENTUM` allows:
@@ -41,7 +41,7 @@ The manifest is `agentum.json`, and app code reads the `env.AGENTUM` binding. Pr
   - `whoami()`, which answers `viewer: "endpoint"`.
 
   It refuses viewer storage and `callTool`, because no person is behind the request. Outbound requests to approved hosts get their secret placeholders, as for a member.
-- Each endpoint has a rate limit, keyed by endpoint id plus IP prefix on the existing limiter. Each call writes an `artifact_views` row.
+- An IP-prefix-only guard is checked first, with a budget of 600 calls per minute across two fixed 300-call buckets on the existing limiter. Each endpoint also has a 300-call-per-minute limit, keyed by endpoint id plus IP prefix. An `artifact_views` row is written for each call that reaches the app; refused, unknown and rate-limited calls write none.
 
 Decision, recorded in the PRD's risk table: an endpoint is open to anyone on the internet, and its requests can fill approved secrets on outbound requests. The app's own code authenticates its caller (Discord's Ed25519 signature, a GitHub HMAC, a shared secret). The approval card in Needs you says so in one sentence. The platform runs no verifier.
 

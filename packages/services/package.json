@@ -167,7 +167,8 @@
     "./live-guests/embeds": "./src/live-guests/embeds.ts",
     "./live-guests/images": "./src/live-guests/images.ts",
     "./live-guests/service": "./src/live-guests/service.ts",
-    "./live-exports": "./src/live-exports/service.ts"
+    "./live-exports": "./src/live-exports/service.ts",
+    "./artifacts/endpoints": "./src/artifacts/endpoints.ts"
   },
   "scripts": {
     "test": "bun test",

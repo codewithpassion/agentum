@@ -54,6 +54,10 @@ import {
   type ToolRunner,
 } from "@repo/services/artifacts/calls";
 import {
+  type ArtifactEndpointsService,
+  createArtifactEndpointsService,
+} from "@repo/services/artifacts/endpoints";
+import {
   type ArtifactGrantsService,
   createArtifactGrantsService,
 } from "@repo/services/artifacts/grants";
@@ -435,6 +439,7 @@ export interface Services {
   apiKeys: ApiKeysService;
   artifactApp: AppGrantsService;
   artifactCalls: ArtifactToolPort;
+  artifactEndpoints: ArtifactEndpointsService;
   artifactGrants: ArtifactGrantsService;
   artifactPins: ArtifactPinsService;
   artifactShares: ArtifactSharesService;
@@ -923,6 +928,12 @@ export const composeWith = ({
     runTokenKey: infra.runTokenKey,
     secrets,
   });
+  const artifactEndpoints = createArtifactEndpointsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    publicBaseUrl: infra.publicBaseUrl,
+  });
   const artifactApp = createAppGrantsService({
     db,
     isOrgMember: infra.isOrgMember,
@@ -1222,6 +1233,7 @@ export const composeWith = ({
       apiKeys,
       artifactApp,
       artifactCalls,
+      artifactEndpoints,
       artifactGrants,
       artifactPins,
       artifactShares,

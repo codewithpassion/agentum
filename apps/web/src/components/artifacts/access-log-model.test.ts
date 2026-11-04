@@ -96,3 +96,20 @@ test("the filter label marks links that are not active", () => {
     describeLink({ createdAt: "2026-10-26T10:00:00.000Z", status: "revoked" })
   ).toEndWith("(revoked)");
 });
+
+test("endpoint calls have their own label and name", () => {
+  expect(
+    describeWho(
+      {
+        shareId: null,
+        surface: "live_call",
+        toolKey: "endpoint:discord",
+        userId: null,
+      },
+      []
+    )
+  ).toBe("Public endpoint discord");
+  expect(
+    describeWho({ shareId: null, surface: "live_call", userId: null }, [])
+  ).toBe("Public endpoint");
+});

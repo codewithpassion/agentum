@@ -247,3 +247,48 @@ describe("the gateway in workerd with a real Worker Loader", () => {
     expect(answer.headers.get("access-control-allow-credentials")).toBeNull();
   });
 });
+
+test("endpoint Dynamic Worker verifies Ed25519 over the unmodified raw body", async () => {
+  const key = await crypto.subtle.generateKey("Ed25519", true, [
+    "sign",
+    "verify",
+  ]);
+  const publicKey = Array.from(
+    new Uint8Array(await crypto.subtle.exportKey("raw", key.publicKey))
+  );
+  await seed(
+    "v-signature",
+    `export default { async fetch(request, env) {
+    const key = await crypto.subtle.importKey("raw", new Uint8Array(${JSON.stringify(publicKey)}), "Ed25519", false, ["verify"]);
+    const signature = Uint8Array.from(request.headers.get("x-signature").match(/../g), b => parseInt(b, 16));
+    const ok = await crypto.subtle.verify("Ed25519", key, signature, await request.arrayBuffer());
+    return new Response(ok ? "verified" : "invalid", { status: ok ? 200 : 401 });
+  } };`
+  );
+  const body = new TextEncoder().encode('{  "type": 1, "text": "é" }\r\n');
+  const signature = new Uint8Array(
+    await crypto.subtle.sign("Ed25519", key.privateKey, body)
+  );
+  const headers = {
+    "x-signature": Array.from(signature, (b) =>
+      b.toString(16).padStart(2, "0")
+    ).join(""),
+    "x-test-version": "v-signature",
+  };
+  const response = await fetch(`${base}/hooks/signature/discord`, {
+    body,
+    headers,
+    method: "POST",
+  });
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("verified");
+  expect(
+    (
+      await fetch(`${base}/hooks/signature/discord`, {
+        body: new TextDecoder().decode(body).trim(),
+        headers,
+        method: "POST",
+      })
+    ).status
+  ).toBe(401);
+});

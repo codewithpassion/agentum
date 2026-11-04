@@ -8,7 +8,7 @@ import type { ViewTokenClaims } from "@repo/protocol/artifacts";
 import { dynamicAppRuntime } from "./dynamic-app-runtime.ts";
 import { defineAppEntrypoints } from "./entrypoints.ts";
 import { fakePorts } from "./fakes.ts";
-import { handleAppRequest } from "./gateway-core.ts";
+import { handleAppRequest, handleEndpointRequest } from "./gateway-core.ts";
 import type { AppBundle, ShareState } from "./ports.ts";
 
 interface Seed {
@@ -71,7 +71,7 @@ export default {
     const { exports } = ctx as unknown as {
       exports: { AppHost: Stub; AppOutbound: Stub };
     };
-    return await handleAppRequest(request, claims, {
+    const deps = {
       applyContentHeaders: wrap,
       ports,
       requestMeta: () =>
@@ -88,6 +88,19 @@ export default {
           exports.AppOutbound({ props }) as unknown as Fetcher,
       }),
       wallMs: 20_000,
-    });
+    };
+    if (pathname.startsWith("/hooks/")) {
+      return await handleEndpointRequest(
+        request,
+        {
+          artifactId: "11111111-1111-4111-8111-111111111111",
+          endpointId: "signature",
+          versionId: request.headers.get("x-test-version") ?? "",
+          workspaceId: "ws-1",
+        },
+        deps
+      );
+    }
+    return await handleAppRequest(request, claims, deps);
   },
 };

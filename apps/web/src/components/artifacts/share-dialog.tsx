@@ -22,6 +22,7 @@ import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
 import { GuestPeople } from "../guests/people";
 import { CreateLinkForm } from "./create-link-form";
+import { EndpointSettings } from "./endpoint-settings";
 import { LinkList } from "./link-list";
 import { type GrantLike, liveToolOptions } from "./live-link-model";
 import { errorMessage } from "./share-model";
@@ -229,6 +230,9 @@ function ShareBody({
           <p className="text-muted-foreground text-sm">{note}</p>
         )}
       </section>
+      {detail.canManage && detail.kind === "app" && (
+        <EndpointSettings artifactId={artifactId} />
+      )}
       <section className="space-y-2">
         <h3 className="font-medium text-sm">Links</h3>
         <LinkList

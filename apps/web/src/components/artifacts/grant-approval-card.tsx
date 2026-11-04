@@ -57,6 +57,12 @@ export function GrantApprovalView({
           key={`endpoint:${name}`}
         >{`Public address: ${name}`}</p>
       ))}
+      {items.endpoints.length > 0 && (
+        <p className="text-muted-foreground text-xs">
+          Anyone on the internet can call this address, so the app's code must
+          check who is calling.
+        </p>
+      )}
       {items.agents.map((agentId) => (
         <p
           className="text-xs"

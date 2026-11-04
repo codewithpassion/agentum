@@ -38,12 +38,16 @@ type Caller =
       shareId: string;
       viewer: AppViewer;
     }
-  | { kind: "test" };
+  | { kind: "test" }
+  | { kind: "endpoint" };
 
 const callerOf = async (props: AppHostProps, ports: Ports): Promise<Caller> => {
   const { viewer } = props;
-  // EP.1 exposes the contract; EP.2/EP.3 implement these viewers' capabilities.
-  if (viewer.kind === "endpoint" || viewer.kind === "reply") {
+  if (viewer.kind === "endpoint") {
+    return { kind: "endpoint" };
+  }
+  // EP.3 implements the reply viewer.
+  if (viewer.kind === "reply") {
     throw appError(
       "not_granted",
       "app endpoint capabilities are not available yet"
@@ -124,11 +128,21 @@ export const createAppHost = (
   });
 
   /** A test viewer reads the shared area and nothing of a person's own. */
-  const hasNothingIn = (caller: Caller, area: StorageArea): boolean =>
-    caller.kind === "test" && area === "viewer";
+  const hasNothingIn = (caller: Caller, area: StorageArea): boolean => {
+    if (caller.kind === "endpoint" && area === "viewer") {
+      throw appError("forbidden", "endpoint viewers have no viewer storage");
+    }
+    return caller.kind === "test" && area === "viewer";
+  };
 
   const mayWrite = async (area: StorageArea): Promise<Caller> => {
     const caller = await callerOf(props, ports);
+    if (caller.kind === "endpoint") {
+      if (area === "viewer") {
+        throw appError("forbidden", "endpoint viewers have no viewer storage");
+      }
+      return caller;
+    }
     if (caller.kind === "test" || !ports.canWrite(caller.viewer, area)) {
       throw appError("forbidden", `this viewer cannot write the ${area} area`);
     }
@@ -136,8 +150,8 @@ export const createAppHost = (
   };
 
   const call = (caller: Caller, toolKey: string, args: unknown) => {
-    if (caller.kind === "test") {
-      throw appError("forbidden", "a test viewer cannot call tools");
+    if (caller.kind === "test" || caller.kind === "endpoint") {
+      throw appError("forbidden", "this viewer cannot call tools");
     }
     if (typeof toolKey !== "string" || !TOOL_KEY.test(toolKey)) {
       throw appError("not_granted", String(toolKey));

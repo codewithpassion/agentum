@@ -58,7 +58,12 @@ test("Needs you renders grant approval for endpoint and agent requests", () => {
             artifactId: "a1",
             grants: [
               { id: "g1", kind: "endpoint", target: "discord" },
-              { id: "g2", kind: "agent", target: "agent_1" },
+              {
+                id: "g2",
+                kind: "agent",
+                name: "Support bot",
+                target: "agent_1",
+              },
             ],
             title: "Bot",
             version: 1,
@@ -79,7 +84,7 @@ test("Needs you renders grant approval for endpoint and agent requests", () => {
   );
   expect(html).toContain("Bot v1 asks for access");
   expect(html).toContain("Public address: discord");
-  expect(html).toContain("Hand off to agent agent_1");
+  expect(html).toContain("Hand off to agent Support bot");
   expect(html).toContain(">Approve</button>");
   expect(html).toContain(">Reject</button>");
 });

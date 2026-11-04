@@ -108,7 +108,8 @@ const MEMBER_SURFACES: Record<ArtifactView["surface"], string> = {
 
 /** Whose open this was: a link, or a member. */
 export function describeWho(
-  view: Pick<ArtifactView, "shareId" | "surface" | "userId">,
+  view: Pick<ArtifactView, "shareId" | "surface" | "userId"> &
+    Partial<Pick<ArtifactView, "toolKey">>,
   shares: readonly Pick<ArtifactShare, "createdAt" | "id">[]
 ): string {
   if (view.shareId !== null) {
@@ -116,6 +117,12 @@ export function describeWho(
     return share === undefined
       ? "Link (removed)"
       : `Link created ${formatTimestamp(share.createdAt)}`;
+  }
+  if (view.surface === "live_call" && view.userId === null) {
+    const name = view.toolKey?.startsWith("endpoint:")
+      ? view.toolKey.slice("endpoint:".length)
+      : null;
+    return name ? `Public endpoint ${name}` : "Public endpoint";
   }
   return view.userId === null ? "Unknown" : MEMBER_SURFACES[view.surface];
 }
