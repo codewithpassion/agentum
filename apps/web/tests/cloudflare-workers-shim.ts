@@ -21,5 +21,6 @@ class WorkerEntrypoint {}
 mock.module("cloudflare:workers", () => ({
   DurableObject,
   env: {},
+  exports: {},
   WorkerEntrypoint,
 }));

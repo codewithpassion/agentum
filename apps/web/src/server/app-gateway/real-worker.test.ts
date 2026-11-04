@@ -247,3 +247,61 @@ describe("the gateway in workerd with a real Worker Loader", () => {
     expect(answer.headers.get("access-control-allow-credentials")).toBeNull();
   });
 });
+
+test("reply RPC uses a reply viewer and writes shared storage in the real loader", async () => {
+  await seed(
+    "v-reply",
+    `export default {
+    fetch() { return new Response("ok"); },
+    async reply(message, env) {
+      await env.AGENTUM.setItem("shared", "reply-result", JSON.stringify({ message, who: await env.AGENTUM.whoami() }));
+    }
+  };`
+  );
+  const response = await send("/__reply", {
+    message: {
+      fileIds: [],
+      runId: "run-1",
+      state: "opaque",
+      status: "finished",
+      text: "done",
+    },
+    versionId: "v-reply",
+  });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result).toEqual({
+    message: {
+      fileIds: [],
+      runId: "run-1",
+      state: "opaque",
+      status: "finished",
+      text: "done",
+    },
+    who: { dataMode: null, viewer: "reply" },
+  });
+});
+
+test("a real loader skips a missing reply export and reports a thrown reply", async () => {
+  await seed(
+    "v-no-reply",
+    `export default { fetch() { return new Response("ok"); } };`
+  );
+  const message = {
+    fileIds: [],
+    runId: "r",
+    state: "",
+    status: "failed",
+    text: "",
+  };
+  expect(
+    (await send("/__reply", { message, versionId: "v-no-reply" })).status
+  ).toBe(200);
+  await seed(
+    "v-bad-reply",
+    `export default { fetch() { return new Response("ok"); }, reply() { throw new Error("reply failed"); } };`
+  );
+  expect(
+    (await send("/__reply", { message, versionId: "v-bad-reply" })).status
+  ).toBe(500);
+});

@@ -149,12 +149,23 @@ test("endpoint hand-off requires a live approved grant and enabled trigger", asy
 test("dev fake runtime hands off as nobody and replies into shared storage", async () => {
   const { db, host, grant, agent, replies, storage } = await setup();
   await grant();
-  const { runId } = await host.startRun({
-    agent: agent.id,
-    sessionKey: "channel",
-    state: "token",
-    text: "hello",
-  });
+  const app = {
+    async fetch(request: Request, env: { AGENTUM: typeof host }) {
+      return Response.json(
+        await env.AGENTUM.startRun({
+          agent: agent.id,
+          sessionKey: "channel",
+          state: "token",
+          text: await request.text(),
+        })
+      );
+    },
+  };
+  const response = await app.fetch(
+    new Request("https://app.test/incoming", { body: "hello", method: "POST" }),
+    { AGENTUM: host }
+  );
+  const { runId } = (await response.json()) as { runId: string };
   const [run] = await db.select().from(runs).where(eq(runs.id, runId));
   expect(run?.onBehalfOfUserId).toBeNull();
   expect(JSON.parse(run?.reply ?? "null")).toEqual({
@@ -242,3 +253,43 @@ for (const status of ["cancelled", "interrupted"] as const) {
     expect(replies).toMatchObject([{ message: { status } }]);
   });
 }
+
+test("deleting an app closes hand-off", async () => {
+  const { db, host, grant, agent } = await setup();
+  await grant();
+  await db.update(artifacts).set({ deletedAt: new Date().toISOString() });
+  await expect(
+    host.startRun({ agent: agent.id, text: "hello" })
+  ).rejects.toThrow("not_granted");
+});
+
+test("delivery resolves the current version rather than the run's starting version", async () => {
+  const { db, host, grant, agent, services, replies } = await setup(false);
+  await grant();
+  const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
+  await db.update(artifacts).set({ currentVersionId: "v2" });
+  await services.runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
+    status: "done",
+    text: "reply",
+  });
+  expect(replies).toMatchObject([
+    { host: { versionId: "v2" }, message: { text: "reply" } },
+  ]);
+});
+
+test("state and session keys enforce their limits before starting a run", async () => {
+  const { db, host, grant, agent } = await setup();
+  await grant();
+  await expect(
+    host.startRun({ agent: agent.id, state: "s".repeat(4097), text: "hello" })
+  ).rejects.toThrow();
+  await expect(
+    host.startRun({
+      agent: agent.id,
+      sessionKey: "k".repeat(201),
+      text: "hello",
+    })
+  ).rejects.toThrow();
+  expect(await db.select().from(runs)).toHaveLength(0);
+});

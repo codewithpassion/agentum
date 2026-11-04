@@ -31,6 +31,7 @@ import {
   setHandedToStatement,
 } from "@repo/db/artifact-grants";
 import type { Atomic } from "@repo/db/atomic";
+import { artifactGrants } from "@repo/db/schema/artifacts";
 import { runRequests } from "@repo/db/schema/requests";
 import type { ArtifactGrantKind, ArtifactGrantStatus } from "@repo/db/shared";
 import {
@@ -667,6 +668,53 @@ export const createArtifactGrantsService = ({
       })
     ) {
       throw new ServiceError("not_found", "Grant not found");
+    }
+    // Agent grants use a rejection of an approved row as revocation. Unlike a
+    // declined proposal, revoking a live grant leaves the published version live.
+    if (
+      grant.kind === "agent" &&
+      grant.status === "approved" &&
+      input.decision === "rejected"
+    ) {
+      const now = clock.now().toISOString();
+      await atomic([
+        db
+          .update(artifactGrants)
+          .set({
+            decidedAt: now,
+            decidedBy: principal.userId,
+            status: "rejected",
+          })
+          .where(
+            and(
+              eq(artifactGrants.id, grant.id),
+              eq(artifactGrants.status, "approved")
+            )
+          ),
+        db
+          .update(triggers)
+          .set({ disabledAt: now })
+          .where(
+            and(
+              eq(triggers.artifactId, artifact.id),
+              eq(triggers.agentId, grant.target)
+            )
+          ),
+      ]);
+      await events.append({
+        actor: { id: principal.userId, kind: "user" },
+        payload: {
+          artifactId: artifact.id,
+          decision: "rejected",
+          grantId: grant.id,
+          kind: grant.kind,
+          target: grant.target,
+          versionId: grant.versionId,
+        },
+        type: "artifact.grant_decided",
+        workspaceId: artifact.workspaceId,
+      });
+      return;
     }
     if (grant.status !== "pending") {
       throw new ServiceError("conflict", "Grant already decided");

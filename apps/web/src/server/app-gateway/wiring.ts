@@ -10,6 +10,7 @@ import { createAppGatewayPorts } from "./compose-ports.ts";
 import { dynamicAppRuntime } from "./dynamic-app-runtime.ts";
 import type { AppGatewayWiring } from "./mount.ts";
 import type { AppGatewayPorts } from "./ports.ts";
+import type { AppWorkerExports } from "./reply-invoker.ts";
 
 export type AppGatewayEnv = ComposeEnv & Pick<Env, "APP_STORE" | "LOADER">;
 
@@ -21,13 +22,14 @@ const portsByEnv = new WeakMap<object, AppGatewayPorts>();
  */
 export const appGatewayPortsOf = (
   env: AppGatewayEnv,
-  dev: boolean
+  dev: boolean,
+  exports?: AppWorkerExports
 ): AppGatewayPorts => {
   const known = portsByEnv.get(env);
   if (known) {
     return known;
   }
-  const { services } = compose(env, dev);
+  const { services } = compose(env, dev, undefined, exports);
   const ports = createAppGatewayPorts({
     bucket: env.FILES,
     services,

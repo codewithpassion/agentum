@@ -1,3 +1,4 @@
+import { exports } from "cloudflare:workers";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { Principal } from "@repo/services/workspaces";
@@ -27,7 +28,7 @@ interface RouteDeps {
 }
 const defaults: RouteDeps = {
   authenticate: authenticateRoomMember,
-  compose: (env) => compose(env, false),
+  compose: (env) => compose(env, false, undefined, exports),
   room: roomStub,
 };
 /** Mounted before Clerk. The initial request retains real bearer/cookie auth all

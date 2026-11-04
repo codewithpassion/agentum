@@ -1,7 +1,7 @@
 import type { Database } from "@repo/db";
 import { artifacts } from "@repo/db/schema/artifacts";
 import { runs } from "@repo/db/schema/runs";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { EventRecord, EventsService } from "../events.ts";
 import type { Gateway, ReplyTarget } from "../runs/types.ts";
 
@@ -56,6 +56,8 @@ export const createAppReplies = ({
         .where(
           and(
             eq(artifacts.id, target.artifactId),
+            eq(artifacts.kind, "app"),
+            isNull(artifacts.deletedAt),
             eq(artifacts.workspaceId, run.workspaceId)
           )
         )

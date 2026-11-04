@@ -10,6 +10,7 @@ import { defineAppEntrypoints } from "./entrypoints.ts";
 import { fakePorts } from "./fakes.ts";
 import { handleAppRequest } from "./gateway-core.ts";
 import type { AppBundle, ShareState } from "./ports.ts";
+import type { AppHostProps, AppReplyMessage } from "./types.ts";
 
 interface Seed {
   declaresHosts: boolean;
@@ -62,6 +63,34 @@ export default {
     ctx: ExecutionContext
   ): Promise<Response> {
     const { pathname } = new URL(request.url);
+    if (pathname === "/__reply") {
+      const { versionId, message } = (await request.json()) as {
+        versionId: string;
+        message: AppReplyMessage;
+      };
+      const host: AppHostProps = {
+        artifactId: "11111111-1111-4111-8111-111111111111",
+        meta: { ipPrefix: null, place: null, userAgent: null, visitorHash: "" },
+        versionId,
+        viewer: { kind: "reply", runId: message.runId },
+        workspaceId: "ws-1",
+      };
+      const runtime = dynamicAppRuntime({
+        hostStub: (props) => ctx.exports.AppHost({ props }),
+        loader: env.LOADER,
+        outboundStub: (props) => ctx.exports.AppOutbound({ props }) as Fetcher,
+      });
+      try {
+        await runtime.reply({ bundle: ports.source.bundle, host, message });
+        const value = await ports.store.get(
+          { area: "shared", artifactId: host.artifactId, viewerKey: "" },
+          "reply-result"
+        );
+        return Response.json(value ? JSON.parse(value) : null);
+      } catch {
+        return new Response("reply failed", { status: 500 });
+      }
+    }
     if (pathname.startsWith("/__")) {
       return await control(request, pathname);
     }

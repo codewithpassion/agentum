@@ -1,9 +1,3 @@
-import { artifactGrants, artifacts } from "@repo/db/schema/artifacts";
-import { triggers } from "@repo/db/schema/triggers";
-import { and, eq, isNull } from "drizzle-orm";
-import { z } from "zod";
-import { INPUT_TEXT_MAX } from "../runs/types.ts";
-import type { TriggersService } from "../triggers.ts";
 /**
  * What an app artifact's server code may reach, read from its version's grants
  * (phase 2). Hosts and secret names come from `artifact_grants`; the secret
@@ -17,7 +11,13 @@ import {
   versionWorkspaceId,
   workspaceClerkOrgId,
 } from "@repo/db/artifact-app";
+import { artifactGrants, artifacts } from "@repo/db/schema/artifacts";
+import { triggers } from "@repo/db/schema/triggers";
+import { and, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
+import { INPUT_TEXT_MAX } from "../runs/types.ts";
 import type { ProxyMatch, SecretsService } from "../secrets.ts";
+import type { TriggersService } from "../triggers.ts";
 import type { Principal } from "../workspaces.ts";
 
 export interface AppGrantsDeps {
@@ -100,6 +100,8 @@ export const createAppGrantsService = ({
       .where(
         and(
           eq(artifacts.id, props.artifactId),
+          eq(artifacts.kind, "app"),
+          isNull(artifacts.deletedAt),
           eq(artifacts.workspaceId, props.workspaceId),
           eq(artifacts.currentVersionId, props.versionId),
           eq(artifactGrants.kind, "agent"),
