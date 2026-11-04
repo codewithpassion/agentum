@@ -1,6 +1,6 @@
 # App calls and the apps list
 
-Status: requested by Dom on 5 Nov 2026. Tasks AL.1 to AL.3.
+Status: requested by Dom on 5 Nov 2026. Tasks AL.1 to AL.4.
 
 ## Why
 
@@ -25,3 +25,13 @@ Endpoint calls are already saved as `artifact_views` rows with `surface = "live_
 
 - The rail footer gets "Apps" between "Agents" and "Files", linking to `/artifacts?kind=app`.
 - Find gets "Apps" in "What agents use", hint "Artifacts", to the same address.
+
+## AL.4: Source tab
+
+An artifact keeps its own copy of its files, so they aren't in the library. Today the only way to read them is the zip from Download.
+
+- A "Source" tab on the artifact page, for anyone who can open the artifact (the same rule as Download). The tab bar shows for them even when they can't manage the artifact. Access log and Calls stay for managers.
+- It shows the files of the version on screen (the version picker's choice): path, size, and type, entry file first, then `server/` files, then the rest by path.
+- Picking a text file shows its text read-only, in a monospace block with line numbers and no syntax colouring. A binary file shows its type and size and a note that Download has it. The entry file opens first.
+- tRPC: `artifacts.files({ artifactId, version? })` lists the files, and `artifacts.readFile({ artifactId, path, version? })` returns the text through the existing `readFile` service method. Both `workspaceProcedure` with strict output schemas. Add a service method for the list if none exists, with the same access check as `readFile`.
+- A file over 512 KB of text shows the first 512 KB and says it was cut.
