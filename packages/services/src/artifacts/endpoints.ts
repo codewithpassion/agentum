@@ -14,7 +14,7 @@ import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
-import { canManage } from "./policy.ts";
+import { agentCanSee, canManage, canOpen } from "./policy.ts";
 
 const TRAILING_SLASH = /\/$/;
 
@@ -151,7 +151,42 @@ export const createArtifactEndpointsService = ({
       workspaceId: endpoint.workspaceId,
     });
   };
+  // MCP readers see only addresses that resolve against the live approved version.
+  const active = async (principal: Principal, artifactId: string) => {
+    if (principal.kind !== "user" && principal.kind !== "run") {
+      throw new ForbiddenError("artifacts.read");
+    }
+    authorize(principal, "artifacts.read", {
+      kind: "artifact",
+      workspaceId: principal.workspaceId,
+    });
+    const artifact = await findArtifact(db, {
+      id: artifactId,
+      workspaceId: principal.workspaceId,
+    });
+    if (
+      !(
+        artifact &&
+        (principal.kind === "user"
+          ? canOpen(artifact, {
+              isAdmin: principal.isAdmin === true,
+              userId: principal.userId,
+            })
+          : agentCanSee(artifact, principal.agentId))
+      )
+    ) {
+      throw new ServiceError("not_found", "Artifact not found");
+    }
+    const rows = await endpointsForArtifact(db, artifactId);
+    const activeRows = await Promise.all(
+      rows.map(async (row) =>
+        (await resolveEndpoint(db, row.id)) ? present(row) : null
+      )
+    );
+    return activeRows.filter((row) => row !== null);
+  };
   return {
+    active,
     change,
     list,
     recordCall,

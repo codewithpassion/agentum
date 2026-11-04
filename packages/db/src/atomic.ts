@@ -17,7 +17,11 @@ export type Statement = BatchItem<"sqlite"> & {
   all: () => unknown;
 };
 
-/** Runs all statements or none, in order. Rejects if any of them fails. */
+/**
+ * Runs all statements or none, in order. Rejects if any statement fails.
+ * Results are delivered after commit. A throwing onResults rejects after the
+ * writes have committed.
+ */
 export type Atomic = (
   statements: readonly Statement[],
   /** Observe RETURNING rows after a successful commit. Non-returning results are driver-specific. */
@@ -51,11 +55,7 @@ export const sqliteAtomic =
       const results: unknown[] = [];
       db.transaction(() => {
         for (const statement of statements) {
-          if (
-            onResults &&
-            "all" in statement &&
-            typeof statement.all === "function"
-          ) {
+          if (onResults && typeof statement.all === "function") {
             results.push(statement.all());
           } else {
             results.push(statement.run());

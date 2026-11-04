@@ -550,7 +550,7 @@ test("allowing the card decides its grants and takes the version live", async ()
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await requests.answer(owner, {
@@ -583,7 +583,7 @@ test("denying the card rejects the version", async () => {
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await requests.answer(owner, {
@@ -604,7 +604,7 @@ test("a card answered by someone who cannot decide is a conflict, not a new card
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   // Answered by someone else, written straight in: no answer event fires.
@@ -630,7 +630,7 @@ test("answering a stale card decides the grants but does not roll the app back",
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await addVersion("v3", 3);
@@ -715,7 +715,7 @@ test("a member who is not the owner answering the card decides nothing", async (
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await requests.answer(stranger, {
@@ -796,7 +796,7 @@ test("promoting a version older than the live one is refused, also after a stale
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await addVersion("v3", 3);
@@ -1155,4 +1155,98 @@ test("failed endpoint provisioning rolls back the grant approval", async () => {
     (await service.list(owner, { artifactId: ARTIFACT, versionId: "v2" }))[0]
       ?.status
   ).toBe("pending");
+});
+
+test("an MCP user promoting a run version opens its normal approval request", async () => {
+  await addVersion("v2", 2, {
+    authorRunId: runPrincipal.kind === "run" ? runPrincipal.runId : null,
+  });
+  await record("v2", { endpoints: [{ name: "discord" }] });
+  const result = await service.promote(
+    { ...owner, apiKey: { access: "write", id: "key" }, via: "api_key" },
+    { artifactId: ARTIFACT, versionId: "v2" }
+  );
+  expect(result).toMatchObject({
+    requestId: expect.any(String),
+    status: "waiting",
+  });
+  expect(db.select().from(runRequests).all()).toHaveLength(1);
+});
+
+test("approving a current person's version activates its endpoint without promote", async () => {
+  const { resolveEndpoint } = await import("@repo/db/artifact-endpoints");
+  const { artifactEndpoints } = await import("@repo/db/schema/artifacts");
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  const [grant] = await record(
+    "v2",
+    { endpoints: [{ name: "discord" }] },
+    { ...owner, apiKey: { access: "write", id: "key" }, via: "api_key" }
+  );
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grant?.id,
+  });
+  const [endpoint] = db.select().from(artifactEndpoints).all();
+  expect(endpoint).toBeDefined();
+  expect(await resolveEndpoint(db, endpoint?.id ?? "")).toMatchObject({
+    versionId: "v2",
+  });
+});
+
+test("runs can read grants of visible workspace apps without being their writer", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { endpoints: [{ name: "discord" }] });
+  await db
+    .update(artifacts)
+    .set({ agentId: otherAgentId })
+    .where(eq(artifacts.id, ARTIFACT));
+  expect(
+    await service.list(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
+  ).toMatchObject([{ kind: "endpoint", status: "pending" }]);
+  await db
+    .update(artifacts)
+    .set({ audience: "private" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await expect(
+    service.list(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toMatchObject({ code: "not_found" });
+});
+
+test("promoting a finished run's version tells the MCP user how to approve it", async () => {
+  if (runPrincipal.kind !== "run") {
+    throw new Error("Missing run");
+  }
+  await addVersion("v2", 2, { authorRunId: runPrincipal.runId });
+  await record("v2", { endpoints: [{ name: "discord" }] });
+  await db
+    .update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, runPrincipal.runId));
+  await expect(
+    service.promote(
+      { ...owner, apiKey: { access: "write", id: "key" }, via: "api_key" },
+      { artifactId: ARTIFACT, versionId: "v2" }
+    )
+  ).rejects.toThrow("Open the artifact in the browser");
+});
+
+test("a browser promotion counts grants and directs the person to Needs you", async () => {
+  await addVersion("v2", 2);
+  await record("v2", {
+    endpoints: [{ name: "discord" }],
+    hosts: ["discord.com"],
+  });
+  await expect(
+    service.promote(owner, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toThrow(
+    "2 grants wait for approval in Needs you. Approve them there, then promote this version."
+  );
 });

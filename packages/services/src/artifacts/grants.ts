@@ -67,6 +67,7 @@ import {
 } from "./manifest.ts";
 import {
   type ArtifactPolicyRecord,
+  agentCanSee,
   agentCanUpdate,
   canManage,
   canOpen,
@@ -104,7 +105,7 @@ export interface GrantRecord {
 
 export type PromoteResult =
   | { status: "promoted"; version: number }
-  | { pending: GrantRecord[]; requestId: string; status: "waiting" };
+  | { pending: GrantRecord[]; requestId?: string; status: "waiting" };
 
 const grantRecord = (row: ArtifactGrantRow): GrantRecord => ({
   createdAt: row.createdAt,
@@ -459,6 +460,7 @@ export const createArtifactGrantsService = ({
     // that names a person's version does not get that person's approval.
     const byPerson =
       principal.kind === "user" &&
+      principal.via === "session" &&
       version.authorKind === "user" &&
       version.authorId === principal.userId;
     const rows = declared.map((grant) => {
@@ -515,7 +517,11 @@ export const createArtifactGrantsService = ({
     raw: { artifactId: string; versionId: string }
   ): Promise<GrantRecord[]> => {
     const artifact = await requireArtifact(principal, raw.artifactId);
-    if (
+    if (principal.kind === "run") {
+      if (!agentCanSee(policyRecord(artifact), principal.agentId)) {
+        throw new ServiceError("not_found", "Artifact not found");
+      }
+    } else if (
       principal.kind !== "user" ||
       !canOpen(policyRecord(artifact), {
         isAdmin: principal.isAdmin === true,
@@ -766,7 +772,7 @@ export const createArtifactGrantsService = ({
   /** A person approves or rejects one grant. The owner or an admin decides. */
   const decideGrant = async (principal: Principal, raw: unknown) => {
     const input = artifactsDecideGrantInputSchema.parse(raw);
-    if (principal.kind !== "user") {
+    if (principal.kind !== "user" || principal.via !== "session") {
       throw new ForbiddenError("artifacts.decide_grant");
     }
     authorize(principal, "artifacts.decide_grant", {
@@ -867,7 +873,7 @@ export const createArtifactGrantsService = ({
   };
 
   const openPromoteRequest = async (
-    principal: Extract<Principal, { kind: "run" }>,
+    principal: { runId: string },
     artifact: ArtifactRow,
     version: { id: string; number: number },
     pending: ArtifactGrantRow[]
@@ -958,15 +964,20 @@ export const createArtifactGrantsService = ({
     return true;
   };
 
+  const pendingGrantsMessage = (principal: Principal, count: number): string =>
+    principal.kind === "user" && principal.via === "session"
+      ? `${count} ${count === 1 ? "grant waits" : "grants wait"} for approval in Needs you. Approve them there, then promote this version.`
+      : `Open the artifact in the browser and approve its ${count} pending ${count === 1 ? "grant" : "grants"} in Needs you before promoting.`;
+
   /**
    * What a promote does about grants still pending: apply an answered card,
-   * then, for a run, open (or reuse) the card and answer `waiting`; for a
-   * person, refuse. Null when nothing is left to wait for.
+   * then open or reuse the authoring run’s card and answer `waiting`.
+   * Without an active authoring run, explain the browser approval step. Null when nothing is left to wait for.
    */
   const holdForGrants = async (
     principal: Principal,
     artifact: ArtifactRow,
-    version: { id: string; number: number },
+    version: { id: string; number: number; authorRunId: string | null },
     pending: ArtifactGrantRow[]
   ): Promise<PromoteResult | null> => {
     if (pending.length === 0) {
@@ -980,16 +991,25 @@ export const createArtifactGrantsService = ({
       await applyCardAnswer(artifact, card, pending);
       return null;
     }
-    if (principal.kind !== "run") {
+    const mcpUser = principal.kind === "user" && principal.via !== "session";
+    const authorRunId = mcpUser ? version.authorRunId : null;
+    const runId = principal.kind === "run" ? principal.runId : authorRunId;
+    const run = runId ? await loadRun(db, runId, artifact.workspaceId) : null;
+    if (
+      !runId ||
+      (principal.kind !== "run" &&
+        card?.status !== "pending" &&
+        !(run && ["running", "waiting"].includes(run.status)))
+    ) {
       throw new ServiceError(
         "conflict",
-        `${pending.length} grant(s) of this version need a decision first`
+        pendingGrantsMessage(principal, pending.length)
       );
     }
     return {
       pending: pending.map(grantRecord),
       requestId: await openPromoteRequest(
-        principal,
+        { runId },
         artifact,
         version,
         pending
@@ -998,10 +1018,34 @@ export const createArtifactGrantsService = ({
     };
   };
 
+  /** MCP user apps have grant cards rather than run requests in Needs you. */
+  const pendingForMcpUser = async (
+    principal: Principal,
+    artifact: ArtifactRow,
+    version: { id: string; authorKind: string }
+  ): Promise<PromoteResult | null> => {
+    if (
+      principal.kind !== "user" ||
+      principal.via === "session" ||
+      version.authorKind !== "user" ||
+      artifact.currentVersionId !== version.id
+    ) {
+      return null;
+    }
+    const pending = (
+      await listGrants(db, {
+        versionId: version.id,
+        workspaceId: artifact.workspaceId,
+      })
+    ).filter((row) => row.status === "pending");
+    return pending.length
+      ? { pending: pending.map(grantRecord), status: "waiting" }
+      : null;
+  };
+
   /**
-   * Makes a proposed app version current. With every grant approved it goes
-   * live. With some pending, a run gets a Needs you request and `waiting`; a
-   * person gets a conflict naming what is open. A rejected grant ends it.
+   * Promotes a run-authored app once its grants are approved. A current
+   * user-authored version waits on its grouped grant card in Needs you.
    */
   const promote = async (
     principal: Principal,
@@ -1017,6 +1061,16 @@ export const createArtifactGrantsService = ({
       );
     }
     const version = await requireVersion(artifact, input.versionId);
+    // User-authored apps keep the publish convention. MCP is not consent;
+    // Needs you lists their grants directly because they have no run card.
+    const waitingForPerson = await pendingForMcpUser(
+      principal,
+      artifact,
+      version
+    );
+    if (waitingForPerson) {
+      return waitingForPerson;
+    }
     if (
       version.status === "published" &&
       artifact.currentVersionId === version.id

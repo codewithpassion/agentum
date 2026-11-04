@@ -372,7 +372,7 @@ describe("list_agents", () => {
     expect(result.structuredContent).toEqual({
       agents: [{ id: "agt_1", name: "Ops Bot", slug: "ops-bot" }],
     });
-    expect(textOf(result)).toBe("ops-bot: Ops Bot");
+    expect(textOf(result)).toBe("ops-bot: Ops Bot (id: agt_1)");
   });
 });
 

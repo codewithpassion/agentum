@@ -23,12 +23,15 @@ const agentRef = z
 
 const name = z.string().trim().min(1).max(200);
 
+const MODEL_GUIDE =
+  "Cloud models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017. Managed and machine runtimes require an Anthropic model.";
+
 const model = z
   .string()
   .trim()
   .min(1)
   .max(200)
-  .describe("The model id the agent runs on.");
+  .describe(`Required model id. ${MODEL_GUIDE}`);
 
 const slug = z
   .string()
@@ -171,7 +174,7 @@ export const adminWriteTools = (port: AdminPort): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Creates an agent in the workspace. Returns the new agent's id and slug; use the slug to @mention it in the inbox. runtime is cloud, machine (pass machineId) or managed.",
+      "Creates an agent in the workspace. model is required; its field description lists valid model ids. Returns the new agent's id and slug; use the slug to @mention it in the inbox. runtime is cloud, machine (pass machineId) or managed.",
     inputSchema: z.strictObject({
       ...agentSettings,
       machineId: machineId.optional(),
@@ -205,7 +208,11 @@ export const adminWriteTools = (port: AdminPort): ToolDefinition[] => [
         .describe(
           "The machine the agent runs on, or null to detach it from its machine."
         ),
-      model: model.optional(),
+      model: model
+        .optional()
+        .describe(
+          `The new model id; omit to keep the current model. ${MODEL_GUIDE}`
+        ),
       name: name.optional(),
       slug: slug.optional(),
     }),

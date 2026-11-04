@@ -69,7 +69,9 @@ export function GrantApprovalView({
           key={`agent:${agentId}`}
         >{`Hand off to agent ${agentId}`}</p>
       ))}
-      <p className="text-muted-foreground text-xs">{expiresText}</p>
+      {expiresText ? (
+        <p className="text-muted-foreground text-xs">{expiresText}</p>
+      ) : null}
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
@@ -101,7 +103,7 @@ export function GrantApprovalView({
 }
 
 interface GrantApprovalCardProps {
-  expiresAt: string;
+  expiresAt?: string;
   items: PromoteApproval;
   nowMs: number;
   onChanged: () => void;
@@ -142,7 +144,7 @@ export function GrantApprovalCard({
     <GrantApprovalView
       busy={busy}
       error={error}
-      expiresText={expiryText(expiresAt, nowMs)}
+      expiresText={expiresAt ? expiryText(expiresAt, nowMs) : ""}
       items={items}
       onApprove={approve}
       onReject={reject}

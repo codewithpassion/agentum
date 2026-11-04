@@ -642,3 +642,37 @@ for (const failure of ["lookup", "json", "shape"] as const) {
     }
   });
 }
+
+test("a terminal event whose run disappeared leaves an ids-only failure trace", async () => {
+  const { createAppReplies } = await import("@repo/services/artifacts/replies");
+  const { db, services, user, agent } = await setup(false);
+  const work: Promise<void>[] = [];
+  const replies = createAppReplies({
+    db,
+    defer: (p) => {
+      work.push(p);
+    },
+    events: services.events,
+  });
+  const log = spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    await replies.onEvent({
+      actor: { id: "system", kind: "system" },
+      agentId: agent.id,
+      createdAt: new Date().toISOString(),
+      id: "gone",
+      payload: {},
+      payloadRef: null,
+      runId: "missing-run",
+      seq: null,
+      sessionId: null,
+      type: "run.failed",
+      workspaceId: user.workspaceId,
+    });
+    await Promise.all(work);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(log.mock.calls)).toContain("missing-run");
+  } finally {
+    log.mockRestore();
+  }
+});

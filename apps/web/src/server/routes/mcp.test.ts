@@ -4,6 +4,7 @@ import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
+import { CLOUD_MODELS, cloudModelRef } from "@repo/services/cloud/models";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
@@ -363,6 +364,8 @@ describe("tools with an api key", () => {
       result: { tools: { name: string }[] };
     };
     expect(rpc.result.tools.map((tool) => tool.name).sort()).toEqual([
+      "artifact_list",
+      "artifact_read",
       "bash",
       "export_skill",
       "get_run",
@@ -389,6 +392,42 @@ describe("tools with an api key", () => {
     ]);
   });
 
+  test("agent model descriptions match the cloud catalog and update is optional", async () => {
+    // MCP stays independent of services; check the catalog at their web integration.
+    const key = await mintKey("u1", "write");
+    const response = await post(key, rpcBody("tools/list", {}));
+    const rpc = (await readRpc(response)) as {
+      result: {
+        tools: {
+          name: string;
+          inputSchema: {
+            properties: { model?: { description: string } };
+            required?: string[];
+          };
+        }[];
+      };
+    };
+    for (const name of ["create_agent", "update_agent"]) {
+      const schema = rpc.result.tools.find(
+        (tool) => tool.name === name
+      )?.inputSchema;
+      const description = schema?.properties.model?.description;
+      expect(description).toBeDefined();
+      expect(
+        description
+          ?.split("Cloud models: ")[1]
+          ?.split(". Managed")[0]
+          ?.split(", ")
+      ).toEqual(CLOUD_MODELS.map(cloudModelRef));
+      if (name === "update_agent") {
+        expect(description).not.toContain("Required");
+        expect(schema?.required ?? []).not.toContain("model");
+      } else {
+        expect(schema?.required).toContain("model");
+      }
+    }
+  });
+
   test("a write key also gets the tools that change routines, triggers and skills", async () => {
     const key = await mintKey("u1", "write");
     const response = await post(key, rpcBody("tools/list", {}));
@@ -397,6 +436,9 @@ describe("tools with an api key", () => {
     };
     const names = rpc.result.tools.map((tool) => tool.name);
     for (const name of [
+      "artifact_create",
+      "artifact_update",
+      "artifact_promote",
       "create_routine",
       "set_routine_enabled",
       "delete_routine",
@@ -842,6 +884,15 @@ describe("Clerk OAuth and the client gate", () => {
       result: { tools: { name: string }[] };
     };
     expect(rpc.result.tools.map((tool) => tool.name)).toContain("send_message");
+    const created = await callTool(token, "artifact_create", {
+      kind: "page",
+      title: "OAuth page",
+      files: [{ path: "index.html", text: "Hello OAuth" }],
+    });
+    expect(created.isError).not.toBe(true);
+    expect(
+      JSON.stringify(await callTool(token, "artifact_list", {}))
+    ).toContain("OAuth page");
 
     const sent = await callTool(token, "send_message", {
       agent: "agent-a",

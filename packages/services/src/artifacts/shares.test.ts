@@ -370,12 +370,12 @@ describe("artifact_test token", () => {
         versionId: "v1",
       })
     ).rejects.toMatchObject({ code: "not_found" });
-    await expect(
-      service.mintTestToken(member, {
+    expect(
+      await service.mintTestToken(member, {
         artifactId: ARTIFACT,
         versionId: "v1",
       })
-    ).rejects.toBeInstanceOf(ForbiddenError);
+    ).toHaveProperty("contentUrl");
   });
 });
 

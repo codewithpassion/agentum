@@ -2,7 +2,7 @@
 // They take a drizzle instance and never make one. Writes that must land
 // together come back as unexecuted statements for `atomic`.
 
-import { and, asc, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   artifactGrants,
@@ -11,11 +11,7 @@ import {
   artifactVersions,
 } from "./schema/artifacts.ts";
 import { runRequests } from "./schema/requests.ts";
-import type {
-  ArtifactGrantKind,
-  ArtifactGrantStatus,
-  ArtifactPinSurface,
-} from "./shared.ts";
+import type { ArtifactGrantKind, ArtifactPinSurface } from "./shared.ts";
 
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
@@ -134,35 +130,6 @@ export const approvedGrants = async (
 
 export const insertGrants = (db: Database, rows: ArtifactGrantInsert[]) =>
   db.insert(artifactGrants).values(rows);
-
-/**
- * Decides the grants that are still pending and returns the ids this call
- * decided. It is the arbiter between callers that race: only the one whose
- * update changed a row writes the event, so an event is written once.
- */
-export const claimGrantsStatement = (
-  db: Database,
-  query: {
-    decidedAt: string;
-    decidedBy: string;
-    ids: string[];
-    status: Exclude<ArtifactGrantStatus, "pending">;
-  }
-) =>
-  db
-    .update(artifactGrants)
-    .set({
-      decidedAt: query.decidedAt,
-      decidedBy: query.decidedBy,
-      status: query.status,
-    })
-    .where(
-      and(
-        inArray(artifactGrants.id, query.ids),
-        eq(artifactGrants.status, "pending")
-      )
-    )
-    .returning({ id: artifactGrants.id });
 
 /** A proposed version a person declined. */
 export const rejectVersionStatement = (db: Database, versionId: string) =>

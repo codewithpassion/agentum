@@ -1,4 +1,4 @@
-import type { QaAuthorKind, QaStatus } from "@repo/db/shared";
+import type { QaAuthorKind, QaStatus, TriggerKind } from "@repo/db/shared";
 import type { DesktopAction } from "@repo/protocol/computer";
 import type { DeckCreationPort, DeckPort } from "./tools/deck";
 import type { LivePort } from "./tools/live";
@@ -130,11 +130,12 @@ export interface RoutineInfo {
   timezone: string;
 }
 
-/** An HTTP trigger: an outside system starts an agent with a secret. */
+/** An HTTP trigger uses a secret; an app trigger uses an approved app grant. */
 export interface TriggerInfo {
   agentId: string;
   agentName: string;
   id: string;
+  kind: TriggerKind;
   lastFiredAt: string | null;
   name: string;
   status: AutomationStatus;
@@ -236,8 +237,14 @@ export interface ArtifactReadInfo {
   audience: string;
   currentVersion: number;
   description: string | null;
+  endpoints: { name: string; url: string }[];
   /** The text of the requested file, or of the entry file of the requested version. */
   file: ArtifactFileText;
+  grants: {
+    kind: string;
+    target: string;
+    status: "pending" | "approved" | "rejected";
+  }[];
   kind: string;
   title: string;
   url: string;

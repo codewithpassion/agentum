@@ -136,6 +136,7 @@ const toTriggerInfo = (trigger: TriggerSummary): TriggerInfo => ({
   agentId: trigger.agentId,
   agentName: trigger.agentName,
   id: trigger.id,
+  kind: trigger.kind,
   lastFiredAt: trigger.lastFiredAt,
   name: trigger.name,
   status: statusOf(trigger),
@@ -329,8 +330,7 @@ export const createMcpPorts = ({
     ...(principal.kind === "run"
       ? { mail: createMailPorts({ principal, services }) }
       : {}),
-    // The browser is every run's. The computer is the one attached to its agent.
-    ...(principal.kind === "run"
+    ...(principal.kind === "run" || principal.kind === "user"
       ? {
           artifacts: createArtifactPorts({
             principal,
@@ -338,6 +338,11 @@ export const createMcpPorts = ({
             services,
             testBrowser: artifactTestBrowser,
           }),
+        }
+      : {}),
+    // The browser is every run's. The computer is the one attached to its agent.
+    ...(principal.kind === "run"
+      ? {
           browser: createBrowserPorts({ principal, services }),
           ...(relay && computerMachineId
             ? {

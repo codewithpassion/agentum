@@ -31,6 +31,7 @@ import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
 import {
   isDetachedApproval,
+  isPromoteApproval,
   mailSendError,
   notDetachedApproval,
 } from "./mail/approval.ts";
@@ -722,6 +723,11 @@ export const createRequestsService = ({
     const { row } = await requireRequest(principal, input.requestId);
     if (principal.kind !== "user") {
       throw new ForbiddenError("requests.answer");
+    }
+    // A key must not turn its own proposed app's promote card into consent,
+    // including through the desk API acting for the same user.
+    if (isPromoteApproval(row) && principal.via !== "session") {
+      throw new ForbiddenError("artifacts.decide_grant");
     }
     const parsed = answerSchemas[row.kind].parse(input.answer);
     if ("decision" in parsed && parsed.decision === "always_allow") {

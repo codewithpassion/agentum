@@ -58,7 +58,14 @@ export const parsePromoteApproval = (
   if (!parsed.success) {
     return null;
   }
-  const { grants, ...rest } = parsed.data;
+  return buildGrantApproval(parsed.data);
+};
+
+/** Builds the access list from version data, for both run and person cards. */
+export const buildGrantApproval = (
+  input: z.output<typeof promoteInputSchema>
+): PromoteApproval => {
+  const { grants, ...rest } = input;
   const targets = (kind: ArtifactGrantKind) =>
     unique(grants.filter((g) => g.kind === kind).map((g) => g.target));
   return {

@@ -510,6 +510,7 @@ export const createRailService = ({
         return candidate(
           {
             ...(deskCard.a2a ? { a2a: deskCard.a2a } : {}),
+            ...(deskCard.artifactId ? { artifactId: deskCard.artifactId } : {}),
             agentId: deskCard.agentId,
             agentName,
             at: deskCard.at,

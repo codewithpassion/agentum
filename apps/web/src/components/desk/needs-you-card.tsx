@@ -4,9 +4,13 @@ import {
   type NeedsYouKind,
 } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { GrantApprovalCard } from "#/components/artifacts/grant-approval-card.tsx";
-import { parsePromoteApproval } from "#/components/artifacts/grant-approval-model.ts";
+import {
+  buildGrantApproval,
+  type PromoteApproval,
+  parsePromoteApproval,
+} from "#/components/artifacts/grant-approval-model.ts";
 import { A2aDecision } from "#/components/connections/a2a-decision.tsx";
 import { RequestCard } from "#/components/requests/request-card.tsx";
 import type {
@@ -113,6 +117,83 @@ export function ThreadBody({
   );
 }
 
+/** A person reviews the version named by the grant card. */
+export function PersonAppGrants({
+  card,
+  nowMs,
+  onChanged,
+}: {
+  card: DeskCard;
+  nowMs: number;
+  onChanged: () => void;
+}) {
+  const [items, setItems] = useState<PromoteApproval | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      if (!card.artifactId) {
+        return;
+      }
+      const trpc = getTrpc();
+      const [artifact, grants, agents, versions] = await Promise.all([
+        trpc.artifacts.get.query({ artifactId: card.artifactId }),
+        trpc.artifacts.grants.query({
+          artifactId: card.artifactId,
+          versionId: card.id,
+        }),
+        trpc.agents.list.query({}),
+        trpc.artifacts.versions.query({ artifactId: card.artifactId }),
+      ]);
+      const version = versions.find((item) => item.id === card.id);
+      if (!version) {
+        throw new Error("Version not found, reload.");
+      }
+      const parsed = buildGrantApproval({
+        artifactId: card.artifactId,
+        grants: grants
+          .filter((grant) => grant.status === "pending")
+          .map((grant) => ({
+            ...grant,
+            name:
+              agents.find((agent) => agent.id === grant.target)?.name ??
+              "Unavailable agent",
+          })),
+        title: artifact.title,
+        version: version.number,
+        versionId: card.id,
+      });
+      if (active) {
+        setItems(parsed);
+      }
+    };
+    load().catch((cause) => {
+      if (active) {
+        setError(errorMessage(cause));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [card.artifactId, card.id]);
+  if (error) {
+    return <p role="alert">{error}</p>;
+  }
+  return items ? (
+    <div className="flex flex-col gap-3">
+      <GrantApprovalCard items={items} nowMs={nowMs} onChanged={onChanged} />
+      <a
+        className={buttonVariants({ size: "sm", variant: "outline" })}
+        href={`/a/${items.artifactId}`}
+      >
+        See app
+      </a>
+    </div>
+  ) : (
+    <p>Loading app access…</p>
+  );
+}
+
 interface NeedsYouBodyProps {
   agentName: string;
   card: DeskCard;
@@ -173,6 +254,10 @@ export function NeedsYouBody({
           onClosed={onChanged}
           view={request}
         />
+      );
+    case "artifact_grant":
+      return (
+        <PersonAppGrants card={card} nowMs={nowMs} onChanged={onChanged} />
       );
     case "skill_proposal":
     case "trigger_proposal":

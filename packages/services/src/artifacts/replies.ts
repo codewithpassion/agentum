@@ -100,7 +100,10 @@ export const createAppReplies = ({
       .from(runs)
       .where(eq(runs.id, ids.runId))
       .limit(1);
-    if (expired() || !run) {
+    if (!run) {
+      throw new Error("Run not found");
+    }
+    if (expired()) {
       return;
     }
     Object.assign(ids, {
@@ -177,7 +180,10 @@ export const createAppReplies = ({
         .from(runs)
         .where(eq(runs.id, ids.runId))
         .limit(1);
-      if (expired() || !run?.reply) {
+      if (!run) {
+        throw new Error("Run not found");
+      }
+      if (expired() || !run.reply) {
         return;
       }
       const raw: unknown = JSON.parse(run.reply);

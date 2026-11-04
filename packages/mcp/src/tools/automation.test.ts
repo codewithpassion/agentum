@@ -36,6 +36,7 @@ const TRIGGER: TriggerInfo = {
   agentId: "agt_1",
   agentName: "Ops Bot",
   id: "trg_1",
+  kind: "http",
   lastFiredAt: null,
   name: "Deploy hook",
   status: "active",

@@ -1,4 +1,4 @@
-// The `artifacts` group of the platform MCP tools: the calling run's own
+// The `artifacts` group of the platform MCP tools: the calling user or run's
 // artifacts, over the artifacts service. `artifact_test` opens a version in a
 // real browser through a short-lived test token, and keeps that token (and the
 // URL it sits in) out of everything it returns.
@@ -45,11 +45,16 @@ export const createArtifactPorts = ({
   services,
   testBrowser,
 }: {
-  principal: Extract<Principal, { kind: "run" }>;
+  principal: Extract<Principal, { kind: "run" | "user" }>;
   publicBaseUrl?: string;
   services: Pick<
     Services,
-    "agents" | "artifactGrants" | "artifactShares" | "artifacts" | "library"
+    | "artifactEndpoints"
+    | "agents"
+    | "artifactGrants"
+    | "artifactShares"
+    | "artifacts"
+    | "library"
   >;
   testBrowser?: ArtifactTestBrowser;
 }): ArtifactsPort => {
@@ -103,13 +108,21 @@ export const createArtifactPorts = ({
     return { id: found.id, number: found.number };
   };
 
-  /** Writes the PNG into the run's task folder and returns its library path. */
+  /** Writes the PNG into the run task folder or user artifact-tests folder.
+   * The library has no per-user private area; member reads cover all paths.
+   */
   const saveScreenshot = async (
     png: Uint8Array,
     name: string
   ): Promise<string> => {
-    const agent = await services.agents.get(principal, principal.agentId);
-    const path = `${taskFolderPath(agent.slug, principal.runId)}/${name}`;
+    const folder =
+      principal.kind === "run"
+        ? taskFolderPath(
+            (await services.agents.get(principal, principal.agentId)).slug,
+            principal.runId
+          )
+        : `people/${principal.userId}/artifact-tests`;
+    const path = `${folder}/${name}`;
     await services.library.write(principal, path, png);
     return path;
   };
@@ -195,12 +208,32 @@ export const createArtifactPorts = ({
           services.artifacts.versions(principal, artifactId),
           services.artifacts.readFile(principal, { artifactId, path, version }),
         ]);
+        const endpoints = await services.artifactEndpoints.active(
+          principal,
+          artifactId
+        );
+        const readVersion = versions.find((row) => row.number === file.version);
+        const grants = readVersion
+          ? await services.artifactGrants.list(principal, {
+              artifactId,
+              versionId: readVersion.id,
+            })
+          : [];
         return {
           artifactId: card.artifactId,
           audience: card.audience,
           currentVersion: card.currentVersion.number,
           description: card.description,
+          endpoints: endpoints.map(({ id, name }) => ({
+            name,
+            url: `${base}/hooks/${id}`,
+          })),
           file,
+          grants: grants.map(({ kind, target, status }) => ({
+            kind,
+            status,
+            target,
+          })),
           kind: card.kind,
           title: card.title,
           url: urlOf(card.artifactId),
