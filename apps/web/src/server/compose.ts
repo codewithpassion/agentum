@@ -1138,6 +1138,7 @@ export const composeWith = ({
   const triggers = createTriggersService({
     clock: infra.clock,
     db,
+    defer: infra.defer,
     events,
     runs,
   });
