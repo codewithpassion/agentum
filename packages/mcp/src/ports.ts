@@ -210,6 +210,7 @@ export interface ArtifactPublished {
   artifactId: string;
   bytes: number;
   files: number;
+  hasLiveVersion?: boolean;
   status?: "live" | "waiting" | "proposed" | "superseded";
   /** The sign-in URL, `https://<app>/a/<artifactId>`. */
   url: string;

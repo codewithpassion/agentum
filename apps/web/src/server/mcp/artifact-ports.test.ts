@@ -282,6 +282,7 @@ const fakePromotePorts = (
         promote: (_principal: unknown, input: never) => promote(input),
       },
       artifacts: {
+        hasLiveVersion: () => Promise.resolve(false),
         versions: () =>
           Promise.resolve([
             { id: "ver_2", number: 2 },
@@ -893,4 +894,72 @@ test("an update overtaken by a newer live version reports superseded", async () 
     ],
   });
   expect(result.status).toBe("superseded");
+});
+
+for (const isCurrent of [false, true]) {
+  test(`promote uses the current pointer for live version presence: ${isCurrent}`, async () => {
+    const ports = createArtifactPorts({
+      principal: user,
+      services: {
+        artifactGrants: {
+          promote: () => Promise.resolve({ pending: [], status: "waiting" }),
+        },
+        artifacts: {
+          hasLiveVersion: () => Promise.resolve(isCurrent),
+          versions: () =>
+            Promise.resolve([
+              { id: "v1", number: 1, status: "published" },
+              { id: "v2", number: 2, status: "proposed" },
+            ]),
+        },
+      } as never,
+    });
+    expect(
+      await ports.promote({ artifactId: "app", version: 2 })
+    ).toMatchObject({ hasLiveVersion: isCurrent });
+  });
+}
+
+test("an MCP update before first promotion reports no live version", async () => {
+  const ports = createArtifactPorts({
+    principal: { ...user, via: "api_key" },
+    services: composed.services,
+  });
+  const first = await ports.create({
+    entry: "index.html",
+    files: [
+      { path: "index.html", text: "one" },
+      { path: "server/index.ts", text: "export default {}" },
+      {
+        path: "agentum.json",
+        text: JSON.stringify({ hosts: ["example.com"] }),
+      },
+    ],
+    kind: "app",
+    title: "New bot",
+  });
+  const { artifacts, artifactVersions } = await import(
+    "@repo/db/schema/artifacts"
+  );
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: null })
+    .where(eq(artifacts.id, first.artifactId));
+  await db
+    .update(artifactVersions)
+    .set({ status: "proposed" })
+    .where(eq(artifactVersions.id, first.versionId));
+  const updated = await ports.update({
+    artifactId: first.artifactId,
+    baseVersion: 1,
+    files: [
+      { path: "index.html", text: "two" },
+      { path: "server/index.ts", text: "export default {}" },
+      {
+        path: "agentum.json",
+        text: JSON.stringify({ hosts: ["example.com"] }),
+      },
+    ],
+  });
+  expect(updated).toMatchObject({ hasLiveVersion: false, status: "waiting" });
 });

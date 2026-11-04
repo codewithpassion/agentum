@@ -693,7 +693,7 @@ describe("artifact_promote", () => {
     expect(textOf(result)).toContain("Version 2 waits for a person");
     expect(textOf(result)).toContain("Needs you");
     expect(textOf(result)).toContain(
-      "Approve in Needs you, then check with artifact_read"
+      "Ask them to approve in Needs you, then check with artifact_read"
     );
   });
 
@@ -856,8 +856,30 @@ test("a person's first version does not claim a live version keeps serving", asy
     { artifactId: ID }
   );
   expect(textOf(result)).toContain(
-    "Approve in Needs you, then check with artifact_read"
+    "Ask them to approve in Needs you, then check with artifact_read"
   );
   expect(textOf(result)).toContain("Nothing is live until approval");
   expect(textOf(result)).not.toContain("live version keeps serving");
 });
+
+for (const hasLiveVersion of [false, true]) {
+  test(`a waiting update reports whether a current version exists: ${hasLiveVersion}`, async () => {
+    const result = await call(
+      port({
+        update: () =>
+          Promise.resolve({ ...published, hasLiveVersion, status: "waiting" }),
+      }),
+      "artifact_update",
+      { artifactId: ID, baseVersion: 1, files: [html] }
+    );
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toContain(
+      hasLiveVersion
+        ? "The live version keeps serving."
+        : "Nothing is live until a person approves."
+    );
+    if (!hasLiveVersion) {
+      expect(textOf(result)).not.toContain("live version keeps serving");
+    }
+  });
+}

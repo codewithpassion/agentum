@@ -1357,3 +1357,28 @@ test("promotion preserves the proposed version's thumbnail", async () => {
       ?.thumbnailKey
   ).toBe("v2.png");
 });
+
+for (const replacement of ["proposal", "live"] as const) {
+  test(`MCP promotion of a version replaced by a newer ${replacement} does not direct to its missing card`, async () => {
+    const person = { ...owner, via: "api_key" as const };
+    await addVersion("v2", 2, { authorId: "u1", authorKind: "user" });
+    await record("v2", { hosts: ["old.example"] }, person);
+    await addVersion("v3", 3, { authorId: "u1", authorKind: "user" });
+    await record("v3", { hosts: ["new.example"] }, person);
+    if (replacement === "live") {
+      const [grant] = await service.list(owner, {
+        artifactId: ARTIFACT,
+        versionId: "v3",
+      });
+      await service.decideGrant(owner, {
+        decision: "approved",
+        grantId: grant?.id,
+      });
+    }
+    await expect(
+      service.promote(person, { artifactId: ARTIFACT, versionId: "v2" })
+    ).rejects.toThrow(
+      "This version was replaced by version 3. Create a new version."
+    );
+  });
+}

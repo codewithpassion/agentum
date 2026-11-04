@@ -1277,6 +1277,15 @@ export const createArtifactsService = ({
     };
   };
 
+  const hasLiveVersion = async (
+    principal: Principal,
+    artifactId: string
+  ): Promise<boolean> => {
+    const member = reader(principal, "artifacts.hasLiveVersion");
+    const row = await visibleToPage(member, artifactId);
+    return row.currentVersionId !== null;
+  };
+
   const versions = async (
     principal: Principal,
     artifactId: string
@@ -1460,6 +1469,7 @@ export const createArtifactsService = ({
     create,
     download,
     get,
+    hasLiveVersion,
     list,
     readFile,
     remove,

@@ -294,8 +294,7 @@ const publishedText = (verb: string, published: ArtifactPublished): string => {
       "This version is proposed. Use artifact_promote to request approval. ",
     superseded:
       "This version was superseded by a newer live version. Check with artifact_read. ",
-    waiting:
-      "The live version keeps serving. Ask the person to approve in Needs you, then check with artifact_read. ",
+    waiting: `${published.hasLiveVersion ? "The live version keeps serving." : "Nothing is live until a person approves."} Ask them to approve in Needs you, then check with artifact_read. `,
   };
   const state = published.status ? messages[published.status] : "";
   return `${verb} artifact ${published.artifactId} version ${published.version} (${published.files} files, ${published.bytes} bytes). ${state}Open it at ${published.url} (needs sign-in). Run artifact_test before you say it is done.`;
@@ -556,7 +555,7 @@ export const artifactTools = (
         text:
           result.status === "promoted"
             ? `Version ${result.version} is now live.`
-            : `Version ${result.version} waits for a person to approve its grants in Needs you. ${result.approval === "person" ? "Approve in Needs you, then check with artifact_read." : "Stop and do not retry; a person must approve."} ${result.hasLiveVersion ? "The live version keeps serving." : "Nothing is live until approval."}`,
+            : `Version ${result.version} waits for a person to approve its grants in Needs you. ${result.approval === "person" ? "Ask them to approve in Needs you, then check with artifact_read." : "Stop and do not retry; a person must approve."} ${result.hasLiveVersion ? "The live version keeps serving." : "Nothing is live until approval."}`,
       };
     },
     title: "Promote an artifact version",

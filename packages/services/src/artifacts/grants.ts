@@ -64,6 +64,7 @@ import {
   canManage,
   canOpen,
 } from "./policy.ts";
+import { replacementVersions } from "./replacements.ts";
 
 /** The `toolKey` the Needs you card shows for a promote request. */
 const PROMOTE_TOOL_KEY = "harbourmaster/artifact_promote";
@@ -990,7 +991,7 @@ export const createArtifactGrantsService = ({
   const pendingForMcpUser = async (
     principal: Principal,
     artifact: ArtifactRow,
-    version: { id: string; authorKind: string }
+    version: { id: string; authorKind: string; number: number }
   ): Promise<PromoteResult | null> => {
     if (
       principal.kind !== "user" ||
@@ -1008,6 +1009,17 @@ export const createArtifactGrantsService = ({
       throw new ServiceError(
         "conflict",
         `This version was rejected: ${rejected.map((row) => `${row.kind} ${row.target}`).join(", ")}. Create a new version.`
+      );
+    }
+    const [replacement] = await replacementVersions(db, {
+      artifactId: sql`${artifact.id}`,
+      currentVersionId: sql`${artifact.currentVersionId}`,
+      number: sql`${version.number}`,
+    });
+    if (replacement && version.id !== artifact.currentVersionId) {
+      throw new ServiceError(
+        "conflict",
+        `This version was replaced by version ${replacement.number}. Create a new version.`
       );
     }
     const pending = rows.filter((row) => row.status === "pending");

@@ -71,8 +71,12 @@ export const createArtifactPorts = ({
     version: number;
     versionId: string;
     status?: ArtifactPublished["status"];
+    hasLiveVersion?: boolean;
   }): ArtifactPublished => ({
     ...(result.status ? { status: result.status } : {}),
+    ...(result.hasLiveVersion === undefined
+      ? {}
+      : { hasLiveVersion: result.hasLiveVersion }),
     artifactId: result.artifactId,
     bytes: result.bytes,
     files: result.files,
@@ -207,8 +211,9 @@ export const createArtifactPorts = ({
                 principal.kind === "run"
                   ? ("run" as const)
                   : ("person" as const),
-              hasLiveVersion: versions.some(
-                (row) => row.status === "published" && row.id !== target.id
+              hasLiveVersion: await services.artifacts.hasLiveVersion(
+                principal,
+                artifactId
               ),
               status: "waiting" as const,
               version: target.number,
@@ -319,7 +324,14 @@ export const createArtifactPorts = ({
             status = "superseded";
           }
         }
-        return published({ ...result, status });
+        return published({
+          ...result,
+          hasLiveVersion: await services.artifacts.hasLiveVersion(
+            principal,
+            input.artifactId
+          ),
+          status,
+        });
       }),
   };
 };
