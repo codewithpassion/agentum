@@ -14,8 +14,14 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { SendHint } from "#/components/composer/send-hint.tsx";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import {
   Attachment,
   AttachmentAction,
@@ -83,6 +89,14 @@ export function ComposerContainer({
   const [pickerOpen, setPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledNote !== null;
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled,
+    getValue: () => aui.composer().getState().text,
+    inputRef,
+    setValue: (value) => aui.composer().setText(value),
+  });
 
   const addFiles = useCallback(
     async (picked: File[]) => {
@@ -127,11 +141,11 @@ export function ComposerContainer({
   // A message needs text: `runs.start` refuses an empty one, and files alone would be lost.
   const blockEmpty = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
-      if (empty) {
+      if (empty || dictation.busy) {
         event.preventDefault();
       }
     },
-    [empty]
+    [empty, dictation.busy]
   );
 
   const openFiles = useCallback(() => fileInputRef.current?.click(), []);
@@ -160,15 +174,20 @@ export function ComposerContainer({
       className="flex flex-col gap-2"
       onSubmit={blockEmpty}
     >
-      <ComposerPrimitive.Input
-        aria-describedby="thread-send-hint"
-        aria-label="Message"
-        className="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-        disabled={disabled}
-        onKeyDown={submitOnSendShortcut}
-        placeholder="Write to the agent"
-        submitMode="none"
-      />
+      <div className="relative">
+        <ComposerPrimitive.Input
+          aria-describedby="thread-send-hint"
+          aria-label="Message"
+          className="field-sizing-content max-h-48 min-h-16 w-full resize-none rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={disabled}
+          onKeyDown={submitOnSendShortcut}
+          placeholder="Write to the agent"
+          readOnly={dictation.busy}
+          ref={inputRef}
+          submitMode="none"
+        />
+        <DictationPreview dictation={dictation} />
+      </div>
       {count === 0 ? null : (
         <AttachmentGroup>
           <ComposerPrimitive.Attachments
@@ -211,9 +230,10 @@ export function ComposerContainer({
         >
           From library
         </Button>
+        <DictationButton dictation={dictation} />
         <ComposerPrimitive.Send asChild>
           <Button
-            disabled={disabled || empty || uploading}
+            disabled={disabled || empty || uploading || dictation.busy}
             size="sm"
             type="submit"
           >
