@@ -1,0 +1,86 @@
+# App endpoints and agent hand-off
+
+Status: approved by Dom on 4 Nov 2026. Tasks EP.1 to EP.4.
+
+## Why
+
+Dom wants agents on Agentum to build bots, such as a Discord slash command bot, without a release of Agentum for each one. An app artifact can already ship server code (`server/index.js`, run as a Dynamic Worker) with approved hosts and secret placeholders. Two pieces are missing:
+
+1. A public address. Today the server part is reached only at `/a/<id>/c/<view token>/api/*`, and the token is short-lived and tied to a person or a share link. Discord, GitHub or Stripe can't call that.
+2. A hand-off to an agent. The bot's code answers fast requests itself, and some requests need an LLM, which takes longer than a webhook caller waits (Discord: 3 seconds).
+
+After this ships, a bot is an app artifact: data, made through the MCP tools, approved by a person in Needs you. No Agentum release is needed per bot.
+
+## Rename first
+
+The manifest `harbourmaster.json` becomes `agentum.json`, and the binding app code reads, `env.HM`, becomes `env.AGENTUM`. Production has no app artifacts, so there is no fallback for the old names. The docs (`artifacts-prd.md`, `phase2-spike.md`) change with the code.
+
+## Manifest
+
+```json
+{
+  "hosts": ["discord.com"],
+  "secrets": ["DISCORD_BOT_TOKEN"],
+  "endpoints": [{ "name": "discord" }],
+  "agents": [{ "agent": "<agent id>" }]
+}
+```
+
+`endpoints` and `agents` need a `server/` part, as hosts and secrets do. Each entry becomes a grant row of a new kind, `endpoint` or `agent`, approved by a person with the version's other grants. An agent may ask; it can never open an endpoint or start an agent by itself.
+
+## Endpoints
+
+- Address: `https://<PUBLIC_BASE_URL>/hooks/<endpoint id>/<path>`. The id is random, 32 URL-safe characters. A row in `artifact_endpoints` (id, artifact_id, workspace_id, name, created_at, disabled_at) holds it. It is made when a version declaring that name is first approved, and it stays across versions.
+- A request is served by the artifact's live version only when that version has an approved `endpoint` grant for the name. Otherwise 404. A disabled row also gives 404.
+- A member can copy, disable, enable and rotate an endpoint in the artifact's settings. Rotating disables the row and makes a new one with a new id.
+- The route is mounted like `/a2a`: before Clerk, never under `cookieGroup()` or `csrf()`.
+- The app gets the request as sent: method, path after `/hooks/<id>`, query and the raw body unchanged, so it can check a signature. Request headers drop as today (cookie, `cf-*`, `x-forwarded-*` and the rest), except `authorization`, which an endpoint request keeps. Response headers go through the same allowlist.
+- The viewer is `{ kind: "endpoint", endpointId }`. On it, `env.AGENTUM` allows:
+  - shared storage, read and write;
+  - `startRun` (below);
+  - `whoami()`, which answers `viewer: "endpoint"`.
+
+  It refuses viewer storage and `callTool`, because no person is behind the request. Outbound requests to approved hosts get their secret placeholders, as for a member.
+- Each endpoint has a rate limit, keyed by endpoint id plus IP prefix on the existing limiter. Each call writes an `artifact_views` row.
+
+Decision, recorded in the PRD's risk table: an endpoint is open to anyone on the internet, and its requests can fill approved secrets on outbound requests. The app's own code authenticates its caller (Discord's Ed25519 signature, a GitHub HMAC, a shared secret). The approval card in Needs you says so in one sentence. The platform runs no verifier.
+
+## Hand-off to an agent
+
+`env.AGENTUM.startRun({ agent, text, state?, sessionKey? })` returns `{ runId }` at once and doesn't wait.
+
+- `agent` must be the id of an approved `agent` grant on the live version. Approving that grant makes a tokenless trigger row for the agent, with a new nullable `triggers.artifact_id`, or reuses one. The run starts through the triggers service as that trigger principal, so it is on behalf of nobody, shows up under Triggers, and pausing or revoking that trigger stops the hand-off.
+- `state` is an opaque string of at most 4096 characters, such as Discord's interaction token. It is stored on the reply target and handed back with the reply.
+- `sessionKey` (optional, at most 200 characters) continues one session per key, for example a Discord channel.
+- Allowed on `endpoint` viewers only. Every other viewer is refused with `forbidden`.
+
+The reply target is a new `ReplyTarget` kind `{ kind: "app", artifactId, state }`. An `app` gateway in `compose.ts` delivers it. It calls the live version's `reply` export, never `fetch`, with the viewer `{ kind: "reply", runId }`:
+
+```js
+export default {
+  async fetch(request, env) { /* endpoint and page requests */ },
+  async reply({ runId, status, text, fileIds, state }, env) { /* post the follow-up */ },
+};
+```
+
+`status` is `finished`, `failed`, `cancelled` or `interrupted`. A finished run arrives through `deliverReply`, and the others through the runs event hook, the way `a2a/tasks.ts` follows them. A reply viewer has the same rights as an endpoint viewer minus `startRun`. A version without a `reply` export ignores replies. A failed delivery writes an `app.reply_failed` event and is not retried.
+
+Delivery needs `env.LOADER` and the Worker's `ctx.exports`. `compose` gets an optional `exports` argument, and every caller that can finish a run passes it: the request handler in `server.ts`, `pi-run.ts`, `managed-poller.ts` and `vm-session.ts`. Without it, the app gateway writes `app.reply_failed`.
+
+## MCP
+
+The descriptions of the `app` kind, `artifact_create` and `artifact_promote` explain `agentum.json`, endpoints, `startRun` and the `reply` export. They also link an example, served as an MCP resource or in the tool description, of a Discord-style handler that:
+
+- verifies an Ed25519 signature;
+- answers PING;
+- does one fast action itself;
+- hands one request to an agent with the interaction token as `state`, and posts the follow-up in `reply`.
+
+A bot needs no page. It ships a one-line `index.html`, and the descriptions say so.
+
+## Out of scope
+
+- Long-lived connections, such as Discord's gateway websocket.
+- Background work after the response.
+- A platform signature verifier.
+- The `harbourmaster/<tool>` approval rule keys, a separate rename leftover.
