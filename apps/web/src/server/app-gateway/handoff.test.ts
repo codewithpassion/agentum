@@ -30,6 +30,7 @@ const setup = async (
   const replies: { host: AppHostProps; message: AppReplyMessage }[] = [];
   const storage = fakePorts();
   const infra: Infra = {
+    appErrorSlot: async () => ({ dropped: 0 }),
     appReply: missingExports
       ? undefined
       : async (replyHost, message) => {
@@ -222,6 +223,7 @@ test("a throwing reply records one app.reply_failed event without retry", async 
       (e) => e.type === "app.reply_failed"
     )
   ).toHaveLength(1);
+  expect((await db.select().from(events)).filter((e) => e.type === "app.error").map((e) => JSON.parse(e.payload ?? "{}"))).toMatchObject([{ entry: "reply", message: "boom" }]);
 });
 
 test("failed runs deliver failed status through the runs event hook", async () => {

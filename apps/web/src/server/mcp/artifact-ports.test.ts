@@ -84,6 +84,7 @@ beforeEach(async () => {
     db,
     infra: {
       artifactViewKey: "test-view-key",
+      appErrorSlot: async () => ({ dropped: 0 }),
       atomic: sqliteAtomic(db),
       blobs: {
         get: (key) => Promise.resolve(store.get(key) ?? null),
@@ -518,3 +519,47 @@ for (const via of ["api_key", "oauth"] as const) {
     }
   });
 }
+
+test("MCP app updates carry approvals and hold new grants without replacing live", async () => {
+  const principal = { ...user, via: "api_key" as const, apiKey: { id: "key", access: "write" as const } };
+  const port = createArtifactPorts({ principal, services: composed.services });
+  const files = (hosts: string[], text: string) => [
+    { path: "index.html", text },
+    { path: "server/index.js", text: `export default { fetch() { return new Response('${text}'); } };` },
+    { path: "agentum.json", text: JSON.stringify({ hosts, endpoints: [{ name: "bot" }] }) },
+  ];
+  const first = await port.create({ kind: "app", title: "Bot", entry: "index.html", files: files(["example.com"], "one") });
+  for (const grant of await composed.services.artifactGrants.list(user, { artifactId: first.artifactId, versionId: first.versionId })) {
+    await composed.services.artifactGrants.decideGrant(user, { grantId: grant.id, decision: "approved" });
+  }
+  const same = await port.update({ artifactId: first.artifactId, baseVersion: 1, files: files(["example.com"], "two") });
+  expect((await port.read({ artifactId: first.artifactId })).grants.every((grant) => grant.status === "approved")).toBe(true);
+  expect((await port.read({ artifactId: first.artifactId })).currentVersion).toBe(2);
+  const proposed = await port.update({ artifactId: first.artifactId, baseVersion: 2, files: files(["example.com", "new.example.com"], "three") });
+  expect((await port.read({ artifactId: first.artifactId })).file.text).toBe("two");
+  expect(await port.promote({ artifactId: first.artifactId })).toMatchObject({ status: "waiting" });
+  const rail = await composed.services.desk.railSources(user, { dayStart: new Date().toISOString() });
+  expect(JSON.stringify(rail.needsYou)).toContain(proposed.versionId);
+  const grants = await composed.services.artifactGrants.list(user, { artifactId: first.artifactId, versionId: proposed.versionId });
+  expect(grants.filter((grant) => grant.status === "pending")).toMatchObject([{ kind: "host", target: "new.example.com" }]);
+  for (const grant of grants.filter((grant) => grant.status === "pending")) {
+    await composed.services.artifactGrants.decideGrant(user, { grantId: grant.id, decision: "approved" });
+  }
+  expect((await port.read({ artifactId: first.artifactId })).file.text).toBe("three");
+  expect(same.version).toBe(2);
+});
+
+test("artifact_read returns only managers' last ten bounded app errors", async () => {
+  const port = createArtifactPorts({ principal: user, services: composed.services });
+  const app = await port.create({ kind: "app", title: "Errors", entry: "index.html", files: [{ path: "index.html", text: "Errors" }] });
+  const stranger = { ...user, userId: "another-member", isAdmin: false };
+  for (let i = 0; i < 12; i++) {
+    await composed.services.artifactErrors.record({ artifactId: app.artifactId, versionId: app.versionId, workspaceId: user.workspaceId }, i % 2 ? "reply" : "fetch bot", new Error(`${i}:` + "x".repeat(600)));
+  }
+  const read = await port.read({ artifactId: app.artifactId });
+  expect(read.appErrors).toHaveLength(10);
+  expect(read.appErrors?.[0]).toMatchObject({ versionId: app.versionId, entry: "reply" });
+  expect(read.appErrors?.every((error) => error.message.length === 500 && !!error.time)).toBe(true);
+  const other = createArtifactPorts({ principal: stranger, services: composed.services });
+  expect((await other.read({ artifactId: app.artifactId })).appErrors).toBeUndefined();
+});

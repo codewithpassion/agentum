@@ -259,3 +259,19 @@ describe("usage and wipe", () => {
     expect(core.get("shared", "", "c")).toBe("3");
   });
 });
+
+test("app error slots persist across restarts and count drops over a sliding ten seconds", () => {
+  const db = new Database(":memory:");
+  const adapter: SqlAdapter = { exec: (q, ...p) => db.query(q).all(...p) as Record<string, unknown>[] };
+  const first = createAppStoreCore(adapter);
+  first.init();
+  expect(first.errorSlot(1000)).toEqual({ dropped: 0 });
+  for (let i = 0; i < 100; i++) expect(first.errorSlot(1001 + i)).toBeNull();
+  const restarted = createAppStoreCore(adapter);
+  restarted.init();
+  expect(restarted.errorSlot(10999)).toBeNull();
+  expect(restarted.errorSlot(11000)).toEqual({ dropped: 101 });
+  expect(restarted.errorSlot(11001)).toBeNull();
+  expect(restarted.errorSlot(21000)).toEqual({ dropped: 1 });
+  expect(makeCore().errorSlot(11001)).toEqual({ dropped: 0 });
+});

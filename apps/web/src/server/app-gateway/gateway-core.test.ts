@@ -308,3 +308,13 @@ describe("handleAppRequest: header rules", () => {
     expect(answer.headers.get("location")).toBeNull();
   });
 });
+
+test("throwing fetch records the version and entry and keeps the fixed 502", async () => {
+  const t = setup(() => { throw new Error("fetch broke"); });
+  const recorded: unknown[] = [];
+  t.deps.recordError = async (input, entry, error) => { recorded.push({ input, entry, message: (error as Error).message }); };
+  const response = await t.run("/api/test");
+  expect(response.status).toBe(502);
+  expect(await response.text()).toBe("The app's server could not answer.");
+  expect(recorded).toMatchObject([{ input: { artifactId: ARTIFACT, versionId: "ver-1" }, entry: "fetch page", message: "fetch broke" }]);
+});

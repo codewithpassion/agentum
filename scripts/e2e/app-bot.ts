@@ -186,6 +186,16 @@ export default { ...config, root: ${JSON.stringify(WEB_DIR)}, plugins: [...confi
     };
     assert.equal((await signed({ type: 1 }, false)).status, 401);
     assert.deepEqual(await (await signed({ type: 1 })).json(), { type: 1 });
+    const updated = await mcp("artifact_update", {
+      artifactId: created.artifactId,
+      baseVersion: created.version,
+      files: discordBotFiles({ agentId: agent.id, applicationId: "application", publicKey, roleId: "role" }),
+    });
+    assert.equal(updated.version, 2);
+    const afterUpdate = await mcp("artifact_read", { artifactId: created.artifactId });
+    assert.ok(afterUpdate.grants.every((grant: { status: string }) => grant.status === "approved"));
+    assert.equal(afterUpdate.currentVersion, 2);
+    assert.deepEqual(await (await signed({ type: 1 })).json(), { type: 1 });
     assert.deepEqual(
       await (
         await signed({
