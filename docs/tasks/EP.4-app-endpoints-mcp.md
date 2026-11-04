@@ -3,7 +3,7 @@ id: EP.4
 title: MCP descriptions and example so a Claude over MCP can build a bot
 milestone: EP
 size: M
-status: in_progress
+status: done
 depends_on: [EP.2, EP.3]
 branch: task/EP.4-app-endpoints-mcp
 lane: mcp
@@ -29,3 +29,4 @@ Spec: `docs/v3/app-endpoints.md`, section "MCP".
 ## Log
 - 2026-11-05: scope grew. Dom asked that Claude reaching Agentum over MCP can create bots, and the artifact tools are offered to runs only, so this task opens them to people (write keys, OAuth). It also takes EP.2's browser check.
 - 2026-11-05: dispatched to Codex. Claude runs the browser and cold-start checks.
+- 2026-11-05: review clean after 2 fix rounds, browser and cold-start checks done by Claude, merged as 28165784.
