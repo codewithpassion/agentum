@@ -1137,6 +1137,7 @@ export const createDeskService = ({
     const member = requireMember(principal);
     const sources = await needsYouSources(member);
     return (
+      sources.appGrants.length +
       sources.conflicts.length +
       sources.suggestions.length +
       sources.pending.length +

@@ -384,6 +384,7 @@ for (const via of ["api_key", "oauth"] as const) {
       }
       expect(names.some((name) => GRANT_DECISION_TOOL.test(name))).toBe(false);
       const created = await artifacts.create({
+        entry: "index.html",
         files: [
           { path: "index.html", text: "Bot" },
           {
@@ -458,6 +459,9 @@ for (const via of ["api_key", "oauth"] as const) {
         dayStart: new Date().toISOString(),
       });
       expect(JSON.stringify(rail.needsYou)).toContain(created.artifactId);
+      expect(await composed.services.desk.needsYouCount(user)).toBe(
+        rail.needsYou.length
+      );
       await composed.services.artifactGrants.decideGrant(user, {
         decision: "approved",
         grantId: grant.id,

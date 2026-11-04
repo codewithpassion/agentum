@@ -1,4 +1,4 @@
-import type { QaAuthorKind, QaStatus } from "@repo/db/shared";
+import type { QaAuthorKind, QaStatus, TriggerKind } from "@repo/db/shared";
 import type { DesktopAction } from "@repo/protocol/computer";
 import type { DeckCreationPort, DeckPort } from "./tools/deck";
 import type { LivePort } from "./tools/live";
@@ -135,7 +135,7 @@ export interface TriggerInfo {
   agentId: string;
   agentName: string;
   id: string;
-  kind: "http" | "app";
+  kind: TriggerKind;
   lastFiredAt: string | null;
   name: string;
   status: AutomationStatus;

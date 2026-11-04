@@ -108,7 +108,7 @@ export const createArtifactPorts = ({
     return { id: found.id, number: found.number };
   };
 
-  /** Writes the PNG into the run's task folder and returns its library path. */
+  /** Writes the PNG into the run task folder or user artifact-tests folder. */
   const saveScreenshot = async (
     png: Uint8Array,
     name: string

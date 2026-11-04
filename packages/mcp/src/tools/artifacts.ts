@@ -446,7 +446,7 @@ export const artifactTools = (
   defineTool({
     annotations: READ_ONLY,
     description:
-      "Reads an artifact: title, kind, audience, the version list and the text of one file (the entry file unless you give path). Use it before artifact_update to get the current version number, or to read a published page. Text files only.",
+      "Reads an artifact: title, kind, audience, the version list, active approved endpoint URLs and the text of one file (the entry file unless you give path). Use it before artifact_update to get the current version number, or to read a published page. Text files only.",
     inputSchema: readInput,
     name: "artifact_read",
     run: async (input) => {
@@ -487,7 +487,7 @@ export const artifactTools = (
   defineTool({
     annotations: READ_ONLY,
     description:
-      "Lists the artifacts you may see: those shared with the whole workspace and the ones your agent created. Returns id, title, kind, audience, current version and url for each, and a next cursor when there are more.",
+      "Lists artifacts you may see, including your own and those shared with the workspace. Returns id, title, kind, audience, current version and url for each, and a next cursor when there are more.",
     inputSchema: listInput,
     name: "artifact_list",
     run: async (input) => {
