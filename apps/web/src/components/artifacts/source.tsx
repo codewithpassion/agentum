@@ -9,14 +9,17 @@ import { Button } from "#/components/ui/button";
 import { Spinner } from "#/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
+import { CallsTabTrigger } from "./calls.tsx";
 import { errorMessage } from "./share-model.ts";
 
 export function ArtifactTabs({
   canManage,
+  kind,
   value,
   onValueChange,
 }: {
   canManage: boolean;
+  kind: string;
   value: string;
   onValueChange: (value: string) => void;
 }) {
@@ -35,6 +38,7 @@ export function ArtifactTabs({
             Access log
           </TabsTrigger>
         ) : null}
+        <CallsTabTrigger canManage={canManage} kind={kind} />
         <TabsTrigger className="h-10 md:h-8" value="source">
           Source
         </TabsTrigger>

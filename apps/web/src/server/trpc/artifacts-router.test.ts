@@ -69,3 +69,30 @@ test("callTool maps the call errors to tRPC codes", async () => {
     })
   );
 });
+
+test("diagnostics use workspace auth and strict output schemas", async () => {
+  const anonymous = appRouter.createCaller({
+    principal: { kind: "anonymous" },
+  } as unknown as Context);
+  await expect(anonymous.artifacts.calls({ artifactId })).rejects.toMatchObject(
+    { code: "UNAUTHORIZED" }
+  );
+  await expect(
+    anonymous.artifacts.appErrors({ artifactId })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  const invalid = appRouter.createCaller({
+    principal,
+    services: {
+      artifactEndpoints: {
+        appErrors: () => Promise.resolve([{ message: "invalid" }]),
+        calls: () => Promise.resolve({ items: [], visitorHash: "private" }),
+      },
+    },
+  } as unknown as Context);
+  await expect(invalid.artifacts.calls({ artifactId })).rejects.toMatchObject({
+    code: "INTERNAL_SERVER_ERROR",
+  });
+  await expect(
+    invalid.artifacts.appErrors({ artifactId })
+  ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+});

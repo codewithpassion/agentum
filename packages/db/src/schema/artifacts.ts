@@ -186,6 +186,7 @@ export const artifactViews = sqliteTable(
     city: text("city"),
     country: text("country"),
     createdAt: createdAt(),
+    durationMs: integer("duration_ms"),
     guestId: text("guest_id").references(
       (): AnySQLiteColumn => guestIdentities.id
     ),
@@ -195,6 +196,7 @@ export const artifactViews = sqliteTable(
     referrerHost: text("referrer_host"),
     region: text("region"),
     shareId: text("share_id").references(() => artifactShares.id),
+    statusCode: integer("status_code"),
     surface: text("surface", { enum: ARTIFACT_VIEW_SURFACES }).notNull(),
     // Set for `live_call` rows.
     toolKey: text("tool_key"),

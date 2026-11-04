@@ -5,7 +5,7 @@ import { mountEndpointRoutes } from "./endpoints.ts";
 import { fakePorts } from "./fakes.ts";
 import type { AppRuntimeInput } from "./ports.ts";
 
-const setup = (failLogging = false) => {
+const setup = (failLogging = false, status = 200) => {
   const work: Promise<unknown>[] = [];
   const access: string[] = [];
   const active = new Set(["approved"]);
@@ -13,6 +13,7 @@ const setup = (failLogging = false) => {
   const keys: string[] = [];
   const counts = new Map<string, number>();
   const logs: string[] = [];
+  const metrics: { statusCode: number; durationMs: number }[] = [];
   let limited = false;
   const app = new Hono<AppEnv>();
   mountEndpointRoutes(app, {
@@ -27,7 +28,8 @@ const setup = (failLogging = false) => {
     wiring: () => ({
       declaresHosts: () => Promise.resolve(true),
       endpoints: {
-        recordCall: (_id, _meta, outcome) => {
+        recordCall: (_id, _meta, outcome, measurement) => {
+          metrics.push(measurement);
           logs.push(outcome);
           if (failLogging) {
             return Promise.reject(new Error("Logging unavailable"));
@@ -68,6 +70,7 @@ const setup = (failLogging = false) => {
                 "content-type": "application/octet-stream",
                 "set-cookie": "evil",
               },
+              status,
             })
           );
         },
@@ -89,6 +92,7 @@ const setup = (failLogging = false) => {
       limited = true;
     },
     logs,
+    metrics,
     seen,
     work,
   };
@@ -225,6 +229,7 @@ test("HTTP ingress rechecks database grants and live versions; disable, enable a
     atomic: sqliteAtomic(db),
     clock: { now: () => new Date(now) },
     db,
+    errors: { list: () => Promise.resolve([]) },
   });
   await db.insert(artifactEndpoints).values({
     artifactId: "artifact",
@@ -435,3 +440,22 @@ test("request waitUntil logs recordCall failure with ids only and preserves the 
     error.mockRestore();
   }
 });
+
+test.each([200, 404, 502])(
+  "route records status %i, duration and outcome around the handler",
+  async (status) => {
+    const timer = spyOn(performance, "now")
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(137);
+    try {
+      const h = setup(false, status);
+      const response = await h.call("/hooks/approved");
+      await Promise.all(h.work);
+      expect(response.status).toBe(status);
+      expect(h.metrics).toEqual([{ durationMs: 37, statusCode: status }]);
+      expect(h.logs).toEqual([status >= 500 ? "error" : "ok"]);
+    } finally {
+      timer.mockRestore();
+    }
+  }
+);

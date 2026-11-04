@@ -975,6 +975,7 @@ export const composeWith = ({
     atomic: infra.atomic,
     clock: infra.clock,
     db,
+    errors: artifactErrors,
     publicBaseUrl: infra.publicBaseUrl,
   });
   const artifactApp = createAppGrantsService({

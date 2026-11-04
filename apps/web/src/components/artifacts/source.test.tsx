@@ -61,14 +61,30 @@ test("binary files show metadata and a Download note", () => {
 
 test("readers see Source while Access log stays with managers", () => {
   const html = renderToStaticMarkup(
-    <ArtifactTabs canManage={false} onValueChange={noop} value="source" />
+    <ArtifactTabs
+      canManage={false}
+      kind="app"
+      onValueChange={noop}
+      value="source"
+    />
   );
   expect(html).toContain("Source");
   expect(html).toContain("Artifact");
   expect(html).not.toContain("Access log");
+  expect(html).not.toContain("Calls");
+  const managed = renderToStaticMarkup(
+    <ArtifactTabs canManage kind="app" onValueChange={noop} value="artifact" />
+  );
+  expect(managed).toContain("Access log");
+  expect(managed).toContain("Calls");
   expect(
     renderToStaticMarkup(
-      <ArtifactTabs canManage onValueChange={noop} value="artifact" />
+      <ArtifactTabs
+        canManage
+        kind="page"
+        onValueChange={noop}
+        value="artifact"
+      />
     )
-  ).toContain("Access log");
+  ).not.toContain("Calls");
 });

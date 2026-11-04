@@ -4,6 +4,10 @@
 import { ARTIFACT_PIN_SURFACES } from "@repo/db/shared";
 import {
   ARTIFACT_SOURCE_MAX_BYTES,
+  artifactsAppErrorsInputSchema,
+  artifactsAppErrorsOutputSchema,
+  artifactsCallsInputSchema,
+  artifactsCallsOutputSchema,
   artifactsCallToolInputSchema,
   artifactsCallToolOutputSchema,
   artifactsDecideGrantInputSchema,
@@ -54,6 +58,18 @@ const endpointSchema = z.strictObject({
   url: z.string(),
 });
 export const artifactsRouter = router({
+  appErrors: workspaceProcedure
+    .input(artifactsAppErrorsInputSchema)
+    .output(artifactsAppErrorsOutputSchema)
+    .query(({ ctx, input }) =>
+      ctx.services.artifactEndpoints.appErrors(ctx.principal, input)
+    ),
+  calls: workspaceProcedure
+    .input(artifactsCallsInputSchema)
+    .output(artifactsCallsOutputSchema)
+    .query(({ ctx, input }) =>
+      ctx.services.artifactEndpoints.calls(ctx.principal, input)
+    ),
   callTool: workspaceProcedure
     .input(artifactsCallToolInputSchema)
     .output(artifactsCallToolOutputSchema)

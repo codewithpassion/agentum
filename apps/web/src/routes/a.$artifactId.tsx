@@ -9,8 +9,8 @@ import {
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AccessLog } from "#/components/artifacts/access-log.tsx";
 import { ArtifactFrame } from "#/components/artifacts/artifact-frame.tsx";
+import { ArtifactActivity } from "#/components/artifacts/calls.tsx";
 import { ElementAskViewer } from "#/components/artifacts/element-ask-viewer.tsx";
 import { ShareDialog } from "#/components/artifacts/share-dialog.tsx";
 import {
@@ -138,7 +138,9 @@ function StaticArtifactViewerPage() {
   const [pinned, setPinned] = useState<ReadonlySet<PinSurface>>(new Set());
   const [promoting, setPromoting] = useState(false);
   const [waitingVersionId, setWaitingVersionId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"artifact" | "log" | "source">("artifact");
+  const [tab, setTab] = useState<"artifact" | "calls" | "log" | "source">(
+    "artifact"
+  );
 
   const Frame =
     detail.kind === "page" || detail.kind === "dashboard"
@@ -324,7 +326,11 @@ function StaticArtifactViewerPage() {
   const openShare = useCallback(() => setShareOpen(true), []);
   const changeTab = useCallback(
     (value: string) =>
-      setTab(value === "log" || value === "source" ? value : "artifact"),
+      setTab(
+        value === "log" || value === "calls" || value === "source"
+          ? value
+          : "artifact"
+      ),
     []
   );
 
@@ -350,12 +356,17 @@ function StaticArtifactViewerPage() {
       />
       <ArtifactTabs
         canManage={detail.canManage}
+        kind={detail.kind}
         onValueChange={changeTab}
         value={tab}
       />
-      {tab === "log" && detail.canManage ? (
+      {(tab === "log" || tab === "calls") && detail.canManage ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <AccessLog artifactId={artifactId} />
+          <ArtifactActivity
+            artifactId={artifactId}
+            kind={detail.kind}
+            tab={tab}
+          />
         </div>
       ) : null}
       {tab === "source" ? (
@@ -365,7 +376,8 @@ function StaticArtifactViewerPage() {
           version={shownNumber}
         />
       ) : null}
-      {tab === "artifact" || (tab === "log" && !detail.canManage) ? (
+      {tab === "artifact" ||
+      ((tab === "log" || tab === "calls") && !detail.canManage) ? (
         <div
           className="flex min-h-0 flex-1 items-center justify-center bg-background"
           ref={frameWrapRef}

@@ -66,17 +66,20 @@ export const mountEndpointRoutes = (
         return finish(new Response("Not found.", { status: 404 }));
       }
       const meta = await wiring.requestMeta(c.req.raw, endpoint.workspaceId);
+      const started = performance.now();
       const response = await handleEndpointRequest(c.req.raw, endpoint, {
         ...wiring,
         applyContentHeaders: finish,
         requestMeta: () => Promise.resolve(meta),
       });
+      const durationMs = Math.max(0, Math.round(performance.now() - started));
       const log = Promise.resolve()
         .then(() =>
           wiring.endpoints.recordCall(
             endpoint,
             meta,
-            response.status >= 500 ? "error" : "ok"
+            response.status >= 500 ? "error" : "ok",
+            { durationMs, statusCode: response.status }
           )
         )
         .catch(() => {
