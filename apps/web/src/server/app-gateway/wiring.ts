@@ -71,6 +71,7 @@ export const appGatewayWiring = (
   const exported = exportsOf(ctx);
   return {
     declaresHosts: (versionId) => services.artifactApp.declaresHosts(versionId),
+    defer: (work) => ctx.waitUntil(work),
     endpoints: services.artifactEndpoints,
     ports,
     recordError: services.artifactErrors.record,

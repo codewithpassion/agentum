@@ -210,7 +210,7 @@ export interface ArtifactPublished {
   artifactId: string;
   bytes: number;
   files: number;
-  status?: "live" | "waiting" | "proposed";
+  status?: "live" | "waiting" | "proposed" | "superseded";
   /** The sign-in URL, `https://<app>/a/<artifactId>`. */
   url: string;
   version: number;
@@ -298,12 +298,14 @@ export interface ArtifactsPort {
     cursor?: string;
     kind?: ArtifactKindInput;
   }) => Promise<{ items: ArtifactSummary[]; next?: string }>;
-  promote: (input: {
-    artifactId: string;
-    version?: number;
-  }) => Promise<
+  promote: (input: { artifactId: string; version?: number }) => Promise<
     | { status: "promoted"; version: number }
-    | { status: "waiting"; version: number }
+    | {
+        status: "waiting";
+        version: number;
+        approval?: "run" | "person";
+        hasLiveVersion?: boolean;
+      }
   >;
   read: (input: {
     artifactId: string;

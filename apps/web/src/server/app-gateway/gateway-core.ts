@@ -35,6 +35,7 @@ const API_PATH = /^\/a\/[^/]+\/c\/[^/]+(\/api(?:\/.*)?)$/;
 export interface AppGatewayDeps {
   /** The A.4 content wrapper: CSP, nosniff and the rest, set on every answer. */
   applyContentHeaders: (response: Response) => Response;
+  defer?: (work: Promise<void>) => void;
   ports: Pick<AppGatewayPorts, "shares" | "source">;
   recordError?: (
     target: AppErrorTarget,
@@ -124,6 +125,18 @@ const timer = (ms: number) => {
   return { clear: () => clearTimeout(handle), expired };
 };
 
+const recordError = (
+  input: AppRuntimeInput,
+  deps: AppGatewayDeps,
+  entry: string,
+  error: unknown
+): void => {
+  const work = Promise.resolve()
+    .then(() => deps.recordError?.(input.host, entry, error))
+    .catch(() => undefined);
+  deps.defer?.(work);
+};
+
 const runApp = async (
   input: AppRuntimeInput,
   deps: AppGatewayDeps,
@@ -135,11 +148,13 @@ const runApp = async (
       deps.runtime.handle(input),
       wall.expired,
     ]);
-    return answer === "timeout"
-      ? text(504, TIMEOUT_BODY)
-      : filteredResponse(answer);
+    if (answer === "timeout") {
+      recordError(input, deps, entry, new Error("timed out"));
+      return text(504, TIMEOUT_BODY);
+    }
+    return filteredResponse(answer);
   } catch (error) {
-    await deps.recordError?.(input.host, entry, error).catch(() => undefined);
+    recordError(input, deps, entry, error);
     return text(502, BAD_GATEWAY_BODY);
   } finally {
     wall.clear();

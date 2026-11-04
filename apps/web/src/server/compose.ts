@@ -1361,8 +1361,10 @@ export const compose = (
   composed = composeWith({
     db,
     infra: {
-      appErrorSlot: async (artifactId) =>
-        env.APP_STORE.get(env.APP_STORE.idFromName(artifactId)).errorSlot(),
+      appErrorSlot: async (artifactId, restoreDropped) =>
+        env.APP_STORE.get(env.APP_STORE.idFromName(artifactId)).errorSlot(
+          restoreDropped
+        ),
       // An empty `ARTIFACT_LINKS_OFF` leaves links on.
       appReply:
         exports && env.LOADER

@@ -39,6 +39,7 @@ import {
   max,
   ne,
   or,
+  sql,
 } from "drizzle-orm";
 import { z } from "zod";
 import type { A2aNeedsYouSource } from "./a2a/needs-you.ts";
@@ -551,6 +552,7 @@ export const createDeskService = ({
           artifactId: artifacts.id,
           at: artifactGrants.createdAt,
           id: artifactVersions.id,
+          number: artifactVersions.number,
           ownerUserId: artifacts.ownerUserId,
           title: artifacts.title,
         })
@@ -567,7 +569,10 @@ export const createDeskService = ({
             eq(artifactVersions.authorKind, "user"),
             or(
               eq(artifactVersions.id, artifacts.currentVersionId),
-              eq(artifactVersions.status, "proposed")
+              and(
+                eq(artifactVersions.status, "proposed"),
+                sql`not exists (select 1 from artifact_versions newer where newer.artifact_id = ${artifacts.id} and newer.number > ${artifactVersions.number} and (newer.status = 'proposed' or newer.id = ${artifacts.currentVersionId}))`
+              )
             ),
             eq(artifactGrants.status, "pending"),
             eq(artifacts.ownerUserId, member.userId)
@@ -642,7 +647,7 @@ export const createDeskService = ({
           artifactId: grant.artifactId,
           at: grant.at,
           band: {
-            text: "Approve this app version’s access",
+            text: `Approve this app version ${grant.number}’s access`,
             tone: "waiting",
           },
           id: grant.id,

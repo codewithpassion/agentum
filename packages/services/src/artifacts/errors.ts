@@ -14,7 +14,9 @@ export interface AppErrorTarget {
   workspaceId: string;
 }
 export type AppErrorSlot = (
-  artifactId: string
+  artifactId: string,
+  /** Restore a failed append's drops, including that failed event, without claiming a slot. */
+  restoreDropped?: number
 ) => Promise<{ dropped: number } | null>;
 
 export const createArtifactErrorsService = ({
@@ -95,11 +97,13 @@ export const createArtifactErrorsService = ({
   ): Promise<void> => {
     // Diagnostics must never change the app's fixed error response. Without
     // the durable flood guard, fail closed instead of flooding events.
+    let dropped: number | undefined;
     try {
       const admitted = await slot?.(target.artifactId);
       if (admitted === null || admitted === undefined) {
         return;
       }
+      ({ dropped } = admitted);
       await events.append({
         actor: { id: "system", kind: "system" },
         payload: {
@@ -115,6 +119,9 @@ export const createArtifactErrorsService = ({
         workspaceId: target.workspaceId,
       });
     } catch {
+      if (dropped !== undefined) {
+        await slot?.(target.artifactId, dropped + 1).catch(() => undefined);
+      }
       // The error recorder is best effort, including during storage outages.
     }
   },

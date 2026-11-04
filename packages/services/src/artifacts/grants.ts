@@ -999,12 +999,18 @@ export const createArtifactGrantsService = ({
     ) {
       return null;
     }
-    const pending = (
-      await listGrants(db, {
-        versionId: version.id,
-        workspaceId: artifact.workspaceId,
-      })
-    ).filter((row) => row.status === "pending");
+    const rows = await listGrants(db, {
+      versionId: version.id,
+      workspaceId: artifact.workspaceId,
+    });
+    const rejected = rows.filter((row) => row.status === "rejected");
+    if (rejected.length) {
+      throw new ServiceError(
+        "conflict",
+        `This version was rejected: ${rejected.map((row) => `${row.kind} ${row.target}`).join(", ")}. Create a new version.`
+      );
+    }
+    const pending = rows.filter((row) => row.status === "pending");
     return pending.length
       ? { pending: pending.map(grantRecord), status: "waiting" }
       : null;

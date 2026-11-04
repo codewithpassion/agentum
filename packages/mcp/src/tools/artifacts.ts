@@ -292,6 +292,8 @@ const publishedText = (verb: string, published: ArtifactPublished): string => {
     live: "This version is live. ",
     proposed:
       "This version is proposed. Use artifact_promote to request approval. ",
+    superseded:
+      "This version was superseded by a newer live version. Check with artifact_read. ",
     waiting:
       "The live version keeps serving. Ask the person to approve in Needs you, then check with artifact_read. ",
   };
@@ -442,7 +444,7 @@ export const artifactTools = (
   }),
   defineTool({
     annotations: WRITE_UPDATE,
-    description: `See artifact_create for the app guide and full Discord example. Publishes a new version of an artifact you own or your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. For a run, the app version is proposed until artifact_promote. For a person, an update with all grants approved goes live immediately. Otherwise it stays proposed and the live version keeps serving. Ask them to approve in Needs you, then check with artifact_read. Approval makes it live with no second artifact_promote. artifact_test opens the latest non-rejected version. ${BUILD_GUIDE}`,
+    description: `See artifact_create for the app guide and full Discord example. Publishes a new version of an artifact you own or your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. For a run, the app version is proposed until artifact_promote. For a person, an update with all grants approved goes live immediately. Otherwise it stays proposed. If a live version exists, it keeps serving; for a first version, nothing is live until approval. Ask them to approve in Needs you, then check with artifact_read. Approval makes it live with no second artifact_promote. artifact_test opens the latest non-rejected version. ${BUILD_GUIDE}`,
     inputSchema: updateInput,
     name: "artifact_update",
     run: async (input) => {
@@ -544,7 +546,7 @@ export const artifactTools = (
   defineTool({
     annotations: WRITE_UPDATE,
     description:
-      "See artifact_create for the app guide and full Discord example. Asks to make a version of an app artifact live (the latest unless you give version). For a run’s proposed version, this opens its approval card and approval makes it live; if it waits, approve in Needs you, then check with artifact_read. A person’s update goes live when all grants are approved. Otherwise it stays proposed and the live version keeps serving. Approval makes it live with no second artifact_promote. For a person over MCP, this tool reports waiting while approval is pending: ask them to approve in Needs you, then check with artifact_read (current version by default; pass version to see a proposed version’s grants).",
+      "See artifact_create for the app guide and full Discord example. Asks to make a version of an app artifact live (the latest unless you give version). For a run’s proposed version, this opens its approval card and approval makes it live; if it waits, a person must approve in Needs you. Stop and do not retry. A person’s update goes live when all grants are approved. Otherwise it stays proposed. If a live version exists, it keeps serving; for a first version, nothing is live until approval. Approval makes it live with no second artifact_promote. For a person over MCP, this tool reports waiting while approval is pending: ask them to approve in Needs you, then check with artifact_read (current version by default; pass version to see a proposed version’s grants).",
     inputSchema: promoteInput,
     name: "artifact_promote",
     run: async (input) => {
@@ -554,7 +556,7 @@ export const artifactTools = (
         text:
           result.status === "promoted"
             ? `Version ${result.version} is now live.`
-            : `Version ${result.version} waits for a person to approve its grants in Needs you. Approve in Needs you, then check with artifact_read. The live version keeps serving.`,
+            : `Version ${result.version} waits for a person to approve its grants in Needs you. ${result.approval === "person" ? "Approve in Needs you, then check with artifact_read." : "Stop and do not retry; a person must approve."} ${result.hasLiveVersion ? "The live version keeps serving." : "Nothing is live until approval."}`,
       };
     },
     title: "Promote an artifact version",

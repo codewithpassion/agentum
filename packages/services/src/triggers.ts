@@ -438,6 +438,9 @@ export const createTriggersService = ({
       throw new ForbiddenError(ENABLE_ACTION);
     }
     const current = await requireLive(triggerId, actor.workspaceId);
+    if (actor.kind === "run" && current.kind === "app") {
+      throw new ForbiddenError(ENABLE_ACTION);
+    }
     requireOwnAgent(actor, current.agentId, ENABLE_ACTION);
     if (enabled && current.kind === "http" && isPendingProposal(current)) {
       return await approve(actor, triggerId);

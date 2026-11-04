@@ -99,6 +99,13 @@ export const createAppStoreCore = (
       return rows.map((row) => ({ key: String(row.k), value: String(row.v) }));
     },
 
+    restoreErrorDrops: (dropped: number): void => {
+      sql.exec(
+        "UPDATE app_errors SET dropped = dropped + ? WHERE id = 1",
+        dropped
+      );
+    },
+
     set: (
       area: StorageArea,
       viewerKey: string,

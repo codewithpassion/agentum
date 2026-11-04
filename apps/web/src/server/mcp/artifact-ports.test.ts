@@ -310,6 +310,8 @@ test("promote of a numbered version that waits carries that number", async () =>
     Promise.resolve({ pending: [], requestId: "req_1", status: "waiting" })
   );
   expect(await ports.promote({ artifactId: "a1", version: 2 })).toEqual({
+    approval: "run",
+    hasLiveVersion: false,
     status: "waiting",
     version: 2,
   });
@@ -768,4 +770,127 @@ test("app errors under concurrent load write one event and report dropped errors
   expect(recorded).toHaveLength(2);
   expect(recorded?.[0]).toMatchObject({ dropped: 99, entry: "reply" });
   sqlite.close();
+});
+
+test("failed app error writes preserve prior drops and count the failed event", async () => {
+  const sqlite = new Sqlite(":memory:");
+  const core = createAppStoreCore({
+    exec: (q, ...p) => sqlite.query(q).all(...p) as Record<string, unknown>[],
+  });
+  core.init();
+  let now = 1000;
+  core.errorSlot(now);
+  core.errorSlot(now);
+  now += 10_000;
+  const errors = createArtifactErrorsService({
+    db,
+    events: {
+      ...composed.services.events,
+      append: () => Promise.reject(new Error("D1 unavailable")),
+    },
+    slot: (_id, dropped) => {
+      if (dropped !== undefined) {
+        core.restoreErrorDrops(dropped);
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(core.errorSlot(now));
+    },
+  });
+  await errors.record(
+    { artifactId: "app", versionId: "v1", workspaceId: user.workspaceId },
+    "reply",
+    new Error("broken")
+  );
+  now += 10_000;
+  expect(core.errorSlot(now)).toEqual({ dropped: 2 });
+  sqlite.close();
+});
+
+test("new app proposals replace older Needs you cards and cards name the version", async () => {
+  const principal = { ...user, via: "api_key" as const };
+  const port = createArtifactPorts({ principal, services: composed.services });
+  const files = (host: string) => [
+    { path: "server/index.js", text: "export default {}" },
+    { path: "index.html", text: "App" },
+    { path: "agentum.json", text: JSON.stringify({ hosts: [host] }) },
+  ];
+  const app = await port.create({
+    entry: "index.html",
+    files: [{ path: "index.html", text: "one" }],
+    kind: "app",
+    title: "Versioned",
+  });
+  const second = await port.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: files("second.example"),
+  });
+  const newer = await port.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: files("third.example"),
+  });
+  const cards = (
+    await composed.services.desk.railSources(user, {
+      dayStart: new Date().toISOString(),
+    })
+  ).needsYou;
+  expect(cards.some((card) => card.id === second.versionId)).toBe(false);
+  expect(
+    cards.find((card) => card.id === newer.versionId)?.band.text
+  ).toContain("version 3");
+  const third = await port.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: [{ path: "index.html", text: "Live" }],
+  });
+  expect(third.status).toBe("live");
+  const after = (
+    await composed.services.desk.railSources(user, {
+      dayStart: new Date().toISOString(),
+    })
+  ).needsYou;
+  expect(after.some((card) => card.id === newer.versionId)).toBe(false);
+});
+
+test("an update overtaken by a newer live version reports superseded", async () => {
+  const principal = { ...user, via: "api_key" as const };
+  const port = createArtifactPorts({ principal, services: composed.services });
+  const app = await port.create({
+    entry: "index.html",
+    files: [{ path: "index.html", text: "one" }],
+    kind: "app",
+    title: "Race",
+  });
+  const services = {
+    ...composed.services,
+    artifacts: {
+      ...composed.services.artifacts,
+      update: async (
+        ...args: Parameters<typeof composed.services.artifacts.update>
+      ) => {
+        const result = await composed.services.artifacts.update(...args);
+        await composed.services.artifacts.update(user, {
+          artifactId: app.artifactId,
+          baseVersion: 1,
+          files: [{ path: "index.html", text: "newer" }],
+        });
+        return result;
+      },
+    },
+  };
+  const racing = createArtifactPorts({ principal, services });
+  const result = await racing.update({
+    artifactId: app.artifactId,
+    baseVersion: 1,
+    files: [
+      { path: "server/index.js", text: "export default {}" },
+      { path: "index.html", text: "two" },
+      {
+        path: "agentum.json",
+        text: JSON.stringify({ hosts: ["new.example"] }),
+      },
+    ],
+  });
+  expect(result.status).toBe("superseded");
 });

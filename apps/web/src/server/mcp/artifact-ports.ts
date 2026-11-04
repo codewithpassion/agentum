@@ -70,7 +70,7 @@ export const createArtifactPorts = ({
     files: number;
     version: number;
     versionId: string;
-    status?: "live" | "waiting" | "proposed";
+    status?: ArtifactPublished["status"];
   }): ArtifactPublished => ({
     ...(result.status ? { status: result.status } : {}),
     artifactId: result.artifactId,
@@ -202,7 +202,17 @@ export const createArtifactPorts = ({
         });
         return result.status === "promoted"
           ? { status: "promoted" as const, version: result.version }
-          : { status: "waiting" as const, version: target.number };
+          : {
+              approval:
+                principal.kind === "run"
+                  ? ("run" as const)
+                  : ("person" as const),
+              hasLiveVersion: versions.some(
+                (row) => row.status === "published" && row.id !== target.id
+              ),
+              status: "waiting" as const,
+              version: target.number,
+            };
       }),
     read: ({ artifactId, path, version }) =>
       guarded(async () => {
@@ -301,6 +311,13 @@ export const createArtifactPorts = ({
         let status: ArtifactPublished["status"] = "live";
         if (version?.status === "proposed") {
           status = principal.kind === "run" ? "proposed" : "waiting";
+          if (
+            versions.some(
+              (row) => row.status === "published" && row.number > version.number
+            )
+          ) {
+            status = "superseded";
+          }
         }
         return published({ ...result, status });
       }),

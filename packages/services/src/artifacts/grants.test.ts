@@ -24,6 +24,7 @@ import { createAppGrantsService } from "./app-grants.ts";
 import { createArtifactGrantsService, type ToolCatalog } from "./grants.ts";
 import { agentCanUpdate } from "./policy.ts";
 
+const REJECTED_GRANTS = /rejected.*host.*denied.example.*new version/i;
 const ENDPOINT_ID = /^[A-Za-z0-9_-]{32}$/;
 const NOW = "2026-10-27T00:00:00.000Z";
 const ARTIFACT = "0b6f4c2e-8a1d-4f3e-9c2b-7d5e1a2b3c4d";
@@ -1328,4 +1329,31 @@ test("promoting a version without an agent never pauses its trigger", async () =
       { agent: otherAgentId, text: "hello" }
     )
   ).rejects.toThrow("no approved agent grant");
+});
+
+test("MCP promotion names rejected grants even when other grants remain pending", async () => {
+  const person = { ...owner, via: "api_key" as const };
+  await addVersion("v2", 2, { authorId: "u1", authorKind: "user" });
+  const grants = await record(
+    "v2",
+    { hosts: ["denied.example", "pending.example"] },
+    person
+  );
+  await service.decideGrant(owner, {
+    decision: "rejected",
+    grantId: grants[0]?.id,
+  });
+  await expect(
+    service.promote(person, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toThrow(REJECTED_GRANTS);
+});
+
+test("promotion preserves the proposed version's thumbnail", async () => {
+  await addVersion("v2", 2, { thumbnailKey: "v2.png" });
+  await record("v2", {});
+  await service.promote(owner, { artifactId: ARTIFACT, versionId: "v2" });
+  expect(
+    (await db.select().from(artifacts).where(eq(artifacts.id, ARTIFACT)))[0]
+      ?.thumbnailKey
+  ).toBe("v2.png");
 });

@@ -678,7 +678,13 @@ describe("artifact_promote", () => {
   test("a waiting version explains approval and reading the result", async () => {
     const result = await call(
       port({
-        promote: () => Promise.resolve({ status: "waiting", version: 2 }),
+        promote: () =>
+          Promise.resolve({
+            approval: "person",
+            hasLiveVersion: true,
+            status: "waiting",
+            version: 2,
+          }),
       }),
       "artifact_promote",
       { artifactId: ID }
@@ -813,4 +819,45 @@ test("artifact_update preserves the adapter's refusal to replace a live document
     code: "validation",
     message: "Use document_edit for a live document.",
   });
+});
+
+test("a waiting run stops for a person and never asks the run to approve", async () => {
+  const result = await call(
+    port({
+      promote: () =>
+        Promise.resolve({
+          approval: "run",
+          hasLiveVersion: false,
+          status: "waiting",
+          version: 1,
+        }),
+    }),
+    "artifact_promote",
+    { artifactId: ID }
+  );
+  expect(textOf(result)).toContain("Stop and do not retry");
+  expect(textOf(result)).not.toContain("Approve in Needs you");
+  expect(textOf(result)).not.toContain("live version keeps serving");
+  expect(textOf(result)).toContain("Nothing is live until approval");
+});
+
+test("a person's first version does not claim a live version keeps serving", async () => {
+  const result = await call(
+    port({
+      promote: () =>
+        Promise.resolve({
+          approval: "person",
+          hasLiveVersion: false,
+          status: "waiting",
+          version: 1,
+        }),
+    }),
+    "artifact_promote",
+    { artifactId: ID }
+  );
+  expect(textOf(result)).toContain(
+    "Approve in Needs you, then check with artifact_read"
+  );
+  expect(textOf(result)).toContain("Nothing is live until approval");
+  expect(textOf(result)).not.toContain("live version keeps serving");
 });
