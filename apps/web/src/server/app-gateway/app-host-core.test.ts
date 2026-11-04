@@ -241,3 +241,18 @@ test("the startRun contract is present as a not_granted stub", async () => {
     })
   ).rejects.toThrow("not_granted:");
 });
+
+test("endpoint viewer can read/write shared storage, but viewer storage and tools are forbidden", async () => {
+  const ports = fakePorts();
+  const host = createAppHost({ ...base, viewer: { kind: "endpoint", endpointId: "ep" } }, ports);
+  expect(await host.whoami()).toEqual({ viewer: "endpoint", dataMode: null });
+  await host.setItem("shared", "k", "v");
+  expect(await host.getItem("shared", "k")).toBe("v");
+  expect(await host.listItems("shared")).toEqual([{ key: "k", value: "v" }]);
+  await host.deleteItem("shared", "k");
+  expect(await host.getItem("shared", "k")).toBeNull();
+  for (const operation of [() => host.getItem("viewer", "k"), () => host.listItems("viewer"), () => host.setItem("viewer", "k", "v"), () => host.deleteItem("viewer", "k"), () => host.callTool("x/y", {})]) {
+    expect(await failure(operation())).toStartWith("forbidden:");
+  }
+  expect(ports.calls.seen).toEqual([]);
+});
