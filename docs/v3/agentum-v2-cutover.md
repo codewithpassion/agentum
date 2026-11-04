@@ -263,9 +263,9 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 
 ## Status (4 Nov 2026)
 
-Staging cut over on 3 Nov. Production phase 1 cut over on 4 Nov: `agentum-v2` holds the data, the Durable Objects, the mail rule and the minute tick, with rotated keys. It serves the app on harbourmaster.rockyshoreslabs.io with the old Clerk instance, because the Agentum Clerk instance does not exist yet. agentumbot.io moved off v1 and redirects page loads there (`LEGACY_HOSTS`). The old `harbourmaster` Worker has no domain, no cron and no Durable Objects.
+Done. Staging cut over on 3 Nov. Production cut over on 4 Nov in two phases. Phase 1 moved the data, Durable Objects, mail and cron to `agentum-v2` on the old hostname and Clerk instance. Phase 2 copied the users and organisations to the Agentum Clerk instance, rewrote 192 Clerk ids in `agentum-v2`, and made agentumbot.io the entry point. harbourmaster.rockyshoreslabs.io now only redirects page loads there and serves API calls in place. The old `harbourmaster` Worker has no domain, no cron and no Durable Objects. The new keys are in `~/.config/agentum/agentum-v2.secrets.env` and `agentum-v2-staging.secrets.env`.
 
-Phase 2 (the Agentum Clerk instance and its DNS exist and are verified since 4 Nov): the Clerk steps under "Clerk" (copy users and organisations, rewrite ids), then in `wrangler.jsonc` set `PUBLIC_BASE_URL` to `https://agentumbot.io` and `LEGACY_HOSTS` to `harbourmaster.rockyshoreslabs.io`, set the `build` script back to `--mode agentum-production`, put the new `CLERK_*` secrets on the Worker, and deploy. No data moves.
+Left for Dom: Google sign-in on the Agentum Clerk instance (see "Clerk"), the AI keys and secrets the scrub removed, and the external dependencies table below.
 
 ## Production cutover
 
