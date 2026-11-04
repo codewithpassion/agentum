@@ -1,6 +1,6 @@
 /**
  * Runs the gateway in a real workerd (Miniflare) with a real Worker Loader:
- * a sample `server/index.js` is loaded as a Dynamic Worker and calls `HM`
+ * a sample `server/index.js` is loaded as a Dynamic Worker and calls `AgentumHost`
  * over RPC. The same behaviour `docs/v3/phase2-spike.md` measured under
  * `wrangler dev`, now through the code that ships.
  */

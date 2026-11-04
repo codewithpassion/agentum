@@ -59,6 +59,8 @@ describe("parseManifest", () => {
 
     const manifest = parseManifest(files);
     expect(manifest).toEqual({
+      agents: [],
+      endpoints: [],
       hosts: ["api.example.com", "cdn.example.org"],
       secrets: ["API_KEY", "_TOKEN2"],
       tools: [
@@ -292,6 +294,7 @@ describe("declaredGrants", () => {
   test("a tool with empty limits adds no limits row", () => {
     expect(
       declaredGrants({
+        ...emptyManifest(),
         hosts: [],
         secrets: [],
         tools: [{ limits: {}, tool: "mail/send" }],
@@ -302,6 +305,7 @@ describe("declaredGrants", () => {
   test("duplicate grants are dropped", () => {
     expect(
       declaredGrants({
+        ...emptyManifest(),
         hosts: ["a.example.com"],
         secrets: [],
         tools: [{ tool: "mail/send" }, { tool: "mail/send" }],

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
   index,
@@ -259,5 +260,25 @@ export const artifactPins = sqliteTable(
   },
   (t) => [
     uniqueIndex("artifact_pins_unique").on(t.userId, t.artifactId, t.surface),
+  ]
+);
+
+/** Stable public endpoint ids; rotating retains disabled rows for history. */
+export const artifactEndpoints = sqliteTable(
+  "artifact_endpoints",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id),
+    createdAt: createdAt(),
+    disabledAt: text("disabled_at"),
+    id: id(),
+    name: text("name").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("artifact_endpoints_active_name_unique")
+      .on(t.artifactId, t.name)
+      .where(sql`${t.disabledAt} IS NULL`),
   ]
 );

@@ -1,4 +1,4 @@
-// The contract of app storage (docs/v3/phase2-spike.md, "The `HM` interface").
+// The contract of app storage (docs/v3/phase2-spike.md, "The `AgentumHost` interface").
 // B.2's AppHost and B.5's storage procedures build to these types.
 
 /** From the verified content token, never from app code. */

@@ -1,7 +1,7 @@
 /**
  * Grants, promote and hand-to for app artifacts (PRD R2.4, R2.9, phase 2).
  *
- * A version that asks for tools, secrets or hosts gets one `artifact_grants`
+ * A version that asks for tools, secrets, hosts, endpoints or agents gets one `artifact_grants`
  * row per ask. A row a person made, or that the current version already holds
  * approved, is `approved`; every other row waits `pending` for a person.
  * `promote` makes a proposed version current once none of its rows is pending.

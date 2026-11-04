@@ -1045,7 +1045,13 @@ export type ArtifactShareKind = (typeof ARTIFACT_SHARE_KINDS)[number];
 export const ARTIFACT_SHARE_DATA_MODES = ["snapshot", "live"] as const;
 export type ArtifactShareDataMode = (typeof ARTIFACT_SHARE_DATA_MODES)[number];
 
-export const ARTIFACT_GRANT_KINDS = ["tool", "secret", "host"] as const;
+export const ARTIFACT_GRANT_KINDS = [
+  "tool",
+  "secret",
+  "host",
+  "endpoint",
+  "agent",
+] as const;
 export type ArtifactGrantKind = (typeof ARTIFACT_GRANT_KINDS)[number];
 
 export const ARTIFACT_GRANT_STATUSES = [

@@ -3,7 +3,7 @@
  * cached by the loader under `app:<versionId>`, with a loader config that
  * holds nothing about the viewer: the callback runs once per id, so anything
  * in it would stick to whoever loaded the Worker first
- * (`docs/v3/phase2-spike.md` Q2). Each request instead makes a new `HM` stub
+ * (`docs/v3/phase2-spike.md` Q2). Each request instead makes a new `AgentumHost` stub
  * and passes it to the generated harness as an RPC argument.
  */
 

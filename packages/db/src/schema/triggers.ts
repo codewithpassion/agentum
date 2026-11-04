@@ -8,6 +8,7 @@ import {
 import { createdAt, id, workspaceId } from "../columns.ts";
 import { TRIGGER_KINDS } from "../shared.ts";
 import { agents } from "./agents.ts";
+import { artifacts } from "./artifacts.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
@@ -28,6 +29,7 @@ export const triggers = sqliteTable(
     // When a person approved the proposal. A proposal with this null is
     // pending: it is disabled, and an `http` one has no token yet.
     approvedAt: text("approved_at"),
+    artifactId: text("artifact_id").references(() => artifacts.id),
     // Routine only. Consecutive failures since the last good run.
     consecutiveErrors: integer("consecutive_errors").notNull().default(0),
     createdAt: createdAt(),

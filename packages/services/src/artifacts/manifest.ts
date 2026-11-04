@@ -37,17 +37,21 @@ export interface ManifestTool {
 }
 
 export interface AppManifest {
+  agents: { agent: string }[];
+  endpoints: { name: string }[];
   hosts: string[];
   secrets: string[];
   tools: ManifestTool[];
 }
 
 export interface DeclaredGrant {
-  kind: "tool" | "secret" | "host";
+  kind: "tool" | "secret" | "host" | "endpoint" | "agent";
   target: string;
 }
 
 export const emptyManifest = (): AppManifest => ({
+  agents: [],
+  endpoints: [],
   hosts: [],
   secrets: [],
   tools: [],
@@ -111,6 +115,15 @@ const secretSchema = z
   .regex(SECRET_PATTERN, "secret must be a name like API_KEY");
 
 const manifestSchema = z.strictObject({
+  // Agent ids follow the run input id convention; existence belongs to the later hand-off service.
+  agents: z
+    .array(z.strictObject({ agent: z.string().min(1).max(200) }))
+    .max(5)
+    .default([]),
+  endpoints: z
+    .array(z.strictObject({ name: z.string().regex(/^[a-z0-9-]{1,40}$/) }))
+    .max(5)
+    .default([]),
   hosts: z.array(hostSchema).max(MAX_HOSTS).default([]),
   secrets: z.array(secretSchema).max(MAX_SECRETS).default([]),
   tools: z.array(toolSchema).max(MAX_TOOLS).default([]),
@@ -183,9 +196,24 @@ export const parseManifest = (
     throw invalid(`secret "${duplicateSecret}" is declared twice`);
   }
 
-  const needsServer = manifest.hosts.length > 0 || manifest.secrets.length > 0;
+  for (const [kind, values] of [
+    ["endpoint", manifest.endpoints.map((entry) => entry.name)],
+    ["agent", manifest.agents.map((entry) => entry.agent)],
+  ] as const) {
+    const duplicate = firstDuplicate(values);
+    if (duplicate !== null) {
+      throw invalid(`${kind} "${duplicate}" is declared twice`);
+    }
+  }
+  const needsServer =
+    manifest.hosts.length > 0 ||
+    manifest.secrets.length > 0 ||
+    manifest.endpoints.length > 0 ||
+    manifest.agents.length > 0;
   if (needsServer && !files.some((f) => f.path.startsWith(SERVER_DIR))) {
-    throw invalid(`hosts and secrets need a ${SERVER_DIR} part`);
+    throw invalid(
+      `hosts, secrets, endpoints and agents need a ${SERVER_DIR} part`
+    );
   }
 
   return manifest;
@@ -223,6 +251,12 @@ const compareText = (a: string, b: string): number => {
  */
 export const declaredGrants = (manifest: AppManifest): DeclaredGrant[] => {
   const grants: DeclaredGrant[] = [];
+  for (const { agent } of manifest.agents) {
+    grants.push({ kind: "agent", target: agent });
+  }
+  for (const { name } of manifest.endpoints) {
+    grants.push({ kind: "endpoint", target: name });
+  }
   for (const { tool, limits } of manifest.tools) {
     grants.push({ kind: "tool", target: tool });
     if (limits !== undefined && Object.keys(limits).length > 0) {

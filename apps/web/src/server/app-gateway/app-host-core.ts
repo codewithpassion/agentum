@@ -1,5 +1,5 @@
 /**
- * The logic behind `env.HM`, the one binding an app's server part holds.
+ * The logic behind `env.AGENTUM`, the one binding an app's server part holds.
  * `AppHost` (see `entrypoints.ts`) builds one per call from its props, which
  * come from the verified view token and not from app code. Link viewers are
  * checked against the share on every call (R2.12), and the store port is
@@ -7,11 +7,11 @@
  */
 import type { AppGatewayPorts, AppToolCall, ShareState } from "./ports.ts";
 import type {
+  AgentumHost,
   AppErrorCode,
   AppHostProps,
   AppStoreScope,
   AppViewer,
-  HM,
   StorageArea,
 } from "./types.ts";
 
@@ -42,6 +42,13 @@ type Caller =
 
 const callerOf = async (props: AppHostProps, ports: Ports): Promise<Caller> => {
   const { viewer } = props;
+  // EP.1 exposes the contract; EP.2/EP.3 implement these viewers' capabilities.
+  if (viewer.kind === "endpoint" || viewer.kind === "reply") {
+    throw appError(
+      "not_granted",
+      "app endpoint capabilities are not available yet"
+    );
+  }
   if (viewer.kind === "test") {
     return { kind: "test" };
   }
@@ -106,7 +113,10 @@ const clampLimit = (limit: number | undefined): number => {
   return Math.min(MAX_LIST_LIMIT, Math.max(1, Math.trunc(limit)));
 };
 
-export const createAppHost = (props: AppHostProps, ports: Ports): HM => {
+export const createAppHost = (
+  props: AppHostProps,
+  ports: Ports
+): AgentumHost => {
   const scopeOf = (caller: Caller, area: StorageArea): AppStoreScope => ({
     area,
     artifactId: props.artifactId,
@@ -197,6 +207,10 @@ export const createAppHost = (props: AppHostProps, ports: Ports): HM => {
         checkValue(value)
       );
     },
+    startRun: () =>
+      Promise.reject(
+        appError("not_granted", "app hand-off is not available yet")
+      ),
 
     whoami: async () => {
       const caller = await callerOf(props, ports);
