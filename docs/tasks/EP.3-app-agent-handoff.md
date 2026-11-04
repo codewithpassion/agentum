@@ -3,7 +3,7 @@ id: EP.3
 title: Hand-off from app code to an agent, and replies back to the app
 milestone: EP
 size: L
-status: in_progress
+status: done
 depends_on: [EP.1]
 branch: task/EP.3-app-agent-handoff
 lane: services
@@ -32,3 +32,4 @@ Spec: `docs/v3/app-endpoints.md`, section "Hand-off to an agent".
 
 ## Log
 - 2026-11-04: dispatched to Codex.
+- 2026-11-05: review clean after 2 fix rounds, merged as 62bdd3d9. The dev-server end-to-end check moved to EP.4.
