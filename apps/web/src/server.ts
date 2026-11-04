@@ -138,6 +138,8 @@ mountA2aRoutes(app, composeServices);
 app.use("*", clerkMiddleware());
 app.use("/api/*", composeServices);
 app.use("/mcp", composeServices);
+// A workspace's own MCP address, `/mcp/<workspaceId>`.
+app.use("/mcp/*", composeServices);
 // `/files/:id` is outside `/api` but reads files too.
 app.use("/files/*", composeServices);
 // `/connect/:id` starts an OAuth connection and reads the services too.
