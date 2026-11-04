@@ -3,10 +3,17 @@ import {
   type FormEvent,
   useCallback,
   useId,
+  useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut.ts";
 import { SubmitKeys } from "#/components/composer/submit-keys.tsx";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation/index.ts";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Dialog,
@@ -50,12 +57,21 @@ export function NewTaskDialog({
   const [error, setError] = useState<string | null>(null);
   const agentSelectId = useId();
   const textId = useId();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: !open || pending,
+    getValue: () => text,
+    inputRef,
+    setValue: setText,
+  });
 
   // Falls back to the first agent until the user picks one.
   const agentId = agents.some((agent) => agent.id === agentChoice)
     ? agentChoice
     : (agents[0]?.id ?? "");
-  const canStart = text.trim() !== "" && agentId !== "" && !pending;
+  const canStart =
+    text.trim() !== "" && agentId !== "" && !pending && !dictation.busy;
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -138,13 +154,19 @@ export function NewTaskDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor={textId}>What should it do?</Label>
-              <Textarea
-                className="max-h-[60dvh] min-h-40 sm:min-h-64"
-                id={textId}
-                onChange={handleTextChange}
-                onKeyDown={submitOnSendShortcut}
-                value={text}
-              />
+              <div className="relative">
+                <Textarea
+                  className="max-h-[60dvh] min-h-40 sm:min-h-64"
+                  id={textId}
+                  onChange={handleTextChange}
+                  onKeyDown={submitOnSendShortcut}
+                  readOnly={dictation.busy}
+                  ref={inputRef}
+                  value={text}
+                />
+                <DictationPreview dictation={dictation} />
+              </div>
+              <DictationButton dictation={dictation} />
               {error === null ? null : (
                 <p className="text-destructive text-sm" role="alert">
                   {error}

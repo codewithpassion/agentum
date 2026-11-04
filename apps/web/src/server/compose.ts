@@ -7,9 +7,14 @@ import {
   createAppReplies,
 } from "@repo/services/artifacts/replies";
 import {
+  createDictationService,
+  type DictationService,
+} from "@repo/services/dictation";
+import {
   type AppWorkerExports,
   appReplyInvoker,
 } from "./app-gateway/reply-invoker.ts";
+import type { DictationLimits } from "./trpc/dictation-router.ts";
 // The composition root. It builds every service from the Worker's bindings and
 // secrets, once per request (and once per minute tick). Kept free of Clerk and
 // `cloudflare:workers` imports so bun can test it: callers pass `env` in.
@@ -371,6 +376,7 @@ export interface Infra {
   /** Runs work after the response: `waitUntil` in a request. Without it, work is awaited. */
   defer?: (work: Promise<void>) => void;
   devFakeRuntime: boolean;
+  dictationLimits?: DictationLimits;
   exportPDF?: PrintPDF;
   /** How connector probes reach the network. Defaults to the global `fetch`. */
   fetch?: Fetcher;
@@ -467,6 +473,8 @@ export interface Services {
   credentials: CredentialsService;
   desk: DeskService;
   deskApi: DeskApiService;
+  dictation: DictationService;
+  dictationLimits?: DictationLimits;
   events: EventsService;
   files: FilesService;
   inbox: InboxService;
@@ -527,6 +535,8 @@ export type ComposeEnv = Pick<
   | "LIVE_ARTIFACT_MAINTENANCE"
   | "LOADER"
   | "APP_STORE"
+  | "APP_API_LIMIT"
+  | "SHARE_OPEN_LIMIT"
   | "ARTIFACT_LINKS_OFF"
   | "ARTIFACT_VIEW_KEY"
   | "BROWSER"
@@ -1283,6 +1293,8 @@ export const composeWith = ({
       credentials,
       desk,
       deskApi,
+      dictation: createDictationService({ fetch: infra.fetch, modelKeys }),
+      dictationLimits: infra.dictationLimits,
       events,
       files,
       inbox,
@@ -1381,6 +1393,10 @@ export const compose = (
       cloudRunner: durableRunnerPort(env.PI_RUN),
       defer,
       devFakeRuntime,
+      dictationLimits: {
+        polish: env.APP_API_LIMIT,
+        transcribe: env.SHARE_OPEN_LIMIT,
+      },
       exportPDF: exportPrintPDF(env.BROWSER),
       fileBlobs: r2FileBlobs(env.FILES),
       // A bare `fetch` loses its receiver in workerd ("Illegal invocation").

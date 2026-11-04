@@ -4,6 +4,7 @@ import { agentBuilderRouter } from "./agent-builder-router.ts";
 import { agentProfileRouter } from "./agent-profile-router.ts";
 import { agentsRouter } from "./agents-router.ts";
 import { deskRouter } from "./desk-router.ts";
+import { dictationRouter } from "./dictation-router.ts";
 import { eventsRouter } from "./events-router.ts";
 import { filesRouter } from "./files-router.ts";
 import { router } from "./init.ts";
@@ -32,6 +33,7 @@ export const runtimeRouter = router({
   agentProfile: agentProfileRouter,
   agents: agentsRouter,
   desk: deskRouter,
+  dictation: dictationRouter,
   events: eventsRouter,
   files: filesRouter,
   library: libraryRouter,
