@@ -3,7 +3,7 @@ id: EP.2
 title: Public endpoint route for app artifacts
 milestone: EP
 size: M
-status: in_progress
+status: done
 depends_on: [EP.1]
 branch: task/EP.2-app-endpoint-ingress
 lane: worker
@@ -34,3 +34,4 @@ Spec: `docs/v3/app-endpoints.md`, section "Endpoints". Read `apps/web/src/server
 
 ## Log
 - 2026-11-04: dispatched to Codex.
+- 2026-11-05: review clean after 2 fix rounds, merged as 75eceb1e. The browser check moved to EP.4: only runs can publish apps until EP.4 opens the artifact tools to people over MCP.
