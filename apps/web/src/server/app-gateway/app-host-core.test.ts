@@ -233,11 +233,65 @@ describe("createAppHost: arguments from app code", () => {
   });
 });
 
-test("the startRun contract is present as a not_granted stub", async () => {
-  await expect(
-    createAppHost(member(), fakePorts()).startRun({
-      agent: "a1",
-      text: "hello",
-    })
-  ).rejects.toThrow("not_granted:");
+describe("app hand-off", () => {
+  test("only an endpoint viewer can start a run", async () => {
+    for (const props of [
+      member(),
+      link,
+      test_,
+      { ...base, viewer: { kind: "reply", runId: "r1" } } as AppHostProps,
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: verify each refused viewer
+      await expect(
+        createAppHost(props, fakePorts()).startRun({
+          agent: "agent",
+          text: "hi",
+        })
+      ).rejects.toThrow("forbidden:");
+    }
+  });
+  test("an endpoint delegates the trusted app ids and keeps state", async () => {
+    const seen: unknown[] = [];
+    const ports = {
+      ...fakePorts(),
+      startRun: (trusted: AppHostProps, input: unknown) => {
+        seen.push({ input, props: trusted });
+        return Promise.resolve({ runId: "r1" });
+      },
+    };
+    const props: AppHostProps = {
+      ...base,
+      viewer: { endpointId: "ep", kind: "endpoint" },
+    };
+    expect(
+      await createAppHost(props, ports).startRun({
+        agent: "agent",
+        sessionKey: "channel",
+        state: "opaque",
+        text: "hi",
+      })
+    ).toEqual({ runId: "r1" });
+    expect(seen).toEqual([
+      {
+        input: {
+          agent: "agent",
+          sessionKey: "channel",
+          state: "opaque",
+          text: "hi",
+        },
+        props,
+      },
+    ]);
+  });
+  test("reply viewers write shared storage but cannot use viewer storage or tools", async () => {
+    const host = createAppHost(
+      { ...base, viewer: { kind: "reply", runId: "r1" } },
+      fakePorts()
+    );
+    await host.setItem("shared", "reply", "done");
+    expect(await host.getItem("shared", "reply")).toBe("done");
+    expect(await host.whoami()).toEqual({ dataMode: null, viewer: "reply" });
+    await expect(host.getItem("viewer", "x")).rejects.toThrow("forbidden:");
+    await expect(host.callTool("srv/tool", {})).rejects.toThrow("forbidden:");
+  });
 });

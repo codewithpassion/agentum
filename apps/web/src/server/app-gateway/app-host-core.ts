@@ -27,7 +27,10 @@ const encoder = new TextEncoder();
 export const appError = (code: AppErrorCode, detail: string): Error =>
   new Error(`${code}: ${detail}`);
 
-type Ports = Pick<AppGatewayPorts, "calls" | "canWrite" | "shares" | "store">;
+type Ports = Pick<
+  AppGatewayPorts,
+  "calls" | "canWrite" | "shares" | "store" | "startRun"
+>;
 
 /** Who is calling, after the share (if any) was read fresh. */
 type Caller =
@@ -38,12 +41,16 @@ type Caller =
       shareId: string;
       viewer: AppViewer;
     }
-  | { kind: "test" };
+  | { kind: "test" }
+  | { kind: "reply" };
 
 const callerOf = async (props: AppHostProps, ports: Ports): Promise<Caller> => {
   const { viewer } = props;
   // EP.1 exposes the contract; EP.2/EP.3 implement these viewers' capabilities.
-  if (viewer.kind === "endpoint" || viewer.kind === "reply") {
+  if (viewer.kind === "reply") {
+    return { kind: "reply" };
+  }
+  if (viewer.kind === "endpoint") {
     throw appError(
       "not_granted",
       "app endpoint capabilities are not available yet"
@@ -129,6 +136,12 @@ export const createAppHost = (
 
   const mayWrite = async (area: StorageArea): Promise<Caller> => {
     const caller = await callerOf(props, ports);
+    if (caller.kind === "reply") {
+      if (area !== "shared") {
+        throw appError("forbidden", "reply viewers have no viewer storage");
+      }
+      return caller;
+    }
     if (caller.kind === "test" || !ports.canWrite(caller.viewer, area)) {
       throw appError("forbidden", `this viewer cannot write the ${area} area`);
     }
@@ -136,7 +149,7 @@ export const createAppHost = (
   };
 
   const call = (caller: Caller, toolKey: string, args: unknown) => {
-    if (caller.kind === "test") {
+    if (caller.kind === "test" || caller.kind === "reply") {
       throw appError("forbidden", "a test viewer cannot call tools");
     }
     if (typeof toolKey !== "string" || !TOOL_KEY.test(toolKey)) {
@@ -178,6 +191,9 @@ export const createAppHost = (
     getItem: async (area, key) => {
       checkArea(area);
       const caller = await callerOf(props, ports);
+      if (caller.kind === "reply" && area !== "shared") {
+        throw appError("forbidden", "reply viewers have no viewer storage");
+      }
       const checked = checkKey(key);
       if (hasNothingIn(caller, area)) {
         return null;
@@ -188,6 +204,9 @@ export const createAppHost = (
     listItems: async (area, prefix, limit) => {
       checkArea(area);
       const caller = await callerOf(props, ports);
+      if (caller.kind === "reply" && area !== "shared") {
+        throw appError("forbidden", "reply viewers have no viewer storage");
+      }
       if (hasNothingIn(caller, area)) {
         return [];
       }
@@ -207,10 +226,15 @@ export const createAppHost = (
         checkValue(value)
       );
     },
-    startRun: () =>
-      Promise.reject(
-        appError("not_granted", "app hand-off is not available yet")
-      ),
+    startRun: async (input) => {
+      if (props.viewer.kind !== "endpoint") {
+        throw appError("forbidden", "only endpoint viewers can start runs");
+      }
+      if (!ports.startRun) {
+        throw appError("not_granted", "app hand-off is unavailable");
+      }
+      return await ports.startRun(props, input);
+    },
 
     whoami: async () => {
       const caller = await callerOf(props, ports);

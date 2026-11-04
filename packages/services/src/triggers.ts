@@ -555,7 +555,8 @@ export const createTriggersService = ({
   const fire = async (
     principal: Principal,
     triggerId: string,
-    rawInput: TriggerFireInput
+    rawInput: TriggerFireInput,
+    app?: { state: string; sessionKey?: string }
   ): Promise<FireResult> => {
     if (principal.kind !== "trigger" || principal.triggerId !== triggerId) {
       throw new ForbiddenError(FIRE_ACTION);
@@ -564,7 +565,9 @@ export const createTriggersService = ({
     const [trigger] = await db
       .select({
         agentId: triggers.agentId,
+        artifactId: triggers.artifactId,
         disabledAt: triggers.disabledAt,
+        kind: triggers.kind,
         revokedAt: triggers.revokedAt,
         workspaceId: triggers.workspaceId,
       })
@@ -575,6 +578,9 @@ export const createTriggersService = ({
     if (!trigger || trigger.revokedAt !== null || trigger.disabledAt !== null) {
       throw new ForbiddenError(FIRE_ACTION);
     }
+    if (app && (trigger.kind !== "app" || !trigger.artifactId)) {
+      throw new ForbiddenError(FIRE_ACTION);
+    }
     authorize(principal, FIRE_ACTION, {
       id: triggerId,
       kind: TRIGGER_KIND,
@@ -583,11 +589,15 @@ export const createTriggersService = ({
     const started = await runs.startRun(principal, {
       agentId: trigger.agentId,
       input: { text: input.text },
+      reply:
+        app && trigger.artifactId
+          ? { artifactId: trigger.artifactId, kind: "app", state: app.state }
+          : undefined,
       requestId:
         input.requestId === undefined
           ? undefined
           : `trigger:${triggerId}:${input.requestId}`,
-      session: { origin: "trigger" },
+      session: { externalKey: app?.sessionKey, origin: "trigger" },
     });
     if (!(await alreadyAnnounced(started.runId))) {
       await eventsService.append({

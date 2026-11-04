@@ -1,3 +1,11 @@
+import {
+  type AppReply,
+  createAppReplies,
+} from "@repo/services/artifacts/replies";
+import {
+  type AppWorkerExports,
+  appReplyInvoker,
+} from "./app-gateway/reply-invoker.ts";
 // The composition root. It builds every service from the Worker's bindings and
 // secrets, once per request (and once per minute tick). Kept free of Clerk and
 // `cloudflare:workers` imports so bun can test it: callers pass `env` in.
@@ -337,6 +345,7 @@ const unavailableAppStore: AppStorePort = {
 };
 
 export interface Infra {
+  appReply?: AppReply;
   /** The app storage Durable Object behind its port. B.8 wires it; without it, storage answers "unavailable". */
   appStore?: AppStorePort;
   /** `ARTIFACT_LINKS_OFF` is set: every share-link open is refused in this environment. */
@@ -505,6 +514,7 @@ export type ComposeEnv = Pick<
   Env,
   | "ARTIFACT_ROOM"
   | "LIVE_ARTIFACT_MAINTENANCE"
+  | "LOADER"
   | "APP_STORE"
   | "ARTIFACT_LINKS_OFF"
   | "ARTIFACT_VIEW_KEY"
@@ -881,7 +891,13 @@ export const composeWith = ({
   events.onAppend(slackRequests.onEvent);
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
-  const gateways: Gateway[] = [inbox.gateway, slackGateway, a2aTasks.gateway];
+  const appReplies = createAppReplies({ db, events, invoke: infra.appReply });
+  const gateways: Gateway[] = [
+    inbox.gateway,
+    slackGateway,
+    a2aTasks.gateway,
+    appReplies.gateway,
+  ];
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -925,6 +941,7 @@ export const composeWith = ({
   });
   const artifactApp = createAppGrantsService({
     db,
+    fire: (...args) => triggers.fire(...args),
     isOrgMember: infra.isOrgMember,
     secrets,
   });
@@ -972,6 +989,7 @@ export const composeWith = ({
   // Catches the run and tool events the runs service writes through its own events instance.
   runs.onEvent(slackStatus.onEvent);
   // Moves an inbound A2A task as its run does: run events here, request events on `events`.
+  runs.onEvent(appReplies.onEvent);
   runs.onEvent(a2aTasks.onEvent);
   events.onAppend(a2aTasks.onEvent);
   // Our agent calling a peer: a person's answer to the send card sends or drops the message, and a revoke ends open tasks.
@@ -1305,7 +1323,8 @@ export const composeWith = ({
 export const compose = (
   env: ComposeEnv,
   devFakeRuntime: boolean,
-  defer?: (work: Promise<void>) => void
+  defer?: (work: Promise<void>) => void,
+  exports?: AppWorkerExports
 ): Composed => {
   const db = drizzle(env.DB);
   let composed: Composed;
@@ -1313,6 +1332,10 @@ export const compose = (
     db,
     infra: {
       // An empty `ARTIFACT_LINKS_OFF` leaves links on.
+      appReply:
+        exports && env.LOADER
+          ? appReplyInvoker(env as Env, exports, () => composed.services)
+          : undefined,
       appStore: appStorePort(env.APP_STORE),
       artifactLinksOff: Boolean(env.ARTIFACT_LINKS_OFF),
       artifactViewKey: env.ARTIFACT_VIEW_KEY || undefined,

@@ -8,8 +8,12 @@
  */
 
 import { APP_HARNESS, appModules } from "./modules.ts";
-import type { AppRuntime } from "./ports.ts";
-import type { AppHostProps, AppOutboundProps } from "./types.ts";
+import type { AppRuntimeInput } from "./ports.ts";
+import type {
+  AppHostProps,
+  AppOutboundProps,
+  AppReplyMessage,
+} from "./types.ts";
 
 /** The same date as the Worker and the skill-script loader. */
 const COMPATIBILITY_DATE = "2026-08-19";
@@ -19,6 +23,7 @@ const CPU_MS = 10_000;
 
 interface Harness {
   handle: (request: Request, host: unknown) => Promise<Response>;
+  reply: (message: AppReplyMessage, host: unknown) => Promise<void>;
 }
 
 export interface DynamicAppRuntimeDeps {
@@ -29,8 +34,11 @@ export interface DynamicAppRuntimeDeps {
   outboundStub: (props: AppOutboundProps) => Fetcher;
 }
 
-export const dynamicAppRuntime = (deps: DynamicAppRuntimeDeps): AppRuntime => ({
-  handle: ({ bundle, host, request }) => {
+export const dynamicAppRuntime = (deps: DynamicAppRuntimeDeps) => {
+  const harnessOf = (
+    bundle: AppRuntimeInput["bundle"],
+    host: AppHostProps
+  ): Harness => {
     const worker = deps.loader.get(`app:${host.versionId}`, async () => {
       const found = await bundle(host.artifactId, host.versionId);
       if (found === null) {
@@ -51,7 +59,19 @@ export const dynamicAppRuntime = (deps: DynamicAppRuntimeDeps): AppRuntime => ({
         modules: appModules(found.files),
       };
     });
-    const harness = worker.getEntrypoint("Harness") as unknown as Harness;
-    return harness.handle(request, deps.hostStub(host));
-  },
-});
+    return worker.getEntrypoint("Harness") as unknown as Harness;
+  };
+  return {
+    handle: ({ bundle, host, request }: AppRuntimeInput) =>
+      harnessOf(bundle, host).handle(request, deps.hostStub(host)),
+    reply: ({
+      bundle,
+      host,
+      message,
+    }: {
+      bundle: AppRuntimeInput["bundle"];
+      host: AppHostProps;
+      message: AppReplyMessage;
+    }) => harnessOf(bundle, host).reply(message, deps.hostStub(host)),
+  };
+};

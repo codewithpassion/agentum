@@ -16,12 +16,20 @@ export class ManagedPoller extends DurableObject<Env> {
   #poller(): PollerCore {
     this.#core ??= createPollerCore({
       interrupt: (runId) =>
-        compose(this.env, import.meta.env.DEV).services.managed.interrupt(
-          runId
-        ),
+        compose(
+          this.env,
+          import.meta.env.DEV,
+          undefined,
+          this.ctx.exports
+        ).services.managed.interrupt(runId),
       now: Date.now,
       step: (runId) =>
-        compose(this.env, import.meta.env.DEV).services.managed.step(runId),
+        compose(
+          this.env,
+          import.meta.env.DEV,
+          undefined,
+          this.ctx.exports
+        ).services.managed.step(runId),
       storage: this.ctx.storage,
     });
     return this.#core;

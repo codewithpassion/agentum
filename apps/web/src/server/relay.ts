@@ -75,7 +75,12 @@ export class MachineRelay extends DurableObject<Env> {
       background: (work) => this.ctx.waitUntil(work),
       heartbeatAt: (socket) =>
         this.ctx.getWebSocketAutoResponseTimestamp(socket)?.getTime() ?? null,
-      machines: compose(this.env, import.meta.env.DEV).services.machines,
+      machines: compose(
+        this.env,
+        import.meta.env.DEV,
+        undefined,
+        this.ctx.exports
+      ).services.machines,
       now: Date.now,
       sockets: () => this.ctx.getWebSockets(),
       storage: this.ctx.storage,

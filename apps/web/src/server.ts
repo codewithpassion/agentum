@@ -117,9 +117,14 @@ app.route("/", liveRoomRoutes());
 const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set(
     "composed",
-    compose(c.env, import.meta.env.DEV, (work) => {
-      c.executionCtx.waitUntil(work);
-    })
+    compose(
+      c.env,
+      import.meta.env.DEV,
+      (work) => {
+        c.executionCtx.waitUntil(work);
+      },
+      c.executionCtx.exports
+    )
   );
   await next();
 };
@@ -253,9 +258,15 @@ setInProcessDispatch((request, env, ctx) => app.fetch(request, env, ctx));
  */
 const scheduled: ExportedHandlerScheduledHandler<Env> = async (
   _controller,
-  env
+  env,
+  ctx
 ) => {
-  const { services } = compose(env, import.meta.env.DEV);
+  const { services } = compose(
+    env,
+    import.meta.env.DEV,
+    undefined,
+    ctx.exports
+  );
   const report = await runTick(tickJobs, { clock: systemClock, services });
   console.log(JSON.stringify({ event: "tick", ...report }));
   for (const job of report.jobs) {
@@ -269,8 +280,13 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (
  * Mail for an agent address. Email Routing calls this for each message that a
  * literal rule sends to the Worker. A thrown error makes the sender retry.
  */
-const email: EmailExportedHandler<Env> = async (message, env) => {
-  const { services } = compose(env, import.meta.env.DEV);
+const email: EmailExportedHandler<Env> = async (message, env, ctx) => {
+  const { services } = compose(
+    env,
+    import.meta.env.DEV,
+    undefined,
+    ctx.exports
+  );
   await handleInboundEmail(
     {
       from: message.from,
@@ -291,8 +307,17 @@ const email: EmailExportedHandler<Env> = async (message, env) => {
  * Email Sending events for outbound agent mail, from the queue the sending
  * domain's subscription feeds. Bounces and failures mark the sent mail.
  */
-const queue: ExportedHandlerQueueHandler<Env, unknown> = async (batch, env) => {
-  const { services } = compose(env, import.meta.env.DEV);
+const queue: ExportedHandlerQueueHandler<Env, unknown> = async (
+  batch,
+  env,
+  ctx
+) => {
+  const { services } = compose(
+    env,
+    import.meta.env.DEV,
+    undefined,
+    ctx.exports
+  );
   await handleMailEvents(batch.messages, {
     record: (report) =>
       services.mail.recordUndelivered(SYSTEM_PRINCIPAL, report),

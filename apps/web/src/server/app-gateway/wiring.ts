@@ -53,7 +53,12 @@ export const appGatewayWiring = (
   ctx: GatewayContext,
   dev: boolean
 ): AppGatewayWiring => {
-  const { services } = compose(env, dev, (work) => ctx.waitUntil(work));
+  const { services } = compose(
+    env,
+    dev,
+    (work) => ctx.waitUntil(work),
+    exportsOf(ctx)
+  );
   const ports = createAppGatewayPorts({
     bucket: env.FILES,
     services,

@@ -1,3 +1,4 @@
+import { triggers } from "@repo/db/schema/triggers";
 /**
  * Grants, promote and hand-to for app artifacts (PRD R2.4, R2.9, phase 2).
  *
@@ -37,7 +38,7 @@ import {
   artifactsHandToInputSchema,
   artifactsPromoteInputSchema,
 } from "@repo/protocol/artifacts";
-import { and, eq } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
@@ -248,10 +249,19 @@ export const createArtifactGrantsService = ({
     declared: DeclaredGrant[]
   ) => {
     for (const grant of declared) {
+      if (
+        grant.kind === "agent" &&
+        // biome-ignore lint/performance/noAwaitInLoops: validate each declared agent in its workspace
+        !(await findAgent(db, { id: grant.target, workspaceId }))
+      ) {
+        throw new ServiceError(
+          "invalid",
+          "Agent is not in the artifact workspace"
+        );
+      }
       if (grant.kind !== "tool" || grant.target.includes(LIMITS_SEPARATOR)) {
         continue;
       }
-      // biome-ignore lint/performance/noAwaitInLoops: at most 50 tools, and the first refusal ends it
       const found = await tools.lookup(workspaceId, grant.target, agentId);
       if (!found) {
         throw new ServiceError("invalid", `Unknown tool ${grant.target}`);
@@ -263,6 +273,67 @@ export const createArtifactGrantsService = ({
         );
       }
     }
+  };
+
+  /** Grant approval is consent to clear a revoke; it never resumes a paused trigger. */
+  const approveAppAgent = async (
+    artifact: ArtifactRow,
+    agentId: string,
+    userId: string,
+    consent: boolean
+  ) => {
+    const agent = await findAgent(db, {
+      id: agentId,
+      workspaceId: artifact.workspaceId,
+    });
+    if (!agent) {
+      throw new ServiceError(
+        "invalid",
+        "Agent is not in the artifact workspace"
+      );
+    }
+    const now = clock.now().toISOString();
+    await db
+      .insert(triggers)
+      .values({
+        agentId,
+        approvedAt: now,
+        artifactId: artifact.id,
+        createdAt: now,
+        createdBy: userId,
+        id: ulid(),
+        kind: "app",
+        name: artifact.title,
+        workspaceId: artifact.workspaceId,
+      })
+      .onConflictDoUpdate({
+        set: consent
+          ? { approvedAt: now, proposedByAgentId: null, revokedAt: null }
+          : { proposedByAgentId: null },
+        target: [triggers.artifactId, triggers.agentId],
+        targetWhere: sql`${triggers.artifactId} is not null`,
+      });
+  };
+
+  const pauseDroppedAgents = async (
+    artifact: ArtifactRow,
+    versionId: string
+  ) => {
+    const approved = await approvedGrants(db, {
+      versionId,
+      workspaceId: artifact.workspaceId,
+    });
+    const ids = approved.filter((g) => g.kind === "agent").map((g) => g.target);
+    await db
+      .update(triggers)
+      .set({ disabledAt: clock.now().toISOString() })
+      .where(
+        and(
+          eq(triggers.artifactId, artifact.id),
+          eq(triggers.kind, "app"),
+          ids.length ? notInArray(triggers.agentId, ids) : undefined
+        )
+      );
   };
 
   /**
@@ -350,6 +421,20 @@ export const createArtifactGrantsService = ({
     if (rows.length > 0) {
       await atomic([insertGrants(db, rows)]);
     }
+    for (const row of rows) {
+      if (row.kind === "agent" && row.status === "approved") {
+        // biome-ignore lint/performance/noAwaitInLoops: one trigger per approved grant
+        await approveAppAgent(
+          artifact,
+          row.target,
+          row.decidedBy ?? "system",
+          byPerson
+        );
+      }
+    }
+    if (artifact.currentVersionId === version.id) {
+      await pauseDroppedAgents(artifact, version.id);
+    }
     return rows.map(grantRecord);
   };
 
@@ -424,7 +509,22 @@ export const createArtifactGrantsService = ({
       await atomic([rejectVersionStatement(db, first.versionId)]);
     }
     for (const grant of won) {
-      // biome-ignore lint/performance/noAwaitInLoops: events keep the order of the grants
+      if (grant.kind === "agent") {
+        if (decision === "approved") {
+          // biome-ignore lint/performance/noAwaitInLoops: keep each decision and trigger ordered
+          await approveAppAgent(artifact, grant.target, userId, true);
+        } else {
+          await db
+            .update(triggers)
+            .set({ disabledAt: clock.now().toISOString() })
+            .where(
+              and(
+                eq(triggers.artifactId, artifact.id),
+                eq(triggers.agentId, grant.target)
+              )
+            );
+        }
+      }
       await events.append({
         actor: { id: userId, kind: "user" },
         payload: {
@@ -666,6 +766,7 @@ export const createArtifactGrantsService = ({
         versionNumber: version.number,
       }),
     ]);
+    await pauseDroppedAgents(artifact, version.id);
     await announcePromoted(artifact, version, actor);
     return true;
   };
@@ -748,6 +849,7 @@ export const createArtifactGrantsService = ({
           versionNumber: version.number,
         }),
       ]);
+      await pauseDroppedAgents(artifact, version.id);
       await announcePromoted(artifact, version, await actorOf(principal));
       return { status: "promoted", version: version.number };
     }

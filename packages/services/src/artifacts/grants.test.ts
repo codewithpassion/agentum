@@ -8,6 +8,7 @@ import {
 import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
@@ -849,4 +850,71 @@ test("publishing declarations persists pending endpoint and agent grant rows", a
     { kind: "agent", status: "pending", target: otherAgentId },
     { kind: "endpoint", status: "pending", target: "discord" },
   ]);
+});
+
+test("agent approval creates a tokenless trigger and reuses revoked and paused rows", async () => {
+  await addVersion("v2", 2);
+  const [grant] = await record("v2", { agents: [{ agent: otherAgentId }] });
+  if (!grant) {
+    throw new Error("missing grant");
+  }
+  await service.decideGrant(owner, { decision: "approved", grantId: grant.id });
+  const [first] = await db.select().from(triggers);
+  expect(first).toMatchObject({
+    agentId: otherAgentId,
+    artifactId: ARTIFACT,
+    disabledAt: null,
+    kind: "app",
+    proposedByAgentId: null,
+    tokenHash: null,
+  });
+  if (!first) {
+    throw new Error("missing trigger");
+  }
+  await db
+    .update(triggers)
+    .set({ disabledAt: NOW, revokedAt: NOW })
+    .where(eq(triggers.id, first.id));
+  await addVersion("v3", 3);
+  const [next] = await record("v3", { agents: [{ agent: otherAgentId }] });
+  if (!next) {
+    throw new Error("missing grant");
+  }
+  await service.decideGrant(owner, { decision: "approved", grantId: next.id });
+  expect(await db.select().from(triggers)).toMatchObject([
+    { disabledAt: NOW, id: first.id, revokedAt: null },
+  ]);
+});
+
+test("a person's live version dropping an agent pauses its trigger", async () => {
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v2", { agents: [{ agent: otherAgentId }] }, owner);
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBeNull();
+  await addVersion("v3", 3, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v3" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await record("v3", {}, owner);
+  expect((await db.select().from(triggers))[0]?.disabledAt).toBe(NOW);
+});
+
+test("an agent outside the artifact workspace cannot get an app trigger", async () => {
+  await addVersion("v2", 2);
+  await expect(
+    record("v2", { agents: [{ agent: "missing-agent" }] })
+  ).rejects.toThrow("artifact workspace");
+  expect(await db.select().from(triggers)).toEqual([]);
 });

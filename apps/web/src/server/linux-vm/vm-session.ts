@@ -105,7 +105,7 @@ export class VmSession extends DurableObject<Env> {
       },
       report: (run, snapshot) =>
         recordSnapshot(
-          compose(env, import.meta.env.DEV).services,
+          compose(env, import.meta.env.DEV, undefined, ctx.exports).services,
           run,
           snapshot
         ),

@@ -19,8 +19,11 @@ export class GuestRun extends DurableObject<Env> {
   #composed?: Composed;
   #working?: Promise<void>;
   protected composed() {
-    this.#composed ??= compose(this.env, false, (work) =>
-      this.ctx.waitUntil(work)
+    this.#composed ??= compose(
+      this.env,
+      false,
+      (work) => this.ctx.waitUntil(work),
+      this.ctx.exports
     );
     return this.#composed;
   }
