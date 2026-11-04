@@ -307,6 +307,9 @@ export interface DeliveryContext {
   agentId: string;
   onBehalfOfUserId: string | null;
   runId: string;
+  sessionId?: string | null;
+  /** Trusted run metadata for reporting delivery failures without another lookup. */
+  workspaceId?: string;
 }
 
 export interface Gateway {

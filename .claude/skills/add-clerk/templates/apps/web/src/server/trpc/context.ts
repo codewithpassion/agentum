@@ -3,7 +3,7 @@
 // out, without an organisation, or in an organisation with no workspace row.
 // `workspaceProcedure` rejects the null case.
 
-import { env, exports } from "cloudflare:workers";
+import { env, exports, waitUntil } from "cloudflare:workers";
 import { getAuth } from "@clerk/hono";
 import { auth } from "@clerk/tanstack-react-start/server";
 import type { Principal } from "@repo/services/workspaces";
@@ -55,7 +55,7 @@ export const createSsrContext = async (): Promise<Context> => {
   const { userId, orgId, orgRole } = await auth();
   const pending = await auth({ treatPendingAsSignedOut: false });
   return buildContext({
-    composed: compose(env, import.meta.env.DEV, undefined, exports),
+    composed: compose(env, import.meta.env.DEV, waitUntil, exports),
     session: { anyUserId: pending.userId, orgId, orgRole, userId },
   });
 };

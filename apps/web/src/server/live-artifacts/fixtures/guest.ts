@@ -1,5 +1,5 @@
 // biome-ignore-all lint/performance/noBarrelFile: fixture Worker entry exports.
-import { exports } from "cloudflare:workers";
+import { exports, waitUntil } from "cloudflare:workers";
 import { createDeckCheckpoint } from "@repo/mcp/tools/deck-scene";
 import { createLiveGuestsService } from "@repo/services/live-guests/service";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
@@ -27,7 +27,7 @@ const owner = {
   workspaceId: "w1",
 };
 const get = (env: Env) => {
-  const composed = compose(env, false, undefined, exports);
+  const composed = compose(env, false, waitUntil, exports);
   composed.services.liveGuests = () =>
     createLiveGuestsService({
       ...composed,

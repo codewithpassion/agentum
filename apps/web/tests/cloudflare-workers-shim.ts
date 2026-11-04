@@ -23,4 +23,5 @@ mock.module("cloudflare:workers", () => ({
   env: {},
   exports: {},
   WorkerEntrypoint,
+  waitUntil: () => undefined,
 }));

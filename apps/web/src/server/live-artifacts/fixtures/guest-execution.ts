@@ -1,5 +1,5 @@
 // biome-ignore-all lint/performance/noBarrelFile: local workerd fixture entrypoint only.
-import { exports } from "cloudflare:workers";
+import { exports, waitUntil } from "cloudflare:workers";
 
 import { createScopedGuestComments } from "@repo/services/live-guests/scoped-comments";
 import { createLiveGuestsService } from "@repo/services/live-guests/service";
@@ -31,7 +31,7 @@ const owner = {
   workspaceId: "w1",
 };
 const fixtureCompose = (env: Env): Composed => {
-  const composed = compose(env, false, undefined, exports);
+  const composed = compose(env, false, waitUntil, exports);
   // Explicit captured inference fixture only; no provider credentials/network.
   composed.services.managedKeys.resolve = () =>
     Promise.resolve({

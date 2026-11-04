@@ -441,6 +441,11 @@ test("a throwing delivery lookup cannot fail completeRun", async () => {
   ).resolves.toBeUndefined();
   await flush();
   expect(lookups).toBe(1);
+  expect(
+    (await db.select().from(events)).filter(
+      (e) => e.type === "app.reply_failed"
+    )
+  ).toMatchObject([{ payload: JSON.stringify({ artifactId: "app" }), runId }]);
 });
 
 test("app triggers refuse reassignment and repeated pauses preserve disabledAt", async () => {
@@ -456,7 +461,7 @@ test("app triggers refuse reassignment and repeated pauses preserve disabledAt",
   expect((await db.select().from(triggers))[0]?.disabledAt).toBe("original");
 });
 
-test("a reply that exceeds 30 seconds records app.reply_failed", async () => {
+test("a reply that exceeds 20 seconds records app.reply_failed", async () => {
   const { host, grant, agent, services, db, flush } = await setup(
     false,
     false,
@@ -470,7 +475,7 @@ test("a reply that exceeds 30 seconds records app.reply_failed", async () => {
   const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
     handler: () => void,
     ms: number
-  ) => original(handler, ms === 30_000 ? 1 : ms)) as typeof setTimeout);
+  ) => original(handler, ms === 20_000 ? 1 : ms)) as typeof setTimeout);
   try {
     await services.runs.completeRun(SYSTEM_PRINCIPAL, runId, {
       status: "done",
@@ -486,3 +491,154 @@ test("a reply that exceeds 30 seconds records app.reply_failed", async () => {
     timer.mockRestore();
   }
 });
+
+for (const stage of ["run", "artifact"] as const) {
+  test(`the 20 second deadline includes a hung ${stage} lookup`, async () => {
+    const { createAppReplies } = await import(
+      "@repo/services/artifacts/replies"
+    );
+    const { db, host, grant, agent, services, user } = await setup(false);
+    await grant();
+    const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
+    const [run] = await db.select().from(runs).where(eq(runs.id, runId));
+    const work: Promise<void>[] = [];
+    let lookups = 0;
+    const hungDb = new Proxy(db, {
+      get(target, key) {
+        if (key === "select") {
+          return () => ({
+            from: () => ({
+              where: () => ({
+                limit: () => {
+                  lookups += 1;
+                  return stage === "artifact" && lookups === 1
+                    ? Promise.resolve([run])
+                    : new Promise(() => undefined);
+                },
+              }),
+            }),
+          });
+        }
+        return Reflect.get(target, key);
+      },
+    });
+    const replies = createAppReplies({
+      db: hungDb,
+      defer: (pending) => {
+        work.push(pending);
+      },
+      events: services.events,
+      invoke: () => {
+        throw new Error("must not invoke");
+      },
+    });
+    const original = globalThis.setTimeout;
+    const delays: number[] = [];
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+      handler: () => void,
+      ms: number
+    ) => {
+      delays.push(ms);
+      return original(handler, ms === 20_000 ? 1 : ms);
+    }) as typeof setTimeout);
+    try {
+      await replies.gateway.deliver(
+        { artifactId: "app", kind: "app", state: "secret" },
+        { fileIds: [], text: "done" },
+        {
+          agentId: agent.id,
+          onBehalfOfUserId: null,
+          runId,
+          ...{ sessionId: run?.sessionId, workspaceId: user.workspaceId },
+        }
+      );
+      await Promise.race([
+        Promise.all(work),
+        new Promise((resolve) => original(resolve, 50)),
+      ]);
+      expect(delays).toContain(20_000);
+      expect(
+        (await db.select().from(events)).filter(
+          (e) => e.type === "app.reply_failed"
+        )
+      ).toHaveLength(1);
+    } finally {
+      timer.mockRestore();
+    }
+  });
+}
+
+for (const failure of ["lookup", "json", "shape"] as const) {
+  test(`terminal reply ${failure} failures are observable without leaking state`, async () => {
+    const { createAppReplies } = await import(
+      "@repo/services/artifacts/replies"
+    );
+    const { db, host, grant, agent, services, user } = await setup(false);
+    await grant();
+    const { runId } = await host.startRun({ agent: agent.id, text: "hello" });
+    await db
+      .update(runs)
+      .set({
+        reply:
+          failure === "shape"
+            ? JSON.stringify({
+                artifactId: "app",
+                kind: "app",
+                state: { secret: "credential" },
+              })
+            : "credential: invalid JSON",
+      })
+      .where(eq(runs.id, runId));
+    const work: Promise<void>[] = [];
+    const failingDb =
+      failure === "lookup"
+        ? new Proxy(db, {
+            get(target, key) {
+              if (key === "select") {
+                return () => {
+                  throw new Error("credential: D1 error");
+                };
+              }
+              return Reflect.get(target, key);
+            },
+          })
+        : db;
+    const replies = createAppReplies({
+      db: failingDb,
+      defer: (p) => {
+        work.push(p);
+      },
+      events: services.events,
+    });
+    const log = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await replies.onEvent({
+        actor: { id: "system", kind: "system" },
+        agentId: agent.id,
+        createdAt: new Date().toISOString(),
+        id: "terminal-event",
+        payload: {},
+        payloadRef: null,
+        runId,
+        seq: null,
+        sessionId: null,
+        type: "run.failed",
+        workspaceId: user.workspaceId,
+      });
+      await Promise.all(work);
+      if (failure === "shape") {
+        expect(
+          (await db.select().from(events)).filter(
+            (e) => e.type === "app.reply_failed"
+          )
+        ).toHaveLength(1);
+      } else {
+        expect(log).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(log.mock.calls)).toContain(runId);
+      }
+      expect(JSON.stringify(log.mock.calls)).not.toContain("credential");
+    } finally {
+      log.mockRestore();
+    }
+  });
+}

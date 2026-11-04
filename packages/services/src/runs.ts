@@ -1656,6 +1656,8 @@ export const createRunsService = ({
       agentId: run.agentId,
       onBehalfOfUserId: run.onBehalfOfUserId,
       runId: run.id,
+      sessionId: run.sessionId,
+      workspaceId: run.workspaceId,
     });
   };
 

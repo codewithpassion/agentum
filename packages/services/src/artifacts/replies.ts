@@ -3,7 +3,12 @@ import { artifacts } from "@repo/db/schema/artifacts";
 import { runs } from "@repo/db/schema/runs";
 import { and, eq, isNull } from "drizzle-orm";
 import type { EventRecord, EventsService } from "../events.ts";
-import type { Gateway, ReplyTarget } from "../runs/types.ts";
+import {
+  type DeliveryContext,
+  type Gateway,
+  type ReplyTarget,
+  replyTargetSchema,
+} from "../runs/types.ts";
 
 export interface AppReplyHost {
   artifactId: string;
@@ -35,97 +40,116 @@ export const createAppReplies = ({
   events: EventsService;
   invoke?: AppReply;
 }) => {
-  const deliver = async (
-    target: Extract<ReplyTarget, { kind: "app" }>,
-    runId: string,
-    message: Omit<AppReplyMessage, "runId" | "state">
-  ) => {
-    let run: typeof runs.$inferSelect | undefined;
-    try {
-      [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
-    } catch {
-      // Delivery lookup failures must never escape into run completion.
-      return;
-    }
-    if (!run) {
-      return;
-    }
-    try {
-      if (!invoke) {
-        throw new Error("Worker exports are unavailable");
-      }
-      const [app] = await db
-        .select()
-        .from(artifacts)
-        .where(
-          and(
-            eq(artifacts.id, target.artifactId),
-            eq(artifacts.kind, "app"),
-            isNull(artifacts.deletedAt),
-            eq(artifacts.workspaceId, run.workspaceId)
-          )
-        )
-        .limit(1);
-      // An app without a live version has nothing to receive a reply.
-      if (!app?.currentVersionId) {
-        return;
-      }
-      let timer: ReturnType<typeof setTimeout> | undefined;
+  interface Diagnostics {
+    agentId?: string | null;
+    artifactId?: string;
+    runId: string;
+    sessionId?: string | null;
+    workspaceId?: string;
+  }
+  const reportFailure = async (ids: Diagnostics) => {
+    // Never log opaque state, malformed reply data, or error messages.
+    if (ids.artifactId && ids.workspaceId) {
       try {
-        await Promise.race([
-          invoke(
-            {
-              artifactId: app.id,
-              meta: {
-                ipPrefix: null,
-                place: null,
-                userAgent: null,
-                visitorHash: "",
-              },
-              versionId: app.currentVersionId,
-              viewer: { kind: "reply", runId },
-              workspaceId: app.workspaceId,
-            },
-            { ...message, runId, state: target.state }
-          ),
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(
-              () => reject(new Error("App reply timed out")),
-              30_000
-            );
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
+        await events.append({
+          actor: { id: "system", kind: "system" },
+          agentId: ids.agentId ?? null,
+          payload: { artifactId: ids.artifactId },
+          runId: ids.runId,
+          sessionId: ids.sessionId ?? null,
+          type: "app.reply_failed",
+          workspaceId: ids.workspaceId,
+        });
+        return;
+      } catch {
+        // Failure-event storage can fail too; retain an ids-only diagnostic.
       }
-    } catch {
-      // Opaque state can contain credentials: never log it or the app's error.
-      await events.append({
-        actor: { id: "system", kind: "system" },
-        agentId: run.agentId,
-        payload: { artifactId: target.artifactId },
-        runId,
-        sessionId: run.sessionId,
-        type: "app.reply_failed",
-        workspaceId: run.workspaceId,
-      });
     }
+    console.error("app.reply_failed", ids);
   };
-  const schedule = (work: () => Promise<void>) => {
-    // Own every rejection, including lookup and failure-event storage errors.
-    const pending = Promise.resolve()
-      .then(work)
+  const schedule = (
+    ids: Diagnostics,
+    work: (expired: () => boolean) => Promise<void>
+  ) => {
+    let expired = false;
+    let timer: ReturnType<typeof setTimeout>;
+    // Start before either lookup. Leave time to persist failure within waitUntil.
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        expired = true;
+        reject(new Error("App reply timed out"));
+      }, 20_000);
+    });
+    const pending = Promise.race([
+      deadline,
+      Promise.resolve().then(() => work(() => expired)),
+    ])
+      .catch(() => reportFailure(ids))
+      .finally(() => clearTimeout(timer))
       .catch(() => undefined);
     defer?.(pending);
   };
+  const deliver = async (
+    target: Extract<ReplyTarget, { kind: "app" }>,
+    ids: Diagnostics,
+    message: Omit<AppReplyMessage, "runId" | "state">,
+    expired: () => boolean
+  ) => {
+    const [run] = await db
+      .select()
+      .from(runs)
+      .where(eq(runs.id, ids.runId))
+      .limit(1);
+    if (expired() || !run) {
+      return;
+    }
+    Object.assign(ids, {
+      agentId: run.agentId,
+      sessionId: run.sessionId,
+      workspaceId: run.workspaceId,
+    });
+    if (!invoke) {
+      throw new Error("Worker exports are unavailable");
+    }
+    const [app] = await db
+      .select()
+      .from(artifacts)
+      .where(
+        and(
+          eq(artifacts.id, target.artifactId),
+          eq(artifacts.kind, "app"),
+          isNull(artifacts.deletedAt),
+          eq(artifacts.workspaceId, run.workspaceId)
+        )
+      )
+      .limit(1);
+    // An app without a live version has nothing to receive a reply.
+    if (expired() || !app?.currentVersionId) {
+      return;
+    }
+    await invoke(
+      {
+        artifactId: app.id,
+        meta: { ipPrefix: null, place: null, userAgent: null, visitorHash: "" },
+        versionId: app.currentVersionId,
+        viewer: { kind: "reply", runId: ids.runId },
+        workspaceId: app.workspaceId,
+      },
+      { ...message, runId: ids.runId, state: target.state }
+    );
+  };
   const gateway: Gateway = {
-    deliver: (target, message, context) => {
+    deliver: (target, message, context: DeliveryContext) => {
       if (target.kind === "app") {
-        schedule(() =>
-          deliver(target, context.runId, {
-            ...message,
-            status: "finished",
-          })
+        const ids: Diagnostics = {
+          agentId: context.agentId,
+          artifactId: target.artifactId,
+          runId: context.runId,
+          sessionId: context.sessionId,
+          workspaceId: context.workspaceId,
+        };
+        schedule(ids, (expired) =>
+          deliver(target, ids, { ...message, status: "finished" }, expired)
         );
       }
       return Promise.resolve();
@@ -141,17 +165,31 @@ export const createAppReplies = ({
     ) {
       return Promise.resolve();
     }
-    const { runId } = event;
-    schedule(async () => {
+    const ids: Diagnostics = {
+      agentId: event.agentId,
+      runId: event.runId,
+      sessionId: event.sessionId,
+      workspaceId: event.workspaceId,
+    };
+    schedule(ids, async (expired) => {
       const [run] = await db
         .select()
         .from(runs)
-        .where(eq(runs.id, runId))
+        .where(eq(runs.id, ids.runId))
         .limit(1);
-      if (!run?.reply) {
+      if (expired() || !run?.reply) {
         return;
       }
-      const target = JSON.parse(run.reply) as ReplyTarget;
+      const raw: unknown = JSON.parse(run.reply);
+      if (
+        typeof raw === "object" &&
+        raw !== null &&
+        "artifactId" in raw &&
+        typeof raw.artifactId === "string"
+      ) {
+        ids.artifactId = raw.artifactId;
+      }
+      const target = replyTargetSchema.parse(raw);
       if (target.kind !== "app") {
         return;
       }
@@ -160,12 +198,16 @@ export const createAppReplies = ({
         "run.failed": "failed",
         "run.interrupted": "interrupted",
       } as const;
-      const status = statuses[event.type as keyof typeof statuses];
-      await deliver(target, run.id, {
-        fileIds: [],
-        status,
-        text: run.resultText ?? "",
-      });
+      await deliver(
+        target,
+        ids,
+        {
+          fileIds: [],
+          status: statuses[event.type as keyof typeof statuses],
+          text: run.resultText ?? "",
+        },
+        expired
+      );
     });
     return Promise.resolve();
   };

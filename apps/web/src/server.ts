@@ -271,7 +271,7 @@ const scheduled: ExportedHandlerScheduledHandler<Env> = async (
   const { services } = compose(
     env,
     import.meta.env.DEV,
-    undefined,
+    (w) => ctx.waitUntil(w),
     ctx.exports
   );
   const report = await runTick(tickJobs, { clock: systemClock, services });
@@ -291,7 +291,7 @@ const email: EmailExportedHandler<Env> = async (message, env, ctx) => {
   const { services } = compose(
     env,
     import.meta.env.DEV,
-    undefined,
+    (w) => ctx.waitUntil(w),
     ctx.exports
   );
   await handleInboundEmail(
@@ -322,7 +322,7 @@ const queue: ExportedHandlerQueueHandler<Env, unknown> = async (
   const { services } = compose(
     env,
     import.meta.env.DEV,
-    undefined,
+    (w) => ctx.waitUntil(w),
     ctx.exports
   );
   await handleMailEvents(batch.messages, {

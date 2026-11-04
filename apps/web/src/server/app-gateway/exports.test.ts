@@ -26,7 +26,7 @@ const readOnlyServerCall = (node: ts.CallExpression, source: ts.SourceFile) => {
   );
 };
 
-test("every source compose caller that can finish a run passes exports", async () => {
+test("every source compose caller that can finish a run passes exports and defer", async () => {
   let checked = 0;
   let readOnly = 0;
   for await (const path of new Glob("**/*.{ts,tsx}").scan(root.pathname)) {
@@ -55,6 +55,13 @@ test("every source compose caller that can finish a run passes exports", async (
           );
         } else {
           checked += 1;
+          const [, , defer] = node.arguments;
+          expect(
+            defer &&
+              (ts.isArrowFunction(defer) ||
+                defer.getText(source) === "waitUntil"),
+            `${path}: missing defer: ${node.getText(source)}`
+          ).toBe(true);
           expect(
             node.arguments[3]?.getText(source),
             `${path}: ${node.getText(source)}`
@@ -75,5 +82,5 @@ test("AppHost composition receives the Worker's exports", async () => {
   ).text();
   const wiring = await file(new URL("./wiring.ts", import.meta.url)).text();
   expect(entry).toContain("exports");
-  expect(wiring).toContain("compose(env, dev, undefined, exports)");
+  expect(wiring).toContain("compose(env, dev, waitUntil, exports)");
 });

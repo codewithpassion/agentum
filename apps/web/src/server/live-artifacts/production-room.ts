@@ -222,7 +222,7 @@ export class ArtifactRoom extends Room {
   constructor(ctx: DurableObjectState, env: Env) {
     let composed: Composed | undefined;
     const get = () => {
-      composed ??= compose(env, false, undefined, ctx.exports);
+      composed ??= compose(env, false, (w) => ctx.waitUntil(w), ctx.exports);
       return composed;
     };
     const live = () => requiredLive(get().services);

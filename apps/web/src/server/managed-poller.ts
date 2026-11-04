@@ -19,7 +19,7 @@ export class ManagedPoller extends DurableObject<Env> {
         compose(
           this.env,
           import.meta.env.DEV,
-          undefined,
+          (w) => this.ctx.waitUntil(w),
           this.ctx.exports
         ).services.managed.interrupt(runId),
       now: Date.now,
@@ -27,7 +27,7 @@ export class ManagedPoller extends DurableObject<Env> {
         compose(
           this.env,
           import.meta.env.DEV,
-          undefined,
+          (w) => this.ctx.waitUntil(w),
           this.ctx.exports
         ).services.managed.step(runId),
       storage: this.ctx.storage,

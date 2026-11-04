@@ -4,6 +4,7 @@
  * meets `compose`.
  */
 
+import { waitUntil } from "cloudflare:workers";
 import type { ArtifactEndpointsService } from "@repo/services/artifacts/endpoints";
 import { appStorePort } from "../app-store/port.ts";
 import { type ComposeEnv, compose } from "../compose.ts";
@@ -18,7 +19,7 @@ export type AppGatewayEnv = ComposeEnv & Pick<Env, "APP_STORE" | "LOADER">;
 const portsByEnv = new WeakMap<object, AppGatewayPorts>();
 
 /**
- * The ports for `defineAppEntrypoints`: no request, so nothing is deferred.
+ * The ports for `defineAppEntrypoints`: deferred work uses the current RPC execution context.
  * Kept per `env`, because every storage call of an app comes through here.
  */
 export const appGatewayPortsOf = (
@@ -30,7 +31,7 @@ export const appGatewayPortsOf = (
   if (known) {
     return known;
   }
-  const { services } = compose(env, dev, undefined, exports);
+  const { services } = compose(env, dev, waitUntil, exports);
   const ports = createAppGatewayPorts({
     bucket: env.FILES,
     services,

@@ -78,7 +78,7 @@ export class MachineRelay extends DurableObject<Env> {
       machines: compose(
         this.env,
         import.meta.env.DEV,
-        undefined,
+        (w) => this.ctx.waitUntil(w),
         this.ctx.exports
       ).services.machines,
       now: Date.now,
