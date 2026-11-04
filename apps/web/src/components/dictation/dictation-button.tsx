@@ -96,7 +96,10 @@ export function DictationButton({ dictation: d }: { dictation: Dictation }) {
             <ChevronDownIcon />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
+        <DropdownMenuContent
+          align="start"
+          className="w-max min-w-[min(18rem,calc(100vw-2rem))] max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-normal"
+        >
           <DropdownMenuRadioGroup
             onValueChange={d.selectDevice}
             value={d.deviceId}
