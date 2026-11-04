@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import type {
   ArtifactPublished,
   ArtifactReadInfo,
@@ -53,7 +54,8 @@ describe("registration", () => {
     expect(find("artifact_create")?.annotations).toEqual(WRITE_CREATE);
     expect(find("artifact_update")?.annotations).toEqual(WRITE_UPDATE);
     expect(find("artifact_promote")?.annotations).toEqual(WRITE_UPDATE);
-    for (const name of ["artifact_read", "artifact_list", "artifact_test"]) {
+    expect(find("artifact_test")?.annotations).toEqual(WRITE_UPDATE);
+    for (const name of ["artifact_read", "artifact_list"]) {
       expect(find(name)?.annotations).toEqual(READ_ONLY);
     }
   });
@@ -63,14 +65,47 @@ describe("registration", () => {
     expect(names.some((name) => name.startsWith("artifact_"))).toBe(false);
   });
 
-  test("a read-only caller gets the three read tools", () => {
+  test("a read-only caller gets only the two read tools", () => {
     const names = agentumTools(fakePorts({ artifacts: port() }), {
       readOnly: true,
     })
       .map((tool) => tool.name)
       .filter((name) => name.startsWith("artifact_"))
       .sort();
-    expect(names).toEqual(["artifact_list", "artifact_read", "artifact_test"]);
+    expect(names).toEqual(["artifact_list", "artifact_read"]);
+  });
+
+  test("builder descriptions include the bot contract without leaking the example into list", () => {
+    const create = find("artifact_create")?.description ?? "";
+    for (const text of [
+      "getItem",
+      "setItem",
+      "listItems",
+      "deleteItem",
+      '"shared"',
+      "strings",
+      "GET",
+      "5 endpoints",
+      "5 agents",
+      "finished, failed, cancelled, interrupted",
+      "Settings",
+      "module-level",
+      "create_agent",
+      "Discord example",
+    ]) {
+      expect(create).toContain(text);
+    }
+    const list = find("artifact_list");
+    if (!list) {
+      throw new Error("Missing artifact_list");
+    }
+    expect(JSON.stringify(z.toJSONSchema(list.inputSchema))).not.toContain(
+      "Discord example"
+    );
+    expect(find("artifact_test")?.description).toContain("before approval");
+    expect(find("artifact_update")?.description).toContain(
+      "no second artifact_promote"
+    );
   });
 
   test("descriptions tell agents how to build and to test", () => {
@@ -383,6 +418,7 @@ describe("artifact_read and artifact_list", () => {
       text: "<h1>Hi</h1>",
       version: 2,
     },
+    grants: [],
     kind: "page",
     title: "Hello",
     url: URL,

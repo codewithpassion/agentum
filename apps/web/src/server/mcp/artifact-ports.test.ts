@@ -446,6 +446,9 @@ for (const via of ["api_key", "oauth"] as const) {
         throw new Error("Missing grant");
       }
       expect(grant.status).toBe("pending");
+      expect(
+        (await artifacts.read({ artifactId: created.artifactId })).grants
+      ).toMatchObject([{ kind: "endpoint", status: "pending" }]);
       await expect(
         composed.services.artifactGrants.decideGrant(principal, {
           decision: "approved",
@@ -466,8 +469,8 @@ for (const via of ["api_key", "oauth"] as const) {
         decision: "approved",
         grantId: grant.id,
       });
-      await artifacts.promote({ artifactId: created.artifactId });
       const read = await artifacts.read({ artifactId: created.artifactId });
+      expect(read.grants).toMatchObject([{ status: "approved" }]);
       expect(read.endpoints).toHaveLength(1);
       expect(read.endpoints[0]?.url).toStartWith(`${HOST}/hooks/`);
       const [endpoint] = await composed.services.artifactEndpoints.list(
@@ -509,7 +512,6 @@ for (const via of ["api_key", "oauth"] as const) {
       expect(names.filter((n) => n.startsWith("artifact_"))).toEqual([
         "artifact_read",
         "artifact_list",
-        "artifact_test",
       ]);
     } finally {
       await readOnly.close();

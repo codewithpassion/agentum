@@ -101,7 +101,7 @@ export function GrantApprovalView({
 }
 
 interface GrantApprovalCardProps {
-  expiresAt: string;
+  expiresAt?: string;
   items: PromoteApproval;
   nowMs: number;
   onChanged: () => void;
@@ -142,7 +142,7 @@ export function GrantApprovalCard({
     <GrantApprovalView
       busy={busy}
       error={error}
-      expiresText={expiryText(expiresAt, nowMs)}
+      expiresText={expiresAt ? expiryText(expiresAt, nowMs) : ""}
       items={items}
       onApprove={approve}
       onReject={reject}

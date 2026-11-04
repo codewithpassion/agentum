@@ -1156,3 +1156,84 @@ test("failed endpoint provisioning rolls back the grant approval", async () => {
       ?.status
   ).toBe("pending");
 });
+
+test("an MCP user promoting a run version opens its normal approval request", async () => {
+  await addVersion("v2", 2, {
+    authorRunId: runPrincipal.kind === "run" ? runPrincipal.runId : null,
+  });
+  await record("v2", { endpoints: [{ name: "discord" }] });
+  const result = await service.promote(
+    { ...owner, apiKey: { access: "write", id: "key" }, via: "api_key" },
+    { artifactId: ARTIFACT, versionId: "v2" }
+  );
+  expect(result).toMatchObject({
+    requestId: expect.any(String),
+    status: "waiting",
+  });
+  expect(db.select().from(runRequests).all()).toHaveLength(1);
+});
+
+test("approving a current person's version activates its endpoint without promote", async () => {
+  const { resolveEndpoint } = await import("@repo/db/artifact-endpoints");
+  const { artifactEndpoints } = await import("@repo/db/schema/artifacts");
+  await addVersion("v2", 2, {
+    authorId: "u1",
+    authorKind: "user",
+    status: "published",
+  });
+  await db
+    .update(artifacts)
+    .set({ currentVersionId: "v2" })
+    .where(eq(artifacts.id, ARTIFACT));
+  const [grant] = await record(
+    "v2",
+    { endpoints: [{ name: "discord" }] },
+    { ...owner, apiKey: { access: "write", id: "key" }, via: "api_key" }
+  );
+  await service.decideGrant(owner, {
+    decision: "approved",
+    grantId: grant?.id,
+  });
+  const [endpoint] = db.select().from(artifactEndpoints).all();
+  expect(endpoint).toBeDefined();
+  expect(await resolveEndpoint(db, endpoint?.id ?? "")).toMatchObject({
+    versionId: "v2",
+  });
+});
+
+test("runs can read grants of visible workspace apps without being their writer", async () => {
+  await addVersion("v2", 2);
+  await record("v2", { endpoints: [{ name: "discord" }] });
+  await db
+    .update(artifacts)
+    .set({ agentId: otherAgentId })
+    .where(eq(artifacts.id, ARTIFACT));
+  expect(
+    await service.list(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
+  ).toMatchObject([{ kind: "endpoint", status: "pending" }]);
+  await db
+    .update(artifacts)
+    .set({ audience: "private" })
+    .where(eq(artifacts.id, ARTIFACT));
+  await expect(
+    service.list(runPrincipal, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toMatchObject({ code: "not_found" });
+});
+
+test("promoting a finished run's version tells the MCP user how to approve it", async () => {
+  if (runPrincipal.kind !== "run") {
+    throw new Error("Missing run");
+  }
+  await addVersion("v2", 2, { authorRunId: runPrincipal.runId });
+  await record("v2", { endpoints: [{ name: "discord" }] });
+  await db
+    .update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, runPrincipal.runId));
+  await expect(
+    service.promote(
+      { ...owner, apiKey: { access: "write", id: "key" }, via: "api_key" },
+      { artifactId: ARTIFACT, versionId: "v2" }
+    )
+  ).rejects.toThrow("Open the artifact in the browser");
+});

@@ -108,7 +108,9 @@ export const createArtifactPorts = ({
     return { id: found.id, number: found.number };
   };
 
-  /** Writes the PNG into the run task folder or user artifact-tests folder. */
+  /** Writes the PNG into the run task folder or user artifact-tests folder.
+   * The library has no per-user private area; member reads cover all paths.
+   */
   const saveScreenshot = async (
     png: Uint8Array,
     name: string
@@ -210,6 +212,13 @@ export const createArtifactPorts = ({
           principal,
           artifactId
         );
+        const readVersion = versions.find((row) => row.number === file.version);
+        const grants = readVersion
+          ? await services.artifactGrants.list(principal, {
+              artifactId,
+              versionId: readVersion.id,
+            })
+          : [];
         return {
           artifactId: card.artifactId,
           audience: card.audience,
@@ -220,6 +229,11 @@ export const createArtifactPorts = ({
             url: `${base}/hooks/${id}`,
           })),
           file,
+          grants: grants.map(({ kind, target, status }) => ({
+            kind,
+            status,
+            target,
+          })),
           kind: card.kind,
           title: card.title,
           url: urlOf(card.artifactId),

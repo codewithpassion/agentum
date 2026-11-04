@@ -132,7 +132,7 @@ describe("list_agents with peers", () => {
       ],
     });
     const lines = textOf(result).split("\n");
-    expect(lines).toContain("ops-bot: Ops Bot");
+    expect(lines).toContain("ops-bot: Ops Bot (id: agt_1)");
     const peerLine = lines.find((line) => line.includes("acme/helper"));
     expect(peerLine).toBeDefined();
     expect(peerLine).toContain("acme.example");
@@ -148,7 +148,7 @@ describe("list_agents with peers", () => {
     expect(result.structuredContent).toEqual({
       agents: [{ id: "agt_1", name: "Ops Bot", slug: "ops-bot" }],
     });
-    expect(textOf(result)).toBe("ops-bot: Ops Bot");
+    expect(textOf(result)).toBe("ops-bot: Ops Bot (id: agt_1)");
   });
 });
 

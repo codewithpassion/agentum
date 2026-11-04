@@ -21,7 +21,7 @@ export type AppHostViewer =
 
 export interface AppStartRunInput {
   agent: string;
-  /** Continues one session per key, at most 200 characters. */
+  /** Continues one session per key, at most 169 characters. */
   sessionKey?: string;
   /** Opaque reply state, at most 4096 characters. Defaults to the empty string. */
   state?: string;

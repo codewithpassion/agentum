@@ -40,13 +40,13 @@ const main = async () => {
     hostname: "127.0.0.1",
     port: 0,
   });
-  const configPath = join(WEB_DIR, `.app-bot-vite-${crypto.randomUUID()}.ts`);
-  // Vite loads the config from this package so its plugin imports resolve.
+  const configPath = join(workDir, "vite.config.mts");
+  // Import the web config by absolute path from the isolated script work dir.
   // Only the final fetch transport changes; the published bot stays identical.
   await writeFile(
     configPath,
-    `import config from './vite.config.ts';
-export default { ...config, plugins: [...config.plugins, {
+    `import config from ${JSON.stringify(join(WEB_DIR, "vite.config.ts"))};
+export default { ...config, root: ${JSON.stringify(WEB_DIR)}, plugins: [...config.plugins, {
   name: 'app-bot-transport', enforce: 'pre',
   transform(code, id) {
     if (!id.endsWith('/app-gateway/entrypoints.ts')) return;
@@ -161,11 +161,6 @@ export default { ...config, plugins: [...config.plugins, {
         grantId: grant.id,
       });
     }
-    assert.equal(
-      (await mcp("artifact_promote", { artifactId: created.artifactId }))
-        .status,
-      "promoted"
-    );
     const read = await mcp("artifact_read", { artifactId: created.artifactId });
     const url = read.endpoints[0]?.url;
     assert.ok(url?.startsWith(`${deployment.origin}/hooks/`));
@@ -202,6 +197,17 @@ export default { ...config, plugins: [...config.plugins, {
       ).json(),
       { data: { content: "Role added.", flags: 64 }, type: 4 }
     );
+    assert.equal(
+      (
+        await signed({
+          data: { name: "role" },
+          type: 2,
+          user: { id: "dm-user" },
+        })
+      ).status,
+      200
+    );
+    assert.equal(calls.length, 1);
     assert.deepEqual(calls[0], {
       auth: "Bot e2e-discord-token",
       body: "",

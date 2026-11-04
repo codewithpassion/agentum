@@ -28,7 +28,9 @@ const model = z
   .trim()
   .min(1)
   .max(200)
-  .describe("The model id the agent runs on.");
+  .describe(
+    "Required model id. Cloud models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017. Managed and machine runtimes require an Anthropic model."
+  );
 
 const slug = z
   .string()
@@ -171,7 +173,7 @@ export const adminWriteTools = (port: AdminPort): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Creates an agent in the workspace. Returns the new agent's id and slug; use the slug to @mention it in the inbox. runtime is cloud, machine (pass machineId) or managed.",
+      "Creates an agent in the workspace. model is required; its field description lists valid model ids. Returns the new agent's id and slug; use the slug to @mention it in the inbox. runtime is cloud, machine (pass machineId) or managed.",
     inputSchema: z.strictObject({
       ...agentSettings,
       machineId: machineId.optional(),

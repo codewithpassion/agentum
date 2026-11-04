@@ -1124,3 +1124,58 @@ test("a message to an outside agent waits in Needs you with its open request, th
     title: "Send a message to Hermes",
   });
 });
+
+test("only the current user app version has one grant card, regardless of grant count", async () => {
+  const { artifacts, artifactVersions, artifactGrants } = await import(
+    "@repo/db/schema/artifacts"
+  );
+  const at = new Date(NOW).toISOString();
+  await db.insert(artifacts).values({
+    audience: "private",
+    createdAt: at,
+    createdById: "u1",
+    createdByKind: "user",
+    currentVersionId: "v2",
+    id: "app",
+    kind: "app",
+    ownerUserId: "u1",
+    title: "Bot",
+    updatedAt: at,
+    workspaceId: "w1",
+  });
+  for (const number of [1, 2]) {
+    // biome-ignore lint/performance/noAwaitInLoops: Insert each version before its grants.
+    await db.insert(artifactVersions).values({
+      artifactId: "app",
+      authorId: "u1",
+      authorKind: "user",
+      createdAt: at,
+      entry: "index.html",
+      fileCount: 1,
+      id: `v${number}`,
+      manifestKey: "manifest",
+      message: "",
+      number,
+      status: "published",
+      totalBytes: 1,
+      workspaceId: "w1",
+    });
+    for (const kind of ["endpoint", "host"] as const) {
+      // biome-ignore lint/performance/noAwaitInLoops: Preserve parent-before-child fixture writes.
+      await db.insert(artifactGrants).values({
+        createdAt: at,
+        id: `${number}-${kind}`,
+        kind,
+        status: "pending",
+        target: kind === "host" ? "discord.com" : "discord",
+        versionId: `v${number}`,
+        workspaceId: "w1",
+      });
+    }
+  }
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+  expect(
+    rail.needsYou.filter((card) => card.needsYouKind === "artifact_grant")
+  ).toMatchObject([{ artifactId: "app", id: "v2" }]);
+  expect(await desk.needsYouCount(user())).toBe(1);
+});

@@ -42,8 +42,9 @@ const SLACK_WRITE_NAMES = ["slack_send"];
 const LIVE_READ_NAMES = ["document_read", "document_comments", "deck_read"];
 const LIVE_WRITE_NAMES = ["document_edit", "document_comment", "deck_write"];
 
-const ARTIFACT_READ_NAMES = ["artifact_list", "artifact_read", "artifact_test"];
+const ARTIFACT_READ_NAMES = ["artifact_list", "artifact_read"];
 const ARTIFACT_WRITE_NAMES = [
+  "artifact_test",
   "artifact_create",
   "artifact_promote",
   "artifact_update",

@@ -240,6 +240,11 @@ export interface ArtifactReadInfo {
   endpoints: { name: string; url: string }[];
   /** The text of the requested file, or of the entry file of the requested version. */
   file: ArtifactFileText;
+  grants: {
+    kind: string;
+    target: string;
+    status: "pending" | "approved" | "rejected";
+  }[];
   kind: string;
   title: string;
   url: string;

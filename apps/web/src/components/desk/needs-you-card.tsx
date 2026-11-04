@@ -4,9 +4,12 @@ import {
   type NeedsYouKind,
 } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { GrantApprovalCard } from "#/components/artifacts/grant-approval-card.tsx";
-import { parsePromoteApproval } from "#/components/artifacts/grant-approval-model.ts";
+import {
+  type PromoteApproval,
+  parsePromoteApproval,
+} from "#/components/artifacts/grant-approval-model.ts";
 import { A2aDecision } from "#/components/connections/a2a-decision.tsx";
 import { RequestCard } from "#/components/requests/request-card.tsx";
 import type {
@@ -113,6 +116,75 @@ export function ThreadBody({
   );
 }
 
+/** A person's current app uses the same access list and decision as a run. */
+function PersonAppGrants({
+  card,
+  nowMs,
+  onChanged,
+}: {
+  card: DeskCard;
+  nowMs: number;
+  onChanged: () => void;
+}) {
+  const [items, setItems] = useState<PromoteApproval | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      if (!card.artifactId) {
+        return;
+      }
+      const trpc = getTrpc();
+      const [artifact, grants, agents] = await Promise.all([
+        trpc.artifacts.get.query({ artifactId: card.artifactId }),
+        trpc.artifacts.grants.query({
+          artifactId: card.artifactId,
+          versionId: card.id,
+        }),
+        trpc.agents.list.query({}),
+      ]);
+      const parsed = parsePromoteApproval({
+        input: {
+          artifactId: card.artifactId,
+          grants: grants
+            .filter((grant) => grant.status === "pending")
+            .map((grant) => ({
+              ...grant,
+              name:
+                agents.find((agent) => agent.id === grant.target)?.name ??
+                "Unavailable agent",
+            })),
+          title: artifact.title,
+          version: artifact.currentVersion.number,
+          versionId: card.id,
+        },
+        summary: "App access",
+        toolKey: "harbourmaster/artifact_promote",
+        toolName: "artifact_promote",
+      });
+      if (active) {
+        setItems(parsed);
+      }
+    };
+    load().catch((cause) => {
+      if (active) {
+        setError(errorMessage(cause));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [card.artifactId, card.id]);
+  if (error) {
+    return <p role="alert">{error}</p>;
+  }
+  return items ? (
+    <GrantApprovalCard items={items} nowMs={nowMs} onChanged={onChanged} />
+  ) : (
+    <p>Loading app access…</p>
+  );
+}
+
 interface NeedsYouBodyProps {
   agentName: string;
   card: DeskCard;
@@ -175,6 +247,9 @@ export function NeedsYouBody({
         />
       );
     case "artifact_grant":
+      return (
+        <PersonAppGrants card={card} nowMs={nowMs} onChanged={onChanged} />
+      );
     case "skill_proposal":
     case "trigger_proposal":
     case "routine_proposal":

@@ -550,10 +550,8 @@ export const createDeskService = ({
         .select({
           artifactId: artifacts.id,
           at: artifactGrants.createdAt,
-          grantKind: artifactGrants.kind,
-          id: artifactGrants.id,
+          id: artifactVersions.id,
           ownerUserId: artifacts.ownerUserId,
-          target: artifactGrants.target,
           title: artifacts.title,
         })
         .from(artifactGrants)
@@ -567,10 +565,12 @@ export const createDeskService = ({
             eq(artifacts.workspaceId, member.workspaceId),
             isNull(artifacts.deletedAt),
             eq(artifactVersions.authorKind, "user"),
+            eq(artifactVersions.id, artifacts.currentVersionId),
             eq(artifactGrants.status, "pending"),
             eq(artifacts.ownerUserId, member.userId)
           )
-        ),
+        )
+        .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       pending,
       proposedRoutines,
@@ -639,7 +639,7 @@ export const createDeskService = ({
           artifactId: grant.artifactId,
           at: grant.at,
           band: {
-            text: `${grant.grantKind}: ${grant.target}${grant.grantKind === "endpoint" ? ". Anyone can call this address; the app must authenticate callers." : ""}`,
+            text: "Approve this app version’s access",
             tone: "waiting",
           },
           id: grant.id,

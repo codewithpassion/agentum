@@ -4,7 +4,7 @@ Status: approved by Dom on 4 Nov 2026. Tasks EP.1 to EP.4.
 
 ## Why
 
-Dom wants agents on Agentum to build bots, such as a Discord slash command bot, without a release of Agentum for each one. An app artifact can already ship server code (`server/index.js`, run as a Dynamic Worker) with approved hosts and secret placeholders. Two pieces are missing:
+Dom wants agents on Agentum to build bots, such as a Discord slash command bot, without a release of Agentum for each one. An app artifact can already ship server code (`server/index.js`, run as a Dynamic Worker) with approved hosts and proxy secret headers. Two pieces are missing:
 
 1. A public address. Today the server part is reached only at `/a/<id>/c/<view token>/api/*`, and the token is short-lived and tied to a person or a share link. Discord, GitHub or Stripe can't call that.
 2. A hand-off to an agent. The bot's code answers fast requests itself, and some requests need an LLM, which takes longer than a webhook caller waits (Discord: 3 seconds).
@@ -40,7 +40,7 @@ The manifest is `agentum.json`, and app code reads the `env.AGENTUM` binding. Pr
   - `startRun` (below);
   - `whoami()`, which answers `viewer: "endpoint"`.
 
-  It refuses viewer storage and `callTool`, because no person is behind the request. Outbound requests to approved hosts get their secret placeholders, as for a member.
+  It refuses viewer storage and `callTool`, because no person is behind the request. Outbound requests to approved hosts get approved proxy secret headers, as for a member.
 - An IP-prefix-only guard is checked first, with a budget of 600 calls per minute across two fixed 300-call buckets on the existing limiter. Each endpoint also has a 300-call-per-minute limit, keyed by endpoint id plus IP prefix. An `artifact_views` row is written for each call that reaches the app; refused, unknown and rate-limited calls write none.
 
 Decision, recorded in the PRD's risk table: an endpoint is open to anyone on the internet, and its requests can fill approved secrets on outbound requests. The app's own code authenticates its caller (Discord's Ed25519 signature, a GitHub HMAC, a shared secret). The approval card in Needs you says so in one sentence. The platform runs no verifier.
@@ -77,6 +77,55 @@ The descriptions of the `app` kind, `artifact_create` and `artifact_promote` exp
 - hands one request to an agent with the interaction token as `state`, and posts the follow-up in `reply`.
 
 A bot needs no page. It ships a one-line `index.html`, and the descriptions say so.
+
+### Building through MCP
+
+A person gives `files` directly or uses `fromLibraryPath`. A run may build in
+`agents/<slug>/tasks/<runId>/`. Use relative paths. `artifact_create` includes
+the complete Discord example; `artifact_list` keeps only the short kind guide.
+For both callers, a bot ships a one-line `index.html`, `server/index.js` and
+`agentum.json`.
+
+A run’s app version is proposed until `artifact_promote`. That call opens one
+approval card listing all pending grants. Approval makes the version live.
+A person’s app version is current immediately after `artifact_create` or
+`artifact_update`. New grants wait in one card in Needs you for that current
+version. One Approve decides them all. Approval activates its endpoints and
+agent hand-off; no second `artifact_promote` is needed. `artifact_promote`
+reports `waiting` while those grants are pending. `artifact_read` returns the
+requested version’s grants with status `pending`, `approved` or `rejected`.
+
+`agentum.json` accepts at most 5 endpoints and 5 agents. Endpoint names match
+`^[a-z0-9-]{1,40}$`. `agents: [{"agent":"<agent id>"}]` takes the `id` from
+`list_agents`, which returns both ids and slugs. If there are no agents, call
+`create_agent` with its required `model`, or ask a person to create one.
+Cloud model ids are `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`,
+`openrouter:z-ai/glm-5.3`, `openrouter:z-ai/glm-5.3-flash`, and
+`openrouter:deepseek/deepseek-v4.1-flash-1017`. Managed and machine runtimes
+require an Anthropic model.
+
+An endpoint may serve any HTTP method, including GET. Durable storage uses
+`env.AGENTUM.getItem(area, key)`, `setItem(area, key, value)`,
+`listItems(area, prefix?, limit?)` and `deleteItem(area, key)`. Use the `"shared"`
+area in endpoint and reply code. Values are strings; encode structured values
+with `JSON.stringify` and decode with `JSON.parse`. Module-level variables are
+not durable across requests.
+
+For proxy secrets, a person saves the secret and its host rule in Settings,
+then approves the app’s host and secret grants. The platform sets the rule’s
+header on requests to that host. The app writes no token. The Discord example
+uses `DISCORD_BOT_TOKEN` with host `discord.com`, header `Authorization` and
+template `Bot {value}`. Never put secret values in app files.
+
+`artifact_test` requires write access because it saves a screenshot. It can
+run before approval. Its test viewer can read shared storage, sees empty
+viewer storage, and cannot write storage, call tools or start runs. Outbound
+requests still require approved host and secret grants, so they may fail
+before approval. It tests the page; send signed endpoint requests separately.
+
+The `reply` status values are `finished`, `failed`, `cancelled`, `interrupted`.
+In the Discord example, `sessionKey: channel_id` shares one agent session per
+channel. `/role` requires a server member and returns a message in DMs.
 
 ## Out of scope
 

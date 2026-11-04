@@ -35,7 +35,7 @@ const TOKEN_IN_TEXT = new RegExp(
 );
 const TRAILING_PADDING = /[=]+$/;
 const BUILD_GUIDE =
-  "Build the files in your task folder (agents/<slug>/tasks/<runId>/) with relative paths, keep any data in data.json next to index.html, and run artifact_test before you tell anyone you are done.";
+  "Give files directly with relative paths, or publish a library folder with fromLibraryPath. Runs may use their task folder (agents/<slug>/tasks/<runId>/). Keep any data in data.json next to index.html. Run artifact_test before you tell anyone you are done.";
 
 const encoder = new TextEncoder();
 
@@ -46,7 +46,7 @@ const artifactId = z
 const kind = z
   .enum(["page", "doc", "dashboard", "app"])
   .describe(
-    `page: static HTML (entry index.html). doc: Markdown (entry index.md). dashboard: HTML with data files. ${APP_GUIDE} ${DISCORD_EXAMPLE}`
+    "page: static HTML (entry index.html). doc: Markdown (entry index.md). dashboard: HTML with data files. app: HTML with server/index.js and agentum.json. See artifact_create for the app guide."
   );
 
 const file = z.strictObject({
@@ -103,7 +103,7 @@ export const artifactCreateInputSchema = z.strictObject({
   kind: z
     .enum(["page", "doc", "dashboard", "app", "document", "deck"])
     .describe(
-      `document: a live collaborative document with optional markdown. page/doc/dashboard: static files. ${APP_GUIDE} ${DISCORD_EXAMPLE}`
+      "document: a live collaborative document with optional markdown. deck: collaborative HTML slides. page/doc/dashboard: static files. app: HTML with server/index.js and agentum.json. See the artifact_create description for the app guide and example."
     ),
   markdown: z
     .string()
@@ -182,7 +182,9 @@ const testInput = z.strictObject({
     .int()
     .positive()
     .optional()
-    .describe("The version to test. Defaults to the current one."),
+    .describe(
+      "The version to test. Defaults to the latest non-rejected version."
+    ),
   viewport: z
     .enum(["desktop", "phone"])
     .optional()
@@ -367,7 +369,7 @@ export const artifactTools = (
 ): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
-    description: `${APP_GUIDE} See the kind description for the complete Discord example. Creates a collaborative deck with kind deck and optional constrained HTML slides (then use deck_read/deck_write), or a live document with kind document and optional markdown; use document_read/document_edit afterwards, never artifact_update. The person wins; fill pending blocks with guarded updates and never force retries. Static creation: publishes a new artifact (a page, doc, dashboard or app) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath (usually your task folder). The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one. A new app version from an agent is proposed, not live, until artifact_promote. artifact_test opens the proposed version.`,
+    description: `${APP_GUIDE} ${DISCORD_EXAMPLE} Creates a collaborative deck with kind deck and optional constrained HTML slides (then use deck_read/deck_write), or a live document with kind document and optional markdown; use document_read/document_edit afterwards, never artifact_update. The person wins; fill pending blocks with guarded updates and never force retries. Static creation: publishes a new artifact (a page, doc, dashboard or app) as version 1 and returns artifactId, version, url, files and bytes. ${BUILD_GUIDE} Give either files or fromLibraryPath. The url needs sign-in; you cannot create share links. A repeat call creates another artifact, so use artifact_update to change one. A run’s app version is proposed until artifact_promote. A person’s app version is current immediately. New grants wait in Needs you; approving them activates its endpoints and agent hand-off with no second artifact_promote. artifact_test opens the latest version.`,
     inputSchema: artifactCreateInputSchema,
     name: "artifact_create",
     run: async (input) => {
@@ -430,7 +432,7 @@ export const artifactTools = (
   }),
   defineTool({
     annotations: WRITE_UPDATE,
-    description: `${APP_GUIDE} See artifact_create kind for the Discord example. Publishes a new version of an artifact you own or your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. For a run-authored app, the new version is proposed until artifact_promote; user-authored apps publish with new grants pending browser approval; artifact_test opens the proposed version. ${BUILD_GUIDE}`,
+    description: `${APP_GUIDE} See artifact_create for the Discord example. Publishes a new version of an artifact you own or your agent created, built on baseVersion, and returns artifactId, version, url, files and bytes. Send the whole file tree: files or fromLibraryPath replaces the previous version's files. If someone published a newer version, you get a conflict naming the current version: read it with artifact_read, reconcile and retry. For a run, the app version is proposed until artifact_promote. For a person, the new version is current immediately, with new grants pending in Needs you. Approving them activates its endpoints and agent hand-off with no second artifact_promote. artifact_test opens the latest version. ${BUILD_GUIDE}`,
     inputSchema: updateInput,
     name: "artifact_update",
     run: async (input) => {
@@ -446,7 +448,7 @@ export const artifactTools = (
   defineTool({
     annotations: READ_ONLY,
     description:
-      "Reads an artifact: title, kind, audience, the version list, active approved endpoint URLs and the text of one file (the entry file unless you give path). Use it before artifact_update to get the current version number, or to read a published page. Text files only.",
+      "Reads an artifact: title, kind, audience, the version list, the requested version’s grants with status pending, approved or rejected, active approved endpoint URLs and the text of one file (the entry file unless you give path). Use it before artifact_update to get the current version number, or to read a published page. Text files only.",
     inputSchema: readInput,
     name: "artifact_read",
     run: async (input) => {
@@ -458,6 +460,7 @@ export const artifactTools = (
         description: info.description,
         endpoints: info.endpoints,
         file: info.file,
+        grants: info.grants,
         kind: info.kind,
         title: info.title,
         url: info.url,
@@ -474,6 +477,9 @@ export const artifactTools = (
           ...(info.description ? [info.description] : []),
           ...info.endpoints.map(
             (endpoint) => `Endpoint ${endpoint.name}: ${endpoint.url}`
+          ),
+          ...info.grants.map(
+            (grant) => `Grant ${grant.kind}: ${grant.target} (${grant.status})`
           ),
           "Versions:",
           ...versionLines,
@@ -509,9 +515,9 @@ export const artifactTools = (
     title: "List artifacts",
   }),
   defineTool({
-    annotations: READ_ONLY,
+    annotations: WRITE_UPDATE,
     description:
-      "Loads a version of an artifact in a real browser and reports, as text, the page title, console errors and warnings (CSP violations show here), failed requests, a text snapshot of the page and the library path of a screenshot. Run it after every artifact_create or artifact_update and fix what it reports before you say you are done.",
+      "Loads a version of an artifact in a real browser and reports, as text, the page title, console errors and warnings (CSP violations show here), failed requests, a text snapshot of the page and the library path of a screenshot. It runs before approval: shared storage is read-only, viewer storage is empty, and writes, callTool and startRun are forbidden. Outbound requests still need approved host and secret grants, so they may fail before approval. Run it after every artifact_create or artifact_update and fix what it reports before you say you are done.",
     inputSchema: testInput,
     name: "artifact_test",
     run: async (input) => {
@@ -522,7 +528,7 @@ export const artifactTools = (
   }),
   defineTool({
     annotations: WRITE_UPDATE,
-    description: `${APP_GUIDE} See artifact_create kind for the Discord example. Asks to make a version of an app artifact live (the latest unless you give version). It goes live at once, or waits for a person to approve the version's grants in Needs you. If it waits, stop and do not retry.`,
+    description: `${APP_GUIDE} See artifact_create for the Discord example. Asks to make a version of an app artifact live (the latest unless you give version). For a run’s proposed version, this opens its approval card and approval makes it live. A person’s app is already current; approving its grants in Needs you activates endpoints and agent hand-off with no second artifact_promote. This tool reports waiting while that approval is pending. If it waits, stop and do not retry.`,
     inputSchema: promoteInput,
     name: "artifact_promote",
     run: async (input) => {

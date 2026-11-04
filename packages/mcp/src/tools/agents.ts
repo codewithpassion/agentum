@@ -48,7 +48,7 @@ const PEER_NOTE =
 const agentLine = (agent: AgentInfo): string =>
   agent.peer
     ? `${agent.slug}: peer at ${agent.host ?? "an unknown host"}, outside this workspace. It describes itself as ${JSON.stringify(agent.name)}${agent.description ? `: ${JSON.stringify(agent.description)}` : ""}`
-    : `${agent.slug}: ${agent.name}`;
+    : `${agent.slug}: ${agent.name} (id: ${agent.id})`;
 
 /** The shape send_message and get_run both answer with. */
 const runPayload = (run: RunInfo): ToolPayload => {
@@ -69,7 +69,7 @@ const runPayload = (run: RunInfo): ToolPayload => {
 export const agentTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: READ_ONLY,
-    description: `Lists the agents in this workspace that the caller may message. Use the returned slugs as the agent argument of send_message, and of the session tools for agents in this workspace. A run may also see peers, marked peer: true with the peer's host and description. ${PEER_NOTE} A message to a peer may wait for a person to approve it before it leaves, so its state can be pending for a while.`,
+    description: `Lists the agents in this workspace that the caller may message. Use the returned slugs as the agent argument of send_message, and of the session tools for agents in this workspace. A run may also see peers, marked peer: true with the peer's host and description. Local agents include id and slug; agentum.json agents requires id. If none exist, call create_agent with a required model or ask a person to create one. ${PEER_NOTE} A message to a peer may wait for a person to approve it before it leaves, so its state can be pending for a while.`,
     inputSchema: z.strictObject({}),
     name: "list_agents",
     run: async () => {
