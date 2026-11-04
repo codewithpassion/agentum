@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { runs } from "@repo/db/schema/runs";
 import { taskFolderPath } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createAgentumMcpServer } from "@repo/mcp/server";
@@ -9,6 +10,7 @@ import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
+import { eq } from "drizzle-orm";
 import type {
   ArtifactTestBrowser,
   ArtifactTestPage,
@@ -29,6 +31,7 @@ const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 const HOST = "https://hm.example.com";
 
 let composed: Composed;
+let db: ReturnType<typeof migrated>;
 /** A view token that was not redacted. */
 const RAW_VIEW_TOKEN = /(?:ag|hm)_view_(?!\[redacted\])/;
 
@@ -75,7 +78,7 @@ const fakeBrowser: ArtifactTestBrowser = {
 
 beforeEach(async () => {
   visited = [];
-  const db = migrated(["org_a"]);
+  db = migrated(["org_a"]);
   const store = new Map<string, string>();
   composed = composeWith({
     db,
@@ -350,6 +353,8 @@ test("artifact_test opens the latest version of an app that has none live", asyn
   }
 });
 
+const GRANT_DECISION_TOOL = /grant.*(decide|approve)|(decide|approve).*grant/;
+
 for (const via of ["api_key", "oauth"] as const) {
   test(`${via} artifacts belong to the user and grants require browser consent`, async () => {
     const principal = {
@@ -359,42 +364,151 @@ for (const via of ["api_key", "oauth"] as const) {
         ? { apiKey: { access: "write" as const, id: "key" } }
         : { oauthClient: { access: "write" as const, clientId: "client" } }),
     };
-    const ports = createMcpPorts({ principal, publicBaseUrl: HOST, services: composed.services, artifactTestBrowser: fakeBrowser });
-    expect(ports.artifacts).toBeDefined();
+    const ports = createMcpPorts({
+      artifactTestBrowser: fakeBrowser,
+      principal,
+      publicBaseUrl: HOST,
+      services: composed.services,
+    });
+    if (!ports.artifacts) {
+      throw new Error("Missing artifact port");
+    }
+    const { artifacts } = ports;
     const connection = await connectClient(createAgentumMcpServer(ports));
     try {
-      const names = (await connection.client.listTools()).tools.map((t) => t.name);
-      for (const name of [...TOOLS, "artifact_promote"]) expect(names).toContain(name);
-      expect(names.some((name) => /grant.*(decide|approve)|(decide|approve).*grant/.test(name))).toBe(false);
-      const created = await ports.artifacts!.create({ kind: "app", title: "Bot", files: [
-        { path: "index.html", text: "Bot" },
-        { path: "server/index.js", text: "export default { fetch() { return new Response('ok'); } };" },
-        { path: "agentum.json", text: JSON.stringify({ endpoints: [{ name: "discord" }] }) },
-      ] });
-      const card = await composed.services.artifacts.get(user, created.artifactId);
+      const names = (await connection.client.listTools()).tools.map(
+        (t) => t.name
+      );
+      for (const name of [...TOOLS, "artifact_promote"]) {
+        expect(names).toContain(name);
+      }
+      expect(names.some((name) => GRANT_DECISION_TOOL.test(name))).toBe(false);
+      const created = await artifacts.create({
+        files: [
+          { path: "index.html", text: "Bot" },
+          {
+            path: "server/index.js",
+            text: "export default { fetch() { return new Response('ok'); } };",
+          },
+          {
+            path: "agentum.json",
+            text: JSON.stringify({ endpoints: [{ name: "discord" }] }),
+          },
+        ],
+        kind: "app",
+        title: "Bot",
+      });
+      const card = await composed.services.artifacts.get(
+        user,
+        created.artifactId
+      );
       expect(card.ownerUserId).toBe(user.userId);
-      const grants = await composed.services.artifactGrants.list(user, { artifactId: created.artifactId, versionId: created.versionId });
-      expect(grants[0]?.status).toBe("pending");
-      await expect(composed.services.artifactGrants.decideGrant(principal, { grantId: grants[0]!.id, decision: "approved" })).rejects.toMatchObject({ code: "forbidden" });
-      expect(await ports.artifacts!.promote({ artifactId: created.artifactId })).toMatchObject({ status: "waiting" });
-      const rail = await composed.services.desk.railSources(user, { dayStart: new Date().toISOString() });
+      await db
+        .update(runs)
+        .set({ status: "running" })
+        .where(eq(runs.id, run.runId));
+      const runApp = await composed.services.artifacts.create(run, {
+        files: [
+          { path: "index.html", text: "Bot" },
+          {
+            path: "server/index.js",
+            text: "export default { fetch() { return new Response('ok'); } };",
+          },
+          {
+            path: "agentum.json",
+            text: JSON.stringify({ endpoints: [{ name: "discord" }] }),
+          },
+        ],
+        kind: "app",
+        title: "Run bot",
+      });
+      const waiting = await composed.services.artifactGrants.promote(run, {
+        artifactId: runApp.artifactId,
+        versionId: runApp.versionId,
+      });
+      if (waiting.status !== "waiting" || !waiting.requestId) {
+        throw new Error("Missing approval request");
+      }
+      await expect(
+        composed.services.requests.answer(principal, {
+          answer: { decision: "allow_once" },
+          requestId: waiting.requestId,
+          via: "web",
+        })
+      ).rejects.toMatchObject({ code: "forbidden" });
+      const grants = await composed.services.artifactGrants.list(user, {
+        artifactId: created.artifactId,
+        versionId: created.versionId,
+      });
+      const [grant] = grants;
+      if (!grant) {
+        throw new Error("Missing grant");
+      }
+      expect(grant.status).toBe("pending");
+      await expect(
+        composed.services.artifactGrants.decideGrant(principal, {
+          decision: "approved",
+          grantId: grant.id,
+        })
+      ).rejects.toMatchObject({ code: "forbidden" });
+      expect(
+        await artifacts.promote({ artifactId: created.artifactId })
+      ).toMatchObject({ status: "waiting" });
+      const rail = await composed.services.desk.railSources(user, {
+        dayStart: new Date().toISOString(),
+      });
       expect(JSON.stringify(rail.needsYou)).toContain(created.artifactId);
-      await composed.services.artifactGrants.decideGrant(user, { grantId: grants[0]!.id, decision: "approved" });
-      await ports.artifacts!.promote({ artifactId: created.artifactId });
-      const read = await ports.artifacts!.read({ artifactId: created.artifactId });
+      await composed.services.artifactGrants.decideGrant(user, {
+        decision: "approved",
+        grantId: grant.id,
+      });
+      await artifacts.promote({ artifactId: created.artifactId });
+      const read = await artifacts.read({ artifactId: created.artifactId });
       expect(read.endpoints).toHaveLength(1);
       expect(read.endpoints[0]?.url).toStartWith(`${HOST}/hooks/`);
-      const endpoint = (await composed.services.artifactEndpoints.list(user, created.artifactId))[0]!;
-      await composed.services.artifactEndpoints.change(user, endpoint.id, "disable");
-      expect((await ports.artifacts!.read({ artifactId: created.artifactId })).endpoints).toEqual([]);
-      expect((await ports.artifacts!.list({})).items.some((item) => item.artifactId === created.artifactId)).toBe(true);
-      await ports.artifacts!.test({ artifactId: created.artifactId });
-      await ports.artifacts!.update({ artifactId: created.artifactId, baseVersion: 1, files: [{ path: "index.html", text: "Updated" }] });
-    } finally { await connection.close(); }
-    const readOnly = await connectClient(createAgentumMcpServer(ports, { readOnly: true }));
+      const [endpoint] = await composed.services.artifactEndpoints.list(
+        user,
+        created.artifactId
+      );
+      if (!endpoint) {
+        throw new Error("Missing endpoint");
+      }
+      await composed.services.artifactEndpoints.change(
+        user,
+        endpoint.id,
+        "disable"
+      );
+      expect(
+        (await artifacts.read({ artifactId: created.artifactId })).endpoints
+      ).toEqual([]);
+      expect(
+        (await artifacts.list({})).items.some(
+          (item) => item.artifactId === created.artifactId
+        )
+      ).toBe(true);
+      await artifacts.test({ artifactId: created.artifactId });
+      await artifacts.update({
+        artifactId: created.artifactId,
+        baseVersion: 1,
+        files: [{ path: "index.html", text: "Updated" }],
+      });
+    } finally {
+      await connection.close();
+    }
+    const readOnly = await connectClient(
+      createAgentumMcpServer(ports, { readOnly: true })
+    );
     try {
-      const names = (await readOnly.client.listTools()).tools.map((t) => t.name);
-      expect(names.filter((n) => n.startsWith("artifact_"))).toEqual(["artifact_read", "artifact_list", "artifact_test"]);
-    } finally { await readOnly.close(); }
+      const names = (await readOnly.client.listTools()).tools.map(
+        (t) => t.name
+      );
+      expect(names.filter((n) => n.startsWith("artifact_"))).toEqual([
+        "artifact_read",
+        "artifact_list",
+        "artifact_test",
+      ]);
+    } finally {
+      await readOnly.close();
+    }
   });
 }

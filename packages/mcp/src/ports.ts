@@ -130,11 +130,12 @@ export interface RoutineInfo {
   timezone: string;
 }
 
-/** An HTTP trigger: an outside system starts an agent with a secret. */
+/** An HTTP trigger uses a secret; an app trigger uses an approved app grant. */
 export interface TriggerInfo {
   agentId: string;
   agentName: string;
   id: string;
+  kind: "http" | "app";
   lastFiredAt: string | null;
   name: string;
   status: AutomationStatus;
@@ -236,6 +237,7 @@ export interface ArtifactReadInfo {
   audience: string;
   currentVersion: number;
   description: string | null;
+  endpoints: { name: string; url: string }[];
   /** The text of the requested file, or of the entry file of the requested version. */
   file: ArtifactFileText;
   kind: string;

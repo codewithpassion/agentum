@@ -334,6 +334,8 @@ export interface DeploymentOptions {
   env?: Record<string, string>;
   name: string;
   port: number;
+  /** Optional local Vite config for e2e transport mocks. */
+  viteConfig?: string;
   workDir: string;
 }
 
@@ -417,7 +419,15 @@ export const createDeployment = (options: DeploymentOptions): Deployment => {
       await seedWorkspace(stateDir);
       logFd = openSync(logFile, "a");
       const proc = spawn(
-        ["bunx", "vite", "dev", "--port", String(port), "--strictPort"],
+        [
+          "bunx",
+          "vite",
+          "dev",
+          "--port",
+          String(port),
+          "--strictPort",
+          ...(options.viteConfig ? ["--config", options.viteConfig] : []),
+        ],
         {
           cwd: WEB_DIR,
           detached: true,

@@ -121,29 +121,30 @@ export const createAppHost = (
   props: AppHostProps,
   ports: Ports
 ): AgentumHost => {
-  const scopeOf = (caller: Caller, area: StorageArea): AppStoreScope => ({
-    area,
-    artifactId: props.artifactId,
-    viewerKey: viewerKeyOf(caller),
-  });
+  const scopeOf = (caller: Caller, area: StorageArea): AppStoreScope => {
+    if (
+      (caller.kind === "endpoint" || caller.kind === "reply") &&
+      area === "viewer"
+    ) {
+      throw appError(
+        "forbidden",
+        `${caller.kind} viewers have no viewer storage`
+      );
+    }
+    return {
+      area,
+      artifactId: props.artifactId,
+      viewerKey: viewerKeyOf(caller),
+    };
+  };
 
   /** A test viewer reads the shared area and nothing of a person's own. */
-  const hasNothingIn = (caller: Caller, area: StorageArea): boolean => {
-    if (caller.kind === "endpoint" && area === "viewer") {
-      throw appError("forbidden", "endpoint viewers have no viewer storage");
-    }
-    return caller.kind === "test" && area === "viewer";
-  };
+  const hasNothingIn = (caller: Caller, area: StorageArea): boolean =>
+    caller.kind === "test" && area === "viewer";
 
   const mayWrite = async (area: StorageArea): Promise<Caller> => {
     const caller = await callerOf(props, ports);
     if (caller.kind === "reply" || caller.kind === "endpoint") {
-      if (area !== "shared") {
-        throw appError(
-          "forbidden",
-          `${caller.kind} viewers have no viewer storage`
-        );
-      }
       return caller;
     }
     if (caller.kind === "test" || !ports.canWrite(caller.viewer, area)) {
@@ -199,9 +200,6 @@ export const createAppHost = (
     getItem: async (area, key) => {
       checkArea(area);
       const caller = await callerOf(props, ports);
-      if (caller.kind === "reply" && area !== "shared") {
-        throw appError("forbidden", "reply viewers have no viewer storage");
-      }
       const checked = checkKey(key);
       if (hasNothingIn(caller, area)) {
         return null;
@@ -212,9 +210,6 @@ export const createAppHost = (
     listItems: async (area, prefix, limit) => {
       checkArea(area);
       const caller = await callerOf(props, ports);
-      if (caller.kind === "reply" && area !== "shared") {
-        throw appError("forbidden", "reply viewers have no viewer storage");
-      }
       if (hasNothingIn(caller, area)) {
         return [];
       }

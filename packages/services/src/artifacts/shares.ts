@@ -130,7 +130,6 @@ const SWITCH_ACTION = "artifacts.setLinksEnabled";
 const LINKS_ENABLED_ACTION = "artifacts.linksEnabled";
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
-type RunPrincipal = Extract<Principal, { kind: "run" }>;
 
 /**
  * What a link token grants: one version of one artifact in one workspace.
@@ -519,23 +518,30 @@ export const createArtifactSharesService = ({
   };
 
   /**
-   * The Browser Run token of `artifact_test`: 5 minutes, for a run whose agent
-   * may see the artifact, with a view row of surface `test`.
+   * The Browser Run token of `artifact_test`: 5 minutes, for a user or run
+   * that may see the artifact, with a view row of surface `test`.
    */
   const mintTestToken = async (
     principal: Principal,
     input: { artifactId: string; versionId: string }
   ): Promise<{ contentUrl: string; expiresAt: string }> => {
-    if (principal.kind !== "run") {
+    if (principal.kind !== "run" && principal.kind !== "user") {
       throw new ForbiddenError(TEST_ACTION);
     }
-    const run: RunPrincipal = principal;
+    const run = principal;
     const artifact = await getLiveArtifact(
       db,
       run.workspaceId,
       input.artifactId
     );
-    if (!(artifact && agentCanSee(artifact, run.agentId))) {
+    if (
+      !(
+        artifact &&
+        (run.kind === "run"
+          ? agentCanSee(artifact, run.agentId)
+          : canOpen(artifact, policyUser(run)))
+      )
+    ) {
       throw notFound();
     }
     authorize(run, TEST_ACTION, {

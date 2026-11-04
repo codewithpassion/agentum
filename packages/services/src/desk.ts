@@ -11,6 +11,11 @@
  */
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
+import {
+  artifactGrants,
+  artifacts,
+  artifactVersions,
+} from "@repo/db/schema/artifacts";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
@@ -541,6 +546,31 @@ export const createDeskService = ({
         (message) => !drafts.has(message.agentId)
       ),
       answered,
+      appGrants: await db
+        .select({
+          artifactId: artifacts.id,
+          at: artifactGrants.createdAt,
+          grantKind: artifactGrants.kind,
+          id: artifactGrants.id,
+          ownerUserId: artifacts.ownerUserId,
+          target: artifactGrants.target,
+          title: artifacts.title,
+        })
+        .from(artifactGrants)
+        .innerJoin(
+          artifactVersions,
+          eq(artifactVersions.id, artifactGrants.versionId)
+        )
+        .innerJoin(artifacts, eq(artifacts.id, artifactVersions.artifactId))
+        .where(
+          and(
+            eq(artifacts.workspaceId, member.workspaceId),
+            isNull(artifacts.deletedAt),
+            eq(artifactVersions.authorKind, "user"),
+            eq(artifactGrants.status, "pending"),
+            eq(artifacts.ownerUserId, member.userId)
+          )
+        ),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       pending,
       proposedRoutines,
@@ -602,6 +632,24 @@ export const createDeskService = ({
     const actorOf = new Map(runActors.map((run) => [run.id, run]));
     const skillOf = new Map(skillNames.map((skill) => [skill.id, skill]));
     const drafts: Draft[] = [
+      ...sources.appGrants.map(
+        (grant): Draft => ({
+          actorKind: "user",
+          agentId: "",
+          artifactId: grant.artifactId,
+          at: grant.at,
+          band: {
+            text: `${grant.grantKind}: ${grant.target}${grant.grantKind === "endpoint" ? ". Anyone can call this address; the app must authenticate callers." : ""}`,
+            tone: "waiting",
+          },
+          id: grant.id,
+          kind: "proposal",
+          lane: "needs_you",
+          needsYouKind: "artifact_grant",
+          starter: { id: grant.ownerUserId ?? member.userId, kind: "user" },
+          title: grant.title,
+        })
+      ),
       ...sources.conflicts.map(
         (conflict): Draft => ({
           agentId: conflict.agentId,

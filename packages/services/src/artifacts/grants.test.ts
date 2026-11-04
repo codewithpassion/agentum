@@ -550,7 +550,7 @@ test("allowing the card decides its grants and takes the version live", async ()
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await requests.answer(owner, {
@@ -583,7 +583,7 @@ test("denying the card rejects the version", async () => {
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await requests.answer(owner, {
@@ -604,7 +604,7 @@ test("a card answered by someone who cannot decide is a conflict, not a new card
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   // Answered by someone else, written straight in: no answer event fires.
@@ -630,7 +630,7 @@ test("answering a stale card decides the grants but does not roll the app back",
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await addVersion("v3", 3);
@@ -715,7 +715,7 @@ test("a member who is not the owner answering the card decides nothing", async (
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await requests.answer(stranger, {
@@ -796,7 +796,7 @@ test("promoting a version older than the live one is refused, also after a stale
     artifactId: ARTIFACT,
     versionId: "v2",
   });
-  if (waiting.status !== "waiting") {
+  if (waiting.status !== "waiting" || !waiting.requestId) {
     throw new Error("expected waiting");
   }
   await addVersion("v3", 3);

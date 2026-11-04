@@ -223,6 +223,7 @@ const deskKindOf = (kind: RailCard["kind"]): DeskCardKind => {
     case "question":
     case "takeover":
       return "request";
+    case "artifact_grant":
     case "skill_proposal":
     case "trigger_proposal":
     case "routine_proposal":
@@ -238,6 +239,7 @@ const deskKindOf = (kind: RailCard["kind"]): DeskCardKind => {
 
 /** The desk card that the Needs you body draws for a rail card. */
 export const deskCardOf = (card: RailCard): DeskCard => ({
+  ...(card.artifactId ? { artifactId: card.artifactId } : {}),
   ...(card.a2a === undefined ? {} : { a2a: card.a2a }),
   agentId: card.agentId,
   at: card.at,

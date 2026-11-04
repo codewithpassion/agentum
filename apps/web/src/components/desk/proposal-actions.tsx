@@ -22,6 +22,11 @@ const sendDecision = (
 ): Promise<unknown> => {
   const trpc = getTrpc();
   switch (card.needsYouKind) {
+    case "artifact_grant":
+      return trpc.artifacts.decideGrant.mutate({
+        decision: decision === "approve" ? "approved" : "rejected",
+        grantId: card.id,
+      });
     case "skill_proposal": {
       if (version === null) {
         throw new Error(VERSION_MISSING);
@@ -55,6 +60,16 @@ function SeeChanges({
   card: DeskCard;
   version: ProposalVersion | null;
 }) {
+  if (card.needsYouKind === "artifact_grant" && card.artifactId) {
+    return (
+      <a
+        className={buttonVariants({ size: "sm", variant: "outline" })}
+        href={`/a/${card.artifactId}`}
+      >
+        See app
+      </a>
+    );
+  }
   if (card.needsYouKind === "skill_proposal") {
     if (version === null) {
       return (

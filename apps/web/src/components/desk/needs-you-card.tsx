@@ -174,6 +174,7 @@ export function NeedsYouBody({
           view={request}
         />
       );
+    case "artifact_grant":
     case "skill_proposal":
     case "trigger_proposal":
     case "routine_proposal":

@@ -375,6 +375,7 @@ describe("artifact_read and artifact_list", () => {
     audience: "workspace",
     currentVersion: 2,
     description: "A page",
+    endpoints: [],
     file: {
       contentType: "text/html; charset=utf-8",
       path: "index.html",

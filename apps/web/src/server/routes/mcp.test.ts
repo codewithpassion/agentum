@@ -363,6 +363,9 @@ describe("tools with an api key", () => {
       result: { tools: { name: string }[] };
     };
     expect(rpc.result.tools.map((tool) => tool.name).sort()).toEqual([
+      "artifact_list",
+      "artifact_read",
+      "artifact_test",
       "bash",
       "export_skill",
       "get_run",
@@ -397,6 +400,9 @@ describe("tools with an api key", () => {
     };
     const names = rpc.result.tools.map((tool) => tool.name);
     for (const name of [
+      "artifact_create",
+      "artifact_update",
+      "artifact_promote",
       "create_routine",
       "set_routine_enabled",
       "delete_routine",
@@ -842,6 +848,15 @@ describe("Clerk OAuth and the client gate", () => {
       result: { tools: { name: string }[] };
     };
     expect(rpc.result.tools.map((tool) => tool.name)).toContain("send_message");
+    const created = await callTool(token, "artifact_create", {
+      kind: "page",
+      title: "OAuth page",
+      files: [{ path: "index.html", text: "Hello OAuth" }],
+    });
+    expect(created.isError).not.toBe(true);
+    expect(
+      JSON.stringify(await callTool(token, "artifact_list", {}))
+    ).toContain("OAuth page");
 
     const sent = await callTool(token, "send_message", {
       agent: "agent-a",

@@ -684,6 +684,7 @@ export type DeskLane = (typeof DESK_LANES)[number];
 export const NEEDS_YOU_KINDS = [
   "approval",
   "question",
+  "artifact_grant",
   "skill_proposal",
   "trigger_proposal",
   "routine_proposal",
@@ -704,6 +705,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   a2a_connection: (name) => `${name} has a connection waiting for approval`,
   a2a_message: (name) => `A message for ${name} waits for approval`,
   approval: (name) => `${name} asks for approval`,
+  artifact_grant: (name) => `${name} asks for app permissions`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
   question: (name) => `${name} asks`,
@@ -743,6 +745,7 @@ export interface RailCard {
   /** Empty when no agent is involved. */
   agentId: string;
   agentName: string;
+  artifactId?: string;
   at: string;
   /** What the card is about, from the desk card's band: the version message, the skill name, the reply text. On a problem, the sentence that says what happened. */
   detail: string;
@@ -893,6 +896,7 @@ export interface DeskCard {
   /** "user" when a person started the card. Name them from `startedBy`, not `agentId`. */
   actorKind?: "user";
   agentId: string;
+  artifactId?: string;
   at: string;
   band: StatusBand;
   id: string;

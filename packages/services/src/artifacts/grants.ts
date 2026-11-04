@@ -104,7 +104,7 @@ export interface GrantRecord {
 
 export type PromoteResult =
   | { status: "promoted"; version: number }
-  | { pending: GrantRecord[]; requestId: string; status: "waiting" };
+  | { pending: GrantRecord[]; requestId?: string; status: "waiting" };
 
 const grantRecord = (row: ArtifactGrantRow): GrantRecord => ({
   createdAt: row.createdAt,
@@ -459,6 +459,7 @@ export const createArtifactGrantsService = ({
     // that names a person's version does not get that person's approval.
     const byPerson =
       principal.kind === "user" &&
+      principal.via === "session" &&
       version.authorKind === "user" &&
       version.authorId === principal.userId;
     const rows = declared.map((grant) => {
@@ -766,7 +767,7 @@ export const createArtifactGrantsService = ({
   /** A person approves or rejects one grant. The owner or an admin decides. */
   const decideGrant = async (principal: Principal, raw: unknown) => {
     const input = artifactsDecideGrantInputSchema.parse(raw);
-    if (principal.kind !== "user") {
+    if (principal.kind !== "user" || principal.via !== "session") {
       throw new ForbiddenError("artifacts.decide_grant");
     }
     authorize(principal, "artifacts.decide_grant", {
@@ -998,10 +999,26 @@ export const createArtifactGrantsService = ({
     };
   };
 
+  /** MCP user apps have grant cards rather than run requests in Needs you. */
+  const pendingForMcpUser = async (
+    principal: Principal,
+    artifact: ArtifactRow,
+    versionId: string
+  ): Promise<PromoteResult | null> => {
+    if (principal.kind !== "user" || principal.via === "session") {
+      return null;
+    }
+    const pending = (
+      await listGrants(db, { versionId, workspaceId: artifact.workspaceId })
+    ).filter((row) => row.status === "pending");
+    return pending.length
+      ? { pending: pending.map(grantRecord), status: "waiting" }
+      : null;
+  };
+
   /**
-   * Makes a proposed app version current. With every grant approved it goes
-   * live. With some pending, a run gets a Needs you request and `waiting`; a
-   * person gets a conflict naming what is open. A rejected grant ends it.
+   * Promotes a run-authored app once its grants are approved. MCP users get
+   * waiting for their grant cards; sessions get a conflict for pending grants.
    */
   const promote = async (
     principal: Principal,
@@ -1017,6 +1034,16 @@ export const createArtifactGrantsService = ({
       );
     }
     const version = await requireVersion(artifact, input.versionId);
+    // User-authored apps keep the publish convention. MCP is not consent;
+    // Needs you lists their grants directly because they have no run card.
+    const waitingForPerson = await pendingForMcpUser(
+      principal,
+      artifact,
+      version.id
+    );
+    if (waitingForPerson) {
+      return waitingForPerson;
+    }
     if (
       version.status === "published" &&
       artifact.currentVersionId === version.id
