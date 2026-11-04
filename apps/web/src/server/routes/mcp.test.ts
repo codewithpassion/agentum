@@ -4,6 +4,7 @@ import { events } from "@repo/db/schema/events";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
+import { CLOUD_MODELS, cloudModelRef } from "@repo/services/cloud/models";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
@@ -365,7 +366,6 @@ describe("tools with an api key", () => {
     expect(rpc.result.tools.map((tool) => tool.name).sort()).toEqual([
       "artifact_list",
       "artifact_read",
-      "artifact_test",
       "bash",
       "export_skill",
       "get_run",
@@ -390,6 +390,42 @@ describe("tools with an api key", () => {
       "skill_show",
       "wiki_read",
     ]);
+  });
+
+  test("agent model descriptions match the cloud catalog and update is optional", async () => {
+    // MCP stays independent of services; check the catalog at their web integration.
+    const key = await mintKey("u1", "write");
+    const response = await post(key, rpcBody("tools/list", {}));
+    const rpc = (await readRpc(response)) as {
+      result: {
+        tools: {
+          name: string;
+          inputSchema: {
+            properties: { model?: { description: string } };
+            required?: string[];
+          };
+        }[];
+      };
+    };
+    for (const name of ["create_agent", "update_agent"]) {
+      const schema = rpc.result.tools.find(
+        (tool) => tool.name === name
+      )?.inputSchema;
+      const description = schema?.properties.model?.description;
+      expect(description).toBeDefined();
+      expect(
+        description
+          ?.split("Cloud models: ")[1]
+          ?.split(". Managed")[0]
+          ?.split(", ")
+      ).toEqual(CLOUD_MODELS.map(cloudModelRef));
+      if (name === "update_agent") {
+        expect(description).not.toContain("Required");
+        expect(schema?.required ?? []).not.toContain("model");
+      } else {
+        expect(schema?.required).toContain("model");
+      }
+    }
   });
 
   test("a write key also gets the tools that change routines, triggers and skills", async () => {

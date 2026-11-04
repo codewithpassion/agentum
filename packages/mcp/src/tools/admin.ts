@@ -23,14 +23,15 @@ const agentRef = z
 
 const name = z.string().trim().min(1).max(200);
 
+const MODEL_GUIDE =
+  "Cloud models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017. Managed and machine runtimes require an Anthropic model.";
+
 const model = z
   .string()
   .trim()
   .min(1)
   .max(200)
-  .describe(
-    "Required model id. Cloud models: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, openrouter:z-ai/glm-5.3, openrouter:z-ai/glm-5.3-flash, openrouter:deepseek/deepseek-v4.1-flash-1017. Managed and machine runtimes require an Anthropic model."
-  );
+  .describe(`Required model id. ${MODEL_GUIDE}`);
 
 const slug = z
   .string()
@@ -207,7 +208,11 @@ export const adminWriteTools = (port: AdminPort): ToolDefinition[] => [
         .describe(
           "The machine the agent runs on, or null to detach it from its machine."
         ),
-      model: model.optional(),
+      model: model
+        .optional()
+        .describe(
+          `The new model id; omit to keep the current model. ${MODEL_GUIDE}`
+        ),
       name: name.optional(),
       slug: slug.optional(),
     }),

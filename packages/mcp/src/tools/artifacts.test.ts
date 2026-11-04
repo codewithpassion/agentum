@@ -88,13 +88,38 @@ describe("registration", () => {
       "5 endpoints",
       "5 agents",
       "finished, failed, cancelled, interrupted",
-      "Settings",
+      "Passwords and keys",
       "module-level",
       "create_agent",
       "Discord example",
     ]) {
       expect(create).toContain(text);
     }
+    for (const name of ["artifact_update", "artifact_promote"]) {
+      const description = find(name)?.description ?? "";
+      expect(description).toContain(
+        "See artifact_create for the app guide and full Discord example."
+      );
+      expect(description).not.toContain("app: ship index.html");
+      expect(description).not.toContain("const PUBLIC_KEY");
+    }
+    for (const text of [
+      "always",
+      "shared storage read-only",
+      "empty viewer storage",
+      "even after approval",
+      "latest non-rejected",
+      "Tests only the page",
+      "Send endpoint requests separately",
+    ]) {
+      expect(find("artifact_test")?.description).toContain(text);
+    }
+    expect(find("artifact_promote")?.description).toContain(
+      "ask them to approve in Needs you, then check with artifact_read"
+    );
+    expect(find("artifact_read")?.description).toContain(
+      "current version by default; pass version to see a proposed version’s grants"
+    );
     const list = find("artifact_list");
     if (!list) {
       throw new Error("Missing artifact_list");

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 
+process.stdin.setEncoding("utf8");
 let script = "";
 for await (const chunk of process.stdin) {
   script += chunk;

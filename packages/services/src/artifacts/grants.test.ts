@@ -1237,3 +1237,16 @@ test("promoting a finished run's version tells the MCP user how to approve it", 
     )
   ).rejects.toThrow("Open the artifact in the browser");
 });
+
+test("a browser promotion counts grants and directs the person to Needs you", async () => {
+  await addVersion("v2", 2);
+  await record("v2", {
+    endpoints: [{ name: "discord" }],
+    hosts: ["discord.com"],
+  });
+  await expect(
+    service.promote(owner, { artifactId: ARTIFACT, versionId: "v2" })
+  ).rejects.toThrow(
+    "2 grants wait for approval in Needs you. Approve them there, then promote this version."
+  );
+});

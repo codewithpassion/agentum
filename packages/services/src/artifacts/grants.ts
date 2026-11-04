@@ -964,6 +964,11 @@ export const createArtifactGrantsService = ({
     return true;
   };
 
+  const pendingGrantsMessage = (principal: Principal, count: number): string =>
+    principal.kind === "user" && principal.via === "session"
+      ? `${count} ${count === 1 ? "grant waits" : "grants wait"} for approval in Needs you. Approve them there, then promote this version.`
+      : `Open the artifact in the browser and approve its ${count} pending ${count === 1 ? "grant" : "grants"} in Needs you before promoting.`;
+
   /**
    * What a promote does about grants still pending: apply an answered card,
    * then open or reuse the authoring run’s card and answer `waiting`.
@@ -998,7 +1003,7 @@ export const createArtifactGrantsService = ({
     ) {
       throw new ServiceError(
         "conflict",
-        "Open the artifact in the browser and approve its pending grants before promoting."
+        pendingGrantsMessage(principal, pending.length)
       );
     }
     return {

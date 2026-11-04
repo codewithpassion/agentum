@@ -10,6 +10,7 @@ import * as encoding from "lib0/encoding";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 import * as Y from "yjs";
 
+process.stdin.setEncoding("utf8");
 let script = "";
 for await (const chunk of process.stdin) {
   script += chunk;

@@ -69,7 +69,9 @@ export function GrantApprovalView({
           key={`agent:${agentId}`}
         >{`Hand off to agent ${agentId}`}</p>
       ))}
-      <p className="text-muted-foreground text-xs">{expiresText}</p>
+      {expiresText ? (
+        <p className="text-muted-foreground text-xs">{expiresText}</p>
+      ) : null}
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}

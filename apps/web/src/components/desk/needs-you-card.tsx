@@ -7,6 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { GrantApprovalCard } from "#/components/artifacts/grant-approval-card.tsx";
 import {
+  buildGrantApproval,
   type PromoteApproval,
   parsePromoteApproval,
 } from "#/components/artifacts/grant-approval-model.ts";
@@ -116,8 +117,8 @@ export function ThreadBody({
   );
 }
 
-/** A person's current app uses the same access list and decision as a run. */
-function PersonAppGrants({
+/** A person reviews the version named by the grant card. */
+export function PersonAppGrants({
   card,
   nowMs,
   onChanged,
@@ -135,32 +136,32 @@ function PersonAppGrants({
         return;
       }
       const trpc = getTrpc();
-      const [artifact, grants, agents] = await Promise.all([
+      const [artifact, grants, agents, versions] = await Promise.all([
         trpc.artifacts.get.query({ artifactId: card.artifactId }),
         trpc.artifacts.grants.query({
           artifactId: card.artifactId,
           versionId: card.id,
         }),
         trpc.agents.list.query({}),
+        trpc.artifacts.versions.query({ artifactId: card.artifactId }),
       ]);
-      const parsed = parsePromoteApproval({
-        input: {
-          artifactId: card.artifactId,
-          grants: grants
-            .filter((grant) => grant.status === "pending")
-            .map((grant) => ({
-              ...grant,
-              name:
-                agents.find((agent) => agent.id === grant.target)?.name ??
-                "Unavailable agent",
-            })),
-          title: artifact.title,
-          version: artifact.currentVersion.number,
-          versionId: card.id,
-        },
-        summary: "App access",
-        toolKey: "harbourmaster/artifact_promote",
-        toolName: "artifact_promote",
+      const version = versions.find((item) => item.id === card.id);
+      if (!version) {
+        throw new Error("Version not found, reload.");
+      }
+      const parsed = buildGrantApproval({
+        artifactId: card.artifactId,
+        grants: grants
+          .filter((grant) => grant.status === "pending")
+          .map((grant) => ({
+            ...grant,
+            name:
+              agents.find((agent) => agent.id === grant.target)?.name ??
+              "Unavailable agent",
+          })),
+        title: artifact.title,
+        version: version.number,
+        versionId: card.id,
       });
       if (active) {
         setItems(parsed);
@@ -179,7 +180,15 @@ function PersonAppGrants({
     return <p role="alert">{error}</p>;
   }
   return items ? (
-    <GrantApprovalCard items={items} nowMs={nowMs} onChanged={onChanged} />
+    <div className="flex flex-col gap-3">
+      <GrantApprovalCard items={items} nowMs={nowMs} onChanged={onChanged} />
+      <a
+        className={buttonVariants({ size: "sm", variant: "outline" })}
+        href={`/a/${items.artifactId}`}
+      >
+        See app
+      </a>
+    </div>
   ) : (
     <p>Loading app access…</p>
   );
