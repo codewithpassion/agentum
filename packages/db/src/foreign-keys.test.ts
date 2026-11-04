@@ -1232,7 +1232,7 @@ test("endpoints enforce parents and active name uniqueness; app triggers allow n
     createdAt: NOW,
     createdBy: "u1",
     id: "app-trigger",
-    kind: "http" as const,
+    kind: "app" as const,
     name: "app",
     workspaceId: "w1",
   };
@@ -1244,6 +1244,19 @@ test("endpoints enforce parents and active name uniqueness; app triggers allow n
   ).toThrow(FK);
   db.insert(triggers)
     .values({ ...trigger, artifactId: "ar1" })
+    .run();
+  expect(() =>
+    db
+      .insert(triggers)
+      .values({ ...trigger, artifactId: "ar1", id: "duplicate" })
+      .run()
+  ).toThrow("UNIQUE constraint failed");
+  db.insert(agents).values(agent("a2", "w1")).run();
+  db.insert(triggers)
+    .values({ ...trigger, agentId: "a2", artifactId: "ar1", id: "other-agent" })
+    .run();
+  db.insert(triggers)
+    .values({ ...trigger, id: "another-plain-trigger" })
     .run();
   db.insert(triggers)
     .values({ ...trigger, id: "plain-trigger" })

@@ -18,7 +18,7 @@ const MAX_SUBREQUESTS = 50;
 const CPU_MS = 10_000;
 
 interface Harness {
-  handle: (request: Request, hm: unknown) => Promise<Response>;
+  handle: (request: Request, host: unknown) => Promise<Response>;
 }
 
 export interface DynamicAppRuntimeDeps {

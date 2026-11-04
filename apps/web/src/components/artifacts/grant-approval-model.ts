@@ -1,6 +1,7 @@
 // The logic behind the grant approval card: what a proposed app version asks
 // for, read from its approval request, and how every grant gets decided.
 
+import { ARTIFACT_GRANT_KINDS, type ArtifactGrantKind } from "@repo/db/shared";
 import type { ApprovalDisplay } from "@repo/protocol/requests";
 import { z } from "zod";
 
@@ -13,7 +14,7 @@ const promoteInputSchema = z.object({
   grants: z.array(
     z.object({
       id: z.string(),
-      kind: z.enum(["tool", "host", "secret"]),
+      kind: z.enum(ARTIFACT_GRANT_KINDS),
       target: z.string(),
     })
   ),
@@ -24,7 +25,9 @@ const promoteInputSchema = z.object({
 
 /** What a proposed app version asks for. */
 export interface PromoteApproval {
+  agents: string[];
   artifactId: string;
+  endpoints: string[];
   /** Every grant to decide, argument-limit rows included. */
   grantIds: string[];
   hosts: string[];
@@ -55,10 +58,12 @@ export const parsePromoteApproval = (
     return null;
   }
   const { grants, ...rest } = parsed.data;
-  const targets = (kind: "tool" | "host" | "secret") =>
+  const targets = (kind: ArtifactGrantKind) =>
     unique(grants.filter((g) => g.kind === kind).map((g) => g.target));
   return {
     ...rest,
+    agents: targets("agent"),
+    endpoints: targets("endpoint"),
     grantIds: grants.map((grant) => grant.id),
     hosts: targets("host"),
     secrets: targets("secret"),

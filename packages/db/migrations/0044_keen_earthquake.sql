@@ -1,0 +1,2 @@
+CREATE INDEX `triggers_artifact_idx` ON `triggers` (`artifact_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `triggers_artifact_agent_unique` ON `triggers` (`artifact_id`,`agent_id`) WHERE "triggers"."artifact_id" is not null;

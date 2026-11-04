@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -17,7 +18,8 @@ import { workspaces } from "./workspaces.ts";
  * read back. A `routine` has no token; it holds a cron, a timezone, a prompt
  * and the next slot to fire (`next_run_at`, an ISO instant). The tick fires it
  * and moves `next_run_at` in one atomic write with the run. A routine switches
- * itself off (`disabled_at`) after 5 errors in a row. A revoked row stays, so
+ * itself off (`disabled_at`) after 5 errors in a row. An `app` trigger belongs
+ * to an artifact and has no token or schedule. A revoked row stays, so
  * the log can still name it.
  */
 export const triggers = sqliteTable(
@@ -58,7 +60,7 @@ export const triggers = sqliteTable(
     settledRunId: text("settled_run_id"),
     // Routine only. IANA zone, copied from the workspace when not given.
     timezone: text("timezone"),
-    // Null for a routine, and for an `http` proposal until it is approved.
+    // Null for app and routine triggers, and for an unapproved `http` proposal.
     tokenHash: text("token_hash"),
     // The start of the token, so triggers can be told apart in a list.
     tokenPrefix: text("token_prefix"),
@@ -68,6 +70,10 @@ export const triggers = sqliteTable(
   },
   (t) => [
     uniqueIndex("triggers_token_hash_unique").on(t.tokenHash),
+    index("triggers_artifact_idx").on(t.artifactId),
+    uniqueIndex("triggers_artifact_agent_unique")
+      .on(t.artifactId, t.agentId)
+      .where(sql`${t.artifactId} is not null`),
     index("triggers_due_idx").on(t.nextRunAt),
   ]
 );

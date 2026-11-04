@@ -86,6 +86,7 @@ export const countOf = (wires: readonly WireLike[]): number =>
   wires.reduce((total, wire) => total + wire.count7d, 0);
 
 const TRIGGER_WORDS: Record<string, string> = {
+  app: "App",
   http: "HTTP",
   mail: "Mail",
   routine: "Schedule",
