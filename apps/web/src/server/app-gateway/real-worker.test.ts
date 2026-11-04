@@ -120,10 +120,10 @@ export default {
     const url = new URL(request.url);
     hits += 1;
     switch (url.pathname) {
-      case "/api/who": return Response.json({ hits, who: await env.HM.whoami(), url: request.url, hasCookie: request.headers.has("cookie") });
-      case "/api/put": await env.HM.setItem("viewer", "k", await request.text()); return new Response("stored");
-      case "/api/shared": return Response.json(await attempt(() => env.HM.setItem("shared", "k", "s")));
-      case "/api/get": return Response.json({ viewer: await env.HM.getItem("viewer", "k"), shared: await env.HM.getItem("shared", "k") });
+      case "/api/who": return Response.json({ hits, who: await env.AGENTUM.whoami(), url: request.url, hasCookie: request.headers.has("cookie") });
+      case "/api/put": await env.AGENTUM.setItem("viewer", "k", await request.text()); return new Response("stored");
+      case "/api/shared": return Response.json(await attempt(() => env.AGENTUM.setItem("shared", "k", "s")));
+      case "/api/get": return Response.json({ viewer: await env.AGENTUM.getItem("viewer", "k"), shared: await env.AGENTUM.getItem("shared", "k") });
       case "/api/fetch": return Response.json(await attempt(async () => (await fetch(url.searchParams.get("u"))).status));
       case "/api/headers": return new Response("{}", { headers: [["Set-Cookie", "__session=evil; Path=/"], ["Clear-Site-Data", "\\"cookies\\""], ["Access-Control-Allow-Origin", "https://evil.test"], ["Content-Type", "application/json"]] });
       case "/api/throw": throw new Error("kaboom internal");
@@ -133,7 +133,7 @@ export default {
 };`;
 
 describe("the gateway in workerd with a real Worker Loader", () => {
-  test("two viewers on one cached Worker each get their own HM", async () => {
+  test("two viewers on one cached Worker each get their own AgentumHost", async () => {
     await seed("v-who", APP);
     const alice = await callJson(member("alice", "v-who"), "/api/who");
     const bob = await callJson(member("bob", "v-who"), "/api/who");
@@ -146,7 +146,7 @@ describe("the gateway in workerd with a real Worker Loader", () => {
     expect(alice.hasCookie).toBe(false);
   });
 
-  test("storage goes through HM: a viewer area per person and one shared area", async () => {
+  test("storage goes through AgentumHost: a viewer area per person and one shared area", async () => {
     await seed("v-store", APP);
     const put = await call(member("alice", "v-store"), "/api/put", {
       body: "alice-note",

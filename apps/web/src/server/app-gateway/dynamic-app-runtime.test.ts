@@ -102,7 +102,7 @@ describe("dynamicAppRuntime", () => {
     ]);
   });
 
-  test("each request gets its own HM stub, passed to the Harness entrypoint", async () => {
+  test("each request gets its own AgentumHost stub, passed to the Harness entrypoint", async () => {
     const t = setup(false);
     await t.run(host({ kind: "member", userId: "alice" }));
     await t.run(host({ kind: "member", userId: "bob" }));

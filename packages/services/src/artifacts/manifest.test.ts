@@ -328,3 +328,61 @@ describe("canonicalJson", () => {
     expect(canonicalJson({ list: ["b", "a"] })).toBe('{"list":["b","a"]}');
   });
 });
+
+test("endpoint and agent declarations parse and become grants", () => {
+  const parsed = parseManifest([
+    manifestFile({
+      agents: [{ agent: "agent-1" }],
+      endpoints: [{ name: "discord" }],
+    }),
+    serverFile,
+  ]);
+  expect(parsed.endpoints).toEqual([{ name: "discord" }]);
+  expect(parsed.agents).toEqual([{ agent: "agent-1" }]);
+  expect(declaredGrants(parsed)).toEqual([
+    { kind: "agent", target: "agent-1" },
+    { kind: "endpoint", target: "discord" },
+  ]);
+});
+
+test("endpoints and agents need server code, unique entries and at most five entries", () => {
+  for (const [field, entry] of [
+    ["endpoints", { name: "discord" }],
+    ["agents", { agent: "agent-1" }],
+  ] as const) {
+    parseFails([manifestFile({ [field]: [entry] })], "server/");
+    parseFails(
+      [manifestFile({ [field]: [entry, entry] }), serverFile],
+      "declared twice"
+    );
+    parseFails(
+      [
+        manifestFile({
+          [field]: Array.from({ length: 6 }, (_, i) =>
+            field === "endpoints" ? { name: `e-${i}` } : { agent: `a-${i}` }
+          ),
+        }),
+        serverFile,
+      ],
+      field
+    );
+  }
+});
+
+test("endpoint names and agent ids are bounded", () => {
+  for (const name of ["", "Discord", "a_b", "a".repeat(41)]) {
+    parseFails(
+      [manifestFile({ endpoints: [{ name }] }), serverFile],
+      "endpoints"
+    );
+  }
+  for (const agent of ["", "a".repeat(201)]) {
+    parseFails([manifestFile({ agents: [{ agent }] }), serverFile], "agents");
+  }
+  expect(
+    parseManifest([
+      manifestFile({ endpoints: [{ name: "a".repeat(40) }] }),
+      serverFile,
+    ]).endpoints
+  ).toHaveLength(1);
+});

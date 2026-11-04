@@ -232,3 +232,12 @@ describe("createAppHost: arguments from app code", () => {
     );
   });
 });
+
+test("the startRun contract is present as a not_granted stub", async () => {
+  await expect(
+    createAppHost(member(), fakePorts()).startRun({
+      agent: "a1",
+      text: "hello",
+    })
+  ).rejects.toThrow("not_granted:");
+});

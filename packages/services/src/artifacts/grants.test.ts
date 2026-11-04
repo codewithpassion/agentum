@@ -1,6 +1,10 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { artifacts, artifactVersions } from "@repo/db/schema/artifacts";
+import {
+  artifactGrants,
+  artifacts,
+  artifactVersions,
+} from "@repo/db/schema/artifacts";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -825,4 +829,24 @@ test("checkManifest names tools by the artifact's maker when one is given, not t
   lookedUpFor.length = 0;
   await service.checkManifest(handedRun, files, agentId);
   expect(lookedUpFor).toEqual([agentId]);
+});
+
+test("publishing declarations persists pending endpoint and agent grant rows", async () => {
+  await addVersion("v2", 2);
+  await record("v2", {
+    agents: [{ agent: otherAgentId }],
+    endpoints: [{ name: "discord" }],
+  });
+  const rows = await db
+    .select()
+    .from(artifactGrants)
+    .where(eq(artifactGrants.versionId, "v2"));
+  expect(
+    rows
+      .map(({ kind, target, status }) => ({ kind, status, target }))
+      .sort((a, b) => a.kind.localeCompare(b.kind))
+  ).toEqual([
+    { kind: "agent", status: "pending", target: otherAgentId },
+    { kind: "endpoint", status: "pending", target: "discord" },
+  ]);
 });
