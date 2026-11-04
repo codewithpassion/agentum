@@ -3,7 +3,7 @@ id: EP.5
 title: Keep a person's bot live across updates, and show app errors
 milestone: EP
 size: M
-status: in_progress
+status: done
 depends_on: [EP.4]
 branch: task/EP.5-app-versions-and-errors
 lane: services
@@ -33,3 +33,4 @@ Found on staging on 5 Nov 2026, after EP.1 to EP.4. Spec: `docs/v3/app-endpoints
 
 ## Log
 - 2026-11-05: opened from the EP staging check and dispatched to Codex.
+- 2026-11-05: review clean after 3 fix rounds (the third allowed by the controller), merged as 7a13633b.
