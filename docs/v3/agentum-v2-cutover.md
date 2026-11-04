@@ -99,41 +99,60 @@ Staging, previews and local stay on the development instance `faithful-falcon-18
 
 ### The new instance
 
-Not created yet (3 Nov 2026). The Clerk CLI on this machine is logged into another Clerk workspace, and the application must live in the workspace that holds "Harbourmaster" (`org_3EVqNw1dIDWPLHAsLSUYzRLon0y`). Once Dom has run `clerk auth login` into that workspace: `clerk apps create "Agentum" --json`, then `clerk deploy --domain agentumbot.io --yes` from a scratch directory (not this repository, so the CLI profile for it stays linked to Harbourmaster), then `clerk env pull --instance prod` and copy the three variables into `apps/web/.env.agentum-production.local` (mode 600). Fill in the application id, the production instance id, frontend API `https://clerk.agentumbot.io` and accounts portal `https://accounts.agentumbot.io` here.
+Created on 4 Nov 2026 in the Clerk workspace `org_3EVqNw1dIDWPLHAsLSUYzRLon0y`, the one that holds "Harbourmaster":
+
+| | |
+|---|---|
+| Application | "Agentum", `app_3Lcziihdz14mRrEH46uoVtW81M3` |
+| Production instance | `ins_3LczkBNBefHdzX69rWGkWzpsRHL` |
+| Development instance | `ins_3LcziddyMswRbWxxUYjH4CucqMg` (unused: staging and local keep `faithful-falcon-1887`) |
+| Domain | `agentumbot.io`, `dmn_3LczkCBM9PWV1CXPORqnYqdT3fw` |
+| Frontend API | `https://clerk.agentumbot.io` |
+| Accounts portal | `https://accounts.agentumbot.io` |
+
+Verified on 4 Nov 2026: DNS, mail (SPF and DKIM) and SSL for `clerk.` and `accounts.agentumbot.io` are complete. The frontend API answers on `https://clerk.agentumbot.io` (JWKS 200, `/v1/environment` shows sign-up mode restricted, Google off, Organizations on, name "Agentum"). `clerk deploy status` still says `oauth_pending` for Google, because the deploy wizard expects Google credentials; Google is off on purpose.
+
+The Clerk CLI profile for this application is linked from a scratch directory, not from this repository, so the profile for the repository stays on Harbourmaster's development instance. `clerk deploy status --app app_3Lcziihdz14mRrEH46uoVtW81M3` shows the domain state from anywhere.
+
+The application "agentum" (`app_3I8LXTrkqsNjJ6LNKdW267mvwgQ`, lower case) in the same workspace is v1's development instance. It is not this one.
 
 ### DNS on agentumbot.io
 
-Clerk names five CNAME records once the production instance exists (`clerk api --instance prod /domains`, field `cname_targets`): `clerk.agentumbot.io` to `frontend-api.clerk.services`, `accounts.agentumbot.io` to `accounts.clerk.services`, and `clkmail`, `clk._domainkey` and `clk2._domainkey` to targets that are unique to the instance. All five are DNS only (not proxied), because Clerk terminates TLS. The apex record that serves v1 stays as it is. Dom adds them in the dashboard.
+Added on 4 Nov 2026 with `cf dns records create`, all CNAME, DNS only (not proxied, because Clerk terminates TLS), comment "Clerk (Agentum production instance)":
+
+| Name | Target | Record id |
+|---|---|---|
+| `clerk.agentumbot.io` | `frontend-api.clerk.services` | `c463e81a3d627af4c9e952534e4451dd` |
+| `accounts.agentumbot.io` | `accounts.clerk.services` | `d988fe638ff3d4ad9951048657e9dc09` |
+| `clkmail.agentumbot.io` | `mail.gtff7az9hqhu.clerk.services` | `1f19b8ceff7bdddc0fb3ebc6eea11241` |
+| `clk._domainkey.agentumbot.io` | `dkim1.gtff7az9hqhu.clerk.services` | `e856aaaabd380c0bedca91de652851cd` |
+| `clk2._domainkey.agentumbot.io` | `dkim2.gtff7az9hqhu.clerk.services` | `433c6555394ba3fc8c1b77caae40dfad` |
+
+The zone's existing records (the apex and `staging`, both Worker custom domains) were not touched.
 
 ### Settings
 
-Read from the old instance on 3 Nov 2026 (Backend API and its public `/v1/environment`), and set the same on the new one unless noted:
+Copied from the old instance with `clerk config pull` on both and `clerk config patch` on the new one (4 Nov 2026). After the patch the two configs differ only where Dom decided:
 
-- Sign-in and sign-up: email address required, verified by email code, and usable to sign in with an email code. Password required at sign-up, minimum 15 characters, checked against known breaches (HIBP, also on sign-in). Google enabled. No phone, username, passkeys, MFA, SAML or enterprise SSO.
-- Sign-up mode: the old instance is **public**, not restricted as CLAUDE.md suggested. The `workspaces` row is what admits an organisation, so public sign-up lets anyone make an account but not get in. Dom decides public or restricted for the new instance (restricted is free and still lets organisation invitations sign up).
-- Allowlist, blocklist, disposable-domain and subaddress blocking: off (the allowlist and blocklist are paid features).
-- Single session mode on (one signed-in account per browser).
-- Organizations on: up to 20 members, creator gets `org:admin`, admins may delete, slugs off, organisation selection forced, the default roles `org:admin` and `org:member`, no organisation domains.
-- Clerk Protect rules on.
-- OAuth applications: dynamic client registration off, PKCE required. No OAuth applications, JWT templates, redirect URLs or allowed origins on the old instance, so none on the new one.
-- Application name "Agentum" (the old one says "Harbourmaster"), home URL `https://agentumbot.io`.
-- Session lifetime, inactivity timeout and the session token settings are not in the Backend API. Read them with `clerk config pull --app app_3Kk8QOcbXfKKWjg140Gw9SdYCBg --instance prod` once the CLI is in the right workspace, and copy the `session`, `session_settings`, `auth_*` and `organization_settings` keys onto the new instance with `clerk config patch --instance prod --file <patch> --dry-run`, then without `--dry-run`. Leave out branding and paths that name rockyshoreslabs.io.
+- Sign-up mode **restricted** (the old instance is public). Only invited people can sign up. An organisation invitation from the app should count as an invitation; check the invite flow (`Invite people`, then sign-up on `/accept-invitation`) once production runs on this instance.
+- Google **off**, so sign-in is by email code (and password, which is required at sign-up). Dom adds Google later, see below.
+
+Everything else is the same as on the old instance: email address required and verified by email code; password minimum 15 characters, checked against known breaches, also on sign-in; no phone, username, passkey sign-in or MFA; allowlist, blocklist and disposable-domain blocking off; one signed-in account per browser; sessions end after 7 days, no inactivity timeout; user lockout after 10 attempts for 60 minutes; Organizations on with up to 20 members, creator gets `org:admin`, admins may delete, slugs off, organisation selection forced, no organisation domains; Clerk Protect rules on; OAuth applications with dynamic registration off and PKCE required; no JWT templates, redirect URLs or allowed origins.
 
 ### Keys
 
-The new instance's keys are in `apps/web/.env.agentum-production.local` (gitignored by `.env.*.local`): `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and `VITE_CLERK_PUBLISHABLE_KEY`. `bun run build` runs `vite build --mode agentum-production`, so Vite loads that file and the client bundle gets the new publishable key. `bun run agent-login --env production` and `bun run add-workspace --remote` read the secret key from the same file. `apps/web/.env.production.local` keeps the old instance's keys: `copy-clerk-users` and `build-clerk-id-map` read the old side from it, so don't overwrite it before the window is over.
+The production keys are in `apps/web/.env.agentum-production.local` in the main checkout (mode 600, gitignored by `.env.*.local` on this branch): `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and `VITE_CLERK_PUBLISHABLE_KEY` (both `pk_live_`). `bun run build` runs `vite build --mode agentum-production`, so Vite loads that file and the client bundle gets the new publishable key. `bun run agent-login --env production` and `bun run add-workspace --remote` read the secret key from the same file. `apps/web/.env.production.local` keeps the old instance's keys: `copy-clerk-users` and `build-clerk-id-map` read the old side from it, so don't overwrite it before the window is over.
 
-The Worker gets the three values as secrets. Copy them from `.env.agentum-production.local` into `.wrangler/migrate-v2/agentum-v2.secrets.env` (step 7 under "Before the window"), never the old instance's values. The publishable and secret key must come from the same instance: the MCP OAuth metadata takes its issuer from the publishable key.
+The Worker gets the three values as secrets in the Phase 2 window, from `.env.agentum-production.local`, never the old instance's values. The publishable and secret key must come from the same instance: the MCP OAuth metadata takes its issuer from the publishable key.
 
 ### For Dom, by hand
 
-1. Add the five CNAME records in the table above to the agentumbot.io zone (Cloudflare account `a12823016aa16d0a8dd2678b258bd751`), each as DNS only (grey cloud), then wait for Clerk to show the domain, SSL and mail as verified (`clerk deploy status --wait`).
-2. Google sign-in. A Clerk production instance needs its own Google OAuth credentials. In Google Cloud console, APIs & Services, Credentials, make an OAuth client of type Web application (or add these to the existing client `866818741519-5u4irvvmeaempeq3qoss6oivfcq9pd0j.apps.googleusercontent.com`, which the old instance uses for Google and One Tap):
-   - Authorised JavaScript origins: `https://agentumbot.io` and `https://accounts.agentumbot.io`.
-   - Authorised redirect URI: the one Clerk shows on that screen, expected to be `https://clerk.agentumbot.io/v1/oauth_callback`.
-   - The OAuth consent screen must be published (In production), or only test users can sign in.
-   Then paste the client id and secret into the Clerk dashboard (Agentum, Production, Configure, SSO connections, Google, Use custom credentials).
-3. Clerk plan: the old instance runs on a plan without the allowlist. Nothing above needs a paid feature, but check the new application's plan in the dashboard if Clerk asks for one when the production instance is created.
+1. Google sign-in, when wanted. A Clerk production instance needs its own Google OAuth credentials. In Google Cloud console, APIs & Services, Credentials, make an OAuth client of type Web application, or add these to the existing client `866818741519-5u4irvvmeaempeq3qoss6oivfcq9pd0j.apps.googleusercontent.com`, which the old instance uses:
+   - Authorised JavaScript origins: `https://agentumbot.io` and `https://www.agentumbot.io` (what Clerk lists), plus `https://accounts.agentumbot.io` for the accounts portal.
+   - Authorised redirect URI: `https://clerk.agentumbot.io/v1/oauth_callback` (what Clerk shows).
+   - The OAuth consent screen must be published ("In production"), or only test users can sign in.
+   Then put the client id and secret into Clerk, in the dashboard (Agentum, Production, SSO connections, Google, custom credentials) or with `clerk config patch --instance ins_3LczkBNBefHdzX69rWGkWzpsRHL` and `{"connection_oauth_google": {"enabled": true, "client_id": "...", "client_secret": "..."}}`.
+2. Clerk plan: nothing above needed a paid feature, and Clerk asked for none when the production instance was made.
 
 ### Users and organisations
 
@@ -144,7 +163,7 @@ The old instance has 4 users and 2 organisations (3 Nov 2026). Production D1 has
 | Harbour Edge Intelligence | `org_3LDLbiYGe7iohEccrRQuLeBqaX2` | dominik.fretz@harbouredgeintelligence.com (creator), dominik.fretz@gmail.com, dominik@harbouredge.ai, all `org:admin` |
 | Dev Workspace | `org_3LDS2q9TcEW6F8xFpCihrMylLOz` | dev@rockyshoreslabs.io, `org:admin` |
 
-No user has a password. One signs in with Google, the other three were made by scripts and have never signed in. So the move is a user import without passwords, through the Backend API, not invitations: `bun run copy-clerk-users` makes each user with their email address, already verified, and no password, then the organisations under their old names with the same members and roles. Each person then signs in on agentumbot.io with Google or an email code, and Clerk links a Google sign-in to the imported user by the verified email. Invitations would add an email round trip per person and a sign-up, and the organisations would still need making by hand. Clerk's dashboard import and its password digests are not needed with no passwords to carry.
+No user has a password. One signs in with Google, the other three were made by scripts and have never signed in. So the move is a user import without passwords, through the Backend API, not invitations: `bun run copy-clerk-users` makes each user with their email address, already verified, and no password, then the organisations under their old names with the same members and roles. Each person then signs in on agentumbot.io with an email code (Google is off until Dom adds it; Clerk will then link a Google sign-in to the imported user by the verified email). Restricted sign-up does not stop this: the users already exist. Invitations would add an email round trip per person and a sign-up, and the organisations would still need making by hand. Clerk's dashboard import and its password digests are not needed with no passwords to carry.
 
 Clerk ids can't be chosen, so the D1 ids are rewritten afterwards with the X.1 tools (`docs/reviews/tasks/X.1.md`). The old user id goes into each new user's `external_id` for reference.
 
@@ -210,7 +229,7 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 5. Make an R2 API token with Object Read & Write on the four buckets (Dashboard, R2, Manage API tokens). Export `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
 6. Pre-copy R2: `bun scripts/migrate-v2/r2.ts --env production --apply` (and staging). It copies only missing or changed keys, so the run inside the window is short.
 7. Secrets: `bun scripts/migrate-v2/secrets.ts --env production --apply` lists the old Worker's secret names (on 3 Nov 2026: `ARTIFACT_VIEW_KEY`, `CF_EMAIL_ROUTING_TOKEN`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `RUN_TOKEN_KEY`, `SECRETS_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`; staging the same minus the last) and writes `.wrangler/migrate-v2/agentum-v2.secrets.env` with empty values. Then `bun scripts/migrate-v2/keys.ts --env production --apply` writes new `SECRETS_KEY` and `RUN_TOKEN_KEY` values (32 random bytes each, standard base64) into that file. It prints neither key and refuses to replace a line that already has a value, so it is safe to run twice. Fill in the rest by hand, with `ARTIFACT_VIEW_KEY` exactly as before. Never commit the file. Do not delete it either: after the deploy, move it outside the repository (`~/.config/agentum/<worker>.secrets.env`, mode 600) and put the new keys in the password manager. Losing the old keys is why this cutover has to rotate them. Do the same with `--env staging` for `agentum-v2-staging.secrets.env`.
-8. Clerk: the Agentum instance exists, its DNS is verified and its keys are in `apps/web/.env.agentum-production.local` (see "Clerk"). Dom has done the steps under "For Dom, by hand". Put the three `CLERK_*` values from that file into the secrets file from step 7. Run `bun run copy-clerk-users --db <a SQLite copy of production D1>` to see the plan. Users, organisations and the id rewrite happen inside the window.
+8. Clerk: the Agentum instance exists, its DNS is verified and its keys are in `apps/web/.env.agentum-production.local` (see "Clerk"). Put the three `CLERK_*` values from that file into the secrets file from step 7. Run `bun run copy-clerk-users --db <a SQLite copy of production D1>` to see the plan. Users, organisations and the id rewrite happen inside the window.
 9. Remove `agentumbot.io` from v1's `wrangler.jsonc` (in the agentum repository) so v1 deploys stop claiming it.
 10. Dry runs, all read-only: `bun scripts/migrate-v2/d1.ts --env staging` (it also prints what the scrub would change), `bun scripts/migrate-v2/email-rules.ts --env staging` (with `CF_EMAIL_ROUTING_TOKEN` set), `bun run staging:build && bun scripts/migrate-v2/do-transfer.ts`, and `bunx wrangler deploy --dry-run -c dist/server/wrangler.json`.
 
@@ -246,7 +265,7 @@ From the new repository checkout, after `bun install`. Run wrangler through the 
 
 Staging cut over on 3 Nov. Production phase 1 cut over on 4 Nov: `agentum-v2` holds the data, the Durable Objects, the mail rule and the minute tick, with rotated keys. It serves the app on harbourmaster.rockyshoreslabs.io with the old Clerk instance, because the Agentum Clerk instance does not exist yet. agentumbot.io moved off v1 and redirects page loads there (`LEGACY_HOSTS`). The old `harbourmaster` Worker has no domain, no cron and no Durable Objects.
 
-Phase 2, once the Agentum Clerk instance and its DNS exist: the Clerk steps under "Clerk" (copy users and organisations, rewrite ids), then in `wrangler.jsonc` set `PUBLIC_BASE_URL` to `https://agentumbot.io` and `LEGACY_HOSTS` to `harbourmaster.rockyshoreslabs.io`, set the `build` script back to `--mode agentum-production`, put the new `CLERK_*` secrets on the Worker, and deploy. No data moves.
+Phase 2 (the Agentum Clerk instance and its DNS exist and are verified since 4 Nov): the Clerk steps under "Clerk" (copy users and organisations, rewrite ids), then in `wrangler.jsonc` set `PUBLIC_BASE_URL` to `https://agentumbot.io` and `LEGACY_HOSTS` to `harbourmaster.rockyshoreslabs.io`, set the `build` script back to `--mode agentum-production`, put the new `CLERK_*` secrets on the Worker, and deploy. No data moves.
 
 ## Production cutover
 
@@ -277,7 +296,7 @@ Announce the window first. Tell people that runs still going when the window sta
      --name agentum-v2-mail-events
    ```
 
-8. Smoke-check as on staging, on `https://agentumbot.io`, with `bun run agent-login --env production --email dominik.fretz@harbouredgeintelligence.com` (any user `copy-clerk-users` made works). Sign in once with Google too. Add: the minute tick runs (a scheduled trigger appears in `bunx wrangler tail agentum-v2`), a share link opened on the old host lands on agentumbot.io, an MCP client added at `https://agentumbot.io/mcp` lists tools.
+8. Smoke-check as on staging, on `https://agentumbot.io`, with `bun run agent-login --env production --email dominik.fretz@harbouredgeintelligence.com` (any user `copy-clerk-users` made works). Google is off on the new instance until Dom adds it, so sign in by email code. Add: the minute tick runs (a scheduled trigger appears in `bunx wrangler tail agentum-v2`), a share link opened on the old host lands on agentumbot.io, an MCP client added at `https://agentumbot.io/mcp` lists tools.
 9. Rebuild with the committed config and deploy again (`bun run deploy`).
 10. Move the filled secrets file to `~/.config/agentum/agentum-v2.secrets.env` (mode 600) and put the new keys in the password manager. Update external dependencies from the table.
 
