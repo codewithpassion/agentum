@@ -894,7 +894,7 @@ describe("Clerk OAuth and the client gate", () => {
     expect(String((await body(response)).message)).toContain("revoked");
   });
 
-  test("a user who left the org gets 401 even though the client is approved", async () => {
+  test("a user who left the org is refused even though the client is approved", async () => {
     const token = oauthToken("u1");
     await post(token, list);
     await composed.services.oauthClients.setAccess(sessionUser("u1"), {
@@ -904,7 +904,23 @@ describe("Clerk OAuth and the client gate", () => {
     expect((await post(token, list)).status).toBe(200);
 
     members.delete("u1@org_a");
-    expect((await post(token, list)).status).toBe(401);
+    // No home workspace any more on /mcp, and no membership on its own address.
+    expect((await post(token, list)).status).toBe(403);
+    const own = await app.request(
+      `${MCP_URL}/${workspaceId}`,
+      {
+        body: list,
+        headers: {
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Host: HOST,
+        },
+        method: "POST",
+      },
+      env
+    );
+    expect(own.status).toBe(403);
   });
 
   test("another user of an approved client needs membership of its workspace", async () => {
@@ -915,7 +931,7 @@ describe("Clerk OAuth and the client gate", () => {
       clientId: CLIENT_ID,
     });
     const outsider = oauthToken("u9");
-    expect((await post(outsider, list)).status).toBe(401);
+    expect((await post(outsider, list)).status).toBe(403);
     const colleague = oauthToken("u2");
     expect((await post(colleague, list)).status).toBe(200);
   });
@@ -974,6 +990,162 @@ describe("Clerk OAuth and the client gate", () => {
     await Promise.all(pendingWork);
     const [client] = await clients();
     expect(client?.lastUsedAt).not.toBeNull();
+  });
+});
+
+describe("a workspace's own MCP address", () => {
+  const CIMD = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+  let otherWorkspaceId: string;
+
+  const oauthToken = (userId: string, clientId = CIMD): string => {
+    const token = `oat_${userId}_${clientId}`;
+    oauthTokens.set(token, {
+      clientId,
+      expiresAt: null,
+      scopes: ["profile", "email"],
+      userId,
+    });
+    return token;
+  };
+
+  const postTo = (path: string, token: string | null) =>
+    app.request(
+      `https://agentum.example.com${path}`,
+      {
+        body: rpcBody("tools/list", {}),
+        headers: {
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          Host: HOST,
+          ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+        },
+        method: "POST",
+      },
+      env
+    );
+
+  const memberOf = (userId: string, ws: string): Principal => ({
+    kind: "user",
+    userId,
+    via: "session",
+    workspaceId: ws,
+  });
+
+  const clientsOf = (ws: string) =>
+    composed.services.oauthClients.list(memberOf("u1", ws));
+
+  beforeEach(async () => {
+    const other = await composed.services.workspaces.create({
+      clerkOrgId: "org_b",
+      name: "org_b",
+    });
+    otherWorkspaceId = other.id;
+    members.add("u1@org_b");
+    members.add("u3@org_b");
+  });
+
+  test("a request without a token gets a 401 naming the address's own metadata", async () => {
+    const response = await postTo(`/mcp/${workspaceId}`, null);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain(
+      `resource_metadata="https://agentum.example.com/.well-known/oauth-protected-resource/mcp/${workspaceId}"`
+    );
+  });
+
+  test("an unknown workspace, or an id of the wrong shape, is a 404", async () => {
+    const key = await mintKey("u1", "write");
+    expect((await postTo("/mcp/01NOSUCHWORKSPACE000000000", key)).status).toBe(
+      404
+    );
+    expect((await postTo("/mcp/a.b", key)).status).toBe(404);
+    expect((await postTo("/mcp/a.b", null)).status).toBe(404);
+  });
+
+  test("one shared client id gets its own row and approval in each workspace", async () => {
+    const token = oauthToken("u1");
+    expect((await postTo(`/mcp/${workspaceId}`, token)).status).toBe(403);
+    expect((await postTo(`/mcp/${otherWorkspaceId}`, token)).status).toBe(403);
+    expect(await clientsOf(workspaceId)).toMatchObject([
+      { clientId: CIMD, status: "pending" },
+    ]);
+    expect(await clientsOf(otherWorkspaceId)).toMatchObject([
+      { clientId: CIMD, status: "pending" },
+    ]);
+
+    await composed.services.oauthClients.setAccess(
+      memberOf("u1", otherWorkspaceId),
+      { access: "read", clientId: CIMD }
+    );
+    expect((await postTo(`/mcp/${workspaceId}`, token)).status).toBe(403);
+    expect((await postTo(`/mcp/${otherWorkspaceId}`, token)).status).toBe(200);
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        clientId: CIMD,
+        event: "mcp.request",
+        via: "oauth",
+        workspaceId: otherWorkspaceId,
+      })
+    );
+
+    await composed.services.oauthClients.setAccess(
+      memberOf("u1", workspaceId),
+      { access: "write", clientId: CIMD }
+    );
+    expect((await postTo(`/mcp/${workspaceId}`, token)).status).toBe(200);
+  });
+
+  test("a non-member is refused with 403 and records nothing", async () => {
+    // u2 is in org_a only.
+    const response = await postTo(`/mcp/${otherWorkspaceId}`, oauthToken("u2"));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+    expect(await clientsOf(otherWorkspaceId)).toEqual([]);
+    expect(await clientsOf(workspaceId)).toEqual([]);
+    expect(logs).toContainEqual(
+      expect.objectContaining({ event: "mcp.denied", reason: "not_member" })
+    );
+  });
+
+  test("an api key or run token of another workspace gets 403", async () => {
+    const key = await mintKey("u1", "write");
+    expect((await postTo(`/mcp/${workspaceId}`, key)).status).toBe(200);
+    const response = await postTo(`/mcp/${otherWorkspaceId}`, key);
+    expect(response.status).toBe(403);
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        event: "mcp.denied",
+        reason: "workspace_mismatch",
+      })
+    );
+
+    addRun({ agentId: agentA, id: "run_ws", onBehalfOfUserId: "u1" });
+    const run = await runToken("run_ws", agentA);
+    expect((await postTo(`/mcp/${workspaceId}`, run)).status).toBe(200);
+    expect((await postTo(`/mcp/${otherWorkspaceId}`, run)).status).toBe(403);
+  });
+
+  test("bare /mcp acts in each user's home workspace, so a shared client id reaches both", async () => {
+    // u1's home is org_a (the older workspace); u3 is in org_b only.
+    const first = oauthToken("u1");
+    const second = oauthToken("u3");
+    expect((await post(first, rpcBody("tools/list", {}))).status).toBe(403);
+    expect((await post(second, rpcBody("tools/list", {}))).status).toBe(403);
+    expect(await clientsOf(workspaceId)).toHaveLength(1);
+    expect(await clientsOf(otherWorkspaceId)).toHaveLength(1);
+
+    await composed.services.oauthClients.setAccess(
+      memberOf("u3", otherWorkspaceId),
+      { access: "read", clientId: CIMD }
+    );
+    expect((await post(second, rpcBody("tools/list", {}))).status).toBe(200);
+    expect((await post(first, rpcBody("tools/list", {}))).status).toBe(403);
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        event: "mcp.request",
+        userId: "u3",
+        workspaceId: otherWorkspaceId,
+      })
+    );
   });
 });
 

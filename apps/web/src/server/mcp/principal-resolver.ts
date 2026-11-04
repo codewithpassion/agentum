@@ -11,7 +11,7 @@ import {
 import type { Composed } from "../compose.ts";
 import type { OrgMemberCheck, UserOrgsCheck } from "./clerk-membership.ts";
 import type { VerifiedOAuthToken } from "./clerk-oauth.ts";
-import { oauthClaimVerifier } from "./oauth-auth.ts";
+import { oauthClaimVerifier, type TargetWorkspace } from "./oauth-auth.ts";
 
 export interface BearerAuthOptions {
   /** The name of an OAuth application, asked when its client is first seen. */
@@ -26,20 +26,32 @@ export interface BearerAuthOptions {
   ) => (token: string) => Promise<VerifiedOAuthToken | null>;
 }
 
-/** The principal for `authorization`, or null for a bad credential. Throws when auth cannot run. */
+/**
+ * The principal for `authorization`, or null for a bad credential. Throws when
+ * auth cannot run. `workspace` is the workspace the address names
+ * (`/mcp/<id>`): a Clerk OAuth token acts there. A platform token keeps its
+ * own workspace, and the caller compares it.
+ */
 export const authenticateBearer = async (
-  { composed, env }: { composed: Composed; env: Env },
+  {
+    composed,
+    env,
+    workspace = null,
+  }: { composed: Composed; env: Env; workspace?: TargetWorkspace | null },
   options: BearerAuthOptions,
   authorization: string | null
 ): Promise<Principal | null> => {
+  const isOrgMember = options.isOrgMember(env);
   const resolver = createPrincipalResolver({
     db: composed.db,
-    isOrgMember: options.isOrgMember(env),
+    isOrgMember,
     runTokenKey: await importRunTokenKey(env.RUN_TOKEN_KEY),
     // Only a token that is not an `ag_` or `hm_` credential gets here.
     verifyClerkOAuthToken: oauthClaimVerifier({
       clientName: (clientId) => options.clientName(env)(clientId),
+      isOrgMember,
       oauthClients: composed.services.oauthClients,
+      target: workspace,
       userOrgIds: (userId) => options.userOrgIds(env)(userId),
       verify: (token) => options.verifyOAuthToken(env)(token),
       workspaces: composed.services.workspaces,

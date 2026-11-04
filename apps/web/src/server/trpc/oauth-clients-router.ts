@@ -10,6 +10,9 @@ export const oauthClientsRouter = router({
   list: workspaceProcedure.query(({ ctx }) =>
     ctx.services.oauthClients.list(ctx.principal)
   ),
+  mcpAddress: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.oauthClients.mcpAddress(ctx.principal)
+  ),
   revoke: workspaceProcedure
     .input(oauthClientRevokeInputSchema)
     .mutation(({ ctx, input }) =>

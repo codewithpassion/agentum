@@ -827,7 +827,11 @@ export const composeWith = ({
     validate: infra.validateModelKey,
   });
   const network = createNetworkService({ db, events });
-  const oauthClients = createOAuthClientsService({ clock: infra.clock, db });
+  const oauthClients = createOAuthClientsService({
+    clock: infra.clock,
+    db,
+    publicBaseUrl: infra.publicBaseUrl,
+  });
   const secrets = createSecretsService({
     atomic: infra.atomic,
     clock: infra.clock,

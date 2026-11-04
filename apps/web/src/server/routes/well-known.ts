@@ -6,13 +6,14 @@ import type { Context, Hono } from "hono";
 import {
   CORS_HEADERS,
   createAuthServerMetadataProxy,
+  isWorkspaceIdShape,
+  MCP_ROUTE,
   mcpOrigin,
   protectedResourceMetadata,
   resolveIssuer,
+  workspaceMcpRoute,
 } from "../mcp/metadata.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
-
-const MCP_ROUTE = "/mcp";
 
 type LogEntry = Record<string, unknown>;
 type RouteContext = Context<AppEnv>;
@@ -70,8 +71,17 @@ export const wellKnownRoutes = (options: WellKnownOptions): Hono<AppEnv> => {
   };
 
   // RFC 9728 protected resource metadata. Clients try the path-suffixed URL
-  // first and fall back to the root one; both describe `/mcp`.
+  // first and fall back to the root one; both describe `/mcp`. A workspace's
+  // own address `/mcp/<id>` has its document at the path-suffixed URL only.
+  // The id's shape is checked, not its existence: the document is public and
+  // the MCP route itself answers 404 for an unknown workspace.
   const protectedResource = (c: RouteContext): Response => {
+    const workspaceId = c.req.param("workspaceId");
+    if (workspaceId !== undefined && !isWorkspaceIdShape(workspaceId)) {
+      return metadataError(404, "not_found");
+    }
+    const route =
+      workspaceId === undefined ? MCP_ROUTE : workspaceMcpRoute(workspaceId);
     const origin = originOf(c);
     if (!origin) {
       log({ event: "mcp.config", message: "PUBLIC_BASE_URL is not set" });
@@ -82,10 +92,9 @@ export const wellKnownRoutes = (options: WellKnownOptions): Hono<AppEnv> => {
       return metadataError(500, "server_error");
     }
     return withCors(
-      Response.json(
-        protectedResourceMetadata({ issuer, origin, route: MCP_ROUTE }),
-        { headers: { "Cache-Control": "public, max-age=300" } }
-      )
+      Response.json(protectedResourceMetadata({ issuer, origin, route }), {
+        headers: { "Cache-Control": "public, max-age=300" },
+      })
     );
   };
 
@@ -117,6 +126,23 @@ export const wellKnownRoutes = (options: WellKnownOptions): Hono<AppEnv> => {
   routes.options("/oauth-authorization-server", corsPreflight);
   routes.get(`/oauth-authorization-server${MCP_ROUTE}`, authServer);
   routes.options(`/oauth-authorization-server${MCP_ROUTE}`, corsPreflight);
+  // A workspace's own address, `/mcp/<workspaceId>`.
+  routes.get(
+    `/oauth-protected-resource${MCP_ROUTE}/:workspaceId`,
+    protectedResource
+  );
+  routes.options(
+    `/oauth-protected-resource${MCP_ROUTE}/:workspaceId`,
+    corsPreflight
+  );
+  routes.get(
+    `/oauth-authorization-server${MCP_ROUTE}/:workspaceId`,
+    authServer
+  );
+  routes.options(
+    `/oauth-authorization-server${MCP_ROUTE}/:workspaceId`,
+    corsPreflight
+  );
 
   return routes;
 };

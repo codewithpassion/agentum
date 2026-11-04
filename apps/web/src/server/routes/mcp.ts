@@ -1,9 +1,13 @@
-// The platform MCP endpoint, `/mcp`. Bearer authenticated: an `ag_key_` API
-// key, or the `hm_run_` token of a running agent. Per request it resolves the
-// principal, builds the tool ports bound to it and hands the request to an
-// MCP handler made for that request alone, so nothing is shared between
-// callers. A Clerk OAuth token is accepted too, once its client is approved
-// (`oauth-auth.ts`). Mount with `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
+// The platform MCP endpoint, `/mcp`, and each workspace's own address,
+// `/mcp/<workspaceId>`, which serves the same server. Bearer authenticated: an
+// `ag_key_` API key, or the `hm_run_` token of a running agent. Per request it
+// resolves the principal, builds the tool ports bound to it and hands the
+// request to an MCP handler made for that request alone, so nothing is shared
+// between callers. A Clerk OAuth token is accepted too, once its client is
+// approved in the workspace the address names, or for bare `/mcp` in the
+// user's home workspace (`oauth-auth.ts`). A platform token on a workspace's
+// address must belong to that workspace. Mount with
+// `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
 import { createAgentumMcpServer } from "@repo/mcp/server";
 import { isReadOnly } from "@repo/services/automation-access";
 import type { Principal } from "@repo/services/workspaces";
@@ -14,11 +18,14 @@ import { readCappedBody } from "../mcp/body.ts";
 import { OAuthVerificationUnavailableError } from "../mcp/clerk-oauth.ts";
 import { guestMcpServer } from "../mcp/guest-server";
 import {
+  isWorkspaceIdShape,
   LOCAL_HOSTNAMES,
+  MCP_ROUTE,
   mcpOrigin,
   resourceMetadataUrl,
+  workspaceMcpRoute,
 } from "../mcp/metadata.ts";
-import { OAuthDeniedError } from "../mcp/oauth-auth.ts";
+import { OAuthDeniedError, type TargetWorkspace } from "../mcp/oauth-auth.ts";
 import {
   createMcpPorts,
   resolveRunBrowser,
@@ -35,8 +42,6 @@ export const MAX_MCP_BODY_BYTES = 1024 * 1024;
 
 /** Seconds a client waits after a 503 before trying again. */
 const RETRY_AFTER_SECONDS = "30";
-
-const MCP_ROUTE = "/mcp";
 
 type LogEntry = Record<string, unknown>;
 type RouteContext = Context<AppEnv>;
@@ -113,6 +118,9 @@ const unauthorized = (
 
 const forbidden = (): Response =>
   Response.json({ error: "forbidden" }, { status: 403 });
+
+const notFound = (): Response =>
+  Response.json({ error: "not_found" }, { status: 404 });
 
 /** Authentication could not run (D1, Clerk or a missing key): not the caller's fault. */
 const unavailable = (): Response =>
@@ -260,9 +268,12 @@ export const mcpRoutes = ({
     });
 
   /** The principal for the request, null for a bad credential. Throws when auth cannot run. */
-  const authenticate = (c: RouteContext): Promise<Principal | null> =>
+  const authenticate = (
+    c: RouteContext,
+    workspace: TargetWorkspace | null
+  ): Promise<Principal | null> =>
     authenticateBearer(
-      { composed: c.get("composed"), env: c.env },
+      { composed: c.get("composed"), env: c.env, workspace },
       { clientName, isOrgMember, userOrgIds, verifyOAuthToken },
       c.req.header("Authorization") ?? null
     );
@@ -308,7 +319,7 @@ export const mcpRoutes = ({
     }
   };
 
-  /** A refused OAuth token: its client is not approved, or its user has no workspace here. */
+  /** A refused OAuth token: its client is not approved, or its user may not act in the workspace. */
   const oauthRefusal = (c: RouteContext, error: OAuthDeniedError): Response => {
     log({
       clientId: error.clientId,
@@ -317,18 +328,20 @@ export const mcpRoutes = ({
       userId: error.userId,
       via: "oauth",
     });
-    return error.reason === "no_workspace"
+    return error.reason === "no_workspace" || error.reason === "not_member"
       ? forbidden()
       : clientNotApproved(error, originOf(c));
   };
 
-  /** The principal that may use `/mcp`, or the response that refuses the request. */
+  /** The principal that may use `route`, or the response that refuses the request. */
   const principalOrRefusal = async (
-    c: RouteContext
+    c: RouteContext,
+    route: string,
+    workspace: TargetWorkspace | null
   ): Promise<Extract<Principal, { kind: "run" | "user" }> | Response> => {
     let principal: Principal | null;
     try {
-      principal = await authenticate(c);
+      principal = await authenticate(c, workspace);
     } catch (error: unknown) {
       if (error instanceof OAuthDeniedError) {
         return oauthRefusal(c, error);
@@ -349,7 +362,7 @@ export const mcpRoutes = ({
       log({ event: "mcp.denied", reason: "credential" });
       const origin = originOf(c);
       return unauthorized(
-        origin ? resourceMetadataUrl(origin, MCP_ROUTE) : null,
+        origin ? resourceMetadataUrl(origin, route) : null,
         c.req.header("Authorization") !== undefined
       );
     }
@@ -357,15 +370,50 @@ export const mcpRoutes = ({
       log({ event: "mcp.denied", kind: principal.kind, reason: "kind" });
       return forbidden();
     }
+    return refusalOf(principal, workspace) ?? principal;
+  };
+
+  /** The 403 for a user or run that may not use the address; null when it may. */
+  const refusalOf = (
+    principal: Extract<Principal, { kind: "run" | "user" }>,
+    workspace: TargetWorkspace | null
+  ): Response | null => {
     // A desk key is for `/api/desk` only, and acts for whoever the header names.
     if (principal.kind === "user" && principal.apiKey?.access === "desk") {
       log({ event: "mcp.denied", reason: "desk_key" });
       return forbidden();
     }
-    return principal;
+    // A key or token of one workspace never acts in the one the address names.
+    if (workspace && principal.workspaceId !== workspace.id) {
+      log({ event: "mcp.denied", reason: "workspace_mismatch" });
+      return forbidden();
+    }
+    return null;
   };
 
-  routes.all("/", async (c) => {
+  /** The workspace `/mcp/<workspaceId>` names, or null when there is none. */
+  const workspaceNamed = async (
+    c: RouteContext,
+    workspaceId: string
+  ): Promise<TargetWorkspace | null> => {
+    // Untrusted input: its shape is checked before any query.
+    if (!isWorkspaceIdShape(workspaceId)) {
+      return null;
+    }
+    const workspace = await c
+      .get("composed")
+      .services.workspaces.byId(workspaceId);
+    return workspace
+      ? { clerkOrgId: workspace.clerkOrgId, id: workspace.id }
+      : null;
+  };
+
+  /** One MCP request on `route`, acting in `workspace` or, for bare `/mcp`, the token's own. */
+  const serve = async (
+    c: RouteContext,
+    route: string,
+    workspace: TargetWorkspace | null
+  ): Promise<Response> => {
     const allowedHostnames = mcpAllowedHostnames(c.env.PUBLIC_BASE_URL, dev);
     const options = {
       allowedHostnames,
@@ -376,14 +424,14 @@ export const mcpRoutes = ({
       maxSubscriptions: 0,
       onerror: (error: Error) =>
         log({ event: "mcp.error", message: error.message }),
-      route: MCP_ROUTE,
+      route,
     };
     // A CORS preflight carries no Authorization header.
     if (c.req.method === "OPTIONS") {
       return createMcpHandler(noServerForPreflight, options).fetch(c.req.raw);
     }
 
-    const principal = await principalOrRefusal(c);
+    const principal = await principalOrRefusal(c, route, workspace);
     if (principal instanceof Response) {
       return principal;
     }
@@ -473,6 +521,27 @@ export const mcpRoutes = ({
       recordUse(c, principal);
     }
     return response;
+  };
+
+  routes.all("/", (c) => serve(c, MCP_ROUTE, null));
+
+  routes.all("/:workspaceId", async (c) => {
+    let workspace: TargetWorkspace | null;
+    try {
+      workspace = await workspaceNamed(c, c.req.param("workspaceId"));
+    } catch (error: unknown) {
+      log({
+        event: "mcp.error",
+        message: error instanceof Error ? error.message : String(error),
+        phase: "workspace",
+      });
+      return unavailable();
+    }
+    if (!workspace) {
+      log({ event: "mcp.refused", reason: "unknown_workspace", status: 404 });
+      return notFound();
+    }
+    return serve(c, workspaceMcpRoute(workspace.id), workspace);
   });
 
   return routes;

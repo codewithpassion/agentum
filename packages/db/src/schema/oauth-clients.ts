@@ -6,9 +6,11 @@ import { workspaces } from "./workspaces.ts";
 /**
  * OAuth clients (Clerk OAuth applications) seen by `/mcp`. Clerk's access
  * tokens carry no audience, so a token only proves the user consented to some
- * app on the Clerk instance. A client does nothing here until a workspace
- * member approves it. `client_id` is unique across workspaces, and the row
- * names the workspace an OAuth principal acts in. A row with no `access` and
+ * app on the Clerk instance. A client does nothing in a workspace until a
+ * member approves it there. One row per (`client_id`, workspace): a client
+ * id shared by every user of an app (a CIMD URL) is approved per workspace,
+ * and the MCP address (`/mcp/<workspaceId>`, or the user's home workspace for
+ * bare `/mcp`) picks the row. A row with no `access` and
  * no `revoked_at` is pending; with `revoked_at` it is revoked.
  */
 export const oauthClients = sqliteTable(
@@ -31,5 +33,10 @@ export const oauthClients = sqliteTable(
       onDelete: "cascade",
     }),
   },
-  (t) => [uniqueIndex("oauth_clients_client_id_unique").on(t.clientId)]
+  (t) => [
+    uniqueIndex("oauth_clients_client_workspace_unique").on(
+      t.clientId,
+      t.workspaceId
+    ),
+  ]
 );

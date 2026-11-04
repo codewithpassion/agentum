@@ -1,8 +1,10 @@
 /**
  * OAuth clients: the Clerk OAuth applications that reach `/mcp` on a user's
- * behalf. A client does nothing until a workspace member approves it. The
- * first request of an unknown client records it as pending, so the owner
- * sees it in Settings. Approval, change and revoke take effect on the next
+ * behalf. Approval is per workspace: one row per (client id, workspace), so
+ * a client id shared by every user of an app (a CIMD URL) gets a row, and an
+ * approval, in each workspace it connects to. A client does nothing in a
+ * workspace until a member approves it there. The first request of an
+ * unknown pair records it as pending, so the members see it in Settings. Approval, change and revoke take effect on the next
  * request, since every request reads the row. `touch` records a use at most
  * every five minutes, so a busy agent does not turn every request into a write.
  */
@@ -87,20 +89,12 @@ export interface OAuthClientSummary {
 }
 
 export type OAuthClientResolution =
-  | {
-      access: OAuthClientAccess;
-      status: "approved";
-      /** The workspace the client is approved in: it selects the workspace. */
-      workspaceId: string;
-    }
+  | { access: OAuthClientAccess; status: "approved" }
   | { name: string | null; status: "pending" }
-  | { name: string | null; status: "revoked" }
-  | { status: "no_workspace" };
+  | { name: string | null; status: "revoked" };
 
 export interface OAuthClientResolve {
   clientId: string;
-  /** The workspace a first-seen client is recorded in. Null: nothing is recorded. */
-  homeWorkspaceId: () => Promise<string | null>;
   /**
    * Looks up the application's name. Called when the row is about to be
    * created, and on later requests only while the stored name is null, until a
@@ -112,6 +106,11 @@ export interface OAuthClientResolve {
   name?: () => Promise<string | null>;
   /** Clerk user id the token was issued to. */
   userId: string;
+  /**
+   * The workspace the request acts in. The caller has already checked the
+   * user may record a client there.
+   */
+  workspaceId: string;
 }
 
 const columns = {
@@ -179,55 +178,64 @@ export const createOAuthClientsService = ({
   clock,
   db,
   nameLookupFailures = isolateNameLookupFailures,
+  publicBaseUrl,
 }: {
   clock: Clock;
   db: Database;
   nameLookupFailures?: NameLookupFailures;
+  /** The deployment's origin, for the MCP address shown in Settings. */
+  publicBaseUrl?: string;
 }) => {
-  const findByClientId = async (
-    clientId: string
+  const rowOf = (clientId: string, workspaceId: string) =>
+    and(
+      eq(oauthClients.clientId, clientId),
+      eq(oauthClients.workspaceId, workspaceId)
+    );
+
+  const find = async (
+    clientId: string,
+    workspaceId: string
   ): Promise<StoredRow | null> => {
     const [row] = await db
       .select({ ...columns, workspaceId: oauthClients.workspaceId })
       .from(oauthClients)
-      .where(eq(oauthClients.clientId, clientId))
+      .where(rowOf(clientId, workspaceId))
       .limit(1);
     return row ?? null;
   };
 
   /**
-   * What the client may do, and in which workspace. Not scoped to a
-   * workspace: it runs before one is known, and an approved row names its
-   * workspace. An unknown client is recorded as pending in the home
-   * workspace, and two first requests at once agree on one row.
+   * What the client may do in the request's workspace. No principal: it runs
+   * before one exists, and the caller has checked the user's membership. An
+   * unknown pair is recorded as pending in that workspace, and two first
+   * requests at once agree on one row.
    */
   const resolve = async (
     input: OAuthClientResolve
   ): Promise<OAuthClientResolution> => {
-    const existing = await findByClientId(input.clientId);
+    const { clientId, workspaceId } = input;
+    const existing = await find(clientId, workspaceId);
     if (existing) {
       return answer(await fillMissingName(existing, input));
-    }
-    const workspaceId = await input.homeWorkspaceId();
-    if (workspaceId === null) {
-      return { status: "no_workspace" };
     }
     const name = await lookupName(input.name);
     const now = clock.now();
     await db
       .insert(oauthClients)
       .values({
-        clientId: input.clientId,
+        clientId,
         createdAt: now.toISOString(),
         firstSeenBy: input.userId,
         id: ulid(now.getTime()),
         name,
         workspaceId,
       })
-      .onConflictDoNothing({ target: oauthClients.clientId });
-    const stored = await findByClientId(input.clientId);
+      .onConflictDoNothing({
+        target: [oauthClients.clientId, oauthClients.workspaceId],
+      });
+    const stored = await find(clientId, workspaceId);
     if (!stored) {
-      throw new Error(`OAuth client ${input.clientId} missing after insert`);
+      throw new Error(`OAuth client ${clientId} missing after insert`);
     }
     return answer(stored);
   };
@@ -262,9 +270,9 @@ export const createOAuthClientsService = ({
       .update(oauthClients)
       .set({ name })
       .where(
-        and(eq(oauthClients.clientId, row.clientId), isNull(oauthClients.name))
+        and(rowOf(row.clientId, row.workspaceId), isNull(oauthClients.name))
       );
-    return (await findByClientId(row.clientId)) ?? row;
+    return (await find(row.clientId, row.workspaceId)) ?? row;
   };
 
   const answer = (row: StoredRow): OAuthClientResolution => {
@@ -272,11 +280,7 @@ export const createOAuthClientsService = ({
       return { name: row.name, status: "revoked" };
     }
     if (row.access) {
-      return {
-        access: row.access,
-        status: "approved",
-        workspaceId: row.workspaceId,
-      };
+      return { access: row.access, status: "approved" };
     }
     return { name: row.name, status: "pending" };
   };
@@ -405,7 +409,27 @@ export const createOAuthClientsService = ({
     return written.length > 0;
   };
 
-  return { list, resolve, revoke, setAccess, touch };
+  /**
+   * The calling user's workspace's own MCP address, which a client connects
+   * to so it acts in this workspace. `url` is null when the deployment has no
+   * `PUBLIC_BASE_URL`; the page then puts `path` on its own origin.
+   */
+  const mcpAddress = (
+    principal: Principal
+  ): { path: string; url: string | null } => {
+    const user = requireUser(principal, LIST_ACTION);
+    authorize(user, LIST_ACTION, {
+      kind: OAUTH_CLIENT_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const path = `/mcp/${user.workspaceId}`;
+    return {
+      path,
+      url: publicBaseUrl ? `${new URL(publicBaseUrl).origin}${path}` : null,
+    };
+  };
+
+  return { list, mcpAddress, resolve, revoke, setAccess, touch };
 };
 
 export type OAuthClientsService = ReturnType<typeof createOAuthClientsService>;

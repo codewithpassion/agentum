@@ -203,3 +203,53 @@ describe("CORS", () => {
     }
   });
 });
+
+describe("a workspace's own MCP address", () => {
+  const WORKSPACE = "01M5X0WJ0WRNMDG7EX5W920J26";
+
+  test("its protected resource metadata names /mcp/<workspaceId> as the resource", async () => {
+    const { get } = setup();
+    const response = await get(
+      `${origin}/.well-known/oauth-protected-resource/mcp/${WORKSPACE}`
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(await response.json()).toEqual({
+      authorization_servers: [ISSUER],
+      bearer_methods_supported: ["header"],
+      resource: `${origin}/mcp/${WORKSPACE}`,
+      resource_name: "Agentum",
+      scopes_supported: ["profile", "email"],
+    });
+    const preflight = await get(
+      `${origin}/.well-known/oauth-protected-resource/mcp/${WORKSPACE}`,
+      { method: "OPTIONS" }
+    );
+    expect(preflight.status).toBe(204);
+  });
+
+  test("the authorization server metadata is served at its path-inserted URL too", async () => {
+    const proxy = createAuthServerMetadataProxy({
+      fetch: (() =>
+        Promise.resolve(Response.json(AS_DOCUMENT))) as unknown as typeof fetch,
+    });
+    const { get } = setup({ authServerMetadata: proxy });
+    const response = await get(
+      `${origin}/.well-known/oauth-authorization-server/mcp/${WORKSPACE}`
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(AS_DOCUMENT);
+  });
+
+  test("a workspace id of the wrong shape is a 404", async () => {
+    const { get } = setup();
+    const responses = await Promise.all(
+      ["a.b", "x".repeat(65), "a%20b"].map((bad) =>
+        get(`${origin}/.well-known/oauth-protected-resource/mcp/${bad}`)
+      )
+    );
+    expect(responses.map((response) => response.status)).toEqual([
+      404, 404, 404,
+    ]);
+  });
+});

@@ -186,13 +186,15 @@ In the window, after the D1 copy into `agentum-v2` (step 4 under "Production cut
 
 After the cutover every user signs in again on agentumbot.io, and every MCP OAuth client approved against the old instance has to be connected and approved again: client ids belong to an instance.
 
+MCP OAuth clients are approved per workspace. Each workspace has its own MCP address, `https://agentumbot.io/mcp/<workspaceId>`, shown with a copy button in Settings, Connected apps. Its OAuth resource is that URL, and its protected resource metadata is at `/.well-known/oauth-protected-resource/mcp/<workspaceId>`. A client that connects there acts in that workspace, through the `oauth_clients` row for that client id and workspace. The first request of an unknown pair records it as pending, but only for a member of the workspace's organisation: anyone else gets a 403 and nothing is recorded. Bare `/mcp` still works and acts in the user's home workspace, their oldest one. Because the key is (client id, workspace), a client id shared by every user of an app, such as Claude's CIMD URL `https://claude.ai/oauth/mcp-oauth-client-metadata`, gets its own row and approval in each workspace. An API key, run token or machine token on another workspace's address gets a 403.
+
 ## External dependencies
 
 Things outside this repository that hold the old hostname or names:
 
 | What | Where | Action |
 |---|---|---|
-| MCP connectors in Claude and other clients | each user's client, URL `https://harbourmaster.rockyshoreslabs.io/mcp` | re-add as `https://agentumbot.io/mcp`. The old URL fails the host check. OAuth clients approved against the old Clerk instance don't carry over: reconnect the client, then a member approves it again. |
+| MCP connectors in Claude and other clients | each user's client, URL `https://harbourmaster.rockyshoreslabs.io/mcp` | re-add as the workspace's own address from Settings, Connected apps (`https://agentumbot.io/mcp/<workspaceId>`), or `https://agentumbot.io/mcp` for the home workspace. The old URL fails the host check. OAuth clients approved against the old Clerk instance don't carry over: reconnect the client, then a member approves it again. |
 | Google OAuth client | Google Cloud console, client in `GOOGLE_OAUTH_CLIENT_ID` | add redirect URI `https://agentumbot.io/api/connectors/oauth/callback` (and `https://staging.agentumbot.io/...`). Keep the old one until no connect flow is in flight. |
 | Connector OAuth clients from dynamic registration | stored per connector, registered with the old redirect URI | the scrub removes the ones with a client secret. The rest register again on the next connect, because their redirect URI no longer matches. |
 | A2A peers | peers' configs, our agent cards | peers that fetched our card keep the old URL. It is served in place. Pushed webhook URLs stored at peers point at the old host, served in place too. Our own card now advertises agentumbot.io. |

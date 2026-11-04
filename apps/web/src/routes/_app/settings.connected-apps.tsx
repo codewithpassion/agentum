@@ -5,12 +5,17 @@ import {
   type ConnectedAppAccess,
   ConnectedAppsTable,
 } from "#/components/connected-apps/connected-apps-table";
+import { McpAddress } from "#/components/connected-apps/mcp-address";
 import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/_app/settings/connected-apps")({
   loader: async () => {
     try {
-      return await getTrpc().oauthClients.list.query();
+      const [clients, address] = await Promise.all([
+        getTrpc().oauthClients.list.query(),
+        getTrpc().oauthClients.mcpAddress.query(),
+      ]);
+      return { address, clients };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -28,7 +33,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
 function ConnectedAppsPage() {
-  const clients = Route.useLoaderData();
+  const { address, clients } = Route.useLoaderData();
   const router = useRouter();
   const [busyClientId, setBusyClientId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +42,10 @@ function ConnectedAppsPage() {
   useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
+
+  // Without PUBLIC_BASE_URL (a preview), the address is on the page's origin.
+  const mcpUrl =
+    address.url ?? (origin === null ? null : `${origin}${address.path}`);
 
   const change = useCallback(
     async (clientId: string, write: () => Promise<unknown>) => {
@@ -77,24 +86,16 @@ function ConnectedAppsPage() {
           Connected apps
         </h1>
       </div>
+      {mcpUrl === null ? null : <McpAddress url={mcpUrl} />}
       {error !== null && (
         <p className="mb-4 text-destructive text-sm">{error}</p>
       )}
       {clients.length === 0 ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-muted-foreground text-sm">
-            No apps yet. An app appears here after it first tries to connect.
-          </p>
-          <p className="text-muted-foreground text-sm">
-            To connect Claude.ai, add a custom connector in Claude.ai with this
-            server&apos;s MCP URL:
-          </p>
-          {origin === null ? null : (
-            <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-foreground text-xs">
-              {`${origin}/mcp`}
-            </pre>
-          )}
-        </div>
+        <p className="text-muted-foreground text-sm">
+          No apps yet. An app appears here after it first tries to connect. To
+          connect Claude.ai, add a custom connector in Claude.ai with the
+          address above.
+        </p>
       ) : (
         <ConnectedAppsTable
           busyClientId={busyClientId}

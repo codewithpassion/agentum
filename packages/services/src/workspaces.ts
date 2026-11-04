@@ -265,6 +265,20 @@ export const createWorkspacesService = ({
   };
 
   /**
+   * The workspace with id `id`, or null. No principal: a bearer route asks it
+   * before authenticating, to learn which organisation a workspace address
+   * names. Callers check the id's shape first.
+   */
+  const byId = async (id: string): Promise<Workspace | null> => {
+    const [row] = await db
+      .select(WORKSPACE_COLUMNS)
+      .from(workspaces)
+      .where(eq(workspaces.id, id))
+      .limit(1);
+    return row ?? null;
+  };
+
+  /**
    * The user principal for a Clerk session. Clerk signs the org claim, so
    * there is no membership call here. Null without an org, or when the org
    * has no workspace row.
@@ -445,6 +459,7 @@ export const createWorkspacesService = ({
     (await selectRow(clerkOrgId)) !== undefined;
 
   return {
+    byId,
     create,
     createFromSession,
     firstForOrgs,

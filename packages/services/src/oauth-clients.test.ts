@@ -78,17 +78,17 @@ const row = (clientId: string) =>
     .where(eq(oauthClients.clientId, clientId))
     .get();
 
-/** A first request from `userId` for `clientId`, in a workspace `home`. */
+/** A first request from `userId` for `clientId`, in workspace `workspaceId`. */
 const firstSeen = (
   clientId: string,
-  home: string | null = WORKSPACE,
+  workspaceId: string = WORKSPACE,
   name?: () => Promise<string | null>
 ) =>
   service.resolve({
     clientId,
-    homeWorkspaceId: () => Promise.resolve(home),
     name,
     userId: "u1",
+    workspaceId,
   });
 
 beforeEach(() => {
@@ -106,11 +106,6 @@ beforeEach(() => {
 
 test("an unknown client is recorded pending with a sanitized name, and the name is looked up once", async () => {
   const name = () => Promise.resolve("  Cool‮   App  ");
-  let homeCalls = 0;
-  const homeWorkspaceId = () => {
-    homeCalls += 1;
-    return Promise.resolve(WORKSPACE);
-  };
   let nameCalls = 0;
   const lookup = () => {
     nameCalls += 1;
@@ -119,9 +114,9 @@ test("an unknown client is recorded pending with a sanitized name, and the name 
 
   const first = await service.resolve({
     clientId: CLIENT,
-    homeWorkspaceId,
     name: lookup,
     userId: "u1",
+    workspaceId: WORKSPACE,
   });
 
   expect(first).toEqual({ name: "Cool App", status: "pending" });
@@ -134,27 +129,73 @@ test("an unknown client is recorded pending with a sanitized name, and the name 
     revokedAt: null,
     workspaceId: WORKSPACE,
   });
-  expect(homeCalls).toBe(1);
   expect(nameCalls).toBe(1);
 
   advance(MINUTE);
   const second = await service.resolve({
     clientId: CLIENT,
-    homeWorkspaceId,
     name: lookup,
     userId: "u2",
+    workspaceId: WORKSPACE,
   });
 
   expect(second).toEqual({ name: "Cool App", status: "pending" });
-  expect(homeCalls).toBe(1);
   expect(nameCalls).toBe(1);
 });
 
-test("an unknown client with no home workspace is answered no_workspace and records nothing", async () => {
-  const result = await firstSeen(CLIENT, null);
+test("one client id in two workspaces gets a row and an approval in each", async () => {
+  const cimd = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+  await firstSeen(cimd, WORKSPACE, () => Promise.resolve("Claude"));
+  await firstSeen(cimd, OTHER_WORKSPACE, () => Promise.resolve("Claude"));
 
-  expect(result).toEqual({ status: "no_workspace" });
-  expect(row(CLIENT)).toBeUndefined();
+  await service.setAccess(user, { access: "write", clientId: cimd });
+
+  expect(await firstSeen(cimd, WORKSPACE)).toEqual({
+    access: "write",
+    status: "approved",
+  });
+  expect(await firstSeen(cimd, OTHER_WORKSPACE)).toEqual({
+    name: "Claude",
+    status: "pending",
+  });
+  expect(await service.list(otherWorkspaceUser)).toMatchObject([
+    { clientId: cimd, status: "pending" },
+  ]);
+
+  await service.revoke(otherWorkspaceUser, { clientId: cimd });
+  expect(await firstSeen(cimd, WORKSPACE)).toMatchObject({
+    status: "approved",
+  });
+});
+
+test("filling a missing name touches only that workspace's row", async () => {
+  await firstSeen(CLIENT, WORKSPACE);
+  await firstSeen(CLIENT, OTHER_WORKSPACE);
+  advance(10 * MINUTE);
+
+  await firstSeen(CLIENT, WORKSPACE, () => Promise.resolve("Named"));
+
+  expect(await service.list(user)).toMatchObject([{ name: "Named" }]);
+  expect(await service.list(otherWorkspaceUser)).toMatchObject([
+    { name: null },
+  ]);
+});
+
+test("mcpAddress is the workspace's own address on PUBLIC_BASE_URL", () => {
+  const withBase = createOAuthClientsService({
+    clock,
+    db,
+    publicBaseUrl: "https://agentum.example.com/",
+  });
+  expect(withBase.mcpAddress(user)).toEqual({
+    path: `/mcp/${WORKSPACE}`,
+    url: `https://agentum.example.com/mcp/${WORKSPACE}`,
+  });
+  expect(service.mcpAddress(user)).toEqual({
+    path: `/mcp/${WORKSPACE}`,
+    url: null,
+  });
+  expect(() => withBase.mcpAddress(apiKeyPrincipal)).toThrow(ForbiddenError);
 });
 
 test("a client whose name lookup throws is recorded with a null name", async () => {
@@ -176,9 +217,9 @@ test("a pending client stored without a name gets it filled on the next resolve"
 
   const filled = await service.resolve({
     clientId: CLIENT,
-    homeWorkspaceId: () => Promise.resolve(WORKSPACE),
     name: lookup,
     userId: "u1",
+    workspaceId: WORKSPACE,
   });
 
   expect(filled).toEqual({ name: "Late Name", status: "pending" });
@@ -187,9 +228,9 @@ test("a pending client stored without a name gets it filled on the next resolve"
 
   await service.resolve({
     clientId: CLIENT,
-    homeWorkspaceId: () => Promise.resolve(WORKSPACE),
     name: lookup,
     userId: "u1",
+    workspaceId: WORKSPACE,
   });
   expect(nameCalls).toBe(1);
 });
@@ -205,7 +246,6 @@ test("an approved client stored without a name gets it filled, and is still appr
   expect(result).toEqual({
     access: "read",
     status: "approved",
-    workspaceId: WORKSPACE,
   });
   expect(row(CLIENT)?.name).toBe("Approved App");
 });
@@ -265,7 +305,7 @@ test("a nameless client stays nameless when the lookup throws or returns null", 
   expect(row(CLIENT)?.name).toBeNull();
 });
 
-test("approving a client makes resolve answer approved with its access and workspace", async () => {
+test("approving a client makes resolve answer approved with its access", async () => {
   await firstSeen(CLIENT);
 
   const summary = await service.setAccess(user, {
@@ -286,7 +326,6 @@ test("approving a client makes resolve answer approved with its access and works
   expect(await firstSeen(CLIENT)).toEqual({
     access: "read",
     status: "approved",
-    workspaceId: WORKSPACE,
   });
 });
 
@@ -342,7 +381,6 @@ test("a revoked client can be approved again", async () => {
   expect(await firstSeen(CLIENT)).toEqual({
     access: "write",
     status: "approved",
-    workspaceId: WORKSPACE,
   });
 });
 
@@ -532,9 +570,9 @@ test("a failed name lookup for a nameless client is retried after five minutes, 
   const request = (name: () => Promise<string | null>) =>
     createOAuthClientsService({ clock, db, nameLookupFailures }).resolve({
       clientId: CLIENT,
-      homeWorkspaceId: () => Promise.resolve(WORKSPACE),
       name,
       userId: "user_1",
+      workspaceId: WORKSPACE,
     });
   await request(() => Promise.resolve(null));
   let calls = 0;

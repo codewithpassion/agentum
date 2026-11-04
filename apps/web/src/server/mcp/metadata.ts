@@ -65,7 +65,24 @@ export const mcpOrigin = (
   return configured ? configured.origin : null;
 };
 
-/** Where the protected resource metadata for `/mcp` lives on `origin`. */
+/** The MCP path every workspace shares; its home-workspace address. */
+export const MCP_ROUTE = "/mcp";
+
+/**
+ * The shape a workspace id in an MCP address must have before anything looks
+ * it up: ULIDs in production, short ids in tests. No `/`, `.` or `%`.
+ */
+const WORKSPACE_ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Whether `segment` may be a workspace id; the database decides if it is one. */
+export const isWorkspaceIdShape = (segment: string): boolean =>
+  WORKSPACE_ID_SHAPE.test(segment);
+
+/** The MCP path of a workspace's own address. */
+export const workspaceMcpRoute = (workspaceId: string): string =>
+  `${MCP_ROUTE}/${workspaceId}`;
+
+/** Where the protected resource metadata for an MCP path lives on `origin` (RFC 9728 3.1). */
 export const resourceMetadataUrl = (origin: string, route: string): string =>
   `${origin}${PROTECTED_RESOURCE_PATH}${route}`;
 
