@@ -48,6 +48,7 @@ import {
   bearerToken,
   findTriggerByToken,
   type Principal,
+  SYSTEM_PRINCIPAL,
 } from "./workspaces.ts";
 
 /** The prefix new trigger tokens get. Check with `TRIGGER_TOKEN` from token-prefixes. */
@@ -74,6 +75,23 @@ const appSessionKey = (triggerId: string, sessionKey?: string) =>
 const APPROVE_ACTION = "triggers.approve";
 const REJECT_ACTION = "triggers.reject";
 const FIRE_ACTION = "triggers.fire";
+
+const appReplyTarget = (
+  trigger: { kind: string; artifactId: string | null },
+  app?: { state: string }
+) => {
+  if (!app) {
+    return;
+  }
+  if (trigger.kind !== "app" || !trigger.artifactId) {
+    throw new ForbiddenError(FIRE_ACTION);
+  }
+  return {
+    artifactId: trigger.artifactId,
+    kind: "app" as const,
+    state: app.state,
+  };
+};
 
 export type TriggerPrincipal = Extract<Principal, { kind: "trigger" }>;
 
@@ -160,11 +178,13 @@ const summaryColumns = {
 export const createTriggersService = ({
   clock,
   db,
+  defer,
   events: eventsService,
   runs,
 }: {
   clock: Clock;
   db: Database;
+  defer?: (work: Promise<void>) => void;
   events: EventsService;
   runs: RunsService;
 }) => {
@@ -592,30 +612,28 @@ export const createTriggersService = ({
     if (!trigger || trigger.revokedAt !== null || trigger.disabledAt !== null) {
       throw new ForbiddenError(FIRE_ACTION);
     }
-    if (app && (trigger.kind !== "app" || !trigger.artifactId)) {
-      throw new ForbiddenError(FIRE_ACTION);
-    }
     authorize(principal, FIRE_ACTION, {
       id: triggerId,
       kind: TRIGGER_KIND,
       workspaceId: trigger.workspaceId,
     });
-    const started = await runs.startRun(principal, {
-      agentId: trigger.agentId,
-      input: { text: input.text },
-      reply:
-        app && trigger.artifactId
-          ? { artifactId: trigger.artifactId, kind: "app", state: app.state }
-          : undefined,
-      requestId:
-        input.requestId === undefined
-          ? undefined
-          : `trigger:${triggerId}:${input.requestId}`,
-      session: {
-        externalKey: appSessionKey(triggerId, app?.sessionKey),
-        origin: "trigger",
+    const started = await runs.startRun(
+      principal,
+      {
+        agentId: trigger.agentId,
+        input: { text: input.text },
+        reply: appReplyTarget(trigger, app),
+        requestId:
+          input.requestId === undefined
+            ? undefined
+            : `trigger:${triggerId}:${input.requestId}`,
+        session: {
+          externalKey: appSessionKey(triggerId, app?.sessionKey),
+          origin: "trigger",
+        },
       },
-    });
+      { offerLater: Boolean(app && defer) }
+    );
     if (!(await alreadyAnnounced(started.runId))) {
       await eventsService.append({
         actor: { id: triggerId, kind: "trigger" },
@@ -633,6 +651,17 @@ export const createTriggersService = ({
       .where(eq(triggers.id, triggerId));
     const waitMs = input.waitMs ?? 0;
     const run = await runs.waitForRun(principal, started.runId, waitMs);
+    if (app && defer) {
+      // Like Slack, "after the answer" means waitUntil work: it may start now,
+      // but the app's answer never waits for the offer. The sweep is the backstop.
+      defer(
+        runs
+          .offerQueuedRun(SYSTEM_PRINCIPAL, started.runId)
+          .catch((error: unknown) => {
+            console.error("App run offer failed", error);
+          })
+      );
+    }
     return {
       finished: waitMs > 0 && TERMINAL_STATUSES.includes(run.status),
       run,

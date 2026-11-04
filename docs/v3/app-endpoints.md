@@ -47,7 +47,7 @@ Decision, recorded in the PRD's risk table: an endpoint is open to anyone on the
 
 ## Hand-off to an agent
 
-`env.AGENTUM.startRun({ agent, text, state?, sessionKey? })` returns `{ runId }` at once and doesn't wait.
+`env.AGENTUM.startRun({ agent, text, state?, sessionKey? })` returns `{ runId }` once the run is written; the run is offered after the response through `waitUntil`, with the minute sweep as backstop (without `defer`, it is offered inline).
 
 - `agent` must be the id of an approved `agent` grant on the live version. Approving that grant makes a tokenless trigger row for the agent, with a new nullable `triggers.artifact_id`, or reuses one. The run starts through the triggers service as that trigger principal, so it is on behalf of nobody, shows up under Triggers, and pausing or revoking that trigger stops the hand-off.
 - `state` is an opaque string of at most 4096 characters, such as Discord's interaction token. It is stored on the reply target and handed back with the reply.
