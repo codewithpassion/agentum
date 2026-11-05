@@ -3,7 +3,7 @@ id: TV.2
 title: Task view bottom bar, messages, Computer and keyboard
 milestone: TV
 size: L
-status: in_progress
+status: done
 depends_on: [TV.1]
 branch: TV.1-task-view
 lane: web
@@ -31,3 +31,4 @@ Spec: `docs/ux-review/task-view/spec.md` (Conversation, Bottom bar, Computer, Ke
 - Screenshots of a dev build at 1280x900 and 390x844 for running, done, failed, waiting and computer states where the dev data allows, saved in the log folder.
 
 ## Log
+- 2026-11-05: Codex built the bottom bar states, outside-input cards, the failure card, tool counts, the Computer dock and phone tab, takeover consistency and the keyboard paths (12471f2f). Narrow desktop panes fall back to the Computer tab. Controller review: the screenshots match the mockup. Follow-ups: the docked Computer heading's focus ring is orange (spec: cyan), and the desktop waiting bar's 'Go to the request' button didn't show in the screenshot; check it.
