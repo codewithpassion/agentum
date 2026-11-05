@@ -3,7 +3,7 @@ id: TV.1
 title: Task view layout, conversation first
 milestone: TV
 size: L
-status: in_progress
+status: done
 depends_on: []
 branch: TV.1-task-view
 lane: web
@@ -27,3 +27,4 @@ Spec: `docs/ux-review/task-view/spec.md` (with its Decisions), mockup `docs/ux-r
 - Screenshots of a dev build (dev login, with a task that has a long answer) at 1440x900, 1280x900 and 390x844, next to the mockup's matching frames, saved in the log folder.
 
 ## Log
+- 2026-11-05: Codex built the full-height layout, header, tabs, run picker, earlier-run folding, request banners and active-only Stop (50159b98). Controller review: the screenshots at 1280 and 390 match the mockup's layout; the bottom bar look, the tool group and the run label are TV.2. Desktop Computer opens full width until TV.2's dock.

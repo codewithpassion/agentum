@@ -3,7 +3,7 @@ id: TV.2
 title: Task view bottom bar, messages, Computer and keyboard
 milestone: TV
 size: L
-status: todo
+status: in_progress
 depends_on: [TV.1]
 branch: TV.1-task-view
 lane: web
