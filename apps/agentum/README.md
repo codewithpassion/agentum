@@ -148,3 +148,47 @@ the host compiler shim. Tests use fake servers and fake Claude processes. The
 real Claude conformance test runs only with `AGENTUM_CLAUDE_E2E=1`; ordinary tests
 never spend Claude tokens. See [ARCHITECTURE.md](ARCHITECTURE.md) for boundaries
 and the executor regression coverage.
+
+## Release and Docker builds
+
+From the repository root, build the static Linux x64 and arm64 artifacts with:
+
+```sh
+bun run --cwd apps/agentum build:all
+bun apps/web/scripts/publish-releases.ts --env staging --dry-run
+```
+
+The release build uses `cargo-zigbuild` with Zig (validated with cargo-zigbuild
+0.24.1 and Zig 0.14.1), or falls back to `cross` with Docker. Install one pair
+first (`cargo install cargo-zigbuild --locked` and install Zig on PATH, or
+`cargo install cross --locked` and start Docker). Rustup installs both musl
+standard libraries. Artifacts go to `apps/agentum/dist/agentum-linux-{x64,arm64}`.
+Set `AGENTUM_VERSION` to embed the manifest version; otherwise it uses the Cargo
+version plus git SHA. Publishing adds the `agentum-rs` product; the old `agentum`
+and `hm-computer` products remain available. `--dry-run` builds all products and
+prints every upload key and the line-formatted manifests without contacting R2.
+
+Build the images after the static binaries, from the repository root:
+
+```sh
+docker build -f apps/agentum/Dockerfile -t ghcr.io/codewithpassion/agentum:latest .
+docker build -f apps/agentum/Dockerfile.desktop -t ghcr.io/codewithpassion/agentum:desktop .
+```
+
+Both Dockerfiles select the artifact for Docker's target architecture. For a
+multi-platform builder, use `--platform linux/amd64,linux/arm64`. Neither build
+pushes an image. The images run as uid 1000 under tini. Persist `/var/lib/agentum`,
+which holds both config and state through `AGENTUM_CONFIG_DIR` and
+`AGENTUM_STATE_DIR`. Pass `--url <origin> --code-stdin` and supply the enrolment
+code on stdin on first start, or set `AGENTUM_ENROLL_CODE`. The code's roles are
+used. Computer-only containers work as shipped; agent-host containers also need
+a compatible Claude CLI installed and its login available to uid 1000. Desktop
+Chromium needs user namespaces permitted by the host's container policy (see the
+existing computer desktop seccomp profile); its sandbox remains enabled.
+
+The Machines page's Linux command serves `/install-agentum.sh`. It verifies the
+release checksum, enrols through stdin and installs a user service (system
+service when root). `--run-as` selects the enrolment and service mode together.
+Existing instances are restarted on update. Replacing an old daemon requires
+`--replace-old`; revoke its old machine record afterwards. The older installers
+and Docker images continue to serve machines running the old clients.

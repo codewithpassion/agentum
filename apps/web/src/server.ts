@@ -26,6 +26,7 @@ import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
 import installDaemonScript from "./server/releases/install.sh?raw";
+import installAgentumScript from "./server/releases/install-agentum.sh?raw";
 import installComputerScript from "./server/releases/install-computer.sh?raw";
 import { mountA2aRoutes } from "./server/routes/a2a.ts";
 import { mountA2aWebhooks } from "./server/routes/a2a-webhooks.ts";
@@ -99,7 +100,11 @@ mountArtifactContentRoutes(app, {
 // redirect can catch `curl`.
 mountReleaseRoutes(app, {
   bucket: (env) => env.FILES,
-  scripts: { computer: installComputerScript, daemon: installDaemonScript },
+  scripts: {
+    agentum: installAgentumScript,
+    computer: installComputerScript,
+    daemon: installDaemonScript,
+  },
 });
 
 app.route(

@@ -220,6 +220,8 @@ export interface RunOptions {
   readonly mode?: "file" | "pipe";
   readonly sandbox: Sandbox;
   readonly script: string;
+  /** Code input when running the script from a file. */
+  readonly stdin?: string;
   /** Whether the systemd run dir exists. */
   readonly systemd?: boolean;
 }
@@ -249,7 +251,10 @@ export const runScript = async (options: RunOptions): Promise<RunResult> => {
           return spawn(["sh", path, ...args], {
             env,
             stderr: "pipe",
-            stdin: "ignore",
+            stdin:
+              options.stdin === undefined
+                ? "ignore"
+                : new Blob([options.stdin]),
             stdout: "pipe",
           });
         })()

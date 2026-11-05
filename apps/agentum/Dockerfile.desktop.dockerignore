@@ -1,0 +1,9 @@
+**
+!apps/
+!apps/agentum/
+!apps/agentum/dist/
+!apps/agentum/dist/agentum-linux-*
+!apps/computer/
+!apps/computer/packaging/
+!apps/computer/packaging/desktop/
+!apps/computer/packaging/desktop/**

@@ -60,13 +60,7 @@ const dialogDescription = (
   if (token === null) {
     return "Choose a role, name the machine, then create an enrol code for it.";
   }
-  if (token.role === "both") {
-    return "Run this command on the machine to install agentum and enrol both roles.";
-  }
-  if (token.role === "computer") {
-    return "Run one of these commands on the machine. Each one enrols it with the computer role. The binary command also installs hm-computer, and you start it afterwards with hm-computer run.";
-  }
-  return "Run this command on the machine you want to enrol. It installs the agentum daemon and enrols the machine.";
+  return "Run this command to install Agentum, enrol the selected roles and start its service.";
 };
 
 interface RoleChoiceProps {
@@ -194,33 +188,38 @@ export function EnrollDialog({
 
         {token ? (
           <div className="flex flex-col gap-4">
-            {token.role === "computer" ? (
-              <>
-                <CommandBlock
-                  command={dockerHeadlessCommand(origin, token.code)}
-                  heading="Docker, headless"
-                />
-                <CommandBlock
-                  command={dockerDesktopCommand(origin, token.code)}
-                  heading="Docker, with a desktop"
-                >
-                  <p className="text-muted-foreground text-sm">
-                    {DESKTOP_SECCOMP_NOTE}
-                  </p>
-                </CommandBlock>
-                <CommandBlock
-                  command={binaryCommand(origin, token.code)}
-                  heading="Binary"
-                />
-              </>
-            ) : (
+            {machine === undefined && (
               <CommandBlock
-                command={
-                  token.role === "both"
-                    ? agentumCommand(origin, token.code)
-                    : daemonCommand(origin, token.code)
-                }
+                command={agentumCommand(origin, token.code)}
+                heading="Agentum (Linux)"
               />
+            )}
+            {token.role !== "both" && (
+              <details open={machine !== undefined}>
+                <summary>Older clients</summary>
+                {token.role === "computer" ? (
+                  <>
+                    <CommandBlock
+                      command={dockerHeadlessCommand(origin, token.code)}
+                      heading="Docker, headless"
+                    />
+                    <CommandBlock
+                      command={dockerDesktopCommand(origin, token.code)}
+                      heading="Docker, with a desktop"
+                    >
+                      <p className="text-muted-foreground text-sm">
+                        {DESKTOP_SECCOMP_NOTE}
+                      </p>
+                    </CommandBlock>
+                    <CommandBlock
+                      command={binaryCommand(origin, token.code)}
+                      heading="Binary"
+                    />
+                  </>
+                ) : (
+                  <CommandBlock command={daemonCommand(origin, token.code)} />
+                )}
+              </details>
             )}
             <p className="text-muted-foreground text-sm">
               Single use. Expires at{" "}

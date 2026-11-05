@@ -167,3 +167,16 @@ describe("isDaemonOutdated", () => {
     ).toBe(false);
   });
 });
+
+test("Rust clients compare only the Rust product's version", () => {
+  const machine = {
+    capabilities: { agentSdk: "claude-cli@2.1.300" },
+    daemonVersion: "0.1.0+rust",
+    roles: ["agent_host"] as const,
+    status: "online" as const,
+  };
+  const mutable = { ...machine, roles: [...machine.roles] };
+  expect(isDaemonOutdated(mutable, "0.1.0+old", "0.1.0+rust")).toBe(false);
+  expect(isDaemonOutdated(mutable, "0.1.0+rust", "0.1.0+new")).toBe(true);
+  expect(isDaemonOutdated(mutable, "0.1.0+old", null)).toBe(false);
+});

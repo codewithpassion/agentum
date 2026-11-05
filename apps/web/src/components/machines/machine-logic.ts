@@ -68,15 +68,33 @@ export const canAddComputerRole = (
  * release that exists. Any different version counts: builds are ordered by
  * when they were published, not by their number.
  */
+export const daemonProduct = (
+  machine: Pick<MachineRecord, "capabilities">
+): "agentum" | "agentum-rs" =>
+  typeof machine.capabilities.agentSdk === "string" &&
+  machine.capabilities.agentSdk.startsWith("claude-cli@")
+    ? "agentum-rs"
+    : "agentum";
+
 export const isDaemonOutdated = (
-  machine: Pick<MachineRecord, "daemonVersion" | "roles" | "status">,
-  latestVersion: string | null
-): boolean =>
-  latestVersion !== null &&
-  machine.status !== "revoked" &&
-  machine.roles.includes("agent_host") &&
-  machine.daemonVersion !== null &&
-  machine.daemonVersion !== latestVersion;
+  machine: Pick<MachineRecord, "daemonVersion" | "roles" | "status"> &
+    Partial<Pick<MachineRecord, "capabilities">>,
+  latestVersion: string | null,
+  latestRustVersion: string | null = null
+): boolean => {
+  const latest =
+    machine.capabilities &&
+    daemonProduct({ capabilities: machine.capabilities }) === "agentum-rs"
+      ? latestRustVersion
+      : latestVersion;
+  return (
+    latest !== null &&
+    machine.status !== "revoked" &&
+    machine.roles.includes("agent_host") &&
+    machine.daemonVersion !== null &&
+    machine.daemonVersion !== latest
+  );
+};
 
 /** The machines an agent can drive: a computer role, not revoked. */
 export const computersOf = <T extends Pick<MachineRecord, "roles" | "status">>(

@@ -28,7 +28,7 @@ const LEADING_WEAK = /^W\//;
 export interface ReleaseRoutesDeps {
   bucket: (env: Env) => ReleaseBucket;
   /** The install scripts as files, with the origin placeholder still in them. */
-  scripts: { computer: string; daemon: string };
+  scripts: { agentum: string; computer: string; daemon: string };
 }
 
 const notFound = (): Response =>
@@ -60,6 +60,7 @@ export const mountReleaseRoutes = (
   app: Hono<AppEnv>,
   deps: ReleaseRoutesDeps
 ): void => {
+  app.get("/install-agentum.sh", (c) => script(deps.scripts.agentum, c));
   app.get("/install.sh", (c) => script(deps.scripts.daemon, c));
   app.get("/install-computer.sh", (c) => script(deps.scripts.computer, c));
 
