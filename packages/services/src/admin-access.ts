@@ -49,8 +49,9 @@ export const withinScope = (
   requested: ApiKeyAccess
 ): boolean => RANK[requested] <= RANK[own];
 
-/** Agent management admits a person's write OAuth connection as well as a write key. */
+/** Agent management admits a browser session, a write OAuth connection or a write key. */
 export type AgentManager =
+  | (UserPrincipal & { via: "session" })
   | KeyPrincipal
   | (UserPrincipal & {
       oauthClient: NonNullable<UserPrincipal["oauthClient"]>;
@@ -61,6 +62,9 @@ export const requireAgentManager = (
   principal: Principal,
   action: string
 ): AgentManager => {
+  if (principal.kind === "user" && principal.via === "session") {
+    return principal as AgentManager;
+  }
   if (
     principal.kind === "user" &&
     principal.via === "oauth" &&

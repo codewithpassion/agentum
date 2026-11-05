@@ -378,6 +378,30 @@ export const createSecretsService = ({
     return rows.map(toSummary);
   };
 
+  /** Stored metadata only, including the actual grants, for a secure card receipt. */
+  const describe = async (principal: Principal, id: string) => {
+    const user = requireUser(principal, READ_ACTION);
+    authorize(user, READ_ACTION, {
+      id,
+      kind: SECRET_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const row = await requireSecret(user.workspaceId, id);
+    const grants = await db
+      .select({ agentId: agentSecrets.agentId })
+      .from(agentSecrets)
+      .where(
+        and(
+          eq(agentSecrets.secretId, id),
+          eq(agentSecrets.workspaceId, user.workspaceId)
+        )
+      );
+    return {
+      ...toSummary(row),
+      grantedTo: grants.map((entry) => entry.agentId),
+    };
+  };
+
   const create = async (
     principal: Principal,
     input: SecretCreateInput
@@ -693,6 +717,19 @@ export const createSecretsService = ({
     };
   };
 
+  /** Internal workspace-wide masker for the signed-in assistant. Never exposed over tRPC. */
+  const workspaceMasker = async (workspaceId: string): Promise<Masker> => {
+    const rows = await db
+      .select()
+      .from(secrets)
+      .where(eq(secrets.workspaceId, workspaceId));
+    return maskerOf(
+      (await decryptRows(workspaceId, rows)).filter(
+        (secret) => secret.value.length >= 8
+      )
+    );
+  };
+
   /** The masker for the agent's granted values, or null when it has none. */
   const maskerFor = async (
     workspaceId: string,
@@ -855,6 +892,7 @@ export const createSecretsService = ({
     announceDelivery,
     announceInjection,
     create,
+    describe,
     envGrantsFor,
     grant,
     grantsOf,
@@ -868,6 +906,7 @@ export const createSecretsService = ({
     revoke,
     setGrants,
     update,
+    workspaceMasker,
   };
 };
 

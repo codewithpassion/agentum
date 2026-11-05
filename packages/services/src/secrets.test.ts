@@ -9,6 +9,7 @@ import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
+import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { createEventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import { createSecretsService, type SecretsService } from "./secrets.ts";
@@ -744,4 +745,55 @@ describe("redaction and events", () => {
     );
     expect(secretEvents()).toHaveLength(0);
   });
+});
+
+test("assistant workspace masker skips values shorter than eight characters", async () => {
+  await service.create(user, {
+    allowedHosts: [],
+    mode: "env",
+    name: "SHORT",
+    value: "temporary-long-value",
+  });
+  await service.create(user, {
+    allowedHosts: [],
+    mode: "env",
+    name: "LONG",
+    value: "12345678",
+  });
+  const shortId =
+    (await service.list(user)).find((row) => row.name === "SHORT")?.id ?? "";
+  await db
+    .update(secretRows)
+    .set({
+      valueEnc: await encryptSecret(
+        await importSecretsKey(SECRETS_KEY),
+        {
+          field: "value",
+          rowId: shortId,
+          table: "secrets",
+          workspaceId: WORKSPACE,
+        },
+        "hello"
+      ),
+    })
+    .where(eq(secretRows.id, shortId));
+  const masker = await service.workspaceMasker(WORKSPACE);
+  expect(masker.mask("hello 12345678")).toBe("hello [secret:LONG]");
+});
+
+test("secure card receipts read stored metadata and grants in the caller's workspace", async () => {
+  const secret = await service.create(user, {
+    allowedHosts: ["api.example.com"],
+    mode: "env",
+    name: "TOKEN",
+    value: OPENAI,
+  });
+  await service.setGrants(user, agentA, [secret.id]);
+  expect(await service.describe(user, secret.id)).toMatchObject({
+    ...secret,
+    grantedTo: [agentA],
+  });
+  await expect(service.describe(outsider, secret.id)).rejects.toThrow(
+    "Secret not found"
+  );
 });

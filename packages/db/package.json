@@ -16,7 +16,8 @@
     "./test-db": "./src/test-db.ts",
     "./live-guests": "./src/live-guests.ts",
     "./live-guest-auth": "./src/live-guest-auth.ts",
-    "./artifact-endpoints": "./src/artifact-endpoints.ts"
+    "./artifact-endpoints": "./src/artifact-endpoints.ts",
+    "./assistant": "./src/assistant.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

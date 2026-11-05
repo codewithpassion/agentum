@@ -1,3 +1,4 @@
+import { assistantTools } from "@repo/mcp/assistant";
 import {
   type AppErrorSlot,
   createArtifactErrorsService,
@@ -7,6 +8,10 @@ import {
   createAppReplies,
 } from "@repo/services/artifacts/replies";
 import {
+  type AssistantService,
+  createAssistantService,
+} from "@repo/services/assistant/service";
+import {
   createDictationService,
   type DictationService,
 } from "@repo/services/dictation";
@@ -14,6 +19,7 @@ import {
   type AppWorkerExports,
   appReplyInvoker,
 } from "./app-gateway/reply-invoker.ts";
+import { createMcpPorts } from "./mcp/ports";
 import type { DictationLimits } from "./trpc/dictation-router.ts";
 // The composition root. It builds every service from the Worker's bindings and
 // secrets, once per request (and once per minute tick). Kept free of Clerk and
@@ -466,6 +472,7 @@ export interface Services {
   artifactShares: ArtifactSharesService;
   artifactStorage: ArtifactStorageService;
   artifacts: ArtifactsService;
+  assistant: AssistantService;
   browser: BrowserService;
   connections: ConnectionsService;
   connectorOAuth: ConnectorOAuthService;
@@ -1265,7 +1272,29 @@ export const composeWith = ({
         infra.live.wake
       )
     : undefined;
-  return {
+  const assistant = createAssistantService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    fetch: connectorFetch,
+    managedKeys,
+    masker: secrets.workspaceMasker,
+    modelKeyStatus: (principal, provider) =>
+      provider === "anthropic"
+        ? managedKeys.status(principal)
+        : modelKeys.status(principal, provider),
+    secrets,
+    tools: (principal) =>
+      assistantTools(
+        createMcpPorts({
+          principal,
+          publicBaseUrl: infra.publicBaseUrl,
+          services: composed.services,
+        }),
+        principal.kind === "user" && principal.isAdmin === true
+      ),
+  });
+  const composed: Composed = {
     atomic: infra.atomic,
     clock: infra.clock,
     db,
@@ -1289,6 +1318,7 @@ export const composeWith = ({
       artifactShares,
       artifactStorage,
       artifacts: liveArtifactMutations(artifacts, liveArtifacts),
+      assistant,
       browser,
       connections,
       connectorOAuth,
@@ -1360,6 +1390,7 @@ export const composeWith = ({
       workspaces,
     },
   };
+  return composed;
 };
 
 /**

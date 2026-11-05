@@ -49,6 +49,7 @@ const settingsEntries: readonly FindEntry[] = settingsNav.flatMap((group) =>
 );
 
 export const findEntries: readonly FindEntry[] = [
+  { group: "Work", icon: Sparkles, label: "Assistant", to: "/assistant" },
   {
     group: "Work",
     hint: "Desk",

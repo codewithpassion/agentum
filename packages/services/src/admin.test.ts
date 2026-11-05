@@ -150,9 +150,9 @@ describe("who may call", () => {
     expect(adminEvents()).toHaveLength(0);
   });
 
-  test("only a write or admin key creates agents and inbox threads", async () => {
+  test("write keys and browser sessions create agents and inbox threads", async () => {
     await Promise.all(
-      [readKey, keyPrincipal("desk"), session].flatMap((principal) => [
+      [readKey, keyPrincipal("desk")].flatMap((principal) => [
         expect(admin.createAgent(principal, agentInput)).rejects.toBeInstanceOf(
           ForbiddenError
         ),
@@ -161,6 +161,12 @@ describe("who may call", () => {
         ).rejects.toBeInstanceOf(ForbiddenError),
       ])
     );
+    await expect(
+      admin.createAgent(session, { ...agentInput, slug: "session-agent" })
+    ).resolves.toMatchObject({ createdBy: "u1" });
+    await expect(
+      admin.createInboxThread(session, { title: "Session thread" })
+    ).resolves.toMatchObject({ title: "Session thread" });
     await expect(
       admin.createAgent(writeKey, agentInput)
     ).resolves.toMatchObject({ name: "Support" });
@@ -482,4 +488,30 @@ test("non-management principals cannot call any agent management writes directly
       await expect(invoke()).rejects.toBeInstanceOf(ForbiddenError);
     }
   }
+});
+
+test("browser members manage agents; only browser admins grant and revoke secrets", async () => {
+  const member = { ...session, isAdmin: false } as Principal;
+  const agent = await admin.createAgent(member, agentInput);
+  await expect(
+    admin.updateAgent(member, { agentId: agent.id, name: "Member helper" })
+  ).resolves.toMatchObject({ name: "Member helper" });
+  const secret = await secrets.create(session, {
+    allowedHosts: [],
+    mode: "env",
+    name: "SESSION_TOKEN",
+    value: SECRET_VALUE,
+  });
+  const input = { agentId: agent.id, secretId: secret.id };
+  await expect(admin.grantSecret(member, input)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await admin.grantSecret(session, input);
+  await expect(admin.revokeSecret(member, input)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await admin.revokeSecret(session, input);
+  expect(
+    adminEvents().filter((event) => event.actorKind === "user")
+  ).toHaveLength(4);
 });
