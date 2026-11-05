@@ -19,9 +19,9 @@ Agentum stays protocol-neutral: the app answers its own caller, and Agentum lear
   1. Rate limits as the main `/hooks` route does today (IP prefix buckets, then the endpoint bucket), before any database read.
   2. Resolve the endpoint and its live approved version, with the same rule as `resolveEndpoint`, in as few D1 queries as possible.
   3. Load the app's version as a Dynamic Worker in the front, with the same harness, limits and compatibility date as `dynamicAppRuntime`, cached by the loader under `app:<versionId>`. Reading the bundle on a cold start goes through the same storage the main Worker uses.
-  4. Call the app's `fetch` and return its response, through the same response filtering and content headers as `handleEndpointRequest`, as soon as `fetch` resolves (the AE.1 callback shape). `ctx.waitUntil` work continues for up to 30 s under the front's own `waitUntil`.
+  4. Call the app's `fetch` and return its response, through the same response filtering and content headers as `handleEndpointRequest`, as soon as `fetch` resolves (the AE.1 callback shape). `ctx.waitUntil` work continues for up to 25 s under the front's own `waitUntil`, inside Cloudflare's 30 s limit, so a timeout is recorded as an app error.
 - **What stays in the main Worker:** the app's `env.AGENTUM` (`startRun`, `callTool`, storage) and its outbound requests (approved hosts and secret filling). The front gives the Dynamic Worker an `AGENTUM` stub and a `globalOutbound` that forward to the main Worker over the service binding, carrying the request's identity (artifact, version, workspace, endpoint). Make it a named RPC entrypoint on the main Worker that only a service binding can reach, never a public route. Secrets never leave the main Worker. The main Worker only starts when the app first uses one of these.
-- **Access log and errors.** Each call still writes its `live_call` row with status and duration, and app errors are still recorded. The front may write the row with a direct D1 insert, or send it to the main Worker in `waitUntil`. Either way the Endpoints tab must look the same.
+- **Access log and errors.** Each call still writes its `live_call` row with status and duration, and app errors are still recorded. The front may write the row with a direct D1 insert, or send it to the main Worker in `waitUntil`. Either way the Endpoints tab must look the same. The visitor hash for the row needs the workspace's daily salt, a D1 write, so the front reads it after the response, in `waitUntil`, never before the app runs.
 - **Timing.** One line per request, `hooks front timing`: limiter, resolve, bundle (when cold), app response, total, in ms, with the endpoint name and nothing else.
 
 ## Gate
@@ -36,10 +36,10 @@ Update `docs/v3/app-endpoints.md`: endpoints answer from the hooks Worker. Keep 
 
 The gateway code both Workers run is in `packages/app-gateway` (`@repo/app-gateway`): the Dynamic Worker runtime and harness, the endpoint handler, the bundle reader and the `HooksMain` definition (`hooks-rpc.ts`). `apps/hooks` imports only that package, `@repo/db` and `@repo/services`, never `apps/web`.
 
-`HooksMain` trusts the props its caller sends, because only a Worker with a service binding to it can call it, and any Worker in the Cloudflare account can declare one. It refuses every viewer but `endpoint`, so a forged call can do no more than a request to `/hooks/<id>` could.
+`HooksMain` trusts the ids and viewer in the props its caller sends. Only a Worker deployed into the same Cloudflare account can declare a service binding to it, and anyone who can deploy there could already change the main Worker itself, so `outbound` and `recordError` take their artifact, version and workspace ids as given. The one guard is on `host`: it refuses every viewer but `endpoint`, so a forged call cannot act as a member, link holder, test or reply viewer, and can do no more than a request to `/hooks/<id>` could.
 
 ## Deploy
 
 `apps/hooks` gets `deploy` and `staging:deploy` scripts. The controller deploys staging. Production needs Dom's go-ahead.
 
-Order: deploy the main Worker with `HooksMain` first, then the hooks Worker. A main Worker rolled back to a version without `HooksMain` breaks every hook whose app uses `env.AGENTUM`, outbound requests or error recording, while plain answers keep working. Roll the hooks Worker back first, or delete its route so the main Worker's fallback `/hooks` handler serves again.
+Order: deploy the main Worker with `HooksMain` first, then the hooks Worker. A main Worker rolled back to a version without `HooksMain` breaks every hook whose app uses `env.AGENTUM`, outbound requests or error recording, while plain answers keep working. So roll the hooks Worker back before the main Worker. After its first deploy there is no earlier hooks version to roll back to: delete the hooks Worker's route (or the Worker), and the main Worker's fallback `/hooks` handler serves again.
