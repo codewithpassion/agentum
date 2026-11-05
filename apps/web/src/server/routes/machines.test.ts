@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import type { MachineRole } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
-import { enrollResponseSchema } from "@repo/protocol/machine";
+import {
+  enrollResponseSchema,
+  rolesEnrollResponseSchema,
+} from "@repo/protocol/machine";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
@@ -394,4 +398,112 @@ test("a computer body with a daemon enrol code answers 401", async () => {
   });
 
   expect(res.status).toBe(401);
+});
+
+const rolesBody = (code: string) => ({
+  arch: "amd64",
+  clientVersion: "0.1.0",
+  code,
+  hostname: "office-box",
+  os: "linux",
+  singleUser: true,
+});
+
+test("legacy computer enrol keeps exactly the legacy answer", async () => {
+  const { code } = await composed.services.machines.createEnrollToken(user(), {
+    machineName: "box",
+    role: "computer",
+  });
+  const { singleUser: _singleUser, ...fields } = rolesBody(code);
+  const response = await postEnroll({ ...fields, role: "computer" });
+  expect(response.status).toBe(200);
+  expect(enrollResponseSchema.safeParse(await response.json()).success).toBe(
+    true
+  );
+});
+
+for (const role of ["agent_host", "computer", "both"] as const) {
+  test(`new ${role} enrol returns the code's name and roles and opens only those sockets`, async () => {
+    const { code } = await composed.services.machines.createEnrollToken(
+      user(),
+      {
+        machineName: "Office box",
+        role,
+      }
+    );
+    const roles: MachineRole[] =
+      role === "both" ? ["agent_host", "computer"] : [role];
+    const response = await postEnroll({ ...rolesBody(code), roles });
+    expect(response.status).toBe(200);
+    const answer = rolesEnrollResponseSchema.parse(await response.json());
+    expect(answer).toEqual({
+      credential: expect.any(String),
+      machineId: expect.any(String),
+      machineName: "Office box",
+      roles,
+    });
+    const headers = {
+      ...upgrade,
+      Authorization: `Bearer ${answer.credential}`,
+    };
+    expect((await connect(headers)).status).toBe(
+      role === "computer" ? 101 : 200
+    );
+    expect((await computerSocket(headers)).status).toBe(
+      role === "agent_host" ? 101 : 200
+    );
+    expect(relayIds.every((id) => id === answer.machineId)).toBe(true);
+    expect(await composed.services.machines.list(user())).toMatchObject([
+      { id: answer.machineId, roles, singleUser: true },
+    ]);
+    expect((await postEnroll(rolesBody(code))).status).toBe(401);
+  });
+}
+
+test("omitted roles use the code's roles", async () => {
+  const { code } = await composed.services.machines.createEnrollToken(user(), {
+    machineName: "box",
+    role: "both",
+  });
+  const response = await postEnroll(rolesBody(code));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    roles: ["agent_host", "computer"],
+  });
+});
+
+for (const role of ["agent_host", "computer", "both"] as const) {
+  test(`${role} mismatch answers 400 with a message without spending the code`, async () => {
+    const { code } = await composed.services.machines.createEnrollToken(
+      user(),
+      {
+        machineName: "box",
+        role,
+      }
+    );
+    const response = await postEnroll({
+      ...rolesBody(code),
+      roles: [role === "computer" ? "agent_host" : "computer"],
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: expect.stringContaining("roles"),
+    });
+    expect((await postEnroll(rolesBody(code))).status).toBe(200);
+  });
+}
+
+test("new enrol refuses add-role codes without spending them", async () => {
+  const { machineId } = await enrol();
+  const { code } = await composed.services.machines.createEnrollToken(user(), {
+    machineId,
+    role: "computer",
+  });
+  const response = await postEnroll(rolesBody(code));
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({
+    error: expect.stringContaining("existing machine"),
+  });
+  const { singleUser: _singleUser, ...fields } = rolesBody(code);
+  expect((await postEnroll({ ...fields, role: "computer" })).status).toBe(200);
 });

@@ -1,4 +1,4 @@
-import type { MachineRole } from "@repo/db/shared";
+import { MACHINE_ENROLL_ROLES, type MachineEnrollRole } from "@repo/db/shared";
 import { type ChangeEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
@@ -14,6 +14,7 @@ import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import { CommandBlock } from "./command-block";
 import {
+  agentumCommand,
   binaryCommand,
   DESKTOP_SECCOMP_NOTE,
   daemonCommand,
@@ -25,25 +26,25 @@ import { ROLE_LABELS } from "./machine-logic";
 interface EnrollToken {
   code: string;
   expiresAt: string;
-  role: MachineRole;
+  role: MachineEnrollRole;
 }
 
-const ROLES: MachineRole[] = ["agent_host", "computer"];
-
-const DEFAULT_NAME: Record<MachineRole, string> = {
+const DEFAULT_NAME: Record<MachineEnrollRole, string> = {
   agent_host: "my-machine",
+  both: "my-machine",
   computer: "my-computer",
 };
 
-const ROLE_HINTS: Record<MachineRole, string> = {
+const ROLE_HINTS: Record<MachineEnrollRole, string> = {
   agent_host: "Claude Code runs agent tasks on this machine.",
+  both: "Runs agent tasks and gives agents a computer with one client.",
   computer: "Gives an agent a browser and, on a desktop computer, a screen.",
 };
 
 interface EnrollDialogProps {
   machine?: { id: string; name: string };
   onClose: () => void;
-  role: MachineRole;
+  role: MachineEnrollRole;
 }
 
 const errorMessage = (error: unknown): string =>
@@ -59,6 +60,9 @@ const dialogDescription = (
   if (token === null) {
     return "Choose a role, name the machine, then create an enrol code for it.";
   }
+  if (token.role === "both") {
+    return "Run this command on the machine to install agentum and enrol both roles.";
+  }
   if (token.role === "computer") {
     return "Run one of these commands on the machine. Each one enrols it with the computer role. The binary command also installs hm-computer, and you start it afterwards with hm-computer run.";
   }
@@ -68,8 +72,8 @@ const dialogDescription = (
 interface RoleChoiceProps {
   hint: string;
   label: string;
-  onChoose: (role: MachineRole) => void;
-  role: MachineRole;
+  onChoose: (role: MachineEnrollRole) => void;
+  role: MachineEnrollRole;
   selected: boolean;
 }
 
@@ -95,12 +99,31 @@ function RoleChoice({
   );
 }
 
+export function EnrollRoleChoices({
+  onChoose,
+  selectedRole,
+}: {
+  onChoose: (role: MachineEnrollRole) => void;
+  selectedRole: MachineEnrollRole;
+}) {
+  return MACHINE_ENROLL_ROLES.map((option) => (
+    <RoleChoice
+      hint={ROLE_HINTS[option]}
+      key={option}
+      label={option === "both" ? "Both roles" : ROLE_LABELS[option]}
+      onChoose={onChoose}
+      role={option}
+      selected={selectedRole === option}
+    />
+  ));
+}
+
 export function EnrollDialog({
   role: initialRole,
   machine,
   onClose,
 }: EnrollDialogProps) {
-  const [role, setRole] = useState<MachineRole>(initialRole);
+  const [role, setRole] = useState<MachineEnrollRole>(initialRole);
   const [machineName, setMachineName] = useState(DEFAULT_NAME[initialRole]);
   const [nameEdited, setNameEdited] = useState(false);
   const [token, setToken] = useState<EnrollToken | null>(null);
@@ -117,7 +140,7 @@ export function EnrollDialog({
   );
 
   const chooseRole = useCallback(
-    (next: MachineRole) => {
+    (next: MachineEnrollRole) => {
       setRole(next);
       if (!nameEdited) {
         setMachineName(DEFAULT_NAME[next]);
@@ -191,7 +214,13 @@ export function EnrollDialog({
                 />
               </>
             ) : (
-              <CommandBlock command={daemonCommand(origin, token.code)} />
+              <CommandBlock
+                command={
+                  token.role === "both"
+                    ? agentumCommand(origin, token.code)
+                    : daemonCommand(origin, token.code)
+                }
+              />
             )}
             <p className="text-muted-foreground text-sm">
               Single use. Expires at{" "}
@@ -205,16 +234,7 @@ export function EnrollDialog({
           <div className="flex flex-col gap-3">
             {machine === undefined && (
               <div className="flex flex-col gap-3">
-                {ROLES.map((option) => (
-                  <RoleChoice
-                    hint={ROLE_HINTS[option]}
-                    key={option}
-                    label={ROLE_LABELS[option]}
-                    onChoose={chooseRole}
-                    role={option}
-                    selected={role === option}
-                  />
-                ))}
+                <EnrollRoleChoices onChoose={chooseRole} selectedRole={role} />
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="machine-name">Machine name</Label>
                   <Input

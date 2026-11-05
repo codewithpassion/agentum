@@ -7,6 +7,7 @@ import {
 import { createdAt, id, workspaceId } from "../columns.ts";
 import {
   COMPUTER_STATUSES,
+  MACHINE_ENROLL_ROLES,
   MACHINE_ROLES,
   MACHINE_STATUSES,
 } from "../shared.ts";
@@ -32,7 +33,7 @@ export const machines = sqliteTable("machines", {
   // lowercase hex, so no bearer token hashes to it, the machine has no usable
   // daemon credential, and the machines service reads the prefix to leave
   // `agent_host` out of its `roles`. Computer credentials live in
-  // `machine_credentials`, never here.
+  // `machine_credentials`; a both-role enrolment shares the hash here.
   credentialHash: text("credential_hash").notNull(),
   // The version the daemon reported in its last hello. Null before it first connects.
   daemonVersion: text("daemon_version"),
@@ -59,8 +60,10 @@ export const machineEnrollTokens = sqliteTable(
     // Set to add the `computer` role to this existing machine. Null mints a new one.
     machineId: text("machine_id").references(() => machines.id),
     machineName: text("machine_name").notNull(),
-    // The role the code enrols. `agent_host` is the daemon.
-    role: text("role", { enum: MACHINE_ROLES }).notNull().default("agent_host"),
+    // The roles the code enrols. `both` grants agent_host and computer.
+    role: text("role", { enum: MACHINE_ENROLL_ROLES })
+      .notNull()
+      .default("agent_host"),
     tokenHash: text("token_hash").notNull(),
     usedAt: text("used_at"),
     workspaceId: workspaceId().references(() => workspaces.id, {
@@ -72,8 +75,8 @@ export const machineEnrollTokens = sqliteTable(
 
 /**
  * A credential for one role of a machine. Holds `computer` credentials only:
- * the daemon's stays in `machines.credential_hash`. `credential_hash` is the
- * SHA-256 of an `hm_mach_` bearer token, so a lookup by hash finds the machine
+ * a both-role enrolment shares its hash with `machines.credential_hash`.
+ * `credential_hash` is the SHA-256 of a machine bearer token, so a lookup finds the machine
  * and its role.
  */
 export const machineCredentials = sqliteTable(

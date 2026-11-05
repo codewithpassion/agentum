@@ -67,6 +67,10 @@ export type MachineStatus = (typeof MACHINE_STATUSES)[number];
 export const MACHINE_ROLES = ["agent_host", "computer"] as const;
 export type MachineRole = (typeof MACHINE_ROLES)[number];
 
+/** The roles an enrol code grants; `both` is not a machine role. */
+export const MACHINE_ENROLL_ROLES = [...MACHINE_ROLES, "both"] as const;
+export type MachineEnrollRole = (typeof MACHINE_ENROLL_ROLES)[number];
+
 /** Presence of a machine's computer role. `machines.computer_status` is null when the machine has none. */
 export const COMPUTER_STATUSES = ["online", "offline"] as const;
 export type ComputerStatus = (typeof COMPUTER_STATUSES)[number];

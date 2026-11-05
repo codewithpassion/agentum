@@ -464,3 +464,33 @@ test("a machine that did not claim the run gets 403 on events, heartbeat and com
   expect(still?.status).toBe("running");
   expect(still?.claimedBy).toBe(owner.machineId);
 });
+
+test("one both-role credential can claim, send events, heartbeat and complete", async () => {
+  const { code } = await composed.services.machines.createEnrollToken(user, {
+    machineName: "both",
+    role: "both",
+  });
+  const enrolled = await composed.services.machines.enroll({
+    arch: "amd64",
+    clientVersion: "0.1.0",
+    code,
+    hostname: "box",
+    os: "linux",
+    singleUser: true,
+  });
+  if (!enrolled) {
+    throw new Error("enrol failed");
+  }
+  const agentId = await agentOn(enrolled.machineId, "Both");
+  const { runId } = await start(agentId);
+  expect((await claim(enrolled.credential, runId)).status).toBe(200);
+  expect(
+    (await call("events", runId, enrolled.credential, ONE_EVENT)).status
+  ).toBe(200);
+  expect((await call("heartbeat", runId, enrolled.credential)).status).toBe(
+    200
+  );
+  expect(
+    (await call("complete", runId, enrolled.credential, DONE)).status
+  ).toBe(200);
+});

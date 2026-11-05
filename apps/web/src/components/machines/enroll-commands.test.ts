@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  agentumCommand,
   binaryCommand,
   computerInstallCommand,
   DESKTOP_IMAGE,
@@ -113,4 +114,10 @@ describe("DESKTOP_SECCOMP_NOTE", () => {
     expect(DESKTOP_SECCOMP_NOTE).toContain("packaging/desktop/seccomp.json");
     expect(DESKTOP_SECCOMP_NOTE).toContain("apps/computer");
   });
+});
+
+test("the both-role command installs the new client", () => {
+  expect(agentumCommand(ORIGIN, CODE)).toBe(
+    `curl -fsSL ${ORIGIN}/install-agentum.sh | sh -s -- --code ${CODE}`
+  );
 });

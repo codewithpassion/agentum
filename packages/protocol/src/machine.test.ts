@@ -26,6 +26,8 @@ import {
   offerSchema,
   relayFrameSchema,
   relayHelloAckSchema,
+  rolesEnrollRequestSchema,
+  rolesEnrollResponseSchema,
   waitRequestResponseSchema,
 } from "./machine.ts";
 
@@ -34,6 +36,8 @@ const JSON_SUFFIX = /\.json$/;
 const cases: ReadonlyArray<readonly [string, z.ZodType]> = [
   ["enroll-request", enrollRequestSchema],
   ["enroll-response", enrollResponseSchema],
+  ["enroll-request-roles", rolesEnrollRequestSchema],
+  ["enroll-response-roles", rolesEnrollResponseSchema],
   ["hello", daemonHelloSchema],
   ["ping", daemonPingSchema],
   ["hello-ack", relayHelloAckSchema],
@@ -454,6 +458,43 @@ describe("computer enrol request", () => {
       { ...computerBody, code: "nope" },
     ]) {
       expect(machineEnrollRequestSchema.safeParse(body).success).toBe(false);
+    }
+  });
+});
+
+describe("roles enrol request", () => {
+  test("roles are optional and may name one or both, in either order", async () => {
+    const raw = (await loadFixture("enroll-request-roles")) as Record<
+      string,
+      unknown
+    >;
+    const { roles: _roles, ...withoutRoles } = raw;
+    for (const body of [
+      withoutRoles,
+      { ...raw, roles: ["computer"] },
+      { ...raw, roles: ["agent_host"] },
+      { ...raw, roles: ["computer", "agent_host"] },
+    ]) {
+      expect(body).toEqual(machineEnrollRequestSchema.parse(body));
+    }
+  });
+
+  test("empty, duplicate, unknown roles and non-Go platform names are refused", async () => {
+    const raw = (await loadFixture("enroll-request-roles")) as Record<
+      string,
+      unknown
+    >;
+    for (const fields of [
+      { roles: [] },
+      { roles: ["computer", "computer"] },
+      { roles: ["both"] },
+      { arch: "x86_64" },
+      { os: "Linux" },
+      { singleUser: undefined },
+    ]) {
+      expect(
+        machineEnrollRequestSchema.safeParse({ ...raw, ...fields }).success
+      ).toBe(false);
     }
   });
 });

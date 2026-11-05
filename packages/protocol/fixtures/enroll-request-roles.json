@@ -1,0 +1,9 @@
+{
+  "code": "hm_enr_8Hq2LxT5nVw0RcYb3Ks7MdPe",
+  "roles": ["agent_host", "computer"],
+  "singleUser": false,
+  "arch": "amd64",
+  "os": "linux",
+  "hostname": "office-box",
+  "clientVersion": "0.1.0"
+}

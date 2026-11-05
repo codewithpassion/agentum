@@ -6,7 +6,9 @@ import {
   CLOSE_CODES,
   enrollResponseSchema,
   machineEnrollRequestSchema,
+  rolesEnrollResponseSchema,
 } from "@repo/protocol/machine";
+import { isServiceError } from "@repo/services/errors";
 import type { AuthenticateRole } from "@repo/services/machines";
 import type { Context } from "hono";
 import {
@@ -48,8 +50,8 @@ export const refuseSocket = (): Response => {
 
 /**
  * Hands a WebSocket upgrade to the machine's relay. `authRole` says which
- * credential opens it and `relayRole` says which socket the relay holds, so a
- * daemon credential never opens the computer socket and the reverse.
+ * credential opens it and `relayRole` says which socket the relay holds.
+ * Each socket checks its role even when a credential is shared.
  */
 const upgradeToRelay = async (
   c: Context<AppEnv>,
@@ -97,21 +99,32 @@ export const machineRoutes = () => {
       return c.json(
         {
           error:
-            "Expected JSON with a code and singleUser, or a computer body with role computer.",
+            "Expected JSON with a code and singleUser, a roles enrolment body, or a computer body with role computer.",
         },
         400
       );
     }
-    const enrolled = await c
-      .get("composed")
-      .services.machines.enroll(body.data);
-    if (!enrolled) {
+    try {
+      const enrolled = await c
+        .get("composed")
+        .services.machines.enroll(body.data);
+      if (!enrolled) {
+        return c.json(
+          { error: "The enrolment code is invalid, expired or already used." },
+          401
+        );
+      }
       return c.json(
-        { error: "The enrolment code is invalid, expired or already used." },
-        401
+        "machineName" in enrolled
+          ? rolesEnrollResponseSchema.parse(enrolled)
+          : enrollResponseSchema.parse(enrolled)
       );
+    } catch (error) {
+      if (isServiceError(error) && error.code === "invalid") {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
     }
-    return c.json(enrollResponseSchema.parse(enrolled));
   });
 
   machines.get("/connect", (c) => upgradeToRelay(c, "agent_host", "daemon"));
