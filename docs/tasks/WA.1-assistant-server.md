@@ -3,7 +3,7 @@ id: WA.1
 title: Workspace assistant, server side
 milestone: WA
 size: L
-status: in_progress
+status: done
 depends_on: []
 branch: WA-workspace-assistant
 lane: services
@@ -33,3 +33,4 @@ Spec: `docs/v3/workspace-assistant.md` (all sections except the page layout).
 - `bun run check && bun run test && bun run build`, then the bundle grep for `drizzle` in `apps/web/dist/client`.
 
 ## Log
+- 2026-11-05: Codex built it (adc61536). Spec changes: archived_at, workspace_id on messages, archive always confirms. Opus review running.

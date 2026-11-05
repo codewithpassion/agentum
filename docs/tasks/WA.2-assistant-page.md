@@ -3,7 +3,7 @@ id: WA.2
 title: Workspace assistant, the page
 milestone: WA
 size: M
-status: ready
+status: in_progress
 depends_on: [WA.1]
 branch: WA-workspace-assistant
 lane: web
