@@ -70,14 +70,23 @@ beforeAll(async () => {
           compatibilityDate: "2026-08-19",
           modules: true,
           name: "main",
-          outboundService: (request: Request) =>
-            Promise.resolve(
-              Response.json({
-                authorized:
-                  request.headers.get("authorization") === "Bot fixture-secret",
-              })
-            ),
+          // Keep the upstream in workerd: a JS callback uses Miniflare's
+          // Bun-hosted HTTP loopback, which can lose connections after disposal
+          // of the gate fixture, even on a direct MAIN fetch without app RPC.
+          outboundService: "upstream",
           script: scripts[1],
+        },
+        {
+          compatibilityDate: "2026-08-19",
+          modules: true,
+          name: "upstream",
+          script: `export default {
+            fetch(request) {
+              return Response.json({
+                authorized: request.headers.get('authorization') === 'Bot fixture-secret',
+              });
+            },
+          };`,
         },
       ],
     })
