@@ -2,6 +2,8 @@ import { type ReactNode, useMemo } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 
+import { CodeBlock } from "./code-block.tsx";
+
 const linkClassName = "underline underline-offset-2";
 
 // Only Agentum's own image routes. Absolute URLs never match: the host is unknown during SSR.
@@ -24,8 +26,10 @@ const components: Components = {
       {children}
     </a>
   ),
-  code: ({ children }) => (
-    <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.85em]">
+  code: ({ children, className }) => (
+    <code
+      className={`rounded bg-background/60 px-1 py-0.5 font-mono text-[0.85em] ${className ?? ""}`}
+    >
       {children}
     </code>
   ),
@@ -58,11 +62,7 @@ const components: Components = {
     <ol className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
   ),
   p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-  pre: ({ children }) => (
-    <pre className="mb-2 overflow-x-auto rounded-md bg-background/60 p-2 font-mono text-xs last:mb-0 [&_code]:bg-transparent [&_code]:p-0">
-      {children}
-    </pre>
-  ),
+  pre: CodeBlock,
   ul: ({ children }) => (
     <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>
   ),

@@ -4,12 +4,14 @@ import {
   HeaderActionsSlot,
 } from "#/components/shell/header-menu-slot";
 import { useIsAppShell } from "#/hooks/use-app-shell";
+import { useTaskLayout } from "#/hooks/use-task-layout";
 import { cn } from "#/lib/utils";
 import ClerkHeader from "../integrations/clerk/header-user.tsx";
 import ThemeToggle from "./theme-toggle";
 
 export default function Header() {
   const inAppShell = useIsAppShell();
+  const taskLayout = useTaskLayout();
 
   return (
     <header
@@ -17,13 +19,15 @@ export default function Header() {
         "sticky top-0 z-50 border-border border-b bg-background/90 px-4 backdrop-blur-lg md:h-(--app-header-h)",
         // Signed-in pages: the header spans the shell, so the right items
         // meet the page content's right padding.
-        inAppShell && "sm:pr-6"
+        inAppShell && "sm:pr-6",
+        taskLayout && "h-[52px] shrink-0 md:h-(--app-header-h)"
       )}
     >
       <nav
         className={cn(
           "flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4 md:h-full md:py-0",
-          !inAppShell && "page-wrap"
+          !inAppShell && "page-wrap",
+          taskLayout && "h-full flex-nowrap py-0 sm:py-0"
         )}
       >
         {/* The app shell portals its menu button in here on phones, so the
@@ -45,7 +49,9 @@ export default function Header() {
           <HeaderActionsSlot inAppShell={inAppShell} />
           <ClerkHeader />
 
-          <ThemeToggle />
+          <div className={taskLayout ? "hidden md:block" : undefined}>
+            <ThemeToggle />
+          </div>
         </div>
       </nav>
     </header>

@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task view mockups</title>
+<link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Roboto:wght@400;500;700&family=Roboto+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #1a1a1a; --fg: #fff; --card: #212121; --muted: #a5a5a5; --idle: #c4c4c4; --border: #3a3a3a;
+  --sidebar: #141414; --primary: #ff7733; --red: #ff3859; --cyan: #00d4ff; --gray: #2a2a2a; --green: #2fbf71; --amber: #f5b83d;
+  --accent: color-mix(in srgb, #00d4ff 14%, #2a2a2a);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 Roboto, sans-serif; overflow: hidden; }
+svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+a { color: inherit; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+code, pre, .mono { font-family: "Roboto Mono", monospace; }
+kbd { font: 11px Roboto, sans-serif; color: var(--muted); border: 1px solid var(--border); padding: 0 4px; }
+
+.shell { display: flex; flex-direction: column; height: 100vh; }
+.top { height: 60px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.brand { font: 20px Audiowide, sans-serif; display: flex; align-items: center; gap: 10px; }
+.brand:before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+.acts { display: flex; gap: 8px; align-items: center; }
+.tbtn { border: 1px solid var(--border); height: 32px; padding: 0 10px; display: flex; gap: 6px; align-items: center; }
+.tbtn.new { background: var(--primary); color: #1a1a1a; border-color: var(--primary); font-weight: 500; }
+.av { width: 28px; height: 28px; border-radius: 50%; background: #7c5cff; }
+.frame { flex: 1; min-height: 0; display: flex; }
+.rail { width: 320px; flex: none; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.ws { padding: 18px 16px 8px; font: 20px Audiowide, sans-serif; }
+.sec { display: flex; justify-content: space-between; padding: 6px 16px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.ritems { flex: 1; padding: 0 8px; }
+.ritem { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--red); padding: 8px 12px; margin-bottom: 6px; }
+.ritem.open { outline: 1px solid var(--cyan); }
+.ritem b { display: block; font-weight: 500; }
+.ritem i { font-style: normal; color: var(--muted); font-size: 12px; }
+.rfoot { border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(4,1fr); }
+.rfoot span { text-align: center; padding: 14px 0; color: var(--idle); font-size: 13px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+
+/* shared task header */
+.thead { flex: none; padding: 14px 24px 12px; border-bottom: 1px solid var(--border); }
+.crumb { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+.trow { display: flex; align-items: flex-start; gap: 12px; }
+.trow h1 { flex: 1; min-width: 0; margin: 0; font: 22px/1.3 Audiowide, sans-serif; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.pill { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 3px 10px; border: 1px solid; margin-top: 3px; }
+.pill.done { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.pill.running { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 50%, transparent); background: color-mix(in srgb, var(--cyan) 10%, transparent); }
+.pill.failed { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.pill.paused { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 50%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border); font-weight: 500; font-size: 13px; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #1a1a1a; }
+.btn.danger { border-color: color-mix(in srgb, var(--red) 60%, transparent); color: var(--red); }
+.meta { margin-top: 6px; color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 0; }
+.meta > span:not(:last-child):after { content: "·"; padding: 0 8px; color: #666; }
+.meta a { color: var(--fg); text-decoration: none; }
+
+/* conversation */
+.convo { display: flex; flex-direction: column; gap: 18px; padding: 20px 0 24px; }
+.msg-user { align-self: flex-end; max-width: 80%; }
+.msg-user .who { text-align: right; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.bubble { background: color-mix(in srgb, var(--primary) 85%, #000); color: #fff; padding: 10px 14px; }
+.edit { text-align: right; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.asst { display: flex; gap: 12px; }
+.tile { width: 28px; height: 28px; flex: none; display: grid; place-items: center; background: #2f8f7f; font-size: 11px; font-weight: 700; }
+.asst .body { flex: 1; min-width: 0; }
+.asst .who { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.md p { margin: 0 0 10px; } .md ul, .md ol { margin: 0 0 10px; padding-left: 22px; } .md li { margin-bottom: 4px; }
+.md h3 { font-size: 15px; margin: 14px 0 6px; }
+.md code { background: var(--gray); padding: 1px 5px; font-size: 12.5px; }
+.md pre { background: #111; border: 1px solid var(--border); padding: 10px 12px; overflow-x: auto; font-size: 12.5px; margin: 0 0 10px; }
+.tool { border: 1px solid var(--border); background: var(--card); font-size: 13px; }
+.tool .h { display: flex; align-items: center; gap: 8px; padding: 6px 10px; min-height: 34px; }
+.tool .h .n { font-weight: 500; }
+.tool .h .d { color: var(--muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool .h .t { color: var(--muted); font-size: 12px; }
+.tool pre { margin: 0; border-top: 1px solid var(--border); padding: 8px 10px; font-size: 12px; color: var(--idle); white-space: pre-wrap; max-height: 140px; overflow: hidden; }
+.tool .lbl { font-size: 11px; color: var(--muted); padding: 6px 10px 0; border-top: 1px solid var(--border); text-transform: uppercase; letter-spacing: .04em; }
+.tool .lbl + pre { border-top: 0; }
+.tools { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.spin { width: 12px; height: 12px; border: 2px solid var(--cyan); border-right-color: transparent; border-radius: 50%; }
+.ok { color: var(--green); } .bad { color: var(--red); }
+.reason { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.errcard { border: 1px solid color-mix(in srgb, var(--red) 55%, transparent); background: color-mix(in srgb, var(--red) 9%, var(--bg)); padding: 12px 14px; }
+.errcard b { color: var(--red); display: block; margin-bottom: 4px; }
+.errcard .acts2 { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.ask { border: 1px solid color-mix(in srgb, var(--amber) 60%, transparent); background: color-mix(in srgb, var(--amber) 8%, var(--bg)); padding: 12px 14px; }
+.ask .k { color: var(--amber); font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.ask pre { background: #111; border: 1px solid var(--border); padding: 8px 10px; font-size: 12.5px; margin: 8px 0; white-space: pre-wrap; }
+.ask .acts2 { display: flex; gap: 8px; flex-wrap: wrap; }
+.working { color: var(--cyan); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.rundiv { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.rundiv:before, .rundiv:after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.rundiv a { color: var(--idle); }
+.rundiv .bad { font-weight: 500; }
+.collapsed-runs { border: 1px dashed var(--border); color: var(--muted); font-size: 13px; padding: 8px 12px; display: flex; justify-content: space-between; }
+
+/* composer */
+.composer { flex: none; border-top: 1px solid var(--border); background: var(--bg); padding: 12px 0 14px; }
+.composer .box { border: 1px solid var(--border); background: var(--card); }
+.composer textarea { width: 100%; border: 0; background: none; color: var(--fg); font: inherit; padding: 10px 12px; resize: none; height: 44px; outline: none; }
+.composer .bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+.composer .bar .sp { flex: 1; }
+.composer .note { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; display: flex; gap: 6px; align-items: center; }
+.composer.off .box { opacity: .5; }
+.ibtn { height: 30px; min-width: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--idle); padding: 0 8px; font-size: 13px; }
+.send { background: var(--primary); color: #1a1a1a; height: 30px; padding: 0 14px; font-weight: 500; }
+.off .send { background: #5a3a2a; color: #999; }
+
+/* panels */
+.panel h2 { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 8px; display: flex; justify-content: space-between; }
+.panel h2 a { text-transform: none; letter-spacing: 0; color: var(--idle); }
+.psec { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.facts { display: grid; grid-template-columns: 88px 1fr; gap: 4px 8px; font-size: 13px; }
+.facts dt { color: var(--muted); } .facts dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; border-top: 1px solid var(--border); }
+.file:first-of-type { border-top: 0; }
+.file .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file .sz { color: var(--muted); font-size: 12px; }
+.tag { font: 11px "Roboto Mono", monospace; padding: 0 5px; }
+.tag.new { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.tag.edit { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 12%, transparent); }
+.empty { color: var(--muted); font-size: 13px; }
+.link { color: var(--idle); font-size: 13px; text-decoration: underline; text-underline-offset: 2px; }
+.steps { list-style: none; margin: 0; padding: 0; }
+.steps li { display: flex; align-items: center; gap: 8px; padding: 5px 6px; font-size: 13px; min-height: 30px; }
+.steps li .i { width: 18px; height: 18px; display: grid; place-items: center; font-size: 10px; border: 1px solid var(--border); color: var(--muted); flex: none; }
+.steps li.ok .i { border-color: var(--green); color: var(--green); }
+.steps li.bad .i { border-color: var(--red); color: var(--red); }
+.steps li.run .i { border-color: var(--cyan); color: var(--cyan); }
+.steps li.wait .i { border-color: var(--amber); color: var(--amber); }
+.steps li .x { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.steps li .tm { color: var(--muted); font-size: 12px; }
+.steps li.cur { background: var(--accent); box-shadow: inset 2px 0 var(--cyan); }
+.log { font-size: 13px; }
+.log .row { display: grid; grid-template-columns: 52px 74px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.log .row:first-child { border-top: 0; }
+.log .tm { color: var(--muted); font-size: 12px; }
+.ltag { font: 11px "Roboto Mono", monospace; padding: 0 5px; align-self: start; justify-self: start; background: var(--gray); color: var(--idle); }
+.ltag.error { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+.ltag.tool { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 12%, transparent); }
+.screen { aspect-ratio: 16/10; background: linear-gradient(135deg, #24324a, #1d2433); border: 1px solid var(--border); display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.mailrow { display: flex; gap: 8px; font-size: 12.5px; padding: 4px 0; align-items: center; }
+.mailrow .w { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip { font-size: 11px; padding: 1px 8px; border: 1px solid var(--border); color: var(--muted); }
+.chip.on { color: var(--primary); border-color: var(--primary); }
+.chip.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 50%, transparent); }
+
+/* Option A: conversation is the page, details column on the right */
+.A-body { flex: 1; min-height: 0; display: flex; }
+.A-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.A-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px; }
+.A-col { max-width: 720px; margin: 0 auto; }
+.A-chat .composer { padding-left: 24px; padding-right: 24px; }
+.A-chat .composer > div { max-width: 720px; margin: 0 auto; }
+.A-side { width: 300px; flex: none; border-left: 1px solid var(--border); overflow-y: auto; background: #1c1c1c; }
+.drawer { position: fixed; top: 60px; right: 0; bottom: 0; width: 460px; background: #1f1f1f; border-left: 1px solid var(--border); box-shadow: -12px 0 30px #0009; z-index: 10; display: flex; flex-direction: column; }
+.drawer .dh { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 500; }
+.drawer .db { flex: 1; overflow-y: auto; padding: 8px 16px; }
+
+/* Option B: tabs */
+.B-tabs { flex: none; display: flex; gap: 2px; padding: 0 24px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.B-tabs a { text-decoration: none; padding: 10px 14px; color: var(--idle); font-weight: 500; border-bottom: 2px solid transparent; white-space: nowrap; display: flex; gap: 6px; align-items: center; min-height: 42px; }
+.B-tabs a .c { color: var(--muted); font-weight: 400; font-size: 12px; }
+.B-tabs a.on { color: var(--fg); border-bottom-color: var(--primary); }
+.B-tabs a .alert { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.B-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px; }
+.B-col { max-width: 780px; margin: 0 auto; }
+.B-main .composer { padding-left: 24px; padding-right: 24px; }
+.B-main .composer > div { max-width: 780px; margin: 0 auto; }
+.B-runsel { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border); padding: 0 8px; height: 26px; font-size: 12px; color: var(--idle); }
+.rstep { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
+.rstep:first-child { border-top: 0; }
+.rstep .n { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.rstep.ok .n { border-color: var(--green); color: var(--green); } .rstep.bad .n { border-color: var(--red); color: var(--red); }
+.rstep .tt { font-weight: 500; } .rstep .sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.kv { display: inline-flex; font-size: 12px; border: 1px solid var(--border); margin: 0 4px 4px 0; }
+.kv b { font: 11px "Roboto Mono", monospace; background: var(--gray); color: var(--muted); padding: 1px 6px; font-weight: 400; } .kv span { padding: 1px 6px; }
+.ftable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ftable td, .ftable th { text-align: left; padding: 8px 6px; border-top: 1px solid var(--border); }
+.ftable th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: 0; }
+
+/* Option C: outline pane + conversation pane */
+.C-body { flex: 1; min-height: 0; display: flex; }
+.C-out { width: 296px; flex: none; border-right: 1px solid var(--border); overflow-y: auto; background: #1c1c1c; }
+.C-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.C-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 28px; }
+.C-col { max-width: 700px; margin: 0 auto; }
+.C-chat .composer { padding-left: 28px; padding-right: 28px; }
+.C-chat .composer > div { max-width: 700px; margin: 0 auto; }
+.acc { border-bottom: 1px solid var(--border); }
+.acc .ah { display: flex; align-items: center; gap: 8px; padding: 12px 16px; font-weight: 500; font-size: 13px; }
+.acc .ah .c { color: var(--muted); font-weight: 400; }
+.acc .ah .sp { flex: 1; }
+.acc .ab { padding: 0 16px 12px; }
+.anchor-hl { outline: 1px solid var(--cyan); outline-offset: 6px; }
+
+/* phone */
+.phone .top { height: 52px; padding: 0 12px; }
+.phone .rail { display: none; }
+.phone .thead { padding: 10px 16px 10px; }
+.phone .trow h1 { font-size: 17px; }
+.phone .A-side, .phone .C-out { display: none; }
+.phone .A-scroll, .phone .B-scroll, .phone .C-scroll { padding: 0 16px; }
+.phone .composer { padding: 8px 12px 10px !important; }
+.phone .composer textarea { height: 40px; }
+.phone .B-tabs { padding: 0 8px; }
+.phone .msg-user { max-width: 90%; }
+.phone .asst { gap: 0; } .phone .asst .tile { display: none; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 78vh; background: #1f1f1f; border-top: 1px solid var(--border); box-shadow: 0 -12px 30px #000a; z-index: 10; overflow-y: auto; }
+.scrim { position: fixed; inset: 0; background: #0009; z-index: 9; }
+.grab { width: 40px; height: 4px; background: #555; margin: 8px auto; }
+.phonebar { display: none; }
+.phone .phonebar { display: flex; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--border); overflow-x: auto; flex: none; }
+.pchip { flex: none; border: 1px solid var(--border); height: 36px; padding: 0 12px; display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--idle); }
+.pchip .c { color: var(--muted); }
+.label { position: fixed; bottom: 6px; right: 8px; font: 11px Roboto; color: #666; z-index: 50; }
+
+/* round 2 */
+.trow h1 { font-size: 20px; }
+.hbtns { display: flex; gap: 8px; flex: none; }
+.btn.live .dot { background: var(--green); }
+.runpick { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); height: 26px; padding: 0 8px; font-size: 12.5px; color: var(--idle); margin-left: 4px; }
+.meta { align-items: center; }
+.err-raw { font-size: 13.5px; color: #ffd0d8; }
+.errcard .code { font: 12px "Roboto Mono", monospace; color: var(--muted); margin-top: 6px; }
+.edit a { color: var(--muted); text-decoration: none; display: inline-flex; gap: 4px; align-items: center; }
+.edit svg { width: 13px; height: 13px; }
+.rundiv.now { color: var(--idle); }
+.rundiv b { color: var(--fg); font-weight: 500; }
+.earlier { border: 1px solid var(--border); background: #1e1e1e; color: var(--idle); font-size: 13px; padding: 0 12px; min-height: 40px; display: flex; align-items: center; gap: 8px; }
+.earlier .sp { flex: 1; }
+.earlier .st { color: var(--red); }
+.oldrun { opacity: .78; display: flex; flex-direction: column; gap: 14px; }
+.oldrun .rundiv a { text-decoration: underline; }
+.route { flex: none; border-top: 1px solid var(--border); padding: 14px 24px; background: #1d1d1d; }
+.route > div { max-width: 720px; margin: 0 auto; display: flex; align-items: center; gap: 12px; color: var(--idle); font-size: 13.5px; }
+.route .sp { flex: 1; }
+.composer .lab { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.jump { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; background: #2a2a2a; border: 1px solid var(--border); padding: 0 12px; height: 34px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; box-shadow: 0 6px 16px #0008; }
+.jump.req { border-color: var(--amber); color: var(--amber); }
+.relwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tool .more { border-top: 1px solid var(--border); padding: 6px 10px; font-size: 12px; color: var(--idle); }
+.tool pre.full { max-height: 220px; overflow: auto; }
+.qopts { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.qopt { border: 1px solid var(--border); padding: 0 12px; min-height: 40px; display: flex; align-items: center; gap: 10px; background: var(--card); }
+.qopt .r { width: 14px; height: 14px; border: 1px solid var(--muted); border-radius: 50%; }
+.qopt.sel { border-color: var(--amber); } .qopt.sel .r { border: 4px solid var(--amber); }
+.qtext { border: 1px solid var(--border); background: var(--card); min-height: 40px; padding: 10px 12px; color: var(--muted); margin-bottom: 8px; }
+.side { width: 280px; flex: none; border-left: 1px solid var(--border); overflow-y: auto; background: #1c1c1c; }
+.side .psec:last-child { border-bottom: 0; }
+.more-row { color: var(--muted); font-size: 12.5px; padding: 6px 0 2px; }
+.sbtn { display: flex; align-items: center; justify-content: center; gap: 6px; height: 36px; border: 1px solid var(--border); font-size: 13px; font-weight: 500; margin-top: 10px; }
+.drawer.wide { width: min(780px, calc(100vw - 340px)); }
+.drawer .dh .x { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); }
+.dscrim { position: fixed; inset: 60px 0 0 0; background: #0008; z-index: 9; }
+.screen.big { aspect-ratio: 16/10; font-size: 13px; }
+.compbar { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.compbar .sp { flex: 1; }
+.banner { flex: none; display: flex; align-items: center; gap: 10px; padding: 0 24px; min-height: 44px; background: color-mix(in srgb, var(--amber) 10%, var(--bg)); border-bottom: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); color: var(--amber); font-size: 13.5px; }
+.banner .sp { flex: 1; }
+.banner a { color: var(--fg); border: 1px solid var(--border); padding: 0 10px; height: 30px; display: inline-flex; align-items: center; }
+.D-tabs { flex: none; display: flex; gap: 2px; padding: 0 24px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.D-tabs a { text-decoration: none; padding: 0 14px; color: var(--idle); font-weight: 500; border-bottom: 2px solid transparent; white-space: nowrap; display: flex; gap: 6px; align-items: center; min-height: 44px; }
+.D-tabs a .c { color: var(--muted); font-weight: 400; font-size: 12px; }
+.D-tabs a.on { color: var(--fg); border-bottom-color: var(--primary); }
+.D-tabs a .alert { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+.D-tabs a .live { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.D-col { max-width: 780px; margin: 0 auto; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px; }
+.cmpwrap { flex: none; padding: 0 24px; }
+.cmpwrap > div { max-width: 720px; margin: 0 auto; }
+.D .cmpwrap > div, .D .route > div { max-width: 780px; }
+.A-col { max-width: 720px; }
+.phone .scroll { padding: 0 16px; }
+.phone .cmpwrap { padding: 0 12px; }
+.phone .route { padding: 12px 16px; }
+.phone .route > div { flex-wrap: wrap; }
+.phone .ibtn { min-width: 40px; height: 40px; }
+.phone .send { height: 40px; }
+.phone .D-tabs { padding: 0 4px; }
+.phone .D-tabs a { padding: 0 12px; }
+.phone .banner { padding: 0 16px; }
+.phone .drawer { top: auto; left: 0; width: auto; height: 82vh; }
+.phone .dscrim { inset: 0; }
+.prow { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.prow .btn { height: 40px; }
+.pchip { height: 40px; }
+.ftable td:first-child { width: 70px; }
+.phone .ftable th:nth-child(4), .phone .ftable td:nth-child(4) { display: none; }
+/* round 3 */
+@media (min-width: 769px) { .trow h1 { -webkit-line-clamp: 1; } }
+.trow { align-items: center; }
+.pill { margin-top: 0; }
+.btn { height: 36px; }
+.phone .btn { height: 40px; }
+.tool .h { min-height: 40px; text-align: left; width: 100%; }
+.tgroup { border: 1px solid var(--border); background: var(--card); font-size: 13px; margin-bottom: 12px; }
+.tgroup > .h { display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 40px; width: 100%; text-align: left; }
+.tgroup > .h .n { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tgroup > .h .c { color: var(--muted); font-size: 12px; }
+.tgroup .in { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 6px; }
+.reason { min-height: 32px; }
+.outside { align-self: stretch; max-width: 88%; }
+.outside .who { color: var(--muted); font-size: 12px; margin-bottom: 4px; display: flex; gap: 6px; align-items: center; }
+.outside .card { background: var(--card); border: 1px solid var(--border); border-left: 3px solid #6b7280; padding: 10px 14px; }
+.filesline { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); min-height: 40px; padding: 0 12px; font-size: 13px; color: var(--idle); margin-top: 4px; }
+.filesline .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filesline a { color: var(--fg); white-space: nowrap; }
+.statusbar { flex: none; border-top: 1px solid var(--border); padding: 0 24px; background: #1d1d1d; }
+.statusbar > div { max-width: 780px; margin: 0 auto; min-height: 56px; display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--idle); }
+.statusbar .sp { flex: 1; }
+.statusbar.wait { background: color-mix(in srgb, var(--amber) 8%, #1d1d1d); border-top-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.statusbar.wait > div { color: var(--amber); }
+.phone .statusbar { padding: 0 16px; }
+.cmpwrap { border-top: 1px solid var(--border); position: relative; }
+.cmpwrap:before { content: ""; position: absolute; left: 0; right: 0; top: -17px; height: 16px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
+.composer { padding-top: 10px; }
+.D-tabs a.dim { color: #6f6f6f; }
+.D-tabs:after { content: ""; flex: none; width: 1px; }
+.phone .tabfade { position: relative; }
+.phone .tabfade:after { content: ""; position: absolute; right: 0; top: 0; bottom: 1px; width: 28px; background: linear-gradient(90deg, transparent, var(--bg)); pointer-events: none; }
+.scopehead { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+.scopehead b { color: var(--fg); font-weight: 500; }
+.fsec { margin-top: 16px; }
+.fsec h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 6px; font-weight: 500; }
+.frow { display: flex; align-items: center; gap: 10px; min-height: 48px; border-top: 1px solid var(--border); flex-wrap: wrap; padding: 6px 0; }
+.frow .nm { flex: 1; min-width: 160px; }
+.frow .nm small { display: block; color: var(--muted); font-size: 12px; }
+.frow .fa { display: flex; gap: 6px; }
+.frow .fa .btn { height: 36px; }
+.phone .frow .fa .btn { height: 40px; }
+.tag.conf { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+.tag.art { color: #c4a5ff; background: color-mix(in srgb, #9b6bff 16%, transparent); }
+.D-split { flex: 1; min-height: 0; display: flex; }
+.D-left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dock { width: 480px; flex: none; border-left: 1px solid var(--border); background: #1c1c1c; display: flex; flex-direction: column; }
+.dock .dh { display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; min-height: 48px; border-bottom: 1px solid var(--border); font-weight: 500; }
+.dock .dh .sp { flex: 1; }
+.dock .x { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); }
+.dock .db { padding: 16px; overflow-y: auto; }
+.ctl { margin-top: 12px; padding: 12px; border: 1px solid var(--border); font-size: 13px; color: var(--idle); }
+.ctl.mine { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--fg); }
+.ctl textarea { width: 100%; margin: 8px 0; background: var(--card); border: 1px solid var(--border); color: var(--fg); font: inherit; padding: 8px; height: 56px; resize: none; }
+.menu { position: absolute; z-index: 20; background: #262626; border: 1px solid var(--border); box-shadow: 0 10px 28px #000b; width: 420px; padding: 4px; }
+.menu .mi { display: grid; grid-template-columns: 64px 64px 48px 1fr; gap: 8px; align-items: center; min-height: 40px; padding: 0 10px; font-size: 13px; }
+.menu .mi.cur { background: var(--accent); box-shadow: inset 2px 0 var(--cyan); }
+.menu .mi .f { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .foot { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 10px; color: var(--muted); font-size: 12px; }
+.ask .acts2 .btn { height: 40px; }
+.answered { border: 1px solid var(--border); background: var(--card); padding: 8px 12px; font-size: 13px; color: var(--idle); }
+.answered b { color: var(--green); font-weight: 500; }
+.log .row .more { color: var(--idle); text-decoration: underline; font-size: 12px; }
+.phone .log .row { grid-template-columns: 44px 1fr; }
+.phone .log .row .ltag { grid-column: 2; }
+.phone .log .row > span:last-child { grid-column: 1 / -1; }
+.phone .thead { padding: 10px 16px 8px; }
+.phone .meta { margin-top: 4px; }
+.prow { margin-top: 8px; }
+/* round 4 */
+.shell { height: 100dvh; }
+.kb .shell { height: calc(100dvh - 291px); }
+.kbd { position: fixed; left: 0; right: 0; bottom: 0; height: 291px; background: #2b2b2b; border-top: 1px solid #444; display: grid; place-items: center; color: #777; font-size: 13px; z-index: 30; }
+.dock { width: clamp(360px, calc(100% - 560px), 560px); }
+.phone .reason { min-height: 40px; }
+.phone .edit a { min-height: 40px; }
+.phone .log .row .more { display: inline-flex; min-height: 40px; align-items: center; }
+.route { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+.cmpwrap .composer { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+.md pre { white-space: pre; }
+.phone .meta { font-size: 12.5px; }
+.menu .mi { grid-template-columns: 52px 66px 44px minmax(0,1fr); }
+/* keyboard open on phones: the header shrinks to one title line and the status, so the thread keeps room */
+.kb.phone .thead .meta { display: none; }
+.kb.phone .trow h1 { -webkit-line-clamp: 1; font-size: 15px; }
+.kb.phone .prow { display: none; }
+/* round 5 */
+.filesline .nm { white-space: normal; }
+.filesline { padding: 6px 12px; }
+.whoedit { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+.whoedit a { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; color: var(--idle); text-decoration: none; }
+.whoedit svg { width: 13px; height: 13px; }
+.phone .ibtn { min-width: 44px; height: 44px; }
+.phone .send { height: 44px; padding: 0 18px; }
+.statusbar { padding-bottom: env(safe-area-inset-bottom); }
+.phone .prow { margin-top: 6px; }
+.phone .meta .pill { margin-top: 0; }
+.phone .meta > span.pill:after { content: none; }
+/* round 6 */
+@media (min-width: 769px) { .trow h1 { -webkit-line-clamp: 2; } }
+.trow { align-items: flex-start; }
+.trow .pill, .trow .hbtns { margin-top: 2px; }
+.codewrap { position: relative; margin: 0 0 10px; }
+.codewrap pre { margin: 0; padding-right: 64px; }
+.codewrap:after { content: ""; position: absolute; top: 1px; right: 1px; bottom: 1px; width: 48px; background: linear-gradient(90deg, transparent, #111); pointer-events: none; }
+.codewrap .copy { position: absolute; top: 6px; right: 6px; z-index: 1; height: 28px; padding: 0 10px; border: 1px solid var(--border); background: #1a1a1a; font-size: 12px; color: var(--idle); }
+.phone .codewrap .copy { height: 36px; }
+.pmeta { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-height: 40px; }
+.pmeta .t { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmeta .pbtn { height: 40px; padding: 0 10px; margin: 0; flex: none; }
+.phone .trow h1 { -webkit-line-clamp: 2; }
+.phone .log .row { grid-template-columns: 44px 1fr; gap: 2px 8px; padding: 8px 0; }
+.phone .log .row .ltag { grid-column: 2; grid-row: 1; }
+.phone .log .row > span:last-child { grid-column: 1 / -1; grid-row: 2; }
+.filesline a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 4px; }
+.phone .top svg { width: 22px; height: 22px; }
+.phone .top > div > svg { padding: 9px; width: 40px; height: 40px; box-sizing: border-box; margin-left: -9px; }
+.D-tabs a { padding: 0 12px; }
+.phone .D-tabs a { padding: 0 10px; }
+.kb.phone .pmeta { display: none; }
+/* final polish */
+.codewrap .codehead { display: flex; justify-content: space-between; align-items: center; background: #161616; border: 1px solid var(--border); border-bottom: 0; padding: 0 0 0 12px; font: 12px "Roboto Mono", monospace; color: var(--muted); }
+.codewrap .copy { position: static; height: 32px; border: 0; border-left: 1px solid var(--border); }
+.phone .codewrap .copy { height: 40px; min-width: 56px; }
+.codewrap:after { top: 33px; }
+.phone .codewrap:after { top: 41px; }
+.codewrap pre { padding-right: 12px; }
+.log .row .more.blk { display: block; min-height: 0; margin-top: 4px; }
+.phone .log .row .more.blk { display: flex; min-height: 40px; align-items: center; margin-top: 0; }
+.whoedit a { padding: 0 8px; margin-right: -8px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const ic = {
+  wrench: '<svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-3-3 8-8z"/><path d="M3 21l6-6"/></svg>',
+  globe: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+  file: '<svg viewBox="0 0 24 24"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+  clip: '<svg viewBox="0 0 24 24"><path d="M21 12l-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 8"/></svg>',
+  lib: '<svg viewBox="0 0 24 24"><path d="M4 4h4v16H4zM10 4h4v16h-4zM16 5l4 1-3 14-4-1z"/></svg>',
+  mic: '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+  list: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  monitor: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12"/><path d="M8 20h8M12 16v4"/></svg>',
+  mail: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14"/><path d="M3 7l9 6 9-6"/></svg>',
+  menu: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
+  ext: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg>',
+};
+ic.up = '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+ic.arrowdown = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
+ic.bolt = '<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>';
+ic.edit = '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
+
+const Q = new URLSearchParams(location.search);
+const W = Q.get("w") || "desktop", S = Q.get("s") || "done";
+const TAB = Q.get("tab") || "chat", OPEN = Q.get("open") || "", COMP = Q.get("computer") === "1";
+const EARLIER_Q = Q.get("earlier"), MULTI = Q.get("runs") === "1" || S === "failed" || Q.get("view"), SCROLLUP = Q.get("up") === "1";
+const TAKE = Q.get("take") || ""; // "" | "asked" | "mine"
+const VIEW = +(Q.get("view") || 0), LATER = Q.get("later") || "done"; // viewing an older run of a 3-run thread
+const KB = Q.get("kb") === "1";
+// Earlier runs: expanded by default when there are one or two, collapsed when there are more.
+const EARLIER = EARLIER_Q ? EARLIER_Q === "1" : (Q.get("runs") === "1" && S !== "failed");
+const phone = W === "phone";
+const mail = S === "mail", failed = S === "failed", waiting = S === "paused" || S === "question";
+const active = (S === "running" || waiting) && !Q.get("view");
+
+/* ---------- data (times agree: this run starts 21:56; earlier runs 21:40 and 21:48; mail 08:12; trigger 05:04) ---------- */
+const T = {
+  title: failed ? "EP staging bot" : mail ? "Re: October invoice from Harbour Print, amount does not matc..." : "What do you need to do to know to be able to build the disco...",
+  agent: mail ? "Accounts Clerk" : failed ? "LR7 cloud" : "Discord Role Manager",
+  init: mail ? "AC" : failed ? "LC" : "DR",
+  started: failed ? "trigger EP staging bot" : mail ? "mail from jane@harbourprint.com.au" : "Dom Fretz",
+  t0: failed ? "05:04" : mail ? "08:12" : "21:56",
+  cost: { done: "$0.14", running: "$0.06 so far", failed: "$0.00", paused: "$0.09 so far", question: "$0.07 so far", mail: "$0.04" }[S],
+  when: { done: "21:56, took 1m 48s", running: "21:56, running 1m 12s", failed: "05:04, failed after 2s", paused: "21:56, waiting 4m", question: "21:56, waiting 2m", mail: "08:12, took 41s" }[S],
+};
+const runTotal = failed ? 7 : MULTI ? 3 : 1;
+const runN = VIEW || runTotal; // the run this page shows
+const newestActive = VIEW && LATER === "running";
+if (VIEW) { T.when = "21:40, took 52s"; T.cost = "$0.03"; T.title = "Can you make a bot that hands out one role in our Discord?"; }
+const pill = { done: ["done", "Done"], running: ["running", "Running"], failed: ["failed", "Failed"], paused: ["paused", "Needs you"], question: ["paused", "Needs you"], mail: ["done", "Done"] }[S];
+if (TAKE === "mine") { pill[0] = "running"; pill[1] = "You have control"; T.when = "21:56, paused, you have control"; }
+const needsYou = waiting && TAKE !== "mine";
+const userText = "What do you need to do to know to be able to build the discord bot? Please also check the Discord docs for which permissions the bot needs, and write the setup steps into a file I can share.";
+const answer = `
+<p>I need these details before I can build it:</p>
+<ol>
+<li><b>Bot token</b>: from the Discord developer portal. I'll keep it secret and never print or log it.</li>
+<li><b>Your user ID</b>: the owner ID. Only you can grant or revoke the delegation.</li>
+<li><b>Delegated user's ID</b>: the one person who can add or remove members.</li>
+<li><b>Server (guild) ID</b>: the server the bot will work in.</li>
+<li><b>Role</b>: the one approved role, by name or ID.</li>
+</ol>
+<h3>Setup on your side</h3>
+<ul>
+<li><b>Bot permissions</b>: it needs the <b>Manage Roles</b> permission.</li>
+<li><b>Role order</b>: the bot's role must sit <b>above</b> the approved role in the server's role list. The approved role must also not have administrator permissions.</li>
+<li><b>Intents</b>: enable the <b>Server Members Intent</b> in the developer portal. Enable <b>Message Content Intent</b> too if you want text commands rather than slash commands.</li>
+</ul>
+<p>The invite link the bot needs looks like this:</p>
+<div class="codewrap"><div class="codehead"><span>bash</span><button class="copy">Copy</button></div><pre>curl -X PUT "https://discord.com/api/v10/guilds/&lt;GUILD_ID&gt;/members/&lt;USER_ID&gt;/roles/&lt;ROLE_ID&gt;" -H "Authorization: Bot $DISCORD_BOT_TOKEN" -H "X-Audit-Log-Reason: approved by delegated user"
+https://discord.com/oauth2/authorize?client_id=&lt;APP_ID&gt;&amp;permissions=268435456&amp;scope=bot%20applications.commands</pre></div>
+<p>I wrote the full steps to <code>discord-bot-setup.md</code> in the task folder, and the permission list to <code>permissions.json</code>.</p>
+<p>One question for you: should requests be <b>slash commands</b> (such as <code>/role add @user</code>) or plain text messages? I'd suggest slash commands.</p>`;
+
+/* ---------- conversation parts ---------- */
+const toolRows = [
+  { i: ic.globe, n: "web_fetch", d: "discord.com/developers/docs/topics/permissions",
+    inp: '{ "url": "https://discord.com/developers/docs/topics/permissions" }',
+    out: "# Permissions\nPermissions are a way to limit and grant certain abilities to users in Discord.\nA set of base permissions can be configured at the guild level for different roles.\n\nMANAGE_ROLES   0x10000000   Allows management and editing of roles\nKICK_MEMBERS   0x00000002   Allows kicking members\n… (truncated)" },
+  { i: ic.file, n: "write_file", d: "discord-bot-setup.md" },
+  { i: ic.file, n: "write_file", d: "permissions.json", run: S === "running" },
+];
+function toolCard(r, open) {
+  return `<div class="tool"><button class="h">${r.i}<span class="n">${r.n}</span><span class="d">${r.d}</span>${r.run ? '<span class="spin"></span>' : ""}${open ? ic.down : ic.chev}</button>
+    ${open ? `<div class="lbl">Input</div><pre>${r.inp}</pre><div class="lbl">Output</div><pre class="full">${r.out}</pre>` : ""}</div>`;
+}
+function toolGroup() {
+  // The existing tool group: "web_fetch, write_file ×2", collapsed when the run is over, open while it works.
+  const open = S === "running" || OPEN === "tool";
+  return `<div class="tgroup"><button class="h">${open ? ic.down : ic.chev}${ic.wrench}<span class="n">web_fetch, write_file ×2</span>${S === "running" ? '<span class="spin"></span>' : '<span class="c">3 tool calls</span>'}</button>
+    ${open ? `<div class="in">${toolRows.map((r, k) => toolCard(r, OPEN === "tool" && k === 0)).join("")}</div>` : ""}</div>`;
+}
+const reasoning = () => `<button class="reason">${ic.chev} Reasoning</button>`;
+const editLink = () => `<div class="edit"><a>${ic.edit} Edit and resend${active ? " (stops the agent)" : ""}</a></div>`;
+const member = (text, time, editable) => phone && editable
+  ? `<div class="msg-user"><div class="who whoedit">Dom Fretz · ${time}<a>${ic.edit} Edit${active ? " (stops the agent)" : ""}</a></div><div class="bubble">${text}</div></div>`
+  : `<div class="msg-user"><div class="who">Dom Fretz · ${time}</div><div class="bubble">${text}</div>${editable ? editLink() : ""}</div>`;
+const outside = (label, body) => `<div class="outside"><div class="who">${label}</div><div class="card">${body}</div></div>`;
+const asst = (inner) => `<div class="asst"><div class="tile">${T.init}</div><div class="body"><div class="who">${T.agent}</div>${inner}</div></div>`;
+
+function earlierRuns() {
+  if (!MULTI) return "";
+  const n = runN - 1;
+  const head = `<button class="earlier" aria-expanded="${EARLIER}">${EARLIER ? ic.down : ic.chev}<span>${n} earlier run${n > 1 ? "s" : ""} in this thread</span>${failed ? '<span class="st">· all failed</span>' : '<span style="color:var(--muted)">· both done</span>'}<span class="sp"></span><span style="color:var(--muted)">${EARLIER ? "Hide" : "Show"}</span></button>`;
+  if (!EARLIER) return head;
+  const old = failed
+    ? ["21:10", "22:02", "23:00", "01:00", "03:00", "04:00"].map((t, k) => `<div class="rundiv"><span>Run ${k + 1} · <span class="bad">Failed</span> · ${t}</span></div>`).join("")
+    : `<div class="rundiv"><span>Run 1 · <span class="ok">Done</span> · 21:40</span></div>${run1Body()}${run2()}`;
+  return `${head}<div class="oldrun">${old}</div>`;
+}
+const runDivider = () => MULTI ? `<div class="rundiv now"><span><b>Run ${runTotal} of ${runTotal}</b> · this run · ${T.t0}</span></div>` : "";
+const filesLine = () => `<div class="filesline">${ic.file}<span class="nm">2 files in the task folder, 1 edited outside, <a style="color:var(--amber);min-height:0;display:inline;padding:0">1 conflict</a>, 1 artifact</span><a>See files</a></div>`;
+
+// Earlier runs render in full, the same way here and on an older run's page. Tool groups and reasoning stay collapsed.
+const run1Body = () => `${member("Can you make a bot that hands out one role in our Discord?", "21:40", false)}${asst(`${reasoning()}<div class="md"><p>Yes. I can build a small bot that only manages one approved role. Tell me who may use it, and I will list what I need. A Discord bot needs three things from you:</p><ol><li>An application in the Discord developer portal.</li><li>A bot token for that application.</li><li>An invite to your server with the right permissions.</li></ol></div>`)}`;
+const run2 = () => `<div class="rundiv"><span>Run 2 · <span class="ok">Done</span> · 21:48</span></div>${member("Only one person may add members to that role. Everyone else is refused. Post a note in #mods so they know.", "21:48", false)}${asst(`<div class="answered"><b>Approved</b> by Dom Fretz at 21:49 · Post a message in #mods</div><div class="md" style="margin-top:10px"><p>Posted in #mods. One delegated person, one role, everyone else refused.</p></div>`)}`;
+const runningTurn = () => asst(`${reasoning()}<div class="tgroup"><button class="h">${ic.down}${ic.wrench}<span class="n">web_fetch, write_file ×2</span><span class="spin"></span></button><div class="in">${toolRows.map(r => toolCard({ ...r, run: r.d === "permissions.json" }, false)).join("")}</div></div><div class="md"><p>The docs confirm the bot needs <b>Manage Roles</b> and that its role must sit above the role it hands out. I'm writing the permission list now, then I'll summarise what I need from you…</p></div>`);
+function viewConversation() {
+  // Run 3 renders exactly as it does on its own page.
+  const later = LATER === "running" ? runningTurn() : asst(`${reasoning()}${toolGroup()}<div class="md">${answer}</div>${filesLine()}`);
+  return `<div class="convo">
+    <div class="rundiv now" id="viewed" style="color:var(--cyan)"><span><b style="color:var(--cyan)">Run 1 of 3</b> · viewing · 21:40</span></div>
+    <div style="border-left:2px solid var(--cyan);padding-left:14px;display:flex;flex-direction:column;gap:14px">${run1Body()}</div>
+    ${run2()}
+    <div class="rundiv"><span>Run 3 · ${LATER === "running" ? '<span style="color:var(--cyan)">Running</span>' : '<span class="ok">Done</span>'} · 21:56</span></div>${member(userText, "21:56", false)}${later}</div>`;
+}
+function conversation() {
+  if (VIEW) return viewConversation();
+  let h = earlierRuns() + runDivider();
+  if (failed) {
+    h += outside(`${ic.bolt} Trigger: EP staging bot · 05:04`, "Reply with: pong");
+    h += asst(`<div class="errcard"><b>Run failed</b><div class="err-raw">Credential store read failed for openrouter: This workspace has no OpenRouter API key. Add one in Settings, Model providers.</div><div class="acts2"><a class="btn">Open Model providers</a></div></div>`);
+  } else if (mail) {
+    h += outside(`${ic.mail} Mail from jane@harbourprint.com.au · 08:12`, `<b>Re: October invoice from Harbour Print</b><p style="margin:6px 0 0">Hi, attached is our invoice HP-2291 for October. Total $4,180.00 inc GST. Payment terms 14 days. Thanks, Jane</p><div style="margin-top:8px;font-size:12px;color:var(--muted)">${ic.clip} HP-2291.pdf · 84 KB</div>`);
+    h += asst(`<div class="tgroup"><button class="h">${ic.chev}${ic.wrench}<span class="n">read_file, xero_find_quote, send_mail</span><span class="c">3 tool calls</span></button></div>
+      <div class="md"><p>The invoice total of <b>$4,180.00</b> is $380.00 above quote Q-1187 ($3,800.00 inc GST). The difference is a line for "rush fee" that the quote does not list.</p><p>I replied to Jane asking for a corrected invoice or a note on the rush fee, and flagged it for you in Xero. Nothing was paid.</p></div>`);
+  } else {
+    h += member(userText, "21:56", true);
+    if (S === "running") h += runningTurn();
+    else if (S === "paused" && TAKE) h += asst(`${toolGroup()}<div class="ask" id="req" style="${TAKE === "mine" ? "border-color:var(--cyan);background:var(--accent)" : ""}"><div class="k" style="${TAKE === "mine" ? "color:var(--cyan)" : ""}">${TAKE === "mine" ? "You have control" : "Asks you to take over · waiting 3 min"}</div><b>Sign in to the Discord developer portal and create the bot application. I can't pass the captcha.</b><div class="acts2" style="margin-top:10px">${TAKE === "mine" ? `<span style="color:var(--fg)">The agent waits for you. Hand back when you are done.</span>` : '<a class="btn primary">Take over</a><a class="btn">Cancel request</a>'}</div></div>`);
+    else if (S === "paused") h += asst(`${toolGroup()}<div class="ask" id="req"><div class="k">Approval needed · waiting 4 min</div><b>Post a message in #mods on the CCAU Discord</b><pre>Heads up: I'm the new role bot. Only Dom can grant who may add members to the "Verified" role.</pre><div class="acts2"><a class="btn primary">Approve</a><a class="btn danger">Deny</a></div></div>`);
+    else if (S === "question") h += asst(`${toolGroup()}<div class="ask" id="req"><div class="k">Question · waiting 2 min</div><b>Should requests be slash commands or plain text messages?</b><div class="qopts" role="radiogroup"><div class="qopt" role="radio" aria-checked="false" tabindex="0"><span class="r"></span>Slash commands, such as /role add @user</div><div class="qopt" role="radio" aria-checked="false" tabindex="-1"><span class="r"></span>Plain text messages</div></div><textarea class="qtext" style="width:100%;font:inherit;color:var(--fg);resize:none" placeholder="Or write your own answer"></textarea><div class="acts2"><button class="btn primary" disabled style="opacity:.45">Send answer</button><span style="color:var(--muted);font-size:12.5px;align-self:center">Pick an option or write an answer</span></div></div>`);
+    else h += asst(`${reasoning()}${toolGroup()}<div class="md" id="answer">${answer}</div>${filesLine()}`);
+  }
+  return `<div class="convo">${h}</div>`;
+}
+
+function bottom() {
+  if (failed) return phone ? `<div class="route"><a class="btn" style="width:100%;height:48px">${ic.bolt} A trigger started this thread · Open it</a></div>` : `<div class="route"><div>${ic.bolt}<span>A trigger started this thread, so it takes no replies here.</span><span class="sp"></span><a class="btn">Open the trigger</a></div></div>`;
+  if (mail) return phone ? `<div class="route"><a class="btn" style="width:100%;height:48px">${ic.mail} Replies go by mail · Open the thread</a></div>` : `<div class="route"><div>${ic.mail}<span>Mail started this thread. Replies go by mail.</span><span class="sp"></span><a class="btn">Open the mail thread</a></div></div>`;
+  if (newestActive) return `<div class="statusbar"><div><span class="spin"></span><span>Run 3 is working. Reply when it is done.</span></div></div>`;
+  if (S === "running") return `<div class="statusbar"><div><span class="spin"></span><span>Working · write_file permissions.json${phone ? "<br><span style='color:var(--muted)'>Reply when it is done.</span>" : ""}</span><span class="sp"></span>${SCROLLUP ? `<button class="btn">${ic.arrowdown} ${phone ? "Latest" : "Jump to latest"}</button>` : `<span style="color:var(--muted)">${phone ? "" : "Reply when it is done"}</span>`}</div></div>`;
+  if (waiting && KB) return ""; // typing an answer: the request card's own Send answer is the action
+  if (TAKE === "mine") return `<div class="statusbar" style="background:var(--accent);border-top-color:var(--cyan)"><div style="color:var(--cyan)">${ic.monitor}<span>You have control. Hand back on the computer ${phone ? "tab" : "panel"} when you are done.</span></div></div>`;
+  if (waiting) return `<div class="statusbar wait"><div>${ic.info}<span>${TAKE === "mine" ? `You have control. Hand back on the computer ${phone ? "tab" : "panel"} when you are done.` : `Waiting for your ${S === "question" ? "answer" : TAKE ? "takeover" : "approval"}`}</span><span class="sp"></span>${SCROLLUP ? `<button class="btn" style="color:var(--amber);border-color:var(--amber)">${ic.arrowdown} Go to the ${S === "question" ? "question" : "request"}</button>` : ""}</div></div>`;
+  return `<div class="cmpwrap"><div class="composer" style="border-top:0"><div><div class="lab"><span>Reply</span><span>Sending starts run ${runTotal + 1} in this thread</span></div><div class="box"><textarea placeholder="Write to ${T.agent}"></textarea><div class="bar"><button class="ibtn" aria-label="Attach files">${ic.clip}${phone ? "" : " Attach"}</button><button class="ibtn" aria-label="From library">${ic.lib}${phone ? "" : " Library"}</button><button class="ibtn" aria-label="Dictate">${ic.mic}</button><span class="sp"></span>${phone ? "" : '<kbd>Ctrl</kbd><kbd>Enter</kbd>'}<button class="send">Send</button></div></div></div></div></div>`;
+}
+
+/* ---------- header ---------- */
+function runMenu() {
+  if (OPEN !== "runs") return "";
+  const rows = failed ? [[7, "Failed", "05:04", "Reply with: pong"], [6, "Failed", "04:00", "Reply with: pong"], [5, "Failed", "03:00", "Reply with: pong"], [4, "Failed", "01:00", "Reply with: pong"], [3, "Failed", "23:00", "Reply with the single word: pong"], [2, "Failed", "22:02", "Reply with the single word: pong"], [1, "Failed", "21:10", "Reply with the single word: pong"]] : [[3, VIEW ? (LATER === "running" ? "Running" : "Done") : pill[1] === "Needs you" ? "Needs you" : pill[1], "21:56", "What do you need to do to know to be able…"], [2, "Done", "21:48", "Only one person may add members to that…"], [1, "Done", "21:40", "Can you make a bot that hands out one role…"]];
+  return `<div class="menu" role="menu"><div style="max-height:288px;overflow-y:auto">${rows.map(r => `<div class="mi ${r[0] === runN ? "cur" : ""}" role="menuitem"><span>Run ${r[0]}</span><span class="${r[1] === "Failed" ? "bad" : r[1] === "Running" ? "" : "ok"}" style="${r[1] === "Running" ? "color:var(--cyan)" : ""}">${r[1]}</span><span style="color:var(--muted)">${r[2]}</span><span class="f">${r[3]}</span></div>`).join("")}</div><div class="foot">Opens that run's task page. The conversation stays the whole thread.</div></div>`;
+}
+function header() {
+  const stop = active ? `<button class="btn danger">${ic.stop} Stop</button>` : "";
+  const comp = COMP && !phone ? `<button class="btn ${OPEN === "computer" ? "" : ""}" aria-pressed="${OPEN === "computer"}" style="${OPEN === "computer" ? "background:var(--accent);border-color:var(--cyan)" : ""}">${ic.monitor} Computer</button>` : "";
+  const picker = MULTI ? `<button class="runpick" aria-haspopup="menu">Run ${runN} of ${runTotal} ${ic.down}</button>` : "";
+  if (phone) {
+    return `<div class="thead"><div class="trow" style="align-items:flex-start"><h1>${T.title}</h1></div>
+      <div class="pmeta"><span class="pill ${pill[0]}"><span class="dot"></span>${pill[1]}</span><span class="t">${failed ? "Trigger EP staging bot · 05:04" : `${picker && stop ? "" : T.agent + " · "}${T.when.split(",")[0]} · ${T.cost}`}</span>${picker ? picker.replace('class="runpick"', 'class="runpick pbtn"').replace(/Run (\d+) of (\d+)/, "$1/$2") : ""}${stop ? stop.replace('class="btn danger"', 'class="btn danger pbtn"') : ""}</div></div>`;
+  }
+  return `<div class="thead"><div class="crumb">Desk › Task</div><div class="trow"><h1>${T.title}</h1><span class="pill ${pill[0]}"><span class="dot"></span>${pill[1]}</span><div class="hbtns">${comp}${stop}</div></div>
+    <div class="meta"><span><a>${T.agent}</a></span><span>Started by ${T.started}</span><span>Cloud</span><span>${T.when}</span><span>${T.cost} this run</span>${picker ? `<span>${picker}</span>` : ""}</div></div>`;
+}
+
+/* ---------- tabs ---------- */
+const files = failed ? [] : S === "running" ? [["in folder", "discord-bot-setup.md", "3 KB · 21:57"]] : mail ? [["in folder", "HP-2291.pdf", "84 KB · 08:12"]] : [["in folder", "discord-bot-setup.md", "3 KB · 21:57"], ["in folder", "permissions.json", "1 KB · 21:57"]];
+const fileCount = VIEW ? 0 : files.length + (S === "done" ? 3 : 0);
+function filesTab() {
+  if (!fileCount) return `<p class="scopehead"><b>Files from run ${runN}</b></p><div class="empty" style="padding:24px 0">No files from run ${runN}. The task folder is empty and nothing outside it changed.</div>`;
+  const row = (tag, cls, name, sub, acts) => `<div class="frow">${tag ? `<span class="tag ${cls}">${tag}</span>` : ic.file}<span class="nm">${name}<small>${sub}</small></span><span class="fa">${acts}</span></div>`;
+  let h = `<p class="scopehead"><b>Files from run ${runN}</b> · <span class="mono">library/agents/discord-role-manager/tasks/01M6K384…/</span></p>`;
+  h += `<div class="fsec"><h3>In the task folder</h3>${files.map(f => row("", "new", f[1], f[2], '<a class="btn">Open</a><a class="btn">Download</a>')).join("")}</div>`;
+  if (S === "done") {
+    h += `<div class="fsec"><h3>Changed outside the folder</h3>${row("edited · v3", "edit", "shared/bots/README.md", "2 KB · 21:57", '<a class="btn">Open</a>')}</div>`;
+    h += `<div class="fsec"><h3>Conflicts</h3>${row("conflict", "conf", "shared/bots/roles.json", "Changed in the library while the agent edited it. Both versions kept.", '<a class="btn">Compare</a>')}</div>`;
+    h += `<div class="fsec"><h3>Artifacts</h3>${row("artifact", "art", "Discord bot setup page", "Published by the agent · 21:57", '<a class="btn">Open</a>')}</div>`;
+  }
+  return h + `<div style="margin-top:16px"><a class="btn">Open the folder in the library</a></div>`;
+}
+const logCount = VIEW ? 3 : failed ? 2 : 6;
+function logTab() {
+  const r = VIEW
+    ? [["21:40", "message", "Dom Fretz: Can you make a bot that hands out one role in our Discord?"], ["21:40", "thought", "A narrow bot is safer. I should ask who may use it."], ["21:41", "message", "Yes. I can build a small bot that only manages one approved role…"]]
+    : failed
+    ? [["05:04", "trigger", "Trigger EP staging bot fired: Reply with: pong"], ["05:04", "error", "Credential store read failed for openrouter: This workspace has no OpenRouter API key. Add one in Settings, Model providers."]]
+    : [["21:56", "message", "Dom Fretz: What do you need to do to know to be able to build the discord bot? Please also check the Discord docs… <a class='more blk'>Show all</a>"], ["21:56", "thought", "The user wants requirements and a setup file. I should check the permissions docs first."], ["21:56", "tool", "web_fetch discord.com/developers/docs/topics/permissions"], ["21:57", "tool", "write_file discord-bot-setup.md"], ["21:57", "tool", "write_file permissions.json"], ["21:57", "message", "I need these details before I can build it: 1. Bot token… <a class='more blk'>Show all</a>"]];
+  return `<p class="scopehead"><b>Log of run ${runN}</b> · every event, oldest first</p><div class="log">${r.map(x => `<div class="row"><span class="tm">${x[0]}</span><span class="ltag ${x[1]}">${x[1]}</span><span>${x[2]}</span></div>`).join("")}</div>`;
+}
+function mailTab() {
+  return `<p class="scopehead"><b>Mail thread</b> · Re: October invoice from Harbour Print</p>
+  <div class="frow"><span class="tag">in</span><span class="nm">jane@harbourprint.com.au<small>08:12 · 1 attachment</small></span><span class="chip">read</span></div>
+  <div class="frow"><span class="tag">out</span><span class="nm">to jane@harbourprint.com.au<small>08:13</small></span><span class="chip on">sent</span></div>
+  <div style="margin-top:12px"><a class="btn">Open the mail thread</a></div>`;
+}
+// The panel's status line is controllerLabel() from desktop-status.ts, never inferred from the run.
+function ctlLabel() {
+  const [c, t] = TAKE === "mine" ? ["var(--cyan)", "You are in control"] : TAKE === "asked" ? ["var(--amber)", "Nobody is in control · waiting for you"] : S === "running" ? ["var(--green)", "The agent is in control"] : ["#888", "Nobody is in control"];
+  return `<span style="width:7px;height:7px;border-radius:50%;background:${c}"></span><span style="color:var(--muted);font-size:12.5px;font-weight:400">${t}</span>`;
+}
+function computerBody() {
+  const ctl = TAKE === "mine"
+    ? `<div class="ctl mine" style="border-color:var(--cyan);background:var(--accent)"><b>You have control.</b> The agent waits until you hand back.<textarea placeholder="Note for the agent (optional)"></textarea><div style="display:flex;gap:8px"><button class="btn primary">Hand back</button><button class="btn">Full screen</button></div></div>`
+    : TAKE === "asked"
+    ? (phone ? `<div class="ctl" style="border-color:var(--amber)"><b>The agent asks you to take over.</b> Sign in to the Discord developer portal and create the bot application. It can't pass the captcha.<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn primary">Take over</button><button class="btn">Cancel request</button><button class="btn">Full screen</button></div><div style="color:var(--muted);font-size:12.5px;margin-top:8px">Full screen fills the phone. Turn it sideways for more room. Close returns here.</div></div>` : `<div class="ctl" style="border-color:var(--amber)"><b>Waiting for you to take over.</b> The request and its Take over button are in the conversation.<div style="margin-top:8px"><button class="btn">Full screen</button></div></div>`)
+    : `<div class="ctl">${phone ? ctlLabel() + "<br>" : ""}A live view of the computer as it is now, not a recording of this run. You can take over when the agent asks.<div style="margin-top:8px"><button class="btn">Full screen</button></div></div>`;
+  return `<div class="screen big">${TAKE === "mine" ? "Your control · Discord developer portal" : "Live screen · Discord developer portal"}</div>${ctl}`;
+}
+
+/* ---------- page ---------- */
+let TAB_MORE = false;
+function page() {
+  const tabs = [["chat", "Conversation", ""], ["files", "Files", fileCount], ["log", "Log", logCount]];
+  if (mail) tabs.push(["mail", "Mail", 2]);
+  if (COMP && phone) tabs.push(["computer", "Computer", TAKE === "asked" ? "wait" : ""]);
+  // Phones show four tabs at most: Conversation, Files, Log, then the most relevant extra (a pending takeover puts Computer first, a mail task puts Mail first). The rest go under More, which shows their total count and a dot when one needs the person.
+  let moreItems = [];
+  if (phone && tabs.length > 5) {
+    const extras = tabs.slice(3);
+    extras.sort((a, b) => (b[0] === "computer" && TAKE ? 1 : 0) - (a[0] === "computer" && TAKE ? 1 : 0));
+    const keep = extras[0]; moreItems = extras.slice(1);
+    tabs.splice(3); tabs.push(keep);
+    const sel = moreItems.find(m => m[0] === TAB);
+    tabs.push(["more", sel ? sel[1] : "More", sel ? "▾" : `${moreItems.length} ▾`]);
+    if (sel) TAB_MORE = true;
+  }
+  const bar = `<div class="tabfade"><nav class="D-tabs" role="tablist">${tabs.map(t => `<a role="tab" tabindex="${TAB === t[0] || (t[0] === "more" && TAB_MORE) ? 0 : -1}" aria-selected="${TAB === t[0] || (t[0] === "more" && TAB_MORE)}" class="${TAB === t[0] || (t[0] === "more" && TAB_MORE) ? "on" : ""}">${t[1]} ${t[2] === "wait" ? '<span class="alert"></span>' : t[2] ? `<span class="c">${t[2]}</span>` : ""}${t[0] === "chat" && needsYou ? '<span class="alert"></span>' : ""}${t[0] === "files" && S === "done" && !VIEW ? '<span class="alert" title="1 conflict"></span>' : ""}</a>`).join("")}</nav></div>${OPEN === "more" ? `<div class="menu" role="menu" style="right:8px;left:auto;top:150px;width:200px">${moreItems.map(m => `<div class="mi" role="menuitem" style="grid-template-columns:1fr auto;min-height:44px"><span>${m[1]}</span><span style="color:var(--muted)">${typeof m[2] === "number" ? m[2] : ""}</span></div>`).join("")}</div>` : ""}`;
+  const banner = needsYou && TAB !== "chat" && !(TAB === "computer" && TAKE) ? `<div class="banner">${ic.info}<span>${S === "paused" ? (TAKE ? "The agent asks you to take over: sign in to Discord" : "Approval needed: post a message in #mods") : "Question: slash commands or plain text?"}</span><span class="sp"></span><a style="height:40px;white-space:nowrap;min-width:96px;justify-content:center">${S === "question" ? "Answer question" : TAKE ? "Take over" : "Review approval"}</a></div>` : "";
+  const viewing = VIEW ? `<div class="banner" style="color:var(--cyan);background:var(--accent);border-bottom-color:color-mix(in srgb,var(--cyan) 40%,transparent)">${ic.info}<span>Viewing run ${VIEW} of ${runTotal}${phone ? "" : ". Files and Log show this run."}</span><span class="sp"></span><a style="height:40px;white-space:nowrap">Go to the latest run</a></div>` : "";
+  let main;
+  if (TAB === "chat") main = `<div class="relwrap"><div class="scroll" id="scr"><div class="D-col">${conversation()}</div></div></div>${bottom()}`;
+  else main = `<div class="scroll"><div class="D-col" style="padding:16px 0">${{ files: filesTab, log: logTab, mail: mailTab, computer: computerBody }[TAB]()}</div></div>`;
+  const dock = COMP && !phone && OPEN === "computer" ? `<aside class="dock" aria-label="Computer"><div class="dh">${ic.monitor}<span style="display:flex;flex-direction:column;line-height:1.3;padding:6px 0"><span>${T.agent}'s computer</span><span style="display:flex;align-items:center;gap:6px">${ctlLabel()}</span></span><span class="sp"></span><button class="x" aria-label="Close">${ic.x}</button></div><div class="db">${computerBody()}</div></aside>` : "";
+  return `${header()}${bar}${banner}${viewing}<div class="D-split"><div class="D-left">${main}</div>${dock}</div>${runMenu()}`;
+}
+
+function rail() {
+  return `<aside class="rail"><div class="ws">CCAU</div><div class="sec"><span>Needs you</span><span>${needsYou ? 1 : 0}</span></div><div class="ritems">${TAKE === "mine" ? `<div class="ritem open" style="border-left-color:var(--cyan)"><b>You have control</b><i>Discord Role Manager's computer</i></div>` : ""}${needsYou ? `<div class="ritem open" style="border-left-color:var(--amber)"><b>${S === "paused" ? (TAKE ? "Take over: sign in to Discord" : "Approve post in #mods") : "Slash commands or text?"}</b><i>Discord Role Manager · 4 min</i></div>` : TAKE === "mine" ? "" : '<div style="padding:4px 8px;color:var(--muted)">Nothing needs you.</div>'}${S === "running" || newestActive ? '<div class="sec" style="margin-top:12px"><span>Working</span><span>1</span></div><div style="padding:4px 8px;color:var(--muted);font-size:13px">● Discord Role Manager</div>' : ""}</div><div class="rfoot"><span>Agents</span><span>Apps</span><span>Files</span><span>Settings</span></div></aside>`;
+}
+function topbar() {
+  if (phone) return `<div class="top"><div style="display:flex;gap:12px;align-items:center">${ic.menu}<span class="brand">Agentum</span></div><div class="acts"><div class="av"></div></div></div>`;
+  return `<div class="top"><div class="brand">Agentum</div><div class="acts"><span class="tbtn">Board</span><span class="tbtn">Find <kbd>Ctrl K</kbd></span><span class="tbtn new">+ New</span><div class="av"></div></div></div>`;
+}
+document.body.className = (phone ? "phone" : "") + (KB ? " kb" : "");
+document.getElementById("app").innerHTML = `<div class="shell">${topbar()}<div class="frame">${phone ? "" : rail()}<main class="main" style="position:relative">${page()}</main></div></div>${KB ? '<div class="kbd">Phone keyboard</div>' : ""}<div class="label">${W} · ${S}</div>`;
+// Opening position. Done: the newest run's first message at the top. With tool calls grouped into one row, the answer starts within the first screen at 1280 and 390.
+// Running: follow the newest content while the reader is at the bottom. Waiting: the request card.
+const menu = document.querySelector(".menu"), pick = document.querySelector(".runpick");
+if (menu && pick) {
+  // Anchored under the picker, kept inside the viewport with a 16px margin.
+  const r = pick.getBoundingClientRect(), mainR = document.querySelector(".main").getBoundingClientRect();
+  const w = Math.min(440, innerWidth - 32);
+  menu.style.width = w + "px";
+  menu.style.top = (r.bottom - mainR.top + 4) + "px";
+  menu.style.left = (Math.min(r.left, innerWidth - 16 - w) - mainR.left) + "px";
+  menu.style.right = "auto";
+}
+const scr = document.getElementById("scr");
+if (scr && VIEW) { scr.scrollTop = document.getElementById("viewed").offsetTop - 12; }
+else if (scr) {
+  const at = (el, gap) => { scr.scrollTop = Math.max(0, el.offsetTop - gap); };
+  const ans = document.getElementById("answer"), req = document.getElementById("req");
+  if (SCROLLUP) scr.scrollTop = 0;
+  else if (S === "running") scr.scrollTop = scr.scrollHeight;
+  else if (waiting && req && KB) scr.scrollTop = req.offsetTop + req.offsetHeight - scr.clientHeight + 12;
+  else if (waiting && req) at(req, 160);
+  else if (ans && document.querySelector(".rundiv.now")) at(document.querySelector(".rundiv.now"), 8);
+  else if (ans) at(document.querySelectorAll('.msg-user')[document.querySelectorAll('.msg-user').length-1], 16);
+  else scr.scrollTop = scr.scrollHeight;
+  if (Q.get("scroll")) scr.scrollTop = +Q.get("scroll");
+}
+</script>
+</body>
+</html>

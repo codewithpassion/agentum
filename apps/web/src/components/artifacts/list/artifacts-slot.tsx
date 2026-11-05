@@ -1,7 +1,5 @@
 import type { ArtifactCard } from "@repo/protocol/artifacts";
-import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { SlotCard } from "#/components/task/slots.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { artifactHref, audienceBadges } from "./artifacts-logic.ts";
 import { KIND_ICONS } from "./kind-icons.ts";
@@ -40,6 +38,22 @@ export function ArtifactSlotRows({
   });
 }
 
+/** Follow cursors so the Files count and rows cover every artifact of this run. */
+async function loadRunArtifacts(
+  runId: string,
+  cursor?: string,
+  cards: ArtifactCard[] = []
+): Promise<ArtifactCard[]> {
+  const page = await getTrpc().artifacts.list.query({
+    runId,
+    ...(cursor === undefined ? {} : { cursor }),
+  });
+  cards.push(...page.items);
+  return page.next === undefined
+    ? cards
+    : loadRunArtifacts(runId, page.next, cards);
+}
+
 /**
  * The artifacts slot of the task view: what the run made. It reads
  * `artifacts.list` on mount, every 5 s while the run is running, and once more
@@ -48,22 +62,23 @@ export function ArtifactSlotRows({
 export function ArtifactsSlot({
   runId,
   running,
+  onCount,
 }: {
   runId: string;
   running: boolean;
+  onCount?: (count: number) => void;
 }) {
   const [cards, setCards] = useState<readonly ArtifactCard[]>([]);
-  const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
     const load = async () => {
       try {
-        const result = await getTrpc().artifacts.list.query({ runId });
+        const nextCards = await loadRunArtifacts(runId);
         if (current) {
-          setCards(result.items);
-          setMore(result.next !== undefined);
+          setCards(nextCards);
+          onCount?.(nextCards.length);
           setError(null);
         }
       } catch (cause) {
@@ -83,25 +98,21 @@ export function ArtifactsSlot({
       current = false;
       clearInterval(timer);
     };
-  }, [runId, running]);
+  }, [runId, running, onCount]);
 
   if (cards.length === 0 && error === null) {
     return null;
   }
 
   return (
-    <SlotCard testId="slot-artifacts" title="Artifacts">
+    <section className="flex flex-col gap-3" data-testid="slot-artifacts">
+      <h2 className="font-medium">Artifacts</h2>
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
         </p>
       )}
       <ArtifactSlotRows cards={cards} />
-      {more ? (
-        <Link className="text-muted-foreground text-sm" to="/artifacts">
-          and more in Artifacts
-        </Link>
-      ) : null}
-    </SlotCard>
+    </section>
   );
 }

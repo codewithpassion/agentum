@@ -3,7 +3,6 @@ import type { MailTone } from "#/components/agent/profile/sheets/mail-logic.ts";
 import { Button } from "#/components/ui/button.tsx";
 import type { MailThreadView } from "#/integrations/trpc/types";
 import { mailMessageRows } from "./mail-logic.ts";
-import { SlotCard } from "./slots.tsx";
 
 const CHIP_TONE: Record<MailTone, string> = {
   bad: "border-destructive text-destructive",
@@ -30,7 +29,7 @@ export function MailSlot({
     return null;
   }
   return (
-    <SlotCard testId="slot-mail" title="Mail">
+    <section className="flex flex-col gap-3" data-testid="slot-mail">
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}
@@ -68,11 +67,11 @@ export function MailSlot({
               search={{ mail: thread.id }}
               to="/agents/$agentId"
             >
-              Open thread
+              Open the mail thread
             </Link>
           </Button>
         </>
       )}
-    </SlotCard>
+    </section>
   );
 }
