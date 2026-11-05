@@ -3,7 +3,7 @@ id: WA.2
 title: Workspace assistant, the page
 milestone: WA
 size: M
-status: in_progress
+status: done
 depends_on: [WA.1]
 branch: WA-workspace-assistant
 lane: web
@@ -32,3 +32,4 @@ Spec: `docs/v3/workspace-assistant.md` ("What it is", "The secret card", "Confir
 - Screenshots of a dev build at 1280x900 and 390x844: empty page, a conversation with tool lines, an open secret card, a confirm card. Save them in `/home/roboto/devel/harbourmaster-wt/tmp/WA/`.
 
 ## Log
+- 2026-11-05: Codex built the page (17e12742). Opus review of WA.1 found no privilege hole and three should-fixes (conversation lock, trusted card outcome, secret-guess oracle) plus nits; fixed in 465a1645. UI pass (6b96b361): agent picker, reason as text, tighter tool lines, rail link removed (Find only). Not yet run against a real model.
