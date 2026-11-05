@@ -1,0 +1,43 @@
+[package]
+name = "agentum"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+async-trait = "0.1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = { version = "0.3", features = ["sink"] }
+hex = "0.4"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+nix = { version = "0.30", features = ["fs", "process", "signal", "user"] }
+notify = "8"
+rand = "0.9"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "multipart", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full", "test-util"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+tokio-util = { version = "0.7", features = ["rt", "io"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+x11rb = { version = "0.13", features = ["xtest", "image"] }
+zeroize = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+axum = { version = "0.8", features = ["ws"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

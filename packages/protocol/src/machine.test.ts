@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { file } from "bun";
-import type { z } from "zod";
+import { z } from "zod";
 import {
   cancelSchema,
   claimResponseSchema,
@@ -34,6 +34,25 @@ const JSON_SUFFIX = /\.json$/;
 const cases: ReadonlyArray<readonly [string, z.ZodType]> = [
   ["enroll-request", enrollRequestSchema],
   ["enroll-response", enrollResponseSchema],
+  // RC.2 supplies the RC.1 fixtures before the server contract lands. These
+  // test-only extensions validate the fixtures without changing server parsing.
+  [
+    "enroll-request-roles",
+    enrollRequestSchema.extend({
+      arch: z.string(),
+      clientVersion: z.string(),
+      hostname: z.string(),
+      os: z.string(),
+      roles: z.array(z.enum(["agent_host", "computer"])).optional(),
+    }),
+  ],
+  [
+    "enroll-response-roles",
+    enrollResponseSchema.extend({
+      machineName: z.string(),
+      roles: z.array(z.enum(["agent_host", "computer"])),
+    }),
+  ],
   ["hello", daemonHelloSchema],
   ["ping", daemonPingSchema],
   ["hello-ack", relayHelloAckSchema],
