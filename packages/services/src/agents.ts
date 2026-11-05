@@ -962,6 +962,77 @@ export const createAgentsService = ({
     return toRecord(row);
   };
 
+  const restore = async (
+    principal: Principal,
+    id: string
+  ): Promise<AgentRecord> => {
+    const user = requireUser(principal, AGENT_ARCHIVE);
+    const { workspaceId } = user;
+    authorize(user, AGENT_ARCHIVE, { kind: AGENT_KIND, workspaceId });
+    const current = await get(user, id);
+    if (current.status === "active") {
+      return current;
+    }
+    if (current.status !== "archived") {
+      throw new ServiceError("invalid", "That agent is not archived");
+    }
+    // Archived rows retain their reservations today. Check explicitly as well,
+    // so restoration remains safe if reservations can be released in future.
+    const [slugOwner] = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.slug, current.slug),
+          eq(agents.status, "active"),
+          ne(agents.id, id)
+        )
+      )
+      .limit(1);
+    if (slugOwner) {
+      throw slugTaken(current.slug);
+    }
+    if (current.emailLocal !== null) {
+      const [addressOwner] = await db
+        .select({ id: agents.id })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.emailLocal, current.emailLocal),
+            eq(agents.status, "active"),
+            ne(agents.id, id)
+          )
+        )
+        .limit(1);
+      if (addressOwner) {
+        throw addressTaken();
+      }
+    }
+    const [row] = await db
+      .update(agents)
+      .set({ status: "active" })
+      .where(
+        and(
+          eq(agents.id, id),
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.status, "archived")
+        )
+      )
+      .returning();
+    if (!row) {
+      return await get(user, id);
+    }
+    await events.append({
+      actor: { id: user.userId, kind: "user" },
+      agentId: id,
+      payload: { status: "active" },
+      type: "agent.updated",
+      workspaceId,
+    });
+    return toRecord(row);
+  };
+
   return {
     activate,
     archive,
@@ -972,6 +1043,7 @@ export const createAgentsService = ({
     get,
     list,
     reserveAddress,
+    restore,
     setOwners,
     suggestAddress,
     update,

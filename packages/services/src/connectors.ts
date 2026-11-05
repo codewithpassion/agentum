@@ -37,7 +37,7 @@ import {
 import { and, asc, eq, inArray, notExists, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
-import { requireKey } from "./admin-access.ts";
+import { requireAgentManager, requireKey } from "./admin-access.ts";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import {
@@ -313,13 +313,13 @@ export const requireUser = (
   return principal;
 };
 
-/** Assigning connectors to agents is also open to a write or admin key (X.10). The registry and credentials stay with a session. */
+/** Assigning connectors also admits write OAuth connections and write/admin keys (MA.1). The registry and credentials stay with a session. */
 const requireAssigner = (
   principal: Principal,
   action: string
 ): UserPrincipal => {
-  if (principal.kind === "user" && principal.via === "api_key") {
-    return requireKey(principal, action, "write");
+  if (principal.kind === "user" && principal.via !== "session") {
+    return requireAgentManager(principal, action);
   }
   return requireUser(principal, action);
 };
@@ -985,7 +985,54 @@ export const createConnectorsService = ({
     }));
   };
 
+  /** Agent configuration metadata for people; no registry credentials or OAuth config. */
+  const agentTools = async (
+    principal: Principal,
+    input: { agentId: string }
+  ) => {
+    if (principal.kind !== "user") {
+      throw new ForbiddenError("agents.read");
+    }
+    authorize(principal, "agents.read", {
+      id: input.agentId,
+      kind: "agent",
+      workspaceId: principal.workspaceId,
+    });
+    const rows = await db
+      .select({
+        allowedTools: agentConnectors.allowedTools,
+        connectorId: connectors.id,
+        name: connectors.name,
+        status: connectors.status,
+        tools: connectors.tools,
+      })
+      .from(agentConnectors)
+      .innerJoin(
+        connectors,
+        and(
+          eq(connectors.id, agentConnectors.connectorId),
+          eq(connectors.workspaceId, agentConnectors.workspaceId)
+        )
+      )
+      .where(
+        and(
+          eq(agentConnectors.workspaceId, principal.workspaceId),
+          eq(agentConnectors.agentId, input.agentId)
+        )
+      )
+      .orderBy(
+        asc(agentConnectors.createdAt),
+        asc(agentConnectors.connectorId)
+      );
+    return rows.map((row) => ({
+      ...row,
+      allowedTools: decodeAllowedTools(row.allowedTools),
+      tools: toolSchema.parse(JSON.parse(row.tools)),
+    }));
+  };
+
   return {
+    agentTools,
     assertExist,
     assign,
     assignments,

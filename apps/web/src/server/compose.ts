@@ -1223,12 +1223,14 @@ export const composeWith = ({
     triggers,
   });
   const admin = createAdminService({
+    agentProfile,
     agents,
     apiKeys,
     connectors,
     events,
     inbox,
     machines,
+    mailDomain: infra.mailDomain,
     secrets,
   });
   const deskApi = createDeskApiService({

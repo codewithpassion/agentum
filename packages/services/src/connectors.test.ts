@@ -958,3 +958,30 @@ test("a write key assigns a connector but cannot unassign it", async () => {
   );
   expect(await service.assignments(dom, { agentId: agent.id })).toHaveLength(1);
 });
+
+test("OAuth write assigns connectors while read sees only assignment metadata and neither manages credentials", async () => {
+  const connector = await addHeaderConnector();
+  const oauth = (access: "read" | "write"): Principal => ({
+    kind: "user",
+    oauthClient: { access, clientId: "claude" },
+    userId: "user_dom",
+    via: "oauth",
+    workspaceId: WORKSPACE,
+  });
+  const input = { agentId: agent.id, connectorId: connector.id };
+  await service.assign(oauth("write"), input);
+  await expect(service.assign(oauth("read"), input)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  const rows = await service.agentTools(oauth("read"), { agentId: agent.id });
+  expect(rows).toMatchObject([
+    { connectorId: connector.id, name: connector.name },
+  ]);
+  expect(JSON.stringify(rows)).not.toContain(TOKEN);
+  await expect(service.list(oauth("write"))).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await expect(service.unassign(oauth("write"), input)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+});

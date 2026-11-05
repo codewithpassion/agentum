@@ -319,8 +319,8 @@ export const createMcpPorts = ({
         }
       : {}),
     ...createLibraryPorts({ principal, services }),
-    // The route offers the tools only to a key whose access allows them.
-    ...(principal.kind === "user" && principal.apiKey
+    // The route offers agent reads to users and gates management and setup separately.
+    ...(principal.kind === "user"
       ? { admin: createAdminPorts({ principal, services }) }
       : {}),
     ...createSkillPorts({ findAgent, principal, services }),

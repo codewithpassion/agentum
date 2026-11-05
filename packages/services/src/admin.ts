@@ -1,20 +1,22 @@
 /**
- * The key-authenticated admin API (X.10): setup that was UI-only, for an
- * `ag_key_` key. Each method checks the key, calls the service the UI uses and
- * writes one `admin.action` event naming the key (id and name) as the actor.
- *
- * Creating agents and inbox threads takes a `write` key. Everything else
- * needs an `admin` key. No payload carries a secret value, a minted key or an
- * enrolment code: events name ids, names and hosts only.
+ * MCP management (X.10, MA.1) delegates to the UI services. Agent writes
+ * admit write OAuth connections and write/admin keys; setup requires an
+ * admin key. Audits name the key or OAuth client and user, never credentials.
  */
 import type { ApiKeyAccess } from "@repo/db/shared";
 import { MAX_TURNS_KEY } from "@repo/protocol/safeguards";
 import {
+  type AgentManager,
   type KeyLevel,
   type KeyPrincipal,
+  requireAgentManager,
   requireKey,
 } from "./admin-access.ts";
-import type { AgentRecord, AgentsService } from "./agents.ts";
+import type {
+  AgentProfileService,
+  SetAskBeforeInput,
+} from "./agent-profile.ts";
+import type { AgentOwnersInput, AgentRecord, AgentsService } from "./agents.ts";
 import type { ApiKeySummary, ApiKeysService } from "./api-keys.ts";
 import type { CloudEnvironment } from "./cloud/environment.ts";
 import { CLOUD_ENVIRONMENT_KEY } from "./cloud/environment.ts";
@@ -73,6 +75,8 @@ type Details = Record<string, string | number | boolean | string[] | null>;
 
 export const createAdminService = ({
   agents,
+  agentProfile,
+  mailDomain,
   apiKeys,
   connectors,
   events,
@@ -81,6 +85,8 @@ export const createAdminService = ({
   secrets,
 }: {
   agents: AgentsService;
+  agentProfile?: AgentProfileService;
+  mailDomain?: string;
   apiKeys: ApiKeysService;
   connectors: ConnectorsService;
   events: EventsService;
@@ -88,20 +94,24 @@ export const createAdminService = ({
   machines: MachinesService;
   secrets: SecretsService;
 }) => {
-  /** One `admin.action` event, the key as the actor. `details` hold ids and names, never values. */
+  /** One `admin.action` event naming the key, or the OAuth client and user. `details` hold ids and names, never values. */
   const record = async (
-    key: KeyPrincipal,
+    key: AgentManager,
     tool: string,
     details: Details,
     agentId?: string
   ): Promise<void> => {
     await events.append({
-      actor: { id: key.apiKey.id, kind: "api_key" },
+      actor:
+        key.via === "oauth"
+          ? { id: key.userId, kind: "user" }
+          : { id: key.apiKey.id, kind: "api_key" },
       agentId,
       payload: {
         ...details,
-        keyId: key.apiKey.id,
-        keyName: key.apiKey.name ?? null,
+        ...(key.via === "oauth"
+          ? { clientId: key.oauthClient.clientId }
+          : { keyId: key.apiKey.id, keyName: key.apiKey.name ?? null }),
         tool,
         userId: key.userId,
       },
@@ -172,7 +182,7 @@ export const createAdminService = ({
     principal: Principal,
     input: AdminAgentCreate
   ): Promise<AgentRecord> => {
-    const key = checked(principal, "create_agent", "write");
+    const key = requireAgentManager(principal, "admin.create_agent");
     // Fail before the agent exists, so a retry does not make a second one.
     await connectors.assertExist(principal, input.connectors ?? []);
     const agent = await agents.create(principal, {
@@ -203,7 +213,7 @@ export const createAdminService = ({
     principal: Principal,
     input: AdminAgentUpdate
   ): Promise<AgentRecord> => {
-    const key = checked(principal, "update_agent", "write");
+    const key = requireAgentManager(principal, "admin.update_agent");
     await connectors.assertExist(principal, input.connectors ?? []);
     const {
       agentId,
@@ -242,6 +252,127 @@ export const createAdminService = ({
       agentId
     );
     await assignConnectors(principal, agentId, connectorIds);
+    return agent;
+  };
+
+  const profileService = () => {
+    if (!agentProfile) {
+      throw new ServiceError(
+        "invalid",
+        "Agent profiles are not available here"
+      );
+    }
+    return agentProfile;
+  };
+
+  const getAgent = async (principal: Principal, agentId: string) => {
+    const agent = await agents.get(principal, agentId);
+    const [profile, askBefore, updates] = await Promise.all([
+      profileService().details(principal, { agentId }),
+      profileService().askBefore(principal, { agentId }),
+      events.list(principal, {
+        agentId,
+        limit: 1,
+        types: [
+          "agent.created",
+          "agent.updated",
+          "agent.address_reserved",
+          "admin.action",
+          "tool_rule.changed",
+          "skill.assigned",
+          "skill.unassigned",
+        ],
+      }),
+    ]);
+    return {
+      ...agent,
+      askBefore,
+      connectors: profile.connectors,
+      emailAddress:
+        agent.emailLocal && mailDomain
+          ? `${agent.emailLocal}@${mailDomain}`
+          : null,
+      machine: profile.machine,
+      skills: profile.skills,
+      updatedAt: updates.entries[0]?.createdAt ?? agent.createdAt,
+    };
+  };
+
+  const archiveAgent = async (principal: Principal, agentId: string) => {
+    const caller = requireAgentManager(principal, "admin.archive_agent");
+    const agent = await agents.archive(principal, agentId);
+    await record(caller, "archive_agent", {}, agentId);
+    return agent;
+  };
+
+  const restoreAgent = async (principal: Principal, agentId: string) => {
+    const caller = requireAgentManager(principal, "admin.restore_agent");
+    const agent = await agents.restore(principal, agentId);
+    await record(caller, "restore_agent", {}, agentId);
+    return agent;
+  };
+
+  const setAgentOwners = async (
+    principal: Principal,
+    agentId: string,
+    input: Partial<AgentOwnersInput>
+  ) => {
+    const caller = requireAgentManager(principal, "admin.set_agent_owners");
+    const current = await agents.get(principal, agentId);
+    const agent = await agents.setOwners(principal, agentId, {
+      backupUserId:
+        input.backupUserId === undefined
+          ? current.backupUserId
+          : input.backupUserId,
+      ownerUserId:
+        input.ownerUserId === undefined
+          ? current.ownerUserId
+          : input.ownerUserId,
+    });
+    await record(
+      caller,
+      "set_agent_owners",
+      { backupUserId: agent.backupUserId, ownerUserId: agent.ownerUserId },
+      agentId
+    );
+    return agent;
+  };
+
+  const setAgentAskBefore = async (
+    principal: Principal,
+    input: SetAskBeforeInput
+  ) => {
+    const caller = requireAgentManager(principal, "admin.set_agent_ask_before");
+    await profileService().setAskBefore(principal, input);
+    await record(
+      caller,
+      "set_agent_ask_before",
+      { action: input.action, ask: input.ask },
+      input.agentId
+    );
+  };
+
+  const checkAgentAddress = async (principal: Principal, local: string) => {
+    requireAgentManager(principal, "admin.check_agent_address");
+    return await agents.checkAddress(principal, local);
+  };
+
+  const reserveAgentAddress = async (
+    principal: Principal,
+    agentId: string,
+    local: string
+  ) => {
+    const caller = requireAgentManager(
+      principal,
+      "admin.reserve_agent_address"
+    );
+    const agent = await agents.reserveAddress(principal, agentId, local);
+    await record(
+      caller,
+      "reserve_agent_address",
+      { emailLocal: local },
+      agentId
+    );
     return agent;
   };
 
@@ -347,15 +478,22 @@ export const createAdminService = ({
   };
 
   return {
+    archiveAgent,
     audit,
+    checkAgentAddress,
     createAgent,
     createApiKey,
     createEnrolmentCode,
     createInboxThread,
     createSecret,
+    getAgent,
     grantSecret,
+    reserveAgentAddress,
+    restoreAgent,
     revokeApiKey,
     revokeSecret,
+    setAgentAskBefore,
+    setAgentOwners,
     updateAgent,
   };
 };

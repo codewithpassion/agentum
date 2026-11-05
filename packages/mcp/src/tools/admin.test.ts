@@ -10,7 +10,17 @@ import { agentumTools, TOOL_NAMES } from "../server";
 import { textOf } from "../testing";
 import { callTool, fakePorts } from "./library-wiki.test-helpers";
 
-const WRITE_NAMES = ["create_agent", "update_agent", "create_inbox_thread"];
+const WRITE_NAMES = [
+  "create_agent",
+  "update_agent",
+  "create_inbox_thread",
+  "archive_agent",
+  "restore_agent",
+  "set_agent_owners",
+  "set_agent_ask_before",
+  "check_agent_address",
+  "reserve_agent_address",
+];
 const SETUP_NAMES = [
   "create_secret",
   "grant_secret",
@@ -94,13 +104,13 @@ const namesFor = (ports: McpPorts, options = {}): string[] =>
 describe("admin tool registration", () => {
   const { port } = recordingAdmin();
 
-  test("write access offers only the three write tools", () => {
+  test("write access offers the management and inbox tools", () => {
     expect(namesFor(portsWith(port), { admin: "write" })).toEqual(
       [...WRITE_NAMES].sort()
     );
   });
 
-  test("admin access offers all ten admin tools", () => {
+  test("admin access offers management, inbox and setup tools", () => {
     expect(namesFor(portsWith(port), { admin: "admin" })).toEqual(
       [...ADMIN_NAMES].sort()
     );
@@ -357,4 +367,45 @@ describe("create_secret", () => {
       SECRET_VALUE
     );
   });
+});
+
+const MANAGEMENT_WRITES = [
+  "create_agent",
+  "update_agent",
+  "archive_agent",
+  "restore_agent",
+  "set_agent_owners",
+  "set_agent_ask_before",
+  "check_agent_address",
+  "reserve_agent_address",
+];
+
+test("OAuth management access includes agent writes and excludes inbox and setup", () => {
+  const { port } = recordingAdmin();
+  const names = agentumTools(portsWith(port), { admin: "oauth-write" }).map(
+    (tool) => tool.name
+  );
+  for (const name of [...MANAGEMENT_WRITES, "get_agent"]) {
+    expect(names).toContain(name);
+  }
+  for (const name of [...SETUP_NAMES, "create_inbox_thread"]) {
+    expect(names).not.toContain(name);
+  }
+});
+
+test("callers without management access never see agent writes", () => {
+  const { port } = recordingAdmin();
+  for (const options of [
+    {},
+    { readOnly: true },
+    { admin: "oauth-write" as const, readOnly: true },
+  ]) {
+    const names = agentumTools(portsWith(port), options).map(
+      (tool) => tool.name
+    );
+    expect(names).toContain("get_agent");
+    for (const name of MANAGEMENT_WRITES) {
+      expect(names).not.toContain(name);
+    }
+  }
 });

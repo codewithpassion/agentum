@@ -3,6 +3,10 @@ import packageJson from "../package.json";
 import type { McpPorts } from "./ports";
 import { registerTools } from "./register";
 import { adminSetupTools, adminWriteTools } from "./tools/admin";
+import {
+  agentManagementReadTools,
+  agentManagementWriteTools,
+} from "./tools/agent-management";
 import { agentTools, agentWriteTools } from "./tools/agents";
 import { artifactTools } from "./tools/artifacts";
 import { browserTools } from "./tools/browser";
@@ -23,8 +27,8 @@ import { triggerTools } from "./tools/triggers";
 import { wikiTools } from "./tools/wiki";
 
 export interface ServerOptions {
-  /** The key's access; set by the route only for an API key with write or admin access. */
-  admin?: "admin" | "write";
+  /** Management access: write/admin API keys, or a write OAuth connection (agents only). */
+  admin?: "admin" | "write" | "oauth-write";
   browser?: boolean;
   computer?: { desktop: boolean };
   /** Record skipped writes without calling their ports. */
@@ -113,7 +117,16 @@ export const agentumTools = (
         (tool) => !readOnly || tool.annotations.readOnlyHint === true
       )
     : []),
-  ...(admin && !readOnly && ports.admin ? adminWriteTools(ports.admin) : []),
+  ...(ports.admin ? agentManagementReadTools(ports.admin) : []),
+  ...(admin && !readOnly && ports.admin
+    ? [
+        ...adminWriteTools(ports.admin).filter(
+          (tool) =>
+            admin !== "oauth-write" || tool.name !== "create_inbox_thread"
+        ),
+        ...agentManagementWriteTools(ports.admin),
+      ]
+    : []),
   ...(admin === "admin" && !readOnly && ports.admin
     ? adminSetupTools(ports.admin)
     : []),

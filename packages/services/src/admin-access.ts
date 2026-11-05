@@ -1,9 +1,3 @@
-/**
- * Who may use the key-authenticated admin API (X.10). Only an `ag_key_` key
- * does: a signed-in person has the UI, a run or a connected app has no way
- * in. Setup calls need an `admin` key; creating agents and inbox threads also
- * takes a `write` key.
- */
 import type { ApiKeyAccess } from "@repo/db/shared";
 import { ForbiddenError } from "./authz.ts";
 import type { Principal } from "./workspaces.ts";
@@ -13,6 +7,7 @@ type UserPrincipal = Extract<Principal, { kind: "user" }>;
 /** A user principal that came in with an API key. */
 export type KeyPrincipal = UserPrincipal & {
   apiKey: NonNullable<UserPrincipal["apiKey"]>;
+  via: "api_key";
 };
 
 /** The weakest key that may make a call. */
@@ -53,3 +48,25 @@ export const withinScope = (
   own: ApiKeyAccess,
   requested: ApiKeyAccess
 ): boolean => RANK[requested] <= RANK[own];
+
+/** Agent management admits a person's write OAuth connection as well as a write key. */
+export type AgentManager =
+  | KeyPrincipal
+  | (UserPrincipal & {
+      oauthClient: NonNullable<UserPrincipal["oauthClient"]>;
+      via: "oauth";
+    });
+
+export const requireAgentManager = (
+  principal: Principal,
+  action: string
+): AgentManager => {
+  if (
+    principal.kind === "user" &&
+    principal.via === "oauth" &&
+    principal.oauthClient?.access === "write"
+  ) {
+    return principal as AgentManager;
+  }
+  return requireKey(principal, action, "write");
+};
