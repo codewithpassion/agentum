@@ -1315,7 +1315,7 @@ mod tests {
         assert!(
             error
                 .message
-                .contains("\'systemctl\' \'--user\' \'daemon-reload\'")
+                .contains("Problem: Reload the systemd service definitions")
         );
         assert!(error.message.contains("Fix:"));
     }
@@ -1637,9 +1637,36 @@ mod tests {
         );
     }
     #[test]
+    fn status_accepts_installed_inactive_units_but_rejects_missing_units() {
+        struct Status(i32);
+        impl Runner for Status {
+            fn output(&mut self, _: &str, _: &[String]) -> std::io::Result<Output> {
+                panic!("status should use interact");
+            }
+            fn interact(&mut self, program: &str, args: &[String]) -> std::io::Result<i32> {
+                assert_eq!(program, "systemctl");
+                assert!(args.ends_with(&[
+                    "status".into(),
+                    "agentum-office.service".into(),
+                    "--no-pager".into(),
+                ]));
+                Ok(self.0)
+            }
+        }
+        for system in [false, true] {
+            for (code, installed) in [(0, true), (3, true), (4, false), (1, false)] {
+                assert_eq!(
+                    query(&mut Status(code), system, "office", &ServiceCommand::Status).is_ok(),
+                    installed
+                );
+            }
+        }
+    }
+    #[test]
     fn system_manager_and_subcommand_fixes_are_specific() {
         let mut fake = Fake {
             fail: Some("restart".into()),
+            failure_message: Some("Unit agentum-office.service not found.\n".into()),
             ..Fake::default()
         };
         let error = manager(
@@ -1650,6 +1677,17 @@ mod tests {
             "office",
         )
         .unwrap_err();
+        assert!(
+            error
+                .message
+                .starts_with("Problem: Restart agentum-office.service\n")
+        );
+        assert!(
+            error
+                .message
+                .contains("Why: Unit agentum-office.service not found. ")
+        );
+        assert!(!error.message.contains("not found.."));
         assert!(!error.message.contains("XDG_RUNTIME_DIR"));
         for action in ["uninstall", "restart"] {
             let error = require_root(true, false, "dom", "office", action).unwrap_err();

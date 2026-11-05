@@ -45,7 +45,10 @@ impl fmt::Display for Explanation {
         write!(
             f,
             "Problem: {}\nWhy: {}. {}\nFix: {}",
-            self.tried, self.reason, self.meaning, self.fix
+            self.tried,
+            self.reason.trim_end().trim_end_matches('.'),
+            self.meaning,
+            self.fix
         )
     }
 }

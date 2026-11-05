@@ -149,6 +149,14 @@ install_binary() {
 }
 
 
+restart_service() {
+  "$BIN" service status --instance "$instance" >/dev/null 2>&1 || return 0
+  if "$BIN" service restart --instance "$instance"; then
+    say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
+  else
+    printf 'warning: could not restart %s\n' "$instance" >&2
+  fi
+}
 instances() {
   CONFIG_ROOT="${AGENTUM_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/agentum}"
   if [ "$MODE" = system ]; then CONFIG_ROOT=/etc/agentum; fi
@@ -156,12 +164,9 @@ instances() {
     [ -f "$config" ] || continue
     instance=${config%/config.json}
     instance=${instance##*/}
-    if "$BIN" service restart --instance "$instance"; then
-      say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
-    else
-      printf 'warning: could not restart %s\n' "$instance" >&2
-    fi
     FOUND=true
+    if [ -n "$CODE" ] && [ "$instance" = "$INSTANCE" ]; then continue; fi
+    restart_service
   done
 }
 enroll_machine() {
@@ -181,15 +186,14 @@ enroll_machine() {
   CODE=""
   instance=$(printf '%s\n' "$answer" | sed -n 's/.*"instance"[[:space:]]*:[[:space:]]*"\([a-z0-9-]*\)".*/\1/p')
   [ -n "$instance" ] || die 'Enrolment returned no instance name. Run agentum list to find the saved enrolment.'
+  say "Enrolled $instance."
   if [ -n "$INSTANCE" ]; then
-    if ! "$BIN" service restart --instance "$instance"; then
-      printf 'warning: could not restart %s\n' "$instance" >&2
-    fi
+    restart_service
   else
     "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes
+    say "Installed its $MODE service."
+    say "Next: $BIN service status --instance $instance"
   fi
-  say "Enrolled $instance and installed its $MODE service."
-  say "Next: $BIN service status --instance $instance"
 }
 main() {
   trap cleanup EXIT
