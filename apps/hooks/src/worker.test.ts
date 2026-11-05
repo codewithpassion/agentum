@@ -7,6 +7,7 @@ import { build } from "bun";
 const { Miniflare, convertV4MiniflareOptions } = await import(
   import.meta.resolve("miniflare")
 );
+const VISITOR_HASH = /^[0-9a-f]{16,}$/;
 let flare: InstanceType<typeof Miniflare>;
 let base: string;
 
@@ -149,6 +150,7 @@ test("front preserves raw bytes, filters headers, logs status/duration and never
   const started = performance.now();
   const response = await call("enabled/raw?q=1", {
     body: bytes,
+    headers: { "CF-Connecting-IP": "198.51.100.7" },
     method: "POST",
   });
   expect(response.status).toBe(201);
@@ -178,6 +180,11 @@ test("front preserves raw bytes, filters headers, logs status/duration and never
   expect(row?.surface).toBe("live_call");
   expect(row?.tool_key).toBe("endpoint:fixture");
   expect(row?.duration_ms).toBeGreaterThanOrEqual(0);
+  expect(row?.visitor_hash).toMatch(VISITOR_HASH);
+  const salt = await db
+    .prepare("SELECT salt FROM artifact_view_salts WHERE workspace_id = 'w'")
+    .first();
+  expect(salt?.salt).toBeTruthy();
 });
 
 test("AGENTUM and outbound policy cross MAIN, including storage, startRun, restrictions and secret filling", async () => {

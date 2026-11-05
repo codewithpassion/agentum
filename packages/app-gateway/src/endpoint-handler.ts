@@ -1,5 +1,8 @@
 import type { ArtifactEndpointsService } from "@repo/services/artifacts/endpoints";
-import { truncateIp } from "@repo/services/artifacts/view-privacy";
+import {
+  cutUserAgent,
+  truncateIp,
+} from "@repo/services/artifacts/view-privacy";
 import { withContentHeaders } from "./content-headers.ts";
 import {
   type ApiLimiter,
@@ -43,7 +46,7 @@ export const handleEndpointRoute = async (
   }
 ): Promise<Response> => {
   const start = performance.now();
-  const timing = { appResponse: 0, limiter: 0, meta: 0, resolve: 0 };
+  const timing = { appResponse: 0, limiter: 0, resolve: 0 };
   let name: string | null = null;
   const timed = async <T>(
     stage: keyof typeof timing,
@@ -87,20 +90,27 @@ export const handleEndpointRoute = async (
       return finish(new Response("Not found.", { status: 404 }));
     }
     ({ name } = endpoint);
-    const meta = await timed("meta", () =>
-      wiring.requestMeta(request, endpoint.workspaceId)
-    );
+    // An endpoint viewer never needs the visitor hash, and the daily salt
+    // behind it is a D1 write. Only the access row uses it, after the answer.
+    const hostMeta = {
+      ipPrefix: prefix,
+      place:
+        (request as { cf?: { country?: string | null } }).cf?.country || null,
+      userAgent: cutUserAgent(request.headers.get("User-Agent")),
+      visitorHash: "",
+    };
     const started = performance.now();
     const response = await timed("appResponse", () =>
       handleEndpointRequest(request, endpoint, {
         ...wiring,
         applyContentHeaders: finish,
-        requestMeta: () => Promise.resolve(meta),
+        requestMeta: () => Promise.resolve(hostMeta),
       })
     );
     const durationMs = Math.max(0, Math.round(performance.now() - started));
     const log = Promise.resolve()
-      .then(() =>
+      .then(() => wiring.requestMeta(request, endpoint.workspaceId))
+      .then((meta) =>
         wiring.endpoints.recordCall(
           endpoint,
           meta,
@@ -135,7 +145,6 @@ export const handleEndpointRoute = async (
         ...(deps.timing ? { bundle: Math.round(deps.timing.bundle()) } : {}),
         endpoint: name,
         limiter: Math.round(timing.limiter),
-        meta: Math.round(timing.meta),
         resolve: Math.round(timing.resolve),
         total: Math.round(performance.now() - start),
       })

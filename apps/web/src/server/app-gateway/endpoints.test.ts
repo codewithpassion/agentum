@@ -445,7 +445,7 @@ test.each([200, 404, 502])(
   "route records status %i, duration and outcome around the handler",
   async (status) => {
     const timer = spyOn(performance, "now").mockReturnValue(137);
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 7; index += 1) {
       timer.mockReturnValueOnce(100);
     }
     try {
@@ -477,7 +477,6 @@ test("endpoint stage timings contain only the endpoint name and milliseconds", a
           appResponse: expect.any(Number),
           endpoint: "discord",
           limiter: expect.any(Number),
-          meta: expect.any(Number),
           resolve: expect.any(Number),
           total: expect.any(Number),
         },
