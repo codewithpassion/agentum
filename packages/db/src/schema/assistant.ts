@@ -12,8 +12,10 @@ export const assistantConversations = sqliteTable(
   "assistant_conversations",
   {
     archivedAt: text("archived_at"),
+    busyUntil: text("busy_until"),
     createdAt: createdAt(),
     id: id(),
+    leaseId: text("lease_id"),
     title: text("title").notNull(),
     updatedAt: text("updated_at").notNull(),
     userId: text("user_id").notNull(),
@@ -33,7 +35,14 @@ export const assistantMessages = sqliteTable(
     id: id(),
     role: text("role", { enum: ["user", "assistant"] }).notNull(),
     seq: integer("seq").notNull(),
+    toolUseId: text("tool_use_id"),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
-  (t) => [uniqueIndex("assistant_messages_seq").on(t.conversationId, t.seq)]
+  (t) => [
+    uniqueIndex("assistant_messages_seq").on(t.conversationId, t.seq),
+    uniqueIndex("assistant_messages_tool_result").on(
+      t.conversationId,
+      t.toolUseId
+    ),
+  ]
 );

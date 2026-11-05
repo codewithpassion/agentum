@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   assistantConversations,
@@ -93,3 +93,60 @@ export const updateMessageContent = (
     .update(assistantMessages)
     .set({ content })
     .where(eq(assistantMessages.id, id));
+
+/** Conditional lease; a dead Worker stops excluding new turns after expiry. */
+export const claimConversation = (
+  db: Database,
+  id: string,
+  now: string,
+  busyUntil: string,
+  leaseId: string
+) =>
+  db
+    .update(assistantConversations)
+    .set({ busyUntil, leaseId })
+    .where(
+      and(
+        eq(assistantConversations.id, id),
+        or(
+          isNull(assistantConversations.busyUntil),
+          lte(assistantConversations.busyUntil, now)
+        )
+      )
+    )
+    .returning({ id: assistantConversations.id });
+
+export const releaseConversation = (
+  db: Database,
+  id: string,
+  leaseId: string
+) =>
+  db
+    .update(assistantConversations)
+    .set({ busyUntil: null, leaseId: null })
+    .where(
+      and(
+        eq(assistantConversations.id, id),
+        eq(assistantConversations.leaseId, leaseId)
+      )
+    );
+
+/** Renew only a live lease; an expired Worker must never resume a turn. */
+export const renewConversation = (
+  db: Database,
+  id: string,
+  leaseId: string,
+  now: string,
+  busyUntil: string
+) =>
+  db
+    .update(assistantConversations)
+    .set({ busyUntil })
+    .where(
+      and(
+        eq(assistantConversations.id, id),
+        eq(assistantConversations.leaseId, leaseId),
+        gt(assistantConversations.busyUntil, now)
+      )
+    )
+    .returning({ id: assistantConversations.id });

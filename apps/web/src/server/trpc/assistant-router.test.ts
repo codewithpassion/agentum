@@ -103,5 +103,27 @@ test("a session assistant creates an agent through the real MCP ports, services 
   await expect(anonymous.assistant.list()).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
+  const nonSession = appRouter.createCaller({
+    ...(await buildContext({
+      composed,
+      session: { orgId: "org_a", orgRole: "org:member", userId: "u1" },
+    })),
+    principal: { ...principal, apiKeyId: "key_1", via: "api_key" },
+  } as Parameters<typeof appRouter.createCaller>[0]);
+  for (const request of [
+    () => nonSession.assistant.list(),
+    () => nonSession.assistant.get({ conversationId: chat.id }),
+    () => nonSession.assistant.send({ conversationId: chat.id, text: "Hello" }),
+    () =>
+      nonSession.assistant.resolveCard({
+        conversationId: chat.id,
+        outcome: { run: true },
+        toolUseId: "create_1",
+      }),
+    () => nonSession.assistant.archive({ conversationId: chat.id }),
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: Assert each endpoint rejects the principal.
+    await expect(request()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  }
   db.client.close();
 });

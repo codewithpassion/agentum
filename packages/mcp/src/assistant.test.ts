@@ -32,6 +32,7 @@ test("assistant tools admit member management and admin secret cards only", () =
     for (const name of [
       "create_secret",
       "create_api_key",
+      "revoke_api_key",
       "create_enrolment_code",
       "delete_connector",
     ]) {

@@ -7,6 +7,7 @@ import { defineTool, type ToolDefinition, WRITE_CREATE } from "./tools/define";
 export const ASSISTANT_EXCLUDED_TOOLS = new Set([
   "create_secret",
   "create_api_key",
+  "revoke_api_key",
   "create_enrolment_code",
   "delete_connector",
   "computer_exec",
@@ -26,8 +27,8 @@ export const CARD_DECLINED_NOTE =
 const reason = z.string().trim().min(1).max(1000);
 const ref = z.string().trim().min(1).max(200);
 export const secretCardSchema = z.strictObject({
-  grantTo: z.array(ref).optional(),
-  hosts: z.array(z.string().min(1).max(253)).optional(),
+  grantTo: z.array(ref).max(100).optional(),
+  hosts: z.array(z.string().min(1).max(253)).max(100).optional(),
   mode: z.enum(["env", "proxy"]),
   name: z
     .string()
@@ -42,6 +43,7 @@ export const secretCardSchema = z.strictObject({
         template: z.string().min(1).max(1000),
       })
     )
+    .max(100)
     .optional(),
 });
 export const modelKeyCardSchema = z.strictObject({

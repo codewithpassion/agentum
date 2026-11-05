@@ -330,6 +330,13 @@
       "when": 1793867598650,
       "tag": "0046_living_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1793869867559,
+      "tag": "0047_narrow_sugar_man",
+      "breakpoints": true
     }
   ]
 }

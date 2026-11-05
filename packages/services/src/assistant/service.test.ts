@@ -1,15 +1,19 @@
 // biome-ignore-all lint/performance/noAwaitInLoops: Scripted turns and database assertions run in order.
 import { expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { assistantMessages } from "@repo/db/schema/assistant";
+import {
+  assistantConversations,
+  assistantMessages,
+} from "@repo/db/schema/assistant";
 import { migrated } from "@repo/db/test-db";
 import { assistantCardTools } from "@repo/mcp/assistant";
 import type { ToolDefinition } from "@repo/mcp/tools/define";
 import { createMasker } from "@repo/protocol/masker";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { NO_KEY_MESSAGE } from "../managed/keys";
 import type { Principal } from "../workspaces";
-import { createAssistantService } from "./service";
+import { type AssistantDeps, createAssistantService } from "./service";
 
 const user: Principal = {
   isAdmin: true,
@@ -28,7 +32,8 @@ const answer = [{ text: "Done", type: "text" }];
 const fixture = (
   replies: unknown[][],
   tools: ToolDefinition[] = [],
-  key = true
+  key = true,
+  overrides: Partial<AssistantDeps> = {}
 ) => {
   const db = migrated(["a", "b"]);
   const received: unknown[] = [];
@@ -48,7 +53,18 @@ const fixture = (
         key ? { apiKey: "model-key", environmentId: null } : null,
     },
     masker: async () => createMasker({ TEST: "private-value-123" }),
+    modelKeyStatus: async () => ({ configured: true }),
+    secrets: {
+      describe: async () => ({
+        allowedHosts: ["stored.example"],
+        grantedTo: ["agent_stored"],
+        id: "s1",
+        mode: "env",
+        name: "TOKEN",
+      }),
+    },
     tools: () => [...tools, ...assistantCardTools],
+    ...overrides,
   });
   const tool: ToolDefinition = {
     annotations: { destructiveHint: true },
@@ -225,10 +241,13 @@ test("concurrent card retries execute a destructive operation once", async () =>
     outcome: { run: true },
     toolUseId: "tool_1",
   };
-  await Promise.all([
+  const results = await Promise.allSettled([
     f.service.resolveCard(user, input),
     f.service.resolveCard(user, input),
   ]);
+  expect(results.filter((result) => result.status === "rejected")).toHaveLength(
+    1
+  );
   expect(f.runs()).toBe(1);
   f.db.client.close();
 });
@@ -370,5 +389,320 @@ test("the sixteen-call budget survives a card pause", async () => {
   });
   expect(JSON.stringify(next)).toContain("16 tool calls");
   expect(f.received).toHaveLength(2);
+  f.db.client.close();
+});
+
+test("send and card resolution exclude each other for the whole turn", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const f = fixture([[call("change")]], [], true, {
+    fetch: async () => {
+      if (!chatId) {
+        return Response.json({ content: [call("change")] });
+      }
+      entered.resolve();
+      await release.promise;
+      return Response.json({ content: answer });
+    },
+  });
+  let chatId: string | undefined;
+  const chat = await f.service.send(user, { text: "Change it" });
+  chatId = chat.id;
+  const resolving = f.service.resolveCard(user, {
+    conversationId: chat.id,
+    outcome: { run: true },
+    toolUseId: "tool_1",
+  });
+  await entered.promise;
+  const contenders = Promise.allSettled([
+    f.service.send(user, { conversationId: chat.id, text: "Skip it" }),
+    f.service.resolveCard(user, {
+      conversationId: chat.id,
+      outcome: { run: false },
+      toolUseId: "tool_1",
+    }),
+  ]);
+  // Let both requests reach the held lease before allowing the model to finish.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  release.resolve();
+  await resolving;
+  for (const result of await contenders) {
+    expect(result.status).toBe("rejected");
+    if (result.status === "rejected") {
+      expect(result.reason.message).toContain("still working");
+    }
+  }
+  const stored = await f.service.get(user, chat.id);
+  expect(
+    stored.messages
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "tool_result")
+  ).toHaveLength(1);
+  f.db.client.close();
+});
+
+test("workspace secret guesses are accepted as ordinary messages", async () => {
+  const f = fixture([answer]);
+  await f.service.send(user, { text: "Is private-value-123 the value?" });
+  expect(f.received).toHaveLength(1);
+  f.db.client.close();
+});
+
+test("key shaped card metadata is refused before it is stored", async () => {
+  const f = fixture([
+    [call("request_secret", { mode: "env", name: "TOKEN", reason: "Needed" })],
+  ]);
+  const chat = await f.service.send(user, { text: "Set access" });
+  await expect(
+    f.service.resolveCard(user, {
+      conversationId: chat.id,
+      outcome: {
+        grantedTo: [],
+        hosts: ["ghp_abcdef123456"],
+        mode: "env",
+        name: "TOKEN",
+        saved: true,
+        secretId: "s1",
+      },
+      toolUseId: "tool_1",
+    })
+  ).rejects.toThrow("looks like a key");
+  expect(JSON.stringify(await f.service.get(user, chat.id))).not.toContain(
+    "ghp_abcdef123456"
+  );
+  f.db.client.close();
+});
+
+test("one masker is reused throughout a tool loop", async () => {
+  let masks = 0;
+  const f = fixture(
+    [[call("read")], answer],
+    [
+      {
+        annotations: { readOnlyHint: true },
+        description: "Read",
+        inputSchema: z.strictObject({}),
+        name: "read",
+        run: async () => ({ data: {}, text: "ok" }),
+        title: "Read",
+      },
+    ],
+    true,
+    {
+      masker: () => {
+        masks += 1;
+        return Promise.resolve(createMasker({}));
+      },
+    }
+  );
+  await f.service.send(user, { text: "Read" });
+  expect(masks).toBe(1);
+  f.db.client.close();
+});
+
+test("saved secret results come from storage and must match the card", async () => {
+  for (const stored of [
+    null,
+    {
+      allowedHosts: [],
+      grantedTo: [],
+      id: "s1",
+      mode: "env" as const,
+      name: "OTHER",
+    },
+    {
+      allowedHosts: ["stored.example"],
+      grantedTo: ["agent_stored"],
+      id: "s1",
+      mode: "proxy" as const,
+      name: "TOKEN",
+    },
+  ]) {
+    const f = fixture(
+      [
+        [
+          call("request_secret", {
+            mode: "env",
+            name: "TOKEN",
+            reason: "Needed",
+          }),
+        ],
+        answer,
+      ],
+      [],
+      true,
+      { secrets: { describe: async () => stored } }
+    );
+    const chat = await f.service.send(user, { text: "Set access" });
+    const resolving = f.service.resolveCard(user, {
+      conversationId: chat.id,
+      outcome: {
+        grantedTo: ["forged"],
+        hosts: ["forged.example"],
+        mode: "env",
+        name: "TOKEN",
+        saved: true,
+        secretId: "s1",
+      },
+      toolUseId: "tool_1",
+    });
+    if (stored?.name === "TOKEN") {
+      await resolving;
+      expect(JSON.stringify(f.received)).toContain("agent_stored");
+      expect(JSON.stringify(f.received)).not.toContain("forged");
+    } else {
+      await expect(resolving).rejects.toThrow();
+      expect((await f.service.get(user, chat.id)).pendingCard).not.toBeNull();
+    }
+    f.db.client.close();
+  }
+});
+
+test("a model key save requires the card provider to be configured", async () => {
+  for (const provider of ["anthropic", "openrouter"] as const) {
+    const f = fixture(
+      [
+        [
+          call("request_model_key", {
+            provider: "openrouter",
+            reason: "Needed",
+          }),
+        ],
+      ],
+      [],
+      true,
+      { modelKeyStatus: async () => ({ configured: false }) }
+    );
+    const chat = await f.service.send(user, { text: "Set provider" });
+    await expect(
+      f.service.resolveCard(user, {
+        conversationId: chat.id,
+        outcome: { provider, saved: true },
+        toolUseId: "tool_1",
+      })
+    ).rejects.toThrow();
+    expect((await f.service.get(user, chat.id)).pendingCard).not.toBeNull();
+    f.db.client.close();
+  }
+});
+
+test("retry recovers an interrupted confirm without executing it again", async () => {
+  const f = fixture([[call("change")], answer]);
+  const chat = await f.service.send(user, { text: "Change it" });
+  await f.db.insert(assistantMessages).values({
+    content: [
+      {
+        content: JSON.stringify({ run: true, status: "resolving" }),
+        tool_use_id: "tool_1",
+        type: "tool_result",
+      },
+    ],
+    conversationId: chat.id,
+    createdAt: "2026-11-05T00:00:00Z",
+    id: `card:${chat.id}:tool_1`,
+    role: "user",
+    seq: 2,
+    workspaceId: "ws_a",
+  });
+  const recovered = await f.service.resolveCard(user, {
+    conversationId: chat.id,
+    outcome: { run: true },
+    toolUseId: "tool_1",
+  });
+  expect(f.runs()).toBe(0);
+  expect(f.received).toHaveLength(2);
+  expect(JSON.stringify(recovered)).not.toContain("resolving");
+  expect(JSON.stringify(recovered)).toContain("interrupted");
+  f.db.client.close();
+});
+
+test("an expired lease is reclaimable and the stale Worker cannot write or release the new lease", async () => {
+  let time = new Date("2026-11-05T00:00:00Z").getTime();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let calls = 0;
+  const f = fixture([], [], true, {
+    clock: { now: () => new Date(time) },
+    fetch: async () => {
+      calls += 1;
+      if (calls === 2) {
+        entered.resolve();
+        await release.promise;
+        return Response.json({
+          content: [{ text: "stale reply", type: "text" }],
+        });
+      }
+      return Response.json({ content: answer });
+    },
+  });
+  const chat = await f.service.send(user, { text: "Hello" });
+  const stale = f.service.send(user, {
+    conversationId: chat.id,
+    text: "Continue",
+  });
+  const staleFailure = stale.catch((error: unknown) => error);
+  await entered.promise;
+  time += 6 * 60_000;
+  await f.service.send(user, { conversationId: chat.id, text: "Recover" });
+  release.resolve();
+  expect(await staleFailure).toMatchObject({
+    message: "The assistant turn expired. Try again.",
+  });
+  expect(JSON.stringify(await f.service.get(user, chat.id))).not.toContain(
+    "stale reply"
+  );
+  const [row] = await f.db
+    .select()
+    .from(assistantConversations)
+    .where(eq(assistantConversations.id, chat.id));
+  expect(row?.busyUntil).toBeNull();
+  f.db.client.close();
+});
+
+test("database rejects a second result for a tool use even with a different message id", async () => {
+  const f = fixture([[call("change")], answer]);
+  const chat = await f.service.send(user, { text: "Change" });
+  await f.service.resolveCard(user, {
+    conversationId: chat.id,
+    outcome: { run: false },
+    toolUseId: "tool_1",
+  });
+  const [result] = (await f.db.select().from(assistantMessages)).filter(
+    (row) => row.toolUseId === "tool_1"
+  );
+  if (!result) {
+    throw new Error("Result was not stored");
+  }
+  expect(() =>
+    f.db
+      .insert(assistantMessages)
+      .values({ ...result, id: "duplicate", seq: 100 })
+      .run()
+  ).toThrow();
+  f.db.client.close();
+});
+
+test("card outcome arrays are bounded", async () => {
+  const f = fixture([
+    [call("request_secret", { mode: "env", name: "TOKEN", reason: "Needed" })],
+  ]);
+  const chat = await f.service.send(user, { text: "Set access" });
+  for (const field of ["hosts", "grantedTo"]) {
+    await expect(
+      f.service.resolveCard(user, {
+        conversationId: chat.id,
+        outcome: {
+          grantedTo: [],
+          hosts: [],
+          mode: "env",
+          name: "TOKEN",
+          saved: true,
+          secretId: "s1",
+          [field]: new Array(101).fill("example"),
+        },
+        toolUseId: "tool_1",
+      })
+    ).rejects.toThrow();
+  }
   f.db.client.close();
 });

@@ -1,12 +1,15 @@
 import type { Database } from "@repo/db";
 import {
   claimCardResult,
+  claimConversation,
   conversationById,
   conversationMessages,
   findConversation,
   insertConversation,
   insertMessage,
   listConversations,
+  releaseConversation,
+  renewConversation,
   updateConversation,
   updateMessageContent,
 } from "@repo/db/assistant";
@@ -22,6 +25,7 @@ import type { Fetcher } from "../connectors/mcp";
 import { ServiceError } from "../errors";
 import { type ManagedKeysService, NO_KEY_MESSAGE } from "../managed/keys";
 import type { Clock } from "../runs/types";
+import type { SecretsService } from "../secrets";
 import type { Principal } from "../workspaces";
 import { containsKey } from "./keys";
 
@@ -37,8 +41,8 @@ const outcomeSchema = z.union([
     saved: z.literal(false),
   }),
   z.strictObject({
-    grantedTo: z.array(id),
-    hosts: z.array(z.string().max(253)),
+    grantedTo: z.array(id).max(100),
+    hosts: z.array(z.string().max(253)).max(100),
     mode: z.enum(["env", "proxy"]),
     name: id,
     saved: z.literal(true),
@@ -70,6 +74,9 @@ const resultBlock = z.strictObject({
 const blocksSchema = z.array(z.union([textBlock, useBlock, resultBlock]));
 type Block = z.infer<typeof blocksSchema>[number];
 type ToolUse = z.infer<typeof useBlock>;
+interface Turn extends Masker {
+  check: () => Promise<void>;
+}
 interface Message {
   content: Block[];
   role: "user" | "assistant";
@@ -93,6 +100,19 @@ export interface AssistantDeps {
   managedKeys: Pick<ManagedKeysService, "resolve">;
   /** Internal only: values never leave this masker for a router. */
   masker: (workspaceId: string) => Promise<Masker>;
+  modelKeyStatus: (
+    principal: Principal,
+    provider: "anthropic" | "openrouter"
+  ) => Promise<{ configured: boolean }>;
+  secrets: {
+    describe: (
+      principal: Principal,
+      id: string
+    ) => Promise<Pick<
+      Awaited<ReturnType<SecretsService["describe"]>>,
+      "id" | "name" | "mode" | "allowedHosts" | "grantedTo"
+    > | null>;
+  };
   tools: (principal: Principal) => readonly ToolDefinition[];
 }
 
@@ -218,13 +238,18 @@ export const createAssistantService = (deps: AssistantDeps) => {
       pendingCard: pending ? cardFor(pending, deps.tools(principal)) : null,
     };
   };
-  const append = async (conversationId: string, message: Message) => {
+  const append = async (
+    masker: Turn,
+    conversationId: string,
+    message: Message
+  ) => {
     const rows = await conversationMessages(deps.db, conversationId);
     const owner = rows[0] ?? (await conversationById(deps.db, conversationId));
     if (!owner) {
       throw new ServiceError("not_found", "Conversation not found");
     }
     const now = deps.clock.now().toISOString();
+    await masker.check();
     await deps.atomic([
       insertMessage(deps.db, {
         ...message,
@@ -232,24 +257,25 @@ export const createAssistantService = (deps: AssistantDeps) => {
         createdAt: now,
         id: ulid(),
         seq: (rows.at(-1)?.seq ?? -1) + 1,
+        toolUseId: message.content.find((block) => block.type === "tool_result")
+          ?.tool_use_id,
         workspaceId: owner.workspaceId,
       }),
       updateConversation(deps.db, conversationId, now),
     ]);
   };
-  const clean = async <T>(workspaceId: string, value: T): Promise<T> =>
-    (await deps.masker(workspaceId)).maskDeep(value);
+  const clean = <T>(masker: Turn, value: T): T => masker.maskDeep(value);
   const result = async (
-    workspaceId: string,
+    masker: Turn,
     conversationId: string,
     use: ToolUse,
     content: unknown,
     isError = false
   ) =>
-    append(conversationId, {
+    append(masker, conversationId, {
       content: [
         {
-          content: JSON.stringify(await clean(workspaceId, content)),
+          content: JSON.stringify(clean(masker, content)),
           tool_use_id: use.id,
           type: "tool_result",
           ...(isError ? { is_error: true } : {}),
@@ -258,7 +284,7 @@ export const createAssistantService = (deps: AssistantDeps) => {
       role: "user",
     });
   const execute = async (
-    workspaceId: string,
+    masker: Turn,
     use: ToolUse,
     tools: readonly ToolDefinition[]
   ) => {
@@ -271,7 +297,8 @@ export const createAssistantService = (deps: AssistantDeps) => {
       return { error: "Invalid tool arguments." };
     }
     try {
-      return await clean(workspaceId, await tool.run(parsed.data));
+      await masker.check();
+      return clean(masker, await tool.run(parsed.data));
     } catch {
       return {
         error: "The tool could not complete. Check its arguments and access.",
@@ -279,15 +306,15 @@ export const createAssistantService = (deps: AssistantDeps) => {
     }
   };
   const ask = async (
-    workspaceId: string,
+    masker: Turn,
     conversationId: string,
     apiKey: string,
     messages: Message[],
     tools: readonly ToolDefinition[],
     count: number
   ) => {
-    // Refresh the masker: a card may have just stored a new workspace secret.
-    const safeMessages = await clean(workspaceId, messages);
+    const safeMessages = clean(masker, messages);
+    await masker.check();
     const response = await deps.fetch("https://api.anthropic.com/v1/messages", {
       body: JSON.stringify({
         max_tokens: 8192,
@@ -306,6 +333,7 @@ export const createAssistantService = (deps: AssistantDeps) => {
         "x-api-key": apiKey,
       },
       method: "POST",
+      signal: AbortSignal.timeout(60_000),
     });
     if (!response.ok) {
       throw new Error("Model request failed");
@@ -326,14 +354,14 @@ export const createAssistantService = (deps: AssistantDeps) => {
     }
     // Mask the model key too in case a provider echoes it.
     const providerMasker = createMasker({ MODEL_KEY: apiKey });
-    await append(conversationId, {
-      content: providerMasker.maskDeep(await clean(workspaceId, content)),
+    await append(masker, conversationId, {
+      content: providerMasker.maskDeep(clean(masker, content)),
       role: "assistant",
     });
     return content;
   };
   const processPending = async (
-    workspaceId: string,
+    masker: Turn,
     conversationId: string,
     pending: ToolUse,
     tools: readonly ToolDefinition[],
@@ -356,7 +384,7 @@ export const createAssistantService = (deps: AssistantDeps) => {
     );
     if (duplicate || !valid) {
       await result(
-        workspaceId,
+        masker,
         conversationId,
         pending,
         {
@@ -371,16 +399,20 @@ export const createAssistantService = (deps: AssistantDeps) => {
     if (cardFor(pending, tools)) {
       return true;
     }
-    const output = await execute(workspaceId, pending, tools);
-    await result(workspaceId, conversationId, pending, output);
+    const output = await execute(masker, pending, tools);
+    await result(masker, conversationId, pending, output);
     return false;
   };
-  const loop = async (principal: Principal, conversationId: string) => {
+  const loop = async (
+    principal: Principal,
+    conversationId: string,
+    masker: Turn
+  ) => {
     const user = session(principal);
     const tools = deps.tools(user);
     const key = await deps.managedKeys.resolve(user.workspaceId);
     if (!key) {
-      await append(conversationId, {
+      await append(masker, conversationId, {
         content: [{ text: NO_KEY_MESSAGE, type: "text" }],
         role: "assistant",
       });
@@ -401,27 +433,21 @@ export const createAssistantService = (deps: AssistantDeps) => {
         const [pending] = unresolved(messages);
         if (pending) {
           if (
-            await processPending(
-              user.workspaceId,
-              conversationId,
-              pending,
-              tools,
-              uses
-            )
+            await processPending(masker, conversationId, pending, tools, uses)
           ) {
             return get(user, conversationId);
           }
           continue;
         }
         if (uses.length >= 16) {
-          await append(conversationId, {
+          await append(masker, conversationId, {
             content: [{ text: LIMIT_MESSAGE, type: "text" }],
             role: "assistant",
           });
           return get(user, conversationId);
         }
         const content = await ask(
-          user.workspaceId,
+          masker,
           conversationId,
           key.apiKey,
           messages,
@@ -433,11 +459,95 @@ export const createAssistantService = (deps: AssistantDeps) => {
         }
       }
     } catch {
-      await append(conversationId, {
+      await append(masker, conversationId, {
         content: [{ text: FAILED_MESSAGE, type: "text" }],
         role: "assistant",
       });
       return get(user, conversationId);
+    }
+  };
+  const recoverInterrupted = async (conversationId: string, masker: Turn) => {
+    const rows = await conversationMessages(deps.db, conversationId);
+    const updates = rows.flatMap((row) => {
+      const content = blocksSchema.parse(row.content);
+      if (
+        !content.some(
+          (block) =>
+            block.type === "tool_result" &&
+            JSON.parse(block.content)?.status === "resolving"
+        )
+      ) {
+        return [];
+      }
+      return [
+        updateMessageContent(
+          deps.db,
+          row.id,
+          content.map((block) =>
+            block.type === "tool_result"
+              ? {
+                  ...block,
+                  content: JSON.stringify({
+                    error:
+                      "The operation was interrupted; its outcome is unknown. Check the workspace before trying again.",
+                  }),
+                  is_error: true,
+                }
+              : block
+          )
+        ),
+      ];
+    });
+    if (updates.length > 0) {
+      await masker.check();
+      await deps.atomic(updates);
+    }
+    return updates.length > 0;
+  };
+  const withLease = async <T>(
+    conversationId: string,
+    workspaceId: string,
+    work: (masker: Turn) => Promise<T>
+  ): Promise<T> => {
+    const leaseId = ulid();
+    const now = deps.clock.now();
+    const claimed = await claimConversation(
+      deps.db,
+      conversationId,
+      now.toISOString(),
+      new Date(now.getTime() + 5 * 60_000).toISOString(),
+      leaseId
+    );
+    if (claimed.length === 0) {
+      throw new ServiceError(
+        "conflict",
+        "The assistant is still working. Try again shortly."
+      );
+    }
+    try {
+      const base = await deps.masker(workspaceId);
+      const masker: Turn = {
+        ...base,
+        check: async () => {
+          const at = deps.clock.now();
+          const renewed = await renewConversation(
+            deps.db,
+            conversationId,
+            leaseId,
+            at.toISOString(),
+            new Date(at.getTime() + 5 * 60_000).toISOString()
+          );
+          if (renewed.length === 0) {
+            throw new ServiceError(
+              "conflict",
+              "The assistant turn expired. Try again."
+            );
+          }
+        },
+      };
+      return await work(masker);
+    } finally {
+      await releaseConversation(deps.db, conversationId, leaseId);
     }
   };
   const send = async (
@@ -452,32 +562,8 @@ export const createAssistantService = (deps: AssistantDeps) => {
         "That looks like a key. Use Add secret instead."
       );
     }
-    // Refuse known workspace values as well, even when they aren't key-shaped.
-    if ((await deps.masker(user.workspaceId)).mask(input.text) !== input.text) {
-      throw new ServiceError(
-        "invalid",
-        "That looks like a key. Use Add secret instead."
-      );
-    }
     const conversationId = input.conversationId ?? ulid();
-    if (input.conversationId) {
-      const row = await owned(user, conversationId);
-      if (row.archivedAt) {
-        throw new ServiceError("invalid", "This conversation is archived");
-      }
-      const pending = unresolved(
-        transcript(await conversationMessages(deps.db, conversationId))
-      );
-      for (const use of pending) {
-        // biome-ignore lint/performance/noAwaitInLoops: Cancel in transcript order before the new message.
-        await result(user.workspaceId, conversationId, use, {
-          note: CARD_DECLINED_NOTE,
-          reason: "cancelled",
-          run: false,
-          saved: false,
-        });
-      }
-    } else {
+    if (!input.conversationId) {
       const now = deps.clock.now().toISOString();
       await deps.atomic([
         insertConversation(deps.db, {
@@ -500,12 +586,104 @@ export const createAssistantService = (deps: AssistantDeps) => {
       ]);
     }
     if (input.conversationId) {
-      await append(conversationId, {
-        content: [{ text: input.text, type: "text" }],
-        role: "user",
-      });
+      await owned(user, conversationId);
     }
-    return loop(user, conversationId);
+    return withLease(conversationId, user.workspaceId, async (masker) => {
+      if (input.conversationId) {
+        const row = await owned(user, conversationId);
+        if (row.archivedAt) {
+          throw new ServiceError("invalid", "This conversation is archived");
+        }
+        await recoverInterrupted(conversationId, masker);
+        const pending = unresolved(
+          transcript(await conversationMessages(deps.db, conversationId))
+        );
+        for (const use of pending) {
+          // biome-ignore lint/performance/noAwaitInLoops: Cancel in transcript order before the new message.
+          await result(masker, conversationId, use, {
+            note: CARD_DECLINED_NOTE,
+            reason: "cancelled",
+            run: false,
+            saved: false,
+          });
+        }
+      }
+      if (input.conversationId) {
+        await append(masker, conversationId, {
+          content: [{ text: input.text, type: "text" }],
+          role: "user",
+        });
+      }
+      return loop(user, conversationId, masker);
+    });
+  };
+  const storedOutcome = async (
+    user: Principal,
+    use: ToolUse,
+    kind: Card["kind"],
+    outcome: z.infer<typeof outcomeSchema>
+  ) => {
+    validateOutcome(kind, outcome);
+    if (!("saved" in outcome && outcome.saved)) {
+      return outcome;
+    }
+
+    if ("secretId" in outcome) {
+      const stored = await deps.secrets.describe(user, outcome.secretId);
+      if (!stored || stored.name !== use.input.name) {
+        throw new ServiceError(
+          "invalid",
+          "The saved secret does not match this card"
+        );
+      }
+      return {
+        grantedTo: stored.grantedTo,
+        hosts: stored.allowedHosts,
+        mode: stored.mode,
+        name: stored.name,
+        saved: true,
+        secretId: stored.id,
+      };
+    }
+    if (outcome.provider !== use.input.provider) {
+      throw new ServiceError(
+        "invalid",
+        "The saved provider does not match this card"
+      );
+    }
+    const status = await deps.modelKeyStatus(user, outcome.provider);
+    if (!status.configured) {
+      throw new ServiceError(
+        "invalid",
+        "The model provider key has not been saved"
+      );
+    }
+    return {
+      configured: status.configured,
+      provider: outcome.provider,
+      saved: true,
+    };
+  };
+  const cardContent = async (
+    masker: Turn,
+    use: ToolUse,
+    tools: readonly ToolDefinition[],
+    outcome: z.infer<typeof outcomeSchema>,
+    savedContent: unknown
+  ) => {
+    let content: unknown = savedContent;
+    if ("run" in outcome) {
+      content = { note: CARD_DECLINED_NOTE, run: false };
+      if (outcome.run) {
+        content = {
+          result: await execute(masker, use, tools),
+          run: true,
+        };
+      }
+    } else if (!outcome.saved) {
+      content = { ...outcome, note: CARD_DECLINED_NOTE };
+    }
+    return content;
   };
   const resolveCard = async (
     principal: Principal,
@@ -514,73 +692,81 @@ export const createAssistantService = (deps: AssistantDeps) => {
     const user = session(principal);
     const input = resolveCardInputSchema.parse(raw);
     const row = await owned(user, input.conversationId);
-    const messages = transcript(await conversationMessages(deps.db, row.id));
-    const alreadyResolved = messages.some((message) =>
-      message.content.some(
-        (block) =>
-          block.type === "tool_result" && block.tool_use_id === input.toolUseId
-      )
-    );
-    if (alreadyResolved) {
-      return get(user, row.id);
+    if (containsKey(JSON.stringify(input.outcome))) {
+      throw new ServiceError(
+        "invalid",
+        "That looks like a key. Use Add secret instead."
+      );
     }
-    if (row.archivedAt) {
-      throw new ServiceError("invalid", "This conversation is archived");
-    }
-    const [use] = unresolved(messages);
-    const tools = deps.tools(user);
-    const card = use && cardFor(use, tools);
-    if (!use || use.id !== input.toolUseId || !card) {
-      throw new ServiceError("invalid", "This card is not open");
-    }
-    const { outcome } = input;
-    validateOutcome(card.kind, outcome);
-    const now = deps.clock.now().toISOString();
-    const resultId = `card:${row.id}:${use.id}`;
-    const placeholder: Block[] = [
-      {
-        content: JSON.stringify(
-          await clean(user.workspaceId, { ...outcome, status: "resolving" })
-        ),
-        tool_use_id: use.id,
-        type: "tool_result",
-      },
-    ];
-    const claimed = await claimCardResult(deps.db, {
-      content: placeholder,
-      conversationId: row.id,
-      createdAt: now,
-      id: resultId,
-      role: "user",
-      seq: messages.length,
-      workspaceId: row.workspaceId,
-    });
-    if (claimed.length === 0) {
-      return get(user, row.id);
-    }
-    let content: unknown = outcome;
-    if ("run" in outcome) {
-      content = { note: CARD_DECLINED_NOTE, run: false };
-      if (outcome.run) {
-        content = {
-          result: await execute(user.workspaceId, use, tools),
-          run: true,
-        };
+    return withLease(row.id, user.workspaceId, async (masker) => {
+      const messages = transcript(await conversationMessages(deps.db, row.id));
+      const alreadyResolved = messages.some((message) =>
+        message.content.some(
+          (block) =>
+            block.type === "tool_result" &&
+            block.tool_use_id === input.toolUseId
+        )
+      );
+      if (await recoverInterrupted(row.id, masker)) {
+        return loop(user, row.id, masker);
       }
-    } else if (!outcome.saved) {
-      content = { ...outcome, note: CARD_DECLINED_NOTE };
-    }
-    await deps.atomic([
-      updateMessageContent(deps.db, resultId, [
+      if (alreadyResolved) {
+        return get(user, row.id);
+      }
+      if (row.archivedAt) {
+        throw new ServiceError("invalid", "This conversation is archived");
+      }
+      const [use] = unresolved(messages);
+      const tools = deps.tools(user);
+      const card = use && cardFor(use, tools);
+      if (!use || use.id !== input.toolUseId || !card) {
+        throw new ServiceError("invalid", "This card is not open");
+      }
+      const { outcome } = input;
+      const savedContent = await storedOutcome(user, use, card.kind, outcome);
+      const now = deps.clock.now().toISOString();
+      const resultId = `card:${row.id}:${use.id}`;
+      const placeholder: Block[] = [
         {
-          content: JSON.stringify(await clean(user.workspaceId, content)),
+          content: JSON.stringify({ status: "resolving" }),
           tool_use_id: use.id,
           type: "tool_result",
         },
-      ]),
-      updateConversation(deps.db, row.id, deps.clock.now().toISOString()),
-    ]);
-    return loop(user, row.id);
+      ];
+      await masker.check();
+      const claimed = await claimCardResult(deps.db, {
+        content: placeholder,
+        conversationId: row.id,
+        createdAt: now,
+        id: resultId,
+        role: "user",
+        seq: messages.length,
+        toolUseId: use.id,
+        workspaceId: row.workspaceId,
+      });
+      if (claimed.length === 0) {
+        return get(user, row.id);
+      }
+      const content = await cardContent(
+        masker,
+        use,
+        tools,
+        outcome,
+        savedContent
+      );
+      await masker.check();
+      await deps.atomic([
+        updateMessageContent(deps.db, resultId, [
+          {
+            content: JSON.stringify(clean(masker, content)),
+            tool_use_id: use.id,
+            type: "tool_result",
+          },
+        ]),
+        updateConversation(deps.db, row.id, deps.clock.now().toISOString()),
+      ]);
+      return loop(user, row.id, masker);
+    });
   };
   return {
     archive: async (principal: Principal, conversationId: string) => {

@@ -1279,6 +1279,11 @@ export const composeWith = ({
     fetch: connectorFetch,
     managedKeys,
     masker: secrets.workspaceMasker,
+    modelKeyStatus: (principal, provider) =>
+      provider === "anthropic"
+        ? managedKeys.status(principal)
+        : modelKeys.status(principal, provider),
+    secrets,
     tools: (principal) =>
       assistantTools(
         createMcpPorts({
