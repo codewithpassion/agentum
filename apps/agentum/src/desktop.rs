@@ -82,6 +82,9 @@ impl Stream for DeadlineStream {
         self.stream.write(buf, fds)
     }
 }
+fn failed(error: impl std::fmt::Display) -> Fault {
+    Fault::new("op_failed", error.to_string())
+}
 fn bad(message: &str) -> Fault {
     Fault::new("bad_request", message)
 }
@@ -310,7 +313,8 @@ impl Desktop {
                 "display is not held by this desktop's X server",
             ));
         }
-        let stream = UnixStream::connect(format!("/tmp/.X11-unix/X{}", self.display))?;
+        let stream = UnixStream::connect(format!("/tmp/.X11-unix/X{}", self.display))
+            .map_err(|e| unavailable(e.to_string()))?;
         let (stream, _) = DefaultStream::from_unix_stream(stream)?;
         RustConnection::connect_to_stream_with_auth_info(
             DeadlineStream {
@@ -422,7 +426,7 @@ impl Desktop {
         Ok(d)
     }
     fn supervise(&self, mut command: Command, xvfb: bool) -> OpResult<()> {
-        let mut child = command.spawn()?;
+        let mut child = command.spawn().map_err(failed)?;
         let life = self.life.clone();
         let handle = thread::spawn(move || {
             let mut delay = 1;
@@ -515,9 +519,9 @@ impl Desktop {
                 screen.height_in_pixels,
                 u32::MAX,
             )
-            .map_err(Fault::decode)?
+            .map_err(failed)?
             .reply()
-            .map_err(Fault::decode)?;
+            .map_err(failed)?;
         let format = setup
             .pixmap_formats
             .iter()
@@ -557,7 +561,7 @@ impl Desktop {
                 screen.height_in_pixels.into(),
                 image::ExtendedColorType::Rgb8,
             )
-            .map_err(Fault::decode)?;
+            .map_err(failed)?;
         let data = STANDARD.encode(bytes);
         if data.len() > 3 << 20 {
             return Err(Fault::new(
@@ -613,7 +617,7 @@ fn run_helper(
     if input.is_some() {
         command.stdin(Stdio::piped());
     }
-    let mut child = command.spawn()?;
+    let mut child = command.spawn().map_err(failed)?;
     let pid = child.id();
     let out = child.stdout.take();
     let error = child.stderr.take();
@@ -880,5 +884,20 @@ mod tests {
                 .code,
             "too_large"
         );
+    }
+}
+
+#[cfg(test)]
+mod helper_failure_tests {
+    #[test]
+    fn missing_desktop_helper_is_an_operation_failure() {
+        let error = super::run_helper(
+            std::process::Command::new("/no-such-agentum-desktop-helper"),
+            None,
+            std::time::Duration::from_secs(1),
+            100,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "op_failed");
     }
 }

@@ -65,9 +65,9 @@ impl Policy {
                 .iter()
                 .map(|p| {
                     Regex::new(&if anchored {
-                        format!("(?s)\\A(?:{p})\\z")
+                        format!("(?s)\\A(?:{})\\z", go_pattern(p))
                     } else {
-                        p.clone()
+                        go_pattern(p)
                     })
                     .map_err(|e| Fault::new("bad_request", e.to_string()))
                 })
@@ -171,4 +171,47 @@ fn within(root: &Path, candidate: &Path) -> bool {
     candidate.ancestors().any(|part| {
         fs::metadata(part).is_ok_and(|m| m.dev() == root_info.dev() && m.ino() == root_info.ino())
     })
+}
+
+// Go's RE2 shorthand classes and word boundaries are ASCII, even in UTF-8 text.
+// Rust supports nested character classes, so these also work inside [ ... ].
+fn go_pattern(pattern: &str) -> String {
+    let mut out = String::new();
+    let mut chars = pattern.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let Some(escaped) = chars.next() else {
+            out.push('\\');
+            break;
+        };
+        match escaped {
+            'd' => out.push_str("[0-9]"),
+            'D' => out.push_str("[^0-9]"),
+            'w' => out.push_str("[A-Za-z0-9_]"),
+            'W' => out.push_str("[^A-Za-z0-9_]"),
+            's' => out.push_str(r"[\t\n\f\r ]"),
+            'S' => out.push_str(r"[^\t\n\f\r ]"),
+            'b' => out.push_str(r"(?-u:\b)"),
+            'B' => out.push_str(r"(?-u:\B)"),
+            'Q' => {
+                let mut literal = String::new();
+                while let Some(c) = chars.next() {
+                    if c == '\\' && chars.peek() == Some(&'E') {
+                        chars.next();
+                        break;
+                    }
+                    literal.push(c);
+                }
+                out.push_str(&regex::escape(&literal));
+            }
+            other => {
+                out.push('\\');
+                out.push(other);
+            }
+        }
+    }
+    out
 }

@@ -653,3 +653,14 @@ async fn desktop_audit_never_contains_typed_text_or_clipboard_content() {
     }
     assert!(audit.contains("\"actions\":[\"type\",\"key\"]"));
 }
+
+#[test]
+fn policy_regexes_keep_go_ascii_classes_and_quoted_literals() {
+    let (_dir, e) = setup(crate::instance::ComputerConfig {
+        allow: vec![r"[\w]+".into(), r"\Qgit status\E".into()],
+        ..Default::default()
+    });
+    assert!(e.policy.exec("status").is_ok());
+    assert!(e.policy.exec("git status").is_ok());
+    assert!(e.policy.exec("é").is_err());
+}
