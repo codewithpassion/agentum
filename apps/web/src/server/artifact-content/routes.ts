@@ -19,6 +19,7 @@ import type { AppEnv } from "../routes/groups.ts";
 import { BRIDGE_JS } from "./bridge.ts";
 import { renderDocPage } from "./doc.ts";
 import { type ContentCspInput, withContentHeaders } from "./headers.ts";
+import { blobKey, manifestKey } from "./keys.ts";
 
 const NOT_MODIFIED = 304;
 const FOUND = 302;
@@ -71,13 +72,8 @@ export interface ArtifactContentDeps {
   ) => string | null | Promise<string | null>;
 }
 
-/** R2 key of a version's manifest. */
-export const manifestKey = (workspaceId: string, versionId: string): string =>
-  `${workspaceId}/artifact-manifests/${versionId}.json`;
-
-/** R2 key of a content-addressed file. */
-export const blobKey = (workspaceId: string, sha256: string): string =>
-  `${workspaceId}/artifact-blobs/${sha256}`;
+// biome-ignore lint/performance/noBarrelFile: preserve existing storage key imports
+export { blobKey, manifestKey } from "./keys.ts";
 
 const textResponse = (status: number, text: string | null = null): Response =>
   new Response(text, {

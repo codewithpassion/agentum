@@ -1,0 +1,68 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentum-v2-hooks",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "routes": [
+    { "pattern": "agentumbot.io/hooks/*", "zone_name": "agentumbot.io" }
+  ],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "services": [
+    { "binding": "MAIN", "service": "agentum-v2", "entrypoint": "HooksMain" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agentum-v2",
+      "database_id": "63fdab15-25c5-46a5-863b-e60cf04cf649"
+    }
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "agentum-v2-files" }],
+  // Same namespace and key scheme as the main Worker's fallback route.
+  "ratelimits": [
+    {
+      "name": "APP_API_LIMIT",
+      "namespace_id": "2004",
+      "simple": { "limit": 300, "period": 60 }
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "agentum-v2-staging-hooks",
+      "routes": [
+        {
+          "pattern": "staging.agentumbot.io/hooks/*",
+          "zone_name": "agentumbot.io"
+        }
+      ],
+      "worker_loaders": [{ "binding": "LOADER" }],
+      "services": [
+        {
+          "binding": "MAIN",
+          "service": "agentum-v2-staging",
+          "entrypoint": "HooksMain"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "agentum-v2-staging",
+          "database_id": "9d1ca8fc-9c6e-489a-810b-f0c37df53dfb"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "FILES", "bucket_name": "agentum-v2-staging-files" }
+      ],
+      "ratelimits": [
+        {
+          "name": "APP_API_LIMIT",
+          "namespace_id": "2005",
+          "simple": { "limit": 300, "period": 60 }
+        }
+      ]
+    }
+  }
+}

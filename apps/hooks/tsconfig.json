@@ -1,0 +1,12 @@
+{
+  "extends": "../web/tsconfig.json",
+  "include": [
+    "src/**/*.ts",
+    "../web/worker-configuration.d.ts",
+    "../web/src/vite-env.d.ts",
+    "worker-configuration.d.ts"
+  ],
+  "compilerOptions": {
+    "types": ["../web/node_modules/vite/client"]
+  }
+}
