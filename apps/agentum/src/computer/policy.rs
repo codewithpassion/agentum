@@ -85,13 +85,19 @@ impl Policy {
         })
     }
     pub fn exec(&self, command: &str) -> OpResult<()> {
+        if self
+            .deny
+            .iter()
+            .any(|r| r.is_match(command) || command.lines().any(|l| r.is_match(l)))
+        {
+            return Err(Fault::new(
+                "denied",
+                "command refused by the local deny list",
+            ));
+        }
         if self.config.read_only
             || command.trim().is_empty()
             || command.contains('\0')
-            || self
-                .deny
-                .iter()
-                .any(|r| r.is_match(command) || command.lines().any(|l| r.is_match(l)))
             || (!self.allow.is_empty() && !self.allow.iter().any(|r| r.is_match(command)))
         {
             return Err(Fault::new("denied", "command refused by the local policy"));

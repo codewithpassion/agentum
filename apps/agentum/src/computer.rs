@@ -75,7 +75,7 @@ struct Engine {
     audit_sink: Option<tokio::sync::mpsc::UnboundedSender<Value>>,
     policy: policy::Policy,
     state: PathBuf,
-    audit: Mutex<audit::Log>,
+    audit: Mutex<Option<audit::Log>>,
     transfers: files::Transfers,
     running: Mutex<HashMap<String, CancellationToken>>,
     pids: Mutex<HashMap<String, u32>>,
@@ -86,11 +86,21 @@ struct Engine {
 }
 impl Engine {
     fn new(
+        config: crate::instance::ComputerConfig,
+        state: PathBuf,
+        config_dir: PathBuf,
+        work: PathBuf,
+        desktop: Option<Arc<crate::desktop::Desktop>>,
+    ) -> OpResult<Self> {
+        Self::prepare(config, state, config_dir, work, desktop, None)
+    }
+    fn prepare(
         mut config: crate::instance::ComputerConfig,
         state: PathBuf,
         config_dir: PathBuf,
         work: PathBuf,
         desktop: Option<Arc<crate::desktop::Desktop>>,
+        audit_sink: Option<tokio::sync::mpsc::UnboundedSender<Value>>,
     ) -> OpResult<Self> {
         if config.max_concurrent == 0 {
             config.max_concurrent = 4;
@@ -109,14 +119,18 @@ impl Engine {
         ensure_directory(&policy.work)?;
         crate::instance::private_dir(&state.join("running"))
             .map_err(|e| Fault::new("op_failed", e.to_string()))?;
-        let audit = Mutex::new(audit::Log::new(
-            &state,
-            policy.config.audit_max_bytes,
-            policy.config.audit_keep,
-        )?);
+        let audit = Mutex::new(if audit_sink.is_none() {
+            Some(audit::Log::new(
+                &state,
+                policy.config.audit_max_bytes,
+                policy.config.audit_keep,
+            )?)
+        } else {
+            None
+        });
         runner::sweep(&state);
         Ok(Self {
-            audit_sink: None,
+            audit_sink,
             policy,
             state,
             audit,
@@ -161,13 +175,34 @@ impl Engine {
             let _ = sink.send(json!({"audit":entry}));
             return;
         }
-        if let Err(error) = self.audit.lock().unwrap().record(entry) {
+        if let Some(log) = self.audit.lock().unwrap().as_mut()
+            && let Err(error) = log.record(entry)
+        {
             tracing::warn!(%error,"Cannot write computer audit log");
         }
     }
     async fn dispatch(&self, frame: Value) -> OpResult<Value> {
         let op = frame["op"].as_str().unwrap_or("");
         let id = frame["id"].as_str().unwrap_or("");
+        let mut entry = json!({"op":op,"request_id":id});
+        let cwd = frame["cwd"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(std::path::Path::new)
+            .unwrap_or(&self.policy.work);
+        if op == "exec"
+            && let Ok(cwd) = policy::resolve(cwd)
+        {
+            entry["cwd"] = json!(cwd);
+        }
+        if let Some(path) = frame["path"].as_str()
+            && let Ok(path) = policy::resolve(std::path::Path::new(path))
+        {
+            entry["path"] = json!(path);
+        }
+        if let Some(command) = frame.get("command") {
+            entry["command"] = command.clone();
+        }
         let mut result = match op {
             "exec" => {
                 let token = self
@@ -200,12 +235,12 @@ impl Engine {
                 "this computer does not implement the requested op",
             )),
         };
-        let mut entry = json!({"op":op,"request_id":id,"outcome":match &result{Ok(r) if op=="exec"&&r["_started"]==false=>"error",Ok(_)=>"ok",Err(e) if ["denied","read_only"].contains(&e.code)=>"denied",Err(_)=>"error"}});
-        for key in ["command", "cwd", "path"] {
-            if let Some(v) = frame.get(key) {
-                entry[key] = v.clone();
-            }
-        }
+        entry["outcome"] = json!(match &result {
+            Ok(r) if op == "exec" && r["_started"] == false => "error",
+            Ok(_) => "ok",
+            Err(e) if ["denied", "read_only"].contains(&e.code) => "denied",
+            Err(_) => "error",
+        });
         if let Some(actions) = frame["actions"].as_array().filter(|a| a.len() <= 64) {
             entry["actions"] = json!(
                 actions
@@ -310,8 +345,7 @@ impl Role for Computer {
         }
         if self.config.run_as == crate::instance::RunAs::AgentUser {
             let worker = worker::Worker::start(self)?;
-            let capabilities = serde_json::from_value(worker.capabilities["capabilities"].clone())
-                .map_err(|e| Error::new(5, format!("Invalid computer worker handshake: {e}")))?;
+            let capabilities = worker.capabilities();
             let _ = self.capabilities.set(capabilities);
             let _ = self.worker.set(worker);
             return Ok(());
@@ -358,6 +392,7 @@ impl Role for Computer {
                 desktop: false,
                 desktop_unavailable_reason: None,
             });
+        let capabilities = self.worker.get().map_or(capabilities, |w| w.capabilities());
         serde_json::to_value(hello(
             &wire::hostname(),
             wire::os(),
@@ -371,8 +406,7 @@ impl Role for Computer {
                 .unwrap_or_else(|| {
                     self.worker
                         .get()
-                        .and_then(|w| w.capabilities["workdir"].as_str())
-                        .map(PathBuf::from)
+                        .map(|w| w.workdir())
                         .unwrap_or(self.workdir.clone())
                 })
                 .to_string_lossy(),
@@ -417,10 +451,7 @@ impl Role for Computer {
                 }
                 None => engine.dispatch(frame).await,
             };
-            let response = match result {
-                Ok(result) => json!({"id":id,"result":result}),
-                Err(e) => json!({"id":id,"error":{"code":e.code,"message":e.message}}),
-            };
+            let response = encode_reply(&id, result);
             if let Err(error) = reply.send(response).await {
                 engine.record(
                     json!({"request_id":id,"outcome":"reply_dropped","error":error.to_string()}),
@@ -476,5 +507,20 @@ fn detect_capabilities(desktop: bool, reason: Option<String>) -> ComputerCapabil
         skills,
         desktop,
         desktop_unavailable_reason: reason,
+    }
+}
+
+fn encode_reply(id: &str, result: OpResult<Value>) -> Value {
+    let reply = match result {
+        Ok(result) => json!({"id":id,"result":result}),
+        Err(e) => json!({"id":id,"error":{"code":e.code,"message":e.message}}),
+    };
+    bound_reply(reply)
+}
+fn bound_reply(reply: Value) -> Value {
+    if serde_json::to_vec(&reply).map_or(true, |bytes| bytes.len() > 8 << 20) {
+        json!({"id":reply["id"],"error":{"code":"frame_too_large","message":"reply exceeds the 8 MiB frame limit"}})
+    } else {
+        reply
     }
 }

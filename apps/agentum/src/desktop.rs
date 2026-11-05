@@ -313,20 +313,9 @@ impl Desktop {
                 "display is not held by this desktop's X server",
             ));
         }
-        let stream = UnixStream::connect(format!("/tmp/.X11-unix/X{}", self.display))
-            .map_err(|e| unavailable(e.to_string()))?;
-        let (stream, _) = DefaultStream::from_unix_stream(stream)?;
-        RustConnection::connect_to_stream_with_auth_info(
-            DeadlineStream {
-                stream,
-                deadline: Instant::now() + budget,
-            },
-            0,
-            b"MIT-MAGIC-COOKIE-1".to_vec(),
-            self.cookie.clone(),
-        )
-        .map_err(|_| unavailable("X server did not accept the private cookie"))
+        connect_display(self.display, &self.cookie, budget)
     }
+
     pub fn start(state: &Path, display: u16) -> OpResult<Self> {
         if !cfg!(target_os = "linux") {
             return Err(unavailable("desktop is supported only on Linux"));
@@ -337,7 +326,12 @@ impl Desktop {
                 .trim()
                 .parse::<i32>()
                 .map_err(|_| unavailable("display lock has no process id"))?;
-            if pid > 0 && nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok() {
+            if pid > 0
+                && alive_result(nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid),
+                    None,
+                ))
+            {
                 return Err(unavailable(format!(
                     "display :{display} is already in use; choose --desktop-display"
                 )));
@@ -387,15 +381,11 @@ impl Desktop {
         Ok(d)
     }
     pub fn launch(state: &Path, display: u16) -> OpResult<Self> {
-        if !["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
+        if let Some(binary) = ["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
             .iter()
-            .all(|b| crate::privilege::on_path(b))
+            .find(|b| !crate::privilege::on_path(b))
         {
-            return Err(unavailable(
-                crate::privilege::Problem::Desktop
-                    .explain("user", "instance")
-                    .to_string(),
-            ));
+            return Err(missing_package(binary));
         }
         let d = Self::start(state, display)?;
         let result = (|| {
@@ -428,6 +418,8 @@ impl Desktop {
     fn supervise(&self, mut command: Command, xvfb: bool) -> OpResult<()> {
         let mut child = command.spawn().map_err(failed)?;
         let life = self.life.clone();
+        let display = self.display;
+        let cookie = self.cookie.clone();
         let handle = thread::spawn(move || {
             let mut delay = 1;
             loop {
@@ -476,6 +468,15 @@ impl Desktop {
                 loop {
                     if life.stop.load(Ordering::SeqCst) {
                         return;
+                    }
+                    if !xvfb
+                        && (life.xvfb.load(Ordering::SeqCst) == 0
+                            || connect_display(display, &cookie, Duration::from_secs(1)).is_err())
+                    {
+                        // The private cookie is supplied explicitly below; never start the WM
+                        // until the restarted X server is accepting connections.
+                        thread::sleep(Duration::from_millis(100));
+                        continue;
                     }
                     match command.spawn() {
                         Ok(c) => {
@@ -553,24 +554,11 @@ impl Desktop {
                 });
             }
         }
-        let mut bytes = vec![];
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, q)
-            .encode(
-                &rgb,
-                screen.width_in_pixels.into(),
-                screen.height_in_pixels.into(),
-                image::ExtendedColorType::Rgb8,
-            )
-            .map_err(failed)?;
-        let data = STANDARD.encode(bytes);
-        if data.len() > 3 << 20 {
-            return Err(Fault::new(
-                "too_large",
-                "screenshot exceeds 3 MiB; use lower quality",
-            ));
-        }
-        Ok(
-            json!({"data_b64":data,"width":screen.width_in_pixels,"height":screen.height_in_pixels,"media_type":"image/jpeg"}),
+        encode_screenshot(
+            &rgb,
+            screen.width_in_pixels.into(),
+            screen.height_in_pixels.into(),
+            q,
         )
     }
 }
@@ -578,6 +566,60 @@ impl Drop for Desktop {
     fn drop(&mut self) {
         self.stop();
     }
+}
+fn connect_display(
+    display: u16,
+    cookie: &[u8],
+    budget: Duration,
+) -> OpResult<RustConnection<DeadlineStream>> {
+    let stream = UnixStream::connect(format!("/tmp/.X11-unix/X{}", display))
+        .map_err(|e| unavailable(e.to_string()))?;
+    let (stream, _) = DefaultStream::from_unix_stream(stream)?;
+    RustConnection::connect_to_stream_with_auth_info(
+        DeadlineStream {
+            stream,
+            deadline: Instant::now() + budget,
+        },
+        0,
+        b"MIT-MAGIC-COOKIE-1".to_vec(),
+        cookie.to_vec(),
+    )
+    .map_err(|_| unavailable("X server did not accept the private cookie"))
+}
+fn sandbox_failure(text: &str) -> String {
+    text.lines()
+        .find_map(|line| {
+            line.find("No usable sandbox")
+                .or_else(|| line.find("namespace"))
+                .map(|i| &line[i..])
+        })
+        .unwrap_or("Chromium sandbox self-test failed")
+        .chars()
+        .take(256)
+        .collect()
+}
+fn alive_result(result: std::result::Result<(), nix::errno::Errno>) -> bool {
+    matches!(result, Ok(()) | Err(nix::errno::Errno::EPERM))
+}
+fn missing_package(binary: &str) -> Fault {
+    unavailable(format!(
+        "{binary} is missing. {}",
+        crate::privilege::Problem::Desktop.explain("user", "instance")
+    ))
+}
+fn encode_screenshot(rgb: &[u8], width: u32, height: u32, q: u8) -> OpResult<Value> {
+    let mut bytes = vec![];
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, q)
+        .encode(rgb, width, height, image::ExtendedColorType::Rgb8)
+        .map_err(failed)?;
+    let data = STANDARD.encode(bytes);
+    if data.len() > 3 << 20 {
+        return Err(Fault::new(
+            "too_large",
+            "screenshot exceeds 3 MiB; use lower quality",
+        ));
+    }
+    Ok(json!({"data_b64":data,"width":width,"height":height,"media_type":"image/jpeg"}))
 }
 fn write_xauthority(path: &Path, display: u16, cookie: &[u8]) -> OpResult<()> {
     let mut data = vec![255, 255];
@@ -645,7 +687,21 @@ fn run_helper(
         });
     }
     let deadline = Instant::now() + budget;
+    let mut captured = None;
     let status = loop {
+        if captured.is_none()
+            && let Ok(data) = receiver.try_recv()
+        {
+            if data.len() > cap {
+                crate::computer::kill_group(pid);
+                let _ = child.wait();
+                return Err(Fault::new(
+                    "too_large",
+                    "desktop result exceeds its size limit",
+                ));
+            }
+            captured = Some(data);
+        }
         if let Some(s) = child.try_wait()? {
             break s;
         }
@@ -656,9 +712,12 @@ fn run_helper(
         }
         thread::sleep(Duration::from_millis(5));
     };
-    let data = receiver
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .map_err(|_| Fault::new("op_failed", "desktop output pipe timed out"))?;
+    let data = match captured {
+        Some(data) => data,
+        None => receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|_| Fault::new("op_failed", "desktop output pipe timed out"))?,
+    };
     if data.len() > cap {
         return Err(Fault::new(
             "too_large",
@@ -674,12 +733,7 @@ fn run_helper(
             return Ok(vec![]);
         }
         let message = if sandbox {
-            text.lines()
-                .find(|line| line.contains("No usable sandbox") || line.contains("namespace"))
-                .unwrap_or("Chromium sandbox self-test failed")
-                .chars()
-                .take(256)
-                .collect::<String>()
+            sandbox_failure(&text)
         } else {
             "desktop helper failed; check desktop packages".into()
         };
@@ -774,6 +828,9 @@ pub async fn dispatch(
 }
 
 #[cfg(test)]
+static DISPLAY_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
@@ -830,6 +887,7 @@ mod tests {
     }
     #[test]
     fn xauthority_format_mode_and_live_display_refusal() {
+        let _display = DISPLAY_TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("auth");
         write_xauthority(&path, 90, &[1; 16]).unwrap();
@@ -849,8 +907,13 @@ mod tests {
     }
     #[test]
     fn real_xvfb_capture_ownership_and_cleanup() {
+        let _display = DISPLAY_TEST_LOCK.lock().unwrap();
         if !crate::privilege::on_path("Xvfb") {
-            eprintln!("Xvfb missing; skipping real display test");
+            writeln!(
+                std::io::stderr(),
+                "Xvfb missing; skipping real display test"
+            )
+            .unwrap();
             return;
         }
         let dir = tempfile::tempdir().unwrap();
@@ -899,5 +962,162 @@ mod helper_failure_tests {
         )
         .unwrap_err();
         assert_eq!(error.code, "op_failed");
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn display_lock_eperm_means_alive() {
+        assert!(alive_result(Err(nix::errno::Errno::EPERM)));
+        assert!(alive_result(Ok(())));
+        assert!(!alive_result(Err(nix::errno::Errno::ESRCH)));
+    }
+    #[test]
+    fn clipboard_read_stops_at_the_cap() {
+        let mut c = Command::new("sh");
+        c.args(["-c", "head -c 10000000 /dev/zero"])
+            .process_group(0);
+        assert_eq!(
+            run_helper(c, None, Duration::from_secs(2), 65536)
+                .unwrap_err()
+                .code,
+            "too_large"
+        );
+    }
+    #[test]
+    fn no_selection_recognises_xclip() {
+        for (text, empty) in [
+            ("Error: target UTF8_STRING not available", true),
+            ("Error: Can't open display: :99", false),
+        ] {
+            let mut c = Command::new("sh");
+            c.args(["-c", "printf '%s' \"$1\" >&2; exit 1", "sh", text]);
+            assert_eq!(
+                run_helper(c, None, Duration::from_secs(1), 65536).is_ok(),
+                empty
+            );
+        }
+    }
+    #[test]
+    fn encode_screenshot_refuses_an_oversized_frame() {
+        let noise: Vec<u8> = (0..2000 * 2000 * 3).map(|_| rand::random()).collect();
+        assert_eq!(
+            encode_screenshot(&noise, 2000, 2000, 95).unwrap_err().code,
+            "too_large"
+        );
+        let small = encode_screenshot(&[0; 32 * 16 * 3], 32, 16, 95).unwrap();
+        assert_eq!(small["width"], 32);
+        assert_eq!(small["height"], 16);
+        assert_eq!(small["media_type"], "image/jpeg");
+    }
+    #[test]
+    fn missing_package_reason_names_the_binary() {
+        assert!(missing_package("Xvfb").message.contains("Xvfb"));
+        assert!(missing_package("xclip").message.contains("xclip"));
+    }
+}
+
+#[cfg(test)]
+mod parity_tests {
+    use super::*;
+    #[test]
+    fn self_test_failure_names_the_sandbox() {
+        assert!(sandbox_failure("noise\n[9:9:ERROR:zygote_host_impl_linux.cc:129] No usable sandbox! If this is Debian...").starts_with("No usable sandbox!"));
+        assert_eq!(
+            sandbox_failure("noise"),
+            "Chromium sandbox self-test failed"
+        );
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn real_desktop_end_to_end_and_sandbox() {
+        let _display = DISPLAY_TEST_LOCK.lock().unwrap();
+        if let Some(binary) = ["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
+            .iter()
+            .find(|b| !crate::privilege::on_path(b))
+        {
+            writeln!(
+                std::io::stderr(),
+                "{binary} missing; skipping desktop end-to-end and sandbox tests"
+            )
+            .unwrap();
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let display = crate::instance::free_display(&[], Path::new("/tmp")).unwrap();
+        let d = match Desktop::launch(dir.path(), display) {
+            Ok(d) => d,
+            Err(e) => {
+                assert!(e.message.contains("sandbox"), "{}", e.message);
+                return;
+            }
+        };
+        dispatch(
+            Some(&d),
+            &json!({"op":"desktop_input","actions":[{"type":"mouse_move","x":10,"y":20}]}),
+            false,
+        )
+        .await
+        .unwrap();
+        dispatch(Some(&d), &json!({"op":"desktop_clipboard_set","text":"clipboard round trip","selections":["clipboard"]}), false).await.unwrap();
+        let result = dispatch(Some(&d), &json!({"op":"desktop_clipboard_get"}), false)
+            .await
+            .unwrap();
+        assert_eq!(result["text"], "clipboard round trip");
+        let result = dispatch(Some(&d), &json!({"op":"desktop_screenshot"}), false)
+            .await
+            .unwrap();
+        assert_eq!(result["width"], 1280);
+        assert_eq!(result["media_type"], "image/jpeg");
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::*;
+    #[test]
+    fn openbox_restart_waits_for_xvfb() {
+        let _display = DISPLAY_TEST_LOCK.lock().unwrap();
+        if !crate::privilege::on_path("Xvfb") {
+            writeln!(
+                std::io::stderr(),
+                "Xvfb missing; skipping window manager restart test"
+            )
+            .unwrap();
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let display = crate::instance::free_display(&[], Path::new("/tmp")).unwrap();
+        let d = Desktop::start(dir.path(), display).unwrap();
+        let marker = dir.path().join("wm-starts");
+        let mut command = d.command("sh");
+        command
+            .args(["-c", "echo started >> \"$1\"; exec sleep 30", "sh"])
+            .arg(&marker);
+        d.supervise(command, false).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !marker.exists() || d.life.pids.lock().unwrap().len() < 2 {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        }
+        let xvfb = d.life.xvfb.swap(0, Ordering::SeqCst);
+        let wm = *d
+            .life
+            .pids
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|p| **p != xvfb)
+            .unwrap();
+        crate::computer::kill_group(wm);
+        thread::sleep(Duration::from_millis(1300));
+        assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
+        d.life.xvfb.store(xvfb, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while fs::read_to_string(&marker).unwrap().lines().count() < 2 {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }

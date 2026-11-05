@@ -49,6 +49,10 @@ mod tests {
 
 /// RC.3 can use this exact, fixed-argument rule for the computer backend.
 pub fn worker_rule(service_user: &str, agent_user: &str, binary: &std::path::Path) -> String {
+    assert!(
+        binary.is_absolute(),
+        "computer worker binary must be absolute"
+    );
     format!(
         "{service_user} ALL=({agent_user}) NOPASSWD: {} --computer-worker",
         binary.display()
@@ -57,11 +61,7 @@ pub fn worker_rule(service_user: &str, agent_user: &str, binary: &std::path::Pat
 pub fn worker_fix(user: &str, binary: &std::path::Path) -> String {
     format!(
         "Install a sudoers rule with sudo visudo: {}",
-        worker_rule(
-            &crate::instance::RunAs::Current.user("instance"),
-            user,
-            binary
-        )
+        worker_rule(&format!("{user}-svc"), user, binary)
     )
 }
 
@@ -83,5 +83,21 @@ mod root_tests {
         assert!(error.message.contains("--allow-root"));
         assert!(super::check_root(1000, false, "box").is_ok());
         assert!(super::check_root(0, true, "box").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+    #[test]
+    fn worker_fix_names_the_service_user_and_fixed_absolute_binary() {
+        let fix = worker_fix("agentum-box", std::path::Path::new("/usr/bin/agentum"));
+        assert!(fix.contains("agentum-box-svc ALL=(agentum-box)"));
+        assert!(fix.ends_with("/usr/bin/agentum --computer-worker"));
+    }
+    #[test]
+    #[should_panic(expected = "absolute")]
+    fn worker_rule_refuses_a_relative_binary() {
+        worker_rule("svc", "agent", std::path::Path::new("agentum"));
     }
 }

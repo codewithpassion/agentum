@@ -677,3 +677,314 @@ async fn upload_carries_permission_bits_without_special_bits() {
         0o750
     );
 }
+
+#[test]
+fn oversized_reply_is_refused_not_sent() {
+    let reply = encode_reply("large", Ok(json!({"text":"x".repeat(8 << 20)})));
+    assert_eq!(reply["error"]["code"], "frame_too_large");
+    assert_eq!(reply["id"], "large");
+    assert!(reply.get("result").is_none());
+    assert!(serde_json::to_vec(&reply).unwrap().len() < 1024);
+}
+
+#[tokio::test]
+async fn audit_records_resolved_cwd_and_path() {
+    let (_dir, e) = setup(Default::default());
+    let alias = e.policy.work.join("alias");
+    symlink(&e.policy.work, &alias).unwrap();
+    e.reserve("audit").unwrap();
+    e.dispatch(json!({"op":"exec","id":"audit","command":"true","cwd":alias}))
+        .await
+        .unwrap();
+    fs::write(e.policy.work.join("f"), "ok").unwrap();
+    e.dispatch(json!({"op":"file_get","id":"file","path":alias.join("f")}))
+        .await
+        .unwrap();
+    let entries: Vec<Value> = fs::read_to_string(e.state.join("audit.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(entries[0]["cwd"], json!(e.policy.work));
+    assert_eq!(entries[1]["path"], json!(e.policy.work.join("f")));
+}
+
+#[tokio::test]
+async fn deadline_reports_124_and_kills_the_group() {
+    let (_dir, e) = setup(Default::default());
+    e.reserve("deadline").unwrap();
+    let result = e.dispatch(json!({"op":"exec","id":"deadline","command":"(sleep 1; touch survivor) & sleep 30","timeout_ms":50})).await.unwrap();
+    assert_eq!(result["exit_code"], 124);
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    assert!(!e.policy.work.join("survivor").exists());
+}
+
+#[tokio::test]
+async fn escaped_grandchild_cannot_hang_the_call() {
+    if !on_path("setsid") {
+        eprintln!("setsid missing; skipping escaped grandchild test");
+        return;
+    }
+    let (_dir, e) = setup(Default::default());
+    e.reserve("escape").unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), e.dispatch(json!({"op":"exec","id":"escape","command":"setsid sh -c 'echo $$ > escaped; exec sleep 30' & exit 0"}))).await.unwrap().unwrap();
+    assert_eq!(result["exit_code"], 0);
+    let pid: u32 = fs::read_to_string(e.policy.work.join("escaped"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    runner::kill(pid);
+}
+
+#[tokio::test]
+async fn sweep_kills_groups_left_behind_and_simple_commands() {
+    for command in ["sleep 1; touch survivor", "sleep 30"] {
+        let (_dir, e) = setup(Default::default());
+        e.reserve("orphan").unwrap();
+        let task = {
+            let e = e.clone();
+            tokio::spawn(async move {
+                e.dispatch(json!({"op":"exec","id":"orphan","command":command}))
+                    .await
+            })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while fs::read_dir(e.state.join("running")).unwrap().count() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        runner::sweep(&e.state);
+        assert_eq!(task.await.unwrap().unwrap()["exit_code"], 137);
+        assert_eq!(fs::read_dir(e.state.join("running")).unwrap().count(), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        assert!(!e.policy.work.join("survivor").exists());
+    }
+}
+
+#[test]
+fn sweep_ignores_missing_stale_and_gone_process_identity() {
+    let (_dir, e) = setup(Default::default());
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    for tick in [Value::Null, json!(1), json!(0)] {
+        fs::write(
+            e.state.join("running/stale.json"),
+            json!({"pgid":child.id(),"start_time":tick}).to_string(),
+        )
+        .unwrap();
+        runner::sweep(&e.state);
+        assert!(child.try_wait().unwrap().is_none());
+    }
+    runner::kill(child.id());
+    child.wait().unwrap();
+    fs::write(
+        e.state.join("running/gone.json"),
+        json!({"pgid":child.id(),"start_time":1}).to_string(),
+    )
+    .unwrap();
+    runner::sweep(&e.state);
+    assert_eq!(fs::read_dir(e.state.join("running")).unwrap().count(), 0);
+}
+
+#[test]
+fn detect_capabilities_reports_skills_only_when_the_import_succeeds() {
+    if let Ok(case) = std::env::var("RC5_CAP_CASE") {
+        let c = detect_capabilities(false, None);
+        let values: Vec<bool> = case.split(',').map(|v| v == "1").collect();
+        assert_eq!(
+            (c.python3, c.git, c.skills),
+            (values[0], values[1], values[2])
+        );
+        return;
+    }
+    for (python, git, import) in [
+        (false, true, true),
+        (true, true, false),
+        (true, false, true),
+        (true, true, true),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        for (binary, body) in [
+            ("timeout", "shift; exec \"$@\"".to_owned()),
+            ("git", "exit 0".into()),
+            (
+                "python3",
+                format!(
+                    "[ \"$1\" = -c ] && [ \"$2\" = 'import pydantic' ] || exit 2\nexit {}",
+                    if import { 0 } else { 1 }
+                ),
+            ),
+        ] {
+            if (binary == "python3" && !python) || (binary == "git" && !git) {
+                continue;
+            }
+            let path = dir.path().join(binary);
+            fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "computer::tests::detect_capabilities_reports_skills_only_when_the_import_succeeds",
+                "--nocapture",
+            ])
+            .env("PATH", dir.path())
+            .env(
+                "RC5_CAP_CASE",
+                format!(
+                    "{},{},{}",
+                    u8::from(python),
+                    u8::from(git),
+                    u8::from(python && git && import)
+                ),
+            )
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[tokio::test]
+async fn encoders_match_fixtures_from_engine_replies() {
+    fn fixture(name: &str) -> Value {
+        serde_json::from_slice(
+            &fs::read(format!(
+                "../computer/testdata/protocol/client_to_server_reply_{name}.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    let (_dir, e) = setup(crate::instance::ComputerConfig {
+        deny: vec!["forbidden".into()],
+        ..Default::default()
+    });
+    let denied = e
+        .dispatch(json!({"op":"exec","id":"req-01HQC","command":"forbidden"}))
+        .await;
+    assert_eq!(encode_reply("req-01HQC", denied), fixture("error"));
+    e.reserve("req-01HQ7").unwrap();
+    let cancelled = e
+        .dispatch(json!({"op":"cancel","target_id":"req-01HQ7"}))
+        .await;
+    assert_eq!(
+        encode_reply("req-01HQ7-cancel", cancelled),
+        fixture("cancel")
+    );
+    let path = e.policy.work.join("f");
+    // The Go fixture has a 17-byte count with the digest of the 11-byte first chunk.
+    // Check its exact envelope/count and independently pin the complete-file digest.
+    let put = e.dispatch(json!({"op":"file_put","transfer_id":"fixture","path":path,"seq":0,"data_b64":"aGVsbG8gd29ybGQhYWdhaW4=","final":true})).await;
+    let reply = encode_reply("req-01HQA", put);
+    use sha2::Digest;
+    let mut expected = fixture("file_put");
+    expected["result"]["sha256"] = json!(hex::encode(sha2::Sha256::digest(b"hello world!again")));
+    // The fixture's second chunk is six bytes: !again (17 bytes altogether).
+    assert_eq!(reply, expected);
+    let mut data = vec![0; files::CHUNK];
+    data.extend_from_slice(b"hello world");
+    fs::write(&path, data).unwrap();
+    let get = e
+        .dispatch(json!({"op":"file_get","path":path,"offset":files::CHUNK}))
+        .await;
+    assert_eq!(encode_reply("req-01HQB", get), fixture("file_get"));
+}
+
+#[tokio::test]
+async fn a_symlink_swapped_in_mid_transfer_is_refused() {
+    let (_dir, e) = setup(Default::default());
+    let target = e.policy.work.join("target");
+    let path = e.policy.work.join("upload");
+    fs::write(&target, "untouched").unwrap();
+    e.dispatch(json!({"op":"file_put","transfer_id":"swap","path":path,"seq":0,"data_b64":"YQ==","final":false})).await.unwrap();
+    symlink(&target, &path).unwrap();
+    assert!(e.dispatch(json!({"op":"file_put","transfer_id":"swap","path":path,"seq":1,"data_b64":"Yg==","final":true})).await.is_err());
+    assert_eq!(fs::read_to_string(target).unwrap(), "untouched");
+    assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
+}
+
+#[tokio::test]
+async fn frames_beyond_the_handler_cap_are_refused_and_exec_reservations_released() {
+    use crate::relay::{self, Timing};
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::{
+        accept_async,
+        tungstenite::{Message, protocol::CloseFrame},
+    };
+    let (dir, engine) = setup(Default::default());
+    let _handlers = engine
+        .handlers
+        .clone()
+        .acquire_many_owned(64)
+        .await
+        .unwrap();
+    let config = Config::new(
+        "m".into(),
+        "box".into(),
+        "http://localhost".into(),
+        vec![wire::MachineRole::Computer],
+        false,
+        crate::instance::RunAs::Current,
+    );
+    let role = Arc::new(Computer {
+        name: "box".into(),
+        config,
+        state_file: engine.state.join("connection-computer.json"),
+        config_dir: dir.path().join("config"),
+        agent_home: dir.path().join("agent"),
+        workdir: engine.policy.work.clone(),
+        engine: OnceLock::from(engine.clone()),
+        capabilities: OnceLock::new(),
+        worker: OnceLock::new(),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(tcp).await.unwrap();
+        socket.next().await.unwrap().unwrap();
+        socket
+            .send(Message::text(
+                json!({"id":"cap","op":"exec","command":"touch should-not-run"}).to_string(),
+            ))
+            .await
+            .unwrap();
+        let reply: Value =
+            serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(reply["id"], "cap");
+        assert_eq!(reply["error"]["code"], "queue_full");
+        engine.reserve("cap").unwrap();
+        assert!(!engine.policy.work.join("should-not-run").exists());
+        socket
+            .close(Some(CloseFrame {
+                code: 4401.into(),
+                reason: "done".into(),
+            }))
+            .await
+            .unwrap();
+    });
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        relay::run(
+            role,
+            &url,
+            "test",
+            CancellationToken::new(),
+            Timing::for_role(SocketRole::Computer),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.unwrap_err().code, 3);
+    server.await.unwrap();
+}
