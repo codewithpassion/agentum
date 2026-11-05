@@ -33,13 +33,15 @@ The manifest is `agentum.json`, and app code reads the `env.AGENTUM` binding. Pr
 - Address: `https://<PUBLIC_BASE_URL>/hooks/<endpoint id>/<path>`. The id is random, 32 URL-safe characters. A row in `artifact_endpoints` (id, artifact_id, workspace_id, name, created_at, disabled_at) holds it. It is made when a version declaring that name is first approved, and it stays across versions.
 - A request is served by the artifact's live version only when that version has an approved `endpoint` grant for the name. Otherwise 404. A disabled row also gives 404.
 - A member can copy, disable, enable and rotate an endpoint in the artifact's settings. Rotating disables the row and makes a new one with a new id. Rotated-away addresses are history and are not listed in settings.
-- The route is mounted like `/a2a`: before Clerk, never under `cookieGroup()` or `csrf()`.
+- Production and staging endpoints answer from the small hooks Worker, which runs the app through its own Worker Loader. AGENTUM calls and outbound requests reach the main Worker over a private service binding; secrets stay there. The main Worker keeps its handler for previews and fallback, mounted like `/a2a`: before Clerk, never under `cookieGroup()` or `csrf()`.
 - The app gets the request as sent: method, path after `/hooks/<id>`, query and the raw body unchanged, so it can check a signature. Request headers drop as today (cookie, `cf-*`, `x-forwarded-*` and the rest), except `authorization`, which an endpoint request keeps. Response headers go through the same allowlist.
+- An app that must answer quickly returns at once and puts slow service or outbound work in `ctx.waitUntil`; this also avoids waiting for a cold main Worker.
 - The HTTP response leaves as soon as the app’s `fetch` resolves, for both
   endpoints and the page API. Work registered with `ctx.waitUntil` continues
-  for up to 30 seconds after the response, with the same outbound grants and
+  for up to 25 seconds after the response, with the same outbound grants and
   proxy secret filling. Rejections and timeouts appear as app errors and never
-  change the response. The fetch wall timer applies only to producing the response.
+  change the response. The cap stays under Cloudflare's 30-second `waitUntil`
+  limit, so a timeout is still recorded before the platform cancels the work. The fetch wall timer applies only to producing the response.
 - The viewer is `{ kind: "endpoint", endpointId }`. On it, `env.AGENTUM` allows:
   - shared storage, read and write;
   - `startRun` (below);

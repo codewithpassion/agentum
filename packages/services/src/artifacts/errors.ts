@@ -107,13 +107,16 @@ export const createArtifactErrorsService = ({
       await events.append({
         actor: { id: "system", kind: "system" },
         payload: {
-          ...target,
+          // Callers pass host props, which also carry visitor details.
+          artifactId: target.artifactId,
           dropped: admitted.dropped,
           entry,
           message: (error instanceof Error
             ? error.message
             : String(error)
           ).slice(0, 500),
+          versionId: target.versionId,
+          workspaceId: target.workspaceId,
         },
         type: "app.error",
         workspaceId: target.workspaceId,

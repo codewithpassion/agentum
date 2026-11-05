@@ -5,13 +5,13 @@
  */
 
 import { waitUntil } from "cloudflare:workers";
+import { dynamicAppRuntime } from "@repo/app-gateway/dynamic-app-runtime";
+import type { AppGatewayWiring } from "@repo/app-gateway/gateway-core";
+import type { AppGatewayPorts } from "@repo/app-gateway/ports";
 import type { ArtifactEndpointsService } from "@repo/services/artifacts/endpoints";
 import { appStorePort } from "../app-store/port.ts";
 import { type ComposeEnv, compose } from "../compose.ts";
 import { createAppGatewayPorts } from "./compose-ports.ts";
-import { dynamicAppRuntime } from "./dynamic-app-runtime.ts";
-import type { AppGatewayWiring } from "./mount.ts";
-import type { AppGatewayPorts } from "./ports.ts";
 import type { AppWorkerExports } from "./reply-invoker.ts";
 
 export type AppGatewayEnv = ComposeEnv & Pick<Env, "APP_STORE" | "LOADER">;

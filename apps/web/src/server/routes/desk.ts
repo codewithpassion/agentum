@@ -8,6 +8,8 @@
 // request.* and run.* frames of the workspace, from the `desk:<workspaceId>`
 // SessionStream instance, kept to the runs the member may see. Mount with
 // `accessRoutes.route("/api/desk", deskRoutes({ ... }))`.
+
+import { readCappedBody } from "@repo/app-gateway/body";
 import { isForbiddenError } from "@repo/services/authz";
 import {
   deskDecisionInputSchema,
@@ -18,7 +20,6 @@ import type { Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
-import { readCappedBody } from "../mcp/body.ts";
 import {
   authenticateBearer,
   type BearerAuthOptions,

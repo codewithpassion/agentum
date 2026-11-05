@@ -25,7 +25,7 @@ const ROLE_ID = ${JSON.stringify(roleId)};
 const hex = (value) => Uint8Array.from(value.match(/../g) || [], (pair) => parseInt(pair, 16));
 const segment = encodeURIComponent;
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method !== "POST") return new Response("POST required", { status: 405 });
     const signature = request.headers.get("x-signature-ed25519") || "";
     const timestamp = request.headers.get("x-signature-timestamp") || "";
@@ -42,16 +42,23 @@ export default {
     if (interaction.type !== 2) return new Response("Unsupported interaction", { status: 400 });
     if (interaction.data.name === "role") {
       if (!interaction.guild_id || !interaction.member?.user?.id) return Response.json({ type: 4, data: { content: "Use /role in a server.", flags: 64 } });
-      const response = await fetch("https://discord.com/api/v10/guilds/" + segment(interaction.guild_id) + "/members/" + segment(interaction.member.user.id) + "/roles/" + segment(ROLE_ID), {
-        method: "PUT"
-      });
-      if (!response.ok) throw new Error("Role update failed");
-      return Response.json({ type: 4, data: { content: "Role added.", flags: 64 } });
+      ctx.waitUntil((async () => {
+        const response = await fetch("https://discord.com/api/v10/guilds/" + segment(interaction.guild_id) + "/members/" + segment(interaction.member.user.id) + "/roles/" + segment(ROLE_ID), {
+          method: "PUT"
+        });
+        if (!response.ok) throw new Error("Role update failed");
+        const followup = await fetch("https://discord.com/api/v10/webhooks/" + segment(APPLICATION_ID) + "/" + segment(interaction.token) + "/messages/@original", {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: "Role added.", allowed_mentions: { parse: [] } })
+        });
+        if (!followup.ok) throw new Error("Discord follow-up failed");
+      })());
+      return Response.json({ type: 5, data: { flags: 64 } });
     }
     if (interaction.data.name === "ask") {
       const text = interaction.data.options?.find((option) => option.name === "question")?.value;
       if (typeof text !== "string" || !text.trim()) return new Response("question required", { status: 400 });
-      await env.AGENTUM.startRun({ agent: AGENT_ID, text, state: interaction.token, sessionKey: interaction.channel_id });
+      ctx.waitUntil(env.AGENTUM.startRun({ agent: AGENT_ID, text, state: interaction.token, sessionKey: interaction.channel_id }));
       return Response.json({ type: 5 });
     }
     return new Response("Unknown command", { status: 400 });

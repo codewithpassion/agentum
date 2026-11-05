@@ -4,8 +4,8 @@
  * the factory to `defineAppEntrypoints`. Tests pass fakes.
  */
 import type { ProxyMatch } from "@repo/services/secrets";
-import type { SandboxFile } from "../skill-scripts/sandbox-port.ts";
 import type {
+  AppFile,
   AppHostProps,
   AppRequestMeta,
   AppStartRunInput,
@@ -19,7 +19,7 @@ export interface AppBundle {
   /** True when the version has any `host` grant row, approved or not. That set is fixed at publish, so the gateway can decide `globalOutbound` once per cached Worker. */
   declaresHosts: boolean;
   /** The files under `server/`, by path from the artifact root. */
-  files: SandboxFile[];
+  files: AppFile[];
 }
 
 export interface AppSourcePort {

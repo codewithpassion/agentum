@@ -7,7 +7,7 @@
  */
 import type { ViewTokenClaims } from "@repo/protocol/artifacts";
 import type { AppErrorTarget } from "@repo/services/artifacts/errors";
-import { readCappedBody } from "../mcp/body.ts";
+import { readCappedBody } from "./body.ts";
 import {
   filteredResponse,
   forwardedRequestHeaders,
@@ -49,6 +49,18 @@ export interface AppGatewayDeps {
   ) => Promise<AppRequestMeta>;
   runtime: AppRuntime;
   wallMs?: number;
+}
+
+/** What one request needs on top of the token: built from the bindings and the execution context. */
+export interface AppGatewayWiring
+  extends Omit<AppGatewayDeps, "applyContentHeaders"> {
+  /** Whether the version asked for any host, approved or not. */
+  declaresHosts: (versionId: string) => Promise<boolean>;
+}
+
+/** The slice of a Workers rate limit binding the route uses. */
+export interface ApiLimiter {
+  limit: (options: { key: string }) => Promise<{ success: boolean }>;
 }
 
 const text = (status: number, body: string): Response =>

@@ -426,7 +426,7 @@ test("waitUntil rejection is an app error and preserves the response", async () 
   });
 });
 
-test("waitUntil is capped at 30 seconds after the response", async () => {
+test("waitUntil is capped at 25 seconds after the response, inside the platform's 30", async () => {
   await seed(
     "v-background-timeout",
     `export default {
@@ -435,7 +435,7 @@ test("waitUntil is capped at 30 seconds after the response", async () => {
         return env.AGENTUM.getItem("shared", "too-late").then(value => Response.json(value));
       }
       ctx.waitUntil((async () => {
-        await new Promise(resolve => setTimeout(resolve, 31000));
+        await new Promise(resolve => setTimeout(resolve, 26000));
         await env.AGENTUM.setItem("shared", "too-late", "must not run");
       })());
       return new Response("accepted", { status: 202 });
@@ -448,11 +448,11 @@ test("waitUntil is capped at 30 seconds after the response", async () => {
   });
   expect(await response.text()).toBe("accepted");
   expect(performance.now() - started).toBeLessThan(1000);
-  await new Promise((resolve) => setTimeout(resolve, 32_000));
+  await new Promise((resolve) => setTimeout(resolve, 27_000));
   const errors = await (await fetch(`${base}/__errors`)).json();
   expect(errors).toContainEqual({
     entry: "waitUntil discord",
-    message: "Error: timed out after 30000 ms",
+    message: "Error: timed out after 25000 ms",
   });
   const stored = await call(
     member("alice", "v-background-timeout"),

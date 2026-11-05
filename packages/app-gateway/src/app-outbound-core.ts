@@ -5,8 +5,9 @@
  * config is cached per version and approvals land after it loads. An allowed
  * request then goes through the same placeholder filling as `SecretsOutbound`.
  */
-import { outboundFetch } from "../secrets-outbound-core.ts";
+
 import type { AppGrantsPort } from "./ports.ts";
+import { outboundFetch } from "./secrets-outbound-core.ts";
 import type { AppOutboundProps } from "./types.ts";
 
 const FORBIDDEN = 403;

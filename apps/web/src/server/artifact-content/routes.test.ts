@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
+import type { ContentBucket } from "@repo/app-gateway/content-store";
 import type { ViewTokenClaims } from "@repo/protocol/artifacts";
 import { signViewToken } from "@repo/services/artifacts/view-token";
 import { Hono } from "hono";
 import type { AppEnv } from "../routes/groups.ts";
 import { BRIDGE_JS } from "./bridge.ts";
-import { type ContentBucket, mountArtifactContentRoutes } from "./routes.ts";
+import { mountArtifactContentRoutes } from "./routes.ts";
 
 const ORIGIN = "https://hm.test";
 const KEY = "test-view-key";

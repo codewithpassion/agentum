@@ -5,8 +5,9 @@
 // status. The answer goes out as soon as the service has written the run (or
 // read the click): file downloads, replies and Slack calls run afterwards in
 // `waitUntil`.
+
+import { readCappedBody } from "@repo/app-gateway/body";
 import type { Context } from "hono";
-import { readCappedBody } from "../mcp/body.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 
 /** Slack events are small; the largest are a few KB of text and file metadata. */

@@ -5,6 +5,16 @@
  * the gateway. Mounted in `server.ts` before the content routes, which would
  * answer 405 to a POST. Every answer leaves through `withContentHeaders`.
  */
+
+import {
+  type ContentCspInput,
+  withContentHeaders,
+} from "@repo/app-gateway/content-headers";
+import type {
+  ApiLimiter,
+  AppGatewayWiring,
+} from "@repo/app-gateway/gateway-core";
+import { handleAppRequest } from "@repo/app-gateway/gateway-core";
 import {
   artifactContentPath,
   parseArtifactContentPath,
@@ -13,29 +23,11 @@ import {
 import { truncateIp } from "@repo/services/artifacts/view-privacy";
 import { verifyViewToken } from "@repo/services/artifacts/view-token";
 import type { Context, Hono } from "hono";
-import {
-  type ContentCspInput,
-  withContentHeaders,
-} from "../artifact-content/headers.ts";
 import type { AppEnv } from "../routes/groups.ts";
-import type { AppGatewayDeps } from "./gateway-core.ts";
-import { handleAppRequest } from "./gateway-core.ts";
 
 const UNAUTHORIZED = 401;
 const FORBIDDEN = 403;
 const NOT_FOUND = 404;
-
-/** What one request needs on top of the token: built from the bindings and the execution context. */
-export interface AppGatewayWiring
-  extends Omit<AppGatewayDeps, "applyContentHeaders"> {
-  /** Whether the version asked for any host, approved or not. */
-  declaresHosts: (versionId: string) => Promise<boolean>;
-}
-
-/** The slice of a Workers rate limit binding the route uses. */
-export interface ApiLimiter {
-  limit: (options: { key: string }) => Promise<{ success: boolean }>;
-}
 
 export interface AppGatewayMountDeps {
   /** Flood guard for link holders, counted per link and per IP prefix. Without it nothing is counted. */

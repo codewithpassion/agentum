@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { parse } from "acorn";
-import type { SandboxFile } from "../skill-scripts/sandbox-port.ts";
 import {
   APP_HARNESS,
   APP_SERVER_ENTRY,
@@ -9,9 +8,10 @@ import {
   checkServerBundle,
   HARNESS_SOURCE,
 } from "./modules.ts";
+import type { AppFile } from "./types.ts";
 
 const encode = (text: string) => new TextEncoder().encode(text);
-const file = (path: string, text: string): SandboxFile => ({
+const file = (path: string, text: string): AppFile => ({
   bytes: encode(text),
   path,
 });

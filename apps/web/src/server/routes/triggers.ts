@@ -3,6 +3,8 @@
 // what the token may do, so this file checks the header and the id, parses
 // the body, and maps what the services refuse to a status. Mount with
 // `automationRoutes.route("/api/triggers", triggerRoutes())`.
+
+import { readCappedBody } from "@repo/app-gateway/body";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import {
@@ -13,7 +15,6 @@ import {
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
-import { readCappedBody } from "../mcp/body.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 
 type RouteContext = Context<AppEnv>;

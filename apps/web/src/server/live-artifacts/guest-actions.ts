@@ -1,3 +1,4 @@
+import { readCappedBody } from "@repo/app-gateway/body";
 import { ensureDeckCellInputSchema } from "@repo/protocol/deck";
 import { type GuestOpenResult, guestCommentSchema } from "@repo/protocol/guest";
 import type { GuestGrant } from "@repo/protocol/live";
@@ -15,7 +16,6 @@ import { createGuestImages } from "@repo/services/live-guests/images";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { z } from "zod";
 import type { Composed } from "../compose";
-import { readCappedBody } from "../mcp/body";
 import { r2Blobs } from "../r2-blobs";
 import { r2FileBlobs } from "../r2-files";
 import { resolveGuestEmbed } from "./guest-embeds";

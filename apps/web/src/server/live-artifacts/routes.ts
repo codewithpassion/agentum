@@ -1,11 +1,11 @@
 import { exports, waitUntil } from "cloudflare:workers";
+import { readCappedBody } from "@repo/app-gateway/body";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import type { Principal } from "@repo/services/workspaces";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { type Composed, compose } from "../compose";
-import { readCappedBody } from "../mcp/body";
 import type { AppEnv } from "../routes/groups";
 import { authenticateRoomMember, authenticateRoomRequest } from "./auth";
 import { roomStub } from "./namespace";

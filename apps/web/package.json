@@ -41,6 +41,7 @@
     "@hono/trpc-server": "^0.4.2",
     "@modelcontextprotocol/server": "^2.0.0",
     "@repo/a2a": "workspace:*",
+    "@repo/app-gateway": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/library-sync": "workspace:*",
     "@repo/live-deck": "workspace:*",

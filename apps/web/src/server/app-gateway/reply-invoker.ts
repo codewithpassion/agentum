@@ -1,9 +1,9 @@
+import { dynamicAppRuntime } from "@repo/app-gateway/dynamic-app-runtime";
+import type { AppHostProps, AppOutboundProps } from "@repo/app-gateway/types";
 import type { AppReply } from "@repo/services/artifacts/replies";
 import { appStorePort } from "../app-store/port.ts";
 import type { Services } from "../compose.ts";
 import { createAppGatewayPorts } from "./compose-ports.ts";
-import { dynamicAppRuntime } from "./dynamic-app-runtime.ts";
-import type { AppHostProps, AppOutboundProps } from "./types.ts";
 
 export interface AppWorkerExports {
   AppHost: (options: { props: AppHostProps }) => unknown;

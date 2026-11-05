@@ -1,0 +1,38 @@
+{
+  "name": "@repo/app-gateway",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./app-host-core": "./src/app-host-core.ts",
+    "./app-outbound-core": "./src/app-outbound-core.ts",
+    "./body": "./src/body.ts",
+    "./bundle-source": "./src/bundle-source.ts",
+    "./content-headers": "./src/content-headers.ts",
+    "./content-store": "./src/content-store.ts",
+    "./dynamic-app-runtime": "./src/dynamic-app-runtime.ts",
+    "./endpoint-handler": "./src/endpoint-handler.ts",
+    "./fakes": "./src/fakes.ts",
+    "./gateway-core": "./src/gateway-core.ts",
+    "./headers": "./src/headers.ts",
+    "./hooks-rpc": "./src/hooks-rpc.ts",
+    "./modules": "./src/modules.ts",
+    "./ports": "./src/ports.ts",
+    "./secrets-outbound-core": "./src/secrets-outbound-core.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "cf-typegen": "wrangler types --include-env=false",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repo/protocol": "workspace:*",
+    "@repo/services": "workspace:*",
+    "acorn": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.151.0"
+  }
+}

@@ -4,23 +4,17 @@
  * both read the same grants, shares and storage. Kept free of
  * `cloudflare:workers` so bun can test it.
  */
-import { artifactManifestSchema } from "@repo/protocol/artifacts";
+
+import { appError } from "@repo/app-gateway/app-host-core";
+import { bundleOf } from "@repo/app-gateway/bundle-source";
+import type { ContentBucket } from "@repo/app-gateway/content-store";
+import type { AppCallPort, AppGatewayPorts } from "@repo/app-gateway/ports";
+import type { AppStorePort } from "@repo/app-gateway/types";
 import { isArtifactCallError } from "@repo/services/artifacts/calls";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import { canWrite } from "../app-store/rules.ts";
-import {
-  blobKey,
-  type ContentBucket,
-  manifestKey,
-} from "../artifact-content/routes.ts";
 import type { Services } from "../compose.ts";
-import { appError } from "./app-host-core.ts";
-import type { AppBundle, AppCallPort, AppGatewayPorts } from "./ports.ts";
-import type { AppStorePort } from "./types.ts";
-
-const SERVER_DIR = "server/";
-const decoder = new TextDecoder();
 
 type PortServices = Pick<
   Services,
@@ -124,42 +118,6 @@ const linkCalls =
       default:
         throw new Error("failed: the tool call failed");
     }
-  };
-
-const bundleOf =
-  (services: PortServices, bucket: ContentBucket) =>
-  async (artifactId: string, versionId: string): Promise<AppBundle | null> => {
-    const workspaceId = await services.artifactApp.versionWorkspaceId(
-      artifactId,
-      versionId
-    );
-    if (!workspaceId) {
-      return null;
-    }
-    const manifestObject = await bucket.get(
-      manifestKey(workspaceId, versionId)
-    );
-    if (!manifestObject) {
-      return null;
-    }
-    const manifest = artifactManifestSchema.parse(
-      JSON.parse(decoder.decode(await manifestObject.arrayBuffer()))
-    );
-    const files = await Promise.all(
-      Object.entries(manifest.files)
-        .filter(([path]) => path.startsWith(SERVER_DIR))
-        .map(async ([path, file]) => {
-          const blob = await bucket.get(blobKey(workspaceId, file.sha256));
-          if (!blob) {
-            throw new Error(`The blob of ${path} is missing.`);
-          }
-          return { bytes: new Uint8Array(await blob.arrayBuffer()), path };
-        })
-    );
-    return {
-      declaresHosts: await services.artifactApp.declaresHosts(versionId),
-      files,
-    };
   };
 
 export const createAppGatewayPorts = ({

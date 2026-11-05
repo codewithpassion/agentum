@@ -1,13 +1,13 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { createAppHost } from "./app-host-core.ts";
-import { appOutboundFetch } from "./app-outbound-core.ts";
-import type { AppGatewayPorts } from "./ports.ts";
+import { createAppHost } from "@repo/app-gateway/app-host-core";
+import { appOutboundFetch } from "@repo/app-gateway/app-outbound-core";
+import type { AppGatewayPorts } from "@repo/app-gateway/ports";
 import type {
   AgentumHost,
   AppHostProps,
   AppOutboundProps,
   StorageArea,
-} from "./types.ts";
+} from "@repo/app-gateway/types";
 
 /**
  * The two entrypoints a Dynamic Worker reaches through `ctx.exports`, built

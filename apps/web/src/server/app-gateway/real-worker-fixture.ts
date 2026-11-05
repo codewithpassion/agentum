@@ -4,16 +4,17 @@
  * routes under `/__` so the test can seed bundles and change the share and
  * the approved hosts between requests. Not part of the app.
  */
+
+import { dynamicAppRuntime } from "@repo/app-gateway/dynamic-app-runtime";
+import { fakePorts } from "@repo/app-gateway/fakes";
+import { handleAppRequest } from "@repo/app-gateway/gateway-core";
+import type { AppBundle, ShareState } from "@repo/app-gateway/ports";
+import type { AppHostProps, AppReplyMessage } from "@repo/app-gateway/types";
 import type { ViewTokenClaims } from "@repo/protocol/artifacts";
 import { Hono } from "hono";
 import type { AppEnv } from "../routes/groups.ts";
-import { dynamicAppRuntime } from "./dynamic-app-runtime.ts";
 import { mountEndpointRoutes } from "./endpoints.ts";
 import { defineAppEntrypoints } from "./entrypoints.ts";
-import { fakePorts } from "./fakes.ts";
-import { handleAppRequest } from "./gateway-core.ts";
-import type { AppBundle, ShareState } from "./ports.ts";
-import type { AppHostProps, AppReplyMessage } from "./types.ts";
 
 interface Seed {
   declaresHosts: boolean;
