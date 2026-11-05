@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { ProxyMatch } from "@repo/services/secrets";
 import { appOutboundFetch } from "./app-outbound-core.ts";
 import { fakePorts } from "./fakes.ts";
@@ -15,7 +15,11 @@ const bearer: ProxyMatch = {
 const setup = (hosts: string[], rules: ProxyMatch[] = []) => {
   const ports = fakePorts();
   ports.hosts.list = hosts;
-  ports.grants.secretRules = () => Promise.resolve(rules);
+  const { read } = ports.grants;
+  ports.grants.read = async (scope) => ({
+    ...(await read(scope)),
+    secretRules: () => Promise.resolve(rules),
+  });
   const announced: { host: string; names: string[] }[] = [];
   ports.grants.announce = (_props, host, names) => {
     announced.push({ host, names });
@@ -84,7 +88,7 @@ describe("appOutboundFetch", () => {
 
   test("a failed read of the list fails closed with 502", async () => {
     const t = setup(["api.example.com"]);
-    t.ports.grants.approvedHosts = () => Promise.reject(new Error("db down"));
+    t.ports.grants.read = () => Promise.reject(new Error("db down"));
     const answer = await t.run("https://api.example.com/");
     expect(answer.status).toBe(502);
     expect(await answer.text()).not.toContain("db down");
@@ -100,4 +104,27 @@ describe("appOutboundFetch", () => {
       { host: "api.example.com", names: ["API_KEY"] },
     ]);
   });
+});
+
+test("outbound timings log stages without request or credential values", async () => {
+  const log = spyOn(console, "log").mockImplementation(() => undefined);
+  try {
+    const t = setup(["api.example.com"], [bearer]);
+    await t.run("https://api.example.com/private?token=secret");
+    expect(
+      log.mock.calls.map(([prefix, data]) => [prefix, JSON.parse(String(data))])
+    ).toEqual([
+      [
+        "app outbound timing",
+        {
+          grants: expect.any(Number),
+          secretRules: expect.any(Number),
+          total: expect.any(Number),
+          upstream: expect.any(Number),
+        },
+      ],
+    ]);
+  } finally {
+    log.mockRestore();
+  }
 });

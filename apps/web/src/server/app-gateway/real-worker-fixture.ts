@@ -5,10 +5,13 @@
  * the approved hosts between requests. Not part of the app.
  */
 import type { ViewTokenClaims } from "@repo/protocol/artifacts";
+import { Hono } from "hono";
+import type { AppEnv } from "../routes/groups.ts";
 import { dynamicAppRuntime } from "./dynamic-app-runtime.ts";
+import { mountEndpointRoutes } from "./endpoints.ts";
 import { defineAppEntrypoints } from "./entrypoints.ts";
 import { fakePorts } from "./fakes.ts";
-import { handleAppRequest, handleEndpointRequest } from "./gateway-core.ts";
+import { handleAppRequest } from "./gateway-core.ts";
 import type { AppBundle, ShareState } from "./ports.ts";
 import type { AppHostProps, AppReplyMessage } from "./types.ts";
 
@@ -17,10 +20,30 @@ interface Seed {
   files: { path: string; text: string }[];
   hosts?: string[];
   versionId: string;
+  withSecret?: boolean;
 }
 
 const ports = fakePorts();
 const bundles = new Map<string, AppBundle>();
+let withSecret = false;
+const { read } = ports.grants;
+ports.grants.read = async (props) => ({
+  ...(await read(props)),
+  secretRules: () =>
+    Promise.resolve(
+      withSecret
+        ? [
+            {
+              header: "Authorization",
+              headerValue: "Bot fixture-secret",
+              name: "BOT_TOKEN",
+              value: "fixture-secret",
+            },
+          ]
+        : []
+    ),
+});
+const errors: { entry: string; message: string }[] = [];
 ports.source.bundle = (_artifactId, versionId) =>
   Promise.resolve(bundles.get(versionId) ?? null);
 
@@ -41,6 +64,7 @@ const control = async (request: Request, path: string): Promise<Response> => {
       })),
     });
     ports.hosts.list = seed.hosts ?? [];
+    withSecret = seed.withSecret ?? false;
   } else if (path === "/__share") {
     ports.share.state = body as ShareState;
   } else if (path === "/__hosts") {
@@ -63,6 +87,9 @@ export default {
     ctx: ExecutionContext
   ): Promise<Response> {
     const { pathname } = new URL(request.url);
+    if (pathname === "/__errors") {
+      return Response.json(errors);
+    }
     if (pathname === "/__reply") {
       const { versionId, message } = (await request.json()) as {
         versionId: string;
@@ -102,7 +129,12 @@ export default {
     };
     const deps = {
       applyContentHeaders: wrap,
+      defer: (work: Promise<void>) => ctx.waitUntil(work),
       ports,
+      recordError: (_target: unknown, entry: string, error: unknown) => {
+        errors.push({ entry, message: String(error) });
+        return Promise.resolve();
+      },
       requestMeta: () =>
         Promise.resolve({
           ipPrefix: null,
@@ -119,16 +151,26 @@ export default {
       wallMs: 20_000,
     };
     if (pathname.startsWith("/hooks/")) {
-      return await handleEndpointRequest(
-        request,
-        {
-          artifactId: "11111111-1111-4111-8111-111111111111",
-          endpointId: "signature",
-          versionId: request.headers.get("x-test-version") ?? "",
-          workspaceId: "ws-1",
-        },
-        deps
-      );
+      const app = new Hono<AppEnv>();
+      mountEndpointRoutes(app, {
+        limiter: () => ({ limit: () => Promise.resolve({ success: true }) }),
+        wiring: () => ({
+          ...deps,
+          declaresHosts: () => Promise.resolve(false),
+          endpoints: {
+            recordCall: () => Promise.resolve(),
+            resolve: () =>
+              Promise.resolve({
+                artifactId: "11111111-1111-4111-8111-111111111111",
+                endpointId: "signature",
+                name: "discord",
+                versionId: request.headers.get("x-test-version") ?? "",
+                workspaceId: "ws-1",
+              }),
+          },
+        }),
+      });
+      return await app.request(request, undefined, undefined, ctx);
     }
     return await handleAppRequest(request, claims, deps);
   },

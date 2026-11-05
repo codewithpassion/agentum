@@ -34,3 +34,56 @@ Out of scope: a Discord fast path where the platform verifies signatures or auto
 - `bun run check && bun run test && bun run build`, then the bundle grep for `drizzle` in `apps/web/dist/client`.
 
 ## Log
+
+### 5 Nov 2026 — implementation and local measurements
+
+- Added the real-workerd reproduction first, using the actual Worker Loader and
+  a 2,500 ms `ctx.waitUntil` task that writes shared storage through AgentumHost.
+  Before changing the runtime, response/body times were **4 ms cold, 1 ms warm,
+  1 ms page API**; all three writes were present after 2,800 ms. Thus the
+  suspected 2.5 s RPC blocking could **not** be reproduced on the installed
+  workerd (1.20261012.1). The latency assertion already passed before the fix;
+  inventing a failing baseline would misrepresent this result. The separately
+  added background-error regression did fail before the fix: no `waitUntil
+  discord` error was recorded.
+- Implemented the explicit RPC response callback anyway, with the remaining RPC
+  retained by the parent's waitUntil. The harness tracks app waitUntil promises,
+  including work registered by other background work, and caps their lifetime
+  at 30 seconds after fetch resolves. Failures/timeouts use recordError with
+  `waitUntil <endpoint name>` / `waitUntil page`. The response wall timer only
+  races the response callback. Both endpoint and page API paths use this.
+- In the focused real-workerd run after the change, response/body times were
+  **5 ms cold, 2 ms warm, 1 ms page API**. Endpoint timing lines for the cold
+  and warm calls reported app response **4 / 0 ms**, total **4 / 0 ms**;
+  limiter, resolution and metadata stages rounded to 0 ms. These use fake
+  persistence ports, so they measure local Worker loading/RPC overhead, not
+  production D1, R2, network or isolate eviction. Subsequent suite timings may
+  vary under parallel test load.
+- Verified background writes complete, rejected work preserves the 202 answer
+  and records an app error, and the 30 s cap records a timeout and cancels a
+  write scheduled for 31 s. A background outbound call received its proxy
+  secret at the test upstream, while an unapproved host received 403.
+  That outbound call measured grants **0 ms**, secret rules **0 ms**, upstream
+  **2 ms**, total **4 ms** against the local stub upstream; no external Discord
+  latency is represented by these numbers.
+- Added one JSON timing line per endpoint/outbound call, including refusals,
+  using `app endpoint timing` and `app outbound timing`. Timings contain only
+  stage milliseconds and (for endpoints) the resolved endpoint name, null for
+  an unresolved endpoint; no request URL, credentials, bodies or caller values.
+- appGatewayPortsOf already caches composed ports per env; no service rebuild
+  fix was needed. Combined the host and secret approval queries into one fresh
+  D1 read per outbound request. Secret rule/value lookup remains after the host
+  check, and no approvals are cached between requests.
+- Updated app-endpoints.md with response/background lifetime and error behavior.
+  No Discord verifier or auto-defer fast path was added. I would defer that
+  feature pending deployed timing evidence: the explicit callback guarantees
+  early answers, but these local results do not establish the production
+  timeout's cause or prove that a production Discord call now meets 3 seconds.
+- Final root validation: `bun run check && bun run test && bun run build`
+  passed. Tests: **10,453 passed, 1 existing skip, 0 failed** (web: 4,242
+  passed / 1 skipped; services: 4,000 passed; remaining package and root-script
+  suites: 2,211 passed). The full-suite real-worker run measured **3 ms cold,
+  1 ms warm, 1 ms page API**, with background writes completing. Its cutoff
+  test passed in 32,017 ms, including the check that the 31 s write never ran.
+  The client-bundle `drizzle` grep returned no matches. Build emitted chunk-size
+  and CSS sourcemap warnings but completed, including check-dev-only.

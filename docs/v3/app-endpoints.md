@@ -35,6 +35,11 @@ The manifest is `agentum.json`, and app code reads the `env.AGENTUM` binding. Pr
 - A member can copy, disable, enable and rotate an endpoint in the artifact's settings. Rotating disables the row and makes a new one with a new id. Rotated-away addresses are history and are not listed in settings.
 - The route is mounted like `/a2a`: before Clerk, never under `cookieGroup()` or `csrf()`.
 - The app gets the request as sent: method, path after `/hooks/<id>`, query and the raw body unchanged, so it can check a signature. Request headers drop as today (cookie, `cf-*`, `x-forwarded-*` and the rest), except `authorization`, which an endpoint request keeps. Response headers go through the same allowlist.
+- The HTTP response leaves as soon as the app’s `fetch` resolves, for both
+  endpoints and the page API. Work registered with `ctx.waitUntil` continues
+  for up to 30 seconds after the response, with the same outbound grants and
+  proxy secret filling. Rejections and timeouts appear as app errors and never
+  change the response. The fetch wall timer applies only to producing the response.
 - The viewer is `{ kind: "endpoint", endpointId }`. On it, `env.AGENTUM` allows:
   - shared storage, read and write;
   - `startRun` (below);
@@ -132,21 +137,21 @@ channel. `/role` requires a server member and returns a message in DMs.
 ## App errors
 
 A throwing `fetch` or `reply`, or a runtime failure, records `app.error` with
-artifact id, version id, entry (`fetch <endpoint name>`, `fetch page`, or
-`reply`) and the error message truncated to 500 characters. Fetch failures
+artifact id, version id, entry (`fetch <endpoint name>`, `fetch page`,
+`reply`, `waitUntil <endpoint name>`, or `waitUntil page`) and the error
+message truncated to 500 characters. Fetch failures
 keep the fixed 502 response. Reply failures also keep `app.reply_failed`.
 `artifact_read` includes the latest 10 errors across versions for callers who
 can manage the artifact, with time, version, entry, message and dropped count.
 
 The existing per-artifact AppStore keeps a private durable error timestamp and
-counter. It admits at most one error per sliding 10 seconds, shared by fetch
-and reply across versions. The next admitted event reports how many errors
+counter. It admits at most one error per sliding 10 seconds, shared by fetch,
+reply and waitUntil across versions. The next admitted event reports how many errors
 were dropped since the previous one. Storage outages must not change the
 caller's response.
 
 ## Out of scope
 
 - Long-lived connections, such as Discord's gateway websocket.
-- Background work after the response.
 - A platform signature verifier.
 - The `harbourmaster/<tool>` approval rule keys, a separate rename leftover.

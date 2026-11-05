@@ -53,6 +53,13 @@ beforeAll(async () => {
       compatibilityFlags: ["nodejs_compat"],
       modules: true,
       name: "app-gateway-test",
+      outboundService: (request: Request) =>
+        Promise.resolve(
+          Response.json({
+            authorized:
+              request.headers.get("authorization") === "Bot fixture-secret",
+          })
+        ),
       script,
       workerLoaders: { LOADER: {} },
     })
@@ -71,13 +78,15 @@ const seed = (
   versionId: string,
   server: string,
   hosts?: string[],
-  declaresHosts = false
+  declaresHosts = false,
+  withSecret = false
 ) =>
   send("/__seed", {
     declaresHosts,
     files: [{ path: "server/index.js", text: server }],
     hosts,
     versionId,
+    withSecret,
   });
 
 const member = (userId: string, versionId: string) => ({
@@ -204,7 +213,7 @@ describe("the gateway in workerd with a real Worker Loader", () => {
       member("alice", "v-hosts"),
       "/api/fetch?u=https://approved.invalid/"
     );
-    // The filter let it through: the request left for a host that does not resolve.
+    // The filter let it through to the test upstream.
     expect(approved.ok).not.toBe(403);
     // Approvals are read per request, so removing the host closes it without a new Worker.
     await send("/__hosts", []);
@@ -349,4 +358,143 @@ test("endpoint Dynamic Worker verifies Ed25519 over the unmodified raw body", as
       })
     ).status
   ).toBe(401);
+});
+
+test("endpoint and page responses precede waitUntil work on cold and warm Workers", async () => {
+  await seed(
+    "v-background",
+    `export default {
+    async fetch(request, env, ctx) {
+      const key = new URL(request.url).searchParams.get("key");
+      if (new URL(request.url).pathname.endsWith("/read")) {
+        return Response.json(await env.AGENTUM.getItem("shared", key));
+      }
+      ctx.waitUntil((async () => {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        await env.AGENTUM.setItem("shared", key, "completed");
+      })());
+      return new Response("accepted", { status: 202 });
+    }
+  }`
+  );
+  const times: number[] = [];
+  for (const key of ["cold", "warm", "page"]) {
+    const started = performance.now();
+    // biome-ignore lint/performance/noAwaitInLoops: measure cold then warm requests
+    const response = await (key === "page"
+      ? call(member("alice", "v-background"), `/api/start?key=${key}`)
+      : fetch(`${base}/hooks/background/start?key=${key}`, {
+          headers: { "x-test-version": "v-background" },
+        }));
+    expect(await response.text()).toBe("accepted");
+    times.push(performance.now() - started);
+    expect(response.status).toBe(202);
+  }
+  console.log("app background response ms", times.map(Math.round));
+  await new Promise((resolve) => setTimeout(resolve, 2800));
+  for (const key of ["cold", "warm", "page"]) {
+    // biome-ignore lint/performance/noAwaitInLoops: verify each request's background write
+    const response = await call(
+      member("alice", "v-background"),
+      `/api/read?key=${key}`
+    );
+    expect(await response.json()).toBe("completed");
+  }
+  expect(times.every((ms) => ms < 1000)).toBe(true);
+}, 20_000);
+
+test("waitUntil rejection is an app error and preserves the response", async () => {
+  await seed(
+    "v-background-error",
+    `export default {
+    fetch(request, env, ctx) {
+      ctx.waitUntil(new Promise((_, reject) => setTimeout(() => reject(new Error("background failed")), 100)));
+      return new Response("accepted", { status: 202 });
+    }
+  }`
+  );
+  const response = await fetch(`${base}/hooks/background/start`, {
+    headers: { "x-test-version": "v-background-error" },
+  });
+  expect(response.status).toBe(202);
+  expect(await response.text()).toBe("accepted");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const errors = await (await fetch(`${base}/__errors`)).json();
+  expect(errors).toContainEqual({
+    entry: "waitUntil discord",
+    message: "Error: background failed",
+  });
+});
+
+test("waitUntil is capped at 30 seconds after the response", async () => {
+  await seed(
+    "v-background-timeout",
+    `export default {
+    fetch(request, env, ctx) {
+      if (new URL(request.url).pathname.endsWith("/read")) {
+        return env.AGENTUM.getItem("shared", "too-late").then(value => Response.json(value));
+      }
+      ctx.waitUntil((async () => {
+        await new Promise(resolve => setTimeout(resolve, 31000));
+        await env.AGENTUM.setItem("shared", "too-late", "must not run");
+      })());
+      return new Response("accepted", { status: 202 });
+    }
+  }`
+  );
+  const started = performance.now();
+  const response = await fetch(`${base}/hooks/background/start`, {
+    headers: { "x-test-version": "v-background-timeout" },
+  });
+  expect(await response.text()).toBe("accepted");
+  expect(performance.now() - started).toBeLessThan(1000);
+  await new Promise((resolve) => setTimeout(resolve, 32_000));
+  const errors = await (await fetch(`${base}/__errors`)).json();
+  expect(errors).toContainEqual({
+    entry: "waitUntil discord",
+    message: "Error: timed out after 30000 ms",
+  });
+  const stored = await call(
+    member("alice", "v-background-timeout"),
+    "/api/read"
+  );
+  expect(await stored.json()).toBeNull();
+}, 35_000);
+
+test("background outbound requests keep host checks and proxy secret filling", async () => {
+  await seed(
+    "v-background-outbound",
+    `export default {
+    async fetch(request, env, ctx) {
+      if (new URL(request.url).pathname.endsWith("/read")) {
+        return Response.json(await env.AGENTUM.getItem("shared", "outbound-result"));
+      }
+      ctx.waitUntil((async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const allowed = await fetch("https://background.test/private");
+        const blocked = await fetch("https://blocked.test/private");
+        await env.AGENTUM.setItem("shared", "outbound-result", JSON.stringify({
+          allowed: await allowed.json(), blocked: blocked.status,
+        }));
+      })());
+      return new Response("accepted");
+    }
+  }`,
+    ["background.test"],
+    true,
+    true
+  );
+  const response = await fetch(`${base}/hooks/background/start`, {
+    headers: { "x-test-version": "v-background-outbound" },
+  });
+  expect(await response.text()).toBe("accepted");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const stored = await call(
+    member("alice", "v-background-outbound"),
+    "/api/read"
+  );
+  expect(JSON.parse((await stored.json()) as string)).toEqual({
+    allowed: { authorized: true },
+    blocked: 403,
+  });
 });

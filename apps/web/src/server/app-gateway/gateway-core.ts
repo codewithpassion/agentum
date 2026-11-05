@@ -145,7 +145,22 @@ const runApp = async (
   const wall = timer(deps.wallMs ?? APP_WALL_MS);
   try {
     const answer = await Promise.race([
-      deps.runtime.handle(input),
+      deps.runtime.handle({
+        ...input,
+        background: {
+          defer: (work) => deps.defer?.(work),
+          onError: (error) =>
+            Promise.resolve()
+              .then(() =>
+                deps.recordError?.(
+                  input.host,
+                  `waitUntil ${entry.slice("fetch ".length)}`,
+                  error
+                )
+              )
+              .catch(() => undefined),
+        },
+      }),
       wall.expired,
     ]);
     if (answer === "timeout") {

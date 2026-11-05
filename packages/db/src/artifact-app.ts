@@ -1,7 +1,7 @@
 // Query functions for the grants an app artifact's server code runs under
 // (phase 2, task B.8). They take a drizzle instance and never make one.
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import { artifactGrants, artifactVersions } from "./schema/artifacts.ts";
 import { workspaces } from "./schema/workspaces.ts";
@@ -25,6 +25,20 @@ export const approvedGrantTargets = async (
     .orderBy(asc(artifactGrants.target));
   return rows.map((row) => row.target);
 };
+
+/** One fresh read for the host and secret approvals of an outbound request. */
+export const approvedOutboundGrants = (db: Database, versionId: string) =>
+  db
+    .select({ kind: artifactGrants.kind, target: artifactGrants.target })
+    .from(artifactGrants)
+    .where(
+      and(
+        eq(artifactGrants.versionId, versionId),
+        eq(artifactGrants.status, "approved"),
+        inArray(artifactGrants.kind, ["host", "secret"])
+      )
+    )
+    .orderBy(asc(artifactGrants.target));
 
 /** Whether the version has a grant of this kind in any status. */
 export const hasGrantOfKind = async (

@@ -22,7 +22,11 @@ const MAX_SUBREQUESTS = 50;
 const CPU_MS = 10_000;
 
 interface Harness {
-  handle: (request: Request, host: unknown) => Promise<Response>;
+  handle: (
+    request: Request,
+    host: unknown,
+    respond: (response: Response) => void
+  ) => Promise<void>;
   reply: (message: AppReplyMessage, host: unknown) => Promise<void>;
 }
 
@@ -62,8 +66,25 @@ export const dynamicAppRuntime = (deps: DynamicAppRuntimeDeps) => {
     return worker.getEntrypoint("Harness") as unknown as Harness;
   };
   return {
-    handle: ({ bundle, host, request }: AppRuntimeInput) =>
-      harnessOf(bundle, host).handle(request, deps.hostStub(host)),
+    handle: ({ background, bundle, host, request }: AppRuntimeInput) =>
+      new Promise<Response>((resolve, reject) => {
+        let responded = false;
+        const work = harnessOf(bundle, host)
+          .handle(request, deps.hostStub(host), (response) => {
+            responded = true;
+            resolve(response);
+          })
+          .catch(async (error: unknown) => {
+            if (responded) {
+              await background?.onError(error);
+            } else {
+              reject(error);
+            }
+          });
+        // Keep the RPC (and its request-bound host/outbound stubs) alive after
+        // the callback has handed the response to the gateway.
+        background?.defer(work);
+      }),
     reply: async ({
       bundle,
       host,
