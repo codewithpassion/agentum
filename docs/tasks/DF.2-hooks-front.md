@@ -3,7 +3,7 @@ id: DF.2
 title: Hooks front Worker that runs app endpoints
 milestone: DF
 size: L
-status: in_progress
+status: done
 depends_on: [AE.1]
 branch: DF.2-hooks-front
 lane: web
@@ -32,3 +32,4 @@ Spec: `docs/v3/hooks-front.md`.
 - Replaced only the fixture's JS outbound callback with an equivalent third local workerd Worker, selected by MAIN's `outboundService`. The real Dynamic Worker → HooksOutbound → MAIN → upstream path, secret filling and allowlist assertions remain exercised. No product-code change or retry masks the failure. Removed all temporary diagnostic handlers and logging.
 - Proof: `for i in $(seq 30); do bun test || break; done` in `apps/hooks` (with per-run log capture and failure exit) passed 30 consecutive runs: 8 tests per run, 240 passes total, zero failures. This includes both `src/gate.test.ts` and `src/worker.test.ts`.
 - Follow-up validation: root `bun run check && bun run test && bun run build` passed; client bundle scan for `drizzle` was clean. No deployment or Wrangler command against Cloudflare was run.
+- 2026-11-05 controller review: bindings match apps/web per environment; front Worker 1.25 MB (222 KB gzip). A flaky outbound 502 was traced to the Bun-hosted test upstream (b1a1fc6d); 12 clean runs confirmed. Follow-up DF.3 moved the shared code into @repo/app-gateway and fixed two review findings.
