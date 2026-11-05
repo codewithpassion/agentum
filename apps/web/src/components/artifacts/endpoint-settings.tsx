@@ -28,7 +28,10 @@ export function EndpointList({
     <section className="space-y-3">
       <h3 className="font-medium text-sm">Public endpoints</h3>
       {endpoints.length === 0 && (
-        <p className="text-muted-foreground text-sm">No approved endpoints.</p>
+        <p className="text-muted-foreground text-sm">
+          This app has no approved endpoints yet. An endpoint is declared in the
+          app's agentum.json and goes live when its version is approved.
+        </p>
       )}
       {endpoints.map((endpoint) => (
         <EndpointRow
@@ -72,7 +75,7 @@ function EndpointRow({
         {endpoint.name}
         {endpoint.disabledAt ? " (disabled)" : ""}
       </p>
-      <p className="break-all font-mono text-xs">{endpoint.url}</p>
+      <p className="select-text break-all font-mono text-xs">{endpoint.url}</p>
       <div className="flex gap-2">
         <Button disabled={busy} onClick={copy} size="sm" variant="outline">
           {copied ? "Copied" : "Copy"}
@@ -88,7 +91,7 @@ function EndpointRow({
   );
 }
 
-/** The artifact's existing sharing/settings dialog owns access to this panel. */
+/** Shown in the Endpoints tab for app managers. */
 export function EndpointSettings({ artifactId }: { artifactId: string }) {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [error, setError] = useState<string | null>(null);

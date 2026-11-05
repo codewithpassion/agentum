@@ -51,3 +51,12 @@ test("copied address receives visible feedback", () => {
   );
   expect(html).toContain(">Copied</button>");
 });
+
+test("endpoint list explains how endpoints go live when empty", () => {
+  const html = renderToStaticMarkup(
+    <EndpointList busy={false} endpoints={[]} onChange={noop} onCopy={noop} />
+  );
+  expect(html).toContain(
+    "This app has no approved endpoints yet. An endpoint is declared in the app&#x27;s agentum.json and goes live when its version is approved."
+  );
+});

@@ -78,7 +78,7 @@ test("recent errors show diagnostic fields and dropped count only when present",
   }
 });
 
-test("Calls tab only shows for an app manager", () => {
+test("Endpoints tab only shows for an app manager", () => {
   const render = (kind: "app" | "file", canManage: boolean) =>
     renderToStaticMarkup(
       <Tabs defaultValue="artifact">
@@ -87,7 +87,7 @@ test("Calls tab only shows for an app manager", () => {
         </TabsList>
       </Tabs>
     );
-  expect(render("app", true)).toContain("Calls");
-  expect(render("app", false)).not.toContain("Calls");
-  expect(render("file", true)).not.toContain("Calls");
+  expect(render("app", true)).toContain("Endpoints");
+  expect(render("app", false)).not.toContain("Endpoints");
+  expect(render("file", true)).not.toContain("Endpoints");
 });
