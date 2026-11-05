@@ -2,6 +2,7 @@ import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
+import { ArchivedAgentBanner } from "#/components/agent/archived-agents";
 import { AskBeforeCard } from "#/components/agent/profile/ask-before-card";
 import { ComputerCard } from "#/components/agent/profile/computer-card";
 import { ConnectionsCard } from "#/components/agent/profile/connections-card";
@@ -105,6 +106,7 @@ function AgentPage() {
     rules,
     tasks,
   } = Route.useLoaderData();
+  const archived = agent.status === "archived";
   const nowMs = useNowMs();
   const { mail, sheet } = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -139,49 +141,59 @@ function AgentPage() {
 
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
-      <ProfileHeader
-        header={profile.header}
-        mailbox={mailbox}
-        onEdit={edit}
-        onOpenMail={openMailList}
-        onStarted={openTask}
-      />
-      <div className="flex flex-wrap items-start gap-4">
-        <ProfileRows
-          agent={agent}
+      {archived ? <ArchivedAgentBanner agent={agent} /> : null}
+      <fieldset
+        className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0"
+        disabled={archived}
+      >
+        <ProfileHeader
+          header={profile.header}
           mailbox={mailbox}
-          members={members}
-          onOpen={openSheet}
+          onEdit={edit}
           onOpenMail={openMailList}
-          profile={profile}
+          onStarted={openTask}
         />
-        <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
-          <RunsOnCard header={profile.header} onAdvanced={edit} />
-          <AskBeforeCard
-            actions={askBefore}
-            agentId={agent.id}
-            mailAllowed={allowedMailAddresses(rules)}
-          />
-          <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
-          <ConnectionsCard
-            agentId={agent.id}
-            connections={connections}
-            published={published}
-          />
-          <ComputerCard
+        <div className="flex flex-wrap items-start gap-4">
+          <ProfileRows
             agent={agent}
-            header={profile.header}
-            machines={machines}
+            mailbox={mailbox}
+            members={members}
+            onOpen={openSheet}
+            onOpenMail={openMailList}
+            profile={profile}
           />
-        </aside>
-      </div>
-      <ManageSheet agent={agent} onClose={close} sheet={sheet} />
-      <MailSheet
-        agent={agent}
-        mail={mail}
-        onChange={openMail}
-        onClose={closeMail}
-      />
+          <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
+            <RunsOnCard header={profile.header} onAdvanced={edit} />
+            <AskBeforeCard
+              actions={askBefore}
+              agentId={agent.id}
+              mailAllowed={allowedMailAddresses(rules)}
+            />
+            <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
+            <ConnectionsCard
+              agentId={agent.id}
+              connections={connections}
+              published={published}
+            />
+            <ComputerCard
+              agent={agent}
+              header={profile.header}
+              machines={machines}
+            />
+          </aside>
+        </div>
+      </fieldset>
+      {archived ? null : (
+        <>
+          <ManageSheet agent={agent} onClose={close} sheet={sheet} />
+          <MailSheet
+            agent={agent}
+            mail={mail}
+            onChange={openMail}
+            onClose={closeMail}
+          />
+        </>
+      )}
     </section>
   );
 }

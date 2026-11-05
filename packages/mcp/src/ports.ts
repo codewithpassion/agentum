@@ -700,6 +700,24 @@ export interface AdminAgentInfo {
   slug: string;
 }
 
+/** Agent details contain configuration and assignment metadata, never credentials. */
+export interface AdminAgentDetails extends AdminAgentInfo {
+  askBefore: { action: string; ask: boolean; label: string }[];
+  backupUserId: string | null;
+  connectors: { connectorId: string; name: string }[];
+  createdAt: string;
+  createdBy: string;
+  emailAddress: string | null;
+  emailLocal: string | null;
+  instructions: string;
+  machine: { id: string; name: string; status: string } | null;
+  machineId: string | null;
+  ownerUserId: string | null;
+  skills: { skillId: string; name: string }[];
+  status: string;
+  updatedAt: string;
+}
+
 /** A secret as the admin tools show it: never its value. `hosts` are the hosts it applies to. */
 export interface AdminSecretInfo {
   hosts: string[];
@@ -731,11 +749,16 @@ export interface AdminSecretRule {
 }
 
 /**
- * The setup calls for an `ag_key_` key (X.10). Offered only to a write key
- * (`createAgent`, `updateAgent`, `createInboxThread`) or an admin key (all).
+ * Agent management admits write OAuth connections and write/admin API keys.
+ * Setup calls remain admin-key only; inbox creation takes a write/admin key.
  * `agent` is a slug or an id.
  */
 export interface AdminPort {
+  archiveAgent: (input: { agent: string }) => Promise<AdminAgentInfo>;
+  checkAgentAddress: (input: {
+    local: string;
+  }) => Promise<{ available: boolean }>;
+
   createAgent: (input: {
     connectors?: string[];
     environment?: "isolate" | "linux-vm";
@@ -769,9 +792,25 @@ export interface AdminPort {
         }
   ) => Promise<AdminSecretInfo>;
   deleteConnector: (input: { connectorId: string }) => Promise<void>;
+  getAgent: (input: { agent: string }) => Promise<AdminAgentDetails>;
   grantSecret: (input: { agent: string; secretId: string }) => Promise<void>;
+  reserveAgentAddress: (input: {
+    agent: string;
+    local: string;
+  }) => Promise<AdminAgentInfo>;
+  restoreAgent: (input: { agent: string }) => Promise<AdminAgentInfo>;
   revokeApiKey: (input: { keyId: string }) => Promise<AdminKeyRevoked>;
   revokeSecret: (input: { agent: string; secretId: string }) => Promise<void>;
+  setAgentAskBefore: (input: {
+    agent: string;
+    action: string;
+    ask: boolean;
+  }) => Promise<void>;
+  setAgentOwners: (input: {
+    agent: string;
+    ownerUserId?: string | null;
+    backupUserId?: string | null;
+  }) => Promise<AdminAgentInfo>;
   updateAgent: (input: {
     agent: string;
     connectors?: string[];
@@ -787,7 +826,7 @@ export interface AdminPort {
 }
 
 export interface McpPorts {
-  /** Set for every key principal; the server offers the tools its access allows. */
+  /** Set for user principals; the server offers only the tools their access allows. */
   admin?: AdminPort;
   approveSkillVersion: (input: {
     skillId: string;

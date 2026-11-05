@@ -6,12 +6,14 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { connectors } from "@repo/db/schema/connectors";
 import { events } from "@repo/db/schema/events";
 import { migrated } from "@repo/db/test-db";
+import { agentumTools } from "@repo/mcp/server";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { Hono } from "hono";
 import { type Composed, composeWith } from "../compose.ts";
+import { createMcpPorts } from "../mcp/ports.ts";
 import type { AppEnv } from "./groups.ts";
 import { mcpRoutes } from "./mcp.ts";
 
@@ -122,6 +124,17 @@ beforeEach(async () => {
       clock: systemClock,
       devFakeRuntime: true,
       fileBlobs: memoryFileBlobs(),
+      mailDomain: "agents.example.com",
+      members: () =>
+        Promise.resolve([
+          {
+            userId: "u1",
+            name: "User",
+            email: "u1@example.com",
+            imageUrl: null,
+            role: "org:member",
+          },
+        ]),
       relay: noopRelay,
       runTokenKey: RUN_TOKEN_KEY,
       secretsKey: SECRETS_KEY,
@@ -147,8 +160,18 @@ beforeEach(async () => {
       dev: false,
       isOrgMember: () => () => Promise.resolve(true),
       log: () => undefined,
-      userOrgIds: () => () => Promise.resolve([]),
-      verifyOAuthToken: () => () => Promise.resolve(null),
+      userOrgIds: () => () => Promise.resolve(["org_a"]),
+      verifyOAuthToken: () => (token) =>
+        Promise.resolve(
+          token === "oauth-token"
+            ? {
+                clientId: "client_claude",
+                userId: "u1",
+                scopes: ["profile"],
+                expiresAt: null,
+              }
+            : null
+        ),
     })
   );
 });
@@ -360,4 +383,182 @@ describe("the setup flow with an admin key", () => {
         .map((row) => row.type)
     ).toContain("connector.deleted");
   });
+});
+
+const AGENT_MANAGEMENT_TOOLS = [
+  "create_agent",
+  "update_agent",
+  "get_agent",
+  "archive_agent",
+  "restore_agent",
+  "set_agent_owners",
+  "set_agent_ask_before",
+  "check_agent_address",
+  "reserve_agent_address",
+];
+
+const approveOAuth = async (access: "read" | "write") => {
+  await composed.services.oauthClients.resolve({
+    clientId: "client_claude",
+    userId: "u1",
+    workspaceId,
+  });
+  await composed.services.oauthClients.setAccess(session(true), {
+    clientId: "client_claude",
+    access,
+  });
+};
+
+test("OAuth write manages agents and audits the client and user, without setup access", async () => {
+  await approveOAuth("write");
+  const token = "oauth-token";
+  const names = await toolNames(token);
+  for (const name of AGENT_MANAGEMENT_TOOLS) {
+    expect(names).toContain(name);
+  }
+  for (const name of [...ADMIN_TOOLS.slice(2)]) {
+    expect(names).not.toContain(name);
+    // biome-ignore lint/performance/noAwaitInLoops: Exercise MCP calls in order against one workspace.
+    const refused = await rpc(token, "tools/call", { name, arguments: {} });
+    expect(refused.body.result?.isError ?? true).toBe(true);
+  }
+  db.insert(connectors)
+    .values({
+      id: "c1",
+      workspaceId,
+      name: "Docs",
+      authKind: "header",
+      createdAt: new Date().toISOString(),
+      createdBy: "u1",
+      status: "ok",
+      url: "https://docs.example.com/mcp",
+    })
+    .run();
+  const created = await call(token, "create_agent", {
+    model: "fake",
+    runtime: "managed",
+    name: "OAuth agent",
+    connectors: ["c1"],
+  });
+  expect(created.isError).toBeFalsy();
+  const agent = "oauth-agent";
+  for (const [name, args] of [
+    ["update_agent", { agent, instructions: "Help people." }],
+    ["check_agent_address", { local: "oauth-agent" }],
+    ["reserve_agent_address", { agent, local: "oauth-agent" }],
+    ["set_agent_owners", { agent, ownerUserId: "stranger" }],
+  ] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: Exercise MCP calls in order against one workspace.
+    const result = await call(token, name, args);
+    // The same current-member check as the UI refuses an unknown owner.
+    expect(result.isError ?? false).toBe(name === "set_agent_owners");
+  }
+  await expect(
+    composed.services.agents.setOwners(
+      session(false),
+      (created.structuredContent as { agent: { id: string } }).agent.id,
+      { ownerUserId: "stranger", backupUserId: null }
+    )
+  ).rejects.toThrow();
+  expect(
+    (
+      await call(token, "set_agent_owners", {
+        agent,
+        ownerUserId: null,
+        backupUserId: null,
+      })
+    ).isError
+  ).toBeFalsy();
+  expect(
+    (
+      await call(token, "set_agent_ask_before", {
+        agent,
+        action: "bash",
+        ask: true,
+      })
+    ).isError
+  ).toBeFalsy();
+  const detail = await call(token, "get_agent", { agent });
+  expect(detail.isError).toBeFalsy();
+  expect(detail.structuredContent).toMatchObject({
+    agent: {
+      instructions: "Help people.",
+      emailLocal: "oauth-agent",
+      emailAddress: "oauth-agent@agents.example.com",
+      ownerUserId: null,
+      connectors: [
+        expect.objectContaining({ connectorId: "c1", name: "Docs" }),
+      ],
+      skills: [],
+      askBefore: expect.arrayContaining([
+        expect.objectContaining({ action: "bash", ask: true }),
+      ]),
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+    },
+  });
+  expect((await call(token, "archive_agent", { agent })).isError).toBeFalsy();
+  expect(
+    (await call(token, "get_agent", { agent })).structuredContent
+  ).toMatchObject({ agent: { status: "archived" } });
+  expect((await call(token, "restore_agent", { agent })).isError).toBeFalsy();
+  const audits = db
+    .select()
+    .from(events)
+    .all()
+    .filter((row) => row.type === "admin.action");
+  expect(audits).toHaveLength(7);
+  for (const row of audits) {
+    expect(row).toMatchObject({ actorKind: "user", actorId: "u1" });
+    expect(JSON.parse(row.payload ?? "{}")).toMatchObject({
+      clientId: "client_claude",
+      userId: "u1",
+    });
+    expect(JSON.parse(row.payload ?? "{}")).not.toHaveProperty("keyId");
+  }
+});
+
+test("OAuth read sees only the agent list and details among management tools", async () => {
+  await approveOAuth("read");
+  await composed.services.agents.create(session(false), {
+    name: "Read me",
+    model: "fake",
+    runtime: "managed",
+  });
+  const detail = await call("oauth-token", "get_agent", { agent: "read-me" });
+  expect(detail.isError).toBeFalsy();
+  expect(detail.structuredContent).toMatchObject({
+    agent: { name: "Read me", status: "active" },
+  });
+  const names = await toolNames("oauth-token");
+  expect(names).toContain("list_agents");
+  expect(names).toContain("get_agent");
+  for (const name of AGENT_MANAGEMENT_TOOLS.filter(
+    (tool) => tool !== "get_agent"
+  )) {
+    expect(names).not.toContain(name);
+    // biome-ignore lint/performance/noAwaitInLoops: Exercise MCP calls in order against one workspace.
+    const result = await rpc("oauth-token", "tools/call", {
+      name,
+      arguments: {},
+    });
+    expect(result.body.result?.isError ?? true).toBe(true);
+  }
+});
+
+test("run, machine and Slack ports offer none of the agent management writes", () => {
+  const principals: Principal[] = [
+    { kind: "run", workspaceId, agentId: "a", runId: "r" },
+    { kind: "machine", workspaceId, machineId: "m" },
+    { kind: "user", via: "slack", userId: "u1", workspaceId },
+  ];
+  for (const principal of principals) {
+    const ports = createMcpPorts({ principal, services: composed.services });
+    const names = agentumTools(ports).map((tool) => tool.name);
+    for (const name of AGENT_MANAGEMENT_TOOLS.filter(
+      (tool) => tool !== "get_agent"
+    )) {
+      expect(names).not.toContain(name);
+    }
+  }
 });

@@ -169,12 +169,12 @@ const agentSettings = {
   networkAccess: networkAccess.optional(),
 };
 
-/** Tools that create or change records for a write key. */
+/** Agent writes for a write key or OAuth connection, plus key-only inbox creation. */
 export const adminWriteTools = (port: AdminPort): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Creates an agent in the workspace. model is required; its field description lists valid model ids. Returns the new agent's id and slug; use the slug to @mention it in the inbox. runtime is cloud, machine (pass machineId) or managed.",
+      "Creates an agent in the workspace (write OAuth connection or write/admin API key). model is required; its field description lists valid model ids. Returns the new agent's id and slug; use the slug to @mention it in the inbox. runtime is cloud, machine (pass machineId) or managed.",
     inputSchema: z.strictObject({
       ...agentSettings,
       machineId: machineId.optional(),
@@ -198,7 +198,7 @@ export const adminWriteTools = (port: AdminPort): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_UPDATE,
     description:
-      "Changes an existing agent. Pass only the fields to change; the others stay as they are. Returns the agent as it is afterwards. Use list_agents to find the agent. The runtime cannot change.",
+      "Changes an existing agent (write OAuth connection or write/admin API key). Pass only the fields to change; the others stay as they are. Returns the agent as it is afterwards. Use list_agents to find the agent. The runtime cannot change.",
     inputSchema: z.strictObject({
       ...agentSettings,
       agent: agentRef,

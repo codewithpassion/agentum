@@ -1,5 +1,5 @@
 // The `admin` group of the platform MCP tools (X.10): setup calls for an
-// `ag_key_` key, over the admin service. The service checks the key and
+// API key or OAuth connection, over the admin service. The service checks access and
 // writes the audit event; this adapter only maps shapes. Nothing returned
 // carries a secret value.
 import type {
@@ -50,11 +50,11 @@ export const createAdminPorts = ({
 }): AdminPort => {
   const { admin, agents, connectors } = services;
 
-  /** The agent id for a slug or an id, among all active agents of the workspace. */
+  /** The agent id for a slug or an id, among active and archived agents of the workspace. */
   const agentIdOf = async (reference: string): Promise<string> => {
-    const found = (await agents.list(principal)).find(
-      (agent) => agent.slug === reference || agent.id === reference
-    );
+    const found = (
+      await agents.list(principal, { includeArchived: true })
+    ).find((agent) => agent.slug === reference || agent.id === reference);
     if (!found) {
       throw new ToolError(
         "not_found",
@@ -65,6 +65,12 @@ export const createAdminPorts = ({
   };
 
   return {
+    archiveAgent: ({ agent }) =>
+      guarded(async () =>
+        toAgentInfo(await admin.archiveAgent(principal, await agentIdOf(agent)))
+      ),
+    checkAgentAddress: ({ local }) =>
+      guarded(() => admin.checkAgentAddress(principal, local)),
     createAgent: (input) =>
       guarded(async () =>
         toAgentInfo(await admin.createAgent(principal, input))
@@ -100,6 +106,8 @@ export const createAdminPorts = ({
         await connectors.remove(principal, { connectorId });
         await admin.audit(principal, "delete_connector", { connectorId });
       }),
+    getAgent: ({ agent }) =>
+      guarded(async () => admin.getAgent(principal, await agentIdOf(agent))),
 
     grantSecret: ({ agent, secretId }) =>
       guarded(async () =>
@@ -107,6 +115,20 @@ export const createAdminPorts = ({
           agentId: await agentIdOf(agent),
           secretId,
         })
+      ),
+    reserveAgentAddress: ({ agent, local }) =>
+      guarded(async () =>
+        toAgentInfo(
+          await admin.reserveAgentAddress(
+            principal,
+            await agentIdOf(agent),
+            local
+          )
+        )
+      ),
+    restoreAgent: ({ agent }) =>
+      guarded(async () =>
+        toAgentInfo(await admin.restoreAgent(principal, await agentIdOf(agent)))
       ),
 
     revokeApiKey: (input) =>
@@ -125,6 +147,19 @@ export const createAdminPorts = ({
           agentId: await agentIdOf(agent),
           secretId,
         })
+      ),
+    setAgentAskBefore: ({ agent, ...input }) =>
+      guarded(async () =>
+        admin.setAgentAskBefore(principal, {
+          ...input,
+          agentId: await agentIdOf(agent),
+        })
+      ),
+    setAgentOwners: ({ agent, ...input }) =>
+      guarded(async () =>
+        toAgentInfo(
+          await admin.setAgentOwners(principal, await agentIdOf(agent), input)
+        )
       ),
 
     updateAgent: ({ agent, ...patch }) =>

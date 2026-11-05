@@ -3,7 +3,7 @@ import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createAgentsService, findAgent, handsToNames } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
@@ -1170,3 +1170,57 @@ test("an agent service built without members refuses setOwners with invalid", as
     service.setOwners(user, agent.id, { backupUserId: null, ownerUserId: "u2" })
   ).rejects.toMatchObject({ code: "invalid" });
 });
+
+test("restore reactivates an archived agent, emits agent.updated once, and rejects drafts and other workspaces", async () => {
+  const agent = await service.create(user, {
+    model: "fake",
+    name: "Restore",
+    runtime: "fake",
+  });
+  await service.archive(user, agent.id);
+  await expect(service.restore(otherUser, agent.id)).rejects.toThrow(
+    "Agent not found"
+  );
+  await expect(service.restore(user, agent.id)).resolves.toMatchObject({
+    status: "active",
+  });
+  await expect(service.restore(user, agent.id)).resolves.toMatchObject({
+    status: "active",
+  });
+  expect(
+    (await events.list(user, { agentId: agent.id, types: ["agent.updated"] }))
+      .entries
+  ).toHaveLength(2);
+  const draft = await service.createDraft(user, { name: "Draft" });
+  await expect(service.restore(user, draft.id)).rejects.toThrow("not archived");
+});
+
+for (const field of ["slug", "emailLocal"] as const) {
+  test(`restore refuses when another active agent has taken the ${field}`, async () => {
+    const original = await service.create(user, {
+      model: "fake",
+      name: "Original",
+      runtime: "fake",
+    });
+    await service.reserveAddress(user, original.id, "original");
+    await service.archive(user, original.id);
+    const other = await service.create(user, {
+      model: "fake",
+      name: "Other",
+      runtime: "fake",
+    });
+    // Current indexes retain archived reservations. Simulate a future release
+    // policy to exercise restore's defensive check without changing production schema.
+    db.run(
+      sql.raw(
+        `DROP INDEX ${field === "slug" ? "agents_slug_unique" : "agents_email_local_unique"}`
+      )
+    );
+    await db
+      .update(agents)
+      .set({ [field]: field === "slug" ? original.slug : "original" })
+      .where(eq(agents.id, other.id));
+    await expect(service.restore(user, original.id)).rejects.toThrow("taken");
+    expect((await service.get(user, original.id)).status).toBe("archived");
+  });
+}

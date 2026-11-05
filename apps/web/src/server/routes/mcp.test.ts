@@ -368,6 +368,7 @@ describe("tools with an api key", () => {
       "artifact_read",
       "bash",
       "export_skill",
+      "get_agent",
       "get_run",
       "inbox_list",
       "inbox_post",

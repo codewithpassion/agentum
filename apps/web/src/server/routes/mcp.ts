@@ -195,10 +195,21 @@ const readRpcBody = async (raw: Request): Promise<RpcBody> => {
   };
 };
 
-/** The setup tools a key may use: its access when it is write or admin. */
-const adminAccessOf = (principal: Principal): "admin" | "write" | undefined => {
+/** Management access; OAuth write connections get agent tools only. */
+const adminAccessOf = (
+  principal: Principal
+): "admin" | "write" | "oauth-write" | undefined => {
+  if (
+    principal.kind === "user" &&
+    principal.via === "oauth" &&
+    principal.oauthClient?.access === "write"
+  ) {
+    return "oauth-write";
+  }
   const access =
-    principal.kind === "user" ? principal.apiKey?.access : undefined;
+    principal.kind === "user" && principal.via === "api_key"
+      ? principal.apiKey?.access
+      : undefined;
   return access === "write" || access === "admin" ? access : undefined;
 };
 

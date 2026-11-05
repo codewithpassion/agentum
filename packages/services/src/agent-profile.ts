@@ -193,7 +193,7 @@ export const createAgentProfileService = ({
   triggers,
 }: {
   agents: Pick<AgentsService, "get" | "list">;
-  connectors: Pick<ConnectorsService, "assignments" | "list">;
+  connectors: Pick<ConnectorsService, "assignments" | "list" | "agentTools">;
   db: Database;
   machines: Pick<MachinesService, "list">;
   requests: Pick<RequestsService, "listRules" | "removeRule" | "setRule">;
@@ -451,24 +451,10 @@ export const createAgentProfileService = ({
     const user = requireUser(principal, READ_ACTION);
     const { agentId } = askBeforeInputSchema.parse(raw);
     const agent = await loadAgent(user, READ_ACTION, agentId);
-    const [assigned, all, rules] = await Promise.all([
-      connectors.assignments(user, { agentId: agent.id }),
-      connectors.list(user),
+    const [assignedConnectors, rules] = await Promise.all([
+      connectors.agentTools(user, { agentId: agent.id }),
       requests.listRules(user, { agentId: agent.id }),
     ]);
-    const byId = new Map(all.map((connector) => [connector.id, connector]));
-    const assignedConnectors = assigned.flatMap((assignment) => {
-      const connector = byId.get(assignment.connectorId);
-      return connector
-        ? [
-            {
-              allowedTools: assignment.allowedTools,
-              name: connector.name,
-              tools: connector.tools,
-            },
-          ]
-        : [];
-    });
     // A rule in mode "allow" (from Always allow) reads as off, the same as no rule.
     const asking = new Set(
       rules
@@ -532,7 +518,30 @@ export const createAgentProfileService = ({
     }
   };
 
-  return { askBefore, profile, setAskBefore };
+  /** Configuration for MCP without touching session-only credential or registry services. */
+  const details = async (principal: Principal, raw: ProfileInput) => {
+    const user = requireUser(principal, READ_ACTION);
+    const { agentId } = profileInputSchema.parse(raw);
+    const agent = await loadAgent(user, READ_ACTION, agentId);
+    const [assignedConnectors, skills, machineList] = await Promise.all([
+      connectors.agentTools(user, { agentId }),
+      skillRows(user, agentId),
+      agent.machineId === null ? Promise.resolve([]) : machines.list(user),
+    ]);
+    const machine = machineList.find((row) => row.id === agent.machineId);
+    return {
+      connectors: assignedConnectors.map(({ tools, ...row }) => ({
+        ...row,
+        toolCount: tools.length,
+      })),
+      machine: machine
+        ? { id: machine.id, name: machine.name, status: machine.status }
+        : null,
+      skills,
+    };
+  };
+
+  return { askBefore, details, profile, setAskBefore };
 };
 
 export type AgentProfileService = ReturnType<typeof createAgentProfileService>;

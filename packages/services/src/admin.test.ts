@@ -426,3 +426,60 @@ describe("key scopes", () => {
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
+
+const oauthWrite: Principal = {
+  kind: "user",
+  oauthClient: { access: "write", clientId: "claude" },
+  userId: "u1",
+  via: "oauth",
+  workspaceId: WORKSPACE,
+};
+
+test("OAuth write creates agents but cannot reach setup or inbox creation", async () => {
+  const agent = await admin.createAgent(oauthWrite, agentInput);
+  expect(agent.status).toBe("active");
+  for (const invoke of [
+    () =>
+      admin.createSecret(oauthWrite, {
+        mode: "env",
+        name: "TOKEN",
+        value: "secret",
+      }),
+    () => admin.createApiKey(oauthWrite, { access: "read", name: "key" }),
+    () => admin.createEnrolmentCode(oauthWrite, { machineName: "box" }),
+    () => admin.createInboxThread(oauthWrite, { title: "thread" }),
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: Each denial must fail before the next call.
+    await expect(invoke()).rejects.toBeInstanceOf(ForbiddenError);
+  }
+});
+
+test("non-management principals cannot call any agent management writes directly", async () => {
+  const principals: Principal[] = [
+    { agentId: "a", kind: "run", runId: "r", workspaceId: WORKSPACE },
+    { kind: "machine", machineId: "m", workspaceId: WORKSPACE },
+    { agentId: "a", kind: "trigger", triggerId: "t", workspaceId: WORKSPACE },
+    { kind: "user", userId: "u1", via: "slack", workspaceId: WORKSPACE },
+    { ...oauthWrite, oauthClient: { access: "read", clientId: "claude" } },
+  ];
+  for (const principal of principals) {
+    for (const invoke of [
+      () => admin.createAgent(principal, agentInput),
+      () => admin.updateAgent(principal, { agentId: "a", name: "Changed" }),
+      () => admin.archiveAgent(principal, "a"),
+      () => admin.restoreAgent(principal, "a"),
+      () => admin.setAgentOwners(principal, "a", {}),
+      () =>
+        admin.setAgentAskBefore(principal, {
+          action: "bash",
+          agentId: "a",
+          ask: true,
+        }),
+      () => admin.checkAgentAddress(principal, "mail"),
+      () => admin.reserveAgentAddress(principal, "a", "mail"),
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: Each denial must fail before the next call.
+      await expect(invoke()).rejects.toBeInstanceOf(ForbiddenError);
+    }
+  }
+});
