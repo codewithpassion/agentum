@@ -34,11 +34,17 @@ pub struct Explanation {
     pub meaning: String,
     pub fix: String,
 }
+impl Explanation {
+    pub fn with_fix(mut self, fix: &str) -> Self {
+        self.fix = fix.into();
+        self
+    }
+}
 impl fmt::Display for Explanation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}: {}. {} Fix: {}",
+            "Problem: {}\nWhy: {}. {}\nFix: {}",
             self.tried, self.reason, self.meaning, self.fix
         )
     }

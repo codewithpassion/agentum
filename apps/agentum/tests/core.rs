@@ -188,7 +188,7 @@ fn cli_accepts_all_commands_and_old_enrol_spellings() {
             "--desktop",
             "--yes",
         ],
-        vec!["install-service", "--refresh"],
+        vec!["install-service", "--yes"],
         vec!["service", "logs", "-f"],
         vec!["service", "restart"],
         vec!["service", "uninstall"],
@@ -202,6 +202,7 @@ fn cli_accepts_all_commands_and_old_enrol_spellings() {
     }
     assert!(Cli::try_parse_from(["agentum", "enroll", "--code", "hm_enr_test"]).is_err());
     assert!(Cli::try_parse_from(["agentum", "run", "--unknown"]).is_err());
+    assert!(Cli::try_parse_from(["agentum", "install-service", "--refresh"]).is_err());
     for args in [
         vec!["--help"],
         vec!["enroll", "--help"],

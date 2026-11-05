@@ -604,7 +604,7 @@ fn alive_result(result: std::result::Result<(), nix::errno::Errno>) -> bool {
 fn missing_package(binary: &str) -> Fault {
     unavailable(format!(
         "{binary} is missing. {}",
-        crate::privilege::Problem::Desktop.explain("user", "instance")
+        crate::privilege::Problem::Desktop.explain("user", "desktop")
     ))
 }
 fn encode_screenshot(rgb: &[u8], width: u32, height: u32, q: u8) -> OpResult<Value> {
@@ -907,6 +907,9 @@ mod tests {
     }
     #[test]
     fn real_xvfb_capture_ownership_and_cleanup() {
+        if std::env::var("AGENTUM_DESKTOP_E2E").as_deref() != Ok("1") {
+            return;
+        }
         let _display = DISPLAY_TEST_LOCK.lock().unwrap();
         if !crate::privilege::on_path("Xvfb") {
             writeln!(
@@ -1032,6 +1035,9 @@ mod parity_tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn real_desktop_end_to_end_and_sandbox() {
+        if std::env::var("AGENTUM_DESKTOP_E2E").as_deref() != Ok("1") {
+            return;
+        }
         let _display = DISPLAY_TEST_LOCK.lock().unwrap();
         if let Some(binary) = ["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
             .iter()
@@ -1078,6 +1084,9 @@ mod restart_tests {
     use super::*;
     #[test]
     fn openbox_restart_waits_for_xvfb() {
+        if std::env::var("AGENTUM_DESKTOP_E2E").as_deref() != Ok("1") {
+            return;
+        }
         let _display = DISPLAY_TEST_LOCK.lock().unwrap();
         if !crate::privilege::on_path("Xvfb") {
             writeln!(

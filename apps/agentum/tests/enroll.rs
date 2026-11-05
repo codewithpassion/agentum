@@ -333,6 +333,7 @@ async fn stdin_environment_first_start_and_runtime_overrides() {
                 assert!(output.status.success());
                 let value: Value = serde_json::from_slice(&output.stdout).unwrap();
                 let status = if value.is_array() { &value[0] } else { &value };
+                assert_eq!(status["service"], "not installed");
                 assert_eq!(status["connection"]["computer"]["status"], "stopped");
                 assert!(
                     status["connection"]["computer"]["reason"]
@@ -378,4 +379,151 @@ async fn enrollment_401_is_a_runtime_failure_without_leaking_response() {
     assert!(message.contains("401"));
     assert!(!message.contains("ag_enr_secret"));
     server.abort();
+}
+
+#[tokio::test]
+async fn replacement_preserves_settings_and_name() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), false);
+    let mut config = agentum::instance::Config::new(
+        "old".into(),
+        "office".into(),
+        "http://127.0.0.1".into(),
+        vec![agentum::wire::MachineRole::Computer],
+        false,
+        agentum::instance::RunAs::Current,
+    );
+    config.computer.read_only = true;
+    paths.save("office", &config, "ag_mach_old").unwrap();
+    let app = Router::new().route("/api/machines/enroll", post(|| async { Json(json!({"credential":"ag_mach_new", "machineId":"new", "machineName":"renamed", "roles":["computer"]})) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let cli = Cli::try_parse_from([
+        "agentum",
+        "enroll",
+        "--name",
+        "office",
+        "--replace",
+        "--url",
+        &url,
+    ])
+    .unwrap();
+    let Command::Enroll(args) = cli.command else {
+        panic!()
+    };
+    let answer = enroll::enroll(&paths, &args, "ag_enr_test", "test")
+        .await
+        .unwrap();
+    assert_eq!(answer.instance, "office");
+    let (config, credential) = paths.load("office").unwrap();
+    assert!(config.computer.read_only);
+    assert_eq!(config.machine_id, "new");
+    assert_eq!(credential, "ag_mach_new");
+    use std::os::unix::fs::MetadataExt;
+    let before = std::fs::metadata(paths.config("office").join("credential")).unwrap();
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_agentum"))
+        .env("AGENTUM_CONFIG_DIR", &paths.config_root)
+        .env("AGENTUM_STATE_DIR", &paths.state_root)
+        .env_remove("AGENTUM_ENROLL_CODE")
+        .args([
+            "enroll",
+            "--instance",
+            "office",
+            "--replace",
+            "--code",
+            "ag_enr_next",
+        ])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("agentum run --instance office"));
+    assert!(text.contains("agentum service install --instance office"));
+    let after = std::fs::metadata(paths.config("office").join("credential")).unwrap();
+    assert_eq!(
+        (after.uid(), after.gid(), after.mode()),
+        (before.uid(), before.gid(), before.mode())
+    );
+    assert!(paths.load("office").unwrap().0.computer.read_only);
+    server.abort();
+}
+
+#[test]
+fn system_names_fit_accounts_and_remain_unique() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), true);
+    for name in ["abcdefghijklmnopqrstu", "office-svc"] {
+        assert!(
+            agentum::instance::reserve_enrollment(&[paths.clone()], Some(name), "", true).is_err()
+        );
+    }
+    for server in ["a very long server supplied machine name", "office-svc"] {
+        let name =
+            agentum::instance::reserve_enrollment(&[paths.clone()], None, server, true).unwrap();
+        assert!(name.len() <= 20 && !name.ends_with("-svc"));
+        std::fs::create_dir_all(paths.config(&name)).unwrap();
+        let next =
+            agentum::instance::reserve_enrollment(&[paths.clone()], None, server, true).unwrap();
+        assert_ne!(name, next);
+        assert!(next.len() <= 20 && !next.ends_with("-svc"));
+    }
+}
+
+#[tokio::test]
+async fn invalid_system_names_are_refused_before_any_exchange() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), true);
+    for name in ["abcdefghijklmnopqrstu", "office-svc"] {
+        let cli = Cli::try_parse_from([
+            "agentum",
+            "enroll",
+            "--system",
+            "--name",
+            name,
+            "--url",
+            "http://127.0.0.1:1",
+        ])
+        .unwrap();
+        let Command::Enroll(args) = cli.command else {
+            panic!()
+        };
+        let error = enroll::enroll(&paths, &args, "ag_enr_test", "test")
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.code, 2);
+        assert!(error.message.contains("System instance names"));
+        assert!(!paths.config_root.exists());
+    }
+}
+
+#[tokio::test]
+async fn pre_enrollment_network_fix_uses_the_real_command_and_name() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), false);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let cli =
+        Cli::try_parse_from(["agentum", "enroll", "--url", &url, "--name", "office"]).unwrap();
+    let Command::Enroll(args) = cli.command else {
+        panic!()
+    };
+    let error = enroll::enroll(&paths, &args, "ag_enr_secret", "test")
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        error
+            .message
+            .contains(&format!("agentum enroll --instance office --url {url}"))
+    );
+    assert!(!error.message.contains("agentum doctor"));
+    assert!(!error.message.contains("ag_enr_secret"));
 }

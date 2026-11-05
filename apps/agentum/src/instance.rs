@@ -16,6 +16,15 @@ pub enum RunAs {
     AgentUser,
     User(String),
 }
+impl std::fmt::Display for RunAs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Current => "current",
+            Self::AgentUser => "agent-user",
+            Self::User(user) => user,
+        })
+    }
+}
 impl FromStr for RunAs {
     type Err = String;
     fn from_str(value: &str) -> std::result::Result<Self, String> {
@@ -495,6 +504,25 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     tmp.persist(path).map_err(|_| access_error(path))?;
     Ok(())
 }
+// Keep service ownership when root replaces credentials/config atomically.
+pub fn replace_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    let meta = fs::symlink_metadata(path).map_err(|_| access_error(path))?;
+    let parent = path.parent().ok_or_else(|| access_error(path))?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(|_| access_error(path))?;
+    tmp.write_all(bytes)
+        .and_then(|_| tmp.as_file().sync_all())
+        .map_err(|_| access_error(path))?;
+    if nix::unistd::geteuid().is_root() {
+        nix::unistd::fchown(
+            tmp.as_file(),
+            Some(nix::unistd::Uid::from_raw(meta.uid())),
+            Some(nix::unistd::Gid::from_raw(meta.gid())),
+        )
+        .map_err(|_| access_error(path))?;
+    }
+    tmp.persist(path).map_err(|_| access_error(path))?;
+    Ok(())
+}
 // Cross-process lock acquired before exchanging a single-use code. Crashes release it.
 pub fn enrollment_lock(paths: &Paths) -> Result<std::fs::File> {
     paths.prepare_config_root()?;
@@ -557,12 +585,43 @@ pub fn select(locations: &[Paths], name: Option<&str>) -> Result<(Paths, String)
     }
 }
 pub fn reserve(locations: &[Paths], explicit: Option<&str>, server_name: &str) -> Result<String> {
-    if let Some(name) = explicit {
-        validate_name(name)?;
+    reserve_enrollment(locations, explicit, server_name, false)
+}
+pub fn validate_system_name(name: &str) -> Result<()> {
+    validate_name(name)?;
+    if name.len() > 20 || name.ends_with("-svc") {
+        return Err(Error::new(
+            2,
+            "System instance names must be at most 20 characters and must not end in -svc; choose another --name",
+        ));
     }
+    Ok(())
+}
+pub fn reserve_enrollment(
+    locations: &[Paths],
+    explicit: Option<&str>,
+    server_name: &str,
+    system: bool,
+) -> Result<String> {
+    if let Some(name) = explicit {
+        if system {
+            validate_system_name(name)?;
+        } else {
+            validate_name(name)?;
+        }
+    }
+    let limit = if system { 20 } else { 40 };
     let base = explicit
         .map(str::to_owned)
         .unwrap_or_else(|| slug(server_name));
+    let base = if system {
+        base[..base.len().min(limit)]
+            .trim_end_matches('-')
+            .trim_end_matches("-svc")
+            .to_owned()
+    } else {
+        base
+    };
     for n in 1.. {
         let suffix = if n == 1 {
             String::new()
@@ -571,7 +630,7 @@ pub fn reserve(locations: &[Paths], explicit: Option<&str>, server_name: &str) -
         };
         let name = format!(
             "{}{}",
-            base[..base.len().min(40 - suffix.len())].trim_end_matches('-'),
+            base[..base.len().min(limit - suffix.len())].trim_end_matches('-'),
             suffix
         );
         let mut occupied = false;

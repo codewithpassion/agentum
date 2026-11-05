@@ -143,6 +143,13 @@ pub async fn run(
     );
     result
 }
+fn role_instance(role: &Arc<dyn Role>) -> String {
+    role.state_file()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "default".into())
+}
 fn connection_state(role: &Arc<dyn Role>, mut state: Value) {
     let Some(path) = role.state_file() else {
         return;
@@ -179,7 +186,9 @@ async fn run_loop(
             stop.cancel();
             return Err(Error::new(
                 3,
-                Problem::Revoked.explain("user", "instance").to_string(),
+                Problem::Revoked
+                    .explain("user", &role_instance(&role))
+                    .to_string(),
             ));
         }
         if stop.is_cancelled() {
@@ -343,7 +352,8 @@ pub async fn run_roles(
         return Err(Error::new(5, "No role can start; run agentum doctor"));
     }
     let mut tasks = tokio::task::JoinSet::new();
-    for role in roles {
+    for role in &roles {
+        let role = role.clone();
         let (server, credential, stop) = (server.clone(), credential.clone(), stop.clone());
         tasks.spawn(async move {
             let timing = Timing::for_role(role.kind());
@@ -366,6 +376,25 @@ pub async fn run_roles(
                 stop.cancel();
             }
             _ => {}
+        }
+    }
+    if failure.as_ref().is_some_and(|error| error.code == 3) {
+        for role in &roles {
+            let rejected = role
+                .state_file()
+                .and_then(|p| std::fs::read(p).ok())
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                .is_some_and(|v| {
+                    v["reason"]
+                        .as_str()
+                        .is_some_and(|s| s.contains("server rejected the credential"))
+                });
+            if !rejected {
+                connection_state(
+                    role,
+                    json!({"status":"stopped", "reason":"stopped because the other role's credential was rejected"}),
+                );
+            }
         }
     }
     failure.map_or(Ok(()), Err)

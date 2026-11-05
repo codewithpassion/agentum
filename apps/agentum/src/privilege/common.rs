@@ -40,7 +40,7 @@ impl Problem {
             "Contact the server",
             "the server is unreachable",
             "Network errors retry; they do not invalidate your enrolment.",
-            "agentum doctor --instance <name> # check the stored URL, DNS and network".into(),
+            format!("agentum doctor --instance {instance} # check the stored URL, DNS and network"),
         );
         super::Explanation {
             tried: tried.into(),
@@ -70,7 +70,9 @@ impl Problem {
             "Validate the server URL",
             "plain http:// is allowed only on loopback",
             "The enrolment code, credential and commands would cross the network in the clear.",
-            "agentum enroll --url https://<server> --code-stdin".into(),
+            format!(
+                "agentum enroll --instance {instance} --replace --url https://<server> --code-stdin"
+            ),
         );
         super::Explanation {
             tried: tried.into(),
@@ -85,7 +87,9 @@ impl Problem {
             "Contact the enrolment endpoint",
             "the server returned a redirect",
             "Following it could send the code to another server. Use the final HTTPS origin directly.",
-            "agentum enroll --url https://<final-server> --code-stdin".into(),
+            format!(
+                "agentum enroll --instance {instance} --replace --url https://<final-server> --code-stdin"
+            ),
         );
         super::Explanation {
             tried: tried.into(),
@@ -100,7 +104,7 @@ impl Problem {
             "Authenticate the machine",
             "the server rejected the credential",
             "This machine was revoked or its credential replaced. Enrol it again with a new code from the Machines page.",
-            "agentum enroll --url https://<server> --code-stdin".into(),
+            format!("agentum enroll --instance {instance} --replace --code-stdin"),
         );
         super::Explanation {
             tried: tried.into(),

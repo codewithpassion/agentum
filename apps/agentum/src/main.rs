@@ -22,8 +22,20 @@ fn main() {
     unsafe {
         std::env::remove_var("AGENTUM_ENROLL_CODE");
     }
-    let cli = Cli::parse();
-    match cli.log_format {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) if error.use_stderr() => {
+            eprintln!("Problem: Invalid command or flags\nWhy: {error}\nFix: agentum --help");
+            std::process::exit(2);
+        }
+        Err(error) => error.exit(),
+    };
+    let running = matches!(cli.command, Command::Run(_));
+    match if running {
+        cli.log_format
+    } else {
+        LogFormat::Text
+    } {
         LogFormat::Json => {
             tracing_subscriber::fmt()
                 .json()
@@ -45,7 +57,24 @@ fn main() {
     )) {
         Ok(()) => 0,
         Err(error) => {
-            tracing::error!(exit_code = error.code, message = %error, "Command failed");
+            if running {
+                tracing::error!(exit_code = error.code, message = %error, "Command failed");
+            } else if error.message.starts_with("Problem:") {
+                eprintln!("{error}");
+            } else {
+                let (problem, fix) = error
+                    .message
+                    .split_once("Fix: ")
+                    .or_else(|| error.message.split_once(". Run "))
+                    .unwrap_or((
+                        &error.message,
+                        "Follow the command guidance above; use agentum --help for usage.",
+                    ));
+                eprintln!(
+                    "Problem: {}\nWhy: The command could not complete.\nFix: {fix}",
+                    problem.trim()
+                );
+            }
             error.code
         }
     };
@@ -84,6 +113,9 @@ fn select(name: Option<&str>) -> Result<(Paths, String)> {
     instance::select(&locations(), name)
 }
 async fn service_state(paths: &Paths, name: &str) -> String {
+    if !paths.unit(name).exists() {
+        return "not installed".into();
+    }
     let mut command = tokio::process::Command::new("systemctl");
     if !paths.system {
         command.arg("--user");
@@ -107,7 +139,7 @@ async fn service_state(paths: &Paths, name: &str) -> String {
     }
 }
 async fn status(paths: &Paths, name: &str) -> Result<Value> {
-    let (config, _) = paths.load(name)?;
+    let config = agentum::service::read_config(paths, name, "status")?;
     let mut connections = serde_json::Map::new();
     for role in &config.roles {
         let role = serde_json::to_value(role)
@@ -129,7 +161,17 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
     match cli.command {
         Command::Version => println!("{}", agentum::VERSION),
         Command::Enroll(mut args) => {
-            args.name = args.name.or(cli.instance);
+            args.name = args.name.or(cli.instance.clone());
+            if args.replace {
+                let (paths, name) = select(args.name.as_deref())?;
+                let config = agentum::service::read_config(&paths, &name, "enroll")?;
+                args.name = Some(name);
+                args.system = config.system;
+                args.run_as = config.run_as;
+                if args.url.is_none() {
+                    args.url = Some(config.server);
+                }
+            }
             let code = code_input(
                 args.code.as_deref().or(args.legacy_code.as_deref()),
                 args.code_stdin,
@@ -143,8 +185,11 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
                 println!("{}", serde_json::to_string(&answer).unwrap());
             } else {
                 println!(
-                    "Enrolled as {}. Start with: agentum run --instance {}",
-                    answer.instance, answer.instance
+                    "Enrolled as {}. Start with: agentum run --instance {}\nOr install a service: agentum service install --instance {}{}",
+                    answer.instance,
+                    answer.instance,
+                    answer.instance,
+                    if args.system { " --system" } else { " --user" }
                 );
             }
         }
@@ -188,15 +233,16 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
             }
         }
         Command::Doctor => {
-            let (paths, name) = match select(cli.instance.as_deref()) {
-                Ok(instance) => instance,
+            let (paths, name, not_enrolled) = match select(cli.instance.as_deref()) {
+                Ok((paths, name)) => (paths, name, false),
                 Err(error) if error.code == 4 => (
                     Paths::discover(false),
                     cli.instance.unwrap_or_else(|| "default".into()),
+                    true,
                 ),
                 Err(error) => return Err(error),
             };
-            let config = paths.load(&name).ok().map(|(config, _)| config);
+            let config = agentum::service::read_config(&paths, &name, "doctor").ok();
             let checks = doctor::run(&doctor::Context {
                 paths: &paths,
                 name: &name,
@@ -211,8 +257,12 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
             }
             if failed {
                 return Err(Error::new(
-                    5,
-                    "Doctor found a missing permission or prerequisite; apply the fixes above",
+                    if not_enrolled { 4 } else { 5 },
+                    if not_enrolled {
+                        "Not enrolled. Fix: agentum enroll --url <server> --code-stdin"
+                    } else {
+                        "Doctor found a missing permission or prerequisite; apply the fixes above"
+                    },
                 ));
             }
         }
@@ -227,20 +277,21 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
                             || environment_code.is_some()) =>
                 {
                     let code = code_input(args.code.as_deref(), args.code_stdin, environment_code)?;
-                    let enroll_args = EnrollArgs {
-                        url: args
-                            .url
-                            .clone()
-                            .ok_or_else(|| Error::new(2, "First-start enrolment needs --url"))?,
-                        name: args.name.clone().or(cli.instance.clone()),
-                        system: false,
-                        run_as: RunAs::Current,
-                        code: None,
-                        legacy_code: None,
-                        code_stdin: false,
-                        claude: None,
-                        json: false,
-                    };
+                    let enroll_args =
+                        EnrollArgs {
+                            url: Some(args.url.clone().ok_or_else(|| {
+                                Error::new(2, "First-start enrolment needs --url")
+                            })?),
+                            name: args.name.clone().or(cli.instance.clone()),
+                            system: false,
+                            run_as: RunAs::Current,
+                            code: None,
+                            legacy_code: None,
+                            replace: false,
+                            code_stdin: false,
+                            claude: None,
+                            json: false,
+                        };
                     let paths = Paths::discover(false);
                     let answer =
                         enroll::enroll(&paths, &enroll_args, &code, agentum::VERSION).await?;

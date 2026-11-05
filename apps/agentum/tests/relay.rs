@@ -197,6 +197,7 @@ fn backoff_preserves_both_roles_windows_and_stability() {
 
 #[tokio::test]
 async fn revoked_role_stops_its_sibling() {
+    let temp = tempfile::tempdir().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let stopped_a = Arc::default();
@@ -222,13 +223,13 @@ async fn revoked_role_stops_its_sibling() {
     let roles: Vec<Arc<dyn Role>> = vec![
         Arc::new(TestRole {
             kind: SocketRole::AgentHost,
-            state_file: None,
+            state_file: Some(temp.path().join("connection-agent_host.json")),
             stopped: stopped_a,
             replies: Arc::default(),
         }),
         Arc::new(TestRole {
             kind: SocketRole::Computer,
-            state_file: None,
+            state_file: Some(temp.path().join("connection-computer.json")),
             stopped: stopped_b.clone(),
             replies: Arc::default(),
         }),
@@ -237,6 +238,24 @@ async fn revoked_role_stops_its_sibling() {
         .await
         .unwrap_err();
     assert_eq!(error.code, 3);
+    let reasons: Vec<Value> = ["agent_host", "computer"]
+        .iter()
+        .map(|role| {
+            serde_json::from_slice(
+                &std::fs::read(temp.path().join(format!("connection-{role}.json"))).unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+    assert!(
+        reasons
+            .iter()
+            .any(|v| v["reason"] == "stopped because the other role's credential was rejected")
+    );
+    assert!(error.message.contains(&format!(
+        "--instance {} --replace",
+        temp.path().file_name().unwrap().to_string_lossy()
+    )));
     server.await.unwrap();
     assert!(!stopped_b.lock().unwrap().is_empty());
 }

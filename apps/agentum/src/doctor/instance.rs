@@ -8,10 +8,10 @@ pub fn checks(ctx: &Context<'_>) -> Vec<Check> {
                 .into(),
         }];
     }
-    match ctx.paths.load(ctx.name) {
+    match crate::service::read_config(ctx.paths, ctx.name, "doctor") {
         Ok(_) => vec![ok(
             "instance",
-            "Config and credential are private and owned by this user",
+            "Config and credential have private modes and an authorised owner",
         )],
         Err(error) => vec![Check {
             name: "instance",

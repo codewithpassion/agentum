@@ -47,8 +47,11 @@ fn version_help_usage_and_service_exit_codes() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(4));
-    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert!(error.to_string().contains("Not enrolled"));
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.starts_with("Problem: "));
+    assert!(error.contains("Not enrolled"));
+    assert!(error.contains("Why:"));
+    assert!(error.contains("Fix:"));
 }
 
 #[test]
@@ -148,7 +151,7 @@ fn doctor_without_enrolment_reports_every_area_without_launching_claude() {
         .args(["doctor", "--instance", "rc-integration-uninstalled"])
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(5));
+    assert_eq!(output.status.code(), Some(4));
     let text = String::from_utf8(output.stdout).unwrap();
     for area in [
         "instance:",
@@ -162,4 +165,42 @@ fn doctor_without_enrolment_reports_every_area_without_launching_claude() {
     }
     assert!(text.contains("enroll"));
     assert!(!text.contains("enable-linger user"));
+}
+
+#[test]
+fn doctor_without_enrollment_and_malformed_code() {
+    let temp = tempfile::tempdir().unwrap();
+    assert_eq!(
+        command(&temp).arg("doctor").output().unwrap().status.code(),
+        Some(4)
+    );
+    let output = command(&temp)
+        .args(["enroll", "--url", "http://127.0.0.1:1", "--code", "bad"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("malformed"));
+}
+
+#[test]
+fn all_help_entries_have_descriptions_and_examples() {
+    use clap::CommandFactory;
+    fn check(mut command: clap::Command) {
+        for arg in command.get_arguments() {
+            assert!(
+                arg.get_help().is_some(),
+                "{}: {}",
+                command.get_name(),
+                arg.get_id()
+            );
+        }
+        assert!(command.render_help().to_string().contains("Example:"));
+        for sub in command.get_subcommands() {
+            if sub.get_name() != "help" {
+                assert!(sub.get_about().is_some(), "{}", sub.get_name());
+                check(sub.clone());
+            }
+        }
+    }
+    check(agentum::cli::Cli::command());
 }

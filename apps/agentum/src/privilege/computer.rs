@@ -18,7 +18,9 @@ impl Problem {
             "Start computer commands",
             "running as root requires --allow-root",
             "Use an unprivileged user or explicitly accept root access.",
-            format!("agentum run --instance {instance} --allow-root"),
+            format!(
+                "agentum service install --instance {instance} --allow-root --allow-root-agents # persists policy and restarts the service; foreground: agentum run --instance {instance} --allow-root"
+            ),
         );
         super::Explanation {
             tried: tried.into(),
@@ -80,7 +82,11 @@ mod root_tests {
     fn root_refusal_requires_explicit_override() {
         let error = super::check_root(0, false, "box").unwrap_err();
         assert_eq!(error.code, 5);
-        assert!(error.message.contains("--allow-root"));
+        assert!(
+            error.message.contains(
+                "agentum service install --instance box --allow-root --allow-root-agents"
+            )
+        );
         assert!(super::check_root(1000, false, "box").is_ok());
         assert!(super::check_root(0, true, "box").is_ok());
     }

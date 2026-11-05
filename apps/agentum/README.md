@@ -34,7 +34,8 @@ agentum status --instance office
 after reading it. The code chooses the roles. `--name` is optional: otherwise the
 server's machine name becomes the instance name, with a numeric suffix on clash.
 An explicit name must be unused. Names contain lowercase letters, digits and
-hyphens, up to 40 characters.
+hyphens, up to 40 characters. System instance names have a 20-character limit and
+cannot end in `-svc`; server names are shortened before adding a unique suffix.
 
 The user service uses your systemd user manager. Installation checks the session
 bus and offers to enable lingering so the service starts at boot and survives
@@ -69,7 +70,7 @@ sudo agentum service install --system --run-as agent-user --instance office \
 
 Set up Claude's login for `agentum-office` before expecting agent-host runs to
 succeed. The sudoers drop-in permits Claude with `SETENV` and a chosen workdir,
-work-file utilities, and only the fixed `agentum --computer-worker` entry point
+`/bin/kill` as the agent user for process-group cleanup, work-file utilities, and only the fixed `agentum --computer-worker` entry point
 for the computer. It disables `requiretty` and `use_pty` for the service account
 so the worker's piped JSON input is preserved. If host policy overrides those
 settings, use `visudo` to set `Defaults:agentum-office-svc !requiretty, !use_pty`
@@ -111,7 +112,22 @@ an enrolled role are shown as skipped. It changes nothing and does not open a
 role socket, which would replace a running connection. Claude version and login checks
 run bounded non-conversation probes.
 Run logs are JSON on stderr by default; journald keeps them. `--log-format text`
-is useful at a terminal. Computer commands have a separate rotating audit log.
+is useful at a terminal. Other commands print plain text errors with Problem, Why
+and Fix lines. Computer commands have a separate rotating audit log.
+
+Read system instances with `sudo agentum status --instance office` or
+`sudo agentum doctor --instance office`; keep their service ownership intact.
+After revocation, get a new code from Machines and replace the enrolment in place:
+
+```sh
+agentum enroll --instance office --replace --code-stdin
+agentum service restart --instance office
+```
+
+Use sudo for these commands on a system instance. Replacement keeps the name,
+stored URL (unless `--url` is given), run-as choice and computer settings, so the
+installed unit continues to work. Re-running `service install` reinstalls the
+unit and restarts it; there is no `--refresh` flag.
 
 To uninstall a service:
 
@@ -146,5 +162,15 @@ From the repository root, run `bun run check && bun run test`. Direct Rust
 commands go through `bash apps/agentum/scripts/cargo.sh`, which also works around
 the host compiler shim. Tests use fake servers and fake Claude processes. The
 real Claude conformance test runs only with `AGENTUM_CLAUDE_E2E=1`; ordinary tests
-never spend Claude tokens. See [ARCHITECTURE.md](ARCHITECTURE.md) for boundaries
+never spend Claude tokens. Real desktop tests also require `AGENTUM_DESKTOP_E2E=1`. See [ARCHITECTURE.md](ARCHITECTURE.md) for boundaries
 and the executor regression coverage.
+
+For RC.7 on a real machine, verify status and doctor as root after system install
+for both generated and named service owners; replacement enrolment must preserve
+ownership and reconnect after restarting the existing unit. With agent-user mode,
+use a fake Claude that ignores TERM and forks a descendant: cancellation, lease
+loss and service stop must remove the whole process group, including sudo's child,
+within the TERM grace and bounded KILL wait. Check host sudo process-group behavior
+with `!use_pty`, and verify the installed rule permits TERM/KILL as only this
+instance's agent user. Also test a named user's Claude installed only in their
+login PATH or `~/.local/bin`, and name clashes in that user's config directory.

@@ -167,3 +167,19 @@ pub(crate) fn disk_process(user: &str, binary: &str, args: &[String]) -> std::pr
         .stderr(Stdio::piped());
     command
 }
+
+/// This target-user kill is allowed by the same per-instance sudoers drop-in as Claude.
+pub(crate) fn signal_command(user: &str, group: u32, signal: &str) -> std::process::Command {
+    let mut command = std::process::Command::new("sudo");
+    command.args([
+        "-n",
+        "-u",
+        user,
+        "--",
+        "/bin/kill",
+        signal,
+        "--",
+        &format!("-{group}"),
+    ]);
+    command
+}

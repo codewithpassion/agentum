@@ -434,7 +434,7 @@ fn sudoers(name: &str, claude: &str, binary: &Path) -> Result<String> {
     let agent = format!("agentum-{name}");
     let worker = privilege::computer::worker_rule(&service, &agent, binary);
     Ok(format!(
-        "# Piped stream-json must not require or allocate a terminal.\nDefaults:{service} !requiretty, !use_pty\n{service} ALL=({agent}) CWD=* NOPASSWD: SETENV: {claude}, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find\n{worker}\n"
+        "# Piped stream-json must not require or allocate a terminal.\nDefaults:{service} !requiretty, !use_pty\n{service} ALL=({agent}) CWD=* NOPASSWD: SETENV: {claude}, NOSETENV: /bin/kill, /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find\n{worker}\n"
     ))
 }
 fn prepare_directories(
@@ -610,6 +610,7 @@ fn load_config(runner: &mut impl Runner, paths: &Paths, name: &str, root: bool) 
     if !paths.system || !root {
         return paths.load(name).map(|(config, _)| config);
     }
+    instance::validate_name(name)?;
     let dir = paths.config(name);
     // Explain planted links before reading config through one (which could
     // otherwise report a misleading JSON or access error).
@@ -641,6 +642,29 @@ fn load_config(runner: &mut impl Runner, paths: &Paths, name: &str, root: bool) 
         }
     }
     Ok(config)
+}
+/// Administrative read accepts root or the configured service owner, with private modes.
+pub fn read_config(paths: &Paths, name: &str, action: &str) -> Result<Config> {
+    load_config(&mut Commands, paths, name, nix::unistd::geteuid().is_root()).map_err(|error| {
+        if paths.system {
+            Error::new(error.code, format!("Cannot read private system instance {name}. Why: {} Fix: sudo agentum {action} --instance {name}", error.message.split("Fix:").next().unwrap_or("check ownership and modes")))
+        } else { error }
+    })
+}
+pub fn enrollment_locations(mode: &RunAs, name: &str) -> Vec<Paths> {
+    let user = mode.user(name);
+    enrollment_locations_for(&mut Commands, &user)
+}
+fn enrollment_locations_for(runner: &mut impl Runner, user: &str) -> Vec<Paths> {
+    account(runner, user)
+        .map(|account| {
+            vec![Paths::new(
+                PathBuf::from(&account.home).join(".config/agentum"),
+                PathBuf::from(account.home).join(".local/state/agentum"),
+                false,
+            )]
+        })
+        .unwrap_or_default()
 }
 fn explain_choice(config: &Config, name: &str) -> String {
     let user = if config.system && config.run_as == RunAs::Current {
@@ -675,6 +699,34 @@ fn confirm(message: &str, yes: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+fn resolve_for_user(runner: &mut impl Runner, binary: &str, user: Option<&str>) -> Option<PathBuf> {
+    if let Some(user) = user {
+        let script = format!(
+            "PATH=\"$HOME/.local/bin:$PATH\"; command -v {}",
+            shell_path(Path::new(binary))
+        );
+        let out = output(runner, "runuser", &["--login", user, "--command", &script]);
+        let path = PathBuf::from(out.stdout.trim());
+        if out.success && path.is_absolute() {
+            resolve_binary(path.to_str()?)
+        } else {
+            None
+        }
+    } else {
+        resolve_binary(binary).or_else(|| {
+            if binary.contains('/') {
+                return None;
+            }
+            let home = std::env::var_os("HOME")?;
+            resolve_binary(
+                PathBuf::from(home)
+                    .join(".local/bin")
+                    .join(binary)
+                    .to_str()?,
+            )
+        })
+    }
 }
 fn resolve_binary(binary: &str) -> Option<PathBuf> {
     let candidates = if binary.contains('/') {
@@ -773,7 +825,8 @@ fn install(runner: &mut impl Runner, paths: &Paths, name: &str, args: &InstallAr
     }
     if config.roles.contains(&crate::wire::MachineRole::AgentHost) {
         let binary = config.claude_binary.as_deref().unwrap_or("claude");
-        if let Some(path) = resolve_binary(binary) {
+        let target = paths.system.then(|| config.run_as.user(name));
+        if let Some(path) = resolve_for_user(runner, binary, target.as_deref()) {
             config.claude_binary = Some(path.display().to_string());
         } else {
             eprintln!(
@@ -1061,6 +1114,56 @@ mod tests {
             run_as,
         )
     }
+    #[test]
+    fn enrollment_checks_the_target_users_home() {
+        let locations = enrollment_locations_for(&mut Fake::default(), "dom");
+        assert_eq!(
+            locations[0].config_root,
+            Path::new("/home/dom/.config/agentum")
+        );
+    }
+    #[test]
+    fn claude_lookup_uses_the_target_login_environment() {
+        struct LoginPath(PathBuf);
+        impl Runner for LoginPath {
+            fn output(&mut self, program: &str, args: &[String]) -> std::io::Result<Output> {
+                assert_eq!(program, "runuser");
+                assert_eq!(&args[..3], ["--login", "dom", "--command"]);
+                assert!(args[3].contains("$HOME/.local/bin:$PATH"));
+                assert!(args[3].contains("command -v 'claude'"));
+                Ok(Output {
+                    success: true,
+                    stdout: self.0.display().to_string(),
+                    stderr: String::new(),
+                })
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let binary = temp.path().join("claude");
+        fs::write(&binary, "fake executable, never run").unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            resolve_for_user(&mut LoginPath(binary.clone()), "claude", Some("dom")),
+            Some(binary)
+        );
+    }
+    #[test]
+    fn system_read_fixes_never_change_ownership() {
+        let paths = Paths::new(
+            "/nonexistent/agentum".into(),
+            "/nonexistent/state".into(),
+            true,
+        );
+        for action in ["status", "doctor"] {
+            let error = read_config(&paths, "office", action).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains(&format!("sudo agentum {action} --instance office"))
+            );
+            assert!(!error.message.contains("chown"));
+        }
+    }
     fn args() -> InstallArgs {
         InstallArgs {
             user: false,
@@ -1068,7 +1171,6 @@ mod tests {
             run_as: None,
             claude: None,
             yes: true,
-            refresh: false,
             allow_root_agents: false,
             computer: ComputerArgs::default(),
         }
@@ -1287,6 +1389,18 @@ mod tests {
                 "agentum-office",
                 executable,
                 &["test".into()]
+            )));
+        }
+        for signal in ["-TERM", "-KILL"] {
+            assert!(allowed(&crate::privilege::agent::signal_command(
+                "agentum-office",
+                123,
+                signal
+            )));
+            assert!(!allowed(&crate::privilege::agent::signal_command(
+                "agentum-other",
+                123,
+                signal
             )));
         }
         assert!(allowed(&worker_command("agentum-office", binary)));

@@ -202,23 +202,45 @@ fn test_binary_guard(binary: &str) -> std::io::Result<()> {
 fn signal_group(id: u32, signal: nix::sys::signal::Signal) {
     let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(id as i32), signal);
 }
-async fn terminate(child: &mut Child, group: u32) {
-    signal_group(group, nix::sys::signal::Signal::SIGTERM);
+fn group_alive(result: std::result::Result<(), nix::errno::Errno>) -> bool {
+    !matches!(result, Err(nix::errno::Errno::ESRCH))
+}
+async fn signal_as_user(group: u32, signal: nix::sys::signal::Signal, user: Option<&str>) {
+    signal_group(group, signal);
+    if let Some(user) = user {
+        let command = crate::privilege::agent::signal_command(
+            user,
+            group,
+            if signal == nix::sys::signal::Signal::SIGTERM {
+                "-TERM"
+            } else {
+                "-KILL"
+            },
+        );
+        let mut command = Command::from(command);
+        command.kill_on_drop(true);
+        let _ = tokio::time::timeout(Duration::from_secs(2), command.output()).await;
+    }
+}
+async fn terminate(child: &mut Child, group: u32, user: Option<&str>) {
+    signal_as_user(group, nix::sys::signal::Signal::SIGTERM, user).await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
-        let alive =
-            nix::sys::signal::killpg(nix::unistd::Pid::from_raw(group as i32), None).is_ok();
+        let alive = group_alive(nix::sys::signal::killpg(
+            nix::unistd::Pid::from_raw(group as i32),
+            None,
+        ));
         let _ = child.try_wait();
         if !alive {
             break;
         }
         if tokio::time::Instant::now() >= deadline {
-            signal_group(group, nix::sys::signal::Signal::SIGKILL);
+            signal_as_user(group, nix::sys::signal::Signal::SIGKILL, user).await;
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let _ = child.wait().await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
 }
 async fn write_frame(
     stdin: &Arc<Mutex<Option<tokio::process::ChildStdin>>>,
@@ -475,10 +497,15 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
     };
     let _ = tokio::time::timeout(grace, child.wait()).await;
     if child.try_wait()?.is_none() {
-        terminate(&mut child, group).await;
+        terminate(&mut child, group, disk.user.as_deref()).await;
     } else {
         // Reap any descendants even when the direct child has already exited.
-        signal_group(group, nix::sys::signal::Signal::SIGKILL);
+        signal_as_user(
+            group,
+            nix::sys::signal::Signal::SIGKILL,
+            disk.user.as_deref(),
+        )
+        .await;
     }
     let mut stderr_tail = stderr_tail;
     let tail = match tokio::time::timeout(Duration::from_secs(5), &mut stderr_tail).await {
@@ -547,4 +574,33 @@ pub fn prerequisites(
         .unwrap()
         .as_str()
         .to_owned())
+}
+
+#[cfg(test)]
+mod termination_review_tests {
+    #[test]
+    fn permission_denied_is_alive_and_only_esrch_is_dead() {
+        use nix::errno::Errno;
+        assert!(super::group_alive(Ok(())));
+        assert!(super::group_alive(Err(Errno::EPERM)));
+        assert!(!super::group_alive(Err(Errno::ESRCH)));
+    }
+    #[test]
+    fn escalation_uses_the_per_instance_sudo_target() {
+        let command = crate::privilege::agent::signal_command("agentum-office", 123, "-KILL");
+        assert_eq!(command.get_program(), "sudo");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [
+                "-n",
+                "-u",
+                "agentum-office",
+                "--",
+                "/bin/kill",
+                "-KILL",
+                "--",
+                "-123"
+            ]
+        );
+    }
 }
