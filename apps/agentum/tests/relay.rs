@@ -513,6 +513,16 @@ async fn production_constructors_send_strict_hellos_and_log_frames() {
         RunAs::Current,
     );
     config.computer.allow_root = true;
+    // Prerequisites must never discover the developer's real Claude CLI.
+    let fake_claude = temp.path().join("fake-claude");
+    std::fs::write(
+        &fake_claude,
+        "#!/bin/sh\ntest \"$1\" = --version || exit 42\necho '2.1.300 (Fake Claude)'\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&fake_claude, std::fs::Permissions::from_mode(0o700)).unwrap();
+    config.claude_binary = Some(fake_claude.display().to_string());
     paths.save("office", &config, "ag_mach_test").unwrap();
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     let server = tokio::spawn(async move {

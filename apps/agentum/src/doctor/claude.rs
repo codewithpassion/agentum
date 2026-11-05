@@ -1,20 +1,27 @@
 use super::*;
-use crate::wire::MachineRole;
+use crate::{claude, wire::MachineRole};
+
 pub fn checks(ctx: &Context<'_>) -> Vec<Check> {
-    if !ctx
+    let Some(config) = ctx
         .config
-        .is_some_and(|c| c.roles.contains(&MachineRole::AgentHost))
-    {
+        .filter(|c| c.roles.contains(&MachineRole::AgentHost))
+    else {
         return vec![];
+    };
+    let user = if config.run_as == crate::instance::RunAs::AgentUser {
+        Some(config.run_as.user(ctx.name))
+    } else {
+        None
+    };
+    match claude::prerequisites(config, user.as_deref(), ctx.name) {
+        Ok(_) => vec![ok(
+            "claude",
+            "Claude CLI >=2.1.300 is executable for the run-as user",
+        )],
+        Err(e) => vec![Check {
+            name: "claude",
+            level: Level::Problem,
+            message: e.message,
+        }],
     }
-    let binary = ctx
-        .config
-        .and_then(|c| c.claude_binary.as_deref())
-        .unwrap_or("claude");
-    if !(crate::privilege::on_path(binary) || std::path::Path::new(binary).is_file()) {
-        return vec![ctx.problem("claude", Problem::ClaudeMissing)];
-    }
-    // Never launch Claude in RC.2, including --version or auth probes. RC.4 adds
-    // opt-in driver checks; a normal test run must never consume Claude tokens.
-    vec![Check { name: "claude", level: Level::Warning, message: "Claude binary found. Version >=2.1.300, run-as access and login checks: not built yet (RC.4)".into() }]
 }
