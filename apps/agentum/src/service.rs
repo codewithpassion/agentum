@@ -990,8 +990,32 @@ pub fn run(name: Option<&str>, action: ServiceCommand) -> Result<()> {
                 &PathBuf::from(format!("/etc/sudoers.d/agentum-{name}")),
             )?;
             println!(
-                "Removed {unit}. Enrolment, state, accounts and lingering were kept. Revoke the machine on the Machines page if it is retired."
+                "Removed {unit}{}.",
+                if paths.system {
+                    " and its sudoers rule"
+                } else {
+                    ""
+                }
             );
+            match load_config(&mut runner, &paths, &name, root) {
+                Ok(config) => {
+                    let lingering = !paths.system && {
+                        let linger = output(
+                            &mut runner,
+                            "loginctl",
+                            &["show-user", &user, "-p", "Linger", "--value"],
+                        );
+                        linger.success && linger.stdout.trim() == "yes"
+                    };
+                    print!(
+                        "{}",
+                        uninstall_help(&paths, &name, &config, &user, lingering)
+                    );
+                }
+                Err(error) => println!(
+                    "Enrolment, state, accounts and lingering were kept. Cannot show removal steps without the saved config: {error}"
+                ),
+            }
         }
         ServiceCommand::Restart => {
             manager(&mut runner, paths.system, &["restart", &unit], &user, &name)?
@@ -1002,6 +1026,57 @@ pub fn run(name: Option<&str>, action: ServiceCommand) -> Result<()> {
         ServiceCommand::Install(_) | ServiceCommand::Installed => unreachable!(),
     }
     Ok(())
+}
+
+fn uninstall_help(
+    paths: &Paths,
+    name: &str,
+    config: &Config,
+    user: &str,
+    lingering: bool,
+) -> String {
+    let sudo = if config.system { "sudo " } else { "" };
+    let scope = if config.system { "system" } else { "user" };
+    // Match setup_system: named users are never created by this instance.
+    let mut users = vec![];
+    if config.system && !matches!(config.run_as, RunAs::User(_)) {
+        users.push(service_user(config, name));
+        if config.run_as == RunAs::AgentUser {
+            users.push(config.run_as.user(name));
+        }
+    }
+    users.retain(|created| created != user);
+    let mut text = format!(
+        "Kept, so you can install the service again with: {sudo}agentum service install --instance {name} --{scope} --run-as {}\n  enrolment  {}\n  state      {} (removing it deletes the agents' working files)\n",
+        config.run_as,
+        paths.config(name).display(),
+        paths.state(name).display(),
+    );
+    if !users.is_empty() {
+        text.push_str(&format!("  users      {}\n", users.join(", ")));
+    }
+    text.push_str(&format!(
+        "To remove this instance for good:\n  1. Revoke {:?} on the Machines page ({}/settings/machines).\n  2. {sudo}rm -r {} {}\n",
+        config.machine_name,
+        config.server.trim_end_matches('/'),
+        shell_path(&paths.config(name)),
+        shell_path(&paths.state(name)),
+    ));
+    if !users.is_empty() {
+        // Delete the agent account before its service account.
+        users.reverse();
+        let commands: Vec<_> = users
+            .iter()
+            .map(|user| format!("sudo userdel {user}"))
+            .collect();
+        text.push_str(&format!("  3. {}\n", commands.join(" && ")));
+    }
+    if !config.system && lingering {
+        text.push_str(&format!(
+            "  3. loginctl disable-linger {user} # if nothing else of yours needs to keep running after logout\n"
+        ));
+    }
+    text
 }
 
 fn uninstall(
@@ -1159,6 +1234,82 @@ mod tests {
             system,
             run_as,
         )
+    }
+    #[test]
+    fn uninstall_help_for_user_instance_uses_real_paths_and_linger_state() {
+        let paths = Paths::new("/home/dom/my config".into(), "/data/state".into(), false);
+        let mut config = config(false, RunAs::Current);
+        config.machine_name = "Dom's office".into();
+        config.server = "https://staging.agentumbot.io/".into();
+        let expected = concat!(
+            "Kept, so you can install the service again with: agentum service install --instance office --user --run-as current\n",
+            "  enrolment  /home/dom/my config/office\n",
+            "  state      /data/state/office (removing it deletes the agents' working files)\n",
+            "To remove this instance for good:\n",
+            "  1. Revoke \"Dom's office\" on the Machines page (https://staging.agentumbot.io/settings/machines).\n",
+            "  2. rm -r '/home/dom/my config/office' '/data/state/office'\n",
+        );
+        assert_eq!(
+            uninstall_help(&paths, "office", &config, "dom", false),
+            expected
+        );
+        assert_eq!(
+            uninstall_help(&paths, "office", &config, "dom", true),
+            format!(
+                "{expected}  3. loginctl disable-linger dom # if nothing else of yours needs to keep running after logout\n"
+            )
+        );
+    }
+    #[test]
+    fn uninstall_help_for_system_agent_user_lists_only_instance_accounts() {
+        let paths = Paths::new("/etc/agentum".into(), "/var/lib/agentum".into(), true);
+        let mut config = config(true, RunAs::AgentUser);
+        config.server = "https://staging.agentumbot.io".into();
+        assert_eq!(
+            uninstall_help(&paths, "office", &config, "dom", true),
+            concat!(
+                "Kept, so you can install the service again with: sudo agentum service install --instance office --system --run-as agent-user\n",
+                "  enrolment  /etc/agentum/office\n",
+                "  state      /var/lib/agentum/office (removing it deletes the agents' working files)\n",
+                "  users      agentum-office-svc, agentum-office\n",
+                "To remove this instance for good:\n",
+                "  1. Revoke \"office\" on the Machines page (https://staging.agentumbot.io/settings/machines).\n",
+                "  2. sudo rm -r '/etc/agentum/office' '/var/lib/agentum/office'\n",
+                "  3. sudo userdel agentum-office && sudo userdel agentum-office-svc\n",
+            )
+        );
+    }
+    #[test]
+    fn uninstall_help_for_system_named_user_keeps_the_named_account() {
+        let paths = Paths::new("/etc/agentum".into(), "/var/lib/agentum".into(), true);
+        let mut config = config(true, RunAs::User("dom".into()));
+        config.server = "https://agentumbot.io".into();
+        assert_eq!(
+            uninstall_help(&paths, "office", &config, "dom", true),
+            concat!(
+                "Kept, so you can install the service again with: sudo agentum service install --instance office --system --run-as dom\n",
+                "  enrolment  /etc/agentum/office\n",
+                "  state      /var/lib/agentum/office (removing it deletes the agents' working files)\n",
+                "To remove this instance for good:\n",
+                "  1. Revoke \"office\" on the Machines page (https://agentumbot.io/settings/machines).\n",
+                "  2. sudo rm -r '/etc/agentum/office' '/var/lib/agentum/office'\n",
+            )
+        );
+        config.run_as = RunAs::User("agentum-office-svc".into());
+        assert!(!uninstall_help(&paths, "office", &config, "dom", false).contains("userdel"));
+    }
+    #[test]
+    fn uninstall_help_for_system_current_lists_the_service_account_but_never_current_user() {
+        let paths = Paths::new("/etc/agentum".into(), "/var/lib/agentum".into(), true);
+        let config = config(true, RunAs::Current);
+        let help = uninstall_help(&paths, "office", &config, "dom", false);
+        assert!(help.contains("--system --run-as current\n"));
+        assert!(help.contains("  users      agentum-office-svc\n"));
+        assert!(help.ends_with("  3. sudo userdel agentum-office-svc\n"));
+        assert!(
+            !uninstall_help(&paths, "office", &config, "agentum-office-svc", false)
+                .contains("userdel")
+        );
     }
     #[test]
     fn enrollment_checks_the_target_users_home() {

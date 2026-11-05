@@ -137,8 +137,10 @@ agentum service uninstall --instance office
 
 System service operations require root. Uninstall stops and disables the unit
 and removes its sudoers drop-in. It keeps enrolment, state, accounts and lingering.
-Revoke the machine on the Machines page when retiring it; retain or remove its
-local data according to your needs.
+It prints the command to reinstall and the steps to revoke the machine and remove
+this instance's local data and generated accounts. Removing state deletes the
+agents' working files. For a user service, it also shows how to disable lingering
+if enabled and nothing else needs it.
 
 ## Exit codes
 
