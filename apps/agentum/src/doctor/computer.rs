@@ -1,9 +1,12 @@
 use super::*;
 pub fn checks(ctx: &Context<'_>) -> Vec<Check> {
     let Some(config) = ctx.config else {
-        return vec![];
+        return vec![skipped("computer", "no enrolled computer role to check")];
     };
-    let mut checks = vec![];
+    if !config.roles.contains(&crate::wire::MachineRole::Computer) {
+        return vec![skipped("computer", "this instance has no computer role")];
+    }
+    let mut checks = vec![ok("computer", "Computer policy and limits loaded")];
     if config.computer.desktop {
         if ["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
             .iter()
@@ -26,9 +29,14 @@ pub fn checks(ctx: &Context<'_>) -> Vec<Check> {
     }
     if config.roles.contains(&crate::wire::MachineRole::Computer)
         && config.run_as == crate::instance::RunAs::AgentUser
-        && let Ok(binary) = std::env::current_exe()
+        && let Ok(binary) = std::env::current_exe().and_then(std::fs::canonicalize)
     {
         let user = config.run_as.user(ctx.name);
+        checks.push(Check {
+            name: "computer sudo terminal",
+            level: Level::Warning,
+            message: crate::privilege::computer::tty_help(&format!("{user}-svc")),
+        });
         if std::process::Command::new("sudo")
             .args(["-k", "-n", "-l", "-u", &user, "--"])
             .arg(&binary)

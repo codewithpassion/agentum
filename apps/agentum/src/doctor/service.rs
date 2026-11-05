@@ -6,9 +6,9 @@ pub async fn checks(ctx: &Context<'_>) -> Vec<Check> {
     let mut checks = vec![];
     if !std::path::Path::new("/run/systemd/system").exists() {
         checks.push(ctx.problem("systemd", Problem::Systemd));
-        return checks;
+    } else {
+        checks.push(ok("systemd", "systemd is running"));
     }
-    checks.push(ok("systemd", "systemd is running"));
     if !ctx.paths.system {
         if succeeds(&["systemctl", "--user", "show-environment"]).await {
             checks.push(ok("user bus", "User manager is reachable"));
@@ -18,7 +18,7 @@ pub async fn checks(ctx: &Context<'_>) -> Vec<Check> {
         let user = ctx
             .config
             .map(|c| c.run_as.user(ctx.name))
-            .unwrap_or_else(|| "user".into());
+            .unwrap_or_else(|| crate::instance::RunAs::Current.user(ctx.name));
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             tokio::process::Command::new("loginctl")
@@ -53,7 +53,11 @@ pub async fn checks(ctx: &Context<'_>) -> Vec<Check> {
         checks.push(Check {
             name: "service",
             level: Level::Warning,
-            message: format!("No instance service installed. Install with: agentum service install --instance {}", ctx.name),
+            message: if ctx.config.is_some() {
+                format!("No instance service installed. Install with: agentum service install --instance {}", ctx.name)
+            } else {
+                "No instance service installed. Enrol an instance before installing its service.".into()
+            },
         });
     }
     checks

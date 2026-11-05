@@ -1,7 +1,7 @@
 use super::*;
 pub async fn checks(ctx: &Context<'_>) -> Vec<Check> {
     let Some(config) = ctx.config else {
-        return vec![];
+        return vec![skipped("server", "no enrolled server URL to check")];
     };
     let url = match crate::enroll::endpoint(&config.server, "/", false) {
         Ok(url) => url,

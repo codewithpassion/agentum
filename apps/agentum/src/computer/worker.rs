@@ -35,13 +35,11 @@ pub struct Worker {
 }
 impl Worker {
     pub fn start(paths: &Computer) -> Result<Self> {
-        let binary = std::env::current_exe().map_err(|e| Error::new(5, e.to_string()))?;
+        let binary = std::env::current_exe()
+            .and_then(std::fs::canonicalize)
+            .map_err(|e| Error::new(5, e.to_string()))?;
         let user = paths.config.run_as.user(&paths.name);
-        let mut command = std::process::Command::new("sudo");
-        command
-            .args(["-k", "-n", "-H", "-u", &user, "--"])
-            .arg(&binary)
-            .arg("--computer-worker");
+        let command = crate::privilege::computer::worker_command(&user, &binary);
         let init = Init {
             config: paths.config.computer.clone(),
             state: paths.state_file.parent().unwrap().to_owned(),

@@ -128,17 +128,9 @@ pub async fn disk_command(
     input: Option<&[u8]>,
 ) -> crate::runs::api::Result<Vec<u8>> {
     use crate::runs::api::Failure;
-    use std::process::Stdio;
     use tokio::{io::AsyncWriteExt, process::Command};
-    let mut command = Command::new("sudo");
-    command
-        .args(["-n", "-u", user, binary])
-        .args(args)
-        .env("LC_ALL", "C")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    let mut command = Command::from(disk_process(user, binary, args));
+    command.kill_on_drop(true);
     let mut child = command.spawn()?;
     let mut stdin = child.stdin.take().unwrap();
     if let Some(input) = input {
@@ -160,4 +152,18 @@ pub async fn disk_command(
         )));
     }
     Ok(result.stdout)
+}
+
+/// Build the fixed work-file utilities for policy tests as well as execution.
+pub(crate) fn disk_process(user: &str, binary: &str, args: &[String]) -> std::process::Command {
+    use std::process::{Command, Stdio};
+    let mut command = Command::new("sudo");
+    command
+        .args(["-n", "-u", user, binary])
+        .args(args)
+        .env("LC_ALL", "C")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
 }

@@ -140,3 +140,26 @@ fn run_as_and_computer_settings_are_a_stable_config_contract() {
     let json = serde_json::to_value(&settings).unwrap();
     assert_eq!(json["workdir"], "/work");
 }
+
+#[test]
+fn doctor_without_enrolment_reports_every_area_without_launching_claude() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = command(&temp)
+        .args(["doctor", "--instance", "rc-integration-uninstalled"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5));
+    let text = String::from_utf8(output.stdout).unwrap();
+    for area in [
+        "instance:",
+        "systemd:",
+        "service:",
+        "claude:",
+        "computer:",
+        "server:",
+    ] {
+        assert!(text.contains(area), "missing {area}: {text}");
+    }
+    assert!(text.contains("enroll"));
+    assert!(!text.contains("enable-linger user"));
+}

@@ -417,19 +417,24 @@ fn transfer_state(directory: &fs::File, uid: u32, gid: u32, skip: Option<&str>) 
     }
     Ok(())
 }
-fn sudoers(name: &str, claude: &str) -> Result<String> {
-    if !claude.starts_with('/')
-        || !claude
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"/_-.".contains(&b))
-    {
+fn sudoers(name: &str, claude: &str, binary: &Path) -> Result<String> {
+    let safe_path = |path: &str| {
+        path.starts_with('/')
+            && path
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"/_-.".contains(&b))
+    };
+    if !safe_path(claude) || !binary.to_str().is_some_and(safe_path) {
         return Err(Error::new(
             5,
-            "Cannot safely put this Claude path in sudoers. Fix: install Claude at /usr/local/bin/claude and use --claude /usr/local/bin/claude",
+            "Cannot safely put this binary path in sudoers. Fix: install agentum at /usr/local/bin/agentum and Claude at /usr/local/bin/claude and use --claude /usr/local/bin/claude",
         ));
     }
+    let service = format!("agentum-{name}-svc");
+    let agent = format!("agentum-{name}");
+    let worker = privilege::computer::worker_rule(&service, &agent, binary);
     Ok(format!(
-        "# /bin/sh is for computer commands (RC.5), run as the agent user.\nagentum-{name}-svc ALL=(agentum-{name}) CWD=* NOPASSWD: SETENV: {claude}, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find, NOSETENV: /bin/sh\n"
+        "# Piped stream-json must not require or allocate a terminal.\nDefaults:{service} !requiretty, !use_pty\n{service} ALL=({agent}) CWD=* NOPASSWD: SETENV: {claude}, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find\n{worker}\n"
     ))
 }
 fn prepare_directories(
@@ -501,8 +506,13 @@ fn prepare_directories(
     }
     Ok(())
 }
-fn install_sudoers(runner: &mut impl Runner, name: &str, claude: &str) -> Result<()> {
-    let rule = sudoers(name, claude)?;
+fn install_sudoers(
+    runner: &mut impl Runner,
+    name: &str,
+    claude: &str,
+    binary: &Path,
+) -> Result<()> {
+    let rule = sudoers(name, claude, binary)?;
     let staged = tempfile::NamedTempFile::new()
         .map_err(|_| instance::access_error(Path::new("/etc/sudoers.d")))?;
     fs::write(staged.path(), rule).map_err(|_| instance::access_error(staged.path()))?;
@@ -537,6 +547,7 @@ fn setup_system(
     paths: &Paths,
     name: &str,
     config: &Config,
+    binary: &Path,
 ) -> Result<()> {
     let user = service_user(config, name);
     let home = paths.state(name);
@@ -576,7 +587,7 @@ fn setup_system(
             .claude_binary
             .as_deref()
             .unwrap_or("/usr/local/bin/claude");
-        install_sudoers(runner, name, claude)?;
+        install_sudoers(runner, name, claude, binary)?;
         // Check access only. Never launch the real Claude CLI during installation.
         if config.roles.contains(&crate::wire::MachineRole::AgentHost)
             && !output(
@@ -639,7 +650,8 @@ fn explain_choice(config: &Config, name: &str) -> String {
     };
     if config.run_as == RunAs::AgentUser {
         format!(
-            "Agents and computer commands will run as {user}, with a separate home and work tree."
+            "Agents and computer commands will run as {user}, with a separate home and work tree. {}",
+            privilege::computer::tty_help(&format!("agentum-{name}-svc"))
         )
     } else {
         format!(
@@ -809,7 +821,7 @@ fn install(runner: &mut impl Runner, paths: &Paths, name: &str, args: &InstallAr
         if matches!(config.run_as, RunAs::User(_)) {
             check_binary_access(runner, &binary, &service_user(&config, name))?;
         }
-        setup_system(runner, paths, name, &config)?;
+        setup_system(runner, paths, name, &config, &binary)?;
     } else {
         atomic_write(
             &paths.config(name).join("config.json"),
@@ -1179,13 +1191,111 @@ mod tests {
         assert!(error.message.contains("Fix:"));
     }
     #[test]
-    fn sudoers_is_per_instance_and_includes_computer_shell() {
-        let rule = sudoers("office", "/usr/local/bin/claude").unwrap();
-        assert!(rule.contains("agentum-office-svc ALL=(agentum-office)"));
-        assert!(rule.contains("NOSETENV: /bin/sh"));
-        assert!(rule.contains("# /bin/sh is for computer commands (RC.5)"));
-        assert!(!rule.contains("(ALL)"));
-        assert!(sudoers("office", "/home/dom/a,b").is_err());
+    fn sudoers_allows_runtime_commands_and_refuses_other_workers() {
+        use crate::privilege::{agent::claude_command, computer::worker_command};
+        let binary = Path::new("/usr/local/bin/agentum");
+        let rule = sudoers("office", "/usr/local/bin/claude", binary).unwrap();
+        assert!(rule.contains("Defaults:agentum-office-svc !requiretty, !use_pty"));
+        assert!(!rule.contains("/bin/sh"));
+        // Parse the rendered command lists, including sticky tags. No sudo runs.
+        let allowed = |command: &std::process::Command| {
+            assert_eq!(command.get_program(), "sudo");
+            let args = command
+                .get_args()
+                .map(|a| a.to_str().unwrap())
+                .collect::<Vec<_>>();
+            let mut i = 0;
+            let mut user = "";
+            let mut cwd = false;
+            let mut env = false;
+            while i < args.len() {
+                match args[i] {
+                    "-u" => {
+                        user = args[i + 1];
+                        i += 2;
+                    }
+                    "-D" => {
+                        cwd = true;
+                        i += 2;
+                    }
+                    "-n" | "-k" | "-H" | "-l" | "--" => i += 1,
+                    a if a.starts_with("--preserve-env=") => {
+                        env = true;
+                        i += 1;
+                    }
+                    _ => break,
+                }
+            }
+            rule.lines().any(|line| {
+                let Some((head, commands)) = line.split_once(" NOPASSWD: ") else {
+                    return false;
+                };
+                if !head.starts_with(&format!("agentum-office-svc ALL=({user})"))
+                    || (cwd && !head.contains("CWD=*"))
+                {
+                    return false;
+                }
+                let mut setenv = false;
+                commands.split(", ").any(|entry| {
+                    let entry = if let Some(e) = entry.strip_prefix("SETENV: ") {
+                        setenv = true;
+                        e
+                    } else if let Some(e) = entry.strip_prefix("NOSETENV: ") {
+                        setenv = false;
+                        e
+                    } else {
+                        entry
+                    };
+                    let words = entry.split_whitespace().collect::<Vec<_>>();
+                    !words.is_empty()
+                        && i < args.len()
+                        && words[0] == args[i]
+                        && (!env || setenv)
+                        && (words.len() == 1 || words[1..] == args[i + 1..])
+                })
+            })
+        };
+        for preserve in [
+            vec!["CLAUDE_CODE_ENTRYPOINT".into()],
+            vec!["API_KEY".into(), "CLAUDE_CODE_ENTRYPOINT".into()],
+        ] {
+            let mut command = claude_command(
+                "/usr/local/bin/claude",
+                Some("agentum-office"),
+                Some(Path::new("/work")),
+                &preserve,
+            );
+            command.args(["--input-format", "stream-json"]);
+            assert!(allowed(&command));
+        }
+        for probe in [vec!["--version"], vec!["auth", "status", "--json"]] {
+            let mut command =
+                claude_command("/usr/local/bin/claude", Some("agentum-office"), None, &[]);
+            command.args(probe);
+            assert!(allowed(&command));
+        }
+        for executable in [
+            "/bin/mkdir",
+            "/bin/rm",
+            "/usr/bin/dd",
+            "/usr/bin/head",
+            "/usr/bin/realpath",
+            "/usr/bin/stat",
+            "/usr/bin/find",
+        ] {
+            assert!(allowed(&crate::privilege::agent::disk_process(
+                "agentum-office",
+                executable,
+                &["test".into()]
+            )));
+        }
+        assert!(allowed(&worker_command("agentum-office", binary)));
+        let mut extra = worker_command("agentum-office", binary);
+        extra.arg("--allow-root");
+        assert!(!allowed(&extra));
+        assert!(!allowed(&worker_command("agentum-other", binary)));
+        assert!(sudoers("office", "/home/dom/a,b", binary).is_err());
+        assert!(sudoers("office", "/usr/bin/claude", Path::new("/bad path/agentum")).is_err());
     }
     #[test]
     fn system_config_reload_accepts_only_expected_owner() {
@@ -1560,7 +1670,13 @@ mod tests {
             fail: Some("visudo".into()),
             ..Fake::default()
         };
-        let error = install_sudoers(&mut fake, "office", "/usr/local/bin/claude").unwrap_err();
+        let error = install_sudoers(
+            &mut fake,
+            "office",
+            "/usr/local/bin/claude",
+            Path::new("/usr/local/bin/agentum"),
+        )
+        .unwrap_err();
         assert!(error.message.contains("install sudo"));
         assert!(!fake.calls.iter().any(|call| call[0] == "install"));
         // An unprivileged test cannot chown to uid 0. Exercise the syscall

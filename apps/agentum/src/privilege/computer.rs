@@ -101,3 +101,19 @@ mod worker_tests {
         worker_rule("svc", "agent", std::path::Path::new("agentum"));
     }
 }
+
+/// The worker has one fixed entry point; all settings travel over its private pipe.
+pub(crate) fn worker_command(user: &str, binary: &std::path::Path) -> std::process::Command {
+    let mut command = std::process::Command::new("sudo");
+    command
+        .args(["-k", "-n", "-H", "-u", user, "--"])
+        .arg(binary)
+        .arg("--computer-worker");
+    command
+}
+
+pub fn tty_help(service_user: &str) -> String {
+    format!(
+        "The sudoers drop-in disables requiretty and use_pty for {service_user} so piped worker input stays intact. If host policy overrides it, use visudo to set Defaults:{service_user} !requiretty, !use_pty after the overriding policy, then restart this instance."
+    )
+}

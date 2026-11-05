@@ -49,6 +49,13 @@ pub fn ok(name: &'static str, message: &str) -> Check {
         message: message.into(),
     }
 }
+pub fn skipped(name: &'static str, reason: &str) -> Check {
+    Check {
+        name,
+        level: Level::Warning,
+        message: format!("Skipped: {reason}"),
+    }
+}
 // One file per area lets RC.3/4/5 add their checks without editing another role.
 pub async fn run(ctx: &Context<'_>) -> Vec<Check> {
     let mut checks = instance::checks(ctx);

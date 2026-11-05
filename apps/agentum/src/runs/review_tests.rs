@@ -594,9 +594,43 @@ async fn library_unreachable_is_warning_and_failed_sync_in_never_syncs_out() {
         .lock()
         .unwrap()
         .insert("/library/".into(), 503);
-    *server.claim_override.lock().unwrap() = Some(c);
-    host.offer("A".into(), "r".into());
-    wait_calls(&server, "complete", 1).await;
+    // Capture the executor's diagnostic as well as proving the run continues.
+    #[derive(Clone)]
+    struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Log {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let log = Log(Arc::default());
+    let writer = log.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(move || writer.clone())
+        .finish();
+    let api = RunApi::new(
+        Http::new(
+            &url,
+            "machine-secret",
+            Masker::default(),
+            CancellationToken::new(),
+            30,
+        ),
+        "r",
+    );
+    let (_send, changes) = mpsc::unbounded_channel();
+    use tracing::instrument::WithSubscriber;
+    executor::execute(&host, &c, api, CancellationToken::new(), changes)
+        .with_subscriber(subscriber)
+        .await;
+    let diagnostic = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+    assert!(diagnostic.contains("WARN"));
+    assert!(diagnostic.contains("Library did not sync; run continues"));
     assert_eq!(complete(&server)["status"], "done");
     assert_eq!(
         server
