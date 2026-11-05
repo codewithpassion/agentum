@@ -159,15 +159,22 @@ impl Host {
             state.known.remove(run);
         }
     }
-    async fn abort_all(&self, stop: bool) {
-        {
-            let mut state = self.state.lock().unwrap();
-            state.stopped |= stop;
-            state.queues.clear();
-            for slot in state.active.values() {
-                slot.cancel.cancel();
-            }
+    fn cancel_all(&self, stop: bool) {
+        let mut state = self.state.lock().unwrap();
+        state.stopped |= stop;
+        state.queues.clear();
+        let active = state
+            .active
+            .values()
+            .map(|s| s.run.clone())
+            .collect::<HashSet<_>>();
+        state.known.retain(|r| active.contains(r));
+        for slot in state.active.values() {
+            slot.cancel.cancel();
         }
+    }
+    async fn abort_all(&self, stop: bool) {
+        self.cancel_all(stop);
         loop {
             let notified = self.idle.notified();
             if self.state.lock().unwrap().active.is_empty() {
@@ -231,7 +238,9 @@ impl Role for AgentHost {
         Ok(())
     }
     async fn shutdown(&self, reason: Shutdown) {
-        if reason != Shutdown::Disconnected {
+        if reason == Shutdown::Replaced {
+            self.host.cancel_all(false);
+        } else if reason != Shutdown::Disconnected {
             self.host
                 .abort_all(matches!(reason, Shutdown::Stopped | Shutdown::Revoked))
                 .await;

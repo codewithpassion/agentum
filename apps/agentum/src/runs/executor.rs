@@ -187,16 +187,26 @@ pub async fn execute(
         if cancel.is_cancelled() {
             return Ok(json!({"status":"aborted"}));
         }
-        let driver = claude::drive(Driver {
-            binary: host.config.claude_binary.as_deref().unwrap_or("claude"),
-            disk: &disk,
-            claim,
-            machine: &host.config.machine_id,
-            prompt,
-            message,
-            gate,
-            cancel: cancel.clone(),
-            events: events.clone(),
+        // The driver must keep consuming pipes and control responses while a
+        // library request is awaiting the network.
+        let driver_disk = disk.clone();
+        let driver_claim = claim.clone();
+        let driver_config = host.config.clone();
+        let driver_events = events.clone();
+        let driver_cancel = cancel.clone();
+        let driver = tokio::spawn(async move {
+            claude::drive(Driver {
+                binary: driver_config.claude_binary.as_deref().unwrap_or("claude"),
+                disk: &driver_disk,
+                claim: &driver_claim,
+                machine: &driver_config.machine_id,
+                prompt,
+                message,
+                gate,
+                cancel: driver_cancel,
+                events: driver_events,
+            })
+            .await
         });
         tokio::pin!(driver);
         let mut checkpoint = tokio::time::interval_at(
@@ -208,8 +218,9 @@ pub async fn execute(
         let mut quiet = tokio::time::Instant::now() + Duration::from_secs(86400);
         loop {
             tokio::select! {
-                body=&mut driver=>break body,
-                paths=changes.recv()=>{if let Some(paths)=paths && let Some(sync)=&mut sync && !cancel.is_cancelled() && sync.sync_in(Some(&paths)).await.is_err(){tracing::warn!("Library pull failed");}},
+                biased;
+                body=&mut driver=>break body.unwrap_or_else(|_| Err(Failure::local("Claude driver task failed"))),
+                paths=changes.recv()=>{if let Some(paths)=paths && !driver.is_finished() && let Some(sync)=&mut sync && !cancel.is_cancelled() && sync.sync_in(Some(&paths)).await.is_err(){tracing::warn!("Library pull failed");}},
                 _ = watch_receive.recv(), if live=>{dirty=true;let now=tokio::time::Instant::now();let first=*first_edit.get_or_insert(now);quiet=(now+Duration::from_millis(750)).min(first+Duration::from_secs(5));},
                 _ = tokio::time::sleep_until(quiet), if dirty=>{dirty=false;first_edit=None;if !cancel.is_cancelled() && let Some(sync)=&mut sync && sync.sync_out().await.is_err(){tracing::warn!("Live library push failed");}},
                 _ = checkpoint.tick()=>{if !cancel.is_cancelled() && let Some(sync)=&mut sync && sync.sync_out().await.is_err(){tracing::warn!("Library checkpoint failed");}}

@@ -4,7 +4,7 @@ use crate::{
     files::Disk,
     runs::{
         api::{Failure, Result},
-        helpers::{agent_env, max_turns, stop_message, text},
+        helpers::{Masker, agent_env, max_turns, stop_message, text},
     },
 };
 use serde_json::{Value, json};
@@ -127,33 +127,107 @@ pub fn probe(
     user: Option<&str>,
     args: &[&str],
 ) -> std::io::Result<std::process::Output> {
+    test_binary_guard(binary)?;
     let mut command = crate::privilege::agent::claude_command(binary, user, None, &[]);
     command
         .args(args)
         .env_clear()
-        .envs(agent_env(std::env::vars()))
-        .output()
-}
-async fn terminate(child: &mut Child) {
-    if child.try_wait().ok().flatten().is_some() {
-        return;
-    }
-    if let Some(id) = child.id() {
-        let _ = nix::sys::signal::kill(
-            nix::unistd::Pid::from_raw(id as i32),
-            nix::sys::signal::Signal::SIGTERM,
-        );
-    }
-    if tokio::time::timeout(Duration::from_secs(5), child.wait())
-        .await
-        .is_err()
+        .envs(agent_env(std::env::vars()));
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    // The Role prerequisite API is synchronous. Release a Tokio worker while the
+    // bounded probe runs; doctor also calls this outside a runtime.
+    let mut run = move || {
+        let mut child = command.spawn()?;
+        drop(child.stdin.take());
+        // Drain both pipes concurrently: a noisy or stuck version command must
+        // still obey the deadline, including descendants holding a pipe open.
+        let read = |mut pipe: Box<dyn std::io::Read + Send>| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                pipe.read_to_end(&mut bytes).map(|_| bytes)
+            })
+        };
+        let stdout = read(Box::new(child.stdout.take().unwrap()));
+        let stderr = read(Box::new(child.stderr.take().unwrap()));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = child.try_wait()?
+                && stdout.is_finished()
+                && stderr.is_finished()
+            {
+                return Ok(std::process::Output {
+                    status,
+                    stdout: stdout
+                        .join()
+                        .map_err(|_| std::io::Error::other("Version output reader failed"))??,
+                    stderr: stderr
+                        .join()
+                        .map_err(|_| std::io::Error::other("Version error reader failed"))??,
+                });
+            }
+            if std::time::Instant::now() >= deadline {
+                signal_group(child.id(), nix::sys::signal::Signal::SIGKILL);
+                let _ = child.wait();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Claude version probe timed out",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    };
+    if tokio::runtime::Handle::try_current()
+        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
     {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+        tokio::task::block_in_place(run)
+    } else {
+        run()
     }
 }
-async fn write_frame(stdin: &Arc<Mutex<tokio::process::ChildStdin>>, frame: &Value) -> Result<()> {
-    let mut stdin = stdin.lock().await;
+// Cargo integration tests link the normal library, so cfg(test) alone is not
+// enough. Never resolve an implicit Claude through PATH from a test executable.
+fn test_binary_guard(binary: &str) -> std::io::Result<()> {
+    let testing = cfg!(test)
+        || std::env::current_exe()
+            .ok()
+            .is_some_and(|p| p.parent().is_some_and(|p| p.ends_with("deps")));
+    if testing && !std::path::Path::new(binary).is_absolute() {
+        return Err(std::io::Error::other(
+            "Tests require an explicit fake Claude binary",
+        ));
+    }
+    Ok(())
+}
+fn signal_group(id: u32, signal: nix::sys::signal::Signal) {
+    let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(id as i32), signal);
+}
+async fn terminate(child: &mut Child, group: u32) {
+    signal_group(group, nix::sys::signal::Signal::SIGTERM);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let alive =
+            nix::sys::signal::killpg(nix::unistd::Pid::from_raw(group as i32), None).is_ok();
+        let _ = child.try_wait();
+        if !alive {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            signal_group(group, nix::sys::signal::Signal::SIGKILL);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let _ = child.wait().await;
+}
+async fn write_frame(
+    stdin: &Arc<Mutex<Option<tokio::process::ChildStdin>>>,
+    frame: &Value,
+) -> Result<()> {
+    let mut guard = stdin.lock().await;
+    let stdin = guard
+        .as_mut()
+        .ok_or_else(|| Failure::local("Claude input is closed"))?;
     stdin.write_all(format!("{frame}\n").as_bytes()).await?;
     stdin.flush().await?;
     Ok(())
@@ -181,6 +255,7 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
         cancel,
         events,
     } = options;
+    test_binary_guard(binary)?;
     let mut preserve = vec!["CLAUDE_CODE_ENTRYPOINT".to_owned()];
     preserve.extend(
         claim["env"]
@@ -244,13 +319,15 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        .kill_on_drop(true)
+        .process_group(0);
     let mut child = command.spawn().map_err(|_| {
         Failure::local(
             "Cannot start claude as the run-as user. Run agentum doctor to repair its access.",
         )
     })?;
-    let stdin = Arc::new(Mutex::new(child.stdin.take().unwrap()));
+    let group = child.id().unwrap();
+    let stdin = Arc::new(Mutex::new(child.stdin.take()));
     let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
     let stderr = child.stderr.take().unwrap();
     let stderr_tail = tokio::spawn(async move {
@@ -280,6 +357,10 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
     let mut result = None;
     let mut session = None;
     let mut failure = None;
+    let mut exit_deadline = None;
+    let mut secrets = claim["env"].as_object().cloned().unwrap_or_default();
+    secrets.insert("run_token".into(), claim["runToken"].clone());
+    let masker = Masker::new(&Value::Object(secrets));
     let conversation = async {
         let mut initialize = json!({"subtype":"initialize","appendSystemPrompt":prompt});
         if gate.is_some() {
@@ -297,6 +378,7 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
             let line = tokio::select! {
                 _ = cancel.cancelled()=>break,
                 _ = tokio::time::sleep_until(handshake_deadline), if !ready => return Err(Failure::local("Claude control handshake timed out")),
+                _ = tokio::time::sleep_until(exit_deadline.unwrap_or(handshake_deadline)), if exit_deadline.is_some() => break,
                 line=lines.next_line()=>line?
             };
             let Some(line) = line else { break };
@@ -304,7 +386,9 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
                 .map_err(|_| Failure::local("Claude wrote invalid stream-json"))?;
             match text(&frame["type"]) {
                 "control_response" => {
-                    if frame["response"]["subtype"] == "error" {
+                    if frame["response"]["subtype"] == "error"
+                        && frame["response"]["request_id"] != "mcp"
+                    {
                         return Err(Failure::local("Claude rejected a control request"));
                     }
                     match text(&frame["response"]["request_id"]) {
@@ -313,6 +397,11 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
                             write_frame(&stdin,&json!({"type":"control_request","request_id":"mcp","request":{"subtype":"mcp_set_servers","servers":claim["mcpServers"]}})).await?;
                         }
                         "mcp" if initialized && !ready => {
+                            if frame["response"]["subtype"] == "error" {
+                                tracing::warn!(error = %masker.mask(text(&frame["response"]["error"])), "Claude MCP handover failed; run continues");
+                            } else {
+                                tracing::info!(added = %masker.deep(&frame["response"]["response"]["added"]), errors = %masker.deep(&frame["response"]["response"]["errors"]), "Claude MCP servers");
+                            }
                             ready = true;
                             write_frame(&stdin,&json!({"type":"user","message":{"role":"user","content":message},"parent_tool_use_id":null})).await?;
                         }
@@ -335,14 +424,17 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
                         let response=match text(&request["subtype"]) {
                             "can_use_tool" if gate.is_some()=>json!({"subtype":"success","request_id":id,"response":{"behavior":"allow","updatedInput":request["input"],"toolUseID":request["tool_use_id"]}}),
                             "hook_callback" if request["callback_id"]=="hook_0" && gate.is_some()=>{let hook=gate.unwrap().hook(&request["input"],token.clone()).await;json!({"subtype":"success","request_id":id,"response":hook})},
-                            _=>{tracing::warn!("Unsupported Claude control request");json!({"subtype":"error","request_id":id,"error":"Unsupported control request"})}
+                            "elicitation"=>json!({"subtype":"success","request_id":id,"response":{"action":"decline"}}),
+                            _=>{tracing::warn!(subtype = %request["subtype"], "Unsupported Claude control request");json!({"subtype":"error","request_id":id,"error":"Unsupported control request"})}
                         };
                         let _=write_frame(&stdin,&json!({"type":"control_response","response":response})).await;token.cancel();
                     });
                 }
                 "result" => {
                     result = Some(frame);
-                    break;
+                    stdin.lock().await.take();
+                    exit_deadline
+                        .get_or_insert(tokio::time::Instant::now() + Duration::from_secs(5));
                 }
                 _ => {
                     if frame["type"] == "system" && frame["subtype"] == "init" {
@@ -362,15 +454,31 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
         failure = Some(e.message);
     }
     controls.cancel();
-    tasks.abort_all();
-    while tasks.join_next().await.is_some() {}
-    // Close input, allow a clean exit, then enforce the daemon's TERM/KILL grace.
-    let _ = stdin.lock().await.shutdown().await;
-    if tokio::time::timeout(Duration::from_millis(100), child.wait())
-        .await
-        .is_err()
+    if tokio::time::timeout(Duration::from_secs(1), async {
+        while tasks.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
     {
-        terminate(&mut child).await;
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
+    }
+    // Close input, allow a clean exit, then enforce the daemon's TERM/KILL grace.
+    stdin.lock().await.take();
+    // Give final control replies a chance to be consumed after closing input.
+    let grace = if cancel.is_cancelled() {
+        Duration::from_millis(100)
+    } else {
+        exit_deadline
+            .map(|at| at.saturating_duration_since(tokio::time::Instant::now()))
+            .unwrap_or(Duration::from_millis(100))
+    };
+    let _ = tokio::time::timeout(grace, child.wait()).await;
+    if child.try_wait()?.is_none() {
+        terminate(&mut child, group).await;
+    } else {
+        // Reap any descendants even when the direct child has already exited.
+        signal_group(group, nix::sys::signal::Signal::SIGKILL);
     }
     let mut stderr_tail = stderr_tail;
     let tail = match tokio::time::timeout(Duration::from_secs(5), &mut stderr_tail).await {
@@ -432,15 +540,6 @@ pub fn prerequisites(
     }
     if !version_ok(&String::from_utf8_lossy(&version.stdout)) {
         return Err(explain(crate::privilege::Problem::ClaudeOld));
-    }
-    let auth = probe(binary, user, &["auth", "status", "--json"])
-        .map_err(|_| explain(crate::privilege::Problem::ClaudeLogin))?;
-    if !auth.status.success() {
-        return Err(explain(crate::privilege::Problem::ClaudeLogin));
-    }
-    let auth: serde_json::Value = serde_json::from_slice(&auth.stdout).unwrap_or_default();
-    if auth["loggedIn"] != true {
-        return Err(explain(crate::privilege::Problem::ClaudeLogin));
     }
     Ok(regex::Regex::new(r"\d+\.\d+\.\d+")
         .unwrap()

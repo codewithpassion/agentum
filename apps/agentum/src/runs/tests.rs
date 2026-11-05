@@ -72,6 +72,10 @@ struct Server {
     library: MemoryRemote,
     calls: Arc<Mutex<Vec<(String, Value)>>>,
     conflict: Arc<std::sync::atomic::AtomicBool>,
+    faults: Arc<Mutex<HashMap<String, u16>>>,
+    blocked: Arc<Mutex<HashMap<String, Arc<Notify>>>>,
+    outcome: Arc<Mutex<Option<Value>>>,
+    must_exit: Arc<Mutex<Option<PathBuf>>>,
 }
 async fn server() -> (String, Server, tokio::task::JoinHandle<()>) {
     use axum::{
@@ -93,6 +97,42 @@ async fn server() -> (String, Server, tokio::task::JoinHandle<()>) {
             .lock()
             .unwrap()
             .push((uri.clone(), body.clone()));
+        if uri.ends_with("complete")
+            && let Some(path) = state.must_exit.lock().unwrap().as_ref()
+        {
+            let pid = std::fs::read_to_string(path)
+                .unwrap()
+                .trim()
+                .parse::<i32>()
+                .unwrap();
+            assert_eq!(
+                nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+                Err(nix::errno::Errno::ESRCH),
+                "completion preceded process exit"
+            );
+        }
+        let blocker = state
+            .blocked
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(key, _)| uri.contains(key.as_str()))
+            .map(|(_, n)| n.clone());
+        if let Some(blocker) = blocker {
+            blocker.notified().await;
+        }
+        let status = state
+            .faults
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(key, _)| uri.contains(key.as_str()))
+            .map(|(_, status)| *status);
+        if let Some(status) = status {
+            return axum::http::StatusCode::from_u16(status)
+                .unwrap()
+                .into_response();
+        }
         if uri.ends_with("claim") {
             assert_eq!(headers["x-daemon-features"], api::FEATURES);
             assert_eq!(headers["authorization"], "Bearer machine-secret");
@@ -172,6 +212,9 @@ async fn server() -> (String, Server, tokio::task::JoinHandle<()>) {
                 _ => return axum::Json(json!({})).into_response(),
             }
         }
+        if uri.starts_with("/files/") {
+            return axum::http::StatusCode::NOT_FOUND.into_response();
+        }
         if uri.ends_with("heartbeat") && state.conflict.load(std::sync::atomic::Ordering::SeqCst) {
             return (axum::http::StatusCode::CONFLICT, axum::Json(json!({}))).into_response();
         }
@@ -179,6 +222,9 @@ async fn server() -> (String, Server, tokio::task::JoinHandle<()>) {
             return axum::Json(json!({"required":true})).into_response();
         }
         if uri.ends_with("requests") {
+            if let Some(outcome) = state.outcome.lock().unwrap().clone() {
+                return axum::Json(json!({"requestId":"q", "outcome":outcome})).into_response();
+            }
             return axum::Json(json!({"requestId":"q","status":"pending"})).into_response();
         }
         if uri.contains("requests/q") {
@@ -247,12 +293,13 @@ fn fake(temp: &std::path::Path) -> String {
     std::fs::write(
         &file,
         format!(
-            "#!/bin/sh\nexec '{}' '{}' '{}' \"$@\"\n",
+            "#!/bin/sh\nexec env -u PWD '{}' '{}' '{}' '{}' \"$@\"\n",
             String::from_utf8_lossy(&bun.stdout).trim(),
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("src/runs/fake-claude.ts")
                 .display(),
-            fixture.display()
+            fixture.display(),
+            temp.join("expected.json").display()
         ),
     )
     .unwrap();
@@ -457,10 +504,9 @@ fn typescript_helper_parity() {
         );
     }
     assert_eq!(helpers::task_folder("ada", "r"), fixture["taskFolder"]);
-    assert_eq!(
-        helpers::stop_message(&json!({"kind":"turn_limit","limit":12})),
-        fixture["stop"]
-    );
+    for case in fixture["stops"].as_array().unwrap() {
+        assert_eq!(helpers::stop_message(&case["stop"]), case["expected"]);
+    }
     let masker = Masker::new(&fixture["masker"]["secrets"]);
     assert_eq!(
         masker.mask(helpers::text(&fixture["masker"]["source"])),
@@ -470,7 +516,7 @@ fn typescript_helper_parity() {
         assert_eq!(
             helpers::workspace_instructions(
                 "/work",
-                Some(&case["library"]),
+                case["library"].is_object().then_some(&case["library"]),
                 case["live"] == true,
                 "ada",
                 "r"
@@ -1093,7 +1139,7 @@ async fn questions_filter_answers_and_fail_closed_on_bad_http() {
     );
     let gate = crate::approvals::Gate::new(api, &json!({"toolRules":["bash"],"mcpServers":{}}));
     let input = json!({"questions":[{"question":"Pick?","header":"Choice","multiSelect":true,"options":[{"label":"a"},{"label":"b"},{"label":""}]}]});
-    let result=gate.hook(&json!({"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"t","tool_input":input}),CancellationToken::new()).await;
+    let result=gate.hook(&json!({"hook_event_name":"PreToolUse","tool_name":"ask_user","tool_use_id":"t","tool_input":input}),CancellationToken::new()).await;
     assert_eq!(
         result["hookSpecificOutput"]["updatedInput"]["answers"],
         json!({"Pick?":"a, b, free text"})
@@ -1163,7 +1209,7 @@ async fn library_new_local_files_read_only_ties_size_caps_and_delete_races() {
 }
 
 #[test]
-fn prerequisites_probe_only_fake_binary_and_explain_version_and_login() {
+fn prerequisites_probe_only_fake_binary_and_check_only_version() {
     use std::os::unix::fs::PermissionsExt;
     let temp = tempfile::tempdir().unwrap();
     let mut config = Config::new(
@@ -1183,18 +1229,19 @@ fn prerequisites_probe_only_fake_binary_and_explain_version_and_login() {
     );
     let file = temp.path().join("probe");
     config.claude_binary = Some(file.display().to_string());
-    for (version, logged, expected) in [
+    for (version, _logged, expected) in [
         ("2.1.299", true, "claude update"),
-        ("2.1.300", false, "claude auth login"),
+        ("2.1.300", false, "ok"),
         ("2.1.310", true, "ok"),
     ] {
-        std::fs::write(&file,format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo '{version} (Claude Code)'; else echo '{{\"loggedIn\":{logged}}}'; fi\n")).unwrap();
+        std::fs::write(&file,format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo '{version} (Claude Code)'; else exit 42; fi\n")).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).unwrap();
         let result = crate::claude::prerequisites(&config, None, "test");
         if expected == "ok" {
             assert_eq!(result.unwrap(), version);
         } else {
-            assert!(result.unwrap_err().message.contains(expected));
+            let error = result.unwrap_err();
+            assert!(error.message.contains(expected), "{version}: {error}");
         }
     }
 }
@@ -1267,3 +1314,6 @@ fn sudo_claude_command_uses_instance_user_and_cwd_and_only_environment_names() {
         ]
     );
 }
+
+#[path = "review_tests.rs"]
+mod review;

@@ -37,6 +37,7 @@ const summaries = [
   { input: { peer: "Peer" }, name: "harbourmaster/send" },
   { input: { file_path: "notes" }, name: "Read" },
   { input: { query: "x".repeat(250) }, name: "Other" },
+  { input: { command: "😀".repeat(120) }, name: "Bash" },
 ].map((item) => ({
   ...item,
   expected: approvalSummary(item.name, item.input),
@@ -49,6 +50,40 @@ const outcomes = (["approval", "question", "takeover"] as const).flatMap(
       outcome: { status },
     }))
 );
+const answered = (
+  [
+    {
+      kind: "approval",
+      outcome: { answer: { decision: "allow_once" }, status: "answered" },
+    },
+    {
+      kind: "approval",
+      outcome: { answer: { decision: "always_allow" }, status: "answered" },
+    },
+    {
+      kind: "approval",
+      outcome: {
+        answer: { decision: "deny", note: "Please stop" },
+        status: "answered",
+      },
+    },
+    {
+      kind: "question",
+      outcome: {
+        answer: { answers: { "Pick?": "yes", "Text?": "words" } },
+        status: "answered",
+      },
+    },
+    {
+      kind: "takeover",
+      outcome: { answer: { note: "Finished" }, status: "answered" },
+    },
+  ] as const
+).map(({ kind, outcome }) => ({
+  expected: outcomeText(kind, outcome),
+  kind,
+  outcome,
+}));
 const questions = {
   questions: [{ question: "Choose?" }, { question: "Text?" }],
 };
@@ -59,7 +94,11 @@ const turns = [null, 9, 10, 100, 500, 501, 10.5, "12"].map((value) => ({
   expected: maxTurnsOf({ maxTurns: value }),
   value,
 }));
-const secrets = { KEY: "secret !'()~ with\nquote\"" };
+const secrets = {
+  KEY: "secret !'()~ with\nquote\"",
+  PASSWORD: "password-with-more",
+  TOKEN: "another-token",
+};
 const source = Object.values(secrets)
   .flatMap((value) => [
     value,
@@ -91,6 +130,20 @@ const prompts = [false, true].map((live) => ({
   library,
   live,
 }));
+const noLibraryPrompt = {
+  expected: workspaceInstructions({
+    attachments: false,
+    home: "/work",
+    homeIsLocal: true,
+    scratch: { lasts: "run-start", path: "/work/tmp" },
+  }),
+  library: null,
+  live: false,
+};
+const stops = [
+  { kind: "turn_limit", limit: 12 },
+  { count: 5, kind: "repeat", tool: "Bash" },
+] as const;
 const local = createMemoryLocal();
 const remote = createMemoryRemote();
 const manifest = createMemoryManifest();
@@ -120,5 +173,5 @@ const syncFixture = {
 };
 await write(
   new URL("parity.json", import.meta.url),
-  `${JSON.stringify({ keys, masker: { expected: createMasker(secrets).mask(source), secrets, source }, outcomes, prompts, questions: { answer, expected: askUserQuestionAnswers(questions, answer), input: questions }, stop: stopMessage({ kind: "turn_limit", limit: 12 }), summaries, sync: syncFixture, taskFolder: taskFolderPath("ada", "r"), turns }, null, 2)}\n`
+  `${JSON.stringify({ keys, masker: { expected: createMasker(secrets).mask(source), secrets, source }, outcomes: [...outcomes, ...answered], prompts: [...prompts, noLibraryPrompt], questions: { answer, expected: askUserQuestionAnswers(questions, answer), input: questions }, stops: stops.map((stop) => ({ expected: stopMessage(stop), stop })), summaries, sync: syncFixture, taskFolder: taskFolderPath("ada", "r"), turns }, null, 2)}\n`
 );

@@ -29,7 +29,7 @@ impl Disk {
         let path = self.root.join(rel);
         if self.user.is_none() {
             let mut at = Some(path.as_path());
-            while let Some(parent) = at {
+            while let Some(parent) = at.filter(|p| *p != self.root) {
                 if std::fs::symlink_metadata(parent).is_ok_and(|m| m.file_type().is_symlink()) {
                     return Err(Failure::local("Refused symbolic link in work directory"));
                 }

@@ -16,7 +16,7 @@ pub fn checks(ctx: &Context<'_>) -> Vec<Check> {
     match claude::prerequisites(config, user.as_deref(), ctx.name) {
         Ok(_) => vec![ok(
             "claude",
-            "Claude CLI >=2.1.300 is executable and logged in for the run-as user",
+            "Claude CLI >=2.1.300 is executable for the run-as user",
         )],
         Err(e) => vec![Check {
             name: "claude",

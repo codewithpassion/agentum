@@ -32,11 +32,13 @@
     }
   ],
   "masker": {
-    "expected": "[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]",
+    "expected": "[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:PASSWORD]|[secret:PASSWORD]|[secret:PASSWORD]|[secret:PASSWORD]|[secret:PASSWORD]|[secret:PASSWORD]|[secret:TOKEN]|[secret:TOKEN]|[secret:TOKEN]|[secret:TOKEN]|[secret:TOKEN]|[secret:TOKEN]",
     "secrets": {
-      "KEY": "secret !'()~ with\nquote\""
+      "KEY": "secret !'()~ with\nquote\"",
+      "PASSWORD": "password-with-more",
+      "TOKEN": "another-token"
     },
-    "source": "secret !'()~ with\nquote\"|secret !'()~ with\\nquote\\\"|c2VjcmV0ICEnKCl+IHdpdGgKcXVvdGUi|c2VjcmV0ICEnKCl+IHdpdGgKcXVvdGUiCg==|secret%20!'()~%20with%0Aquote%22|secret+%21%27%28%29%7E+with%0Aquote%22"
+    "source": "secret !'()~ with\nquote\"|secret !'()~ with\\nquote\\\"|c2VjcmV0ICEnKCl+IHdpdGgKcXVvdGUi|c2VjcmV0ICEnKCl+IHdpdGgKcXVvdGUiCg==|secret%20!'()~%20with%0Aquote%22|secret+%21%27%28%29%7E+with%0Aquote%22|password-with-more|password-with-more|cGFzc3dvcmQtd2l0aC1tb3Jl|cGFzc3dvcmQtd2l0aC1tb3JlCg==|password-with-more|password-with-more|another-token|another-token|YW5vdGhlci10b2tlbg==|YW5vdGhlci10b2tlbgo=|another-token|another-token"
   },
   "outcomes": [
     {
@@ -80,6 +82,60 @@
       "outcome": {
         "status": "cancelled"
       }
+    },
+    {
+      "expected": null,
+      "kind": "approval",
+      "outcome": {
+        "answer": {
+          "decision": "allow_once"
+        },
+        "status": "answered"
+      }
+    },
+    {
+      "expected": null,
+      "kind": "approval",
+      "outcome": {
+        "answer": {
+          "decision": "always_allow"
+        },
+        "status": "answered"
+      }
+    },
+    {
+      "expected": "A person denied this call. Please stop",
+      "kind": "approval",
+      "outcome": {
+        "answer": {
+          "decision": "deny",
+          "note": "Please stop"
+        },
+        "status": "answered"
+      }
+    },
+    {
+      "expected": "Q: Pick? A: yes\nQ: Text? A: words",
+      "kind": "question",
+      "outcome": {
+        "answer": {
+          "answers": {
+            "Pick?": "yes",
+            "Text?": "words"
+          }
+        },
+        "status": "answered"
+      }
+    },
+    {
+      "expected": "A person took over the computer and handed it back. Note: Finished",
+      "kind": "takeover",
+      "outcome": {
+        "answer": {
+          "note": "Finished"
+        },
+        "status": "answered"
+      }
     }
   ],
   "prompts": [
@@ -112,6 +168,11 @@
         "taskFolder": "agents/ada/tasks/r"
       },
       "live": true
+    },
+    {
+      "expected": "Your files live in three places.\n- Home: /work. It is yours and keeps its files across all your sessions. Relative paths start here. Keep notes, code and data you want to find again here. Other sessions of yours may use it at the same time.\n- Scratch: /work/tmp. Use it for downloads, builds and temporary files. It is emptied before your next run, so never keep anything there that you need later.\n- Library: the workspace library. It is shared with every agent and person in this workspace and kept for good. It is not a folder on your disk, so reach it with the library tools. Put finished work that people or other agents should see there.",
+      "library": null,
+      "live": false
     }
   ],
   "questions": {
@@ -137,7 +198,23 @@
       ]
     }
   },
-  "stop": "Stopped after 12 turns, the agent's limit",
+  "stops": [
+    {
+      "expected": "Stopped after 12 turns, the agent's limit",
+      "stop": {
+        "kind": "turn_limit",
+        "limit": 12
+      }
+    },
+    {
+      "expected": "Stopped after 5 identical failed calls to Bash in a row",
+      "stop": {
+        "count": 5,
+        "kind": "repeat",
+        "tool": "Bash"
+      }
+    }
+  ],
   "summaries": [
     {
       "input": {
@@ -173,6 +250,13 @@
       },
       "name": "Other",
       "expected": "Other xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+    },
+    {
+      "input": {
+        "command": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "name": "Bash",
+      "expected": "Run `😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…"
     }
   ],
   "sync": {

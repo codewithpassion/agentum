@@ -95,6 +95,17 @@ pub fn question_answers(input: &Value, answer: &Value) -> Value {
     }
     Value::Object(answers)
 }
+// Only deliberate gate verdicts may reach Claude as denial reasons. Transport
+// errors are always rendered with the platform-unavailable message.
+enum Denial {
+    Unavailable,
+    Reason(String),
+}
+impl From<Failure> for Denial {
+    fn from(_: Failure) -> Self {
+        Self::Unavailable
+    }
+}
 pub struct Gate {
     api: RunApi,
     asking: Mutex<HashSet<String>>,
@@ -143,10 +154,14 @@ impl Gate {
         }
         unreachable!()
     }
-    async fn decide(&self, input: &Value, cancel: &CancellationToken) -> Result<Value> {
+    async fn decide(
+        &self,
+        input: &Value,
+        cancel: &CancellationToken,
+    ) -> std::result::Result<Value, Denial> {
         let name = text(&input["tool_name"]);
         let key = tool_key(name, &self.servers);
-        let asks = name == "AskUserQuestion";
+        let asks = matches!(name, "AskUserQuestion" | "ask_user");
         let api = self.api.with_cancel(cancel.clone());
         let required = if self.current && !asks {
             let response = api
@@ -168,10 +183,10 @@ impl Gate {
             &input["tool_input"]
         };
         let display = if asks {
-            let questions=tool_input["questions"].as_array().filter(|a|(1..=4).contains(&a.len())).ok_or_else(||Failure::local("AskUserQuestion needs one to four questions, each with its text. Ask again with that shape."))?;
+            let questions=tool_input["questions"].as_array().filter(|a|(1..=4).contains(&a.len())).ok_or_else(||Denial::Reason("AskUserQuestion needs one to four questions, each with its text. Ask again with that shape.".into()))?;
             let mut shown = vec![];
             for q in questions {
-                let question=q["question"].as_str().filter(|q|!q.is_empty()).ok_or_else(||Failure::local("AskUserQuestion needs one to four questions, each with its text. Ask again with that shape."))?;
+                let question=q["question"].as_str().filter(|q|!q.is_empty()).ok_or_else(||Denial::Reason("AskUserQuestion needs one to four questions, each with its text. Ask again with that shape.".into()))?;
                 let choices = q["options"]
                     .as_array()
                     .into_iter()
@@ -179,7 +194,7 @@ impl Gate {
                     .filter_map(|v| v["label"].as_str().filter(|s| !s.is_empty()))
                     .collect::<Vec<_>>();
                 if choices.len() > 6 {
-                    return Err(Failure::local(UNAVAILABLE));
+                    return Err(Denial::Unavailable);
                 }
                 let mut item = json!({"question":question});
                 if !choices.is_empty() {
@@ -199,7 +214,9 @@ impl Gate {
             let displayed = if serialized.len() > 8192 {
                 json!(format!(
                     "{}… [truncated]",
-                    serialized.chars().take(1300).collect::<String>()
+                    String::from_utf16_lossy(
+                        &serialized.encode_utf16().take(1300).collect::<Vec<_>>()
+                    )
                 ))
             } else {
                 tool_input.clone()
@@ -214,7 +231,7 @@ impl Gate {
             .await?;
         let mut outcome = opened["outcome"].clone();
         if outcome.is_null() && !opened["requestId"].is_string() {
-            return Err(Failure::local(UNAVAILABLE));
+            return Err(Denial::Unavailable);
         }
         while outcome.is_null() {
             outcome = self
@@ -226,13 +243,13 @@ impl Gate {
         let mut result = json!({"hookEventName":"PreToolUse","permissionDecision":"allow"});
         if asks {
             if !outcome["answer"]["answers"].is_object() {
-                return Err(Failure::local(reason.as_deref().unwrap_or(UNAVAILABLE)));
+                return Err(Denial::Reason(reason.unwrap_or_else(|| UNAVAILABLE.into())));
             }
             let mut updated = tool_input.clone();
             updated["answers"] = question_answers(tool_input, &outcome["answer"]);
             result["updatedInput"] = updated;
         } else if let Some(reason) = reason {
-            return Err(Failure::local(reason));
+            return Err(Denial::Reason(reason));
         } else if outcome["answer"]["decision"] == "always_allow" {
             self.asking.lock().unwrap().remove(&key);
         }
@@ -244,8 +261,16 @@ impl Gate {
         }
         match self.decide(input, &cancel).await {
             Ok(v) => v,
-            Err(e) => {
-                json!({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason": if cancel.is_cancelled(){ABORTED}else if e.message.starts_with("AskUserQuestion") || e.message.starts_with("Nobody") || e.message.starts_with("A person") || e.message.starts_with("The call") || e.message.starts_with("The question") {&e.message}else{UNAVAILABLE}}})
+            Err(denial) => {
+                let reason = if cancel.is_cancelled() {
+                    ABORTED.to_owned()
+                } else {
+                    match denial {
+                        Denial::Unavailable => UNAVAILABLE.into(),
+                        Denial::Reason(reason) => reason,
+                    }
+                };
+                json!({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":reason}})
             }
         }
     }
