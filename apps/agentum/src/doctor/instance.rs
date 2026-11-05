@@ -57,3 +57,40 @@ pub fn connections(ctx: &Context<'_>) -> Vec<Check> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_stop_has_no_connection_problem() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = crate::instance::Paths::new(
+            temp.path().join("config"),
+            temp.path().join("state"),
+            false,
+        );
+        let config = crate::instance::Config::new(
+            "m".into(),
+            "office".into(),
+            "http://127.0.0.1".into(),
+            vec![crate::wire::MachineRole::Computer],
+            false,
+            crate::instance::RunAs::Current,
+        );
+        paths.save("office", &config, "ag_mach_test").unwrap();
+        crate::instance::atomic_write(
+            &paths.state("office").join("connection-computer.json"),
+            br#"{"status":"stopped"}"#,
+        )
+        .unwrap();
+        assert!(
+            connections(&Context {
+                paths: &paths,
+                name: "office",
+                config: Some(&config)
+            })
+            .is_empty()
+        );
+    }
+}

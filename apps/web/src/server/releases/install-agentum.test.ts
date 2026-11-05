@@ -26,7 +26,9 @@ const setup = (
   corruptHash = false,
   restartFailure = false,
   missingService = "",
-  installFailure = false
+  installFailure = false,
+  checkFailure = false,
+  savedRunAs = "current"
 ) => {
   const sandbox = makeSandbox();
   sandboxes.push(sandbox);
@@ -38,7 +40,8 @@ printf '%s\\n' "$*" >> "$HOME/stub-calls.log"
 test -z "\${AGENTUM_ENROLL_CODE:-}" || exit 90
 case "$*" in *"service restart --instance one"*) ${restartFailure ? "exit 1" : ":"} ;; esac
 case "$*" in
-  "service status --instance ${missingService}") echo 'Problem: service missing' >&2; exit 5 ;;
+  "service installed --instance ${missingService}") exit 1 ;;
+  "service installed "*) ${checkFailure ? "exit 5" : ":"} ;;
   "service install "*) ${installFailure ? "exit 1" : ":"} ;;
 esac
 case "$1" in
@@ -58,7 +61,7 @@ case "$1" in
     mkdir -p "$root/$instance"
     echo '{"machineId":"m","roles":["computer"]}' > "$root/$instance/config.json"
     echo new-credential > "$root/$instance/credential"
-    printf '{"instance":"%s","machineId":"m","roles":["computer"]}\\n' "$instance"
+    printf '{"instance":"%s","machineId":"m","roles":["computer"],"runAs":"${savedRunAs}"}\\n' "$instance"
     ;;
 esac
 `;
@@ -436,7 +439,7 @@ for (const system of [false, true]) {
     const result = await runScript({ ...fixture, script });
     expect(result.exitCode).toBe(0);
     expect(readCalls(fixture.sandbox)).toContain(
-      "service status --instance one"
+      "service installed --instance one"
     );
     expect(readCalls(fixture.sandbox)).not.toContain(
       "service restart --instance one"
@@ -461,6 +464,9 @@ test("replacement with no unit reports enrolment without claiming service change
   });
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("Enrolled one.");
+  expect(result.stdout).toContain(
+    "service install --user --run-as current --instance one --yes"
+  );
   expect(result.stdout).not.toContain("restarted one");
   expect(result.stdout).not.toContain("Installed its");
   expect(readCalls(fixture.sandbox)).not.toContain(
@@ -478,7 +484,7 @@ test("failed replacement restart is attempted once and never claims success", as
     args: ["--instance", "one"],
     env: { AGENTUM_ENROLL_CODE: "secret" },
   });
-  expect(result.exitCode).toBe(0);
+  expect(result.exitCode).not.toBe(0);
   expect(result.stderr.match(/could not restart one/g)).toHaveLength(1);
   expect(result.stdout).not.toContain("restarted one");
   expect(result.stdout).not.toContain("Installed its");
@@ -489,6 +495,72 @@ test("failed service install never claims it installed a service", async () => {
   const result = await runScript({ ...fixture, args: ["--code", "secret"] });
   expect(result.exitCode).not.toBe(0);
   expect(result.stdout).toContain("Enrolled office.");
+  expect(result.stderr).toContain(
+    "Enrolled office, but its service was not installed. Fix the problem above, then run:"
+  );
+  expect(result.stderr).toContain(
+    "service install --user --run-as current --instance office --yes"
+  );
   expect(result.stdout).not.toContain("Installed its");
   expect(result.stdout).not.toContain("installed its");
+});
+
+test("stdin code replaces the selected instance before attempting any restart", async () => {
+  const fixture = setup();
+  addInstances(fixture.sandbox.home);
+  const result = await runScript({
+    ...fixture,
+    args: ["--instance", "one"],
+    mode: "file",
+    stdin: "secret\n",
+  });
+  expect(result.exitCode).toBe(0);
+  const calls = readCalls(fixture.sandbox);
+  expect(calls).toContain(
+    `enroll --url ${fixture.server.origin} --code-stdin --json --instance one --replace`
+  );
+  expect(
+    calls.filter((call) => call === "service restart --instance one")
+  ).toHaveLength(1);
+  expect(calls.findIndex((call) => call.startsWith("enroll "))).toBeLessThan(
+    calls.indexOf("service restart --instance one")
+  );
+});
+
+test("a failed installed check warns and continues updating other instances", async () => {
+  const fixture = setup(false, false, "", false, true);
+  addInstances(fixture.sandbox.home);
+  const result = await runScript(fixture);
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain(
+    "warning: could not check whether one has a service"
+  );
+  expect(result.stderr).toContain(
+    "warning: could not check whether two has a service"
+  );
+  expect(
+    readCalls(fixture.sandbox).some((call) =>
+      call.startsWith("service restart")
+    )
+  ).toBe(false);
+});
+
+test("replacement without a service prints the saved system run-as in its next step", async () => {
+  const fixture = setup(false, false, "one", false, false, "agent-user");
+  stubCommand(fixture.sandbox, "id", ["echo 0"]);
+  const configHome = join(fixture.sandbox.root, "system-home");
+  addInstances(configHome);
+  const script = fixture.script
+    .replaceAll("/usr/local/bin", join(fixture.sandbox.root, "system-bin"))
+    .replaceAll("/etc/agentum", join(configHome, ".config/agentum"));
+  const result = await runScript({
+    ...fixture,
+    args: ["--instance", "one"],
+    env: { AGENTUM_ENROLL_CODE: "secret" },
+    script,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(
+    "service install --system --run-as agent-user --instance one --yes"
+  );
 });

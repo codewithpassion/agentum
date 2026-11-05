@@ -150,11 +150,19 @@ install_binary() {
 
 
 restart_service() {
-  "$BIN" service status --instance "$instance" >/dev/null 2>&1 || return 0
+  if "$BIN" service installed --instance "$instance"; then
+    :
+  else
+    installed_status=$?
+    if [ "$installed_status" = 1 ]; then return 1; fi
+    printf 'warning: could not check whether %s has a service\n' "$instance" >&2
+    return 2
+  fi
   if "$BIN" service restart --instance "$instance"; then
     say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
   else
     printf 'warning: could not restart %s\n' "$instance" >&2
+    return 2
   fi
 }
 instances() {
@@ -166,7 +174,7 @@ instances() {
     instance=${instance##*/}
     FOUND=true
     if [ -n "$CODE" ] && [ "$instance" = "$INSTANCE" ]; then continue; fi
-    restart_service
+    restart_service || :
   done
 }
 enroll_machine() {
@@ -188,9 +196,22 @@ enroll_machine() {
   [ -n "$instance" ] || die 'Enrolment returned no instance name. Run agentum list to find the saved enrolment.'
   say "Enrolled $instance."
   if [ -n "$INSTANCE" ]; then
-    restart_service
+    # Replacement keeps the enrolled run-as, which can differ from this invocation.
+    RUN_AS=$(printf '%s\n' "$answer" | sed -n 's/.*"runAs"[[:space:]]*:[[:space:]]*"\([a-zA-Z0-9_-]*\)".*/\1/p')
+    [ -n "$RUN_AS" ] || die 'Enrolment returned no run-as. Run agentum status to inspect the saved enrolment.'
+    if restart_service; then
+      :
+    else
+      restart_status=$?
+      if [ "$restart_status" = 1 ]; then
+        say "Next: $BIN service install --$MODE --run-as $RUN_AS --instance $instance --yes"
+      else
+        die "Enrolled $instance, but its service could not be restarted. See the message above."
+      fi
+    fi
   else
-    "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes
+    "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes ||
+      die "Enrolled $instance, but its service was not installed. Fix the problem above, then run: $BIN service install --$MODE --run-as $RUN_AS --instance $instance --yes"
     say "Installed its $MODE service."
     say "Next: $BIN service status --instance $instance"
   fi
@@ -199,6 +220,11 @@ main() {
   trap cleanup EXIT
   trap 'exit 1' HUP INT TERM
   parse_args "$@"
+  # With sh <file>, stdin is available for the code. Under curl | sh it is
+  # the script itself, so leave it alone (including update-only invocations).
+  if [ -z "$CODE" ] && [ -f "$0" ] && [ ! -t 0 ]; then
+    IFS= read -r CODE || :
+  fi
   check_platform
   check_old
   read_manifest

@@ -30,6 +30,12 @@ fn main() {
         }
         Err(error) => error.exit(),
     };
+    let installed_check = matches!(
+        cli.command,
+        Command::Service {
+            command: agentum::cli::ServiceCommand::Installed
+        }
+    );
     let running = matches!(cli.command, Command::Run(_));
     match if running {
         cli.log_format
@@ -57,7 +63,9 @@ fn main() {
     )) {
         Ok(()) => 0,
         Err(error) => {
-            if running {
+            if installed_check && error.code == 1 {
+                // An absent unit is the quiet negative result of this check.
+            } else if running {
                 tracing::error!(exit_code = error.code, message = %error, "Command failed");
             } else if error.message.starts_with("Doctor found ")
                 || error.message.starts_with("Problem:")
@@ -192,7 +200,7 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
                     "{}",
                     enrollment_guidance(
                         &answer.instance,
-                        paths.unit(&answer.instance).exists(),
+                        agentum::service::installed(&paths, &answer.instance)?,
                         args.system
                     )
                 );

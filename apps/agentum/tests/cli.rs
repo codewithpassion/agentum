@@ -298,3 +298,59 @@ fn doctor_reports_saved_role_failure_once_and_exits_nonzero() {
         format!("Doctor found {count} problems. Apply the fixes above.")
     );
 }
+
+#[test]
+fn installed_checks_the_unit_file_without_querying_systemd() {
+    use agentum::instance::{Config, Paths, RunAs};
+    let temp = tempfile::tempdir().unwrap();
+    let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), false);
+    let config = Config::new(
+        "m".into(),
+        "office".into(),
+        "http://127.0.0.1:1".into(),
+        vec![agentum::wire::MachineRole::Computer],
+        false,
+        RunAs::Current,
+    );
+    paths.save("office", &config, "ag_mach_secret").unwrap();
+    let bin = temp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let systemctl = bin.join("systemctl");
+    std::fs::write(
+        &systemctl,
+        "#!/bin/sh\necho called >> \"$HOME/systemctl-called\"\nexit 3\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let unit = temp
+        .path()
+        .join(".config/systemd/user/agentum-office.service");
+    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    for present in [false, true, false] {
+        if present {
+            std::fs::write(&unit, "fake unit").unwrap();
+        } else if unit.exists() {
+            std::fs::remove_file(&unit).unwrap();
+        }
+        let output = command(&temp)
+            .env("HOME", temp.path())
+            .env("PATH", &bin)
+            .args(["service", "installed", "--instance", "office"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(if present { 0 } else { 1 }));
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
+    assert!(!temp.path().join("systemctl-called").exists());
+    // A filesystem error must be distinguishable from an absent unit.
+    std::os::unix::fs::symlink(&unit, &unit).unwrap();
+    let output = command(&temp)
+        .env("HOME", temp.path())
+        .args(["service", "installed", "--instance", "office"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Cannot check unit file"));
+}

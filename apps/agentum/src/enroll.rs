@@ -73,6 +73,7 @@ pub struct Enrolled {
     pub instance: String,
     pub machine_id: String,
     pub roles: Vec<wire::MachineRole>,
+    pub run_as: String,
 }
 
 pub async fn enroll(
@@ -311,6 +312,24 @@ pub async fn enroll(
                 &paths.config(&name).join("credential"),
                 format!("{}\n", answer.credential).as_bytes(),
             )?;
+            // Saved connection failures belong to the old credential.
+            match std::fs::read_dir(paths.state(&name)) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let entry = entry
+                            .map_err(|e| Error::new(5, format!("Read connection state: {e}")))?;
+                        let filename = entry.file_name();
+                        let filename = filename.to_string_lossy();
+                        if filename.starts_with("connection-") && filename.ends_with(".json") {
+                            std::fs::remove_file(entry.path()).map_err(|e| {
+                                Error::new(5, format!("Clear connection state: {e}"))
+                            })?;
+                        }
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(Error::new(5, format!("Read connection state: {error}"))),
+            }
             crate::instance::replace_file(
                 &paths.config(&name).join("config.json"),
                 &serde_json::to_vec_pretty(&config)
@@ -323,6 +342,7 @@ pub async fn enroll(
             instance: name,
             machine_id: answer.machine_id.clone(),
             roles: answer.roles.clone(),
+            run_as: config.run_as.to_string(),
         })
     })();
     saved.map_err(|error: Error| {

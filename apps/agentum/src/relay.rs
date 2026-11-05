@@ -141,10 +141,11 @@ pub async fn run(
     timing: Timing,
 ) -> Result<()> {
     let result = run_loop(role.clone(), server, credential, stop, timing).await;
-    connection_state(
-        &role,
-        json!({"status":"stopped", "reason": result.as_ref().err().map(|e| e.message.as_str()).unwrap_or("stopped by signal")}),
-    );
+    let mut state = json!({"status":"stopped"});
+    if let Err(error) = &result {
+        state["reason"] = json!(error.message);
+    }
+    connection_state(&role, state);
     result
 }
 fn role_instance(role: &Arc<dyn Role>) -> String {

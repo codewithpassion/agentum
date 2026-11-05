@@ -403,6 +403,17 @@ async fn replacement_preserves_settings_and_name() {
     );
     config.computer.read_only = true;
     paths.save("office", &config, "ag_mach_old").unwrap();
+    std::fs::create_dir_all(paths.state("office")).unwrap();
+    for role in ["agent_host", "computer"] {
+        std::fs::write(
+            paths
+                .state("office")
+                .join(format!("connection-{role}.json")),
+            r#"{"status":"stopped","reason":"credential rejected"}"#,
+        )
+        .unwrap();
+    }
+    std::fs::write(paths.state("office").join("audit.json"), "keep").unwrap();
     let app = Router::new().route("/api/machines/enroll", post(|| async { Json(json!({"credential":"ag_mach_new", "machineId":"new", "machineName":"renamed", "roles":["computer"]})) }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -428,6 +439,18 @@ async fn replacement_preserves_settings_and_name() {
     assert!(config.computer.read_only);
     assert_eq!(config.machine_id, "new");
     assert_eq!(credential, "ag_mach_new");
+    for role in ["agent_host", "computer"] {
+        assert!(
+            !paths
+                .state("office")
+                .join(format!("connection-{role}.json"))
+                .exists()
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(paths.state("office").join("audit.json")).unwrap(),
+        "keep"
+    );
     use std::os::unix::fs::MetadataExt;
     let before = std::fs::metadata(paths.config("office").join("credential")).unwrap();
     let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_agentum"))
@@ -572,10 +595,11 @@ fn installer_json_keys_are_stable() {
         instance: "office".into(),
         machine_id: "m".into(),
         roles: vec![agentum::wire::MachineRole::Computer],
+        run_as: "agent-user".into(),
     })
     .unwrap();
     assert_eq!(
         value,
-        json!({"instance":"office", "machineId":"m", "roles":["computer"]})
+        json!({"instance":"office", "machineId":"m", "roles":["computer"], "runAs":"agent-user"})
     );
 }

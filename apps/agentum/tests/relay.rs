@@ -512,7 +512,7 @@ async fn loops_reset_their_own_backoff_and_persist_state() {
         server.await.unwrap();
         let value: Value = serde_json::from_slice(&std::fs::read(state).unwrap()).unwrap();
         assert_eq!(value["status"], "stopped");
-        assert_eq!(value["reason"], "stopped by signal");
+        assert!(value.get("reason").is_none());
     }
 }
 
@@ -626,11 +626,17 @@ async fn connection_logs_include_acceptance_close_reason_and_retry_without_crede
     }
     let bytes = Arc::new(Mutex::new(Vec::new()));
     let writer = Writer(bytes.clone());
-    tracing_subscriber::fmt()
-        .json()
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .init();
+    let subscriber = tracing::Dispatch::new(
+        tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish(),
+    );
+    // Register both dispatches so callsites first used by parallel tests consider
+    // this subscriber too, rather than caching only that thread's no-op dispatch.
+    let _other_dispatch = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+    let _guard = tracing::dispatcher::set_default(&subscriber);
     for kind in [SocketRole::AgentHost, SocketRole::Computer] {
         bytes.lock().unwrap().clear();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -659,16 +665,21 @@ async fn connection_logs_include_acceptance_close_reason_and_retry_without_crede
             stopped: Arc::default(),
             replies: Arc::default(),
         });
-        let result = relay::run(
-            role,
-            &url,
-            "hm_mach_secret",
-            CancellationToken::new(),
-            timing(),
-        )
-        .await;
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            let result = relay::run(
+                role,
+                &url,
+                "hm_mach_secret",
+                CancellationToken::new(),
+                timing(),
+            )
+            .await;
+            server.await.unwrap();
+            result
+        })
+        .await
+        .expect("connection logging test stalled");
         assert_eq!(result.unwrap_err().code, 3);
-        server.await.unwrap();
         let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
         assert!(!text.contains("hm_mach_secret"), "{text}");
         let entries: Vec<Value> = text

@@ -934,8 +934,27 @@ fn install(runner: &mut impl Runner, paths: &Paths, name: &str, args: &InstallAr
     );
     Ok(())
 }
+pub fn installed(paths: &Paths, name: &str) -> Result<bool> {
+    paths
+        .unit(name)
+        .try_exists()
+        .map_err(|error| Error::new(5, format!("Cannot check unit file for {name}: {error}")))
+}
+
 pub fn run(name: Option<&str>, action: ServiceCommand) -> Result<()> {
-    let (paths, name) = instance::select(&instance::locations(), name)?;
+    let (paths, name) = instance::select(&instance::locations(), name).map_err(|mut error| {
+        if matches!(action, ServiceCommand::Installed) && error.code == 1 {
+            error.code = 5;
+        }
+        error
+    })?;
+    if matches!(action, ServiceCommand::Installed) {
+        return if installed(&paths, &name)? {
+            Ok(())
+        } else {
+            Err(Error::new(1, "Service is not installed"))
+        };
+    }
     let mut runner = Commands;
     if let ServiceCommand::Install(args) = action {
         return install(&mut runner, &paths, &name, &args);
@@ -980,7 +999,7 @@ pub fn run(name: Option<&str>, action: ServiceCommand) -> Result<()> {
         ServiceCommand::Status | ServiceCommand::Logs { .. } => {
             query(&mut runner, paths.system, &name, &action)?
         }
-        ServiceCommand::Install(_) => unreachable!(),
+        ServiceCommand::Install(_) | ServiceCommand::Installed => unreachable!(),
     }
     Ok(())
 }

@@ -146,6 +146,9 @@ pub enum ServiceCommand {
     #[command(after_help = "Example: agentum service status --instance office")]
     /// Show instance service and connection state
     Status,
+    #[command(after_help = "Example: agentum service installed --instance office")]
+    /// Quietly check for an installed unit file (exit 0 if present, 1 if absent)
+    Installed,
     #[command(after_help = "Example: agentum service logs --instance office -f")]
     /// Read the instance service logs
     Logs {
