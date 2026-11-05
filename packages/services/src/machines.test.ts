@@ -1191,7 +1191,7 @@ test("clipboardRead and clipboardWrite act as the caller and return the relay's 
   ]);
 });
 
-test("both-role enrol stores one shared hash atomically and revoke ends both roles", async () => {
+test("concurrent both-role enrol has one winner with a shared hash and revoke ends both roles", async () => {
   const { code } = await service.createEnrollToken(user, {
     machineName: "Office box",
     role: "both",

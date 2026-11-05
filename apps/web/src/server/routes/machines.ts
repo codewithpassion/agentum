@@ -99,7 +99,7 @@ export const machineRoutes = () => {
       return c.json(
         {
           error:
-            "Expected JSON with a code and singleUser, a roles enrolment body, or a computer body with role computer.",
+            "Expected JSON with a code and singleUser, or a computer body with role computer.",
         },
         400
       );

@@ -410,7 +410,7 @@ export const createMachinesService = ({
         enrolledBy: spent.createdBy,
         id: machineId,
         name: spent.machineName,
-        singleUser: body.singleUser,
+        singleUser: roles.includes("agent_host") && body.singleUser,
         status: "offline",
         workspaceId: spent.workspaceId,
       }),

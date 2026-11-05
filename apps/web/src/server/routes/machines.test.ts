@@ -222,10 +222,20 @@ test("an unknown enrol code answers 401", async () => {
 });
 
 test("a malformed enrol body answers 400", async () => {
-  expect((await postEnroll("not json")).status).toBe(400);
-  expect((await postEnroll({ code: "hm_enr_x" })).status).toBe(400);
-  expect((await postEnroll({ code: "wrong", singleUser: false })).status).toBe(
-    400
+  await Promise.all(
+    [
+      "not json",
+      { code: "hm_enr_x" },
+      { code: "wrong", singleUser: false },
+      { code: "hm_enr_x", role: "computer" },
+    ].map(async (body) => {
+      const response = await postEnroll(body);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error:
+          "Expected JSON with a code and singleUser, or a computer body with role computer.",
+      });
+    })
   );
 });
 
@@ -454,7 +464,7 @@ for (const role of ["agent_host", "computer", "both"] as const) {
     );
     expect(relayIds.every((id) => id === answer.machineId)).toBe(true);
     expect(await composed.services.machines.list(user())).toMatchObject([
-      { id: answer.machineId, roles, singleUser: true },
+      { id: answer.machineId, roles, singleUser: role !== "computer" },
     ]);
     expect((await postEnroll(rolesBody(code))).status).toBe(401);
   });
@@ -506,4 +516,59 @@ test("new enrol refuses add-role codes without spending them", async () => {
   });
   const { singleUser: _singleUser, ...fields } = rolesBody(code);
   expect((await postEnroll({ ...fields, role: "computer" })).status).toBe(200);
+});
+
+for (const [role, computerBody] of [
+  ["both", false],
+  ["both", true],
+  ["computer", false],
+] as const) {
+  test(`legacy ${computerBody ? "computer" : "daemon"} body refuses a ${role} code without spending it`, async () => {
+    const { code } = await composed.services.machines.createEnrollToken(
+      user(),
+      {
+        machineName: "box",
+        role,
+      }
+    );
+    const { singleUser: _singleUser, ...fields } = rolesBody(code);
+    const response = await postEnroll(
+      computerBody
+        ? { ...fields, role: "computer" }
+        : { code, singleUser: false }
+    );
+    expect(response.status).toBe(401);
+    expect((await postEnroll(rolesBody(code))).status).toBe(200);
+  });
+}
+
+test("new computer-only credential is refused on every run route", async () => {
+  const { code } = await composed.services.machines.createEnrollToken(user(), {
+    machineName: "box",
+    role: "computer",
+  });
+  const response = await postEnroll(rolesBody(code));
+  expect(response.status).toBe(200);
+  const { credential } = rolesEnrollResponseSchema.parse(await response.json());
+  await Promise.all(
+    [
+      "claim",
+      "events",
+      "heartbeat",
+      "complete",
+      "needs-approval",
+      "requests",
+      "requests/request_1",
+    ].map(async (path) => {
+      const result = await app.request(
+        `/api/machines/runs/run_1/${path}`,
+        {
+          headers: { Authorization: `Bearer ${credential}` },
+          method: path.includes("/") ? "GET" : "POST",
+        },
+        env
+      );
+      expect(result.status).toBe(401);
+    })
+  );
 });
