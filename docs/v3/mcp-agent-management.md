@@ -35,3 +35,13 @@ Every write keeps the audit record `admin.ts` writes today. For an OAuth caller,
 ## Docs
 
 Update the tool descriptions, `CLAUDE.md` only if a rule changes, and `docs/v3` where admin API access is described (search for X.10 and `adminWriteTools`).
+
+## MA.2: archived agents in the app (Dom, 5 Nov 2026)
+
+Dom wants a way in the app to see archived agents and restore them.
+
+- tRPC `agents.restore({ agentId })` (`workspaceProcedure`) calls `agents.restore` from MA.1. `agents.list` already takes `includeArchived`.
+- `/agents`: below the table, a quiet "Archived (N)" toggle, shown only when N > 0. It opens a list of the archived agents: name, slug, when archived if known, and a **Restore** button on each row. The archived list is closed by default. A successful restore shows a toast ("Restored <name>"), moves the agent back into the main table, and refreshes the rail. A refused restore (its slug or address now taken) shows the service's message.
+- `/agents/<id>` for an archived agent: a banner at the top, "This agent is archived. It doesn't run and isn't offered anywhere.", with a **Restore** button. Edit controls that make no sense while archived stay disabled or hidden.
+- Restore uses the same rule as archive, so who sees the button follows the UI's existing archive permission.
+- Phones: the toggle and rows work at 390px with 40px targets.
