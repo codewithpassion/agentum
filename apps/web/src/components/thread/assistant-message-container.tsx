@@ -15,6 +15,7 @@ import { Spinner } from "#/components/ui/spinner.tsx";
 import { FileChips } from "./file-chips.tsx";
 import { ReasoningContainer, ReasoningPart } from "./reasoning-container.tsx";
 import { RunMarker } from "./run-marker.tsx";
+import { FilesLine, RunFailure } from "./thread-cards.tsx";
 import { useThreadEnv } from "./thread-context.tsx";
 import {
   ToolCallContainer,
@@ -36,7 +37,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 /** A request part: the approval or question card of the task page, found by request id. */
 function RequestPart({ data }: { data: unknown }) {
-  const { answer, nowMs, requests } = useThreadEnv();
+  const {
+    answer,
+    nowMs,
+    requests,
+    inControl,
+    canTake,
+    onComputer,
+    editedRuns,
+    requestTimes,
+  } = useThreadEnv();
   const id = isRecord(data) ? data.requestId : undefined;
   const view = typeof id === "string" ? requests.get(id) : undefined;
   return view === undefined || nowMs === null ? null : (
@@ -45,7 +55,16 @@ function RequestPart({ data }: { data: unknown }) {
       id={`thread-request-${view.id}`}
       tabIndex={-1}
     >
-      <RequestCard nowMs={nowMs} onAnswer={answer} view={view} />
+      <RequestCard
+        cancelledByEdit={editedRuns?.has(view.runId)}
+        canTake={canTake}
+        inControl={inControl}
+        nowMs={nowMs}
+        onAnswer={answer}
+        onComputer={onComputer}
+        settledAt={requestTimes?.get(view.id)}
+        view={view}
+      />
     </div>
   );
 }
@@ -101,6 +120,21 @@ function StatusLine() {
 
 /** An agent turn: text, reasoning, tool cards and request cards, in the order they happened. */
 export function AssistantMessageContainer() {
+  const id = useAuiState((state) => state.message.id);
+  const { failure, filesLine, requests } = useThreadEnv();
+  const runId = useAuiState((state) => state.message.metadata.custom.runId);
+  const requestIds = useAuiState((state) =>
+    state.message.content
+      .filter((part) => part.type === "data" && part.name === "request")
+      .map((part) =>
+        "data" in part && isRecord(part.data) ? String(part.data.requestId) : ""
+      )
+      .join("\u0000")
+  );
+  const missingRequests = [...requests.values()].filter(
+    (view) =>
+      view.runId === runId && !requestIds.split("\u0000").includes(view.id)
+  );
   return (
     <MessagePrimitive.Root data-role="assistant">
       <RunMarker>
@@ -122,7 +156,21 @@ export function AssistantMessageContainer() {
                 tools: { Fallback: ToolCallContainer },
               }}
             />
-            <StatusLine />
+            {missingRequests.map((view) => (
+              <RequestPart data={{ requestId: view.id }} key={view.id} />
+            ))}
+            {failure?.messageId === id ? (
+              <RunFailure error={failure.error} />
+            ) : (
+              <StatusLine />
+            )}
+            {filesLine?.messageId === id ? (
+              <FilesLine
+                onConflicts={filesLine.onConflicts}
+                onOpen={filesLine.onOpen}
+                text={filesLine.text}
+              />
+            ) : null}
           </MessageContent>
         </Message>
       </RunMarker>

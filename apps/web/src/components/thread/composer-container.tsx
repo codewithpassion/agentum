@@ -5,7 +5,7 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { INPUT_FILES_MAX, MAX_FILE_BYTES } from "@repo/db/shared";
-import { FileIcon, XIcon } from "lucide-react";
+import { FileIcon, LibraryIcon, PaperclipIcon, XIcon } from "lucide-react";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -77,7 +77,9 @@ function ComposerAttachment() {
  */
 export function ComposerContainer({
   disabledNote,
+  nextRun,
 }: {
+  nextRun?: number;
   disabledNote: string | null;
 }) {
   const aui = useAui();
@@ -174,6 +176,12 @@ export function ComposerContainer({
       className="flex flex-col gap-2"
       onSubmit={blockEmpty}
     >
+      <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
+        <span className="font-medium">Reply</span>
+        <span className="text-muted-foreground">
+          Sending starts run {nextRun ?? 2} in this thread
+        </span>
+      </div>
       <div className="relative">
         <ComposerPrimitive.Input
           aria-describedby="thread-send-hint"
@@ -212,15 +220,20 @@ export function ComposerContainer({
           type="file"
         />
         <Button
+          aria-label="Attach files"
+          className="size-11 md:h-9 md:w-auto"
           disabled={disabled}
           onClick={openFiles}
           size="sm"
           type="button"
           variant="outline"
         >
-          Attach files
+          <PaperclipIcon aria-hidden="true" />
+          <span className="hidden md:inline">Attach</span>
         </Button>
         <Button
+          aria-label="From library"
+          className="size-11 md:h-9 md:w-auto"
           data-testid="library-picker-open"
           disabled={disabled}
           onClick={openLibrary}
@@ -228,11 +241,18 @@ export function ComposerContainer({
           type="button"
           variant="outline"
         >
-          From library
+          <LibraryIcon aria-hidden="true" />
+          <span className="hidden md:inline">Library</span>
         </Button>
-        <DictationButton dictation={dictation} />
+        <div className="max-md:[&_button]:size-11">
+          <DictationButton dictation={dictation} />
+        </div>
+        <span className="ml-auto hidden md:inline">
+          <SendHint id="thread-send-hint" />
+        </span>
         <ComposerPrimitive.Send asChild>
           <Button
+            className="ml-auto h-11 md:ml-0 md:h-9"
             disabled={disabled || empty || uploading || dictation.busy}
             size="sm"
             type="submit"
@@ -240,7 +260,6 @@ export function ComposerContainer({
             Send
           </Button>
         </ComposerPrimitive.Send>
-        <SendHint id="thread-send-hint" />
       </div>
       {pickerOpen ? (
         <LibraryPicker onClose={closeLibrary} onPick={attachFromLibrary} />

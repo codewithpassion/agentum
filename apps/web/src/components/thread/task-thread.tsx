@@ -15,10 +15,18 @@ import {
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
+import {
+  bottomState,
+  focusRequest,
+  inputSourceKind,
+  outsideLabel,
+} from "../task/task-behaviour.ts";
+import { BottomBar } from "./bottom-bar.tsx";
 import { ComposerContainer } from "./composer-container.tsx";
 import { addEditedMark, readEditedMarks } from "./edited-marks.ts";
-import { ThreadContainer } from "./thread-container.tsx";
+import { ThreadContainer, type ThreadPosition } from "./thread-container.tsx";
 import { type ThreadEnv, ThreadEnvProvider } from "./thread-context.tsx";
+import { threadRequestViews } from "./thread-request-views.ts";
 import {
   isActiveStatus,
   latestUserMessage,
@@ -32,11 +40,10 @@ import {
   useTaskThreadRuntime,
 } from "./use-task-thread-runtime.ts";
 
+const noop = () => undefined;
+
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
-
-const WORKING_NOTE =
-  "The agent is working. You can send a message when it is done, or edit the last one to stop it and start over.";
 
 /** The ids of the files the thread shows, so their names and sizes can be looked up. */
 const fileIdsOf = (messages: readonly ThreadMessage[]): string[] => [
@@ -62,7 +69,27 @@ export function TaskThread({
   nowMs,
   requests,
   task,
+  inControl = false,
+  canTake = false,
+  onComputer,
+  onFiles,
+  onConflicts,
+  routingHref: externalRoutingHref,
+  filesText = "",
+  stop,
+  stopping = false,
+  activeStatus,
 }: {
+  inControl?: boolean;
+  canTake?: boolean;
+  onComputer?: () => void;
+  onFiles?: () => void;
+  onConflicts?: () => void;
+  routingHref?: string;
+  filesText?: string;
+  stop?: () => void;
+  stopping?: boolean;
+  activeStatus?: TaskView["run"]["status"];
   answer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
   messages: readonly ThreadMessage[];
   nowMs: number | null;
@@ -76,8 +103,13 @@ export function TaskThread({
   useEffect(() => setEdited(readEditedMarks()), []);
 
   const runs = useMemo(
-    () => sessionRuns(task.otherRuns, { ...task.run, title: task.title }),
-    [task]
+    () =>
+      sessionRuns(task.otherRuns, {
+        ...task.run,
+        status: activeStatus ?? task.run.status,
+        title: task.title,
+      }),
+    [task, activeStatus]
   );
   const earlier = runs.filter((run) => run.id < task.run.id);
   const [showEarlier, setShowEarlier] = useState(false);
@@ -122,9 +154,96 @@ export function TaskThread({
   const fileIds = useMemo(() => fileIdsOf(messages), [messages]);
   const { files } = useFileInfos(fileIds);
   const note = replyNote(task.session.origin);
-  const running = messages.some(
-    (message) => message.role === "assistant" && isActiveStatus(message.status)
+  const latestRun = runs.at(-1);
+  const latestMessage = messages.findLast(
+    (message) => message.role === "assistant" && message.runId === latestRun?.id
   );
+  const running = latestMessage
+    ? isActiveStatus(latestMessage.status)
+    : ["queued", "offered", "running", "waiting"].includes(
+        latestRun?.status ?? ""
+      );
+  const conversationRequests = useMemo(
+    () => threadRequestViews(task.events, requests),
+    [task.events, requests]
+  );
+  const pending = [...conversationRequests.values()].find(
+    (request) => request.settled === null
+  );
+  const state = bottomState({
+    control: inControl,
+    origin: task.session.origin,
+    pending: pending?.kind ?? null,
+    working: running,
+  });
+  const outsideLabels = useMemo(
+    () =>
+      new Map(
+        messages
+          .filter((message) => message.role === "user")
+          .flatMap((message) => {
+            const origin = inputSourceKind(
+              message.actor?.kind,
+              task.startedBy.kind
+            );
+            const label = outsideLabel(
+              origin,
+              message.actorDisplay?.name ?? task.startedBy.label
+            );
+            return label === null
+              ? []
+              : [
+                  [
+                    message.id,
+                    `${label}${message.createdAt ? ` · ${message.createdAt.slice(11, 16)}` : ""}`,
+                  ] as const,
+                ];
+          })
+      ),
+    [messages, task.startedBy]
+  );
+  const memberLabels = useMemo(
+    () =>
+      new Map(
+        messages
+          .filter(
+            (message) =>
+              message.role === "user" && !outsideLabels.has(message.id)
+          )
+          .map((message) => [
+            message.id,
+            `${message.actorDisplay?.name ?? task.startedBy.label}${message.createdAt ? ` · ${message.createdAt.slice(11, 16)}` : ""}`,
+          ])
+      ),
+    [messages, outsideLabels, task.startedBy.label]
+  );
+  const lastAnswer = messages.findLast(
+    (message) => message.role === "assistant" && message.runId === task.run.id
+  );
+  const failureEvent = task.events.findLast(
+    (event) =>
+      event.runId === task.run.id &&
+      (event.type === "run.failed" || event.type === "run.interrupted")
+  );
+  const rawError =
+    typeof failureEvent?.payload.error === "string"
+      ? failureEvent.payload.error
+      : "The run failed.";
+  const currentTool = latestMessage?.parts.findLast(
+    (part) => part.type === "tool-call" && part.ok === null
+  );
+  const workingLabel =
+    currentTool?.type === "tool-call"
+      ? [
+          currentTool.name,
+          typeof currentTool.input === "object" && currentTool.input !== null
+            ? Object.values(currentTool.input)[0]
+            : null,
+        ]
+          .filter((part) => typeof part === "string")
+          .join(" · ")
+      : undefined;
+  const review = useCallback(() => focusRequest(pending?.id), [pending?.id]);
 
   const startRun = useCallback(
     async ({ fileIds: ids, text }: ThreadSendInput, onStarted?: () => void) => {
@@ -193,44 +312,142 @@ export function TaskThread({
     onSend: startRun,
   });
 
+  const editedRuns = useMemo(
+    () =>
+      new Set(
+        messages
+          .filter((message) => edited.has(message.id) && message.runId !== null)
+          .map((message) => message.runId as string)
+      ),
+    [messages, edited]
+  );
+  const requestTimes = useMemo(
+    () =>
+      new Map(
+        task.events
+          .filter((event) => event.type === "request.answered")
+          .flatMap((event) =>
+            typeof event.payload.requestId === "string"
+              ? [[event.payload.requestId, event.createdAt] as const]
+              : []
+          )
+      ),
+    [task.events]
+  );
   const env = useMemo<ThreadEnv>(
     () => ({
+      active: running,
       agentName: task.agent.name,
       answer,
+      canTake,
       editableId: note === null ? latestUserMessage(messages) : null,
       edited,
+      editedRuns,
+      failure:
+        lastAnswer?.status === "failed"
+          ? { error: rawError, messageId: lastAnswer.id }
+          : undefined,
       files,
+      filesLine:
+        lastAnswer && lastAnswer.status !== "running" && filesText && onFiles
+          ? {
+              messageId: lastAnswer.id,
+              onConflicts,
+              onOpen: onFiles,
+              text: filesText,
+            }
+          : undefined,
+      inControl,
+      memberLabels,
       nowMs,
-      requests,
+      onComputer,
+      outsideLabels,
+      requests: conversationRequests,
+      requestTimes,
       runMarkers,
       viewedMessageIds,
     }),
     [
       answer,
+      editedRuns,
+      requestTimes,
+      running,
+      outsideLabels,
+      memberLabels,
+      inControl,
+      canTake,
+      onComputer,
+      lastAnswer,
+      rawError,
+      filesText,
+      onFiles,
+      onConflicts,
       edited,
       files,
       messages,
       note,
       nowMs,
-      requests,
+      conversationRequests,
       task.agent.name,
       runMarkers,
       viewedMessageIds,
     ]
   );
 
-  let disabledNote: string | null = null;
-  if (note !== null) {
-    disabledNote = note;
-  } else if (running) {
-    disabledNote = WORKING_NOTE;
-  }
+  const routingHrefs: Record<string, string> = {
+    mail: "?tab=mail",
+    trigger: "/triggers",
+  };
+  const routingHref = externalRoutingHref ?? routingHrefs[task.startedBy.kind];
+  const renderBottom = useCallback(
+    ({ atBottom, requestVisible, typing, jump }: ThreadPosition) => (
+      <>
+        <div className={state === "composer" ? "" : "hidden"}>
+          <ComposerContainer
+            disabledNote={state === "composer" ? null : "Reply when it is done"}
+            nextRun={runs.length + 1}
+          />
+        </div>
+        <BottomBar
+          atBottom={atBottom}
+          canStop={["running", "queued", "waiting", "offered"].includes(
+            activeStatus ?? task.run.status
+          )}
+          onLatest={jump}
+          onReview={review}
+          onStop={stop ?? noop}
+          origin={task.session.origin}
+          pending={pending?.kind ?? null}
+          requestVisible={requestVisible}
+          routingHref={routingHref}
+          runNumber={runs.length}
+          state={state}
+          stopping={stopping}
+          typing={typing}
+          workingLabel={workingLabel}
+        />
+      </>
+    ),
+    [
+      state,
+      runs.length,
+      pending?.kind,
+      review,
+      stop,
+      stopping,
+      activeStatus,
+      task.run.status,
+      task.session.origin,
+      routingHref,
+      workingLabel,
+    ]
+  );
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadEnvProvider value={env}>
         <ThreadContainer
-          composer={<ComposerContainer disabledNote={disabledNote} />}
+          composer={renderBottom}
           earlier={
             folded ? (
               <div className="flex items-center justify-between gap-2 border border-dashed px-3 text-muted-foreground text-sm">
@@ -243,7 +460,7 @@ export function TaskThread({
           }
           runId={task.run.id}
           running={running}
-          waiting={task.run.status === "waiting"}
+          waiting={pending !== undefined}
         />
       </ThreadEnvProvider>
     </AssistantRuntimeProvider>

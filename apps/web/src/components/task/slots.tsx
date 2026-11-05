@@ -3,6 +3,8 @@ import {
   DesktopScreen,
   type TakeoverControls,
 } from "#/components/computer/desktop-screen.tsx";
+import type { DesktopStatus } from "#/components/computer/desktop-stream.ts";
+import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { TaskFilesList, type TaskFilesView } from "./task-files.tsx";
 import type { TakeoverRequest } from "./task-logic.ts";
@@ -112,7 +114,11 @@ export function ComputerSlot({
   computerMachineId,
   agentName,
   takeover,
+  onStatus,
+  requestInConversation = false,
 }: {
+  onStatus?: (status: DesktopStatus | null) => void;
+  requestInConversation?: boolean;
   agentName: string;
   computerMachineId: string | null;
   /** The run's pending takeover request, or null. */
@@ -128,7 +134,13 @@ export function ComputerSlot({
       data-testid="slot-computer"
       id={COMPUTER_ANCHOR}
     >
-      <h2 className="font-medium">{agentName}'s computer</h2>
+      <h2
+        className="font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-computer-heading
+        tabIndex={-1}
+      >
+        {agentName}'s computer
+      </h2>
       {computerMachineId === null ? (
         <p className="text-muted-foreground text-sm">
           This agent has no computer.
@@ -137,9 +149,61 @@ export function ComputerSlot({
         <DesktopScreen
           key={computerMachineId}
           machineId={computerMachineId}
+          onStatus={onStatus}
+          requestInConversation={requestInConversation}
           takeover={controls}
         />
       )}
     </section>
+  );
+}
+
+export function TaskComputerPanel({
+  machineId,
+  agentName,
+  width,
+  className,
+  onClose,
+  onStatus,
+  takeover,
+}: {
+  machineId: string | null;
+  agentName: string;
+  width: number | null;
+  className: string;
+  onClose: () => void;
+  onStatus: (status: DesktopStatus | null) => void;
+  takeover: TakeoverRequest | null;
+}) {
+  if (machineId === null) {
+    return null;
+  }
+  return (
+    <div
+      aria-label="Computer"
+      aria-labelledby={width === null ? "task-tab-computer" : undefined}
+      className={className}
+      id="task-panel-computer"
+      role="tabpanel"
+      style={width === null ? undefined : { width }}
+    >
+      {width === null ? null : (
+        <Button
+          aria-label="Close computer"
+          className="mb-2"
+          onClick={onClose}
+          variant="ghost"
+        >
+          Close
+        </Button>
+      )}
+      <ComputerSlot
+        agentName={agentName}
+        computerMachineId={machineId}
+        onStatus={onStatus}
+        requestInConversation={width !== null}
+        takeover={takeover}
+      />
+    </div>
   );
 }

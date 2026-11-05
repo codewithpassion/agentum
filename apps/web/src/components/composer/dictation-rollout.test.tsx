@@ -293,7 +293,6 @@ const cases: {
   {
     name: "handback note",
     node: <DesktopScreen machineId="machine" takeover={null} />,
-    open: "I'm done",
     selector: 'textarea[placeholder="Logged in as accounts@…"]',
   },
 ];

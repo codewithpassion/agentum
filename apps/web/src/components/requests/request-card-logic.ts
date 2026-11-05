@@ -390,3 +390,45 @@ export const withSendError = (
 /** True when a tRPC error says the request was answered already. */
 export const isConflict = (cause: unknown): boolean =>
   isRecord(cause) && isRecord(cause.data) && cause.data.code === "CONFLICT";
+
+/** A typed answer and a picked answer are mutually exclusive. */
+export const pickQuestion = (
+  inputs: QuestionInputs,
+  question: Question,
+  choice: string
+): QuestionInputs => ({
+  choices: {
+    ...inputs.choices,
+    [question.question]: toggledChoices(
+      question,
+      inputs.choices[question.question] ?? [],
+      choice
+    ),
+  },
+  text: { ...inputs.text, [question.question]: "" },
+});
+export const typeQuestion = (
+  inputs: QuestionInputs,
+  question: string,
+  text: string
+): QuestionInputs => ({
+  choices: { ...inputs.choices, [question]: [] },
+  text: { ...inputs.text, [question]: text },
+});
+
+/** Task conversation wording, with timestamps from the stored closing event. */
+export function taskSettlement(
+  kind: RequestView["kind"],
+  settled: Settled,
+  at: string | undefined,
+  edited: boolean,
+  fallback: string
+): string {
+  if (settled.status === "cancelled" && edited) {
+    return "Cancelled, you edited the message";
+  }
+  if (kind === "takeover" && settled.status === "answered") {
+    return `Handed back${at ? ` at ${at.slice(11, 16)}` : ""}`;
+  }
+  return `${fallback}${at && settled.status === "answered" ? ` at ${at.slice(11, 16)}` : ""}`;
+}

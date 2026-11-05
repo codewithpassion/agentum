@@ -1,7 +1,15 @@
 import { useUser } from "@clerk/tanstack-react-start";
 import type { Question } from "@repo/protocol/requests";
 import { Link } from "@tanstack/react-router";
-import { type ChangeEvent, useCallback, useId, useState } from "react";
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  useCallback,
+  useId,
+  useState,
+} from "react";
+import { isSendShortcut } from "#/components/composer/send-shortcut.ts";
+import { tabFocusIndex } from "#/components/task/task-tabs.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
@@ -16,12 +24,14 @@ import {
   type MailApprovalFields,
   mailApprovalFields,
   offersAlwaysAllow,
+  pickQuestion,
   type QuestionInputs,
   questionAnswer,
   type RequestView,
   type Settled,
   settledLine,
-  toggledChoices,
+  taskSettlement,
+  typeQuestion,
 } from "./request-card-logic.ts";
 
 const errorMessage = (error: unknown): string =>
@@ -35,7 +45,7 @@ const answeredBy = (settled: Settled, user: CurrentUser): string | null => {
     return null;
   }
   if (settled.answeredBy === user?.id) {
-    return user.firstName ?? user.fullName ?? "you";
+    return user.fullName ?? user.firstName ?? "you";
   }
   return "a teammate";
 };
@@ -71,20 +81,61 @@ function ChoiceButton({
   disabled,
   pressed,
   onToggle,
+  radio,
+  tabStop,
 }: {
+  radio: boolean;
+  tabStop: boolean;
   choice: string;
   disabled: boolean;
   pressed: boolean;
   onToggle: (choice: string) => void;
 }) {
   const handleClick = useCallback(() => onToggle(choice), [choice, onToggle]);
+  const keyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (!radio) {
+        return;
+      }
+      const buttons = Array.from(
+        event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+          '[role="radio"]'
+        ) ?? []
+      );
+      const key = event.key
+        .replace("ArrowDown", "ArrowRight")
+        .replace("ArrowUp", "ArrowLeft");
+      const next = tabFocusIndex(
+        key,
+        buttons.indexOf(event.currentTarget),
+        buttons.length
+      );
+      if (next === null) {
+        return;
+      }
+      event.preventDefault();
+      buttons[next]?.focus();
+      const nextChoice = buttons[next]?.textContent;
+      if (
+        nextChoice &&
+        buttons[next]?.getAttribute("aria-checked") !== "true"
+      ) {
+        onToggle(nextChoice);
+      }
+    },
+    [radio, onToggle]
+  );
   return (
     <Button
-      aria-pressed={pressed}
-      className="w-full text-base sm:w-auto sm:text-[0.8rem]"
+      aria-checked={radio ? pressed : undefined}
+      aria-pressed={radio ? undefined : pressed}
+      className="min-h-10 w-full text-base sm:w-auto sm:text-[0.8rem] md:min-h-9"
       disabled={disabled}
       onClick={handleClick}
+      onKeyDown={keyDown}
+      role={radio ? "radio" : undefined}
       size="sm"
+      tabIndex={radio && !tabStop ? -1 : 0}
       type="button"
       variant={pressed ? "default" : "outline"}
     >
@@ -100,7 +151,9 @@ function QuestionBlock({
   disabled,
   onPick,
   onType,
+  onSend,
 }: {
+  onSend: (event: KeyboardEvent<HTMLInputElement>) => void;
   question: Question;
   picked: readonly string[];
   typed: string;
@@ -124,14 +177,22 @@ function QuestionBlock({
       )}
       <p className="text-sm">{question.question}</p>
       {(question.choices ?? []).length === 0 ? null : (
-        <div className="flex flex-wrap gap-2">
-          {(question.choices ?? []).map((choice) => (
+        <div
+          aria-label={question.question}
+          className="flex flex-wrap gap-2"
+          role="radiogroup"
+        >
+          {(question.choices ?? []).map((choice, index) => (
             <ChoiceButton
               choice={choice}
               disabled={disabled}
               key={choice}
               onToggle={pick}
               pressed={picked.includes(choice)}
+              radio={!question.multiSelect}
+              tabStop={
+                picked.length === 0 ? index === 0 : picked.includes(choice)
+              }
             />
           ))}
         </div>
@@ -140,6 +201,7 @@ function QuestionBlock({
         aria-label={`Your own answer to ${question.question}`}
         disabled={disabled}
         onChange={handleText}
+        onKeyDown={onSend}
         placeholder="Your own answer"
         value={typed}
       />
@@ -147,7 +209,7 @@ function QuestionBlock({
   );
 }
 
-function QuestionCard({
+export function QuestionCard({
   view,
   nowMs,
   onAnswer,
@@ -165,26 +227,13 @@ function QuestionCard({
 
   const pick = useCallback(
     (question: Question, choice: string) =>
-      setInputs((prev) => ({
-        ...prev,
-        choices: {
-          ...prev.choices,
-          [question.question]: toggledChoices(
-            question,
-            prev.choices[question.question] ?? [],
-            choice
-          ),
-        },
-      })),
+      setInputs((prev) => pickQuestion(prev, question, choice)),
     []
   );
 
   const type = useCallback(
     (questionText: string, text: string) =>
-      setInputs((prev) => ({
-        ...prev,
-        text: { ...prev.text, [questionText]: text },
-      })),
+      setInputs((prev) => typeQuestion(prev, questionText, text)),
     []
   );
 
@@ -193,11 +242,34 @@ function QuestionCard({
     [inputs, questions, submit]
   );
 
+  const shortcut = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (
+        isSendShortcut({
+          ...event,
+          isComposing: event.nativeEvent.isComposing,
+        }) &&
+        canSubmitAnswers(questions, inputs) &&
+        !pending
+      ) {
+        event.preventDefault();
+        send();
+      }
+    },
+    [questions, inputs, pending, send]
+  );
   return (
     <div
-      className="flex flex-col gap-3 rounded-md border border-border px-3 py-2 text-sm"
+      className="flex flex-col gap-3 border border-warning/40 bg-warning/10 px-3 py-3 text-sm [&_button]:min-h-10 md:[&_button]:min-h-9"
       data-testid="request-card"
     >
+      <h3
+        className="font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-request-heading
+        tabIndex={-1}
+      >
+        Answer question
+      </h3>
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
@@ -206,6 +278,7 @@ function QuestionCard({
           disabled={pending}
           key={question.question}
           onPick={pick}
+          onSend={shortcut}
           onType={type}
           picked={inputs.choices[question.question] ?? []}
           question={question}
@@ -309,10 +382,16 @@ function ApprovalCard({
 
   return (
     <div
-      className="flex flex-col gap-3 rounded-md border border-border px-3 py-2 text-sm"
+      className="flex flex-col gap-3 border border-warning/40 bg-warning/10 px-3 py-3 text-sm [&_button]:min-h-10 md:[&_button]:min-h-9"
       data-testid="request-card"
     >
-      <p>{title ?? view.display.summary}</p>
+      <h3
+        className="font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-request-heading
+        tabIndex={-1}
+      >
+        {title ?? view.display.summary}
+      </h3>
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
@@ -381,11 +460,17 @@ function ApprovalCard({
   );
 }
 
-function TakeoverCard({
+export function TakeoverCard({
   view,
   nowMs,
   onClosed,
+  inControl = false,
+  canTake = false,
+  onComputer,
 }: {
+  inControl?: boolean;
+  canTake?: boolean;
+  onComputer?: () => void;
   view: Extract<RequestView, { kind: "takeover" }>;
   nowMs: number;
   onClosed?: () => void;
@@ -406,6 +491,28 @@ function TakeoverCard({
       setPending(false);
     }
   }, [onClosed, view.id]);
+  const take = useCallback(async () => {
+    setPending(true);
+    setError(null);
+    try {
+      await getTrpc().takeover.take.mutate({ requestId: view.id });
+      onComputer?.();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPending(false);
+    }
+  }, [onComputer, view.id]);
+  if (inControl) {
+    return (
+      <div className="border border-info/40 bg-info/10 p-3 text-info">
+        <h3 data-request-heading tabIndex={-1}>
+          You have control
+        </h3>
+        <p className="text-sm">The agent waits until you hand back.</p>
+      </div>
+    );
+  }
   if (closed) {
     return (
       <p className="text-muted-foreground text-sm">Takeover request closed</p>
@@ -413,30 +520,42 @@ function TakeoverCard({
   }
   return (
     <div
-      className="flex flex-col gap-3 rounded-md border border-border px-3 py-2 text-sm"
+      className="flex flex-col gap-3 border border-warning/40 bg-warning/10 px-3 py-3 text-sm [&_button]:min-h-10 md:[&_button]:min-h-9"
       data-testid="request-card"
     >
-      <p>Take over the computer</p>
+      <h3
+        className="font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-request-heading
+        tabIndex={-1}
+      >
+        Take over the computer
+      </h3>
       <p>{view.display.reason}</p>
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
       <div className="flex flex-wrap gap-2">
-        <Link
-          className={buttonVariants({ size: "default" })}
-          hash="computer"
-          params={{ runId: view.runId }}
-          to="/tasks/$runId"
-        >
-          Open screen
-        </Link>
+        {onComputer ? (
+          <Button disabled={pending || !canTake} onClick={take} type="button">
+            Take over
+          </Button>
+        ) : (
+          <Link
+            className={buttonVariants({ size: "default" })}
+            hash="computer"
+            params={{ runId: view.runId }}
+            to="/tasks/$runId"
+          >
+            Open screen
+          </Link>
+        )}
         <Button
           disabled={pending}
           onClick={cancel}
           type="button"
           variant="outline"
         >
-          Cancel
+          Cancel request
         </Button>
       </div>
       {error === null ? null : (
@@ -458,7 +577,17 @@ export function RequestCard({
   onAnswer,
   onClosed,
   title,
+  settledAt,
+  cancelledByEdit = false,
+  inControl,
+  canTake,
+  onComputer,
 }: {
+  inControl?: boolean;
+  canTake?: boolean;
+  onComputer?: () => void;
+  settledAt?: string;
+  cancelledByEdit?: boolean;
   view: RequestView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
@@ -473,12 +602,27 @@ export function RequestCard({
         className="text-muted-foreground text-sm"
         data-testid="request-settled"
       >
-        {settledLine(view.kind, view.settled, answeredBy(view.settled, user))}
+        {taskSettlement(
+          view.kind,
+          view.settled,
+          settledAt,
+          cancelledByEdit,
+          settledLine(view.kind, view.settled, answeredBy(view.settled, user))
+        )}
       </p>
     );
   }
   if (view.kind === "takeover") {
-    return <TakeoverCard nowMs={nowMs} onClosed={onClosed} view={view} />;
+    return (
+      <TakeoverCard
+        canTake={canTake}
+        inControl={inControl}
+        nowMs={nowMs}
+        onClosed={onClosed}
+        onComputer={onComputer}
+        view={view}
+      />
+    );
   }
   if (view.kind === "approval") {
     return (

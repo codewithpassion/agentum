@@ -2,10 +2,12 @@ import {
   type ChangeEvent,
   type CSSProperties,
   useCallback,
+  useEffect,
   useId,
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import {
   DictationButton,
@@ -22,6 +24,7 @@ import {
 } from "./desktop-clipboard.ts";
 import { DESKTOP_SCREEN, PHONE_KEYS } from "./desktop-input.ts";
 import { canTakeOver, controllerLabel, notLiveText } from "./desktop-status.ts";
+import type { DesktopStatus } from "./desktop-stream.ts";
 import { useDesktopInput } from "./use-desktop-input.ts";
 import { useDesktopScreen } from "./use-desktop-screen.ts";
 
@@ -158,6 +161,8 @@ export interface TakeoverControls {
 export interface DesktopScreenProps {
   /** The computer whose desktop this is. */
   machineId: string;
+  onStatus?: (status: DesktopStatus | null) => void;
+  requestInConversation?: boolean;
   /** The agent's open request for a person, or null when it has none. */
   takeover: TakeoverControls | null;
 }
@@ -172,7 +177,7 @@ function ControlBar({
   onHandBack: (note: string) => Promise<boolean>;
 }) {
   const noteId = useId();
-  const [finishing, setFinishing] = useState(false);
+  const [finishing, setFinishing] = useState(true);
   const [note, setNote] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const dictation = useDictation({
@@ -199,6 +204,9 @@ function ControlBar({
   }, [note, onHandBack, busy, dictation.busy]);
   return (
     <div className="flex flex-col gap-2">
+      <p className="text-info text-sm">
+        You have control. The agent waits until you hand back.
+      </p>
       {finishing ? (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={noteId}>Note for the agent (optional)</Label>
@@ -228,7 +236,7 @@ function ControlBar({
               size="sm"
               type="button"
             >
-              Hand back
+              {busy ? "Handing back…" : "Hand back"}
             </Button>
             <Button
               disabled={busy}
@@ -283,14 +291,16 @@ function TakeOverBar({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button
-        disabled={busy || !canTake}
-        onClick={onTake}
-        size="sm"
-        type="button"
-      >
-        Take over
-      </Button>
+      {hasRequest ? (
+        <Button
+          disabled={busy || !canTake}
+          onClick={onTake}
+          size="sm"
+          type="button"
+        >
+          Take over
+        </Button>
+      ) : null}
       {hasRequest ? (
         <Button
           disabled={busy}
@@ -299,7 +309,7 @@ function TakeOverBar({
           type="button"
           variant="outline"
         >
-          Cancel
+          Cancel request
         </Button>
       ) : null}
       <span className="text-muted-foreground text-xs">
@@ -316,11 +326,17 @@ function TakeOverBar({
  * mouse and keyboard reach the desktop only while this person holds it, which
  * the agent's open takeover request allows.
  */
-export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
+export function DesktopScreen({
+  machineId,
+  takeover,
+  onStatus,
+  requestInConversation = false,
+}: DesktopScreenProps) {
   const screen = useDesktopScreen(machineId);
   const { canvasRef, connection, flushInput, hasFrame, problem, sendInput } =
     screen;
   const { status } = screen;
+  useEffect(() => onStatus?.(status), [onStatus, status]);
   const inControl = status?.youHaveControl === true;
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
@@ -339,6 +355,7 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
       return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      toast.error(errorMessage(cause));
       return false;
     } finally {
       setBusy(false);
@@ -385,6 +402,12 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
   const take = useCallback(
     () =>
       run(async () => {
+        if (window.matchMedia("(max-width: 767px)").matches) {
+          surfaceRef.current
+            ?.closest<HTMLElement>('[data-testid="desktop-screen"]')
+            ?.requestFullscreen?.()
+            .catch(() => undefined);
+        }
         await takeover?.take();
         input.keyboard.ref.current?.focus();
       }),
@@ -419,27 +442,28 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
     [machineId, run]
   );
 
+  const fullScreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    surfaceRef.current
+      ?.closest<HTMLElement>('[data-testid="desktop-screen"]')
+      ?.requestFullscreen()
+      .catch(() => undefined);
+  }, []);
   const notLive = notLiveText({ connection, problem, status });
   const live = hasFrame && notLive === null;
 
   return (
-    <div className="flex flex-col gap-2.5" data-testid="desktop-screen">
-      {takeover === null ? null : (
-        <p
-          className="rounded-lg bg-muted px-2.5 py-1.5 text-sm"
-          data-testid="desktop-takeover-reason"
-        >
-          The agent asked you to take over: {takeover.reason}
-        </p>
+    <div
+      className={cn(
+        "group/computer flex flex-col gap-2.5 bg-background [&:fullscreen]:overflow-y-auto [&:fullscreen]:p-4 [&_button]:min-h-10 md:[&_button]:min-h-9",
+        inControl && "border border-info/40 bg-info/10 p-3"
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs">
-        <span aria-live="polite">{controllerLabel(status)}</span>
-        {live ? (
-          <span className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive">
-            ● Live
-          </span>
-        ) : null}
-      </div>
+      data-testid="desktop-screen"
+    >
+      <ScreenStatus live={live} status={status} takeover={takeover} />
       <div
         className={cn(
           "overflow-auto rounded-lg border bg-muted md:overflow-hidden",
@@ -534,9 +558,27 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
         />
       ) : null}
 
+      <Button
+        className="min-h-10 md:min-h-9"
+        onClick={fullScreen}
+        variant="outline"
+      >
+        <span className="group-[:fullscreen]/computer:hidden">Full screen</span>
+        <span className="hidden group-[:fullscreen]/computer:inline">
+          Close full screen
+        </span>
+      </Button>
       {inControl ? (
         <ControlBar busy={busy} onCopy={copyFromRemote} onHandBack={handBack} />
-      ) : (
+      ) : null}
+      {!inControl && requestInConversation ? (
+        <p className="text-muted-foreground text-sm">
+          {takeover
+            ? "Waiting for you to take over. The request and its Take over button are in the conversation."
+            : "A live view of the computer as it is now, not a recording of this run. You can take over when the agent asks."}
+        </p>
+      ) : null}
+      {inControl || requestInConversation ? null : (
         <TakeOverBar
           busy={busy}
           canTake={canTakeOver({ hasTakeover: takeover !== null, status })}
@@ -546,5 +588,46 @@ export function DesktopScreen({ machineId, takeover }: DesktopScreenProps) {
         />
       )}
     </div>
+  );
+}
+
+function ScreenStatus({
+  takeover,
+  status,
+  live,
+}: {
+  takeover: TakeoverControls | null;
+  status: DesktopStatus | null;
+  live: boolean;
+}) {
+  let dot = takeover ? "bg-warning" : "bg-muted-foreground";
+  if (status?.youHaveControl) {
+    dot = "bg-info";
+  }
+  return (
+    <>
+      {takeover ? (
+        <p
+          className="rounded-lg bg-muted px-2.5 py-1.5 text-sm"
+          data-testid="desktop-takeover-reason"
+        >
+          The agent asked you to take over: {takeover.reason}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs">
+        <span aria-live="polite" className="flex items-center gap-1.5">
+          <span
+            aria-hidden="true"
+            className={cn("size-1.5 rounded-full", dot)}
+          />
+          {controllerLabel(status)}
+        </span>
+        {live ? (
+          <span className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive">
+            ● Live
+          </span>
+        ) : null}
+      </div>
+    </>
   );
 }

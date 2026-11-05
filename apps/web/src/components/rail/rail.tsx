@@ -8,6 +8,7 @@ import {
   HeaderActionsPortal,
   HeaderMenuButton,
 } from "#/components/shell/header-menu-slot";
+import { useTaskControl } from "#/components/task/task-control.ts";
 import {
   Sidebar,
   SidebarContent,
@@ -111,7 +112,11 @@ export function Rail({ agents, pinned = [] }: RailProps) {
   const showToggle = members === null || members.length > 1;
   const setup = view?.setup ?? [];
   const working = view?.working ?? [];
-  const waiting = needsYou.length + setup.length;
+  const control = useTaskControl();
+  const actionable = needsYou.filter(
+    (item) => !item.cards.some((card) => card.id === control?.requestId)
+  );
+  const waiting = actionable.length + setup.length;
   const waitingLabel = view === null ? "" : String(waiting);
 
   return (
@@ -128,6 +133,16 @@ export function Rail({ agents, pinned = [] }: RailProps) {
           ) : null}
         </SidebarHeader>
         <SidebarContent className="gap-0 px-2 pb-2">
+          {control ? (
+            <RailLink
+              className="mx-1 my-2 border border-info/40 border-l-[3px] border-l-info bg-info/10 p-2 text-info text-sm focus-visible:ring-2 focus-visible:ring-ring"
+              href={`/tasks/${control.runId}#computer`}
+              onNavigate={closeMobileNav}
+            >
+              <span className="block font-medium">You have control</span>
+              <span className="text-xs">{control.agentName}'s computer</span>
+            </RailLink>
+          ) : null}
           <h2 className={SECTION_HEADING_CLASS}>
             Needs you
             <span>{waitingLabel}</span>
@@ -136,7 +151,7 @@ export function Rail({ agents, pinned = [] }: RailProps) {
             {setup.map((step) => (
               <SetupRow key={step} onNavigate={closeMobileNav} step={step} />
             ))}
-            {needsYou.map((item) => (
+            {actionable.map((item) => (
               <NeedsYouRow
                 fresh={fresh.has(item.id)}
                 item={item}

@@ -5,7 +5,7 @@ import { cn } from "#/lib/utils.ts";
  * How far the on-screen keyboard covers the bottom of the layout viewport, in
  * px. Browsers that resize the layout viewport for the keyboard report 0.
  */
-function useKeyboardInset(): number {
+export function useKeyboardInset(): number {
   const [inset, setInset] = useState(0);
   useEffect(() => {
     const viewport = window.visualViewport;

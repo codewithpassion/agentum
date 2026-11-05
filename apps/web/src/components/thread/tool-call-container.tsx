@@ -16,8 +16,8 @@ import {
   CollapsibleTrigger,
 } from "#/components/ui/collapsible.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
+import { ToolGroup } from "./thread-cards.tsx";
 import {
-  groupLabel,
   type ToolCardInfo,
   type ToolKind,
   toolCardInfo,
@@ -60,7 +60,7 @@ export function ToolCard({ info }: { info: ToolCardInfo }) {
       data-testid="tool-card"
     >
       <CollapsibleTrigger
-        className="group flex w-full items-center gap-2 text-left"
+        className="group flex min-h-10 w-full items-center gap-2 text-left md:min-h-9"
         disabled={!hasDetails}
       >
         <Icon aria-hidden="true" className="size-3.5 shrink-0" />
@@ -136,25 +136,12 @@ export function ToolGroupContainer({
       .map((part) => (part.type === "tool-call" ? part.toolName : ""))
       .join(NAME_SEPARATOR)
   );
-  const names = joined.split(NAME_SEPARATOR);
-  if (names.length < 2) {
-    return <>{children}</>;
-  }
+  const running = useAuiState(
+    (state) => state.message.status?.type === "running"
+  );
   return (
-    <Collapsible
-      className="rounded-md border px-3 py-1.5"
-      data-testid="tool-group"
-    >
-      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 text-xs">
-        <ChevronRightIcon
-          aria-hidden="true"
-          className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
-        />
-        <span className="font-medium">{groupLabel(names)}</span>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1.5 flex flex-col gap-1.5">
-        {children}
-      </CollapsibleContent>
-    </Collapsible>
+    <ToolGroup names={joined.split(NAME_SEPARATOR)} running={running}>
+      {children}
+    </ToolGroup>
   );
 }
