@@ -10,6 +10,9 @@ use std::io::{BufRead, Read};
 use zeroize::Zeroizing;
 
 fn main() {
+    if let Some(code) = agentum::computer::worker_entry() {
+        std::process::exit(code);
+    }
     // Read and remove the code before creating threads. Rust 2024 requires env
     // mutation to be unsafe because concurrent libc environment reads can race.
     let environment_code = std::env::var("AGENTUM_ENROLL_CODE")

@@ -46,3 +46,42 @@ mod tests {
         }
     }
 }
+
+/// RC.3 can use this exact, fixed-argument rule for the computer backend.
+pub fn worker_rule(service_user: &str, agent_user: &str, binary: &std::path::Path) -> String {
+    format!(
+        "{service_user} ALL=({agent_user}) NOPASSWD: {} --computer-worker",
+        binary.display()
+    )
+}
+pub fn worker_fix(user: &str, binary: &std::path::Path) -> String {
+    format!(
+        "Install a sudoers rule with sudo visudo: {}",
+        worker_rule(
+            &crate::instance::RunAs::Current.user("instance"),
+            user,
+            binary
+        )
+    )
+}
+
+pub fn check_root(uid: u32, allow: bool, instance: &str) -> crate::Result<()> {
+    if uid == 0 && !allow {
+        return Err(crate::Error::new(
+            5,
+            Problem::Root.explain("root", instance).to_string(),
+        ));
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod root_tests {
+    #[test]
+    fn root_refusal_requires_explicit_override() {
+        let error = super::check_root(0, false, "box").unwrap_err();
+        assert_eq!(error.code, 5);
+        assert!(error.message.contains("--allow-root"));
+        assert!(super::check_root(1000, false, "box").is_ok());
+        assert!(super::check_root(0, true, "box").is_ok());
+    }
+}
