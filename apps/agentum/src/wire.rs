@@ -92,10 +92,9 @@ pub fn os() -> &'static str {
     }
 }
 pub fn hostname() -> String {
-    std::fs::read_to_string("/etc/hostname")
+    nix::unistd::gethostname()
         .ok()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "unknown".into())
 }
 

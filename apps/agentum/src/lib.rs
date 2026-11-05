@@ -1,9 +1,13 @@
+pub mod approvals;
+pub mod claude;
 pub mod cli;
 pub mod computer;
 pub mod desktop;
 pub mod doctor;
 pub mod enroll;
+pub mod files;
 pub mod instance;
+pub mod library;
 pub mod privilege;
 pub mod relay;
 pub mod runs;

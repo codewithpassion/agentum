@@ -92,11 +92,14 @@ pub async fn enroll(
             "An enrolment code is required; use --code-stdin with a new code from the Machines page",
         ));
     }
+    let mut locations = crate::instance::locations();
+    locations.retain(|p| p.system != paths.system);
+    locations.push(paths.clone());
     let url = server_url(&args.url)?;
     let _lock = enrollment_lock(paths)?;
-    crate::instance::private_dir(&paths.state_root)?;
+    paths.prepare_state_root()?;
     if let Some(name) = args.name.as_deref() {
-        paths.reserve(Some(name), "")?;
+        crate::instance::reserve(&locations, Some(name), "")?;
     }
     let request = EnrollRequest {
         code: code.into(),
@@ -171,20 +174,40 @@ pub async fn enroll(
             "Invalid machine identity in enrolment answer; check the server version",
         ));
     }
-    let name = paths.reserve(args.name.as_deref(), &answer.machine_name)?;
-    let mut config = Config::new(
-        answer.machine_id.clone(),
-        answer.machine_name,
-        url.as_str().trim_end_matches('/').into(),
-        answer.roles.clone(),
-        args.system,
-        args.run_as.clone(),
-    );
-    config.claude_binary = args.claude.clone();
-    paths.save(&name, &config, &answer.credential)?;
-    Ok(Enrolled {
-        instance: name,
-        machine_id: answer.machine_id,
-        roles: answer.roles,
+    let mut recovery_dir = paths.config_root.clone();
+    let saved = (|| {
+        let name =
+            crate::instance::reserve(&locations, args.name.as_deref(), &answer.machine_name)?;
+        recovery_dir = paths.config(&name);
+        let mut config = Config::new(
+            answer.machine_id.clone(),
+            answer.machine_name.clone(),
+            url.as_str().trim_end_matches('/').into(),
+            answer.roles.clone(),
+            args.system,
+            args.run_as.clone(),
+        );
+        config.claude_binary = args.claude.clone();
+        paths.save(&name, &config, &answer.credential)?;
+        Ok(Enrolled {
+            instance: name,
+            machine_id: answer.machine_id.clone(),
+            roles: answer.roles.clone(),
+        })
+    })();
+    saved.map_err(|error: Error| {
+        use std::io::Write;
+        let recovered = (|| -> std::io::Result<std::path::PathBuf> {
+            let mut file = tempfile::Builder::new().prefix("recovered-credential-").tempfile_in(&recovery_dir)
+                .or_else(|_| tempfile::Builder::new().prefix("recovered-credential-").tempfile_in(&paths.config_root))?;
+            writeln!(file, "{}", answer.credential)?;
+            file.as_file().sync_all()?;
+            let (_, path) = file.keep().map_err(|e| e.error)?;
+            Ok(path)
+        })();
+        match recovered {
+            Ok(path) => Error::new(error.code, format!("{error}. The server issued a credential; saved a recovery copy at {}. Keep it private and restore it before enrolling again.", path.display())),
+            Err(_) => Error::new(error.code, format!("{error}. Could not save the issued credential or its recovery file in {}", paths.config_root.display())),
+        }
     })
 }

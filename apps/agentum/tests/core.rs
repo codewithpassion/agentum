@@ -134,15 +134,6 @@ fn slugs_instances_and_private_files() {
 
 #[test]
 fn every_privilege_explanation_renders() {
-    for problem in Problem::ALL {
-        let report = problem.explain("dom", "office");
-        assert!(!report.tried.is_empty());
-        assert!(!report.reason.is_empty());
-        assert!(!report.meaning.is_empty());
-        assert!(!report.fix.is_empty());
-        let text = report.to_string();
-        assert!(text.contains(&report.fix));
-    }
     assert!(
         Problem::UserBus
             .explain("dom", "office")

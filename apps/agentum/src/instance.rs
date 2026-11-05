@@ -42,9 +42,29 @@ impl RunAs {
     }
     pub fn user(&self, instance: &str) -> String {
         match self {
-            Self::Current => std::env::var("SUDO_USER")
-                .or_else(|_| std::env::var("USER"))
-                .unwrap_or_else(|_| "unknown".into()),
+            Self::Current => {
+                if nix::unistd::geteuid().is_root()
+                    && let Ok(user) = std::env::var("SUDO_USER")
+                    && !user.is_empty()
+                {
+                    return user;
+                }
+                let uid = nix::unistd::getuid();
+                nix::unistd::User::from_uid(uid)
+                    .ok()
+                    .flatten()
+                    .map(|u| u.name)
+                    .or_else(|| {
+                        std::process::Command::new("getent")
+                            .args(["passwd", &uid.to_string()])
+                            .output()
+                            .ok()
+                            .filter(|o| o.status.success())
+                            .and_then(|o| String::from_utf8(o.stdout).ok())
+                            .and_then(|s| s.split(':').next().map(str::to_owned))
+                    })
+                    .unwrap_or_else(|| uid.to_string())
+            }
             Self::AgentUser => format!("agentum-{instance}"),
             Self::User(name) => name.clone(),
         }
@@ -107,15 +127,28 @@ impl ComputerConfig {
         if args.desktop_display.is_some() {
             self.desktop_display = args.desktop_display;
         }
-        self.allow_root |= args.allow_root;
-        self.read_only |= args.read_only;
-        self.workdir_only |= args.workdir_only;
-        self.desktop |= args.desktop;
-        for (stored, given) in [
-            (&mut self.allow, &args.allow),
-            (&mut self.deny, &args.deny),
-            (&mut self.allow_env, &args.allow_env),
+        for (stored, yes, no) in [
+            (&mut self.allow_root, args.allow_root, args.no_allow_root),
+            (&mut self.read_only, args.read_only, args.no_read_only),
+            (
+                &mut self.workdir_only,
+                args.workdir_only,
+                args.no_workdir_only,
+            ),
+            (&mut self.desktop, args.desktop, args.no_desktop),
         ] {
+            if yes || no {
+                *stored = yes;
+            }
+        }
+        for (stored, given, clear) in [
+            (&mut self.allow, &args.allow, args.clear_allow),
+            (&mut self.deny, &args.deny, args.clear_deny),
+            (&mut self.allow_env, &args.allow_env, args.clear_allow_env),
+        ] {
+            if clear {
+                stored.clear();
+            }
             if !given.is_empty() {
                 stored.clone_from(given);
             }
@@ -225,21 +258,51 @@ impl Paths {
             });
         Self::new(config, state, false)
     }
+    pub fn prepare_config_root(&self) -> Result<()> {
+        namespace_dir(&self.config_root, self.system)
+    }
+    pub fn prepare_state_root(&self) -> Result<()> {
+        namespace_dir(&self.state_root, self.system)
+    }
     pub fn config(&self, name: &str) -> PathBuf {
         self.config_root.join(name)
     }
     pub fn state(&self, name: &str) -> PathBuf {
         self.state_root.join(name)
     }
-    pub fn work_root(&self, name: &str) -> PathBuf {
-        self.state(name).join("work")
+    /// Agent-user's home is created 0700 and owned by agentum-<instance> by RC.3.
+    pub fn agent_home(&self, name: &str) -> PathBuf {
+        PathBuf::from("/var/lib/agentum").join(name).join("agent")
     }
-    pub fn agent_work(&self, name: &str, workspace: &str, agent: &str) -> Result<PathBuf> {
-        for part in [name, workspace, agent] {
-            validate_name(part)?;
+    /// Shared by service installation and both roles; never derive a work root elsewhere.
+    pub fn work_root(&self, name: &str, run_as: &RunAs) -> PathBuf {
+        match run_as {
+            RunAs::AgentUser => self.agent_home(name).join("work"),
+            _ => self.state(name).join("work"),
+        }
+    }
+    pub fn agent_work(
+        &self,
+        name: &str,
+        run_as: &RunAs,
+        workspace: &str,
+        agent: &str,
+    ) -> Result<PathBuf> {
+        validate_name(name)?;
+        for part in [workspace, agent] {
+            if part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+            {
+                return Err(Error::new(
+                    2,
+                    "workspace and agent ids may only hold letters, digits, _ and -",
+                ));
+            }
         }
         Ok(self
-            .work_root(name)
+            .work_root(name, run_as)
             .join(workspace)
             .join(agent)
             .join("work"))
@@ -265,8 +328,14 @@ impl Paths {
         for entry in entries {
             let entry = entry.map_err(|_| access_error(&self.config_root))?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            if validate_name(&name).is_ok() && entry.path().join("config.json").exists() {
-                names.push(name);
+            if validate_name(&name).is_ok() && entry.file_type().is_ok_and(|t| t.is_dir()) {
+                match entry.path().join("config.json").try_exists() {
+                    Ok(true) => names.push(name),
+                    // The private instance directory may belong to a system service user.
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => names.push(name),
+                    Ok(false) => {}
+                    Err(_) => return Err(access_error(&entry.path())),
+                }
             }
         }
         names.sort();
@@ -327,7 +396,7 @@ impl Paths {
     }
     pub fn save(&self, name: &str, config: &Config, credential: &str) -> Result<()> {
         validate_name(name)?;
-        private_dir(&self.config_root)?;
+        self.prepare_config_root()?;
         let dir = self.config(name);
         fs::DirBuilder::new()
             .mode(0o700)
@@ -348,7 +417,7 @@ impl Paths {
         let bytes = serde_json::to_vec_pretty(config)
             .map_err(|_| Error::new(1, "cannot encode instance config"))?;
         atomic_write(&dir.join("config.json"), &bytes)?;
-        private_dir(&self.state_root)?;
+        self.prepare_state_root()?;
         private_dir(&self.state(name))?;
         Ok(())
     }
@@ -428,7 +497,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 // Cross-process lock acquired before exchanging a single-use code. Crashes release it.
 pub fn enrollment_lock(paths: &Paths) -> Result<std::fs::File> {
-    private_dir(&paths.config_root)?;
+    paths.prepare_config_root()?;
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -444,4 +513,123 @@ pub fn enrollment_lock(paths: &Paths) -> Result<std::fs::File> {
         )
     })?;
     Ok(file)
+}
+
+/// All callers use both scopes, including explicit-name collision checks before enrolment.
+pub fn locations() -> Vec<Paths> {
+    vec![Paths::discover(false), Paths::discover(true)]
+}
+pub fn select(locations: &[Paths], name: Option<&str>) -> Result<(Paths, String)> {
+    if let Some(name) = name {
+        validate_name(name)?;
+    }
+    let mut found = vec![];
+    for paths in locations {
+        match paths.names() {
+            Ok(names) => {
+                for candidate in names {
+                    if name.is_none_or(|n| n == candidate) {
+                        found.push((paths.clone(), candidate));
+                    }
+                }
+            }
+            Err(error) if paths.system && error.code == 5 => {}
+            Err(error) => return Err(error),
+        }
+    }
+    match found.len() {
+        1 => Ok(found.remove(0)),
+        0 => Err(Error::new(
+            4,
+            "Not enrolled. Run agentum enroll --url <server> --code-stdin",
+        )),
+        _ => Err(Error::new(
+            2,
+            format!(
+                "Choose --instance <name> from: {}",
+                found
+                    .iter()
+                    .map(|(p, n)| format!("{n} ({})", if p.system { "system" } else { "user" }))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )),
+    }
+}
+pub fn reserve(locations: &[Paths], explicit: Option<&str>, server_name: &str) -> Result<String> {
+    if let Some(name) = explicit {
+        validate_name(name)?;
+    }
+    let base = explicit
+        .map(str::to_owned)
+        .unwrap_or_else(|| slug(server_name));
+    for n in 1.. {
+        let suffix = if n == 1 {
+            String::new()
+        } else {
+            format!("-{n}")
+        };
+        let name = format!(
+            "{}{}",
+            base[..base.len().min(40 - suffix.len())].trim_end_matches('-'),
+            suffix
+        );
+        let mut occupied = false;
+        for paths in locations {
+            match fs::symlink_metadata(paths.config(&name)) {
+                Ok(_) => occupied = true,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(access_error(&paths.config_root)),
+            }
+        }
+        if !occupied {
+            return Ok(name);
+        }
+        if explicit.is_some() {
+            return Err(Error::new(
+                2,
+                format!("instance {name} already exists; choose another --name"),
+            ));
+        }
+    }
+    unreachable!()
+}
+pub fn free_display(locations: &[Paths], tmp: &Path) -> Result<u16> {
+    let mut displays = vec![];
+    for paths in locations {
+        match paths.names() {
+            Ok(names) => {
+                for name in names {
+                    if let Ok((c, _)) = paths.load(&name) {
+                        displays.extend(c.computer.desktop_display);
+                    }
+                }
+            }
+            Err(e) if paths.system && e.code == 5 => {}
+            Err(e) => return Err(e),
+        }
+    }
+    (90..=u16::MAX)
+        .find(|n| {
+            !displays.contains(n)
+                && !tmp.join(format!(".X{n}-lock")).exists()
+                && !tmp.join(format!(".X11-unix/X{n}")).exists()
+        })
+        .ok_or_else(|| Error::new(5, "No desktop display is free; stop an unused X server"))
+}
+
+// The system namespace must be traversable by per-instance service users.
+// Only the namespace is public; config/state instance directories remain 0700.
+fn namespace_dir(path: &Path, system: bool) -> Result<()> {
+    if !system {
+        return private_dir(path);
+    }
+    if !path.exists() {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o755)
+            .create(path)
+            .map_err(|_| access_error(path))?;
+    }
+    check_private(path, 0o755)
 }

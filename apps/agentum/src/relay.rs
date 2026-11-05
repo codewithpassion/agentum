@@ -37,12 +37,6 @@ impl SocketRole {
             Self::Computer => "/api/machines/computer",
         }
     }
-    pub fn resets(self, elapsed: Duration, acknowledged_for: Option<Duration>) -> bool {
-        match self {
-            Self::AgentHost => acknowledged_for.is_some_and(|d| d >= Duration::from_secs(30)),
-            Self::Computer => elapsed >= Duration::from_secs(60),
-        }
-    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shutdown {
@@ -54,6 +48,9 @@ pub enum Shutdown {
 #[async_trait]
 pub trait Role: Send + Sync + 'static {
     fn kind(&self) -> SocketRole;
+    fn state_file(&self) -> Option<&std::path::Path> {
+        None
+    }
     /// Check only this role's local prerequisites before opening either socket.
     fn prerequisites(&self) -> Result<()> {
         Ok(())
@@ -70,16 +67,14 @@ pub struct Reply {
     sender: mpsc::Sender<Value>,
 }
 impl Reply {
-    pub fn send(&self, frame: Value) -> Result<()> {
+    pub async fn send(&self, frame: Value) -> Result<()> {
         if serde_json::to_vec(&frame).map_or(true, |bytes| bytes.len() > 8 << 20) {
             return Err(Error::new(1, "Reply exceeds the 8 MiB frame limit"));
         }
-        self.sender.try_send(frame).map_err(|_| {
-            Error::new(
-                1,
-                "Reply dropped: its socket closed or its reply queue is full",
-            )
-        })
+        self.sender
+            .send(frame)
+            .await
+            .map_err(|_| Error::new(1, "Reply dropped: its socket closed"))
     }
 }
 #[derive(Clone, Debug)]
@@ -121,7 +116,7 @@ pub fn retry_delay(role: SocketRole, step: u32, slow: bool, jitter: f64) -> Dura
     let jitter = jitter.clamp(0.0, 1.0);
     let ceiling = (1000_u64.saturating_mul(1_u64 << step.min(6))).min(60000) as f64;
     let millis = match role {
-        SocketRole::AgentHost => (ceiling * (0.8 + jitter * 0.4)).min(60000.0),
+        SocketRole::AgentHost => (ceiling * (0.8 + jitter * 0.4)).clamp(1000.0, 60000.0),
         SocketRole::Computer if slow => 300000.0 + jitter * 150000.0,
         SocketRole::Computer => ceiling * (0.5 + jitter * 0.5),
     };
@@ -135,6 +130,29 @@ struct End {
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 
 pub async fn run(
+    role: Arc<dyn Role>,
+    server: &str,
+    credential: &str,
+    stop: CancellationToken,
+    timing: Timing,
+) -> Result<()> {
+    let result = run_loop(role.clone(), server, credential, stop, timing).await;
+    connection_state(
+        &role,
+        json!({"status":"stopped", "reason": result.as_ref().err().map(|e| e.message.as_str()).unwrap_or("stopped by signal")}),
+    );
+    result
+}
+fn connection_state(role: &Arc<dyn Role>, mut state: Value) {
+    let Some(path) = role.state_file() else {
+        return;
+    };
+    state["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+    if let Err(error) = crate::instance::atomic_write(path, state.to_string().as_bytes()) {
+        tracing::error!(%error, "Cannot write connection state");
+    }
+}
+async fn run_loop(
     role: Arc<dyn Role>,
     server: &str,
     credential: &str,
@@ -171,14 +189,24 @@ pub async fn run(
             SocketRole::AgentHost => end.acknowledged,
             SocketRole::Computer => end.connected,
         };
-        if stable.is_some_and(|at| at.elapsed() >= timing.stable_after) {
-            step = 0;
+        let slow = role.kind() == SocketRole::Computer && matches!(end.code, 401 | 4400 | 4409);
+        if !slow {
+            if stable.is_some_and(|at| at.elapsed() >= timing.stable_after) {
+                step = 0;
+            } else if role.kind() == SocketRole::Computer {
+                step = step.saturating_add(1).min(6);
+            }
         }
-        let slow = matches!(end.code, 401 | 4400 | 4409);
         let delay =
             retry_delay(role.kind(), step, slow, rand::random()).mul_f64(timing.retry_scale);
+        connection_state(
+            &role,
+            json!({"status":"reconnecting", "close_code":end.code, "retry_step":step, "next_attempt": (chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default()).to_rfc3339()}),
+        );
         tracing::warn!(role = ?role.kind(), close_code = end.code, retry_ms = delay.as_millis() as u64, "Socket disconnected; reconnecting");
-        step = step.saturating_add(1);
+        if role.kind() == SocketRole::AgentHost {
+            step = step.saturating_add(1);
+        }
         tokio::select! { _ = stop.cancelled() => { role.shutdown(Shutdown::Stopped).await; return Ok(()); }, _ = tokio::time::sleep(delay) => {} }
     }
 }
@@ -227,6 +255,9 @@ async fn session(
     ) {
         return end;
     }
+    if role.kind() == SocketRole::Computer {
+        connection_state(role, json!({"status":"connected"}));
+    }
     let mut beats = tokio::time::interval_at(Instant::now() + timing.heartbeat, timing.heartbeat);
     beats.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_read = Instant::now();
@@ -260,7 +291,7 @@ async fn session(
                         else if role.kind() == SocketRole::Computer && text == "ping" { Some(Message::text("pong")) }
                         else {
                             if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                                if value["type"] == "hello_ack" && role.kind() == SocketRole::AgentHost && end.acknowledged.is_none() { end.acknowledged = Some(Instant::now()); }
+                                if value["type"] == "hello_ack" && role.kind() == SocketRole::AgentHost && end.acknowledged.is_none() { end.acknowledged = Some(Instant::now()); connection_state(role, json!({"status":"connected"})); }
                                 if let Err(error) = role.on_frame(value, reply.clone()) { tracing::warn!(code = error.code, "Role refused incoming frame"); }
                             }
                             None
@@ -303,6 +334,7 @@ pub async fn run_roles(
 ) -> Result<()> {
     let roles: Vec<_> = roles.into_iter().filter(|role| {
         if let Err(error) = role.prerequisites() {
+            connection_state(role, json!({"status":"stopped", "reason":error.message}));
             tracing::warn!(role = ?role.kind(), reason = %error, "Role disabled: missing prerequisite");
             false
         } else { true }
@@ -337,4 +369,24 @@ pub async fn run_roles(
         }
     }
     failure.map_or(Ok(()), Err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn replies_wait_for_queue_capacity() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let reply = Reply {
+            generation: 1,
+            sender,
+        };
+        reply.send(json!({"first":true})).await.unwrap();
+        let pending = tokio::spawn(async move { reply.send(json!({"second":true})).await });
+        tokio::task::yield_now().await;
+        assert!(!pending.is_finished());
+        assert_eq!(receiver.recv().await.unwrap(), json!({"first":true}));
+        pending.await.unwrap().unwrap();
+        assert_eq!(receiver.recv().await.unwrap(), json!({"second":true}));
+    }
 }

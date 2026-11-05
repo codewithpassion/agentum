@@ -36,7 +36,9 @@ impl Context<'_> {
         Check {
             name,
             level: Level::Problem,
-            message: problem.explain(&user, self.name).to_string(),
+            message: problem
+                .explain_at(&user, self.name, &self.paths.config(self.name))
+                .to_string(),
         }
     }
 }

@@ -2,11 +2,11 @@ use agentum::{
     Error, Result,
     cli::{Cli, Command, EnrollArgs, LogFormat},
     doctor, enroll,
-    instance::{Config, Paths, RunAs, atomic_write},
+    instance::{self, Config, Paths, RunAs, atomic_write},
 };
 use clap::Parser;
 use serde_json::{Value, json};
-use std::io::Read;
+use std::io::{BufRead, Read};
 use zeroize::Zeroizing;
 
 fn main() {
@@ -56,8 +56,9 @@ fn code_input(
     if stdin {
         let mut value = Zeroizing::new(String::new());
         std::io::stdin()
+            .lock()
             .take(201)
-            .read_to_string(&mut value)
+            .read_line(&mut value)
             .map_err(|_| {
                 Error::new(
                     2,
@@ -74,46 +75,10 @@ fn code_input(
     ))
 }
 fn locations() -> Vec<Paths> {
-    vec![Paths::discover(false), Paths::discover(true)]
+    instance::locations()
 }
 fn select(name: Option<&str>) -> Result<(Paths, String)> {
-    let mut found = vec![];
-    for paths in locations() {
-        match paths.names() {
-            Ok(names) => {
-                for candidate in names {
-                    if name.is_none_or(|n| n == candidate) {
-                        found.push((paths.clone(), candidate));
-                    }
-                }
-            }
-            Err(error) if paths.system && error.code == 5 => {}
-            Err(error) => return Err(error),
-        }
-    }
-    if found.len() == 1 {
-        return Ok(found.remove(0));
-    }
-    if found.is_empty() {
-        return Err(Error::new(
-            4,
-            "Not enrolled. Run agentum enroll --url <server> --code-stdin",
-        ));
-    }
-    Err(Error::new(
-        2,
-        format!(
-            "Choose --instance <name> from: {}",
-            found
-                .iter()
-                .map(|(paths, name)| format!(
-                    "{name} ({})",
-                    if paths.system { "system" } else { "user" }
-                ))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    ))
+    instance::select(&locations(), name)
 }
 async fn service_state(paths: &Paths, name: &str) -> String {
     let mut command = tokio::process::Command::new("systemctl");
@@ -140,8 +105,21 @@ async fn service_state(paths: &Paths, name: &str) -> String {
 }
 async fn status(paths: &Paths, name: &str) -> Result<Value> {
     let (config, _) = paths.load(name)?;
+    let mut connections = serde_json::Map::new();
+    for role in &config.roles {
+        let role = serde_json::to_value(role)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let state = std::fs::read(paths.state(name).join(format!("connection-{role}.json")))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .unwrap_or_else(|| json!({"status":"unknown"}));
+        connections.insert(role, state);
+    }
     Ok(
-        json!({"instance":name, "machineId":config.machine_id, "machineName":config.machine_name, "roles":config.roles, "server":config.server, "run_as":config.run_as, "singleUser":config.single_user, "config":paths.config(name), "state":paths.state(name), "service":service_state(paths,name).await, "connection":"unknown", "version":agentum::VERSION}),
+        json!({"instance":name, "machineId":config.machine_id, "machineName":config.machine_name, "roles":config.roles, "server":config.server, "run_as":config.run_as, "singleUser":config.single_user, "config":paths.config(name), "state":paths.state(name), "service":service_state(paths,name).await, "connection":connections, "version":agentum::VERSION}),
     )
 }
 async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
@@ -173,7 +151,14 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
                 match paths.names() {
                     Ok(names) => {
                         for name in names {
-                            instances.push(status(&paths, &name).await?);
+                            let item = match status(&paths, &name).await {
+                                Ok(item) => item,
+                                Err(error) if error.code == 5 => {
+                                    json!({"instance":name, "roles":"unavailable", "service":service_state(&paths, &name).await, "connection":{}, "error":error.message})
+                                }
+                                Err(error) => return Err(error),
+                            };
+                            instances.push(item);
                         }
                     }
                     Err(error) if paths.system && error.code == 5 => {}
@@ -260,16 +245,43 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
                 }
                 Err(error) => return Err(error),
             };
-            let (mut config, _) = paths.load(&name)?;
+            let (mut config, credential) = paths.load(&name)?;
             config.computer.apply(&args.computer);
             if config.computer.desktop && config.computer.desktop_display.is_none() {
-                config.computer.desktop_display = Some(free_display(&paths)?);
+                config.computer.desktop_display = Some(instance::free_display(
+                    &locations(),
+                    std::path::Path::new("/tmp"),
+                )?);
             }
-            save_config(&paths, &name, &config)?;
-            return Err(Error::new(
-                1,
-                "agent_host and computer run handlers: not built yet",
-            ));
+            if args.save {
+                save_config(&paths, &name, &config)?;
+            }
+            let roles = config
+                .roles
+                .iter()
+                .map(|role| match role {
+                    agentum::wire::MachineRole::AgentHost => {
+                        agentum::runs::role(&paths, &name, &config)
+                    }
+                    agentum::wire::MachineRole::Computer => {
+                        agentum::computer::role(&paths, &name, &config)
+                    }
+                })
+                .collect();
+            let stop = tokio_util::sync::CancellationToken::new();
+            let signal = tokio::spawn({
+                let stop = stop.clone();
+                async move {
+                    let mut term =
+                        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                            .expect("register SIGTERM");
+                    tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
+                    stop.cancel();
+                }
+            });
+            let result = agentum::relay::run_roles(roles, config.server, credential, stop).await;
+            signal.abort();
+            return result;
         }
         Command::Service { .. } | Command::InstallService(_) => {
             return Err(Error::new(1, "service: not built yet"));
@@ -283,33 +295,17 @@ fn print_status(item: &Value) {
         item["instance"].as_str().unwrap_or_default(),
         item["roles"],
         item["service"].as_str().unwrap_or_default(),
-        item["connection"].as_str().unwrap_or_default(),
+        item["connection"],
         item["machineId"].as_str().unwrap_or_default(),
         item["server"].as_str().unwrap_or_default()
     );
+    if let Some(error) = item["error"].as_str() {
+        println!("  {error}");
+    }
 }
 fn save_config(paths: &Paths, name: &str, config: &Config) -> Result<()> {
     atomic_write(
         &paths.config(name).join("config.json"),
         &serde_json::to_vec_pretty(config).map_err(|_| Error::new(1, "Cannot encode config"))?,
     )
-}
-fn free_display(paths: &Paths) -> Result<u16> {
-    let displays: Vec<u16> = paths
-        .names()?
-        .into_iter()
-        .filter_map(|name| {
-            paths
-                .load(&name)
-                .ok()
-                .and_then(|(c, _)| c.computer.desktop_display)
-        })
-        .collect();
-    (90..=u16::MAX)
-        .find(|display| {
-            !displays.contains(display)
-                && !std::path::Path::new(&format!("/tmp/.X{display}-lock")).exists()
-                && !std::path::Path::new(&format!("/tmp/.X11-unix/X{display}")).exists()
-        })
-        .ok_or_else(|| Error::new(5, "No desktop display is free; stop an unused X server"))
 }

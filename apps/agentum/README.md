@@ -1,7 +1,7 @@
 # Agentum Rust client core (RC.2)
 
 From the repo root, use `bun run check` and `bun run test`. Rust checks also
-run directly with `cargo test --manifest-path apps/agentum/Cargo.toml`.
+run directly with `bash apps/agentum/scripts/cargo.sh test`.
 `bun run --cwd apps/agentum build:release` writes `target/release/agentum`.
 The Bun scripts skip with an explanation if Cargo is unavailable. CI installs
 stable Rust, rustfmt and clippy. All Rust output is under `target/`.
@@ -28,7 +28,8 @@ credentials are separate and private. An enrolment lock prevents two local
 clients from spending codes on the same instance name. Server-derived names
 get numbered suffixes on collision; explicit names fail before the HTTP call.
 
-The transport in `relay.rs` is usable independently of the CLI run stub.
+`run` loads the instance and constructs one stub handler per role. The transport
+in `relay.rs` is also usable independently.
 Implement `Role` and pass role objects to `run_roles`. A failing role
 `prerequisites` check logs its explanation and disables only that role; exit 5
 is returned when none can start. `on_frame` runs on the
@@ -47,8 +48,11 @@ HTTP and WebSocket TLS use rustls with native CA roots, without OpenSSL.
 Release builds can set `AGENTUM_VERSION` to the exact manifest version; local
 builds use `<package-version>+<eight-character git sha>`.
 
-Service operations, both run handlers and desktop are explicit exit-1 stubs.
-Status reports connection state as `unknown` until the run handlers publish it.
+Service operations and desktop are explicit exit-1 stubs. Both role handlers
+send hello and log incoming frame kinds, without executing work. Status and list
+read the last per-role connection state written by the transport. Computer
+overrides apply only to this run unless `--save` is supplied. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the RC.3/4/5 file boundaries.
 Doctor checks filesystem privacy, service prerequisites, desktop packages,
 Claude binary presence and server reachability. It never starts Claude.
 Version, login and run-as execution probes belong to RC.4; desktop sandbox

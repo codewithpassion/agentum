@@ -12,7 +12,7 @@ clap = { version = "4", features = ["derive", "env"] }
 futures-util = { version = "0.3", features = ["sink"] }
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-nix = { version = "0.30", features = ["fs", "process", "signal", "user"] }
+nix = { version = "0.30", features = ["fs", "process", "signal", "user", "hostname"] }
 notify = "8"
 rand = "0.9"
 regex = "1"
@@ -24,7 +24,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["full", "test-util"] }
+tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 tokio-util = { version = "0.7", features = ["rt", "io"] }
 tracing = "0.1"
@@ -35,6 +35,7 @@ x11rb = { version = "0.13", features = ["xtest", "image"] }
 zeroize = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 axum = { version = "0.8", features = ["ws"] }
 
 [profile.release]

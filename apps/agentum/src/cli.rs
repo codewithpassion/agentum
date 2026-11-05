@@ -70,6 +70,8 @@ pub struct EnrollArgs {
 #[derive(Debug, Args)]
 pub struct RunArgs {
     #[arg(long)]
+    pub save: bool,
+    #[arg(long)]
     pub url: Option<String>,
     #[arg(long)]
     pub code: Option<String>,
@@ -120,10 +122,16 @@ pub struct ComputerArgs {
     pub workdir: Option<std::path::PathBuf>,
     #[arg(long)]
     pub allow_root: bool,
+    #[arg(long, conflicts_with = "allow_root")]
+    pub no_allow_root: bool,
     #[arg(long)]
     pub read_only: bool,
+    #[arg(long, conflicts_with = "read_only")]
+    pub no_read_only: bool,
     #[arg(long)]
     pub workdir_only: bool,
+    #[arg(long, conflicts_with = "workdir_only")]
+    pub no_workdir_only: bool,
     #[arg(long)]
     pub max_concurrent: Option<usize>,
     #[arg(long)]
@@ -138,14 +146,22 @@ pub struct ComputerArgs {
     pub audit_keep: Option<i32>,
     #[arg(long)]
     pub desktop: bool,
+    #[arg(long, conflicts_with = "desktop")]
+    pub no_desktop: bool,
     #[arg(long, value_parser = clap::value_parser!(u16).range(90..))]
     pub desktop_display: Option<u16>,
     #[arg(long, value_parser = nonempty)]
     pub allow: Vec<String>,
+    #[arg(long)]
+    pub clear_allow: bool,
     #[arg(long, value_parser = nonempty)]
     pub deny: Vec<String>,
+    #[arg(long)]
+    pub clear_deny: bool,
     #[arg(long, value_parser = nonempty)]
     pub allow_env: Vec<String>,
+    #[arg(long)]
+    pub clear_allow_env: bool,
 }
 fn nonempty(value: &str) -> Result<String, String> {
     if value.trim().is_empty() {
