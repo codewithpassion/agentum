@@ -96,6 +96,8 @@ pub struct InstallArgs {
     pub yes: bool,
     #[arg(long)]
     pub refresh: bool,
+    #[arg(long)]
+    pub allow_root_agents: bool,
     #[command(flatten)]
     pub computer: ComputerArgs,
 }

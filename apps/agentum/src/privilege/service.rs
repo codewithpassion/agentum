@@ -18,6 +18,14 @@ impl Problem {
             fix,
         }
     });
+    pub const SystemManager: Self = Self(|_, instance| Explanation {
+        tried: "Manage the system service".into(),
+        reason: "the system manager rejected the operation".into(),
+        meaning: "This system service needs a working systemd manager and valid unit.".into(),
+        fix: format!(
+            "systemctl status agentum-{instance}.service; journalctl -u agentum-{instance}.service --no-pager"
+        ),
+    });
     pub const UserBus: Self = Self(|user, instance| {
         let _ = (user, instance);
         let (tried, reason, meaning, fix) = (
@@ -116,6 +124,7 @@ pub(crate) fn command(
     program: &str,
     args: &[&str],
     meaning: &str,
+    fix: &str,
 ) -> Result<()> {
     let result = output(runner, program, args);
     if result.success {
@@ -136,7 +145,7 @@ pub(crate) fn command(
                 result.stderr.trim().into()
             },
             meaning: meaning.into(),
-            fix: line,
+            fix: fix.into(),
         }
         .to_string(),
     ))
@@ -149,6 +158,7 @@ mod tests {
     fn every_explanation_renders() {
         for p in [
             Problem::Systemd,
+            Problem::SystemManager,
             Problem::UserBus,
             Problem::Linger,
             Problem::SystemRoot,

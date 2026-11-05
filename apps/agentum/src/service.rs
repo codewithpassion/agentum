@@ -8,6 +8,11 @@ use crate::{
         service::{Commands, Runner, command, output},
     },
 };
+use nix::{
+    fcntl::{OFlag, openat},
+    sys::stat::{Mode, fchmod, mkdirat},
+    unistd::{Gid, Uid, fchown},
+};
 use std::{
     fs,
     io::{IsTerminal, Write},
@@ -17,6 +22,63 @@ use std::{
 
 fn problem(problem: Problem, user: &str, name: &str) -> Error {
     Error::new(5, problem.explain(user, name).to_string())
+}
+fn require_root(system: bool, root: bool, user: &str, name: &str, action: &str) -> Result<()> {
+    if system && !root {
+        let mut explanation = Problem::SystemRoot.explain(user, name);
+        explanation.fix = format!("sudo agentum service {action} --instance {name} --system");
+        // --system is an install flag; other commands discover the scope.
+        if action != "install" {
+            explanation.fix = format!("sudo agentum service {action} --instance {name}");
+        }
+        return Err(Error::new(5, explanation.to_string()));
+    }
+    Ok(())
+}
+fn user_home(home: Option<&str>) -> Result<String> {
+    home.filter(|home| !home.is_empty()).map(str::to_owned).ok_or_else(|| Error::new(5, "HOME is unset or empty; a user service needs its login home for the unit and Claude settings. Fix: log in as the service user and export HOME to that user's absolute home directory."))
+}
+fn binary_error(binary: &Path) -> Error {
+    Error::new(
+        5,
+        format!(
+            "The system agentum binary and every directory above it must be root-owned, not writable by other users, and executable/traversable by the target users. Fix: as root, install -o root -g root -m 0755 {} /usr/local/bin/agentum; then run /usr/local/bin/agentum service install --system.",
+            shell_path(binary)
+        ),
+    )
+}
+fn check_system_binary(binary: &Path) -> Result<()> {
+    for path in binary.ancestors() {
+        let meta = fs::symlink_metadata(path).map_err(|_| binary_error(binary))?;
+        if meta.uid() != 0
+            || meta.mode() & 0o022 != 0
+            || meta.mode() & 0o111 != 0o111
+            || (path == binary && !meta.is_file())
+            || (path != binary && !meta.is_dir())
+        {
+            return Err(binary_error(binary));
+        }
+    }
+    Ok(())
+}
+fn check_binary_access(runner: &mut impl Runner, binary: &Path, user: &str) -> Result<()> {
+    if !output(
+        runner,
+        "runuser",
+        &[
+            "-u",
+            user,
+            "--",
+            "/usr/bin/test",
+            "-x",
+            &binary.display().to_string(),
+        ],
+    )
+    .success
+    {
+        return Err(binary_error(binary));
+    }
+    Ok(())
 }
 fn manager(
     runner: &mut impl Runner,
@@ -30,11 +92,18 @@ fn manager(
         all.push("--user");
     }
     all.extend_from_slice(args);
+    let explanation = if system {
+        Problem::SystemManager
+    } else {
+        Problem::UserBus
+    }
+    .explain(user, name);
     command(
         runner,
         "systemctl",
         &all,
-        &Problem::UserBus.explain(user, name).to_string(),
+        &explanation.meaning,
+        &explanation.fix,
     )
 }
 fn ensure_manager(
@@ -56,6 +125,7 @@ fn ensure_manager(
             "systemctl",
             &["show-environment"],
             &Problem::Systemd.explain(user, name).to_string(),
+            &Problem::Systemd.explain(user, name).fix,
         )
     } else if !output(runner, "systemctl", &["--user", "show-environment"]).success {
         Err(problem(Problem::UserBus, user, name))
@@ -69,6 +139,7 @@ fn enable_linger(runner: &mut impl Runner, user: &str, name: &str) -> Result<()>
         "loginctl",
         &["enable-linger", user],
         &Problem::Linger.explain(user, name).to_string(),
+        &Problem::Linger.explain(user, name).fix,
     )
 }
 fn validate_install(
@@ -102,19 +173,41 @@ fn validate_install(
     if config.system && !root {
         return Err(problem(Problem::SystemRoot, user, name));
     }
+    if config.system && (name.ends_with("-svc") || name.len() > 20) {
+        return Err(Error::new(
+            5,
+            "System instance names must be at most 20 characters and must not end in -svc: generated account names must fit Linux limits and cannot collide with service accounts. Fix: enrol with another name.",
+        ));
+    }
     Ok(mode.clone())
 }
 // Freeze `current` under sudo to the invoking account, rather than resolving
 // it later as the service account. It then uses the named-user system unit.
-fn installed_mode(mode: RunAs, system: bool, sudo_user: Option<&str>) -> RunAs {
-    if system
-        && mode == RunAs::Current
-        && let Some(user) = sudo_user.filter(|user| !user.is_empty())
-    {
-        return RunAs::User(user.into());
+fn installed_mode(mode: RunAs, system: bool, sudo_user: Option<&str>) -> Result<RunAs> {
+    if let Some(user) = sudo_user {
+        let parsed = user.parse::<RunAs>().map_err(|_| Error::new(5, "Invalid SUDO_USER: use an existing user name, as for --run-as. Fix: invoke agentum through sudo from a valid login account."))?;
+        if !matches!(parsed, RunAs::User(_)) {
+            return Err(Error::new(
+                5,
+                "Invalid SUDO_USER: expected a literal login user name. Fix: invoke agentum through sudo from a valid login account.",
+            ));
+        }
+        if system && mode == RunAs::Current {
+            return Ok(parsed);
+        }
     }
-    mode
+    Ok(mode)
 }
+fn check_root_agents(uid: u32, allow: bool) -> Result<()> {
+    if uid == 0 && !allow {
+        return Err(Error::new(
+            5,
+            "Refusing root as the run-as user. Fix: choose an unprivileged --run-as user, or explicitly opt in with --allow-root-agents.",
+        ));
+    }
+    Ok(())
+}
+
 fn service_user(config: &Config, name: &str) -> String {
     match &config.run_as {
         RunAs::User(user) => user.clone(),
@@ -138,6 +231,7 @@ fn render_unit(paths: &Paths, name: &str, config: &Config, binary: &Path, home: 
         "[Unit]\nDescription=Agentum instance {name}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\n"
     );
     if paths.system {
+        unit.push_str("UMask=0077\n");
         if config.run_as == RunAs::AgentUser {
             unit.push_str(&format!("Group=agentum-{name}\n"));
         }
@@ -162,22 +256,42 @@ fn render_unit(paths: &Paths, name: &str, config: &Config, binary: &Path, home: 
             unit_quote(&format!("AGENTUM_STATE_DIR={}", paths.state_root.display()))
         ));
     }
-    unit.push_str(&format!("Environment={}\nEnvironment={}\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=3 4 5\n\n[Install]\nWantedBy={}\n",
+    unit.push_str(&format!("Environment={}\nEnvironment={}\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3 4 5\n\n[Install]\nWantedBy={}\n",
         unit_quote(&format!("HOME={home}")),
         unit_quote(&format!("PATH={home}/.local/bin:{home}/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")),
         if paths.system { "multi-user.target" } else { "default.target" }));
     unit
 }
-fn account(runner: &mut impl Runner, user: &str) -> Option<(u32, String)> {
+struct Account {
+    uid: u32,
+    gid: u32,
+    home: String,
+    shell: String,
+}
+fn account(runner: &mut impl Runner, user: &str) -> Option<Account> {
     let out = output(runner, "getent", &["passwd", user]);
     if !out.success {
         return None;
     }
     let fields: Vec<_> = out.stdout.trim().split(':').collect();
-    Some((fields.get(2)?.parse().ok()?, fields.get(5)?.to_string()))
+    Some(Account {
+        uid: fields.get(2)?.parse().ok()?,
+        gid: fields.get(3)?.parse().ok()?,
+        home: fields.get(5)?.to_string(),
+        shell: fields.get(6)?.to_string(),
+    })
 }
 fn create_user(runner: &mut impl Runner, user: &str, home: &Path, shell: &str) -> Result<()> {
-    if account(runner, user).is_none() {
+    if let Some(existing) = account(runner, user) {
+        if Path::new(&existing.home) != home || existing.shell != shell {
+            return Err(Error::new(
+                5,
+                format!(
+                    "Refusing to reuse account {user}: home or shell differs from the per-instance account. Fix: choose another instance name; inspect the existing account with getent passwd {user}."
+                ),
+            ));
+        }
+    } else {
         command(
             runner,
             "useradd",
@@ -192,8 +306,114 @@ fn create_user(runner: &mut impl Runner, user: &str, home: &Path, shell: &str) -
                 shell,
                 user,
             ],
-            "The per-instance service/agent account is required before the service can start.",
+            "The per-instance account is required before the service can start.",
+            "Install the distribution's user management package and resolve account/group conflicts reported by getent passwd and getent group before retrying.",
         )?;
+    }
+    Ok(())
+}
+fn unsafe_path(path: &Path) -> Error {
+    Error::new(
+        5,
+        format!(
+            "Refusing unsafe path {}: symlink, unexpected owner or mode, hard link, or inaccessible entry. Fix: stop this instance, remove planted links and restore the expected root/service/agent ownership before reinstalling; do not chown a symlink target.",
+            path.display()
+        ),
+    )
+}
+// Every child is opened relative to a pinned parent; never follow a symlink,
+// including between validation and fchown/fchmod. Existing files may not be
+// hard linked into a different ownership domain.
+fn secure_child(
+    parent: &fs::File,
+    name: &Path,
+    directory: bool,
+    owners: &[u32],
+    create: bool,
+) -> Result<fs::File> {
+    let flags = OFlag::O_NOFOLLOW
+        | OFlag::O_CLOEXEC
+        | if directory {
+            OFlag::O_DIRECTORY | OFlag::O_RDONLY
+        } else {
+            OFlag::O_NONBLOCK | OFlag::O_RDWR
+        };
+    let fd = match openat(parent, name, flags, Mode::empty()) {
+        Ok(fd) => fd,
+        Err(nix::errno::Errno::ENOENT) if directory && create => {
+            match mkdirat(parent, name, Mode::from_bits_truncate(0o700)) {
+                Ok(()) | Err(nix::errno::Errno::EEXIST) => {}
+                Err(_) => return Err(unsafe_path(name)),
+            }
+            openat(parent, name, flags, Mode::empty()).map_err(|_| unsafe_path(name))?
+        }
+        Err(_) => return Err(unsafe_path(name)),
+    };
+    let file = fs::File::from(fd);
+    let meta = file.metadata().map_err(|_| unsafe_path(name))?;
+    if !owners.contains(&meta.uid())
+        || (if directory {
+            !meta.is_dir()
+        } else {
+            !meta.is_file() || meta.nlink() != 1
+        })
+    {
+        return Err(unsafe_path(name));
+    }
+    Ok(file)
+}
+fn system_parent(path: &Path) -> Result<fs::File> {
+    let mut parent = fs::File::open("/").map_err(|_| unsafe_path(path))?;
+    for part in path.components() {
+        match part {
+            std::path::Component::RootDir => {}
+            std::path::Component::Normal(name) => {
+                parent = secure_child(&parent, Path::new(name), true, &[0], false)?;
+                if parent.metadata().map_err(|_| unsafe_path(path))?.mode() & 0o022 != 0 {
+                    return Err(unsafe_path(path));
+                }
+            }
+            _ => return Err(unsafe_path(path)),
+        }
+    }
+    Ok(parent)
+}
+fn set_owner(file: &fs::File, uid: u32, gid: Option<u32>, mode: u32) -> Result<()> {
+    fchown(file, Some(Uid::from_raw(uid)), gid.map(Gid::from_raw))
+        .and_then(|_| fchmod(file, Mode::from_bits_truncate(mode)))
+        .map_err(|_| Error::new(5, "Cannot set ownership or mode on the opened instance entry. Fix: use a local filesystem supporting Unix ownership and modes, stop the service, and restore root/service ownership before retrying."))
+}
+fn transfer_state(directory: &fs::File, uid: u32, gid: u32, skip: Option<&str>) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    // read_dir enumerates the pinned directory, while openat validates each
+    // entry. A rename or symlink swap cannot redirect an ownership operation.
+    let path = PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+    for entry in fs::read_dir(&path).map_err(|_| unsafe_path(&path))? {
+        let entry = entry.map_err(|_| unsafe_path(&path))?;
+        let name = entry.file_name();
+        if skip.is_some_and(|skip| name == skip) {
+            continue;
+        }
+        let directory_entry = entry
+            .file_type()
+            .map_err(|_| unsafe_path(&entry.path()))?
+            .is_dir();
+        let child = secure_child(
+            directory,
+            Path::new(&name),
+            directory_entry,
+            &[0, uid],
+            false,
+        )?;
+        if directory_entry {
+            transfer_state(&child, uid, gid, None)?;
+        }
+        let mode = child
+            .metadata()
+            .map_err(|_| unsafe_path(&entry.path()))?
+            .mode()
+            & 0o777;
+        set_owner(&child, uid, Some(gid), mode)?;
     }
     Ok(())
 }
@@ -209,8 +429,108 @@ fn sudoers(name: &str, claude: &str) -> Result<String> {
         ));
     }
     Ok(format!(
-        "agentum-{name}-svc ALL=(agentum-{name}) CWD=* NOPASSWD: SETENV: {claude}, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find, NOSETENV: /bin/sh\n"
+        "# /bin/sh is for computer commands (RC.5), run as the agent user.\nagentum-{name}-svc ALL=(agentum-{name}) CWD=* NOPASSWD: SETENV: {claude}, NOSETENV: /bin/mkdir, /bin/rm, /usr/bin/dd, /usr/bin/head, /usr/bin/realpath, /usr/bin/stat, /usr/bin/find, NOSETENV: /bin/sh\n"
     ))
+}
+fn prepare_directories(
+    config_parent: &fs::File,
+    state_parent: &fs::File,
+    name: &str,
+    config: &Config,
+    service: &Account,
+    agent_account: Option<&Account>,
+) -> Result<()> {
+    let config_dir = secure_child(
+        config_parent,
+        Path::new(name),
+        true,
+        &[0, service.uid],
+        true,
+    )?;
+    let state_dir = secure_child(state_parent, Path::new(name), true, &[0, service.uid], true)?;
+    for filename in ["config.json", "credential"] {
+        let mut file = secure_child(
+            &config_dir,
+            Path::new(filename),
+            false,
+            &[0, service.uid],
+            false,
+        )?;
+        if filename == "config.json" {
+            // Config is written through the checked descriptor, never through
+            // a service-owned pathname that could have been swapped.
+            file.set_len(0).map_err(|_| unsafe_path(Path::new(name)))?;
+            serde_json::to_writer_pretty(&mut file, config)
+                .map_err(|_| unsafe_path(Path::new(name)))?;
+        }
+        set_owner(&file, service.uid, Some(service.gid), 0o600)?;
+    }
+    transfer_state(
+        &state_dir,
+        service.uid,
+        service.gid,
+        (config.run_as == RunAs::AgentUser).then_some("agent"),
+    )?;
+    set_owner(&config_dir, service.uid, Some(service.gid), 0o700)?;
+    if config.run_as == RunAs::AgentUser {
+        let agent_account = agent_account.ok_or_else(|| Error::new(5, "Missing agent account"))?;
+        let agent_dir = secure_child(
+            &state_dir,
+            Path::new("agent"),
+            true,
+            &[0, agent_account.uid],
+            true,
+        )?;
+        let work = secure_child(
+            &agent_dir,
+            Path::new("work"),
+            true,
+            &[0, agent_account.uid],
+            true,
+        )?;
+        set_owner(&work, agent_account.uid, Some(agent_account.gid), 0o700)?;
+        set_owner(
+            &agent_dir,
+            agent_account.uid,
+            Some(agent_account.gid),
+            0o700,
+        )?;
+        set_owner(&state_dir, service.uid, Some(agent_account.gid), 0o710)?;
+    } else {
+        set_owner(&state_dir, service.uid, Some(service.gid), 0o700)?;
+    }
+    Ok(())
+}
+fn install_sudoers(runner: &mut impl Runner, name: &str, claude: &str) -> Result<()> {
+    let rule = sudoers(name, claude)?;
+    let staged = tempfile::NamedTempFile::new()
+        .map_err(|_| instance::access_error(Path::new("/etc/sudoers.d")))?;
+    fs::write(staged.path(), rule).map_err(|_| instance::access_error(staged.path()))?;
+    let staged_path = staged.path().display().to_string();
+    command(
+        runner,
+        "visudo",
+        &["-cf", &staged_path],
+        "The sudoers rule was rejected and has not been installed.",
+        "install sudo (including visudo), or use --claude /usr/local/bin/claude with a sudo version supporting CWD and SETENV; inspect the reported syntax error.",
+    )?;
+    command(
+        runner,
+        "install",
+        &[
+            "-m",
+            "0440",
+            "-o",
+            "root",
+            "-g",
+            "root",
+            &staged_path,
+            &format!("/etc/sudoers.d/agentum-{name}"),
+        ],
+        "Only this instance's service user may sudo to its agent user.",
+        "Restore root ownership and mode 0755 on /etc/sudoers.d, and ensure its filesystem is writable before reinstalling the rule.",
+    )?;
+    Ok(())
 }
 fn setup_system(
     runner: &mut impl Runner,
@@ -232,133 +552,31 @@ fn setup_system(
     } else {
         create_user(runner, &user, &home, "/usr/sbin/nologin")?;
     }
-    // ConfigurationDirectory does not chown existing enrolment files. Do not use
-    // recursive chown: an agent's private home belongs to a different account.
-    for directory in [paths.config(name), paths.state(name)] {
-        command(
-            runner,
-            "install",
-            &["-d", "-m", "0700", &directory.display().to_string()],
-            "The instance directory must be private.",
-        )?;
-        command(
-            runner,
-            "chown",
-            &[&user, &directory.display().to_string()],
-            "The service must own its config and state (check_private requires the effective uid).",
-        )?;
-        command(
-            runner,
-            "chmod",
-            &["0700", &directory.display().to_string()],
-            "The instance directory must be private.",
-        )?;
-    }
-    for file in ["config.json", "credential"] {
-        let path = paths.config(name).join(file).display().to_string();
-        command(
-            runner,
-            "chown",
-            &[&user, &path],
-            "The service must own both the config and credential before starting.",
-        )?;
-        command(
-            runner,
-            "chmod",
-            &["0600", &path],
-            "The credential and config must remain private.",
-        )?;
-    }
-    // Foreground runs may already have written state as the enrolling user.
-    // Transfer that state without taking ownership of the nested agent home.
-    command(
-        runner,
-        "find",
-        &[
-            &paths.state(name).display().to_string(),
-            "-path",
-            &paths.agent_home(name).display().to_string(),
-            "-prune",
-            "-o",
-            "-exec",
-            "chown",
-            "-h",
-            &user,
-            "{}",
-            "+",
-        ],
-        "Existing instance state must also belong to the service user; the agent home keeps its separate owner.",
+    let service = account(runner, &user).ok_or_else(|| Error::new(5, "Cannot resolve the service account. Fix: check getent passwd and the system account database."))?;
+    let config_parent = system_parent(&paths.config_root)?;
+    let state_parent = system_parent(&paths.state_root)?;
+    let agent_account = if config.run_as == RunAs::AgentUser {
+        let agent = config.run_as.user(name);
+        create_user(runner, &agent, &paths.agent_home(name), "/bin/bash")?;
+        Some(account(runner, &agent).ok_or_else(|| Error::new(5, "Cannot resolve agent account. Fix: check getent passwd and the system account database."))?)
+    } else {
+        None
+    };
+    prepare_directories(
+        &config_parent,
+        &state_parent,
+        name,
+        config,
+        &service,
+        agent_account.as_ref(),
     )?;
     if config.run_as == RunAs::AgentUser {
         let agent = config.run_as.user(name);
-        let home = paths.agent_home(name);
-        create_user(runner, &agent, &home, "/bin/bash")?;
-        for directory in [home, paths.work_root(name, &config.run_as)] {
-            command(
-                runner,
-                "install",
-                &["-d", "-m", "0700", &directory.display().to_string()],
-                "The agent needs a private home and work tree.",
-            )?;
-            command(
-                runner,
-                "chown",
-                &[&agent, &directory.display().to_string()],
-                "The agent must own its home and work tree.",
-            )?;
-            command(
-                runner,
-                "chmod",
-                &["0700", &directory.display().to_string()],
-                "The agent home and work tree must stay private.",
-            )?;
-        }
-        // The agent home is nested below the service's state directory.
-        // Give only the agent group traverse access; no directory listing.
-        // Group= in the unit matches this ownership so systemd does not
-        // recursively chown the nested agent home when starting the service.
-        command(
-            runner,
-            "chgrp",
-            &[&agent, &paths.state(name).display().to_string()],
-            "The agent must traverse the parent of its private home.",
-        )?;
-        command(
-            runner,
-            "chmod",
-            &["0710", &paths.state(name).display().to_string()],
-            "Only the service owner and agent group may traverse this state directory.",
-        )?;
         let claude = config
             .claude_binary
             .as_deref()
             .unwrap_or("/usr/local/bin/claude");
-        let rule = sudoers(name, claude)?;
-        let staged = tempfile::NamedTempFile::new()
-            .map_err(|_| instance::access_error(Path::new("/etc/sudoers.d")))?;
-        fs::write(staged.path(), rule).map_err(|_| instance::access_error(staged.path()))?;
-        let staged_path = staged.path().display().to_string();
-        command(
-            runner,
-            "visudo",
-            &["-cf", &staged_path],
-            "The sudoers rule was rejected, so it has not been installed.",
-        )?;
-        command(
-            runner,
-            "install",
-            &[
-                "-m",
-                "0440",
-                "-o",
-                "root",
-                "-g",
-                "root",
-                &staged_path,
-                &format!("/etc/sudoers.d/agentum-{name}"),
-            ],
-            "Only this instance's service user may sudo to its agent user.",
-        )?;
+        install_sudoers(runner, name, claude)?;
         // Check access only. Never launch the real Claude CLI during installation.
         if config.roles.contains(&crate::wire::MachineRole::AgentHost)
             && !output(
@@ -382,6 +600,14 @@ fn load_config(runner: &mut impl Runner, paths: &Paths, name: &str, root: bool) 
         return paths.load(name).map(|(config, _)| config);
     }
     let dir = paths.config(name);
+    // Explain planted links before reading config through one (which could
+    // otherwise report a misleading JSON or access error).
+    for path in [&dir, &dir.join("config.json"), &dir.join("credential")] {
+        let meta = fs::symlink_metadata(path).map_err(|_| unsafe_path(path))?;
+        if meta.file_type().is_symlink() {
+            return Err(unsafe_path(path));
+        }
+    }
     let bytes = fs::read(dir.join("config.json")).map_err(|_| instance::access_error(&dir))?;
     let config: Config = serde_json::from_slice(&bytes).map_err(|_| {
         Error::new(
@@ -389,7 +615,7 @@ fn load_config(runner: &mut impl Runner, paths: &Paths, name: &str, root: bool) 
             "Cannot read config. Fix: restore config.json or enrol again",
         )
     })?;
-    let owner = account(runner, &service_user(&config, name)).map(|(uid, _)| uid);
+    let owner = account(runner, &service_user(&config, name)).map(|account| account.uid);
     for (path, mode) in [
         (dir.clone(), 0o700),
         (dir.join("config.json"), 0o600),
@@ -400,7 +626,7 @@ fn load_config(runner: &mut impl Runner, paths: &Paths, name: &str, root: bool) 
             || meta.mode() & 0o777 != mode
             || (meta.uid() != 0 && Some(meta.uid()) != owner)
         {
-            return Err(instance::access_error(&path));
+            return Err(unsafe_path(&path));
         }
     }
     Ok(config)
@@ -413,11 +639,11 @@ fn explain_choice(config: &Config, name: &str) -> String {
     };
     if config.run_as == RunAs::AgentUser {
         format!(
-            "Agents and computer commands will run as {user}, with a separate home and work tree. Computer commands can read the machine credential, which also opens the agent_host role and /mcp."
+            "Agents and computer commands will run as {user}, with a separate home and work tree."
         )
     } else {
         format!(
-            "Agents will run as {user}. They can read and change anything {user} can, including ~/.ssh. Use --run-as agent-user on a system service to keep them apart."
+            "Agents will run as {user}. They can read and change anything {user} can, including ~/.ssh. Computer commands can read the machine credential, which also opens the agent_host role and /mcp. Use --run-as agent-user on a system service to keep them apart."
         )
     }
 }
@@ -451,7 +677,13 @@ fn resolve_binary(binary: &str) -> Option<PathBuf> {
         .find(|path| {
             fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.mode() & 0o111 != 0)
         })
-        .and_then(|path| fs::canonicalize(path).ok())
+        .and_then(|path| {
+            if path.is_absolute() {
+                Some(path)
+            } else {
+                std::env::current_dir().ok().map(|cwd| cwd.join(path))
+            }
+        })
 }
 fn unit_error(paths: &Paths, name: &str) -> Error {
     Error::new(5, privilege::Explanation {
@@ -470,6 +702,11 @@ fn shell_path(path: &Path) -> String {
 }
 fn install(runner: &mut impl Runner, paths: &Paths, name: &str, args: &InstallArgs) -> Result<()> {
     let root = nix::unistd::geteuid().is_root();
+    installed_mode(
+        RunAs::Current,
+        false,
+        std::env::var("SUDO_USER").ok().as_deref(),
+    )?;
     let user = RunAs::Current.user(name);
     if paths.system && !root {
         return Err(problem(Problem::SystemRoot, &user, name));
@@ -479,12 +716,43 @@ fn install(runner: &mut impl Runner, paths: &Paths, name: &str, args: &InstallAr
         validate_install(&config, args, root, &user, name)?,
         paths.system,
         std::env::var("SUDO_USER").ok().as_deref(),
-    );
+    )?;
+    let run_uid = if paths.system {
+        if let RunAs::User(ref user) = config.run_as {
+            Some(
+                account(runner, user)
+                    .ok_or_else(|| {
+                        Error::new(
+                            5,
+                            "Named run-as user is missing. Fix: choose an existing --run-as user.",
+                        )
+                    })?
+                    .uid,
+            )
+        } else {
+            None
+        }
+    } else {
+        Some(nix::unistd::geteuid().as_raw())
+    };
+    if let Some(uid) = run_uid {
+        check_root_agents(uid, args.allow_root_agents)?;
+    }
     if paths.system != config.system {
         return Err(Error::new(
             5,
             "Stored scope differs from its config path. Fix: enrol again with the intended scope.",
         ));
+    }
+    let binary = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|_| Error::new(5, "Cannot locate agentum. Fix: reinstall the binary"))?;
+    if paths.system {
+        check_system_binary(&binary)?;
+    }
+    let user_home_value = std::env::var("HOME").ok();
+    if !paths.system {
+        user_home(user_home_value.as_deref())?;
     }
     ensure_manager(runner, paths.system, root, &user, name)?;
     config.computer.apply(&args.computer);
@@ -523,38 +791,30 @@ fn install(runner: &mut impl Runner, paths: &Paths, name: &str, args: &InstallAr
             enable_linger(runner, &user, name)?;
         }
     }
-    let binary = std::env::current_exe()
-        .map_err(|_| Error::new(5, "Cannot locate agentum. Fix: reinstall the binary"))?;
     let home = if paths.system {
         if matches!(config.run_as, RunAs::User(_)) {
             account(runner, &service_user(&config, name))
                 .ok_or_else(|| Error::new(5, "Named user is missing. Fix: getent passwd <user>"))?
-                .1
+                .home
         } else {
             paths.state(name).display().to_string()
         }
     } else {
-        std::env::var("HOME").unwrap_or_default()
+        user_home(user_home_value.as_deref())?
     };
     let unit = render_unit(paths, name, &config, &binary, &home);
-    atomic_write(
-        &paths.config(name).join("config.json"),
-        &serde_json::to_vec_pretty(&config).map_err(|_| Error::new(1, "Cannot encode config"))?,
-    )?;
     if paths.system {
+        // Existing named users can be checked before account/filesystem changes.
+        // Generated accounts use the world-executable path checked above.
+        if matches!(config.run_as, RunAs::User(_)) {
+            check_binary_access(runner, &binary, &service_user(&config, name))?;
+        }
         setup_system(runner, paths, name, &config)?;
-        command(
-            runner,
-            "runuser",
-            &[
-                "-u",
-                &service_user(&config, name),
-                "--",
-                "/usr/bin/test",
-                "-x",
-                &binary.display().to_string(),
-            ],
-            "The service user cannot execute agentum from a private home. Install the binary system-wide and rerun sudo agentum service install --system.",
+    } else {
+        atomic_write(
+            &paths.config(name).join("config.json"),
+            &serde_json::to_vec_pretty(&config)
+                .map_err(|_| Error::new(1, "Cannot encode config"))?,
         )?;
     }
     let unit_path = paths.unit(name);
@@ -591,32 +851,33 @@ pub fn run(name: Option<&str>, action: ServiceCommand) -> Result<()> {
     let user = RunAs::Current.user(&name);
     let root = nix::unistd::geteuid().is_root();
     let mutating = matches!(action, ServiceCommand::Uninstall | ServiceCommand::Restart);
-    ensure_manager(&mut runner, paths.system, root || !mutating, &user, &name)?;
+    if mutating {
+        require_root(
+            paths.system,
+            root,
+            &user,
+            &name,
+            if matches!(action, ServiceCommand::Uninstall) {
+                "uninstall"
+            } else {
+                "restart"
+            },
+        )?;
+    }
+    if !matches!(action, ServiceCommand::Uninstall) {
+        ensure_manager(&mut runner, paths.system, root || !mutating, &user, &name)?;
+    }
     let unit = format!("agentum-{name}.service");
     match action {
         ServiceCommand::Uninstall => {
-            manager(
+            uninstall(
                 &mut runner,
                 paths.system,
-                &["disable", "--now", &unit],
-                &user,
                 &name,
+                &user,
+                &paths.unit(&name),
+                &PathBuf::from(format!("/etc/sudoers.d/agentum-{name}")),
             )?;
-            let path = paths.unit(&name);
-            match fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err(unit_error(&paths, &name)),
-            }
-            if paths.system {
-                let rule = PathBuf::from(format!("/etc/sudoers.d/agentum-{name}"));
-                match fs::remove_file(&rule) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return Err(instance::access_error(&rule)),
-                }
-            }
-            manager(&mut runner, paths.system, &["daemon-reload"], &user, &name)?;
             println!(
                 "Removed {unit}. Enrolment, state, accounts and lingering were kept. Revoke the machine on the Machines page if it is retired."
             );
@@ -630,6 +891,62 @@ pub fn run(name: Option<&str>, action: ServiceCommand) -> Result<()> {
         ServiceCommand::Install(_) => unreachable!(),
     }
     Ok(())
+}
+
+fn uninstall(
+    runner: &mut impl Runner,
+    system: bool,
+    name: &str,
+    user: &str,
+    unit_path: &Path,
+    rule: &Path,
+) -> Result<()> {
+    let unit = format!("agentum-{name}.service");
+    let mut args = vec![];
+    if !system {
+        args.push("--user");
+    }
+    args.extend(["show", &unit, "--property=LoadState", "--value"]);
+    let state = output(runner, "systemctl", &args);
+    let disabled = if state.stdout.trim() == "not-found" {
+        Ok(())
+    } else {
+        let mut args = vec![];
+        if !system {
+            args.push("--user");
+        }
+        args.extend(["disable", "--now", &unit]);
+        let result = output(runner, "systemctl", &args);
+        if result.success
+            || result.stderr.contains("does not exist")
+            || result.stderr.contains("not loaded")
+        {
+            Ok(())
+        } else {
+            Err(Error::new(
+                5,
+                format!(
+                    "Cannot disable {unit}: {}. Fix: inspect systemctl {}status {unit} and resolve the systemd error before retrying uninstall.",
+                    result.stderr.trim(),
+                    if system { "" } else { "--user " }
+                ),
+            ))
+        }
+    };
+    // A manager failure must never leave the privilege grant behind.
+    for path in system
+        .then_some(rule)
+        .into_iter()
+        .chain(std::iter::once(unit_path))
+    {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(instance::access_error(path)),
+        }
+    }
+    disabled?;
+    manager(runner, system, &["daemon-reload"], user, name)
 }
 
 fn query(
@@ -690,6 +1007,8 @@ mod tests {
         calls: Vec<Vec<String>>,
         fail: Option<String>,
         missing_accounts: bool,
+        failure_message: Option<String>,
+        load_state: Option<String>,
     }
     impl Runner for Fake {
         fn output(&mut self, program: &str, args: &[String]) -> std::io::Result<Output> {
@@ -698,7 +1017,13 @@ mod tests {
             let line = call.join(" ");
             self.calls.push(call);
             Ok(Output {
-                stderr: String::new(),
+                stderr: self.failure_message.clone().unwrap_or_else(|| {
+                    if line.contains("disable") {
+                        "Unit does not exist".into()
+                    } else {
+                        String::new()
+                    }
+                }),
                 success: !(program == "getent" && self.missing_accounts)
                     && self.fail.as_ref().is_none_or(|s| !line.contains(s)),
                 stdout: if program == "getent" {
@@ -706,6 +1031,8 @@ mod tests {
                         "dom:x:{}:1000::/home/dom:/bin/bash\n",
                         nix::unistd::geteuid()
                     )
+                } else if line.contains("--property=LoadState") {
+                    self.load_state.clone().unwrap_or_else(|| "loaded".into())
                 } else {
                     "yes\n".into()
                 },
@@ -730,6 +1057,7 @@ mod tests {
             claude: None,
             yes: true,
             refresh: false,
+            allow_root_agents: false,
             computer: ComputerArgs::default(),
         }
     }
@@ -779,7 +1107,8 @@ mod tests {
                 "agentum-office.service"
             );
             assert_eq!(unit, golden);
-            assert!(unit.contains("RestartPreventExitStatus=3 4 5"));
+            assert!(unit.contains("RestartPreventExitStatus=2 3 4 5"));
+            assert_eq!(unit.contains("UMask=0077"), system);
             assert!(unit.contains("--instance office"));
             for forbidden in ["NoNewPrivileges", "ProtectHome", "ProtectSystem"] {
                 assert!(!unit.contains(forbidden));
@@ -850,78 +1179,11 @@ mod tests {
         assert!(error.message.contains("Fix:"));
     }
     #[test]
-    fn system_setup_transfers_private_files_before_start() {
-        let temp = tempfile::tempdir().unwrap();
-        let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), true);
-        let c = config(true, RunAs::Current);
-        paths.save("office", &c, "ag_mach_secret").unwrap();
-        let mut fake = Fake::default();
-        setup_system(&mut fake, &paths, "office", &c).unwrap();
-        let calls: Vec<_> = fake.calls.iter().map(|c| c.join(" ")).collect();
-        for path in [
-            paths.config("office"),
-            paths.config("office").join("config.json"),
-            paths.config("office").join("credential"),
-            paths.state("office"),
-        ] {
-            assert!(
-                calls
-                    .iter()
-                    .any(|c| c.starts_with("chown ") && c.contains(&path.display().to_string())),
-                "{}",
-                path.display()
-            );
-        }
-        assert!(
-            calls
-                .iter()
-                .any(|c| c.contains("getent passwd agentum-office-svc"))
-        );
-        assert!(!calls.iter().any(|c| c.contains("systemctl")));
-        assert!(calls.iter().any(|c| c.starts_with("find ")
-            && c.contains("-prune -o -exec chown -h agentum-office-svc {} +")));
-    }
-    #[test]
-    fn system_command_failures_are_actionable() {
-        let temp = tempfile::tempdir().unwrap();
-        let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), true);
-        let mut c = config(true, RunAs::AgentUser);
-        c.roles.push(MachineRole::AgentHost);
-        paths.save("office", &c, "ag_mach_secret").unwrap();
-        for failure in ["chown", "chmod", "install -d", "find", "visudo", "runuser"] {
-            let mut fake = Fake {
-                fail: Some(failure.into()),
-                ..Fake::default()
-            };
-            let error = setup_system(&mut fake, &paths, "office", &c).unwrap_err();
-            assert_eq!(error.code, 5);
-            assert!(error.message.contains("Fix:"), "{}", error.message);
-            if failure == "runuser" {
-                assert!(error.message.contains("private home directory"));
-            }
-        }
-        let mut fake = Fake {
-            fail: Some("useradd".into()),
-            missing_accounts: true,
-            ..Fake::default()
-        };
-        assert!(
-            create_user(
-                &mut fake,
-                "agentum-office",
-                Path::new("/home/agent"),
-                "/bin/bash"
-            )
-            .unwrap_err()
-            .message
-            .contains("useradd")
-        );
-    }
-    #[test]
     fn sudoers_is_per_instance_and_includes_computer_shell() {
         let rule = sudoers("office", "/usr/local/bin/claude").unwrap();
         assert!(rule.contains("agentum-office-svc ALL=(agentum-office)"));
         assert!(rule.contains("NOSETENV: /bin/sh"));
+        assert!(rule.contains("# /bin/sh is for computer commands (RC.5)"));
         assert!(!rule.contains("(ALL)"));
         assert!(sudoers("office", "/home/dom/a,b").is_err());
     }
@@ -945,6 +1207,23 @@ mod tests {
                 .code,
             5
         );
+    }
+    #[test]
+    fn config_reload_explains_planted_symlinks_before_reading_them() {
+        use std::os::unix::fs::symlink;
+        for filename in ["config.json", "credential"] {
+            let temp = tempfile::tempdir().unwrap();
+            let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), true);
+            paths
+                .save("office", &config(true, RunAs::Current), "secret")
+                .unwrap();
+            let file = paths.config("office").join(filename);
+            let target = temp.path().join("target");
+            fs::rename(&file, &target).unwrap();
+            symlink(&target, &file).unwrap();
+            let error = load_config(&mut Fake::default(), &paths, "office", true).unwrap_err();
+            assert!(error.message.contains("symlink"), "{}", error.message);
+        }
     }
     #[test]
     fn queries_use_instance_scope_and_report_permission_failures() {
@@ -1001,44 +1280,6 @@ mod tests {
         }
     }
     #[test]
-    fn agent_user_requires_system_scope_and_private_traversable_home() {
-        let c = config(false, RunAs::AgentUser);
-        assert!(
-            validate_install(&c, &args(), false, "dom", "office")
-                .unwrap_err()
-                .message
-                .contains("system service")
-        );
-        let temp = tempfile::tempdir().unwrap();
-        let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), true);
-        let c = config(true, RunAs::AgentUser);
-        paths.save("office", &c, "secret").unwrap();
-        let mut fake = Fake::default();
-        setup_system(&mut fake, &paths, "office", &c).unwrap();
-        assert!(fake.calls.iter().any(|call| call
-            == &[
-                "chgrp",
-                "agentum-office",
-                &paths.state("office").display().to_string()
-            ]));
-        assert!(fake.calls.iter().any(|call| call
-            == &[
-                "chmod",
-                "0710",
-                &paths.state("office").display().to_string()
-            ]));
-        assert!(
-            !fake
-                .calls
-                .iter()
-                .any(|call| call.first().is_some_and(|s| s == "runuser")),
-            "Computer-only enrolment must not require Claude"
-        );
-        assert!(
-            explain_choice(&c, "office").contains("which also opens the agent_host role and /mcp")
-        );
-    }
-    #[test]
     fn unit_paths_are_quoted_and_write_errors_show_service_fixes() {
         let paths = Paths::new("/config/with space%$".into(), "/state".into(), false);
         let rendered = render_unit(
@@ -1066,18 +1307,290 @@ mod tests {
         );
     }
     #[test]
+    fn ownership_walk_refuses_planted_symlinks_and_unexpected_owners() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let uid = nix::unistd::geteuid().as_raw();
+        let root = fs::File::open(temp.path()).unwrap();
+        fs::write(temp.path().join("victim"), "unchanged").unwrap();
+        symlink("victim", temp.path().join("credential")).unwrap();
+        symlink("/etc/sudoers.d", temp.path().join("agent")).unwrap();
+        for (name, directory) in [("credential", false), ("agent", true)] {
+            let error = secure_child(&root, Path::new(name), directory, &[uid], false).unwrap_err();
+            assert!(error.message.contains("symlink"));
+        }
+        fs::hard_link(temp.path().join("victim"), temp.path().join("hardlink")).unwrap();
+        assert!(secure_child(&root, Path::new("hardlink"), false, &[uid], false).is_err());
+        fs::remove_file(temp.path().join("hardlink")).unwrap();
+        fs::create_dir(temp.path().join("state")).unwrap();
+        assert!(
+            secure_child(&root, Path::new("state"), true, &[uid + 1], false)
+                .unwrap_err()
+                .message
+                .contains("unexpected owner")
+        );
+        let state = secure_child(&root, Path::new("state"), true, &[uid], false).unwrap();
+        symlink("../victim", temp.path().join("state/entry")).unwrap();
+        assert!(
+            transfer_state(&state, uid, uid, None)
+                .unwrap_err()
+                .message
+                .contains("symlink")
+        );
+        assert_eq!(
+            fs::read_to_string(temp.path().join("victim")).unwrap(),
+            "unchanged"
+        );
+    }
+    #[test]
+    fn claude_resolution_preserves_the_update_symlink() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("claude-v1");
+        fs::write(&target, "fake").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        let link = temp.path().join("claude");
+        symlink(&target, &link).unwrap();
+        assert_eq!(resolve_binary(link.to_str().unwrap()).unwrap(), link);
+    }
+    #[test]
+    fn system_names_and_existing_accounts_are_checked() {
+        for name in ["office-svc", "abcdefghijklmnopqrstu"] {
+            assert!(
+                validate_install(&config(true, RunAs::Current), &args(), true, "dom", name)
+                    .unwrap_err()
+                    .message
+                    .contains("account")
+            );
+        }
+        let mut fake = Fake::default();
+        let error =
+            create_user(&mut fake, "dom", Path::new("/wrong"), "/usr/sbin/nologin").unwrap_err();
+        assert!(error.message.contains("home or shell"));
+    }
+    #[test]
+    fn binary_is_checked_before_any_mutation() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = temp.path().join("agentum");
+        fs::write(&binary, "fake").unwrap();
+        let error = check_system_binary(&binary).unwrap_err();
+        assert!(error.message.contains("/usr/local/bin"));
+        let mut fake = Fake::default();
+        assert!(check_binary_access(&mut fake, Path::new("/usr/bin/true"), "dom").is_ok());
+        fake.fail = Some("runuser".into());
+        assert!(
+            check_binary_access(&mut fake, Path::new("/usr/bin/true"), "dom")
+                .unwrap_err()
+                .message
+                .contains("/usr/local/bin")
+        );
+    }
+    #[test]
+    fn system_manager_and_subcommand_fixes_are_specific() {
+        let mut fake = Fake {
+            fail: Some("restart".into()),
+            ..Fake::default()
+        };
+        let error = manager(
+            &mut fake,
+            true,
+            &["restart", "agentum-office.service"],
+            "dom",
+            "office",
+        )
+        .unwrap_err();
+        assert!(!error.message.contains("XDG_RUNTIME_DIR"));
+        for action in ["uninstall", "restart"] {
+            let error = require_root(true, false, "dom", "office", action).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains(&format!("sudo agentum service {action}"))
+            );
+        }
+    }
+    #[test]
+    fn uninstall_twice_removes_rules_even_when_the_unit_is_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let unit = temp.path().join("unit");
+        let rule = temp.path().join("rule");
+        fs::write(&unit, "unit").unwrap();
+        fs::write(&rule, "rule").unwrap();
+        let mut fake = Fake {
+            fail: Some("disable".into()),
+            ..Fake::default()
+        };
+        for _ in 0..2 {
+            uninstall(&mut fake, true, "office", "dom", &unit, &rule).unwrap();
+            assert!(!unit.exists());
+            assert!(!rule.exists());
+        }
+    }
+    #[test]
+    fn uninstall_skips_unloaded_units_and_removes_rules_after_manager_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let rule = temp.path().join("rule");
+        let unit = temp.path().join("unit");
+        let mut fake = Fake {
+            load_state: Some("not-found".into()),
+            ..Fake::default()
+        };
+        fs::write(&rule, "rule").unwrap();
+        uninstall(&mut fake, true, "office", "dom", &unit, &rule).unwrap();
+        assert!(
+            !fake
+                .calls
+                .iter()
+                .any(|call| call.iter().any(|arg| arg == "disable"))
+        );
+        let mut fake = Fake {
+            fail: Some("disable".into()),
+            failure_message: Some("access denied".into()),
+            ..Fake::default()
+        };
+        fs::write(&rule, "rule").unwrap();
+        assert!(uninstall(&mut fake, true, "office", "dom", &unit, &rule).is_err());
+        assert!(!rule.exists());
+    }
+    #[test]
+    fn warning_and_home_explanation_match_the_mode() {
+        assert!(
+            !explain_choice(&config(true, RunAs::AgentUser), "office")
+                .contains("can read the machine credential")
+        );
+        for mode in [RunAs::Current, RunAs::User("dom".into())] {
+            assert!(
+                explain_choice(&config(true, mode), "office")
+                    .contains("can read the machine credential")
+            );
+        }
+        assert!(user_home(None).unwrap_err().message.contains("HOME"));
+        assert!(user_home(Some("")).is_err());
+    }
+    #[test]
+    fn root_agents_opt_in_is_an_install_flag() {
+        use clap::Parser;
+        assert!(
+            crate::cli::Cli::try_parse_from([
+                "agentum",
+                "service",
+                "install",
+                "--allow-root-agents"
+            ])
+            .is_ok()
+        );
+    }
+    #[test]
+    fn sudo_user_is_validated_and_root_requires_explicit_opt_in() {
+        for user in ["-root", "bad user", "root\n", "current", "agent-user", ""] {
+            assert!(installed_mode(RunAs::Current, true, Some(user)).is_err());
+        }
+        assert!(
+            check_root_agents(0, false)
+                .unwrap_err()
+                .message
+                .contains("--allow-root-agents")
+        );
+        assert!(check_root_agents(0, true).is_ok());
+        assert!(check_root_agents(1000, false).is_ok());
+    }
+    #[test]
+    fn descriptor_setup_keeps_private_modes_and_skips_agent_contents() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), true);
+        let c = config(true, RunAs::AgentUser);
+        paths.save("office", &c, "secret").unwrap();
+        fs::create_dir_all(paths.state("office").join("agent")).unwrap();
+        symlink(
+            "/etc/shadow",
+            paths.state("office").join("agent").join("untouched"),
+        )
+        .unwrap();
+        let service = Account {
+            uid: nix::unistd::geteuid().as_raw(),
+            gid: nix::unistd::getegid().as_raw(),
+            home: String::new(),
+            shell: String::new(),
+        };
+        let config_parent = fs::File::open(&paths.config_root).unwrap();
+        let state_parent = fs::File::open(&paths.state_root).unwrap();
+        prepare_directories(
+            &config_parent,
+            &state_parent,
+            "office",
+            &c,
+            &service,
+            Some(&service),
+        )
+        .unwrap();
+        for (path, mode) in [
+            (paths.config("office"), 0o700),
+            (paths.config("office").join("credential"), 0o600),
+            (paths.config("office").join("config.json"), 0o600),
+            (paths.state("office"), 0o710),
+            (paths.state("office").join("agent"), 0o700),
+            (paths.state("office").join("agent").join("work"), 0o700),
+        ] {
+            let meta = fs::metadata(&path).unwrap();
+            assert_eq!(meta.uid(), service.uid);
+            assert_eq!(meta.mode() & 0o777, mode, "{}", path.display());
+        }
+        assert_eq!(
+            fs::read_link(paths.state("office").join("agent").join("untouched")).unwrap(),
+            Path::new("/etc/shadow")
+        );
+    }
+    #[test]
+    fn ownership_useradd_and_visudo_failures_have_distinct_fixes() {
+        let mut fake = Fake {
+            fail: Some("useradd".into()),
+            missing_accounts: true,
+            ..Fake::default()
+        };
+        let error = create_user(
+            &mut fake,
+            "agentum-office",
+            Path::new("/home/agent"),
+            "/bin/bash",
+        )
+        .unwrap_err();
+        assert!(error.message.contains("user management package"));
+        let mut fake = Fake {
+            fail: Some("visudo".into()),
+            ..Fake::default()
+        };
+        let error = install_sudoers(&mut fake, "office", "/usr/local/bin/claude").unwrap_err();
+        assert!(error.message.contains("install sudo"));
+        assert!(!fake.calls.iter().any(|call| call[0] == "install"));
+        // An unprivileged test cannot chown to uid 0. Exercise the syscall
+        // failure through an opened temporary file, without external commands.
+        if !nix::unistd::geteuid().is_root() {
+            let file = tempfile::tempfile().unwrap();
+            let error = set_owner(&file, 0, None, 0o600).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("filesystem supporting Unix ownership")
+            );
+        }
+    }
+    #[test]
     fn current_under_sudo_is_persisted_as_the_invoking_user() {
         assert_eq!(
-            installed_mode(RunAs::Current, true, Some("dom")),
+            installed_mode(RunAs::Current, true, Some("dom")).unwrap(),
             RunAs::User("dom".into())
         );
-        assert_eq!(installed_mode(RunAs::Current, true, None), RunAs::Current);
         assert_eq!(
-            installed_mode(RunAs::AgentUser, true, Some("dom")),
+            installed_mode(RunAs::Current, true, None).unwrap(),
+            RunAs::Current
+        );
+        assert_eq!(
+            installed_mode(RunAs::AgentUser, true, Some("dom")).unwrap(),
             RunAs::AgentUser
         );
         assert_eq!(
-            installed_mode(RunAs::Current, false, Some("dom")),
+            installed_mode(RunAs::Current, false, Some("dom")).unwrap(),
             RunAs::Current
         );
     }
