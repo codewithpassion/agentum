@@ -5,7 +5,7 @@ import { RailLink } from "./rail-link.tsx";
 const VISIBLE_WORKING = 3;
 
 const ROW_CLASS =
-  "flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-left text-muted-foreground/70 text-sm no-underline hover:text-muted-foreground md:min-h-7";
+  "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-muted-foreground text-sm no-underline hover:text-muted-foreground";
 
 function WorkingRow({
   onNavigate,
@@ -36,7 +36,7 @@ function WorkingRow({
   );
 }
 
-/** At most three dim rows, and a row that shows the rest. */
+/** Pinned below the queue; compact windows start with a summary. */
 export function WorkingList({
   onNavigate,
   runs,
@@ -46,23 +46,44 @@ export function WorkingList({
 }) {
   const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(() => setExpanded((was) => !was), []);
-  const shown = expanded ? runs : runs.slice(0, VISIBLE_WORKING);
-  const hidden = runs.length - VISIBLE_WORKING;
+  if (runs.length === 0) {
+    return null;
+  }
   return (
-    <div className="flex flex-col">
-      {shown.map((run) => (
-        <WorkingRow key={run.id} onNavigate={onNavigate} run={run} />
-      ))}
-      {hidden > 0 ? (
-        <button
-          aria-expanded={expanded}
-          className={ROW_CLASS}
-          onClick={toggle}
-          type="button"
+    <section
+      aria-label="Working"
+      className="shrink-0 border-sidebar-border border-t px-2 [@media(min-width:768px)_and_(min-height:900px)]:py-1"
+    >
+      <button
+        aria-expanded={expanded}
+        className="flex min-h-10 w-full items-center gap-2 px-2 text-left font-medium text-sm [@media(min-width:768px)_and_(min-height:900px)]:hidden"
+        onClick={toggle}
+        type="button"
+      >
+        Working · {runs.length} running{" "}
+        <span className="ml-auto">{expanded ? "⌄" : "›"}</span>
+      </button>
+      <div
+        className={
+          expanded
+            ? "flex flex-col"
+            : "hidden flex-col [@media(min-width:768px)_and_(min-height:900px)]:flex"
+        }
+      >
+        <h2 className="flex justify-between px-2 py-1 font-medium text-[13px] text-muted-foreground max-md:hidden [@media(max-height:899px)]:hidden">
+          Working <span>{runs.length}</span>
+        </h2>
+        {runs.slice(0, VISIBLE_WORKING).map((run) => (
+          <WorkingRow key={run.id} onNavigate={onNavigate} run={run} />
+        ))}
+        <RailLink
+          className="flex min-h-8 items-center px-2 text-(--df-electric-cyan) text-[13px] no-underline hover:underline"
+          href="/sessions"
+          onNavigate={onNavigate}
         >
-          <span>{expanded ? "Show less" : `${hidden} more working`}</span>
-        </button>
-      ) : null}
-    </div>
+          View all {runs.length} running
+        </RailLink>
+      </div>
+    </section>
   );
 }

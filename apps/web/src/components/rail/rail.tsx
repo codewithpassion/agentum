@@ -1,18 +1,23 @@
+import { useOrganization } from "@clerk/tanstack-react-start";
 import { useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import type { PinnedArtifact } from "#/components/artifacts/pinned/pinned-logic";
 import { PinnedSidebarGroup } from "#/components/artifacts/pinned/pinned-sidebar";
 import { usePolledQuery } from "#/components/inbox/use-polled-query";
-import { HeaderActionsPortal } from "#/components/shell/header-menu-slot";
+import {
+  HeaderActionsPortal,
+  HeaderMenuButton,
+} from "#/components/shell/header-menu-slot";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   useSidebar,
 } from "#/components/ui/sidebar";
+import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
 import { FindDialog } from "./find-dialog.tsx";
+import { RailFooter } from "./rail-footer.tsx";
 import { RailHeaderActions } from "./rail-header-actions.tsx";
 import { RailLink } from "./rail-link.tsx";
 import { NeedsYouRow, SetupRow } from "./rail-needs-you.tsx";
@@ -21,11 +26,9 @@ import { ScopeToggle } from "./rail-scope-toggle.tsx";
 import { WorkingList } from "./rail-working.tsx";
 import { useRail, useRailScope } from "./use-rail.ts";
 import { WorkspaceMenu } from "./workspace-menu.tsx";
+import { isActiveAdmin } from "./workspace-menu-logic.ts";
 
 const MEMBERS_POLL_MS = 5 * 60_000;
-
-const FOOT_LINK_CLASS =
-  "flex min-h-10 items-center justify-center rounded-md text-muted-foreground text-sm no-underline hover:bg-muted hover:text-foreground md:min-h-8";
 
 const SECTION_HEADING_CLASS =
   "flex justify-between px-2 pt-3 pb-1.5 font-medium text-muted-foreground text-[13px]";
@@ -66,6 +69,17 @@ interface RailProps {
 /** The sidebar: what waits on you, what is running, and Find for the rest. */
 export function Rail({ agents, pinned = [] }: RailProps) {
   const { setOpenMobile } = useSidebar();
+  const isMobile = useIsMobile();
+  const { organization } = useOrganization();
+  const { data: mine } = usePolledQuery(
+    () => getTrpc().workspaces.mine.query(),
+    null,
+    MEMBERS_POLL_MS
+  );
+  const admin = isActiveAdmin({
+    activeOrgId: organization?.id ?? null,
+    mine: mine ?? [],
+  });
   const openId = useOpenItemId();
   const { scope: chosenScope, setScope } = useRailScope();
   const { data: members } = usePolledQuery(
@@ -147,15 +161,6 @@ export function Rail({ agents, pinned = [] }: RailProps) {
               </p>
             ) : null}
           </div>
-          {working.length === 0 ? null : (
-            <>
-              <h2 className={SECTION_HEADING_CLASS}>
-                Working
-                <span>{working.length}</span>
-              </h2>
-              <WorkingList onNavigate={closeMobileNav} runs={working} />
-            </>
-          )}
           {view === null ? null : (
             <RailLink
               className="mt-2 flex min-h-10 items-center rounded-md px-2 text-muted-foreground text-sm no-underline hover:text-foreground md:min-h-8"
@@ -168,8 +173,15 @@ export function Rail({ agents, pinned = [] }: RailProps) {
           <RailQuestions onNavigate={closeMobileNav} />
           <PinnedSidebarGroup onNavigate={closeMobileNav} pins={pinned} />
         </SidebarContent>
-        <RailFooter onNavigate={closeMobileNav} onOpenFind={openFind} />
+        <WorkingList onNavigate={closeMobileNav} runs={working} />
+        <RailFooter
+          admin={admin}
+          isMobile={isMobile}
+          onNavigate={closeMobileNav}
+          onOpenFind={openFind}
+        />
       </Sidebar>
+      <HeaderMenuButton count={waiting} />
       <HeaderActionsPortal>
         <RailHeaderActions
           agents={agents}
@@ -179,44 +191,5 @@ export function Rail({ agents, pinned = [] }: RailProps) {
       </HeaderActionsPortal>
       <FindDialog agents={agents} onOpenChange={setFindOpen} open={findOpen} />
     </>
-  );
-}
-
-export function RailFooter({
-  onNavigate,
-  onOpenFind,
-}: {
-  onNavigate: () => void;
-  onOpenFind: () => void;
-}) {
-  return (
-    <SidebarFooter className="border-sidebar-border border-t">
-      <nav aria-label="Rail" className="grid grid-cols-4 gap-0.5">
-        <RailLink
-          className={FOOT_LINK_CLASS}
-          href="/agents"
-          onNavigate={onNavigate}
-        >
-          Agents
-        </RailLink>
-        <RailLink
-          className={FOOT_LINK_CLASS}
-          href="/artifacts?kind=app"
-          onNavigate={onNavigate}
-        >
-          Apps
-        </RailLink>
-        <RailLink
-          className={FOOT_LINK_CLASS}
-          href="/library"
-          onNavigate={onNavigate}
-        >
-          Files
-        </RailLink>
-        <button className={FOOT_LINK_CLASS} onClick={onOpenFind} type="button">
-          Everything
-        </button>
-      </nav>
-    </SidebarFooter>
   );
 }

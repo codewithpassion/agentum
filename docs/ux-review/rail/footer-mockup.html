@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rail footer mockups</title>
+<link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #1a1a1a; --fg: #fff; --card: #212121; --muted: #a5a5a5; --idle: #c4c4c4; --border: #3a3a3a;
+  --sidebar: #141414; --primary: #ff7733; --red: #ff3859; --cyan: #00d4ff; --gray: #2a2a2a;
+  --accent: color-mix(in srgb, #00d4ff 14%, #2a2a2a);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 Roboto, sans-serif; }
+svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.cog { width: 20px; height: 20px; stroke-width: 2; }
+kbd { font: 11px Roboto, sans-serif; color: var(--muted); border: 1px solid var(--border); padding: 1px 5px; }
+a, button { color: inherit; text-decoration: none; font: inherit; background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+
+.shell { display: flex; flex-direction: column; height: 100vh; }
+.top { height: 60px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.brand { font: 20px Audiowide, sans-serif; display: flex; align-items: center; gap: 10px; }
+.brand:before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+.acts { display: flex; gap: 8px; align-items: center; }
+.btn { border: 1px solid var(--border); height: 32px; padding: 0 10px; display: flex; gap: 6px; align-items: center; }
+.btn.new { background: var(--primary); color: #1a1a1a; border-color: var(--primary); font-weight: 500; }
+.av { width: 28px; height: 28px; border-radius: 50%; background: #7c5cff; }
+.frame { flex: 1; min-height: 0; display: flex; }
+
+.rail { width: 320px; flex: none; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: relative; }
+.ws { display: flex; justify-content: space-between; align-items: center; padding: 18px 16px 8px; font: 20px Audiowide, sans-serif; gap: 8px; }
+.ws .name { flex: 1; }
+.ws small { font: 14px Roboto; color: var(--muted); }
+.iconbtn { width: 40px; height: 40px; display: none; align-items: center; justify-content: center; color: var(--idle); border: 1px solid var(--border); }
+.scope { display: grid; grid-template-columns: 1fr 1fr; margin: 4px 24px 12px; background: var(--gray); }
+.scope span { text-align: center; padding: 6px; color: var(--muted); }
+.scope .on { background: #1f1f1f; color: var(--fg); font-weight: 500; }
+.sec { display: flex; justify-content: space-between; padding: 6px 16px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.items { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px; }
+.item { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--red); padding: 8px 12px; margin-bottom: 6px; }
+.item.setup { border-left-color: var(--primary); }
+.item.open { outline: 1px solid var(--cyan); }
+.item b { display: block; font-weight: 500; }
+.item i { font-style: normal; color: var(--muted); font-size: 12px; }
+.badge { display: inline-block; background: var(--red); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 3px; margin-right: 6px; border-radius: 2px; }
+.working { flex: none; border-top: 1px solid var(--border); padding: 4px 0 6px; }
+.working .run { display: flex; gap: 8px; align-items: center; padding: 3px 16px; color: var(--muted); font-size: 13px; min-height: 28px; }
+.working .run:before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); opacity: .7; }
+.working .more { padding: 2px 16px; color: var(--muted); font-size: 12px; }
+.find { display: none; align-items: center; gap: 8px; margin: 0 8px 8px; padding: 0 10px; min-height: 40px; border: 1px solid var(--border); color: var(--idle); text-align: left; }
+
+.tabs { flex: none; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(4, 1fr); padding: 0 4px 4px; padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+.tabs a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 48px; color: var(--idle); font: 500 13px Roboto, sans-serif; border-top: 2px solid transparent; }
+.tabs a:hover { color: var(--fg); background: var(--gray); }
+.tabs a[aria-current] { color: var(--fg); background: var(--accent); border-top-color: var(--cyan); }
+
+.main { flex: 1; padding: 40px 80px; min-width: 0; }
+.main h1 { font: 32px Audiowide, sans-serif; margin: 0 0 12px; }
+.main p { color: var(--muted); max-width: 640px; }
+.setnav { display: none; }
+.pg-settings .main { display: flex; gap: 48px; padding: 24px 32px; }
+.pg-settings .setnav { display: block; width: 220px; flex: none; }
+.setnav small { display: block; color: var(--muted); font-size: 12px; padding: 12px 8px 4px; }
+.setnav div { padding: 8px 10px; font-weight: 500; }
+.setnav .on { background: var(--accent); }
+.wsmenu { display: none; position: absolute; left: 12px; top: 56px; width: 280px; background: #2a2a2a; border: 1px solid var(--border); padding: 4px; z-index: 5; box-shadow: 0 8px 24px #0008; }
+.menu .wsmenu { display: block; }
+.wsmenu div { padding: 0 10px; min-height: 40px; display: flex; align-items: center; gap: 8px; }
+.wsmenu small { color: var(--muted); font-size: 12px; }
+.wsmenu .sep { min-height: 1px; height: 1px; background: var(--border); padding: 0; margin: 4px 0; }
+.wsmenu .hi { background: var(--accent); }
+
+/* phone */
+.phone .top { display: none; }
+.phone .frame { width: var(--pw, 390px); height: 844px; position: relative; flex: none; }
+.phone .main { filter: blur(2px); opacity: .45; padding: 24px; }
+.phone .rail { width: calc(var(--pw, 390px) * .75); position: absolute; inset: 0 auto 0 0; z-index: 2; }
+/* where Find sits on phones */
+.phone.Da .find.below-scope { display: flex; }
+.phone.Db .iconbtn { display: flex; }
+.phone.Dc .find.above-tabs { display: flex; margin-top: 6px; }
+.label { position: fixed; right: 12px; bottom: 12px; color: var(--muted); font-size: 12px; }
+.phone .label { display: none; }
+
+/* round 4 */
+.item.open { outline: 0; background: var(--accent); box-shadow: inset 0 0 0 2px var(--cyan); }
+.find { display: flex !important; align-items: center; gap: 10px; margin: 6px 8px 6px; padding: 0 12px; min-height: 44px; border: 0; background: var(--gray); color: var(--idle); font-weight: 500; width: calc(100% - 16px); }
+.find:hover { color: var(--fg); background: #333; }
+.find .sp { flex: 1; }
+.find kbd { background: var(--sidebar); }
+.phone .find kbd { display: none; }
+.pc .find { display: none !important; }
+.phone .find { display: flex !important; }
+.below-scope { display: none !important; }
+.working .more { color: var(--cyan); font-size: 13px; padding: 4px 16px; display: block; }
+.working .wsum { display: none; }
+.phone .working { padding: 0; }
+.phone .working > :not(.wsum) { display: none; }
+.phone .working .wsum { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; color: var(--idle); font-weight: 500; width: 100%; }
+.phone .working .wsum:before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); }
+.phone .working .wsum { justify-content: flex-start; text-align: left; }
+.phone .working .wsum .n { flex: 1; text-align: right; padding-right: 4px; color: var(--muted); font-weight: 400; }
+.phone .scope span { padding: 0; min-height: 40px; display: flex; align-items: center; justify-content: center; }
+.wsmenu .hi { background: none; }
+/* phone frames use the real viewport */
+.phone .frame { width: 100vw; height: 100dvh; }
+.phone .rail { width: min(292px, calc(100vw - 48px)); }
+.ptop { display: none; }
+.closed .rail { display: none; }
+.closed .ptop { display: flex; height: 52px; align-items: center; gap: 8px; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.closed .ptop .brand { flex: 1; font-size: 18px; }
+.closed .ptop .ib { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); color: var(--idle); }
+.closed.phone .main { filter: none; opacity: 1; }
+.closed .frame { height: calc(100dvh - 52px); }
+/* phone settings index */
+.pg-settings.phone .main { display: block; padding: 16px; filter: none; opacity: 1; }
+.pg-settings.phone .setnav { width: auto; }
+.pg-settings.phone .setnav div { min-height: 44px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: none; }
+.pg-settings.phone .setnav div:after { content: "›"; color: var(--muted); }
+.pg-settings.phone .main > div:last-child { display: none; }
+.pg-settings.phone .main:before { content: "Settings"; display: block; font: 26px Audiowide, sans-serif; margin-bottom: 4px; }
+/* palette */
+.pal { display: none; position: fixed; inset: 0; background: #000a; z-index: 9; }
+.palette .pal { display: block; }
+.pal .box { position: absolute; left: 50%; top: 90px; transform: translateX(-50%); width: 560px; background: #2a2a2a; border: 1px solid var(--border); box-shadow: 0 16px 40px #000c; }
+.phone .pal .box { inset: 0; transform: none; width: auto; top: 0; }
+.pal .in { display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 52px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 16px; }
+.pal .in .caret { width: 1px; height: 20px; background: var(--fg); margin-left: -6px; }
+.pal .in .esc { margin-left: auto; }
+.pal .cancel { display: none; min-height: 40px; padding: 0 4px; color: var(--cyan); margin-left: auto; }
+.phone .pal .esc { display: none; }
+.phone .pal .cancel { display: block; }
+.pal .grp { padding: 6px 0; }
+.pal small { display: block; color: var(--muted); font-size: 12px; padding: 6px 16px 2px; }
+.pal .row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 16px; }
+.pal .row em { color: var(--muted); font-style: normal; font-size: 12px; margin-left: auto; }
+.pal .row.sel { background: var(--accent); }
+
+/* final fixes */
+.item.open { box-shadow: none; background: var(--accent); border-left: 3px solid var(--cyan) !important; }
+:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+svg.cog { width: 18px; height: 18px; stroke-width: 1.75; }
+.working .run { min-height: 32px; color: var(--idle); }
+.working .run:hover { background: var(--gray); color: var(--fg); }
+.working .more { display: flex; align-items: center; min-height: 32px; padding: 0 16px; }
+.closed .ptop .ib { position: relative; }
+.closed .ptop .count { position: absolute; top: 2px; right: -10px; background: var(--primary); color: #1a1a1a; font: 700 11px Roboto; padding: 1px 5px; }
+.avt { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+.avt .av { width: 32px; height: 32px; }
+.closed .ptop .title { flex: 1; font: 18px Audiowide, sans-serif; }
+.pal .keys { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.phone .pal .keys { display: none; }
+.pal .row em:before { content: "also: "; }
+.pal .row .ag { width: 20px; height: 20px; background: var(--red); font: 700 9px Roboto; display: flex; align-items: center; justify-content: center; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="shell">
+<header class="top">
+  <span class="brand">Agentum</span>
+  <span class="acts">
+    <span class="btn">Board</span>
+    <button class="btn">SEARCH Find <kbd class="k">Ctrl K</kbd></button>
+    <span class="btn new">+ New</span><span class="av"></span><span class="btn">☾ Dark</span>
+  </span>
+</header>
+<div class="ptop"><button class="ib" aria-label="Open rail, 11 need you">☰<span class="count">11</span></button><span class="title" id="ptitle">Agentum</span><button class="ib" aria-label="Find">SEARCH</button><span class="avt"><span class="av"></span></span></div>
+<div class="frame">
+  <aside class="rail">
+    <div class="ws"><span class="name">Dev Workspace</span><small>⌃⌄</small><button class="iconbtn" aria-label="Find anything">SEARCH</button></div>
+    <div class="scope"><span class="on">Mine 10</span><span>Everyone 10</span></div>
+    <div class="sec"><span>Needs you</span><span>11</span></div>
+    <div class="items" id="items"></div>
+    <div class="working">
+      <div class="sec"><span>Working</span><span>5</span></div>
+      <a href="#" class="run">Triage support inbox · LC</a>
+      <a href="#" class="run">Weekly report · RS</a>
+      <a href="#" class="run">Draft release notes · LC</a>
+      <a class="more" href="#">View all 5 running</a>
+      <button class="wsum">Working <span class="n">5 running</span>›</button>
+    </div>
+    <button class="find above-tabs">SEARCH<span class="sp">Find</span><kbd class="k">Ctrl K</kbd></button>
+    <nav class="tabs" aria-label="Rail">
+      <a href="#" data-p="agents">BOT Agents</a>
+      <a href="#" data-p="apps">GRID Apps</a>
+      <a href="#" data-p="files">FOLDER Files</a>
+      <a href="#" data-p="settings">COG Settings</a>
+    </nav>
+    <div class="wsmenu"><div><small>Workspaces</small></div><div>Dev Workspace ✓</div><div>Harbour Edge</div><div class="sep"></div><div>Members</div><div>Invite people</div><div>Settings</div><div class="sep"></div><div>New workspace</div></div>
+  </aside>
+  <main class="main">
+    <nav class="setnav"><small>Agents run on</small><div class="on">Model providers</div><div>Machines</div><small>Agents can use</small><div>Connectors</div><div>Secrets</div><div>Artifacts</div><small>Access to Agentum</small><div>API keys</div><div>Connected apps</div><div>Agent connections</div><small>Workspace</small><div>Members</div></nav>
+    <div><h1 id="h"></h1><p id="p"></p></div>
+  </main>
+</div>
+</div>
+<div class="pal"><div class="box"><div class="in">SEARCH<span class="caret"></span>Find pages, agents and settings<kbd class="esc">Esc</kbd><button class="cancel">Cancel</button></div>
+<div class="grp"><small>Work</small><div class="row sel">Board<em>Desk</em></div><div class="row">Every task<em>Sessions</em></div><div class="row">Questions<em>Q&amp;A</em></div></div>
+<div class="grp"><small>Agents</small><div class="row"><span class="ag">LC</span>Lead catcher</div><div class="row"><span class="ag" style="background:#7c5cff">RS</span>Report scribe</div></div>
+<div class="grp"><small>What agents use</small><div class="row">Apps<em>Artifacts</em></div><div class="row">Skills</div><div class="row">Files and wiki<em>Library</em></div></div>
+<div class="grp"><small>Settings</small><div class="row">Model providers<em>AI account</em></div><div class="row">Secrets<em>Passwords and keys</em></div><div class="row">API keys</div></div><div class="keys"><span>↑↓ move</span><span>Enter open</span><span>Esc close</span></div></div></div>
+<div class="label" id="label"></div>
+<script>
+const I = {
+  SEARCH: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>',
+  BOT: '<svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 8V4M9 13h.01M15 13h.01"/></svg>',
+  GRID: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>',
+  FOLDER: '<svg viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4z"/></svg>',
+  COG: '<svg class="cog" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+};
+document.body.innerHTML = document.body.innerHTML.replace(/\b(SEARCH|BOT|GRID|FOLDER|COG)\b/g, (m) => I[m]);
+const q = new URLSearchParams(location.search);
+const v = "Dc";
+if (q.get("w") !== "phone") document.body.classList.add("pc");
+if (q.get("sheet") === "closed") document.body.classList.add("closed");
+if (q.get("palette")) document.body.classList.add("palette");
+const page = q.get("page") || "queue";
+document.body.classList.add(v, "pg-" + page);
+if (q.get("w") === "phone") document.body.classList.add("phone");
+if (q.get("pw")) document.body.style.setProperty("--pw", q.get("pw") + "px");
+if (q.get("menu")) document.body.classList.add("menu");
+const mac = q.get("os") === "mac";
+document.querySelectorAll(".k").forEach((k) => (k.textContent = mac ? "⌘K" : "Ctrl K"));
+const item = (t, cls = "") => `<div class="item ${cls}"><b>${t}</b><i><span class="badge">LC</span>Failed</i></div>`;
+document.getElementById("items").innerHTML =
+  `<div class="item setup ${page === "queue" ? "open" : ""}"><b>Add your AI account</b><i>Agents need it to run</i></div>` +
+  [...Array(4)].map(() => item("Reply with the single word: pong")).join("") +
+  [...Array(5)].map(() => item("Reply with: pong")).join("");
+const cur = document.querySelector(`.tabs a[data-p="${page}"]`);
+if (cur) cur.setAttribute("aria-current", "page");
+const T = {
+  queue: ["Add your AI account", "Agents run on your own account with Anthropic or OpenRouter, so you pay them directly. Paste a key and you're done."],
+  settings: ["Model providers", "On desktop Settings always opens here; the sub-nav on the left reaches every settings page. On phones it opens this grouped index."],
+  apps: ["Apps", "Things agents made, filtered to apps."],
+};
+if (page === "settings") document.getElementById("ptitle").textContent = "Settings";
+document.getElementById("h").textContent = T[page][0];
+document.getElementById("p").textContent = T[page][1];
+document.getElementById("label").textContent = "Final (Dc refined)" + (mac ? " · Mac" : "");
+</script>
+</body>
+</html>

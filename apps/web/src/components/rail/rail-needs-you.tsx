@@ -23,7 +23,7 @@ const SETUP_ROWS: Readonly<
 };
 
 const ROW_CLASS =
-  "block min-h-10 rounded-lg border border-border border-l-[3px] bg-card px-2.5 py-2 text-sm no-underline hover:bg-muted/50";
+  "block min-h-10 rounded-lg border border-border border-l-[3px] bg-card px-2.5 py-2 text-sm no-underline hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-foreground focus-visible:outline-offset-2";
 
 function AgentTile({ name }: { name: string }) {
   return (
@@ -89,7 +89,8 @@ export function NeedsYouRow({
       className={cn(
         ROW_CLASS,
         first.kind === "problem" ? "border-l-destructive" : "border-l-primary",
-        open && "bg-accent",
+        open &&
+          "border-l-(--df-electric-cyan) bg-sidebar-accent hover:bg-sidebar-accent",
         fresh && "rise-in"
       )}
       current={open}

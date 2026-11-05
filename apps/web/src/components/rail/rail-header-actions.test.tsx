@@ -40,6 +40,8 @@ test("Board links to the board view with its own name", () => {
   expect(html).toContain('href="/desk?view=board"');
   expect(html).toContain('aria-label="Board"');
   expect(html).toContain('aria-label="Find"');
+  expect(html).toContain("<kbd");
+  expect(html).toContain("Ctrl K</kbd>");
   expect(html).toContain('aria-label="New"');
 });
 

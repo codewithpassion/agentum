@@ -7,7 +7,6 @@ import {
   usePolledQuery,
 } from "#/components/inbox/use-polled-query";
 import { Rail } from "#/components/rail/rail";
-import { HeaderMenuButton } from "#/components/shell/header-menu-slot";
 import {
   SidebarInset,
   SidebarProvider,
@@ -53,7 +52,6 @@ function AppLayout() {
         <div className="hidden h-12 items-center border-border border-b px-4 md:flex">
           <SidebarTrigger />
         </div>
-        <HeaderMenuButton />
         <div className="flex-1 px-4 py-6 sm:px-6">
           <Outlet />
         </div>
