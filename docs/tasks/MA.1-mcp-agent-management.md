@@ -3,7 +3,7 @@ id: MA.1
 title: Create and manage agents over MCP from an OAuth connection
 milestone: MA
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: MA.1-mcp-agent-management
 lane: services
@@ -24,3 +24,4 @@ Spec: `docs/v3/mcp-agent-management.md`.
 - `bun run check && bun run test && bun run build`, then the bundle grep for `drizzle` in `apps/web/dist/client`.
 
 ## Log
+- 2026-11-05 controller review: the gating admits OAuth write connections for agent tools only; setup, secret and key tools stay admin-key; inbox threads stay key-only; get_agent goes to user principals only. Merged with MA.2.
