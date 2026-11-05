@@ -35,7 +35,7 @@ export const HARNESS_SOURCE = [
   "    const response = await app.fetch(request, { ...this.env, AGENTUM: agentum }, ctx);",
   "    let timer;",
   "    try {",
-  "      const expired = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out after 30000 ms')), 30000); });",
+  "      const expired = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out after 25000 ms')), 25000); });",
   "      await respond(response);",
   "      await Promise.race([expired, (async () => {",
   "        while (pending.length) await Promise.all(pending.splice(0));",

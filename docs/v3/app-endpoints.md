@@ -38,9 +38,10 @@ The manifest is `agentum.json`, and app code reads the `env.AGENTUM` binding. Pr
 - An app that must answer quickly returns at once and puts slow service or outbound work in `ctx.waitUntil`; this also avoids waiting for a cold main Worker.
 - The HTTP response leaves as soon as the app’s `fetch` resolves, for both
   endpoints and the page API. Work registered with `ctx.waitUntil` continues
-  for up to 30 seconds after the response, with the same outbound grants and
+  for up to 25 seconds after the response, with the same outbound grants and
   proxy secret filling. Rejections and timeouts appear as app errors and never
-  change the response. The fetch wall timer applies only to producing the response.
+  change the response. The cap stays under Cloudflare's 30-second `waitUntil`
+  limit, so a timeout is still recorded before the platform cancels the work. The fetch wall timer applies only to producing the response.
 - The viewer is `{ kind: "endpoint", endpointId }`. On it, `env.AGENTUM` allows:
   - shared storage, read and write;
   - `startRun` (below);
