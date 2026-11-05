@@ -172,7 +172,8 @@
     "./artifacts/replies": "./src/artifacts/replies.ts",
     "./artifacts/errors": "./src/artifacts/errors.ts",
     "./artifacts/hooks-source": "./src/artifacts/hooks-source.ts",
-    "./artifacts/endpoints": "./src/artifacts/endpoints.ts"
+    "./artifacts/endpoints": "./src/artifacts/endpoints.ts",
+    "./assistant/service": "./src/assistant/service.ts"
   },
   "scripts": {
     "test": "bun test",
@@ -184,6 +185,7 @@
     "@repo/db": "workspace:*",
     "@repo/library-sync": "workspace:*",
     "@repo/live-export": "workspace:*",
+    "@repo/mcp": "workspace:*",
     "@repo/protocol": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "fflate": "0.8.3",

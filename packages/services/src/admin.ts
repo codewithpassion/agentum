@@ -94,7 +94,7 @@ export const createAdminService = ({
   machines: MachinesService;
   secrets: SecretsService;
 }) => {
-  /** One `admin.action` event naming the key, or the OAuth client and user. `details` hold ids and names, never values. */
+  /** One `admin.action` event naming the key, OAuth client or browser user. `details` hold ids and names, never values. */
   const record = async (
     key: AgentManager,
     tool: string,
@@ -103,15 +103,16 @@ export const createAdminService = ({
   ): Promise<void> => {
     await events.append({
       actor:
-        key.via === "oauth"
-          ? { id: key.userId, kind: "user" }
-          : { id: key.apiKey.id, kind: "api_key" },
+        key.via === "api_key"
+          ? { id: key.apiKey.id, kind: "api_key" }
+          : { id: key.userId, kind: "user" },
       agentId,
       payload: {
         ...details,
-        ...(key.via === "oauth"
-          ? { clientId: key.oauthClient.clientId }
-          : { keyId: key.apiKey.id, keyName: key.apiKey.name ?? null }),
+        ...(key.via === "oauth" ? { clientId: key.oauthClient.clientId } : {}),
+        ...(key.via === "api_key"
+          ? { keyId: key.apiKey.id, keyName: key.apiKey.name ?? null }
+          : {}),
         tool,
         userId: key.userId,
       },
@@ -125,6 +126,17 @@ export const createAdminService = ({
     tool: string,
     level: KeyLevel
   ): KeyPrincipal => requireKey(principal, `admin.${tool}`, level);
+
+  const secretManager = (principal: Principal, tool: string): AgentManager => {
+    if (
+      principal.kind === "user" &&
+      principal.via === "session" &&
+      principal.isAdmin
+    ) {
+      return principal as AgentManager;
+    }
+    return checked(principal, tool, "admin");
+  };
 
   /** Writes the audit event for a call another path already made, such as assign_skill. */
   const audit = async (
@@ -398,7 +410,7 @@ export const createAdminService = ({
     principal: Principal,
     input: { agentId: string; secretId: string }
   ): Promise<void> => {
-    const key = checked(principal, "grant_secret", "admin");
+    const key = secretManager(principal, "grant_secret");
     await secrets.grant(principal, input.agentId, input.secretId);
     await record(
       key,
@@ -412,7 +424,7 @@ export const createAdminService = ({
     principal: Principal,
     input: { agentId: string; secretId: string }
   ): Promise<void> => {
-    const key = checked(principal, "revoke_secret", "admin");
+    const key = secretManager(principal, "revoke_secret");
     await secrets.revoke(principal, input.agentId, input.secretId);
     await record(
       key,
@@ -426,7 +438,10 @@ export const createAdminService = ({
     principal: Principal,
     input: { title: string }
   ): Promise<ThreadRecord> => {
-    const key = checked(principal, "create_inbox_thread", "write");
+    const key =
+      principal.kind === "user" && principal.via === "session"
+        ? requireAgentManager(principal, "admin.create_inbox_thread")
+        : checked(principal, "create_inbox_thread", "write");
     const thread = await inbox.createThread(principal, input);
     await record(key, "create_inbox_thread", {
       name: thread.title,

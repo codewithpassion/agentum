@@ -3,6 +3,7 @@ import { a2aRouter } from "./a2a-router.ts";
 import { agentBuilderRouter } from "./agent-builder-router.ts";
 import { agentProfileRouter } from "./agent-profile-router.ts";
 import { agentsRouter } from "./agents-router.ts";
+import { assistantRouter } from "./assistant-router";
 import { deskRouter } from "./desk-router.ts";
 import { dictationRouter } from "./dictation-router.ts";
 import { eventsRouter } from "./events-router.ts";
@@ -32,6 +33,7 @@ export const runtimeRouter = router({
   agentBuilder: agentBuilderRouter,
   agentProfile: agentProfileRouter,
   agents: agentsRouter,
+  assistant: assistantRouter,
   desk: deskRouter,
   dictation: dictationRouter,
   events: eventsRouter,

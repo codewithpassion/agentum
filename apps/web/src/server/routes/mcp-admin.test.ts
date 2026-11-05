@@ -562,3 +562,16 @@ test("run, machine and Slack ports offer none of the agent management writes", (
     }
   }
 });
+
+test("session-bound MCP ports retain the remote tool list without assistant cards or management", async () => {
+  const ports = createMcpPorts({
+    principal: session(true),
+    services: composed.services,
+  });
+  const names = agentumTools(ports).map((tool) => tool.name);
+  expect(names).toContain("send_message");
+  for (const name of [...ADMIN_TOOLS, "request_secret", "request_model_key"]) {
+    expect(names).not.toContain(name);
+  }
+  expect((await rpc("", "tools/list", {})).status).toBe(401);
+});

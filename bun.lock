@@ -292,6 +292,7 @@
         "@repo/db": "workspace:*",
         "@repo/library-sync": "workspace:*",
         "@repo/live-export": "workspace:*",
+        "@repo/mcp": "workspace:*",
         "@repo/protocol": "workspace:*",
         "drizzle-orm": "^0.44.7",
         "fflate": "0.8.3",

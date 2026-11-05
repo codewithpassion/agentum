@@ -693,6 +693,15 @@ export const createSecretsService = ({
     };
   };
 
+  /** Internal workspace-wide masker for the signed-in assistant. Never exposed over tRPC. */
+  const workspaceMasker = async (workspaceId: string): Promise<Masker> => {
+    const rows = await db
+      .select()
+      .from(secrets)
+      .where(eq(secrets.workspaceId, workspaceId));
+    return maskerOf(await decryptRows(workspaceId, rows));
+  };
+
   /** The masker for the agent's granted values, or null when it has none. */
   const maskerFor = async (
     workspaceId: string,
@@ -868,6 +877,7 @@ export const createSecretsService = ({
     revoke,
     setGrants,
     update,
+    workspaceMasker,
   };
 };
 
