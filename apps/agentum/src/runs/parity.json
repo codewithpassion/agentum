@@ -1,0 +1,255 @@
+{
+  "keys": [
+    {
+      "expected": "bash",
+      "name": "Bash",
+      "servers": ["a", "a__b"]
+    },
+    {
+      "expected": "edit",
+      "name": "MultiEdit",
+      "servers": ["a", "a__b"]
+    },
+    {
+      "expected": "web_fetch",
+      "name": "WebFetch",
+      "servers": ["a", "a__b"]
+    },
+    {
+      "expected": "a__b/Camel",
+      "name": "mcp__a__b__Camel",
+      "servers": ["a", "a__b"]
+    },
+    {
+      "expected": "mcp__unknown__tool",
+      "name": "mcp__unknown__Tool",
+      "servers": ["a", "a__b"]
+    },
+    {
+      "expected": "other",
+      "name": "Other",
+      "servers": ["a", "a__b"]
+    }
+  ],
+  "masker": {
+    "expected": "[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]|[secret:KEY]",
+    "secrets": {
+      "KEY": "secret !'()~ with\nquote\""
+    },
+    "source": "secret !'()~ with\nquote\"|secret !'()~ with\\nquote\\\"|c2VjcmV0ICEnKCl+IHdpdGgKcXVvdGUi|c2VjcmV0ICEnKCl+IHdpdGgKcXVvdGUiCg==|secret%20!'()~%20with%0Aquote%22|secret+%21%27%28%29%7E+with%0Aquote%22"
+  },
+  "outcomes": [
+    {
+      "expected": "Nobody answered within the time limit, so the call did not run.",
+      "kind": "approval",
+      "outcome": {
+        "status": "expired"
+      }
+    },
+    {
+      "expected": "The call was withdrawn because the run is ending.",
+      "kind": "approval",
+      "outcome": {
+        "status": "cancelled"
+      }
+    },
+    {
+      "expected": "Nobody answered the question in time. Go on without it or stop and say what you need.",
+      "kind": "question",
+      "outcome": {
+        "status": "expired"
+      }
+    },
+    {
+      "expected": "The question was withdrawn because the run is ending.",
+      "kind": "question",
+      "outcome": {
+        "status": "cancelled"
+      }
+    },
+    {
+      "expected": "Nobody took over the computer in time. Go on without it or stop and say what you need.",
+      "kind": "takeover",
+      "outcome": {
+        "status": "expired"
+      }
+    },
+    {
+      "expected": "The person cancelled the takeover request. Go on without the computer or stop and say what you need.",
+      "kind": "takeover",
+      "outcome": {
+        "status": "cancelled"
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "expected": "Your files live in three places.\n- Home: /work. It is yours and keeps its files across all your sessions. Relative paths start here. Keep notes, code and data you want to find again here. Other sessions of yours may use it at the same time.\n- Scratch: /work/tmp. Use it for downloads, builds and temporary files. It is emptied before your next run, so never keep anything there that you need later.\n- Library: /work/library holds a synced copy of agents/ada (write) from the workspace library. The library is shared with every agent and person in this workspace and kept for good. Your changes go back to it when your run ends. If someone changed the same file meanwhile, their version stays and yours is saved next to it as <file>.conflict-<runId>. The rest of the library is not on your disk, so reach it with the library tools.\n- Conflicts: some changes could not be saved because the library file changed first. Each copy listed here holds the version that was not saved. Compare it with the file beside it, keep what you want in that file, then delete the copy: /work/library/agents/ada/x.conflict-r.\nSave files for the user in /work/library/agents/ada/tasks/r. Everything there shows in the task's Files panel.",
+      "library": {
+        "conflicts": ["agents/ada/x.conflict-r"],
+        "paths": ["agents/ada"],
+        "roots": [
+          {
+            "mode": "write",
+            "path": "agents/ada"
+          }
+        ],
+        "taskFolder": "agents/ada/tasks/r"
+      },
+      "live": false
+    },
+    {
+      "expected": "Your files live in three places.\n- Home: /work. It is yours and keeps its files across all your sessions. Relative paths start here. Keep notes, code and data you want to find again here. Other sessions of yours may use it at the same time.\n- Scratch: /work/tmp. Use it for downloads, builds and temporary files. It is emptied before your next run, so never keep anything there that you need later.\n- Library: /work/library holds a synced copy of agents/ada (write) from the workspace library. The library is shared with every agent and person in this workspace and kept for good. Your changes go back to it within seconds. If someone changed the same file meanwhile, their version stays and yours is saved next to it as <file>.conflict-<runId>. The rest of the library is not on your disk, so reach it with the library tools.\n- Conflicts: some changes could not be saved because the library file changed first. Each copy listed here holds the version that was not saved. Compare it with the file beside it, keep what you want in that file, then delete the copy: /work/library/agents/ada/x.conflict-r.\nSave files for the user in /work/library/agents/ada/tasks/r. Everything there shows in the task's Files panel.",
+      "library": {
+        "conflicts": ["agents/ada/x.conflict-r"],
+        "paths": ["agents/ada"],
+        "roots": [
+          {
+            "mode": "write",
+            "path": "agents/ada"
+          }
+        ],
+        "taskFolder": "agents/ada/tasks/r"
+      },
+      "live": true
+    }
+  ],
+  "questions": {
+    "answer": {
+      "answers": {
+        "Choose?": "a, b",
+        "Text?": "free, text",
+        "unasked": "drop"
+      }
+    },
+    "expected": {
+      "Choose?": "a, b",
+      "Text?": "free, text"
+    },
+    "input": {
+      "questions": [
+        {
+          "question": "Choose?"
+        },
+        {
+          "question": "Text?"
+        }
+      ]
+    }
+  },
+  "stop": "Stopped after 12 turns, the agent's limit",
+  "summaries": [
+    {
+      "input": {
+        "command": "echo yes\nnext"
+      },
+      "name": "Bash",
+      "expected": "Run `echo yes next`"
+    },
+    {
+      "input": {
+        "peer": "Peer"
+      },
+      "name": "a2a_send",
+      "expected": "Send a message to Peer"
+    },
+    {
+      "input": {
+        "peer": "Peer"
+      },
+      "name": "harbourmaster/send",
+      "expected": "Call harbourmaster/send"
+    },
+    {
+      "input": {
+        "file_path": "notes"
+      },
+      "name": "Read",
+      "expected": "Read notes"
+    },
+    {
+      "input": {
+        "query": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "name": "Other",
+      "expected": "Other xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+    }
+  ],
+  "sync": {
+    "initial": {
+      "conflicts": [],
+      "failed": [],
+      "kept": [],
+      "pulled": ["agents/ada/note", "agents/ada/read/file"],
+      "removed": [],
+      "skipped": []
+    },
+    "local": {
+      "agents/ada/note": "remote",
+      "agents/ada/read/file": "truth",
+      "agents/ada/note.conflict-r": "local"
+    },
+    "pull": {
+      "conflicts": [],
+      "failed": [],
+      "kept": ["agents/ada/note"],
+      "pulled": ["agents/ada/read/file"],
+      "removed": [],
+      "skipped": []
+    },
+    "push": {
+      "conflicts": [
+        {
+          "conflictPath": "agents/ada/note.conflict-r",
+          "path": "agents/ada/note"
+        }
+      ],
+      "deleted": [],
+      "deleteSkipped": [],
+      "failed": [],
+      "refused": [],
+      "skipped": [],
+      "written": []
+    },
+    "remote": {
+      "agents/ada/note": "remote",
+      "agents/ada/read/file": "truth",
+      "agents/ada/note.conflict-r": "local"
+    }
+  },
+  "taskFolder": "agents/ada/tasks/r",
+  "turns": [
+    {
+      "expected": 100,
+      "value": null
+    },
+    {
+      "expected": 100,
+      "value": 9
+    },
+    {
+      "expected": 10,
+      "value": 10
+    },
+    {
+      "expected": 100,
+      "value": 100
+    },
+    {
+      "expected": 500,
+      "value": 500
+    },
+    {
+      "expected": 100,
+      "value": 501
+    },
+    {
+      "expected": 100,
+      "value": 10.5
+    },
+    {
+      "expected": 100,
+      "value": "12"
+    }
+  ]
+}
