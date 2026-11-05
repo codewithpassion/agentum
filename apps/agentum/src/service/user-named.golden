@@ -1,0 +1,18 @@
+[Unit]
+Description=Agentum instance office
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart="/opt/agentum" run --instance office
+Environment="AGENTUM_CONFIG_DIR=/config"
+Environment="AGENTUM_STATE_DIR=/state"
+Environment="HOME=/home/dom"
+Environment="PATH=/home/dom/.local/bin:/home/dom/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=3 4 5
+
+[Install]
+WantedBy=default.target

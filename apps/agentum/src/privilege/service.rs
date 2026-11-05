@@ -1,4 +1,5 @@
-use super::Problem;
+use super::{Explanation, Problem};
+use crate::{Error, Result};
 
 #[allow(non_upper_case_globals)]
 impl Problem {
@@ -55,9 +56,7 @@ impl Problem {
             "Set up a system service or agent-user",
             "root permission is required",
             "Creating users and writing /etc needs root.",
-            format!(
-                "sudo agentum service install --instance {instance} --system --run-as agent-user"
-            ),
+            format!("sudo agentum service install --instance {instance} --system"),
         );
         super::Explanation {
             tried: tried.into(),
@@ -66,6 +65,81 @@ impl Problem {
             fix,
         }
     });
+}
+
+#[derive(Default)]
+pub(crate) struct Output {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+pub(crate) trait Runner {
+    fn output(&mut self, program: &str, args: &[String]) -> std::io::Result<Output>;
+    fn interact(&mut self, program: &str, args: &[String]) -> std::io::Result<i32> {
+        self.output(program, args)
+            .map(|out| if out.success { 0 } else { 1 })
+    }
+}
+pub(crate) struct Commands;
+impl Runner for Commands {
+    fn interact(&mut self, program: &str, args: &[String]) -> std::io::Result<i32> {
+        std::process::Command::new(program)
+            .args(args)
+            .status()
+            .map(|status| status.code().unwrap_or(1))
+    }
+    fn output(&mut self, program: &str, args: &[String]) -> std::io::Result<Output> {
+        let out = std::process::Command::new(program)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()?;
+        Ok(Output {
+            success: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+}
+pub(crate) fn output(runner: &mut impl Runner, program: &str, args: &[&str]) -> Output {
+    runner
+        .output(
+            program,
+            &args.iter().map(|s| (*s).into()).collect::<Vec<_>>(),
+        )
+        .unwrap_or_default()
+}
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+pub(crate) fn command(
+    runner: &mut impl Runner,
+    program: &str,
+    args: &[&str],
+    meaning: &str,
+) -> Result<()> {
+    let result = output(runner, program, args);
+    if result.success {
+        return Ok(());
+    }
+    let line = std::iter::once(program)
+        .chain(args.iter().copied())
+        .map(shell_quote)
+        .collect::<Vec<_>>()
+        .join(" ");
+    Err(Error::new(
+        5,
+        Explanation {
+            tried: line.clone(),
+            reason: if result.stderr.trim().is_empty() {
+                "command failed or is unavailable".into()
+            } else {
+                result.stderr.trim().into()
+            },
+            meaning: meaning.into(),
+            fix: line,
+        }
+        .to_string(),
+    ))
 }
 
 #[cfg(test)]

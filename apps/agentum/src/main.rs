@@ -283,8 +283,14 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
             signal.abort();
             return result;
         }
-        Command::Service { .. } | Command::InstallService(_) => {
-            return Err(Error::new(1, "service: not built yet"));
+        Command::Service { command } => {
+            return agentum::service::run(cli.instance.as_deref(), command);
+        }
+        Command::InstallService(args) => {
+            return agentum::service::run(
+                cli.instance.as_deref(),
+                agentum::cli::ServiceCommand::Install(Box::new(args)),
+            );
         }
     }
     Ok(())

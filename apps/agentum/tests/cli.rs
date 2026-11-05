@@ -9,7 +9,7 @@ fn command(temp: &tempfile::TempDir) -> Command {
     command
 }
 #[test]
-fn version_help_usage_and_stub_exit_codes() {
+fn version_help_usage_and_service_exit_codes() {
     let temp = tempfile::tempdir().unwrap();
     for flag in ["version", "--version", "-v"] {
         let output = command(&temp).arg(flag).output().unwrap();
@@ -46,9 +46,9 @@ fn version_help_usage_and_stub_exit_codes() {
         .args(["service", "install", "--system"])
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(4));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert!(error.to_string().contains("not built yet"));
+    assert!(error.to_string().contains("Not enrolled"));
 }
 
 #[test]

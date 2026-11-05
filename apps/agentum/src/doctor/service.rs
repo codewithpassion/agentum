@@ -35,12 +35,25 @@ pub async fn checks(ctx: &Context<'_>) -> Vec<Check> {
         }
     }
     if ctx.paths.unit(ctx.name).exists() {
-        checks.push(ok("service", "Instance unit exists"));
+        let unit = format!("agentum-{}.service", ctx.name);
+        let mut args = vec!["systemctl"];
+        if !ctx.paths.system {
+            args.push("--user");
+        }
+        args.extend(["is-active", &unit]);
+        if succeeds(&args).await {
+            checks.push(ok("service", "Instance unit is active"));
+        } else {
+            checks.push(Check {
+                name: "service", level: Level::Warning,
+                message: format!("Instance unit is inactive. Inspect with: agentum service status --instance {}; agentum service logs --instance {}", ctx.name, ctx.name),
+            });
+        }
     } else {
         checks.push(Check {
             name: "service",
             level: Level::Warning,
-            message: "No instance service installed. RC.3 service install: not built yet".into(),
+            message: format!("No instance service installed. Install with: agentum service install --instance {}", ctx.name),
         });
     }
     checks
