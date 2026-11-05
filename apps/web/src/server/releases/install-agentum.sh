@@ -29,6 +29,7 @@ parse_args() {
       --replace-old) REPLACE_OLD=true; shift ;;
       -h | --help)
         say 'Usage: AGENTUM_ENROLL_CODE=<code> sh install-agentum.sh [--instance <name>] [--run-as current|<user>|agent-user] [--replace-old]'
+        say 'A code creates a new instance. Use --instance <name> to replace an enrolled instance.'
         say 'Without AGENTUM_ENROLL_CODE, reads a code from stdin, or updates existing instances.'
         exit 0 ;;
       *) die 'unknown option (see --help)' ;;
@@ -160,7 +161,6 @@ instances() {
     else
       printf 'warning: could not restart %s\n' "$instance" >&2
     fi
-    if [ -z "$EXISTING_INSTANCE" ]; then EXISTING_INSTANCE="$instance"; else MULTIPLE=true; fi
     FOUND=true
   done
 }
@@ -200,13 +200,7 @@ main() {
   read_manifest
   install_binary
   FOUND=false
-  EXISTING_INSTANCE=""
-  MULTIPLE=false
   instances
-  if [ -n "$CODE" ] && [ -z "$INSTANCE" ]; then
-    [ "$MULTIPLE" = false ] || die 'Several instances are enrolled. Choose --instance <name> to replace one.'
-    INSTANCE="$EXISTING_INSTANCE"
-  fi
   if [ -n "$CODE" ] || [ "$FOUND" = false ]; then enroll_machine; fi
 }
 main "$@"

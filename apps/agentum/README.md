@@ -245,5 +245,5 @@ The Machines page's **Add computer role** dialog does this for Rust hosts. A cod
 bound to an existing machine cannot be used by the Rust client. Replacement keeps
 local service settings, but creates a new server machine record: reassign agents
 to it and revoke the old record. The installer also accepts `--instance <name>`
-with `AGENTUM_ENROLL_CODE` to replace one instance; with exactly one enrolled
-instance it selects it automatically.
+with `AGENTUM_ENROLL_CODE` to replace one instance. A code without `--instance`
+always enrols a new instance, even when only one is already enrolled.

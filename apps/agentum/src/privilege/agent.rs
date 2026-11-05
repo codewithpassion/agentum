@@ -61,7 +61,7 @@ pub fn private_claude(user: &str, instance: &str, claude: &str) -> super::Explan
             "{user} could not run {claude} as {agent_user}. The binary must be executable by {agent_user}, so it cannot sit in a private home directory. Install it system-wide, then run install-service again with --claude <path>"
         ),
         fix: format!(
-            "sudo agentum service install --instance {instance} --system --run-as agent-user --claude /usr/local/bin/claude"
+            "Install Claude Code system-wide (for example at /usr/local/bin/claude), then run: sudo agentum service install --instance {instance} --system --run-as agent-user --claude /usr/local/bin/claude"
         ),
     }
 }

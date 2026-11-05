@@ -599,7 +599,9 @@ fn setup_system(
         {
             return Err(Error::new(
                 5,
-                privilege::agent::private_claude(&user, name, claude).to_string(),
+                privilege::agent::private_claude(&user, name, claude)
+                    .with_fix(&private_claude_fix_for_user(runner, name))
+                    .to_string(),
             ));
         }
     }
@@ -666,6 +668,27 @@ fn enrollment_locations_for(runner: &mut impl Runner, user: &str) -> Vec<Paths> 
         })
         .unwrap_or_default()
 }
+fn private_claude_fix_for_user(runner: &mut impl Runner, name: &str) -> String {
+    let source = std::env::var("SUDO_USER")
+        .ok()
+        .filter(|user| !user.is_empty() && user != "root")
+        .and_then(|user| resolve_for_user(runner, "claude", Some(&user)));
+    private_claude_fix(name, source.as_deref())
+}
+fn private_claude_fix(name: &str, source: Option<&Path>) -> String {
+    let install = format!(
+        "sudo agentum service install --instance {name} --system --run-as agent-user --claude /usr/local/bin/claude"
+    );
+    match source.and_then(|path| fs::canonicalize(path).ok()) {
+        Some(path) => format!(
+            "sudo install -m 0755 {} /usr/local/bin/claude; {install}",
+            shell_path(&path)
+        ),
+        None => format!(
+            "Install Claude Code system-wide (for example at /usr/local/bin/claude), then run: {install}"
+        ),
+    }
+}
 fn explain_choice(config: &Config, name: &str) -> String {
     let user = if config.system && config.run_as == RunAs::Current {
         service_user(config, name)
@@ -676,6 +699,10 @@ fn explain_choice(config: &Config, name: &str) -> String {
         format!(
             "Agents and computer commands will run as {user}, with a separate home and work tree. {}",
             privilege::computer::tty_help(&format!("agentum-{name}-svc"))
+        )
+    } else if !config.roles.contains(&crate::wire::MachineRole::AgentHost) {
+        format!(
+            "Computer commands will run as {user}. They can read and change anything {user} can, including ~/.ssh and the machine credential. Use --run-as agent-user on a system service to keep them apart."
         )
     } else {
         format!(
@@ -1683,14 +1710,42 @@ mod tests {
                 .contains("can read the machine credential")
         );
         for mode in [RunAs::Current, RunAs::User("dom".into())] {
-            assert!(
-                explain_choice(&config(true, mode), "office")
-                    .contains("can read the machine credential")
-            );
+            let mut config = config(true, mode);
+            config.roles.push(crate::wire::MachineRole::AgentHost);
+            let warning = explain_choice(&config, "office");
+            assert!(warning.contains("can read the machine credential"));
+            assert!(warning.contains("also opens the agent_host role and /mcp"));
         }
         assert!(user_home(None).unwrap_err().message.contains("HOME"));
         assert!(user_home(Some("")).is_err());
     }
+    #[test]
+    fn computer_only_warning_does_not_claim_agent_host_access() {
+        let mut config = config(false, RunAs::Current);
+        config.roles = vec![crate::wire::MachineRole::Computer];
+        let warning = explain_choice(&config, "office");
+        assert!(warning.contains("Computer commands will run as"));
+        assert!(warning.contains("can read and change anything"));
+        assert!(!warning.contains("agent_host"));
+        assert!(!warning.contains("/mcp"));
+    }
+
+    #[test]
+    fn private_claude_fix_copies_the_resolved_binary_before_installing() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = temp.path().join("claude-v1");
+        fs::write(&binary, "fake").unwrap();
+        let link = temp.path().join("claude");
+        std::os::unix::fs::symlink(&binary, &link).unwrap();
+        let fix = private_claude_fix("office", Some(&link));
+        assert!(fix.starts_with(&format!(
+            "sudo install -m 0755 {} /usr/local/bin/claude",
+            shell_path(&binary)
+        )));
+        assert!(fix.ends_with("--claude /usr/local/bin/claude"));
+        assert!(private_claude_fix("office", None).starts_with("Install Claude Code system-wide"));
+    }
+
     #[test]
     fn root_agents_opt_in_is_an_install_flag() {
         use clap::Parser;

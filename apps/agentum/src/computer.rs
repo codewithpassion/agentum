@@ -374,6 +374,9 @@ impl Role for Computer {
         let _ = self.engine.set(Arc::new(engine));
         Ok(())
     }
+    fn machine_name(&self) -> &str {
+        &self.config.machine_name
+    }
     fn hello(&self) -> Value {
         let capabilities = self
             .capabilities

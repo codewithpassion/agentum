@@ -33,7 +33,24 @@ printf '%s\\n' "$*" >> "$HOME/stub-calls.log"
 test -z "\${AGENTUM_ENROLL_CODE:-}" || exit 90
 case "$*" in *"service restart --instance one"*) ${restartFailure ? "exit 1" : ":"} ;; esac
 case "$1" in
-  enroll) read -r code; test "$code" = secret; echo '{"instance":"office","machineId":"m","roles":["computer"]}' ;;
+  enroll)
+    read -r code; test "$code" = secret || exit 1
+    instance=office
+    replacing=false
+    while [ "$#" -gt 0 ]; do
+      case "$1" in --instance) instance="$2"; shift ;; --replace) replacing=true ;; esac
+      shift
+    done
+    root="$HOME/.config/agentum"
+    if [ "$replacing" = false ]; then
+      suffix=2
+      while [ -f "$root/$instance/config.json" ]; do instance="office-$suffix"; suffix=$((suffix + 1)); done
+    fi
+    mkdir -p "$root/$instance"
+    echo '{"machineId":"m","roles":["computer"]}' > "$root/$instance/config.json"
+    echo new-credential > "$root/$instance/credential"
+    printf '{"instance":"%s","machineId":"m","roles":["computer"]}\\n' "$instance"
+    ;;
 esac
 `;
   const server = serveReleases({
@@ -342,35 +359,45 @@ test("root replacement retires the system unit before a plain update", async () 
   }
 });
 
-test("a fresh code replaces the sole existing instance", async () => {
+test("a fresh code creates a second instance and preserves the sole existing enrolment", async () => {
   const fixture = setup();
-  mkdirSync(join(fixture.sandbox.home, ".config/agentum/office"), {
-    recursive: true,
-  });
-  writeFileSync(
-    join(fixture.sandbox.home, ".config/agentum/office/config.json"),
-    "{}"
-  );
+  const directory = join(fixture.sandbox.home, ".config/agentum/office");
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, "config.json"), "original config");
+  writeFileSync(join(directory, "credential"), "original credential");
   const result = await runScript({
     ...fixture,
     env: { AGENTUM_ENROLL_CODE: "secret" },
   });
   expect(result.exitCode).toBe(0);
   expect(readCalls(fixture.sandbox)).toContain(
-    `enroll --url ${fixture.server.origin} --code-stdin --json --instance office --replace`
+    `enroll --url ${fixture.server.origin} --code-stdin --json --run-as current`
+  );
+  expect(readCalls(fixture.sandbox)).toContain(
+    "service install --user --run-as current --instance office-2 --yes"
+  );
+  expect(existsSync(join(directory, "../office-2/config.json"))).toBe(true);
+  expect(
+    readFileSync(join(directory, "../office-2/credential"), "utf8").trim()
+  ).toBe("new-credential");
+  expect(readCalls(fixture.sandbox).join("\n")).not.toContain("--replace");
+  expect(readFileSync(join(directory, "config.json"), "utf8")).toBe(
+    "original config"
+  );
+  expect(readFileSync(join(directory, "credential"), "utf8")).toBe(
+    "original credential"
   );
 });
 
-test("a fresh code with several instances needs an explicit selection", async () => {
+test("a fresh code with several instances creates another instance", async () => {
   const fixture = setup();
   addInstances(fixture.sandbox.home);
   const result = await runScript({
     ...fixture,
     env: { AGENTUM_ENROLL_CODE: "secret" },
   });
-  expect(result.exitCode).not.toBe(0);
-  expect(result.stderr).toContain("Choose --instance");
-  expect(
-    readCalls(fixture.sandbox).some((call) => call.startsWith("enroll"))
-  ).toBe(false);
+  expect(result.exitCode).toBe(0);
+  expect(readCalls(fixture.sandbox)).toContain(
+    `enroll --url ${fixture.server.origin} --code-stdin --json --run-as current`
+  );
 });
