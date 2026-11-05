@@ -217,6 +217,8 @@ export const renderTemplate = (templatePath: string, origin: string): string =>
 export interface RunOptions {
   readonly args?: readonly string[];
   readonly env?: Record<string, string>;
+  /** Keep file-mode stdin open, with a deadline to catch blocking reads. */
+  readonly keepStdinOpen?: boolean;
   /** `pipe` runs `sh -s -- <args>` with the script on stdin, as users do. `file` runs it from a file. */
   readonly mode?: "file" | "pipe";
   readonly sandbox: Sandbox;
@@ -254,16 +256,27 @@ export const runScript = async (options: RunOptions): Promise<RunResult> => {
   }
   const input =
     options.stdin === undefined ? "ignore" : new Blob([options.stdin]);
+  const fileInput = options.keepStdinOpen ? "pipe" : input;
   const proc = spawn(argv, {
     env,
     stderr: "pipe",
-    stdin: mode === "pipe" ? new Blob([script]) : input,
+    stdin: mode === "pipe" ? new Blob([script]) : fileInput,
     stdout: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { argv, exitCode, stderr, stdout };
+  const deadline = options.keepStdinOpen
+    ? setTimeout(() => proc.kill("SIGKILL"), 3000)
+    : undefined;
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { argv, exitCode, stderr, stdout };
+  } finally {
+    clearTimeout(deadline);
+    if (options.keepStdinOpen && typeof proc.stdin !== "number") {
+      proc.stdin?.end();
+    }
+  }
 };

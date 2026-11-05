@@ -15,6 +15,7 @@ BIN="$BIN_DIR/agentum"
 INSTANCE=""
 RUN_AS=current
 REPLACE_OLD=false
+CODE_STDIN=false
 TMP_BIN=""
 say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -26,11 +27,12 @@ parse_args() {
         [ "$#" -ge 2 ] && [ -n "$2" ] || die "option needs a value"
         case "$1" in --code) CODE="$2" ;; --run-as) RUN_AS="$2" ;; --instance) INSTANCE="$2" ;; esac
         shift 2 ;;
+      --code-stdin) CODE_STDIN=true; shift ;;
       --replace-old) REPLACE_OLD=true; shift ;;
       -h | --help)
-        say 'Usage: AGENTUM_ENROLL_CODE=<code> sh install-agentum.sh [--instance <name>] [--run-as current|<user>|agent-user] [--replace-old]'
+        say 'Usage: AGENTUM_ENROLL_CODE=<code> sh install-agentum.sh [--code-stdin] [--instance <name>] [--run-as current|<user>|agent-user] [--replace-old]'
         say 'A code creates a new instance. Use --instance <name> to replace an enrolled instance.'
-        say 'Without AGENTUM_ENROLL_CODE, reads a code from stdin, or updates existing instances.'
+        say 'Use --code-stdin to read a code from stdin. Without a code, updates existing instances.'
         exit 0 ;;
       *) die 'unknown option (see --help)' ;;
     esac
@@ -178,10 +180,7 @@ instances() {
   done
 }
 enroll_machine() {
-  if [ -z "$CODE" ]; then
-    IFS= read -r CODE || :
-  fi
-  [ -n "$CODE" ] || die 'Supply AGENTUM_ENROLL_CODE or a code on stdin from the Machines page.'
+  [ -n "$CODE" ] || die 'Supply AGENTUM_ENROLL_CODE=<code> (or --code-stdin) from the Machines page.'
   set -- enroll --url "$HM_ORIGIN" --code-stdin --json
   if [ -n "$INSTANCE" ]; then
     [ -f "$CONFIG_ROOT/$INSTANCE/config.json" ] || die "instance $INSTANCE is not enrolled"
@@ -220,9 +219,8 @@ main() {
   trap cleanup EXIT
   trap 'exit 1' HUP INT TERM
   parse_args "$@"
-  # With sh <file>, stdin is available for the code. Under curl | sh it is
-  # the script itself, so leave it alone (including update-only invocations).
-  if [ -z "$CODE" ] && [ -f "$0" ] && [ ! -t 0 ]; then
+  # Read before scanning instances so a stdin code can replace the selected one.
+  if [ "$CODE_STDIN" = true ] && [ -z "$CODE" ]; then
     IFS= read -r CODE || :
   fi
   check_platform

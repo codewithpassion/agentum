@@ -227,8 +227,10 @@ existing version field, so computer-only machines can pick the Rust update produ
 The CLI, daemon hello and release manifest keep the plain `<version>+<sha>` string.
 
 The Machines page's Linux command serves `/install-agentum.sh`. It verifies the
-release checksum, enrols through stdin and installs a user service (system
-service when root). `--run-as` selects the enrolment and service mode together.
+release checksum, enrols with `AGENTUM_ENROLL_CODE` and installs a user service
+(system service when root). Pass `--code-stdin` to read a code from stdin instead.
+Without `--code-stdin`, the installer never reads stdin; with no code, it updates
+existing instances. `--run-as` selects the enrolment and service mode together.
 Existing instances are restarted on update. Replacing an old daemon requires
 `--replace-old`; revoke its old machine record afterwards. The older installers
 and Docker images continue to serve machines running the old clients.

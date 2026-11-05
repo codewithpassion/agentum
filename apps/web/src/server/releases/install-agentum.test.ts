@@ -179,10 +179,46 @@ test("rerun restarts every enrolled instance with a service", async () => {
   );
 });
 
-test("reads a code from stdin when run from a file", async () => {
+test("update without --code-stdin finishes with an open stdin pipe", async () => {
+  const fixture = setup();
+  addInstances(fixture.sandbox.home);
+  const result = await runScript({
+    ...fixture,
+    keepStdinOpen: true,
+    mode: "file",
+  });
+  expect(result.exitCode).toBe(0);
+  for (const name of ["one", "two"]) {
+    expect(readCalls(fixture.sandbox)).toContain(
+      `service restart --instance ${name}`
+    );
+  }
+  expect(
+    readCalls(fixture.sandbox).some((call) => call.startsWith("enroll "))
+  ).toBe(false);
+});
+
+test("no code and no instance fails without reading an open stdin pipe", async () => {
   const fixture = setup();
   const result = await runScript({
     ...fixture,
+    keepStdinOpen: true,
+    mode: "file",
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain(
+    "Supply AGENTUM_ENROLL_CODE=<code> (or --code-stdin) from the Machines page."
+  );
+  expect(
+    readCalls(fixture.sandbox).some((call) => call.startsWith("enroll "))
+  ).toBe(false);
+});
+
+test("--code-stdin reads a code when run from a file", async () => {
+  const fixture = setup();
+  const result = await runScript({
+    ...fixture,
+    args: ["--code-stdin"],
     mode: "file",
     stdin: "secret\n",
   });
@@ -505,12 +541,12 @@ test("failed service install never claims it installed a service", async () => {
   expect(result.stdout).not.toContain("installed its");
 });
 
-test("stdin code replaces the selected instance before attempting any restart", async () => {
+test("--code-stdin replaces the selected instance before attempting any restart", async () => {
   const fixture = setup();
   addInstances(fixture.sandbox.home);
   const result = await runScript({
     ...fixture,
-    args: ["--instance", "one"],
+    args: ["--code-stdin", "--instance", "one"],
     mode: "file",
     stdin: "secret\n",
   });
