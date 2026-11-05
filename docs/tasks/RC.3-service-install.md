@@ -3,7 +3,7 @@ id: RC.3
 title: Service install, run-as modes, agent user
 milestone: RC
 size: M
-status: ready
+status: in_progress
 depends_on: [RC.2]
 branch: RC-rust-client
 lane: rust-service

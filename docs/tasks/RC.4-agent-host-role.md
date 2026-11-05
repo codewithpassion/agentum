@@ -3,7 +3,7 @@ id: RC.4
 title: agent_host role in Rust, driving claude directly
 milestone: RC
 size: L
-status: ready
+status: in_progress
 depends_on: [RC.2]
 branch: RC-rust-client
 lane: rust-agent

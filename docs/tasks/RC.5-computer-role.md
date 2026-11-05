@@ -3,7 +3,7 @@ id: RC.5
 title: computer role in Rust
 milestone: RC
 size: L
-status: ready
+status: in_progress
 depends_on: [RC.2]
 branch: RC-rust-client
 lane: rust-computer

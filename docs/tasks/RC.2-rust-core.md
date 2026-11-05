@@ -3,7 +3,7 @@ id: RC.2
 title: Rust client core
 milestone: RC
 size: L
-status: ready
+status: done
 depends_on: []
 branch: RC-rust-client
 lane: rust
@@ -27,3 +27,4 @@ Spec: `docs/v3/machine-client.md` ("Layout", "Instances, names and paths", "Comm
 - `cargo build --release` works; report the binary size.
 
 ## Log
+- 2026-11-05: Codex built it (c530c386). Opus review: base not ready to branch (work-root ids, run not wired, shared files). Fixed in eceea285 with ARCHITECTURE.md lanes; 36 Rust tests, 4.4 MB binary. Merged.
