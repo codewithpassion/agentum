@@ -71,12 +71,12 @@ test("readers see Source while Access log stays with managers", () => {
   expect(html).toContain("Source");
   expect(html).toContain("Artifact");
   expect(html).not.toContain("Access log");
-  expect(html).not.toContain("Calls");
+  expect(html).not.toContain("Endpoints");
   const managed = renderToStaticMarkup(
     <ArtifactTabs canManage kind="app" onValueChange={noop} value="artifact" />
   );
   expect(managed).toContain("Access log");
-  expect(managed).toContain("Calls");
+  expect(managed).toContain("Endpoints");
   expect(
     renderToStaticMarkup(
       <ArtifactTabs
@@ -86,5 +86,5 @@ test("readers see Source while Access log stays with managers", () => {
         value="artifact"
       />
     )
-  ).not.toContain("Calls");
+  ).not.toContain("Endpoints");
 });

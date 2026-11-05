@@ -14,6 +14,7 @@ import {
 import { TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
 import { AccessLog } from "./access-log.tsx";
+import { EndpointSettings } from "./endpoint-settings";
 import { errorMessage, formatTimestamp } from "./share-model.ts";
 
 export function CallsTabTrigger({
@@ -25,7 +26,7 @@ export function CallsTabTrigger({
 }) {
   return kind === "app" && canManage ? (
     <TabsTrigger className="h-10 md:h-8" value="calls">
-      Calls
+      Endpoints
     </TabsTrigger>
   ) : null;
 }
@@ -156,6 +157,7 @@ export function Calls({ artifactId }: { artifactId: string }) {
   const loadMore = useCallback(() => load(next), [load, next]);
   return (
     <div className="flex flex-col gap-4" data-testid="calls">
+      <EndpointSettings artifactId={artifactId} />
       <Button
         className="min-h-10 self-start"
         disabled={loading}
