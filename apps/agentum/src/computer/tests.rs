@@ -664,3 +664,16 @@ fn policy_regexes_keep_go_ascii_classes_and_quoted_literals() {
     assert!(e.policy.exec("git status").is_ok());
     assert!(e.policy.exec("é").is_err());
 }
+
+#[tokio::test]
+async fn upload_carries_permission_bits_without_special_bits() {
+    let (_dir, e) = setup(Default::default());
+    let path = e.policy.work.join("mode");
+    fs::write(&path, "old").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o4750)).unwrap();
+    e.dispatch(json!({"op":"file_put","transfer_id":"mode","path":path,"seq":0,"data_b64":"","final":true})).await.unwrap();
+    assert_eq!(
+        fs::metadata(path).unwrap().permissions().mode() & 0o7777,
+        0o750
+    );
+}

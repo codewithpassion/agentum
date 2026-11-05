@@ -8,7 +8,7 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -160,7 +160,9 @@ impl Transfers {
         }
         destination(&s.dest)?;
         if let Ok(existing) = fs::metadata(&s.dest) {
-            file.as_file().set_permissions(existing.permissions())?;
+            file.as_file().set_permissions(fs::Permissions::from_mode(
+                existing.permissions().mode() & 0o777,
+            ))?;
         }
         file.persist(&s.dest)
             .map_err(|e| Fault::new("op_failed", e.error.to_string()))?;
