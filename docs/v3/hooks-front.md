@@ -32,6 +32,14 @@ Measure first, before building the rest. In a real two-Worker Miniflare setup, a
 
 Update `docs/v3/app-endpoints.md`: endpoints answer from the hooks Worker. Keep the guidance protocol-neutral: an app that must answer fast returns at once and does slow work in `ctx.waitUntil`. The Discord example (`packages/mcp/src/tools/discord-example.ts`) should already follow that. Check it does.
 
+## Code
+
+The gateway code both Workers run is in `packages/app-gateway` (`@repo/app-gateway`): the Dynamic Worker runtime and harness, the endpoint handler, the bundle reader and the `HooksMain` definition (`hooks-rpc.ts`). `apps/hooks` imports only that package, `@repo/db` and `@repo/services`, never `apps/web`.
+
+`HooksMain` trusts the props its caller sends, because only a Worker with a service binding to it can call it, and any Worker in the Cloudflare account can declare one. It refuses every viewer but `endpoint`, so a forged call can do no more than a request to `/hooks/<id>` could.
+
 ## Deploy
 
 `apps/hooks` gets `deploy` and `staging:deploy` scripts. The controller deploys staging. Production needs Dom's go-ahead.
+
+Order: deploy the main Worker with `HooksMain` first, then the hooks Worker. A main Worker rolled back to a version without `HooksMain` breaks every hook whose app uses `env.AGENTUM`, outbound requests or error recording, while plain answers keep working. Roll the hooks Worker back first, or delete its route so the main Worker's fallback `/hooks` handler serves again.
