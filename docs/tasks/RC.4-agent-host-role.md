@@ -3,7 +3,7 @@ id: RC.4
 title: agent_host role in Rust, driving claude directly
 milestone: RC
 size: L
-status: in_progress
+status: done
 depends_on: [RC.2]
 branch: RC-rust-client
 lane: rust-agent
@@ -20,3 +20,4 @@ Spec: `docs/v3/machine-client.md` ("The agent_host role", "Driving claude"); par
 - `bun run check && bun run test` pass.
 
 ## Log
+- 2026-11-06: Codex built it (5b2ff921). Opus review: a test started the real claude --version, symlinked /home broke runs, shutdown and concurrency divergences, ~25 unported executor cases; fixed in 99057c91 and fe64f41b; kill escalation in 8bc41a7f. Real-claude conformance (AGENTUM_CLAUDE_E2E=1) not run.

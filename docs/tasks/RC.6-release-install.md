@@ -3,7 +3,7 @@ id: RC.6
 title: Release, install script, Machines page, Docker image
 milestone: RC
 size: M
-status: ready
+status: done
 depends_on: [RC.1, RC.3, RC.4, RC.5]
 branch: RC-rust-client
 lane: ops
@@ -20,3 +20,4 @@ Spec: `docs/v3/machine-client.md` ("Release and install (RC.6)"); today's pipeli
 - `bun run check && bun run test && bun run build` and the bundle grep pass.
 
 ## Log
+- 2026-11-06: Codex built it (ec079556). Opus review: --replace-old left the old config so updates always failed, enrolment code in argv; fixed with 10 more in bcfc47f4. Nothing published.

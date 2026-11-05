@@ -3,7 +3,7 @@ id: RC.3
 title: Service install, run-as modes, agent user
 milestone: RC
 size: M
-status: in_progress
+status: done
 depends_on: [RC.2]
 branch: RC-rust-client
 lane: rust-service
@@ -19,3 +19,4 @@ Spec: `docs/v3/machine-client.md` ("Instances, names and paths", "Who agents run
 - `bun run check && bun run test` pass.
 
 ## Log
+- 2026-11-06: Codex built it (f680e088). Opus security review: root symlink attack via chown/chmod, canonicalized claude path, non-idempotent uninstall, plus 10 more; fixed in 4f407630. Sudoers rule aligned with RC.4/RC.5 in fe64f41b; final CLI fixes 8bc41a7f. Merged. Real sudo and systemd behaviour waits for RC.7.
