@@ -7,19 +7,25 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ThreadRuns } from "./thread-runs.tsx";
+import { RunPicker } from "./thread-runs.tsx";
 
-test("thread runs list each run by its title, not its input text", async () => {
+test("run picker labels the current run of the session", async () => {
   const rootRoute = createRootRoute({
     component: () => (
-      <ThreadRuns
-        heading="Earlier in this thread"
+      <RunPicker
+        runId="run-1"
         runs={[
           {
             createdAt: "2026-10-27T00:00:00.000Z",
             id: "run-1",
             status: "done",
             title: "Invoice",
+          },
+          {
+            createdAt: "2026-10-28T00:00:00.000Z",
+            id: "run-2",
+            status: "failed",
+            title: "Second",
           },
         ]}
       />
@@ -35,6 +41,6 @@ test("thread runs list each run by its title, not its input text", async () => {
   });
   await router.load();
   const html = renderToStaticMarkup(<RouterProvider router={router} />);
-  expect(html).toContain(">Invoice<");
+  expect(html).toContain("Run 1 of 2");
   expect(html).not.toContain("Inbound mail");
 });

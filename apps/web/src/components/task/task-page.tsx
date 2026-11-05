@@ -1,5 +1,4 @@
 import { toActionLog } from "@repo/services/tasks/action-log";
-import { buildReceipt } from "@repo/services/tasks/receipt";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { ArtifactsSlot } from "#/components/artifacts/list/artifacts-slot.tsx";
@@ -8,7 +7,6 @@ import {
   isConflict,
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
-import { ReplyBar } from "#/components/thread/reply-bar.tsx";
 import { TaskThread } from "#/components/thread/task-thread.tsx";
 import {
   applyThreadFrame,
@@ -17,21 +15,19 @@ import {
   type ThreadState,
 } from "#/components/thread/thread-state.ts";
 import { Button } from "#/components/ui/button.tsx";
+import { SidebarTrigger } from "#/components/ui/sidebar.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { ActionLog } from "./action-log.tsx";
-import { mailTriggerOf, withMailTrigger } from "./mail-logic.ts";
+import { fileEntries } from "./files-logic.ts";
 import { MailSlot } from "./mail-slot.tsx";
-import { Receipt } from "./receipt.tsx";
-import { ComputerSlot, FilesSlot, SlotCard } from "./slots.tsx";
+import { ComputerSlot, FilesSlot, useTaskFiles } from "./slots.tsx";
 import {
   canStop,
   costText,
   pendingTakeover,
   pillClass,
-  receiptRunOf,
   runsOnText,
-  splitOtherRuns,
   statusPill,
 } from "./task-logic.ts";
 import {
@@ -46,7 +42,8 @@ import {
   runEvents,
   type TaskLive,
 } from "./task-state.ts";
-import { ThreadRuns } from "./thread-runs.tsx";
+import { RequestBanner, type TaskTab, TaskTabs } from "./task-tabs.tsx";
+import { RunPicker, sessionRuns } from "./thread-runs.tsx";
 import { useNowMs } from "./use-now-ms.ts";
 import { useSessionEvents } from "./use-session-events.ts";
 import { useTaskMail } from "./use-task-mail.ts";
@@ -86,30 +83,7 @@ const reduceThread = (state: ThreadState, action: ThreadAction): ThreadState =>
     ? applyThreadFrame(state, action.frame)
     : resetThread(state, action.events);
 
-function Fact({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <span className="inline-flex max-w-full overflow-hidden rounded-md border text-xs">
-      <b className="shrink-0 bg-muted px-2 py-0.5 font-medium font-mono text-[11px] text-muted-foreground">
-        {label}
-      </b>
-      <span className="min-w-0 truncate bg-card px-2 py-0.5">{children}</span>
-    </span>
-  );
-}
-
-/**
- * One task, as a receipt of steps with the action log beside it. It starts
- * from `tasks.get` and follows the session stream, rebuilding the receipt and
- * the log from the event list on each event. The thread folds the same frames
- * (deltas included) into messages. The files slot reads the task folder itself, and the mail card reads the
- * thread linked to the task.
- */
+/** One run in the header and tabs, with the session conversation filling the pane. */
 export function TaskPage({ initial }: { initial: TaskView }) {
   const runId = initial.run.id;
   const [task, setTask] = useState(initial);
@@ -217,129 +191,336 @@ export function TaskPage({ initial }: { initial: TaskView }) {
   }, [refetch, runId]);
 
   const events = useMemo(() => runEvents(live), [live]);
-  const receiptRun = useMemo(
-    () => receiptRunOf(task, runStatus),
-    [task, runStatus]
-  );
-  const {
-    address: mailAddress,
-    error: mailError,
-    thread: mailThread,
-  } = useTaskMail(runId, task.agent.id, isActive(runStatus));
-  const mailTrigger = useMemo(
-    () =>
-      task.startedBy.kind === "mail" &&
-      mailThread !== null &&
-      mailAddress !== null
-        ? mailTriggerOf(mailThread, runId, mailAddress)
-        : null,
-    [task.startedBy.kind, mailThread, mailAddress, runId]
-  );
-  const steps = useMemo(
-    () => withMailTrigger(buildReceipt(receiptRun, events), mailTrigger),
-    [receiptRun, events, mailTrigger]
+  const { error: mailError, thread: mailThread } = useTaskMail(
+    runId,
+    task.agent.id,
+    isActive(runStatus)
   );
   const log = useMemo(() => toActionLog(events), [events]);
   const requests = useMemo(() => requestViews(live), [live]);
   const takeover = useMemo(() => pendingTakeover(requests), [requests]);
-  const { earlier, later } = useMemo(
-    () => splitOtherRuns(task.otherRuns, runId),
-    [task.otherRuns, runId]
+  const runs = useMemo(
+    () =>
+      sessionRuns(task.otherRuns, {
+        ...task.run,
+        status: runStatus,
+        title: task.title,
+      }),
+    [task, runStatus]
   );
-  const pill = statusPill(runStatus);
+  const number = runs.findIndex((run) => run.id === runId) + 1;
+  const latest = runs.at(-1) ?? task.run;
+  const [selected, setSelected] = useState<TaskTab>("conversation");
+  const { files, error: filesError } = useTaskFiles({
+    runId,
+    running: isActive(runStatus),
+  });
+  const [artifacts, setArtifacts] = useState(0);
+  const fileCount =
+    files === null
+      ? artifacts
+      : fileEntries(files.entries).length +
+        files.outside.length +
+        files.conflicts.length +
+        artifacts;
+  const pending = [...requests.values()].find(
+    (request) => request.settled === null
+  );
+  const selectTab = useCallback((tab: TaskTab) => {
+    setSelected(tab);
+    const url = new URL(window.location.href);
+    url.hash = "";
+    if (tab === "conversation") {
+      url.searchParams.delete("tab");
+    } else {
+      url.searchParams.set("tab", tab);
+    }
+    window.history.replaceState(window.history.state, "", url);
+  }, []);
+  useEffect(() => {
+    const restore = () => {
+      const tab =
+        window.location.hash === "#computer"
+          ? "computer"
+          : new URLSearchParams(window.location.search).get("tab");
+      if (
+        tab === "files" ||
+        tab === "log" ||
+        (tab === "mail" && task.startedBy.kind === "mail") ||
+        (tab === "computer" && task.agent.computerMachineId !== null)
+      ) {
+        setSelected(tab);
+      } else {
+        setSelected("conversation");
+      }
+    };
+    restore();
+    window.addEventListener("popstate", restore);
+    window.addEventListener("hashchange", restore);
+    return () => {
+      window.removeEventListener("popstate", restore);
+      window.removeEventListener("hashchange", restore);
+    };
+  }, [task.startedBy.kind, task.agent.computerMachineId]);
+  const selectComputer = useCallback(() => selectTab("computer"), [selectTab]);
+  const review = useCallback(() => {
+    selectTab("conversation");
+    requestAnimationFrame(() => {
+      const card = document.getElementById(`thread-request-${pending?.id}`);
+      card?.scrollIntoView({ block: "center" });
+      card?.focus({ preventScroll: true });
+    });
+  }, [selectTab, pending?.id]);
 
   return (
-    <section className="mx-auto flex max-w-6xl flex-col gap-4">
-      <nav aria-label="Breadcrumb" className="text-muted-foreground text-sm">
-        <Link
-          className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:min-w-10 pointer-coarse:items-center"
-          to="/desk"
-        >
-          Desk
-        </Link>{" "}
-        › Task
-      </nav>
-      <header className="flex flex-wrap items-center gap-2.5">
-        <h1 className="min-w-60 flex-1 font-heading text-2xl text-foreground">
-          {task.title}
-        </h1>
-        <span
-          className={`rounded-full px-2.5 py-0.5 font-semibold text-xs ${pillClass(pill.tone)}`}
-          data-testid="task-status"
-        >
-          {pill.text}
-        </span>
-        <Button
-          disabled={stopping || !canStop(runStatus)}
-          onClick={stop}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          Stop task
-        </Button>
-      </header>
-      {error === null ? null : (
-        <p className="text-destructive text-sm" role="alert">
-          {error}
-        </p>
-      )}
-      <div
-        className="grid grid-cols-2 gap-1.5 md:flex md:flex-wrap"
-        data-testid="task-facts"
-      >
-        <Fact label="agent">
+    <section className="flex h-full min-h-0 flex-col">
+      <TaskHeader
+        error={error}
+        onComputer={selectComputer}
+        pending={pending !== undefined}
+        runStatus={runStatus}
+        runs={runs}
+        stop={stop}
+        stopping={stopping}
+        task={task}
+      />
+      <TaskTabs
+        computer={task.agent.computerMachineId !== null}
+        conflict={(files?.conflicts.length ?? 0) > 0}
+        files={fileCount}
+        log={log.length}
+        mail={
+          task.startedBy.kind === "mail"
+            ? (mailThread?.messages.length ?? 0)
+            : null
+        }
+        onSelect={selectTab}
+        pending={pending !== undefined}
+        selected={selected}
+        takeover={pending?.kind === "takeover"}
+      />
+      {latest.id === runId ? null : (
+        <div className="flex shrink-0 flex-wrap justify-between gap-1 border-info/40 border-b bg-info/10 px-4 py-2 text-info text-xs md:px-6">
+          <span>
+            Viewing run {number} of {runs.length}. Files and Log show this run.
+          </span>
           <Link
-            className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
-            params={{ agentId: task.agent.id }}
-            to="/agents/$agentId"
+            className="underline"
+            params={{ runId: latest.id }}
+            to="/tasks/$runId"
           >
-            {task.agent.name}
+            Go to the latest run
           </Link>
-        </Fact>
-        <Fact label="started by">{task.startedBy.label}</Fact>
-        <Fact label="runs on">{runsOnText(task.agent)}</Fact>
-        <Fact label="cost so far">{costText(task.run.costUsd)}</Fact>
-      </div>
-      <div className="flex flex-wrap items-start gap-5">
-        <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-4">
-          <Receipt
-            agentName={task.agent.name}
-            events={events}
-            nowMs={nowMs}
-            onAnswer={answer}
-            requests={requests}
-            steps={steps}
-          />
         </div>
-        <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-4">
-          <ThreadRuns heading="Earlier in this thread" runs={earlier} />
-          <ThreadRuns heading="Later in this thread" runs={later} />
-          <ComputerSlot
-            agentName={task.agent.name}
-            computerMachineId={task.agent.computerMachineId}
-            takeover={takeover}
-          />
-          <FilesSlot runId={runId} running={isActive(runStatus)} />
-          <ArtifactsSlot runId={runId} running={isActive(runStatus)} />
+      )}
+      <RequestBanner
+        kind={pending?.kind ?? null}
+        onReview={review}
+        selected={selected}
+      />
+      <div
+        aria-labelledby="task-tab-conversation"
+        className={selected === "conversation" ? "min-h-0 flex-1" : "hidden"}
+        id="task-panel-conversation"
+        role="tabpanel"
+      >
+        <TaskThread
+          answer={answer}
+          messages={thread.messages}
+          nowMs={nowMs}
+          requests={requests}
+          task={task}
+        />
+      </div>
+      <div
+        aria-labelledby="task-tab-files"
+        className={
+          selected === "files"
+            ? "min-h-0 flex-1 overflow-y-auto p-4 md:p-6"
+            : "hidden"
+        }
+        id="task-panel-files"
+        role="tabpanel"
+      >
+        <FilesSlot
+          error={filesError}
+          files={files}
+          hasArtifacts={artifacts > 0}
+          number={number}
+        />
+        <ArtifactsSlot
+          onCount={setArtifacts}
+          runId={runId}
+          running={isActive(runStatus)}
+        />
+      </div>
+      <div
+        aria-labelledby="task-tab-log"
+        className={
+          selected === "log"
+            ? "min-h-0 flex-1 overflow-y-auto p-4 md:p-6"
+            : "hidden"
+        }
+        id="task-panel-log"
+        role="tabpanel"
+      >
+        <p className="mb-3 text-muted-foreground text-sm">
+          Log of run {number} · every event, oldest first
+        </p>
+        <ActionLog entries={log} />
+      </div>
+      {task.startedBy.kind === "mail" ? (
+        <div
+          aria-labelledby="task-tab-mail"
+          className={
+            selected === "mail"
+              ? "min-h-0 flex-1 overflow-y-auto p-4 md:p-6"
+              : "hidden"
+          }
+          id="task-panel-mail"
+          role="tabpanel"
+        >
           <MailSlot
             agentId={task.agent.id}
             error={mailError}
             thread={mailThread}
           />
-          <ActionLog entries={log} />
-          <SlotCard id="task-thread" testId="slot-thread" title="Thread">
-            <TaskThread
-              answer={answer}
-              messages={thread.messages}
-              nowMs={nowMs}
-              requests={requests}
-              task={task}
+        </div>
+      ) : null}
+      {task.agent.computerMachineId === null ? null : (
+        <div
+          aria-labelledby="task-tab-computer"
+          className={
+            selected === "computer"
+              ? "min-h-0 flex-1 overflow-y-auto p-4"
+              : "hidden"
+          }
+          id="task-panel-computer"
+          role="tabpanel"
+        >
+          <ComputerSlot
+            agentName={task.agent.name}
+            computerMachineId={task.agent.computerMachineId}
+            takeover={takeover}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TaskHeader({
+  task,
+  runStatus,
+  onComputer,
+  pending,
+  runs,
+  stopping,
+  stop,
+  error,
+}: {
+  task: TaskView;
+  onComputer: () => void;
+  runStatus: TaskView["run"]["status"];
+  pending: boolean;
+  runs: ReturnType<typeof sessionRuns>;
+  stopping: boolean;
+  stop: () => Promise<void>;
+  error: string | null;
+}) {
+  const runId = task.run.id;
+  const pill = pending
+    ? { text: "Needs you", tone: "waiting" as const }
+    : statusPill(runStatus);
+  return (
+    <header className="shrink-0 border-b px-4 py-2.5 md:px-6 md:py-3">
+      <nav
+        aria-label="Breadcrumb"
+        className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
+      >
+        <SidebarTrigger className="hidden size-6 md:inline-flex" />
+        <Link to="/desk">Desk</Link> › Task
+      </nav>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+        <h1 className="line-clamp-2 w-full min-w-0 font-heading text-lg leading-[1.3] md:w-auto md:flex-1 md:text-[22px]">
+          {task.title}
+        </h1>
+        <div className="flex h-10 w-full items-center gap-2 md:h-auto md:w-auto">
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 border border-current px-2.5 py-1 font-medium text-xs ${pillClass(pill.tone)}`}
+            data-testid="task-status"
+          >
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-current"
             />
-          </SlotCard>
+            {pill.text}
+          </span>
+          <span className="flex min-w-0 flex-1 items-center gap-1 text-muted-foreground text-xs md:hidden">
+            {runs.length > 1 && canStop(runStatus) ? null : (
+              <span className="truncate">{task.agent.name} ·</span>
+            )}
+            <span className="shrink-0">
+              {(task.run.startedAt ?? task.run.createdAt).slice(11, 16)}
+              {task.run.costUsd === null
+                ? ""
+                : ` · ${costText(task.run.costUsd)}`}
+            </span>
+          </span>
+          <div className="md:hidden">
+            <RunPicker runId={runId} runs={runs} />
+          </div>
+          {task.agent.computerMachineId === null ? null : (
+            <Button
+              className="hidden md:inline-flex"
+              onClick={onComputer}
+              size="sm"
+              variant="outline"
+            >
+              Computer
+            </Button>
+          )}
+          {canStop(runStatus) ? (
+            <Button
+              className="h-10 text-destructive md:h-8"
+              disabled={stopping}
+              onClick={stop}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {stopping ? "Stopping…" : "Stop"}
+            </Button>
+          ) : null}
         </div>
       </div>
-      <ReplyBar targetId="task-thread" />
-    </section>
+      <div className="mt-1 hidden flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground md:flex">
+        <Link
+          className="text-foreground"
+          params={{ agentId: task.agent.id }}
+          to="/agents/$agentId"
+        >
+          {task.agent.name}
+        </Link>
+        <span>· Started by {task.startedBy.label}</span>
+        <span>· {runsOnText(task.agent)}</span>
+        <span>
+          · {(task.run.startedAt ?? task.run.createdAt).slice(11, 16)}
+          {task.run.finishedAt && task.run.startedAt
+            ? `, took ${Math.max(0, Math.round((Date.parse(task.run.finishedAt) - Date.parse(task.run.startedAt)) / 1000))}s`
+            : ""}
+        </span>
+        <span>
+          · {costText(task.run.costUsd)}{" "}
+          {isActive(runStatus) ? "so far" : "this run"}
+        </span>
+        <RunPicker runId={runId} runs={runs} />
+      </div>
+      {error === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      )}
+    </header>
   );
 }

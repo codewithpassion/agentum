@@ -17,6 +17,8 @@ export interface ThreadEnv {
   /** Null until mounted, so the server and browser markup match. */
   nowMs: number | null;
   requests: ReadonlyMap<string, RequestView>;
+  runMarkers?: ReadonlyMap<string, { runId: string; label: string }>;
+  viewedMessageIds?: ReadonlySet<string>;
 }
 
 const ThreadEnvContext = createContext<ThreadEnv | null>(null);

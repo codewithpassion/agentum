@@ -8,6 +8,11 @@ import {
   isConflict,
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
+import {
+  earlierRunsLabel,
+  sessionRuns,
+} from "#/components/task/thread-runs.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { ComposerContainer } from "./composer-container.tsx";
@@ -70,6 +75,50 @@ export function TaskThread({
   // Read after mount: the server render has no session storage.
   useEffect(() => setEdited(readEditedMarks()), []);
 
+  const runs = useMemo(
+    () => sessionRuns(task.otherRuns, { ...task.run, title: task.title }),
+    [task]
+  );
+  const earlier = runs.filter((run) => run.id < task.run.id);
+  const [showEarlier, setShowEarlier] = useState(false);
+  const folded = earlier.length >= 3 && !showEarlier;
+  const visibleMessages = useMemo(
+    () =>
+      folded
+        ? messages.filter(
+            (message) => message.runId === null || message.runId >= task.run.id
+          )
+        : messages,
+    [folded, messages, task.run.id]
+  );
+  const expandEarlier = useCallback(() => setShowEarlier(true), []);
+  const runMarkers = useMemo(() => {
+    const markers = new Map<string, { runId: string; label: string }>();
+    if (runs.length < 2) {
+      return markers;
+    }
+    for (const [index, run] of runs.entries()) {
+      const first = visibleMessages.find((message) => message.runId === run.id);
+      if (first) {
+        markers.set(first.id, {
+          label: `Run ${index + 1} of ${runs.length}${run.id === task.run.id ? " · this run" : ""} · ${run.createdAt.slice(11, 16)}`,
+          runId: run.id,
+        });
+      }
+    }
+    return markers;
+  }, [runs, visibleMessages, task.run.id]);
+  const viewedMessageIds = useMemo(
+    () =>
+      new Set(
+        runs.at(-1)?.id === task.run.id
+          ? []
+          : messages
+              .filter((message) => message.runId === task.run.id)
+              .map((message) => message.id)
+      ),
+    [runs, messages, task.run.id]
+  );
   const fileIds = useMemo(() => fileIdsOf(messages), [messages]);
   const { files } = useFileInfos(fileIds);
   const note = replyNote(task.session.origin);
@@ -138,7 +187,7 @@ export function TaskThread({
   );
 
   const runtime = useTaskThreadRuntime({
-    messages,
+    messages: visibleMessages,
     onEdit: edit,
     onError,
     onSend: startRun,
@@ -153,8 +202,21 @@ export function TaskThread({
       files,
       nowMs,
       requests,
+      runMarkers,
+      viewedMessageIds,
     }),
-    [answer, edited, files, messages, note, nowMs, requests, task.agent.name]
+    [
+      answer,
+      edited,
+      files,
+      messages,
+      note,
+      nowMs,
+      requests,
+      task.agent.name,
+      runMarkers,
+      viewedMessageIds,
+    ]
   );
 
   let disabledNote: string | null = null;
@@ -169,6 +231,19 @@ export function TaskThread({
       <ThreadEnvProvider value={env}>
         <ThreadContainer
           composer={<ComposerContainer disabledNote={disabledNote} />}
+          earlier={
+            folded ? (
+              <div className="flex items-center justify-between gap-2 border border-dashed px-3 text-muted-foreground text-sm">
+                <span>{earlierRunsLabel(earlier)}</span>
+                <Button onClick={expandEarlier} size="sm" variant="ghost">
+                  Show
+                </Button>
+              </div>
+            ) : null
+          }
+          runId={task.run.id}
+          running={running}
+          waiting={task.run.status === "waiting"}
         />
       </ThreadEnvProvider>
     </AssistantRuntimeProvider>

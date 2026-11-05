@@ -14,6 +14,7 @@ import { Message, MessageContent } from "#/components/ui/message.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { FileChips } from "./file-chips.tsx";
 import { ReasoningContainer, ReasoningPart } from "./reasoning-container.tsx";
+import { RunMarker } from "./run-marker.tsx";
 import { useThreadEnv } from "./thread-context.tsx";
 import {
   ToolCallContainer,
@@ -22,8 +23,8 @@ import {
 
 function TextPart({ text }: TextMessagePartProps) {
   return (
-    <Bubble variant="muted">
-      <BubbleContent>
+    <Bubble className="w-full max-w-full" variant="ghost">
+      <BubbleContent className="w-full overflow-visible">
         <Markdown>{text}</Markdown>
       </BubbleContent>
     </Bubble>
@@ -39,7 +40,13 @@ function RequestPart({ data }: { data: unknown }) {
   const id = isRecord(data) ? data.requestId : undefined;
   const view = typeof id === "string" ? requests.get(id) : undefined;
   return view === undefined || nowMs === null ? null : (
-    <RequestCard nowMs={nowMs} onAnswer={answer} view={view} />
+    <div
+      data-request-pending={view.settled === null}
+      id={`thread-request-${view.id}`}
+      tabIndex={-1}
+    >
+      <RequestCard nowMs={nowMs} onAnswer={answer} view={view} />
+    </div>
   );
 }
 
@@ -96,27 +103,29 @@ function StatusLine() {
 export function AssistantMessageContainer() {
   return (
     <MessagePrimitive.Root data-role="assistant">
-      <Message align="start">
-        <MessageContent>
-          <MessagePrimitive.Parts
-            components={{
-              data: {
-                by_name: {
-                  artifact: ArtifactPart,
-                  attachment: AttachmentPart,
-                  request: RequestPart,
+      <RunMarker>
+        <Message align="start">
+          <MessageContent>
+            <MessagePrimitive.Parts
+              components={{
+                data: {
+                  by_name: {
+                    artifact: ArtifactPart,
+                    attachment: AttachmentPart,
+                    request: RequestPart,
+                  },
                 },
-              },
-              Reasoning: ReasoningPart,
-              ReasoningGroup: ReasoningContainer,
-              Text: TextPart,
-              ToolGroup: ToolGroupContainer,
-              tools: { Fallback: ToolCallContainer },
-            }}
-          />
-          <StatusLine />
-        </MessageContent>
-      </Message>
+                Reasoning: ReasoningPart,
+                ReasoningGroup: ReasoningContainer,
+                Text: TextPart,
+                ToolGroup: ToolGroupContainer,
+                tools: { Fallback: ToolCallContainer },
+              }}
+            />
+            <StatusLine />
+          </MessageContent>
+        </Message>
+      </RunMarker>
     </MessagePrimitive.Root>
   );
 }

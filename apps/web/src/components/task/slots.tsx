@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   DesktopScreen,
@@ -7,30 +6,6 @@ import {
 import { getTrpc } from "#/integrations/trpc/client";
 import { TaskFilesList, type TaskFilesView } from "./task-files.tsx";
 import type { TakeoverRequest } from "./task-logic.ts";
-
-/** A card with a heading, for a slot of the task view. */
-export function SlotCard({
-  id,
-  title,
-  testId,
-  children,
-}: {
-  id?: string;
-  title: string;
-  testId: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      className="flex flex-col gap-2.5 rounded-lg border bg-card p-3 text-card-foreground"
-      data-testid={testId}
-      id={id}
-    >
-      <h2 className="font-semibold text-[15px]">{title}</h2>
-      {children}
-    </section>
-  );
-}
 
 /** How often the files slot reads the task folder again while the run is going. */
 export const FILES_REFRESH_MS = 5000;
@@ -41,7 +16,7 @@ export const FILES_REFRESH_MS = 5000;
  * reads `tasks.files` on mount, every 5 s while the run is running, and once
  * more when the run stops running (the end frame flips `running`).
  */
-export function FilesSlot({
+export function useTaskFiles({
   runId,
   running,
 }: {
@@ -79,21 +54,33 @@ export function FilesSlot({
     };
   }, [runId, running]);
 
+  return { error, files };
+}
+
+export function FilesSlot({
+  files,
+  error,
+  number,
+  hasArtifacts,
+}: {
+  files: TaskFilesView | null;
+  error: string | null;
+  number: number;
+  hasArtifacts: boolean;
+}) {
   return (
-    <SlotCard testId="slot-files" title="Files">
-      {error === null ? null : (
-        <p className="text-destructive text-sm" role="alert">
-          {error}
-        </p>
-      )}
+    <section className="flex flex-col gap-3" data-testid="slot-files">
+      <h2 className="text-muted-foreground text-sm">Files from run {number}</h2>
+      {error === null ? null : <p role="alert">{error}</p>}
       {files === null ? (
-        error === null && (
-          <p className="text-muted-foreground text-sm">Loading files…</p>
-        )
+        <p className="text-muted-foreground text-sm">Loading files…</p>
       ) : (
-        <TaskFilesList files={files} />
+        <TaskFilesList
+          files={files}
+          number={hasArtifacts ? undefined : number}
+        />
       )}
-    </SlotCard>
+    </section>
   );
 }
 
@@ -136,11 +123,12 @@ export function ComputerSlot({
     [takeover]
   );
   return (
-    <SlotCard
+    <section
+      className="flex flex-col gap-3"
+      data-testid="slot-computer"
       id={COMPUTER_ANCHOR}
-      testId="slot-computer"
-      title={`${agentName}'s computer`}
     >
+      <h2 className="font-medium">{agentName}'s computer</h2>
       {computerMachineId === null ? (
         <p className="text-muted-foreground text-sm">
           This agent has no computer.
@@ -152,6 +140,6 @@ export function ComputerSlot({
           takeover={controls}
         />
       )}
-    </SlotCard>
+    </section>
   );
 }

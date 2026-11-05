@@ -5,6 +5,7 @@ import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 import { FileChips } from "./file-chips.tsx";
+import { RunMarker } from "./run-marker.tsx";
 import { ThreadAuthor } from "./thread-author.tsx";
 import { useThreadEnv } from "./thread-context.tsx";
 
@@ -33,42 +34,44 @@ export function UserMessageContainer() {
   const edit = useCallback(() => aui.message().composer().beginEdit(), [aui]);
   return (
     <MessagePrimitive.Root data-role="user">
-      <Message align="end">
-        <MessageContent>
-          <ThreadAuthor label={authorLabel} />
-          {text === "" ? null : (
-            <Bubble align="end">
-              <BubbleContent className="whitespace-pre-wrap">
-                {text}
-              </BubbleContent>
-            </Bubble>
-          )}
-          {fileIds.length === 0 ? null : (
-            <div className="flex justify-end">
-              <FileChips fileIds={fileIds} files={files} />
+      <RunMarker>
+        <Message align="end">
+          <MessageContent>
+            <ThreadAuthor label={authorLabel} />
+            {text === "" ? null : (
+              <Bubble align="end">
+                <BubbleContent className="whitespace-pre-wrap">
+                  {text}
+                </BubbleContent>
+              </Bubble>
+            )}
+            {fileIds.length === 0 ? null : (
+              <div className="flex justify-end">
+                <FileChips fileIds={fileIds} files={files} />
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 text-muted-foreground text-xs">
+              {edited.has(id) ? (
+                <span data-testid="edited-mark">
+                  Edited. The agent still remembers this message.
+                </span>
+              ) : null}
+              {editableId === id ? (
+                <Button
+                  data-testid="edit-message"
+                  onClick={edit}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <PencilIcon aria-hidden="true" />
+                  Edit and resend
+                </Button>
+              ) : null}
             </div>
-          )}
-          <div className="flex items-center justify-end gap-2 text-muted-foreground text-xs">
-            {edited.has(id) ? (
-              <span data-testid="edited-mark">
-                Edited. The agent still remembers this message.
-              </span>
-            ) : null}
-            {editableId === id ? (
-              <Button
-                data-testid="edit-message"
-                onClick={edit}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <PencilIcon aria-hidden="true" />
-                Edit and resend
-              </Button>
-            ) : null}
-          </div>
-        </MessageContent>
-      </Message>
+          </MessageContent>
+        </Message>
+      </RunMarker>
     </MessagePrimitive.Root>
   );
 }

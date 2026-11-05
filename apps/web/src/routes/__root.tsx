@@ -4,6 +4,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TooltipProvider } from "#/components/ui/tooltip";
 import { useIsAppShell } from "#/hooks/use-app-shell";
 import { useIsFullBleed } from "#/hooks/use-full-bleed";
+import { useTaskLayout } from "#/hooks/use-task-layout";
 import { cn } from "#/lib/utils";
 import Footer from "../components/footer";
 import Header from "../components/header";
@@ -45,6 +46,7 @@ export const Route = createRootRoute({
 function RootDocument({ children }: { children: React.ReactNode }) {
   const inAppShell = useIsAppShell();
   const fullBleed = useIsFullBleed();
+  const taskLayout = useTaskLayout();
 
   return (
     <html
@@ -58,14 +60,23 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
-      <body className="flex min-h-dvh flex-col font-sans antialiased [overflow-wrap:anywhere] selection:bg-primary/30">
+      <body
+        className={cn(
+          "flex min-h-dvh flex-col font-sans antialiased [overflow-wrap:anywhere] selection:bg-primary/30",
+          taskLayout && "h-dvh overflow-hidden"
+        )}
+      >
         <ClerkProvider>
           <TooltipProvider>
             {fullBleed ? null : <Header />}
             {/* flex-1 pushes the footer to the bottom on short pages. The app
                 shell carries its own footer inside the sidebar inset. */}
             <div
-              className={cn("flex-1", !(inAppShell || fullBleed) && "pb-20")}
+              className={cn(
+                "flex-1",
+                taskLayout && "flex min-h-0 flex-col",
+                !(inAppShell || fullBleed) && "pb-20"
+              )}
             >
               {children}
             </div>

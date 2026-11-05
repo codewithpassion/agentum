@@ -20,7 +20,8 @@ const NEW_TAG = `${TAG} bg-success/15 text-success`;
 const EDIT_TAG = `${TAG} bg-info/15 text-info`;
 const CONFLICT_TAG = `${TAG} bg-warning/15 text-warning`;
 const ROW = "grid grid-cols-[92px_1fr] gap-2.5 border-t py-1.5 text-sm";
-const LINK = "underline underline-offset-2";
+const LINK =
+  "inline-flex min-h-10 items-center underline underline-offset-2 md:min-h-9";
 
 /** A path in the library, opened in the library page next to its folder. */
 function LibraryLink({ children, path }: { children: string; path: string }) {
@@ -37,7 +38,13 @@ function LibraryLink({ children, path }: { children: string; path: string }) {
 }
 
 /** The task folder's files, what the task edited outside it, and its open conflicts. */
-export function TaskFilesList({ files }: { files: TaskFilesView }) {
+export function TaskFilesList({
+  files,
+  number,
+}: {
+  files: TaskFilesView;
+  number?: number;
+}) {
   const entries = fileEntries(files.entries);
   const { conflicts, folder, outside } = files;
   const empty =
@@ -49,10 +56,14 @@ export function TaskFilesList({ files }: { files: TaskFilesView }) {
       </div>
       {empty ? (
         <p className="text-muted-foreground text-sm">
-          Nothing in the task folder yet.
+          {number === undefined ? "" : `No files from run ${number}. `}The task
+          folder is empty and nothing outside it changed.
         </p>
       ) : (
         <ul>
+          {entries.length > 0 ? (
+            <li className="mt-3 font-medium text-sm">In the task folder</li>
+          ) : null}
           {entries.map((entry) => (
             <li
               className={ROW}
@@ -79,6 +90,11 @@ export function TaskFilesList({ files }: { files: TaskFilesView }) {
               </span>
             </li>
           ))}
+          {outside.length > 0 ? (
+            <li className="mt-3 font-medium text-sm">
+              Changed outside the folder
+            </li>
+          ) : null}
           {outside.map((edit) => (
             <li
               className={ROW}
@@ -102,6 +118,9 @@ export function TaskFilesList({ files }: { files: TaskFilesView }) {
               </span>
             </li>
           ))}
+          {conflicts.length > 0 ? (
+            <li className="mt-3 font-medium text-sm">Conflicts</li>
+          ) : null}
           {conflicts.map((conflict) => (
             <li
               className={ROW}
@@ -127,7 +146,7 @@ export function TaskFilesList({ files }: { files: TaskFilesView }) {
           search={{ dir: folder }}
           to="/library"
         >
-          Open in library
+          Open the folder in the library
         </Link>
       </div>
     </>
