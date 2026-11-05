@@ -53,7 +53,7 @@ export function RailFooter({
     <SidebarFooter className="gap-0 p-0 pb-[max(4px,env(safe-area-inset-bottom))]">
       {isMobile ? (
         <button
-          className="mx-2 my-1.5 flex min-h-11 items-center gap-2 rounded-md bg-sidebar-accent px-3 text-left font-medium text-sm"
+          className="mx-2 my-1.5 flex min-h-11 items-center gap-2 rounded-md bg-muted px-3 text-left font-medium text-muted-foreground text-sm hover:text-sidebar-foreground"
           onClick={onOpenFind}
           type="button"
         >

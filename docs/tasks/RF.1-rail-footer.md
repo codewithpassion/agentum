@@ -3,7 +3,7 @@ id: RF.1
 title: Rail footer with Settings, Find and pinned Working
 milestone: RF
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: RF.1-rail-footer
 lane: web
@@ -18,3 +18,4 @@ Spec: `docs/ux-review/rail/footer.md`, mockup `docs/ux-review/rail/footer-mockup
 - Screenshots of the result in a dev build (dev login) at 1440x900, 1440x800 and 390x844 into the log folder.
 
 ## Log
+- 2026-11-05: Codex built the footer, header shortcut, phone Find and count, pinned Working, admin-only Settings and the phone settings index (fa138f87); check, test (4233 web), build and bundle scan pass; screenshots in tmp/RF.1/shots. Controller review: matches the spec; the phone Find button used the cyan current-page fill, changed to the neutral muted fill. The two-row phone header predates RF.1. 'View all N running' uses the /sessions fallback.
