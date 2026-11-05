@@ -3,7 +3,7 @@ id: AE.1
 title: App endpoints answer before ctx.waitUntil work, and endpoint latency is measured
 milestone: AE
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: AE.1-endpoint-latency
 lane: web
@@ -87,3 +87,4 @@ Out of scope: a Discord fast path where the platform verifies signatures or auto
   test passed in 32,017 ms, including the check that the 31 s write never ran.
   The client-bundle `drizzle` grep returned no matches. Build emitted chunk-size
   and CSS sourcemap warnings but completed, including check-dev-only.
+- 2026-11-05 controller review: the harness answers through an RPC callback when app.fetch resolves; the rest of the RPC is held by the parent's waitUntil; background failures and the 30 s cap are recorded as app errors; timing lines carry no values. The production cause is still unproven, because local workerd did not block on waitUntil. Next: deploy, then read `app endpoint timing` from wrangler tail while the bot is used.
