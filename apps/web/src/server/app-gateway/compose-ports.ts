@@ -181,13 +181,8 @@ export const createAppGatewayPorts = ({
       );
       return Promise.resolve();
     },
-    approvedHosts: (versionId) => services.artifactApp.approvedHosts(versionId),
-    secretRules: (props, host) =>
-      services.artifactApp.secretRules(
-        props.workspaceId,
-        props.versionId,
-        host
-      ),
+    read: (props) =>
+      services.artifactApp.outboundPolicy(props.workspaceId, props.versionId),
   },
   shares: {
     state: (shareId, artifactId) =>

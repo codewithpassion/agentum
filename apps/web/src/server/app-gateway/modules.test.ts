@@ -48,7 +48,7 @@ describe("HARNESS_SOURCE", () => {
       "export class Harness extends WorkerEntrypoint"
     );
     expect(HARNESS_SOURCE).toContain(
-      "app.fetch(request, { ...this.env, AGENTUM: agentum }, this.ctx)"
+      "app.fetch(request, { ...this.env, AGENTUM: agentum }, ctx)"
     );
   });
 });

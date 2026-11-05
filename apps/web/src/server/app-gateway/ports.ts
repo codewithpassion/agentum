@@ -61,13 +61,15 @@ export interface AppGrantsPort {
     host: string,
     names: string[]
   ) => Promise<void>;
-  /** The hosts a person approved for the version, read on each outbound request. */
-  approvedHosts: (versionId: string) => Promise<readonly string[]>;
-  /** Secret placeholders that apply to a request to `host`, from the version's approved `secret` grants. */
-  secretRules: (
-    props: { artifactId: string; versionId: string; workspaceId: string },
-    host: string
-  ) => Promise<ProxyMatch[]>;
+  /** Fresh approvals for one outbound request; secret values are read only for an allowed host. */
+  read: (props: {
+    artifactId: string;
+    versionId: string;
+    workspaceId: string;
+  }) => Promise<{
+    hosts: readonly string[];
+    secretRules: (host: string) => Promise<ProxyMatch[]>;
+  }>;
 }
 
 export interface AppGatewayPorts {
@@ -85,6 +87,10 @@ export interface AppGatewayPorts {
 }
 
 export interface AppRuntimeInput {
+  background?: {
+    defer: (work: Promise<void>) => void;
+    onError: (error: unknown) => Promise<void>;
+  };
   /** Read through `bundle` on a cold start only. */
   bundle: AppSourcePort["bundle"];
   host: AppHostProps;

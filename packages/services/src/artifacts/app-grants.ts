@@ -7,6 +7,7 @@
 import type { Database } from "@repo/db";
 import {
   approvedGrantTargets,
+  approvedOutboundGrants,
   hasGrantOfKind,
   versionWorkspaceId,
   workspaceClerkOrgId,
@@ -39,6 +40,23 @@ export const createAppGrantsService = ({
   /** The hosts a person approved for the version. */
   const approvedHosts = (versionId: string): Promise<string[]> =>
     approvedGrantTargets(db, { kind: "host", versionId });
+
+  /** A request-scoped policy: read approvals once, never cache across requests. */
+  const outboundPolicy = async (workspaceId: string, versionId: string) => {
+    const grants = await approvedOutboundGrants(db, versionId);
+    const names = grants
+      .filter((row) => row.kind === "secret")
+      .map((row) => row.target);
+    return {
+      hosts: grants
+        .filter((row) => row.kind === "host")
+        .map((row) => row.target),
+      secretRules: (host: string): Promise<ProxyMatch[]> =>
+        names.length
+          ? secrets.proxyForNames(workspaceId, names, host)
+          : Promise.resolve([]),
+    };
+  };
 
   /** Whether the version asked for any host, approved or not. */
   const declaresHosts = (versionId: string): Promise<boolean> =>
@@ -157,6 +175,7 @@ export const createAppGrantsService = ({
     approvedHosts,
     declaresHosts,
     memberPrincipal,
+    outboundPolicy,
     secretRules,
     startRun,
     versionWorkspaceId: (

@@ -173,3 +173,21 @@ test("memberPrincipal refuses without a membership check", async () => {
   });
   expect(await service.memberPrincipal("u1", "w1")).toBeNull();
 });
+
+test("outboundPolicy reads current host and secret approvals together for each request", async () => {
+  const { calls, grant, service } = setup();
+  const before = await service.outboundPolicy("w1", "v1");
+  expect(before.hosts).toEqual([]);
+  expect(await before.secretRules("api.example.com")).toEqual([]);
+  expect(calls).toEqual([]);
+  grant("g1", "host", "api.example.com", "approved");
+  grant("g2", "secret", "API_KEY", "approved");
+  grant("g3", "secret", "PENDING_KEY", "pending");
+  grant("g4", "host", "other.example.com", "approved", "v2");
+  const after = await service.outboundPolicy("w1", "v1");
+  expect(after.hosts).toEqual(["api.example.com"]);
+  expect(await after.secretRules("api.example.com")).toEqual([MATCH]);
+  expect(calls).toEqual([
+    { host: "api.example.com", names: ["API_KEY"], ws: "w1" },
+  ]);
+});

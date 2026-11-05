@@ -39,7 +39,8 @@ const fakeLoader = () => {
         getEntrypoint: (entry: string) => ({
           handle: (...args: unknown[]) => {
             calls.push({ args, entry });
-            return Promise.resolve(new Response("ok"));
+            (args[2] as (response: Response) => void)(new Response("ok"));
+            return Promise.resolve();
           },
         }),
       };

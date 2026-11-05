@@ -80,11 +80,13 @@ export const fakePorts = (): FakePorts => {
     canWrite: spikeCanWrite,
     grants: {
       announce: () => Promise.resolve(),
-      approvedHosts: () => {
+      read: () => {
         hosts.reads += 1;
-        return Promise.resolve([...hosts.list]);
+        return Promise.resolve({
+          hosts: [...hosts.list],
+          secretRules: () => Promise.resolve([]),
+        });
       },
-      secretRules: () => Promise.resolve([]),
     },
     hosts,
     share,

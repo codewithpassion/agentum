@@ -43,7 +43,6 @@ const setup = () => {
   };
   const services = {
     artifactApp: {
-      approvedHosts: () => Promise.resolve(["api.example.com"]),
       declaresHosts: () => Promise.resolve(state.declares),
       memberPrincipal: (userId: string, workspaceId: string) =>
         state.memberThrows
@@ -58,6 +57,11 @@ const setup = () => {
                   } as const)
                 : null
             ),
+      outboundPolicy: () =>
+        Promise.resolve({
+          hosts: ["api.example.com"],
+          secretRules: () => Promise.resolve([]),
+        }),
       secretRules: () => Promise.resolve([]),
       versionWorkspaceId: (_artifact: string, version: string) =>
         Promise.resolve(version === "gone" ? null : WORKSPACE),
