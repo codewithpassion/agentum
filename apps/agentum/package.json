@@ -4,6 +4,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
+    "build:all": "bash scripts/build-all.sh",
     "build:release": "bash scripts/cargo.sh build --release",
     "check": "bash scripts/cargo.sh fmt --check && bash scripts/cargo.sh clippy -- -D warnings",
     "test": "bash scripts/cargo.sh test",

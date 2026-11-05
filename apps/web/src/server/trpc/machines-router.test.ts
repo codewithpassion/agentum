@@ -65,7 +65,10 @@ test("newestDaemonVersion reads the published version, and needs a session", asy
     db,
     infra: {
       ...infra(),
-      latestDaemonVersion: () => Promise.resolve("0.1.0+abc1234"),
+      latestDaemonVersion: (product) =>
+        Promise.resolve(
+          product === "agentum-rs" ? "0.1.0+rust123" : "0.1.0+abc1234"
+        ),
     },
   });
   const caller = await callerFor(
@@ -73,6 +76,9 @@ test("newestDaemonVersion reads the published version, and needs a session", asy
     composed
   );
   expect(await caller.machines.newestDaemonVersion()).toBe("0.1.0+abc1234");
+  expect(await caller.machines.newestDaemonVersion("agentum-rs")).toBe(
+    "0.1.0+rust123"
+  );
 
   const none = await callerFor({ orgId: "org_a", userId: "user_1" });
   expect(await none.machines.newestDaemonVersion()).toBeNull();

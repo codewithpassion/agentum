@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import { Hono } from "hono";
 import { ORIGIN_PLACEHOLDER } from "../releases/install-script.ts";
 import type { ReleaseBucket, ReleaseObject } from "../releases/store.ts";
@@ -29,7 +29,11 @@ const setup = (seed: Record<string, string> = {}) => {
   const app = new Hono<AppEnv>();
   mountReleaseRoutes(app, {
     bucket: () => bucket,
-    scripts: { computer: COMPUTER_SCRIPT, daemon: DAEMON_SCRIPT },
+    scripts: {
+      agentum: DAEMON_SCRIPT,
+      computer: COMPUTER_SCRIPT,
+      daemon: DAEMON_SCRIPT,
+    },
   });
   // What the real app has after these routes: pages, which would answer 200.
   app.all("*", (c) => c.text("a page", 200));
@@ -198,4 +202,11 @@ describe("release files", () => {
     );
     expect(responses.map((response) => response.status)).toEqual([404, 404]);
   });
+});
+
+test("serves the Rust installer at the serving origin", async () => {
+  const { app } = setup();
+  const response = await get(app, "/install-agentum.sh");
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe(`HM_ORIGIN="${ORIGIN}"\n# daemon`);
 });

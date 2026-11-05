@@ -53,6 +53,7 @@ export interface GitState {
 export interface PublishOptions {
   allowDirty: boolean;
   build: (version: string, product: Product) => Promise<BuiltFile[]>;
+  dryRun?: boolean;
   env: PublishEnv;
   log: (message: string) => void;
   /** apps/daemon/package.json's version, the first half of the release version. */
@@ -67,6 +68,7 @@ const sourceOf = (item: UploadItem): UploadSource =>
 export const publish = async ({
   env,
   allowDirty,
+  dryRun = false,
   packageVersion,
   uploader,
   build,
@@ -76,12 +78,12 @@ export const publish = async ({
   const git = readGit();
   assertCleanTree(git.statusPorcelain, allowDirty);
   const version = buildVersion(packageVersion, git.shortCommit);
-  log(`publishing ${version} to ${env}`);
+  log(`${dryRun ? "dry run" : "publishing"} ${version} to ${env}`);
 
   const live = await Promise.all(
     PRODUCTS.map(async (product) => ({
       product,
-      text: await uploader.get(manifestKey(product)),
+      text: dryRun ? null : await uploader.get(manifestKey(product)),
     }))
   );
   const pending: Product[] = [];
@@ -100,10 +102,16 @@ export const publish = async ({
     const manifest = buildManifest(product, version, files);
     for (const item of uploadPlan(product, version, manifest)) {
       log(`put ${item.key}`);
-      // biome-ignore lint/performance/noAwaitInLoops: latest.json must come last
-      await uploader.put(item.key, sourceOf(item), item.contentType);
+      if (dryRun) {
+        if ("body" in item) {
+          log(item.body);
+        }
+      } else {
+        // biome-ignore lint/performance/noAwaitInLoops: latest.json must come last
+        await uploader.put(item.key, sourceOf(item), item.contentType);
+      }
     }
-    log(`${product}: published ${version}`);
+    log(`${product}: ${dryRun ? "built" : "published"} ${version}`);
   }
 };
 
@@ -161,6 +169,10 @@ const buildComputer = (version: string): void => {
 
 const BUILDERS: Record<Product, (version: string) => void> = {
   agentum: buildDaemon,
+  "agentum-rs": (version) =>
+    run(["bash", "scripts/build-all.sh"], resolve(REPO_ROOT, "apps/agentum"), {
+      AGENTUM_VERSION: version,
+    }),
   "hm-computer": buildComputer,
 };
 
@@ -261,7 +273,7 @@ const wranglerUploader = (
 });
 
 if (import.meta.main) {
-  const { env, allowDirty } = parseArgs(process.argv.slice(2));
+  const { env, allowDirty, dryRun } = parseArgs(process.argv.slice(2));
   const bucket = bucketNameFor(
     env,
     await file(join(WEB_DIR, "wrangler.jsonc")).text()
@@ -274,6 +286,7 @@ if (import.meta.main) {
     await publish({
       allowDirty,
       build: buildProduct,
+      dryRun,
       env,
       log: logLine,
       packageVersion,

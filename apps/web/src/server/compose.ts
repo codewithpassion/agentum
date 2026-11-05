@@ -398,7 +398,9 @@ export interface Infra {
   /** Whether a user is in a Clerk org right now, with no cache. Live link calls need it; without it they are refused. */
   isOrgMember?: (userId: string, clerkOrgId: string) => Promise<boolean>;
   /** The version of the newest published daemon. Without it the machines page shows no update note. */
-  latestDaemonVersion?: () => Promise<string | null>;
+  latestDaemonVersion?: (
+    product?: "agentum" | "agentum-rs"
+  ) => Promise<string | null>;
   /** Where the workspace library keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   libraryBlobs?: LibraryBlobs;
   live?: LiveInfra;
@@ -1460,9 +1462,9 @@ export const compose = (
       }),
       ...mailInfra(env),
       // A bucket error must not take the machines page down with it.
-      latestDaemonVersion: async () => {
+      latestDaemonVersion: async (product = "agentum") => {
         try {
-          return (await readManifest(env.FILES, "agentum"))?.version ?? null;
+          return (await readManifest(env.FILES, product))?.version ?? null;
         } catch (error) {
           console.error("reading the latest daemon release failed", error);
           return null;

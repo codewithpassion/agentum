@@ -8,11 +8,12 @@ import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { TableRow } from "#/components/ui/table";
 import type { MachineRecord } from "#/integrations/trpc/types";
-import { daemonInstallCommand } from "./enroll-commands";
+import { agentumInstallCommand, daemonInstallCommand } from "./enroll-commands";
 import {
   canAddComputerRole,
   canRevoke,
   computerKind,
+  daemonProduct,
   isDaemonOutdated,
   type RoleTone,
   roleRows,
@@ -42,6 +43,7 @@ function lastSeen(machine: MachineRecord): string {
 interface MachineRowProps {
   /** The version of the newest published daemon, or null when there is none. */
   latestDaemonVersion: string | null;
+  latestRustVersion: string | null;
   machine: MachineRecord;
   onAddComputer: (machine: { id: string; name: string }) => void;
   onRevoke: (machine: { id: string; name: string }) => void;
@@ -51,12 +53,15 @@ interface MachineRowProps {
 
 export function MachineRow({
   latestDaemonVersion,
+  latestRustVersion,
   machine,
   origin,
   onAddComputer,
   onRevoke,
 }: MachineRowProps) {
   const { id, name } = machine;
+  const rust = daemonProduct(machine) === "agentum-rs";
+  const latestVersion = rust ? latestRustVersion : latestDaemonVersion;
   const handleAddComputer = useCallback(
     () => onAddComputer({ id, name }),
     [onAddComputer, id, name]
@@ -79,15 +84,17 @@ export function MachineRow({
               Daemon {machine.daemonVersion}
             </p>
           )}
-          {isDaemonOutdated(machine, latestDaemonVersion) ? (
+          {isDaemonOutdated(machine, latestDaemonVersion, latestRustVersion) ? (
             <p className="text-sm">
-              Daemon update available ({latestDaemonVersion}).
+              Daemon update available ({latestVersion}).
               {origin === null ? null : (
                 <>
                   {" "}
                   Update by running{" "}
                   <code className="break-all rounded bg-muted px-1 font-mono text-xs">
-                    {daemonInstallCommand(origin)}
+                    {rust
+                      ? agentumInstallCommand(origin)
+                      : daemonInstallCommand(origin)}
                   </code>{" "}
                   on the machine.
                 </>

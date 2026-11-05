@@ -3,7 +3,7 @@ import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useState } from "react";
 import { CommandBlock } from "#/components/machines/command-block";
-import { daemonInstallCommand } from "#/components/machines/enroll-commands";
+import { agentumInstallCommand } from "#/components/machines/enroll-commands";
 import { EnrollDialog } from "#/components/machines/enroll-dialog";
 import { MachineRow } from "#/components/machines/machine-row";
 import { RevokeDialog } from "#/components/machines/revoke-dialog";
@@ -21,11 +21,13 @@ export const Route = createFileRoute("/_app/settings/machines")({
   loader: async () => {
     try {
       const trpc = getTrpc();
-      const [machines, latestDaemonVersion] = await Promise.all([
-        trpc.machines.list.query(),
-        trpc.machines.newestDaemonVersion.query(),
-      ]);
-      return { latestDaemonVersion, machines };
+      const [machines, latestDaemonVersion, latestRustVersion] =
+        await Promise.all([
+          trpc.machines.list.query(),
+          trpc.machines.newestDaemonVersion.query(),
+          trpc.machines.newestDaemonVersion.query("agentum-rs"),
+        ]);
+      return { latestDaemonVersion, latestRustVersion, machines };
     } catch (error) {
       if (
         error instanceof TRPCClientError &&
@@ -45,7 +47,8 @@ interface DialogState {
 }
 
 function MachinesPage() {
-  const { latestDaemonVersion, machines } = Route.useLoaderData();
+  const { latestDaemonVersion, latestRustVersion, machines } =
+    Route.useLoaderData();
   const router = useRouter();
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [revoking, setRevoking] = useState<{ id: string; name: string } | null>(
@@ -103,8 +106,8 @@ function MachinesPage() {
           </p>
           {origin !== null && (
             <CommandBlock
-              command={daemonInstallCommand(origin)}
-              heading="Install the agentum daemon on a Linux machine"
+              command={agentumInstallCommand(origin)}
+              heading="Install Agentum on a Linux machine"
             />
           )}
         </div>
@@ -125,6 +128,7 @@ function MachinesPage() {
               <MachineRow
                 key={machine.id}
                 latestDaemonVersion={latestDaemonVersion}
+                latestRustVersion={latestRustVersion}
                 machine={machine}
                 onAddComputer={addComputerTo}
                 onRevoke={setRevoking}

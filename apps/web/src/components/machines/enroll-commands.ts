@@ -42,3 +42,6 @@ export const binaryCommand = (origin: string, code: string): string =>
 
 export const agentumCommand = (origin: string, code: string): string =>
   `curl -fsSL ${origin}/install-agentum.sh | sh -s -- --code ${code}`;
+
+export const agentumInstallCommand = (origin: string): string =>
+  `curl -fsSL ${origin}/install-agentum.sh | sh`;
