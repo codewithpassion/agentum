@@ -118,7 +118,7 @@ Phone: the same content in the Computer tab, with Take over, Cancel request and 
 - "Go to the request" moves focus to the request card's heading.
 - Computer panel: Escape closes and returns focus to the toggle.
 - Composer and the question text box: Ctrl+Enter (⌘Enter on Mac) sends.
-- Visible focus on every control, using the app's cyan focus ring.
+- Visible focus on every control, using the app's focus ring (`--ring`, burnt orange in both themes).
 
 ## Components
 
