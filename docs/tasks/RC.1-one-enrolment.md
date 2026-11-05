@@ -3,7 +3,7 @@ id: RC.1
 title: One enrolment for both machine roles
 milestone: RC
 size: M
-status: ready
+status: done
 depends_on: []
 branch: RC-rust-client
 lane: services
@@ -24,3 +24,4 @@ Spec: `docs/v3/machine-client.md` ("Server changes (RC.1)"); detail in `docs/v3/
 - `bun run check && bun run test && bun run build`, then the bundle grep for `drizzle` in `apps/web/dist/client`.
 
 ## Log
+- 2026-11-05: Codex built it (04d3adbb). Opus review approved; added cross-role 401 tests, /mcp tests, the old 400 text, singleUser false for computer-only (fix commit on RC.1-wip). Merged into RC-rust-client.
