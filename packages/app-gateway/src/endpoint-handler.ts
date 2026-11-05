@@ -1,8 +1,11 @@
 import type { ArtifactEndpointsService } from "@repo/services/artifacts/endpoints";
 import { truncateIp } from "@repo/services/artifacts/view-privacy";
-import { withContentHeaders } from "../artifact-content/headers.ts";
-import { handleEndpointRequest } from "./gateway-core.ts";
-import type { ApiLimiter, AppGatewayWiring } from "./mount.ts";
+import { withContentHeaders } from "./content-headers.ts";
+import {
+  type ApiLimiter,
+  type AppGatewayWiring,
+  handleEndpointRequest,
+} from "./gateway-core.ts";
 
 export interface EndpointWiring extends AppGatewayWiring {
   endpoints: Pick<ArtifactEndpointsService, "resolve" | "recordCall">;

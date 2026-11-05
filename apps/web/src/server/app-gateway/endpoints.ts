@@ -1,10 +1,10 @@
-import type { Context, Hono } from "hono";
-import type { AppEnv } from "../routes/groups.ts";
 import {
   type EndpointWiring,
   handleEndpointRoute,
-} from "./endpoint-handler.ts";
-import type { ApiLimiter } from "./mount.ts";
+} from "@repo/app-gateway/endpoint-handler";
+import type { ApiLimiter } from "@repo/app-gateway/gateway-core";
+import type { Context, Hono } from "hono";
+import type { AppEnv } from "../routes/groups.ts";
 
 export const mountEndpointRoutes = (
   app: Hono<AppEnv>,

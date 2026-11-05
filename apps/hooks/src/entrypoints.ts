@@ -2,14 +2,14 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
   HooksMainBinding,
   HostOperation,
-} from "../../web/src/server/app-gateway/hooks-rpc.ts";
+} from "@repo/app-gateway/hooks-rpc";
 import type {
   AgentumHost,
   AppHostProps,
   AppOutboundProps,
   AppStartRunInput,
   StorageArea,
-} from "../../web/src/server/app-gateway/types.ts";
+} from "@repo/app-gateway/types";
 
 interface BridgeEnv {
   MAIN: HooksMainBinding;

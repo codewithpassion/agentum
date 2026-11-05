@@ -4,16 +4,17 @@
  * both read the same grants, shares and storage. Kept free of
  * `cloudflare:workers` so bun can test it.
  */
+
+import { appError } from "@repo/app-gateway/app-host-core";
+import { bundleOf } from "@repo/app-gateway/bundle-source";
+import type { ContentBucket } from "@repo/app-gateway/content-store";
+import type { AppCallPort, AppGatewayPorts } from "@repo/app-gateway/ports";
+import type { AppStorePort } from "@repo/app-gateway/types";
 import { isArtifactCallError } from "@repo/services/artifacts/calls";
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
 import { canWrite } from "../app-store/rules.ts";
-import type { ContentBucket } from "../artifact-content/routes.ts";
 import type { Services } from "../compose.ts";
-import { appError } from "./app-host-core.ts";
-import { bundleOf } from "./bundle-source.ts";
-import type { AppCallPort, AppGatewayPorts } from "./ports.ts";
-import type { AppStorePort } from "./types.ts";
 
 type PortServices = Pick<
   Services,

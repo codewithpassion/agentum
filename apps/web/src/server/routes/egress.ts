@@ -7,6 +7,7 @@
 // following redirects, scrub the answer, and append one event that names the
 // secret and the host. Mount with `accessRoutes.route("/api/egress", egressRoutes())`.
 
+import { readCappedBody } from "@repo/app-gateway/body";
 import type { Fetcher } from "@repo/services/connectors/mcp";
 import { assertSafeUrl } from "@repo/services/connectors/url";
 import type { RunTokenClaims } from "@repo/services/run-tokens";
@@ -16,7 +17,6 @@ import { RELAY_PATH } from "@repo/services/secrets/relay";
 import { normalizeHost } from "@repo/services/secrets/rules";
 import { scrubBody, scrubText } from "@repo/services/secrets/scrub";
 import type { Context } from "hono";
-import { readCappedBody } from "../mcp/body.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 import { PROXY_CAP_MS } from "./proxy.ts";
 

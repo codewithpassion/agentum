@@ -1,4 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
+import { createAppHost } from "@repo/app-gateway/app-host-core";
+import { fakePorts } from "@repo/app-gateway/fakes";
+import type { AppHostProps, AppReplyMessage } from "@repo/app-gateway/types";
 import { sqliteAtomic } from "@repo/db/atomic";
 import {
   artifactGrants,
@@ -16,9 +19,6 @@ import { systemClock } from "@repo/services/runs/types";
 import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
 import { composeWith, type Infra } from "../compose.ts";
-import { createAppHost } from "./app-host-core.ts";
-import { fakePorts } from "./fakes.ts";
-import type { AppHostProps, AppReplyMessage } from "./types.ts";
 
 const setup = async (
   fake = true,

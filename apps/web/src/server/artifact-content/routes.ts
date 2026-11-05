@@ -5,6 +5,16 @@
 // compose middleware: `mountArtifactContentRoutes(app, deps)`.
 
 import {
+  type ContentCspInput,
+  withContentHeaders,
+} from "@repo/app-gateway/content-headers";
+import {
+  blobKey,
+  type ContentBucket,
+  type ContentObject,
+  manifestKey,
+} from "@repo/app-gateway/content-store";
+import {
   type ArtifactManifest,
   artifactContentPath,
   artifactManifestSchema,
@@ -18,8 +28,6 @@ import type { Context, Hono } from "hono";
 import type { AppEnv } from "../routes/groups.ts";
 import { BRIDGE_JS } from "./bridge.ts";
 import { renderDocPage } from "./doc.ts";
-import { type ContentCspInput, withContentHeaders } from "./headers.ts";
-import { blobKey, manifestKey } from "./keys.ts";
 
 const NOT_MODIFIED = 304;
 const FOUND = 302;
@@ -40,18 +48,6 @@ const BARE_CONTENT_PATH = /^\/a\/[^/]+\/c\/[^/]+$/;
 const TOKEN_SEGMENT = /^\/a\/[^/]+\/c\/[^/]+/;
 const LEADING_WEAK = /^W\//;
 
-/** The slice of an R2 object the route reads. `R2ObjectBody` satisfies it. */
-export interface ContentObject {
-  arrayBuffer: () => Promise<ArrayBuffer>;
-  body: ReadableStream;
-  size: number;
-}
-
-/** The slice of an R2 bucket the route reads. The `FILES` binding satisfies it. */
-export interface ContentBucket {
-  get: (key: string) => Promise<ContentObject | null>;
-}
-
 export interface ArtifactContentDeps {
   /** The R2 bucket holding manifests and blobs (`env.FILES`). */
   authorizeGuestEmbed?: (claims: ViewTokenClaims, env: Env) => Promise<boolean>;
@@ -71,9 +67,6 @@ export interface ArtifactContentDeps {
     env: Env
   ) => string | null | Promise<string | null>;
 }
-
-// biome-ignore lint/performance/noBarrelFile: preserve existing storage key imports
-export { blobKey, manifestKey } from "./keys.ts";
 
 const textResponse = (status: number, text: string | null = null): Response =>
   new Response(text, {

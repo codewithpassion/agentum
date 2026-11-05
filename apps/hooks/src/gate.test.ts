@@ -1,13 +1,10 @@
 import { expect, test } from "bun:test";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { build } from "bun";
 
-const requireWeb = createRequire(
-  new URL("../../web/package.json", import.meta.url)
-);
+// Resolved at run time, as before the move, so the fixtures stay loosely typed.
 const { Miniflare, convertV4MiniflareOptions } = await import(
-  requireWeb.resolve("miniflare")
+  import.meta.resolve("miniflare")
 );
 
 test("gate: real front, D1, R2, loader and MAIN binding answer cold and warm under 1 s", async () => {

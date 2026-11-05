@@ -1,9 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
+import { fakePorts } from "@repo/app-gateway/fakes";
+import type { AppRuntimeInput } from "@repo/app-gateway/ports";
 import { Hono } from "hono";
 import type { AppEnv } from "../routes/groups.ts";
 import { mountEndpointRoutes } from "./endpoints.ts";
-import { fakePorts } from "./fakes.ts";
-import type { AppRuntimeInput } from "./ports.ts";
 
 const setup = (failLogging = false, status = 200) => {
   const work: Promise<unknown>[] = [];

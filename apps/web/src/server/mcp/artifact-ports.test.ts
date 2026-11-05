@@ -1,5 +1,6 @@
 import { Database as Sqlite } from "bun:sqlite";
 import { beforeEach, expect, test } from "bun:test";
+import { handleEndpointRequest } from "@repo/app-gateway/gateway-core";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runs } from "@repo/db/schema/runs";
 import { taskFolderPath } from "@repo/db/shared";
@@ -13,7 +14,6 @@ import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
-import { handleEndpointRequest } from "../app-gateway/gateway-core.ts";
 import { createAppStoreCore } from "../app-store/app-store-core.ts";
 import type {
   ArtifactTestBrowser,

@@ -1,14 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { handleEndpointRoute } from "@repo/app-gateway/endpoint-handler";
 import { build } from "bun";
-import { handleEndpointRoute } from "../../web/src/server/app-gateway/endpoint-handler.ts";
 
-const requireWeb = createRequire(
-  new URL("../../web/package.json", import.meta.url)
-);
+// Resolved at run time, as before the move, so the fixtures stay loosely typed.
 const { Miniflare, convertV4MiniflareOptions } = await import(
-  requireWeb.resolve("miniflare")
+  import.meta.resolve("miniflare")
 );
 let flare: InstanceType<typeof Miniflare>;
 let base: string;

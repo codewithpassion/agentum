@@ -4,6 +4,12 @@
  * ones `docs/v3/phase2-spike.md` defines.
  */
 
+/** One file of an app's server part, by path from the artifact root. */
+export interface AppFile {
+  bytes: Uint8Array;
+  path: string;
+}
+
 /** Page viewers from the verified content token, never from app code. Endpoint and reply viewers are host-only below. */
 export type AppViewer =
   | { kind: "member"; userId: string }

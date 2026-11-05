@@ -8,13 +8,14 @@
 // user's home workspace (`oauth-auth.ts`). A platform token on a workspace's
 // address must belong to that workspace. Mount with
 // `accessRoutes.route("/mcp", mcpRoutes({ ... }))`.
+
+import { readCappedBody } from "@repo/app-gateway/body";
 import { createAgentumMcpServer } from "@repo/mcp/server";
 import { isReadOnly } from "@repo/services/automation-access";
 import type { Principal } from "@repo/services/workspaces";
 import { createMcpHandler } from "agents/mcp/server";
 import type { Context } from "hono";
 import { artifactTestBrowser } from "../browser-run.ts";
-import { readCappedBody } from "../mcp/body.ts";
 import { OAuthVerificationUnavailableError } from "../mcp/clerk-oauth.ts";
 import { guestMcpServer } from "../mcp/guest-server";
 import {

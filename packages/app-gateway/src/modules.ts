@@ -11,7 +11,7 @@ import {
   type Program,
   parse,
 } from "acorn";
-import type { SandboxFile } from "../skill-scripts/sandbox-port.ts";
+import type { AppFile } from "./types.ts";
 
 export const APP_SERVER_ENTRY = "server/index.js";
 export const APP_HARNESS = "__harness.js";
@@ -67,7 +67,7 @@ const messageOf = (error: unknown): string =>
 const parseModule = (text: string): Program =>
   parse(text, { ecmaVersion: "latest", sourceType: "module" });
 
-const moduleOf = (file: SandboxFile): AppModule => {
+const moduleOf = (file: AppFile): AppModule => {
   if (!file.path.startsWith(SERVER_DIR)) {
     throw new Error(`${file.path}: not under server/`);
   }
@@ -93,7 +93,7 @@ const moduleOf = (file: SandboxFile): AppModule => {
 
 /** One module per file under `server/`, keyed by its path, plus the harness. Throws naming the file when one cannot load. */
 export const appModules = (
-  files: readonly SandboxFile[]
+  files: readonly AppFile[]
 ): Record<string, AppModule> => {
   const modules: Record<string, AppModule> = {
     [APP_HARNESS]: { js: HARNESS_SOURCE },
@@ -151,7 +151,7 @@ const defaultExportProblem = (program: Program): string | undefined => {
 };
 
 /** Problems with one file on its own: a path or type the loader refuses, or JavaScript acorn cannot parse. */
-const fileProblems = (file: SandboxFile): string[] => {
+const fileProblems = (file: AppFile): string[] => {
   try {
     moduleOf(file);
   } catch (error) {
@@ -169,7 +169,7 @@ const fileProblems = (file: SandboxFile): string[] => {
 };
 
 /** The entry's default export. A parse error is left to `fileProblems`, which already names it. */
-const entryProblems = (files: readonly SandboxFile[]): string[] => {
+const entryProblems = (files: readonly AppFile[]): string[] => {
   const entry = files.find((file) => file.path === APP_SERVER_ENTRY);
   if (entry === undefined) {
     return [`${APP_SERVER_ENTRY}: missing, an app needs a server entry`];
@@ -185,7 +185,7 @@ const entryProblems = (files: readonly SandboxFile[]): string[] => {
 };
 
 /** Publish-time checks on a version's `server/` files. An empty list means the bundle may be stored. */
-export const checkServerBundle = (files: readonly SandboxFile[]): string[] => [
+export const checkServerBundle = (files: readonly AppFile[]): string[] => [
   ...entryProblems(files),
   ...files.flatMap(fileProblems),
 ];

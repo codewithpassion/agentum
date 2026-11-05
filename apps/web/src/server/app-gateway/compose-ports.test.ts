@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { ContentBucket } from "@repo/app-gateway/content-store";
+import { fakeStore } from "@repo/app-gateway/fakes";
 import { ArtifactCallError } from "@repo/services/artifacts/calls";
 import { ServiceError } from "@repo/services/errors";
-import type { ContentBucket } from "../artifact-content/routes.ts";
 import { createAppGatewayPorts } from "./compose-ports.ts";
-import { fakeStore } from "./fakes.ts";
 
 const WORKSPACE = "ws_1";
 const encoder = new TextEncoder();

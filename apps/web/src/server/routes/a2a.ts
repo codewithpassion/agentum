@@ -22,6 +22,7 @@ import {
 } from "@repo/a2a/jsonrpc";
 import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER } from "@repo/a2a/protocol";
 import { matchRestRoute } from "@repo/a2a/rest";
+import { readCappedBody } from "@repo/app-gateway/body";
 import type {
   PairActivateBody,
   PairJoinBody,
@@ -32,7 +33,6 @@ import { isServiceError } from "@repo/services/errors";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
-import { readCappedBody } from "../mcp/body.ts";
 import {
   classify,
   RATE_LIMITED_MESSAGE,

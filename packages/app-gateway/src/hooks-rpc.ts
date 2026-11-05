@@ -10,8 +10,8 @@ export type HostOperation = {
 }[HostMethod];
 
 /** Only the trusted hooks service binding receives this entrypoint. No HTTP API. */
-export const defineHooksMain = (
-  wiring: (env: Env) => {
+export const defineHooksMain = <E>(
+  wiring: (env: E) => {
     ports: AppGatewayPorts;
     recordError: (
       target: AppOutboundProps,
@@ -20,7 +20,7 @@ export const defineHooksMain = (
     ) => Promise<void>;
   }
 ) => {
-  class HooksMain extends WorkerEntrypoint<Env> {
+  class HooksMain extends WorkerEntrypoint<E> {
     override fetch() {
       return Promise.resolve(new Response("Not found.", { status: 404 }));
     }

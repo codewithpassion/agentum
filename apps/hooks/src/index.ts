@@ -1,11 +1,11 @@
+import { bundleOf } from "@repo/app-gateway/bundle-source";
+import { dynamicAppRuntime } from "@repo/app-gateway/dynamic-app-runtime";
+import { handleEndpointRoute } from "@repo/app-gateway/endpoint-handler";
+import type { HooksMainBinding } from "@repo/app-gateway/hooks-rpc";
 import { d1Atomic } from "@repo/db/atomic";
 import { createArtifactEndpointsService } from "@repo/services/artifacts/endpoints";
 import { createHooksSource } from "@repo/services/artifacts/hooks-source";
 import { drizzle } from "drizzle-orm/d1";
-import { bundleOf } from "../../web/src/server/app-gateway/bundle-source.ts";
-import { dynamicAppRuntime } from "../../web/src/server/app-gateway/dynamic-app-runtime.ts";
-import { handleEndpointRoute } from "../../web/src/server/app-gateway/endpoint-handler.ts";
-import type { HooksMainBinding } from "../../web/src/server/app-gateway/hooks-rpc.ts";
 
 // biome-ignore lint/performance/noBarrelFile: Worker entry must export its RPC classes
 export { HooksHost, HooksOutbound } from "./entrypoints.ts";

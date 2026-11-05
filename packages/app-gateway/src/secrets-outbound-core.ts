@@ -8,7 +8,7 @@
  */
 import type { ProxyMatch } from "@repo/services/secrets";
 import { scrubBody, scrubText } from "@repo/services/secrets/scrub";
-import { readCappedBody } from "./mcp/body.ts";
+import { readCappedBody } from "./body.ts";
 
 const BAD_GATEWAY = 502;
 const FORBIDDEN = 403;

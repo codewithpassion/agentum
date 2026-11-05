@@ -1,6 +1,5 @@
 import { artifactManifestSchema } from "@repo/protocol/artifacts";
-import { blobKey, manifestKey } from "../artifact-content/keys.ts";
-import type { ContentBucket } from "../artifact-content/routes.ts";
+import { blobKey, type ContentBucket, manifestKey } from "./content-store.ts";
 import type { AppBundle } from "./ports.ts";
 
 const SERVER_DIR = "server/";

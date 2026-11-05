@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { fakePorts } from "@repo/app-gateway/fakes";
+import type { AppGatewayWiring } from "@repo/app-gateway/gateway-core";
+import type { AppRuntimeInput } from "@repo/app-gateway/ports";
 import type { ViewTokenClaims } from "@repo/protocol/artifacts";
 import { signViewToken } from "@repo/services/artifacts/view-token";
 import { Hono } from "hono";
 import type { AppEnv } from "../routes/groups.ts";
-import { fakePorts } from "./fakes.ts";
-import { type AppGatewayWiring, mountAppGatewayRoutes } from "./mount.ts";
-import type { AppRuntimeInput } from "./ports.ts";
+import { mountAppGatewayRoutes } from "./mount.ts";
 
 const ORIGIN = "https://hm.test";
 const KEY = "test-view-key";

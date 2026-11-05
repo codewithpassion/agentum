@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { outboundFetch } from "@repo/app-gateway/secrets-outbound-core";
 import { compose } from "./compose.ts";
-import { outboundFetch } from "./secrets-outbound-core.ts";
 
 /** Who the isolate's requests are for. Ids only: the entrypoint reads the secrets itself. */
 export interface OutboundProps {

@@ -1,5 +1,5 @@
-import { fakePorts } from "../../web/src/server/app-gateway/fakes.ts";
-import { defineHooksMain } from "../../web/src/server/app-gateway/hooks-rpc.ts";
+import { fakePorts } from "@repo/app-gateway/fakes";
+import { defineHooksMain } from "@repo/app-gateway/hooks-rpc";
 
 const ports = fakePorts();
 let calls = 0;

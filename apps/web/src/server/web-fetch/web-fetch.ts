@@ -12,10 +12,13 @@
 // What leaves the fetcher shows the placeholder in place of every value: the
 // headers and status text are scrubbed, and the `url` is the one requested.
 
+import { readCappedBody } from "@repo/app-gateway/body";
+import {
+  type OutboundDeps,
+  outboundFetch,
+} from "@repo/app-gateway/secrets-outbound-core";
 import type { NetworkRequestEntry } from "@repo/services/network";
 import type { EnvGrant } from "@repo/services/secrets/placeholders";
-import { readCappedBody } from "../mcp/body.ts";
-import { type OutboundDeps, outboundFetch } from "../secrets-outbound-core.ts";
 import { checkTarget, redirectTarget } from "./guard.ts";
 import { fillHop, scrubSecrets } from "./hop-secrets.ts";
 import {

@@ -8,6 +8,7 @@
 // credential is refreshed once and the call is tried again.
 // Mount with `accessRoutes.route("/api/proxy", proxyRoutes())`.
 
+import { readCappedBody } from "@repo/app-gateway/body";
 import type { Fetcher } from "@repo/services/connectors/mcp";
 import { assertSafeUrl } from "@repo/services/connectors/url";
 import type {
@@ -19,7 +20,6 @@ import type { EventInput, EventsService } from "@repo/services/events";
 import type { RunTokenClaims } from "@repo/services/run-tokens";
 import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
 import type { Context } from "hono";
-import { readCappedBody } from "../mcp/body.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 import { filterToolsList } from "./proxy-allowlist.ts";
 

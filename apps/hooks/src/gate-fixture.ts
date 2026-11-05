@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { dynamicAppRuntime } from "../../web/src/server/app-gateway/dynamic-app-runtime.ts";
+import { dynamicAppRuntime } from "@repo/app-gateway/dynamic-app-runtime";
 
 export class GateHost extends WorkerEntrypoint {
   whoami() {

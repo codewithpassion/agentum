@@ -3,7 +3,7 @@
 // parts: which origin the documents describe, the Clerk issuer, the protected
 // resource metadata (RFC 9728) and a small cached proxy of Clerk's own
 // authorization server metadata (RFC 8414) for clients on older spec versions.
-import { readCappedBody } from "./body.ts";
+import { readCappedBody } from "@repo/app-gateway/body";
 
 /** Hosts that serve the dev server. */
 export const LOCAL_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
