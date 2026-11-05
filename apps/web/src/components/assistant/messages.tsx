@@ -41,7 +41,7 @@ function ToolLine({
   agents: AssistantAgent[];
 }) {
   return (
-    <details className="rounded-lg border px-3 py-2 text-sm">
+    <details className="rounded-lg border px-3 py-2 text-sm [&+details]:-mt-3">
       <summary className="cursor-pointer text-muted-foreground">
         {titleOf(use.name)}
         {result ? ` · ${resultSummary(result.content, agents)}` : " · Waiting"}
@@ -109,40 +109,42 @@ export function AssistantMessages({
       )
     )
   );
-  return conversation.messages.map((message) => (
-    <div className="flex flex-col gap-3" key={message.id}>
-      {message.content.map((block, index) => {
-        if (block.type === "tool_result") {
-          return null;
-        }
-        // The stored transcript is append-only; block positions never change.
-        if (block.type === "text") {
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: Anthropic text blocks have no IDs and persisted positions are stable.
-            <TextMessage key={index} role={message.role} text={block.text} />
-          );
-        }
-        if (conversation.pendingCard?.toolUseId === block.id) {
-          return (
-            <AssistantCard
-              agents={agents}
-              card={conversation.pendingCard}
-              disabled={disabled}
-              key={block.id}
-              onResolve={onResolve}
-              recoveryKey={`${conversation.id}:${block.id}`}
-            />
-          );
-        }
+  return conversation.messages.flatMap((message) =>
+    message.content.map((block, index) => {
+      if (block.type === "tool_result") {
+        return null;
+      }
+      // The stored transcript is append-only; block positions never change.
+      if (block.type === "text") {
         return (
-          <ToolLine
-            agents={agents}
-            key={block.id}
-            result={results.get(block.id)}
-            use={block}
+          <TextMessage
+            // biome-ignore lint/suspicious/noArrayIndexKey: Anthropic text blocks have no IDs and persisted positions are stable.
+            key={`${message.id}:${index}`}
+            role={message.role}
+            text={block.text}
           />
         );
-      })}
-    </div>
-  ));
+      }
+      if (conversation.pendingCard?.toolUseId === block.id) {
+        return (
+          <AssistantCard
+            agents={agents}
+            card={conversation.pendingCard}
+            disabled={disabled}
+            key={block.id}
+            onResolve={onResolve}
+            recoveryKey={`${conversation.id}:${block.id}`}
+          />
+        );
+      }
+      return (
+        <ToolLine
+          agents={agents}
+          key={block.id}
+          result={results.get(block.id)}
+          use={block}
+        />
+      );
+    })
+  );
 }

@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_app/assistant")({
     const [initialList, initial, agents, key, me, mine] = await Promise.all([
       client.assistant.list.query(),
       deps.c ? client.assistant.get.query({ conversationId: deps.c }) : null,
-      client.agents.list.query({ includeArchived: true }),
+      client.agents.list.query({ includeArchived: false }),
       client.managedKeys.status.query(),
       client.me.query(),
       client.workspaces.mine.query(),

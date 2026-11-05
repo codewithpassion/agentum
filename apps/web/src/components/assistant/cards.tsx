@@ -17,6 +17,7 @@ import {
   toRules,
 } from "#/components/secrets/secret-model";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -100,10 +101,12 @@ export function AssistantCard({
     card.arguments.mode === "proxy" ? "proxy" : "env"
   );
   const [hosts, setHosts] = useState(strings(card.arguments.hosts).join(", "));
-  const [grantTo, setGrantTo] = useState(
-    strings(card.arguments.grantTo).join(", ")
-  );
-  const [reason, setReason] = useState(string(card.arguments.reason));
+  const [grantTo, setGrantTo] = useState(() => {
+    const refs = strings(card.arguments.grantTo);
+    return agents
+      .filter((agent) => refs.includes(agent.id) || refs.includes(agent.slug))
+      .map((agent) => agent.id);
+  });
   const [provider, setProvider] = useState<"anthropic" | "openrouter">(
     card.arguments.provider === "openrouter" ? "openrouter" : "anthropic"
   );
@@ -160,15 +163,7 @@ export function AssistantCard({
           await deliver({ provider, saved: true });
           return;
         }
-        const targets = parseHosts(grantTo).map((ref) => {
-          const agent = agents.find(
-            (candidate) => candidate.id === ref || candidate.slug === ref
-          );
-          if (!agent) {
-            throw new Error(`Unknown agent: ${ref}`);
-          }
-          return agent.id;
-        });
+        const targets = grantTo;
         if (!progress.current.secretId) {
           const created = await api.createSecret(
             mode === "proxy"
@@ -206,7 +201,6 @@ export function AssistantCard({
       });
     },
     [
-      agents,
       api,
       card.kind,
       deliver,
@@ -241,18 +235,17 @@ export function AssistantCard({
       }),
     [run, deliver]
   );
-  const changeReason = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setReason(event.target.value),
-    []
-  );
   const changeName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
     []
   );
-  const changeGrants = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setGrantTo(event.target.value),
-    []
-  );
+  const changeGrants = useCallback((agentId: string, checked: boolean) => {
+    setGrantTo((current) =>
+      checked
+        ? [...current, agentId]
+        : current.filter((targetId) => targetId !== agentId)
+    );
+  }, []);
   const changeValue = useCallback(
     (event: FormEvent<HTMLInputElement>) => setValue(event.currentTarget.value),
     []
@@ -297,13 +290,9 @@ export function AssistantCard({
           />
         ) : (
           <>
-            <Label htmlFor={`${id}-reason`}>Reason</Label>
-            <Input
-              disabled={stored}
-              id={`${id}-reason`}
-              onChange={changeReason}
-              value={reason}
-            />
+            <p className="text-muted-foreground text-sm">
+              {string(card.arguments.reason)}
+            </p>
             {card.kind === "model_key" ? (
               <>
                 <Label htmlFor={`${id}-provider`}>Provider</Label>
@@ -456,12 +445,12 @@ function SecretFields({
   mode: "env" | "proxy";
   rules: import("#/components/secrets/secret-model").RuleDraft[];
   hosts: string;
-  grantTo: string;
+  grantTo: string[];
   agents: AssistantAgent[];
   stored: boolean;
   changeName: (event: ChangeEvent<HTMLInputElement>) => void;
   changeMode: (event: ChangeEvent<HTMLSelectElement>) => void;
-  changeGrants: (event: ChangeEvent<HTMLInputElement>) => void;
+  changeGrants: (agentId: string, checked: boolean) => void;
   setRules: (
     rules: import("#/components/secrets/secret-model").RuleDraft[]
   ) => void;
@@ -498,24 +487,35 @@ function SecretFields({
           />
         )}
       </fieldset>
-      <Label htmlFor={`${id}-grants`}>Grant to agents (IDs or slugs)</Label>
-      <Input
-        disabled={stored}
-        id={`${id}-grants`}
-        onChange={changeGrants}
-        value={grantTo}
-      />
-      {grantTo ? (
-        <p className="text-muted-foreground text-xs">
-          {parseHosts(grantTo)
-            .map(
-              (ref) =>
-                agents.find((agent) => agent.id === ref || agent.slug === ref)
-                  ?.name ?? ref
-            )
-            .join(", ")}
-        </p>
-      ) : null}
+      <fieldset className="min-w-0" disabled={stored}>
+        <legend className="mb-2 font-medium text-sm">Grant to agents</legend>
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+          {agents.length ? (
+            agents.map((agent) => (
+              <Label
+                className="min-h-9 px-1"
+                htmlFor={`${id}-grant-${agent.id}`}
+                key={agent.id}
+              >
+                <Checkbox
+                  checked={grantTo.includes(agent.id)}
+                  disabled={stored}
+                  id={`${id}-grant-${agent.id}`}
+                  // biome-ignore lint/performance/noJsxPropsBind: Each checkbox identifies its agent.
+                  onCheckedChange={(checked) =>
+                    changeGrants(agent.id, checked === true)
+                  }
+                />
+                {agent.name}
+              </Label>
+            ))
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No active agents in this workspace.
+            </p>
+          )}
+        </div>
+      </fieldset>
     </>
   );
 }

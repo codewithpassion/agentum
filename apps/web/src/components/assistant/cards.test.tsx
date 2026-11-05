@@ -16,6 +16,8 @@ beforeAll(() => {
     "navigator",
     "HTMLElement",
     "Node",
+    "getComputedStyle",
+    "Event",
     "IS_REACT_ACT_ENVIRONMENT",
   ]) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
@@ -89,7 +91,10 @@ async function mount(
   await act(async () =>
     root.render(
       <AssistantCard
-        agents={[{ id: "a1", name: "Release bot", slug: "release" }]}
+        agents={[
+          { id: "a1", name: "Release bot", slug: "release" },
+          { id: "a2", name: "Review bot", slug: "review" },
+        ]}
         api={api}
         card={card}
         // biome-ignore lint/performance/noJsxPropsBind: Test callback created once per mount.
@@ -311,4 +316,55 @@ test("reload after storage succeeds retries only the recorded outcome", async ()
   } finally {
     await second.cleanup();
   }
+});
+
+for (const ref of ["a1", "release"]) {
+  test(`agent picker prefills ${ref} and saves edited selections by ID`, async () => {
+    const view = await mount({
+      ...secret,
+      arguments: { ...secret.arguments, grantTo: [ref] },
+    });
+    try {
+      const checkboxes = Array.from(
+        view.container.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')
+      );
+      expect(checkboxes).toHaveLength(2);
+      expect(checkboxes[0]?.getAttribute("aria-checked")).toBe("true");
+      expect(checkboxes[1]?.getAttribute("aria-checked")).toBe("false");
+      await act(async () => {
+        checkboxes[0]?.click();
+        checkboxes[1]?.click();
+      });
+      await view.fillValue();
+      await view.click("Save securely");
+      expect(
+        view.calls.find((call) => call.procedure === "secrets.setGrants")?.input
+      ).toEqual({ agentId: "a2", secretIds: ["existing", "secret1"] });
+      expect(
+        view.calls.find((call) => call.procedure === "assistant.resolveCard")
+          ?.input
+      ).toMatchObject({ grantedTo: ["a2"] });
+    } finally {
+      await view.cleanup();
+    }
+  });
+}
+
+test("card reason is explanatory text under the title", async () => {
+  const view = await mount();
+  try {
+    expect(view.container.querySelector("legend + p")?.textContent).toBe(
+      String(secret.arguments.reason)
+    );
+    expect(view.container.querySelector('input[id$="-reason"]')).toBeNull();
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("agent picker explains when there are no active agents", () => {
+  const html = renderToStaticMarkup(
+    <AssistantCard agents={[]} card={secret} onResolve={noop} />
+  );
+  expect(html).toContain("No active agents in this workspace.");
 });

@@ -185,13 +185,6 @@ export function Rail({ agents, pinned = [] }: RailProps) {
               {view.doneToday} done today
             </RailLink>
           )}
-          <RailLink
-            className="mt-2 flex min-h-10 items-center rounded-md px-2 text-sm hover:bg-muted"
-            href="/assistant"
-            onNavigate={closeMobileNav}
-          >
-            Assistant
-          </RailLink>
           <RailQuestions onNavigate={closeMobileNav} />
           <PinnedSidebarGroup onNavigate={closeMobileNav} pins={pinned} />
         </SidebarContent>
