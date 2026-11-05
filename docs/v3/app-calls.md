@@ -35,3 +35,13 @@ An artifact keeps its own copy of its files, so they aren't in the library. Toda
 - Picking a text file shows its text read-only, in a monospace block with line numbers and no syntax colouring. A binary file shows its type and size and a note that Download has it. The entry file opens first.
 - tRPC: `artifacts.files({ artifactId, version? })` lists the files, and `artifacts.readFile({ artifactId, path, version? })` returns the text through the existing `readFile` service method. Both `workspaceProcedure` with strict output schemas. Add a service method for the list if none exists, with the same access check as `readFile`.
 - A file over 512 KB of text shows the first 512 KB and says it was cut.
+
+## AL.6: Endpoints tab
+
+Dom, 5 Nov 2026: there is no visible way to see an app's endpoints and copy their URLs. The list exists (`EndpointSettings`, with copy, disable, enable and rotate) but sits inside the Share dialog, where nobody looks.
+
+- The Calls tab is renamed "Endpoints" (tab value can stay `calls`). Same audience: an `app` artifact and someone who can manage it.
+- The tab shows, top to bottom: the endpoint list (`EndpointSettings`, unchanged behaviour: name, full URL, Copy, Disable or Enable, Rotate), then Recent errors, then the call table.
+- Each URL is shown in full in a monospace, selectable block that wraps, so it can be copied by hand too. Copy confirms with "Copied" as it does today.
+- Empty state when there are no approved endpoints: "This app has no approved endpoints yet. An endpoint is declared in the app's agentum.json and goes live when its version is approved."
+- The endpoint list leaves the Share dialog, so it has one home.
