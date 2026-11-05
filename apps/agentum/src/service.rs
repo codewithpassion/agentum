@@ -981,17 +981,19 @@ pub fn run(name: Option<&str>, action: ServiceCommand) -> Result<()> {
     let unit = format!("agentum-{name}.service");
     match action {
         ServiceCommand::Uninstall => {
+            let sudoers = PathBuf::from(format!("/etc/sudoers.d/agentum-{name}"));
+            let had_sudoers = paths.system && sudoers.exists();
             uninstall(
                 &mut runner,
                 paths.system,
                 &name,
                 &user,
                 &paths.unit(&name),
-                &PathBuf::from(format!("/etc/sudoers.d/agentum-{name}")),
+                &sudoers,
             )?;
             println!(
                 "Removed {unit}{}.",
-                if paths.system {
+                if had_sudoers {
                     " and its sudoers rule"
                 } else {
                     ""
