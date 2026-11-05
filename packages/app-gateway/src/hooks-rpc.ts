@@ -30,6 +30,13 @@ export const defineHooksMain = <E>(
       operation: HostOperation
     ): Promise<unknown> {
       // The front supplies identity; untrusted app code receives only a bound stub.
+      // The front serves endpoints only, so no caller of this binding may
+      // claim a member, link, test or reply viewer.
+      if (props.viewer.kind !== "endpoint") {
+        throw new Error(
+          "forbidden: the hooks front serves endpoint viewers only"
+        );
+      }
       const host = createAppHost(props, wiring(this.env).ports);
       switch (operation.method) {
         case "callTool":

@@ -25,6 +25,14 @@ const app = `export default {
   }
   if (path === '/outbound') { const response = await fetch('https://approved.test/path'); return Response.json({ allowed: await response.json(), blocked: (await fetch('https://blocked.test/')).status }); }
   if (path === '/read') return new Response(await env.AGENTUM.getItem('shared', 'done'));
+  if (path === '/probe') {
+   const read = async (name) => { try { return (await env.AGENTUM[name]) === undefined ? 'hidden' : 'readable'; } catch { return 'hidden'; } };
+   return Response.json({ ctx: await read('ctx'), env: await read('env') });
+  }
+  if (path === '/stream') {
+   let sent = 0;
+   return new Response(new ReadableStream({ async pull(controller) { await new Promise(r => setTimeout(r, 20)); if (sent === 20) { controller.close(); return; } sent += 1; controller.enqueue(new Uint8Array(65536).fill(sent)); } }));
+  }
   return new Response(await request.arrayBuffer(), { status: 201, headers: { 'content-type': 'application/octet-stream', 'set-cookie': 'evil', 'x-path': request.url } });
  }
 };`;
@@ -270,4 +278,55 @@ test("IP and endpoint rate refusals happen before wiring or any D1 read", async 
           ]
     );
   }
+});
+
+test("the app's AGENTUM stub exposes neither the bridge env nor its context", async () => {
+  expect(await (await call("enabled/probe")).json()).toEqual({
+    ctx: "hidden",
+    env: "hidden",
+  });
+});
+
+test("a slow streamed body arrives whole after the harness has returned", async () => {
+  const bytes = new Uint8Array(
+    await (await call("enabled/stream")).arrayBuffer()
+  );
+  expect(bytes.length).toBe(20 * 65_536);
+  expect(bytes.at(-1)).toBe(20);
+});
+
+test("MAIN refuses host calls for any viewer but an endpoint", async () => {
+  const bindings = await flare.getBindings("front");
+  const main = bindings.MAIN as {
+    host: (props: unknown, operation: unknown) => Promise<unknown>;
+  };
+  const props = (viewer: unknown) => ({
+    artifactId: "a",
+    meta: { ipPrefix: null, place: null, userAgent: null, visitorHash: "" },
+    versionId: "v",
+    viewer,
+    workspaceId: "w",
+  });
+  expect(
+    await main.host(props({ endpointId: "enabled", kind: "endpoint" }), {
+      args: [],
+      method: "whoami",
+    })
+  ).toEqual({ dataMode: null, viewer: "endpoint" });
+  const outcomes = await Promise.all(
+    [
+      { kind: "member", userId: "u" },
+      { dataMode: "live", kind: "link", shareId: "s" },
+      { kind: "test" },
+      { kind: "reply", runId: "r" },
+    ].map(async (viewer) => {
+      try {
+        await main.host(props(viewer), { args: [], method: "whoami" });
+        return "accepted";
+      } catch {
+        return "refused";
+      }
+    })
+  );
+  expect(outcomes).toEqual(["refused", "refused", "refused", "refused"]);
 });
