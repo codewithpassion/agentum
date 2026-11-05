@@ -135,10 +135,21 @@ pub(crate) fn command(
         .map(shell_quote)
         .collect::<Vec<_>>()
         .join(" ");
+    let tried = if program == "systemctl" {
+        let args = args.strip_prefix(&["--user"]).unwrap_or(args);
+        match args {
+            ["restart", unit] => format!("Restart {unit}"),
+            ["enable", unit] => format!("Enable {unit}"),
+            ["daemon-reload"] => "Reload the systemd service definitions".into(),
+            _ => format!("Run systemctl {}", args.join(" ")),
+        }
+    } else {
+        line
+    };
     Err(Error::new(
         5,
         Explanation {
-            tried: line.clone(),
+            tried,
             reason: if result.stderr.trim().is_empty() {
                 "command failed or is unavailable".into()
             } else {

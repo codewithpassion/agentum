@@ -43,7 +43,13 @@ fn version_help_usage_and_service_exit_codes() {
         Some(2)
     );
     let output = command(&temp)
-        .args(["service", "install", "--system"])
+        .args([
+            "service",
+            "install",
+            "--system",
+            "--instance",
+            "rc-integration-uninstalled",
+        ])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(4));
@@ -171,7 +177,12 @@ fn doctor_without_enrolment_reports_every_area_without_launching_claude() {
 fn doctor_without_enrollment_and_malformed_code() {
     let temp = tempfile::tempdir().unwrap();
     assert_eq!(
-        command(&temp).arg("doctor").output().unwrap().status.code(),
+        command(&temp)
+            .args(["doctor", "--instance", "rc-integration-uninstalled"])
+            .output()
+            .unwrap()
+            .status
+            .code(),
         Some(4)
     );
     let output = command(&temp)
@@ -214,7 +225,11 @@ fn rendered_problems_always_explain_the_specific_failure() {
         vec!["enroll", "--url", "http://127.0.0.1:1", "--code", "bad"],
         vec!["run", "--nonsense"],
     ] {
-        let output = command(&temp).args(&args).output().unwrap();
+        let output = command(&temp)
+            .args(&args)
+            .args(["--instance", "rc-integration-uninstalled"])
+            .output()
+            .unwrap();
         assert!(!output.status.success());
         let error = String::from_utf8(output.stderr).unwrap();
         assert!(error.contains("Why:"), "{error}");
@@ -229,4 +244,113 @@ fn rendered_problems_always_explain_the_specific_failure() {
             );
         }
     }
+}
+
+#[test]
+fn doctor_reports_saved_role_failure_once_and_exits_nonzero() {
+    use agentum::{
+        instance::{Config, Paths, RunAs, atomic_write},
+        privilege::Problem,
+        wire::MachineRole,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), false);
+    let config = Config::new(
+        "m".into(),
+        "office".into(),
+        "http://127.0.0.1:1".into(),
+        vec![MachineRole::Computer],
+        false,
+        RunAs::Current,
+    );
+    paths.save("office", &config, "ag_mach_secret").unwrap();
+    let reason = Problem::Revoked.explain("user", "office").to_string();
+    atomic_write(
+        &paths.state("office").join("connection-computer.json"),
+        serde_json::to_string(&serde_json::json!({"status":"stopped", "reason":reason}))
+            .unwrap()
+            .as_bytes(),
+    )
+    .unwrap();
+    let output = command(&temp)
+        .args(["doctor", "--instance", "office"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("Problem: computer connection: Authenticate the machine"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Why: the server rejected the credential"),
+        "{text}"
+    );
+    assert!(text.contains("--instance office --replace"));
+    assert!(!text.contains(": Problem:"));
+    let summary = String::from_utf8(output.stderr).unwrap();
+    let count = text
+        .lines()
+        .filter(|line| line.starts_with("Problem:"))
+        .count();
+    assert_eq!(
+        summary.trim(),
+        format!("Doctor found {count} problems. Apply the fixes above.")
+    );
+}
+
+#[test]
+fn installed_checks_the_unit_file_without_querying_systemd() {
+    use agentum::instance::{Config, Paths, RunAs};
+    let temp = tempfile::tempdir().unwrap();
+    let paths = Paths::new(temp.path().join("config"), temp.path().join("state"), false);
+    let config = Config::new(
+        "m".into(),
+        "office".into(),
+        "http://127.0.0.1:1".into(),
+        vec![agentum::wire::MachineRole::Computer],
+        false,
+        RunAs::Current,
+    );
+    paths.save("office", &config, "ag_mach_secret").unwrap();
+    let bin = temp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let systemctl = bin.join("systemctl");
+    std::fs::write(
+        &systemctl,
+        "#!/bin/sh\necho called >> \"$HOME/systemctl-called\"\nexit 3\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let unit = temp
+        .path()
+        .join(".config/systemd/user/agentum-office.service");
+    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    for present in [false, true, false] {
+        if present {
+            std::fs::write(&unit, "fake unit").unwrap();
+        } else if unit.exists() {
+            std::fs::remove_file(&unit).unwrap();
+        }
+        let output = command(&temp)
+            .env("HOME", temp.path())
+            .env("PATH", &bin)
+            .args(["service", "installed", "--instance", "office"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(if present { 0 } else { 1 }));
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
+    assert!(!temp.path().join("systemctl-called").exists());
+    // A filesystem error must be distinguishable from an absent unit.
+    std::os::unix::fs::symlink(&unit, &unit).unwrap();
+    let output = command(&temp)
+        .env("HOME", temp.path())
+        .args(["service", "installed", "--instance", "office"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Cannot check unit file"));
 }

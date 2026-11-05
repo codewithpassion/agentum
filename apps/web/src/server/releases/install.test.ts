@@ -86,7 +86,15 @@ const install = (
   args: readonly string[] = [],
   extra: { mode?: "file" | "pipe"; systemd?: boolean } = {}
 ): Promise<RunResult> =>
-  runScript({ args, sandbox, script: script(origin), ...extra });
+  runScript({
+    args,
+    sandbox,
+    script: script(origin).replaceAll(
+      "/etc/agentum",
+      join(sandbox.root, "etc-agentum")
+    ),
+    ...extra,
+  });
 
 describe("install.sh", () => {
   test("a fresh install lands the binary and runs install-service before any enrol", async () => {

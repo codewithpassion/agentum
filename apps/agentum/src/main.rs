@@ -30,6 +30,12 @@ fn main() {
         }
         Err(error) => error.exit(),
     };
+    let installed_check = matches!(
+        cli.command,
+        Command::Service {
+            command: agentum::cli::ServiceCommand::Installed
+        }
+    );
     let running = matches!(cli.command, Command::Run(_));
     match if running {
         cli.log_format
@@ -57,9 +63,13 @@ fn main() {
     )) {
         Ok(()) => 0,
         Err(error) => {
-            if running {
+            if installed_check && error.code == 1 {
+                // An absent unit is the quiet negative result of this check.
+            } else if running {
                 tracing::error!(exit_code = error.code, message = %error, "Command failed");
-            } else if error.message.starts_with("Problem:") {
+            } else if error.message.starts_with("Doctor found ")
+                || error.message.starts_with("Problem:")
+            {
                 eprintln!("{error}");
             } else {
                 let (problem, fix) = error
@@ -187,11 +197,12 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
                 println!("{}", serde_json::to_string(&answer).unwrap());
             } else {
                 println!(
-                    "Enrolled as {}. Start with: agentum run --instance {}\nOr install a service: agentum service install --instance {}{}",
-                    answer.instance,
-                    answer.instance,
-                    answer.instance,
-                    if args.system { " --system" } else { " --user" }
+                    "{}",
+                    enrollment_guidance(
+                        &answer.instance,
+                        agentum::service::installed(&paths, &answer.instance)?,
+                        args.system
+                    )
                 );
             }
         }
@@ -251,20 +262,20 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
                 config: config.as_ref(),
             })
             .await;
-            let failed = checks
+            let problems = checks
                 .iter()
-                .any(|check| matches!(check.level, doctor::Level::Problem));
+                .filter(|check| matches!(check.level, doctor::Level::Problem))
+                .count();
             for check in checks {
-                println!("{:?}: {}: {}", check.level, check.name, check.message);
+                println!("{check}");
             }
-            if failed {
+            if problems > 0 {
                 return Err(Error::new(
                     if not_enrolled { 4 } else { 5 },
-                    if not_enrolled {
-                        "Not enrolled. Fix: agentum enroll --url <server> --code-stdin"
-                    } else {
-                        "Doctor found a missing permission or prerequisite; apply the fixes above"
-                    },
+                    format!(
+                        "Doctor found {problems} problem{}. Apply the fixes above.",
+                        if problems == 1 { "" } else { "s" }
+                    ),
                 ));
             }
         }
@@ -351,16 +362,60 @@ async fn execute(cli: Cli, environment_code: Option<&str>) -> Result<()> {
     }
     Ok(())
 }
-fn print_status(item: &Value) {
-    println!(
-        "{}  roles={}  service={}  connection={}\n  machine={} server={}",
+fn enrollment_guidance(name: &str, installed: bool, system: bool) -> String {
+    if installed {
+        format!(
+            "Enrolled as {name}. Restart it with: {}agentum service restart --instance {name}",
+            if system { "sudo " } else { "" }
+        )
+    } else {
+        format!(
+            "Enrolled as {name}. Start with: agentum run --instance {name}\nOr install a service: agentum service install --instance {name} --{}",
+            if system { "system" } else { "user" }
+        )
+    }
+}
+fn status_text(item: &Value) -> String {
+    let roles = item["roles"]
+        .as_array()
+        .map(|roles| {
+            roles
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_else(|| item["roles"].as_str().unwrap_or_default().into());
+    let mut text = format!(
+        "{}  roles={}  service={}",
         item["instance"].as_str().unwrap_or_default(),
-        item["roles"],
-        item["service"].as_str().unwrap_or_default(),
-        item["connection"],
+        roles,
+        item["service"].as_str().unwrap_or_default()
+    );
+    if let Some(connections) = item["connection"].as_object() {
+        for (role, state) in connections {
+            let status = state["status"].as_str().unwrap_or("unknown");
+            text.push_str(&format!("  {role}={status}"));
+            if status == "stopped"
+                && let Some(reason) = state["reason"].as_str()
+            {
+                let why = reason
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Why: "))
+                    .unwrap_or_else(|| reason.lines().next().unwrap_or_default());
+                text.push_str(&format!(" ({why})"));
+            }
+        }
+    }
+    text.push_str(&format!(
+        "\n  machine={} server={}",
         item["machineId"].as_str().unwrap_or_default(),
         item["server"].as_str().unwrap_or_default()
-    );
+    ));
+    text
+}
+fn print_status(item: &Value) {
+    println!("{}", status_text(item));
     if let Some(error) = item["error"].as_str() {
         println!("  {error}");
     }
@@ -370,4 +425,34 @@ fn save_config(paths: &Paths, name: &str, config: &Config) -> Result<()> {
         &paths.config(name).join("config.json"),
         &serde_json::to_vec_pretty(config).map_err(|_| Error::new(1, "Cannot encode config"))?,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_text_is_readable_and_only_shows_the_stop_reason() {
+        let item = json!({"instance":"office", "roles":["agent_host","computer"], "service":"failed", "machineId":"m", "server":"https://example.com", "connection":{
+            "agent_host":{"status":"connected"},
+            "computer":{"status":"stopped", "reason":"Problem: Connect\nWhy: This machine was revoked.\nFix: Enrol again"}
+        }});
+        assert_eq!(
+            status_text(&item),
+            "office  roles=agent_host,computer  service=failed  agent_host=connected  computer=stopped (This machine was revoked.)\n  machine=m server=https://example.com"
+        );
+    }
+
+    #[test]
+    fn installed_enrolment_guidance_restarts_the_existing_unit() {
+        assert_eq!(
+            enrollment_guidance("office", true, false),
+            "Enrolled as office. Restart it with: agentum service restart --instance office"
+        );
+        assert_eq!(
+            enrollment_guidance("office", true, true),
+            "Enrolled as office. Restart it with: sudo agentum service restart --instance office"
+        );
+        assert!(enrollment_guidance("office", false, false).contains("Start with: agentum run"));
+    }
 }

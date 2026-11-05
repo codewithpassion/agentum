@@ -32,6 +32,9 @@ impl Role for TestRole {
     fn state_file(&self) -> Option<&std::path::Path> {
         self.state_file.as_deref()
     }
+    fn machine_name(&self) -> &str {
+        "office"
+    }
     fn hello(&self) -> Value {
         json!({"type":"hello", "role":format!("{:?}", self.kind)})
     }
@@ -509,7 +512,7 @@ async fn loops_reset_their_own_backoff_and_persist_state() {
         server.await.unwrap();
         let value: Value = serde_json::from_slice(&std::fs::read(state).unwrap()).unwrap();
         assert_eq!(value["status"], "stopped");
-        assert_eq!(value["reason"], "stopped by signal");
+        assert!(value.get("reason").is_none());
     }
 }
 
@@ -605,5 +608,105 @@ async fn production_constructors_send_strict_hellos_and_log_frames() {
         )
         .unwrap();
         assert_eq!(value["status"], "stopped");
+    }
+}
+
+#[tokio::test]
+async fn connection_logs_include_acceptance_close_reason_and_retry_without_credentials() {
+    #[derive(Clone)]
+    struct Writer(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Writer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let writer = Writer(bytes.clone());
+    let subscriber = tracing::Dispatch::new(
+        tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish(),
+    );
+    // Register both dispatches so callsites first used by parallel tests consider
+    // this subscriber too, rather than caching only that thread's no-op dispatch.
+    let _other_dispatch = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+    let _guard = tracing::dispatcher::set_default(&subscriber);
+    for kind in [SocketRole::AgentHost, SocketRole::Computer] {
+        bytes.lock().unwrap().clear();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            for code in [1012, 4401] {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let mut ws = accept_async(tcp).await.unwrap();
+                ws.next().await.unwrap().unwrap();
+                if kind == SocketRole::AgentHost {
+                    ws.send(Message::text(json!({"type":"hello_ack"}).to_string()))
+                        .await
+                        .unwrap();
+                }
+                ws.send(Message::Close(Some(CloseFrame {
+                    code: CloseCode::Library(code),
+                    reason: "server maintenance hm_mach_secret".into(),
+                })))
+                .await
+                .unwrap();
+            }
+        });
+        let role = Arc::new(TestRole {
+            kind,
+            state_file: None,
+            stopped: Arc::default(),
+            replies: Arc::default(),
+        });
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            let result = relay::run(
+                role,
+                &url,
+                "hm_mach_secret",
+                CancellationToken::new(),
+                timing(),
+            )
+            .await;
+            server.await.unwrap();
+            result
+        })
+        .await
+        .expect("connection logging test stalled");
+        assert_eq!(result.unwrap_err().code, 3);
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        assert!(!text.contains("hm_mach_secret"), "{text}");
+        let entries: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        for message in [
+            "Socket connected",
+            "Server accepted connection",
+            "Socket disconnected",
+            "Reconnecting after delay",
+        ] {
+            assert!(
+                entries.iter().any(|v| v["level"] == "INFO"
+                    && v["fields"]["message"] == message
+                    && v["fields"]["machine_name"] == "office"),
+                "{text}"
+            );
+        }
+        assert!(entries.iter().any(|v| v["fields"]["close_code"] == 4401
+            && v["fields"]["reason"] == "server maintenance [redacted]"));
+        assert!(entries.iter().any(|v| v["fields"]["retry_ms"].is_number()));
+        assert!(entries.iter().any(|v| v["fields"]["acknowledgement"]
+            == if kind == SocketRole::AgentHost {
+                "hello_ack"
+            } else {
+                "websocket_upgrade"
+            }));
     }
 }

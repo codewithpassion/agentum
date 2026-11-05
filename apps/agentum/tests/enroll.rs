@@ -278,7 +278,14 @@ async fn stdin_environment_first_start_and_runtime_overrides() {
             command.env("AGENTUM_ENROLL_CODE", "ag_enr_environment");
         }
         if mode == "run" {
-            command.args(["--code", "ag_enr_run", "--allow-root", "--read-only"]);
+            command.args([
+                "--instance",
+                "cli-test",
+                "--code",
+                "ag_enr_run",
+                "--allow-root",
+                "--read-only",
+            ]);
         }
         let mut child = command.spawn().unwrap();
         // Keep stdin open: --code-stdin must return after the first line without waiting for EOF.
@@ -327,6 +334,7 @@ async fn stdin_environment_first_start_and_runtime_overrides() {
                     .env("AGENTUM_CONFIG_DIR", &paths.config_root)
                     .env("AGENTUM_STATE_DIR", &paths.state_root)
                     .args(args)
+                    .args(["--instance", "cli-test"])
                     .output()
                     .await
                     .unwrap();
@@ -395,6 +403,17 @@ async fn replacement_preserves_settings_and_name() {
     );
     config.computer.read_only = true;
     paths.save("office", &config, "ag_mach_old").unwrap();
+    std::fs::create_dir_all(paths.state("office")).unwrap();
+    for role in ["agent_host", "computer"] {
+        std::fs::write(
+            paths
+                .state("office")
+                .join(format!("connection-{role}.json")),
+            r#"{"status":"stopped","reason":"credential rejected"}"#,
+        )
+        .unwrap();
+    }
+    std::fs::write(paths.state("office").join("audit.json"), "keep").unwrap();
     let app = Router::new().route("/api/machines/enroll", post(|| async { Json(json!({"credential":"ag_mach_new", "machineId":"new", "machineName":"renamed", "roles":["computer"]})) }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -420,6 +439,18 @@ async fn replacement_preserves_settings_and_name() {
     assert!(config.computer.read_only);
     assert_eq!(config.machine_id, "new");
     assert_eq!(credential, "ag_mach_new");
+    for role in ["agent_host", "computer"] {
+        assert!(
+            !paths
+                .state("office")
+                .join(format!("connection-{role}.json"))
+                .exists()
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(paths.state("office").join("audit.json")).unwrap(),
+        "keep"
+    );
     use std::os::unix::fs::MetadataExt;
     let before = std::fs::metadata(paths.config("office").join("credential")).unwrap();
     let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_agentum"))
@@ -451,6 +482,36 @@ async fn replacement_preserves_settings_and_name() {
         (before.uid(), before.gid(), before.mode())
     );
     assert!(paths.load("office").unwrap().0.computer.read_only);
+    let unit = temp
+        .path()
+        .join(".config/systemd/user/agentum-office.service");
+    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    std::fs::write(unit, "fake installed unit").unwrap();
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_agentum"))
+        .env("HOME", temp.path())
+        .env("AGENTUM_CONFIG_DIR", &paths.config_root)
+        .env("AGENTUM_STATE_DIR", &paths.state_root)
+        .env_remove("AGENTUM_ENROLL_CODE")
+        .args([
+            "enroll",
+            "--instance",
+            "office",
+            "--replace",
+            "--code",
+            "ag_enr_next",
+        ])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("Restart it with: agentum service restart --instance office"));
+    assert!(!text.contains("Start with:"));
+    assert!(!text.contains("install a service"));
     server.abort();
 }
 
@@ -534,10 +595,11 @@ fn installer_json_keys_are_stable() {
         instance: "office".into(),
         machine_id: "m".into(),
         roles: vec![agentum::wire::MachineRole::Computer],
+        run_as: "agent-user".into(),
     })
     .unwrap();
     assert_eq!(
         value,
-        json!({"instance":"office", "machineId":"m", "roles":["computer"]})
+        json!({"instance":"office", "machineId":"m", "roles":["computer"], "runAs":"agent-user"})
     );
 }

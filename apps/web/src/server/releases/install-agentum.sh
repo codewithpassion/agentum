@@ -15,6 +15,7 @@ BIN="$BIN_DIR/agentum"
 INSTANCE=""
 RUN_AS=current
 REPLACE_OLD=false
+CODE_STDIN=false
 TMP_BIN=""
 say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -26,10 +27,12 @@ parse_args() {
         [ "$#" -ge 2 ] && [ -n "$2" ] || die "option needs a value"
         case "$1" in --code) CODE="$2" ;; --run-as) RUN_AS="$2" ;; --instance) INSTANCE="$2" ;; esac
         shift 2 ;;
+      --code-stdin) CODE_STDIN=true; shift ;;
       --replace-old) REPLACE_OLD=true; shift ;;
       -h | --help)
-        say 'Usage: AGENTUM_ENROLL_CODE=<code> sh install-agentum.sh [--instance <name>] [--run-as current|<user>|agent-user] [--replace-old]'
-        say 'Without AGENTUM_ENROLL_CODE, reads a code from stdin, or updates existing instances.'
+        say 'Usage: AGENTUM_ENROLL_CODE=<code> sh install-agentum.sh [--code-stdin] [--instance <name>] [--run-as current|<user>|agent-user] [--replace-old]'
+        say 'A code creates a new instance. Use --instance <name> to replace an enrolled instance.'
+        say 'Use --code-stdin to read a code from stdin. Without a code, updates existing instances.'
         exit 0 ;;
       *) die 'unknown option (see --help)' ;;
     esac
@@ -148,6 +151,22 @@ install_binary() {
 }
 
 
+restart_service() {
+  if "$BIN" service installed --instance "$instance"; then
+    :
+  else
+    installed_status=$?
+    if [ "$installed_status" = 1 ]; then return 1; fi
+    printf 'warning: could not check whether %s has a service\n' "$instance" >&2
+    return 2
+  fi
+  if "$BIN" service restart --instance "$instance"; then
+    say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
+  else
+    printf 'warning: could not restart %s\n' "$instance" >&2
+    return 2
+  fi
+}
 instances() {
   CONFIG_ROOT="${AGENTUM_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/agentum}"
   if [ "$MODE" = system ]; then CONFIG_ROOT=/etc/agentum; fi
@@ -155,20 +174,13 @@ instances() {
     [ -f "$config" ] || continue
     instance=${config%/config.json}
     instance=${instance##*/}
-    if "$BIN" service restart --instance "$instance"; then
-      say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
-    else
-      printf 'warning: could not restart %s\n' "$instance" >&2
-    fi
-    if [ -z "$EXISTING_INSTANCE" ]; then EXISTING_INSTANCE="$instance"; else MULTIPLE=true; fi
     FOUND=true
+    if [ -n "$CODE" ] && [ "$instance" = "$INSTANCE" ]; then continue; fi
+    restart_service || :
   done
 }
 enroll_machine() {
-  if [ -z "$CODE" ]; then
-    IFS= read -r CODE || :
-  fi
-  [ -n "$CODE" ] || die 'Supply AGENTUM_ENROLL_CODE or a code on stdin from the Machines page.'
+  [ -n "$CODE" ] || die 'Supply AGENTUM_ENROLL_CODE=<code> (or --code-stdin) from the Machines page.'
   set -- enroll --url "$HM_ORIGIN" --code-stdin --json
   if [ -n "$INSTANCE" ]; then
     [ -f "$CONFIG_ROOT/$INSTANCE/config.json" ] || die "instance $INSTANCE is not enrolled"
@@ -181,32 +193,42 @@ enroll_machine() {
   CODE=""
   instance=$(printf '%s\n' "$answer" | sed -n 's/.*"instance"[[:space:]]*:[[:space:]]*"\([a-z0-9-]*\)".*/\1/p')
   [ -n "$instance" ] || die 'Enrolment returned no instance name. Run agentum list to find the saved enrolment.'
+  say "Enrolled $instance."
   if [ -n "$INSTANCE" ]; then
-    if ! "$BIN" service restart --instance "$instance"; then
-      printf 'warning: could not restart %s\n' "$instance" >&2
+    # Replacement keeps the enrolled run-as, which can differ from this invocation.
+    RUN_AS=$(printf '%s\n' "$answer" | sed -n 's/.*"runAs"[[:space:]]*:[[:space:]]*"\([a-zA-Z0-9_-]*\)".*/\1/p')
+    [ -n "$RUN_AS" ] || die 'Enrolment returned no run-as. Run agentum status to inspect the saved enrolment.'
+    if restart_service; then
+      :
+    else
+      restart_status=$?
+      if [ "$restart_status" = 1 ]; then
+        say "Next: $BIN service install --$MODE --run-as $RUN_AS --instance $instance --yes"
+      else
+        die "Enrolled $instance, but its service could not be restarted. See the message above."
+      fi
     fi
   else
-    "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes
+    "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes ||
+      die "Enrolled $instance, but its service was not installed. Fix the problem above, then run: $BIN service install --$MODE --run-as $RUN_AS --instance $instance --yes"
+    say "Installed its $MODE service."
+    say "Next: $BIN service status --instance $instance"
   fi
-  say "Enrolled $instance and installed its $MODE service."
-  say "Next: $BIN service status --instance $instance"
 }
 main() {
   trap cleanup EXIT
   trap 'exit 1' HUP INT TERM
   parse_args "$@"
+  # Read before scanning instances so a stdin code can replace the selected one.
+  if [ "$CODE_STDIN" = true ] && [ -z "$CODE" ]; then
+    IFS= read -r CODE || :
+  fi
   check_platform
   check_old
   read_manifest
   install_binary
   FOUND=false
-  EXISTING_INSTANCE=""
-  MULTIPLE=false
   instances
-  if [ -n "$CODE" ] && [ -z "$INSTANCE" ]; then
-    [ "$MULTIPLE" = false ] || die 'Several instances are enrolled. Choose --instance <name> to replace one.'
-    INSTANCE="$EXISTING_INSTANCE"
-  fi
   if [ -n "$CODE" ] || [ "$FOUND" = false ]; then enroll_machine; fi
 }
 main "$@"

@@ -48,6 +48,9 @@ pub enum Shutdown {
 #[async_trait]
 pub trait Role: Send + Sync + 'static {
     fn kind(&self) -> SocketRole;
+    fn machine_name(&self) -> &str {
+        "unknown"
+    }
     fn state_file(&self) -> Option<&std::path::Path> {
         None
     }
@@ -124,6 +127,7 @@ pub fn retry_delay(role: SocketRole, step: u32, slow: bool, jitter: f64) -> Dura
 }
 struct End {
     code: u16,
+    reason: String,
     acknowledged: Option<Instant>,
     connected: Option<Instant>,
 }
@@ -137,10 +141,11 @@ pub async fn run(
     timing: Timing,
 ) -> Result<()> {
     let result = run_loop(role.clone(), server, credential, stop, timing).await;
-    connection_state(
-        &role,
-        json!({"status":"stopped", "reason": result.as_ref().err().map(|e| e.message.as_str()).unwrap_or("stopped by signal")}),
-    );
+    let mut state = json!({"status":"stopped"});
+    if let Err(error) = &result {
+        state["reason"] = json!(error.message);
+    }
+    connection_state(&role, state);
     result
 }
 fn role_instance(role: &Arc<dyn Role>) -> String {
@@ -174,6 +179,7 @@ async fn run_loop(
             return Ok(());
         }
         let end = session(&role, url.as_str(), credential, &stop, &timing).await;
+        tracing::info!(role = ?role.kind(), machine_name = role.machine_name(), close_code = end.code, reason = end.reason.replace(credential, "[redacted]"), "Socket disconnected");
         let reason = match end.code {
             4401 => Shutdown::Revoked,
             1012 if role.kind() == SocketRole::AgentHost => Shutdown::Replaced,
@@ -212,7 +218,7 @@ async fn run_loop(
             &role,
             json!({"status":"reconnecting", "close_code":end.code, "retry_step":step, "next_attempt": (chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default()).to_rfc3339()}),
         );
-        tracing::warn!(role = ?role.kind(), close_code = end.code, retry_ms = delay.as_millis() as u64, "Socket disconnected; reconnecting");
+        tracing::info!(role = ?role.kind(), machine_name = role.machine_name(), retry_ms = delay.as_millis() as u64, "Reconnecting after delay");
         if role.kind() == SocketRole::AgentHost {
             step = step.saturating_add(1);
         }
@@ -227,7 +233,8 @@ async fn session(
     timing: &Timing,
 ) -> End {
     let mut end = End {
-        code: 0,
+        code: 1006,
+        reason: "connection ended".into(),
         acknowledged: None,
         connected: None,
     };
@@ -246,10 +253,19 @@ async fn session(
         Ok(Ok((socket, _))) => socket,
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(response))) => {
             end.code = response.status().as_u16();
+            end.reason = format!("server returned HTTP {}", response.status());
             return end;
         }
-        _ => return end,
+        Ok(Err(error)) => {
+            end.reason = error.to_string();
+            return end;
+        }
+        Err(_) => {
+            end.reason = "connection timed out".into();
+            return end;
+        }
     };
+    tracing::info!(role = ?role.kind(), machine_name = role.machine_name(), "Socket connected");
     let connected = Instant::now();
     end.connected = Some(connected);
     let (sender, mut replies) = mpsc::channel::<Value>(64);
@@ -265,6 +281,9 @@ async fn session(
         return end;
     }
     if role.kind() == SocketRole::Computer {
+        // Computer v1 has no registration acknowledgement: the authenticated
+        // WebSocket upgrade is the server's acceptance of this connection.
+        tracing::info!(role = ?role.kind(), machine_name = role.machine_name(), acknowledgement = "websocket_upgrade", "Server accepted connection");
         connection_state(role, json!({"status":"connected"}));
     }
     let mut beats = tokio::time::interval_at(Instant::now() + timing.heartbeat, timing.heartbeat);
@@ -278,14 +297,16 @@ async fn session(
             _ => Instant::now() + Duration::from_secs(86400),
         };
         let outgoing = tokio::select! {
-            _ = stop.cancelled() => { let _ = timeout(timing.write_timeout, socket.close(None)).await; break; }
+            _ = stop.cancelled() => { end.code = 1000; end.reason = "stopped by signal".into(); let _ = timeout(timing.write_timeout, socket.close(None)).await; break; }
             _ = tokio::time::sleep_until(deadline) => {
+                end.code = 1008;
+                end.reason = "heartbeat or hello timeout".into();
                 let _ = timeout(timing.write_timeout, socket.close(Some(CloseFrame { code: CloseCode::Policy, reason: "heartbeat or hello timeout".into() }))).await;
                 break;
             }
             _ = beats.tick() => {
                 if role.kind() == SocketRole::Computer {
-                    if missed >= 2 { let _ = timeout(timing.write_timeout, socket.close(Some(CloseFrame { code: CloseCode::Policy, reason: "no heartbeat answer".into() }))).await; break; }
+                    if missed >= 2 { end.code = 1008; end.reason = "no heartbeat answer".into(); let _ = timeout(timing.write_timeout, socket.close(Some(CloseFrame { code: CloseCode::Policy, reason: "no heartbeat answer".into() }))).await; break; }
                     missed += 1;
                     Some(Message::text("ping"))
                 } else { Some(Message::text(json!({"type":"ping", "at":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)}).to_string())) }
@@ -293,14 +314,18 @@ async fn session(
             frame = replies.recv() => frame.map(|v| Message::text(v.to_string())),
             incoming = socket.next() => {
                 match incoming {
-                    Some(Ok(Message::Close(close))) => { end.code = close.map_or(1000, |c| c.code.into()); break; }
+                    Some(Ok(Message::Close(close))) => { end.code = close.as_ref().map_or(1000, |c| c.code.into()); end.reason = close.map_or_else(|| "server closed the connection".into(), |c| c.reason.to_string()); break; }
                     Some(Ok(Message::Text(text))) => {
                         last_read = Instant::now();
                         if role.kind() == SocketRole::Computer && text == "pong" { missed = 0; None }
                         else if role.kind() == SocketRole::Computer && text == "ping" { Some(Message::text("pong")) }
                         else {
                             if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                                if value["type"] == "hello_ack" && role.kind() == SocketRole::AgentHost && end.acknowledged.is_none() { end.acknowledged = Some(Instant::now()); connection_state(role, json!({"status":"connected"})); }
+                                if (value["type"] == "hello_ack" && role.kind() == SocketRole::AgentHost) && end.acknowledged.is_none() {
+                                    end.acknowledged = Some(Instant::now());
+                                    connection_state(role, json!({"status":"connected"}));
+                                    tracing::info!(role = ?role.kind(), machine_name = role.machine_name(), acknowledgement = value["type"].as_str().unwrap_or_default(), "Server accepted connection");
+                                }
                                 if let Err(error) = role.on_frame(value, reply.clone()) { tracing::warn!(code = error.code, "Role refused incoming frame"); }
                             }
                             None
@@ -308,7 +333,8 @@ async fn session(
                     }
                     Some(Ok(Message::Ping(data))) => Some(Message::Pong(data)),
                     Some(Ok(_)) => None,
-                    _ => break,
+                    Some(Err(error)) => { end.reason = error.to_string(); break; }
+                    None => { end.reason = "connection closed without a close frame".into(); break; }
                 }
             }
         };
@@ -318,9 +344,12 @@ async fn session(
                 Ok(Ok(()))
             )
         {
+            end.reason = "socket write failed or timed out".into();
             break;
         }
         if role.kind() == SocketRole::Computer && missed >= 2 {
+            end.code = 1008;
+            end.reason = "no heartbeat answer".into();
             let _ = timeout(
                 timing.write_timeout,
                 socket.close(Some(CloseFrame {

@@ -205,6 +205,9 @@ impl Role for AgentHost {
         *self.claude_version.lock().unwrap() = version;
         Ok(())
     }
+    fn machine_name(&self) -> &str {
+        &self.host.config.machine_name
+    }
     fn hello(&self) -> Value {
         serde_json::to_value(wire::daemon_hello(
             crate::VERSION,
