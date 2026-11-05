@@ -146,3 +146,31 @@ test("address procedures check and reserve across workspaces with authentication
     anonymous.agents.reserveAddress({ agentId: agent.id, local: "address" })
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("restore uses archive authorization and restores into the active list", async () => {
+  const composed = servicesFor();
+  const caller = await callerFor(
+    { orgId: "org_a", userId: "user_1" },
+    composed
+  );
+  const agent = await caller.agents.create({
+    model: "m",
+    name: "Archived",
+    runtime: "fake",
+  });
+  await caller.agents.archive({ id: agent.id });
+  expect(await caller.agents.list({})).toEqual([]);
+  expect(await caller.agents.list({ includeArchived: true })).toHaveLength(1);
+  const anonymous = await callerFor({ orgId: "org_a", userId: null }, composed);
+  await expect(
+    anonymous.agents.restore({ agentId: agent.id })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  const other = await callerFor({ orgId: "org_b", userId: "user_2" }, composed);
+  await expect(
+    other.agents.restore({ agentId: agent.id })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  expect(await caller.agents.restore({ agentId: agent.id })).toMatchObject({
+    status: "active",
+  });
+  expect(await caller.agents.list({})).toHaveLength(1);
+});

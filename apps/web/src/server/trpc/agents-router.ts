@@ -47,6 +47,11 @@ export const agentsRouter = router({
         input.local
       )
     ),
+  restore: workspaceProcedure
+    .input(z.strictObject({ agentId: z.string().min(1) }))
+    .mutation(({ ctx, input }) =>
+      ctx.services.agents.restore(ctx.principal, input.agentId)
+    ),
   setOwners: workspaceProcedure
     .input(agentOwnersSchema.extend({ id: z.string().min(1) }))
     .mutation(({ ctx, input: { id, ...owners } }) =>

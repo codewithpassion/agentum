@@ -85,14 +85,18 @@ export function ProfileHeader({
           )}
         </div>
       </div>
-      <Button onClick={onEdit} variant="outline">
-        Edit
-      </Button>
-      <NewTaskDialog
-        agents={agents}
-        onStarted={onStarted}
-        triggerLabel="Run now"
-      />
+      {header.status === "archived" ? null : (
+        <>
+          <Button onClick={onEdit} variant="outline">
+            Edit
+          </Button>
+          <NewTaskDialog
+            agents={agents}
+            onStarted={onStarted}
+            triggerLabel="Run now"
+          />
+        </>
+      )}
     </header>
   );
 }
