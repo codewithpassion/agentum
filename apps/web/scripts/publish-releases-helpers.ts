@@ -1,3 +1,4 @@
+import type { Product } from "@repo/protocol/releases";
 // Pure helpers for publish-releases.ts. Hashing happens in memory, and nothing
 // here touches the network or the filesystem. Tested in publish-releases.test.ts.
 
@@ -12,7 +13,6 @@ import {
   manifestKey,
   manifestSchema,
   PRODUCT_FILES,
-  type Product,
   releaseVersion,
   serializeManifest,
 } from "../src/server/releases/manifest.ts";

@@ -180,3 +180,25 @@ test("Rust clients compare only the Rust product's version", () => {
   expect(isDaemonOutdated(mutable, "0.1.0+rust", "0.1.0+new")).toBe(true);
   expect(isDaemonOutdated(mutable, "0.1.0+old", null)).toBe(false);
 });
+
+test("computer-only Rust clients get the Rust update hint", () => {
+  const machine = {
+    capabilities: {},
+    computerCapabilities: { clientVersion: "agentum-rs@0.1.0+old" },
+    daemonVersion: null,
+    roles: ["computer"] as MachineRole[],
+    status: "offline" as const,
+  };
+  expect(isDaemonOutdated(machine, "0.1.0+go", "0.1.0+new")).toBe(true);
+  expect(isDaemonOutdated(machine, "0.1.0+go", "0.1.0+old")).toBe(false);
+  expect(isDaemonOutdated({ ...machine, status: "revoked" }, null, "new")).toBe(
+    false
+  );
+  expect(
+    isDaemonOutdated(
+      { ...machine, computerCapabilities: { clientVersion: "0.1.0+go" } },
+      "new",
+      "new"
+    )
+  ).toBe(false);
+});

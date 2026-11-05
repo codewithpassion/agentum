@@ -134,6 +134,35 @@ fn slugs_instances_and_private_files() {
 
 #[test]
 fn every_privilege_explanation_renders() {
+    for problem in [
+        Problem::PrivateClaude,
+        Problem::ClaudeMissing,
+        Problem::ClaudeOld,
+        Problem::ClaudeLogin,
+        Problem::ConfigOwner,
+        Problem::ConfigMode,
+        Problem::Unreachable,
+        Problem::Tls,
+        Problem::Plaintext,
+        Problem::Redirect,
+        Problem::Revoked,
+        Problem::Desktop,
+        Problem::Root,
+        Problem::Systemd,
+        Problem::SystemManager,
+        Problem::UserBus,
+        Problem::Linger,
+        Problem::SystemRoot,
+    ] {
+        let explanation = problem.explain("dom", "office");
+        assert!(!explanation.reason.trim().is_empty());
+        let rendered = explanation.to_string();
+        assert!(rendered.contains("Why:"), "{rendered}");
+        assert!(
+            !rendered.contains("The command could not complete."),
+            "{rendered}"
+        );
+    }
     assert!(
         Problem::UserBus
             .explain("dom", "office")

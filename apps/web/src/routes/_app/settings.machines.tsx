@@ -42,7 +42,7 @@ export const Route = createFileRoute("/_app/settings/machines")({
 });
 
 interface DialogState {
-  machine?: { id: string; name: string };
+  machine?: { id: string; name: string; rust?: boolean };
   role: MachineRole;
 }
 
@@ -68,7 +68,7 @@ function MachinesPage() {
   );
 
   const addComputerTo = useCallback(
-    (machine: { id: string; name: string }) =>
+    (machine: { id: string; name: string; rust?: boolean }) =>
       setDialog({ role: "computer", machine }),
     []
   );

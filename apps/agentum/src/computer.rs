@@ -397,7 +397,7 @@ impl Role for Computer {
             &wire::hostname(),
             wire::os(),
             wire::arch(),
-            crate::VERSION,
+            &format!("agentum-rs@{}", crate::VERSION),
             &self.config.run_as.user(&self.name),
             &self
                 .engine

@@ -516,6 +516,7 @@ async fn real_role_keeps_commands_across_replacement_and_audits_dropped_reply() 
         let hello: Value =
             serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
         assert_eq!(hello["protocol_version"], 1);
+        assert_eq!(hello["version"], format!("agentum-rs@{}", crate::VERSION));
         assert!(hello.get("features").is_none());
         socket
             .send(Message::text(

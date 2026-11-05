@@ -204,3 +204,29 @@ fn all_help_entries_have_descriptions_and_examples() {
     }
     check(agentum::cli::Cli::command());
 }
+
+#[test]
+fn rendered_problems_always_explain_the_specific_failure() {
+    let temp = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["status"],
+        vec!["service", "restart"],
+        vec!["enroll", "--url", "http://127.0.0.1:1", "--code", "bad"],
+        vec!["run", "--nonsense"],
+    ] {
+        let output = command(&temp).args(&args).output().unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("Why:"), "{error}");
+        assert!(
+            !error.contains("The command could not complete."),
+            "{error}"
+        );
+        if args == ["status"] {
+            assert!(
+                error.contains("Why: No instance is enrolled on this machine for this user."),
+                "{error}"
+            );
+        }
+    }
+}

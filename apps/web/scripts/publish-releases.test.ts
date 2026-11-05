@@ -1,13 +1,13 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
+import type { Product } from "@repo/protocol/releases";
 import { file } from "bun";
 import {
   fileKey,
   manifestKey,
   manifestSchema,
   PRODUCT_FILES,
-  type Product,
   serializeManifest,
 } from "../src/server/releases/manifest.ts";
 import { publish } from "./publish-releases.ts";

@@ -45,7 +45,11 @@ interface MachineRowProps {
   latestDaemonVersion: string | null;
   latestRustVersion: string | null;
   machine: MachineRecord;
-  onAddComputer: (machine: { id: string; name: string }) => void;
+  onAddComputer: (machine: {
+    id: string;
+    name: string;
+    rust?: boolean;
+  }) => void;
   onRevoke: (machine: { id: string; name: string }) => void;
   /** This deployment's origin, for the update command. Null while it is unknown. */
   origin: string | null;
@@ -63,8 +67,8 @@ export function MachineRow({
   const rust = daemonProduct(machine) === "agentum-rs";
   const latestVersion = rust ? latestRustVersion : latestDaemonVersion;
   const handleAddComputer = useCallback(
-    () => onAddComputer({ id, name }),
-    [onAddComputer, id, name]
+    () => onAddComputer({ id, name, rust }),
+    [onAddComputer, id, name, rust]
   );
   const handleRevoke = useCallback(
     () => onRevoke({ id, name }),
@@ -86,7 +90,7 @@ export function MachineRow({
           )}
           {isDaemonOutdated(machine, latestDaemonVersion, latestRustVersion) ? (
             <p className="text-sm">
-              Daemon update available ({latestVersion}).
+              Client update available ({latestVersion}).
               {origin === null ? null : (
                 <>
                   {" "}

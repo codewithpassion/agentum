@@ -33,6 +33,7 @@ import {
   type RolesEnrollRequest,
   type RolesEnrollResponse,
 } from "@repo/protocol/machine";
+import type { Product } from "@repo/protocol/releases";
 import { ENROLL_CODE, MACHINE_CREDENTIAL } from "@repo/protocol/token-prefixes";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -195,9 +196,7 @@ export const createMachinesService = ({
   db: Database;
   events: EventsService;
   /** The version of the newest published daemon, or null when there is none. Without it the answer is null. */
-  latestDaemonVersion?: (
-    product?: "agentum" | "agentum-rs"
-  ) => Promise<string | null>;
+  latestDaemonVersion?: (product?: Product) => Promise<string | null>;
   relay: MachineRelayPort;
 }) => {
   const nowIso = () => clock.now().toISOString();
@@ -641,7 +640,7 @@ export const createMachinesService = ({
   /** The newest published daemon version, for the machines page to compare against. */
   const newestDaemonVersion = async (
     principal: Principal,
-    product: "agentum" | "agentum-rs" = "agentum"
+    product: Product = "agentum"
   ): Promise<string | null> => {
     if (principal.kind === "system") {
       throw new ForbiddenError(READ_ACTION);

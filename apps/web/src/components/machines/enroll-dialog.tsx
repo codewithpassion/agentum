@@ -14,7 +14,9 @@ import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import { CommandBlock } from "./command-block";
 import {
+  AGENTUM_DESKTOP_SECCOMP_NOTE,
   agentumCommand,
+  agentumDockerCommand,
   binaryCommand,
   DESKTOP_SECCOMP_NOTE,
   daemonCommand,
@@ -42,20 +44,34 @@ const ROLE_HINTS: Record<MachineEnrollRole, string> = {
 };
 
 interface EnrollDialogProps {
-  machine?: { id: string; name: string };
+  machine?: { id: string; name: string; rust?: boolean };
   onClose: () => void;
   role: MachineEnrollRole;
 }
+
+export const RUST_ADD_ROLE_NOTE =
+  "Re-enrol this Rust host with a new both-roles code and --replace. Use agentum list to find its instance; use sudo for a system instance. This creates a new machine record: reassign its agents and revoke the old record afterwards.";
+
+export const computerRoleEnrollment = (machine: {
+  id: string;
+  name: string;
+  rust?: boolean;
+}) =>
+  machine.rust
+    ? { machineName: machine.name, role: "both" as const }
+    : { machineId: machine.id, role: "computer" as const };
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
 const dialogDescription = (
-  machine: { name: string } | undefined,
+  machine: { name: string; rust?: boolean } | undefined,
   token: EnrollToken | null
 ): string => {
   if (machine) {
-    return `Add the computer role to ${machine.name}.`;
+    return machine.rust
+      ? RUST_ADD_ROLE_NOTE
+      : `Add the computer role to ${machine.name}.`;
   }
   if (token === null) {
     return "Choose a role, name the machine, then create an enrol code for it.";
@@ -157,14 +173,16 @@ export function EnrollDialog({
     try {
       const created = machine
         ? await getTrpc().machines.createEnrollToken.mutate({
-            machineId: machine.id,
-            role: "computer",
+            ...computerRoleEnrollment(machine),
           })
         : await getTrpc().machines.createEnrollToken.mutate({
             machineName,
             role,
           });
-      setToken({ ...created, role: machine ? "computer" : role });
+      setToken({
+        ...created,
+        role: machine ? computerRoleEnrollment(machine).role : role,
+      });
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -188,11 +206,31 @@ export function EnrollDialog({
 
         {token ? (
           <div className="flex flex-col gap-4">
-            {machine === undefined && (
+            {machine?.rust ? (
               <CommandBlock
-                command={agentumCommand(origin, token.code)}
-                heading="Agentum (Linux)"
+                command={`AGENTUM_ENROLL_CODE=${token.code} agentum enroll --instance <instance> --replace\nagentum service restart --instance <instance>`}
+                heading="Replace the existing Rust enrolment"
               />
+            ) : null}
+            {machine === undefined && (
+              <>
+                <CommandBlock
+                  command={agentumCommand(origin, token.code)}
+                  heading="Agentum (Linux)"
+                />
+                <CommandBlock
+                  command={agentumDockerCommand(origin, token.code)}
+                  heading="Docker, headless"
+                />
+                <CommandBlock
+                  command={agentumDockerCommand(origin, token.code, true)}
+                  heading="Docker, with a desktop"
+                >
+                  <p className="text-muted-foreground text-sm">
+                    {AGENTUM_DESKTOP_SECCOMP_NOTE}
+                  </p>
+                </CommandBlock>
+              </>
             )}
             {token.role !== "both" && (
               <details open={machine !== undefined}>

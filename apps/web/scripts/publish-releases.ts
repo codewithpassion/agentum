@@ -14,14 +14,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { PRODUCTS, type Product } from "@repo/protocol/releases";
 import { file, spawnSync } from "bun";
 import { z } from "zod";
-import {
-  manifestKey,
-  PRODUCT_FILES,
-  PRODUCTS,
-  type Product,
-} from "../src/server/releases/manifest.ts";
+import { manifestKey, PRODUCT_FILES } from "../src/server/releases/manifest.ts";
 import {
   artifactDir,
   artifactPath,

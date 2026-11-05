@@ -216,6 +216,7 @@ export const renderTemplate = (templatePath: string, origin: string): string =>
 
 export interface RunOptions {
   readonly args?: readonly string[];
+  readonly env?: Record<string, string>;
   /** `pipe` runs `sh -s -- <args>` with the script on stdin, as users do. `file` runs it from a file. */
   readonly mode?: "file" | "pipe";
   readonly sandbox: Sandbox;
@@ -227,6 +228,7 @@ export interface RunOptions {
 }
 
 export interface RunResult {
+  readonly argv: readonly string[];
   readonly exitCode: number;
   readonly stderr: string;
   readonly stdout: string;
@@ -237,37 +239,31 @@ export const runScript = async (options: RunOptions): Promise<RunResult> => {
   const { args = [], mode = "pipe", sandbox, script } = options;
   const systemd = options.systemd ?? true;
   const env = {
+    ...options.env,
     HM_SYSTEMD_RUN_DIR: systemd
       ? sandbox.systemdDir
       : join(sandbox.root, "no-systemd"),
     HOME: sandbox.home,
     PATH: [sandbox.stubBin, "/usr/local/bin", "/usr/bin", "/bin"].join(":"),
   };
-  const proc =
-    mode === "file"
-      ? (() => {
-          const path = join(sandbox.root, "install.sh");
-          writeFileSync(path, script);
-          return spawn(["sh", path, ...args], {
-            env,
-            stderr: "pipe",
-            stdin:
-              options.stdin === undefined
-                ? "ignore"
-                : new Blob([options.stdin]),
-            stdout: "pipe",
-          });
-        })()
-      : spawn(["sh", "-s", "--", ...args], {
-          env,
-          stderr: "pipe",
-          stdin: new Blob([script]),
-          stdout: "pipe",
-        });
+  const scriptPath = join(sandbox.root, "install.sh");
+  const argv =
+    mode === "file" ? ["sh", scriptPath, ...args] : ["sh", "-s", "--", ...args];
+  if (mode === "file") {
+    writeFileSync(scriptPath, script);
+  }
+  const input =
+    options.stdin === undefined ? "ignore" : new Blob([options.stdin]);
+  const proc = spawn(argv, {
+    env,
+    stderr: "pipe",
+    stdin: mode === "pipe" ? new Blob([script]) : input,
+    stdout: "pipe",
+  });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  return { exitCode, stderr, stdout };
+  return { argv, exitCode, stderr, stdout };
 };

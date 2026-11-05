@@ -274,6 +274,9 @@ main() {
   trap cleanup EXIT
   trap 'exit 1' HUP INT TERM
   parse_args "$@"
+  for config in "$HOME/.config/agentum"/*/config.json "${AGENTUM_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/agentum}"/*/config.json /etc/agentum/*/config.json; do
+    [ ! -f "$config" ] || die 'Rust instances found. Use install-agentum.sh to update them.'
+  done
   check_platform
   read_manifest
   install_binary

@@ -1,6 +1,8 @@
 #!/bin/sh
 # Keep all work in main so a truncated curl response cannot run half an install.
 set -eu
+CODE="${AGENTUM_ENROLL_CODE:-}"
+unset AGENTUM_ENROLL_CODE
 HM_ORIGIN="@@HM_ORIGIN@@"
 PRODUCT=agentum-rs
 BIN_DIR="${HOME:?HOME is not set}/.local/bin"
@@ -10,7 +12,7 @@ if [ "$(id -u)" = 0 ]; then
   MODE=system
 fi
 BIN="$BIN_DIR/agentum"
-CODE=""
+INSTANCE=""
 RUN_AS=current
 REPLACE_OLD=false
 TMP_BIN=""
@@ -20,14 +22,14 @@ cleanup() { if [ -n "$TMP_BIN" ]; then rm -f "$TMP_BIN"; fi; }
 parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --code | --run-as)
+      --code | --run-as | --instance)
         [ "$#" -ge 2 ] && [ -n "$2" ] || die "option needs a value"
-        case "$1" in --code) CODE="$2" ;; --run-as) RUN_AS="$2" ;; esac
+        case "$1" in --code) CODE="$2" ;; --run-as) RUN_AS="$2" ;; --instance) INSTANCE="$2" ;; esac
         shift 2 ;;
       --replace-old) REPLACE_OLD=true; shift ;;
       -h | --help)
-        say 'Usage: install-agentum.sh [--code <code>] [--run-as current|<user>|agent-user] [--replace-old]'
-        say 'Without --code, reads a code from stdin, or updates existing instances.'
+        say 'Usage: AGENTUM_ENROLL_CODE=<code> sh install-agentum.sh [--instance <name>] [--run-as current|<user>|agent-user] [--replace-old]'
+        say 'Without AGENTUM_ENROLL_CODE, reads a code from stdin, or updates existing instances.'
         exit 0 ;;
       *) die 'unknown option (see --help)' ;;
     esac
@@ -36,22 +38,53 @@ parse_args() {
     die 'Named users and agent-user require root. Run this installer as root.'
   fi
 }
-old_daemon() {
-  [ -f "$HOME/.agentum/config.json" ] ||
-    [ -f "$HOME/.config/systemd/user/agentum.service" ] ||
-    [ -f /etc/systemd/system/agentum.service ] ||
-    systemctl --user cat agentum.service >/dev/null 2>&1 ||
-    systemctl cat agentum.service >/dev/null 2>&1
+# Under sudo, the invoking user's bus needs its runtime directory as well.
+user_systemctl() {
+  if [ -n "$OLD_USER" ]; then
+    runuser -u "$OLD_USER" -- env "XDG_RUNTIME_DIR=/run/user/$OLD_UID" "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$OLD_UID/bus" systemctl --user "$@"
+  else
+    systemctl --user "$@"
+  fi
+}
+retire_user_daemon() {
+  if [ -f "$OLD_HOME/.agentum/config.json" ] ||
+    [ -f "$OLD_HOME/.config/systemd/user/agentum.service" ] ||
+    user_systemctl cat agentum.service >/dev/null 2>&1; then
+    [ "$REPLACE_OLD" = true ] || die 'Old daemon found. Use --replace-old to stop and disable it before replacing the binary.'
+    if [ -f "$OLD_HOME/.config/systemd/user/agentum.service" ] || user_systemctl cat agentum.service >/dev/null 2>&1; then
+      user_systemctl disable --now agentum.service
+      rm -f "$OLD_HOME/.config/systemd/user/agentum.service"
+      user_systemctl daemon-reload
+    fi
+    if [ -f "$OLD_HOME/.agentum/config.json" ]; then
+      mv "$OLD_HOME/.agentum/config.json" "$OLD_HOME/.agentum/config.json.replaced"
+    fi
+    RETIRED=true
+  fi
 }
 check_old() {
-  if old_daemon; then
+  RETIRED=false
+  # Refuse before changing any user unit when root is needed for the system unit.
+  if [ -f /etc/systemd/system/agentum.service ] || systemctl cat agentum.service >/dev/null 2>&1; then
     [ "$REPLACE_OLD" = true ] || die 'Old daemon found. Use --replace-old to stop and disable it before replacing the binary.'
-    if systemctl --user cat agentum.service >/dev/null 2>&1 || [ -f "$HOME/.config/systemd/user/agentum.service" ]; then
-      systemctl --user disable --now agentum.service
-    fi
-    if systemctl cat agentum.service >/dev/null 2>&1 || [ -f /etc/systemd/system/agentum.service ]; then
-      systemctl disable --now agentum.service
-    fi
+    [ "$MODE" = system ] || die 'run as root to replace the system unit'
+    systemctl disable --now agentum.service
+    rm -f /etc/systemd/system/agentum.service
+    systemctl daemon-reload
+    RETIRED=true
+  fi
+  OLD_HOME="$HOME"
+  OLD_USER=""
+  if [ "$MODE" = system ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    SUDO_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    [ -n "$SUDO_HOME" ] || die "could not find home for $SUDO_USER"
+    OLD_UID=$(id -u "$SUDO_USER")
+    if [ "$SUDO_HOME" != "$HOME" ]; then retire_user_daemon; fi
+    OLD_HOME="$SUDO_HOME"
+    OLD_USER="$SUDO_USER"
+  fi
+  retire_user_daemon
+  if [ "$RETIRED" = true ]; then
     say 'Stopped and disabled the old daemon. Please revoke the old machine on the Machines page.'
   fi
 }
@@ -122,8 +155,12 @@ instances() {
     [ -f "$config" ] || continue
     instance=${config%/config.json}
     instance=${instance##*/}
-    "$BIN" service restart --instance "$instance"
-    say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
+    if "$BIN" service restart --instance "$instance"; then
+      say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
+    else
+      printf 'warning: could not restart %s\n' "$instance" >&2
+    fi
+    if [ -z "$EXISTING_INSTANCE" ]; then EXISTING_INSTANCE="$instance"; else MULTIPLE=true; fi
     FOUND=true
   done
 }
@@ -131,14 +168,26 @@ enroll_machine() {
   if [ -z "$CODE" ]; then
     IFS= read -r CODE || :
   fi
-  [ -n "$CODE" ] || die 'Supply --code or a code on stdin from the Machines page.'
-  set -- enroll --url "$HM_ORIGIN" --code-stdin --json --run-as "$RUN_AS"
-  if [ "$MODE" = system ]; then set -- "$@" --system; fi
+  [ -n "$CODE" ] || die 'Supply AGENTUM_ENROLL_CODE or a code on stdin from the Machines page.'
+  set -- enroll --url "$HM_ORIGIN" --code-stdin --json
+  if [ -n "$INSTANCE" ]; then
+    [ -f "$CONFIG_ROOT/$INSTANCE/config.json" ] || die "instance $INSTANCE is not enrolled"
+    set -- "$@" --instance "$INSTANCE" --replace
+  else
+    set -- "$@" --run-as "$RUN_AS"
+    if [ "$MODE" = system ]; then set -- "$@" --system; fi
+  fi
   answer=$(printf '%s\n' "$CODE" | "$BIN" "$@") || die 'Enrolment failed. See the message above.'
   CODE=""
   instance=$(printf '%s\n' "$answer" | sed -n 's/.*"instance"[[:space:]]*:[[:space:]]*"\([a-z0-9-]*\)".*/\1/p')
   [ -n "$instance" ] || die 'Enrolment returned no instance name. Run agentum list to find the saved enrolment.'
-  "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes
+  if [ -n "$INSTANCE" ]; then
+    if ! "$BIN" service restart --instance "$instance"; then
+      printf 'warning: could not restart %s\n' "$instance" >&2
+    fi
+  else
+    "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes
+  fi
   say "Enrolled $instance and installed its $MODE service."
   say "Next: $BIN service status --instance $instance"
 }
@@ -151,7 +200,13 @@ main() {
   read_manifest
   install_binary
   FOUND=false
+  EXISTING_INSTANCE=""
+  MULTIPLE=false
   instances
+  if [ -n "$CODE" ] && [ -z "$INSTANCE" ]; then
+    [ "$MULTIPLE" = false ] || die 'Several instances are enrolled. Choose --instance <name> to replace one.'
+    INSTANCE="$EXISTING_INSTANCE"
+  fi
   if [ -n "$CODE" ] || [ "$FOUND" = false ]; then enroll_machine; fi
 }
 main "$@"

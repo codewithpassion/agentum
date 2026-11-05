@@ -205,12 +205,26 @@ Both Dockerfiles select the artifact for Docker's target architecture. For a
 multi-platform builder, use `--platform linux/amd64,linux/arm64`. Neither build
 pushes an image. The images run as uid 1000 under tini. Persist `/var/lib/agentum`,
 which holds both config and state through `AGENTUM_CONFIG_DIR` and
-`AGENTUM_STATE_DIR`. Pass `--url <origin> --code-stdin` and supply the enrolment
-code on stdin on first start, or set `AGENTUM_ENROLL_CODE`. The code's roles are
-used. Computer-only containers work as shipped; agent-host containers also need
-a compatible Claude CLI installed and its login available to uid 1000. Desktop
-Chromium needs user namespaces permitted by the host's container policy (see the
-existing computer desktop seccomp profile); its sandbox remains enabled.
+`AGENTUM_STATE_DIR`. Set `AGENTUM_ENROLL_CODE` and pass `--url <origin>` on
+first start. The code's roles are used. Computer-only containers work as shipped; agent-host containers also need
+a compatible Claude CLI installed and its login available to uid 1000.
+For a desktop, run from `apps/agentum` with the shipped profile:
+
+```sh
+docker run -d --restart unless-stopped --name agentum-desktop \
+  --shm-size=256m --cap-drop ALL --cap-add SYS_CHROOT \
+  --security-opt no-new-privileges \
+  --security-opt seccomp=packaging/desktop/seccomp.json \
+  -v agentum-desktop:/var/lib/agentum \
+  -e AGENTUM_ENROLL_CODE=<code> \
+  ghcr.io/codewithpassion/agentum:desktop --url <origin>
+```
+
+For headless use, omit the desktop security flags and use `agentum:latest`.
+Chromium needs user namespaces permitted by the host; its sandbox remains enabled.
+The computer hello identifies this client with `agentum-rs@<version>` in its
+existing version field, so computer-only machines can pick the Rust update product.
+The CLI, daemon hello and release manifest keep the plain `<version>+<sha>` string.
 
 The Machines page's Linux command serves `/install-agentum.sh`. It verifies the
 release checksum, enrols through stdin and installs a user service (system
@@ -218,3 +232,18 @@ service when root). `--run-as` selects the enrolment and service mode together.
 Existing instances are restarted on update. Replacing an old daemon requires
 `--replace-old`; revoke its old machine record afterwards. The older installers
 and Docker images continue to serve machines running the old clients.
+
+To add a role to a Rust host, create a new **Both roles** code on the Machines
+page and replace the existing instance (find its name with `agentum list`):
+
+```sh
+AGENTUM_ENROLL_CODE=<code> agentum enroll --instance <instance> --replace
+agentum service restart --instance <instance>
+```
+
+The Machines page's **Add computer role** dialog does this for Rust hosts. A code
+bound to an existing machine cannot be used by the Rust client. Replacement keeps
+local service settings, but creates a new server machine record: reassign agents
+to it and revoke the old record. The installer also accepts `--instance <name>`
+with `AGENTUM_ENROLL_CODE` to replace one instance; with exactly one enrolled
+instance it selects it automatically.

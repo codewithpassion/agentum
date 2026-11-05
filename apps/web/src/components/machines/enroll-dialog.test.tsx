@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { EnrollRoleChoices } from "./enroll-dialog";
+import {
+  computerRoleEnrollment,
+  EnrollRoleChoices,
+  RUST_ADD_ROLE_NOTE,
+} from "./enroll-dialog";
 
 const noop = () => undefined;
 
@@ -12,4 +16,16 @@ test("the enrol dialog offers each role and both together", () => {
   expect(html).toContain("Computer");
   expect(html).toContain("Both roles");
   expect(html).toContain('aria-pressed="true"');
+});
+
+test("adding a role to Rust creates an unbound both-roles code and explains replacement", () => {
+  expect(
+    computerRoleEnrollment({ id: "m", name: "Office", rust: true })
+  ).toEqual({ machineName: "Office", role: "both" });
+  expect(computerRoleEnrollment({ id: "m", name: "Office" })).toEqual({
+    machineId: "m",
+    role: "computer",
+  });
+  expect(RUST_ADD_ROLE_NOTE).toContain("both-roles code");
+  expect(RUST_ADD_ROLE_NOTE).toContain("--replace");
 });

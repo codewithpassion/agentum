@@ -1,11 +1,7 @@
+import type { Product } from "@repo/protocol/releases";
 // Reading release objects back from R2.
 
-import {
-  type Manifest,
-  manifestKey,
-  manifestSchema,
-  type Product,
-} from "./manifest.ts";
+import { type Manifest, manifestKey, manifestSchema } from "./manifest.ts";
 
 /** The slice of an R2 object the release code reads. `R2ObjectBody` satisfies it. */
 export interface ReleaseObject {

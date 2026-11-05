@@ -70,10 +70,12 @@ fn main() {
                         &error.message,
                         "Follow the command guidance above; use agentum --help for usage.",
                     ));
-                eprintln!(
-                    "Problem: {}\nWhy: The command could not complete.\nFix: {fix}",
+                let reason = if problem.trim() == "Not enrolled" {
+                    "No instance is enrolled on this machine for this user."
+                } else {
                     problem.trim()
-                );
+                };
+                eprintln!("Problem: {}\nWhy: {reason}\nFix: {fix}", problem.trim());
             }
             error.code
         }

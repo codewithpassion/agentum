@@ -527,3 +527,17 @@ async fn pre_enrollment_network_fix_uses_the_real_command_and_name() {
     assert!(!error.message.contains("agentum doctor"));
     assert!(!error.message.contains("ag_enr_secret"));
 }
+
+#[test]
+fn installer_json_keys_are_stable() {
+    let value = serde_json::to_value(agentum::enroll::Enrolled {
+        instance: "office".into(),
+        machine_id: "m".into(),
+        roles: vec![agentum::wire::MachineRole::Computer],
+    })
+    .unwrap();
+    assert_eq!(
+        value,
+        json!({"instance":"office", "machineId":"m", "roles":["computer"]})
+    );
+}
