@@ -5,7 +5,13 @@ export default function HeaderUser() {
   return (
     <>
       <Show when="signed-in">
-        <UserButton />
+        <UserButton
+          appearance={{
+            elements: {
+              userButtonTrigger: { minHeight: "40px", minWidth: "40px" },
+            },
+          }}
+        />
       </Show>
       <Show when="signed-out">
         <Link className="nav-link" to="/login">

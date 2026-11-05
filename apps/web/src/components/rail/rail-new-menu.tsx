@@ -5,7 +5,7 @@ import { Button } from "#/components/ui/button";
 import { RailLink, useGo } from "./rail-link.tsx";
 
 /** Below `md` a header action is a square icon button, its label hidden. */
-export const ACTION_BUTTON_CLASS = "max-md:w-8 max-md:px-0";
+export const ACTION_BUTTON_CLASS = "max-md:size-10 max-md:px-0";
 
 /**
  * Closes the menu on Escape and on a press outside `ref`. It stays out of the

@@ -13,10 +13,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
+import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
 import { InviteDialog } from "./invite-dialog.tsx";
 import { MEMBER_PROFILE_APPEARANCE } from "./invite-logic.ts";
 import { NewWorkspaceDialog } from "./new-workspace-dialog.tsx";
+import { settingsHref } from "./rail-footer.tsx";
+import { useGo } from "./rail-link.tsx";
 import { useSwitchWorkspace } from "./use-switch-workspace.ts";
 import {
   canCreateWorkspace,
@@ -26,6 +29,18 @@ import {
 } from "./workspace-menu-logic.ts";
 
 const MINE_POLL_MS = 5 * 60_000;
+
+export function WorkspaceSettingsItem({
+  admin,
+  onSelect,
+}: {
+  admin: boolean;
+  onSelect: () => void;
+}) {
+  return admin ? (
+    <DropdownMenuItem onSelect={onSelect}>Settings</DropdownMenuItem>
+  ) : null;
+}
 
 function ChoiceItem({
   choice,
@@ -65,6 +80,12 @@ function ChoiceItem({
  */
 export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
   const clerk = useClerk();
+  const isMobile = useIsMobile();
+  const go = useGo();
+  const openSettings = useCallback(() => {
+    onNavigate();
+    go(settingsHref(isMobile));
+  }, [go, isMobile, onNavigate]);
   const { organization } = useOrganization();
   const { userMemberships } = useOrganizationList({
     userMemberships: { infinite: true, pageSize: 100 },
@@ -134,6 +155,7 @@ export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
               Invite people
             </DropdownMenuItem>
           ) : null}
+          <WorkspaceSettingsItem admin={canInvite} onSelect={openSettings} />
           {canCreate ? (
             <DropdownMenuItem onSelect={openCreate}>
               New workspace

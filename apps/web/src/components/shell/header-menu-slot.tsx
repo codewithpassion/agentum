@@ -1,6 +1,8 @@
+import { PanelLeft } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { SidebarTrigger } from "#/components/ui/sidebar";
+import { Button } from "#/components/ui/button";
+import { useSidebar } from "#/components/ui/sidebar";
 
 /** Id of the site header element that holds the phone menu button. */
 export const APP_HEADER_MENU_SLOT = "app-header-menu-slot";
@@ -20,10 +22,35 @@ function SlotPortal({ children, id }: { children: ReactNode; id: string }) {
 }
 
 /** Renders the sidebar toggle inside the site header, on phones only. */
-export function HeaderMenuButton() {
+export function RailMenuTrigger({
+  count,
+  onClick,
+}: {
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      aria-label={`Open rail, ${count} need you`}
+      className="relative size-10"
+      onClick={onClick}
+      variant="ghost"
+    >
+      <PanelLeft />
+      {count > 0 ? (
+        <span className="absolute top-0 -right-1 rounded bg-primary px-1 font-bold text-[11px] text-primary-foreground">
+          {count}
+        </span>
+      ) : null}
+    </Button>
+  );
+}
+
+export function HeaderMenuButton({ count }: { count: number }) {
+  const { toggleSidebar } = useSidebar();
   return (
     <SlotPortal id={APP_HEADER_MENU_SLOT}>
-      <SidebarTrigger className="size-10" />
+      <RailMenuTrigger count={count} onClick={toggleSidebar} />
     </SlotPortal>
   );
 }

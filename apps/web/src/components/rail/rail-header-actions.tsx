@@ -1,9 +1,13 @@
 import { useRouterState } from "@tanstack/react-router";
 import { Kanban, Search } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { cn } from "#/lib/utils";
 import { RailLink } from "./rail-link.tsx";
 import { ACTION_BUTTON_CLASS, RailNewMenu } from "./rail-new-menu.tsx";
+
+export const findShortcut = (platform: string) =>
+  platform.includes("Mac") ? "⌘K" : "Ctrl K";
 
 /** True on `/desk?view=board`, the page the Board link points at. */
 export function isBoardView(location: {
@@ -24,6 +28,8 @@ export function RailHeaderActions({
   onNavigate: () => void;
   onOpenFind: () => void;
 }) {
+  const [shortcut, setShortcut] = useState("Ctrl K");
+  useEffect(() => setShortcut(findShortcut(navigator.platform)), []);
   const onBoard = useRouterState({
     select: (state) => isBoardView(state.location),
   });
@@ -52,6 +58,9 @@ export function RailHeaderActions({
       >
         <Search />
         <span className="max-md:hidden">Find</span>
+        <kbd className="rounded border border-border px-1 text-[11px] text-muted-foreground max-md:hidden">
+          {shortcut}
+        </kbd>
       </Button>
       <RailNewMenu agents={agents} onNavigate={onNavigate} />
     </>

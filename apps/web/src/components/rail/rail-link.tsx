@@ -49,7 +49,7 @@ export function RailLink({
   );
   return (
     <a
-      aria-current={current ? "true" : undefined}
+      aria-current={current ? "page" : undefined}
       aria-label={label}
       className={className}
       href={href}

@@ -57,7 +57,7 @@ export function workspaceChoices({
 }
 
 /** Whether the person is an org admin of the active workspace. */
-function isActiveAdmin({
+export function isActiveAdmin({
   mine,
   activeOrgId,
 }: {

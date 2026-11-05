@@ -1,4 +1,9 @@
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  useRouterState,
+} from "@tanstack/react-router";
 import { settingsNav } from "#/components/settings/settings-nav";
 import { buttonVariants } from "#/components/ui/button";
 
@@ -7,11 +12,20 @@ export const Route = createFileRoute("/_app/settings")({
 });
 
 function SettingsLayout() {
+  const index = useRouterState({
+    select: (state) =>
+      state.location.pathname === "/settings" ||
+      state.location.pathname === "/settings/",
+  });
   return (
     <div className="flex flex-col gap-8 md:flex-row">
       <nav
         aria-label="Settings"
-        className="flex flex-wrap gap-1 md:w-56 md:shrink-0 md:flex-col md:flex-nowrap md:gap-6"
+        className={
+          index
+            ? "hidden md:flex md:w-56 md:shrink-0 md:flex-col md:gap-6"
+            : "flex flex-wrap gap-1 md:w-56 md:shrink-0 md:flex-col md:flex-nowrap md:gap-6"
+        }
       >
         {settingsNav.map((group) => (
           <div
