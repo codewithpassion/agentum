@@ -1,0 +1,33 @@
+---
+id: RC.7
+title: End to end on staging
+milestone: RC
+size: M
+status: ready
+depends_on: [RC.6]
+branch: RC-rust-client
+lane: ops
+executor: claude
+---
+
+Controller task, needs Dom for anything outside this host.
+
+## Check
+- On this host, against staging: enrol one instance with both roles as a user service with linger, run an agent task on it and a computer command, then a second instance with only the computer role. Both show on the Machines page. Revoke one; it stops with exit 3 and doesn't restart.
+- `agentum doctor` output is readable and correct on this host.
+
+## Log
+- 2026-11-06: Dom: "Deploy to staging. Use Morosini to test" (Morosini is this host; sudo allowed for the test). Staging Worker f83e363a from branch 3b474c32, `agentum-rs` 0.1.0+3b474c32 published to staging R2. The old staging and production daemons on Morosini were left running.
+- User mode, current user (`rc7-both`, both roles), installed with the Machines page command: enrolled, user service with linger, both roles Online. Doctor all Ok. A real claude run on machine agent `rc7-agent` answered "pong" in 5 s; run 2 in the same thread used Bash (`uname -s && whoami` gave Linux, roboto) and recalled "pong", so session resume works.
+- Computer command through a model: not done. Staging has no Anthropic or OpenRouter key, and a machine agent can't have a computer. Both roles' sockets were Online.
+- Bug: the page command run a second time (computer-only code for `rc7-computer`) re-enrolled the existing `rc7-both` instance instead of adding one. Fix brief in tmp/RC.7-fix (branch RC.7-fix).
+- Two instances at once: `rc7-both` re-enrolled in place with `enroll --instance rc7-both --replace` (machine `rc7-both2`) and `rc7-comp2` (computer only) enrolled with the CLI; both units ran and both machines were Online.
+- Revoke from the page: unit failed with exit 3, NRestarts=0, log carried the Problem/Why/Fix. `list` printed raw JSON and doctor didn't mention the revocation (both in the fix brief).
+- System mode, agent user (`rc7-sys`), sudo 1.9.15p5, Ubuntu 24.04: installer exit 5 because claude lived only in ~/.local (correct, but the Fix named a missing /usr/local/bin/claude). After copying claude there: unit installed, `visudo -cf` OK, StateDirectory gave svc:agent-group 0710, the agent user can't read the credential, doctor flagged the missing claude login for the agent user.
+- Fake claude that ignores TERM and forks a child: Stop in the UI removed sudo, the fake and its child within 2 s and the task showed Cancelled. `systemctl stop` during a run took 5.4 s, left nothing, Result=success; after restart the task showed Interrupted and nothing re-ran.
+- `service uninstall` removed the unit and sudoers drop-in and kept enrolment, state and users, as it says.
+- System mode with a named user (`rc7-named2`, `--run-as roboto`, claude only in ~/.local/bin): unit runs as User=roboto with no sudoers drop-in, doctor all Ok, a real run used Bash (whoami gave roboto, cwd under /var/lib/agentum/rc7-named2/work).
+- Bug, same root as the first: `sudo sh install-agentum.sh --run-as roboto` with a new code re-enrolled the uninstalled `rc7-sys` instance, tried to restart its missing unit (warning printed twice, Problem text with quoted argv), then said "installed its system service" though it installed nothing. For the next fix round: skip instances with no installed unit in the update loop, and print the right outcome.
+- Fixes on branch RC.7-fix in four Codex rounds (7d974847, aa4a26d0, 471e7522, cc92b9c9), Opus-reviewed twice, merged as 87583d22. The review caught a false doctor problem after every clean stop, stale revoked state after re-enrol, a unit check based on systemctl exit codes, silent ends with a spent code, and an update run blocking on an open stdin. A stdin code now needs `--code-stdin`.
+- Retest on staging 87583d22 (Worker e0d6c4eb): update-only `curl | sh` updated and restarted both user instances; the page command with a new code added `rc7-third` and left the other configs and credentials byte-identical; `list` is readable; logs show socket connect and acceptance; doctor clean after restart; after revoking `rc7-third`, list showed the reason and doctor reported it with exit 5; as root, the update run restarted `rc7-named2` and skipped `rc7-sys` (no unit) without noise.
+- Still not done: a computer command driven by a model (staging has no model key).

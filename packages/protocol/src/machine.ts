@@ -1,5 +1,6 @@
 import {
   LIBRARY_ACCESS_MODES,
+  MACHINE_ROLES,
   REQUEST_KINDS,
   REQUEST_STATUSES,
 } from "@repo/db/shared";
@@ -79,10 +80,31 @@ export const computerEnrollRequestSchema = z.strictObject({
 });
 export type ComputerEnrollRequest = z.infer<typeof computerEnrollRequestSchema>;
 
+/** The new client sends Go platform names and lets the code choose its roles. */
+export const machineRolesSchema = z
+  .array(z.enum(MACHINE_ROLES))
+  .min(1)
+  .max(2)
+  .refine((roles) => new Set(roles).size === roles.length, {
+    message: "Machine roles must be unique",
+  });
+
+export const rolesEnrollRequestSchema = z.strictObject({
+  arch: z.enum(["amd64", "arm64"]),
+  clientVersion: z.string().min(1).max(64),
+  code: z.string().regex(startsWith(ENROLL_CODE)).max(200),
+  hostname: z.string().min(1).max(255),
+  os: z.literal("linux"),
+  roles: machineRolesSchema.optional(),
+  singleUser: z.boolean(),
+});
+export type RolesEnrollRequest = z.infer<typeof rolesEnrollRequestSchema>;
+
 /** What `/api/machines/enroll` parses. */
 export const machineEnrollRequestSchema = z.union([
   enrollRequestSchema,
   computerEnrollRequestSchema,
+  rolesEnrollRequestSchema,
 ]);
 export type MachineEnrollRequest = z.infer<typeof machineEnrollRequestSchema>;
 
@@ -91,6 +113,12 @@ export const enrollResponseSchema = z.strictObject({
   machineId: z.string(),
 });
 export type EnrollResponse = z.infer<typeof enrollResponseSchema>;
+
+export const rolesEnrollResponseSchema = enrollResponseSchema.extend({
+  machineName: z.string(),
+  roles: machineRolesSchema,
+});
+export type RolesEnrollResponse = z.infer<typeof rolesEnrollResponseSchema>;
 
 export const daemonHelloSchema = z.strictObject({
   // Agent ULIDs, the same ids as `offer.agentId` and `claim.agent.id`, for the

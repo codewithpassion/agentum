@@ -55,3 +55,43 @@ jobs:
             ghcr.io/${{ env.OWNER }}/agentum-computer-desktop:${{ github.sha }}
           cache-from: type=gha,scope=computer-desktop
           cache-to: type=gha,mode=max,scope=computer-desktop
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Static Rust binaries
+        run: |
+          pip install ziglang==0.14.1
+          echo "$(python -c 'import ziglang, pathlib; print(pathlib.Path(ziglang.__file__).parent)')" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version 0.24.1 --locked
+          export PATH="$(python -c 'import ziglang, pathlib; print(pathlib.Path(ziglang.__file__).parent)'):$PATH"
+          bash apps/agentum/scripts/build-all.sh
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/agentum/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/agentum:latest
+            ghcr.io/${{ env.OWNER }}/agentum:${{ github.sha }}
+          cache-from: type=gha,scope=agentum
+          cache-to: type=gha,mode=max,scope=agentum
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/agentum/Dockerfile.desktop
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/agentum:desktop
+            ghcr.io/${{ env.OWNER }}/agentum:desktop-${{ github.sha }}
+          cache-from: type=gha,scope=agentum-desktop
+          cache-to: type=gha,mode=max,scope=agentum-desktop

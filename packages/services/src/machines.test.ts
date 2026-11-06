@@ -1190,3 +1190,54 @@ test("clipboardRead and clipboardWrite act as the caller and return the relay's 
     ],
   ]);
 });
+
+test("concurrent both-role enrol has one winner with a shared hash and revoke ends both roles", async () => {
+  const { code } = await service.createEnrollToken(user, {
+    machineName: "Office box",
+    role: "both",
+  });
+  const input = {
+    arch: "amd64" as const,
+    clientVersion: "0.1.0",
+    code,
+    hostname: "box",
+    os: "linux" as const,
+    roles: ["computer", "agent_host"] as ("computer" | "agent_host")[],
+    singleUser: false,
+  };
+  const results = await Promise.all([
+    service.enroll(input),
+    service.enroll(input),
+  ]);
+  expect(results.filter(Boolean)).toHaveLength(1);
+  const enrolled = results.find((result) => result !== null);
+  if (!enrolled) {
+    throw new Error("enrol failed");
+  }
+  const hash = await hashToken(enrolled.credential);
+  expect(db.select().from(machines).all()).toHaveLength(1);
+  expect(machineRow(enrolled.machineId)).toMatchObject({
+    computerStatus: "offline",
+    credentialHash: hash,
+    name: "Office box",
+    singleUser: false,
+    status: "offline",
+  });
+  expect(db.select().from(machineCredentials).all()).toMatchObject([
+    { credentialHash: hash, machineId: enrolled.machineId, role: "computer" },
+  ]);
+  const authorization = `Bearer ${enrolled.credential}`;
+  expect(await service.authenticate(authorization)).toEqual({
+    kind: "machine",
+    machineId: enrolled.machineId,
+    workspaceId: WORKSPACE,
+  });
+  expect(await service.authenticate(authorization, "computer")).toEqual({
+    kind: "machine",
+    machineId: enrolled.machineId,
+    workspaceId: WORKSPACE,
+  });
+  await service.revoke(user, enrolled.machineId);
+  expect(await service.authenticate(authorization)).toBeNull();
+  expect(await service.authenticate(authorization, "computer")).toBeNull();
+});

@@ -345,15 +345,34 @@ export const mcpRoutes = ({
       : clientNotApproved(error, originOf(c));
   };
 
+  /** A shared credential must open both roles; older daemon credentials stay refused. */
+  const machineCredentialRefused = async (
+    c: RouteContext,
+    principal: Principal | null
+  ): Promise<boolean> =>
+    principal?.kind === "machine" &&
+    !(await c
+      .get("composed")
+      .services.machines.authenticate(
+        c.req.header("Authorization") ?? null,
+        "computer"
+      ));
+
   /** The principal that may use `route`, or the response that refuses the request. */
   const principalOrRefusal = async (
     c: RouteContext,
     route: string,
     workspace: TargetWorkspace | null
-  ): Promise<Extract<Principal, { kind: "run" | "user" }> | Response> => {
+  ): Promise<
+    Extract<Principal, { kind: "machine" | "run" | "user" }> | Response
+  > => {
     let principal: Principal | null;
     try {
       principal = await authenticate(c, workspace);
+      if (await machineCredentialRefused(c, principal)) {
+        log({ event: "mcp.denied", kind: "machine", reason: "kind" });
+        return forbidden();
+      }
     } catch (error: unknown) {
       if (error instanceof OAuthDeniedError) {
         return oauthRefusal(c, error);
@@ -378,16 +397,20 @@ export const mcpRoutes = ({
         c.req.header("Authorization") !== undefined
       );
     }
-    if (principal.kind !== "user" && principal.kind !== "run") {
+    if (
+      principal.kind !== "user" &&
+      principal.kind !== "run" &&
+      principal.kind !== "machine"
+    ) {
       log({ event: "mcp.denied", kind: principal.kind, reason: "kind" });
       return forbidden();
     }
     return refusalOf(principal, workspace) ?? principal;
   };
 
-  /** The 403 for a user or run that may not use the address; null when it may. */
+  /** The 403 for a principal that may not use the address; null when it may. */
   const refusalOf = (
-    principal: Extract<Principal, { kind: "run" | "user" }>,
+    principal: Extract<Principal, { kind: "machine" | "run" | "user" }>,
     workspace: TargetWorkspace | null
   ): Response | null => {
     // A desk key is for `/api/desk` only, and acts for whoever the header names.

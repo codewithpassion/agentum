@@ -1,3 +1,4 @@
+import type { Product } from "@repo/protocol/releases";
 // Pure helpers for publish-releases.ts. Hashing happens in memory, and nothing
 // here touches the network or the filesystem. Tested in publish-releases.test.ts.
 
@@ -12,7 +13,6 @@ import {
   manifestKey,
   manifestSchema,
   PRODUCT_FILES,
-  type Product,
   releaseVersion,
   serializeManifest,
 } from "../src/server/releases/manifest.ts";
@@ -22,6 +22,7 @@ export const REPO_ROOT = resolve(import.meta.dir, "../../..");
 /** Where each product's build leaves its binaries, relative to the repo root. */
 const ARTIFACT_DIRS: Record<Product, string> = {
   agentum: "apps/daemon/dist",
+  "agentum-rs": "apps/agentum/dist",
   "hm-computer": "apps/computer/bin",
 };
 
@@ -29,12 +30,13 @@ const BINARY_TYPE = "application/octet-stream";
 const MANIFEST_TYPE = "application/json";
 
 const USAGE =
-  "Usage: bun scripts/publish-releases.ts --env staging|production [--allow-dirty]";
+  "Usage: bun scripts/publish-releases.ts --env staging|production [--allow-dirty] [--dry-run]";
 
 export type PublishEnv = "staging" | "production";
 
 export interface PublishArgs {
   allowDirty: boolean;
+  dryRun: boolean;
   env: PublishEnv;
 }
 
@@ -42,10 +44,13 @@ export const parseArgs = (argv: readonly string[]): PublishArgs => {
   const args = [...argv];
   let env: string | undefined;
   let allowDirty = false;
+  let dryRun = false;
   while (args.length > 0) {
     const arg = args.shift();
     if (arg === "--env") {
       env = args.shift();
+    } else if (arg === "--dry-run") {
+      dryRun = true;
     } else if (arg === "--allow-dirty") {
       allowDirty = true;
     } else {
@@ -60,7 +65,7 @@ export const parseArgs = (argv: readonly string[]): PublishArgs => {
       `--env must be staging or production, got "${env}". ${USAGE}`
     );
   }
-  return { allowDirty, env };
+  return { allowDirty, dryRun, env };
 };
 
 /** `<package version>+<short commit>`, checked against the release pattern. */

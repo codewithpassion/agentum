@@ -19,6 +19,12 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+
+      - name: Select stable Rust
+        run: rustup default stable
+
       # wrangler types (run by `bun install` and typecheck) reads apps/web/.env*
       # to type the secrets in Env. A fresh runner has none, so use the example.
       - name: Create the env file

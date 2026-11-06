@@ -1,4 +1,5 @@
 import type { MachineRole } from "@repo/db/shared";
+import type { Product } from "@repo/protocol/releases";
 import type { MachineRecord } from "#/integrations/trpc/types";
 
 /** The two roles of a machine, in the words people see. */
@@ -63,20 +64,47 @@ export const canAddComputerRole = (
   !machine.roles.includes("computer");
 
 /**
- * Whether a machine's daemon is older than the newest published one. Only a
- * live machine with the agent_host role that has reported a version, against a
- * release that exists. Any different version counts: builds are ordered by
+ * Whether a machine has a different version from its latest release. Includes
+ * computer-only Rust clients, identified by their computer hello version.
+ * Any different version counts: builds are ordered by
  * when they were published, not by their number.
  */
+export const daemonProduct = (
+  machine: Pick<MachineRecord, "capabilities"> &
+    Partial<Pick<MachineRecord, "computerCapabilities">>
+): Product =>
+  (typeof machine.capabilities.agentSdk === "string" &&
+    machine.capabilities.agentSdk.startsWith("claude-cli@")) ||
+  (typeof machine.computerCapabilities?.clientVersion === "string" &&
+    machine.computerCapabilities.clientVersion.startsWith("agentum-rs@"))
+    ? "agentum-rs"
+    : "agentum";
+
 export const isDaemonOutdated = (
-  machine: Pick<MachineRecord, "daemonVersion" | "roles" | "status">,
-  latestVersion: string | null
-): boolean =>
-  latestVersion !== null &&
-  machine.status !== "revoked" &&
-  machine.roles.includes("agent_host") &&
-  machine.daemonVersion !== null &&
-  machine.daemonVersion !== latestVersion;
+  machine: Pick<MachineRecord, "daemonVersion" | "roles" | "status"> &
+    Partial<Pick<MachineRecord, "capabilities" | "computerCapabilities">>,
+  latestVersion: string | null,
+  latestRustVersion: string | null = null
+): boolean => {
+  const rust =
+    daemonProduct({ ...machine, capabilities: machine.capabilities ?? {} }) ===
+    "agentum-rs";
+  const latest = rust ? latestRustVersion : latestVersion;
+  const computerVersion = machine.computerCapabilities?.clientVersion;
+  let version = machine.daemonVersion;
+  if (!machine.roles.includes("agent_host")) {
+    version =
+      rust && typeof computerVersion === "string"
+        ? computerVersion.slice("agentum-rs@".length)
+        : null;
+  }
+  return (
+    latest !== null &&
+    machine.status !== "revoked" &&
+    version !== null &&
+    version !== latest
+  );
+};
 
 /** The machines an agent can drive: a computer role, not revoked. */
 export const computersOf = <T extends Pick<MachineRecord, "roles" | "status">>(

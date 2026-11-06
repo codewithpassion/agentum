@@ -9,6 +9,7 @@
     "./library": "./src/library.ts",
     "./machine": "./src/machine.ts",
     "./masker": "./src/masker.ts",
+    "./releases": "./src/releases.ts",
     "./requests": "./src/requests.ts",
     "./safeguards": "./src/safeguards.ts",
     "./server-keys": "./src/server-keys.ts",

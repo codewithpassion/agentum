@@ -86,7 +86,15 @@ const install = (
   args: readonly string[] = [],
   extra: { mode?: "file" | "pipe"; systemd?: boolean } = {}
 ): Promise<RunResult> =>
-  runScript({ args, sandbox, script: script(origin), ...extra });
+  runScript({
+    args,
+    sandbox,
+    script: script(origin).replaceAll(
+      "/etc/agentum",
+      join(sandbox.root, "etc-agentum")
+    ),
+    ...extra,
+  });
 
 describe("install.sh", () => {
   test("a fresh install lands the binary and runs install-service before any enrol", async () => {
@@ -350,3 +358,27 @@ describe("install.sh", () => {
     expect(server.requests).toEqual([]);
   });
 });
+
+for (const system of [false, true]) {
+  test(`old installer refuses ${system ? "system" : "user"} Rust instances before downloading`, async () => {
+    const sandbox = makeSandbox();
+    cleanups.push(() => removeSandbox(sandbox));
+    const root = system
+      ? join(sandbox.root, "etc-agentum")
+      : join(sandbox.home, ".config/agentum");
+    mkdirSync(join(root, "office"), { recursive: true });
+    writeFileSync(join(root, "office/config.json"), "{}");
+    const rendered = renderTemplate(
+      join(import.meta.dir, "install.sh"),
+      "http://127.0.0.1:1"
+    ).replaceAll("/etc/agentum", join(sandbox.root, "etc-agentum"));
+    const result = await runScript({
+      env: { AGENTUM_CONFIG_DIR: join(sandbox.root, "custom-config") },
+      sandbox,
+      script: rendered,
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("install-agentum.sh");
+    expect(readCalls(sandbox)).toEqual([]);
+  });
+}

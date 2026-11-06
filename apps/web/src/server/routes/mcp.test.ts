@@ -292,6 +292,31 @@ describe("authentication", () => {
     );
   });
 
+  for (const role of ["both", "computer"] as const) {
+    test(`a new ${role} enrolment credential ${role === "both" ? "opens" : "cannot open"} /mcp`, async () => {
+      const { code } = await composed.services.machines.createEnrollToken(
+        sessionUser("u1"),
+        { machineName: "box", role }
+      );
+      const enrolled = await composed.services.machines.enroll({
+        arch: "amd64",
+        clientVersion: "0.1.0",
+        code,
+        hostname: "box",
+        os: "linux",
+        singleUser: true,
+      });
+      if (!enrolled) {
+        throw new Error("enrol failed");
+      }
+      const response = await post(
+        enrolled.credential,
+        rpcBody("tools/list", {})
+      );
+      expect(response.status).toBe(role === "both" ? 200 : 401);
+    });
+  }
+
   test("a machine credential is refused with 403", async () => {
     const { hash, token } = await import("@repo/services/crypto").then(
       (crypto) => crypto.hashedToken("hm_mach_")

@@ -21,12 +21,19 @@ import { runs } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   type ComputerStatus,
-  MACHINE_ROLES,
+  MACHINE_ENROLL_ROLES,
+  type MachineEnrollRole,
   type MachineRole,
   type MachineStatus,
 } from "@repo/db/shared";
 import type { HelloMessage } from "@repo/protocol/computer";
-import { machineEnrollRequestSchema } from "@repo/protocol/machine";
+import {
+  type EnrollResponse,
+  machineEnrollRequestSchema,
+  type RolesEnrollRequest,
+  type RolesEnrollResponse,
+} from "@repo/protocol/machine";
+import type { Product } from "@repo/protocol/releases";
 import { ENROLL_CODE, MACHINE_CREDENTIAL } from "@repo/protocol/token-prefixes";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -86,7 +93,7 @@ export const enrollTokenInputSchema = z
   .strictObject({
     machineId: z.string().min(1).max(200).optional(),
     machineName: z.string().trim().min(1).max(80).optional(),
-    role: z.enum(MACHINE_ROLES).default("agent_host"),
+    role: z.enum(MACHINE_ENROLL_ROLES).default("agent_host"),
   })
   .refine((input) => input.machineId !== undefined || input.machineName, {
     message: "A new machine needs a name",
@@ -94,11 +101,11 @@ export const enrollTokenInputSchema = z
   });
 export type EnrollTokenInput = z.input<typeof enrollTokenInputSchema>;
 
-/** A daemon body (`code`, `singleUser`) or a computer client body (`role: "computer"`). */
+/** Legacy daemon/computer bodies or the new roles body. */
 export const enrollInputSchema = machineEnrollRequestSchema;
 export type EnrollInput = z.input<typeof enrollInputSchema>;
 
-/** What `authenticate` can open. The two roles never share a credential. */
+/** The role `authenticate` checks for in the credential tables. */
 export type AuthenticateRole = MachineRole;
 
 /** A machine row as the services hand it out. Never carries the credential hash. */
@@ -189,7 +196,7 @@ export const createMachinesService = ({
   db: Database;
   events: EventsService;
   /** The version of the newest published daemon, or null when there is none. Without it the answer is null. */
-  latestDaemonVersion?: () => Promise<string | null>;
+  latestDaemonVersion?: (product?: Product) => Promise<string | null>;
   relay: MachineRelayPort;
 }) => {
   const nowIso = () => clock.now().toISOString();
@@ -339,6 +346,95 @@ export const createMachinesService = ({
     return { credential: token, machineId: machine.id };
   };
 
+  const resolveEnrollRole = async (
+    body: RolesEnrollRequest
+  ): Promise<MachineEnrollRole | null> => {
+    const now = nowIso();
+    const tokenHash = await hashToken(body.code);
+    const [code] = await db
+      .select()
+      .from(machineEnrollTokens)
+      .where(
+        and(
+          eq(machineEnrollTokens.tokenHash, tokenHash),
+          isNull(machineEnrollTokens.usedAt),
+          gt(machineEnrollTokens.expiresAt, now)
+        )
+      )
+      .limit(1);
+    if (!code) {
+      return null;
+    }
+    if (code.machineId !== null) {
+      throw new ServiceError(
+        "invalid",
+        "This code adds a role to an existing machine; enrol it with the older computer client"
+      );
+    }
+    const { role } = code;
+    const roles: MachineRole[] =
+      role === "both" ? ["agent_host", "computer"] : [role];
+    if (
+      body.roles &&
+      (body.roles.length !== roles.length ||
+        body.roles.some((item) => !roles.includes(item)))
+    ) {
+      throw new ServiceError(
+        "invalid",
+        "Requested roles do not match the enrolment code's roles"
+      );
+    }
+    return role;
+  };
+
+  const enrollRoles = async (
+    spent: Pick<
+      typeof machineEnrollTokens.$inferSelect,
+      "createdBy" | "machineName" | "workspaceId"
+    >,
+    body: RolesEnrollRequest,
+    role: MachineEnrollRole,
+    now: string
+  ): Promise<RolesEnrollResponse> => {
+    const roles: MachineRole[] =
+      role === "both" ? ["agent_host", "computer"] : [role];
+    const { hash, token } = await hashedToken(MACHINE_CREDENTIAL_PREFIX);
+    const machineId = ulid(clock.now().getTime());
+    await atomic([
+      db.insert(machines).values({
+        capabilities: "{}",
+        computerStatus: roles.includes("computer") ? "offline" : null,
+        createdAt: now,
+        credentialHash: roles.includes("agent_host")
+          ? hash
+          : `${COMPUTER_ONLY_HASH_PREFIX}${toBase64Url(crypto.getRandomValues(new Uint8Array(RANDOM_BYTES)))}`,
+        enrolledBy: spent.createdBy,
+        id: machineId,
+        name: spent.machineName,
+        singleUser: roles.includes("agent_host") && body.singleUser,
+        status: "offline",
+        workspaceId: spent.workspaceId,
+      }),
+      ...(roles.includes("computer")
+        ? [
+            db.insert(machineCredentials).values({
+              createdAt: now,
+              credentialHash: hash,
+              machineId,
+              role: "computer",
+              workspaceId: spent.workspaceId,
+            }),
+          ]
+        : []),
+    ]);
+    return {
+      credential: token,
+      machineId,
+      machineName: spent.machineName,
+      roles,
+    };
+  };
+
   /**
    * Trades an enrol code for a machine and its credential, both shown once.
    * The code is the credential, so there is no principal. Null for a code that
@@ -349,17 +445,27 @@ export const createMachinesService = ({
    */
   const enroll = async (
     input: EnrollInput
-  ): Promise<{ credential: string; machineId: string } | null> => {
+  ): Promise<EnrollResponse | RolesEnrollResponse | null> => {
     const body = enrollInputSchema.parse(input);
-    const role: MachineRole = "role" in body ? body.role : "agent_host";
     const now = nowIso();
+    const tokenHash = await hashToken(body.code);
+    const newBody = "hostname" in body && "singleUser" in body;
+    let role: MachineEnrollRole = "role" in body ? body.role : "agent_host";
+    if (newBody) {
+      const resolved = await resolveEnrollRole(body);
+      if (resolved === null) {
+        return null;
+      }
+      role = resolved;
+    }
     const [spent] = await db
       .update(machineEnrollTokens)
       .set({ usedAt: now })
       .where(
         and(
-          eq(machineEnrollTokens.tokenHash, await hashToken(body.code)),
+          eq(machineEnrollTokens.tokenHash, tokenHash),
           eq(machineEnrollTokens.role, role),
+          ...(newBody ? [isNull(machineEnrollTokens.machineId)] : []),
           isNull(machineEnrollTokens.usedAt),
           gt(machineEnrollTokens.expiresAt, now)
         )
@@ -375,6 +481,9 @@ export const createMachinesService = ({
     }
     if ("role" in body) {
       return await enrollComputer(spent);
+    }
+    if (newBody) {
+      return await enrollRoles(spent, body, role, now);
     }
     const { hash, token } = await hashedToken(MACHINE_CREDENTIAL_PREFIX);
     const machineId = ulid(clock.now().getTime());
@@ -417,7 +526,7 @@ export const createMachinesService = ({
 
   /**
    * The machine principal for `Authorization: Bearer hm_mach_...` as one role,
-   * or null. A daemon credential never opens the computer role and the reverse.
+   * or null. A new both-role credential opens either; legacy credentials stay scoped.
    * A revoked machine, an unknown credential and a workspace with no row are
    * all null.
    */
@@ -530,7 +639,8 @@ export const createMachinesService = ({
 
   /** The newest published daemon version, for the machines page to compare against. */
   const newestDaemonVersion = async (
-    principal: Principal
+    principal: Principal,
+    product: Product = "agentum"
   ): Promise<string | null> => {
     if (principal.kind === "system") {
       throw new ForbiddenError(READ_ACTION);
@@ -539,7 +649,7 @@ export const createMachinesService = ({
       kind: MACHINE_KIND,
       workspaceId: principal.workspaceId,
     });
-    return (await latestDaemonVersion?.()) ?? null;
+    return (await latestDaemonVersion?.(product)) ?? null;
   };
 
   /**

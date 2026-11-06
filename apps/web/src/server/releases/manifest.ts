@@ -2,10 +2,8 @@
 // scripts: which products exist, what their files are called, where they live
 // in R2 and what `latest.json` looks like. Pure, so a script can import it.
 
+import { PRODUCTS, type Product } from "@repo/protocol/releases";
 import { z } from "zod";
-
-export const PRODUCTS = ["agentum", "hm-computer"] as const;
-export type Product = (typeof PRODUCTS)[number];
 
 /** Every release key starts with this. Nothing else writes under it. */
 export const RELEASE_PREFIX = "releases/";
@@ -13,6 +11,7 @@ export const RELEASE_PREFIX = "releases/";
 /** The files each product ships. The install scripts pick one by OS and architecture. */
 export const PRODUCT_FILES: Record<Product, readonly string[]> = {
   agentum: ["agentum-linux-x64", "agentum-linux-arm64"],
+  "agentum-rs": ["agentum-linux-x64", "agentum-linux-arm64"],
   "hm-computer": [
     "hm-computer_linux_amd64",
     "hm-computer_linux_arm64",

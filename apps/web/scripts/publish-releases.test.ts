@@ -1,13 +1,13 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
+import type { Product } from "@repo/protocol/releases";
 import { file } from "bun";
 import {
   fileKey,
   manifestKey,
   manifestSchema,
   PRODUCT_FILES,
-  type Product,
   serializeManifest,
 } from "../src/server/releases/manifest.ts";
 import { publish } from "./publish-releases.ts";
@@ -39,10 +39,12 @@ describe("parseArgs", () => {
   test("reads --env and --allow-dirty", () => {
     expect(parseArgs(["--env", "staging"])).toEqual({
       allowDirty: false,
+      dryRun: false,
       env: "staging",
     });
     expect(parseArgs(["--allow-dirty", "--env", "production"])).toEqual({
       allowDirty: true,
+      dryRun: false,
       env: "production",
     });
   });
@@ -253,7 +255,7 @@ describe("publish", () => {
       uploader,
     });
 
-    expect(requested).toEqual(["agentum", "hm-computer"]);
+    expect(requested).toEqual(["agentum", "hm-computer", "agentum-rs"]);
     expect(puts.map((put) => put.key)).toEqual([
       ...PRODUCT_FILES.agentum.map((name) => fileKey("agentum", VERSION, name)),
       manifestKey("agentum"),
@@ -261,6 +263,10 @@ describe("publish", () => {
         fileKey("hm-computer", VERSION, name)
       ),
       manifestKey("hm-computer"),
+      ...PRODUCT_FILES["agentum-rs"].map((name) =>
+        fileKey("agentum-rs", VERSION, name)
+      ),
+      manifestKey("agentum-rs"),
     ]);
     const latest = store.get(manifestKey("hm-computer")) ?? "";
     expect(manifestSchema.parse(JSON.parse(latest)).version).toBe(VERSION);
@@ -285,14 +291,18 @@ describe("publish", () => {
       uploader,
     });
 
-    expect(requested).toEqual(["hm-computer"]);
+    expect(requested).toEqual(["hm-computer", "agentum-rs"]);
     expect(puts.some((put) => put.key.includes("/agentum/"))).toBe(false);
-    expect(puts).toHaveLength(PRODUCT_FILES["hm-computer"].length + 1);
+    expect(puts).toHaveLength(
+      PRODUCT_FILES["hm-computer"].length +
+        PRODUCT_FILES["agentum-rs"].length +
+        2
+    );
   });
 
   test("uploads nothing when every product is already live", async () => {
     const latest = Object.fromEntries(
-      (["agentum", "hm-computer"] as const).map((product) => [
+      (["agentum", "hm-computer", "agentum-rs"] as const).map((product) => [
         manifestKey(product),
         serializeManifest(buildManifest(product, VERSION, filesFor(product))),
       ])
@@ -368,4 +378,27 @@ describe("publish", () => {
     ]);
     expect(store.has(manifestKey("agentum"))).toBe(false);
   });
+});
+
+test("dry run builds manifests without reading or writing the uploader", async () => {
+  const logs: string[] = [];
+  await publish({
+    allowDirty: false,
+    build: fakeBuild().build,
+    dryRun: true,
+    env: "staging",
+    log: (message) => logs.push(message),
+    packageVersion: "0.1.0",
+    readGit: clean,
+    uploader: {
+      get: () => {
+        throw new Error("network read");
+      },
+      put: () => {
+        throw new Error("network write");
+      },
+    },
+  });
+  expect(logs.join("\n")).toContain("releases/agentum-rs/latest.json");
+  expect(logs.join("\n")).toContain('"agentum-linux-arm64": { "sha256":');
 });
