@@ -1,5 +1,5 @@
 import { MACHINE_ENROLL_ROLES, type MachineEnrollRole } from "@repo/db/shared";
-import { type ChangeEvent, useCallback, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -23,13 +23,19 @@ import {
   dockerDesktopCommand,
   dockerHeadlessCommand,
 } from "./enroll-commands";
-import { ROLE_LABELS } from "./machine-logic";
+import { EnrollStatus } from "./enroll-status";
+import { ENROLL_BUTTON_LABEL, newMachine, ROLE_LABELS } from "./machine-logic";
 
 interface EnrollToken {
   code: string;
   expiresAt: string;
   role: MachineEnrollRole;
 }
+
+export const DEFAULT_ENROLL_ROLE: MachineEnrollRole = "both";
+
+/** How often the open dialog asks for the machine list once it shows a code. */
+const POLL_MS = 3000;
 
 const DEFAULT_NAME: Record<MachineEnrollRole, string> = {
   agent_host: "my-machine",
@@ -44,6 +50,8 @@ const ROLE_HINTS: Record<MachineEnrollRole, string> = {
 };
 
 interface EnrollDialogProps {
+  /** Ids of the machines that exist now. A machine not in this list is the one being enrolled. */
+  knownMachineIds: readonly string[];
   machine?: { id: string; name: string; rust?: boolean };
   onClose: () => void;
   role: MachineEnrollRole;
@@ -130,6 +138,7 @@ export function EnrollRoleChoices({
 
 export function EnrollDialog({
   role: initialRole,
+  knownMachineIds,
   machine,
   onClose,
 }: EnrollDialogProps) {
@@ -139,6 +148,32 @@ export function EnrollDialog({
   const [token, setToken] = useState<EnrollToken | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectedName, setConnectedName] = useState<string | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  // Adding the computer role to a Go machine changes a machine that already exists.
+  const watchesNewMachine = machine === undefined || machine.rust === true;
+
+  useEffect(() => {
+    if (token === null || !watchesNewMachine || connectedName !== null) {
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(async () => {
+      setElapsedMs(Date.now() - startedAt);
+      try {
+        const found = newMachine(
+          await getTrpc().machines.list.query(),
+          knownMachineIds
+        );
+        if (found !== null) {
+          setConnectedName(found.name);
+        }
+      } catch {
+        // A failed poll is retried on the next tick.
+      }
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [token, watchesNewMachine, connectedName, knownMachineIds]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -197,7 +232,7 @@ export function EnrollDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {machine ? "Add computer role" : "Add a machine"}
+            {machine ? "Add computer role" : `${ENROLL_BUTTON_LABEL}`}
           </DialogTitle>
           <DialogDescription>
             {dialogDescription(machine, token)}
@@ -259,6 +294,13 @@ export function EnrollDialog({
                 )}
               </details>
             )}
+            {watchesNewMachine ? (
+              <EnrollStatus
+                connectedName={connectedName}
+                elapsedMs={elapsedMs}
+                origin={origin}
+              />
+            ) : null}
             <p className="text-muted-foreground text-sm">
               Single use. Expires at{" "}
               {new Date(token.expiresAt).toLocaleTimeString()}.

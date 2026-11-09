@@ -6,8 +6,10 @@ import {
   computerKind,
   computersOf,
   isDaemonOutdated,
+  newMachine,
   revokeMachine,
   roleRows,
+  visibleMachines,
 } from "./machine-logic.ts";
 
 describe("roleRows", () => {
@@ -201,4 +203,32 @@ test("computer-only Rust clients get the Rust update hint", () => {
       "new"
     )
   ).toBe(false);
+});
+
+describe("visibleMachines", () => {
+  const machines = [
+    { id: "a", status: "online" as const },
+    { id: "b", status: "revoked" as const },
+  ];
+  test("hides revoked machines unless asked", () => {
+    expect(visibleMachines(machines, false).map((m) => m.id)).toEqual(["a"]);
+    expect(visibleMachines(machines, true).map((m) => m.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+});
+
+describe("newMachine", () => {
+  const list = [
+    { id: "old", name: "Old", status: "online" as const },
+    { id: "gone", name: "Gone", status: "revoked" as const },
+    { id: "new", name: "Office", status: "offline" as const },
+  ];
+  test("finds the machine that was not there before", () => {
+    expect(newMachine(list, ["old"])?.id).toBe("new");
+  });
+  test("ignores revoked machines and known ones", () => {
+    expect(newMachine(list, ["old", "new"])).toBeNull();
+  });
 });
