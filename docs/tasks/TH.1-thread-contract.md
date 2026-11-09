@@ -3,9 +3,9 @@ id: TH.1
 title: Sessions become threads, columns and service
 milestone: TH
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/TH.1-thread-contract
 lane: services
 executor: claude
 ---
@@ -27,3 +27,4 @@ From the 10 Nov 2026 review. Contract task for TH: it alone changes `packages/db
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/TH.1-thread-contract. Runs first as the only schema task; AB.1 waits for its merge. Staging D1 copy for the migration check is at harbourmaster-wt/tmp/TH.1/staging.sql.

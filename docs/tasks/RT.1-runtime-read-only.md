@@ -3,9 +3,9 @@ id: RT.1
 title: Show the runtime as a fact, not a disabled choice
 milestone: RT
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/RT.1-runtime-read-only
 lane: web
 executor: claude
 ---
@@ -24,3 +24,4 @@ From the 10 Nov 2026 review. The agent page shows three choice-like runtime card
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/RT.1-runtime-read-only. Lane rule relaxed for this run (Dom asked for about six in parallel): its files do not overlap the other running tasks, only shared registries, which merge cleanly.
