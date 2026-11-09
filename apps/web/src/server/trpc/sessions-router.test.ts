@@ -213,3 +213,29 @@ test("an unknown session is NOT_FOUND", async () => {
     caller.sessions.transcript({ sessionId: "missing" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
+
+test("main, rename, pin and archive work through the router, and a mail origin filter is accepted", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create({
+    model: "fake",
+    name: "Pelican",
+    runtime: "fake",
+  });
+
+  const main = await caller.sessions.main({ agentId: agent.id });
+  expect((await caller.sessions.main({ agentId: agent.id })).id).toBe(main.id);
+  await caller.sessions.rename({ sessionId: main.id, title: "Home" });
+  await caller.sessions.pin({ sessionId: main.id });
+  const [listed] = await caller.sessions.list({ agentId: agent.id });
+  expect(listed).toMatchObject({ title: "Home" });
+  expect(listed?.pinnedAt).not.toBeNull();
+
+  await caller.sessions.archive({ sessionId: main.id });
+  expect(await caller.sessions.list({ agentId: agent.id })).toEqual([]);
+  expect(
+    (await caller.sessions.list({ agentId: agent.id, archived: true })).length
+  ).toBe(1);
+  await caller.sessions.unarchive({ sessionId: main.id });
+  await caller.sessions.unpin({ sessionId: main.id });
+  expect(await caller.sessions.list({ origin: "mail" })).toEqual([]);
+});

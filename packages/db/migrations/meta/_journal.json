@@ -351,6 +351,13 @@
       "when": 1794207548586,
       "tag": "0049_smart_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1794266295346,
+      "tag": "0050_nostalgic_toad",
+      "breakpoints": true
     }
   ]
 }

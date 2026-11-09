@@ -144,6 +144,14 @@ const RECENT_TOOL_EVENTS = 20;
 /** Run ids rise within one millisecond, so the id tie-break of the start order is the creation order. */
 const nextRunId = monotonicFactory();
 
+/** The session of a run, as a subquery, for a session that run starts. */
+const parentSessionOf = (parentRunId: string | null) =>
+  parentRunId === null
+    ? null
+    : sql<
+        string | null
+      >`(select session_id from runs where id = ${parentRunId})`;
+
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
 /** A claimed run: working, or waiting for a person's answer. */
 const LIVE: RunRecord["status"][] = ["running", "waiting"];
@@ -977,6 +985,8 @@ export const createRunsService = ({
           id: sessionId,
           lastRunAt: created,
           origin: input.session.origin,
+          // The session of the run that started this one, when a run did.
+          parentSessionId: parentSessionOf(subject.parentRunId),
           private: sessionPrivacy(input),
           workspaceId,
         });

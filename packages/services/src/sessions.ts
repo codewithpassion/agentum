@@ -20,6 +20,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   like,
   ne,
@@ -27,6 +28,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
@@ -47,11 +49,14 @@ import {
 import type { Principal } from "./workspaces.ts";
 
 const READ_ACTION = "sessions.read";
+const WRITE_ACTION = "sessions.write";
 const SESSION_KIND = "session";
 /** Dry-run sessions are private to their builder and never listed or searched. */
 /** Sessions one list call returns, newest first. */
 export const SESSION_LIST_LIMIT = 50;
 const TITLE_MAX = 60;
+/** The longest name a person may give a thread. */
+const TITLE_MAX_STORED = 200;
 /** Matching message events one search reads, newest first. */
 const SEARCH_EVENT_LIMIT = 200;
 const SEARCH_SESSION_LIMIT = 20;
@@ -59,22 +64,52 @@ const SEARCH_PASSAGES_PER_SESSION = 3;
 const SEARCH_QUERY_MAX = 200;
 const PASSAGE_WINDOW = 160;
 
+/** The SQL form of `activityOf`, the order of the list. */
+const ACTIVITY = sql<string>`coalesce(${sessions.lastRunAt}, ${sessions.createdAt})`;
+
+/** Matched message events grouped by session, newest first, with a few passages each. */
+const groupHits = (
+  hits: { event: typeof eventRows.$inferSelect; session: SessionRow }[],
+  term: string
+): Map<string, { passages: string[]; session: SessionRow }> => {
+  const groups = new Map<string, { passages: string[]; session: SessionRow }>();
+  for (const { event, session } of hits) {
+    let group = groups.get(session.id);
+    if (!group) {
+      if (groups.size === SEARCH_SESSION_LIMIT) {
+        continue;
+      }
+      group = { passages: [], session };
+      groups.set(session.id, group);
+    }
+    if (group.passages.length < SEARCH_PASSAGES_PER_SESSION) {
+      group.passages.push(passageOf(event.payload ?? "{}", term));
+    }
+  }
+  return groups;
+};
+
 /** The principals that read sessions: a user, or a run acting for an agent. */
 type Reader = Extract<Principal, { kind: "user" | "run" }>;
 export type SessionRow = typeof sessions.$inferSelect;
 
 export interface SessionRecord {
   agentId: string;
+  archivedAt: string | null;
   createdAt: string;
   externalKey: string | null;
   id: string;
   lastRunAt: string | null;
   origin: string;
+  parentSessionId: string | null;
+  pinnedAt: string | null;
   private: boolean;
 }
 
 /** A listed session with its title and the state of its latest run. */
 export interface SessionListItem extends SessionRecord {
+  /** Pass as `cursor` to `list` to get the page after this item. */
+  cursor: string;
   latestRunId: string | null;
   status: RunStatus | null;
   title: string;
@@ -105,13 +140,35 @@ export interface SessionTranscript {
 
 const toSession = (row: SessionRow): SessionRecord => ({
   agentId: row.agentId,
+  archivedAt: row.archivedAt,
   createdAt: row.createdAt,
   externalKey: row.externalKey,
   id: row.id,
   lastRunAt: row.lastRunAt,
   origin: row.origin,
+  parentSessionId: row.parentSessionId,
+  pinnedAt: row.pinnedAt,
   private: row.private,
 });
+
+/** When a session last had activity: its last run, else its creation. */
+const activityOf = (row: SessionRow): string => row.lastRunAt ?? row.createdAt;
+
+const CURSOR_SEPARATOR = "~";
+
+/** A list cursor: the activity time and id of the last row of a page. */
+const cursorOf = (row: SessionRow): string =>
+  `${activityOf(row)}${CURSOR_SEPARATOR}${row.id}`;
+
+const mainKeyOf = (userId: string): string => `main:${userId}`;
+
+const parseCursor = (cursor: string): { at: string; id: string } => {
+  const [at, id] = cursor.split(CURSOR_SEPARATOR);
+  if (!(at && id)) {
+    throw new ServiceError("invalid", "Invalid cursor");
+  }
+  return { at, id };
+};
 
 const requireReader = (principal: Principal): Reader => {
   if (principal.kind !== "user" && principal.kind !== "run") {
@@ -446,6 +503,9 @@ export const createSessionsService = ({
     return new Map(
       rows.map((row) => {
         const first = firstRuns.get(row.id);
+        if (row.title !== null && row.title.trim() !== "") {
+          return [row.id, row.title];
+        }
         return [
           row.id,
           titleFor(
@@ -492,6 +552,7 @@ export const createSessionsService = ({
     const titles = await titlesFor(rows, firstRuns, workspaceId);
     return rows.map((row) => ({
       ...toSession(row),
+      cursor: cursorOf(row),
       latestRunId: bySession.get(row.id)?.at(-1)?.id ?? null,
       status: bySession.get(row.id)?.at(-1)?.status ?? null,
       title: titles.get(row.id) ?? "",
@@ -500,13 +561,27 @@ export const createSessionsService = ({
 
   const list = async (
     principal: Principal,
-    { agentId, origin }: { agentId?: string; origin?: SessionOrigin } = {}
+    {
+      agentId,
+      archived = false,
+      cursor,
+      limit = SESSION_LIST_LIMIT,
+      origin,
+    }: {
+      agentId?: string;
+      /** True lists only archived threads. Otherwise archived ones are left out. */
+      archived?: boolean;
+      cursor?: string;
+      limit?: number;
+      origin?: SessionOrigin;
+    } = {}
   ): Promise<SessionListItem[]> => {
     const reader = requireReader(principal);
     authorize(reader, READ_ACTION, {
       kind: SESSION_KIND,
       workspaceId: reader.workspaceId,
     });
+    const after = cursor === undefined ? undefined : parseCursor(cursor);
     const rows = await db
       .select()
       .from(sessions)
@@ -515,11 +590,17 @@ export const createSessionsService = ({
           await visibleTo(reader),
           ne(sessions.origin, DRY_RUN_ORIGIN),
           agentId === undefined ? undefined : eq(sessions.agentId, agentId),
-          origin === undefined ? undefined : eq(sessions.origin, origin)
+          origin === undefined ? undefined : eq(sessions.origin, origin),
+          archived
+            ? isNotNull(sessions.archivedAt)
+            : isNull(sessions.archivedAt),
+          after === undefined
+            ? undefined
+            : sql`(${ACTIVITY}, ${sessions.id}) < (${after.at}, ${after.id})`
         )
       )
-      .orderBy(desc(sessions.createdAt), desc(sessions.id))
-      .limit(SESSION_LIST_LIMIT);
+      .orderBy(desc(ACTIVITY), desc(sessions.id))
+      .limit(Math.min(limit, SESSION_LIST_LIMIT));
     return withRuns(rows, reader.workspaceId);
   };
 
@@ -638,6 +719,26 @@ export const createSessionsService = ({
     return toSession(row);
   };
 
+  /** Threads of one agent that a person named with `term` in the name, newest first. */
+  const namedMatches = async (
+    reader: Reader,
+    agentId: string,
+    term: string
+  ): Promise<SessionRow[]> =>
+    db
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          await visibleTo(reader),
+          ne(sessions.origin, DRY_RUN_ORIGIN),
+          eq(sessions.agentId, agentId),
+          sql`${sessions.title} LIKE ${`%${likeEscape(term)}%`} ESCAPE '\\'`
+        )
+      )
+      .orderBy(desc(ACTIVITY), desc(sessions.id))
+      .limit(SEARCH_SESSION_LIMIT);
+
   /**
    * Sessions of one agent whose messages contain `query`, newest match first.
    * The query is matched against the payload JSON, so it is JSON-escaped first.
@@ -681,21 +782,10 @@ export const createSessionsService = ({
       .orderBy(desc(eventRows.id))
       .limit(SEARCH_EVENT_LIMIT);
 
-    const groups = new Map<
-      string,
-      { passages: string[]; session: SessionRow }
-    >();
-    for (const { event, session } of hits) {
-      let group = groups.get(session.id);
-      if (!group) {
-        if (groups.size === SEARCH_SESSION_LIMIT) {
-          continue;
-        }
-        group = { passages: [], session };
-        groups.set(session.id, group);
-      }
-      if (group.passages.length < SEARCH_PASSAGES_PER_SESSION) {
-        group.passages.push(passageOf(event.payload ?? "{}", term));
+    const groups = groupHits(hits, term);
+    for (const session of await namedMatches(reader, agentId, term)) {
+      if (groups.size < SEARCH_SESSION_LIMIT && !groups.has(session.id)) {
+        groups.set(session.id, { passages: [], session });
       }
     }
 
@@ -709,7 +799,133 @@ export const createSessionsService = ({
     }));
   };
 
-  return { get, list, search, transcript };
+  /** The user behind a write: threads are changed by people, not by runs. */
+  const requireWriter = (
+    principal: Principal
+  ): Extract<Principal, { kind: "user" }> => {
+    if (principal.kind !== "user") {
+      throw new ForbiddenError(WRITE_ACTION);
+    }
+    authorize(principal, WRITE_ACTION, {
+      kind: SESSION_KIND,
+      workspaceId: principal.workspaceId,
+    });
+    return principal;
+  };
+
+  /**
+   * The caller's main thread with one agent: a `ui` session keyed
+   * `main:<userId>`, created on first use. Two calls racing for the first
+   * time end up on one row, the unique index settles it.
+   */
+  const main = async (
+    principal: Principal,
+    agentId: string
+  ): Promise<SessionListItem> => {
+    const writer = requireWriter(principal);
+    const [agent] = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(eq(agents.id, agentId), eq(agents.workspaceId, writer.workspaceId))
+      )
+      .limit(1);
+    if (!agent) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    const now = clock.now().toISOString();
+    await db
+      .insert(sessions)
+      .values({
+        actorId: writer.userId,
+        actorKind: "user",
+        agentId,
+        createdAt: now,
+        externalKey: mainKeyOf(writer.userId),
+        id: ulid(clock.now().getTime()),
+        origin: "ui",
+        private: false,
+        workspaceId: writer.workspaceId,
+      })
+      .onConflictDoNothing();
+    const [row] = await db
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.workspaceId, writer.workspaceId),
+          eq(sessions.agentId, agentId),
+          eq(sessions.origin, "ui"),
+          eq(sessions.externalKey, mainKeyOf(writer.userId))
+        )
+      )
+      .limit(1);
+    if (!row) {
+      throw new ServiceError("not_found", "Session not found");
+    }
+    const [item] = await withRuns([row], writer.workspaceId);
+    if (!item) {
+      throw new ServiceError("not_found", "Session not found");
+    }
+    return item;
+  };
+
+  /** Changes one session the writer may see. Hidden and unknown ones both raise `not_found`. */
+  const change = async (
+    principal: Principal,
+    sessionId: string,
+    patch: Partial<Pick<SessionRow, "archivedAt" | "pinnedAt" | "title">>
+  ): Promise<SessionRecord> => {
+    const writer = requireWriter(principal);
+    const [row] = await db
+      .select()
+      .from(sessions)
+      .where(and(await visibleTo(writer), eq(sessions.id, sessionId)))
+      .limit(1);
+    if (!row) {
+      throw new ServiceError("not_found", "Session not found");
+    }
+    await db.update(sessions).set(patch).where(eq(sessions.id, row.id));
+    return toSession({ ...row, ...patch });
+  };
+
+  const rename = (principal: Principal, sessionId: string, title: string) => {
+    const name = title.trim();
+    if (name.length < 1 || name.length > TITLE_MAX_STORED) {
+      return Promise.reject(
+        new ServiceError(
+          "invalid",
+          `Title must be 1 to ${TITLE_MAX_STORED} characters`
+        )
+      );
+    }
+    return change(principal, sessionId, { title: name });
+  };
+
+  const pin = (principal: Principal, sessionId: string) =>
+    change(principal, sessionId, { pinnedAt: clock.now().toISOString() });
+
+  const unpin = (principal: Principal, sessionId: string) =>
+    change(principal, sessionId, { pinnedAt: null });
+
+  const archive = (principal: Principal, sessionId: string) =>
+    change(principal, sessionId, { archivedAt: clock.now().toISOString() });
+
+  const unarchive = (principal: Principal, sessionId: string) =>
+    change(principal, sessionId, { archivedAt: null });
+
+  return {
+    archive,
+    get,
+    list,
+    main,
+    pin,
+    rename,
+    search,
+    transcript,
+    unarchive,
+    unpin,
+  };
 };
 
 export type SessionsService = ReturnType<typeof createSessionsService>;

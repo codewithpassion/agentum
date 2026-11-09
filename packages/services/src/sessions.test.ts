@@ -1112,3 +1112,220 @@ test("subagent session walks stop at hand-offs even when the chain returns to th
     "Session not found"
   );
 });
+
+test("list orders by last activity, so a session that gets a new message moves to the top", async () => {
+  const first = await send(user("u1"), "first");
+  const second = await send(user("u1"), "second");
+  await send(user("u1"), "again", first.sessionId);
+
+  const items = await sessions.list(user("u1"), { agentId });
+
+  expect(items.map((item) => item.id)).toEqual([
+    first.sessionId,
+    second.sessionId,
+  ]);
+});
+
+test("list pages by cursor, with no row repeated or skipped", async () => {
+  const a = await send(user("u1"), "a");
+  await send(user("u1"), "b");
+  await send(user("u1"), "c");
+  await send(user("u1"), "d");
+  await send(user("u1"), "e");
+  // The oldest session moves to the top between the two pages.
+  const page1 = await sessions.list(user("u1"), { limit: 2 });
+  await send(user("u1"), "a again", a.sessionId);
+  const last = page1.at(-1);
+  const page2 = await sessions.list(user("u1"), {
+    cursor: last?.cursor,
+    limit: 2,
+  });
+  const page3 = await sessions.list(user("u1"), {
+    cursor: page2.at(-1)?.cursor,
+    limit: 2,
+  });
+
+  expect(page1.map((item) => item.title)).toEqual(["e", "d"]);
+  expect(page2.map((item) => item.title)).toEqual(["c", "b"]);
+  // "a" moved above the cursor, so it is not served twice.
+  expect(page3).toEqual([]);
+  expect((await sessions.list(user("u1")))[0]?.title).toBe("a");
+});
+
+test("list rejects a malformed cursor", async () => {
+  await expect(
+    sessions.list(user("u1"), { cursor: "nonsense" })
+  ).rejects.toMatchObject({ code: "invalid" });
+});
+
+test("archive hides a thread from the default list and archived: true lists it", async () => {
+  const kept = await send(user("u1"), "kept");
+  const gone = await send(user("u1"), "gone");
+
+  await sessions.archive(user("u1"), gone.sessionId);
+
+  expect((await sessions.list(user("u1"))).map((item) => item.id)).toEqual([
+    kept.sessionId,
+  ]);
+  const archived = await sessions.list(user("u1"), { archived: true });
+  expect(archived.map((item) => item.id)).toEqual([gone.sessionId]);
+  expect(archived[0]?.archivedAt).not.toBeNull();
+
+  await sessions.unarchive(user("u1"), gone.sessionId);
+
+  expect((await sessions.list(user("u1"))).length).toBe(2);
+});
+
+test("rename sets the title in the list and the transcript, and the search finds it", async () => {
+  const started = await send(user("u1"), "opening line");
+
+  const renamed = await sessions.rename(
+    user("u1"),
+    started.sessionId,
+    "  Quarterly plan  "
+  );
+  const [item] = await sessions.list(user("u1"), { agentId });
+  const { session } = await sessions.transcript(user("u1"), started.sessionId);
+  const hits = await sessions.search(user("u1"), {
+    agentId,
+    query: "quarterly",
+  });
+
+  expect(renamed.id).toBe(started.sessionId);
+  expect(item?.title).toBe("Quarterly plan");
+  expect(session.title).toBe("Quarterly plan");
+  expect(hits.map((hit) => hit.session.id)).toEqual([started.sessionId]);
+  await expect(
+    sessions.rename(user("u1"), started.sessionId, "   ")
+  ).rejects.toMatchObject({ code: "invalid" });
+});
+
+test("pin and unpin set and clear pinnedAt", async () => {
+  const started = await send(user("u1"), "pin me");
+
+  const pinned = await sessions.pin(user("u1"), started.sessionId);
+  expect(pinned.pinnedAt).not.toBeNull();
+  const [item] = await sessions.list(user("u1"));
+  expect(item?.pinnedAt).toBe(pinned.pinnedAt);
+
+  const unpinned = await sessions.unpin(user("u1"), started.sessionId);
+  expect(unpinned.pinnedAt).toBeNull();
+});
+
+test("a colleague cannot change a UI thread they cannot see, and a run cannot change any", async () => {
+  const started = await send(user("u1"), "private chat");
+
+  await expect(
+    sessions.rename(user("u2"), started.sessionId, "mine now")
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    sessions.archive(user("u2"), started.sessionId)
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    sessions.pin(runAs("any", agentId), started.sessionId)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("main creates the caller's main thread once and returns it again", async () => {
+  const first = await sessions.main(user("u1"), agentId);
+  const again = await sessions.main(user("u1"), agentId);
+  const other = await sessions.main(user("u2"), agentId);
+  const otherAgent = await sessions.main(user("u1"), otherAgentId);
+
+  expect(first).toMatchObject({
+    externalKey: "main:u1",
+    origin: "ui",
+    private: false,
+    status: null,
+  });
+  expect(again.id).toBe(first.id);
+  expect(new Set([first.id, other.id, otherAgent.id]).size).toBe(3);
+  expect((await sessions.list(user("u2"))).map((item) => item.id)).toEqual([
+    other.id,
+  ]);
+});
+
+test("main under a race ends on one row, and a message sent to it joins that row", async () => {
+  const [a, b, c] = await Promise.all([
+    sessions.main(user("u1"), agentId),
+    sessions.main(user("u1"), agentId),
+    sessions.main(user("u1"), agentId),
+  ]);
+
+  expect(new Set([a.id, b.id, c.id]).size).toBe(1);
+  expect(
+    db
+      .select()
+      .from(sessionRows)
+      .where(eq(sessionRows.externalKey, "main:u1"))
+      .all()
+  ).toHaveLength(1);
+  const started = await send(user("u1"), "hello main", "main:u1");
+  expect(started.sessionId).toBe(a.id);
+});
+
+test("main refuses an agent from another workspace and a non-user caller", async () => {
+  await expect(sessions.main(user("u1", "w2"), agentId)).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(
+    sessions.main(runAs("any", agentId), agentId)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("a hand-off or subagent run starts a session whose parent is the session of the run that started it", async () => {
+  const parent = await send(user("u1"), "parent");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  const handoff = await runs.startRun(runAs(parent.runId, agentId), {
+    agentId: otherAgentId,
+    input: { text: "hand-off" },
+    session: { origin: "inbox" },
+  });
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  db.update(agentRows)
+    .set({ subagents: true })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  const subagent = await runs.startRun(
+    runAs(parent.runId, agentId),
+    {
+      agentId,
+      input: { text: "helper" },
+      session: { origin: "inbox" },
+    },
+    {
+      subagent: {
+        accessScope: { files: [] } as never,
+        level: 1,
+        model: "m",
+      },
+    }
+  );
+
+  const row = (id: string) =>
+    db.select().from(sessionRows).where(eq(sessionRows.id, id)).get();
+  expect(row(handoff.sessionId)?.parentSessionId).toBe(parent.sessionId);
+  expect(row(subagent.sessionId)?.parentSessionId).toBe(parent.sessionId);
+  expect(row(parent.sessionId)?.parentSessionId).toBeNull();
+});
+
+test("visibility is unchanged: another user's UI thread stays hidden whatever its state", async () => {
+  const mine = await send(user("u1"), "mine");
+  await sessions.pin(user("u1"), mine.sessionId);
+
+  expect(await sessions.list(user("u2"))).toEqual([]);
+  expect(await sessions.list(user("u2"), { archived: true })).toEqual([]);
+  await expect(sessions.get(user("u2"), mine.sessionId)).rejects.toThrow(
+    "Session not found"
+  );
+});
