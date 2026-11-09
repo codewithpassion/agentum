@@ -12,6 +12,10 @@ import { mountEndpointRoutes } from "./server/app-gateway/endpoints.ts";
 import { mountAppGatewayRoutes } from "./server/app-gateway/mount.ts";
 import { appGatewayWiring } from "./server/app-gateway/wiring.ts";
 import { mountArtifactContentRoutes } from "./server/artifact-content/routes.ts";
+import {
+  viewerPorts,
+  viewerStillAllowed,
+} from "./server/artifact-content/viewer-check.ts";
 import { compose } from "./server/compose.ts";
 import { frameGuard } from "./server/frame-guard.ts";
 import { setInProcessDispatch } from "./server/in-process.ts";
@@ -90,6 +94,8 @@ mountEndpointRoutes(app, {
 mountArtifactContentRoutes(app, {
   authorizeGuestEmbed: (claims, env) =>
     guestEmbeds(env, compose(env, false)).authorize(claims),
+  authorizeViewer: (claims, env) =>
+    viewerStillAllowed(claims, viewerPorts(compose(env, false))),
   bucket: (env) => env.FILES,
   viewKey: (env) => env.ARTIFACT_VIEW_KEY,
   workspaceId: (claims) => claims.workspaceId,
