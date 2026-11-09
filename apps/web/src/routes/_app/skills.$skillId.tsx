@@ -179,7 +179,7 @@ function SkillPage() {
             <p className="text-muted-foreground text-sm">No versions yet.</p>
           ) : (
             <SkillEditor
-              baseVersion={skill.latestVersion}
+              baseVersion={skill.latestApprovedVersion ?? skill.latestVersion}
               onCommitted={refresh}
               skillId={skill.id}
             />

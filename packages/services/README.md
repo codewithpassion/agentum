@@ -82,10 +82,10 @@ Every method takes the calling principal first and a plain input object (the zod
 | Method | What it does |
 | --- | --- |
 | `create({ name, files, message })` | A new skill with version 1. A person's skill is people-owned, a run's is owned by its agent |
-| `commit({ skillId, baseVersion, writes, deletes, message })` | One new version from the base's tree. `writes` are `{ path, content, executable? }` (text or bytes), `deletes` are `{ path }`. The base must be the latest version that is not rejected, approved or proposed, else `conflict` (a git non-fast-forward). A commit that changes nothing is `invalid` |
+| `commit({ skillId, baseVersion, writes, deletes, message })` | One new version from the base's tree. `writes` are `{ path, content, executable? }` (text or bytes), `deletes` are `{ path }`. The base must be the latest approved version for a person, and for a run the newest approved version or its own agent's proposal (never another agent's), else `conflict` (a git non-fast-forward), so a person's edit never carries a pending proposal live. A commit that changes nothing is `invalid` |
 | `list()`, `log({ skillId })`, `show({ skillId, version, withContents? })` | Skills with their latest and latest approved number, a skill's versions newest first, one version's tree (with bytes on request) |
 | `diff({ skillId, from, to })` | Added, removed and changed paths, and a unified diff of each text file |
-| `revert({ skillId, toVersion, message? })` | A new version whose tree equals an older one, made on the latest version |
+| `revert({ skillId, toVersion, message? })` | A new version whose tree equals an older one, made on the same base a commit uses |
 | `approve`, `reject({ skillId, version })` | People only, for a `proposed` version. Approving needs the version's base to be the latest approved version, else `conflict`: a stale proposal is redone, not merged |
 | `assign`, `unassign({ agentId, skillId })`, `pin({ agentId, skillId, version })` | People only. An assignment follows the latest approved version, or the pinned approved one (`version: null` unpins). An agent carries one assigned skill per name |
 | `forAgent(agentId, { withContents?, paths? })` | The agent's resolved skills by name, `{ skillId, name, version, pinned, files }`, each file `{ path, hash, size, executable, content? }`. A skill with no approved version yet is left out. A run may ask only for its own agent. `paths` (each `<name>/<file>`) limits the files, so reading one file does not load the rest |

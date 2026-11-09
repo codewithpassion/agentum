@@ -578,6 +578,47 @@ test("a run's change to a people's skill waits in Needs you as a request to chan
   ]);
 });
 
+test("a skill change from a run a peer started shows the peer as its origin", async () => {
+  const runId = await seed({
+    actorId: "conn-bob",
+    actorKind: "peer",
+    agentId: a1,
+    status: "running",
+  });
+  const { skill } = await skillsStore.create(user(), {
+    files: [
+      {
+        content: "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n",
+        path: "SKILL.md",
+      },
+    ],
+    message: "Add tidy",
+    name: "tidy",
+  });
+  await skillsStore.assign(user(), { agentId: a1, skillId: skill.id });
+  await skillsStore.commit(runPrincipal(a1, runId), {
+    baseVersion: 1,
+    message: "Tidy more",
+    skillId: skill.id,
+    writes: [
+      {
+        content:
+          "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n\nMore.\n",
+        path: "SKILL.md",
+      },
+    ],
+  });
+
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+
+  expect(rail.needsYou).toHaveLength(1);
+  expect(rail.needsYou[0]).toMatchObject({
+    agentId: a1,
+    needsYouKind: "skill_proposal",
+    startedBy: "A peer",
+  });
+});
+
 test("a GitHub update a person proposed waits as a card from that person, not from an agent", async () => {
   people = () =>
     Promise.resolve(new Map([["u1", { email: "d@x.io", name: "Dom" }]]));

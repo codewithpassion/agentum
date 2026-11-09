@@ -988,7 +988,7 @@ export const createSkillsStoreService = ({
     await ensureMigrated(principal);
     const parsed = skillRefSchema.parse(input);
     const skill = await skillFor(c, parsed.skillId);
-    return (await versionsOf(skill.id))
+    return (await settleLapsed(skill, await versionsOf(skill.id)))
       .filter((version) => visibleTo(c, version))
       .map(toVersionRecord);
   };
@@ -1157,22 +1157,49 @@ export const createSkillsStoreService = ({
   };
 
   /**
+   * The version a commit or revert by `c` is built on. A person builds on the
+   * latest approved version, never on a pending proposal, or the commit would
+   * approve the proposal's changes. A run builds on the newest version it may
+   * see that is not rejected: an approved one or its own agent's proposal,
+   * never another agent's. A skill with nothing approved yet falls back to its
+   * newest such version.
+   */
+  const baseOf = (
+    c: Caller,
+    versions: readonly VersionRow[]
+  ): VersionRow | undefined => {
+    const usable = versions.filter(
+      (version) => version.status !== "rejected" && visibleTo(c, version)
+    );
+    if (c.agentId === null) {
+      return (
+        usable.find((version) => version.status === "approved") ?? usable[0]
+      );
+    }
+    return usable[0];
+  };
+
+  /**
    * The skill a commit goes to, with its versions and the head tree. The head
-   * is the newest version that is not rejected. When every version was
-   * rejected the newest one is the head and the next version keeps its files
-   * except for what the commit changes, but has no parent (`parent` null), so
-   * a person can approve it.
+   * is the newest version that is not rejected, or with `fromBase` the version
+   * `baseOf` picks. When every version was rejected the newest one is the head
+   * and the next version keeps its files except for what the commit changes,
+   * but has no parent (`parent` null), so a person can approve it.
    */
   const headFor = async (
     c: Caller,
     skillId: string,
     action: string,
-    asksPerson = false
+    fromBase = false
   ) => {
-    const skill = await writableSkill(c, skillId, action, asksPerson);
+    const skill = await writableSkill(c, skillId, action, fromBase);
     const versions = await settleLapsed(skill, await versionsOf(skill.id));
-    const open = headOf(versions);
-    const head = open ?? versions[0];
+    const open = fromBase ? baseOf(c, versions) : headOf(versions);
+    const head =
+      open ??
+      (fromBase
+        ? versions.find((version) => visibleTo(c, version))
+        : versions[0]);
     if (!head) {
       throw notFound();
     }
@@ -1234,8 +1261,10 @@ export const createSkillsStoreService = ({
 
   /**
    * One commit makes one new version from the base's tree. The base must be
-   * the latest version that is not rejected, approved or proposed (the newest
-   * one when all were rejected), else the commit is refused with a conflict, like a git non-fast-forward.
+   * the latest approved version for a person, and for a run the newest approved
+   * version or its own agent's proposal (the newest one when all were
+   * rejected), else the commit is refused with a conflict, like a git
+   * non-fast-forward.
    */
   const commit = async (
     principal: Principal,
@@ -1340,6 +1369,16 @@ export const createSkillsStoreService = ({
     );
     if (!target) {
       throw notFound();
+    }
+    // A run's change to a skill its agent does not own is consent to give, so only a browser session approves it.
+    if (
+      outcome === "approved" &&
+      principal.kind === "user" &&
+      principal.via !== "session" &&
+      target.authorKind === "agent" &&
+      target.authorId !== skill.ownerAgentId
+    ) {
+      throw new ForbiddenError(action);
     }
     if (
       target.status === "rejected" &&
@@ -1854,7 +1893,7 @@ export const createSkillsStoreService = ({
     const c = memberOf(principal, "skills.read", false);
     await ensureMigrated(principal);
     const rows = await db
-      .select({ owner: skills.ownerAgentId, version: skillVersions })
+      .select({ skill: skills, version: skillVersions })
       .from(skillVersions)
       .innerJoin(skills, eq(skills.id, skillVersions.skillId))
       .where(
@@ -1865,13 +1904,28 @@ export const createSkillsStoreService = ({
         )
       )
       .orderBy(desc(skillVersions.createdAt), desc(skillVersions.number));
-    const now = clock.now();
+    // Settling a skill's lapsed proposals also lapses the ones stacked on them.
+    const owners = new Map(rows.map(({ skill }) => [skill.id, skill]));
+    const stillProposed = new Map(
+      await Promise.all(
+        [...owners.values()].map(async (skill) => {
+          const settled = await settleLapsed(skill, await versionsOf(skill.id));
+          return [
+            skill.id,
+            new Set(
+              settled
+                .filter((version) => version.status === "proposed")
+                .map((version) => version.number)
+            ),
+          ] as const;
+        })
+      )
+    );
     return rows
       .filter(
         (row) =>
           visibleTo(c, row.version) &&
-          lapsedProposals({ ownerAgentId: row.owner }, [row.version], now)
-            .length === 0
+          stillProposed.get(row.skill.id)?.has(row.version.number)
       )
       .map((row) => toVersionRecord(row.version));
   };
