@@ -48,12 +48,9 @@ export const runtimeWords = (
   }
 };
 
-export interface RuntimeOption {
-  /** True for the runtime the agent has now. */
-  current: boolean;
-  /** "Online" or "Offline" on the current machine runtime, otherwise null. */
+export interface RuntimeFact {
+  /** "Online" or "Offline" on the machine runtime, otherwise null. */
   machineState: string | null;
-  runtime: "managed" | "cloud" | "machine";
   /** The plain-words description. */
   text: string;
   /** "Anthropic cloud", or "Our machine: laptop" when the agent runs on that machine. */
@@ -66,37 +63,37 @@ const MACHINE_STATE_WORDS: Record<MachineStatus, string> = {
   revoked: "Revoked",
 };
 
-/** The three runtimes in plain words, the agent's current one marked. */
-export const runtimeOptions = (
+/** The runtime the agent has, in plain words. Only the current one: it cannot be changed. */
+export const currentRuntime = (
   runtime: AgentRuntime,
   machine: { name: string; status: MachineStatus } | null
-): RuntimeOption[] => {
-  const onMachine = runtime === "machine";
-  return [
-    {
-      current: runtime === "managed",
-      machineState: null,
-      runtime: "managed",
-      text: "Managed Agents. Simplest. Has its own sandbox.",
-      title: "Anthropic cloud",
-    },
-    {
-      current: runtime === "cloud",
-      machineState: null,
-      runtime: "cloud",
-      text: "Always on, lowest cost for many small jobs.",
-      title: "Cloudflare",
-    },
-    {
-      current: onMachine,
-      machineState:
-        onMachine && machine ? MACHINE_STATE_WORDS[machine.status] : null,
-      runtime: "machine",
-      text: "Claude Code on that machine. Sees local files.",
-      title:
-        onMachine && machine ? `Our machine: ${machine.name}` : "Our machine",
-    },
-  ];
+): RuntimeFact => {
+  switch (runtime) {
+    case "managed":
+      return {
+        machineState: null,
+        text: "Managed Agents. Simplest. Has its own sandbox.",
+        title: "Anthropic cloud",
+      };
+    case "cloud":
+      return {
+        machineState: null,
+        text: "Always on, lowest cost for many small jobs.",
+        title: "Cloudflare",
+      };
+    case "machine":
+      return {
+        machineState: machine ? MACHINE_STATE_WORDS[machine.status] : null,
+        text: "Claude Code on that machine. Sees local files.",
+        title: machine ? `Our machine: ${machine.name}` : "Our machine",
+      };
+    default:
+      return {
+        machineState: null,
+        text: "A built-in runner for testing. It does not run real work.",
+        title: "Test runner",
+      };
+  }
 };
 
 export const statusText = (

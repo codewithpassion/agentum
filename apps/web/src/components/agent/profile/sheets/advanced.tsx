@@ -98,7 +98,6 @@ export function AdvancedPanel({ agent }: AgentPanelProps) {
           runtime: agent.runtime,
         }}
         key={agent.id}
-        lockRuntime
         machines={data.machines}
         onSubmit={save}
         providerKeys={data.providerKeys}
