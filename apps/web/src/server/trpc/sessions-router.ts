@@ -35,7 +35,12 @@ export const sessionsRouter = router({
       ctx.services.sessions.pin(ctx.principal, input.sessionId)
     ),
   rename: workspaceProcedure
-    .input(z.strictObject({ sessionId: z.string().min(1), title: z.string() }))
+    .input(
+      z.strictObject({
+        sessionId: z.string().min(1),
+        title: z.string().max(200),
+      })
+    )
     .mutation(({ ctx, input }) =>
       ctx.services.sessions.rename(ctx.principal, input.sessionId, input.title)
     ),

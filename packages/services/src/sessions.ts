@@ -719,7 +719,7 @@ export const createSessionsService = ({
     return toSession(row);
   };
 
-  /** Threads of one agent that a person named with `term` in the name, newest first. */
+  /** Threads of one agent whose stored name contains `term`, newest first. */
   const namedMatches = async (
     reader: Reader,
     agentId: string,
@@ -740,7 +740,8 @@ export const createSessionsService = ({
       .limit(SEARCH_SESSION_LIMIT);
 
   /**
-   * Sessions of one agent whose messages contain `query`, newest match first.
+   * Sessions of one agent whose messages contain `query`, newest match first,
+   * then those whose stored title does.
    * The query is matched against the payload JSON, so it is JSON-escaped first.
    * Payloads in blob storage are not searched.
    */
@@ -856,12 +857,14 @@ export const createSessionsService = ({
           eq(sessions.workspaceId, writer.workspaceId),
           eq(sessions.agentId, agentId),
           eq(sessions.origin, "ui"),
-          eq(sessions.externalKey, mainKeyOf(writer.userId))
+          eq(sessions.externalKey, mainKeyOf(writer.userId)),
+          eq(sessions.actorId, writer.userId),
+          eq(sessions.actorKind, "user")
         )
       )
       .limit(1);
     if (!row) {
-      throw new ServiceError("not_found", "Session not found");
+      throw new ServiceError("conflict", "The main thread key is taken");
     }
     const [item] = await withRuns([row], writer.workspaceId);
     if (!item) {

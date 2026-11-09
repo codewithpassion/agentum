@@ -239,3 +239,28 @@ test("main, rename, pin and archive work through the router, and a mail origin f
   await caller.sessions.unpin({ sessionId: main.id });
   expect(await caller.sessions.list({ origin: "mail" })).toEqual([]);
 });
+
+test("a browser run cannot take another user's main thread key", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create({
+    model: "fake",
+    name: "Pelican",
+    runtime: "fake",
+  });
+
+  await expect(
+    caller.runs.start({
+      agentId: agent.id,
+      input: { text: "squat" },
+      session: { externalKey: "main:user_2", origin: "ui" },
+    })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const own = await caller.runs.start({
+    agentId: agent.id,
+    input: { text: "mine" },
+    session: { externalKey: "main:user_1", origin: "ui" },
+  });
+  expect((await caller.sessions.main({ agentId: agent.id })).id).toBe(
+    own.sessionId
+  );
+});

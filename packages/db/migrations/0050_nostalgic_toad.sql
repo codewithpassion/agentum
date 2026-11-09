@@ -19,5 +19,6 @@ UPDATE `sessions` SET `title` = (
     THEN substr(trim(replace(replace(r.`input_text`, char(10), ' '), char(13), ' ')), 1, 60) || '...'
     ELSE trim(replace(replace(r.`input_text`, char(10), ' '), char(13), ' ')) END
   FROM `runs` r WHERE r.`session_id` = `sessions`.`id` ORDER BY r.`created_at`, r.`id` LIMIT 1
-) WHERE `title` IS NULL AND `actor_kind` <> 'trigger' AND `origin` NOT IN ('inbox', 'slack', 'mail', 'dry_run');--> statement-breakpoint
+) WHERE `title` IS NULL AND `actor_kind` <> 'trigger' AND `origin` NOT IN ('inbox', 'slack', 'mail', 'dry_run', 'a2a', 'artifact')
+  AND NOT EXISTS (SELECT 1 FROM `runs` r WHERE r.`session_id` = `sessions`.`id` AND r.`input_text` LIKE '{"harbourmaster_turn"%');--> statement-breakpoint
 UPDATE `sessions` SET `title` = NULL WHERE `title` = '';

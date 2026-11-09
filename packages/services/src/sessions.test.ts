@@ -1329,3 +1329,11 @@ test("visibility is unchanged: another user's UI thread stays hidden whatever it
     "Session not found"
   );
 });
+
+test("main does not return a thread another user made under the caller's main key", async () => {
+  await send(user("u1"), "squat", "main:u2");
+
+  await expect(sessions.main(user("u2"), agentId)).rejects.toMatchObject({
+    code: "conflict",
+  });
+});

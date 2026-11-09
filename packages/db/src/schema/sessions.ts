@@ -36,7 +36,7 @@ export const sessions = sqliteTable(
     runtimeMachineId: text("runtime_machine_id").references(() => machines.id),
     // The Claude Code session id, valid only on runtime_machine_id.
     runtimeRef: text("runtime_ref"),
-    // A name a person gave the thread. Null: the title comes from the origin or first message.
+    // The thread's stored name: set by a rename, or backfilled from the first message. Null: the title comes from the origin or first message.
     title: text("title"),
     workspaceId: workspaceId().references(() => workspaces.id),
   },

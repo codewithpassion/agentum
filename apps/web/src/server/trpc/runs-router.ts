@@ -1,4 +1,5 @@
 import { startRunInputSchema } from "@repo/services/runs/types";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
@@ -31,7 +32,15 @@ export const runsRouter = router({
     ),
   start: workspaceProcedure
     .input(browserStartRunInputSchema)
-    .mutation(({ ctx, input }) =>
-      ctx.services.runs.startRun(ctx.principal, input)
-    ),
+    .mutation(({ ctx, input }) => {
+      // `main:<userId>` is a person's main thread, made by `sessions.main`.
+      const key = input.session.externalKey;
+      if (key?.startsWith("main:") && key !== `main:${ctx.principal.userId}`) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "That session key is reserved",
+        });
+      }
+      return ctx.services.runs.startRun(ctx.principal, input);
+    }),
 });
