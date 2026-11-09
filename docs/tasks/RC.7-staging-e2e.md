@@ -3,7 +3,7 @@ id: RC.7
 title: End to end on staging
 milestone: RC
 size: M
-status: ready
+status: blocked
 depends_on: [RC.6]
 branch: RC-rust-client
 lane: ops
@@ -31,3 +31,4 @@ Controller task, needs Dom for anything outside this host.
 - Fixes on branch RC.7-fix in four Codex rounds (7d974847, aa4a26d0, 471e7522, cc92b9c9), Opus-reviewed twice, merged as 87583d22. The review caught a false doctor problem after every clean stop, stale revoked state after re-enrol, a unit check based on systemctl exit codes, silent ends with a spent code, and an update run blocking on an open stdin. A stdin code now needs `--code-stdin`.
 - Retest on staging 87583d22 (Worker e0d6c4eb): update-only `curl | sh` updated and restarted both user instances; the page command with a new code added `rc7-third` and left the other configs and credentials byte-identical; `list` is readable; logs show socket connect and acceptance; doctor clean after restart; after revoking `rc7-third`, list showed the reason and doctor reported it with exit 5; as root, the update run restarted `rc7-named2` and skipped `rc7-sys` (no unit) without noise.
 - Still not done: a computer command driven by a model (staging has no model key).
+- 2026-11-10: status was `ready`, which `bun run tasks` rejects. Set to blocked: everything in the check passed except a computer command driven by a model. Staging now has model keys, so that run can happen, but it needs the Morosini host and Dom.
