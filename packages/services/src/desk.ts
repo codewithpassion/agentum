@@ -779,6 +779,11 @@ export const createDeskService = ({
             title: GITHUB_UPDATE_TITLE,
           };
         }
+        // A run's change to a skill its agent does not own is a request for leave, not a proposal for its own skill.
+        const asksLeave =
+          version.author.kind === "agent" &&
+          skill !== undefined &&
+          skill.ownerAgentId !== version.author.id;
         return {
           agentId:
             version.author.kind === "agent"
@@ -786,7 +791,10 @@ export const createDeskService = ({
               : (skill?.ownerAgentId ?? ""),
           at: version.createdAt,
           band: {
-            text: clip(`${proposes}: ${version.message}`, TITLE_MAX),
+            text: clip(
+              `${asksLeave ? "Wants to change this skill" : proposes}: ${version.message}`,
+              TITLE_MAX
+            ),
             tone: "waiting",
           },
           id: version.id,

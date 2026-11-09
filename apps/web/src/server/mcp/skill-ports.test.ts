@@ -380,7 +380,7 @@ test("a run creates and commits, is told the version is proposed, and runs it by
   await run.close();
 });
 
-test("a run is refused approve, reject, assign, unassign, pin and commits to a skill it does not own", async () => {
+test("a run is refused approve, reject, assign, unassign and pin, and its commit to a skill it does not own waits for a person", async () => {
   const agent = await makeAgent("Echo");
   const other = await makeAgent("Other");
   const person = await connect(userPrincipal);
@@ -405,14 +405,17 @@ test("a run is refused approve, reject, assign, unassign, pin and commits to a s
     expect(errorCodeOf(await run.call(tool, args))).toBe(NOT_ALLOWED);
   }
 
-  // It carries the shared skill but does not own it.
+  // It carries the shared skill but does not own it: the commit is a proposal.
   const assignedCommit = await run.call("commit_skill", {
     baseVersion: 1,
     message: "Mine now",
     skillId: shared.skillId,
     writes: [{ content: "x", path: "x.md" }],
   });
-  expect(errorCodeOf(assignedCommit)).toBe(NOT_ALLOWED);
+  expect(assignedCommit.isError).toBeFalsy();
+  expect(JSON.stringify(assignedCommit)).toContain(
+    "Waiting for a person to approve this change to skill"
+  );
 
   // Another agent's skill is not visible at all.
   const hidden = await otherRun.call("skill_show", {
