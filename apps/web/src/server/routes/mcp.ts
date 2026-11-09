@@ -516,7 +516,6 @@ export const mcpRoutes = ({
     const hasMailbox =
       await composed.services.mail.agent.hasActiveMailbox(principal);
     const subagents = await composed.services.runs.subagentTools(principal);
-    const allowedTools = await composed.services.runs.allowedTools(principal);
     const handler = createMcpHandler(
       () =>
         createAgentumMcpServer(ports, {
@@ -532,9 +531,6 @@ export const mcpRoutes = ({
                 }
               : undefined,
           subagents,
-          allowedTools,
-          authorizeTool: (name) =>
-            composed.services.runs.authorizeTool(principal, name),
           admin: adminAccessOf(principal),
           browser,
           computer: computer ? { desktop: computer.desktop } : undefined,

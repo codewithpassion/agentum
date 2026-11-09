@@ -1084,3 +1084,31 @@ test.each(["ui", "inbox"] as const)(
       .where(eq(runRows.id, parent.runId));
   }
 );
+
+test("subagent session walks stop at hand-offs even when the chain returns to the same agent", async () => {
+  const parent = await send(user("u1"), "parent");
+  const handoff = await startIn(user("u1"), otherAgentId, "hand-off", {
+    origin: "inbox",
+  });
+  const helper = await startIn(user("u1"), agentId, "hidden needle", {
+    origin: "inbox",
+  });
+  await db
+    .update(runRows)
+    .set({ parentRunId: parent.runId })
+    .where(eq(runRows.id, handoff.runId));
+  await db
+    .update(runRows)
+    .set({ parentRunId: handoff.runId, subagentLevel: 1 })
+    .where(eq(runRows.id, helper.runId));
+  const principal = runAs(parent.runId, agentId);
+  expect(
+    (await sessions.list(principal)).map((session) => session.id)
+  ).not.toContain(helper.sessionId);
+  expect(
+    await sessions.search(principal, { agentId, query: "needle" })
+  ).toEqual([]);
+  await expect(sessions.get(principal, helper.sessionId)).rejects.toThrow(
+    "Session not found"
+  );
+});

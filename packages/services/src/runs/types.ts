@@ -91,6 +91,7 @@ export type Usage = z.infer<typeof usageSchema>;
 export interface RunAccessScope {
   connectors?: string[];
   secrets?: string[];
+  /** Connector tool names only; built-in and platform tools keep their own rules. */
   tools?: string[];
 }
 

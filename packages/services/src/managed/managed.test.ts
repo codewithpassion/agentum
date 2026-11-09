@@ -2645,7 +2645,7 @@ describe("library transfer", () => {
   });
 });
 
-test("managed subagents keep their own provider agent and model while the parent runs", async () => {
+test("managed subagents reuse the provider agent with a per-session model while the parent runs", async () => {
   const parent = await start(dom);
   gateway.turns = [[gateway.running()]];
   await managed.step(parent.runId);
@@ -2660,7 +2660,8 @@ test("managed subagents keep their own provider agent and model while the parent
   expect(runRow(child.runId)?.status).toBe("running");
   expect(gateway.sessions.get("sesn_1")?.model).toBe("claude-sonnet-5-5");
   expect(gateway.sessions.get("sesn_2")?.model).toBe("claude-haiku-5-5");
-  expect(gateway.sessions.get("sesn_1")?.agentId).not.toBe(
+  expect(gateway.registered).toHaveLength(1);
+  expect(gateway.sessions.get("sesn_1")?.agentId).toBe(
     gateway.sessions.get("sesn_2")?.agentId
   );
   expect(gateway.synced).toEqual([]);

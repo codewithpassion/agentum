@@ -37,6 +37,7 @@ import { mailTitleOf, runTitleText } from "./mail-title-text.ts";
 import { currentGuestRun } from "./runs/guest-scope.ts";
 import { loadRun } from "./runs/queries.ts";
 import { toRecord, toSummary } from "./runs/records.ts";
+import { MAX_RUN_DEPTH } from "./runs/subject.ts";
 import {
   type Clock,
   DRY_RUN_ORIGIN,
@@ -212,13 +213,15 @@ export const visibleSessions = async (
           not exists (select 1 from ${runs} where ${runs.sessionId} = ${sessions.id}
             and ${runs.subagentLevel} > 0)
           or ${sessions.id} in (
-            with recursive owned(id, session_id) as (
-              select id, session_id from runs
+            with recursive owned(id, session_id, hops) as (
+              select id, session_id, 0 from runs
                 where id = ${reader.runId} and workspace_id = ${reader.workspaceId}
               union all
-              select child.id, child.session_id from runs child
+              select child.id, child.session_id, owned.hops + 1 from runs child indexed by runs_parent_idx
                 join owned on child.parent_run_id = owned.id
                 where child.workspace_id = ${reader.workspaceId}
+                  and child.agent_id = ${reader.agentId} and child.subagent_level > 0
+                  and owned.hops < ${MAX_RUN_DEPTH}
             ) select session_id from owned
           )
         )`

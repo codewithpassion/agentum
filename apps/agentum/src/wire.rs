@@ -393,6 +393,7 @@ pub fn daemon_hello(version: &str, claude_version: &str) -> DaemonHello {
                 "requests",
                 "library-live",
                 "current-approvals",
+                "parallel-subagents",
             ]
             .map(String::from)
             .to_vec(),

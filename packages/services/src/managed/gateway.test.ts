@@ -489,6 +489,29 @@ describe("createSession", () => {
     });
   });
 
+  test("session configuration overrides do not update the shared provider agent", async () => {
+    await gateway.createSession({
+      ...session,
+      overrides: {
+        askKeys: [],
+        desktop: false,
+        mcpServers: [],
+        skills: [],
+        system: "helper instructions",
+      },
+      vaultIds: [],
+    });
+    expect(created.at(-1)?.agent).toMatchObject({
+      id: "agt_1",
+      mcp_servers: [],
+      model: AGENT_MODEL,
+      skills: [],
+      system: "helper instructions",
+      type: "agent_with_overrides",
+    });
+    expect(created.at(-1)?.agent).toHaveProperty("tools");
+  });
+
   test("caps the session at the budget", async () => {
     await gateway.createSession({ ...session, vaultIds: [] });
 

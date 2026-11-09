@@ -52,6 +52,12 @@ export function SubagentsSwitch({
         onCheckedChange={change}
         size="sm"
       />
+      <p className="text-muted-foreground text-xs">
+        Helpers can narrow connectors and secrets. Their built-in tools (shell,
+        files) are not limited. Agents with a computer cannot start subagents
+        yet, because they share one computer. Machines need an updated agentum
+        client.
+      </p>
       {error === undefined ? null : (
         <p className="text-destructive text-xs" role="alert">
           {error}

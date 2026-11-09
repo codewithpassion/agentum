@@ -508,15 +508,6 @@ export const createManagedService = ({
       skills,
       system,
     };
-    // A subagent's configuration must never sync the shared parent's provider agent.
-    if (isolated) {
-      return (
-        await gateway.registerAgent({
-          ...input,
-          instructions: agent.instructions,
-        })
-      ).anthropicAgentId;
-    }
     const [row] = await db
       .select()
       .from(managedAgents)
@@ -547,7 +538,9 @@ export const createManagedService = ({
         .limit(1);
       return winner?.id ?? anthropicAgentId;
     }
-    if (row.fingerprint !== fingerprint) {
+    // Sessions override their model. Reuse the provider agent without syncing
+    // a helper's configuration over its parent's while both are running.
+    if (!isolated && row.fingerprint !== fingerprint) {
       await gateway.syncAgent({
         ...input,
         anthropicAgentId: row.anthropicAgentId,
@@ -686,6 +679,7 @@ export const createManagedService = ({
     gateway,
     libraryHost,
     model,
+    overrides,
     relayHost,
     run,
     servers,
@@ -699,6 +693,7 @@ export const createManagedService = ({
     /** The Worker's host, when the sandbox gets the library token. */
     libraryHost: string | null;
     model: string;
+    overrides: Parameters<ManagedGateway["createSession"]>[0]["overrides"];
     /** The host the relay listens on, when the agent has proxy secrets. */
     relayHost: string | null;
     run: RunRecord;
@@ -773,6 +768,7 @@ export const createManagedService = ({
       const created = await gateway.createSession({
         anthropicAgentId,
         model,
+        overrides: run.subagentLevel > 0 ? overrides : undefined,
         text,
         title: agent.name,
         vaultIds: [vaultId],
@@ -1013,6 +1009,13 @@ export const createManagedService = ({
         gateway,
         libraryHost: libraryHostOf(publicBaseUrl),
         model,
+        overrides: {
+          askKeys,
+          desktop: hasDesktop(computer),
+          mcpServers: servers,
+          skills: refs,
+          system,
+        },
         relayHost: grants.relayHost,
         run,
         servers,

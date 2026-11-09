@@ -248,6 +248,7 @@ export const createRelayCore = ({
         capabilities: {
           ...frame.capabilities,
           daemonVersion: frame.daemonVersion,
+          features: frame.features ?? [],
         },
         daemonVersion: frame.daemonVersion,
       });

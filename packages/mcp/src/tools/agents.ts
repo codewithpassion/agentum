@@ -174,7 +174,8 @@ export const agentWriteTools = (ports: McpPorts): ToolDefinition[] => [
 /** Subagent tools are offered only to an enabled run; the service checks every call too. */
 export const subagentTools = (
   ports: McpPorts,
-  start: boolean
+  start: boolean,
+  message = true
 ): ToolDefinition[] => {
   const { subagents } = ports;
   if (!subagents) {
@@ -189,14 +190,16 @@ export const subagentTools = (
           defineTool({
             annotations: WRITE_CREATE,
             description:
-              "Starts a subagent on this agent's runtime and returns its run id at once. Choose any model allowed for that runtime. Omitted connectors, secrets and tools inherit the parent's access; supplied lists can only narrow it. Pass requestId so retries return the first run. Check the result with subagent_status.",
+              "Starts a subagent on this agent's runtime and returns its run id at once. Choose any model allowed for that runtime. Omitted connectors and secrets inherit the parent's access; supplied lists can only narrow it. tools narrows connector tool names only. Built-in tools (shell, files) are not limited; narrowing is for connectors and secrets. Pass requestId so retries return the first run. Check the result with subagent_status.",
             inputSchema: z.strictObject({
               connectors: names,
               model: id,
               requestId: id.optional(),
               secrets: names,
               task: z.string().min(1).max(100_000),
-              tools: names,
+              tools: names.describe(
+                "Connector tool names only. Built-in tools (shell, files) are not limited; narrowing is for connectors and secrets."
+              ),
             }),
             name: "start_subagent",
             run: async (input) => payload(await subagents.start(input)),
@@ -216,15 +219,22 @@ export const subagentTools = (
       run: async (input) => payload(await subagents.status(input)),
       title: "Subagent status",
     }),
-    defineTool({
-      annotations: WRITE_CREATE,
-      description:
-        "Sends a follow-up into one of your subagents' sessions as a new child run.",
-      inputSchema: z.strictObject({ id, text: z.string().min(1).max(100_000) }),
-      name: "message_subagent",
-      run: async (input) => payload(await subagents.message(input)),
-      title: "Message subagent",
-    }),
+    ...(message
+      ? [
+          defineTool({
+            annotations: WRITE_CREATE,
+            description:
+              "Sends a follow-up into one of your subagents' sessions as a new child run.",
+            inputSchema: z.strictObject({
+              id,
+              text: z.string().min(1).max(100_000),
+            }),
+            name: "message_subagent",
+            run: async (input) => payload(await subagents.message(input)),
+            title: "Message subagent",
+          }),
+        ]
+      : []),
     defineTool({
       annotations: WRITE_DELETE,
       description: "Cancels one of your subagents and its live subagents.",

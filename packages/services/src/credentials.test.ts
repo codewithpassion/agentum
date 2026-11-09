@@ -778,8 +778,15 @@ describe("resolveUser", () => {
   });
 });
 
-test("subagents refuse unassigned connectors and narrow connector and tool resolution", async () => {
-  await assign("agent");
+test("subagents refuse unassigned connectors and narrow connector tool names only", async () => {
+  await seedAssignment(db, {
+    agentId,
+    allowedTools: ["read", "write"],
+    connectorId: CONNECTOR,
+    credentialMode: "agent",
+    now: START,
+    workspaceId: WORKSPACE,
+  });
   await addCredential("agent", agentId, "agent-key");
   const started = await runs.startRun(sessionUser(dom), {
     agentId,

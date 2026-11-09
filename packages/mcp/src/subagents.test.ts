@@ -57,24 +57,23 @@ test("subagents reuse the run payload and direct pending checks to subagent_stat
   expect(result?.text).toContain("Check it with subagent_status");
 });
 
-test("MCP filters scoped tools and rechecks access at invocation", async () => {
-  let checked = "";
-  const server = createAgentumMcpServer(ports, {
-    allowedTools: ["subagent_status"],
-    authorizeTool: (name) => {
-      checked = name;
-      return Promise.resolve();
-    },
-    subagents: { start: true },
-  });
+test("platform tools remain available beside narrowed connector tools", async () => {
+  const server = createAgentumMcpServer(ports, { subagents: { start: true } });
   const { client } = await connectClient(server);
-  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
-    "subagent_status",
-  ]);
-  await client.callTool({
-    arguments: { id: "child" },
-    name: "subagent_status",
-  });
-  expect(checked).toBe("subagent_status");
+  const offered = (await client.listTools()).tools.map((tool) => tool.name);
+  expect(offered).toContain("subagent_status");
+  expect(offered).toContain("start_subagent");
+  expect(offered).toContain("get_run");
   await client.close();
+});
+
+test("disabled agents can still manage helpers without sending new work", () => {
+  const offered = agentumTools(ports, {
+    subagents: { message: false, start: false },
+  }).map((tool) => tool.name);
+  expect(offered).not.toContain("start_subagent");
+  expect(offered).not.toContain("message_subagent");
+  expect(offered).toContain("subagent_status");
+  expect(offered).toContain("stop_subagent");
+  expect(offered).toContain("list_subagents");
 });
