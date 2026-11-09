@@ -58,6 +58,7 @@ const DOES_NOT_USE_OAUTH_PATTERN = /does not use OAuth/;
 const EXPIRED_PATTERN = /expired/;
 const INVALID_GRANT_PATTERN = /invalid_grant/;
 const SET_A_CLIENT_ID_PATTERN = /Set a client id/;
+const NO_OAUTH_CLIENT_PATTERN = /no OAuth client/;
 const CONNECTOR_NOT_FOUND_PATTERN = /Connector not found/;
 const W_43_PATTERN = /^[\w-]{43}$/;
 
@@ -632,6 +633,7 @@ const SHARED_GOOGLE: SharedGoogleClient = {
   clientSecret: "shared-google-secret",
 };
 const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_MCP_URL = "https://gmailmcp.googleapis.com/mcp/v1";
 
 /** A stub connector whose stored discovery says Google, which has no registration. */
 const addGoogleConnector = async () => {
@@ -647,10 +649,14 @@ const addGoogleConnector = async () => {
         registrationEndpoint: null,
         tokenEndpoint: "https://oauth2.googleapis.com/token",
       }),
+      url: GOOGLE_MCP_URL,
     })
     .run();
   return connector;
 };
+
+const setConnectorUrl = (url: string) =>
+  db.update(connectors).set({ url }).run();
 
 const startAs = (connectorId: string) =>
   oauth.start(dom, { as: "user", connectorId, origin: APP_ORIGIN });
@@ -797,4 +803,41 @@ test("a stored shared client stops counting once the deployment drops it", async
     clientConfigured: false,
   });
   await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+});
+
+test("a connector on a non-Google host is refused the shared client at start", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  await setConnectorUrl("https://evil.example/mcp");
+
+  const [summary] = await connectorsService.list(dom);
+  expect(summary?.oauth).toEqual({
+    canRegister: false,
+    clientConfigured: false,
+  });
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+  const [row] = await db.select().from(connectors).all();
+  expect(row?.oauth).not.toContain("shared");
+});
+
+test("a lookalike connector host does not get the shared client", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  await setConnectorUrl("https://gmailmcp.googleapis.com.evil.example/mcp");
+  await expect(startAs(connector.id)).rejects.toThrow(SET_A_CLIENT_ID_PATTERN);
+});
+
+test("a stored shared client is refused at store once the connector is off Google", async () => {
+  build(SHARED_GOOGLE);
+  const connector = await addGoogleConnector();
+  const { authorizeUrl } = await startAs(connector.id);
+  const state = new URL(authorizeUrl).searchParams.get("state") ?? "";
+  await setConnectorUrl("https://evil.example/mcp");
+  const callsBefore = tokenCalls;
+
+  const result = await oauth.complete(dom, { code: "any-code", state });
+
+  expect(result.error).toMatch(NO_OAUTH_CLIENT_PATTERN);
+  expect(tokenCalls).toBe(callsBefore);
+  expect(credentialRows(connector.id)).toHaveLength(0);
 });

@@ -44,25 +44,51 @@ export interface SharedGoogleClient {
   clientSecret: string;
 }
 
+/** Hosts that serve Google's own MCP servers: the domain and its subdomains. */
+const GOOGLE_MCP_DOMAINS = ["googleapis.com"];
+
+/**
+ * Whether a connector's URL is on a Google host. The token the shared client
+ * earns is sent to this server, so discovery that points at Google is not
+ * enough.
+ */
+export const isGoogleMcpUrl = (url: string): boolean => {
+  try {
+    const { hostname, protocol } = new URL(url);
+    return (
+      protocol === "https:" &&
+      GOOGLE_MCP_DOMAINS.some(
+        (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+      )
+    );
+  } catch {
+    return false;
+  }
+};
+
 /** Whether the shared Google client stands in for a client on this server. */
 export const sharedClientApplies = (
   config: Pick<
     OAuthConfig,
     "authorizationEndpoint" | "client" | "tokenEndpoint"
   >,
+  connectorUrl: string,
   shared: SharedGoogleClient | undefined
 ): boolean =>
   shared !== undefined &&
   config.client?.source !== "manual" &&
-  onGoogle(config);
+  onGoogle(config, connectorUrl);
 
 /**
- * Both endpoints must be Google's: the server's own discovery picks them, and
- * the shared secret is sent to the token endpoint.
+ * The connector and both endpoints must be Google's: the server's own
+ * discovery picks the endpoints, the shared secret goes to the token endpoint,
+ * and the resulting token goes to the connector's server.
  */
 export const onGoogle = (
-  config: Pick<OAuthConfig, "authorizationEndpoint" | "tokenEndpoint">
+  config: Pick<OAuthConfig, "authorizationEndpoint" | "tokenEndpoint">,
+  connectorUrl: string
 ): boolean =>
+  isGoogleMcpUrl(connectorUrl) &&
   isGoogleAuthorizationEndpoint(config.authorizationEndpoint) &&
   isGoogleTokenEndpoint(config.tokenEndpoint);
 
