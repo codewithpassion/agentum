@@ -37,6 +37,7 @@ const outsider: Principal = {
   via: "session",
   workspaceId: OTHER_WORKSPACE,
 };
+const admin: Principal = { ...user, isAdmin: true };
 const runPrincipal: Principal = {
   agentId: "ag",
   kind: "run",
@@ -310,16 +311,39 @@ describe("storing", () => {
       value: OPENAI,
     });
     expect(
-      await failure(service.update(user, created.id, { mode: "proxy" }))
+      await failure(service.update(admin, created.id, { mode: "proxy" }))
     ).toMatchObject({ code: "invalid" });
-    const proxied = await service.update(user, created.id, {
+    const proxied = await service.update(admin, created.id, {
       mode: "proxy",
       rules: [rule],
     });
     expect(proxied.mode).toBe("proxy");
     expect(proxied.rules).toEqual([rule]);
-    const back = await service.update(user, created.id, { mode: "env" });
+    const back = await service.update(admin, created.id, {
+      allowedHosts: ["api.openai.com"],
+      mode: "env",
+    });
     expect(back.rules).toEqual([]);
+    expect(back.allowedHosts).toEqual(["api.openai.com"]);
+  });
+
+  test("a member who is not an admin cannot change the mode, but can edit within it", async () => {
+    const created = await service.create(user, {
+      mode: "env",
+      name: "SWITCHER_KEY",
+      value: OPENAI,
+    });
+    expect(
+      await failure(
+        service.update(user, created.id, { mode: "proxy", rules: [rule] })
+      )
+    ).toBeInstanceOf(ForbiddenError);
+    expect((await service.list(user))[0]?.mode).toBe("env");
+    const same = await service.update(user, created.id, {
+      allowedHosts: ["api.openai.com"],
+      mode: "env",
+    });
+    expect(same.allowedHosts).toEqual(["api.openai.com"]);
   });
 
   test("another workspace cannot see, change or delete a secret", async () => {
@@ -518,7 +542,7 @@ describe("allowed hosts", () => {
       name: "SWITCH_HOSTS",
       value: OPENAI,
     });
-    const proxied = await service.update(user, created.id, {
+    const proxied = await service.update(admin, created.id, {
       mode: "proxy",
       rules: [rule],
     });
@@ -556,6 +580,26 @@ describe("allowed hosts", () => {
 
     expect(await service.placeholdersFor(WORKSPACE, agentB)).toEqual([]);
     expect(await service.placeholdersFor(OTHER_WORKSPACE, agentA)).toEqual([]);
+  });
+
+  test("proxyRulesFor lists granted proxy secrets with host and header only, no value", async () => {
+    const proxied = await proxySecret();
+    const env = await service.create(user, {
+      mode: "env",
+      name: "ENV_KEY",
+      value: ECHO,
+    });
+    await service.setGrants(user, agentA, [proxied.id, env.id]);
+
+    const rules = await service.proxyRulesFor(WORKSPACE, agentA);
+    expect(rules).toEqual([
+      {
+        name: proxied.name,
+        rules: [{ header: "Authorization", host: "api.openai.com" }],
+      },
+    ]);
+    expect(JSON.stringify(rules)).not.toContain(OPENAI);
+    expect(await service.proxyRulesFor(WORKSPACE, agentB)).toEqual([]);
   });
 
   test("envGrantsFor returns the agent's granted env secrets with value and hosts", async () => {

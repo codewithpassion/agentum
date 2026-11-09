@@ -1,7 +1,9 @@
 // Swaps the `hm-secret:NAME` placeholders in one hop for the real values, when
 // the hop goes to a host each secret may reach. The caller keeps the hop with
 // its placeholders and uses it for redirects, so every later hop is checked
-// again against its own host. `scrubSecrets` puts the placeholders back into
+// again against its own host. A proxy secret's placeholder is never filled: it
+// is allowed only in the header its rule sets, to the rule's host, and that
+// header is dropped so the proxy sets the real one. `scrubSecrets` puts the placeholders back into
 // what leaves the fetcher. Nothing here logs, and no message, result or
 // thrown error carries a secret value.
 
@@ -9,8 +11,11 @@ import {
   decidePlaceholder,
   type EnvGrant,
   fillPlaceholders,
+  type ProxyGrant,
   placeholderNames,
   placeholderOf,
+  proxyRefusal,
+  proxySetsHeader,
 } from "@repo/services/secrets/placeholders";
 
 /** One request as it is sent: a hop of the call. */
@@ -138,15 +143,21 @@ export const scrubSecrets = (
   return scrubbed;
 };
 
-/** A copy of the headers with each value filled, or undefined when the result is not a valid header. */
+/**
+ * A copy of the headers with each value filled and the `omit` headers left
+ * out, or undefined when the result is not a valid header.
+ */
 const fillHeaders = (
   headers: Headers,
-  values: ReadonlyMap<string, string>
+  values: ReadonlyMap<string, string>,
+  omit: ReadonlySet<string>
 ): Headers | undefined => {
   const filled = new Headers();
   try {
     headers.forEach((value, name) => {
-      filled.set(name, fillPlaceholders(value, values));
+      if (!omit.has(name)) {
+        filled.set(name, fillPlaceholders(value, values));
+      }
     });
   } catch {
     return;
@@ -155,12 +166,41 @@ const fillHeaders = (
 };
 
 /**
+ * The proxy secret's placeholder is allowed only in a header its rule sets for
+ * this host. Returns the refusal when it stands anywhere else, or the headers
+ * (lower-case) that carry it and are to be dropped.
+ */
+const proxyPlacement = (
+  grant: ProxyGrant,
+  hop: SecretHop,
+  bodyText: string | null
+): { headers: string[] } | { message: string } => {
+  const refused = { message: proxyRefusal(grant) };
+  const elsewhere = [withoutFragment(hop.url).href, bodyText ?? ""];
+  if (elsewhere.some((text) => placeholderNames(text).includes(grant.name))) {
+    return refused;
+  }
+  const headers: string[] = [];
+  for (const [name, value] of hop.headers) {
+    if (placeholderNames(value).includes(grant.name)) {
+      if (!proxySetsHeader(grant, name, hop.url.hostname)) {
+        return refused;
+      }
+      headers.push(name);
+    }
+  }
+  return { headers };
+};
+
+/**
  * The hop with its placeholders filled, as a copy. `hop` itself is never
- * changed. `loadGrants` is called only when the hop holds a placeholder.
+ * changed. `loadGrants` and `loadProxies` are called only when the hop holds a
+ * placeholder.
  */
 export const fillHop = async (
   hop: SecretHop,
-  loadGrants: () => Promise<readonly EnvGrant[]>
+  loadGrants: () => Promise<readonly EnvGrant[]>,
+  loadProxies: () => Promise<readonly ProxyGrant[]> = () => Promise.resolve([])
 ): Promise<FilledHop> => {
   const bodyText = bodyTextOf(hop.body);
   const names = [...new Set(textsOf(hop, bodyText).flatMap(placeholderNames))];
@@ -169,27 +209,44 @@ export const fillHop = async (
   }
 
   let grants: readonly EnvGrant[];
+  let proxies: readonly ProxyGrant[];
   try {
-    grants = await loadGrants();
+    [grants, proxies] = await Promise.all([loadGrants(), loadProxies()]);
   } catch {
     return blocked(GRANTS_UNREADABLE);
   }
   if (hop.url.protocol !== "https:") {
     return blocked(HTTPS_ONLY);
   }
+  const envNames: string[] = [];
+  const dropped = new Set<string>();
   for (const name of names) {
-    const decision = decidePlaceholder(name, hop.url.hostname, grants);
-    if (!decision.ok) {
-      return blocked(decision.message);
+    const proxy = grants.some((grant) => grant.name === name)
+      ? undefined
+      : proxies.find((grant) => grant.name === name);
+    if (proxy === undefined) {
+      const decision = decidePlaceholder(name, hop.url.hostname, grants);
+      if (!decision.ok) {
+        return blocked(decision.message);
+      }
+      envNames.push(name);
+      continue;
+    }
+    const placement = proxyPlacement(proxy, hop, bodyText);
+    if ("message" in placement) {
+      return blocked(placement.message);
+    }
+    for (const header of placement.headers) {
+      dropped.add(header);
     }
   }
 
-  const values = valuesFor(names, grants);
+  const values = valuesFor(envNames, grants);
   const url = fillUrl(hop.url, values);
   if (url === null) {
     return blocked(URL_PART_REFUSED);
   }
-  const headers = fillHeaders(hop.headers, values);
+  const headers = fillHeaders(hop.headers, values, dropped);
   if (headers === undefined) {
     return { error: "bad_request", message: HEADER_NOT_VALID, ok: false };
   }
@@ -200,7 +257,7 @@ export const fillHop = async (
 
   return {
     hop: { body, headers, method: hop.method, url },
-    names,
+    names: envNames,
     ok: true,
     values,
   };

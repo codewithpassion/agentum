@@ -82,3 +82,30 @@ export const decidePlaceholder = (
   }
   return { ok: true };
 };
+
+/** A granted proxy secret: its name and the host and header of each rule. Never its value. */
+export interface ProxyGrant {
+  name: string;
+  rules: readonly { header: string; host: string }[];
+}
+
+const unique = (items: readonly string[]): string[] => [...new Set(items)];
+
+/** Why a proxy secret's placeholder is not accepted where it stands, in words an agent can act on. */
+export const proxyRefusal = (grant: ProxyGrant): string => {
+  const headers = unique(grant.rules.map((rule) => rule.header));
+  const hosts = unique(grant.rules.map((rule) => rule.host));
+  return `${grant.name.slice(0, NAME_MAX)} is a proxy secret. The platform sets the ${headers.join(", ")} ${headers.length === 1 ? "header" : "headers"} on ${hosts.join(", ")} itself, so send the request without it.`;
+};
+
+/** Whether the proxy secret's rules set `header` (any letter case) for a request to `host`. */
+export const proxySetsHeader = (
+  grant: ProxyGrant,
+  header: string,
+  host: string
+): boolean =>
+  grant.rules.some(
+    (rule) =>
+      rule.header.toLowerCase() === header.toLowerCase() &&
+      matchHost(rule.host, normalizeHost(host))
+  );

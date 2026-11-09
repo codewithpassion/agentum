@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { EnvGrant } from "@repo/services/secrets/placeholders";
+import type { EnvGrant, ProxyGrant } from "@repo/services/secrets/placeholders";
 import {
   type FilledHop,
   fillHop,
@@ -402,5 +402,70 @@ describe("fillHop", () => {
     const filled = filledOf(await fillHop(hop, loaderOf([SUPADATA]).load));
     expect(filled.url.hash).toBe("");
     expect(filled.url.href).not.toContain("frag");
+  });
+});
+
+describe("fillHop with a proxy secret", () => {
+  const PROXY: ProxyGrant = {
+    name: "SUPADATA_KEY",
+    rules: [{ header: "X-Api-Key", host: "api.supadata.ai" }],
+  };
+  const none = () => Promise.resolve([] as readonly EnvGrant[]);
+  const proxies = () => Promise.resolve([PROXY]);
+
+  test("drops the header that carries the placeholder, filling nothing", async () => {
+    const hop = hopOf("https://api.supadata.ai/v1/x", {
+      headers: { "x-api-key": `Bearer ${PLACEHOLDER}`, "x-keep": "1" },
+    });
+    const result = await fillHop(hop, none, proxies);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.hop.headers.has("x-api-key")).toBe(false);
+      expect(result.hop.headers.get("x-keep")).toBe("1");
+      expect(result.names).toEqual([]);
+      expect(result.values.size).toBe(0);
+    }
+  });
+
+  test("refuses the placeholder in the url, the body, another header and for another host", async () => {
+    const wrong = [
+      hopOf(`https://api.supadata.ai/x?k=${PLACEHOLDER}`),
+      hopOf("https://api.supadata.ai/x", { body: PLACEHOLDER }),
+      hopOf("https://api.supadata.ai/x", {
+        headers: { "x-other": PLACEHOLDER },
+      }),
+      hopOf("https://other.example.com/x", {
+        headers: { "x-api-key": PLACEHOLDER },
+      }),
+    ];
+    const results = await Promise.all(
+      wrong.map((hop) => fillHop(hop, none, proxies))
+    );
+    for (const result of results) {
+      expect(failureOf(result).message).toBe(
+        "SUPADATA_KEY is a proxy secret. The platform sets the X-Api-Key header on api.supadata.ai itself, so send the request without it."
+      );
+    }
+  });
+
+  test("an env secret next to a proxy secret still fills", async () => {
+    const hop = hopOf("https://api.supadata.ai/x", {
+      headers: { "x-api-key": PLACEHOLDER, "x-env": "hm-secret:OTHER_KEY" },
+    });
+    const env: EnvGrant = { ...OTHER, hosts: ["api.supadata.ai"] };
+    const filled = filledOf(
+      await fillHop(hop, () => Promise.resolve([env]), proxies)
+    );
+    expect(filled.headers.get("x-env")).toBe("other-value");
+    expect(filled.headers.has("x-api-key")).toBe(false);
+  });
+
+  test("without proxy grants the placeholder is refused as not granted", async () => {
+    const hop = hopOf("https://api.supadata.ai/x", {
+      headers: { "x-api-key": PLACEHOLDER },
+    });
+    expect(failureOf(await fillHop(hop, none)).message).toContain(
+      "not for a secret granted to this agent"
+    );
   });
 });

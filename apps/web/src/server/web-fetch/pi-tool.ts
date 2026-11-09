@@ -7,7 +7,10 @@ import type {
   PromptSection,
   ToolRegistration,
 } from "@earendil-works/pi-durable";
-import { placeholderOf } from "@repo/services/secrets/placeholders";
+import {
+  type ProxyGrant,
+  placeholderOf,
+} from "@repo/services/secrets/placeholders";
 import {
   WEB_FETCH_MAX_BYTES,
   WEB_FETCH_TIMEOUT_MS,
@@ -24,6 +27,10 @@ const OFF_LINE =
 const PLACEHOLDER_SECTION_KEY = "secret-placeholders";
 const PLACEHOLDER_LEAD =
   "Some secrets are available to you as placeholders. Write the placeholder text where the value belongs, in a web_fetch url, header value or text body, or in a curl command in the bash tool, where the variable $NAME holds the placeholder. The platform fills in the real value as the request leaves, and only for the hosts listed. You cannot read the real value.";
+
+const PROXY_SECTION_KEY = "secret-proxies";
+const PROXY_LEAD =
+  "Some secrets are added by the platform. It sets the header named below on requests to the hosts named, with the real value, so leave that header out of the request. Sending the placeholder in that header also works, and the platform replaces the whole header. The placeholder is refused anywhere else, in the url, a body, another header or a request to another host.";
 
 const MB = 1024 * 1024;
 
@@ -89,7 +96,7 @@ const failure = (error: string, message: string) =>
 const webFetchTool = (
   fetcherOf: () => Promise<WebFetcher>
 ): ToolRegistration<typeof parameters> => ({
-  description: `Sends an HTTP or HTTPS request from the platform. Only http and https URLs work. Private, loopback, link-local and internal addresses and this app's own hosts are refused. Redirects are followed, and each one is checked. Answers over ${WEB_FETCH_MAX_BYTES / MB} MB are refused. A call times out after ${WEB_FETCH_TIMEOUT_MS / 1000} seconds. Credentials the agent was granted for a host are added automatically. Text of the form hm-secret:NAME in the url, a header value or a text body is replaced by that secret's value when the host is one the secret allows. After a secret is filled in, a redirect is followed only within the same origin, and any other redirect is returned as the answer. A text answer is decoded as UTF-8. Set responseEncoding to base64 to get the raw bytes.`,
+  description: `Sends an HTTP or HTTPS request from the platform. Only http and https URLs work. Private, loopback, link-local and internal addresses and this app's own hosts are refused. Redirects are followed, and each one is checked. Answers over ${WEB_FETCH_MAX_BYTES / MB} MB are refused. A call times out after ${WEB_FETCH_TIMEOUT_MS / 1000} seconds. Credentials the agent was granted for a host are added automatically. Text of the form hm-secret:NAME in the url, a header value or a text body is replaced by that secret's value when the host is one the secret allows. A secret the platform adds itself (a proxy secret) is not replaced: leave out the header it sets, or send the placeholder in that header and the platform replaces the header. After a secret is filled in, a redirect is followed only within the same origin, and any other redirect is returned as the answer. A text answer is decoded as UTF-8. Set responseEncoding to base64 to get the raw bytes.`,
   execute: async (args, _api, context) => {
     let body: Uint8Array | undefined;
     if (args.body !== undefined) {
@@ -155,6 +162,8 @@ export interface NetworkToolsOptions {
   fetcherOf: () => Promise<WebFetcher>;
   /** Read when the prompt renders, so it lists the secrets granted at that time. */
   placeholdersOf?: () => Promise<readonly SecretPlaceholder[]>;
+  /** Read when the prompt renders, so it lists the proxy secrets granted at that time. Names, hosts and headers only. */
+  proxiesOf?: () => Promise<readonly ProxyGrant[]>;
 }
 
 const placeholderLine = ({ hosts, name }: SecretPlaceholder): string => {
@@ -164,7 +173,7 @@ const placeholderLine = ({ hosts, name }: SecretPlaceholder): string => {
     : `${placeholder}sent only to ${hosts.join(", ")}`;
 };
 
-const byName = (a: SecretPlaceholder, b: SecretPlaceholder): number => {
+const byName = (a: { name: string }, b: { name: string }): number => {
   if (a.name === b.name) {
     return 0;
   }
@@ -186,6 +195,26 @@ const placeholderSection = (
   },
 });
 
+const proxyLine = ({ name, rules }: ProxyGrant): string =>
+  `- ${name} (placeholder ${placeholderOf(name)}): the platform sets ${rules
+    .map((rule) => `the ${rule.header} header on ${rule.host}`)
+    .join(", and ")}`;
+
+/** Lists the proxy secrets, sorted by name. Renders nothing when there are none. */
+const proxySection = (
+  proxiesOf: () => Promise<readonly ProxyGrant[]>
+): PromptSection => ({
+  key: PROXY_SECTION_KEY,
+  render: async () => {
+    const proxies = await proxiesOf();
+    if (proxies.length === 0) {
+      return;
+    }
+    const lines = [...proxies].sort(byName).map(proxyLine);
+    return `${PROXY_LEAD}\n\n${lines.join("\n")}`;
+  },
+});
+
 /**
  * Installs `web_fetch` when network access is on, and the one-line notice when it is off.
  * With `placeholdersOf`, the on case also lists the secrets the agent may use as placeholders.
@@ -194,13 +223,18 @@ export const networkToolsExtension = ({
   enabled,
   fetcherOf,
   placeholdersOf,
+  proxiesOf,
 }: NetworkToolsOptions): Extension => {
   if (enabled) {
+    const sections = [
+      ...(placeholdersOf === undefined
+        ? []
+        : [placeholderSection(placeholdersOf)]),
+      ...(proxiesOf === undefined ? [] : [proxySection(proxiesOf)]),
+    ];
     return {
       name: NETWORK_TOOLS_EXTENSION,
-      ...(placeholdersOf === undefined
-        ? {}
-        : { sections: [placeholderSection(placeholdersOf)] }),
+      ...(sections.length === 0 ? {} : { sections }),
       tools: [webFetchTool(fetcherOf)],
     };
   }

@@ -13,6 +13,7 @@ import { createSecretsService, type ProxyMatch } from "@repo/services/secrets";
 import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
 import { runWebFetcher } from "./run-fetcher.ts";
+import type { WebFetchRequest } from "./types.ts";
 
 const RUN = { agentId: "agent-1", runId: "run-1", workspaceId: "ws-1" };
 const KEY = "SK_TEST_VALUE_123";
@@ -444,5 +445,134 @@ describe("runWebFetcher with env secrets, over real services", () => {
     });
     expect(runEvents.length).toBeGreaterThan(0);
     expect(JSON.stringify(runEvents)).not.toContain(SECRET_VALUE);
+  });
+  describe("with a proxy secret", () => {
+    const RULE_VALUE = `Bearer ${SECRET_VALUE}`;
+
+    const grantProxy = async (template = "{value}", header = "x-api-key") => {
+      const created = await secrets.create(user, {
+        mode: "proxy",
+        name: SECRET_NAME,
+        rules: [{ header, host: "api.supadata.ai", template }],
+        value: SECRET_VALUE,
+      });
+      await secrets.setGrants(user, agentA, [created.id]);
+    };
+
+    const refusedWith = async (request: WebFetchRequest, sent: Request[]) => {
+      const result = await fetcherFor(agentA, sent)(request);
+      if (result.ok) {
+        throw new Error("Expected the call to be refused");
+      }
+      return result.message;
+    };
+
+    test("the placeholder in the rule's header to the rule's host goes out as the rule's value", async () => {
+      await grantProxy();
+      const sent: Request[] = [];
+
+      const result = await fetcherFor(
+        agentA,
+        sent
+      )({
+        headers: { "X-Api-Key": PLACEHOLDER },
+        url: "https://api.supadata.ai/v1/x",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]?.headers.get("x-api-key")).toBe(SECRET_VALUE);
+    });
+
+    test("Bearer plus the placeholder in that header is replaced by the rule's template", async () => {
+      await grantProxy("Bearer {value}", "authorization");
+      const sent: Request[] = [];
+
+      const result = await fetcherFor(
+        agentA,
+        sent
+      )({
+        headers: { authorization: `Bearer ${PLACEHOLDER}` },
+        url: "https://api.supadata.ai/v1/x",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(sent[0]?.headers.get("authorization")).toBe(RULE_VALUE);
+      expect(sent[0]?.headers.get("authorization")).not.toContain("hm-secret");
+    });
+
+    test("the injection event names the secret and holds no value", async () => {
+      await grantProxy();
+      await fetcherFor(
+        agentA,
+        []
+      )({
+        headers: { "x-api-key": PLACEHOLDER },
+        url: "https://api.supadata.ai/v1/x",
+      });
+
+      const runEvents = await eventsOf(runOf(agentA).runId);
+      expect(runEvents.some((event) => event.type === "secret.injected")).toBe(
+        true
+      );
+      expect(JSON.stringify(runEvents)).not.toContain(SECRET_VALUE);
+    });
+
+    test("the placeholder in the url, the body, another header or for another host is refused", async () => {
+      await grantProxy();
+      const wrong: WebFetchRequest[] = [
+        { url: `https://api.supadata.ai/v1/x?k=${PLACEHOLDER}` },
+        {
+          body: new TextEncoder().encode(`{"key":"${PLACEHOLDER}"}`),
+          method: "POST",
+          url: "https://api.supadata.ai/v1/x",
+        },
+        {
+          headers: { "x-other": PLACEHOLDER },
+          url: "https://api.supadata.ai/v1/x",
+        },
+        {
+          headers: { "x-api-key": PLACEHOLDER },
+          url: "https://example.com/",
+        },
+      ];
+      const sent: Request[] = [];
+      const messages = await Promise.all(
+        wrong.map((request) => refusedWith(request, sent))
+      );
+      for (const message of messages) {
+        expect(message).toContain(
+          "SUPADATA_KEY is a proxy secret. The platform sets the x-api-key header on api.supadata.ai itself, so send the request without it."
+        );
+        expect(message).not.toContain(SECRET_VALUE);
+      }
+      expect(sent).toEqual([]);
+    });
+
+    test("an ungranted name keeps the old message", async () => {
+      await grantProxy();
+      const message = await refusedWith(
+        {
+          headers: { "x-api-key": "hm-secret:NOT_GRANTED" },
+          url: "https://api.supadata.ai/v1/x",
+        },
+        []
+      );
+      expect(message).toContain("not for a secret granted to this agent");
+    });
+
+    test("a proxy secret granted to another agent is not granted here", async () => {
+      await grantProxy();
+      const sent: Request[] = [];
+      const result = await fetcherFor(
+        agentB,
+        sent
+      )({
+        headers: { "x-api-key": PLACEHOLDER },
+        url: "https://api.supadata.ai/v1/x",
+      });
+      expect(result).toMatchObject({ error: "blocked", ok: false });
+      expect(sent).toEqual([]);
+    });
   });
 });
