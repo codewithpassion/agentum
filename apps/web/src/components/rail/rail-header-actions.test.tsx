@@ -38,6 +38,10 @@ test("the header slot renders only inside the app shell", () => {
 test("Board links to the board view with its own name", () => {
   const html = render("/");
   expect(html).toContain('href="/desk?view=board"');
+  expect(html).toContain('aria-label="Assistant"');
+  expect(html.indexOf('aria-label="Assistant"')).toBeLessThan(
+    html.indexOf('aria-label="Board"')
+  );
   expect(html).toContain('aria-label="Board"');
   expect(html).toContain('aria-label="Find"');
   expect(html).toContain("<kbd");
