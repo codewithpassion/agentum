@@ -1,5 +1,6 @@
 import { Bot } from "lucide-react";
 import { useCallback } from "react";
+import { useAssistantLocation } from "#/components/assistant/assistant-location";
 import {
   Command,
   CommandDialog,
@@ -53,12 +54,17 @@ export function FindDialog({
   open: boolean;
 }) {
   const go = useGo();
+  const { open: openAssistant } = useAssistantLocation();
   const handlePick = useCallback(
     (to: string) => {
       onOpenChange(false);
-      go(to);
+      if (to === "/assistant") {
+        openAssistant("new");
+      } else {
+        go(to);
+      }
     },
-    [go, onOpenChange]
+    [go, onOpenChange, openAssistant]
   );
   return (
     <CommandDialog

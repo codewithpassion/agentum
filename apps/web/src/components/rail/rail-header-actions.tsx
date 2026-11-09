@@ -1,6 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
-import { Kanban, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Kanban, Search, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useAssistantLocation } from "#/components/assistant/assistant-location";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { cn } from "#/lib/utils";
 import { RailLink } from "./rail-link.tsx";
@@ -18,7 +19,7 @@ export function isBoardView(location: {
   return location.pathname === "/desk" && view === "board";
 }
 
-/** Board, Find and New, the three controls in the top bar. */
+/** Workspace controls in the top bar. */
 export function RailHeaderActions({
   agents,
   onNavigate,
@@ -28,6 +29,11 @@ export function RailHeaderActions({
   onNavigate: () => void;
   onOpenFind: () => void;
 }) {
+  const { conversationId, open } = useAssistantLocation();
+  const toggleAssistant = useCallback(
+    () => open(conversationId ? null : "new"),
+    [conversationId, open]
+  );
   const [shortcut, setShortcut] = useState("Ctrl K");
   useEffect(() => setShortcut(findShortcut(navigator.platform)), []);
   const onBoard = useRouterState({
@@ -35,6 +41,17 @@ export function RailHeaderActions({
   });
   return (
     <>
+      <Button
+        aria-label="Assistant"
+        aria-pressed={conversationId !== null}
+        className={ACTION_BUTTON_CLASS}
+        onClick={toggleAssistant}
+        type="button"
+        variant="outline"
+      >
+        <Sparkles />
+        <span className="max-md:hidden">Assistant</span>
+      </Button>
       <RailLink
         className={cn(
           buttonVariants({ variant: "outline" }),

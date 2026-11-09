@@ -1,5 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Plus, Sparkles } from "lucide-react";
+import { ArrowLeft, History, Plus, Sparkles } from "lucide-react";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -8,9 +7,15 @@ import {
   useRef,
   useState,
 } from "react";
+import { dictationAdapter } from "#/components/composer/dictation-adapter";
 import { SendHint } from "#/components/composer/send-hint";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { StickyComposer } from "#/components/composer/sticky-composer";
+import {
+  DictationButton,
+  DictationPreview,
+  useDictation,
+} from "#/components/dictation";
 import { errorMessage } from "#/components/secrets/secret-model";
 import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
@@ -18,6 +23,7 @@ import { Spinner } from "#/components/ui/spinner";
 import { Textarea } from "#/components/ui/textarea";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { useAssistantLocation } from "./assistant-location";
 import { AssistantCard } from "./cards";
 import { AssistantMessages } from "./messages";
 import type {
@@ -39,7 +45,7 @@ const manualCard: PendingCard = {
   toolUseId: "manual",
 };
 
-export function AssistantPage({
+export function AssistantConversation({
   initial,
   initialList,
   agents,
@@ -52,7 +58,7 @@ export function AssistantPage({
   initial: Conversation | null;
   initialList: RouterOutputs["assistant"]["list"];
 }) {
-  const navigate = useNavigate();
+  const { open } = useAssistantLocation();
   const [conversation, setConversation] = useState(initial);
   const [list, setList] = useState(initialList);
   const [text, setText] = useState("");
@@ -61,6 +67,21 @@ export function AssistantPage({
   const [manual, setManual] = useState(false);
   const [manualVersion, setManualVersion] = useState(0);
   const [showList, setShowList] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({
+    adapter: dictationAdapter,
+    disabled: busy || !hasKey || showList,
+    getValue: () => text,
+    inputRef,
+    setValue: setText,
+  });
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (conversation || busy || manual) {
@@ -70,17 +91,23 @@ export function AssistantPage({
 
   const accept = useCallback(
     async (next: Conversation) => {
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: The ref changes on unmount while a request is in flight.
+      if (!mounted.current) {
+        return;
+      }
       setConversation(next);
-      setList(await getTrpc().assistant.list.query());
+      const nextList = await getTrpc().assistant.list.query();
+      // A completed turn must not reopen a panel the person has closed.
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: The ref changes on unmount while a request is in flight.
+      if (!mounted.current) {
+        return;
+      }
+      setList(nextList);
       if (!conversation) {
-        await navigate({
-          replace: true,
-          search: { c: next.id },
-          to: "/assistant",
-        });
+        open(next.id, true);
       }
     },
-    [conversation, navigate]
+    [conversation, open]
   );
   const resolve = useCallback(
     async (outcome: CardOutcome) => {
@@ -106,7 +133,7 @@ export function AssistantPage({
   const send = useCallback(
     async (event: FormEvent) => {
       event.preventDefault();
-      if (busy || !text.trim()) {
+      if (busy || dictation.busy || !text.trim()) {
         return;
       }
       setBusy(true);
@@ -138,7 +165,7 @@ export function AssistantPage({
         setBusy(false);
       }
     },
-    [busy, text, conversation, accept]
+    [busy, dictation.busy, text, conversation, accept]
   );
   const archive = useCallback(async () => {
     if (!conversation || busy) {
@@ -149,13 +176,16 @@ export function AssistantPage({
       await getTrpc().assistant.archive.mutate({
         conversationId: conversation.id,
       });
-      await navigate({ search: {}, to: "/assistant" });
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: The ref changes on unmount while a request is in flight.
+      if (mounted.current) {
+        open("new");
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setBusy(false);
     }
-  }, [conversation, busy, navigate]);
+  }, [conversation, busy, open]);
   const openManual = useCallback(() => {
     setManual(true);
     setManualVersion((version) => version + 1);
@@ -163,14 +193,14 @@ export function AssistantPage({
     setError(null);
   }, []);
 
-  const newConversation = useCallback(async () => {
-    await navigate({ search: {}, to: "/assistant" });
+  const newConversation = useCallback(() => {
+    open("new");
     setConversation(null);
     setText("");
     setManual(false);
     setShowList(false);
-  }, [navigate]);
-  const back = useCallback(() => setShowList(true), []);
+  }, [open]);
+  const toggleHistory = useCallback(() => setShowList((shown) => !shown), []);
   const resolveManual = useCallback(() => Promise.resolve(), []);
   const changeText = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => setText(event.target.value),
@@ -180,27 +210,38 @@ export function AssistantPage({
     (event: import("react").MouseEvent<HTMLButtonElement>) => {
       const c = event.currentTarget.dataset.conversationId;
       setShowList(false);
-      return navigate({ search: { c }, to: "/assistant" });
+      open(c ?? "new");
     },
-    [navigate]
+    [open]
   );
 
   return (
     <section aria-label="Workspace assistant" className="flex min-h-0 flex-1">
       <aside
-        className={`${showList ? "flex" : "hidden"} w-full shrink-0 flex-col border-r md:flex md:w-60`}
+        className={`${showList ? "flex" : "hidden"} order-2 w-full shrink-0 flex-col md:flex md:w-[220px] md:border-l`}
       >
         <div className="flex items-center justify-between border-b p-4">
-          <h1 className="font-heading text-lg">Assistant</h1>
-          <Button
-            aria-label="New conversation"
-            disabled={busy}
-            onClick={newConversation}
-            size="icon"
-            variant="ghost"
-          >
-            <Plus className="size-4" />
-          </Button>
+          <h2 className="font-medium text-sm">Conversations</h2>
+          <div className="flex items-center gap-1">
+            <Button
+              aria-label="Back to conversation"
+              className="md:hidden"
+              onClick={toggleHistory}
+              size="icon"
+              variant="ghost"
+            >
+              <ArrowLeft className="size-4" />
+            </Button>
+            <Button
+              aria-label="New conversation"
+              disabled={busy}
+              onClick={newConversation}
+              size="icon"
+              variant="ghost"
+            >
+              <Plus className="size-4" />
+            </Button>
+          </div>
         </div>
         <nav
           aria-label="Conversations"
@@ -235,14 +276,15 @@ export function AssistantPage({
         <header className="flex min-h-16 items-center justify-between gap-2 border-b px-4">
           <div className="flex min-w-0 items-center gap-2">
             <Button
-              aria-label="Back to conversations"
+              aria-label="History"
               className="md:hidden"
               disabled={busy}
-              onClick={back}
-              size="icon"
+              onClick={toggleHistory}
+              size="sm"
               variant="ghost"
             >
-              <ArrowLeft className="size-4" />
+              <History className="size-4" />
+              <span>History</span>
             </Button>
             <h2 className="truncate font-medium text-sm">
               {conversation?.title ?? "New conversation"}
@@ -353,23 +395,29 @@ export function AssistantPage({
                 onSubmit={send}
               >
                 <Label htmlFor="assistant-message">Message</Label>
-                <Textarea
-                  autoComplete="off"
-                  disabled={busy || !hasKey}
-                  id="assistant-message"
-                  maxLength={32_000}
-                  onChange={changeText}
-                  onKeyDown={submitOnSendShortcut}
-                  placeholder="Ask about your workspace…"
-                  value={text}
-                />
+                <div className="relative">
+                  <Textarea
+                    autoComplete="off"
+                    disabled={busy || !hasKey}
+                    id="assistant-message"
+                    maxLength={32_000}
+                    onChange={changeText}
+                    onKeyDown={submitOnSendShortcut}
+                    placeholder="Ask about your workspace…"
+                    readOnly={dictation.busy}
+                    ref={inputRef}
+                    value={text}
+                  />
+                  <DictationPreview dictation={dictation} />
+                </div>
                 <div className="flex items-center gap-3">
                   <Button
-                    disabled={busy || !hasKey || !text.trim()}
+                    disabled={busy || dictation.busy || !hasKey || !text.trim()}
                     type="submit"
                   >
                     Send
                   </Button>
+                  <DictationButton dictation={dictation} />
                   <SendHint />
                 </div>
                 <p className="text-muted-foreground text-xs">

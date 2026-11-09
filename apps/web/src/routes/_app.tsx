@@ -1,6 +1,13 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  retainSearchParams,
+} from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import type { CSSProperties } from "react";
+import { z } from "zod";
+import { AssistantPanel } from "#/components/assistant/assistant-panel";
 import Footer from "#/components/footer";
 import {
   DESK_POLL_INTERVAL_MS,
@@ -19,6 +26,10 @@ import { getTrpc } from "#/integrations/trpc/client";
 const RAIL_WIDTH = { "--sidebar-width": "20rem" } as CSSProperties;
 
 export const Route = createFileRoute("/_app")({
+  validateSearch: z.object({
+    assistant: z.string().min(1).max(200).optional().catch(undefined),
+  }),
+  search: { middlewares: [retainSearchParams(["assistant"])] },
   // The rail's New task and Find list the active agents. `agents.list` skips archived ones.
   loader: async () => {
     try {
@@ -50,6 +61,7 @@ function AppLayout() {
       className={taskLayout ? "min-h-0 flex-1 overflow-hidden" : undefined}
       style={RAIL_WIDTH}
     >
+      <AssistantPanel />
       <Rail agents={agents} pinned={pinned ?? []} />
       <SidebarInset className="min-h-0 min-w-0">
         {/* Desktop keeps this bar. On phones the menu button lives in the
