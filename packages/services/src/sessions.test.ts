@@ -1330,8 +1330,27 @@ test("visibility is unchanged: another user's UI thread stays hidden whatever it
   );
 });
 
-test("main does not return a thread another user made under the caller's main key", async () => {
-  await send(user("u1"), "squat", "main:u2");
+test("only the user it names may start a run under a main thread key", async () => {
+  await expect(send(user("u1"), "squat", "main:u2")).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  const own = await send(user("u1"), "mine", "main:u1");
+  expect((await sessions.main(user("u1"), agentId)).id).toBe(own.sessionId);
+});
+
+test("main raises a conflict instead of returning a thread another user holds under the key", async () => {
+  db.insert(sessionRows)
+    .values({
+      actorId: "u1",
+      actorKind: "user",
+      agentId,
+      createdAt: START,
+      externalKey: "main:u2",
+      id: "squatted",
+      origin: "ui",
+      workspaceId: WORKSPACE,
+    })
+    .run();
 
   await expect(sessions.main(user("u2"), agentId)).rejects.toMatchObject({
     code: "conflict",

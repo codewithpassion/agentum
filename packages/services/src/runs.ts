@@ -144,6 +144,24 @@ const RECENT_TOOL_EVENTS = 20;
 /** Run ids rise within one millisecond, so the id tie-break of the start order is the creation order. */
 const nextRunId = monotonicFactory();
 
+/**
+ * `main:<userId>` is a person's main thread, made by `sessions.main`. Only
+ * that user may open a `ui` session under the key, so nobody can take it first.
+ */
+const requireOwnMainKey = (
+  actor: { id: string; kind: string },
+  input: ParsedInput
+): void => {
+  const key = input.session.externalKey;
+  if (
+    input.session.origin === "ui" &&
+    key?.startsWith("main:") &&
+    !(actor.kind === "user" && key === `main:${actor.id}`)
+  ) {
+    throw new ForbiddenError(START_ACTION);
+  }
+};
+
 /** The session of a run, as a subquery, for a session that run starts. */
 const parentSessionOf = (parentRunId: string | null) =>
   parentRunId === null
@@ -810,6 +828,7 @@ export const createRunsService = ({
     input: ParsedInput,
     options: StartRunOptions
   ) => {
+    requireOwnMainKey(subject.actor, input);
     if (options.sessionId) {
       const session = await findSessionById(db, {
         agentId: agent.id,
