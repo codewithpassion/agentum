@@ -1,5 +1,10 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
 import { AGENT_RUNTIMES } from "../shared.ts";
 import { machines } from "./machines.ts";
@@ -40,6 +45,9 @@ export const agents = sqliteTable(
     // How the agent speaks and what it is for, in the builder's words.
     soul: text("soul").notNull().default(""),
     status: text("status").notNull(),
+    subagents: integer("subagents", { mode: "boolean" })
+      .notNull()
+      .default(false),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [

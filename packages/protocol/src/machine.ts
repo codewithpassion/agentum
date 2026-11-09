@@ -159,6 +159,7 @@ export type RelayHelloAck = z.infer<typeof relayHelloAckSchema>;
 export const offerSchema = z.strictObject({
   agentId: z.string(),
   runId: z.string(),
+  subagent: z.boolean().optional(),
   type: z.literal("offer"),
 });
 export type Offer = z.infer<typeof offerSchema>;

@@ -36,6 +36,7 @@ import {
 } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { effectiveRunScope, scopeAllows } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 import {
   isHeaderSafe,
@@ -681,7 +682,8 @@ export const createSecretsService = ({
   /** The agent's granted secrets, decrypted. Internal: callers keep the values out of anything stored or shown. */
   const grantedTo = async (
     workspaceId: string,
-    agentId: string
+    agentId: string,
+    runId?: string
   ): Promise<GrantedSecret[]> => {
     const rows = await db
       .select({ row: secrets })
@@ -695,9 +697,14 @@ export const createSecretsService = ({
         )
       )
       .orderBy(asc(secrets.name));
+    const scope = runId
+      ? await effectiveRunScope(db, workspaceId, runId)
+      : null;
     return await decryptRows(
       workspaceId,
-      rows.map(({ row }) => row)
+      rows
+        .map(({ row }) => row)
+        .filter((row) => scopeAllows(scope, "secrets", row.id))
     );
   };
 
@@ -709,9 +716,10 @@ export const createSecretsService = ({
   /** What a runtime hands to the agent for this run. */
   const resolveForAgent = async (
     workspaceId: string,
-    agentId: string
+    agentId: string,
+    runId?: string
   ): Promise<ResolvedSecrets> => {
-    const granted = await grantedTo(workspaceId, agentId);
+    const granted = await grantedTo(workspaceId, agentId, runId);
     return {
       env: Object.fromEntries(
         granted
@@ -747,9 +755,10 @@ export const createSecretsService = ({
   /** The masker for the agent's granted values, or null when it has none. */
   const maskerFor = async (
     workspaceId: string,
-    agentId: string
+    agentId: string,
+    runId?: string
   ): Promise<Masker | null> => {
-    const granted = await grantedTo(workspaceId, agentId);
+    const granted = await grantedTo(workspaceId, agentId, runId);
     return granted.length === 0 ? null : maskerOf(granted);
   };
 
@@ -759,10 +768,15 @@ export const createSecretsService = ({
    */
   const placeholdersFor = async (
     workspaceId: string,
-    agentId: string
+    agentId: string,
+    runId?: string
   ): Promise<{ hosts: string[]; name: string }[]> => {
     const rows = await db
-      .select({ allowedHosts: secrets.allowedHosts, name: secrets.name })
+      .select({
+        allowedHosts: secrets.allowedHosts,
+        id: secrets.id,
+        name: secrets.name,
+      })
       .from(agentSecrets)
       .innerJoin(secrets, eq(secrets.id, agentSecrets.secretId))
       .where(
@@ -774,18 +788,24 @@ export const createSecretsService = ({
         )
       )
       .orderBy(asc(secrets.name));
-    return rows.map((row) => ({
-      hosts: allowedHostsOf(row),
-      name: row.name,
-    }));
+    const scope = runId
+      ? await effectiveRunScope(db, workspaceId, runId)
+      : null;
+    return rows
+      .filter((row) => scopeAllows(scope, "secrets", row.id))
+      .map((row) => ({
+        hosts: allowedHostsOf(row),
+        name: row.name,
+      }));
   };
 
   /** The agent's granted `env` secrets with their values and allowed hosts, for the placeholder fetcher. Never for a router. */
   const envGrantsFor = async (
     workspaceId: string,
-    agentId: string
+    agentId: string,
+    runId?: string
   ): Promise<{ hosts: string[]; name: string; value: string }[]> => {
-    const granted = await grantedTo(workspaceId, agentId);
+    const granted = await grantedTo(workspaceId, agentId, runId);
     return granted
       .filter((secret) => secret.mode === "env")
       .map((secret) => ({
@@ -799,9 +819,10 @@ export const createSecretsService = ({
   const proxyFor = async (
     workspaceId: string,
     agentId: string,
-    host: string
+    host: string,
+    runId?: string
   ): Promise<ProxyMatch[]> =>
-    proxyMatches(await grantedTo(workspaceId, agentId), host);
+    proxyMatches(await grantedTo(workspaceId, agentId, runId), host);
 
   /** The proxy rules for `host` of the workspace's secrets called `names`. Unknown names are ignored. */
   const proxyForNames = async (

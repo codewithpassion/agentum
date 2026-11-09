@@ -192,10 +192,12 @@ interface SeedRun {
   error?: string;
   id: string;
   inputText?: string;
+  model?: string;
   parentRunId?: string;
   resultText?: string;
   sessionId: string;
   status: RunStatus;
+  subagentLevel?: number;
   usage?: string;
   workspaceId?: string;
 }
@@ -210,10 +212,12 @@ const seedRun = async (o: SeedRun): Promise<string> => {
     error: o.error ?? null,
     id: o.id,
     inputText: o.inputText ?? `Task ${o.id}`,
+    model: o.model ?? null,
     parentRunId: o.parentRunId ?? null,
     resultText: o.resultText ?? null,
     sessionId: o.sessionId,
     status: o.status,
+    subagentLevel: o.subagentLevel ?? 0,
     usage: o.usage ?? null,
     workspaceId: o.workspaceId ?? "w1",
   });
@@ -930,4 +934,25 @@ test("mail run labels its sender and subject", async () => {
   expect((await tasks.get(user(), { runId: started.runId })).startedBy).toEqual(
     { kind: "mail", label: "Mail from sender@example.net: Help" }
   );
+});
+
+test("task links subagents with their override model and names their parent", async () => {
+  await seedTask("parent", { status: "running" });
+  await seedTask("child", {
+    model: "haiku",
+    parentRunId: "parent",
+    status: "queued",
+    subagentLevel: 1,
+  });
+  const parent = await tasks.get(user(), { runId: "parent" });
+  expect(parent.subagents).toEqual([
+    { id: "child", model: "haiku", status: "queued", title: "Task child" },
+  ]);
+  const child = await tasks.get(user(), { runId: "child" });
+  expect(child.run.model).toBe("haiku");
+  expect(child.startedBy).toEqual({
+    kind: "handoff",
+    label: "Subagent of Alpha",
+    parentRunId: "parent",
+  });
 });

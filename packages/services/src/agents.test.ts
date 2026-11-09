@@ -1224,3 +1224,29 @@ for (const field of ["slug", "emailLocal"] as const) {
     expect((await service.get(user, original.id)).status).toBe("archived");
   });
 }
+
+test("subagents default off and only an owner or admin session may change them", async () => {
+  const agent = await service.create(user, {
+    model: "claude-haiku-5-5",
+    name: "Helpers",
+    runtime: "fake",
+  });
+  expect(agent.subagents).toBe(false);
+  const member: Principal = { ...user, userId: "u-member" };
+  await expect(
+    service.update(member, agent.id, { subagents: true })
+  ).rejects.toThrow(ForbiddenError);
+  await expect(
+    service.update({ ...user, via: "api_key" }, agent.id, { subagents: true })
+  ).rejects.toThrow(ForbiddenError);
+  expect(
+    (await service.update(user, agent.id, { subagents: true })).subagents
+  ).toBe(true);
+  expect(
+    (
+      await service.update({ ...member, isAdmin: true }, agent.id, {
+        subagents: false,
+      })
+    ).subagents
+  ).toBe(false);
+});

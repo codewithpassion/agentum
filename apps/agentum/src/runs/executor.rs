@@ -108,10 +108,17 @@ pub async fn execute(
         if !id_ok(workspace) || !id_ok(agent) {
             return Err(Failure::local("Refused workspace or agent id"));
         }
-        let disk = Disk::new(
-            host.root.join(workspace).join(agent).join("work"),
-            host.user.clone(),
-        );
+        let root = host.root.join(workspace).join(agent);
+        let workdir = if claim["run"]["subagentLevel"].as_u64().unwrap_or(0) > 0 {
+            let session = text(&claim["run"]["sessionId"]);
+            if !id_ok(session) {
+                return Err(Failure::local("Refused subagent session id"));
+            }
+            root.join("subagents").join(session).join("work")
+        } else {
+            root.join("work")
+        };
+        let disk = Disk::new(workdir, host.user.clone());
         disk.mkdir("").await?;
         for path in [".claude", "inbox", "tmp"] {
             disk.remove(path, true).await?;

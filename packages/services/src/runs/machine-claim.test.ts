@@ -840,3 +840,19 @@ test("an ordinary user run is claimed by a daemon without current approvals", as
   expect(claimed).not.toHaveProperty("currentApprovals");
   expect(status(started.runId)?.status).toBe("running");
 });
+
+test("the claim carries a subagent's override and can run it alongside its parent", async () => {
+  const parent = await start(agentId);
+  const child = await start(agentId);
+  db.update(runRows)
+    .set({ model: "haiku", parentRunId: parent.runId, subagentLevel: 1 })
+    .where(eq(runRows.id, child.runId))
+    .run();
+  const claimedParent = await claim("m1", parent.runId);
+  const claimedChild = await claim("m1", child.runId);
+  expect(claimedParent.agent.model).toBe("m");
+  expect(claimedChild.agent.model).toBe("haiku");
+  expect(claimedChild.session.id).not.toBe(claimedParent.session.id);
+  expect(status(parent.runId)?.status).toBe("running");
+  expect(status(child.runId)?.status).toBe("running");
+});

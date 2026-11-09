@@ -732,3 +732,13 @@ test("dispatch composes voice and hands to before Slack guidance", async () => {
     `Be brief.\n\n${SPEAKER_INSTRUCTIONS}\n\n## Voice\nSpeak warmly.\n\nYou can hand work to: Helper (use send_message)\n\n${SLACK_GUIDANCE}`
   );
 });
+
+test("the cloud runner starts with the run's model override", async () => {
+  const started = await start({}, { offerLater: true });
+  db.update(runRows)
+    .set({ model: "claude-haiku-5-5" })
+    .where(eq(runRows.id, started.runId))
+    .run();
+  await runs.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId);
+  expect(runner.startCalls.at(-1)?.agent.model).toBe("claude-haiku-5-5");
+});

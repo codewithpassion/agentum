@@ -920,15 +920,19 @@ export const createMachinesService = ({
    */
   const pendingOffers = async (
     principal: Principal
-  ): Promise<{ agentId: string; runId: string }[]> => {
+  ): Promise<{ agentId: string; runId: string; subagent?: boolean }[]> => {
     const machine = requireMachine(principal, PRESENCE_ACTION);
     authorize(machine, PRESENCE_ACTION, {
       id: machine.machineId,
       kind: MACHINE_KIND,
       workspaceId: machine.workspaceId,
     });
-    return await db
-      .select({ agentId: runs.agentId, runId: runs.id })
+    const offered = await db
+      .select({
+        agentId: runs.agentId,
+        runId: runs.id,
+        subagentLevel: runs.subagentLevel,
+      })
       .from(runs)
       .innerJoin(agents, eq(agents.id, runs.agentId))
       .where(
@@ -943,6 +947,10 @@ export const createMachinesService = ({
       )
       .orderBy(asc(runs.createdAt), asc(runs.id))
       .limit(OFFER_BATCH);
+    return offered.map(({ subagentLevel, ...run }) => ({
+      ...run,
+      ...(subagentLevel > 0 ? { subagent: true } : {}),
+    }));
   };
 
   /**

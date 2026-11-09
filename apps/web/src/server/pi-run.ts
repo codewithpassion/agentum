@@ -271,7 +271,8 @@ export class PiRun extends DurableObject<Env> {
       const run = await this.#storedRun("the dry-run gate");
       return await this.#services().secrets.maskerFor(
         run.workspaceId,
-        run.agentId
+        run.agentId,
+        run.runId
       );
     },
     originOf: (piName) => this.#origins.get(piName),
@@ -485,7 +486,8 @@ export class PiRun extends DurableObject<Env> {
       }
       return await this.#services().secrets.placeholdersFor(
         run.workspaceId,
-        run.agentId
+        run.agentId,
+        run.runId
       );
     } catch {
       console.warn(
@@ -762,7 +764,8 @@ export class PiRun extends DurableObject<Env> {
         const { secrets } = this.#services();
         const granted = await secrets.resolveForAgent(
           run.workspaceId,
-          run.agentId
+          run.agentId,
+          run.runId
         );
         try {
           await secrets.announceDelivery(run, {
@@ -850,7 +853,8 @@ export class PiRun extends DurableObject<Env> {
     try {
       const { proxy } = await this.#services().secrets.resolveForAgent(
         run.workspaceId,
-        run.agentId
+        run.agentId,
+        run.runId
       );
       const hosts = [...new Set(proxy.flatMap((entry) => entry.hosts))];
       if (hosts.length > 0) {

@@ -27,7 +27,8 @@ export class SecretsOutbound extends WorkerEntrypoint<Env, OutboundProps> {
         ),
       fetch: (outgoing) => fetch(outgoing),
       log: (line) => console.warn(line),
-      matches: (host) => services.secrets.proxyFor(workspaceId, agentId, host),
+      matches: (host) =>
+        services.secrets.proxyFor(workspaceId, agentId, host, runId),
     });
   }
 }

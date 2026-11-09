@@ -11,6 +11,11 @@ import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
+import {
+  effectiveRunScope,
+  modelOfRun,
+  scopeAllows,
+} from "../runs/access-scope.ts";
 import { requireOrdinaryMachineRun } from "../runs/guest-scope.ts";
 import { sessionSupportsSpeakers } from "../runs/speakers.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
@@ -131,6 +136,8 @@ export const createCloudRuntime = ({
       runId: run.id,
       workspaceId: run.workspaceId,
     });
+    const scope = await effectiveRunScope(db, run.workspaceId, run.id);
+    const model = modelOfRun(run, agent);
     await runner.start({
       agent: {
         id: agent.id,
@@ -143,9 +150,7 @@ export const createCloudRuntime = ({
           .filter((part) => part !== "")
           .join("\n\n"),
         model:
-          run.dryRun && !findCloudModel(agent.model)
-            ? CLOUD_DEFAULT_MODEL
-            : agent.model,
+          run.dryRun && !findCloudModel(model) ? CLOUD_DEFAULT_MODEL : model,
         name: agent.name,
         runtimeConfig: agent.runtimeConfig,
         slug: agent.slug,
@@ -162,7 +167,9 @@ export const createCloudRuntime = ({
           : { taskFolder: taskFolderPath(agent.slug, run.id) }),
       },
       mcpServers: buildMcpServers({
-        connectors: assigned,
+        connectors: assigned.filter((connector) =>
+          scopeAllows(scope, "connectors", connector.id)
+        ),
         platformUrl,
         runToken,
       }),

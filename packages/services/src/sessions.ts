@@ -208,6 +208,22 @@ export const visibleSessions = async (
   return and(
     eq(sessions.workspaceId, reader.workspaceId),
     reader.kind === "run"
+      ? sql`(
+          not exists (select 1 from ${runs} where ${runs.sessionId} = ${sessions.id}
+            and ${runs.subagentLevel} > 0)
+          or ${sessions.id} in (
+            with recursive owned(id, session_id) as (
+              select id, session_id from runs
+                where id = ${reader.runId} and workspace_id = ${reader.workspaceId}
+              union all
+              select child.id, child.session_id from runs child
+                join owned on child.parent_run_id = owned.id
+                where child.workspace_id = ${reader.workspaceId}
+            ) select session_id from owned
+          )
+        )`
+      : undefined,
+    reader.kind === "run"
       ? or(
           eq(sessions.agentId, reader.agentId),
           and(

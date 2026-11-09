@@ -126,7 +126,7 @@ export interface MachineRelayPort {
   /** Offers a run to the daemon. Does nothing when no socket is open. */
   offer: (
     machineId: string,
-    offer: { agentId: string; runId: string }
+    offer: { agentId: string; runId: string; subagent?: boolean }
   ) => Promise<void>;
   /** A person hands the desktop back. It is free once the clipboard is cleared. */
   releaseHumanLease: (

@@ -167,7 +167,11 @@ export class MachineRelay extends DurableObject<Env> {
 
   // The calls below are RPC from the Worker, through `relay-port.ts`.
 
-  offer(run: { agentId: string; runId: string }): Promise<void> {
+  offer(run: {
+    agentId: string;
+    runId: string;
+    subagent?: boolean;
+  }): Promise<void> {
     this.#relay().daemon.offer(run);
     return Promise.resolve();
   }

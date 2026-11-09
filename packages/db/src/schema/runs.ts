@@ -22,6 +22,8 @@ import { workspaces } from "./workspaces.ts";
 export const runs = sqliteTable(
   "runs",
   {
+    // Snapshot of the access a subagent inherits, narrowed by its caller. JSON.
+    accessScope: text("access_scope"),
     actorId: text("actor_id").notNull(),
     actorKind: text("actor_kind").notNull(),
     agentId: text("agent_id")
@@ -44,6 +46,7 @@ export const runs = sqliteTable(
     inputFileIds: text("input_file_ids").notNull().default("[]"),
     inputText: text("input_text").notNull(),
     leaseUntil: text("lease_until"),
+    model: text("model"),
     onBehalfOfUserId: text("on_behalf_of_user_id"),
     // JSON array of output file ids.
     outputFileIds: text("output_file_ids").notNull().default("[]"),
@@ -77,6 +80,7 @@ export const runs = sqliteTable(
       .default(false),
     startedAt: text("started_at"),
     status: text("status", { enum: RUN_STATUSES }).notNull(),
+    subagentLevel: integer("subagent_level").notNull().default(0),
     // Written only by the queued-run sweep: when it last looked at the run.
     sweptAt: text("swept_at"),
     // JSON.
@@ -86,6 +90,7 @@ export const runs = sqliteTable(
   (t) => [
     uniqueIndex("runs_request_unique").on(t.workspaceId, t.requestId),
     // The runs of one actor in time order, which is how a routine's runs are found.
+    index("runs_parent_idx").on(t.parentRunId),
     index("runs_actor_idx").on(t.actorId, t.id),
     index("runs_guest_daily_idx").on(
       t.workspaceId,

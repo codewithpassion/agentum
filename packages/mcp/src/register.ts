@@ -28,7 +28,10 @@ const skipDryRun = async (
 export const registerTools = (
   server: McpServer,
   definitions: readonly ToolDefinition[],
-  { dryRun }: Pick<ServerOptions, "dryRun"> = {}
+  {
+    dryRun,
+    authorizeTool,
+  }: Pick<ServerOptions, "dryRun" | "authorizeTool"> = {}
 ): void => {
   for (const definition of definitions) {
     server.registerTool(
@@ -40,11 +43,12 @@ export const registerTools = (
         title: definition.title,
       },
       (input) =>
-        runSafely(() =>
-          dryRun && definition.annotations.readOnlyHint !== true
+        runSafely(async () => {
+          await authorizeTool?.(definition.name);
+          return dryRun && definition.annotations.readOnlyHint !== true
             ? skipDryRun(definition, input, dryRun)
-            : definition.run(input)
-        )
+            : definition.run(input);
+        })
     );
   }
 };

@@ -11,6 +11,7 @@ import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { createEventsService } from "./events.ts";
+import { validateSubagentAccess } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 import { createSecretsService, type SecretsService } from "./secrets.ts";
 import type { Principal } from "./workspaces.ts";
@@ -796,4 +797,62 @@ test("secure card receipts read stored metadata and grants in the caller's works
   await expect(service.describe(outsider, secret.id)).rejects.toThrow(
     "Secret not found"
   );
+});
+
+test("subagents refuse ungranted secrets and apply the parent intersection on every resolution", async () => {
+  const env = await service.create(user, {
+    mode: "env",
+    name: "SCOPED_KEY",
+    value: ECHO,
+  });
+  const proxy = await proxySecret();
+  await service.setGrants(user, agentA, [env.id, proxy.id]);
+  seedRun(agentA, "parent");
+  seedRun(agentA, "child");
+  const parent = { agentId: agentA, id: "parent", workspaceId: WORKSPACE };
+  await expect(
+    validateSubagentAccess(db, parent, { secrets: ["ungranted"] })
+  ).rejects.toThrow("cannot gain secrets");
+  const selected = await validateSubagentAccess(db, parent, {
+    secrets: [env.id],
+  });
+  db.update(runRows)
+    .set({ accessScope: JSON.stringify(selected) })
+    .where(eq(runRows.id, "parent"))
+    .run();
+  // Even a stale or malformed wider child scope remains inside its parent's grants.
+  db.update(runRows)
+    .set({
+      accessScope: JSON.stringify({ secrets: [env.id, proxy.id] }),
+      parentRunId: "parent",
+      subagentLevel: 1,
+    })
+    .where(eq(runRows.id, "child"))
+    .run();
+  const resolved = await service.resolveForAgent(WORKSPACE, agentA, "child");
+  expect(resolved.env).toEqual({ SCOPED_KEY: ECHO });
+  expect(resolved.proxy).toEqual([]);
+  expect(
+    await service.proxyFor(WORKSPACE, agentA, "api.openai.com", "child")
+  ).toEqual([]);
+  expect(
+    (await service.placeholdersFor(WORKSPACE, agentA, "child")).map(
+      (entry) => entry.name
+    )
+  ).toEqual(["SCOPED_KEY"]);
+  expect(
+    (await service.envGrantsFor(WORKSPACE, agentA, "child")).map(
+      (entry) => entry.name
+    )
+  ).toEqual(["SCOPED_KEY"]);
+  await expect(
+    validateSubagentAccess(db, parent, { secrets: [proxy.id] })
+  ).rejects.toThrow("cannot gain secrets");
+  db.update(runRows)
+    .set({ accessScope: JSON.stringify({ secrets: [] }) })
+    .where(eq(runRows.id, "parent"))
+    .run();
+  expect(
+    (await service.resolveForAgent(WORKSPACE, agentA, "child")).env
+  ).toEqual({});
 });

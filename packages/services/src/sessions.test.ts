@@ -984,3 +984,103 @@ test("artifact sessions require a same-workspace artifact and active access", as
     "artifact-session"
   );
 });
+
+test("a run cannot list, read or search another run's subagent sessions", async () => {
+  const parent = await send(user("u1"), "parent");
+  const otherParent = await send(user("u1"), "other parent");
+  const child = await startIn(user("u1"), agentId, "helper needle", {
+    origin: "inbox",
+  });
+  const grandchild = await startIn(user("u1"), agentId, "grandchild needle", {
+    origin: "inbox",
+  });
+  const foreign = await startIn(user("u1"), agentId, "foreign needle", {
+    origin: "inbox",
+  });
+  await db
+    .update(runRows)
+    .set({ parentRunId: parent.runId, subagentLevel: 1 })
+    .where(eq(runRows.id, child.runId));
+  await db
+    .update(runRows)
+    .set({ parentRunId: child.runId, subagentLevel: 2 })
+    .where(eq(runRows.id, grandchild.runId));
+  await db
+    .update(runRows)
+    .set({ parentRunId: otherParent.runId, subagentLevel: 1 })
+    .where(eq(runRows.id, foreign.runId));
+  const principal = runAs(parent.runId, agentId);
+  const listed = (await sessions.list(principal)).map((session) => session.id);
+  expect(listed).toContain(child.sessionId);
+  expect(listed).toContain(grandchild.sessionId);
+  expect(listed).not.toContain(foreign.sessionId);
+  const found = await sessions.search(principal, { agentId, query: "needle" });
+  expect(found.map((hit) => hit.session.id)).not.toContain(foreign.sessionId);
+  expect(
+    (await sessions.transcript(principal, grandchild.sessionId)).latestRun?.id
+  ).toBe(grandchild.runId);
+  await expect(
+    sessions.transcript(principal, foreign.sessionId)
+  ).rejects.toThrow("Session not found");
+  await expect(sessions.get(principal, foreign.sessionId)).rejects.toThrow(
+    "Session not found"
+  );
+  await expect(
+    sessions.get(runAs(child.runId, agentId), child.sessionId)
+  ).resolves.toMatchObject({ id: child.sessionId });
+});
+
+test.each(["ui", "inbox"] as const)(
+  "subagents inherit %s session privacy and keep the delegated reader",
+  async (origin) => {
+    await db
+      .update(agentRows)
+      .set({ subagents: true })
+      .where(eq(agentRows.id, agentId));
+    const parent = await startIn(user("u1"), agentId, "private parent", {
+      origin,
+      private: origin === "inbox",
+    });
+    await db
+      .update(runRows)
+      .set({ status: "running" })
+      .where(eq(runRows.id, parent.runId));
+    const principal = runAs(parent.runId, agentId);
+    const child = await runs.startSubagent(principal, {
+      model: "m",
+      task: "private helper",
+    });
+    const [session] = await db
+      .select()
+      .from(sessionRows)
+      .where(eq(sessionRows.id, child.sessionId));
+    expect(session).toMatchObject({
+      actorId: "u1",
+      actorKind: "user",
+      private: true,
+    });
+    expect((await sessions.get(user("u1"), child.sessionId)).id).toBe(
+      child.sessionId
+    );
+    expect((await sessions.get(principal, child.sessionId)).id).toBe(
+      child.sessionId
+    );
+    await expect(sessions.get(user("u2"), child.sessionId)).rejects.toThrow(
+      "Session not found"
+    );
+    expect(
+      (await sessions.list(user("u2"))).map((item) => item.id)
+    ).not.toContain(child.sessionId);
+    const childEvents = await db
+      .select()
+      .from(eventRows)
+      .where(eq(eventRows.runId, child.id));
+    expect(
+      childEvents.find((event) => event.type === "message.user")?.actorKind
+    ).toBe("agent");
+    await db
+      .update(runRows)
+      .set({ status: "done" })
+      .where(eq(runRows.id, parent.runId));
+  }
+);

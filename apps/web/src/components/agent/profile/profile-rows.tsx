@@ -24,6 +24,7 @@ import {
 } from "./profile-logic.ts";
 import { Row } from "./profile-row.tsx";
 import type { SheetId } from "./sheet-ids.ts";
+import { SubagentsSwitch } from "./subagents-switch.tsx";
 import { VoiceField } from "./voice-field.tsx";
 
 /** Characters that can overflow four lines on a 360px phone. */
@@ -120,6 +121,9 @@ export function ProfileRows({
           ]}
           extra={<BrowserSwitch agent={agent} onChanged={onChanged} />}
         />
+      </Row>
+      <Row label="Subagents">
+        <SubagentsSwitch agent={agent} onChanged={onChanged} />
       </Row>
       <Row label="Skills">
         <ChipList

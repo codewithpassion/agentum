@@ -94,6 +94,7 @@ const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
   slug: "inbox-helper",
   soul: "",
   status: "draft",
+  subagents: false,
   workspaceId: "ws_1",
   ...overrides,
 });

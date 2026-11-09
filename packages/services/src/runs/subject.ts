@@ -84,7 +84,8 @@ const subjectOfRun = async (
   db: Database,
   principal: Extract<Principal, { kind: "run" }>,
   agentId: string,
-  wakeOf?: WakeOf
+  wakeOf?: WakeOf,
+  subagent = false
 ): Promise<Subject> => {
   const parent = await loadRun(db, principal.runId, principal.workspaceId);
   if (!parent) {
@@ -93,7 +94,9 @@ const subjectOfRun = async (
   if (parent.agentId !== principal.agentId) {
     throw new ForbiddenError(START_ACTION);
   }
-  await refuseBusyAncestor(db, parent, agentId);
+  if (!subagent) {
+    await refuseBusyAncestor(db, parent, agentId);
+  }
   const depth = parent.depth + 1;
   if (depth > MAX_RUN_DEPTH) {
     throw new ServiceError(
@@ -135,7 +138,8 @@ export const deriveSubject = async (
   db: Database,
   principal: Principal,
   agentId: string,
-  wakeOf?: WakeOf
+  wakeOf?: WakeOf,
+  subagent = false
 ): Promise<Subject> => {
   switch (principal.kind) {
     case "user":
@@ -153,7 +157,7 @@ export const deriveSubject = async (
         parentRunId: null,
       };
     case "run":
-      return await subjectOfRun(db, principal, agentId, wakeOf);
+      return await subjectOfRun(db, principal, agentId, wakeOf, subagent);
     case "trigger":
       // A trigger token belongs to one agent.
       if (principal.agentId !== agentId) {

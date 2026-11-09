@@ -28,6 +28,7 @@ import { importSecretsKey } from "./crypto.ts";
 import { createEventsService } from "./events.ts";
 import { createMachineRuntime } from "./machines/runtime.ts";
 import { noopRelay } from "./machines/types.ts";
+import { validateSubagentAccess } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 import { createRunsService, type RunsService } from "./runs.ts";
 import type { Principal } from "./workspaces.ts";
@@ -775,4 +776,48 @@ describe("resolveUser", () => {
     expect(result).toMatchObject({ ok: true, version: 2 });
     expect(headerOf(result)).toBe("Bearer fresh-1");
   });
+});
+
+test("subagents refuse unassigned connectors and narrow connector and tool resolution", async () => {
+  await assign("agent");
+  await addCredential("agent", agentId, "agent-key");
+  const started = await runs.startRun(sessionUser(dom), {
+    agentId,
+    input: { text: "parent" },
+    session: { origin: "mcp" },
+  });
+  const parent = { agentId, id: started.runId, workspaceId: WORKSPACE };
+  await expect(
+    validateSubagentAccess(db, parent, { connectors: ["unassigned"] })
+  ).rejects.toThrow("cannot gain connectors");
+  const scope = await validateSubagentAccess(db, parent, {
+    connectors: [CONNECTOR],
+    tools: ["read"],
+  });
+  db.update(runRows)
+    .set({ accessScope: JSON.stringify(scope) })
+    .where(eq(runRows.id, started.runId))
+    .run();
+  const result = await service.resolve({
+    agentId,
+    connectorId: CONNECTOR,
+    onBehalfOfUserId: dom,
+    runId: started.runId,
+    workspaceId: WORKSPACE,
+  });
+  expect(result.ok && result.allowedTools).toEqual(["read"]);
+  expect(headerOf(result)).toBe("agent-key");
+  db.update(runRows)
+    .set({ accessScope: JSON.stringify({ connectors: [] }) })
+    .where(eq(runRows.id, started.runId))
+    .run();
+  expect(
+    await service.resolve({
+      agentId,
+      connectorId: CONNECTOR,
+      onBehalfOfUserId: dom,
+      runId: started.runId,
+      workspaceId: WORKSPACE,
+    })
+  ).toEqual({ ok: false, reason: "not_assigned" });
 });
