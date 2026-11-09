@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
 import { events } from "@repo/db/schema/events";
 import { skillSources, skillVersions } from "@repo/db/schema/skills";
-import { eq, sql } from "drizzle-orm";
+import { SKILL_CHANGE_TTL_MS } from "@repo/db/shared";
+import { and, eq, sql } from "drizzle-orm";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import type { GithubSkillFetcher } from "./github.ts";
 import {
+  A1,
   bytes,
+  R1,
   readOnlyUser,
   run,
   setup,
@@ -245,4 +248,45 @@ test("the source and publication roll back together when the source write fails"
   expect(
     db.select().from(events).where(eq(events.type, "skill.imported")).all()
   ).toHaveLength(0);
+});
+
+test("a person's GitHub update is built on the approved version, not on a run's pending proposal", async () => {
+  const { service, state, db } = fake();
+  const first = await service.importGithub(user(), input);
+  const { skillId } = first.version;
+  await service.assign(user(), { agentId: A1, skillId });
+  await service.commit(run(A1, R1), {
+    baseVersion: 1,
+    message: "Run",
+    skillId,
+    writes: [{ content: "EVIL", path: "x.md" }],
+  });
+  state.sha = "b".repeat(40);
+  await service.checkUpdates(SYSTEM_PRINCIPAL, { limit: 10 });
+
+  const update = await service.importUpdate(user(), skillId);
+
+  expect(update.status).toBe("proposed");
+  expect(update.parent).toBe(1);
+  const shown = await service.show(user(), {
+    skillId,
+    version: update.number,
+    withContents: true,
+  });
+  expect(shown.files?.map((file) => file.path)).toEqual(["SKILL.md"]);
+  // The run's proposal lapses, and the update does not go with it.
+  db.update(skillVersions)
+    .set({
+      createdAt: new Date(
+        Date.now() - SKILL_CHANGE_TTL_MS - 1000
+      ).toISOString(),
+    })
+    .where(and(eq(skillVersions.skillId, skillId), eq(skillVersions.number, 2)))
+    .run();
+  expect(
+    (await service.proposals(user())).map((version) => version.number)
+  ).toEqual([3]);
+  expect((await service.approve(user(), { skillId, version: 3 })).status).toBe(
+    "approved"
+  );
 });

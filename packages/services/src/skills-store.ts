@@ -1136,7 +1136,8 @@ export const createSkillsStoreService = ({
       ...lapsed.map((version) =>
         events.insertStatement({
           actor: { id: "system", kind: "system" },
-          agentId: version.authorId,
+          agentId:
+            version.authorKind === "agent" ? version.authorId : undefined,
           payload: {
             expired: true,
             name: skill.name,
@@ -1184,15 +1185,17 @@ export const createSkillsStoreService = ({
    * is the newest version that is not rejected, or with `fromBase` the version
    * `baseOf` picks. When every version was rejected the newest one is the head
    * and the next version keeps its files except for what the commit changes,
-   * but has no parent (`parent` null), so a person can approve it.
+   * but has no parent (`parent` null), so a person can approve it. A caller
+   * who may only change skills it owns passes `asksPerson` false.
    */
   const headFor = async (
     c: Caller,
     skillId: string,
     action: string,
-    fromBase = false
+    fromBase = false,
+    asksPerson = fromBase
   ) => {
-    const skill = await writableSkill(c, skillId, action, fromBase);
+    const skill = await writableSkill(c, skillId, action, asksPerson);
     const versions = await settleLapsed(skill, await versionsOf(skill.id));
     const open = fromBase ? baseOf(c, versions) : headOf(versions);
     const head =
@@ -1330,8 +1333,10 @@ export const createSkillsStoreService = ({
       true
     );
     const target = await versionFor(c, skill.id, parsed.toVersion);
-    if (target.status === "rejected") {
-      throw invalid("A rejected version cannot be restored");
+    if (target.status !== "approved") {
+      throw invalid(
+        "Only an approved version can be restored. Approve or reject the proposal instead."
+      );
     }
     const tree = await treeOf(target.id);
     return publish({
@@ -2179,14 +2184,16 @@ export const createSkillsStoreService = ({
       Pick<Publication, "source" | "sourceCommitSha" | "status" | "message">
     > = {}
   ): Promise<VersionRecord> => {
-    const { parent, previous, skill, versions } = await headFor(
+    const { head, parent, previous, skill, versions } = await headFor(
       c,
       skillId,
-      "skills.import"
+      "skills.import",
+      true,
+      false
     );
     if (
       githubPublication.sourceCommitSha &&
-      headOf(versions)?.sourceCommitSha === githubPublication.sourceCommitSha &&
+      head.sourceCommitSha === githubPublication.sourceCommitSha &&
       sameTree(previous, files)
     ) {
       throw invalid("Nothing changed from the base version");

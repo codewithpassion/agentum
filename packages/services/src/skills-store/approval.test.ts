@@ -883,3 +883,80 @@ test("a run's revert on a skill it does not own waits for a person", async () =>
     skillMd(NAME, "Newer.")
   );
 });
+
+/** A person's proposal stacked on the version `parent`, as an older update or import left it. */
+const insertPersonProposal = (
+  db: Setup["db"],
+  skillId: string,
+  number: number,
+  parent: number
+) =>
+  db
+    .insert(skillVersions)
+    .values({
+      authorId: "u1",
+      authorKind: "user",
+      createdAt: new Date().toISOString(),
+      id: `zz-person-${number}`,
+      message: "Proposed update from GitHub",
+      number,
+      parentNumber: parent,
+      skillId,
+      status: "proposed",
+      workspaceId: "w1",
+    })
+    .run();
+
+test("a person's proposal stacked on a lapsed run proposal settles with it, and the log, the list and a commit still work", async () => {
+  const { db, service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  insertPersonProposal(db, skillId, 3, 2);
+  age(db, skillId, 2);
+
+  expect(await service.proposals(user())).toEqual([]);
+  expect(
+    (await service.log(user(), { skillId })).map((item) => [
+      item.number,
+      item.status,
+    ])
+  ).toEqual([
+    [3, "rejected"],
+    [2, "rejected"],
+    [1, "approved"],
+  ]);
+  expect((await edit(service, user(), skillId, 1, "Person edit.")).status).toBe(
+    "approved"
+  );
+  const expired = skillEvents(db).filter(
+    (row) => row.type === "skill.rejected"
+  );
+  expect(expired).toHaveLength(2);
+  expect(
+    expired.find((row) => payloadOf(row.payload).version === 3)?.agentId
+  ).toBeNull();
+  expect(
+    expired.find((row) => payloadOf(row.payload).version === 2)?.agentId
+  ).toBe(A1);
+});
+
+test("only an approved version can be restored, by a key or a browser session", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+
+  expect(
+    await Promise.all(
+      [keyUser(), user()].map((principal) =>
+        refusalOf(service.revert(principal, { skillId, toVersion: 2 }))
+      )
+    )
+  ).toEqual(["invalid", "invalid"]);
+  await service.reject(user(), { skillId, version: 2 });
+  expect(
+    await refusalOf(service.revert(user(), { skillId, toVersion: 2 }))
+  ).toBe("invalid");
+  expect(
+    (await service.log(user(), { skillId })).map((item) => item.number)
+  ).toEqual([2, 1]);
+});
