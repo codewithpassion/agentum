@@ -88,6 +88,13 @@ export type Usage = z.infer<typeof usageSchema>;
  * What a trusted caller adds to `startRun`. It is not part of the input
  * schema, so nothing a client sends can reach it.
  */
+export interface RunAccessScope {
+  connectors?: string[];
+  secrets?: string[];
+  /** Connector tool names only; built-in and platform tools keep their own rules. */
+  tools?: string[];
+}
+
 export interface StartRunOptions {
   /**
    * Writes that land in the same atomic write as the session and the run,
@@ -118,6 +125,8 @@ export interface StartRunOptions {
    * Not in `startRunInputSchema` on purpose. An unknown id is "not found".
    */
   sessionId?: string;
+  /** Trusted subagent metadata; never accepted by startRunInputSchema. */
+  subagent?: { model: string; level: number; accessScope: RunAccessScope };
   /**
    * The run is a wake: the follow-up an agent gets when a peer's answer comes
    * in after its calling run ended. Its actor is that peer's connection and it
@@ -130,6 +139,7 @@ export interface StartRunOptions {
 
 /** A run row with its JSON columns parsed. */
 export interface RunRecord {
+  accessScope: RunAccessScope | null;
   actor: { id: string; kind: EventActorKind };
   agentId: string;
   claimedBy: string | null;
@@ -143,6 +153,7 @@ export interface RunRecord {
   inputFileIds: string[];
   inputText: string;
   leaseUntil: string | null;
+  model: string | null;
   onBehalfOfUserId: string | null;
   outputFileIds: string[];
   parentRunId: string | null;
@@ -156,6 +167,7 @@ export interface RunRecord {
   sessionId: string;
   startedAt: string | null;
   status: RunStatus;
+  subagentLevel: number;
   usage: Usage | null;
   workspaceId: string;
 }
@@ -238,6 +250,7 @@ export interface MachineClaim {
     { headers: Record<string, string>; type: "http"; url: string }
   >;
   run: {
+    subagentLevel?: number;
     agentId: string;
     id: string;
     inputText: string;

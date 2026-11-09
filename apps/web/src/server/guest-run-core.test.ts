@@ -15,6 +15,7 @@ const fixture = () => {
   let inferenceCalls = 0;
   const effects: string[] = [];
   const run: RunRecord = {
+    accessScope: null,
     actor: { id: "guest", kind: "guest" },
     agentId: "agent",
     claimedBy: "system",
@@ -27,6 +28,7 @@ const fixture = () => {
     inputFileIds: [],
     inputText: "trusted envelope",
     leaseUntil: new Date(2000).toISOString(),
+    model: null,
     onBehalfOfUserId: null,
     outputFileIds: [],
     parentRunId: null,
@@ -39,6 +41,7 @@ const fixture = () => {
     sessionId: "shared-session",
     startedAt: new Date(0).toISOString(),
     status: "running",
+    subagentLevel: 0,
     usage: null,
     workspaceId: "workspace",
   };

@@ -80,7 +80,10 @@ const assertRuntimeConfig = (
 };
 
 /** Refuses a model for another provider on a runtime that runs Anthropic models only. */
-const assertModelForRuntime = (runtime: AgentRuntime, model: string): void => {
+export const assertModelForRuntime = (
+  runtime: AgentRuntime,
+  model: string
+): void => {
   if (
     (runtime === "managed" || runtime === "machine") &&
     !isAnthropicModel(model)
@@ -113,6 +116,7 @@ export interface AgentRecord {
   slug: string;
   soul: string;
   status: AgentStatus;
+  subagents: boolean;
   workspaceId: string;
 }
 
@@ -127,8 +131,19 @@ type AgentValues = Pick<
   | "runtimeConfig"
   | "slug"
   | "soul"
+  | "subagents"
 >;
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
+
+const assertSubagentOwner = (user: UserPrincipal, agent: AgentRecord): void => {
+  if (
+    user.via !== "session" ||
+    (user.isAdmin !== true &&
+      user.userId !== (agent.ownerUserId ?? agent.createdBy))
+  ) {
+    throw new ForbiddenError(AGENT_UPDATE);
+  }
+};
 
 const statusSchema = z.enum(AGENT_STATUSES);
 
@@ -224,6 +239,7 @@ export const agentUpdateSchema = z
     runtimeConfig: runtimeConfigSchema.optional(),
     slug: slugSchema.optional(),
     soul: soulSchema.optional(),
+    subagents: z.boolean().optional(),
   })
   .refine(
     (patch) => Object.values(patch).some((value) => value !== undefined),
@@ -274,6 +290,7 @@ const toRecord = (row: AgentRow): AgentRecord => ({
   slug: row.slug,
   soul: row.soul,
   status: statusSchema.parse(row.status),
+  subagents: row.subagents,
   workspaceId: row.workspaceId,
 });
 
@@ -511,6 +528,7 @@ export const createAgentsService = ({
       slug,
       soul: parsed.soul,
       status,
+      subagents: false,
       workspaceId,
     };
     try {
@@ -830,6 +848,9 @@ export const createAgentsService = ({
     const parsed = agentUpdateSchema.parse(
       withConfigPatch(input, current, runtimeConfigPatch)
     );
+    if (parsed.subagents !== undefined) {
+      assertSubagentOwner(user, current);
+    }
     await assertAgentPatch(current, parsed);
 
     const slug = parsed.slug ?? current.slug;
@@ -848,6 +869,7 @@ export const createAgentsService = ({
       ),
       slug,
       soul: parsed.soul ?? current.soul,
+      subagents: parsed.subagents ?? current.subagents,
     };
     const row = await saveAgent(
       id,

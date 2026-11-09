@@ -107,6 +107,13 @@ export interface ManagedGateway {
   createSession: (input: {
     anthropicAgentId: string;
     model: string;
+    overrides?: {
+      askKeys: readonly string[];
+      desktop: boolean;
+      mcpServers: readonly McpServerRef[];
+      skills: readonly SkillRef[];
+      system: string;
+    };
     text: string;
     title: string;
     vaultIds: readonly string[];
@@ -582,6 +589,18 @@ export const createManagedGateway = (
           id: input.anthropicAgentId,
           model: input.model,
           type: "agent_with_overrides",
+          ...(input.overrides
+            ? {
+                mcp_servers: mcpServersFor(input.overrides.mcpServers),
+                skills: skillsFor(input.overrides.skills),
+                system: input.overrides.system,
+                tools: toolsFor(
+                  input.overrides.mcpServers,
+                  input.overrides.askKeys,
+                  input.overrides.desktop
+                ),
+              }
+            : {}),
         },
         budget: {
           max_list_cost: {

@@ -31,6 +31,8 @@ export const FEATURE_LIBRARY_SYNC = "library-sync";
 
 /** The daemon can raise approval and question requests and wait for them (V1.9). */
 export const FEATURE_REQUESTS = "requests";
+/** The daemon runs subagent sessions alongside their parent. */
+export const FEATURE_PARALLEL_SUBAGENTS = "parallel-subagents";
 export const FEATURE_CURRENT_APPROVALS = "current-approvals";
 
 /** The daemon takes `library_changed` relay frames and the claim's library `roots` and `taskFolder` (V4). */
@@ -159,6 +161,7 @@ export type RelayHelloAck = z.infer<typeof relayHelloAckSchema>;
 export const offerSchema = z.strictObject({
   agentId: z.string(),
   runId: z.string(),
+  subagent: z.boolean().optional(),
   type: z.literal("offer"),
 });
 export type Offer = z.infer<typeof offerSchema>;

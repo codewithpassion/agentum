@@ -300,7 +300,8 @@ export const egressRoutes = ({
     const matches = await secrets.proxyFor(
       claims.workspaceId,
       claims.agentId,
-      host
+      host,
+      claims.runId
     );
     if (matches.length === 0) {
       return denied(claims, host, "host_not_granted");

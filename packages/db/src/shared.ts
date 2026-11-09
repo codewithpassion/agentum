@@ -538,6 +538,7 @@ export interface MapEditedPayload {
 }
 
 export const EVENT_ACTOR_KINDS = [
+  "run",
   "guest",
   "user",
   "agent",

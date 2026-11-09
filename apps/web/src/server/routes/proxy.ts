@@ -666,6 +666,7 @@ export const proxyRoutes = ({
       return unauthorized();
     }
     const resolution = await credentials.resolve({
+      runId: claims.runId,
       agentId: claims.agentId,
       connectorId,
       machineId: context.machineId,

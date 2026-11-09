@@ -825,6 +825,21 @@ export interface AdminPort {
   }) => Promise<AdminAgentInfo>;
 }
 
+export interface SubagentsPort {
+  list: () => Promise<(RunInfo & { model: string; summary: string })[]>;
+  message: (input: { id: string; text: string }) => Promise<RunInfo>;
+  start: (input: {
+    task: string;
+    model: string;
+    connectors?: string[];
+    secrets?: string[];
+    tools?: string[];
+    requestId?: string;
+  }) => Promise<RunInfo>;
+  status: (input: { id: string; waitMs: number }) => Promise<RunInfo>;
+  stop: (input: { id: string }) => Promise<RunInfo>;
+}
+
 export interface McpPorts {
   /** Set for user principals; the server offers only the tools their access allows. */
   admin?: AdminPort;
@@ -979,6 +994,7 @@ export interface McpPorts {
     thread_ts?: string;
     to: string;
   }) => Promise<SlackSendResult>;
+  subagents?: SubagentsPort;
   unassignSkill: (input: { agent: string; skillId: string }) => Promise<void>;
   wikiRead: (input: { path: string }) => Promise<WikiPageInfo>;
   wikiSuggestEdit: (input: {

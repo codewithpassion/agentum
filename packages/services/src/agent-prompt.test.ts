@@ -38,3 +38,12 @@ test("no active hands to targets adds no empty handoff line", () => {
     "Do the work."
   );
 });
+
+test("subagents advertise starting parallel work and checking its status", () => {
+  const prompt = agentPrompt({ ...agent, subagents: true }, []);
+  expect(prompt).toContain("start_subagent");
+  expect(prompt).toContain("subagent_status");
+  expect(agentPrompt({ ...agent, subagents: false }, [])).not.toContain(
+    "start_subagent"
+  );
+});

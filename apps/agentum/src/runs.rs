@@ -74,31 +74,34 @@ pub fn role(paths: &Paths, name: &str, config: &Config) -> Arc<dyn Role> {
 }
 impl Host {
     fn offer(&self, agent: String, run: String) {
+        self.offer_slot(agent.clone(), run, agent);
+    }
+    fn offer_subagent(&self, agent: String, run: String) {
+        // A subagent has its own session. Ordinary runs keep the per-agent FIFO.
+        self.offer_slot(agent, run.clone(), format!("subagent:{run}"));
+    }
+    fn offer_slot(&self, agent: String, run: String, slot: String) {
         let mut state = self.state.lock().unwrap();
         if state.stopped || !state.known.insert(run.clone()) {
             return;
         }
-        state
-            .queues
-            .entry(agent.clone())
-            .or_default()
-            .push_back(run);
+        state.queues.entry(slot.clone()).or_default().push_back(run);
         drop(state);
-        self.pump(agent);
+        self.pump(agent, slot);
     }
-    fn pump(&self, agent: String) {
+    fn pump(&self, agent: String, slot: String) {
         let mut state = self.state.lock().unwrap();
-        if state.active.contains_key(&agent) {
+        if state.active.contains_key(&slot) {
             return;
         }
-        let Some(run) = state.queues.get_mut(&agent).and_then(VecDeque::pop_front) else {
-            state.queues.remove(&agent);
+        let Some(run) = state.queues.get_mut(&slot).and_then(VecDeque::pop_front) else {
+            state.queues.remove(&slot);
             return;
         };
         let cancel = CancellationToken::new();
         let (changes, receiver) = mpsc::unbounded_channel();
         state.active.insert(
-            agent.clone(),
+            slot.clone(),
             Slot {
                 run: run.clone(),
                 cancel: cancel.clone(),
@@ -138,11 +141,11 @@ impl Host {
                 Err(error) => tracing::warn!(status = error.status, "Could not claim run"),
             }
             let mut state = host.state.lock().unwrap();
-            state.active.remove(&agent);
+            state.active.remove(&slot);
             state.known.remove(&run);
             drop(state);
             host.idle.notify_waiters();
-            host.pump(agent);
+            host.pump(agent, slot);
         });
     }
     fn cancel(&self, run: &str) {
@@ -221,7 +224,11 @@ impl Role for AgentHost {
                 if let (Some(agent), Some(run)) =
                     (frame["agentId"].as_str(), frame["runId"].as_str())
                 {
-                    self.host.offer(agent.into(), run.into());
+                    if frame["subagent"] == true {
+                        self.host.offer_subagent(agent.into(), run.into());
+                    } else {
+                        self.host.offer(agent.into(), run.into());
+                    }
                 }
             }
             "cancel" => self.host.cancel(text(&frame["runId"])),

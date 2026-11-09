@@ -7,7 +7,7 @@ import {
   agentManagementReadTools,
   agentManagementWriteTools,
 } from "./tools/agent-management";
-import { agentTools, agentWriteTools } from "./tools/agents";
+import { agentTools, agentWriteTools, subagentTools } from "./tools/agents";
 import { artifactTools } from "./tools/artifacts";
 import { browserTools } from "./tools/browser";
 import { computerTools } from "./tools/computer";
@@ -45,6 +45,7 @@ export interface ServerOptions {
    * none that change them.
    */
   readOnly?: boolean;
+  subagents?: { start: boolean; message?: boolean };
 }
 
 /** The tools that manage routines and triggers; a read-only caller gets the read ones. */
@@ -68,6 +69,7 @@ const skillTools = (ports: McpPorts, readOnly: boolean): ToolDefinition[] =>
 export const agentumTools = (
   ports: McpPorts,
   {
+    subagents,
     readOnly = false,
     mail = false,
     qa = false,
@@ -81,6 +83,9 @@ export const agentumTools = (
     : []),
   ...(browser && !readOnly && ports.browser ? browserTools(ports) : []),
   ...agentTools(ports),
+  ...(subagents && !readOnly
+    ? subagentTools(ports, subagents.start, subagents.message)
+    : []),
   ...(readOnly ? [] : agentWriteTools(ports)),
   ...sessionTools(ports),
   ...inboxTools(ports),

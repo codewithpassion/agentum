@@ -216,10 +216,24 @@ describe("MachineRelay hello", () => {
       agentSdk: "0.2.0",
       container: false,
       daemonVersion: "0.1.0",
+      features: [],
     });
     expect(machineEvents().map((event) => event.type)).toEqual([
       "machine.online",
     ]);
+  });
+
+  test("hello persists daemon features and clears them for an older daemon", async () => {
+    const identity = await enrolMachine();
+    const socket = await dial(identity);
+    await core.message(socket, helloWithFeatures(["parallel-subagents"]));
+    expect(
+      JSON.parse(machineRow(identity.machineId)?.capabilities ?? "{}").features
+    ).toEqual(["parallel-subagents"]);
+    await core.message(socket, helloFrame);
+    expect(
+      JSON.parse(machineRow(identity.machineId)?.capabilities ?? "{}").features
+    ).toEqual([]);
   });
 
   test("frames that are not valid daemon frames are ignored", async () => {

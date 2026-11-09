@@ -4,6 +4,7 @@ import type { RunRecord } from "../runs/types.ts";
 export const run = (
   overrides: Partial<RunRecord> & { parentAgentName?: string } = {}
 ): RunRecord & { parentAgentName?: string } => ({
+  accessScope: null,
   actor: { id: "user", kind: "user" },
   agentId: "agent",
   claimedBy: null,
@@ -16,6 +17,7 @@ export const run = (
   inputFileIds: [],
   inputText: "Hello",
   leaseUntil: null,
+  model: null,
   onBehalfOfUserId: null,
   outputFileIds: [],
   parentRunId: null,
@@ -28,6 +30,7 @@ export const run = (
   sessionId: "session",
   startedAt: null,
   status: "running",
+  subagentLevel: 0,
   usage: null,
   workspaceId: "workspace",
   ...overrides,

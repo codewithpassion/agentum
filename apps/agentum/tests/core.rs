@@ -265,7 +265,12 @@ fn reads_ignore_unknown_fields_and_sends_have_exact_hello_keys() {
     let hello = serde_json::to_value(wire::daemon_hello("0.1.0", "2.1.300")).unwrap();
     assert_eq!(hello.as_object().unwrap().len(), 5);
     assert_eq!(hello["capabilities"]["agentSdk"], "claude-cli@2.1.300");
-    assert_eq!(hello["features"].as_array().unwrap().len(), 4);
+    assert!(
+        hello["features"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("parallel-subagents"))
+    );
     let mut request: Value = serde_json::from_str(include_str!(
         "../../../apps/computer/testdata/protocol/server_to_client_exec_null_cwd.json"
     ))

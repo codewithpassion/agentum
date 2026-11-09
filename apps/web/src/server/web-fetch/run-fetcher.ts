@@ -22,11 +22,11 @@ export const runWebFetcher = ({
     announce: (host, names) =>
       services.secrets.announceInjection(run, { host, names, via }),
     envGrants: () =>
-      services.secrets.envGrantsFor(run.workspaceId, run.agentId),
+      services.secrets.envGrantsFor(run.workspaceId, run.agentId, run.runId),
     fetch: send,
     log: (line) => console.warn(line),
     matches: (host) =>
-      services.secrets.proxyFor(run.workspaceId, run.agentId, host),
+      services.secrets.proxyFor(run.workspaceId, run.agentId, host, run.runId),
     ownHosts,
     record: (entry) => services.network.recordRequest(run, entry),
     via,

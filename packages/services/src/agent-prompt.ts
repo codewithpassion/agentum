@@ -2,12 +2,16 @@ import type { AgentRecord } from "./agents.ts";
 
 /** The profile's instructions, voice, and currently available handoff targets. */
 export const agentPrompt = (
-  agent: Pick<AgentRecord, "instructions" | "soul" | "handsTo">,
+  agent: Pick<AgentRecord, "instructions" | "soul" | "handsTo"> &
+    Partial<Pick<AgentRecord, "subagents">>,
   handsToNames: readonly string[],
   options: { multiPerson?: boolean } = {}
 ): string =>
   [
     agent.instructions,
+    agent.subagents
+      ? "You can start subagents with start_subagent for work that can run in parallel or needs less capable models; check on them with subagent_status."
+      : "",
     options.multiPerson ? SPEAKER_INSTRUCTIONS : "",
     agent.soul === "" ? "" : `## Voice\n${agent.soul}`,
     // A configured list with no active targets should not advertise a handoff.

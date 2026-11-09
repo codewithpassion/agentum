@@ -132,6 +132,7 @@ export interface TaskView {
     finishedAt: string | null;
     id: string;
     inputText: string;
+    model?: string;
     startedAt: string | null;
     status: RunStatus;
   };
@@ -141,6 +142,8 @@ export interface TaskView {
     origin: string;
   };
   startedBy: StartedBy;
+  /** Child runs started as subagents, visible under the same session rules. */
+  subagents?: { id: string; model: string; status: RunStatus; title: string }[];
   title: string;
 }
 
@@ -226,7 +229,10 @@ export const createTasksService = ({
       .limit(1);
     return {
       kind: "handoff",
-      label: `Handoff from ${parent?.agentName ?? "another agent"}`,
+      label:
+        run.subagentLevel > 0
+          ? `Subagent of ${parent?.agentName ?? "another agent"}`
+          : `Handoff from ${parent?.agentName ?? "another agent"}`,
       parentRunId,
     } satisfies StartedBy;
   };
@@ -381,6 +387,7 @@ export const createTasksService = ({
     const { runId } = taskGetInputSchema.parse(rawInput);
     const [row] = await db
       .select({
+        agentModel: agents.model,
         agentName: agents.name,
         computerMachineId: agents.computerMachineId,
         machineId: machines.id,
@@ -416,6 +423,24 @@ export const createTasksService = ({
       sessionEvents(member, run.sessionId),
       openRequests(member, run.sessionId),
     ]);
+    const subagents = await db
+      .select({
+        id: runs.id,
+        inputText: runs.inputText,
+        model: runs.model,
+        status: runs.status,
+      })
+      .from(runs)
+      .innerJoin(sessions, eq(runs.sessionId, sessions.id))
+      .where(
+        and(
+          eq(runs.parentRunId, run.id),
+          eq(runs.workspaceId, member.workspaceId),
+          ne(runs.subagentLevel, 0),
+          await visibleSessions(db, member)
+        )
+      )
+      .orderBy(asc(runs.id));
     const subjects = await mailSubjectsOf(db, member.workspaceId, [
       run.id,
       ...otherRuns.map((other) => other.id),
@@ -447,6 +472,7 @@ export const createTasksService = ({
         finishedAt: run.finishedAt,
         id: run.id,
         inputText: run.inputText,
+        model: run.model ?? row.agentModel,
         startedAt: run.startedAt,
         status: run.status,
       },
@@ -456,6 +482,12 @@ export const createTasksService = ({
         origin: row.session.origin,
       },
       startedBy,
+      subagents: subagents.map((child) => ({
+        id: child.id,
+        model: child.model ?? row.agentModel,
+        status: child.status,
+        title: runTitleFor(child.inputText),
+      })),
       title: titleFor(
         sources,
         row.session,

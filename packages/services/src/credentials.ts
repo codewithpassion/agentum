@@ -47,6 +47,11 @@ import { onGoogle, parseOAuthConfig } from "./connectors/oauth-config.ts";
 import { readConnectorSecret } from "./connectors/secret.ts";
 import { InvalidConnectorUrlError } from "./connectors/url.ts";
 import { decryptSecret, encryptSecret, importSecretsKey } from "./crypto.ts";
+import {
+  effectiveRunScope,
+  scopeAllows,
+  scopedTools,
+} from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 
 /** Refresh ahead when the token expires within this long. */
@@ -138,6 +143,7 @@ export interface ResolveInput {
   /** The machine running the run, for the `single_user` rule. */
   machineId?: string | null;
   onBehalfOfUserId: string | null;
+  runId?: string;
   workspaceId: string;
 }
 
@@ -690,6 +696,12 @@ export const createCredentialsService = ({
 
   const resolve = async (input: ResolveInput): Promise<Resolution> => {
     const { agentId, connectorId, workspaceId } = input;
+    const scope = input.runId
+      ? await effectiveRunScope(db, workspaceId, input.runId)
+      : null;
+    if (!scopeAllows(scope, "connectors", connectorId)) {
+      return { ok: false, reason: "not_assigned" };
+    }
     const [link] = await db
       .select({
         allowedTools: agentConnectors.allowedTools,
@@ -711,7 +723,10 @@ export const createCredentialsService = ({
       return { ok: false, reason: "not_assigned" };
     }
     const { connector } = link;
-    const allowedTools = decodeAllowedTools(link.allowedTools);
+    const allowedTools = scopedTools(
+      scope,
+      decodeAllowedTools(link.allowedTools)
+    );
     if (connector.authKind === "none") {
       return openConnectorResolution(connector, allowedTools);
     }

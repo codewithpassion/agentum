@@ -67,6 +67,11 @@ import { askKeysOf as askKeysOfAgent } from "../requests/ask-keys.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
+import {
+  effectiveRunScope,
+  modelOfRun,
+  scopeAllows,
+} from "../runs/access-scope.ts";
 import { loadRun } from "../runs/queries.ts";
 import { sessionSupportsSpeakers } from "../runs/speakers.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
@@ -417,7 +422,13 @@ export const createManagedService = ({
         asc(agentConnectors.createdAt),
         asc(agentConnectors.connectorId)
       );
-    return mcpServerUrls({ connectors: assigned, platformUrl: base });
+    const scope = await effectiveRunScope(db, run.workspaceId, run.id);
+    return mcpServerUrls({
+      connectors: assigned.filter((connector) =>
+        scopeAllows(scope, "connectors", connector.id)
+      ),
+      platformUrl: base,
+    });
   };
 
   /** The tool keys the agent's rules ask about, sorted, with the platform tools a switch covers. */
@@ -470,6 +481,7 @@ export const createManagedService = ({
     askKeys,
     desktop,
     fingerprint,
+    isolated,
     gateway,
     model,
     servers,
@@ -480,17 +492,13 @@ export const createManagedService = ({
     askKeys: string[];
     desktop: boolean;
     fingerprint: string;
+    isolated: boolean;
     gateway: ManagedGateway;
     model: string;
     servers: McpServerRef[];
     skills: SkillRef[];
     system: string;
   }): Promise<string> => {
-    const [row] = await db
-      .select()
-      .from(managedAgents)
-      .where(eq(managedAgents.agentId, agent.id))
-      .limit(1);
     const input = {
       askKeys,
       desktop,
@@ -500,6 +508,11 @@ export const createManagedService = ({
       skills,
       system,
     };
+    const [row] = await db
+      .select()
+      .from(managedAgents)
+      .where(eq(managedAgents.agentId, agent.id))
+      .limit(1);
     if (!row) {
       const { anthropicAgentId } = await gateway.registerAgent({
         ...input,
@@ -525,7 +538,9 @@ export const createManagedService = ({
         .limit(1);
       return winner?.id ?? anthropicAgentId;
     }
-    if (row.fingerprint !== fingerprint) {
+    // Sessions override their model. Reuse the provider agent without syncing
+    // a helper's configuration over its parent's while both are running.
+    if (!isolated && row.fingerprint !== fingerprint) {
       await gateway.syncAgent({
         ...input,
         anthropicAgentId: row.anthropicAgentId,
@@ -664,6 +679,7 @@ export const createManagedService = ({
     gateway,
     libraryHost,
     model,
+    overrides,
     relayHost,
     run,
     servers,
@@ -677,6 +693,7 @@ export const createManagedService = ({
     /** The Worker's host, when the sandbox gets the library token. */
     libraryHost: string | null;
     model: string;
+    overrides: Parameters<ManagedGateway["createSession"]>[0]["overrides"];
     /** The host the relay listens on, when the agent has proxy secrets. */
     relayHost: string | null;
     run: RunRecord;
@@ -751,6 +768,7 @@ export const createManagedService = ({
       const created = await gateway.createSession({
         anthropicAgentId,
         model,
+        overrides: run.subagentLevel > 0 ? overrides : undefined,
         text,
         title: agent.name,
         vaultIds: [vaultId],
@@ -800,7 +818,11 @@ export const createManagedService = ({
       );
       return null;
     }
-    const granted = await secrets?.resolveForAgent(run.workspaceId, agent.id);
+    const granted = await secrets?.resolveForAgent(
+      run.workspaceId,
+      agent.id,
+      run.id
+    );
     const env = granted?.env ?? {};
     const envNames = Object.keys(env);
     const proxy = granted?.proxy ?? [];
@@ -911,7 +933,7 @@ export const createManagedService = ({
       return false;
     }
     const gateway = gatewayOf(run.workspaceId, key);
-    const model = modelFor(agent.model);
+    const model = modelFor(modelOfRun(run, agent));
     const { refs, stale } = await skillsSync.sync({
       agent,
       gateway,
@@ -948,17 +970,7 @@ export const createManagedService = ({
         ...grants.fingerprintPart,
       })
     );
-    const anthropicAgentId = await ensureRegistered({
-      agent,
-      askKeys,
-      desktop: hasDesktop(computer),
-      fingerprint,
-      gateway,
-      model,
-      servers,
-      skills: refs,
-      system,
-    });
+
     await skillsSync.removeStale(gateway, stale);
     const [session] = await db
       .select()
@@ -977,6 +989,18 @@ export const createManagedService = ({
       if (session && (await closeSession(session, gateway))) {
         await stopSession(gateway, session);
       }
+      const anthropicAgentId = await ensureRegistered({
+        agent,
+        askKeys,
+        desktop: hasDesktop(computer),
+        fingerprint,
+        gateway,
+        isolated: run.subagentLevel > 0,
+        model,
+        servers,
+        skills: refs,
+        system,
+      });
       await createSession({
         agent,
         anthropicAgentId,
@@ -985,6 +1009,13 @@ export const createManagedService = ({
         gateway,
         libraryHost: libraryHostOf(publicBaseUrl),
         model,
+        overrides: {
+          askKeys,
+          desktop: hasDesktop(computer),
+          mcpServers: servers,
+          skills: refs,
+          system,
+        },
         relayHost: grants.relayHost,
         run,
         servers,

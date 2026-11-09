@@ -15,6 +15,7 @@ const actorKindSchema = z.enum(EVENT_ACTOR_KINDS);
 
 /** A run row with its JSON columns parsed. */
 export const toRecord = (row: RunRow): RunRecord => ({
+  accessScope: row.accessScope === null ? null : JSON.parse(row.accessScope),
   actor: { id: row.actorId, kind: actorKindSchema.parse(row.actorKind) },
   agentId: row.agentId,
   claimedBy: row.claimedBy,
@@ -27,6 +28,7 @@ export const toRecord = (row: RunRow): RunRecord => ({
   inputFileIds: stringList.parse(JSON.parse(row.inputFileIds)),
   inputText: row.inputText,
   leaseUntil: row.leaseUntil,
+  model: row.model,
   onBehalfOfUserId: row.onBehalfOfUserId,
   outputFileIds: stringList.parse(JSON.parse(row.outputFileIds)),
   parentRunId: row.parentRunId,
@@ -45,6 +47,7 @@ export const toRecord = (row: RunRow): RunRecord => ({
   sessionId: row.sessionId,
   startedAt: row.startedAt,
   status: row.status,
+  subagentLevel: row.subagentLevel,
   usage: row.usage === null ? null : usageSchema.parse(JSON.parse(row.usage)),
   workspaceId: row.workspaceId,
 });

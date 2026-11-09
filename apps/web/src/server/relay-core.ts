@@ -186,8 +186,8 @@ export const createRelayCore = ({
   /** Every queued or offered run of the machine's agents, oldest first. */
   const offerPending = async (socket: RelaySocket, who: MachinePrincipal) => {
     try {
-      for (const { agentId, runId } of await machines.pendingOffers(who)) {
-        send(socket, { agentId, runId, type: "offer" });
+      for (const run of await machines.pendingOffers(who)) {
+        send(socket, { ...run, type: "offer" });
       }
     } catch (error) {
       logFailure("offering queued runs", error);
@@ -248,6 +248,7 @@ export const createRelayCore = ({
         capabilities: {
           ...frame.capabilities,
           daemonVersion: frame.daemonVersion,
+          features: frame.features ?? [],
         },
         daemonVersion: frame.daemonVersion,
       });
@@ -303,7 +304,11 @@ export const createRelayCore = ({
   };
 
   /** Offers one run to the open sockets. Idempotent: the claim is a conditional write. */
-  const offer = (run: { agentId: string; runId: string }): void => {
+  const offer = (run: {
+    agentId: string;
+    runId: string;
+    subagent?: boolean;
+  }): void => {
     for (const socket of sockets()) {
       send(socket, { ...run, type: "offer" });
     }

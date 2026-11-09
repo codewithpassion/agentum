@@ -262,7 +262,7 @@ beforeEach(async () => {
   insertWorkspace("w2");
   db.insert(machines)
     .values({
-      capabilities: "{}",
+      capabilities: JSON.stringify({ features: ["parallel-subagents"] }),
       createdAt: START,
       credentialHash: "h",
       enrolledBy: "u1",
@@ -3763,4 +3763,454 @@ test("legacy daemon cannot claim an artifact session before receiving any runtim
     requestsForDaemon: true,
   });
   expect(claim.currentApprovals).toBe(true);
+});
+
+describe("subagents", () => {
+  const parentRun = async () => {
+    await db
+      .update(agentRows)
+      .set({ subagents: true })
+      .where(eq(agentRows.id, spyAgentId));
+    const parent = await start(user, spyAgentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, parent.runId);
+    return { ...parent, principal: runPrincipal(parent.runId, spyAgentId) };
+  };
+
+  test.each(["linux-vm", "attached-cloud", "attached-managed"] as const)(
+    "%s agents neither receive tools nor start helpers, and claims remain serial",
+    async (computer) => {
+      const parent = await parentRun();
+      const runtime = computer === "attached-managed" ? "managed" : "cloud";
+      await db
+        .update(agentRows)
+        .set({
+          computerMachineId: computer === "linux-vm" ? null : "m1",
+          runtime,
+          runtimeConfig: JSON.stringify({
+            environment: computer === "linux-vm" ? "linux-vm" : "isolate",
+          }),
+        })
+        .where(eq(agentRows.id, spyAgentId));
+      expect(await runs.subagentTools(parent.principal)).toBeUndefined();
+      await expect(
+        runs.startSubagent(parent.principal, { model: "haiku", task: "work" })
+      ).rejects.toThrow(
+        "Agents with a computer cannot start subagents yet, because they share one computer."
+      );
+      runs = buildRuns({ adapters: [{ ...spy, kind: runtime }] });
+      const queued = await start(user, spyAgentId);
+      await db
+        .update(runRows)
+        .set({ subagentLevel: 1 })
+        .where(eq(runRows.id, queued.runId));
+      await expect(
+        runs.claimRun(SYSTEM_PRINCIPAL, queued.runId)
+      ).rejects.toThrow("cannot be claimed");
+    }
+  );
+
+  test("machine helpers require the parallel-subagents daemon feature", async () => {
+    const parent = await parentRun();
+    expect(await runs.subagentTools(parent.principal)).toEqual({ start: true });
+    const child = await runs.startSubagent(parent.principal, {
+      model: "haiku",
+      task: "supported",
+    });
+    expect(runRow(child.id)?.parentRunId).toBe(parent.runId);
+    await db
+      .update(machines)
+      .set({ capabilities: "{}" })
+      .where(eq(machines.id, "m1"));
+    expect(await runs.subagentTools(parent.principal)).toBeUndefined();
+    await expect(
+      runs.startSubagent(parent.principal, { model: "haiku", task: "work" })
+    ).rejects.toThrow(
+      "Update the agentum client on this machine to use subagents."
+    );
+  });
+
+  test("hand-offs and their helpers are outside the caller's subagent tree", async () => {
+    const parent = await parentRun();
+    const other = await agents.create(user, {
+      machineId: "m1",
+      model: "sonnet",
+      name: "Other",
+      runtime: "machine",
+    });
+    await db
+      .update(agentRows)
+      .set({ handsTo: JSON.stringify([other.id]) })
+      .where(eq(agentRows.id, spyAgentId));
+    await db
+      .update(agentRows)
+      .set({ subagents: true })
+      .where(eq(agentRows.id, other.id));
+    const handoff = await start(parent.principal, other.id, {
+      session: { origin: "mcp" },
+    });
+    await runs.claimRun(SYSTEM_PRINCIPAL, handoff.runId);
+    const helper = await runs.startSubagent(
+      runPrincipal(handoff.runId, other.id),
+      { model: "haiku", task: "B's helper" }
+    );
+    await runs.claimRun(SYSTEM_PRINCIPAL, helper.id);
+    await expect(runs.getRun(parent.principal, helper.id)).rejects.toThrow(
+      "Run not found"
+    );
+    await expect(
+      runs.subagentStatus(parent.principal, helper.id)
+    ).rejects.toThrow("Subagent not found");
+    await expect(
+      runs.messageSubagent(parent.principal, helper.id, "hello")
+    ).rejects.toThrow("Subagent not found");
+    await expect(
+      runs.stopSubagent(parent.principal, helper.id)
+    ).rejects.toThrow("Subagent not found");
+    expect(await runs.listSubagents(parent.principal)).toEqual([]);
+    await runs.completeRun(SYSTEM_PRINCIPAL, parent.runId, { status: "done" });
+    expect(runRow(handoff.runId)?.status).toBe("running");
+    expect(runRow(helper.id)?.status).toBe("running");
+  });
+
+  test("disabling subagents preserves management of existing helpers and records the stopping run", async () => {
+    const parent = await parentRun();
+    const child = await runs.startSubagent(parent.principal, {
+      model: "haiku",
+      task: "work",
+    });
+    await db
+      .update(agentRows)
+      .set({ subagents: false })
+      .where(eq(agentRows.id, spyAgentId));
+    expect(await runs.subagentTools(parent.principal)).toEqual({
+      message: false,
+      start: false,
+    });
+    expect((await runs.subagentStatus(parent.principal, child.id)).id).toBe(
+      child.id
+    );
+    expect(await runs.listSubagents(parent.principal)).toHaveLength(1);
+    await expect(
+      runs.startSubagent(parent.principal, { model: "haiku", task: "work" })
+    ).rejects.toThrow();
+    await expect(
+      runs.messageSubagent(parent.principal, child.id, "more")
+    ).rejects.toThrow();
+    await runs.stopSubagent(parent.principal, child.id);
+    expect(
+      runEvents(child.id).find((event) => event.type === "run.cancelled")
+    ).toMatchObject({ actorId: parent.runId, actorKind: "run" });
+  });
+
+  test("cancelling a parent reaches its adapter before failing child cancellation", async () => {
+    const parent = await parentRun();
+    const child = await runs.startSubagent(parent.principal, {
+      model: "haiku",
+      task: "work",
+    });
+    const cancelled: string[] = [];
+    runs = buildRuns({
+      adapters: [
+        {
+          ...spy,
+          cancel: (_db, run) => {
+            cancelled.push(run.id);
+            if (run.id === child.id) {
+              throw new Error("child cancel failed");
+            }
+            return Promise.resolve();
+          },
+        },
+      ],
+    });
+    const log = spyOn(console, "error").mockImplementation(() => {
+      /* The assertion checks that the failure was logged. */
+    });
+    try {
+      await runs.cancelRun(user, parent.runId);
+      expect(cancelled).toEqual([parent.runId, child.id]);
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test.each([true, false])(
+    "ending a helper offers its follow-up once (older agent queue: %s)",
+    async (hasOlder) => {
+      runs = buildRuns({ adapters: [{ ...spy, offerNextOnEnd: true }] });
+      const parent = await parentRun();
+      const child = await runs.startSubagent(parent.principal, {
+        model: "haiku",
+        task: "work",
+      });
+      await runs.claimRun(SYSTEM_PRINCIPAL, child.id);
+      const older = hasOlder ? await start(user, spyAgentId) : null;
+      const followup = await runs.messageSubagent(
+        parent.principal,
+        child.id,
+        "more"
+      );
+      dispatched.length = 0;
+      await runs.completeRun(SYSTEM_PRINCIPAL, child.id, { status: "done" });
+      expect(dispatched).toEqual(
+        older ? [older.runId, followup.id] : [followup.id]
+      );
+    }
+  );
+
+  test("disabled agents and level two runs do not receive start", async () => {
+    const disabled = await start(user, spyAgentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, disabled.runId);
+    expect(
+      await runs.subagentTools(runPrincipal(disabled.runId, spyAgentId))
+    ).toBeUndefined();
+    await runs.completeRun(SYSTEM_PRINCIPAL, disabled.runId, {
+      status: "done",
+    });
+    const parent = await parentRun();
+    const child = await runs.startSubagent(parent.principal, {
+      model: "haiku",
+      task: "first",
+    });
+    await runs.claimRun(SYSTEM_PRINCIPAL, child.id);
+    const childPrincipal = runPrincipal(child.id, spyAgentId);
+    const grandchild = await runs.startSubagent(childPrincipal, {
+      model: "sonnet",
+      task: "second",
+    });
+    await runs.claimRun(SYSTEM_PRINCIPAL, grandchild.id);
+    const grandchildPrincipal = runPrincipal(grandchild.id, spyAgentId);
+    expect(await runs.subagentTools(grandchildPrincipal)).toEqual({
+      start: false,
+    });
+    await expect(
+      runs.startSubagent(grandchildPrincipal, { model: "haiku", task: "third" })
+    ).rejects.toThrow("two levels");
+  });
+
+  test("child has its own model, session, delegation and idempotent request", async () => {
+    const parent = await parentRun();
+    const input = {
+      model: "haiku",
+      requestId: "child-1",
+      task: "parallel work",
+      tools: ["read"],
+    };
+    const child = await runs.startSubagent(parent.principal, input);
+    const row = runRow(child.id);
+    if (!row) {
+      throw new Error("child missing");
+    }
+    expect(row).toMatchObject({
+      depth: 1,
+      model: "haiku",
+      onBehalfOfUserId: "u1",
+      parentRunId: parent.runId,
+      subagentLevel: 1,
+    });
+    expect(row.sessionId).not.toBe(parent.sessionId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, child.id);
+    expect(
+      await runs.subagentTools(runPrincipal(child.id, spyAgentId))
+    ).toEqual({ start: true });
+    expect((await runs.startSubagent(parent.principal, input)).id).toBe(
+      child.id
+    );
+    expect(await runs.listSubagents(parent.principal)).toMatchObject([
+      { id: child.id, model: "haiku", summary: "parallel work" },
+    ]);
+    await runs.completeRun(SYSTEM_PRINCIPAL, child.id, {
+      status: "done",
+      text: "answer",
+    });
+    expect(
+      (await runs.subagentStatus(parent.principal, child.id)).resultText
+    ).toBe("answer");
+    const followup = await runs.messageSubagent(
+      parent.principal,
+      child.id,
+      "more please"
+    );
+    expect(followup.sessionId).toBe(child.sessionId);
+    expect(runRow(followup.id)?.parentRunId).toBe(parent.runId);
+    expect(runRow(followup.id)?.model).toBe("haiku");
+  });
+
+  test("runtime model and access escalation are refused", async () => {
+    const parent = await parentRun();
+    await expect(
+      runs.startSubagent(parent.principal, {
+        model: "openrouter:z-ai/glm-5.3",
+        task: "work",
+      })
+    ).rejects.toThrow("Anthropic models only");
+    await expect(
+      runs.startSubagent(parent.principal, {
+        connectors: ["missing"],
+        model: "haiku",
+        task: "work",
+      })
+    ).rejects.toThrow("cannot gain connectors");
+    await expect(
+      runs.startSubagent(parent.principal, {
+        model: "haiku",
+        secrets: ["missing"],
+        task: "work",
+      })
+    ).rejects.toThrow("cannot gain secrets");
+  });
+
+  test("five live children and retries are checked across concurrent starts", async () => {
+    const parent = await parentRun();
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, (_, i) =>
+        runs.startSubagent(parent.principal, {
+          model: "haiku",
+          requestId: `worker-${i}`,
+          task: `worker ${i}`,
+        })
+      )
+    );
+    expect(
+      results.filter((result) => result.status === "fulfilled")
+    ).toHaveLength(5);
+    expect(
+      results.filter((result) => result.status === "rejected")
+    ).toHaveLength(1);
+    const [first] = results;
+    if (first?.status !== "fulfilled") {
+      throw new Error("first worker failed");
+    }
+    expect(
+      (
+        await runs.startSubagent(parent.principal, {
+          model: "haiku",
+          requestId: "worker-0",
+          task: "retry",
+        })
+      ).id
+    ).toBe(first.value.id);
+  });
+
+  test("another run cannot read or stop a child", async () => {
+    const parent = await parentRun();
+    const child = await runs.startSubagent(parent.principal, {
+      model: "haiku",
+      task: "private work",
+    });
+    const otherAgent = await addSpyAgent();
+    await db
+      .update(agentRows)
+      .set({ subagents: true })
+      .where(eq(agentRows.id, otherAgent));
+    const other = await start(user, otherAgent);
+    await runs.claimRun(SYSTEM_PRINCIPAL, other.runId);
+    const principal = runPrincipal(other.runId, otherAgent);
+    await expect(runs.subagentStatus(principal, child.id)).rejects.toThrow(
+      "Subagent not found"
+    );
+    await expect(runs.stopSubagent(principal, child.id)).rejects.toThrow(
+      "Subagent not found"
+    );
+    expect(await runs.listSubagents(principal)).toEqual([]);
+  });
+
+  test.each(["cancelled", "done", "failed"] as const)(
+    "parent %s ends its live subtree",
+    async (status) => {
+      const parent = await parentRun();
+      const child = await runs.startSubagent(parent.principal, {
+        model: "haiku",
+        task: "first",
+      });
+      await runs.claimRun(SYSTEM_PRINCIPAL, child.id);
+      const grandchild = await runs.startSubagent(
+        runPrincipal(child.id, spyAgentId),
+        { model: "haiku", task: "second" }
+      );
+      if (status === "cancelled") {
+        await runs.cancelRun(user, parent.runId);
+      } else {
+        await runs.completeRun(SYSTEM_PRINCIPAL, parent.runId, { status });
+      }
+      expect(runRow(child.id)?.status).toBe("cancelled");
+      expect(runRow(grandchild.id)?.status).toBe("cancelled");
+    }
+  );
+
+  test("same-agent siblings cannot read or cancel each other", async () => {
+    const parent = await parentRun();
+    const first = await runs.startSubagent(parent.principal, {
+      model: "haiku",
+      task: "first",
+    });
+    const second = await runs.startSubagent(parent.principal, {
+      model: "haiku",
+      task: "second",
+    });
+    await runs.claimRun(SYSTEM_PRINCIPAL, first.id);
+    const principal = runPrincipal(first.id, spyAgentId);
+    await expect(runs.getRun(principal, second.id)).rejects.toThrow(
+      "Run not found"
+    );
+    await expect(runs.subagentStatus(principal, second.id)).rejects.toThrow(
+      "Subagent not found"
+    );
+    await expect(runs.stopSubagent(principal, second.id)).rejects.toThrow(
+      "Subagent not found"
+    );
+  });
+
+  test("a live handoff can start its own helpers after the handing-off run ends", async () => {
+    const parent = await parentRun();
+    const agentId = await addSpyAgent();
+    await db
+      .update(agentRows)
+      .set({ subagents: true })
+      .where(eq(agentRows.id, agentId));
+    const handoff = await start(parent.principal, agentId);
+    await runs.claimRun(SYSTEM_PRINCIPAL, handoff.runId);
+    await runs.completeRun(SYSTEM_PRINCIPAL, parent.runId, { status: "done" });
+    const helper = await runs.startSubagent(
+      runPrincipal(handoff.runId, agentId),
+      {
+        model: "haiku",
+        task: "late helper",
+      }
+    );
+    expect(runRow(helper.id)?.parentRunId).toBe(handoff.runId);
+    expect(runRowCount()).toBe(3);
+  });
+
+  test("handoffs and subagents share the global depth limit", async () => {
+    const parent = await parentRun();
+    const nextAgent = await addSpyAgent();
+    await db
+      .update(agentRows)
+      .set({ subagents: true })
+      .where(eq(agentRows.id, nextAgent));
+    const handoff = await start(parent.principal, nextAgent);
+    await runs.claimRun(SYSTEM_PRINCIPAL, handoff.runId);
+    const child = await runs.startSubagent(
+      runPrincipal(handoff.runId, nextAgent),
+      { model: "haiku", task: "depth two" }
+    );
+    await runs.claimRun(SYSTEM_PRINCIPAL, child.id);
+    const grandchild = await runs.startSubagent(
+      runPrincipal(child.id, nextAgent),
+      { model: "haiku", task: "depth three" }
+    );
+    expect(runRow(grandchild.id)?.depth).toBe(3);
+    await runs.claimRun(SYSTEM_PRINCIPAL, grandchild.id);
+    const third = await agents.create(user, {
+      machineId: "m1",
+      model: "haiku",
+      name: "Spy 3",
+      runtime: "machine",
+    });
+    await expect(
+      start(runPrincipal(grandchild.id, nextAgent), third.id)
+    ).rejects.toThrow("3 levels deep");
+  });
 });

@@ -30,6 +30,7 @@ import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
+import { effectiveRunScope, modelOfRun, scopeAllows } from "./access-scope.ts";
 import { requireOrdinaryMachineRun } from "./guest-scope.ts";
 import { peerRootOf } from "./peer-root.ts";
 import { findSessionById, loadRun } from "./queries.ts";
@@ -161,7 +162,8 @@ export const claimForMachine = async (
   // read leaves the run untouched.
   const granted = await deps.secrets?.resolveForAgent(
     run.workspaceId,
-    agent.id
+    agent.id,
+    run.id
   );
 
   // The library folders the daemon copies, and the conflict copies waiting in
@@ -207,7 +209,11 @@ export const claimForMachine = async (
             .where(
               and(
                 or(
-                  eq(sibling.agentId, runs.agentId),
+                  and(
+                    eq(sibling.agentId, runs.agentId),
+                    eq(sibling.subagentLevel, 0),
+                    eq(runs.subagentLevel, 0)
+                  ),
                   eq(sibling.sessionId, runs.sessionId)
                 ),
                 inArray(sibling.status, ["running", "waiting"])
@@ -221,7 +227,11 @@ export const claimForMachine = async (
             .where(
               and(
                 or(
-                  eq(older.agentId, runs.agentId),
+                  and(
+                    eq(older.agentId, runs.agentId),
+                    eq(older.subagentLevel, 0),
+                    eq(runs.subagentLevel, 0)
+                  ),
                   eq(older.sessionId, runs.sessionId)
                 ),
                 inArray(older.status, STARTING),
@@ -305,10 +315,11 @@ export const claimForMachine = async (
     }
   }
 
+  const scope = await effectiveRunScope(db, run.workspaceId, run.id);
   return {
     agent: {
       id: agent.id,
-      model: agent.model,
+      model: modelOfRun(run, agent),
       name: agent.name,
       runtimeConfig: agent.runtimeConfig,
       slug: agent.slug,
@@ -326,11 +337,14 @@ export const claimForMachine = async (
       .join("\n\n"),
     ...(library ? { library } : {}),
     mcpServers: buildMcpServers({
-      connectors: assigned,
+      connectors: assigned.filter((connector) =>
+        scopeAllows(scope, "connectors", connector.id)
+      ),
       platformUrl: options.platformUrl,
       runToken,
     }),
     run: {
+      ...subagentClaim(claimedRun.subagentLevel),
       agentId: claimedRun.agentId,
       id: claimedRun.id,
       inputText: claimedRun.inputText,
@@ -361,3 +375,6 @@ const supportsCurrentApprovals = (options: {
 }) =>
   options.currentApprovalsForDaemon === true &&
   options.requestsForDaemon === true;
+
+const subagentClaim = (level: number) =>
+  level > 0 ? { subagentLevel: level } : {};

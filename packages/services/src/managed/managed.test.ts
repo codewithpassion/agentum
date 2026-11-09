@@ -88,6 +88,7 @@ interface FakeSession {
   events: SessionEvent[];
   id: string;
   messages: string[];
+  model: string;
   vaultIds: readonly string[];
 }
 
@@ -131,6 +132,7 @@ class FakeGateway implements ManagedGateway {
   onGetSession: (() => void) | null = null;
   pollFailure: Error | null = null;
   registered: {
+    model: string;
     instructions: string;
     name: string;
     skills: readonly SkillRef[];
@@ -258,6 +260,7 @@ class FakeGateway implements ManagedGateway {
 
   createSession(input: {
     anthropicAgentId: string;
+    model: string;
     text: string;
     vaultIds: readonly string[];
   }) {
@@ -266,6 +269,7 @@ class FakeGateway implements ManagedGateway {
       events: [],
       id: `sesn_${this.sessions.size + 1}`,
       messages: [input.text],
+      model: input.model,
       vaultIds: input.vaultIds,
     };
     this.sessions.set(session.id, session);
@@ -385,6 +389,7 @@ class FakeGateway implements ManagedGateway {
     desktop?: boolean;
     instructions: string;
     mcpServers: readonly { name: string; url: string }[];
+    model: string;
     name: string;
     skills: readonly SkillRef[];
     system: string;
@@ -394,6 +399,7 @@ class FakeGateway implements ManagedGateway {
     this.desktopsSent.push(input.desktop === true);
     this.registered.push({
       instructions: input.instructions,
+      model: input.model,
       name: input.name,
       skills: input.skills,
       system: input.system,
@@ -2637,4 +2643,26 @@ describe("library transfer", () => {
     expect(gateway.registered[0]?.skills).toHaveLength(20);
     expect(gateway.registered[0]?.system).not.toContain("--url");
   });
+});
+
+test("managed subagents reuse the provider agent with a per-session model while the parent runs", async () => {
+  const parent = await start(dom);
+  gateway.turns = [[gateway.running()]];
+  await managed.step(parent.runId);
+  const child = await start(dom, "child", { session: { origin: "mcp" } });
+  db.update(runRows)
+    .set({ model: "haiku", parentRunId: parent.runId, subagentLevel: 1 })
+    .where(eq(runRows.id, child.runId))
+    .run();
+  gateway.turns = [[gateway.running()]];
+  await managed.step(child.runId);
+  expect(runRow(parent.runId)?.status).toBe("running");
+  expect(runRow(child.runId)?.status).toBe("running");
+  expect(gateway.sessions.get("sesn_1")?.model).toBe("claude-sonnet-5-5");
+  expect(gateway.sessions.get("sesn_2")?.model).toBe("claude-haiku-5-5");
+  expect(gateway.registered).toHaveLength(1);
+  expect(gateway.sessions.get("sesn_1")?.agentId).toBe(
+    gateway.sessions.get("sesn_2")?.agentId
+  );
+  expect(gateway.synced).toEqual([]);
 });

@@ -244,12 +244,14 @@ export const createMcpPorts = ({
    */
   const placeholderEnvOf = async (run: {
     agentId: string;
+    runId: string;
     workspaceId: string;
   }): Promise<Record<string, string> | undefined> => {
     try {
       const placeholders = await services.secrets.placeholdersFor(
         run.workspaceId,
-        run.agentId
+        run.agentId,
+        run.runId
       );
       if (placeholders.length === 0) {
         return;
@@ -354,6 +356,46 @@ export const createMcpPorts = ({
                 }),
               }
             : {}),
+        }
+      : {}),
+
+    ...(principal.kind === "run"
+      ? {
+          subagents: {
+            list: () =>
+              guarded(async () =>
+                (await services.runs.listSubagents(principal)).map((run) => ({
+                  ...toRunInfo(run),
+                  model: run.model,
+                  summary: run.summary,
+                }))
+              ),
+            message: ({ id, text }: { id: string; text: string }) =>
+              guarded(async () =>
+                toRunInfo(
+                  await services.runs.messageSubagent(principal, id, text)
+                )
+              ),
+            start: (
+              input: Parameters<NonNullable<McpPorts["subagents"]>["start"]>[0]
+            ) =>
+              guarded(async () =>
+                toRunInfo(await services.runs.startSubagent(principal, input))
+              ),
+            status: ({ id, waitMs }: { id: string; waitMs: number }) =>
+              guarded(async () =>
+                toRunInfo(
+                  await services.runs.subagentStatus(principal, id, waitMs)
+                )
+              ),
+            stop: ({ id }: { id: string }) =>
+              guarded(async () => {
+                await services.runs.stopSubagent(principal, id);
+                return toRunInfo(
+                  await services.runs.subagentStatus(principal, id)
+                );
+              }),
+          },
         }
       : {}),
 

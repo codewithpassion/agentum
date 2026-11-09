@@ -546,6 +546,33 @@ function TaskHeader({
         </span>
         <RunPicker runId={runId} runs={runs} />
       </div>
+      {task.startedBy.parentRunId === undefined ? null : (
+        <p className="mt-2 text-muted-foreground text-xs">
+          {task.startedBy.label} · {task.run.model} ·{" "}
+          <Link
+            className="underline"
+            params={{ runId: task.startedBy.parentRunId }}
+            to="/tasks/$runId"
+          >
+            Parent task
+          </Link>
+        </p>
+      )}
+      {(task.subagents?.length ?? 0) === 0 ? null : (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="text-muted-foreground">Subagents</span>
+          {task.subagents?.map((child) => (
+            <Link
+              className="underline"
+              key={child.id}
+              params={{ runId: child.id }}
+              to="/tasks/$runId"
+            >
+              {child.title} · {child.model} · {child.status}
+            </Link>
+          ))}
+        </div>
+      )}
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}

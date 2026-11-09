@@ -41,6 +41,7 @@ export const createMachineRuntime = ({
       await relay.offer(agent.machineId, {
         agentId: agent.id,
         runId: run.id,
+        ...(run.subagentLevel > 0 ? { subagent: true } : {}),
       });
     } catch (error) {
       console.error(

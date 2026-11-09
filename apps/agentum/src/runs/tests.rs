@@ -278,7 +278,11 @@ fn claim(run: &str) -> Value {
         "hold" | "fail" | "controls" | "many" | "cancel-control" => run,
         _ => "go",
     };
-    json!({"run":{"id":run,"agentId":if run=="other"{"B"}else{"A"},"workspaceId":"WS","sessionId":"s","inputText":input},"agent":{"id":"A","slug":"ada","model":"fake","name":"Ada","runtimeConfig":{}},"session":{"id":"s","runtimeRef":null,"runtimeMachineId":null},"runToken":"run-secret","inputFileIds":[],"instructions":"Be useful","mcpServers":{},"toolRules":["bash"],"currentApprovals":true})
+    let mut result = json!({"run":{"id":run,"agentId":if run=="other"{"B"}else{"A"},"workspaceId":"WS","sessionId":"s","inputText":input},"agent":{"id":"A","slug":"ada","model":"fake","name":"Ada","runtimeConfig":{}},"session":{"id":"s","runtimeRef":null,"runtimeMachineId":null},"runToken":"run-secret","inputFileIds":[],"instructions":"Be useful","mcpServers":{},"toolRules":["bash"],"currentApprovals":true});
+    if run == "subagent" {
+        result["run"]["subagentLevel"] = json!(1);
+    }
+    result
 }
 fn fake(temp: &std::path::Path) -> String {
     use std::os::unix::fs::PermissionsExt;
@@ -1282,7 +1286,8 @@ async fn relay_offer_reaches_role_executor_and_hello_advertises_cli_features() {
             "library-sync",
             "requests",
             "library-live",
-            "current-approvals"
+            "current-approvals",
+            "parallel-subagents"
         ])
     );
     server_task.abort();
@@ -1317,3 +1322,26 @@ fn sudo_claude_command_uses_instance_user_and_cwd_and_only_environment_names() {
 
 #[path = "review_tests.rs"]
 mod review;
+
+#[tokio::test]
+async fn subagent_runs_while_parent_is_live_in_its_own_directory() {
+    let (url, server, task) = server().await;
+    let temp = tempfile::tempdir().unwrap();
+    let host = host(&url, temp.path());
+    host.offer("A".into(), "hold".into());
+    wait_calls(&server, "claim", 1).await;
+    host.offer_subagent("A".into(), "subagent".into());
+    wait_calls(&server, "complete", 1).await;
+    assert!(host.state.lock().unwrap().active.contains_key("A"));
+    assert!(temp.path().join("work/WS/A/subagents/s/work/pid").exists());
+    assert!(
+        server
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(p, _)| p == "/api/machines/runs/subagent/complete")
+    );
+    host.abort_all(false).await;
+    task.abort();
+}

@@ -51,7 +51,7 @@ const agentLine = (agent: AgentInfo): string =>
     : `${agent.slug}: ${agent.name} (id: ${agent.id})`;
 
 /** The shape send_message and get_run both answer with. */
-const runPayload = (run: RunInfo): ToolPayload => {
+const runPayload = (run: RunInfo, checkTool = "get_run"): ToolPayload => {
   const state = stateOf(run.status);
   return {
     data: {
@@ -61,8 +61,14 @@ const runPayload = (run: RunInfo): ToolPayload => {
       sessionId: run.sessionId,
       state,
       status: run.status,
+      ...(checkTool === "subagent_status"
+        ? { statusText: run.statusText ?? run.status }
+        : {}),
     },
-    text: runText(run, state),
+    text: runText(run, state).replace(
+      "Check it with get_run.",
+      `Check it with ${checkTool}.`
+    ),
   };
 };
 
@@ -164,3 +170,104 @@ export const agentWriteTools = (ports: McpPorts): ToolDefinition[] => [
     title: "Cancel run",
   }),
 ];
+
+/** Subagent tools are offered only to an enabled run; the service checks every call too. */
+export const subagentTools = (
+  ports: McpPorts,
+  start: boolean,
+  message = true
+): ToolDefinition[] => {
+  const { subagents } = ports;
+  if (!subagents) {
+    return [];
+  }
+  const id = z.string().min(1).max(200);
+  const names = z.array(id).max(200).optional();
+  const payload = (run: RunInfo) => runPayload(run, "subagent_status");
+  return [
+    ...(start
+      ? [
+          defineTool({
+            annotations: WRITE_CREATE,
+            description:
+              "Starts a subagent on this agent's runtime and returns its run id at once. Choose any model allowed for that runtime. Omitted connectors and secrets inherit the parent's access; supplied lists can only narrow it. tools narrows connector tool names only. Built-in tools (shell, files) are not limited; narrowing is for connectors and secrets. Pass requestId so retries return the first run. Check the result with subagent_status.",
+            inputSchema: z.strictObject({
+              connectors: names,
+              model: id,
+              requestId: id.optional(),
+              secrets: names,
+              task: z.string().min(1).max(100_000),
+              tools: names.describe(
+                "Connector tool names only. Built-in tools (shell, files) are not limited; narrowing is for connectors and secrets."
+              ),
+            }),
+            name: "start_subagent",
+            run: async (input) => payload(await subagents.start(input)),
+            title: "Start subagent",
+          }),
+        ]
+      : []),
+    defineTool({
+      annotations: READ_ONLY,
+      description:
+        "Checks one of your subagents. Returns state pending, done or failed, status text, and the answer once done. waitMs waits up to 25000 milliseconds.",
+      inputSchema: z.strictObject({
+        id,
+        waitMs: z.number().int().min(0).max(SEND_WAIT_MAX_MS).default(0),
+      }),
+      name: "subagent_status",
+      run: async (input) => payload(await subagents.status(input)),
+      title: "Subagent status",
+    }),
+    ...(message
+      ? [
+          defineTool({
+            annotations: WRITE_CREATE,
+            description:
+              "Sends a follow-up into one of your subagents' sessions as a new child run.",
+            inputSchema: z.strictObject({
+              id,
+              text: z.string().min(1).max(100_000),
+            }),
+            name: "message_subagent",
+            run: async (input) => payload(await subagents.message(input)),
+            title: "Message subagent",
+          }),
+        ]
+      : []),
+    defineTool({
+      annotations: WRITE_DELETE,
+      description: "Cancels one of your subagents and its live subagents.",
+      inputSchema: z.strictObject({ id }),
+      name: "stop_subagent",
+      run: async (input) => payload(await subagents.stop(input)),
+      title: "Stop subagent",
+    }),
+    defineTool({
+      annotations: READ_ONLY,
+      description:
+        "Lists your subagents with their model, state and a one-line summary.",
+      inputSchema: z.strictObject({}),
+      name: "list_subagents",
+      run: async () => {
+        const found = await subagents.list();
+        return {
+          data: {
+            subagents: found.map((run) => ({
+              ...run,
+              state: stateOf(run.status),
+            })),
+          },
+          text:
+            found
+              .map(
+                (run) =>
+                  `${run.runId}: ${run.model}, ${stateOf(run.status)} — ${run.summary}`
+              )
+              .join("\n") || "No subagents.",
+        };
+      },
+      title: "List subagents",
+    }),
+  ];
+};

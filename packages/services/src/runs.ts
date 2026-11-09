@@ -8,12 +8,18 @@
  */
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
 import { guestRunScopes } from "@repo/db/schema/live-artifacts";
+import { machines } from "@repo/db/schema/machines";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { type AgentRuntime, taskFolderPath } from "@repo/db/shared";
 import { type GuestGrant, guestGrantSchema } from "@repo/protocol/live";
+import {
+  FEATURE_PARALLEL_SUBAGENTS,
+  hasDaemonFeature,
+} from "@repo/protocol/machine";
 import type { Masker } from "@repo/protocol/masker";
 import {
   REPEAT_STOP_AT,
@@ -42,8 +48,9 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { monotonicFactory, ulid } from "ulidx";
 import { z } from "zod";
-import { findAgent } from "./agents.ts";
+import { assertModelForRuntime, findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import { cloudEnvironmentOf } from "./cloud/environment.ts";
 import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
@@ -59,6 +66,7 @@ import {
   type RunTokenClaims,
   signRunToken,
 } from "./run-tokens.ts";
+import { validateSubagentAccess } from "./runs/access-scope.ts";
 import { authorizeArtifactRun } from "./runs/artifact-access.ts";
 import { createFakeRuntime } from "./runs/fake-runtime.ts";
 import { noneGateway } from "./runs/gateways.ts";
@@ -83,6 +91,7 @@ import {
   type Actor,
   deriveSubject,
   eventActor,
+  MAX_RUN_DEPTH,
   START_ACTION,
   type Subject,
 } from "./runs/subject.ts";
@@ -497,8 +506,8 @@ export const createRunsService = ({
     type: Parameters<typeof eventsService.append>[0]["type"],
     actor: Actor,
     payload: Record<string, unknown> = {}
-  ) =>
-    eventsService.append({
+  ) => {
+    const result = eventsService.append({
       actor,
       agentId: run.agentId,
       payload,
@@ -507,6 +516,13 @@ export const createRunsService = ({
       type,
       workspaceId: run.workspaceId,
     });
+    return result.then(async (event) => {
+      if (["run.finished", "run.failed", "run.interrupted"].includes(type)) {
+        await cancelSubagentTree(run);
+      }
+      return event;
+    });
+  };
 
   const agentActor = (run: RunRecord): Actor => ({
     id: run.agentId,
@@ -693,7 +709,8 @@ export const createRunsService = ({
       db,
       principal,
       agent.id,
-      options.wakeOf
+      options.wakeOf,
+      options.subagent !== undefined
     );
     await refuseScopedHandoff(principal);
     await refusePeerHandoffToManaged(
@@ -881,7 +898,48 @@ export const createRunsService = ({
     if (prepared.guestAuthorization && isGuestStartGuardFailure(error)) {
       throw guestUnavailable();
     }
+    let cause = error;
+    for (let i = 0; i < 5 && cause instanceof Error; i += 1) {
+      if (
+        cause.message.includes("NOT NULL constraint failed: runs.input_text")
+      ) {
+        throw new ServiceError(
+          "conflict",
+          "The parent ended or already has 5 live subagents"
+        );
+      }
+      ({ cause } = cause);
+    }
     throw error;
+  };
+
+  /** Runs inside the same atomic write as the child: concurrent starts cannot exceed five. */
+  const subagentGuard = (
+    prepared: Prepared,
+    options: StartRunOptions
+  ): Statement[] => {
+    if (!(options.subagent && prepared.subject.parentRunId)) {
+      return [];
+    }
+    const parentId = prepared.subject.parentRunId;
+    return [
+      db
+        .update(runs)
+        .set({
+          inputText: sql`case when ${inArray(runs.status, LIVE)} and
+        (select subagents from agents where id = ${runs.agentId}) = 1 and
+        not exists (with recursive ancestors(id, parent_run_id, status, agent_id, subagent_level, hops) as (
+          select id, parent_run_id, status, agent_id, subagent_level, 0 from runs where id = ${parentId}
+          union all select r.id, r.parent_run_id, r.status, r.agent_id, r.subagent_level, a.hops + 1 from runs r
+            join ancestors a on r.id = a.parent_run_id
+            where a.subagent_level > 0 and r.agent_id = a.agent_id and a.hops < ${MAX_RUN_DEPTH}
+        ) select 1 from ancestors where status not in ('running','waiting')) and
+        (select count(*) from runs child where child.parent_run_id = ${parentId}
+          and child.subagent_level > 0 and child.status in ('queued','offered','running','waiting')) < 5
+        then ${runs.inputText} else null end`,
+        })
+        .where(eq(runs.id, parentId)),
+    ];
   };
 
   const insertOnce = async (
@@ -896,6 +954,10 @@ export const createRunsService = ({
     const created = now.toISOString();
     const runId = nextRunId(now.getTime());
     const sessionId = known?.id ?? ulid(now.getTime());
+    const sessionActor =
+      options.subagent && sessionPrivacy(input) && subject.onBehalfOfUserId
+        ? { id: subject.onBehalfOfUserId, kind: "user" as const }
+        : subject.actor;
     const sessionWrite: Statement = known
       ? db
           .update(sessions)
@@ -905,8 +967,8 @@ export const createRunsService = ({
           })
           .where(eq(sessions.id, known.id))
       : db.insert(sessions).values({
-          actorId: subject.actor.id,
-          actorKind: subject.actor.kind,
+          actorId: sessionActor.id,
+          actorKind: sessionActor.kind,
           agentId: agent.id,
           createdAt: created,
           // Without a key the session is its own key, so the UI can send the
@@ -919,6 +981,9 @@ export const createRunsService = ({
           workspaceId,
         });
     const runWrite = db.insert(runs).values({
+      accessScope: options.subagent
+        ? JSON.stringify(options.subagent.accessScope)
+        : null,
       actorId: subject.actor.id,
       actorKind: subject.actor.kind,
       agentId: agent.id,
@@ -928,6 +993,7 @@ export const createRunsService = ({
       id: runId,
       inputFileIds: JSON.stringify(fileIds),
       inputText: input.input.text,
+      model: options.subagent ? options.subagent.model : null,
       onBehalfOfUserId: subject.onBehalfOfUserId,
       outputFileIds: "[]",
       parentRunId: subject.parentRunId,
@@ -939,12 +1005,14 @@ export const createRunsService = ({
       scopeArtifactId: prepared.scopeArtifactId,
       sessionId,
       status: "queued",
+      subagentLevel: options.subagent ? options.subagent.level : 0,
       workspaceId,
     });
     const guestWrites = guestInsertion(prepared, runId, created);
     try {
       await atomic([
         ...guestWrites.before,
+        ...subagentGuard(prepared, options),
         sessionWrite,
         runWrite,
         ...guestWrites.after,
@@ -1203,6 +1271,23 @@ export const createRunsService = ({
     await guardScopedRuntime(principal, runId);
     const sibling = alias(runs, "sibling");
     const older = alias(runs, "older");
+    const hasComputer = exists(
+      db
+        .select({ id: agentRows.id })
+        .from(agentRows)
+        .where(
+          and(
+            eq(agentRows.id, runs.agentId),
+            or(
+              isNotNull(agentRows.computerMachineId),
+              and(
+                eq(agentRows.runtime, "cloud"),
+                sql`json_extract(${agentRows.runtimeConfig}, '$.environment') = 'linux-vm'`
+              )
+            )
+          )
+        )
+    );
     const claimed = await db
       .update(runs)
       .set({
@@ -1228,7 +1313,16 @@ export const createRunsService = ({
               .where(
                 and(
                   or(
-                    eq(sibling.agentId, runs.agentId),
+                    and(
+                      eq(sibling.agentId, runs.agentId),
+                      or(
+                        and(
+                          eq(sibling.subagentLevel, 0),
+                          eq(runs.subagentLevel, 0)
+                        ),
+                        hasComputer
+                      )
+                    ),
                     eq(sibling.sessionId, runs.sessionId)
                   ),
                   inArray(sibling.status, LIVE)
@@ -1244,7 +1338,16 @@ export const createRunsService = ({
               .where(
                 and(
                   or(
-                    eq(older.agentId, runs.agentId),
+                    and(
+                      eq(older.agentId, runs.agentId),
+                      or(
+                        and(
+                          eq(older.subagentLevel, 0),
+                          eq(runs.subagentLevel, 0)
+                        ),
+                        hasComputer
+                      )
+                    ),
                     eq(older.sessionId, runs.sessionId)
                   ),
                   inArray(older.status, STARTING),
@@ -1790,6 +1893,25 @@ export const createRunsService = ({
     }
   };
 
+  /** Only same-agent subagent edges confer ownership; a hand-off ends the chain. */
+  const reachesSubagentParent = async (
+    target: RunRecord,
+    parent: { id: string; agentId: string; workspaceId: string }
+  ): Promise<boolean> => {
+    let cursor: RunRecord | null = target;
+    for (let hops = 0; hops < MAX_RUN_DEPTH && cursor?.parentRunId; hops += 1) {
+      if (cursor.agentId !== parent.agentId || cursor.subagentLevel === 0) {
+        return false;
+      }
+      if (cursor.parentRunId === parent.id) {
+        return true;
+      }
+      // biome-ignore lint/performance/noAwaitInLoops: each parent id comes from the previous run
+      cursor = await loadRun(db, cursor.parentRunId, parent.workspaceId);
+    }
+    return false;
+  };
+
   const getRun = async (
     principal: Principal,
     runId: string
@@ -1805,7 +1927,20 @@ export const createRunsService = ({
     if (
       principal.kind === "run" &&
       run.agentId !== principal.agentId &&
-      run.parentRunId !== principal.runId
+      run.parentRunId !== principal.runId &&
+      run.subagentLevel === 0
+    ) {
+      throw new ServiceError("not_found", "Run not found");
+    }
+    if (
+      principal.kind === "run" &&
+      run.subagentLevel > 0 &&
+      principal.runId !== run.id &&
+      !(await reachesSubagentParent(run, {
+        agentId: principal.agentId,
+        id: principal.runId,
+        workspaceId: principal.workspaceId,
+      }))
     ) {
       throw new ServiceError("not_found", "Run not found");
     }
@@ -1859,6 +1994,13 @@ export const createRunsService = ({
       kind: RUN_KIND,
       workspaceId: run.workspaceId,
     });
+    await cancelOwnedRun(run, eventActor(principal));
+  };
+
+  const cancelOwnedRun = async (
+    run: RunRecord,
+    actor: Actor
+  ): Promise<void> => {
     const cancelled = await db
       .update(runs)
       .set({ finishedAt: nowIso(), status: "cancelled" })
@@ -1867,9 +2009,17 @@ export const createRunsService = ({
     if (cancelled.length === 0) {
       throw new ServiceError("conflict", `Run is already ${run.status}`);
     }
-    await appendRunEvent(run, "run.cancelled", eventActor(principal));
+    await appendRunEvent(run, "run.cancelled", actor);
     const adapter = await cleanupAdapter(run);
-    await adapter?.cancel(db, run, adapterDeps);
+    try {
+      await adapter?.cancel(db, run, adapterDeps);
+    } finally {
+      try {
+        await cancelSubagentTree(run);
+      } catch (error) {
+        console.error(`Cancelling subagents of ${run.id} failed:`, error);
+      }
+    }
     await offerNextWaiting(run);
   };
 
@@ -2007,28 +2157,44 @@ export const createRunsService = ({
       if (!adapter?.offerNextOnEnd) {
         return;
       }
-      const [next] = await db
-        .select({ id: runs.id, pendingFiles: runs.pendingFiles })
-        .from(runs)
-        .where(
-          and(
-            or(
-              eq(runs.agentId, run.agentId),
-              eq(runs.sessionId, run.sessionId)
-            ),
-            eq(runs.workspaceId, run.workspaceId),
-            inArray(runs.status, STARTING)
+      const oldest = (sessionOnly: boolean) =>
+        db
+          .select({ id: runs.id, pendingFiles: runs.pendingFiles })
+          .from(runs)
+          .where(
+            and(
+              sessionOnly
+                ? eq(runs.sessionId, run.sessionId)
+                : or(
+                    eq(runs.agentId, run.agentId),
+                    eq(runs.sessionId, run.sessionId)
+                  ),
+              eq(runs.workspaceId, run.workspaceId),
+              inArray(runs.status, STARTING)
+            )
           )
-        )
-        .orderBy(asc(runs.createdAt), asc(runs.id))
-        .limit(1);
-      // The oldest run still downloading holds the agent's order: a younger run would be refused.
-      if (!next || next.pendingFiles) {
-        return;
-      }
-      const waiting = await loadRun(db, next.id);
-      if (waiting) {
-        await offerRun(waiting);
+          .orderBy(asc(runs.createdAt), asc(runs.id))
+          .limit(1);
+      const [agentQueue, sessionQueue] = await Promise.all([
+        oldest(false),
+        oldest(true),
+      ]);
+      const offered = new Set<string>();
+      for (const next of [agentQueue[0], sessionQueue[0]]) {
+        // A run still downloading holds its queue's order.
+        if (!next || next.pendingFiles || offered.has(next.id)) {
+          continue;
+        }
+        offered.add(next.id);
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: offer each queue head once
+          const waiting = await loadRun(db, next.id);
+          if (waiting) {
+            await offerRun(waiting);
+          }
+        } catch (error) {
+          console.error(`Offering run ${next.id} failed:`, error);
+        }
       }
     } catch (error) {
       console.error(
@@ -2376,6 +2542,352 @@ export const createRunsService = ({
     return { model: agent.model, name: agent.name, run };
   };
 
+  const subagentCaller = async (principal: Principal, write = false) => {
+    if (principal.kind !== "run") {
+      throw new ForbiddenError("runs.subagents");
+    }
+    const parent = await requireRun(principal, principal.runId);
+    authorize(principal, READ_ACTION, {
+      id: parent.id,
+      kind: RUN_KIND,
+      workspaceId: parent.workspaceId,
+    });
+    if (parent.agentId !== principal.agentId || parent.scopeArtifactId) {
+      throw new ForbiddenError("runs.subagents");
+    }
+    const agent = await findAgent(db, {
+      id: parent.agentId,
+      workspaceId: parent.workspaceId,
+    });
+    if (
+      !(agent && LIVE.includes(parent.status)) ||
+      (write && !agent.subagents)
+    ) {
+      throw new ForbiddenError("runs.subagents");
+    }
+    return { agent, parent };
+  };
+
+  const subagentUnavailable = async (
+    agent: Awaited<ReturnType<typeof subagentCaller>>["agent"]
+  ): Promise<string | undefined> => {
+    if (
+      agent.computerMachineId ||
+      (agent.runtime === "cloud" &&
+        cloudEnvironmentOf(agent.runtimeConfig) === "linux-vm")
+    ) {
+      return "Agents with a computer cannot start subagents yet, because they share one computer.";
+    }
+    if (agent.runtime === "machine") {
+      const [machine] = await db
+        .select({ capabilities: machines.capabilities })
+        .from(machines)
+        .where(
+          and(
+            eq(machines.id, agent.machineId ?? ""),
+            eq(machines.workspaceId, agent.workspaceId)
+          )
+        )
+        .limit(1);
+      const features: unknown = machine
+        ? JSON.parse(machine.capabilities).features
+        : undefined;
+      if (
+        !hasDaemonFeature(
+          Array.isArray(features)
+            ? features
+                .filter(
+                  (feature): feature is string => typeof feature === "string"
+                )
+                .join(",")
+            : undefined,
+          FEATURE_PARALLEL_SUBAGENTS
+        )
+      ) {
+        return "Update the agentum client on this machine to use subagents.";
+      }
+    }
+  };
+
+  const requireSubagentStart = async (principal: Principal) => {
+    const caller = await subagentCaller(principal, true);
+    const unavailable = await subagentUnavailable(caller.agent);
+    if (unavailable) {
+      throw new ServiceError("invalid", unavailable);
+    }
+    return caller;
+  };
+
+  const subagentLevelOf = async (run: RunRecord): Promise<number> => {
+    let level = run.subagentLevel;
+    let cursor = run;
+    while (cursor.parentRunId) {
+      // biome-ignore lint/performance/noAwaitInLoops: the bounded chain is traversed sequentially
+      const parent = await loadRun(db, cursor.parentRunId, run.workspaceId);
+      if (
+        !parent ||
+        cursor.subagentLevel === 0 ||
+        parent.agentId !== run.agentId
+      ) {
+        break;
+      }
+      level = Math.max(level, parent.subagentLevel);
+      cursor = parent;
+    }
+    return level;
+  };
+
+  const subagentTools = async (principal: Principal) => {
+    if (principal.kind !== "run") {
+      return;
+    }
+    try {
+      const { parent, agent } = await subagentCaller(principal);
+      if (await subagentUnavailable(agent)) {
+        return;
+      }
+      if (!agent.subagents) {
+        const [child] = await db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(
+            and(
+              eq(runs.parentRunId, parent.id),
+              eq(runs.agentId, parent.agentId),
+              sql`${runs.subagentLevel} > 0`
+            )
+          )
+          .limit(1);
+        return child ? { message: false, start: false } : undefined;
+      }
+      return {
+        start:
+          (await subagentLevelOf(parent)) < 2 && parent.depth < MAX_RUN_DEPTH,
+      };
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        return;
+      }
+      throw error;
+    }
+  };
+
+  const ownSubagent = async (principal: Principal, id: string) => {
+    const { parent } = await subagentCaller(principal);
+    const target = await loadRun(db, id, parent.workspaceId);
+    if (target && (await reachesSubagentParent(target, parent))) {
+      return target;
+    }
+    throw new ServiceError("not_found", "Subagent not found");
+  };
+
+  const startSubagent = async (
+    principal: Principal,
+    raw: {
+      task: string;
+      model: string;
+      connectors?: string[];
+      secrets?: string[];
+      tools?: string[];
+      requestId?: string;
+    }
+  ): Promise<RunSummary> => {
+    const input = z
+      .strictObject({
+        connectors: z.array(z.string().min(1)).max(200).optional(),
+        model: z.string().min(1).max(100),
+        requestId: z.string().min(1).max(200).optional(),
+        secrets: z.array(z.string().min(1)).max(200).optional(),
+        task: z.string().min(1).max(100_000),
+        tools: z.array(z.string().min(1)).max(500).optional(),
+      })
+      .parse(raw);
+    const { parent, agent } = await requireSubagentStart(principal);
+    const level = await subagentLevelOf(parent);
+    if (level >= 2) {
+      throw new ServiceError(
+        "invalid",
+        "Subagents can nest only two levels deep"
+      );
+    }
+    if (input.requestId) {
+      const existing = await loadRunByRequest(
+        db,
+        parent.workspaceId,
+        input.requestId
+      );
+      if (existing) {
+        if (
+          existing.parentRunId !== parent.id ||
+          existing.subagentLevel === 0 ||
+          existing.agentId !== agent.id
+        ) {
+          throw new ServiceError(
+            "conflict",
+            "That requestId is already used by another request"
+          );
+        }
+        return toSummary(existing);
+      }
+    }
+    assertModelForRuntime(agent.runtime, input.model);
+    const accessScope = await validateSubagentAccess(db, parent, input);
+    const [parentSession] = await db
+      .select({ origin: sessions.origin, private: sessions.private })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, parent.sessionId),
+          eq(sessions.workspaceId, parent.workspaceId)
+        )
+      )
+      .limit(1);
+    const started = await startRun(
+      principal,
+      {
+        agentId: agent.id,
+        input: { text: input.task },
+        requestId: input.requestId,
+        session: {
+          origin: "mcp",
+          private:
+            parentSession?.private === true || parentSession?.origin === "ui",
+        },
+      },
+      {
+        subagent: {
+          accessScope,
+          level: level + 1,
+          model: input.model,
+        },
+      }
+    );
+    return getRun(principal, started.runId);
+  };
+
+  const subagentStatus = async (
+    principal: Principal,
+    id: string,
+    waitMs = 0
+  ) => {
+    await ownSubagent(principal, id);
+    return waitForRun(principal, id, waitMs);
+  };
+
+  const messageSubagent = async (
+    principal: Principal,
+    id: string,
+    text: string
+  ) => {
+    const run = await ownSubagent(principal, id);
+    const { parent } = await requireSubagentStart(principal);
+    const level = await subagentLevelOf(parent);
+    if (level >= 2) {
+      throw new ServiceError(
+        "invalid",
+        "Subagents can nest only two levels deep"
+      );
+    }
+    const agent = await findAgent(db, {
+      id: run.agentId,
+      workspaceId: run.workspaceId,
+    });
+    if (!agent) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    assertModelForRuntime(agent.runtime, run.model ?? agent.model);
+    const accessScope = await validateSubagentAccess(
+      db,
+      parent,
+      run.accessScope ?? {}
+    );
+    const started = await startRun(
+      principal,
+      {
+        agentId: run.agentId,
+        input: { text },
+        session: { origin: "mcp" },
+      },
+      {
+        sessionId: run.sessionId,
+        subagent: {
+          accessScope,
+          level: Math.max(level + 1, run.subagentLevel),
+          model: run.model ?? agent.model,
+        },
+      }
+    );
+    return getRun(principal, started.runId);
+  };
+
+  const cancelSubagentTree = async (parent: RunRecord): Promise<void> => {
+    const children = await db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.parentRunId, parent.id),
+          eq(runs.agentId, parent.agentId),
+          sql`${runs.subagentLevel} > 0`
+        )
+      );
+    for (const row of children) {
+      const child = toRecord(row);
+      if (child.subagentLevel > 0 && ACTIVE.includes(child.status)) {
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: cancellation follows the bounded run tree
+          await cancelRun(SYSTEM_PRINCIPAL, child.id);
+        } catch (error) {
+          if (!(error instanceof ServiceError && error.code === "conflict")) {
+            console.error(`Cancelling subagent ${child.id} failed:`, error);
+          }
+          // A child that finished during cancellation still has its descendants checked.
+          await cancelSubagentTree(child);
+        }
+      } else {
+        await cancelSubagentTree(child);
+      }
+    }
+  };
+
+  const stopSubagent = async (principal: Principal, id: string) => {
+    const run = await ownSubagent(principal, id);
+    await cancelOwnedRun(
+      run,
+      principal.kind === "run"
+        ? { id: principal.runId, kind: "run" }
+        : eventActor(principal)
+    );
+  };
+
+  const listSubagents = async (principal: Principal) => {
+    const { parent, agent } = await subagentCaller(principal);
+    const rows = await db
+      .select()
+      .from(runs)
+      .where(sql`${runs.id} in (
+        with recursive owned(id, hops) as (
+          select id, 0 from runs where id = ${parent.id} and workspace_id = ${parent.workspaceId}
+          union all
+          select child.id, owned.hops + 1 from runs child indexed by runs_parent_idx
+            join owned on child.parent_run_id = owned.id
+            where child.workspace_id = ${parent.workspaceId} and child.agent_id = ${parent.agentId}
+              and child.subagent_level > 0 and owned.hops < ${MAX_RUN_DEPTH}
+        ) select id from owned where hops > 0
+      )`)
+      .orderBy(asc(runs.createdAt), asc(runs.id));
+    return rows.map((row) => {
+      const run = toRecord(row);
+      return {
+        ...toSummary(run),
+        model: run.model ?? agent.model,
+        summary: (run.resultText ?? run.inputText)
+          .replace(/\s+/g, " ")
+          .slice(0, 200),
+      };
+    });
+  };
+
   return {
     authorizeScopedRun,
     cancelRun,
@@ -2391,8 +2903,10 @@ export const createRunsService = ({
     },
     heartbeatRun,
     ingestRunEvents,
+    listSubagents,
     markRunning,
     markWaiting,
+    messageSubagent,
     offerQueuedRun,
     /**
      * Lets the composition root react to each run event after it is written,
@@ -2407,6 +2921,10 @@ export const createRunsService = ({
     resumeRequest,
     startForGuest,
     startRun,
+    startSubagent,
+    stopSubagent,
+    subagentStatus,
+    subagentTools,
     sweepQueuedRuns,
     waitForRun,
   };
