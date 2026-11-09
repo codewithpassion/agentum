@@ -144,11 +144,18 @@ export const visibleMachines = <T extends Pick<MachineRecord, "status">>(
     ? machines
     : machines.filter((machine) => machine.status !== "revoked");
 
-/** The first live machine whose id was not known when the dialog opened. */
-export const newMachine = <T extends Pick<MachineRecord, "id" | "status">>(
+/**
+ * The first machine whose id was not known when the dialog opened and that has
+ * connected. Redeeming a code makes the row offline, so only an online role counts.
+ */
+export const newMachine = <
+  T extends Pick<MachineRecord, "computerStatus" | "id" | "status">,
+>(
   machines: T[],
   knownIds: readonly string[]
 ): T | null =>
   machines.find(
-    (machine) => machine.status !== "revoked" && !knownIds.includes(machine.id)
+    (machine) =>
+      !knownIds.includes(machine.id) &&
+      (machine.status === "online" || machine.computerStatus === "online")
   ) ?? null;

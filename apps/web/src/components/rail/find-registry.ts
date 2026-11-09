@@ -113,7 +113,7 @@ export const findEntries: readonly FindEntry[] = [
   },
   {
     group: "What agents use",
-    hint: "Machines",
+    hint: "Machines and computers",
     icon: Server,
     label: ENROLL_BUTTON_LABEL,
     to: "/settings/machines",

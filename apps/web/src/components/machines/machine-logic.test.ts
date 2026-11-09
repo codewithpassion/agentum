@@ -220,15 +220,25 @@ describe("visibleMachines", () => {
 });
 
 describe("newMachine", () => {
-  const list = [
-    { id: "old", name: "Old", status: "online" as const },
-    { id: "gone", name: "Gone", status: "revoked" as const },
-    { id: "new", name: "Office", status: "offline" as const },
-  ];
-  test("finds the machine that was not there before", () => {
-    expect(newMachine(list, ["old"])?.id).toBe("new");
+  const row = (
+    id: string,
+    status: "online" | "offline" | "revoked",
+    computerStatus: "online" | "offline" = "offline"
+  ) => ({ computerStatus, id, name: id, status });
+  test("finds a new machine that has connected", () => {
+    expect(
+      newMachine([row("old", "online"), row("new", "online")], ["old"])?.id
+    ).toBe("new");
   });
-  test("ignores revoked machines and known ones", () => {
-    expect(newMachine(list, ["old", "new"])).toBeNull();
+  test("a computer-only machine counts once its computer is online", () => {
+    expect(newMachine([row("new", "offline", "online")], [])?.id).toBe("new");
+  });
+  test("a redeemed code that never connected is not connected", () => {
+    expect(newMachine([row("new", "offline")], [])).toBeNull();
+  });
+  test("ignores known and revoked machines", () => {
+    expect(
+      newMachine([row("old", "online"), row("gone", "revoked")], ["old"])
+    ).toBeNull();
   });
 });

@@ -72,6 +72,9 @@ export const computerRoleEnrollment = (machine: {
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
+const dialogTitle = (machine: object | undefined): string =>
+  machine ? "Add computer role" : ENROLL_BUTTON_LABEL;
+
 const dialogDescription = (
   machine: { name: string; rust?: boolean } | undefined,
   token: EnrollToken | null
@@ -231,9 +234,7 @@ export function EnrollDialog({
     <Dialog onOpenChange={handleOpenChange} open>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            {machine ? "Add computer role" : `${ENROLL_BUTTON_LABEL}`}
-          </DialogTitle>
+          <DialogTitle>{dialogTitle(machine)}</DialogTitle>
           <DialogDescription>
             {dialogDescription(machine, token)}
           </DialogDescription>

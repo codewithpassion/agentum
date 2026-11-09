@@ -115,7 +115,9 @@ function MachinesPage() {
               {showRevoked ? "Hide" : "Show"} revoked ({revokedCount})
             </Button>
           ) : null}
-          <Button onClick={openEnrol}>{ENROLL_BUTTON_LABEL}</Button>
+          {machines.length > 0 ? (
+            <Button onClick={openEnrol}>{ENROLL_BUTTON_LABEL}</Button>
+          ) : null}
         </div>
       </div>
       {machines.length === 0 ? (
