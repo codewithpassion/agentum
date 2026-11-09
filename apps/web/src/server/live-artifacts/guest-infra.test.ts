@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { guestEmailAdapter } from "./guest-infra";
+import { guestTicketKey } from "./guest-actions";
+import { guestEmailAdapter, guestService } from "./guest-infra";
 import { guestOpenMetadata } from "./guest-metadata";
 import { guestStream } from "./guest-stream";
 
@@ -71,3 +72,24 @@ test("an idle guest stream revalidates and cancels its live subscription", async
   expect((await reader.read()).done).toBe(true);
   expect(cancelled).toBe(true);
 }, 5000);
+
+test("a guest room ticket key needs ARTIFACT_VIEW_KEY, with no fallback", () => {
+  expect(() => guestTicketKey({ ARTIFACT_VIEW_KEY: "" })).toThrow(
+    "Guest access unavailable"
+  );
+  expect(guestTicketKey({ ARTIFACT_VIEW_KEY: "k" })).toBe("artifact-room:k");
+});
+
+test("the guest service refuses to build without ARTIFACT_VIEW_KEY", async () => {
+  const env = {
+    CLERK_SECRET_KEY: "sk_test_x",
+    MAIL_DOMAIN: "example.com",
+    PUBLIC_BASE_URL: "https://example.com",
+  } as unknown as Parameters<typeof guestService>[0];
+  const composed = {
+    services: { liveArtifacts: {} },
+  } as unknown as Parameters<typeof guestService>[1];
+  await expect(guestService(env, composed)).rejects.toThrow(
+    "Guest access unavailable"
+  );
+});

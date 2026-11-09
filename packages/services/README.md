@@ -128,6 +128,10 @@ Add a module as `src/x.ts` and an entry for it in `exports`. Then follow these r
 
 A new service also needs a factory call in `composeWith` and a field on `Services` in `apps/web/src/server/compose.ts`.
 
+## Trust rule for credentials
+
+Dom decided on 10 Nov 2026 that every workspace member is trusted with credentials. Any member may manage secrets, API keys and grants, so a service that writes them adds no admin check. The one admin check that exists is on a secret's mode change (`secrets.update`), and it is not a security boundary: a member can create a new secret in the mode they want and grant it instead. Don't read it as one, and don't copy it to other credential writes. The admin-only connector writes below follow the connector rules, not this one.
+
 ## Scripts
 
 `bun test` and `bun run typecheck`. Tests that need a database import `migrated` from `@repo/db/test-db`, an in-memory SQLite with the real migrations.

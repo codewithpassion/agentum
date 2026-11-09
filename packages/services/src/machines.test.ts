@@ -287,6 +287,98 @@ test("two concurrent enrolls on one code leave exactly one winner and one machin
   expect(db.select().from(machines).all()).toHaveLength(1);
 });
 
+const FAILING_ENROLL_BODIES = {
+  computer: (code: string) => computerBody(code),
+  daemon: (code: string) => ({ code, singleUser: false }),
+  roles: (code: string) => ({
+    arch: "amd64" as const,
+    clientVersion: "0.1.0",
+    code,
+    hostname: "box",
+    os: "linux" as const,
+    roles: ["agent_host" as const],
+    singleUser: false,
+  }),
+};
+
+/** Mints a code for `role`, fails the machine write, and reports what happened to the code. */
+const enrollThroughFailedWrite = async (
+  role: "agent_host" | "computer",
+  body: (code: string) => Parameters<Service["enroll"]>[0]
+) => {
+  const failing = createMachinesService({
+    atomic: () => Promise.reject(new Error("write failed")),
+    clock,
+    db,
+    events,
+    relay,
+  });
+  const { code } = await service.createEnrollToken(user, {
+    machineName: "Box",
+    role,
+  });
+  const failure = await failing.enroll(body(code)).catch((error) => error);
+  const row = db
+    .select({ usedAt: machineEnrollTokens.usedAt })
+    .from(machineEnrollTokens)
+    .where(eq(machineEnrollTokens.tokenHash, await hashToken(code)))
+    .get();
+  return {
+    failure: String(failure),
+    retry: await service.enroll(body(code)),
+    usedAt: row?.usedAt,
+  };
+};
+
+test("a code stays unspent when the machine insert fails, for the daemon body", async () => {
+  const outcome = await enrollThroughFailedWrite(
+    "agent_host",
+    FAILING_ENROLL_BODIES.daemon
+  );
+  expect(outcome.failure).toContain("write failed");
+  expect(outcome.usedAt).toBeNull();
+  expect(outcome.retry).not.toBeNull();
+});
+
+test("a code stays unspent when the machine insert fails, for the computer body", async () => {
+  const outcome = await enrollThroughFailedWrite(
+    "computer",
+    FAILING_ENROLL_BODIES.computer
+  );
+  expect(outcome.failure).toContain("write failed");
+  expect(outcome.usedAt).toBeNull();
+  expect(outcome.retry).not.toBeNull();
+});
+
+test("a code stays unspent when the machine insert fails, for the roles body", async () => {
+  const outcome = await enrollThroughFailedWrite(
+    "agent_host",
+    FAILING_ENROLL_BODIES.roles
+  );
+  expect(outcome.failure).toContain("write failed");
+  expect(outcome.usedAt).toBeNull();
+  expect(outcome.retry).not.toBeNull();
+});
+
+test("adding the computer role to a machine that is gone leaves the code unspent", async () => {
+  seedMachine("m1");
+  const { code } = await service.createEnrollToken(user, {
+    machineId: "m1",
+    role: "computer",
+  });
+  db.update(machines)
+    .set({ status: "revoked" })
+    .where(eq(machines.id, "m1"))
+    .run();
+  expect(await service.enroll(computerBody(code))).toBeNull();
+  expect(
+    db
+      .select({ usedAt: machineEnrollTokens.usedAt })
+      .from(machineEnrollTokens)
+      .get()
+  ).toEqual({ usedAt: null });
+});
+
 test("credentials and codes are still issued as hm_, and ag_ ones are accepted for the flip", async () => {
   // Installed daemons check these prefixes and know only hm_ (see token-prefixes.ts).
   expect(MACHINE_CREDENTIAL_PREFIX).toBe("hm_mach_");

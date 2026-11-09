@@ -1,4 +1,3 @@
-import { createClerkClient } from "@clerk/backend";
 import { clerkMiddleware, getAuth } from "@clerk/hono";
 import { trpcServer } from "@hono/trpc-server";
 import { systemClock } from "@repo/services/runs/types";
@@ -35,6 +34,7 @@ import { artifactRoutes } from "./server/routes/artifacts.ts";
 import { automationRoutes } from "./server/routes/automation.ts";
 import { devRoutes } from "./server/routes/dev.ts";
 import type { AppEnv } from "./server/routes/groups.ts";
+import { healthRoutes } from "./server/routes/health.ts";
 import { mountReleaseRoutes } from "./server/routes/releases.ts";
 import { runtimeRoutes } from "./server/routes/runtime.ts";
 import { tickJobs } from "./server/tick/jobs.ts";
@@ -163,63 +163,7 @@ app.use("/files/*", composeServices);
 // `/connect/:id` starts an OAuth connection and reads the services too.
 app.use("/connect/*", composeServices);
 
-app.get("/api/health", (c) => {
-  const auth = getAuth(c);
-  return c.json({ status: "ok", userId: auth?.userId ?? null });
-});
-
-// One-click dev login: mints a one-time Clerk sign-in token for the dev user
-// and hands it to /dev-login to redeem client-side. Only active when
-// DEV_LOGIN_EMAIL is configured, which must never be set in a deployed
-// environment - that absence is the safety switch for this route. A dev build
-// also makes the dev organisation's workspace row.
-app.get("/api/dev-login", async (c) => {
-  const email = c.env.DEV_LOGIN_EMAIL;
-  if (!email) {
-    return c.text("Dev login is not configured.", 404);
-  }
-
-  const clerkClient = createClerkClient({ secretKey: c.env.CLERK_SECRET_KEY });
-  const { data } = await clerkClient.users.getUserList({
-    emailAddress: [email],
-  });
-  const [user] = data;
-  if (!user) {
-    return c.text(
-      `Dev login user ${email} does not exist yet. Run "bun run create-dev-user" in apps/web.`,
-      404
-    );
-  }
-
-  const { data: memberships } =
-    await clerkClient.users.getOrganizationMembershipList({ userId: user.id });
-  const [membership] = memberships;
-  if (!membership) {
-    return c.text(
-      `Dev login user ${email} has no organisation yet. Run "bun run create-dev-user" in apps/web.`,
-      404
-    );
-  }
-
-  // A workspace row is what admits an organisation. A clean `.wrangler` has
-  // none, so the dev login makes the one for the dev organisation, in dev
-  // builds only.
-  if (import.meta.env.DEV) {
-    await c.get("composed").services.workspaces.create({
-      clerkOrgId: membership.organization.id,
-      name: membership.organization.name,
-    });
-  }
-
-  const { token } = await clerkClient.signInTokens.createSignInToken({
-    expiresInSeconds: 60,
-    userId: user.id,
-  });
-
-  return c.redirect(
-    `/dev-login?token=${encodeURIComponent(token)}&org=${encodeURIComponent(membership.organization.id)}`
-  );
-});
+app.route("/", healthRoutes);
 
 // tRPC: queries and mutations for the browser. During SSR the loaders call the
 // same router in-process instead (src/integrations/trpc/client.ts).
@@ -252,8 +196,8 @@ app.route("/", accessRoutes);
 app.route("/", automationRoutes);
 app.route("/", artifactRoutes({ session: (c) => getAuth(c) }));
 
-// Local checks (the atomic probe, and the offer nudge the e2e script uses).
-// Dev builds only.
+// Local checks (the atomic probe, the offer nudge the e2e script uses and the
+// one-click dev login). Dev builds only.
 if (import.meta.env.DEV) {
   app.route("/", devRoutes);
 }
