@@ -564,7 +564,12 @@ export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];
  * to an unauthenticated probe. `oauth` and `none` are forced: no probe changes
  * them.
  */
-export const CONNECTOR_AUTH_MODES = ["auto", "oauth", "none"] as const;
+export const CONNECTOR_AUTH_MODES = [
+  "auto",
+  "oauth",
+  "header",
+  "none",
+] as const;
 export type ConnectorAuthMode = (typeof CONNECTOR_AUTH_MODES)[number];
 
 /** Seconds a connector tool call may take before it is stopped. */

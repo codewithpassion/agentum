@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import type { ConnectorAuthMode } from "@repo/db/shared";
 import { type FormEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -12,6 +13,7 @@ import {
 import { getTrpc } from "#/integrations/trpc/client";
 import type { ConnectorRecord } from "#/integrations/trpc/types";
 import { AuthModeSelect } from "./auth-mode-select";
+import { type HeaderDraft, HeaderFields } from "./header-fields";
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
@@ -21,10 +23,16 @@ export function AuthModeDialog({
   onClose,
   onSaved,
 }: {
-  connector: { id: string; name: string; authMode: ConnectorAuthMode };
+  connector: ConnectorRecord;
   onClose: () => void;
   onSaved: (connector: ConnectorRecord) => void;
 }) {
+  const { orgRole } = useAuth();
+  const [header, setHeader] = useState<HeaderDraft>({
+    headerName: connector.headerName ?? "Authorization",
+    headerTemplate: connector.headerTemplate ?? "Bearer {value}",
+    secretId: connector.secretId,
+  });
   const [mode, setMode] = useState<ConnectorAuthMode>(connector.authMode);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +56,15 @@ export function AuthModeDialog({
           await getTrpc().connectors.setAuthMode.mutate({
             authMode: mode,
             connectorId: connector.id,
+            ...(mode === "header"
+              ? {
+                  headerName: header.headerName,
+                  headerTemplate: header.headerTemplate,
+                  ...(orgRole === "org:admin"
+                    ? { secretId: header.secretId }
+                    : {}),
+                }
+              : {}),
           })
         );
       } catch (caught) {
@@ -55,7 +72,7 @@ export function AuthModeDialog({
         setPending(false);
       }
     },
-    [connector.id, mode, onSaved]
+    [connector.id, header, mode, onSaved, orgRole]
   );
 
   return (
@@ -75,6 +92,13 @@ export function AuthModeDialog({
               onChange={setMode}
               value={mode}
             />
+            {mode === "header" && (
+              <HeaderFields
+                onChange={setHeader}
+                url={connector.url}
+                value={header}
+              />
+            )}
             {error !== null && (
               <p className="text-destructive text-sm">{error}</p>
             )}

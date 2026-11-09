@@ -44,6 +44,7 @@ import { decodeAllowedTools } from "./connectors/allowed-tools.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
 import { OAuthTokenError, refreshTokens } from "./connectors/oauth.ts";
 import { onGoogle, parseOAuthConfig } from "./connectors/oauth-config.ts";
+import { readConnectorSecret } from "./connectors/secret.ts";
 import { InvalidConnectorUrlError } from "./connectors/url.ts";
 import { decryptSecret, encryptSecret, importSecretsKey } from "./crypto.ts";
 import type { Clock } from "./runs/types.ts";
@@ -75,11 +76,12 @@ export type NeedsAuthCause =
 export interface DecryptedCredential {
   expiresAt: string | null;
   /** The header to send with the call. */
-  header: { name: string; value: string };
+  header: { name: string; value: string; redact?: string };
   id: string;
   ownerId: string;
   ownerKind: CredentialOwnerKind;
   version: number;
+  workspaceSecret?: boolean;
 }
 
 export interface NeedsAuth {
@@ -611,6 +613,30 @@ export const createCredentialsService = ({
     version: null,
   });
 
+  const resolveSecret = async (
+    connector: ConnectorRow,
+    allowedTools: string[] | null
+  ): Promise<Resolution> => {
+    const secret = await readConnectorSecret(db, await cryptoKey(), connector);
+    return {
+      allowedTools,
+      connector: connectorSummary(connector),
+      credential: {
+        expiresAt: null,
+        header: secret.header,
+        id: secret.id,
+        ownerId: connector.workspaceId,
+        ownerKind: "agent",
+        version: secret.version,
+        workspaceSecret: true,
+      },
+      note: null,
+      ok: true,
+      ownerKind: null,
+      version: secret.version,
+    };
+  };
+
   /** Once the owner is chosen: their stored login, usable and refreshed. */
   const resolveOwned = async (
     connector: ConnectorRow,
@@ -681,6 +707,12 @@ export const createCredentialsService = ({
       return openConnectorResolution(connector, allowedTools);
     }
 
+    if (
+      connector.authKind === "header" &&
+      (connector.secretId || connector.headerTemplate)
+    ) {
+      return await resolveSecret(connector, allowedTools);
+    }
     const chosen = await chooseOwner(link.mode, input);
     if (!chosen.ok) {
       return needsAuth(connector.id, chosen.owner, chosen.cause);
@@ -703,6 +735,12 @@ export const createCredentialsService = ({
     }
     if (connector.authKind === "none") {
       return openConnectorResolution(connector, null);
+    }
+    if (
+      connector.authKind === "header" &&
+      (connector.secretId || connector.headerTemplate)
+    ) {
+      return await resolveSecret(connector, null);
     }
     return await resolveOwned(
       connector,

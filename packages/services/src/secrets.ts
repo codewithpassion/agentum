@@ -16,12 +16,13 @@
  */
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
+import { connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
 import { agentSecrets, secrets } from "@repo/db/schema/secrets";
 import { SECRET_MODES, type SecretMode } from "@repo/db/shared";
 import { createMasker, type Masker } from "@repo/protocol/masker";
 import { isPlatformToken } from "@repo/protocol/token-prefixes";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -494,6 +495,19 @@ export const createSecretsService = ({
     const { workspaceId } = user;
     authorize(user, WRITE_ACTION, { id, kind: SECRET_KIND, workspaceId });
     await atomic([
+      db
+        .update(connectors)
+        .set({
+          headerTemplate: sql`coalesce(${connectors.headerTemplate}, 'Bearer {value}')`,
+          secretId: null,
+          status: "needs_auth",
+        })
+        .where(
+          and(
+            eq(connectors.secretId, id),
+            eq(connectors.workspaceId, workspaceId)
+          )
+        ),
       db
         .delete(agentSecrets)
         .where(

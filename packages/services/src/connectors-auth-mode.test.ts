@@ -4,12 +4,19 @@ import { connectors, credentials } from "@repo/db/schema/connectors";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
+import { createAgentsService } from "./agents.ts";
+import { ForbiddenError } from "./authz.ts";
 import { createConnectorOAuthService } from "./connector-oauth.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
+import { callMcpTool } from "./connectors/mcp.ts";
 import { parseOAuthConfig } from "./connectors/oauth-config.ts";
+import { seedCredential } from "./connectors/test-seed.ts";
 import { createConnectorsService } from "./connectors.ts";
+import { createCredentialsService } from "./credentials.ts";
+import { importSecretsKey } from "./crypto.ts";
 import { createEventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
+import { createSecretsService } from "./secrets.ts";
 import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -32,9 +39,14 @@ const dom: Principal = {
 let db: ReturnType<typeof migrated>;
 let service: ReturnType<typeof createConnectorsService>;
 let oauth: ReturnType<typeof createConnectorOAuthService>;
+let secrets: ReturnType<typeof createSecretsService>;
+let credentialService: ReturnType<typeof createCredentialsService>;
+let agents: ReturnType<typeof createAgentsService>;
 let requested: string[];
 let publishesOAuth: boolean;
 let requiresAuth: boolean;
+let acceptsHeader: boolean;
+let echoSecret: boolean;
 
 const clock: Clock = {
   now: () => new Date(START),
@@ -49,11 +61,18 @@ const json = (body: unknown, status = 200): Response =>
  * (path-aware, no registration endpoint) and by default answers MCP calls
  * without a token.
  */
-const fakeServer: Fetcher = (input) => {
+const fakeServer: Fetcher = (input, init) => {
   const url = new URL(typeof input === "string" ? input : String(input));
   requested.push(url.toString());
   if (url.origin === ORIGIN && url.pathname === "/mcp/v1") {
-    if (requiresAuth) {
+    if (
+      requiresAuth &&
+      !(
+        acceptsHeader &&
+        new Headers(init?.headers).get("Authorization") ===
+          `Token ${SECRET_VALUE}!`
+      )
+    ) {
       return Promise.resolve(
         new Response(null, {
           headers: { "www-authenticate": 'Bearer realm="x"' },
@@ -67,7 +86,12 @@ const fakeServer: Fetcher = (input) => {
         jsonrpc: "2.0",
         result: {
           serverInfo: { name: "open" },
-          tools: [{ description: "d", name: "list_things" }],
+          tools: [
+            {
+              description: echoSecret ? SECRET_VALUE : "d",
+              name: "list_things",
+            },
+          ],
         },
       })
     );
@@ -106,6 +130,8 @@ beforeEach(() => {
   requested = [];
   publishesOAuth = true;
   requiresAuth = false;
+  acceptsHeader = false;
+  echoSecret = false;
   db.insert(workspaces)
     .values({
       clerkOrgId: `org_${WORKSPACE}`,
@@ -136,6 +162,9 @@ beforeEach(() => {
   };
   service = createConnectorsService(deps);
   oauth = createConnectorOAuthService(deps);
+  secrets = createSecretsService(deps);
+  credentialService = createCredentialsService(deps);
+  agents = createAgentsService(deps);
 });
 
 const add = (authMode?: "auto" | "oauth" | "none") =>
@@ -284,4 +313,298 @@ test("setting the mode needs a session in the connector's workspace", async () =
       { authMode: "none", connectorId: connector.id }
     )
   ).rejects.toThrow();
+});
+
+const admin: Principal = { ...dom, isAdmin: true };
+const SECRET_VALUE = "made-up-key-123456";
+const secretForConnector = (allowedHosts = ["mcp.open-server.com"]) =>
+  secrets.create(admin, {
+    allowedHosts,
+    mode: "env",
+    name: "CONNECTOR_KEY",
+    value: SECRET_VALUE,
+  });
+const linkedConnector = async () => {
+  const secret = await secretForConnector();
+  return {
+    connector: await service.create(admin, {
+      authMode: "header",
+      headerTemplate: "Token {value}!",
+      name: "Header",
+      secretId: secret.id,
+      url: MCP_URL,
+    }),
+    secret,
+  };
+};
+
+test("API key header forces header even when the server offers OAuth", async () => {
+  requiresAuth = true;
+  const connector = await service.create(dom, {
+    authMode: "header",
+    name: "Header",
+    url: MCP_URL,
+  });
+  expect(connector.authKind).toBe("header");
+  expect(connector.oauth).toBeNull();
+  expect(requested.some((url) => url.includes(".well-known"))).toBe(false);
+});
+
+test("linking, replacing and clearing a secret require an admin browser session", async () => {
+  const { secret, connector } = await linkedConnector();
+  const refused: Principal[] = [
+    dom,
+    { ...admin, apiKey: { access: "admin", id: "key" }, via: "api_key" },
+    {
+      ...admin,
+      oauthClient: { access: "write", clientId: "client" },
+      via: "oauth",
+    },
+    { agentId: "agent", kind: "run", runId: "run", workspaceId: WORKSPACE },
+    { kind: "machine", machineId: "machine", workspaceId: WORKSPACE },
+  ];
+  for (const principal of refused) {
+    // biome-ignore lint/performance/noAwaitInLoops: verify each refused caller independently
+    await expect(
+      service.create(principal, {
+        authMode: "header",
+        name: "Denied",
+        secretId: secret.id,
+        url: MCP_URL,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    for (const secretId of [secret.id, null]) {
+      // biome-ignore lint/performance/noAwaitInLoops: verify each refused mutation independently
+      await expect(
+        service.setAuthMode(principal, {
+          authMode: "header",
+          connectorId: connector.id,
+          secretId,
+        })
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    }
+    await expect(
+      service.setAuthMode(principal, {
+        authMode: "none",
+        connectorId: connector.id,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  }
+  expect((await service.list(admin))[0]?.secretId).toBe(secret.id);
+});
+
+test("a mismatching secret host is refused with Settings guidance, including on an edit", async () => {
+  const secret = await secretForConnector(["other.example.com"]);
+  const input = {
+    authMode: "header" as const,
+    name: "Header",
+    secretId: secret.id,
+    url: MCP_URL,
+  };
+  await expect(service.create(admin, input)).rejects.toThrow(
+    "The host mcp.open-server.com is not allowed by this secret. Add it to the secret in Settings, Secrets."
+  );
+  const connector = await add();
+  await expect(
+    service.setAuthMode(admin, {
+      authMode: "header",
+      connectorId: connector.id,
+      secretId: secret.id,
+    })
+  ).rejects.toThrow("mcp.open-server.com");
+});
+
+test("a proxy secret allows its rule hosts using matchHost", async () => {
+  const secret = await secrets.create(admin, {
+    mode: "proxy",
+    name: "PROXY_KEY",
+    rules: [
+      {
+        header: "Authorization",
+        host: "*.open-server.com",
+        template: "Bearer {value}",
+      },
+    ],
+    value: SECRET_VALUE,
+  });
+  const connector = await service.create(admin, {
+    authMode: "header",
+    name: "Header",
+    secretId: secret.id,
+    url: MCP_URL,
+  });
+  expect(connector.secretName).toBe("PROXY_KEY");
+});
+
+test("the template requires {value} exactly once and has the rule length limit", async () => {
+  const secret = await secretForConnector();
+  for (const headerTemplate of [
+    "Bearer",
+    "{value}{value}",
+    `${"x".repeat(512)}{value}`,
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: verify each invalid template independently
+    await expect(
+      service.create(admin, {
+        authMode: "header",
+        headerTemplate,
+        name: "Header",
+        secretId: secret.id,
+        url: MCP_URL,
+      })
+    ).rejects.toThrow();
+  }
+});
+
+test("every caller sends the current templated secret, ignoring pasted credentials and credential mode", async () => {
+  const { secret, connector } = await linkedConnector();
+  const agent = await agents.create(dom, {
+    model: "fake",
+    name: "Agent",
+    runtime: "fake",
+  });
+  await seedCredential(db, await importSecretsKey(SECRETS_KEY), {
+    connectorId: connector.id,
+    now: START,
+    ownerId: "user_dom",
+    ownerKind: "user",
+    secret: "old-pasted-value",
+    workspaceId: WORKSPACE,
+  });
+  const headers: string[] = [];
+  const fetchImpl: Fetcher = (_input, init) => {
+    headers.push(new Headers(init?.headers).get("Authorization") ?? "");
+    return Promise.resolve(
+      json({ id: 1, jsonrpc: "2.0", result: { content: [] } })
+    );
+  };
+  for (const credentialMode of ["user", "agent", "user_or_agent"] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: each mode must be stored before resolving its callers
+    await service.assign(dom, {
+      agentId: agent.id,
+      connectorId: connector.id,
+      credentialMode,
+    });
+    for (const onBehalfOfUserId of [null, "user_dom", "other-person"]) {
+      // biome-ignore lint/performance/noAwaitInLoops: resolution depends on the assignment just written
+      const resolved = await credentialService.resolve({
+        agentId: agent.id,
+        connectorId: connector.id,
+        onBehalfOfUserId,
+        workspaceId: WORKSPACE,
+      });
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) {
+        throw new Error("Secret did not resolve");
+      }
+      await callMcpTool(
+        connector.url,
+        { fetchImpl, header: resolved.credential?.header },
+        { arguments: {}, name: "list_things" }
+      );
+    }
+  }
+  expect(headers.length).toBeGreaterThan(0);
+  expect(headers.every((header) => header === `Token ${SECRET_VALUE}!`)).toBe(
+    true
+  );
+  await secrets.update(admin, secret.id, { value: "replacement-made-up-key" });
+  const next = await credentialService.resolveUser({
+    connectorId: connector.id,
+    userId: "nobody",
+    workspaceId: WORKSPACE,
+  });
+  if (!(next.ok && next.credential)) {
+    throw new Error("Secret did not resolve");
+  }
+  expect(next.credential.header.value).toBe("Token replacement-made-up-key!");
+  const serialized = JSON.stringify([
+    connector,
+    await service.list(admin),
+    await service.setCallTimeout(admin, {
+      connectorId: connector.id,
+      seconds: 60,
+    }),
+  ]);
+  expect(serialized).not.toContain(SECRET_VALUE);
+  expect(serialized).not.toContain("replacement-made-up-key");
+  expect(serialized).not.toContain("old-pasted-value");
+  expect(serialized).not.toContain("valueEnc");
+});
+
+test("deleting a secret unlinks the connector and fails clearly without falling back to a pasted credential", async () => {
+  const { secret, connector } = await linkedConnector();
+  await seedCredential(db, await importSecretsKey(SECRETS_KEY), {
+    connectorId: connector.id,
+    now: START,
+    ownerId: "user_dom",
+    ownerKind: "user",
+    secret: "old-pasted-value",
+    workspaceId: WORKSPACE,
+  });
+  await secrets.remove(admin, secret.id);
+  const [row] = await service.list(admin);
+  expect(row?.secretId).toBeNull();
+  expect(row?.status).toBe("needs_auth");
+  expect(row?.headerTemplate).toBe("Token {value}!");
+  await expect(
+    credentialService.resolveUser({
+      connectorId: connector.id,
+      userId: "user_dom",
+      workspaceId: WORKSPACE,
+    })
+  ).rejects.toThrow("The connector's secret was removed");
+});
+
+test("changing authentication away from header clears both the link and template", async () => {
+  const { connector } = await linkedConnector();
+  const changed = await service.setAuthMode(admin, {
+    authMode: "none",
+    connectorId: connector.id,
+  });
+  expect(changed.secretId).toBeNull();
+  expect(changed.headerTemplate).toBeNull();
+  expect(changed.secretName).toBeNull();
+});
+
+test("removing an allowed host blocks the next call", async () => {
+  const { secret, connector } = await linkedConnector();
+  await secrets.update(admin, secret.id, { allowedHosts: [] });
+  await expect(
+    credentialService.resolveUser({
+      connectorId: connector.id,
+      userId: "user_dom",
+      workspaceId: WORKSPACE,
+    })
+  ).rejects.toThrow("Settings, Secrets");
+});
+
+test("linking probes with the secret and never returns a value echoed in tool metadata", async () => {
+  requiresAuth = true;
+  acceptsHeader = true;
+  echoSecret = true;
+  const { connector } = await linkedConnector();
+  expect(connector.status).toBe("ok");
+  expect(connector.tools).toHaveLength(1);
+  expect(connector.tools[0]?.description).toBe("[secret:connector]");
+  expect(JSON.stringify([connector, await service.list(admin)])).not.toContain(
+    SECRET_VALUE
+  );
+});
+
+test("deletion also marks a linked connector whose template was null as needing a secret", async () => {
+  const { secret, connector } = await linkedConnector();
+  await db
+    .update(connectors)
+    .set({ headerTemplate: null })
+    .where(eq(connectors.id, connector.id));
+  await secrets.remove(admin, secret.id);
+  expect((await service.list(admin))[0]?.headerTemplate).toBe("Bearer {value}");
+  await expect(
+    credentialService.resolveUser({
+      connectorId: connector.id,
+      userId: "user_dom",
+      workspaceId: WORKSPACE,
+    })
+  ).rejects.toThrow("The connector's secret was removed");
 });

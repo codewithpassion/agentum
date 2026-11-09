@@ -1402,3 +1402,66 @@ test("a guest joining during real credential refresh blocks the second connector
   expect(f.sent).toHaveLength(2);
   expect(stubOf().stats().calls).toHaveLength(1);
 });
+
+test("a workspace secret supplies the header, scrubs an echo, and deletion fails clearly", async () => {
+  startStub();
+  const credentialId = await seedHeaderCredential();
+  await db
+    .update(credentials)
+    .set({
+      secret: await encryptSecret(
+        secretsKey,
+        {
+          field: "secret",
+          rowId: credentialId,
+          table: "credentials",
+          workspaceId: WORKSPACE,
+        },
+        "old-pasted-value"
+      ),
+    })
+    .where(eq(credentials.id, credentialId));
+  const admin: Principal = { ...dom, isAdmin: true };
+  const secret = await composed.services.secrets.create(admin, {
+    mode: "env",
+    name: "CONNECTOR_KEY",
+    value: STUB_TOKEN,
+    allowedHosts: [new URL(PUBLIC_ORIGIN).hostname],
+  });
+  await db
+    .update(connectors)
+    .set({
+      authMode: "header",
+      secretId: secret.id,
+      headerTemplate: "Bearer {value}",
+      headerName: "Authorization",
+    })
+    .where(eq(connectors.id, CONNECTOR));
+  addRun("secret_run");
+  const token = await tokenFor("secret_run");
+  const response = await call(
+    token,
+    JSON.stringify({
+      id: 7,
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { arguments: { text: `key is ${STUB_TOKEN}` }, name: "echo" },
+    })
+  );
+  expect(await echoed(response)).toBe("key is [secret:connector]");
+  expect(stubOf().stats().calls.at(-1)?.headers.authorization).toBe(
+    `Bearer ${STUB_TOKEN}`
+  );
+  expect(
+    (await eventsOf("secret_run")).some(
+      (event) => event.type === "connector.needs_auth"
+    )
+  ).toBe(false);
+  expect(JSON.stringify(await eventsOf("secret_run"))).not.toContain(
+    STUB_TOKEN
+  );
+  await composed.services.secrets.remove(admin, secret.id);
+  const removed = await call(token);
+  expect(removed.status).toBe(400);
+  expect(await removed.text()).toContain("The connector's secret was removed");
+});

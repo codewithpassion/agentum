@@ -131,3 +131,26 @@ A new service also needs a factory call in `composeWith` and a field on `Service
 ## Scripts
 
 `bun test` and `bun run typecheck`. Tests that need a database import `migrated` from `@repo/db/test-db`, an in-memory SQLite with the real migrations.
+
+## Connector API key headers
+
+Automatic authentication follows the server. OAuth and API key header force
+that kind of login, even when the server offers both. None sends no login.
+For an API key header, set a header name (normally `Authorization`) and a value
+template such as `Bearer {value}`. The template must contain `{value}` exactly
+once and is limited to 512 characters.
+
+An organisation admin in a browser session can link a workspace secret, or
+create one in the connector dialog. The connector host must match one of the
+secret's proxy rule hosts or env allowed hosts; change those in Settings,
+Secrets. API keys, OAuth clients, machines, runs and MCP tools cannot link or
+clear a secret. When linked, the secret supplies the header for every person
+and agent, regardless of the assignment's credential mode. Pasted credentials
+are ignored. Without a link, personal and agent credentials work as before.
+
+The value stays encrypted in storage and is read fresh for each call. Replacing
+it takes effect on the next call; removing an allowed host blocks the next
+call. Deleting a secret unlinks its connectors in the same write, and those
+connectors show Needs secret and refuse calls until an admin links another
+secret or switches to personal credentials. Changing authentication away from
+API key header clears the link and template.

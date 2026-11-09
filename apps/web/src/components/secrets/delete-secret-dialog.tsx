@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -23,6 +23,20 @@ export function DeleteSecretDialog({
   onDone: () => Promise<void>;
   secret: SecretRecord;
 }) {
+  const [connectorNames, setConnectorNames] = useState<string[]>([]);
+  const [usageError, setUsageError] = useState(false);
+  useEffect(() => {
+    getTrpc()
+      .connectors.list.query()
+      .then((rows) =>
+        setConnectorNames(
+          rows
+            .filter((row) => row.secretId === secret.id)
+            .map((row) => row.name)
+        )
+      )
+      .catch(() => setUsageError(true));
+  }, [secret.id]);
   const { error, pending, submit } = useSecretSubmit(onDone);
 
   const handleOpenChange = useCallback(
@@ -50,6 +64,9 @@ export function DeleteSecretDialog({
           <AlertDialogTitle>Delete {secret.name}?</AlertDialogTitle>
           <AlertDialogDescription>
             The value is deleted for good, and every agent loses this secret.
+            {connectorNames.length > 0 &&
+              ` These connectors will need a secret: ${connectorNames.join(", ")}.`}
+            {usageError === true && " Could not load connector usage."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error === null ? null : (

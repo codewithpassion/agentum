@@ -64,6 +64,9 @@ const OAUTH_CREDENTIAL_LABEL: Record<CredentialRecord["status"], string> = {
 };
 
 function addedMessage(connector: ConnectorRecord): string {
+  if (connector.secretName) {
+    return `Added. Key from secret ${connector.secretName}.`;
+  }
   switch (connector.authKind) {
     case "header":
       return "Added. The server wants a header: paste a credential next.";
@@ -88,6 +91,12 @@ function needsClient(connector: ConnectorRecord): boolean {
 function credentialLabel(connector: ConnectorRecord): string {
   if (connector.authKind !== "header") {
     return "-";
+  }
+  if (connector.secretName) {
+    return `Key from secret ${connector.secretName}`;
+  }
+  if (connector.headerTemplate) {
+    return "Needs secret";
   }
   return connector.myCredential === null ? "none" : "pasted";
 }
@@ -171,6 +180,14 @@ function ConnectorRow({
     <TableRow>
       <ResponsiveCell className="font-medium" label="Name">
         {connector.name}
+        {connector.secretName === null ? null : (
+          <p className="text-muted-foreground text-xs">
+            Key from secret {connector.secretName}
+          </p>
+        )}
+        {connector.headerTemplate && !connector.secretId ? (
+          <p className="text-muted-foreground text-xs">Needs secret</p>
+        ) : null}
       </ResponsiveCell>
       <ResponsiveCell
         className="font-mono text-muted-foreground text-xs md:max-w-48 md:truncate"
@@ -215,7 +232,9 @@ function ConnectorRow({
       </ResponsiveCell>
       <ResponsiveActions className="text-right">
         <div className="flex justify-end gap-2">
-          {connector.authKind === "header" ? (
+          {connector.authKind === "header" &&
+          !connector.secretId &&
+          !connector.headerTemplate ? (
             <Button onClick={paste} size="sm" variant="outline">
               Paste credential
             </Button>
@@ -418,11 +437,7 @@ function ConnectorsPage() {
       )}
       {editingAuth === null ? null : (
         <AuthModeDialog
-          connector={{
-            id: editingAuth.id,
-            name: editingAuth.name,
-            authMode: editingAuth.authMode,
-          }}
+          connector={editingAuth}
           onClose={closeEditAuth}
           onSaved={handleAuthSaved}
         />

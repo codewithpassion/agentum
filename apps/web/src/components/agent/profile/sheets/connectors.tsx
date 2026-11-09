@@ -114,7 +114,18 @@ function AssignedConnectorRow({
   );
 
   let credentials: ReactNode;
-  if (connector.authKind === "header") {
+  if (
+    connector.authKind === "header" &&
+    (connector.secretId || connector.headerTemplate)
+  ) {
+    credentials = (
+      <span className="text-muted-foreground text-xs">
+        {connector.secretName
+          ? `Key from secret ${connector.secretName}`
+          : "Needs secret"}
+      </span>
+    );
+  } else if (connector.authKind === "header") {
     credentials = (
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground">

@@ -34,6 +34,7 @@ import type {
   ArtifactsCallToolInput,
   ArtifactsCallToolOutput,
 } from "@repo/protocol/artifacts";
+import { createMasker } from "@repo/protocol/masker";
 import { connectorServerKeys } from "@repo/protocol/server-keys";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "../authz.ts";
@@ -264,7 +265,13 @@ export const createToolRunner = ({
         input.arguments
       );
     } catch (error) {
-      if (!(error instanceof McpUnauthorizedError && resolution.credential)) {
+      if (
+        !(
+          error instanceof McpUnauthorizedError &&
+          resolution.credential &&
+          !resolution.credential.workspaceSecret
+        )
+      ) {
         throw toCallError(error, connectorName);
       }
       const refreshed = await credentials.refresh({
@@ -306,7 +313,11 @@ export const createToolRunner = ({
         ? notGranted()
         : new ArtifactCallError("failed", "Try again in a moment.");
     }
-    return scrubbed(await send(resolution, input, connector.name, toolName));
+    const result = await send(resolution, input, connector.name, toolName);
+    const secret = resolution.credential?.header.redact;
+    return scrubbed(
+      secret ? createMasker({ connector: secret }).maskDeep(result) : result
+    );
   };
   return { run };
 };

@@ -575,3 +575,15 @@ test("session-bound MCP ports retain the remote tool list without assistant card
   }
   expect((await rpc("", "tools/list", {})).status).toBe(401);
 });
+
+test("MCP cannot link a connector secret, including with an admin key", async () => {
+  const { secret } = await mintKey("admin");
+  const names = await toolNames(secret);
+  expect(names).not.toContain("set_connector_auth_mode");
+  expect(names).not.toContain("link_connector_secret");
+  const result = await rpc(secret, "tools/call", {
+    name: "link_connector_secret",
+    arguments: { connectorId: "connector", secretId: "workspace-secret" },
+  });
+  expect(result.body.error ?? result.body.result?.isError).toBeTruthy();
+});

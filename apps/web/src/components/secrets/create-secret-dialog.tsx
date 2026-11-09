@@ -31,15 +31,21 @@ const parseMode = (value: string): SecretMode =>
 export function CreateSecretDialog({
   onClose,
   onDone,
+  initialMode = "proxy",
+  initialHosts = "",
+  onCreated,
 }: {
   onClose: () => void;
   onDone: () => Promise<void>;
+  initialMode?: SecretMode;
+  initialHosts?: string;
+  onCreated?: (secret: { id: string; name: string }) => void;
 }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
-  const [mode, setMode] = useState<SecretMode>("proxy");
+  const [mode, setMode] = useState<SecretMode>(initialMode);
   const [rules, setRules] = useState<RuleDraft[]>(() => [emptyRule()]);
-  const [hosts, setHosts] = useState("");
+  const [hosts, setHosts] = useState(initialHosts);
   const { error, pending, submit } = useSecretSubmit(onDone);
 
   const handleOpenChange = useCallback(
@@ -70,17 +76,19 @@ export function CreateSecretDialog({
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      event.stopPropagation();
       await submit(async () => {
-        await getTrpc().secrets.create.mutate(
+        const secret = await getTrpc().secrets.create.mutate(
           mode === "proxy"
             ? { mode: "proxy", name, rules: toRules(rules), value }
             : { allowedHosts: parseHosts(hosts), mode: "env", name, value }
         );
+        onCreated?.(secret);
         setValue("");
         toast.success(`Secret ${name.trim()} created`);
       });
     },
-    [hosts, mode, name, rules, submit, value]
+    [hosts, mode, name, onCreated, rules, submit, value]
   );
 
   const canSubmit =
