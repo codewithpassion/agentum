@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   addRule,
   changeRule,
+  connectorsAtRisk,
   emptyRule,
   hostsOf,
   hostsText,
   MAX_RULES,
+  modeChangeDefaults,
+  modePatch,
   parseHosts,
   type RuleDraft,
   removeRule,
@@ -153,5 +156,94 @@ describe("hostsText", () => {
   test("round-trips through parseHosts", () => {
     const hosts = ["api.example.com", "*.example.org"];
     expect(parseHosts(hostsText(hosts))).toEqual(hosts);
+  });
+});
+
+describe("changing a secret's mode", () => {
+  test("a proxy secret's rule hosts become allowed hosts, once each", () => {
+    const defaults = modeChangeDefaults(
+      secret({
+        mode: "proxy",
+        rules: [
+          { header: "x-api-key", host: "api.example.com", template: "{value}" },
+          { header: "x-other", host: "api.example.com", template: "{value}" },
+          { header: "x-api-key", host: "*.example.org", template: "{value}" },
+        ],
+      })
+    );
+    expect(defaults.hosts).toBe("api.example.com, *.example.org");
+  });
+
+  test("an env secret's allowed hosts become rules with the default header and template", () => {
+    const defaults = modeChangeDefaults(
+      secret({
+        allowedHosts: ["api.example.com", "b.example.com"],
+        mode: "env",
+      })
+    );
+    expect(
+      defaults.rules.map(({ header, host, template }) => ({
+        header,
+        host,
+        template,
+      }))
+    ).toEqual([
+      {
+        header: "Authorization",
+        host: "api.example.com",
+        template: "Bearer {value}",
+      },
+      {
+        header: "Authorization",
+        host: "b.example.com",
+        template: "Bearer {value}",
+      },
+    ]);
+  });
+
+  test("an env secret with no hosts starts with one empty rule", () => {
+    const defaults = modeChangeDefaults(
+      secret({ allowedHosts: [], mode: "env" })
+    );
+    expect(defaults.rules).toHaveLength(1);
+    expect(defaults.rules[0]?.host).toBe("");
+  });
+
+  test("the patch carries the mode and only that mode's settings", () => {
+    expect(
+      modePatch(
+        "env",
+        [rule("a", { host: "x.example.com" })],
+        "a.example.com, b.example.com"
+      )
+    ).toEqual({
+      allowedHosts: ["a.example.com", "b.example.com"],
+      mode: "env",
+    });
+    expect(
+      modePatch("proxy", [rule("a", { host: " x.example.com " })], "ignored")
+    ).toEqual({
+      mode: "proxy",
+      rules: [
+        {
+          header: "Authorization",
+          host: "x.example.com",
+          template: "Bearer {value}",
+        },
+      ],
+    });
+  });
+
+  test("a linked connector whose host the new hosts do not allow is named", () => {
+    const connectors = [
+      { name: "Docs", secretId: "s1", url: "https://api.example.com/mcp" },
+      { name: "Wiki", secretId: "s1", url: "https://wiki.example.com/mcp" },
+      { name: "Other", secretId: "s2", url: "https://nowhere.example.net/mcp" },
+    ];
+    expect(connectorsAtRisk(connectors, "s1", ["api.example.com"])).toEqual([
+      "Wiki",
+    ]);
+    expect(connectorsAtRisk(connectors, "s1", ["*.example.com"])).toEqual([]);
+    expect(connectorsAtRisk(connectors, "s1", [])).toEqual(["Docs", "Wiki"]);
   });
 });

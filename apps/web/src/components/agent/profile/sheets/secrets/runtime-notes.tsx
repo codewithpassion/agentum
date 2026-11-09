@@ -8,6 +8,12 @@ export function RuntimeNotes() {
         there.
       </li>
       <li>
+        Isolate agents get proxy secrets added by the platform: the header a
+        rule sets is added to requests to the rule&apos;s host, so the script
+        leaves it out. Sending the placeholder (hm-secret:NAME) in that header
+        works too, and it is refused anywhere else.
+      </li>
+      <li>
         Machine agents receive env secrets as environment variables of Claude
         Code.
       </li>

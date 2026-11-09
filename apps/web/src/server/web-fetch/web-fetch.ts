@@ -18,7 +18,7 @@ import {
   outboundFetch,
 } from "@repo/app-gateway/secrets-outbound-core";
 import type { NetworkRequestEntry } from "@repo/services/network";
-import type { EnvGrant } from "@repo/services/secrets/placeholders";
+import type { EnvGrant, ProxyGrant } from "@repo/services/secrets/placeholders";
 import { checkTarget, redirectTarget } from "./guard.ts";
 import { fillHop, scrubSecrets } from "./hop-secrets.ts";
 import {
@@ -42,6 +42,8 @@ export interface WebFetchDeps {
   maxRedirects?: number;
   now?: () => number;
   ownHosts: readonly string[];
+  /** The agent's granted proxy secrets with their rules, read only when a hop holds a placeholder. Without it a proxy secret's placeholder is refused as not granted. */
+  proxyGrants?: () => Promise<readonly ProxyGrant[]>;
   /** Writes the Log event. May reject: the call goes on. */
   record: (entry: NetworkRequestEntry) => Promise<void>;
   timeoutMs?: number;
@@ -396,7 +398,11 @@ const runHop = async (
   // call that has filled none.
   const mayFill = redirects === 0 || call.secrets.size > 0;
   const filled = mayFill
-    ? await fillHop(hop, call.deps.envGrants ?? (() => Promise.resolve([])))
+    ? await fillHop(
+        hop,
+        call.deps.envGrants ?? (() => Promise.resolve([])),
+        call.deps.proxyGrants
+      )
     : { hop, names: [], ok: true as const, values: new Map<string, string>() };
   if (!filled.ok) {
     await recordRefused(call, hop.url.hostname, hop.method, filled.message);

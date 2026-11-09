@@ -18,12 +18,14 @@ import { hostsOf, type SecretRecord } from "./secret-model.ts";
 type SecretAction = (secret: SecretRecord) => void;
 
 function SecretRow({
+  onChangeMode,
   onDelete,
   onEditHosts,
   onEditRules,
   onReplace,
   secret,
 }: {
+  onChangeMode: SecretAction | undefined;
   onDelete: SecretAction;
   onEditHosts: SecretAction;
   onEditRules: SecretAction;
@@ -38,6 +40,10 @@ function SecretRow({
   const editHosts = useCallback(
     () => onEditHosts(secret),
     [onEditHosts, secret]
+  );
+  const changeMode = useCallback(
+    () => onChangeMode?.(secret),
+    [onChangeMode, secret]
   );
   const remove = useCallback(() => onDelete(secret), [onDelete, secret]);
 
@@ -71,6 +77,11 @@ function SecretRow({
               Edit hosts
             </Button>
           )}
+          {onChangeMode === undefined ? null : (
+            <Button onClick={changeMode} size="sm" variant="outline">
+              Change mode
+            </Button>
+          )}
           <Button onClick={remove} size="sm" variant="outline">
             Delete
           </Button>
@@ -81,12 +92,15 @@ function SecretRow({
 }
 
 export function SecretsTable({
+  onChangeMode,
   onDelete,
   onEditHosts,
   onEditRules,
   onReplace,
   secrets,
 }: {
+  /** Left out for a member who is not an admin: only an admin changes a secret's mode. */
+  onChangeMode?: SecretAction;
   onDelete: SecretAction;
   onEditHosts: SecretAction;
   onEditRules: SecretAction;
@@ -118,6 +132,7 @@ export function SecretsTable({
         {secrets.map((secret) => (
           <SecretRow
             key={secret.id}
+            onChangeMode={onChangeMode}
             onDelete={onDelete}
             onEditHosts={onEditHosts}
             onEditRules={onEditRules}

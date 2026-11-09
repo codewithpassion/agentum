@@ -41,7 +41,11 @@ const infra = (): Infra => {
 const composed = (): Composed => composeWith({ db, infra: infra() });
 
 const callerFor = async (
-  session: { orgId?: string | null; userId: string | null },
+  session: {
+    orgId?: string | null;
+    orgRole?: string | null;
+    userId: string | null;
+  },
   services: Composed
 ) =>
   appRouter.createCaller(await buildContext({ composed: services, session }));
@@ -82,6 +86,45 @@ test("create, list, replace and delete never show the value", async () => {
   }
   await caller.secrets.remove({ id: created.id });
   expect(await caller.secrets.list()).toEqual([]);
+});
+
+test("an admin switches a secret between proxy and env, a member is refused, and nothing shows the value", async () => {
+  const services = composed();
+  const admin = await callerFor(
+    { orgId: "org_a", orgRole: "org:admin", userId: "user_1" },
+    services
+  );
+  const member = await callerFor(
+    { orgId: "org_a", orgRole: "org:member", userId: "user_2" },
+    services
+  );
+  const created = await admin.secrets.create({
+    mode: "proxy",
+    name: "OPENAI_API_KEY",
+    rules: [rule],
+    value: VALUE,
+  });
+  const toEnv = await admin.secrets.update({
+    id: created.id,
+    patch: { allowedHosts: ["api.openai.com"], mode: "env" },
+  });
+  expect(toEnv).toMatchObject({
+    allowedHosts: ["api.openai.com"],
+    mode: "env",
+    rules: [],
+  });
+  await expect(
+    member.secrets.update({
+      id: created.id,
+      patch: { mode: "proxy", rules: [rule] },
+    })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const toProxy = await admin.secrets.update({
+    id: created.id,
+    patch: { mode: "proxy", rules: [rule] },
+  });
+  expect(toProxy).toMatchObject({ allowedHosts: [], mode: "proxy" });
+  expect(JSON.stringify([toEnv, toProxy])).not.toContain(VALUE);
 });
 
 test("a reserved name or a bad rule is a BAD_REQUEST", async () => {

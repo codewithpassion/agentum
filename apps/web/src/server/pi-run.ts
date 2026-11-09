@@ -20,6 +20,7 @@ import type { CloudStart } from "@repo/services/cloud/types";
 import { isServiceError } from "@repo/services/errors";
 import { agentHomePath } from "@repo/services/library/home";
 import { librarySyncScope } from "@repo/services/library/sync-paths";
+import type { ProxyGrant } from "@repo/services/secrets/placeholders";
 import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -89,7 +90,6 @@ import {
 import { createStartQueue } from "./pi-run-start.ts";
 import { RunStartAlarm } from "./pi-run-start-alarm.ts";
 import { streamPublisher } from "./session-stream-port.ts";
-
 import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
 import type { RunScriptDeps } from "./skill-scripts/run-script.ts";
 import {
@@ -450,6 +450,7 @@ export class PiRun extends DurableObject<Env> {
         enabled: networkEnabled,
         fetcherOf: () => this.#webFetcher(),
         placeholdersOf: () => this.#secretPlaceholders(),
+        proxiesOf: () => this.#secretProxies(),
       },
       this.#runScriptDeps(),
       () => this.ctx.storage.get<string>(TASK_FOLDER_KEY),
@@ -493,6 +494,27 @@ export class PiRun extends DurableObject<Env> {
       console.warn(
         "PiRun: reading the secret placeholders for the prompt failed"
       );
+      return [];
+    }
+  }
+
+  /**
+   * The proxy secrets of the newest run's agent, read when the prompt renders.
+   * Names, hosts and headers only. A failed read is logged without its error.
+   */
+  async #secretProxies(): Promise<readonly ProxyGrant[]> {
+    try {
+      const run = await this.ctx.storage.get<RunRef>(RUN_KEY);
+      if (!run) {
+        return [];
+      }
+      return await this.#services().secrets.proxyRulesFor(
+        run.workspaceId,
+        run.agentId,
+        run.runId
+      );
+    } catch {
+      console.warn("PiRun: reading the proxy secrets for the prompt failed");
       return [];
     }
   }

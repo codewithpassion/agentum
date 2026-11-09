@@ -1,3 +1,5 @@
+import type { SecretMode } from "@repo/db/shared";
+import { matchHost } from "@repo/services/secrets/rules";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 
 export type SecretRecord = RouterOutputs["secrets"]["list"][number];
@@ -15,6 +17,7 @@ export type ActiveDialog =
   | { kind: "replace"; secret: SecretRecord }
   | { kind: "rules"; secret: SecretRecord }
   | { kind: "hosts"; secret: SecretRecord }
+  | { kind: "mode"; secret: SecretRecord }
   | { kind: "delete"; secret: SecretRecord };
 
 /** Matches the server's limit on rules per secret. */
@@ -77,3 +80,69 @@ export const hostsOf = (secret: SecretRecord): string => {
   }
   return secret.allowedHosts.length > 0 ? hostsText(secret.allowedHosts) : "-";
 };
+
+/**
+ * What the Change mode dialog starts with for both modes, from the secret's
+ * current settings where they map. Proxy rule hosts become allowed hosts. An
+ * env secret's allowed hosts become rules with the default header and template,
+ * which stay editable.
+ */
+export const modeChangeDefaults = (
+  secret: SecretRecord
+): { hosts: string; rules: RuleDraft[] } => {
+  if (secret.mode === "proxy") {
+    return {
+      hosts: hostsText([...new Set(secret.rules.map((rule) => rule.host))]),
+      rules: toRuleDrafts(secret.rules),
+    };
+  }
+  return {
+    hosts: hostsText(secret.allowedHosts),
+    rules:
+      secret.allowedHosts.length > 0
+        ? secret.allowedHosts.map((host) => ({ ...emptyRule(), host }))
+        : [emptyRule()],
+  };
+};
+
+/** The `secrets.update` patch that switches to `mode` with the settings typed for it. */
+export const modePatch = (
+  mode: SecretMode,
+  rules: RuleDraft[],
+  hosts: string
+) =>
+  mode === "proxy"
+    ? { mode, rules: toRules(rules) }
+    : { allowedHosts: parseHosts(hosts), mode };
+
+/** The hosts the new settings allow: the rules' hosts for proxy, the typed hosts for env. */
+export const newHosts = (
+  mode: SecretMode,
+  rules: RuleDraft[],
+  hosts: string
+): string[] =>
+  mode === "proxy"
+    ? rules.map((rule) => rule.host.trim()).filter((host) => host !== "")
+    : parseHosts(hosts);
+
+/**
+ * The names of the connectors linked to the secret whose host the new settings
+ * would not allow, the same host check a connector call makes
+ * (`checkConnectorSecretHost`).
+ */
+export const connectorsAtRisk = (
+  connectors: readonly { name: string; secretId: string | null; url: string }[],
+  secretId: string,
+  hosts: readonly string[]
+): string[] =>
+  connectors
+    .filter((connector) => connector.secretId === secretId)
+    .filter((connector) => {
+      try {
+        const host = new URL(connector.url).hostname;
+        return !hosts.some((pattern) => matchHost(pattern, host));
+      } catch {
+        return false;
+      }
+    })
+    .map((connector) => connector.name);

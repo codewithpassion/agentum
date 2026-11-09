@@ -370,3 +370,45 @@ describe("networkToolsExtension placeholder section", () => {
     );
   });
 });
+
+describe("networkToolsExtension proxy section", () => {
+  const render = async () => {
+    const extension = networkToolsExtension({
+      enabled: true,
+      fetcherOf: () => Promise.reject(new Error("not called")),
+      proxiesOf: () =>
+        Promise.resolve([
+          {
+            name: "SUPADATA_KEY",
+            rules: [{ header: "x-api-key", host: "api.supadata.ai" }],
+          },
+        ]),
+    });
+    const section = extension.sections?.find(
+      (candidate) => candidate.key === "secret-proxies"
+    );
+    if (section === undefined) {
+      throw new Error("the enabled extension has no proxy section");
+    }
+    return await section.render(NO_PROMPT, contextWith());
+  };
+
+  test("lists each proxy secret with its header and hosts, says the platform adds it, and holds no value", async () => {
+    const text = await render();
+    expect(text).toContain("SUPADATA_KEY");
+    expect(text).toContain("the x-api-key header on api.supadata.ai");
+    expect(text).toContain("leave that header out");
+  });
+
+  test("renders nothing when the agent has no proxy secret", async () => {
+    const extension = networkToolsExtension({
+      enabled: true,
+      fetcherOf: () => Promise.reject(new Error("not called")),
+      proxiesOf: () => Promise.resolve([]),
+    });
+    const section = extension.sections?.find(
+      (candidate) => candidate.key === "secret-proxies"
+    );
+    expect(await section?.render(NO_PROMPT, contextWith())).toBeUndefined();
+  });
+});

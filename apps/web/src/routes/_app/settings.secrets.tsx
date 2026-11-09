@@ -1,6 +1,8 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
+import { ChangeModeDialog } from "#/components/secrets/change-mode-dialog";
 import { CreateSecretDialog } from "#/components/secrets/create-secret-dialog";
 import { DeleteSecretDialog } from "#/components/secrets/delete-secret-dialog";
 import { EditHostsDialog } from "#/components/secrets/edit-hosts-dialog";
@@ -34,6 +36,7 @@ export const Route = createFileRoute("/_app/settings/secrets")({
 function SecretsPage() {
   const secrets = Route.useLoaderData();
   const router = useRouter();
+  const { orgRole } = useAuth();
   const [active, setActive] = useState<ActiveDialog | null>(null);
 
   const openCreate = useCallback(() => setActive({ kind: "create" }), []);
@@ -47,6 +50,10 @@ function SecretsPage() {
   );
   const openHosts = useCallback(
     (secret: SecretRecord) => setActive({ kind: "hosts", secret }),
+    []
+  );
+  const openMode = useCallback(
+    (secret: SecretRecord) => setActive({ kind: "mode", secret }),
     []
   );
   const openDelete = useCallback(
@@ -82,6 +89,7 @@ function SecretsPage() {
         </p>
       </div>
       <SecretsTable
+        onChangeMode={orgRole === "org:admin" ? openMode : undefined}
         onDelete={openDelete}
         onEditHosts={openHosts}
         onEditRules={openRules}
@@ -103,6 +111,13 @@ function SecretsPage() {
       ) : null}
       {active?.kind === "hosts" ? (
         <EditHostsDialog onClose={close} onDone={done} secret={active.secret} />
+      ) : null}
+      {active?.kind === "mode" ? (
+        <ChangeModeDialog
+          onClose={close}
+          onDone={done}
+          secret={active.secret}
+        />
       ) : null}
       {active?.kind === "delete" ? (
         <DeleteSecretDialog

@@ -112,6 +112,7 @@ describe("run_script with the network", () => {
         announceInjection: () => Promise.resolve(),
         envGrantsFor: () => Promise.resolve(grants),
         proxyFor: () => Promise.resolve([]),
+        proxyRulesFor: () => Promise.resolve([]),
       },
     } as unknown as Pick<Services, "network" | "secrets">;
     const fetcher = network

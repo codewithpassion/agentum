@@ -38,6 +38,7 @@ import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { effectiveRunScope, scopeAllows } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
+import type { ProxyGrant } from "./secrets/placeholders.ts";
 import {
   isHeaderSafe,
   matchHost,
@@ -443,7 +444,7 @@ export const createSecretsService = ({
     return toSummary(row);
   };
 
-  /** Replaces the value, the mode and rules, or both. The old value is gone for good. */
+  /** Replaces the value, the mode and rules, or both. The old value is gone for good. Only an org admin changes the mode. */
   const update = async (
     principal: Principal,
     id: string,
@@ -454,6 +455,9 @@ export const createSecretsService = ({
     authorize(user, WRITE_ACTION, { id, kind: SECRET_KIND, workspaceId });
     const patch = secretUpdateSchema.parse(input);
     const row = await requireSecret(workspaceId, id);
+    if (patch.mode !== undefined && patch.mode !== row.mode && !user.isAdmin) {
+      throw new ForbiddenError(`${WRITE_ACTION}: changing a secret's mode`);
+    }
     const mode = patch.mode ?? row.mode;
     const rules = rulesFor(mode, patch.rules, row);
     const allowedHosts = allowedHostsFor(mode, patch.allowedHosts, row);
@@ -762,20 +766,19 @@ export const createSecretsService = ({
     return granted.length === 0 ? null : maskerOf(granted);
   };
 
-  /**
-   * The names and allowed hosts of the agent's granted `env` secrets, for the
-   * shell variables and the prompt. It reads no value and needs no key.
-   */
-  const placeholdersFor = async (
+  /** The granted secrets of one mode, as stored rows with no value read, within the run's scope. */
+  const grantedRowsOf = async (
+    mode: SecretMode,
     workspaceId: string,
     agentId: string,
     runId?: string
-  ): Promise<{ hosts: string[]; name: string }[]> => {
+  ) => {
     const rows = await db
       .select({
         allowedHosts: secrets.allowedHosts,
         id: secrets.id,
         name: secrets.name,
+        rules: secrets.rules,
       })
       .from(agentSecrets)
       .innerJoin(secrets, eq(secrets.id, agentSecrets.secretId))
@@ -784,20 +787,43 @@ export const createSecretsService = ({
           eq(agentSecrets.agentId, agentId),
           eq(agentSecrets.workspaceId, workspaceId),
           eq(secrets.workspaceId, workspaceId),
-          eq(secrets.mode, "env")
+          eq(secrets.mode, mode)
         )
       )
       .orderBy(asc(secrets.name));
     const scope = runId
       ? await effectiveRunScope(db, workspaceId, runId)
       : null;
-    return rows
-      .filter((row) => scopeAllows(scope, "secrets", row.id))
-      .map((row) => ({
-        hosts: allowedHostsOf(row),
-        name: row.name,
-      }));
+    return rows.filter((row) => scopeAllows(scope, "secrets", row.id));
   };
+
+  /**
+   * The names and allowed hosts of the agent's granted `env` secrets, for the
+   * shell variables and the prompt. It reads no value and needs no key.
+   */
+  const placeholdersFor = async (
+    workspaceId: string,
+    agentId: string,
+    runId?: string
+  ): Promise<{ hosts: string[]; name: string }[]> =>
+    (await grantedRowsOf("env", workspaceId, agentId, runId)).map((row) => ({
+      hosts: allowedHostsOf(row),
+      name: row.name,
+    }));
+
+  /**
+   * The names and rules (host and header only) of the agent's granted `proxy`
+   * secrets, for the fetcher's checks and the prompt. It reads no value.
+   */
+  const proxyRulesFor = async (
+    workspaceId: string,
+    agentId: string,
+    runId?: string
+  ): Promise<ProxyGrant[]> =>
+    (await grantedRowsOf("proxy", workspaceId, agentId, runId)).map((row) => ({
+      name: row.name,
+      rules: rulesOf(row).map(({ header, host }) => ({ header, host })),
+    }));
 
   /** The agent's granted `env` secrets with their values and allowed hosts, for the placeholder fetcher. Never for a router. */
   const envGrantsFor = async (
@@ -936,6 +962,7 @@ export const createSecretsService = ({
     placeholdersFor,
     proxyFor,
     proxyForNames,
+    proxyRulesFor,
     remove,
     resolveForAgent,
     revoke,

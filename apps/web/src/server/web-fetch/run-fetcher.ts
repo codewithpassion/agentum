@@ -28,6 +28,8 @@ export const runWebFetcher = ({
     matches: (host) =>
       services.secrets.proxyFor(run.workspaceId, run.agentId, host, run.runId),
     ownHosts,
+    proxyGrants: () =>
+      services.secrets.proxyRulesFor(run.workspaceId, run.agentId, run.runId),
     record: (entry) => services.network.recordRequest(run, entry),
     via,
   });
