@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import { events as eventRows } from "@repo/db/schema/events";
+import { skillVersions } from "@repo/db/schema/skills";
+import { SKILL_CHANGE_TTL_MS } from "@repo/db/shared";
+import { and, eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
 import { isServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
@@ -228,14 +231,187 @@ test("a run is refused approve, reject, assign, unassign and pin, even for its o
   ).toBe("forbidden");
 });
 
-test("a run is refused a commit to a person's skill that is assigned to its agent", async () => {
-  const { service } = setup();
+/** A people's skill, assigned to the agent of run r1. */
+const sharedSkill = async (service: Setup["service"]) => {
   const { skill } = await createSkill(service, NAME, {}, user());
   await service.assign(user(), { agentId: A1, skillId: skill.id });
+  return skill.id;
+};
+
+test("a run's commit to a person's skill assigned to its agent is a proposal, and the live version stays", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+
+  const proposed = await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  expect(proposed.status).toBe("proposed");
+  expect(proposed.author).toEqual({ id: A1, kind: "agent", runId: R1 });
+  expect(proposed.approvedAt).toBeNull();
+
+  const [listed] = await service.list(user());
+  expect(listed?.latestApprovedVersion).toBe(1);
+  expect(listed?.latestVersion).toBe(2);
+  expect(listed?.ownerAgentId).toBeNull();
+  const resolved = await service.forAgent(user(), A1, { withContents: true });
+  expect(resolved.map((item) => item.version)).toEqual([1]);
+  expect(contentOf(resolved[0]?.files, "SKILL.md")).toBe(skillMd(NAME));
+  expect(
+    (await service.proposals(user())).map((version) => version.number)
+  ).toEqual([2]);
+});
+
+test("a person's Allow makes the proposed change live", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+
+  const approved = await service.approve(user(), { skillId, version: 2 });
+  expect(approved.status).toBe("approved");
+  expect(approved.approvedBy).toBe("u1");
+  const resolved = await service.forAgent(user(), A1, { withContents: true });
+  expect(resolved.map((item) => item.version)).toEqual([2]);
+  expect(contentOf(resolved[0]?.files, "SKILL.md")).toBe(
+    skillMd(NAME, "Run edit.")
+  );
+});
+
+test("a person's Decline leaves the live version as it was", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+
+  const declined = await service.reject(user(), { skillId, version: 2 });
+  expect(declined.status).toBe("rejected");
+  expect(await service.proposals(user())).toEqual([]);
+  const resolved = await service.forAgent(user(), A1, { withContents: true });
+  expect(resolved.map((item) => item.version)).toEqual([1]);
+  expect(contentOf(resolved[0]?.files, "SKILL.md")).toBe(skillMd(NAME));
+});
+
+test("approving after a newer approved version exists is refused and overwrites nothing", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  // A person's commit is made on the latest approved version, so a newer approved version lands on version 1.
+  await edit(service, user(), skillId, 1, "Person edit.");
 
   expect(
-    await refusalOf(edit(service, run(A1, R1), skill.id, 1, "Run edit."))
+    await refusalOf(service.approve(user(), { skillId, version: 2 }))
+  ).toBe("conflict");
+  const resolved = await service.forAgent(user(), A1, { withContents: true });
+  expect(contentOf(resolved[0]?.files, "SKILL.md")).toBe(
+    skillMd(NAME, "Person edit.")
+  );
+  // The card stays answerable as Decline.
+  expect((await service.reject(user(), { skillId, version: 2 })).status).toBe(
+    "rejected"
+  );
+});
+
+test("a second commit from the run while one waits builds on it, so both can never be approved on one parent", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  const first = await edit(service, run(A1, R1), skillId, 1, "First.");
+  expect(
+    await refusalOf(edit(service, run(A1, R1), skillId, 1, "Second."))
+  ).toBe("conflict");
+  const second = await edit(service, run(A1, R1), skillId, 2, "Second.");
+  expect(second.parent).toBe(first.number);
+
+  expect(
+    await refusalOf(service.approve(user(), { skillId, version: 3 }))
+  ).toBe("conflict");
+  await service.approve(user(), { skillId, version: 2 });
+  expect((await service.approve(user(), { skillId, version: 3 })).status).toBe(
+    "approved"
+  );
+});
+
+test("the run reads the outcome of its proposal through the skill log", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  const statusOf = async () =>
+    (await service.log(run(A1, R1), { skillId })).find(
+      (version) => version.number === 2
+    )?.status;
+
+  expect(await statusOf()).toBe("proposed");
+  await service.reject(user(), { skillId, version: 2 });
+  expect(await statusOf()).toBe("rejected");
+});
+
+test("a run cannot answer its own request", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+
+  expect(
+    await refusalOf(service.approve(run(A1, R1), { skillId, version: 2 }))
   ).toBe("forbidden");
+  expect(
+    await refusalOf(service.reject(run(A1, R1), { skillId, version: 2 }))
+  ).toBe("forbidden");
+});
+
+test("a proposal to a skill the agent does not own lapses unanswered and is never applied", async () => {
+  const { db, service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  const old = new Date(Date.now() - SKILL_CHANGE_TTL_MS - 1000).toISOString();
+  db.update(skillVersions)
+    .set({ createdAt: old })
+    .where(eq(skillVersions.skillId, skillId))
+    .run();
+  db.update(skillVersions)
+    .set({ createdAt: new Date(Date.parse(old) - 1000).toISOString() })
+    .where(and(eq(skillVersions.skillId, skillId), eq(skillVersions.number, 1)))
+    .run();
+
+  expect(await service.proposals(user())).toEqual([]);
+  expect(
+    await refusalOf(service.approve(user(), { skillId, version: 2 }))
+  ).toBe("conflict");
+  const [listed] = await service.list(user());
+  expect(listed?.latestApprovedVersion).toBe(1);
+  // The lapsed proposal no longer blocks a new commit.
+  const next = await edit(service, run(A1, R1), skillId, 1, "Again.");
+  expect(next.status).toBe("proposed");
+});
+
+test("a run's proposal to its own skill does not lapse", async () => {
+  const { db, service } = setup();
+  const { skill } = await createSkill(service, NAME, {}, run(A1, R1));
+  db.update(skillVersions)
+    .set({
+      createdAt: new Date(Date.now() - 10 * SKILL_CHANGE_TTL_MS).toISOString(),
+    })
+    .run();
+
+  expect(
+    (await service.proposals(user())).map((version) => version.skillId)
+  ).toEqual([skill.id]);
+  expect(
+    (await service.approve(user(), { skillId: skill.id, version: 1 })).status
+  ).toBe("approved");
+});
+
+test("a run still commits to the skill it owns as a proposal, as before", async () => {
+  const { service } = setup();
+  const { skill } = await createSkill(service, NAME, {}, run(A1, R1));
+
+  const proposed = await edit(service, run(A1, R1), skill.id, 1, "Run edit.");
+  expect(proposed.status).toBe("proposed");
+  expect(proposed.parent).toBe(1);
+});
+
+test("a run is still refused a GitHub update of a skill it does not own", async () => {
+  const never = () => Promise.reject(new Error("no upstream request"));
+  const { service } = setup({ resolve: never, tree: never });
+  const skillId = await sharedSkill(service);
+
+  expect(await refusalOf(service.importUpdate(run(A1, R1), skillId))).toBe(
+    "forbidden"
+  );
 });
 
 test("a run gets not_found for a commit to a skill it cannot see", async () => {
@@ -332,7 +508,7 @@ test("approving a proposal whose base is no longer the latest approved version i
   const skillId = skill.id;
   await service.approve(user(), { skillId, version: 1 });
   await edit(service, run(A1, R1), skillId, 1, "Run edit.");
-  await edit(service, user(), skillId, 2, "Person edit.");
+  await edit(service, user(), skillId, 1, "Person edit.");
 
   expect(
     await refusalOf(service.approve(user(), { skillId, version: 2 }))
@@ -480,4 +656,307 @@ test("no event payload carries file contents", async () => {
   const payloads = skillEvents(db).map((row) => row.payload ?? "");
   expect(payloads.length).toBeGreaterThan(0);
   expect(payloads.join("\n")).not.toContain(SECRET);
+});
+
+/** A principal for an API key or an OAuth client acting for the person. */
+const keyUser = (): Principal => ({
+  apiKey: { access: "write", id: "k1" },
+  kind: "user",
+  userId: "u1",
+  via: "api_key",
+  workspaceId: "w1",
+});
+
+/** Makes every version of the skill older than the change window. */
+const age = (db: Setup["db"], skillId: string, number: number) =>
+  db
+    .update(skillVersions)
+    .set({
+      createdAt: new Date(
+        Date.now() - SKILL_CHANGE_TTL_MS - 1000
+      ).toISOString(),
+    })
+    .where(
+      and(eq(skillVersions.skillId, skillId), eq(skillVersions.number, number))
+    )
+    .run();
+
+const writeOf = (path: string, content: string) => ({ content, path });
+
+const contentsOf = (shown: { files?: readonly FileRecord[] }) =>
+  (shown.files ?? []).map(
+    (file) => `${file.path}=${decode(file.content ?? new Uint8Array())}`
+  );
+
+test("a person's edit never makes a declined run change live", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await service.commit(run(A1, R1), {
+    baseVersion: 1,
+    message: "Run",
+    skillId,
+    writes: [writeOf("x.md", "EVIL")],
+  });
+
+  // The editor's base is the latest approved version, not the proposal.
+  expect(await refusalOf(edit(service, user(), skillId, 2, "Person."))).toBe(
+    "conflict"
+  );
+  const person = await edit(service, user(), skillId, 1, "Person.");
+  expect(person.parent).toBe(1);
+  expect(person.status).toBe("approved");
+  expect(
+    await refusalOf(service.approve(user(), { skillId, version: 2 }))
+  ).toBe("conflict");
+  expect((await service.reject(user(), { skillId, version: 2 })).status).toBe(
+    "rejected"
+  );
+
+  const resolved = await service.forAgent(user(), A1, { withContents: true });
+  expect(resolved.map((item) => item.version)).toEqual([3]);
+  expect(
+    resolved.flatMap((item) => item.files.map((file) => file.path))
+  ).toEqual(["SKILL.md"]);
+});
+
+test("a person's edit leaves a pending run change out of the new version", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await service.commit(run(A1, R1), {
+    baseVersion: 1,
+    message: "Run",
+    skillId,
+    writes: [writeOf("x.md", "EVIL")],
+  });
+  const person = await edit(service, user(), skillId, 1, "Person.");
+
+  const shown = await service.show(user(), {
+    skillId,
+    version: person.number,
+    withContents: true,
+  });
+  expect(shown.files.map((file) => file.path)).toEqual(["SKILL.md"]);
+});
+
+test("a declined run change on a skill the person never edited is not served either", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  await service.reject(user(), { skillId, version: 2 });
+
+  const resolved = await service.forAgent(user(), A1, { withContents: true });
+  expect(contentOf(resolved[0]?.files, "SKILL.md")).toBe(skillMd(NAME));
+});
+
+test("a run stacks on its own agent's proposal, never on another agent's", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await service.assign(user(), { agentId: A2, skillId });
+  await service.commit(run(A1, R1), {
+    baseVersion: 1,
+    message: "A1",
+    skillId,
+    writes: [writeOf("secret.md", "A1-PRIVATE")],
+  });
+
+  // A2 cannot name A1's proposal as a base, and the error names version 1.
+  const refused = await errorOf(
+    service.commit(run(A2, R2), {
+      baseVersion: 2,
+      message: "A2",
+      skillId,
+      writes: [writeOf("b.md", "b")],
+    })
+  );
+  expect(isServiceError(refused) && refused.code).toBe("conflict");
+  expect(String((refused as Error).message)).toContain("(1)");
+  expect(
+    await refusalOf(service.show(run(A2, R2), { skillId, version: 2 }))
+  ).toBe("not_found");
+
+  // On the latest approved version it makes a proposal that lacks A1's file.
+  const own = await service.commit(run(A2, R2), {
+    baseVersion: 1,
+    message: "A2",
+    skillId,
+    writes: [writeOf("b.md", "b")],
+  });
+  expect(own.parent).toBe(1);
+  const shown = await service.show(run(A2, R2), {
+    skillId,
+    version: own.number,
+    withContents: true,
+  });
+  expect(contentsOf(shown).join("\n")).not.toContain("A1-PRIVATE");
+
+  // A1 still stacks on its own proposal.
+  const stacked = await service.commit(run(A1, R1), {
+    baseVersion: 2,
+    message: "A1 again",
+    skillId,
+    writes: [writeOf("more.md", "more")],
+  });
+  expect(stacked.parent).toBe(2);
+});
+
+test("a lapsed proposal shows as rejected in the log, and the run sees it", async () => {
+  const { db, service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  age(db, skillId, 2);
+
+  const statusOf = async (principal: Principal) =>
+    (await service.log(principal, { skillId })).find(
+      (version) => version.number === 2
+    )?.status;
+  expect(await statusOf(run(A1, R1))).toBe("rejected");
+  expect(await statusOf(user())).toBe("rejected");
+});
+
+test("a proposal stacked on a lapsed one lapses with it", async () => {
+  const { db, service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "First.");
+  await edit(service, run(A1, R1), skillId, 2, "Second.");
+  age(db, skillId, 2);
+
+  expect(await service.proposals(user())).toEqual([]);
+  expect(
+    (await service.log(user(), { skillId })).map((item) => [
+      item.number,
+      item.status,
+    ])
+  ).toEqual([
+    [3, "rejected"],
+    [2, "rejected"],
+    [1, "approved"],
+  ]);
+});
+
+test("only a browser session approves a run's change to a skill its agent does not own", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+
+  expect(
+    await refusalOf(service.approve(keyUser(), { skillId, version: 2 }))
+  ).toBe("forbidden");
+  expect(
+    (await service.log(user(), { skillId })).find(
+      (version) => version.number === 2
+    )?.status
+  ).toBe("proposed");
+  // A key may still decline it.
+  expect(
+    (await service.reject(keyUser(), { skillId, version: 2 })).status
+  ).toBe("rejected");
+});
+
+test("a key may still approve a run's proposal on the skill its agent owns", async () => {
+  const { service } = setup();
+  const { skill } = await createSkill(service, NAME, {}, run(A1, R1));
+
+  expect(
+    (await service.approve(keyUser(), { skillId: skill.id, version: 1 })).status
+  ).toBe("approved");
+});
+
+test("a run's revert on a skill it does not own waits for a person", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await service.commit(user(), {
+    baseVersion: 1,
+    message: "Person edit",
+    skillId,
+    writes: [writeOf("SKILL.md", skillMd(NAME, "Newer."))],
+  });
+
+  const reverted = await service.revert(run(A1, R1), {
+    skillId,
+    toVersion: 1,
+  });
+  expect(reverted.status).toBe("proposed");
+  expect(reverted.author).toEqual({ id: A1, kind: "agent", runId: R1 });
+  const resolved = await service.forAgent(user(), A1, { withContents: true });
+  expect(resolved.map((item) => item.version)).toEqual([2]);
+  expect(contentOf(resolved[0]?.files, "SKILL.md")).toBe(
+    skillMd(NAME, "Newer.")
+  );
+});
+
+/** A person's proposal stacked on the version `parent`, as an older update or import left it. */
+const insertPersonProposal = (
+  db: Setup["db"],
+  skillId: string,
+  number: number,
+  parent: number
+) =>
+  db
+    .insert(skillVersions)
+    .values({
+      authorId: "u1",
+      authorKind: "user",
+      createdAt: new Date().toISOString(),
+      id: `zz-person-${number}`,
+      message: "Proposed update from GitHub",
+      number,
+      parentNumber: parent,
+      skillId,
+      status: "proposed",
+      workspaceId: "w1",
+    })
+    .run();
+
+test("a person's proposal stacked on a lapsed run proposal settles with it, and the log, the list and a commit still work", async () => {
+  const { db, service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+  insertPersonProposal(db, skillId, 3, 2);
+  age(db, skillId, 2);
+
+  expect(await service.proposals(user())).toEqual([]);
+  expect(
+    (await service.log(user(), { skillId })).map((item) => [
+      item.number,
+      item.status,
+    ])
+  ).toEqual([
+    [3, "rejected"],
+    [2, "rejected"],
+    [1, "approved"],
+  ]);
+  expect((await edit(service, user(), skillId, 1, "Person edit.")).status).toBe(
+    "approved"
+  );
+  const expired = skillEvents(db).filter(
+    (row) => row.type === "skill.rejected"
+  );
+  expect(expired).toHaveLength(2);
+  expect(
+    expired.find((row) => payloadOf(row.payload).version === 3)?.agentId
+  ).toBeNull();
+  expect(
+    expired.find((row) => payloadOf(row.payload).version === 2)?.agentId
+  ).toBe(A1);
+});
+
+test("only an approved version can be restored, by a key or a browser session", async () => {
+  const { service } = setup();
+  const skillId = await sharedSkill(service);
+  await edit(service, run(A1, R1), skillId, 1, "Run edit.");
+
+  expect(
+    await Promise.all(
+      [keyUser(), user()].map((principal) =>
+        refusalOf(service.revert(principal, { skillId, toVersion: 2 }))
+      )
+    )
+  ).toEqual(["invalid", "invalid"]);
+  await service.reject(user(), { skillId, version: 2 });
+  expect(
+    await refusalOf(service.revert(user(), { skillId, toVersion: 2 }))
+  ).toBe("invalid");
+  expect(
+    (await service.log(user(), { skillId })).map((item) => item.number)
+  ).toEqual([2, 1]);
 });

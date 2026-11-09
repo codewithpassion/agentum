@@ -637,7 +637,12 @@ export const createDeskService = ({
     const { workspaceId } = member;
     const [runActors, skillNames] = await Promise.all([
       inBatches(
-        sources.pending.map((record) => record.runId),
+        [
+          ...sources.pending.map((record) => record.runId),
+          ...sources.versions.flatMap((version) =>
+            version.author.runId ? [version.author.runId] : []
+          ),
+        ],
         (batch) =>
           db
             .select({
@@ -673,6 +678,18 @@ export const createDeskService = ({
     ]);
     const actorOf = new Map(runActors.map((run) => [run.id, run]));
     const skillOf = new Map(skillNames.map((skill) => [skill.id, skill]));
+    // A run a peer started shows the peer, as a request card does. Any other
+    // run shows the agent that proposed the change.
+    const runStarter = (author: {
+      id: string;
+      kind: "agent" | "system" | "user";
+      runId: string | null;
+    }) => {
+      const actor = author.runId ? actorOf.get(author.runId) : undefined;
+      return actor?.actorKind === "peer"
+        ? { id: actor.actorId ?? "", kind: actor.actorKind }
+        : author;
+    };
     const drafts: Draft[] = [
       ...sources.missingSecrets.map(
         (connector): Draft => ({
@@ -779,6 +796,11 @@ export const createDeskService = ({
             title: GITHUB_UPDATE_TITLE,
           };
         }
+        // A run's change to a skill its agent does not own is a request for leave, not a proposal for its own skill.
+        const asksLeave =
+          version.author.kind === "agent" &&
+          skill !== undefined &&
+          skill.ownerAgentId !== version.author.id;
         return {
           agentId:
             version.author.kind === "agent"
@@ -786,14 +808,17 @@ export const createDeskService = ({
               : (skill?.ownerAgentId ?? ""),
           at: version.createdAt,
           band: {
-            text: clip(`${proposes}: ${version.message}`, TITLE_MAX),
+            text: clip(
+              `${asksLeave ? "Wants to change this skill" : proposes}: ${version.message}`,
+              TITLE_MAX
+            ),
             tone: "waiting",
           },
           id: version.id,
           kind: "proposal",
           lane: "needs_you",
           needsYouKind: "skill_proposal",
-          starter: version.author,
+          starter: runStarter(version.author),
           title: skillName,
         };
       }),

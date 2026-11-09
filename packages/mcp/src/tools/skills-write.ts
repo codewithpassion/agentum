@@ -59,7 +59,7 @@ const PROPOSED_NOTE = (number: number): string =>
 const versionLine = (verb: string, created: SkillVersionInfo): string => {
   const head = `${verb} version ${created.number} of "${created.skillName}" (${created.skillId}), status ${created.status}.`;
   return created.status === "proposed"
-    ? `${head} ${PROPOSED_NOTE(created.number)}`
+    ? `Waiting for a person to approve this change to skill "${created.skillName}". ${head} ${PROPOSED_NOTE(created.number)} Check skill_log to see whether it was approved or rejected.`
     : head;
 };
 
@@ -95,7 +95,7 @@ export const skillWriteTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: WRITE_CREATE,
     description:
-      "Commits a new version of a skill. A commit is a whole set of file changes (writes and deletes) on top of a base version, and a stale base is refused, so read the latest with skill_log and redo the change on top of it. A run can commit only to skills its agent owns, and its commit is a proposal.",
+      "Commits a new version of a skill. A commit is a whole set of file changes (writes and deletes) on top of a base version, and a stale base is refused, so read the latest with skill_log and redo the change on top of it. A run's commit is always a proposal that waits for a person to approve it, and it returns at once. This holds for a skill the agent does not own too (a people's skill, or another agent's skill assigned to this agent): the change is not live until a person allows it in the Agentum UI, each change needs its own approval, and an unanswered one lapses after three days. skill_log shows whether it was approved or rejected.",
     inputSchema: z.strictObject({
       baseVersion: version.describe(
         "The version this commit is made on, normally the latest one."

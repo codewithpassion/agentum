@@ -13,7 +13,7 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skillVersions } from "@repo/db/schema/skills";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type { RunStatus } from "@repo/db/shared";
+import { type RunStatus, SKILL_CHANGE_TTL_MS } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
@@ -536,6 +536,87 @@ test("proposals wait in Needs you until they are approved or rejected elsewhere"
   const after = await get();
   expect(ids(after.needsYou)).toEqual([keep.id]);
   expect(await desk.needsYouCount(user())).toBe(1);
+});
+
+test("a run's change to a people's skill waits in Needs you as a request to change it", async () => {
+  const runId = await seed({ agentId: a1, status: "running" });
+  const { skill } = await skillsStore.create(user(), {
+    files: [
+      {
+        content: "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n",
+        path: "SKILL.md",
+      },
+    ],
+    message: "Add tidy",
+    name: "tidy",
+  });
+  await skillsStore.assign(user(), { agentId: a1, skillId: skill.id });
+  await skillsStore.commit(runPrincipal(a1, runId), {
+    baseVersion: 1,
+    message: "Tidy more",
+    skillId: skill.id,
+    writes: [
+      {
+        content:
+          "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n\nMore.\n",
+        path: "SKILL.md",
+      },
+    ],
+  });
+
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+
+  expect(rail.needsYou).toHaveLength(1);
+  expect(rail.needsYou[0]).toMatchObject({
+    agentId: a1,
+    needsYouKind: "skill_proposal",
+    startedBy: "Alpha",
+    title: "tidy",
+  });
+  expect(rail.needsYou.map((card) => card.band.text)).toEqual([
+    "Wants to change this skill: Tidy more",
+  ]);
+});
+
+test("a skill change from a run a peer started shows the peer as its origin", async () => {
+  const runId = await seed({
+    actorId: "conn-bob",
+    actorKind: "peer",
+    agentId: a1,
+    status: "running",
+  });
+  const { skill } = await skillsStore.create(user(), {
+    files: [
+      {
+        content: "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n",
+        path: "SKILL.md",
+      },
+    ],
+    message: "Add tidy",
+    name: "tidy",
+  });
+  await skillsStore.assign(user(), { agentId: a1, skillId: skill.id });
+  await skillsStore.commit(runPrincipal(a1, runId), {
+    baseVersion: 1,
+    message: "Tidy more",
+    skillId: skill.id,
+    writes: [
+      {
+        content:
+          "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n\nMore.\n",
+        path: "SKILL.md",
+      },
+    ],
+  });
+
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+
+  expect(rail.needsYou).toHaveLength(1);
+  expect(rail.needsYou[0]).toMatchObject({
+    agentId: a1,
+    needsYouKind: "skill_proposal",
+    startedBy: "A peer",
+  });
 });
 
 test("a GitHub update a person proposed waits as a card from that person, not from an agent", async () => {
@@ -1292,4 +1373,48 @@ test("a connector with a deleted secret reaches Needs you with admin guidance", 
     })
   );
   expect(await desk.needsYouCount(user())).toBe(rail.needsYou.length);
+});
+
+test("a person's update stacked on a lapsed run proposal does not break Needs you", async () => {
+  const { skill } = await skillsStore.create(user(), {
+    files: [
+      {
+        content: "---\nname: tidy\ndescription: Tidies up.\n---\n\n# tidy\n",
+        path: "SKILL.md",
+      },
+    ],
+    message: "Add tidy",
+    name: "tidy",
+  });
+  const lapsed = new Date(now - SKILL_CHANGE_TTL_MS - 1000).toISOString();
+  await db.insert(skillVersions).values([
+    {
+      authorId: a1,
+      authorKind: "agent",
+      createdAt: lapsed,
+      id: "zz-run-change",
+      message: "Run change",
+      number: 2,
+      parentNumber: 1,
+      skillId: skill.id,
+      status: "proposed",
+      workspaceId: "w1",
+    },
+    {
+      authorId: "u1",
+      authorKind: "user",
+      createdAt: lapsed,
+      id: "zz-person-update",
+      message: "Proposed update from GitHub",
+      number: 3,
+      parentNumber: 2,
+      skillId: skill.id,
+      status: "proposed",
+      workspaceId: "w1",
+    },
+  ]);
+
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+
+  expect(rail.needsYou).toEqual([]);
 });

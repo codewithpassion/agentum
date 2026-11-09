@@ -735,6 +735,9 @@ export const RAIL_ESCALATE_AFTER_MS = 4 * 60 * 60_000;
 /** Mail approvals wait longer than other approvals, because no tool is blocked on them. */
 export const MAIL_APPROVAL_TTL_MS = 3 * 24 * 60 * 60_000;
 
+/** A run's change to a skill its agent does not own waits this long for a person, like a mail approval, then lapses. */
+export const SKILL_CHANGE_TTL_MS = MAIL_APPROVAL_TTL_MS;
+
 /** Window event: refetch the rail now. */
 export const RAIL_REFRESH_EVENT = "hm:rail-refresh";
 

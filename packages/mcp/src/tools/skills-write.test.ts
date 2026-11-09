@@ -377,6 +377,9 @@ describe("skill write tools: proposal text", () => {
     );
     expect(textOf(result)).toContain(PROPOSED_SENTENCE);
     expect(textOf(result)).toContain("status proposed.");
+    expect(textOf(result)).toContain(
+      "Waiting for a person to approve this change to skill"
+    );
   });
 
   test("an approved version does not mention a proposal", async () => {
