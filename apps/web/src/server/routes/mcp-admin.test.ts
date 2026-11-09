@@ -575,3 +575,46 @@ test("session-bound MCP ports retain the remote tool list without assistant card
   }
   expect((await rpc("", "tools/list", {})).status).toBe(401);
 });
+
+test("MCP cannot link a connector secret, including with an admin key", async () => {
+  const { secret } = await mintKey("admin");
+  const names = await toolNames(secret);
+  expect(names).not.toContain("set_connector_auth_mode");
+  expect(names).not.toContain("link_connector_secret");
+  const result = await rpc(secret, "tools/call", {
+    name: "link_connector_secret",
+    arguments: { connectorId: "connector", secretId: "workspace-secret" },
+  });
+  expect(result.body.error ?? result.body.result?.isError).toBeTruthy();
+});
+
+test("agent management MCP tools refuse secret-backed connector assignment", async () => {
+  const { secret: token } = await mintKey("admin");
+  const secret = await composed.services.secrets.create(session(true), {
+    mode: "env",
+    name: "CONNECTOR_KEY",
+    value: "made-up-connector-key",
+    allowedHosts: ["docs.example.com"],
+  });
+  await db.insert(connectors).values({
+    id: "linked_connector",
+    workspaceId,
+    name: "Docs",
+    authKind: "header",
+    authMode: "header",
+    secretId: secret.id,
+    headerTemplate: "Bearer {value}",
+    createdAt: new Date().toISOString(),
+    createdBy: "u1",
+    status: "ok",
+    url: "https://docs.example.com/mcp",
+  });
+  const result = await call(token, "create_agent", {
+    model: "fake",
+    runtime: "managed",
+    name: "Denied",
+    connectors: ["linked_connector"],
+  });
+  expect(result.isError).toBe(true);
+  expect(JSON.stringify(result)).toContain("An admin must do this in the app.");
+});

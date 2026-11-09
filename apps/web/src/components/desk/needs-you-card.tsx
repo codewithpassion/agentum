@@ -12,6 +12,7 @@ import {
   parsePromoteApproval,
 } from "#/components/artifacts/grant-approval-model.ts";
 import { A2aDecision } from "#/components/connections/a2a-decision.tsx";
+import { SecretNotice } from "#/components/connectors/secret-notice";
 import { RequestCard } from "#/components/requests/request-card.tsx";
 import type {
   AnswerPayload,
@@ -218,6 +219,8 @@ export function NeedsYouBody({
   version,
 }: NeedsYouBodyProps) {
   switch (card.needsYouKind) {
+    case "connector_secret":
+      return <SecretNotice connectorId={card.id} />;
     case "approval":
       if (request?.kind === "approval") {
         const promote = parsePromoteApproval(request.display);

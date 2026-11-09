@@ -17,6 +17,7 @@ import {
   CREDENTIAL_STATUSES,
 } from "../shared.ts";
 import { agents } from "./agents.ts";
+import { secrets } from "./secrets.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
@@ -40,10 +41,12 @@ export const connectors = sqliteTable(
     // Clerk user id.
     createdBy: text("created_by").notNull(),
     headerName: text("header_name"),
+    headerTemplate: text("header_template"),
     id: id(),
     name: text("name").notNull(),
     // JSON, see `OAuthConfig` in the connectors service.
     oauth: text("oauth"),
+    secretId: text("secret_id").references(() => secrets.id),
     status: text("status", { enum: CONNECTOR_STATUSES }).notNull(),
     // JSON array of `{ name, description }`.
     tools: text("tools").notNull().default("[]"),

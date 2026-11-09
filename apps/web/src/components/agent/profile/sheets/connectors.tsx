@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { CREDENTIAL_MODES, type CredentialMode } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import {
@@ -14,6 +15,7 @@ import { AllowedToolsDialog } from "#/components/connectors/allowed-tools-dialog
 import { connectHref } from "#/components/connectors/connect-link";
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
+import { SecretNotice } from "#/components/connectors/secret-notice";
 import {
   ResponsiveActions,
   ResponsiveCell,
@@ -58,6 +60,11 @@ const errorMessage = (error: unknown): string =>
 const parseMode = (value: string): CredentialMode =>
   CREDENTIAL_MODES.find((mode) => mode === value) ?? "user_or_agent";
 
+const connectorStatus = (connector: ConnectorRecord) =>
+  connector.headerTemplate && !connector.secretId
+    ? "needs secret"
+    : connector.status;
+
 const credentialStatus = (
   credential: CredentialRecord | undefined | null,
   missing = "not pasted"
@@ -82,6 +89,9 @@ function AssignedConnectorRow({
   onRemove: (connectorId: string) => void;
   onSetClient: (connectorId: string) => void;
 }) {
+  const { orgRole } = useAuth();
+  const secretBacked = Boolean(connector.secretId || connector.headerTemplate);
+  const canAssign = orgRole === "org:admin" || !secretBacked;
   const connectorId = connector.id;
   const agentCredential = connector.agentCredentials.find(
     (credential) => credential.ownerId === agentId
@@ -114,7 +124,15 @@ function AssignedConnectorRow({
   );
 
   let credentials: ReactNode;
-  if (connector.authKind === "header") {
+  if (connector.authKind === "header" && secretBacked) {
+    credentials = connector.secretName ? (
+      <span className="text-muted-foreground text-xs">
+        Key from secret {connector.secretName}
+      </span>
+    ) : (
+      <SecretNotice connectorId={connector.id} />
+    );
+  } else if (connector.authKind === "header") {
     credentials = (
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground">
@@ -194,12 +212,13 @@ function AssignedConnectorRow({
       </ResponsiveCell>
       <ResponsiveCell label="Status">
         <Badge variant={connector.status === "ok" ? "default" : "destructive"}>
-          {connector.status}
+          {connectorStatus(connector)}
         </Badge>
       </ResponsiveCell>
       <ResponsiveCell label="Credential mode">
         <NativeSelect
           aria-label="Credential mode"
+          disabled={!canAssign}
           onChange={handleModeChange}
           value={assignment.credentialMode}
         >
@@ -215,7 +234,12 @@ function AssignedConnectorRow({
           <span className="text-muted-foreground text-xs">
             {toolAccessLabel(assignment.allowedTools, connector.tools)}
           </span>
-          <Button onClick={chooseTools} size="sm" variant="outline">
+          <Button
+            disabled={!canAssign}
+            onClick={chooseTools}
+            size="sm"
+            variant="outline"
+          >
             Choose tools
           </Button>
         </div>
@@ -236,6 +260,7 @@ function AssignedConnectorRow({
 }
 
 export function ConnectorsPanel({ agent }: AgentPanelProps) {
+  const { orgRole } = useAuth();
   const agentId = agent.id;
   const agentName = agent.name;
   const agentRef = useMemo(
@@ -460,7 +485,14 @@ export function ConnectorsPanel({ agent }: AgentPanelProps) {
                 Choose a connector
               </NativeSelectOption>
               {available.map((item) => (
-                <NativeSelectOption key={item.id} value={item.id}>
+                <NativeSelectOption
+                  disabled={
+                    orgRole !== "org:admin" &&
+                    Boolean(item.secretId || item.headerTemplate)
+                  }
+                  key={item.id}
+                  value={item.id}
+                >
                   {item.name}
                 </NativeSelectOption>
               ))}

@@ -116,7 +116,7 @@ test("no tRPC response carries the stored header value", async () => {
     refused instanceof Error ? refused.message : refused,
   ]);
   expect(everything).not.toContain(TOKEN);
-  expect(everything).not.toContain("secret");
+  expect(everything).not.toContain('"secret":');
 });
 
 test("a private IP URL is refused with a BAD_REQUEST", async () => {

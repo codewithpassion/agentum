@@ -1,5 +1,6 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts } from "@repo/db/schema/library";
 import {
@@ -1258,3 +1259,37 @@ for (const scenario of [
     );
   });
 }
+
+test("a connector with a deleted secret reaches Needs you with admin guidance", async () => {
+  await db.insert(connectors).values({
+    authKind: "header",
+    authMode: "header",
+    createdAt: DAY_START,
+    createdBy: "u1",
+    headerTemplate: "Bearer {value}",
+    id: "missing_secret",
+    name: "Header",
+    status: "needs_auth",
+    url: "https://example.com/mcp",
+    workspaceId: "w1",
+  });
+  await db.insert(agentConnectors).values({
+    agentId: a1,
+    connectorId: "missing_secret",
+    createdAt: DAY_START,
+    credentialMode: "agent",
+    workspaceId: "w1",
+  });
+  const rail = await desk.railSources(user(), { dayStart: DAY_START });
+  expect(rail.needsYou).toContainEqual(
+    expect.objectContaining({
+      band: {
+        text: "Needs a secret. Ask an admin to link one in Authentication.",
+        tone: "waiting",
+      },
+      id: "missing_secret",
+      needsYouKind: "connector_secret",
+    })
+  );
+  expect(await desk.needsYouCount(user())).toBe(rail.needsYou.length);
+});

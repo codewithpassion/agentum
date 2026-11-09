@@ -9,7 +9,9 @@
 // Mount with `accessRoutes.route("/api/proxy", proxyRoutes())`.
 
 import { readCappedBody } from "@repo/app-gateway/body";
+import { createMasker } from "@repo/protocol/masker";
 import type { Fetcher } from "@repo/services/connectors/mcp";
+import { ConnectorSecretError } from "@repo/services/connectors/secret";
 import { assertSafeUrl } from "@repo/services/connectors/url";
 import type {
   CredentialsService,
@@ -235,7 +237,7 @@ const relay = (
 
 const BEARER = /^Bearer\s+(.+)$/i;
 
-type Credential = { name: string; value: string } | null;
+type Credential = { name: string; value: string; redact?: string } | null;
 
 const BEARER_PREFIX = /^Bearer\s+/i;
 const MIN_SECRET_LENGTH = 8;
@@ -250,10 +252,15 @@ const scrub = (
     return bytes;
   }
   const secrets = [
+    credential.redact ?? credential.value,
     credential.value,
     credential.value.replace(BEARER_PREFIX, ""),
   ].filter((secret) => secret.length >= MIN_SECRET_LENGTH);
   let text = new TextDecoder().decode(bytes);
+  if (credential.redact) {
+    text = createMasker({ connector: credential.redact }).mask(text);
+    return new TextEncoder().encode(text);
+  }
   const found = secrets.some((secret) => text.includes(secret));
   if (!found) {
     return bytes;
@@ -462,7 +469,14 @@ const sendWithRefresh = async ({
   workspaceId: string;
 }): Promise<Attempt> => {
   const first = await send(credential ? credential.header : null);
-  if (!(credential && first.ok && first.response.status === UNAUTHORIZED)) {
+  if (
+    !(
+      credential &&
+      credential.ownerKind !== "workspace" &&
+      first.ok &&
+      first.response.status === UNAUTHORIZED
+    )
+  ) {
     return { kind: "sent", sent: first, used: credential };
   }
   const refreshed = await credentials.refresh({
@@ -772,6 +786,9 @@ export const proxyRoutes = ({
     try {
       return await forward(c, claims, c.req.param("connectorId"));
     } catch (error: unknown) {
+      if (error instanceof ConnectorSecretError) {
+        return Response.json({ error: error.message }, { status: 400 });
+      }
       // D1 failed, or a stored secret cannot be read: an outage, not the caller's fault.
       log({
         event: "proxy.error",

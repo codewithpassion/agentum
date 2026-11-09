@@ -14,6 +14,7 @@ import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { ConnectorRecord } from "#/integrations/trpc/types";
 import { AuthModeSelect } from "./auth-mode-select";
+import { type HeaderDraft, HeaderFields } from "./header-fields";
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
@@ -27,7 +28,11 @@ export function AddConnectorDialog({
 }) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [headerName, setHeaderName] = useState("");
+  const [header, setHeader] = useState<HeaderDraft>({
+    headerName: "Authorization",
+    headerTemplate: "Bearer {value}",
+    secretId: null,
+  });
   const [authMode, setAuthMode] = useState<ConnectorAuthMode>("auto");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +62,8 @@ export function AddConnectorDialog({
 
   const handleHeaderNameChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      setHeaderName(event.target.value);
+      const headerName = event.target.value;
+      setHeader((previous) => ({ ...previous, headerName }));
     },
     []
   );
@@ -66,11 +72,17 @@ export function AddConnectorDialog({
     setPending(true);
     setError(null);
     try {
-      const trimmedHeader = headerName.trim();
+      const trimmedHeader = header.headerName.trim();
       const connector = await getTrpc().connectors.create.mutate({
         authMode,
         name,
         url,
+        ...(authMode === "header"
+          ? {
+              headerTemplate: header.headerTemplate,
+              ...(header.secretId ? { secretId: header.secretId } : {}),
+            }
+          : {}),
         ...(trimmedHeader === "" ? {} : { headerName: trimmedHeader }),
       });
       onCreated(connector);
@@ -78,7 +90,7 @@ export function AddConnectorDialog({
       setError(errorMessage(caught));
       setPending(false);
     }
-  }, [authMode, headerName, name, onCreated, url]);
+  }, [authMode, header, name, onCreated, url]);
 
   return (
     <Dialog onOpenChange={handleOpenChange} open>
@@ -112,18 +124,22 @@ export function AddConnectorDialog({
             onChange={setAuthMode}
             value={authMode}
           />
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="connector-header-name">Header name</Label>
-            <Input
-              id="connector-header-name"
-              onChange={handleHeaderNameChange}
-              placeholder="Authorization"
-              value={headerName}
-            />
-            <p className="text-muted-foreground text-xs">
-              Only used when the server asks for a header.
-            </p>
-          </div>
+          {authMode === "auto" && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="connector-header-name">Header name</Label>
+              <Input
+                id="connector-header-name"
+                onChange={handleHeaderNameChange}
+                value={header.headerName}
+              />
+              <p className="text-muted-foreground text-xs">
+                Only used when the server asks for a header.
+              </p>
+            </div>
+          )}
+          {authMode === "header" && (
+            <HeaderFields onChange={setHeader} url={url} value={header} />
+          )}
           {error !== null && (
             <p className="text-destructive text-sm">{error}</p>
           )}

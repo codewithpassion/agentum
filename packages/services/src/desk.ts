@@ -16,6 +16,7 @@ import {
   artifacts,
   artifactVersions,
 } from "@repo/db/schema/artifacts";
+import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
@@ -39,6 +40,7 @@ import {
   max,
   ne,
   notExists,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -588,6 +590,30 @@ export const createDeskService = ({
         )
         .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
+      missingSecrets: await db
+        .select({
+          agentId: agentConnectors.agentId,
+          createdAt: connectors.createdAt,
+          id: connectors.id,
+          name: connectors.name,
+        })
+        .from(connectors)
+        .innerJoin(
+          agentConnectors,
+          eq(agentConnectors.connectorId, connectors.id)
+        )
+        .where(
+          and(
+            eq(connectors.workspaceId, member.workspaceId),
+            eq(connectors.authKind, "header"),
+            isNull(connectors.secretId),
+            sql`${connectors.headerTemplate} is not null`,
+            drafts.size
+              ? notInArray(agentConnectors.agentId, [...drafts])
+              : undefined
+          )
+        )
+        .groupBy(connectors.id),
       pending,
       proposedRoutines,
       proposedTriggers,
@@ -648,6 +674,22 @@ export const createDeskService = ({
     const actorOf = new Map(runActors.map((run) => [run.id, run]));
     const skillOf = new Map(skillNames.map((skill) => [skill.id, skill]));
     const drafts: Draft[] = [
+      ...sources.missingSecrets.map(
+        (connector): Draft => ({
+          agentId: connector.agentId,
+          at: connector.createdAt,
+          band: {
+            text: "Needs a secret. Ask an admin to link one in Authentication.",
+            tone: "waiting",
+          },
+          id: connector.id,
+          kind: "request",
+          lane: "needs_you",
+          needsYouKind: "connector_secret",
+          starter: { id: connector.agentId, kind: "agent" },
+          title: `${connector.name} needs a secret`,
+        })
+      ),
       ...sources.appGrants.map(
         (grant): Draft => ({
           actorKind: "user",
@@ -1153,6 +1195,7 @@ export const createDeskService = ({
     const member = requireMember(principal);
     const sources = await needsYouSources(member);
     return (
+      sources.missingSecrets.length +
       sources.appGrants.length +
       sources.conflicts.length +
       sources.suggestions.length +

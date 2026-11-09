@@ -34,6 +34,7 @@ import type {
   ArtifactsCallToolInput,
   ArtifactsCallToolOutput,
 } from "@repo/protocol/artifacts";
+import { createMasker } from "@repo/protocol/masker";
 import { connectorServerKeys } from "@repo/protocol/server-keys";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "../authz.ts";
@@ -42,6 +43,7 @@ import {
   type Fetcher,
   McpUnauthorizedError,
 } from "../connectors/mcp.ts";
+import { ConnectorSecretError } from "../connectors/secret.ts";
 import type { CredentialsService, Resolution } from "../credentials.ts";
 import { ServiceError } from "../errors.ts";
 import type { Payload } from "../events/payload.ts";
@@ -264,7 +266,13 @@ export const createToolRunner = ({
         input.arguments
       );
     } catch (error) {
-      if (!(error instanceof McpUnauthorizedError && resolution.credential)) {
+      if (
+        !(
+          error instanceof McpUnauthorizedError &&
+          resolution.credential &&
+          resolution.credential.ownerKind !== "workspace"
+        )
+      ) {
         throw toCallError(error, connectorName);
       }
       const refreshed = await credentials.refresh({
@@ -290,11 +298,20 @@ export const createToolRunner = ({
 
   const run = async (input: ToolRunInput): Promise<ArtifactsCallToolOutput> => {
     const { connector, toolName } = await findReadOnlyTool(db, input);
-    const resolution = await credentials.resolveUser({
-      connectorId: connector.id,
-      userId: input.userId,
-      workspaceId: input.workspaceId,
-    });
+    const resolution = await credentials
+      .resolveUser({
+        connectorId: connector.id,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ConnectorSecretError) {
+          throw new ArtifactCallError("failed", error.message, {
+            cause: error,
+          });
+        }
+        throw error;
+      });
     if (!resolution.ok) {
       if (resolution.reason === "needs_auth") {
         throw new ArtifactCallError(
@@ -306,7 +323,11 @@ export const createToolRunner = ({
         ? notGranted()
         : new ArtifactCallError("failed", "Try again in a moment.");
     }
-    return scrubbed(await send(resolution, input, connector.name, toolName));
+    const result = await send(resolution, input, connector.name, toolName);
+    const secret = resolution.credential?.header.redact;
+    return scrubbed(
+      secret ? createMasker({ connector: secret }).maskDeep(result) : result
+    );
   };
   return { run };
 };

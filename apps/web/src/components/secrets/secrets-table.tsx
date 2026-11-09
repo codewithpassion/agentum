@@ -1,6 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
 import { useCallback } from "react";
-import { ConfirmButton } from "#/components/confirm-action/confirm-button";
 import {
   ResponsiveActions,
   ResponsiveCell,
@@ -72,15 +71,9 @@ function SecretRow({
               Edit hosts
             </Button>
           )}
-          <ConfirmButton
-            description={`${secret.name} will be deleted. Agents that were granted it will lose access on their next run.`}
-            onConfirm={remove}
-            size="sm"
-            title={`Delete ${secret.name}?`}
-            variant="outline"
-          >
+          <Button onClick={remove} size="sm" variant="outline">
             Delete
-          </ConfirmButton>
+          </Button>
         </div>
       </ResponsiveActions>
     </TableRow>

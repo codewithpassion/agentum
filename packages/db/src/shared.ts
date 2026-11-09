@@ -564,7 +564,12 @@ export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];
  * to an unauthenticated probe. `oauth` and `none` are forced: no probe changes
  * them.
  */
-export const CONNECTOR_AUTH_MODES = ["auto", "oauth", "none"] as const;
+export const CONNECTOR_AUTH_MODES = [
+  "auto",
+  "oauth",
+  "header",
+  "none",
+] as const;
 export type ConnectorAuthMode = (typeof CONNECTOR_AUTH_MODES)[number];
 
 /** Seconds a connector tool call may take before it is stopped. */
@@ -699,6 +704,7 @@ export const NEEDS_YOU_KINDS = [
   "takeover",
   "a2a_message",
   "a2a_connection",
+  "connector_secret",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -711,6 +717,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   a2a_message: (name) => `A message for ${name} waits for approval`,
   approval: (name) => `${name} asks for approval`,
   artifact_grant: (name) => `${name} asks for app permissions`,
+  connector_secret: (name) => `${name} needs a connector secret`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
   question: (name) => `${name} asks`,

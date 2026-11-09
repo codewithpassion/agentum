@@ -10,6 +10,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { type callMcpTool, McpUnauthorizedError } from "../connectors/mcp.ts";
+import { ConnectorSecretError } from "../connectors/secret.ts";
 import type {
   CredentialsService,
   Refreshed,
@@ -53,6 +54,7 @@ const setup = (
     grants?: string[];
     result?: Record<string, unknown>;
     resolve?: (userId: string) => Resolution;
+    resolveError?: unknown;
     throws?: unknown;
     /** The first connector call is refused with a 401, the retry works. */
     unauthorizedOnce?: boolean;
@@ -173,6 +175,9 @@ const setup = (
     },
     resolveUser: (input) => {
       resolveUserCalls.push(input.userId);
+      if (options.resolveError) {
+        return Promise.reject(options.resolveError);
+      }
       return Promise.resolve(
         options.resolve
           ? options.resolve(input.userId)
@@ -609,4 +614,22 @@ describe("a limits row is not a tool", () => {
       )
     ).toBe("not_granted");
   });
+});
+
+test("a removed connector secret gives an artifact failure with admin guidance", async () => {
+  const message =
+    "The connector's secret was removed. Ask an admin to link a secret in Settings, Connectors.";
+  const { service, seen } = setup({
+    resolveError: new ConnectorSecretError(message),
+  });
+  const result = service.callTool(
+    member("viewer_a"),
+    call("xero/list_invoices")
+  );
+  await expect(result).rejects.toMatchObject({
+    code: "failed",
+    message,
+    name: "ArtifactCallError",
+  });
+  expect(seen).toEqual([]);
 });

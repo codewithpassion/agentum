@@ -9,6 +9,7 @@ import {
 const OPTIONS: { label: string; value: ConnectorAuthMode }[] = [
   { label: "Automatic", value: "auto" },
   { label: "OAuth", value: "oauth" },
+  { label: "API key header", value: "header" },
   { label: "None", value: "none" },
 ];
 
@@ -39,8 +40,8 @@ export function AuthModeSelect({
         ))}
       </NativeSelect>
       <p className="text-muted-foreground text-xs">
-        Automatic follows the server&apos;s answer. Choose OAuth when a server
-        answers without asking for a login but still needs one.
+        Automatic follows the server. OAuth and API key header force that kind
+        of login.
       </p>
     </div>
   );

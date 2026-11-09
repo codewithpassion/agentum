@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useState } from "react";
@@ -9,6 +10,7 @@ import { connectSearchSchema } from "#/components/connectors/connect-search";
 import { DeleteConnectorDialog } from "#/components/connectors/delete-connector-dialog";
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
+import { SecretNotice } from "#/components/connectors/secret-notice";
 import {
   ResponsiveActions,
   ResponsiveCell,
@@ -64,6 +66,9 @@ const OAUTH_CREDENTIAL_LABEL: Record<CredentialRecord["status"], string> = {
 };
 
 function addedMessage(connector: ConnectorRecord): string {
+  if (connector.secretName) {
+    return `Added. Key from secret ${connector.secretName}.`;
+  }
   switch (connector.authKind) {
     case "header":
       return "Added. The server wants a header: paste a credential next.";
@@ -88,6 +93,12 @@ function needsClient(connector: ConnectorRecord): boolean {
 function credentialLabel(connector: ConnectorRecord): string {
   if (connector.authKind !== "header") {
     return "-";
+  }
+  if (connector.secretName) {
+    return `Key from secret ${connector.secretName}`;
+  }
+  if (connector.headerTemplate) {
+    return "Needs secret";
   }
   return connector.myCredential === null ? "none" : "pasted";
 }
@@ -155,6 +166,7 @@ function ConnectorRow({
   onPaste: (connector: ConnectorRecord) => void;
   onSetClient: (connector: ConnectorRecord) => void;
 }) {
+  const { orgRole } = useAuth();
   const paste = useCallback(() => onPaste(connector), [connector, onPaste]);
   const editAuth = useCallback(
     () => onEditAuth(connector),
@@ -171,6 +183,14 @@ function ConnectorRow({
     <TableRow>
       <ResponsiveCell className="font-medium" label="Name">
         {connector.name}
+        {connector.secretName === null ? null : (
+          <p className="text-muted-foreground text-xs">
+            Key from secret {connector.secretName}
+          </p>
+        )}
+        {connector.headerTemplate && !connector.secretId ? (
+          <SecretNotice connectorId={connector.id} />
+        ) : null}
       </ResponsiveCell>
       <ResponsiveCell
         className="font-mono text-muted-foreground text-xs md:max-w-48 md:truncate"
@@ -187,7 +207,9 @@ function ConnectorRow({
       </ResponsiveCell>
       <ResponsiveCell label="Status">
         <Badge variant={connector.status === "ok" ? "default" : "secondary"}>
-          {STATUS_LABEL[connector.status]}
+          {connector.headerTemplate && !connector.secretId
+            ? "needs secret"
+            : STATUS_LABEL[connector.status]}
         </Badge>
       </ResponsiveCell>
       <ResponsiveCell label="Tools">
@@ -215,7 +237,9 @@ function ConnectorRow({
       </ResponsiveCell>
       <ResponsiveActions className="text-right">
         <div className="flex justify-end gap-2">
-          {connector.authKind === "header" ? (
+          {connector.authKind === "header" &&
+          !connector.secretId &&
+          !connector.headerTemplate ? (
             <Button onClick={paste} size="sm" variant="outline">
               Paste credential
             </Button>
@@ -223,7 +247,15 @@ function ConnectorRow({
           {connector.authKind === "oauth" ? (
             <OAuthActions connector={connector} onSetClient={onSetClient} />
           ) : null}
-          <Button onClick={editAuth} size="sm" variant="outline">
+          <Button
+            disabled={
+              orgRole !== "org:admin" &&
+              Boolean(connector.secretId || connector.headerTemplate)
+            }
+            onClick={editAuth}
+            size="sm"
+            variant="outline"
+          >
             Auth
           </Button>
           <Button onClick={editTimeout} size="sm" variant="outline">
@@ -247,7 +279,14 @@ function ConnectorsPage() {
   const [settingClient, setSettingClient] = useState<ConnectorRecord | null>(
     null
   );
-  const [editingAuth, setEditingAuth] = useState<ConnectorRecord | null>(null);
+  const { orgRole } = useAuth();
+  const authConnector =
+    connectors.find((connector) => connector.id === search.auth) ?? null;
+  const editingAuth =
+    orgRole === "org:admin" ||
+    !(authConnector?.secretId || authConnector?.headerTemplate)
+      ? authConnector
+      : null;
   const [editingTimeout, setEditingTimeout] = useState<ConnectorRecord | null>(
     null
   );
@@ -275,22 +314,29 @@ function ConnectorsPage() {
   );
 
   const openEditAuth = useCallback(
-    (connector: ConnectorRecord) => setEditingAuth(connector),
-    []
+    (connector: ConnectorRecord) => {
+      router.navigate({
+        to: "/settings/connectors",
+        search: { auth: connector.id },
+      });
+    },
+    [router]
   );
 
-  const closeEditAuth = useCallback(() => setEditingAuth(null), []);
+  const closeEditAuth = useCallback(() => {
+    router.navigate({ to: "/settings/connectors", search: {}, replace: true });
+  }, [router]);
 
   const handleAuthSaved = useCallback(
     async (connector: ConnectorRecord) => {
-      setEditingAuth(null);
+      closeEditAuth();
       setNotice(`Authentication for ${connector.name} is set.`);
       if (needsClient(connector)) {
         setSettingClient(connector);
       }
       await router.invalidate();
     },
-    [router]
+    [closeEditAuth, router]
   );
 
   const openPaste = useCallback(
@@ -418,11 +464,7 @@ function ConnectorsPage() {
       )}
       {editingAuth === null ? null : (
         <AuthModeDialog
-          connector={{
-            id: editingAuth.id,
-            name: editingAuth.name,
-            authMode: editingAuth.authMode,
-          }}
+          connector={editingAuth}
           onClose={closeEditAuth}
           onSaved={handleAuthSaved}
         />

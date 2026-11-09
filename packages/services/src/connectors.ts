@@ -22,6 +22,7 @@ import {
   oauthStates,
 } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
+import { secrets } from "@repo/db/schema/secrets";
 import {
   CONNECTOR_AUTH_MODES,
   CONNECTOR_CALL_TIMEOUT_SECONDS,
@@ -34,6 +35,7 @@ import {
   type CredentialStatus,
   LIVE_RUN_STATUSES,
 } from "@repo/db/shared";
+import { createMasker } from "@repo/protocol/masker";
 import { and, asc, eq, inArray, notExists, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
@@ -67,6 +69,7 @@ import {
   type SharedGoogleClient,
   sharedClientApplies,
 } from "./connectors/oauth-config.ts";
+import { readConnectorSecret } from "./connectors/secret.ts";
 import {
   canonicalizeConnectorUrl,
   InvalidConnectorUrlError,
@@ -75,6 +78,7 @@ import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
+import { ruleSchema } from "./secrets/rules.ts";
 import type { Principal } from "./workspaces.ts";
 
 const CONNECTOR_KIND = "connector";
@@ -118,10 +122,17 @@ const headerNameSchema = z
     "That header is set by the MCP client."
   );
 
+const headerTemplateSchema = ruleSchema.shape.template.refine(
+  (text) => text.split("{value}").length === 2,
+  "The header template must contain {value} exactly once."
+);
+
 export const connectorCreateSchema = z.strictObject({
   authMode: z.enum(CONNECTOR_AUTH_MODES).default("auto"),
   headerName: headerNameSchema.optional(),
+  headerTemplate: headerTemplateSchema.optional(),
   name: z.string().trim().min(1).max(80),
+  secretId: idString.nullable().optional(),
   url: z.string().trim().min(1).max(2048),
 });
 export type ConnectorCreateInput = z.input<typeof connectorCreateSchema>;
@@ -142,6 +153,9 @@ export type CredentialSetInput = z.input<typeof credentialSetSchema>;
 export const connectorAuthModeSchema = z.strictObject({
   authMode: z.enum(CONNECTOR_AUTH_MODES),
   connectorId: idString,
+  headerName: headerNameSchema.optional(),
+  headerTemplate: headerTemplateSchema.optional(),
+  secretId: idString.nullable().optional(),
 });
 export type ConnectorAuthModeInput = z.input<typeof connectorAuthModeSchema>;
 
@@ -193,12 +207,15 @@ export interface ConnectorSummary {
   callTimeoutSeconds: number;
   createdAt: string;
   headerName: string | null;
+  headerTemplate: string | null;
   id: string;
   /** The calling user's own credential, if they pasted one. */
   myCredential: CredentialSummary | null;
   name: string;
   /** For an OAuth connector: whether Connect can run now. Never the client itself. */
   oauth: { canRegister: boolean; clientConfigured: boolean } | null;
+  secretId: string | null;
+  secretName: string | null;
   status: ConnectorStatus;
   tools: CachedTool[];
   toolsFetchedAt: string | null;
@@ -288,10 +305,13 @@ const toSummary = (
     callTimeoutSeconds: row.callTimeoutSeconds,
     createdAt: row.createdAt,
     headerName: row.headerName,
+    headerTemplate: row.headerTemplate,
     id: row.id,
     myCredential: mine ? toCredentialSummary(mine) : null,
     name: row.name,
     oauth: oauthSummary(row, shared),
+    secretId: row.secretId,
+    secretName: null,
     status: row.status,
     tools: toolSchema.parse(JSON.parse(row.tools)),
     toolsFetchedAt: row.toolsFetchedAt,
@@ -301,6 +321,14 @@ const toSummary = (
 
 const invalid = (message: string): ServiceError =>
   new ServiceError("invalid", message);
+
+/** Safe guidance for callers that cannot grant access to a workspace secret. */
+export class ConnectorSecretAdminError extends ForbiddenError {
+  constructor() {
+    super("connectors.linkSecret");
+    this.message = "An admin must do this in the app.";
+  }
+}
 
 /** Keys and connectors are managed from a signed-in session. */
 export const requireUser = (
@@ -380,7 +408,7 @@ export const createConnectorsService = ({
   fetch: Fetcher;
   /** The deployment's Google OAuth client; only its presence shows in a summary. */
   sharedGoogleClient?: SharedGoogleClient;
-  /** `SECRETS_KEY`, base64. Needed only to store a credential. */
+  /** `SECRETS_KEY`, base64. Stores credentials and probes linked workspace secrets. */
   secretsKey?: string;
 }) => {
   let importedKey: Promise<CryptoKey> | undefined;
@@ -392,6 +420,91 @@ export const createConnectorsService = ({
     return importedKey;
   };
 
+  const secretNames = async (
+    rows: readonly ConnectorRow[],
+    workspaceId: string
+  ) => {
+    const ids = rows.flatMap((row) => (row.secretId ? [row.secretId] : []));
+    if (ids.length === 0) {
+      return new Map<string, string>();
+    }
+    const names = await db
+      .select({ id: secrets.id, name: secrets.name })
+      .from(secrets)
+      .where(
+        and(eq(secrets.workspaceId, workspaceId), inArray(secrets.id, ids))
+      );
+    return new Map(names.map((secret) => [secret.id, secret.name]));
+  };
+
+  const summarize = async (
+    row: ConnectorRow,
+    owned: readonly CredentialRow[],
+    userId: string,
+    names?: ReadonlyMap<string, string>
+  ): Promise<ConnectorSummary> => {
+    const summary = toSummary(row, owned, userId, sharedGoogleClient);
+    const loaded = names ?? (await secretNames([row], row.workspaceId));
+    summary.secretName = row.secretId
+      ? (loaded.get(row.secretId) ?? null)
+      : null;
+    return summary;
+  };
+
+  const requireSecretAdmin = (principal: Principal) => {
+    if (
+      principal.kind !== "user" ||
+      principal.via !== "session" ||
+      !principal.isAdmin
+    ) {
+      throw new ConnectorSecretAdminError();
+    }
+  };
+
+  const secretFields = (
+    user: UserPrincipal,
+    parsed: {
+      authMode: ConnectorAuthMode;
+      secretId?: string | null;
+      headerTemplate?: string;
+      headerName?: string;
+    },
+    current?: ConnectorRow
+  ) => {
+    const clearsLink =
+      (current?.secretId || current?.headerTemplate) &&
+      parsed.authMode !== "header";
+    const changesHeader =
+      current?.secretId &&
+      ["headerName", "headerTemplate"].some((field) => {
+        const key = field as "headerName" | "headerTemplate";
+        return parsed[key] !== undefined && parsed[key] !== current[key];
+      });
+    if (parsed.secretId !== undefined || clearsLink || changesHeader) {
+      requireSecretAdmin(user);
+    }
+    let secretId = current?.secretId ?? null;
+    if (parsed.secretId !== undefined) {
+      ({ secretId } = parsed);
+    }
+    if (parsed.authMode !== "header") {
+      if (parsed.secretId) {
+        throw invalid(
+          "A workspace secret needs API key header authentication."
+        );
+      }
+      return { headerTemplate: null, secretId: null };
+    }
+    const needsSecret =
+      secretId || (parsed.secretId === undefined && current?.headerTemplate);
+    return {
+      headerTemplate: needsSecret
+        ? (parsed.headerTemplate ?? current?.headerTemplate ?? "Bearer {value}")
+        : null,
+      secretId,
+    };
+  };
+
   /**
    * One round trip to the server. A 401 or 403 is an outcome, not an error.
    * Anything else that goes wrong is a refusal written for the user, with
@@ -399,11 +512,14 @@ export const createConnectorsService = ({
    */
   const probe = async (
     url: string,
-    header?: { name: string; value: string }
+    header?: { name: string; value: string; redact?: string }
   ): Promise<ProbeOutcome> => {
     try {
       const result = await probeMcpServer(url, { fetchImpl, header });
-      return { kind: "ok", tools: result.tools };
+      const tools = header?.redact
+        ? createMasker({ connector: header.redact }).maskDeep(result.tools)
+        : result.tools;
+      return { kind: "ok", tools };
     } catch (error: unknown) {
       if (error instanceof McpUnauthorizedError) {
         return { kind: "unauthorized", wwwAuthenticate: error.wwwAuthenticate };
@@ -411,7 +527,11 @@ export const createConnectorsService = ({
       const detail = error instanceof McpError ? ` ${error.message}` : "";
       const message = `Could not read the tool list from that server.${detail}`;
       throw invalid(
-        header ? message.replaceAll(header.value, "[redacted]") : message
+        header
+          ? message
+              .replaceAll(header.value, "[redacted]")
+              .replaceAll(header.redact ?? header.value, "[redacted]")
+          : message
       );
     }
   };
@@ -447,6 +567,7 @@ export const createConnectorsService = ({
    * probe: a 401 means OAuth when the server publishes metadata, a header
    * otherwise. `oauth` runs the same discovery without needing the 401, so a
    * server that answers anyone still gets a login. `none` never starts OAuth.
+   * `header` forces a header and skips OAuth discovery.
    * `tools` is the list the probe read, null when the server asked for auth.
    */
   const resolveAuth = async (
@@ -460,6 +581,9 @@ export const createConnectorsService = ({
   }> => {
     const outcome = await probe(url);
     const tools = outcome.kind === "ok" ? outcome.tools : null;
+    if (mode === "header") {
+      return { authKind: "header", oauth: null, status: "needs_auth", tools };
+    }
     if (mode === "none" || (mode === "auto" && outcome.kind === "ok")) {
       return { authKind: "none", oauth: null, status: "ok", tools };
     }
@@ -510,6 +634,36 @@ export const createConnectorsService = ({
       )
       .orderBy(asc(credentials.createdAt), asc(credentials.id));
 
+  const probeLinked = async (
+    workspaceId: string,
+    url: string,
+    headerName: string | undefined | null,
+    linked: { secretId: string | null; headerTemplate: string | null },
+    found: Awaited<ReturnType<typeof resolveAuth>>
+  ): Promise<Awaited<ReturnType<typeof resolveAuth>>> => {
+    if (!linked.secretId) {
+      return found;
+    }
+    const secret = await readConnectorSecret(
+      db,
+      await cryptoKey(),
+      {
+        ...linked,
+        headerName: headerName ?? DEFAULT_HEADER_NAME,
+        url,
+        workspaceId,
+      },
+      true
+    );
+    const outcome = await probe(url, secret.header);
+    if (outcome.kind !== "ok") {
+      throw invalid(
+        "The server refused the connector's secret. Check the header and value in Settings, Secrets."
+      );
+    }
+    return { ...found, status: "ok" as const, tools: outcome.tools };
+  };
+
   /** Adds a connector by URL: guard, probe, then store what the probe found. */
   const create = async (
     principal: Principal,
@@ -531,8 +685,15 @@ export const createConnectorsService = ({
       throw error;
     }
 
+    const linked = secretFields(user, parsed);
     const now = clock.now();
-    const found = await resolveAuth(url, parsed.authMode);
+    const found = await probeLinked(
+      user.workspaceId,
+      url,
+      parsed.headerName,
+      linked,
+      await resolveAuth(url, parsed.authMode)
+    );
     const row: ConnectorRow = {
       authKind: found.authKind,
       authMode: parsed.authMode,
@@ -543,17 +704,18 @@ export const createConnectorsService = ({
         found.authKind === "header"
           ? (parsed.headerName ?? DEFAULT_HEADER_NAME)
           : null,
+      ...linked,
       id: ulid(now.getTime()),
       name: parsed.name,
       oauth: found.oauth ? JSON.stringify(found.oauth) : null,
-      status: found.status,
+      status: linked.secretId ? "ok" : found.status,
       tools: JSON.stringify(found.tools ?? []),
       toolsFetchedAt: found.tools ? now.toISOString() : null,
       url,
       workspaceId: user.workspaceId,
     };
     await db.insert(connectors).values(row);
-    return toSummary(row, [], user.userId, sharedGoogleClient);
+    return await summarize(row, [], user.userId);
   };
 
   /** The workspace's connectors with the credentials the caller may see. */
@@ -569,12 +731,15 @@ export const createConnectorsService = ({
       .where(eq(connectors.workspaceId, user.workspaceId))
       .orderBy(asc(connectors.createdAt), asc(connectors.id));
     const owned = await credentialsOf(user.workspaceId, user.userId);
-    return rows.map((row) =>
-      toSummary(
-        row,
-        owned.filter((credential) => credential.connectorId === row.id),
-        user.userId,
-        sharedGoogleClient
+    const names = await secretNames(rows, user.workspaceId);
+    return await Promise.all(
+      rows.map((row) =>
+        summarize(
+          row,
+          owned.filter((credential) => credential.connectorId === row.id),
+          user.userId,
+          names
+        )
       )
     );
   };
@@ -602,6 +767,11 @@ export const createConnectorsService = ({
       throw new ServiceError(
         "invalid",
         "Only a connector that takes a header accepts a pasted value"
+      );
+    }
+    if (connector.secretId || connector.headerTemplate) {
+      throw invalid(
+        "This connector uses a workspace secret. Ask an admin to change it in Settings, Connectors."
       );
     }
     const owner: { id: string; kind: CredentialOwnerKind } = parsed.agentId
@@ -698,9 +868,17 @@ export const createConnectorsService = ({
       workspaceId,
     });
     const connector = await loadConnector(db, parsed.connectorId, workspaceId);
-    const found = await resolveAuth(connector.url, parsed.authMode);
+    const linked = secretFields(user, parsed, connector);
+    const found = await probeLinked(
+      workspaceId,
+      connector.url,
+      parsed.headerName ?? connector.headerName,
+      linked,
+      await resolveAuth(connector.url, parsed.authMode)
+    );
     const kept = found.authKind === connector.authKind;
     const keepsLogin = kept && found.authKind !== "none";
+    const status = keepsLogin ? connector.status : found.status;
     const now = clock.now().toISOString();
     const where = and(
       eq(connectors.id, connector.id),
@@ -724,13 +902,16 @@ export const createConnectorsService = ({
           authMode: parsed.authMode,
           headerName:
             found.authKind === "header"
-              ? (connector.headerName ?? DEFAULT_HEADER_NAME)
+              ? (parsed.headerName ??
+                connector.headerName ??
+                DEFAULT_HEADER_NAME)
               : null,
+          ...linked,
           oauth:
             found.authKind === "oauth" && kept
               ? connector.oauth
               : found.oauth && JSON.stringify(found.oauth),
-          status: keepsLogin ? connector.status : found.status,
+          status: linked.secretId ? "ok" : status,
           ...(found.tools
             ? { tools: JSON.stringify(found.tools), toolsFetchedAt: now }
             : {}),
@@ -739,7 +920,7 @@ export const createConnectorsService = ({
     ]);
     const row = await loadConnector(db, connector.id, workspaceId);
     const owned = await credentialsOf(workspaceId, user.userId, row.id);
-    return toSummary(row, owned, user.userId, sharedGoogleClient);
+    return await summarize(row, owned, user.userId);
   };
 
   /** Sets how long one tool call of a connector may run. */
@@ -767,7 +948,7 @@ export const createConnectorsService = ({
       );
     const row = await loadConnector(db, parsed.connectorId, workspaceId);
     const owned = await credentialsOf(workspaceId, user.userId, row.id);
-    return toSummary(row, owned, user.userId, sharedGoogleClient);
+    return await summarize(row, owned, user.userId);
   };
 
   /** Gives an agent a connector, or changes how its credential is chosen. */
@@ -775,8 +956,19 @@ export const createConnectorsService = ({
     principal: Principal,
     input: AssignmentInput
   ): Promise<AssignmentSummary> => {
-    const user = requireAssigner(principal, ASSIGN_ACTION);
+    if (principal.kind === "system") {
+      throw new ForbiddenError(ASSIGN_ACTION);
+    }
     const parsed = assignmentInputSchema.parse(input);
+    const connector = await loadConnector(
+      db,
+      parsed.connectorId,
+      principal.workspaceId
+    );
+    if (connector.secretId || connector.headerTemplate) {
+      requireSecretAdmin(principal);
+    }
+    const user = requireAssigner(principal, ASSIGN_ACTION);
     const { workspaceId } = user;
     authorize(user, ASSIGN_ACTION, {
       id: parsed.connectorId,
@@ -784,7 +976,6 @@ export const createConnectorsService = ({
       workspaceId,
     });
     await loadActiveAgent(db, parsed.agentId, workspaceId);
-    await loadConnector(db, parsed.connectorId, workspaceId);
     const createdAt = clock.now().toISOString();
     await db
       .insert(agentConnectors)

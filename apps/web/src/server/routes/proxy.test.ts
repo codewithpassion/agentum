@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { artifacts } from "@repo/db/schema/artifacts";
 import {
@@ -21,6 +21,7 @@ import {
   testOAuthConfig,
 } from "@repo/services/connectors/test-seed";
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
+import { ServiceError } from "@repo/services/errors";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { createRequestsService } from "@repo/services/requests";
@@ -1401,4 +1402,89 @@ test("a guest joining during real credential refresh blocks the second connector
   expect(await echoed(await f.send(echoBody))).toBe("hello");
   expect(f.sent).toHaveLength(2);
   expect(stubOf().stats().calls).toHaveLength(1);
+});
+
+test("a workspace secret supplies the header, scrubs an echo, and deletion fails clearly", async () => {
+  startStub();
+  const credentialId = await seedHeaderCredential();
+  await db
+    .update(credentials)
+    .set({
+      secret: await encryptSecret(
+        secretsKey,
+        {
+          field: "secret",
+          rowId: credentialId,
+          table: "credentials",
+          workspaceId: WORKSPACE,
+        },
+        "old-pasted-value"
+      ),
+    })
+    .where(eq(credentials.id, credentialId));
+  const admin: Principal = { ...dom, isAdmin: true };
+  const secret = await composed.services.secrets.create(admin, {
+    mode: "env",
+    name: "CONNECTOR_KEY",
+    value: STUB_TOKEN,
+    allowedHosts: [new URL(PUBLIC_ORIGIN).hostname],
+  });
+  await db
+    .update(connectors)
+    .set({
+      authMode: "header",
+      secretId: secret.id,
+      headerTemplate: "Bearer {value}",
+      headerName: "Authorization",
+    })
+    .where(eq(connectors.id, CONNECTOR));
+  addRun("secret_run");
+  const token = await tokenFor("secret_run");
+  const response = await call(
+    token,
+    JSON.stringify({
+      id: 7,
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { arguments: { text: `key is ${STUB_TOKEN}` }, name: "echo" },
+    })
+  );
+  expect(await echoed(response)).toBe("key is [secret:connector]");
+  expect(stubOf().stats().calls.at(-1)?.headers.authorization).toBe(
+    `Bearer ${STUB_TOKEN}`
+  );
+  expect(
+    (await eventsOf("secret_run")).some(
+      (event) => event.type === "connector.needs_auth"
+    )
+  ).toBe(false);
+  expect(
+    JSON.parse((await eventsOf("secret_run"))[0]?.payload ?? "{}").ownerKind
+  ).toBe("workspace");
+  expect(JSON.stringify(await eventsOf("secret_run"))).not.toContain(
+    STUB_TOKEN
+  );
+  await composed.services.secrets.remove(admin, secret.id);
+  const removed = await call(token);
+  expect(removed.status).toBe(400);
+  expect(await removed.text()).toContain("The connector's secret was removed");
+});
+
+test("unrelated service errors keep the proxy's unavailable response", async () => {
+  startStub();
+  await seedHeaderCredential();
+  addRun("error_run");
+  const token = await tokenFor("error_run");
+  const resolve = spyOn(composed.services.credentials, "resolve");
+  try {
+    for (const code of ["not_found", "conflict"] as const) {
+      resolve.mockRejectedValueOnce(new ServiceError(code, "Internal failure"));
+      // biome-ignore lint/performance/noAwaitInLoops: each mocked refusal belongs to one call
+      const response = await call(token);
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain("Internal failure");
+    }
+  } finally {
+    resolve.mockRestore();
+  }
 });

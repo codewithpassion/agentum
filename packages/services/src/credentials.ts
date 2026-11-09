@@ -44,6 +44,7 @@ import { decodeAllowedTools } from "./connectors/allowed-tools.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
 import { OAuthTokenError, refreshTokens } from "./connectors/oauth.ts";
 import { onGoogle, parseOAuthConfig } from "./connectors/oauth-config.ts";
+import { readConnectorSecret } from "./connectors/secret.ts";
 import { InvalidConnectorUrlError } from "./connectors/url.ts";
 import { decryptSecret, encryptSecret, importSecretsKey } from "./crypto.ts";
 import type { Clock } from "./runs/types.ts";
@@ -72,15 +73,26 @@ export type NeedsAuthCause =
   | "single_user_machine";
 
 /** The login to send, ready to put on the request. */
-export interface DecryptedCredential {
+interface OwnedCredential {
   expiresAt: string | null;
   /** The header to send with the call. */
-  header: { name: string; value: string };
+  header: { name: string; value: string; redact?: string };
   id: string;
   ownerId: string;
   ownerKind: CredentialOwnerKind;
   version: number;
 }
+
+export type DecryptedCredential =
+  | OwnedCredential
+  | {
+      expiresAt: null;
+      header: { name: string; value: string; redact?: string };
+      id: null;
+      ownerId: string;
+      ownerKind: "workspace";
+      version: number;
+    };
 
 export interface NeedsAuth {
   cause: NeedsAuthCause;
@@ -107,7 +119,7 @@ export type Resolution =
       credential: DecryptedCredential | null;
       note: ResolveNote | null;
       ok: true;
-      ownerKind: CredentialOwnerKind | null;
+      ownerKind: CredentialOwnerKind | "workspace" | null;
       version: number | null;
     }
   | { ok: false; reason: "not_assigned" }
@@ -116,7 +128,7 @@ export type Resolution =
   | { ok: false; reason: "retry" };
 
 export type Refreshed =
-  | { credential: DecryptedCredential; ok: true }
+  | { credential: OwnedCredential; ok: true }
   | NeedsAuth
   | { ok: false; reason: "retry" };
 
@@ -270,7 +282,7 @@ export const createCredentialsService = ({
     row: CredentialRow,
     connector: ConnectorRow,
     secret: { accessToken: string }
-  ): DecryptedCredential => ({
+  ): OwnedCredential => ({
     expiresAt: row.expiresAt,
     header:
       connector.authKind === "oauth"
@@ -564,7 +576,7 @@ export const createCredentialsService = ({
   const refreshedAhead = async (
     row: CredentialRow,
     connector: ConnectorRow,
-    current: DecryptedCredential
+    current: OwnedCredential
   ): Promise<Refreshed> => {
     const nowMs = clock.now().getTime();
     if (!mayRefreshAhead(connector.authKind, row.expiresAt, nowMs)) {
@@ -610,6 +622,29 @@ export const createCredentialsService = ({
     ownerKind: null,
     version: null,
   });
+
+  const resolveSecret = async (
+    connector: ConnectorRow,
+    allowedTools: string[] | null
+  ): Promise<Resolution> => {
+    const secret = await readConnectorSecret(db, await cryptoKey(), connector);
+    return {
+      allowedTools,
+      connector: connectorSummary(connector),
+      credential: {
+        expiresAt: null,
+        header: secret.header,
+        id: null,
+        ownerId: connector.workspaceId,
+        ownerKind: "workspace",
+        version: secret.version,
+      },
+      note: null,
+      ok: true,
+      ownerKind: "workspace",
+      version: secret.version,
+    };
+  };
 
   /** Once the owner is chosen: their stored login, usable and refreshed. */
   const resolveOwned = async (
@@ -681,6 +716,12 @@ export const createCredentialsService = ({
       return openConnectorResolution(connector, allowedTools);
     }
 
+    if (
+      connector.authKind === "header" &&
+      (connector.secretId || connector.headerTemplate)
+    ) {
+      return await resolveSecret(connector, allowedTools);
+    }
     const chosen = await chooseOwner(link.mode, input);
     if (!chosen.ok) {
       return needsAuth(connector.id, chosen.owner, chosen.cause);
@@ -703,6 +744,12 @@ export const createCredentialsService = ({
     }
     if (connector.authKind === "none") {
       return openConnectorResolution(connector, null);
+    }
+    if (
+      connector.authKind === "header" &&
+      (connector.secretId || connector.headerTemplate)
+    ) {
+      return await resolveSecret(connector, null);
     }
     return await resolveOwned(
       connector,
