@@ -322,6 +322,14 @@ const toSummary = (
 const invalid = (message: string): ServiceError =>
   new ServiceError("invalid", message);
 
+/** Safe guidance for callers that cannot grant access to a workspace secret. */
+export class ConnectorSecretAdminError extends ForbiddenError {
+  constructor() {
+    super("connectors.linkSecret");
+    this.message = "An admin must do this in the app.";
+  }
+}
+
 /** Keys and connectors are managed from a signed-in session. */
 export const requireUser = (
   principal: Principal,
@@ -412,31 +420,44 @@ export const createConnectorsService = ({
     return importedKey;
   };
 
+  const secretNames = async (
+    rows: readonly ConnectorRow[],
+    workspaceId: string
+  ) => {
+    const ids = rows.flatMap((row) => (row.secretId ? [row.secretId] : []));
+    if (ids.length === 0) {
+      return new Map<string, string>();
+    }
+    const names = await db
+      .select({ id: secrets.id, name: secrets.name })
+      .from(secrets)
+      .where(
+        and(eq(secrets.workspaceId, workspaceId), inArray(secrets.id, ids))
+      );
+    return new Map(names.map((secret) => [secret.id, secret.name]));
+  };
+
   const summarize = async (
     row: ConnectorRow,
     owned: readonly CredentialRow[],
-    userId: string
+    userId: string,
+    names?: ReadonlyMap<string, string>
   ): Promise<ConnectorSummary> => {
     const summary = toSummary(row, owned, userId, sharedGoogleClient);
-    if (row.secretId) {
-      const [secret] = await db
-        .select({ name: secrets.name })
-        .from(secrets)
-        .where(
-          and(
-            eq(secrets.id, row.secretId),
-            eq(secrets.workspaceId, row.workspaceId)
-          )
-        );
-      summary.secretName = secret?.name ?? null;
-    }
+    const loaded = names ?? (await secretNames([row], row.workspaceId));
+    summary.secretName = row.secretId
+      ? (loaded.get(row.secretId) ?? null)
+      : null;
     return summary;
   };
 
   const requireSecretAdmin = (principal: Principal) => {
-    const user = requireUser(principal, "connectors.linkSecret");
-    if (!user.isAdmin) {
-      throw new ForbiddenError("connectors.linkSecret");
+    if (
+      principal.kind !== "user" ||
+      principal.via !== "session" ||
+      !principal.isAdmin
+    ) {
+      throw new ConnectorSecretAdminError();
     }
   };
 
@@ -623,12 +644,17 @@ export const createConnectorsService = ({
     if (!linked.secretId) {
       return found;
     }
-    const secret = await readConnectorSecret(db, await cryptoKey(), {
-      ...linked,
-      headerName: headerName ?? DEFAULT_HEADER_NAME,
-      url,
-      workspaceId,
-    });
+    const secret = await readConnectorSecret(
+      db,
+      await cryptoKey(),
+      {
+        ...linked,
+        headerName: headerName ?? DEFAULT_HEADER_NAME,
+        url,
+        workspaceId,
+      },
+      true
+    );
     const outcome = await probe(url, secret.header);
     if (outcome.kind !== "ok") {
       throw invalid(
@@ -705,12 +731,14 @@ export const createConnectorsService = ({
       .where(eq(connectors.workspaceId, user.workspaceId))
       .orderBy(asc(connectors.createdAt), asc(connectors.id));
     const owned = await credentialsOf(user.workspaceId, user.userId);
+    const names = await secretNames(rows, user.workspaceId);
     return await Promise.all(
       rows.map((row) =>
         summarize(
           row,
           owned.filter((credential) => credential.connectorId === row.id),
-          user.userId
+          user.userId,
+          names
         )
       )
     );
@@ -928,8 +956,19 @@ export const createConnectorsService = ({
     principal: Principal,
     input: AssignmentInput
   ): Promise<AssignmentSummary> => {
-    const user = requireAssigner(principal, ASSIGN_ACTION);
+    if (principal.kind === "system") {
+      throw new ForbiddenError(ASSIGN_ACTION);
+    }
     const parsed = assignmentInputSchema.parse(input);
+    const connector = await loadConnector(
+      db,
+      parsed.connectorId,
+      principal.workspaceId
+    );
+    if (connector.secretId || connector.headerTemplate) {
+      requireSecretAdmin(principal);
+    }
+    const user = requireAssigner(principal, ASSIGN_ACTION);
     const { workspaceId } = user;
     authorize(user, ASSIGN_ACTION, {
       id: parsed.connectorId,
@@ -937,7 +976,6 @@ export const createConnectorsService = ({
       workspaceId,
     });
     await loadActiveAgent(db, parsed.agentId, workspaceId);
-    await loadConnector(db, parsed.connectorId, workspaceId);
     const createdAt = clock.now().toISOString();
     await db
       .insert(agentConnectors)

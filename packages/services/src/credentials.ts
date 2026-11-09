@@ -73,7 +73,7 @@ export type NeedsAuthCause =
   | "single_user_machine";
 
 /** The login to send, ready to put on the request. */
-export interface DecryptedCredential {
+interface OwnedCredential {
   expiresAt: string | null;
   /** The header to send with the call. */
   header: { name: string; value: string; redact?: string };
@@ -81,8 +81,18 @@ export interface DecryptedCredential {
   ownerId: string;
   ownerKind: CredentialOwnerKind;
   version: number;
-  workspaceSecret?: boolean;
 }
+
+export type DecryptedCredential =
+  | OwnedCredential
+  | {
+      expiresAt: null;
+      header: { name: string; value: string; redact?: string };
+      id: null;
+      ownerId: string;
+      ownerKind: "workspace";
+      version: number;
+    };
 
 export interface NeedsAuth {
   cause: NeedsAuthCause;
@@ -109,7 +119,7 @@ export type Resolution =
       credential: DecryptedCredential | null;
       note: ResolveNote | null;
       ok: true;
-      ownerKind: CredentialOwnerKind | null;
+      ownerKind: CredentialOwnerKind | "workspace" | null;
       version: number | null;
     }
   | { ok: false; reason: "not_assigned" }
@@ -118,7 +128,7 @@ export type Resolution =
   | { ok: false; reason: "retry" };
 
 export type Refreshed =
-  | { credential: DecryptedCredential; ok: true }
+  | { credential: OwnedCredential; ok: true }
   | NeedsAuth
   | { ok: false; reason: "retry" };
 
@@ -272,7 +282,7 @@ export const createCredentialsService = ({
     row: CredentialRow,
     connector: ConnectorRow,
     secret: { accessToken: string }
-  ): DecryptedCredential => ({
+  ): OwnedCredential => ({
     expiresAt: row.expiresAt,
     header:
       connector.authKind === "oauth"
@@ -566,7 +576,7 @@ export const createCredentialsService = ({
   const refreshedAhead = async (
     row: CredentialRow,
     connector: ConnectorRow,
-    current: DecryptedCredential
+    current: OwnedCredential
   ): Promise<Refreshed> => {
     const nowMs = clock.now().getTime();
     if (!mayRefreshAhead(connector.authKind, row.expiresAt, nowMs)) {
@@ -624,15 +634,14 @@ export const createCredentialsService = ({
       credential: {
         expiresAt: null,
         header: secret.header,
-        id: secret.id,
+        id: null,
         ownerId: connector.workspaceId,
-        ownerKind: "agent",
+        ownerKind: "workspace",
         version: secret.version,
-        workspaceSecret: true,
       },
       note: null,
       ok: true,
-      ownerKind: null,
+      ownerKind: "workspace",
       version: secret.version,
     };
   };

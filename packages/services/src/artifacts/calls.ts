@@ -43,6 +43,7 @@ import {
   type Fetcher,
   McpUnauthorizedError,
 } from "../connectors/mcp.ts";
+import { ConnectorSecretError } from "../connectors/secret.ts";
 import type { CredentialsService, Resolution } from "../credentials.ts";
 import { ServiceError } from "../errors.ts";
 import type { Payload } from "../events/payload.ts";
@@ -269,7 +270,7 @@ export const createToolRunner = ({
         !(
           error instanceof McpUnauthorizedError &&
           resolution.credential &&
-          !resolution.credential.workspaceSecret
+          resolution.credential.ownerKind !== "workspace"
         )
       ) {
         throw toCallError(error, connectorName);
@@ -297,11 +298,20 @@ export const createToolRunner = ({
 
   const run = async (input: ToolRunInput): Promise<ArtifactsCallToolOutput> => {
     const { connector, toolName } = await findReadOnlyTool(db, input);
-    const resolution = await credentials.resolveUser({
-      connectorId: connector.id,
-      userId: input.userId,
-      workspaceId: input.workspaceId,
-    });
+    const resolution = await credentials
+      .resolveUser({
+        connectorId: connector.id,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ConnectorSecretError) {
+          throw new ArtifactCallError("failed", error.message, {
+            cause: error,
+          });
+        }
+        throw error;
+      });
     if (!resolution.ok) {
       if (resolution.reason === "needs_auth") {
         throw new ArtifactCallError(

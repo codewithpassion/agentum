@@ -704,6 +704,7 @@ export const NEEDS_YOU_KINDS = [
   "takeover",
   "a2a_message",
   "a2a_connection",
+  "connector_secret",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -716,6 +717,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   a2a_message: (name) => `A message for ${name} waits for approval`,
   approval: (name) => `${name} asks for approval`,
   artifact_grant: (name) => `${name} asks for app permissions`,
+  connector_secret: (name) => `${name} needs a connector secret`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
   question: (name) => `${name} asks`,

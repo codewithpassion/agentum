@@ -9,6 +9,13 @@ import {
   storedRulesSchema,
 } from "../secrets/rules.ts";
 
+/** A safe, actionable failure while filling a connector's secret header. */
+export class ConnectorSecretError extends ServiceError {
+  constructor(message: string) {
+    super("invalid", message);
+  }
+}
+
 /** Rechecked for every call so removing an allowed host takes effect immediately. */
 export const checkConnectorSecretHost = (
   secret: { allowedHosts: string; mode: "env" | "proxy"; rules: string },
@@ -22,8 +29,7 @@ export const checkConnectorSecretHost = (
           .map((rule) => rule.host)
       : JSON.parse(secret.allowedHosts);
   if (!hosts.some((pattern) => matchHost(pattern, host))) {
-    throw new ServiceError(
-      "invalid",
+    throw new ConnectorSecretError(
       `The host ${host} is not allowed by this secret. Add it to the secret in Settings, Secrets.`
     );
   }
@@ -39,7 +45,8 @@ export const readConnectorSecret = async (
     url: string;
     headerName: string | null;
     headerTemplate: string | null;
-  }
+  },
+  atLinkTime = false
 ) => {
   const [secret] = connector.secretId
     ? await db
@@ -53,9 +60,10 @@ export const readConnectorSecret = async (
         )
     : [];
   if (!secret) {
-    throw new ServiceError(
-      "invalid",
-      "The connector's secret was removed. Ask an admin to link a secret in Settings, Connectors."
+    throw new ConnectorSecretError(
+      atLinkTime
+        ? "Secret not found."
+        : "The connector's secret was removed. Ask an admin to link a secret in Settings, Connectors."
     );
   }
   checkConnectorSecretHost(secret, connector.url);
@@ -70,8 +78,7 @@ export const readConnectorSecret = async (
     secret.valueEnc
   );
   if (!isHeaderSafe(value)) {
-    throw new ServiceError(
-      "invalid",
+    throw new ConnectorSecretError(
       "The connector's secret must be plain text on one line."
     );
   }

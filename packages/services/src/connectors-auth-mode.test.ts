@@ -1,6 +1,7 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { connectors, credentials } from "@repo/db/schema/connectors";
+import { secrets as secretRows } from "@repo/db/schema/secrets";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -480,7 +481,7 @@ test("every caller sends the current templated secret, ignoring pasted credentia
   };
   for (const credentialMode of ["user", "agent", "user_or_agent"] as const) {
     // biome-ignore lint/performance/noAwaitInLoops: each mode must be stored before resolving its callers
-    await service.assign(dom, {
+    await service.assign(admin, {
       agentId: agent.id,
       connectorId: connector.id,
       credentialMode,
@@ -517,6 +518,8 @@ test("every caller sends the current templated secret, ignoring pasted credentia
   if (!(next.ok && next.credential)) {
     throw new Error("Secret did not resolve");
   }
+  expect(next.credential.ownerKind).toBe("workspace");
+  expect(next.ownerKind).toBe("workspace");
   expect(next.credential.header.value).toBe("Token replacement-made-up-key!");
   const serialized = JSON.stringify([
     connector,
@@ -607,4 +610,98 @@ test("deletion also marks a linked connector whose template was null as needing 
       workspaceId: WORKSPACE,
     })
   ).rejects.toThrow("The connector's secret was removed");
+});
+
+test("assigning a secret connector and editing its assignment need an admin in the app", async () => {
+  const { connector } = await linkedConnector();
+  const agent = await agents.create(dom, {
+    model: "fake",
+    name: "Agent",
+    runtime: "fake",
+  });
+  const input = {
+    agentId: agent.id,
+    connectorId: connector.id,
+    credentialMode: "agent" as const,
+  };
+  for (const principal of [
+    dom,
+    {
+      ...admin,
+      apiKey: { access: "admin" as const, id: "key" },
+      via: "api_key" as const,
+    },
+    {
+      ...admin,
+      oauthClient: { access: "write" as const, clientId: "client" },
+      via: "oauth" as const,
+    },
+    {
+      agentId: agent.id,
+      kind: "run" as const,
+      runId: "run",
+      workspaceId: WORKSPACE,
+    },
+    { kind: "machine" as const, machineId: "machine", workspaceId: WORKSPACE },
+    {
+      agentId: agent.id,
+      connectionId: "peer",
+      kind: "peer" as const,
+      workspaceId: WORKSPACE,
+    },
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: verify each caller against the same assignment
+    await expect(service.assign(principal, input)).rejects.toThrow(
+      "An admin must do this in the app."
+    );
+  }
+  await service.assign(admin, input);
+  await expect(
+    service.assign(dom, { ...input, allowedTools: [] })
+  ).rejects.toThrow("An admin must do this in the app.");
+  await expect(
+    service.assign(dom, { ...input, credentialMode: "user" })
+  ).rejects.toThrow("An admin must do this in the app.");
+  expect(
+    await service.unassign(dom, {
+      agentId: agent.id,
+      connectorId: connector.id,
+    })
+  ).toEqual({ removed: true });
+});
+
+test("unknown and cross-workspace secrets say not found at link time", async () => {
+  const secret = await secretForConnector();
+  for (const secretId of ["unknown", secret.id]) {
+    // biome-ignore lint/performance/noAwaitInLoops: verify missing and foreign ids independently
+    await expect(
+      service.create(
+        { ...admin, workspaceId: secretId === secret.id ? "w2" : WORKSPACE },
+        { authMode: "header", name: "Header", secretId, url: MCP_URL }
+      )
+    ).rejects.toThrow("Secret not found.");
+  }
+});
+
+test("listing linked connectors loads all secret names in one query", async () => {
+  const { secret } = await linkedConnector();
+  await service.create(admin, {
+    authMode: "header",
+    name: "Second",
+    secretId: secret.id,
+    url: MCP_URL,
+  });
+  const select = spyOn(db, "select");
+  try {
+    const listed = await service.list(admin);
+    expect(listed.map((row) => row.secretName)).toEqual([
+      "CONNECTOR_KEY",
+      "CONNECTOR_KEY",
+    ]);
+    expect(
+      select.mock.calls.filter(([fields]) => fields?.name === secretRows.name)
+    ).toHaveLength(1);
+  } finally {
+    select.mockRestore();
+  }
 });

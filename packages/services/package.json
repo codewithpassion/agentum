@@ -50,6 +50,7 @@
     "./cloud/types": "./src/cloud/types.ts",
     "./connector-oauth": "./src/connector-oauth.ts",
     "./connectors": "./src/connectors.ts",
+    "./connectors/secret": "./src/connectors/secret.ts",
     "./connectors/mcp": "./src/connectors/mcp.ts",
     "./connectors/safe-url": "./src/connectors/safe-url.ts",
     "./connectors/test-seed": "./src/connectors/test-seed.ts",

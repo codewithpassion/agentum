@@ -118,6 +118,15 @@ export const connectorOAuthRoutes = (
       return c.redirect(`/agents/${agentId}?sheet=tools`, FOUND);
     }
     try {
+      const connector = (
+        await c.get("composed").services.connectors.list(who.principal)
+      ).find((row) => row.id === c.req.param("connectorId"));
+      if (connector?.headerTemplate) {
+        return c.redirect(
+          `/settings/connectors?auth=${encodeURIComponent(connector.id)}`,
+          FOUND
+        );
+      }
       const { authorizeUrl } = await c
         .get("composed")
         .services.connectorOAuth.start(who.principal, {

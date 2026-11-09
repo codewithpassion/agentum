@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { artifacts } from "@repo/db/schema/artifacts";
 import {
@@ -21,6 +21,7 @@ import {
   testOAuthConfig,
 } from "@repo/services/connectors/test-seed";
 import { encryptSecret, importSecretsKey } from "@repo/services/crypto";
+import { ServiceError } from "@repo/services/errors";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { createRequestsService } from "@repo/services/requests";
@@ -1457,6 +1458,9 @@ test("a workspace secret supplies the header, scrubs an echo, and deletion fails
       (event) => event.type === "connector.needs_auth"
     )
   ).toBe(false);
+  expect(
+    JSON.parse((await eventsOf("secret_run"))[0]?.payload ?? "{}").ownerKind
+  ).toBe("workspace");
   expect(JSON.stringify(await eventsOf("secret_run"))).not.toContain(
     STUB_TOKEN
   );
@@ -1464,4 +1468,23 @@ test("a workspace secret supplies the header, scrubs an echo, and deletion fails
   const removed = await call(token);
   expect(removed.status).toBe(400);
   expect(await removed.text()).toContain("The connector's secret was removed");
+});
+
+test("unrelated service errors keep the proxy's unavailable response", async () => {
+  startStub();
+  await seedHeaderCredential();
+  addRun("error_run");
+  const token = await tokenFor("error_run");
+  const resolve = spyOn(composed.services.credentials, "resolve");
+  try {
+    for (const code of ["not_found", "conflict"] as const) {
+      resolve.mockRejectedValueOnce(new ServiceError(code, "Internal failure"));
+      // biome-ignore lint/performance/noAwaitInLoops: each mocked refusal belongs to one call
+      const response = await call(token);
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain("Internal failure");
+    }
+  } finally {
+    resolve.mockRestore();
+  }
 });

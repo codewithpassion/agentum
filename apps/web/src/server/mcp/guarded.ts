@@ -1,11 +1,15 @@
 import { ToolError } from "@repo/mcp/result";
 import { isA2aRateLimitError } from "@repo/services/a2a/errors";
 import { isForbiddenError } from "@repo/services/authz";
+import { ConnectorSecretAdminError } from "@repo/services/connectors";
 import { isServiceError } from "@repo/services/errors";
 import { ZodError } from "zod";
 
 /** The service errors an agent can act on, as tool errors. Anything else passes through. */
 const toToolError = (error: unknown): unknown => {
+  if (error instanceof ConnectorSecretAdminError) {
+    return new ToolError("forbidden", error.message);
+  }
   if (isForbiddenError(error)) {
     return new ToolError("forbidden", "This credential may not do that.");
   }

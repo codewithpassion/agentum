@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
-import { credentials, oauthStates } from "@repo/db/schema/connectors";
+import {
+  connectors,
+  credentials,
+  oauthStates,
+} from "@repo/db/schema/connectors";
 import { migrated } from "@repo/db/test-db";
 import type { Fetcher } from "@repo/services/connectors/mcp";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import {
   type StubMcp,
@@ -350,4 +355,23 @@ test("an agent connection invite is left to the app's own page", async () => {
   expect(res.status).toBe(404);
   expect(res.headers.get("location")).toBeNull();
   expect(stateRows()).toHaveLength(0);
+});
+
+test("a stale Connect link for a deleted secret opens Authentication instead of OAuth", async () => {
+  await db
+    .update(connectors)
+    .set({
+      authMode: "header",
+      authKind: "header",
+      secretId: null,
+      headerTemplate: "Bearer {value}",
+      status: "needs_auth",
+    })
+    .where(eq(connectors.id, connectorId));
+  const response = await connectAt(`/connect/${connectorId}?as=user`);
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toBe(
+    `/settings/connectors?auth=${connectorId}`
+  );
+  expect(db.select().from(oauthStates).all()).toHaveLength(0);
 });

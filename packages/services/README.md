@@ -144,13 +144,17 @@ An organisation admin in a browser session can link a workspace secret, or
 create one in the connector dialog. The connector host must match one of the
 secret's proxy rule hosts or env allowed hosts; change those in Settings,
 Secrets. API keys, OAuth clients, machines, runs and MCP tools cannot link or
-clear a secret. When linked, the secret supplies the header for every person
+clear a secret. Assigning a secret-backed connector to an agent, or changing
+its credential mode or allowed tools, also needs an organisation admin in a
+browser session. Unassigning keeps its existing rules. When linked, the secret supplies the header for every person
 and agent, regardless of the assignment's credential mode. Pasted credentials
 are ignored. Without a link, personal and agent credentials work as before.
 
 The value stays encrypted in storage and is read fresh for each call. Replacing
 it takes effect on the next call; removing an allowed host blocks the next
 call. Deleting a secret unlinks its connectors in the same write, and those
-connectors show Needs secret and refuse calls until an admin links another
+connectors show Needs secret in the connector list, agent sheet and Needs you,
+with Authentication guidance for admins and an ask-an-admin message for members,
+and refuse calls until an admin links another
 secret or switches to personal credentials. Changing authentication away from
 API key header clears the link and template.

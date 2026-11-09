@@ -11,13 +11,13 @@
 import { readCappedBody } from "@repo/app-gateway/body";
 import { createMasker } from "@repo/protocol/masker";
 import type { Fetcher } from "@repo/services/connectors/mcp";
+import { ConnectorSecretError } from "@repo/services/connectors/secret";
 import { assertSafeUrl } from "@repo/services/connectors/url";
 import type {
   CredentialsService,
   DecryptedCredential,
   NeedsAuth,
 } from "@repo/services/credentials";
-import { ServiceError } from "@repo/services/errors";
 import type { EventInput, EventsService } from "@repo/services/events";
 import type { RunTokenClaims } from "@repo/services/run-tokens";
 import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
@@ -472,7 +472,7 @@ const sendWithRefresh = async ({
   if (
     !(
       credential &&
-      !credential.workspaceSecret &&
+      credential.ownerKind !== "workspace" &&
       first.ok &&
       first.response.status === UNAUTHORIZED
     )
@@ -786,7 +786,7 @@ export const proxyRoutes = ({
     try {
       return await forward(c, claims, c.req.param("connectorId"));
     } catch (error: unknown) {
-      if (error instanceof ServiceError) {
+      if (error instanceof ConnectorSecretError) {
         return Response.json({ error: error.message }, { status: 400 });
       }
       // D1 failed, or a stored secret cannot be read: an outage, not the caller's fault.
