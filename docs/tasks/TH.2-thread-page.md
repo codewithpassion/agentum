@@ -3,9 +3,9 @@ id: TH.2
 title: A thread page with a stable URL
 milestone: TH
 size: M
-status: todo
+status: in_progress
 depends_on: [TH.1]
-branch: null
+branch: task/TH.2-thread-page
 lane: web
 executor: claude
 ---
@@ -28,3 +28,4 @@ From the 10 Nov 2026 review. The URL names a run today, and each reply navigates
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/TH.2-thread-page. Lane rule relaxed for this run (Dom asked for about six in parallel); files checked against the other running tasks. Runs beside TH.3; TH.2 owns the thread page, TH.3 the list.

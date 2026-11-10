@@ -3,9 +3,9 @@ id: AB.1
 title: An ask level per agent, with grouped overrides
 milestone: AB
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/AB.1-ask-level
 lane: services
 executor: claude
 ---
@@ -27,3 +27,4 @@ From the 10 Nov 2026 review. The "Ask me before it" card is one long open list, 
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/AB.1-ask-level. Second schema task, started after TH.1 merged so its migration follows TH.1's.

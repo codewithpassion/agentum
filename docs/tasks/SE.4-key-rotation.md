@@ -3,9 +3,9 @@ id: SE.4
 title: Rotation path for SECRETS_KEY and RUN_TOKEN_KEY
 milestone: SE
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SE.4-key-rotation
 lane: services
 executor: claude
 ---
@@ -26,3 +26,4 @@ From the 10 Nov 2026 review (M4). Neither key can be rotated today (`packages/se
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/SE.4-key-rotation. Lane rule relaxed for this run (Dom asked for about six in parallel); files checked against the other running tasks. Runs before CL.4, which also changes crypto.ts.

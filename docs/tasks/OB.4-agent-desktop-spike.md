@@ -3,9 +3,9 @@ id: OB.4
 title: Spike, agent-desktop as a second desktop backend
 milestone: OB
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/OB.4-agent-desktop-spike
 lane: computer
 executor: claude
 ---
@@ -23,3 +23,4 @@ From the 10 Nov 2026 review. Vercel Labs `agent-desktop` (Apache-2.0, https://gi
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/OB.4-agent-desktop-spike. Spike, no product code.

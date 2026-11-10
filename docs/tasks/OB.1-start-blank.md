@@ -3,9 +3,9 @@ id: OB.1
 title: Create an agent without the builder
 milestone: OB
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/OB.1-start-blank
 lane: web
 executor: claude
 ---
@@ -24,3 +24,4 @@ From the 10 Nov 2026 review. The builder is the only way to create an agent in t
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/OB.1-start-blank. Lane rule relaxed for this run (Dom asked for about six in parallel); files checked against the other running tasks.
