@@ -39,6 +39,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         agent,
         profile,
         askBefore,
+        askLevel,
         tasks,
         machines,
         mailbox,
@@ -50,6 +51,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         trpc.agents.get.query({ id: params.agentId }),
         trpc.agentProfile.profile.query({ agentId: params.agentId }),
         trpc.agentProfile.askBefore.query({ agentId: params.agentId }),
+        trpc.agentProfile.askLevel.query({ agentId: params.agentId }),
         trpc.tasks.list.query({
           agentId: params.agentId,
           limit: RECENT_TASKS,
@@ -64,6 +66,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
       return {
         agent,
         askBefore,
+        askLevel,
         connections,
         machines,
         members,
@@ -97,6 +100,7 @@ function AgentPage() {
   const {
     agent,
     askBefore,
+    askLevel,
     connections,
     machines,
     members,
@@ -167,6 +171,7 @@ function AgentPage() {
             <AskBeforeCard
               actions={askBefore}
               agentId={agent.id}
+              level={askLevel}
               mailAllowed={allowedMailAddresses(rules)}
             />
             <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />

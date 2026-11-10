@@ -656,6 +656,20 @@ export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 export const TOOL_RULE_MODES = ["ask", "allow"] as const;
 export type ToolRuleMode = (typeof TOOL_RULE_MODES)[number];
 
+/**
+ * How much an agent asks before it acts. The first three are presets that
+ * apply to every tool the agent has, new ones included. `custom` asks about
+ * nothing on its own: the agent's `agent_tool_rules` rows decide, which is how
+ * every agent ran before levels. Rows are overrides on any level.
+ */
+export const ASK_LEVELS = [
+  "rarely",
+  "outside",
+  "everything",
+  "custom",
+] as const;
+export type AskLevel = (typeof ASK_LEVELS)[number];
+
 export const ANSWER_SURFACES = ["web", "slack", "a2a"] as const;
 export type AnswerSurface = (typeof ANSWER_SURFACES)[number];
 

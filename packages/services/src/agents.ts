@@ -511,6 +511,7 @@ export const createAgentsService = ({
     const id = ulid();
     await assertHandsTo(db, { handsTo: parsed.handsTo, id, workspaceId });
     const row: AgentRow = {
+      askLevel: "rarely",
       backupUserId: null,
       computerMachineId: null,
       createdAt: new Date().toISOString(),
