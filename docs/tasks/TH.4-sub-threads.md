@@ -30,3 +30,4 @@ From the 10 Nov 2026 review. Delegated work is disconnected from the conversatio
 - 2026-11-10: dispatched to a Sonnet implementer on task/TH.4-sub-threads. Lane rule relaxed for this run; files checked against the other running tasks.
 - 2026-11-10: Dom dropped per-task reviews for a review per milestone. This task's review was already running, so it finished and its must-fix items were applied.
 - 2026-11-10: Merged as dfd75103, with the live-parent wake gap left open as a question for Dom. check, test and build passed on main, and the bundle grep was empty.
+- 2026-11-11: Dom chose to always wake a live parent when a child ends. That is TH.6.

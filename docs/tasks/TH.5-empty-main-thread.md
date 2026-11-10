@@ -3,9 +3,9 @@ id: TH.5
 title: A main thread with no runs opens
 milestone: TH
 size: S
-status: todo
+status: in_progress
 depends_on: [TH.3]
-branch: null
+branch: task/TH.5-empty-main-thread
 lane: web
 executor: claude
 ---
@@ -25,3 +25,4 @@ Found on staging on 11 Nov 2026 during the smoke check after the CL merges. On a
 
 ## Log
 - 2026-11-11: added from the staging smoke check (verify3), not dispatched. Team-lead scoped the work to the CL tasks, so dispatch waits for a go.
+- 2026-11-11: dispatched to a Sonnet implementer on task/TH.5-empty-main-thread, with a per-task review, after Dom's go.
