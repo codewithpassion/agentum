@@ -24,3 +24,4 @@ From the 10 Nov 2026 review. Three runtimes each assemble the run's launch conte
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-10: dispatched to a Sonnet implementer on task/CL.3-launch-context, after RT.2 merged (it touched managed/service.ts). CL.2 and CL.5 wait for the feature branches.
+- 2026-11-10: Ready at c02456f8 on task/CL.3-launch-context with a clean task review. Held unmerged on Dom's instruction to hold the cleanup milestone, until Dom decides. Its review started before Dom dropped per-task reviews, so it ran to the end.

@@ -3,7 +3,7 @@ id: TH.4
 title: Hand-offs and helpers show as sub-threads
 milestone: TH
 size: M
-status: in_progress
+status: done
 depends_on: [TH.2, TH.3]
 branch: task/TH.4-sub-threads
 lane: web
@@ -28,3 +28,5 @@ From the 10 Nov 2026 review. Delegated work is disconnected from the conversatio
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-10: dispatched to a Sonnet implementer on task/TH.4-sub-threads. Lane rule relaxed for this run; files checked against the other running tasks.
+- 2026-11-10: Dom dropped per-task reviews for a review per milestone. This task's review was already running, so it finished and its must-fix items were applied.
+- 2026-11-10: Merged as dfd75103, with the live-parent wake gap left open as a question for Dom. check, test and build passed on main, and the bundle grep was empty.

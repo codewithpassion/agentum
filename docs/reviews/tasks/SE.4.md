@@ -28,3 +28,7 @@ Round 1, commit 1b25b94: clean. The script now reads `NEW_SECRETS_KEY` and `OLD_
 ## Steps for Dom
 
 Nothing is required to merge. To rotate, follow `docs/key-rotation.md`: set `SECRETS_KEY_PREVIOUS` and `RUN_TOKEN_KEY_PREVIOUS` with `wrangler secret put`, and keep the old values in the password manager first.
+
+## Test note from the controller
+
+The implementer saw guest-execution.test.ts fail with ECONNRESET from Miniflare in the full suite. The same test failed the same way on main under full-suite load earlier today, and it passed alone. It passed in the full suite on main after this merge (dfd75103).
