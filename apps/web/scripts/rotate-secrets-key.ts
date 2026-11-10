@@ -2,8 +2,10 @@
 // Re-encrypts every value stored under the previous SECRETS_KEY with the
 // current one (SE.4). Dry run unless --apply. The runbook is
 // docs/key-rotation.md. The keys come from the environment, never from flags,
-// so they stay out of shell history and process lists:
-//   SECRETS_KEY=<new> SECRETS_KEY_PREVIOUS=<old> bun run rotate-secrets-key (--local | --remote [--env staging]) [--apply]
+// so they stay out of shell history and process lists. They have their own
+// names because bun loads apps/web/.env and .env.local, which define
+// SECRETS_KEY for local dev: a key read from there would be the wrong one.
+//   NEW_SECRETS_KEY=<new> OLD_SECRETS_KEY=<old> bun run rotate-secrets-key (--local | --remote [--env staging]) [--apply]
 // --local works on Miniflare's state, --remote on the real D1 database.
 import { spawn, write } from "bun";
 import { type Driver, run } from "./rotate-secrets-key-helpers.ts";
@@ -73,15 +75,15 @@ const parseArgs = (argv: string[]) => {
 
 const main = async () => {
   const flags = parseArgs(process.argv.slice(2));
-  const current = process.env.SECRETS_KEY?.trim();
-  const previous = process.env.SECRETS_KEY_PREVIOUS?.trim();
+  const current = process.env.NEW_SECRETS_KEY?.trim();
+  const previous = process.env.OLD_SECRETS_KEY?.trim();
   if (!(current && previous)) {
     throw new Error(
-      "Set SECRETS_KEY (the new key) and SECRETS_KEY_PREVIOUS (the old key) in the environment."
+      "Set NEW_SECRETS_KEY (the new key) and OLD_SECRETS_KEY (the old key) in the environment."
     );
   }
   if (current === previous) {
-    throw new Error("SECRETS_KEY and SECRETS_KEY_PREVIOUS are the same key.");
+    throw new Error("NEW_SECRETS_KEY and OLD_SECRETS_KEY are the same key.");
   }
   const env = flags.get("--env");
   const driver = wranglerDriver(
