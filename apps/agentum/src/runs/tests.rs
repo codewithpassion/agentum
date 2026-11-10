@@ -1257,6 +1257,7 @@ async fn relay_offer_reaches_role_executor_and_hello_advertises_cli_features() {
     let host = host(&url, temp.path());
     let role: Arc<dyn Role> = Arc::new(AgentHost {
         instance: "test".into(),
+        paths: Paths::new(temp.path().join("config"), temp.path().join("state"), false),
         state_file: temp.path().join("connection.json"),
         host,
         load_error: None,

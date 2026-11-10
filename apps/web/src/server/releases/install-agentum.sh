@@ -16,6 +16,9 @@ INSTANCE=""
 RUN_AS=current
 REPLACE_OLD=false
 CODE_STDIN=false
+DESKTOP=false
+DESKTOP_HINT=""
+if [ "${AGENTUM_DESKTOP:-}" = 1 ]; then DESKTOP=true; DESKTOP_HINT="--desktop "; fi
 TMP_BIN=""
 say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -33,6 +36,7 @@ parse_args() {
         say 'Usage: AGENTUM_ENROLL_CODE=<code> sh install-agentum.sh [--code-stdin] [--instance <name>] [--run-as current|<user>|agent-user] [--replace-old]'
         say 'A code creates a new instance. Use --instance <name> to replace an enrolled instance.'
         say 'Use --code-stdin to read a code from stdin. Without a code, updates existing instances.'
+        say 'AGENTUM_DESKTOP=1 also installs the desktop packages and turns the desktop on. It needs root or passwordless sudo.'
         exit 0 ;;
       *) die 'unknown option (see --help)' ;;
     esac
@@ -151,6 +155,65 @@ install_binary() {
 }
 
 
+# Prints the failed doctor checks with their fixes. A failed check never fails
+# the install: the machine is enrolled and the Machines page shows the same list.
+run_doctor() {
+  report=$("$BIN" doctor --instance "$1" 2>/dev/null || :)
+  failed=$(printf '%s\n' "$report" | awk '
+    /^(Ok|Warning): / { show = 0 }
+    /^Problem: / { show = 1; count++ }
+    show { print }
+    END { exit count > 0 ? 0 : 1 }') || {
+    say "agentum doctor found no problems for $1."
+    return 0
+  }
+  say 'agentum doctor found problems. Fix them for this machine to work:'
+  printf '%s\n' "$failed"
+  say "After fixing them, check again with: $BIN doctor --instance $1"
+}
+# Runs a command as root, through sudo when this is not root.
+as_root() {
+  if [ "$(id -u)" = 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n "$@"
+  else
+    return 1
+  fi
+}
+install_desktop_packages() {
+  update=""
+  if command -v apt-get >/dev/null 2>&1; then
+    update="apt-get update"
+    packages="xvfb openbox xdotool xclip chromium fonts-dejavu-core"
+    install="env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends"
+  elif command -v dnf >/dev/null 2>&1; then
+    packages="xorg-x11-server-Xvfb openbox xdotool xclip chromium"
+    install="dnf install -y"
+  else
+    die 'AGENTUM_DESKTOP=1 needs apt-get or dnf. Install Xvfb, openbox, xdotool, xclip and Chromium yourself, then run this again.'
+  fi
+  say 'Installing the desktop packages'
+  # shellcheck disable=SC2086
+  if [ -n "$update" ] && ! as_root $update; then
+    die "could not install the desktop packages. Run as root: $update && $install $packages"
+  fi
+  # Debian's Chromium needs this setuid helper when the kernel blocks user namespaces.
+  if [ -n "$update" ] && apt-cache show chromium-sandbox >/dev/null 2>&1; then
+    packages="$packages chromium-sandbox"
+  fi
+  # shellcheck disable=SC2086
+  if as_root $install $packages; then
+    say 'Installed the desktop packages.'
+  else
+    die "could not install the desktop packages. Run as root: ${update:+$update && }$install $packages"
+  fi
+}
+install_service() {
+  set -- service install "--$MODE" --run-as "$RUN_AS" --instance "$instance"
+  if [ "$DESKTOP" = true ]; then set -- "$@" --desktop; fi
+  "$BIN" "$@" --yes
+}
 restart_service() {
   if "$BIN" service installed --instance "$instance"; then
     :
@@ -162,6 +225,7 @@ restart_service() {
   fi
   if "$BIN" service restart --instance "$instance"; then
     say "Updated and restarted $instance. Next: $BIN service status --instance $instance"
+    run_doctor "$instance"
   else
     printf 'warning: could not restart %s\n' "$instance" >&2
     return 2
@@ -198,21 +262,27 @@ enroll_machine() {
     # Replacement keeps the enrolled run-as, which can differ from this invocation.
     RUN_AS=$(printf '%s\n' "$answer" | sed -n 's/.*"runAs"[[:space:]]*:[[:space:]]*"\([a-zA-Z0-9_-]*\)".*/\1/p')
     [ -n "$RUN_AS" ] || die 'Enrolment returned no run-as. Run agentum status to inspect the saved enrolment.'
-    if restart_service; then
+    if [ "$DESKTOP" = true ] && "$BIN" service installed --instance "$instance"; then
+      # Only a service install turns the desktop on for a saved instance.
+      install_service || die "Enrolled $instance, but its service was not updated. Fix the problem above, then run: $BIN service install --$MODE --run-as $RUN_AS --instance $instance --desktop --yes"
+      say "Updated its $MODE service with the desktop on."
+      run_doctor "$instance"
+    elif restart_service; then
       :
     else
       restart_status=$?
       if [ "$restart_status" = 1 ]; then
-        say "Next: $BIN service install --$MODE --run-as $RUN_AS --instance $instance --yes"
+        say "Next: $BIN service install --$MODE --run-as $RUN_AS --instance $instance ${DESKTOP_HINT}--yes"
       else
         die "Enrolled $instance, but its service could not be restarted. See the message above."
       fi
     fi
   else
-    "$BIN" service install "--$MODE" --run-as "$RUN_AS" --instance "$instance" --yes ||
-      die "Enrolled $instance, but its service was not installed. Fix the problem above, then run: $BIN service install --$MODE --run-as $RUN_AS --instance $instance --yes"
+    install_service ||
+      die "Enrolled $instance, but its service was not installed. Fix the problem above, then run: $BIN service install --$MODE --run-as $RUN_AS --instance $instance ${DESKTOP_HINT}--yes"
     say "Installed its $MODE service."
     say "Next: $BIN service status --instance $instance"
+    run_doctor "$instance"
   fi
 }
 main() {
@@ -227,8 +297,13 @@ main() {
   check_old
   read_manifest
   install_binary
+  if [ "$DESKTOP" = true ]; then install_desktop_packages; fi
   FOUND=false
   instances
-  if [ -n "$CODE" ] || [ "$FOUND" = false ]; then enroll_machine; fi
+  if [ -n "$CODE" ] || [ "$FOUND" = false ]; then
+    enroll_machine
+  elif [ "$DESKTOP" = true ]; then
+    say "Installed the desktop packages. Turn the desktop on for an instance with: $BIN service install --desktop --instance <name> --yes"
+  fi
 }
 main "$@"

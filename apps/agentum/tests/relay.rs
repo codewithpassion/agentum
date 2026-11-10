@@ -547,43 +547,52 @@ async fn production_constructors_send_strict_hellos_and_log_frames() {
     config.claude_binary = Some(fake_claude.display().to_string());
     paths.save("office", &config, "ag_mach_test").unwrap();
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
-    let server = tokio::spawn(async move {
-        let mut handlers = tokio::task::JoinSet::new();
-        for _ in 0..2 {
-            let (tcp, _) = listener.accept().await.unwrap();
-            let barrier = barrier.clone();
-            handlers.spawn(async move {
-                let mut socket = accept_async(tcp).await.unwrap();
-                let frame = socket.next().await.unwrap().unwrap();
-                let hello: Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
-                assert_eq!(hello["type"], "hello");
-                if hello.get("protocol_version").is_some() {
-                    assert_eq!(hello.as_object().unwrap().len(), 9);
-                } else {
-                    assert_eq!(hello.as_object().unwrap().len(), 5);
+    let server =
+        tokio::spawn(async move {
+            let mut handlers = tokio::task::JoinSet::new();
+            for _ in 0..2 {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let barrier = barrier.clone();
+                handlers.spawn(async move {
+                    let mut socket = accept_async(tcp).await.unwrap();
+                    let frame = socket.next().await.unwrap().unwrap();
+                    let hello: Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+                    assert_eq!(hello["type"], "hello");
+                    if hello.get("protocol_version").is_some() {
+                        assert_eq!(hello.as_object().unwrap().len(), 10);
+                        assert!(hello["doctor"].is_array());
+                    } else {
+                        assert_eq!(hello.as_object().unwrap().len(), 6);
+                        // The fake CLI cannot answer `auth status`, so the doctor reports the login.
+                        assert!(
+                            hello["doctor"].as_array().unwrap().iter().any(|p| p["name"]
+                                == "claude login"
+                                && p["message"].as_str().unwrap().contains("claude auth login")),
+                            "{hello}"
+                        );
+                        socket
+                            .send(Message::text(r#"{"type":"hello_ack"}"#))
+                            .await
+                            .unwrap();
+                    }
                     socket
-                        .send(Message::text(r#"{"type":"hello_ack"}"#))
+                        .send(Message::text(r#"{"type":"future_frame"}"#))
                         .await
                         .unwrap();
-                }
-                socket
-                    .send(Message::text(r#"{"type":"future_frame"}"#))
-                    .await
-                    .unwrap();
-                barrier.wait().await;
-                socket
-                    .send(Message::Close(Some(CloseFrame {
-                        code: 4401.into(),
-                        reason: "revoked".into(),
-                    })))
-                    .await
-                    .unwrap();
-            });
-        }
-        while let Some(result) = handlers.join_next().await {
-            result.unwrap();
-        }
-    });
+                    barrier.wait().await;
+                    socket
+                        .send(Message::Close(Some(CloseFrame {
+                            code: 4401.into(),
+                            reason: "revoked".into(),
+                        })))
+                        .await
+                        .unwrap();
+                });
+            }
+            while let Some(result) = handlers.join_next().await {
+                result.unwrap();
+            }
+        });
     let roles = vec![
         agentum::runs::role(&paths, "office", &config),
         agentum::computer::role(&paths, "office", &config),

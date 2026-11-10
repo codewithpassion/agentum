@@ -524,6 +524,41 @@ test("markOnline stores the daemon version and a ping without one keeps it", asy
   expect(machineRow("m1")).toMatchObject({ daemonVersion: "0.1.0+abc1234" });
 });
 
+test("markOnline stores the doctor's problems, an empty list clears them and a ping keeps them", async () => {
+  seedMachine("m1", { name: "laptop" });
+  const me = machinePrincipal("m1");
+  const problem = {
+    message: "Check claude login\nFix: claude auth login",
+    name: "claude login",
+  };
+
+  expect(machineRow("m1")?.doctorProblems).toBeNull();
+  await service.markOnline(me, { doctor: [problem] });
+  await service.markOnline(me);
+  expect(JSON.parse(machineRow("m1")?.doctorProblems ?? "null")).toEqual([
+    problem,
+  ]);
+  const [listed] = await service.list(user);
+  expect(listed?.doctorProblems).toEqual([problem]);
+  await service.markOnline(me, { doctor: [] });
+  expect(JSON.parse(machineRow("m1")?.doctorProblems ?? "null")).toEqual([]);
+});
+
+test("markComputerOnline stores the doctor's problems from the hello", async () => {
+  const { machineId } = await enrollComputerOnly("Desk");
+  const problem = {
+    message: "Fix: sudo apt install xvfb",
+    name: "desktop packages",
+  };
+  await service.markComputerOnline(machinePrincipal(machineId), {
+    ...computerHello(),
+    doctor: [problem],
+  });
+  expect(JSON.parse(machineRow(machineId)?.doctorProblems ?? "null")).toEqual([
+    problem,
+  ]);
+});
+
 test("markOnline brings a machine online once and stores what the daemon sent", async () => {
   seedMachine("m1", { name: "laptop" });
   seedMachine("m-revoked", { status: "revoked" });

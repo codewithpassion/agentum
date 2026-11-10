@@ -105,6 +105,25 @@ export function MachineRow({
               )}
             </p>
           ) : null}
+          {machine.doctorProblems?.length ? (
+            <div className="mt-1 flex flex-col gap-1 text-sm">
+              <p className="font-medium text-destructive">
+                This machine needs attention
+              </p>
+              {machine.doctorProblems.map((problem) => (
+                <p
+                  className="whitespace-pre-line text-muted-foreground"
+                  key={problem.name}
+                >
+                  <span className="font-medium text-foreground">
+                    {problem.name}
+                  </span>
+                  {": "}
+                  {problem.message}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </div>
       </ResponsiveCell>
       <ResponsiveCell label="Roles">

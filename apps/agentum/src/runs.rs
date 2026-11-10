@@ -44,6 +44,7 @@ struct Host {
 }
 struct AgentHost {
     instance: String,
+    paths: Paths,
     state_file: PathBuf,
     host: Host,
     load_error: Option<String>,
@@ -55,6 +56,7 @@ pub fn role(paths: &Paths, name: &str, config: &Config) -> Arc<dyn Role> {
     let credential = loaded.map(|(_, credential)| credential).unwrap_or_default();
     Arc::new(AgentHost {
         instance: name.into(),
+        paths: paths.clone(),
         state_file: paths.state(name).join("connection-agent_host.json"),
         host: Host {
             root: paths.work_root(name, &config.run_as),
@@ -210,6 +212,16 @@ impl Role for AgentHost {
     }
     fn machine_name(&self) -> &str {
         &self.host.config.machine_name
+    }
+    async fn problems(&self) -> Option<Value> {
+        Some(
+            crate::doctor::problems(&crate::doctor::Context {
+                paths: &self.paths,
+                name: &self.instance,
+                config: Some(&self.host.config),
+            })
+            .await,
+        )
     }
     fn hello(&self) -> Value {
         serde_json::to_value(wire::daemon_hello(

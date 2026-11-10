@@ -80,6 +80,30 @@ pub async fn run(ctx: &Context<'_>) -> Vec<Check> {
     checks
 }
 
+/// The failed checks a running role sends in its hello. The server check is left out,
+/// because the role is already connected to it. Each message carries its own fix.
+pub async fn problems(ctx: &Context<'_>) -> serde_json::Value {
+    let mut checks = instance::checks(ctx);
+    checks.extend(instance::connections(ctx));
+    checks.extend(service::checks(ctx).await);
+    checks.extend(claude::checks(ctx));
+    checks.extend(computer::checks(ctx));
+    checks
+        .into_iter()
+        .filter(|check| matches!(check.level, Level::Problem))
+        .take(20)
+        .map(|check| {
+            serde_json::json!({
+                "name": check.name,
+                "message": truncate(check.message.strip_prefix("Problem: ").unwrap_or(&check.message), 2000),
+            })
+        })
+        .collect()
+}
+fn truncate(text: &str, max: usize) -> String {
+    text.chars().take(max).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -132,6 +132,11 @@ async fn replacement_returns_before_run_teardown() {
     );
     let role = AgentHost {
         instance: "test".into(),
+        paths: crate::instance::Paths::new(
+            temp.path().join("config"),
+            temp.path().join("state"),
+            false,
+        ),
         state_file: temp.path().join("connection"),
         host,
         load_error: None,

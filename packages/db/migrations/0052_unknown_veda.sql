@@ -1,0 +1,1 @@
+ALTER TABLE `machines` ADD `doctor_problems` text;

@@ -28,6 +28,8 @@ import {
 } from "@repo/db/shared";
 import type { HelloMessage } from "@repo/protocol/computer";
 import {
+  type DoctorProblem,
+  doctorProblemsSchema,
   type EnrollResponse,
   machineEnrollRequestSchema,
   type RolesEnrollRequest,
@@ -131,6 +133,8 @@ export interface MachineRecord {
   createdAt: string;
   /** The version the daemon reported in its last hello. Null before it first connects. */
   daemonVersion: string | null;
+  /** The checks the machine's doctor failed on, from its last hello. Null before a client that reports them connects. */
+  doctorProblems: DoctorProblem[] | null;
   enrolledBy: string;
   id: string;
   lastSeenAt: string | null;
@@ -190,6 +194,10 @@ const toRecord = (row: MachineRow): MachineRecord => ({
   computerStatus: row.computerStatus,
   createdAt: row.createdAt,
   daemonVersion: row.daemonVersion,
+  doctorProblems:
+    row.doctorProblems === null
+      ? null
+      : doctorProblemsSchema.parse(JSON.parse(row.doctorProblems)),
   enrolledBy: row.enrolledBy,
   id: row.id,
   lastSeenAt: row.lastSeenAt,
@@ -760,6 +768,7 @@ export const createMachinesService = ({
     seen: {
       capabilities?: Record<string, unknown>;
       daemonVersion?: string;
+      doctor?: DoctorProblem[];
     } = {}
   ): Promise<"ok" | "revoked"> => {
     const machine = requireMachine(principal, PRESENCE_ACTION);
@@ -787,6 +796,9 @@ export const createMachinesService = ({
         ...(seen.daemonVersion === undefined
           ? {}
           : { daemonVersion: seen.daemonVersion }),
+        ...(seen.doctor === undefined
+          ? {}
+          : { doctorProblems: JSON.stringify(seen.doctor) }),
       })
       .where(and(scope, ne(machines.status, "revoked")))
       .returning({ id: machines.id });
@@ -881,6 +893,9 @@ export const createMachinesService = ({
           workdir: hello.workdir,
         }),
         computerLastSeenAt: nowIso(),
+        ...(hello.doctor === undefined
+          ? {}
+          : { doctorProblems: JSON.stringify(hello.doctor) }),
       })
       .where(and(scope, isNotNull(machines.computerStatus)))
       .returning({ id: machines.id });

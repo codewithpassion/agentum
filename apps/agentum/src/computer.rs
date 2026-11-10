@@ -300,6 +300,7 @@ impl Engine {
     }
 }
 struct Computer {
+    paths: Paths,
     name: String,
     config: Config,
     state_file: PathBuf,
@@ -312,6 +313,7 @@ struct Computer {
 }
 pub fn role(paths: &Paths, name: &str, config: &Config) -> Arc<dyn Role> {
     Arc::new(Computer {
+        paths: paths.clone(),
         name: name.into(),
         config: config.clone(),
         state_file: paths.state(name).join("connection-computer.json"),
@@ -376,6 +378,16 @@ impl Role for Computer {
     }
     fn machine_name(&self) -> &str {
         &self.config.machine_name
+    }
+    async fn problems(&self) -> Option<Value> {
+        Some(
+            crate::doctor::problems(&crate::doctor::Context {
+                paths: &self.paths,
+                name: &self.name,
+                config: Some(&self.config),
+            })
+            .await,
+        )
     }
     fn hello(&self) -> Value {
         let capabilities = self

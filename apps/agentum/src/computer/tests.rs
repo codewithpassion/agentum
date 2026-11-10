@@ -938,6 +938,7 @@ async fn frames_beyond_the_handler_cap_are_refused_and_exec_reservations_release
         crate::instance::RunAs::Current,
     );
     let role = Arc::new(Computer {
+        paths: Paths::new(dir.path().join("config"), dir.path().join("state"), false),
         name: "box".into(),
         config,
         state_file: engine.state.join("connection-computer.json"),

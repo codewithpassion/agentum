@@ -59,6 +59,10 @@ pub trait Role: Send + Sync + 'static {
         Ok(())
     }
     fn hello(&self) -> Value;
+    /// The failed doctor checks to send with the hello, or None to send none.
+    async fn problems(&self) -> Option<Value> {
+        None
+    }
     /// Reserve ids on the read loop before dispatching work, so a cancel cannot overtake exec.
     fn on_frame(&self, frame: Value, reply: Reply) -> Result<()>;
     /// AgentHost aborts runs on replacement; Computer keeps commands alive until Stopped/Revoked.
@@ -273,7 +277,12 @@ async fn session(
         generation: GENERATION.fetch_add(1, Ordering::Relaxed),
         sender,
     };
-    let hello = Message::text(role.hello().to_string());
+    let mut hello = role.hello();
+    // A slow doctor must not hold the hello back: the server keeps the last list.
+    if let Ok(Some(problems)) = timeout(Duration::from_secs(10), role.problems()).await {
+        hello["doctor"] = problems;
+    }
+    let hello = Message::text(hello.to_string());
     if !matches!(
         timeout(timing.write_timeout, socket.send(hello)).await,
         Ok(Ok(()))

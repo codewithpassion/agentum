@@ -7,6 +7,7 @@
  * needs a new `protocol_version` instead.
  */
 import { z } from "zod";
+import { doctorProblemsSchema } from "./machine.ts";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -96,6 +97,8 @@ export function isUsableWorkdir(value: string): boolean {
 export const HelloMessageSchema = z.object({
   arch: z.string().min(1).max(32),
   capabilities: ComputerCapabilitiesSchema,
+  /** What `agentum doctor` found. A client that does not run it omits the field. */
+  doctor: doctorProblemsSchema.optional(),
   hostname: z.string().min(1).max(255),
   os: z.string().min(1).max(32),
   protocol_version: z.literal(PROTOCOL_VERSION),
