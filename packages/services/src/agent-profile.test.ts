@@ -194,8 +194,6 @@ beforeEach(async () => {
   a2 = await make("Beta", "w1");
   a3 = await make("Gamma", "w1");
   b1 = await make("Other", "w2");
-  // The tests below that predate levels read rules alone, as every agent did.
-  await db.update(agentRows).set({ askLevel: "custom" });
 });
 
 const seedRun = async (
@@ -803,7 +801,7 @@ const asking = async () =>
     .filter((row) => row.ask)
     .map((row) => row.action);
 
-const NEW_AGENT_ASKS = ["harbourmaster/send_message"];
+const NEW_AGENT_ASKS: string[] = [];
 
 test("send_message and start_subagent are gateable actions", async () => {
   const actions = await service.askBefore(user(), { agentId: a1 });
@@ -828,6 +826,10 @@ test("a new agent asks rarely, and custom is what a migrated agent with rules re
     .create(user(), { model: "m", name: "Fresh", runtime: "cloud" })
     .then((agent) => agent.id);
   expect(await service.askLevel(user(), { agentId: id })).toBe("rarely");
+  await db
+    .update(agentRows)
+    .set({ askLevel: "custom" })
+    .where(eq(agentRows.id, a1));
   expect(await service.askLevel(user(), { agentId: a1 })).toBe("custom");
   expect(
     (await service.askBefore(user(), { agentId: id }))

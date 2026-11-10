@@ -33,7 +33,10 @@ export const BUILTIN_ACTIONS: readonly BuiltinAction[] = [
   { key: "web_fetch", label: "Fetch a web page" },
   { key: "run_script", label: "Run a script" },
   { key: "run_skill_script", label: "Run a skill's script" },
-  { key: `${PLATFORM_KEY}/send_message`, label: "Send a message to a person" },
+  {
+    key: `${PLATFORM_KEY}/send_message`,
+    label: "Send a message to another agent",
+  },
   { key: `${PLATFORM_KEY}/start_subagent`, label: "Start a subagent" },
 ];
 
@@ -119,9 +122,6 @@ export const gateableActions = (
   ];
 };
 
-const RARE_ACTIONS: ReadonlySet<string> = new Set([
-  `${PLATFORM_KEY}/send_message`,
-]);
 const OUTSIDE_BUILTINS: ReadonlySet<string> = new Set([
   "web_fetch",
   `${PLATFORM_KEY}/send_message`,
@@ -129,9 +129,11 @@ const OUTSIDE_BUILTINS: ReadonlySet<string> = new Set([
 
 /**
  * Whether the level alone asks before the action, with no override. "Rarely"
- * asks before a message goes to a person, "outside" adds every connector tool
- * and fetching a web page, "everything" asks before every action. `custom`
- * asks about nothing: the agent's rules decide.
+ * asks about none of them, which is how every agent ran before levels: only the
+ * checks that always run (mail outside the workspace, peers) still stop it.
+ * "Outside" asks before every connector tool, fetching a web page and handing
+ * work to another agent, "everything" before every action. `custom` asks about
+ * nothing either: the agent's rules decide.
  */
 export const levelAsks = (
   level: AskLevel,
@@ -142,8 +144,6 @@ export const levelAsks = (
       return true;
     case "outside":
       return action.kind === "connector" || OUTSIDE_BUILTINS.has(action.key);
-    case "rarely":
-      return RARE_ACTIONS.has(action.key);
     default:
       return false;
   }

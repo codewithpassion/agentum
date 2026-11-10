@@ -40,12 +40,14 @@ export function askSummary(
 
 export const ASK_LEVEL_OPTIONS = [
   {
-    description: "Only before it sends a message to a person.",
+    description:
+      "Only the checks that always run, like emailing someone outside the workspace.",
     label: "Ask rarely",
     value: "rarely",
   },
   {
-    description: "Also before it uses a connector tool or fetches a web page.",
+    description:
+      "Before it uses a connector tool, fetches a web page or hands work to another agent.",
     label: "Ask before it acts outside",
     value: "outside",
   },

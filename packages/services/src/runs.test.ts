@@ -284,8 +284,6 @@ beforeEach(async () => {
   fakeAgentId = (
     await agents.create(user, { model: "m", name: "Fake", runtime: "fake" })
   ).id;
-  // These tests read rules alone, as every agent did before ask levels.
-  await db.update(agentRows).set({ askLevel: "custom" });
   runs = buildRuns();
 });
 
