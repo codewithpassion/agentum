@@ -25,7 +25,7 @@
     "staging:build": "CLOUDFLARE_ENV=staging vite build --mode staging && bun scripts/check-dev-only.ts",
     "staging:deploy": "bun run staging:build && wrangler d1 migrations apply DB --remote --env staging && bun scripts/publish-releases.ts --env staging && wrangler deploy --env staging",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit"
   },
   "dependencies": {
     "@assistant-ui/react": "0.15.31",
