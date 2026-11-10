@@ -119,6 +119,10 @@ import {
 } from "@repo/services/connectors";
 import type { Fetcher } from "@repo/services/connectors/mcp";
 import {
+  type ConversationsService,
+  createConversationsService,
+} from "@repo/services/conversations";
+import {
   type CredentialsService,
   createCredentialsService,
 } from "@repo/services/credentials";
@@ -478,6 +482,7 @@ export interface Services {
   connections: ConnectionsService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
+  conversations: ConversationsService;
   credentials: CredentialsService;
   desk: DeskService;
   deskApi: DeskApiService;
@@ -1324,6 +1329,7 @@ export const composeWith = ({
       connections,
       connectorOAuth,
       connectors,
+      conversations: createConversationsService({ assistant, sessions }),
       credentials,
       desk,
       deskApi,

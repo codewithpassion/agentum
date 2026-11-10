@@ -55,6 +55,7 @@
     "./connectors/safe-url": "./src/connectors/safe-url.ts",
     "./connectors/test-seed": "./src/connectors/test-seed.ts",
     "./connectors/url": "./src/connectors/url.ts",
+    "./conversations": "./src/conversations.ts",
     "./credentials": "./src/credentials.ts",
     "./crypto": "./src/crypto.ts",
     "./dictation": "./src/dictation.ts",

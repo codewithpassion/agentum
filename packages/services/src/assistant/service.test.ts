@@ -706,3 +706,87 @@ test("card outcome arrays are bounded", async () => {
   }
   f.db.client.close();
 });
+
+const seedConversation = (
+  f: ReturnType<typeof fixture>,
+  id: string,
+  title: string,
+  updatedAt: string,
+  messages = 0
+) => {
+  f.db
+    .insert(assistantConversations)
+    .values({
+      createdAt: updatedAt,
+      id,
+      title,
+      updatedAt,
+      userId: "u1",
+      workspaceId: "ws_a",
+    })
+    .run();
+  for (let seq = 0; seq < messages; seq += 1) {
+    f.db
+      .insert(assistantMessages)
+      .values({
+        content: [{ text: `message ${seq}`, type: "text" }],
+        conversationId: id,
+        createdAt: updatedAt,
+        id: `${id}_m${seq}`,
+        role: seq % 2 === 0 ? "user" : "assistant",
+        seq,
+        workspaceId: "ws_a",
+      })
+      .run();
+  }
+};
+
+test("list pages by activity, takes a title search, and caps a page at 50", async () => {
+  const f = fixture([]);
+  for (let index = 0; index < 55; index += 1) {
+    seedConversation(
+      f,
+      `c${String(index).padStart(2, "0")}`,
+      index === 3 ? "Quarterly 100% plan" : `Chat ${index}`,
+      `2026-11-01T00:${String(index).padStart(2, "0")}:00Z`
+    );
+  }
+  const first = await f.service.list(user);
+  expect(first).toHaveLength(50);
+  expect(first[0]?.id).toBe("c54");
+  const rest = await f.service.list(user, { cursor: first.at(-1)?.cursor });
+  expect(rest.map((item) => item.id)).toEqual([
+    "c04",
+    "c03",
+    "c02",
+    "c01",
+    "c00",
+  ]);
+  expect(await f.service.list(user, { limit: 2 })).toHaveLength(2);
+  expect(
+    (await f.service.list(user, { query: "100%" })).map((item) => item.id)
+  ).toEqual(["c03"]);
+  await expect(f.service.list(user, { cursor: "nonsense" })).rejects.toThrow();
+  f.db.client.close();
+});
+
+test("get returns the newest 50 messages and pages back with before", async () => {
+  const f = fixture([]);
+  seedConversation(f, "long", "Long one", "2026-11-01T00:00:00Z", 120);
+  const newest = await f.service.get(user, "long");
+  expect(newest.messages).toHaveLength(50);
+  expect(newest.messages[0]?.seq).toBe(70);
+  expect(newest.messages.at(-1)?.seq).toBe(119);
+  expect(newest.hasEarlier).toBe(true);
+  const middle = await f.service.get(user, "long", { before: 70 });
+  expect(middle.messages.map((message) => message.seq)).toEqual(
+    Array.from({ length: 50 }, (_, index) => 20 + index)
+  );
+  expect(middle.pendingCard).toBeNull();
+  const oldest = await f.service.get(user, "long", { before: 20 });
+  expect(oldest.messages).toHaveLength(20);
+  expect(oldest.hasEarlier).toBe(false);
+  seedConversation(f, "short", "Short one", "2026-11-01T00:00:00Z", 2);
+  expect((await f.service.get(user, "short")).hasEarlier).toBe(false);
+  f.db.client.close();
+});

@@ -75,7 +75,7 @@ test("header shortcut follows the platform", () => {
   expect(findShortcut("Linux x86_64")).toBe("Ctrl K");
 });
 
-test("Working caps at three and links to Every task", () => {
+test("Working caps at three and links to the conversation list filtered to running", () => {
   const runs = Array.from({ length: 5 }, (_, i) => ({
     agentId: "a",
     agentName: "Agent",
@@ -89,7 +89,7 @@ test("Working caps at three and links to Every task", () => {
   expect(html).toContain("Task 2");
   expect(html).not.toContain("Task 3");
   expect(html).toContain("View all 5 running");
-  expect(html).toContain('href="/sessions"');
+  expect(html).toContain('href="/sessions?working=true"');
   expect(render(<WorkingList onNavigate={noop} runs={[]} />)).toBe("");
 });
 

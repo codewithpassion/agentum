@@ -37,7 +37,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
-/** Starts a task for an agent and reports the new run's id. */
+/** Starts a task for an agent, in a new session, and reports the new run's and session's ids. */
 export function NewTaskDialog({
   agents,
   onOpenChange,
@@ -47,7 +47,7 @@ export function NewTaskDialog({
   agents: readonly { id: string; name: string }[];
   /** Called when the dialog opens or closes, for a parent that must stay mounted while it is open. */
   onOpenChange?: (open: boolean) => void;
-  onStarted: (runId: string) => void;
+  onStarted: (runId: string, sessionId: string) => void;
   triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -110,7 +110,7 @@ export function NewTaskDialog({
         setText("");
         setAgentChoice("");
         setOpen(false);
-        onStarted(result.runId);
+        onStarted(result.runId, result.sessionId);
       } catch (cause) {
         setError(errorMessage(cause));
       } finally {
