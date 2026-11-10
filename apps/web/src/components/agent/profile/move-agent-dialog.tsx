@@ -31,6 +31,7 @@ import {
   MOVE_TARGETS,
   type MoveTarget,
   moveBlocker,
+  moveNote,
   needsAnthropicModel,
 } from "./move-agent-logic.ts";
 
@@ -55,7 +56,10 @@ export function MoveAgentDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const targets = MOVE_TARGETS.filter((entry) => entry.id !== header.runtime);
+  // A machine agent may still move to another machine.
+  const targets = MOVE_TARGETS.filter(
+    (entry) => entry.id !== header.runtime || entry.id === "machine"
+  );
   const [target, setTarget] = useState<MoveTarget>(targets[0]?.id ?? "cloud");
   const [machineId, setMachineId] = useState("");
   const [model, setModel] = useState(CLOUD_DEFAULT_MODEL);
@@ -146,7 +150,9 @@ export function MoveAgentDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Move {header.name}</DialogTitle>
-          <DialogDescription>{MOVE_COST}</DialogDescription>
+          <DialogDescription>
+            {MOVE_COST} {moveNote(target)}
+          </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="move-target">Move to</Label>

@@ -171,7 +171,11 @@ test("cloud to managed keeps the model, drops cloud-only keys and clears the run
     agentId: agent.id,
     types: ["agent.updated"],
   });
-  expect(event?.payload).toMatchObject({ changed: ["runtime"] });
+  expect(event?.payload).toMatchObject({
+    changed: ["runtime"],
+    from: "cloud",
+    to: "managed",
+  });
 });
 
 test("managed back to cloud closes its sessions and drops their vaults", async () => {
@@ -226,7 +230,7 @@ test("machine to cloud clears the machine", async () => {
   expect(moved).toMatchObject({ machineId: null, runtime: "cloud" });
 });
 
-test("machine to managed drops the machine and the cloud-incompatible turn limit", async () => {
+test("machine to managed drops the machine and the turn limit managed cannot take", async () => {
   insertMachine("m-host");
   insertKey();
   const agent = await service.create(user, {
@@ -357,4 +361,55 @@ test("only the owner or an admin on a browser session may move an agent", async 
       })
     ).runtime
   ).toBe("managed");
+});
+
+test("managed to a machine closes its sessions and detaches the computer", async () => {
+  insertKey();
+  insertMachine("m-host");
+  insertMachine("m-comp");
+  const agent = await createCloud();
+  await service.changeRuntime(user, agent.id, { runtime: "managed" });
+  insertSession(agent.id);
+  insertManagedSession();
+  db.update(agents)
+    .set({ computerMachineId: "m-comp" })
+    .where(eq(agents.id, agent.id))
+    .run();
+  const moved = await service.changeRuntime(user, agent.id, {
+    machineId: "m-host",
+    runtime: "machine",
+  });
+  expect(moved).toMatchObject({
+    computerMachineId: null,
+    machineId: "m-host",
+    runtime: "machine",
+  });
+  expect(db.select().from(managedSessions).get()?.closedAt).not.toBeNull();
+  expect(dropped).toEqual(["vlt_1"]);
+});
+
+test("a machine agent moves to another machine", async () => {
+  insertMachine("m-a");
+  insertMachine("m-b");
+  const agent = await service.create(user, {
+    machineId: "m-a",
+    model: "claude-sonnet-5-5",
+    name: "Box",
+    runtime: "machine",
+  });
+  insertSession(agent.id);
+  const moved = await service.changeRuntime(user, agent.id, {
+    machineId: "m-b",
+    runtime: "machine",
+  });
+  expect(moved.machineId).toBe("m-b");
+  expect(sessionRow()?.runtimeRef).toBeNull();
+});
+
+test("only an active agent can be moved", async () => {
+  const agent = await createCloud();
+  await service.archive(user, agent.id);
+  await expect(
+    service.changeRuntime(user, agent.id, { runtime: "managed" })
+  ).rejects.toMatchObject({ code: "invalid" });
 });

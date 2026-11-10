@@ -4,7 +4,7 @@ import type { AgentProfileView } from "#/integrations/trpc/types";
 import { MoveAgentDialog } from "./move-agent-dialog.tsx";
 import { currentRuntime } from "./profile-logic.ts";
 
-/** The "Runs on" side card: the agent's runtime as a fact. Information only. */
+/** The "Runs on" side card: the agent's runtime as a fact. The Move agent dialog changes it. */
 export function RunsOnCard({
   header,
   onAdvanced,

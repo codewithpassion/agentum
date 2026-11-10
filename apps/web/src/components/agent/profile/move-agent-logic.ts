@@ -13,6 +13,18 @@ export const MOVE_TARGETS: readonly { id: MoveTarget; title: string }[] = [
 export const MOVE_COST =
   "Open conversations start fresh, because the new runtime does not have their context. Files in the agent's sandbox do not move.";
 
+/** Extra to say for one target. A Cloudflare conversation is stored by Cloudflare and a move does not erase it. */
+export const moveNote = (target: MoveTarget): string | null => {
+  switch (target) {
+    case "cloud":
+      return "A conversation that ran on Cloudflare before may pick up there, without what happened since.";
+    case "machine":
+      return "The agent's computer is detached.";
+    default:
+      return null;
+  }
+};
+
 export interface MoveBlocker {
   /** How to clear it: a page to go to. */
   fix: {

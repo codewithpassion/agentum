@@ -146,13 +146,17 @@ type AgentValues = Pick<
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
 /** The agent's owner or an org admin, on a browser session. */
-const assertOwnerOrAdmin = (user: UserPrincipal, agent: AgentRecord): void => {
+const assertOwnerOrAdmin = (
+  user: UserPrincipal,
+  agent: AgentRecord,
+  action = AGENT_UPDATE
+): void => {
   if (
     user.via !== "session" ||
     (user.isAdmin !== true &&
       user.userId !== (agent.ownerUserId ?? agent.createdBy))
   ) {
-    throw new ForbiddenError(AGENT_UPDATE);
+    throw new ForbiddenError(action);
   }
 };
 
@@ -279,6 +283,16 @@ export type AgentRuntimeTarget = z.input<typeof agentRuntimeTargetSchema>;
 const configKeysDroppedFor = (runtime: AgentRuntime): readonly string[] => [
   ...(runtime === "cloud" ? [] : [CLOUD_ENVIRONMENT_KEY, CLOUD_NETWORK_KEY]),
   ...(runtime === "managed" ? [MAX_TURNS_KEY] : []),
+];
+
+/** The agent fields a move sets, for the event. The runtime always counts. */
+const changedByMove = (
+  current: AgentRecord,
+  next: { machineId: string | null; model: string }
+): string[] => [
+  "runtime",
+  ...(next.model === current.model ? [] : ["model"]),
+  ...(next.machineId === current.machineId ? [] : ["machineId"]),
 ];
 
 /** `input` with `patch` set on top of the agent's runtime config, when there is a patch. */
@@ -1053,7 +1067,7 @@ export const createAgentsService = ({
     if (!current) {
       throw new ServiceError("not_found", "Agent not found");
     }
-    assertOwnerOrAdmin(user, current);
+    assertOwnerOrAdmin(user, current, AGENT_CHANGE_RUNTIME);
     if (!atomic) {
       throw new ServiceError(
         "invalid",
@@ -1128,7 +1142,7 @@ export const createAgentsService = ({
       actor: { id: user.userId, kind: "user" },
       agentId: id,
       payload: {
-        changed: ["runtime"],
+        changed: changedByMove(current, next),
         from: current.runtime,
         to: next.runtime,
       },

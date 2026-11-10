@@ -41,7 +41,7 @@ test("shows the machine and its state for a machine agent", () => {
   expect(html).toContain("Online");
 });
 
-test("offers no choice-like marker or runtime control", () => {
+test("offers no choice-like marker or inline runtime control", () => {
   const html = render({ runtime: "managed" });
   expect(html).not.toContain("Current");
   expect(html).not.toContain("<select");
