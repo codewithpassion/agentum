@@ -20,7 +20,6 @@
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
-import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { machines } from "@repo/db/schema/machines";
 import {
   managedAgents,
@@ -54,7 +53,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { agentPrompt } from "../agent-prompt.ts";
-import { type AgentRecord, findAgent, handsToNames } from "../agents.ts";
+import { type AgentRecord, findAgent } from "../agents.ts";
 import { mcpServerUrls } from "../connectors/mcp-servers.ts";
 import { hashToken } from "../crypto.ts";
 import { isServiceError } from "../errors.ts";
@@ -67,19 +66,13 @@ import { askKeysOf as askKeysOfAgent } from "../requests/ask-keys.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
-import {
-  effectiveRunScope,
-  modelOfRun,
-  scopeAllows,
-} from "../runs/access-scope.ts";
+import { buildLaunchContext } from "../runs/launch-context.ts";
 import { loadRun } from "../runs/queries.ts";
-import { sessionSupportsSpeakers } from "../runs/speakers.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
-import { slackGuidanceFor } from "../slack/guidance.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelFor } from "./config.ts";
 import {
@@ -402,34 +395,6 @@ export const createManagedService = ({
         write: (id) => keys.rememberEnvironment(workspaceId, id),
       },
     });
-
-  /** The servers the Anthropic agent connects to: the platform and the agent's connectors. */
-  const serversOf = async (
-    run: RunRecord,
-    base: string
-  ): Promise<McpServerRef[]> => {
-    const assigned = await db
-      .select({ id: connectors.id, name: connectors.name })
-      .from(agentConnectors)
-      .innerJoin(connectors, eq(connectors.id, agentConnectors.connectorId))
-      .where(
-        and(
-          eq(agentConnectors.agentId, run.agentId),
-          eq(agentConnectors.workspaceId, run.workspaceId)
-        )
-      )
-      .orderBy(
-        asc(agentConnectors.createdAt),
-        asc(agentConnectors.connectorId)
-      );
-    const scope = await effectiveRunScope(db, run.workspaceId, run.id);
-    return mcpServerUrls({
-      connectors: assigned.filter((connector) =>
-        scopeAllows(scope, "connectors", connector.id)
-      ),
-      platformUrl: base,
-    });
-  };
 
   /** The tool keys the agent's rules ask about, sorted, with the platform tools a switch covers. */
   const runAskKeys = async (agent: AgentRecord, run: RunRecord) => {
@@ -918,7 +883,11 @@ export const createManagedService = ({
       },
       agent.slug
     );
-    const servers = await serversOf(run, publicBaseUrl);
+    const context = await buildLaunchContext(db, run, agent);
+    const servers = mcpServerUrls({
+      connectors: context.connectors,
+      platformUrl: publicBaseUrl,
+    });
     const grants = await grantsFor(run, agent, publicBaseUrl, servers);
     if (!grants) {
       return false;
@@ -933,27 +902,23 @@ export const createManagedService = ({
       return false;
     }
     const gateway = gatewayOf(run.workspaceId, key);
-    const model = modelFor(modelOfRun(run, agent));
+    const model = modelFor(context.model);
     const { refs, stale } = await skillsSync.sync({
       agent,
       gateway,
       skills: resolved,
       source,
     });
-    const slack = await slackGuidanceFor(db, {
-      agentId: agent.id,
-      workspaceId: run.workspaceId,
-    });
     const computer = await computerOf(agent);
     const system = systemOf(
       agent,
-      await handsToNames(db, agent),
+      context.handoffNames,
       resolved.map((skill) => skill.name),
-      slack,
+      context.slack,
       grants.guidance,
       libraryGuidanceOf(agent, publicBaseUrl, resolved),
       computer,
-      await sessionSupportsSpeakers(db, run)
+      context.multiPerson
     );
     const askKeys = await runAskKeys(agent, run);
     const fingerprint = await hashToken(
