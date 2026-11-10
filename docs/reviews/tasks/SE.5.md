@@ -14,7 +14,7 @@ Round 1 at 6a8df1a: clean, no must-fix.
 ## Not verified
 
 - Staging checks in the task file (the controller runs them).
-- `web#test` "guest execution: HTTP cap/start, durable recovery, signed MCP and suggestions" failed in my full run and alone (fetch failed, other side closed, in a node subprocess). It touches no code in this diff. The reviewer's run passed from cache.
+- `web#test` "guest execution" failed twice in my first runs (fetch failed in a node subprocess) and passed in the final full run, so it looks flaky. It touches no code in this diff.
 
 ## Steps for Dom
 
