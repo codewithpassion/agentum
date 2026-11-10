@@ -17,6 +17,7 @@ import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { runTokenKeySpec } from "../run-token-key.ts";
 import type { AppEnv } from "./groups.ts";
 
 /** Room for multipart boundaries and part headers on top of the file itself. */
@@ -167,7 +168,7 @@ export const runPrincipal = async (
   }
   let key: CryptoKey;
   try {
-    key = await importRunTokenKey(c.env.RUN_TOKEN_KEY);
+    key = await importRunTokenKey(runTokenKeySpec(c.env));
   } catch {
     return null;
   }

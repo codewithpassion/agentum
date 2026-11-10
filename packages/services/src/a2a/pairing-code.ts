@@ -5,6 +5,7 @@
  * The alphabet has 32 characters, so one byte masked with `& 31` picks a
  * character with no modulo bias.
  */
+import { splitKeySpec } from "../crypto.ts";
 
 /** No 0, O, 1 or I, so a code reads the same when someone types it. */
 export const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -58,8 +59,9 @@ export const pairingRequestCode = async (
   requestId: string,
   token: string
 ): Promise<string> => {
-  const raw = Uint8Array.from(atob(secretsKey.trim()), (char) =>
-    char.charCodeAt(0)
+  const raw = Uint8Array.from(
+    atob(splitKeySpec(secretsKey).current.trim()),
+    (char) => char.charCodeAt(0)
   );
   const key = await crypto.subtle.importKey("raw", raw, HMAC, false, ["sign"]);
   const signature = await crypto.subtle.sign(

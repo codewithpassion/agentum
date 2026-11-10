@@ -8,6 +8,8 @@ import {
   hashToken,
   importSecretsKey,
   isCryptoError,
+  keySpec,
+  splitKeySpec,
   tokenMatchesHash,
 } from "./crypto.ts";
 
@@ -200,4 +202,62 @@ test("constantTimeEqual: equal, one differing byte, lengths, empty", () => {
     constantTimeEqual(Uint8Array.from([1, 2]), Uint8Array.from([1, 2, 3]))
   ).toBe(false);
   expect(constantTimeEqual(new Uint8Array(0), new Uint8Array(0))).toBe(true);
+});
+
+test("a value written under the old key reads under the new pair", async () => {
+  const oldKey = await importSecretsKey(keyBase64(1));
+  const stored = await encryptSecret(oldKey, A, PLAINTEXT);
+  const pair = await importSecretsKey(keySpec(keyBase64(2), keyBase64(1)));
+  expect(await decryptSecret(pair, A, stored)).toBe(PLAINTEXT);
+});
+
+test("with a previous key set, new values are written under the current key", async () => {
+  const pair = await importSecretsKey(keySpec(keyBase64(2), keyBase64(1)));
+  const stored = await encryptSecret(pair, A, PLAINTEXT);
+  const current = await importSecretsKey(keyBase64(2));
+  const previous = await importSecretsKey(keyBase64(1));
+  expect(await decryptSecret(current, A, stored)).toBe(PLAINTEXT);
+  expect(
+    (await failureOf(decryptSecret(previous, A, stored), stored)).code
+  ).toBe("unavailable");
+});
+
+test("a value under neither key of the pair does not read", async () => {
+  const stranger = await importSecretsKey(keyBase64(3));
+  const stored = await encryptSecret(stranger, A, PLAINTEXT);
+  const pair = await importSecretsKey(keySpec(keyBase64(2), keyBase64(1)));
+  const failure = await failureOf(decryptSecret(pair, A, stored), stored);
+  expect(failure).toEqual({ code: "unavailable", leaks: false });
+});
+
+test("the old key still checks the binding", async () => {
+  const oldKey = await importSecretsKey(keyBase64(1));
+  const stored = await encryptSecret(oldKey, A, PLAINTEXT);
+  const pair = await importSecretsKey(keySpec(keyBase64(2), keyBase64(1)));
+  const failure = await failureOf(
+    decryptSecret(pair, { ...A, rowId: "row_2" }, stored),
+    stored
+  );
+  expect(failure.code).toBe("unavailable");
+});
+
+test("an empty or missing previous key leaves the key as it was", () => {
+  expect(keySpec(keyBase64(2), "")).toBe(keyBase64(2));
+  expect(keySpec(keyBase64(2), undefined)).toBe(keyBase64(2));
+  expect(splitKeySpec(keyBase64(2))).toEqual({
+    current: keyBase64(2),
+    previous: undefined,
+  });
+  expect(splitKeySpec(keySpec(keyBase64(2), keyBase64(1)))).toEqual({
+    current: keyBase64(2),
+    previous: keyBase64(1),
+  });
+});
+
+test("a malformed previous key is refused, not ignored", async () => {
+  const failure = await failureOf(
+    importSecretsKey(keySpec(keyBase64(2), "short")),
+    "short"
+  );
+  expect(failure.code).toBe("unavailable");
 });

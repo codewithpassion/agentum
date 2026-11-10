@@ -17,6 +17,7 @@ import { RELAY_PATH } from "@repo/services/secrets/relay";
 import { normalizeHost } from "@repo/services/secrets/rules";
 import { scrubBody, scrubText } from "@repo/services/secrets/scrub";
 import type { Context } from "hono";
+import { runTokenKeySpec } from "../run-token-key.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 import { PROXY_CAP_MS } from "./proxy.ts";
 
@@ -238,7 +239,7 @@ export const egressRoutes = ({
     const { clock, db } = c.get("composed");
     const result = await verifyAgentToken({
       db,
-      key: await importRunTokenKey(c.env.RUN_TOKEN_KEY),
+      key: await importRunTokenKey(runTokenKeySpec(c.env)),
       now: clock.now(),
       token,
     });
