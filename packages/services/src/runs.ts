@@ -2022,8 +2022,11 @@ export const createRunsService = ({
    * wakes that run's agent in the parent's own session. A hand-off is a run
    * the `send_message` tool started, an `mcp` session. A run an inbox post or
    * a Q&A answer started has its own wake and loop guard, so it wakes nothing
-   * here. A parent that is still live reads the result itself, and a subagent
-   * or an agent's own wake (same agent as its parent) wakes nothing. A refused start leaves the
+   * here. A parent that is still live is not woken: it either waited for the
+   * result in `send_message` or can read it with `get_run`, and a wake for a
+   * result it already has would cost a run each time. A subagent or an agent's
+   * own wake (same agent as its parent) wakes nothing. The woken run is a child
+   * of the parent, one level deeper, so a chain of wakes ends at `MAX_RUN_DEPTH`. A refused start leaves the
    * child's end as it was.
    */
   const wakeHandoffParent = async (child: RunRecord): Promise<void> => {

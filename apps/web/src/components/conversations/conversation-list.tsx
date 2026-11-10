@@ -9,6 +9,11 @@ import {
   nestChildren,
 } from "./conversation-logic.ts";
 
+const INDENT_CLASSES: Record<number, string | undefined> = {
+  1: "ml-4 border-border border-l pl-1",
+  2: "ml-8 border-border border-l pl-1",
+};
+
 const ROW_CLASS =
   "flex w-full flex-col gap-0.5 rounded-md px-3 py-3 text-left text-sm no-underline hover:bg-muted";
 
@@ -60,7 +65,7 @@ function Row({
   const select = useCallback(() => onSelect?.(item), [item, onSelect]);
   const className = `${ROW_CLASS} ${active ? "bg-muted font-medium" : "text-muted-foreground"}`;
   return (
-    <li className={depth > 0 ? "ml-4 border-border border-l pl-1" : undefined}>
+    <li className={INDENT_CLASSES[depth]}>
       {item.href === undefined ? (
         <button
           aria-current={active ? "true" : undefined}

@@ -191,3 +191,26 @@ test("a child thread sits under its parent, indented and with its status, wherev
   // Only the child with a parent in the list is indented.
   expect(html.match(/ml-4/g)).toHaveLength(1);
 });
+
+test("a hand-off of a hand-off still shows, one level further in", () => {
+  const thread = (id: string, parentId?: string) => ({
+    activityAt: "2026-11-09T02:00:00.000Z",
+    href: threadHref(id),
+    id,
+    kind: "thread" as const,
+    title: id,
+    ...(parentId === undefined ? {} : { parentId }),
+  });
+  const html = render(
+    <ConversationList
+      emptyText="No conversations."
+      items={[thread("c2", "c1"), thread("c1", "p"), thread("p")]}
+      label="Conversations"
+    />
+  );
+  const order = ["p", "c1", "c2"].map((id) => html.indexOf(`/threads/${id}"`));
+  expect(order.every((position) => position >= 0)).toBe(true);
+  expect(order).toEqual([...order].sort((a, b) => a - b));
+  expect(html).toContain("ml-4");
+  expect(html).toContain("ml-8");
+});

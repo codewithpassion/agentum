@@ -155,7 +155,8 @@ export function TaskThread({
   );
   const fileIds = useMemo(() => fileIdsOf(messages), [messages]);
   const { files } = useFileInfos(fileIds);
-  const subThread = task.session.parentSessionId !== null;
+  const subThread =
+    task.session.parentSessionId !== null && task.session.origin !== "artifact";
   const note = replyNote(task.session.origin, subThread);
   const latestRun = runs.at(-1);
   const latestMessage = messages.findLast(
