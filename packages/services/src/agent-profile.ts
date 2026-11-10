@@ -22,6 +22,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   gateableActions,
+  levelAsks,
   PLATFORM_TOOL_LABELS,
 } from "./agent-profile/ask-before.ts";
 import type { AgentRecord, AgentsService } from "./agents.ts";
@@ -31,7 +32,7 @@ import { ServiceError } from "./errors.ts";
 import { agentGrants } from "./library/access.ts";
 import { agentHomePath } from "./library/home.ts";
 import type { MachinesService } from "./machines.ts";
-import type { RequestsService } from "./requests.ts";
+import { askLevelSetInputSchema, type RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
 import type { SecretsService } from "./secrets.ts";
 import { visibleSessions } from "./sessions.ts";
@@ -55,7 +56,9 @@ export const setAskBeforeInputSchema = z.strictObject({
   ask: z.boolean(),
 });
 export type ProfileInput = z.input<typeof profileInputSchema>;
+export const setAskLevelInputSchema = askLevelSetInputSchema;
 export type SetAskBeforeInput = z.input<typeof setAskBeforeInputSchema>;
+export type SetAskLevelInput = z.input<typeof setAskLevelInputSchema>;
 
 export interface AgentRef {
   id: string;
@@ -162,9 +165,13 @@ export interface AskBeforeAction {
   ask: boolean;
   /** What else the switch gates, when a built-in says so. */
   covers?: string;
+  /** The source the switch sits under: a connector's name, or "Built-in tools". */
+  group: string;
   kind: "builtin" | "connector";
   /** "Xero: create bill". */
   label: string;
+  /** True when a rule of the agent's own sets this against what its level says. */
+  overridden: boolean;
 }
 
 /** The platform tool keys a switch also gates. */
@@ -196,7 +203,10 @@ export const createAgentProfileService = ({
   connectors: Pick<ConnectorsService, "assignments" | "list" | "agentTools">;
   db: Database;
   machines: Pick<MachinesService, "list">;
-  requests: Pick<RequestsService, "listRules" | "removeRule" | "setRule">;
+  requests: Pick<
+    RequestsService,
+    "askLevel" | "listRules" | "removeRule" | "setAskLevel" | "setRule"
+  >;
   routines: Pick<RoutinesService, "list">;
   secrets: Pick<SecretsService, "grantsOf" | "list">;
   skillsStore: Pick<SkillsStoreService, "assignments" | "list" | "proposals">;
@@ -451,23 +461,24 @@ export const createAgentProfileService = ({
     const user = requireUser(principal, READ_ACTION);
     const { agentId } = askBeforeInputSchema.parse(raw);
     const agent = await loadAgent(user, READ_ACTION, agentId);
-    const [assignedConnectors, rules] = await Promise.all([
+    const [assignedConnectors, rules, level] = await Promise.all([
       connectors.agentTools(user, { agentId: agent.id }),
       requests.listRules(user, { agentId: agent.id }),
+      requests.askLevel(user, { agentId: agent.id }),
     ]);
-    // A rule in mode "allow" (from Always allow) reads as off, the same as no rule.
-    const asking = new Set(
+    // A rule in mode "allow" (from Always allow) is an override to off.
+    const modes = new Map(
       rules
-        .filter(
-          (rule) => rule.mode === "ask" && !rule.toolKey.startsWith("mail:")
-        )
-        .map((rule) => rule.toolKey)
+        .filter((rule) => !rule.toolKey.startsWith("mail:"))
+        .map((rule) => [rule.toolKey, rule.mode])
     );
     const allowing = new Set(
       rules.filter((rule) => rule.mode === "allow").map((rule) => rule.toolKey)
     );
     return gateableActions(assignedConnectors).map((action) => {
-      const ask = asking.has(action.key);
+      const mode = modes.get(action.key);
+      const byLevel = levelAsks(level, action);
+      const ask = mode === undefined ? byLevel : mode === "ask";
       const allowed = ask
         ? coveredKeys(action.key)
             .filter((key) => allowing.has(key))
@@ -476,15 +487,36 @@ export const createAgentProfileService = ({
       return {
         action: action.key,
         ask,
+        group: action.group,
         kind: action.kind,
         label: action.label,
+        overridden: mode !== undefined && ask !== byLevel,
         ...(allowed.length === 0 ? {} : { allowed }),
         ...(action.covers === undefined ? {} : { covers: action.covers }),
       };
     });
   };
 
-  /** Turns "ask me before" on or off. Off removes the rule, since no rule means allow. */
+  /** The level the card shows: a preset, or custom for an agent whose rules decide. */
+  const askLevel = async (principal: Principal, raw: ProfileInput) => {
+    const user = requireUser(principal, READ_ACTION);
+    const { agentId } = profileInputSchema.parse(raw);
+    const agent = await loadAgent(user, READ_ACTION, agentId);
+    return await requests.askLevel(user, { agentId: agent.id });
+  };
+
+  const setAskLevel = async (principal: Principal, raw: SetAskLevelInput) => {
+    const user = requireUser(principal, WRITE_ACTION);
+    const { agentId, level } = setAskLevelInputSchema.parse(raw);
+    const agent = await loadAgent(user, WRITE_ACTION, agentId);
+    await requests.setAskLevel(user, { agentId: agent.id, level });
+  };
+
+  /**
+   * Turns "ask me before" on or off for one action. A switch that agrees with
+   * the agent's level removes its rule, one that disagrees writes an override.
+   * A key that is not one of the agent's gateable actions is refused.
+   */
   const setAskBefore = async (
     principal: Principal,
     raw: SetAskBeforeInput
@@ -492,15 +524,28 @@ export const createAgentProfileService = ({
     const user = requireUser(principal, WRITE_ACTION);
     const { action, agentId, ask } = setAskBeforeInputSchema.parse(raw);
     const agent = await loadAgent(user, WRITE_ACTION, agentId);
-    if (!ask) {
+    const [assignedConnectors, level] = await Promise.all([
+      connectors.agentTools(user, { agentId: agent.id }),
+      requests.askLevel(user, { agentId: agent.id }),
+    ]);
+    const known = gateableActions(assignedConnectors).find(
+      (candidate) => candidate.key === action
+    );
+    if (!known) {
+      throw new ServiceError("invalid", `Unknown action: ${action}`);
+    }
+    if (ask === levelAsks(level, known)) {
       await requests.removeRule(user, { agentId: agent.id, toolKey: action });
+    } else {
+      await requests.setRule(user, {
+        agentId: agent.id,
+        mode: ask ? "ask" : "allow",
+        toolKey: action,
+      });
+    }
+    if (!ask) {
       return;
     }
-    await requests.setRule(user, {
-      agentId: agent.id,
-      mode: "ask",
-      toolKey: action,
-    });
     // An Always allow on a platform tool the switch covers would keep that tool
     // ungated while the switch reads on, so turning the switch on clears it.
     const covered = coveredKeys(action);
@@ -541,7 +586,14 @@ export const createAgentProfileService = ({
     };
   };
 
-  return { askBefore, details, profile, setAskBefore };
+  return {
+    askBefore,
+    askLevel,
+    details,
+    profile,
+    setAskBefore,
+    setAskLevel,
+  };
 };
 
 export type AgentProfileService = ReturnType<typeof createAgentProfileService>;

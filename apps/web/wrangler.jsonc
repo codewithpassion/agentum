@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "agentum-v2",
   "compatibility_date": "2026-08-19",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "main": "src/server.ts",
   "observability": { "enabled": true },
   "durable_objects": {
@@ -148,6 +148,7 @@
     // Previews never touch production. See README "Pull request previews".
     "staging": {
       "preview_urls": true,
+      "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
       // Triggers are inherited too: an empty list keeps the minute tick off
       // this Worker, as the comment on the top-level `triggers` says.
       "triggers": { "crons": [] },
@@ -248,6 +249,10 @@
       // apps/web/scripts/preview.ts swaps these placeholders for it after the
       // build. Never commit a real id here.
       "previews": {
+        "compatibility_flags": [
+          "nodejs_compat",
+          "global_fetch_strictly_public"
+        ],
         "durable_objects": {
           "bindings": [
             { "name": "MACHINE_RELAY", "class_name": "MachineRelay" },

@@ -4,6 +4,7 @@ import { agentBuilderRouter } from "./agent-builder-router.ts";
 import { agentProfileRouter } from "./agent-profile-router.ts";
 import { agentsRouter } from "./agents-router.ts";
 import { assistantRouter } from "./assistant-router";
+import { conversationsRouter } from "./conversations-router.ts";
 import { deskRouter } from "./desk-router.ts";
 import { dictationRouter } from "./dictation-router.ts";
 import { eventsRouter } from "./events-router.ts";
@@ -34,6 +35,7 @@ export const runtimeRouter = router({
   agentProfile: agentProfileRouter,
   agents: agentsRouter,
   assistant: assistantRouter,
+  conversations: conversationsRouter,
   desk: deskRouter,
   dictation: dictationRouter,
   events: eventsRouter,

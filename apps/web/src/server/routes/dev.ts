@@ -1,5 +1,6 @@
 // Routes for checking the local setup by hand. server.ts mounts them in dev
 // builds only, so a deployed Worker has none of them.
+import { createClerkClient } from "@clerk/backend";
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import type { MachineRelayPort } from "@repo/services/machines/types";
@@ -129,4 +130,55 @@ devRoutes.post("/api/dev/cloud/:action", async (c) => {
         { error: "Expected a runId and cancel, offer or redispatch." },
         BAD_REQUEST
       );
+});
+
+// One-click dev login: mints a one-time Clerk sign-in token for the dev user
+// and hands it to /dev-login to redeem client-side. Only active when
+// DEV_LOGIN_EMAIL is configured, which must never be set in a deployed
+// environment. The route is mounted in dev builds only (server.ts), so a
+// deployed Worker has none, whatever its env holds. It also makes the dev
+// organisation's workspace row.
+devRoutes.get("/api/dev-login", async (c) => {
+  const email = c.env.DEV_LOGIN_EMAIL;
+  if (!email) {
+    return c.text("Dev login is not configured.", 404);
+  }
+
+  const clerkClient = createClerkClient({ secretKey: c.env.CLERK_SECRET_KEY });
+  const { data } = await clerkClient.users.getUserList({
+    emailAddress: [email],
+  });
+  const [user] = data;
+  if (!user) {
+    return c.text(
+      `Dev login user ${email} does not exist yet. Run "bun run create-dev-user" in apps/web.`,
+      404
+    );
+  }
+
+  const { data: memberships } =
+    await clerkClient.users.getOrganizationMembershipList({ userId: user.id });
+  const [membership] = memberships;
+  if (!membership) {
+    return c.text(
+      `Dev login user ${email} has no organisation yet. Run "bun run create-dev-user" in apps/web.`,
+      404
+    );
+  }
+
+  // A workspace row is what admits an organisation. A clean `.wrangler` has
+  // none, so the dev login makes the one for the dev organisation.
+  await c.get("composed").services.workspaces.create({
+    clerkOrgId: membership.organization.id,
+    name: membership.organization.name,
+  });
+
+  const { token } = await clerkClient.signInTokens.createSignInToken({
+    expiresInSeconds: 60,
+    userId: user.id,
+  });
+
+  return c.redirect(
+    `/dev-login?token=${encodeURIComponent(token)}&org=${encodeURIComponent(membership.organization.id)}`
+  );
 });

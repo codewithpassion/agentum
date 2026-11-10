@@ -13,7 +13,7 @@ import {
 const noop = () => undefined;
 
 test("only the task route gets the full height layout", () => {
-  expect(isTaskLayout(["/_app", "/_app/tasks/$runId"])).toBe(true);
+  expect(isTaskLayout(["/_app", "/_app/threads/$sessionId"])).toBe(true);
   expect(isTaskLayout(["/_app", "/_app/desk"])).toBe(false);
 });
 

@@ -19,6 +19,8 @@ export const sessionsRouter = router({
         cursor: z.string().min(1).max(300).optional(),
         limit: z.number().int().min(1).max(SESSION_LIST_LIMIT).optional(),
         origin: z.enum(SESSION_ORIGINS).optional(),
+        query: z.string().max(200).optional(),
+        working: z.boolean().optional(),
       })
     )
     .query(({ ctx, input }) =>

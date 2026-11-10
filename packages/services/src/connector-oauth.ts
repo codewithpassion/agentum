@@ -184,7 +184,7 @@ export const createConnectorOAuthService = ({
   db: Database;
   events: EventsService;
   fetch: Fetcher;
-  /** The deployment's Google OAuth client. Used for connectors on accounts.google.com unless a client was typed in. */
+  /** The deployment's Google OAuth client. Used for connectors on a googleapis.com host with Google endpoints, unless a client was typed in. */
   sharedGoogleClient?: SharedGoogleClient;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
@@ -278,7 +278,10 @@ export const createConnectorOAuthService = ({
     if (client?.source === "manual") {
       return client;
     }
-    if (sharedGoogleClient && sharedClientApplies(config, sharedGoogleClient)) {
+    if (
+      sharedGoogleClient &&
+      sharedClientApplies(config, connector.url, sharedGoogleClient)
+    ) {
       // Copied in on every start, so a rotated secret reaches the connector.
       const shared: OAuthClient = {
         clientId: sharedGoogleClient.clientId,
@@ -459,7 +462,7 @@ export const createConnectorOAuthService = ({
     if (!config?.client) {
       throw invalid("This connector has no OAuth client. Start again.");
     }
-    if (config.client.source === "shared" && !onGoogle(config)) {
+    if (config.client.source === "shared" && !onGoogle(config, connector.url)) {
       throw invalid("This connector has no OAuth client. Start again.");
     }
 

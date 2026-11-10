@@ -177,3 +177,22 @@ test("gives null for a name that is only whitespace", async () => {
   );
   expect(name).toBeNull();
 });
+
+test("does not fetch a private, loopback or internal address", async () => {
+  for (const clientId of [
+    "https://127.0.0.1/client.json",
+    "https://localhost/client.json",
+    "https://10.0.0.5/client.json",
+    "https://169.254.169.254/latest/meta-data",
+    "https://[::1]/client.json",
+    "https://user:pass@example.com/client.json",
+  ]) {
+    // biome-ignore lint/performance/noAwaitInLoops: each case is a separate lookup
+    const { name, calls } = await lookup(
+      () => jsonResponse({ client_id: clientId, client_name: "Evil" }),
+      clientId
+    );
+    expect(name).toBeNull();
+    expect(calls).toHaveLength(0);
+  }
+});

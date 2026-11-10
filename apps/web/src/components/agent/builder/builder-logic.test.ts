@@ -6,6 +6,8 @@ import type {
 import {
   addressSuggestion,
   applyEdit,
+  blankBlocker,
+  blankDraft,
   builderSteps,
   clearDescription,
   DESCRIPTION_KEY,
@@ -295,5 +297,40 @@ describe("description storage", () => {
     const storage = fakeStorage();
     saveDescription(storage, "Line one\nLine two");
     expect(loadDescription(storage)).toBe("Line one\nLine two");
+  });
+});
+
+describe("start blank", () => {
+  const machine = { machineId: "m1", runtime: "machine" } as const;
+
+  test("a blank draft carries the name, what it does and where it runs", () => {
+    expect(
+      blankDraft({ does: " Sorts mail. ", name: " Sorter ", runsOn: machine })
+    ).toEqual({
+      does: "Sorts mail.",
+      handsTo: [],
+      library: [],
+      name: "Sorter",
+      rules: [],
+      runsOn: machine,
+      sampleInput: [],
+      skills: [],
+      startsOn: [],
+      tools: [],
+      voice: "friendly",
+    });
+  });
+
+  test("create needs a name, what it does and a runtime, in that order", () => {
+    expect(blankBlocker({ does: "x", name: " ", runsOn: machine })).toBe(
+      "Name the agent."
+    );
+    expect(blankBlocker({ does: " ", name: "A", runsOn: machine })).toBe(
+      "Say what the agent does."
+    );
+    expect(blankBlocker({ does: "x", name: "A", runsOn: null })).toBe(
+      "Pick where it runs."
+    );
+    expect(blankBlocker({ does: "x", name: "A", runsOn: machine })).toBeNull();
   });
 });

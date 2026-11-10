@@ -63,7 +63,11 @@ const EVENTS_CAP = EVENT_QUERY_MAX_LIMIT * 3;
 
 const id = z.string().min(1).max(200);
 
-export const taskGetInputSchema = z.strictObject({ runId: id });
+/** A run, or a session: the session's latest run. */
+export const taskGetInputSchema = z.union([
+  z.strictObject({ runId: id }),
+  z.strictObject({ sessionId: id }),
+]);
 export type TaskGetInput = z.input<typeof taskGetInputSchema>;
 
 export const taskListInputSchema = z.strictObject({
@@ -137,9 +141,13 @@ export interface TaskView {
     status: RunStatus;
   };
   session: {
+    archivedAt: string | null;
     externalKey: string | null;
     id: string;
     origin: string;
+    pinnedAt: string | null;
+    /** The name the person gave the thread, else the title its first run gives it. */
+    title: string;
   };
   startedBy: StartedBy;
   /** Child runs started as subagents, visible under the same session rules. */
@@ -379,12 +387,40 @@ export const createTasksService = ({
     return { events: found, truncated: (await page(1)).length > 0 };
   };
 
+  /** The newest run of a session the member can see. */
+  const latestRunOf = async (
+    member: UserPrincipal,
+    sessionId: string
+  ): Promise<string> => {
+    const [latest] = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .innerJoin(sessions, eq(runs.sessionId, sessions.id))
+      .where(
+        and(
+          await visibleSessions(db, member),
+          eq(runs.sessionId, sessionId),
+          eq(runs.workspaceId, member.workspaceId)
+        )
+      )
+      .orderBy(desc(runs.id))
+      .limit(1);
+    if (!latest) {
+      throw new ServiceError("not_found", "Task not found");
+    }
+    return latest.id;
+  };
+
   const get = async (
     principal: Principal,
     rawInput: TaskGetInput
   ): Promise<TaskView> => {
     const member = requireMember(principal);
-    const { runId } = taskGetInputSchema.parse(rawInput);
+    const input = taskGetInputSchema.parse(rawInput);
+    const runId =
+      "runId" in input
+        ? input.runId
+        : await latestRunOf(member, input.sessionId);
     const [row] = await db
       .select({
         agentModel: agents.model,
@@ -445,6 +481,9 @@ export const createTasksService = ({
       run.id,
       ...otherRuns.map((other) => other.id),
     ]);
+    const first = [row.run, ...otherRuns].reduce((a, b) =>
+      a.id < b.id ? a : b
+    );
     return {
       agent: {
         computerMachineId: row.computerMachineId,
@@ -477,9 +516,20 @@ export const createTasksService = ({
         status: run.status,
       },
       session: {
+        archivedAt: row.session.archivedAt,
         externalKey: row.session.externalKey,
         id: row.session.id,
         origin: row.session.origin,
+        pinnedAt: row.session.pinnedAt,
+        title:
+          row.session.title !== null && row.session.title.trim() !== ""
+            ? row.session.title
+            : titleFor(
+                sources,
+                row.session,
+                first.inputText,
+                subjects.get(first.id)
+              ),
       },
       startedBy,
       subagents: subagents.map((child) => ({

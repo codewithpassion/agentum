@@ -119,6 +119,10 @@ import {
 } from "@repo/services/connectors";
 import type { Fetcher } from "@repo/services/connectors/mcp";
 import {
+  type ConversationsService,
+  createConversationsService,
+} from "@repo/services/conversations";
+import {
   type CredentialsService,
   createCredentialsService,
 } from "@repo/services/credentials";
@@ -434,7 +438,7 @@ export interface Infra {
   runTokenKey?: string;
   /** `SECRETS_KEY`. Storing a connector credential or a workspace secret encrypts with it. */
   secretsKey?: string;
-  /** `GOOGLE_OAUTH_CLIENT_ID` and `_SECRET`, both or neither. The OAuth client for connectors on accounts.google.com. */
+  /** `GOOGLE_OAUTH_CLIENT_ID` and `_SECRET`, both or neither. The OAuth client for connectors on a googleapis.com host with Google endpoints. */
   sharedGoogleClient?: { clientId: string; clientSecret: string };
   /** Where the skills store keeps file bytes: R2 in the app. Tests omit it and get an in-memory store. */
   skillBlobs?: SkillBlobs;
@@ -479,6 +483,7 @@ export interface Services {
   connections: ConnectionsService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
+  conversations: ConversationsService;
   credentials: CredentialsService;
   desk: DeskService;
   deskApi: DeskApiService;
@@ -1328,6 +1333,7 @@ export const composeWith = ({
       connections,
       connectorOAuth,
       connectors,
+      conversations: createConversationsService({ assistant, sessions }),
       credentials,
       desk,
       deskApi,

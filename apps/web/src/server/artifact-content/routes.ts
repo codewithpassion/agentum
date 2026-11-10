@@ -1,8 +1,9 @@
 // Content routes for artifacts: `GET /a/<uuid>/c/<token>/<path>` (PRD section
-// 3). Reads the version's manifest and blobs from R2 only, never D1, checks
-// the `ag_view_` token, and sends every response through `withContentHeaders`.
-// Mounted by A.6 before the TanStack fall-through and outside Clerk and the
-// compose middleware: `mountArtifactContentRoutes(app, deps)`.
+// 3). Reads the version's manifest and blobs from R2, checks the `ag_view_`
+// token, then asks `authorizeViewer` whether its link or member is still valid
+// (D1 and Clerk, on each request), and sends every response through
+// `withContentHeaders`. Mounted by A.6 before the TanStack fall-through and
+// outside Clerk and the compose middleware: `mountArtifactContentRoutes(app, deps)`.
 
 import {
   type ContentCspInput,
@@ -51,6 +52,12 @@ const LEADING_WEAK = /^W\//;
 export interface ArtifactContentDeps {
   /** The R2 bucket holding manifests and blobs (`env.FILES`). */
   authorizeGuestEmbed?: (claims: ViewTokenClaims, env: Env) => Promise<boolean>;
+  /**
+   * Re-checks a link or member token against the live share row or
+   * membership, on every request. False answers 404, so a revoked link or a
+   * removed member stops at once instead of when the token expires.
+   */
+  authorizeViewer?: (claims: ViewTokenClaims, env: Env) => Promise<boolean>;
   bucket: (env: Env) => ContentBucket;
   /** Test seam for the clock; defaults to the current time. */
   nowSeconds?: () => number;
@@ -317,12 +324,21 @@ const allowsEmbedFile = (
  * `csp` as soon as the URL parses so the wrapper can scope the CSP to the
  * content folder, even on the error paths after that.
  */
-const guestContentAllowed = async (
+const tokenRefusal = async (
   claims: ViewTokenClaims,
   env: Env,
-  deps: ArtifactContentDeps
-) =>
-  !claims.guestEmbed || Boolean(await deps.authorizeGuestEmbed?.(claims, env));
+  deps: ArtifactContentDeps,
+  csp: ContentCspInput
+): Promise<Response | null> => {
+  if (claims.guestEmbed && !(await deps.authorizeGuestEmbed?.(claims, env))) {
+    return textResponse(FORBIDDEN);
+  }
+  if (!((await deps.authorizeViewer?.(claims, env)) ?? true)) {
+    csp.noStore = true;
+    return notFound();
+  }
+  return null;
+};
 
 const respond = async (
   c: Context<AppEnv>,
@@ -382,8 +398,9 @@ const respond = async (
     return textResponse(UNAUTHORIZED);
   }
   csp.noStore = Boolean(claims.guestEmbed);
-  if (!(await guestContentAllowed(claims, c.env, deps))) {
-    return textResponse(FORBIDDEN);
+  const refusal = await tokenRefusal(claims, c.env, deps, csp);
+  if (refusal) {
+    return refusal;
   }
   if (
     c.req.header("Sec-Fetch-Dest") === "document" &&

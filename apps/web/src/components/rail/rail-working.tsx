@@ -78,7 +78,7 @@ export function WorkingList({
         ))}
         <RailLink
           className="flex min-h-8 items-center px-2 text-(--df-electric-cyan) text-[13px] no-underline hover:underline"
-          href="/sessions"
+          href="/sessions?working=true"
           onNavigate={onNavigate}
         >
           View all {runs.length} running

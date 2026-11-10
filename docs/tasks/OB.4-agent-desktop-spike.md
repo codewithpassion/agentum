@@ -3,7 +3,7 @@ id: OB.4
 title: Spike, agent-desktop as a second desktop backend
 milestone: OB
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/OB.4-agent-desktop-spike
 lane: computer
@@ -24,3 +24,4 @@ From the 10 Nov 2026 review. Vercel Labs `agent-desktop` (Apache-2.0, https://gi
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-10: dispatched to a Sonnet implementer on task/OB.4-agent-desktop-spike. Spike, no product code.
+- 2026-11-10: Review clean after 1 fix round. Recommendation: go on Linux as an opt-in second backend, no-go on macOS until tried on a Mac. AT-SPI works in the bookworm desktop image under the shipped seccomp profile. Dom decides whether to schedule the Linux task in the write-up. Merged as f815f363. check, test and build green on main (guest-execution.test.ts failed under full-suite load and passed alone, as on main before).

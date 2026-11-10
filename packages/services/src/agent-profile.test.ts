@@ -23,6 +23,7 @@ import { memoryLibraryBlobs } from "./library/memory.ts";
 import { createLibraryService } from "./library.ts";
 import { noopRelay } from "./machines/types.ts";
 import { createMachinesService } from "./machines.ts";
+import { askKeysOf } from "./requests/ask-keys.ts";
 import { createRequestsService } from "./requests.ts";
 import { createRoutinesService } from "./routines.ts";
 import type { RuntimeAdapter } from "./runs/types.ts";
@@ -503,14 +504,18 @@ test("askBefore lists the built-ins and the connector tools that change things",
     "web_fetch",
     "run_script",
     "run_skill_script",
+    "harbourmaster/send_message",
+    "harbourmaster/start_subagent",
     "xero/create_bill",
     "xero-2/send-invoice",
   ]);
   expect(actions.find((row) => row.action === "xero/create_bill")).toEqual({
     action: "xero/create_bill",
     ask: false,
+    group: "Xero",
     kind: "connector",
     label: "Xero: create bill",
+    overridden: false,
   });
   expect(
     actions.find((row) => row.action === "xero-2/send-invoice")?.label
@@ -789,4 +794,181 @@ test("live document tools have stable platform approval labels", () => {
   expect(PLATFORM_TOOL_LABELS["harbourmaster/document_comments"]).toBe(
     "reading live document comments"
   );
+});
+
+const asking = async () =>
+  (await service.askBefore(user(), { agentId: a1 }))
+    .filter((row) => row.ask)
+    .map((row) => row.action);
+
+const NEW_AGENT_ASKS: string[] = [];
+
+test("send_message and start_subagent are gateable actions", async () => {
+  const actions = await service.askBefore(user(), { agentId: a1 });
+  expect(
+    actions
+      .filter((row) => row.action.startsWith("harbourmaster/"))
+      .map((row) => row.action)
+  ).toEqual(["harbourmaster/send_message", "harbourmaster/start_subagent"]);
+  await service.setAskBefore(user(), {
+    action: "harbourmaster/start_subagent",
+    agentId: a1,
+    ask: true,
+  });
+  expect(await asking()).toEqual(["harbourmaster/start_subagent"]);
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual([
+    "harbourmaster/start_subagent",
+  ]);
+});
+
+test("a new agent asks rarely, and custom is what a migrated agent with rules reads as", async () => {
+  const id = await agents
+    .create(user(), { model: "m", name: "Fresh", runtime: "cloud" })
+    .then((agent) => agent.id);
+  expect(await service.askLevel(user(), { agentId: id })).toBe("rarely");
+  await db
+    .update(agentRows)
+    .set({ askLevel: "custom" })
+    .where(eq(agentRows.id, a1));
+  expect(await service.askLevel(user(), { agentId: a1 })).toBe("custom");
+  expect(
+    (await service.askBefore(user(), { agentId: id }))
+      .filter((row) => row.ask)
+      .map((row) => row.action)
+  ).toEqual(NEW_AGENT_ASKS);
+});
+
+test("each level asks about its own set of actions, and keeps asking when a connector is added", async () => {
+  await connect("c1", "Xero", [tool("create_bill", false)]);
+  const keysAt = async (
+    level: "everything" | "outside" | "rarely"
+  ): Promise<string[]> => {
+    await service.setAskLevel(user(), { agentId: a1, level });
+    expect(await service.askLevel(user(), { agentId: a1 })).toBe(level);
+    const shown = await asking();
+    // The runs gate from the same answer the card shows.
+    const gated = await askKeysOf(db, { id: a1, workspaceId: "w1" });
+    for (const key of shown) {
+      expect(gated).toContain(key);
+    }
+    return shown;
+  };
+
+  expect(await keysAt("rarely")).toEqual(NEW_AGENT_ASKS);
+  expect(await keysAt("outside")).toEqual([
+    "web_fetch",
+    "harbourmaster/send_message",
+    "xero/create_bill",
+  ]);
+  expect(await keysAt("everything")).toEqual([
+    "bash",
+    "write",
+    "edit",
+    "web_fetch",
+    "run_script",
+    "run_skill_script",
+    "harbourmaster/send_message",
+    "harbourmaster/start_subagent",
+    "xero/create_bill",
+  ]);
+
+  // A connector assigned later follows the level, with no rule written.
+  await connect("c2", "Jira", [tool("create_issue", false)]);
+  expect(await asking()).toContain("jira/create_issue");
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toContain(
+    "jira/create_issue"
+  );
+  await service.setAskLevel(user(), { agentId: a1, level: "rarely" });
+  expect(await asking()).not.toContain("jira/create_issue");
+  expect(await requests.listRules(user(), { agentId: a1 })).toEqual([]);
+});
+
+test("a rule overrides the level, both ways, and a switch that agrees with the level removes it", async () => {
+  await connect("c1", "Xero", [tool("create_bill", false)]);
+  await service.setAskLevel(user(), { agentId: a1, level: "outside" });
+
+  await service.setAskBefore(user(), {
+    action: "xero/create_bill",
+    agentId: a1,
+    ask: false,
+  });
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+
+  const rows = await service.askBefore(user(), { agentId: a1 });
+  expect(rows.find((row) => row.action === "xero/create_bill")).toMatchObject({
+    ask: false,
+    overridden: true,
+  });
+  expect(rows.find((row) => row.action === "bash")).toMatchObject({
+    ask: true,
+    overridden: true,
+  });
+  const keys = await askKeysOf(db, { id: a1, workspaceId: "w1" });
+  expect(keys).not.toContain("xero/create_bill");
+  expect(keys).toContain("bash");
+  // The platform tools the bash switch covers follow it.
+  expect(keys).toContain("harbourmaster/computer_exec");
+
+  await service.setAskBefore(user(), {
+    action: "xero/create_bill",
+    agentId: a1,
+    ask: true,
+  });
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: false,
+  });
+
+  expect(await requests.listRules(user(), { agentId: a1 })).toEqual([]);
+  expect(await asking()).toContain("xero/create_bill");
+});
+
+test("changing the level keeps the agent's overrides", async () => {
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+  await service.setAskLevel(user(), { agentId: a1, level: "outside" });
+  expect(await asking()).toContain("bash");
+  expect(await requests.listRules(user(), { agentId: a1 })).toHaveLength(1);
+});
+
+test("a key that is not a gateable action of the agent is refused", async () => {
+  await connect("c1", "Xero", [
+    tool("create_bill", false),
+    tool("list_bills", true),
+  ]);
+  for (const action of [
+    "nonsense",
+    "xero/list_bills",
+    "xero/missing",
+    "mail:a@b.c",
+    "harbourmaster/bash",
+  ]) {
+    for (const ask of [true, false]) {
+      // biome-ignore lint/performance/noAwaitInLoops: a handful of calls
+      const error = await service
+        .setAskBefore(user(), { action, agentId: a1, ask })
+        .catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ code: "invalid" });
+    }
+  }
+  expect(await requests.listRules(user(), { agentId: a1 })).toEqual([]);
+});
+
+test("the level of an agent in another workspace is not readable or writable", async () => {
+  const reads = await service
+    .askLevel(user("w2"), { agentId: a1 })
+    .catch((cause: unknown) => cause);
+  const writes = await service
+    .setAskLevel(user("w2"), { agentId: a1, level: "everything" })
+    .catch((cause: unknown) => cause);
+  expect(reads).toMatchObject({ code: "not_found" });
+  expect(writes).toMatchObject({ code: "not_found" });
 });

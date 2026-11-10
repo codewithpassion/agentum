@@ -1,6 +1,6 @@
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import type { ThreadMessage } from "@repo/protocol/thread";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -61,7 +61,7 @@ const fileIdsOf = (messages: readonly ThreadMessage[]): string[] => [
  * cards, collapsed reasoning, files, the request cards, a composer and "Edit
  * and resend". The task page folds the session events and hands the messages
  * in, so the thread opens no stream of its own. A send starts a run in this
- * session and moves to that run's task view.
+ * session and reloads the thread on its own URL.
  */
 export function TaskThread({
   answer,
@@ -97,6 +97,7 @@ export function TaskThread({
   task: TaskView;
 }) {
   const navigate = useNavigate();
+  const router = useRouter();
   const starting = useRef<Promise<void> | null>(null);
   const [edited, setEdited] = useState<ReadonlySet<string>>(() => new Set());
   // Read after mount: the server render has no session storage.
@@ -252,7 +253,7 @@ export function TaskThread({
         throw new Error("The last message is still being sent.");
       }
       const begin = async () => {
-        const result = await getTrpc().runs.start.mutate(
+        await getTrpc().runs.start.mutate(
           startRunBody({
             agentId: task.agent.id,
             fileIds: ids,
@@ -262,10 +263,14 @@ export function TaskThread({
           })
         );
         onStarted?.();
+        // The thread keeps its URL. A reply drops `?run=`, so the page shows the new run.
         await navigate({
-          params: { runId: result.runId },
-          to: "/tasks/$runId",
+          params: { sessionId: task.session.id },
+          search: {},
+          to: "/threads/$sessionId",
         });
+        // From `?run=` the navigation reloads from cached data of the bare URL, so reload again.
+        await router.invalidate();
       };
       starting.current = begin();
       try {
@@ -274,7 +279,7 @@ export function TaskThread({
         starting.current = null;
       }
     },
-    [navigate, task.agent.id, task.session]
+    [navigate, router, task.agent.id, task.session]
   );
 
   const edit = useCallback(

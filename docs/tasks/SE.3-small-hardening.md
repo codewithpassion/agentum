@@ -3,7 +3,7 @@ id: SE.3
 title: Small hardening from the review
 milestone: SE
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/SE.3-small-hardening
 lane: worker
@@ -32,3 +32,4 @@ From the 10 Nov 2026 review. Each item is small and independent.
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-10: dispatched to a Sonnet implementer on task/SE.3-small-hardening. Lane rule relaxed for this run (Dom asked for about six in parallel): its files do not overlap the other running tasks, only shared registries, which merge cleanly.
+- 2026-11-10: Review clean after 1 fix round. Split: the question_keys masking moved to SE.5 (blocked on Dom), because masking the key in place breaks answer matching. Beyond scope: the assistant also loses set_trigger_enabled, since approving a proposed trigger mints a secret. a2a-two-deployments.ts passed 6 of 6 with global_fetch_strictly_public. Merged as bc7606a8. check, test and build green on main (guest-execution.test.ts failed under full-suite load and passed alone, as on main before).

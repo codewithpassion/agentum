@@ -734,3 +734,59 @@ it("guest embed capabilities fail closed without a current grant gate and never 
     );
   }
 });
+
+describe("content route: a link or member that stopped being valid", () => {
+  const withViewerCheck = (check: ViewTokenCheck) => {
+    const files = makeBucket(PAGE);
+    const router = new Hono<AppEnv>();
+    mountArtifactContentRoutes(router, {
+      authorizeViewer: check,
+      bucket: () => files.bucket,
+      nowSeconds: () => NOW,
+      viewKey: () => KEY,
+      workspaceId: () => WORKSPACE,
+    });
+    const get = (path: string) =>
+      router.request(`${ORIGIN}${path}`, {}, {} as Env);
+    return { get, reads: files.reads };
+  };
+  type ViewTokenCheck = (claims: ViewTokenClaims, env: Env) => Promise<boolean>;
+
+  it("refuses the old view token once the share is revoked", async () => {
+    let live = true;
+    const { get, reads } = withViewerCheck(() => Promise.resolve(live));
+    const tok = await token({ shareId: "share_1", viewer: "link" });
+    expect((await get(urlFor(tok, "index.html"))).status).toBe(200);
+    live = false;
+    for (const path of ["index.html", "app.js", "_hm/bridge.js", ""]) {
+      // biome-ignore lint/performance/noAwaitInLoops: each path is its own request after the revoke.
+      const res = await get(urlFor(tok, path));
+      expect(res.status).toBe(404);
+      expect(res.headers.get("Cache-Control")).toBe("no-store, no-transform");
+    }
+    const readsAfter = reads.length;
+    await get(urlFor(tok, "index.html"));
+    expect(reads.length).toBe(readsAfter);
+  });
+
+  it("asks the check with the token's claims on every request", async () => {
+    const seen: ViewTokenClaims[] = [];
+    const { get } = withViewerCheck((seenClaims) => {
+      seen.push(seenClaims);
+      return Promise.resolve(true);
+    });
+    const tok = await token({ shareId: "share_1", viewer: "link" });
+    await get(urlFor(tok, "index.html"));
+    await get(urlFor(tok, "app.js"));
+    expect(seen.map((seenClaims) => seenClaims.shareId)).toEqual([
+      "share_1",
+      "share_1",
+    ]);
+  });
+
+  it("refuses a member who left the workspace", async () => {
+    const { get } = withViewerCheck(() => Promise.resolve(false));
+    const tok = await token();
+    expect((await get(urlFor(tok, "index.html"))).status).toBe(404);
+  });
+});

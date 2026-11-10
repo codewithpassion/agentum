@@ -70,6 +70,7 @@ import {
   sharedClientApplies,
 } from "./connectors/oauth-config.ts";
 import { readConnectorSecret } from "./connectors/secret.ts";
+import { toolSchema } from "./connectors/tool-schema.ts";
 import {
   canonicalizeConnectorUrl,
   InvalidConnectorUrlError,
@@ -249,14 +250,6 @@ type CredentialRow = Pick<
   keyof typeof credentialColumns
 >;
 
-const toolSchema = z.array(
-  z.object({
-    description: z.string().nullable(),
-    name: z.string(),
-    readOnly: z.boolean().default(false),
-  })
-);
-
 const toCredentialSummary = (row: CredentialRow): CredentialSummary => ({
   createdAt: row.createdAt,
   id: row.id,
@@ -277,7 +270,7 @@ const oauthSummary = (
         // The shared Google client counts as a way to get a client with no dialog.
         canRegister:
           config.registrationEndpoint !== null ||
-          sharedClientApplies(config, shared),
+          sharedClientApplies(config, row.url, shared),
         // A shared client only counts while the deployment still has one.
         clientConfigured:
           config.client !== null &&

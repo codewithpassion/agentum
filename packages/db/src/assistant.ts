@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { Database } from "./database.ts";
 import {
   assistantConversations,
@@ -10,10 +10,25 @@ export const conversationOwner = (workspaceId: string, userId: string) =>
     eq(assistantConversations.workspaceId, workspaceId),
     eq(assistantConversations.userId, userId)
   );
+export const CONVERSATION_PAGE_LIMIT = 50;
+
+const likeEscape = (text: string): string => text.replace(/[\\%_]/g, "\\$&");
+
+/** One page of a person's open conversations, newest activity first, after `cursor` (`updatedAt` and id of the last row). */
 export const listConversations = (
   db: Database,
   workspaceId: string,
-  userId: string
+  userId: string,
+  {
+    after,
+    limit = CONVERSATION_PAGE_LIMIT,
+    query,
+  }: {
+    after?: { at: string; id: string };
+    limit?: number;
+    /** Keeps conversations whose title contains this text. */
+    query?: string;
+  } = {}
 ) =>
   db
     .select()
@@ -21,10 +36,20 @@ export const listConversations = (
     .where(
       and(
         conversationOwner(workspaceId, userId),
-        isNull(assistantConversations.archivedAt)
+        isNull(assistantConversations.archivedAt),
+        query === undefined || query === ""
+          ? undefined
+          : sql`${assistantConversations.title} LIKE ${`%${likeEscape(query)}%`} ESCAPE '\\'`,
+        after === undefined
+          ? undefined
+          : sql`(${assistantConversations.updatedAt}, ${assistantConversations.id}) < (${after.at}, ${after.id})`
       )
     )
-    .orderBy(desc(assistantConversations.updatedAt));
+    .orderBy(
+      desc(assistantConversations.updatedAt),
+      desc(assistantConversations.id)
+    )
+    .limit(Math.min(limit, CONVERSATION_PAGE_LIMIT));
 export const findConversation = async (
   db: Database,
   workspaceId: string,
@@ -48,6 +73,30 @@ export const conversationMessages = (db: Database, conversationId: string) =>
     .from(assistantMessages)
     .where(eq(assistantMessages.conversationId, conversationId))
     .orderBy(asc(assistantMessages.seq));
+/** The newest `limit` messages before `beforeSeq`, oldest first. */
+export const conversationMessagesPage = async (
+  db: Database,
+  conversationId: string,
+  {
+    beforeSeq,
+    limit = CONVERSATION_PAGE_LIMIT,
+  }: { beforeSeq?: number; limit?: number } = {}
+) =>
+  (
+    await db
+      .select()
+      .from(assistantMessages)
+      .where(
+        and(
+          eq(assistantMessages.conversationId, conversationId),
+          beforeSeq === undefined
+            ? undefined
+            : lt(assistantMessages.seq, beforeSeq)
+        )
+      )
+      .orderBy(desc(assistantMessages.seq))
+      .limit(Math.min(limit, CONVERSATION_PAGE_LIMIT))
+  ).reverse();
 export const insertConversation = (
   db: Database,
   row: typeof assistantConversations.$inferInsert

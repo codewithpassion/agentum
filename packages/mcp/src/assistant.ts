@@ -9,6 +9,10 @@ export const ASSISTANT_EXCLUDED_TOOLS = new Set([
   "create_api_key",
   "revoke_api_key",
   "create_enrolment_code",
+  // Both can return a trigger's secret: create_trigger mints one, and
+  // set_trigger_enabled mints one when it approves a proposal.
+  "create_trigger",
+  "set_trigger_enabled",
   "delete_connector",
   "computer_exec",
   "computer_read_file",

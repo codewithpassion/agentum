@@ -3,7 +3,7 @@ id: OB.1
 title: Create an agent without the builder
 milestone: OB
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/OB.1-start-blank
 lane: web
@@ -25,3 +25,4 @@ From the 10 Nov 2026 review. The builder is the only way to create an agent in t
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-10: dispatched to a Sonnet implementer on task/OB.1-start-blank. Lane rule relaxed for this run (Dom asked for about six in parallel); files checked against the other running tasks.
+- 2026-11-10: Review clean after 2 fix rounds. The dry run uses the cloud adapter for machine and Anthropic cloud agents (runs.ts hardcodes it), and the panel says so. Local check with only an OpenRouter key created a Cloudflare agent. Merged as 3c96b605. check, test and build green on main (guest-execution.test.ts failed under full-suite load and passed alone, as on main before).

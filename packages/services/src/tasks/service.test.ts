@@ -539,9 +539,65 @@ test("get returns the run, its agent, its session and the session's other runs, 
     runtime: "cloud",
   });
   expect(view.session).toEqual({
+    archivedAt: null,
     externalKey: "ext-1",
     id: "s-main",
     origin: "ui",
+    pinnedAt: null,
+    title: "Task run-01",
+  });
+});
+
+test("get by session id opens the latest run of the thread", async () => {
+  const session = await seedSession({ id: "s-thread", origin: "ui" });
+  await seedRun({ id: "run-01", sessionId: session, status: "done" });
+  await seedRun({ id: "run-02", sessionId: session, status: "running" });
+
+  const view = await tasks.get(user(), { sessionId: session });
+
+  expect(view.run.id).toBe("run-02");
+  expect(view.otherRuns.map((run) => run.id)).toEqual(["run-01"]);
+});
+
+test("get needs exactly one of run id and session id", async () => {
+  // @ts-expect-error neither id given
+  await expect(tasks.get(user(), {})).rejects.toThrow();
+  await expect(
+    tasks.get(user(), {
+      runId: "run-01",
+      sessionId: "s-thread",
+    } as { runId: string })
+  ).rejects.toThrow();
+});
+
+test("get by session id does not open another member's private session", async () => {
+  const session = await seedSession({
+    actorId: "u2",
+    id: "s-private",
+    origin: "ui",
+    private: true,
+  });
+  await seedRun({ id: "run-01", sessionId: session, status: "done" });
+
+  await expect(tasks.get(user(), { sessionId: session })).rejects.toMatchObject(
+    { code: "not_found" }
+  );
+});
+
+test("get shows the stored title, pin and archive state of the session", async () => {
+  const session = await seedSession({ id: "s-named", origin: "ui" });
+  await seedRun({ id: "run-01", sessionId: session, status: "done" });
+  await db
+    .update(sessionRows)
+    .set({ archivedAt: ISO_NOW, pinnedAt: ISO_NOW, title: "Quarterly plan" })
+    .where(eq(sessionRows.id, session));
+
+  const view = await tasks.get(user(), { runId: "run-01" });
+
+  expect(view.session).toMatchObject({
+    archivedAt: ISO_NOW,
+    pinnedAt: ISO_NOW,
+    title: "Quarterly plan",
   });
 });
 

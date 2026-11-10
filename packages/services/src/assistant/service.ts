@@ -4,6 +4,8 @@ import {
   claimConversation,
   conversationById,
   conversationMessages,
+  conversationMessagesPage,
+  CONVERSATION_PAGE_LIMIT as DB_PAGE_LIMIT,
   findConversation,
   insertConversation,
   insertMessage,
@@ -19,6 +21,7 @@ import type { ToolDefinition } from "@repo/mcp/tools/define";
 import { createMasker, type Masker } from "@repo/protocol/masker";
 import { ulid } from "ulidx";
 import { z } from "zod";
+import { activityCursor, parseActivityCursor } from "../activity-cursor";
 import { authorize, ForbiddenError } from "../authz";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models";
 import type { Fetcher } from "../connectors/mcp";
@@ -28,6 +31,9 @@ import type { Clock } from "../runs/types";
 import type { SecretsService } from "../secrets";
 import type { Principal } from "../workspaces";
 import { containsKey } from "./keys";
+
+/** Rows one conversation list or message read returns. */
+export const CONVERSATION_PAGE_LIMIT = DB_PAGE_LIMIT;
 
 const id = z.string().min(1).max(200);
 export const sendInputSchema = z.strictObject({
@@ -223,17 +229,30 @@ export const createAssistantService = (deps: AssistantDeps) => {
     }
     return row;
   };
-  const get = async (principal: Principal, conversationId: string) => {
+  /**
+   * One page of a conversation: the newest messages, or the ones before
+   * `before` (a message `seq`). Only the newest page can hold a pending card.
+   */
+  const get = async (
+    principal: Principal,
+    conversationId: string,
+    page: { before?: number; limit?: number } = {}
+  ) => {
     const row = await owned(principal, conversationId);
-    const messages = (await conversationMessages(deps.db, row.id)).map(
-      (message) => ({
-        ...message,
-        content: blocksSchema.parse(message.content),
+    const messages = (
+      await conversationMessagesPage(deps.db, row.id, {
+        beforeSeq: page.before,
+        limit: page.limit,
       })
-    );
-    const [pending] = unresolved(transcript(messages));
+    ).map((message) => ({
+      ...message,
+      content: blocksSchema.parse(message.content),
+    }));
+    const [pending] =
+      page.before === undefined ? unresolved(transcript(messages)) : [];
     return {
       ...row,
+      hasEarlier: (messages[0]?.seq ?? 0) > 0,
       messages,
       pendingCard: pending ? cardFor(pending, deps.tools(principal)) : null,
     };
@@ -776,9 +795,29 @@ export const createAssistantService = (deps: AssistantDeps) => {
       return get(principal, row.id);
     },
     get,
-    list: (principal: Principal) => {
+    /** Open conversations, newest activity first. Each item's `cursor` pages on from it. */
+    list: async (
+      principal: Principal,
+      options: { cursor?: string; limit?: number; query?: string } = {}
+    ) => {
       const user = session(principal);
-      return listConversations(deps.db, user.workspaceId, user.userId);
+      const rows = await listConversations(
+        deps.db,
+        user.workspaceId,
+        user.userId,
+        {
+          after:
+            options.cursor === undefined
+              ? undefined
+              : parseActivityCursor(options.cursor),
+          limit: options.limit,
+          query: options.query?.trim(),
+        }
+      );
+      return rows.map((row) => ({
+        ...row,
+        cursor: activityCursor(row.updatedAt, row.id),
+      }));
     },
     resolveCard,
     send,
