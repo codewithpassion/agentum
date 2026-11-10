@@ -1,5 +1,8 @@
 import type { AgentTemplateId, ProfileGap, VoicePreset } from "@repo/db/shared";
-import type { AgentDraft } from "@repo/services/agent-builder/draft";
+import type {
+  AgentDraft,
+  BuilderCatalog,
+} from "@repo/services/agent-builder/draft";
 import { templates } from "@repo/services/agent-builder/templates";
 import {
   createFileRoute,
@@ -27,6 +30,7 @@ import {
   cleanSample,
   createBlocker,
   draftSaveKey,
+  dryRunRuntime,
   type SampleChip,
   serverDraft,
 } from "#/components/agent/builder/dry-run-logic.ts";
@@ -34,6 +38,8 @@ import {
   DryRunPanel,
   type DryRunStep,
 } from "#/components/agent/builder/dry-run-panel";
+import { StartBlank } from "#/components/agent/builder/start-blank";
+import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 
 export const Route = createFileRoute("/_app/agents/new")({
@@ -62,8 +68,48 @@ interface Drafted {
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-function NewAgent() {
-  const { catalog } = Route.useLoaderData();
+/** Start blank: saves the draft and activates it, with no builder call. */
+function BlankAgent({ catalog }: { catalog: BuilderCatalog }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | undefined>();
+  const router = useRouter();
+  const navigate = useNavigate();
+  const create = useCallback(
+    async (draft: AgentDraft) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const trpc = getTrpc();
+        // A failed create leaves its draft row, so a retry saves over it.
+        const saved = await trpc.agentBuilder.saveDraft.mutate({
+          draft,
+          ...(draftId === undefined ? {} : { draftAgentId: draftId }),
+        });
+        setDraftId(saved.id);
+        const created = await trpc.agentBuilder.create.mutate({
+          draft,
+          draftAgentId: saved.id,
+        });
+        await router.invalidate();
+        await navigate({
+          params: { agentId: created.id },
+          to: "/agents/$agentId",
+        });
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [draftId, navigate, router]
+  );
+  return (
+    <StartBlank busy={busy} catalog={catalog} error={error} onCreate={create} />
+  );
+}
+
+function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
   const [description, setDescription] = useState("");
   // Storage is read after mount, so the first render matches the server.
   const [restored, setRestored] = useState(false);
@@ -152,6 +198,8 @@ function NewAgent() {
       setBusy(false);
     }
   }, [description, draft, locked, templateId, voice, dictating, busy, pending]);
+
+  const dryRun = dryRunRuntime(catalog, draft?.runsOn ?? null);
 
   const gaps =
     drafted === undefined ? [] : openGaps(drafted.gaps, drafted.draft, locked);
@@ -263,6 +311,75 @@ function NewAgent() {
   );
 
   return (
+    <div className="flex flex-wrap items-start gap-5">
+      <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3.5">
+        <DescribePanel
+          busy={busy || draftDictating || pending !== null}
+          description={description}
+          error={error}
+          hasDraft={draft !== undefined}
+          onDescription={setDescription}
+          onDictationBusyChange={setDescriptionDictating}
+          onDraft={runDraft}
+          onTemplate={pickTemplate}
+          onVoice={pickVoice}
+          steps={
+            drafted === undefined ? [] : builderSteps(drafted.didList, gaps)
+          }
+          voice={draft?.voice ?? voice}
+        />
+      </div>
+      <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-3.5">
+        {draft === undefined ? (
+          <p className="rounded-lg border border-border border-dashed p-6 text-muted-foreground text-sm">
+            Describe the agent and press Draft. The draft shows here, and every
+            part of it stays editable.
+          </p>
+        ) : (
+          <DraftCard
+            address={address}
+            catalog={catalog}
+            disabled={busy || descriptionDictating || pending !== null}
+            draft={draft}
+            gaps={gaps}
+            locked={locked}
+            onAddress={setAddressEdit}
+            onDictationBusyChange={setDraftDictating}
+            onEdit={edit}
+          />
+        )}
+        {draft === undefined ? null : (
+          <DryRunPanel
+            createBlocker={
+              dictating ? "Finish dictation first." : createBlocker(gaps)
+            }
+            error={panelError}
+            onCreate={createAgent}
+            onDiscard={discardDraft}
+            onRun={runDry}
+            onSample={editSample}
+            pending={pending}
+            runBlocker={
+              dictating
+                ? "Finish dictation first."
+                : (redraftBlocker(draft) ?? dryRun.blocker)
+            }
+            runId={runId}
+            runtimeNote={dryRun.note}
+            sample={draft.sampleInput}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewAgent() {
+  const { catalog } = Route.useLoaderData();
+  const [blank, setBlank] = useState(false);
+  const showBlank = useCallback(() => setBlank(true), []);
+  const showDescribe = useCallback(() => setBlank(false), []);
+  return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="text-muted-foreground text-sm">
         <Link
@@ -274,62 +391,28 @@ function NewAgent() {
         {" › New agent"}
       </div>
       <h1 className="font-heading text-3xl text-foreground">New agent</h1>
-      <div className="flex flex-wrap items-start gap-5">
-        <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3.5">
-          <DescribePanel
-            busy={busy || draftDictating || pending !== null}
-            description={description}
-            error={error}
-            hasDraft={draft !== undefined}
-            onDescription={setDescription}
-            onDictationBusyChange={setDescriptionDictating}
-            onDraft={runDraft}
-            onTemplate={pickTemplate}
-            onVoice={pickVoice}
-            steps={
-              drafted === undefined ? [] : builderSteps(drafted.didList, gaps)
-            }
-            voice={draft?.voice ?? voice}
-          />
-        </div>
-        <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-3.5">
-          {draft === undefined ? (
-            <p className="rounded-lg border border-border border-dashed p-6 text-muted-foreground text-sm">
-              Describe the agent and press Draft. The draft shows here, and
-              every part of it stays editable.
-            </p>
-          ) : (
-            <DraftCard
-              address={address}
-              catalog={catalog}
-              disabled={busy || descriptionDictating || pending !== null}
-              draft={draft}
-              gaps={gaps}
-              locked={locked}
-              onAddress={setAddressEdit}
-              onDictationBusyChange={setDraftDictating}
-              onEdit={edit}
-            />
-          )}
-          {draft === undefined ? null : (
-            <DryRunPanel
-              createBlocker={
-                dictating ? "Finish dictation first." : createBlocker(gaps)
-              }
-              error={panelError}
-              onCreate={createAgent}
-              onDiscard={discardDraft}
-              onRun={runDry}
-              onSample={editSample}
-              pending={pending}
-              runBlocker={
-                dictating ? "Finish dictation first." : redraftBlocker(draft)
-              }
-              runId={runId}
-              sample={draft.sampleInput}
-            />
-          )}
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          aria-pressed={!blank}
+          onClick={showDescribe}
+          type="button"
+          variant={blank ? "outline" : "secondary"}
+        >
+          Describe it
+        </Button>
+        <Button
+          aria-pressed={blank}
+          onClick={showBlank}
+          type="button"
+          variant={blank ? "secondary" : "outline"}
+        >
+          Start blank
+        </Button>
+      </div>
+      {blank ? <BlankAgent catalog={catalog} /> : null}
+      {/* Hidden, not unmounted, so a draft survives a look at Start blank. */}
+      <div hidden={blank}>
+        <DescribeAgent catalog={catalog} />
       </div>
     </section>
   );

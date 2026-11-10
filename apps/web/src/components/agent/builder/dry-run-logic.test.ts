@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { ProfileGap } from "@repo/db/shared";
-import type { AgentDraft } from "@repo/services/agent-builder/draft";
+import type {
+  AgentDraft,
+  BuilderCatalog,
+} from "@repo/services/agent-builder/draft";
 import {
   addChip,
   cleanSample,
   createBlocker,
   draftSaveKey,
+  dryRunRuntime,
   removeChip,
   type SampleChip,
   serverDraft,
@@ -193,5 +197,42 @@ describe("wouldLines", () => {
 
   test("an empty list gives no lines", () => {
     expect(wouldLines([])).toEqual([]);
+  });
+});
+
+describe("dryRunRuntime", () => {
+  const catalog = (runtimes: BuilderCatalog["runtimes"]): BuilderCatalog => ({
+    agents: [],
+    connectors: [],
+    machines: [{ id: "m1", name: "Studio", online: true }],
+    runtimes,
+    skills: [],
+  });
+
+  test("says the dry run is on Cloudflare when that is the chosen runtime", () => {
+    expect(dryRunRuntime(catalog(["cloud"]), { runtime: "cloud" })).toEqual({
+      blocker: null,
+      note: "The dry run runs on Cloudflare, the runtime you chose.",
+    });
+  });
+
+  test("says so when the chosen runtime cannot run a dry run", () => {
+    const machine = dryRunRuntime(catalog(["machine", "cloud"]), {
+      machineId: "m1",
+      runtime: "machine",
+    });
+    expect(machine.blocker).toBeNull();
+    expect(machine.note).toContain("Studio cannot run a dry run");
+    expect(
+      dryRunRuntime(catalog(["managed", "cloud"]), { runtime: "managed" }).note
+    ).toContain("Anthropic cloud cannot run a dry run");
+  });
+
+  test("blocks the run, not Create, when no model key backs Cloudflare", () => {
+    const result = dryRunRuntime(catalog(["machine"]), {
+      machineId: "m1",
+      runtime: "machine",
+    });
+    expect(result.blocker).toContain("OpenRouter or Anthropic key");
   });
 });

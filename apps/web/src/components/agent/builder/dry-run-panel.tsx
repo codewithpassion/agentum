@@ -85,6 +85,8 @@ export interface DryRunPanelProps {
   runBlocker: string | null;
   /** The run to show, or null before the first one. */
   runId: string | null;
+  /** Where the dry run runs, in a sentence. */
+  runtimeNote: string;
   sample: SampleChip[];
 }
 
@@ -99,6 +101,7 @@ export function DryRunPanel({
   pending,
   runBlocker,
   runId,
+  runtimeNote,
   sample,
 }: DryRunPanelProps) {
   const changeChip = useCallback(
@@ -130,9 +133,7 @@ export function DryRunPanel({
             Nothing is saved or sent.
           </span>
         </div>
-        <p className="text-muted-foreground text-xs">
-          The dry run uses Cloudflare whatever runtime is chosen.
-        </p>
+        <p className="text-muted-foreground text-xs">{runtimeNote}</p>
         <div className="flex flex-wrap items-center gap-1.5">
           {sample.map((chip, index) => (
             <SampleChipEditor
