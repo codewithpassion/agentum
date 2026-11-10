@@ -792,3 +792,48 @@ test("forging an outbound receipt id cannot substitute a harmless approval displ
     f.service.requireOutbound(f.principal, "slack/send", malicious)
   ).rejects.toThrow("outboundReceipt");
 });
+
+test("question_keys stays while a question is open and clears once it settles", async () => {
+  const keyOf = async (id: string) =>
+    (await db.select().from(runRequests).where(eq(runRequests.id, id)))[0]
+      ?.questionKeys;
+  const ask = (id: string, toolUseId: string) =>
+    requests.open(system, {
+      kind: "question",
+      questions: [{ choices: ["a", "b"], header: "h", question: "Which one?" }],
+      runId: id,
+      toolName: "ask_user",
+      toolUseId,
+    });
+  const open3 = JSON.stringify(["Which one?"]);
+  const runId = await start();
+  const answered = await ask(runId, "q1");
+  const expired = await ask(runId, "q2");
+  const cancelled = await ask(runId, "q3");
+  expect(
+    await Promise.all([answered, expired, cancelled].map((r) => keyOf(r.id)))
+  ).toEqual([open3, open3, open3]);
+  await requests.answer(user, {
+    answer: { answers: { "Which one?": "a" } },
+    requestId: answered.id,
+    via: "web",
+  });
+  expect(await keyOf(answered.id)).toBeNull();
+  expect(await requests.outcome(system, answered.id)).toEqual({
+    answer: { answers: { "Which one?": "a" } },
+    status: "answered",
+  });
+  await requests.cancel(user, cancelled.id);
+  expect(await keyOf(cancelled.id)).toBeNull();
+  expect(await keyOf(expired.id)).toBe(open3);
+  now += 7 * 24 * 60 * 60_000;
+  await requests.expireDue(system);
+  expect(await keyOf(expired.id)).toBeNull();
+  expect(await requests.outcome(system, expired.id)).toEqual({
+    status: "expired",
+  });
+  const withRun = await ask(runId, "q4");
+  expect(await keyOf(withRun.id)).toBe(open3);
+  await runs.cancelRun(user, runId);
+  expect(await keyOf(withRun.id)).toBeNull();
+});
