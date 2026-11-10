@@ -3,7 +3,7 @@ id: TH.5
 title: A main thread with no runs opens
 milestone: TH
 size: S
-status: in_progress
+status: done
 depends_on: [TH.3]
 branch: task/TH.5-empty-main-thread
 lane: web
@@ -26,3 +26,4 @@ Found on staging on 11 Nov 2026 during the smoke check after the CL merges. On a
 ## Log
 - 2026-11-11: added from the staging smoke check (verify3), not dispatched. Team-lead scoped the work to the CL tasks, so dispatch waits for a go.
 - 2026-11-11: dispatched to a Sonnet implementer on task/TH.5-empty-main-thread, with a per-task review, after Dom's go.
+- 2026-11-11: Merged as 7e565d6e, review clean with 0 fix rounds. check, test and build passed on main at f2320012, and the bundle grep was empty.

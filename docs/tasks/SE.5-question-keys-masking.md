@@ -3,7 +3,7 @@ id: SE.5
 title: Clear run_requests.question_keys once a question is settled
 milestone: SE
 size: S
-status: in_progress
+status: done
 depends_on: [SE.3]
 branch: task/SE.5-question-keys-masking
 lane: services
@@ -29,3 +29,4 @@ Dom chose on 11 Nov 2026: leave the question text in place while the request is 
 - 2026-11-10: split out of SE.3 and blocked on Dom's choice above.
 - 2026-11-11: Dom chose to clear the column once the request is answered or expires, and unblocked it. Scope rewritten to match.
 - 2026-11-11: dispatched to a Sonnet implementer on task/SE.5-question-keys-masking, with a per-task review, after Dom's go.
+- 2026-11-11: Merged as 6ecba95c, review clean with 0 fix rounds. check, test and build passed on main at f2320012. Open question for Dom: backfill rows settled before SE.5, which still hold question_keys (docs/reviews/tasks/SE.5.md).

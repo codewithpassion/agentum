@@ -3,7 +3,7 @@ id: TH.6
 title: A child that ends always wakes its parent
 milestone: TH
 size: S
-status: in_progress
+status: done
 depends_on: [TH.4]
 branch: task/TH.6-wake-live-parent
 lane: services
@@ -29,3 +29,4 @@ Today only `completeRun` wakes, and only when the parent run has ended (`package
 ## Log
 - 2026-11-11: added from Dom's decision on the TH.4 question.
 - 2026-11-11: dispatched to a Sonnet implementer on task/TH.6-wake-live-parent, with a per-task review, after Dom's go.
+- 2026-11-11: Merged as f2320012, review clean after 1 fix round. check, test and build passed on main. A parent that is itself a subagent is not woken, because the wake would run without the subagent's scope.
