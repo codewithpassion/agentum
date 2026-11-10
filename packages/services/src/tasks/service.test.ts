@@ -560,7 +560,8 @@ test("get by session id opens the latest run of the thread", async () => {
 });
 
 test("get needs exactly one of run id and session id", async () => {
-  await expect(tasks.get(user(), {} as { runId: string })).rejects.toThrow();
+  // @ts-expect-error neither id given
+  await expect(tasks.get(user(), {})).rejects.toThrow();
   await expect(
     tasks.get(user(), {
       runId: "run-01",
