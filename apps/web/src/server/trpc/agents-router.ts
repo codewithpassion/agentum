@@ -1,6 +1,7 @@
 import {
   agentCreateSchema,
   agentOwnersSchema,
+  agentRuntimeTargetSchema,
   agentUpdateSchema,
 } from "@repo/services/agents";
 import { z } from "zod";
@@ -13,6 +14,11 @@ export const agentsRouter = router({
     .input(idInput)
     .mutation(({ ctx, input }) =>
       ctx.services.agents.archive(ctx.principal, input.id)
+    ),
+  changeRuntime: workspaceProcedure
+    .input(agentRuntimeTargetSchema.extend({ id: z.string().min(1) }))
+    .mutation(({ ctx, input: { id, ...target } }) =>
+      ctx.services.agents.changeRuntime(ctx.principal, id, target)
     ),
   checkAddress: workspaceProcedure
     .input(z.strictObject({ local: z.string() }))

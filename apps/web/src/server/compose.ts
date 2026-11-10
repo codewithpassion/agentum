@@ -685,7 +685,33 @@ export const composeWith = ({
     people: infra.people,
   });
   const members = createMembersService({ db, lister: infra.members });
-  const agents = createAgentsService({ db, events, members });
+  const agents = createAgentsService({
+    atomic: infra.atomic,
+    db,
+    // Built lazily: `managedKeys` is made further down.
+    dropVaults: async (workspaceId, vaultIds) => {
+      const key = await managedKeys.resolve(workspaceId);
+      if (!key) {
+        return;
+      }
+      const gateway = (infra.managedGatewayFor ?? noGateway)({
+        apiKey: key.apiKey,
+        environment: {
+          read: () => Promise.resolve(key.environmentId),
+          write: (id) => managedKeys.rememberEnvironment(workspaceId, id),
+        },
+      });
+      await Promise.all(
+        vaultIds.map((vaultId) =>
+          gateway.deleteVault(vaultId).catch((error: unknown) => {
+            console.error("Deleting a managed session vault failed:", error);
+          })
+        )
+      );
+    },
+    events,
+    members,
+  });
   const apiKeys = createApiKeysService({ clock: infra.clock, db, events });
   const peerFetch = peerFetchOf(infra.peerFetch);
   const a2aPageReads = createPageReads({ db, people: infra.people });

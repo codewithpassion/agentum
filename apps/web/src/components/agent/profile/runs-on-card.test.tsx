@@ -47,3 +47,9 @@ test("offers no choice-like marker or runtime control", () => {
   expect(html).not.toContain("<select");
   expect(html).not.toContain(`disabled=""`);
 });
+
+test("offers a Move agent button, and no dialog until it is clicked", () => {
+  const html = render({ runtime: "cloud" });
+  expect(html).toContain("Move agent");
+  expect(html).not.toContain("Move to");
+});
