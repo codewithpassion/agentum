@@ -1,25 +1,18 @@
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
-import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { machines } from "@repo/db/schema/machines";
 import { taskFolderPath } from "@repo/db/shared";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { agentPrompt } from "../agent-prompt.ts";
-import { type AgentRecord, handsToNames } from "../agents.ts";
+import type { AgentRecord } from "../agents.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
-import {
-  effectiveRunScope,
-  modelOfRun,
-  scopeAllows,
-} from "../runs/access-scope.ts";
 import { requireOrdinaryMachineRun } from "../runs/guest-scope.ts";
-import { sessionSupportsSpeakers } from "../runs/speakers.ts";
+import { buildLaunchContext } from "../runs/launch-context.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
-import { slackGuidanceFor } from "../slack/guidance.ts";
 import { CLOUD_DEFAULT_MODEL, findCloudModel } from "./models.ts";
 import type { CloudRunnerPort } from "./types.ts";
 
@@ -115,37 +108,22 @@ export const createCloudRuntime = ({
   ): Promise<void> => {
     requireOrdinaryMachineRun(run);
     const computer = await computerFor(db, run);
-    const assigned = await db
-      .select({ id: connectors.id, name: connectors.name })
-      .from(agentConnectors)
-      .innerJoin(connectors, eq(connectors.id, agentConnectors.connectorId))
-      .where(
-        and(
-          eq(agentConnectors.agentId, run.agentId),
-          eq(agentConnectors.workspaceId, run.workspaceId)
-        )
-      )
-      .orderBy(agentConnectors.createdAt, agentConnectors.connectorId);
-    const slack = await slackGuidanceFor(db, {
-      agentId: run.agentId,
-      workspaceId: run.workspaceId,
-    });
+    const context = await buildLaunchContext(db, run, agent);
     const runToken = await signRunToken(await hmacKey(), {
       agentId: run.agentId,
       issuedAt: deps.clock.now().getTime(),
       runId: run.id,
       workspaceId: run.workspaceId,
     });
-    const scope = await effectiveRunScope(db, run.workspaceId, run.id);
-    const model = modelOfRun(run, agent);
+    const { model } = context;
     await runner.start({
       agent: {
         id: agent.id,
         instructions: [
-          agentPrompt(agent, await handsToNames(db, agent), {
-            multiPerson: await sessionSupportsSpeakers(db, run),
+          agentPrompt(agent, context.handoffNames, {
+            multiPerson: context.multiPerson,
           }),
-          slack,
+          context.slack,
         ]
           .filter((part) => part !== "")
           .join("\n\n"),
@@ -167,9 +145,7 @@ export const createCloudRuntime = ({
           : { taskFolder: taskFolderPath(agent.slug, run.id) }),
       },
       mcpServers: buildMcpServers({
-        connectors: assigned.filter((connector) =>
-          scopeAllows(scope, "connectors", connector.id)
-        ),
+        connectors: context.connectors,
         platformUrl,
         runToken,
       }),

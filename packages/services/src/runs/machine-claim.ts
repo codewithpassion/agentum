@@ -1,6 +1,5 @@
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
-import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { taskFolderPath } from "@repo/db/shared";
@@ -16,7 +15,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { agentPrompt } from "../agent-prompt.ts";
-import { findAgent, handsToNames } from "../agents.ts";
+import { findAgent } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { ServiceError } from "../errors.ts";
@@ -28,13 +27,11 @@ import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import type { SecretsService } from "../secrets.ts";
-import { slackGuidanceFor } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
-import { effectiveRunScope, modelOfRun, scopeAllows } from "./access-scope.ts";
 import { requireOrdinaryMachineRun } from "./guest-scope.ts";
+import { buildLaunchContext } from "./launch-context.ts";
 import { peerRootOf } from "./peer-root.ts";
 import { findSessionById, loadRun } from "./queries.ts";
-import { sessionSupportsSpeakers } from "./speakers.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
 
 const CLAIM_ACTION = "runs.claim";
@@ -252,24 +249,13 @@ export const claimForMachine = async (
     throw new ServiceError("conflict", "Run cannot be claimed");
   }
 
-  const [claimedRun, session, assigned] = await Promise.all([
+  const [claimedRun, session] = await Promise.all([
     loadRun(db, run.id),
     findSessionById(db, {
       agentId: run.agentId,
       id: run.sessionId,
       workspaceId: run.workspaceId,
     }),
-    db
-      .select({ id: connectors.id, name: connectors.name })
-      .from(agentConnectors)
-      .innerJoin(connectors, eq(connectors.id, agentConnectors.connectorId))
-      .where(
-        and(
-          eq(agentConnectors.agentId, run.agentId),
-          eq(agentConnectors.workspaceId, run.workspaceId)
-        )
-      )
-      .orderBy(agentConnectors.createdAt, agentConnectors.connectorId),
   ]);
   if (!(claimedRun && session)) {
     throw new ServiceError("not_found", "Run not found");
@@ -281,10 +267,7 @@ export const claimForMachine = async (
     // The relay authenticates a call with the run's own token.
     env[RELAY_TOKEN_ENV] = runToken;
   }
-  const slack = await slackGuidanceFor(db, {
-    agentId: agent.id,
-    workspaceId: run.workspaceId,
-  });
+  const context = await buildLaunchContext(db, claimedRun, agent);
   const guidance = granted
     ? secretsGuidance({
         base: options.platformUrl,
@@ -315,11 +298,10 @@ export const claimForMachine = async (
     }
   }
 
-  const scope = await effectiveRunScope(db, run.workspaceId, run.id);
   return {
     agent: {
       id: agent.id,
-      model: modelOfRun(run, agent),
+      model: context.model,
       name: agent.name,
       runtimeConfig: agent.runtimeConfig,
       slug: agent.slug,
@@ -327,19 +309,17 @@ export const claimForMachine = async (
     ...(Object.keys(env).length > 0 ? { env } : {}),
     inputFileIds: claimedRun.inputFileIds,
     instructions: [
-      agentPrompt(agent, await handsToNames(db, agent), {
-        multiPerson: await sessionSupportsSpeakers(db, claimedRun),
+      agentPrompt(agent, context.handoffNames, {
+        multiPerson: context.multiPerson,
       }),
       guidance,
-      slack,
+      context.slack,
     ]
       .filter((part) => part !== "")
       .join("\n\n"),
     ...(library ? { library } : {}),
     mcpServers: buildMcpServers({
-      connectors: assigned.filter((connector) =>
-        scopeAllows(scope, "connectors", connector.id)
-      ),
+      connectors: context.connectors,
       platformUrl: options.platformUrl,
       runToken,
     }),
