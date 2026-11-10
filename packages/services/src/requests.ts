@@ -685,8 +685,8 @@ export const createRequestsService = ({
         kind: input.kind,
         // The runtime's own question texts, unmasked on purpose: answers come
         // back keyed by them, so a masked key would leave the agent with no
-        // answer. `display` is the masked copy. SE.3 left this open (see
-        // docs/reviews/tasks/SE.3.md).
+        // answer. `display` is the masked copy. Every write that settles the
+        // request sets this to null (SE.5).
         questionKeys:
           input.kind === "question"
             ? JSON.stringify(input.questions.map(({ question }) => question))
