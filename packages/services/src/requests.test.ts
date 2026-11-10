@@ -256,7 +256,7 @@ test("question answers are scrubbed, polling is capped, and only the claimer can
   );
 });
 
-test("a question is stored and announced scrubbed, and answers reach the runtime under the masked text", async () => {
+test("a question is stored and announced scrubbed, and answers reach the runtime under its own text", async () => {
   const runId = await start();
   const asked = "Use sk-12345678901234567890 or granted-value-123?";
   const payloads: Record<string, unknown>[] = [];
@@ -285,9 +285,6 @@ test("a question is stored and announced scrubbed, and answers reach the runtime
   const [stored] = await db.select().from(runRequests);
   expect(stored?.display).not.toContain("sk-1234");
   expect(stored?.display).not.toContain("granted-value-123");
-  expect(stored?.questionKeys).not.toContain("sk-1234");
-  expect(stored?.questionKeys).not.toContain("granted-value-123");
-  expect(stored?.questionKeys).toContain("[secret:NAME]");
   expect(JSON.stringify(payloads[0])).not.toContain("sk-1234");
   expect(JSON.stringify(payloads[0])).not.toContain("granted-value-123");
   expect(JSON.stringify(payloads[0])).toContain("[secret:NAME]");
@@ -300,21 +297,21 @@ test("a question is stored and announced scrubbed, and answers reach the runtime
   });
   const outcome = await requests.outcome(system, request.id);
   expect(outcome).toEqual({
-    answer: { answers: { [shownQuestion]: "sk-abcdefghijklmnopqrstuv" } },
+    answer: { answers: { [asked]: "sk-abcdefghijklmnopqrstuv" } },
     status: "answered",
   });
   if (outcome?.status !== "answered") {
     throw new Error("expected an answer");
   }
   expect(outcomeText("question", outcome)).toBe(
-    `Q: ${shownQuestion} A: sk-abcdefghijklmnopqrstuv`
+    `Q: ${asked} A: sk-abcdefghijklmnopqrstuv`
   );
   expect(
     askUserQuestionAnswers(
-      { questions: [{ question: shownQuestion }] },
+      { questions: [{ question: asked }] },
       outcome.answer as { answers: Record<string, string> }
     )
-  ).toEqual({ [shownQuestion]: "sk-abcdefghijklmnopqrstuv" });
+  ).toEqual({ [asked]: "sk-abcdefghijklmnopqrstuv" });
   const answered = payloads.find((payload) => "answers" in payload);
   expect(JSON.stringify(answered)).not.toContain("sk-abcdef");
   expect(JSON.stringify(answered)).toContain("[redacted]");

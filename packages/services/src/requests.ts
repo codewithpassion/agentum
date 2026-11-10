@@ -84,12 +84,6 @@ export const peerAnswerInputSchema = z.strictObject({
   text: z.string().trim().min(1).max(PEER_ANSWER_MAX),
 });
 
-/** The masked question texts of a question display, as JSON, or null for any other kind. */
-const questionKeysOf = (display: RequestRecord["display"]): string | null =>
-  "questions" in display
-    ? JSON.stringify(display.questions.map(({ question }) => question))
-    : null;
-
 const peerHost = (origin: string | null): string => {
   try {
     return origin === null ? UNKNOWN_PEER_HOST : new URL(origin).host;
@@ -644,10 +638,14 @@ export const createRequestsService = ({
         ).toISOString(),
         id: ulid(),
         kind: input.kind,
-        // The question texts as the person sees them, masked like `display`: a
-        // secret in a question never reaches the table. Answers come back keyed
-        // by these.
-        questionKeys: questionKeysOf(display),
+        // The runtime's own question texts, unmasked on purpose: answers come
+        // back keyed by them, so a masked key would leave the agent with no
+        // answer. `display` is the masked copy. SE.3 left this open (see
+        // docs/reviews/tasks/SE.3.md).
+        questionKeys:
+          input.kind === "question"
+            ? JSON.stringify(input.questions.map(({ question }) => question))
+            : null,
         runId: run.id,
         sessionId: run.sessionId,
         slackMessage: null,
