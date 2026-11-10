@@ -74,7 +74,7 @@ export function ProfileRows({
 }: {
   agent: AgentRecord;
   mailbox: MailboxRecord | null;
-  /** The Asks row shows when this is set. Null means the member lookup failed. */
+  /** The Owner row shows when this is set. Null means the member lookup failed. */
   members?: WorkspaceMember[] | null;
   onChanged?: () => void;
   onOpen: (sheet: SheetId) => void;
@@ -153,6 +153,7 @@ export function ProfileRows({
       />
       <Disclosure
         className="border-border border-t border-dashed"
+        defaultOpen={agent.status === "archived"}
         summary="Voice, skills, library, channels"
         title="More"
       >

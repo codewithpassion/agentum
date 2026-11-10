@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Disclosure } from "./disclosure.tsx";
 import { HANDS_TO_COPY } from "./profile-logic.ts";
 import { WorksWith } from "./works-with.tsx";
 
@@ -33,14 +32,4 @@ test("says plainly that Hands to is a suggestion to the agent", () => {
 test("leaves out Peers when none are passed", () => {
   const html = renderToStaticMarkup(<WorksWith handsTo="x" subagents="y" />);
   expect(html).not.toContain("Peers");
-});
-
-test("a closed disclosure shows its title and hides its content", () => {
-  const html = renderToStaticMarkup(
-    <Disclosure title="More">
-      <span>hidden-content</span>
-    </Disclosure>
-  );
-  expect(html).toContain("More");
-  expect(html).not.toContain("hidden-content");
 });

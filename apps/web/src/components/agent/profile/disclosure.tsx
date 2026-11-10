@@ -10,17 +10,20 @@ import {
 export function Disclosure({
   children,
   className,
+  defaultOpen,
   summary,
   title,
 }: {
   children: ReactNode;
   className?: string;
+  /** Open from the start. An archived agent has its page disabled, which a closed trigger would not survive. */
+  defaultOpen?: boolean;
   /** A short line after the title that says what is inside. */
   summary?: string;
   title: string;
 }) {
   return (
-    <Collapsible className={className}>
+    <Collapsible className={className} defaultOpen={defaultOpen}>
       <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-1.5 py-2.5 text-left">
         <ChevronRight
           aria-hidden
