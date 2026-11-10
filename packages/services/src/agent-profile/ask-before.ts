@@ -2,7 +2,8 @@
 // each one has. The keys match what the run gates compute: `<serverKey>/<tool>`
 // for a connector tool, with the server keys made in assignment order, and the
 // bare name for a built-in tool.
-import { connectorServerKeys } from "@repo/protocol/server-keys";
+import type { AskLevel } from "@repo/db/shared";
+import { connectorServerKeys, PLATFORM_KEY } from "@repo/protocol/server-keys";
 
 export interface BuiltinAction {
   /** What else the switch gates, in one plain sentence. */
@@ -32,6 +33,8 @@ export const BUILTIN_ACTIONS: readonly BuiltinAction[] = [
   { key: "web_fetch", label: "Fetch a web page" },
   { key: "run_script", label: "Run a script" },
   { key: "run_skill_script", label: "Run a skill's script" },
+  { key: `${PLATFORM_KEY}/send_message`, label: "Send a message to a person" },
+  { key: `${PLATFORM_KEY}/start_subagent`, label: "Start a subagent" },
 ];
 
 /** What a person reads for a platform tool a switch covers, by rule key. */
@@ -52,6 +55,9 @@ export const PLATFORM_TOOL_LABELS: Readonly<Record<string, string>> = {
   "harbourmaster/library_write": "writing library files",
 };
 
+/** The group of the tools the platform itself provides. */
+export const BUILTIN_GROUP = "Built-in tools";
+
 const WORD_SEPARATORS = /[_-]+/g;
 
 /** A tool name as words: `create_bill` is "create bill". */
@@ -68,6 +74,8 @@ export interface ActionConnector {
 export interface GateableAction {
   /** What else the switch gates, when a built-in says so. */
   covers?: string;
+  /** The source the switch sits under: the connector's name, or the built-ins. */
+  group: string;
   key: string;
   kind: "builtin" | "connector";
   /** "Xero: create bill". */
@@ -92,6 +100,7 @@ export const gateableActions = (
       )
       .map(
         (tool): GateableAction => ({
+          group: connector.name,
           key: `${serverKeys[index]}/${tool.name}`,
           kind: "connector",
           label: `${connector.name}: ${toolWords(tool.name)}`,
@@ -100,8 +109,42 @@ export const gateableActions = (
   );
   return [
     ...BUILTIN_ACTIONS.map(
-      (action): GateableAction => ({ ...action, kind: "builtin" })
+      (action): GateableAction => ({
+        ...action,
+        group: BUILTIN_GROUP,
+        kind: "builtin",
+      })
     ),
     ...connectorActions,
   ];
+};
+
+const RARE_ACTIONS: ReadonlySet<string> = new Set([
+  `${PLATFORM_KEY}/send_message`,
+]);
+const OUTSIDE_BUILTINS: ReadonlySet<string> = new Set([
+  "web_fetch",
+  `${PLATFORM_KEY}/send_message`,
+]);
+
+/**
+ * Whether the level alone asks before the action, with no override. "Rarely"
+ * asks before a message goes to a person, "outside" adds every connector tool
+ * and fetching a web page, "everything" asks before every action. `custom`
+ * asks about nothing: the agent's rules decide.
+ */
+export const levelAsks = (
+  level: AskLevel,
+  action: Pick<GateableAction, "key" | "kind">
+): boolean => {
+  switch (level) {
+    case "everything":
+      return true;
+    case "outside":
+      return action.kind === "connector" || OUTSIDE_BUILTINS.has(action.key);
+    case "rarely":
+      return RARE_ACTIONS.has(action.key);
+    default:
+      return false;
+  }
 };

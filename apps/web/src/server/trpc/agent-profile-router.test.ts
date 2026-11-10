@@ -90,4 +90,23 @@ test("a signed-in caller reads a seeded agent and round-trips ask-before", async
     ask: false,
   });
   expect(await isAsking()).toBe(false);
+
+  expect(await caller.agentProfile.askLevel({ agentId: agent.id })).toBe(
+    "rarely"
+  );
+  await caller.agentProfile.setAskLevel({
+    agentId: agent.id,
+    level: "everything",
+  });
+  expect(await caller.agentProfile.askLevel({ agentId: agent.id })).toBe(
+    "everything"
+  );
+  expect(await isAsking()).toBe(true);
+  await expect(
+    caller.agentProfile.setAskBefore({
+      action: "not-an-action",
+      agentId: agent.id,
+      ask: true,
+    })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });

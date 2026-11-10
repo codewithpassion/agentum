@@ -75,6 +75,10 @@ export const ruleKeyInputSchema = rulesListInputSchema.extend({ toolKey: id });
 export const ruleSetInputSchema = ruleKeyInputSchema.extend({
   mode: z.enum(TOOL_RULE_MODES),
 });
+/** The levels a person picks. `custom` is what an agent with its own rules reads as. */
+export const askLevelSetInputSchema = rulesListInputSchema.extend({
+  level: z.enum(["rarely", "outside", "everything"]),
+});
 /** As long as a message a peer may send, so an answer is never refused for its length alone. */
 const PEER_ANSWER_MAX = 30_000;
 const UNKNOWN_PEER_HOST = "unknown host";
@@ -271,6 +275,47 @@ export const createRequestsService = ({
         )
       )
       .orderBy(agentToolRules.toolKey);
+  };
+  const askLevel = async (
+    principal: Principal,
+    raw: z.input<typeof rulesListInputSchema>
+  ) => {
+    const input = rulesListInputSchema.parse(raw);
+    const { agent } = await ruleAgent(principal, input.agentId);
+    const [row] = await db
+      .select({ level: agents.askLevel })
+      .from(agents)
+      .where(
+        and(eq(agents.id, agent.id), eq(agents.workspaceId, agent.workspaceId))
+      )
+      .limit(1);
+    return row?.level ?? "custom";
+  };
+  /** Rules stay as they are: they override the new level the way they did the old one. */
+  const setAskLevel = async (
+    principal: Principal,
+    raw: z.input<typeof askLevelSetInputSchema>
+  ) => {
+    const input = askLevelSetInputSchema.parse(raw);
+    const { agent, user } = await ruleAgent(principal, input.agentId);
+    await atomic([
+      db
+        .update(agents)
+        .set({ askLevel: input.level })
+        .where(
+          and(
+            eq(agents.id, agent.id),
+            eq(agents.workspaceId, agent.workspaceId)
+          )
+        ),
+    ]);
+    await events.append({
+      actor: { id: user.userId, kind: "user" },
+      agentId: agent.id,
+      payload: input,
+      type: "tool_rule.changed",
+      workspaceId: agent.workspaceId,
+    });
   };
   const setRule = async (
     principal: Principal,
@@ -1186,6 +1231,7 @@ export const createRequestsService = ({
   return {
     answer,
     answerAsPeer,
+    askLevel,
     cancel,
     cancelForRun,
     expireDue,
@@ -1201,6 +1247,7 @@ export const createRequestsService = ({
       writer(principal, run);
       return Boolean(await guestsPresent(run));
     },
+    setAskLevel,
     setRule,
     waitForOutcome,
   };

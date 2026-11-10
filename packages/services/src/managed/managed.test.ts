@@ -652,6 +652,8 @@ beforeEach(async () => {
       runtime: "managed",
     })
   ).id;
+  // These tests read rules alone, as every agent did before ask levels.
+  await db.update(agentRows).set({ askLevel: "custom" });
   keys = createManagedKeysService({
     atomic: sqliteAtomic(db),
     clock,
