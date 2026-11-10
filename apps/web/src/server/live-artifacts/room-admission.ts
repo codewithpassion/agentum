@@ -6,11 +6,7 @@
  * nothing: a valid ticket id is single use. */
 
 import { ROOM_ADMISSION } from "@repo/protocol/token-prefixes";
-import {
-  constantTimeEqual,
-  fromBase64Url,
-  toBase64Url,
-} from "@repo/services/crypto";
+import { hmacKeyFromText, openClaims, signClaims } from "@repo/services/crypto";
 import { verifyRoomTicket } from "@repo/services/live-artifacts/ticket";
 import type { Principal, WorkspacePrincipal } from "@repo/services/workspaces";
 
@@ -24,10 +20,6 @@ export const ADMISSION_SECONDS = 30;
 /** The route and the room run in different isolates. */
 const CLOCK_SKEW_SECONDS = 2;
 
-const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
 export interface RoomAdmission {
   artifactId: string;
   expiresAt: number;
@@ -40,28 +32,13 @@ export interface RoomAdmission {
 }
 
 /** A separate key string from the ticket MAC, so a ticket never verifies as an assertion. */
-const mac = async (key: string, payload: string) =>
-  new Uint8Array(
-    await crypto.subtle.sign(
-      HMAC.name,
-      await crypto.subtle.importKey(
-        "raw",
-        encoder.encode(`room-admission:${key}`),
-        HMAC,
-        false,
-        ["sign"]
-      ),
-      encoder.encode(payload)
-    )
-  );
+const admissionKey = (key: string) => hmacKeyFromText(`room-admission:${key}`);
 
 export const signRoomAdmission = async (
   admission: RoomAdmission,
   key: string
-): Promise<string> => {
-  const payload = toBase64Url(encoder.encode(JSON.stringify(admission)));
-  return `${ROOM_ADMISSION.issue}${payload}.${toBase64Url(await mac(key, payload))}`;
-};
+): Promise<string> =>
+  signClaims(await admissionKey(key), ROOM_ADMISSION, admission);
 
 const isAdmission = (value: unknown): value is RoomAdmission => {
   if (typeof value !== "object" || value === null) {
@@ -91,40 +68,26 @@ export const verifyRoomAdmission = async (
   expected: { artifactId: string; jti: string; workspaceId: string },
   nowSeconds: number
 ): Promise<RoomAdmission | null> => {
-  const body = ROOM_ADMISSION.strip(header);
-  if (!key || body === null || header.length > 8192) {
+  if (!key || header.length > 8192) {
     return null;
   }
-  const parts = body.split(".");
-  const [payload, signatureText] = parts;
-  if (parts.length !== 2 || !payload || !signatureText) {
+  const parsed = await openClaims(
+    [await admissionKey(key)],
+    ROOM_ADMISSION,
+    header
+  );
+  if (
+    !isAdmission(parsed) ||
+    parsed.artifactId !== expected.artifactId ||
+    parsed.workspaceId !== expected.workspaceId ||
+    parsed.jti !== expected.jti ||
+    parsed.issuedAt > nowSeconds + CLOCK_SKEW_SECONDS ||
+    parsed.expiresAt <= nowSeconds ||
+    parsed.expiresAt - parsed.issuedAt > ADMISSION_SECONDS
+  ) {
     return null;
   }
-  const signature = fromBase64Url(signatureText);
-  if (!(signature && constantTimeEqual(await mac(key, payload), signature))) {
-    return null;
-  }
-  const bytes = fromBase64Url(payload);
-  if (!bytes) {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(decoder.decode(bytes));
-    if (
-      !isAdmission(parsed) ||
-      parsed.artifactId !== expected.artifactId ||
-      parsed.workspaceId !== expected.workspaceId ||
-      parsed.jti !== expected.jti ||
-      parsed.issuedAt > nowSeconds + CLOCK_SKEW_SECONDS ||
-      parsed.expiresAt <= nowSeconds ||
-      parsed.expiresAt - parsed.issuedAt > ADMISSION_SECONDS
-    ) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
+  return parsed;
 };
 
 export type RequestAdmission =
