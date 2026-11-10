@@ -86,7 +86,7 @@ export function SessionFilters({
           id="sessions-search"
           maxLength={200}
           onChange={handleTextChange}
-          placeholder="Search titles and messages"
+          placeholder="Search conversations"
           type="search"
           value={text}
         />
