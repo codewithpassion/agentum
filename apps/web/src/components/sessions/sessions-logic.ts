@@ -7,12 +7,20 @@ export const ORIGIN_VALUES = [
   "trigger",
   "routine",
   "mcp",
+  "mail",
+  "qa",
+  "a2a",
+  "artifact",
 ] as const;
 export type OriginValue = (typeof ORIGIN_VALUES)[number];
 
 export const ORIGIN_LABELS: Record<OriginValue, string> = {
+  a2a: "A2A",
+  artifact: "Artifact",
   inbox: "Inbox",
+  mail: "Mail",
   mcp: "MCP",
+  qa: "Q&A",
   routine: "Routine",
   slack: "Slack",
   trigger: "Trigger",

@@ -16,6 +16,10 @@ test("every origin value has a label", () => {
     "Trigger",
     "Routine",
     "MCP",
+    "Mail",
+    "Q&A",
+    "A2A",
+    "Artifact",
   ]);
 });
 
