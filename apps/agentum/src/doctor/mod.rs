@@ -100,8 +100,9 @@ pub async fn problems(ctx: &Context<'_>) -> serde_json::Value {
         })
         .collect()
 }
-fn truncate(text: &str, max: usize) -> String {
-    text.chars().take(max).collect()
+/// The server counts UTF-16 units against 2000, and a char is at most two of them.
+fn truncate(text: &str, max_units: usize) -> String {
+    text.chars().take(max_units / 2).collect()
 }
 
 #[cfg(test)]
