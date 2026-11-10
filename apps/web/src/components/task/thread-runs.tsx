@@ -24,6 +24,10 @@ export const sessionRuns = (
     a.id.localeCompare(b.id)
   );
 
+/** The `?run=` of a thread link: the latest run is the thread's own URL, so it has none. */
+export const runSearch = (runId: string, latestId: string): { run?: string } =>
+  runId === latestId ? {} : { run: runId };
+
 export function earlierRunsLabel(runs: readonly ThreadRun[]): string {
   const uniform =
     runs.length > 0 && runs.every((run) => run.status === runs[0]?.status);
@@ -41,9 +45,11 @@ export const runPickerStatus = (status: RunStatus): string =>
 export function RunPicker({
   runs,
   runId,
+  sessionId,
 }: {
   runs: readonly ThreadRun[];
   runId: string;
+  sessionId: string;
 }) {
   if (runs.length < 2) {
     return null;
@@ -76,8 +82,9 @@ export function RunPicker({
             <Link
               aria-current={run.id === runId ? "page" : undefined}
               className="flex min-h-11 flex-wrap gap-x-2"
-              params={{ runId: run.id }}
-              to="/tasks/$runId"
+              params={{ sessionId }}
+              search={runSearch(run.id, runs.at(-1)?.id ?? run.id)}
+              to="/threads/$sessionId"
             >
               <span>
                 Run {index + 1} · {runPickerStatus(run.status)} ·{" "}

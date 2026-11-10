@@ -7,7 +7,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { renderToStaticMarkup } from "react-dom/server";
-import { RunPicker } from "./thread-runs.tsx";
+import { RunPicker, runSearch } from "./thread-runs.tsx";
 
 test("run picker labels the current run of the session", async () => {
   const rootRoute = createRootRoute({
@@ -28,12 +28,13 @@ test("run picker labels the current run of the session", async () => {
             title: "Second",
           },
         ]}
+        sessionId="ses-1"
       />
     ),
   });
   const taskRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: "/tasks/$runId",
+    path: "/threads/$sessionId",
   });
   const router = createRouter({
     history: createMemoryHistory({ initialEntries: ["/"] }),
@@ -43,4 +44,9 @@ test("run picker labels the current run of the session", async () => {
   const html = renderToStaticMarkup(<RouterProvider router={router} />);
   expect(html).toContain("Run 1 of 2");
   expect(html).not.toContain("Inbound mail");
+});
+
+test("a run link carries the run id, except the latest run, which has none", () => {
+  expect(runSearch("run-1", "run-2")).toEqual({ run: "run-1" });
+  expect(runSearch("run-2", "run-2")).toEqual({});
 });

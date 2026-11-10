@@ -1,5 +1,5 @@
 import { toActionLog } from "@repo/services/tasks/action-log";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { ArtifactsSlot } from "#/components/artifacts/list/artifacts-slot.tsx";
 import { useKeyboardInset } from "#/components/composer/sticky-composer.tsx";
@@ -51,6 +51,7 @@ import {
 } from "./task-state.ts";
 import { RequestBanner, type TaskTab, TaskTabs } from "./task-tabs.tsx";
 import { RunPicker, sessionRuns } from "./thread-runs.tsx";
+import { ThreadTitle } from "./thread-title.tsx";
 import { useNowMs } from "./use-now-ms.ts";
 import { useSessionEvents } from "./use-session-events.ts";
 import { useTaskComputer } from "./use-task-computer.ts";
@@ -95,6 +96,7 @@ const reduceThread = (state: ThreadState, action: ThreadAction): ThreadState =>
 export function TaskPage({ initial }: { initial: TaskView }) {
   const keyboardInset = useKeyboardInset();
   const runId = initial.run.id;
+  const sessionId = initial.session.id;
   const [task, setTask] = useState(initial);
   const [live, dispatch] = useReducer(reduceLive, initial, initialLive);
   const [thread, dispatchThread] = useReducer(
@@ -140,7 +142,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
   }, [finishedAt, refetch, runStatus]);
 
   // A request the page has not heard of is in the pending list, not the events.
-  const { needsRequests, sessionId } = live;
+  const { needsRequests } = live;
   useEffect(() => {
     if (needsRequests) {
       getTrpc()
@@ -229,17 +231,26 @@ export function TaskPage({ initial }: { initial: TaskView }) {
   const pending = [...requests.values()].find(
     (request) => request.settled === null
   );
-  const selectTab = useCallback((tab: TaskTab) => {
-    setSelected(tab);
-    const url = new URL(window.location.href);
-    url.hash = "";
-    if (tab === "conversation") {
-      url.searchParams.delete("tab");
-    } else {
-      url.searchParams.set("tab", tab);
-    }
-    window.history.replaceState(window.history.state, "", url);
-  }, []);
+  const navigate = useNavigate();
+  const search = useSearch({ from: "/_app/threads/$sessionId" });
+  // The tab lives in the URL, so a reload or a shared link opens the same one.
+  const selectTab = useCallback(
+    (tab: TaskTab) => {
+      setSelected(tab);
+      navigate({
+        hash: undefined,
+        params: { sessionId },
+        replace: true,
+        resetScroll: false,
+        search: {
+          ...(search.run === undefined ? {} : { run: search.run }),
+          ...(tab === "conversation" ? {} : { tab }),
+        },
+        to: "/threads/$sessionId",
+      });
+    },
+    [navigate, search.run, sessionId]
+  );
   const {
     split,
     desktopStatus,
@@ -277,6 +288,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
         inControl={inControl}
         keyboardOpen={keyboardInset > 80}
         onComputer={selectComputer}
+        onError={setError}
         pending={pending !== undefined && !inControl}
         runStatus={runStatus}
         runs={runs}
@@ -306,8 +318,9 @@ export function TaskPage({ initial }: { initial: TaskView }) {
           </span>
           <Link
             className="underline"
-            params={{ runId: latest.id }}
-            to="/tasks/$runId"
+            params={{ sessionId }}
+            search={{}}
+            to="/threads/$sessionId"
           >
             Go to the latest run
           </Link>
@@ -440,7 +453,9 @@ function TaskHeader({
   error,
   inControl,
   keyboardOpen,
+  onError,
 }: {
+  onError: (message: string) => void;
   keyboardOpen: boolean;
   inControl: boolean;
   task: TaskView;
@@ -461,14 +476,14 @@ function TaskHeader({
         className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
       >
         <SidebarTrigger className="hidden size-6 md:inline-flex" />
-        <Link to="/desk">Desk</Link> › Task
+        <Link to="/desk">Desk</Link> › Thread
       </nav>
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
-        <h1
-          className={`${keyboardOpen ? "line-clamp-1" : "line-clamp-2"} w-full min-w-0 font-heading text-lg leading-[1.3] md:line-clamp-2 md:w-auto md:flex-1 md:text-[22px]`}
-        >
-          {task.title}
-        </h1>
+        <ThreadTitle
+          keyboardOpen={keyboardOpen}
+          onError={onError}
+          session={task.session}
+        />
         <div
           className={`${keyboardOpen ? "hidden" : "flex"} h-10 w-full items-center gap-2 md:flex md:h-auto md:w-auto`}
         >
@@ -494,7 +509,7 @@ function TaskHeader({
             </span>
           </span>
           <div className="md:hidden">
-            <RunPicker runId={runId} runs={runs} />
+            <RunPicker runId={runId} runs={runs} sessionId={task.session.id} />
           </div>
           {task.agent.computerMachineId === null ? null : (
             <Button
@@ -544,7 +559,7 @@ function TaskHeader({
           · {costText(task.run.costUsd)}{" "}
           {isActive(runStatus) ? "so far" : "this run"}
         </span>
-        <RunPicker runId={runId} runs={runs} />
+        <RunPicker runId={runId} runs={runs} sessionId={task.session.id} />
       </div>
       {task.startedBy.parentRunId === undefined ? null : (
         <p className="mt-2 text-muted-foreground text-xs">
