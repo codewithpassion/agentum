@@ -1,8 +1,10 @@
+import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button.tsx";
 import type { AgentProfileView } from "#/integrations/trpc/types";
+import { MoveAgentDialog } from "./move-agent-dialog.tsx";
 import { currentRuntime } from "./profile-logic.ts";
 
-/** The "Runs on" side card: the agent's runtime as a fact. Information only. */
+/** The "Runs on" side card: the agent's runtime as a fact. The Move agent dialog changes it. */
 export function RunsOnCard({
   header,
   onAdvanced,
@@ -11,6 +13,9 @@ export function RunsOnCard({
   onAdvanced: () => void;
 }) {
   const runtime = currentRuntime(header.runtime, header.machine);
+  const [moving, setMoving] = useState(false);
+  const openMove = useCallback(() => setMoving(true), []);
+  const closeMove = useCallback(() => setMoving(false), []);
   return (
     <section
       aria-label="Runs on"
@@ -32,11 +37,15 @@ export function RunsOnCard({
         )}
       </div>
       <p className="mt-1 text-muted-foreground text-xs">{runtime.text}</p>
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button onClick={openMove} variant="outline">
+          Move agent
+        </Button>
         <Button onClick={onAdvanced} variant="outline">
           Advanced
         </Button>
       </div>
+      {moving ? <MoveAgentDialog header={header} onClose={closeMove} /> : null}
     </section>
   );
 }

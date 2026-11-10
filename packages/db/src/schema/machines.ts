@@ -37,6 +37,10 @@ export const machines = sqliteTable("machines", {
   credentialHash: text("credential_hash").notNull(),
   // The version the daemon reported in its last hello. Null before it first connects.
   daemonVersion: text("daemon_version"),
+  // JSON `[{ name, message }]`: the checks `agentum doctor` failed on the
+  // machine, sent in the last hello. Empty means the doctor passed. Null until a
+  // client that reports them connects.
+  doctorProblems: text("doctor_problems"),
   // Clerk user who enrolled the machine.
   enrolledBy: text("enrolled_by").notNull(),
   id: id(),

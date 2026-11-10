@@ -233,6 +233,11 @@ release checksum, enrols with `AGENTUM_ENROLL_CODE` and installs a user service
 (system service when root). Pass `--code-stdin` to read a code from stdin instead.
 Without `--code-stdin`, the installer never reads stdin; with no code, it updates
 existing instances. `--run-as` selects the enrolment and service mode together.
+After the service step the installer runs `agentum doctor` and prints each failed
+check with its fix; a failed check does not fail the install. The same list goes to
+the server in the hello (`doctor`) and shows on the machine's row on the Machines
+page. `AGENTUM_DESKTOP=1` installs the desktop packages (apt or dnf, as root or
+through passwordless sudo) before enrolling, and passes `--desktop` to `service install`.
 Existing instances are restarted on update. Replacing an old daemon requires
 `--replace-old`; revoke its old machine record afterwards. The older installers
 and Docker images continue to serve machines running the old clients.

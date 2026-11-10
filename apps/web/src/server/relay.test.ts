@@ -236,6 +236,24 @@ describe("MachineRelay hello", () => {
     ).toEqual([]);
   });
 
+  test("a hello's doctor problems land on the machine row and an older daemon's hello leaves them", async () => {
+    const identity = await enrolMachine();
+    const socket = await dial(identity);
+    const problem = { message: "Fix: claude auth login", name: "claude login" };
+    await core.message(
+      socket,
+      JSON.stringify({ ...JSON.parse(helloFrame), doctor: [problem] })
+    );
+    expect(
+      JSON.parse(machineRow(identity.machineId)?.doctorProblems ?? "null")
+    ).toEqual([problem]);
+    expect(socket.frames()[0]).toMatchObject({ type: "hello_ack" });
+    await core.message(socket, helloFrame);
+    expect(
+      JSON.parse(machineRow(identity.machineId)?.doctorProblems ?? "null")
+    ).toEqual([problem]);
+  });
+
   test("frames that are not valid daemon frames are ignored", async () => {
     const identity = await enrolMachine();
     const socket = await dial(identity);

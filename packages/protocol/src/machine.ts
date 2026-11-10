@@ -122,6 +122,17 @@ export const rolesEnrollResponseSchema = enrollResponseSchema.extend({
 });
 export type RolesEnrollResponse = z.infer<typeof rolesEnrollResponseSchema>;
 
+/**
+ * A check `agentum doctor` failed on, with its own fix in `message`. A client
+ * sends the list in its hello and an empty list says the doctor passed.
+ */
+export const doctorProblemSchema = z.strictObject({
+  message: z.string().max(2000),
+  name: z.string().min(1).max(100),
+});
+export const doctorProblemsSchema = z.array(doctorProblemSchema).max(20);
+export type DoctorProblem = z.infer<typeof doctorProblemSchema>;
+
 export const daemonHelloSchema = z.strictObject({
   // Agent ULIDs, the same ids as `offer.agentId` and `claim.agent.id`, for the
   // agents the daemon has a working directory for. Informational: the relay
@@ -132,6 +143,8 @@ export const daemonHelloSchema = z.strictObject({
     container: z.boolean(),
   }),
   daemonVersion: z.string(),
+  // What `agentum doctor` found. An older client omits it.
+  doctor: doctorProblemsSchema.optional(),
   // The daemon's optional features (see DAEMON_FEATURES_HEADER). An old daemon
   // omits it.
   features: z.array(z.string()).optional(),

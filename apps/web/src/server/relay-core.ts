@@ -4,6 +4,7 @@
 // thing the relay owns is the socket and the proof that it is still alive.
 import {
   CLOSE_CODES,
+  type DoctorProblem,
   daemonFrameSchema,
   FEATURE_LIBRARY_LIVE,
   LEASE_SECONDS,
@@ -159,6 +160,7 @@ export const createRelayCore = ({
     seen: {
       capabilities?: Record<string, unknown>;
       daemonVersion?: string;
+      doctor?: DoctorProblem[];
     } = {}
   ): Promise<"failed" | "ok" | "revoked"> => {
     try {
@@ -251,6 +253,7 @@ export const createRelayCore = ({
           features: frame.features ?? [],
         },
         daemonVersion: frame.daemonVersion,
+        doctor: frame.doctor,
       });
       if (status === "revoked") {
         reject(socket);

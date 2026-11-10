@@ -1,14 +1,22 @@
 import type { Database } from "@repo/db";
+import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
+import {
+  managedSessions,
+  workspaceAnthropicKeys,
+} from "@repo/db/schema/managed";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import {
   AGENT_RUNTIMES,
   AGENT_STATUSES,
   type AgentRuntime,
   type AgentStatus,
+  LIVE_RUN_STATUSES,
 } from "@repo/db/shared";
 import { MAX_TURNS_KEY, maxTurnsError } from "@repo/protocol/safeguards";
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -21,12 +29,14 @@ import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { hasAgentHostRole } from "./machines.ts";
+import { NO_KEY_MESSAGE } from "./managed/keys.ts";
 import type { MembersService } from "./members.ts";
 import type { Principal } from "./workspaces.ts";
 
 const AGENT_CREATE = "agents.create";
 const AGENT_READ = "agents.read";
 const AGENT_UPDATE = "agents.update";
+const AGENT_CHANGE_RUNTIME = "agents.change_runtime";
 const AGENT_ARCHIVE = "agents.archive";
 const AGENT_KIND = "agent";
 
@@ -135,13 +145,18 @@ type AgentValues = Pick<
 >;
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
-const assertSubagentOwner = (user: UserPrincipal, agent: AgentRecord): void => {
+/** The agent's owner or an org admin, on a browser session. */
+const assertOwnerOrAdmin = (
+  user: UserPrincipal,
+  agent: AgentRecord,
+  action = AGENT_UPDATE
+): void => {
   if (
     user.via !== "session" ||
     (user.isAdmin !== true &&
       user.userId !== (agent.ownerUserId ?? agent.createdBy))
   ) {
-    throw new ForbiddenError(AGENT_UPDATE);
+    throw new ForbiddenError(action);
   }
 };
 
@@ -255,6 +270,30 @@ export const agentOwnersSchema = z.strictObject({
   ownerUserId: userIdSchema.nullable(),
 });
 export type AgentOwnersInput = z.input<typeof agentOwnersSchema>;
+
+/** What an agent can be moved to. `model` is for a target that cannot run the current one. */
+export const agentRuntimeTargetSchema = z.strictObject({
+  machineId: machineIdSchema.optional(),
+  model: modelSchema.optional(),
+  runtime: z.enum(["cloud", "managed", "machine"]),
+});
+export type AgentRuntimeTarget = z.input<typeof agentRuntimeTargetSchema>;
+
+/** Config keys only some runtimes take: the environment and network setting are cloud's, the turn limit is not managed's. */
+const configKeysDroppedFor = (runtime: AgentRuntime): readonly string[] => [
+  ...(runtime === "cloud" ? [] : [CLOUD_ENVIRONMENT_KEY, CLOUD_NETWORK_KEY]),
+  ...(runtime === "managed" ? [MAX_TURNS_KEY] : []),
+];
+
+/** The agent fields a move sets, for the event. The runtime always counts. */
+const changedByMove = (
+  current: AgentRecord,
+  next: { machineId: string | null; model: string }
+): string[] => [
+  "runtime",
+  ...(next.model === current.model ? [] : ["model"]),
+  ...(next.machineId === current.machineId ? [] : ["machineId"]),
+];
 
 /** `input` with `patch` set on top of the agent's runtime config, when there is a patch. */
 const withConfigPatch = (
@@ -420,11 +459,17 @@ const assertOwners = async (
 };
 
 export const createAgentsService = ({
+  atomic,
   db,
+  dropVaults,
   events,
   members,
 }: {
+  /** The multi-statement write port, for `changeRuntime`. Without it a runtime cannot change. */
+  atomic?: Atomic;
   db: Database;
+  /** Deletes managed session vaults on Anthropic's side, best effort, after `changeRuntime` closed their sessions. */
+  dropVaults?: (workspaceId: string, vaultIds: string[]) => Promise<void>;
   events: EventsService;
   /** Who counts as a member, for `setOwners`. Without it owners cannot be set. */
   members?: Pick<MembersService, "list">;
@@ -850,7 +895,7 @@ export const createAgentsService = ({
       withConfigPatch(input, current, runtimeConfigPatch)
     );
     if (parsed.subagents !== undefined) {
-      assertSubagentOwner(user, current);
+      assertOwnerOrAdmin(user, current);
     }
     await assertAgentPatch(current, parsed);
 
@@ -941,6 +986,170 @@ export const createAgentsService = ({
       workspaceId,
     });
     return toRecord(row);
+  };
+
+  /** The agent's values after a move to `parsed`, or a refusal when it cannot run there. */
+  const validatedMove = async (
+    current: AgentRecord,
+    parsed: z.output<typeof agentRuntimeTargetSchema>
+  ) => {
+    const model = parsed.model ?? current.model;
+    const machineId = parsed.machineId ?? null;
+    if (
+      parsed.runtime === current.runtime &&
+      model === current.model &&
+      machineId === current.machineId
+    ) {
+      throw new ServiceError(
+        "invalid",
+        `This agent already runs on "${current.runtime}"`
+      );
+    }
+    const dropped = configKeysDroppedFor(parsed.runtime);
+    const runtimeConfig = Object.fromEntries(
+      Object.entries(current.runtimeConfig).filter(
+        ([key]) => !dropped.includes(key)
+      )
+    );
+    await validateRuntime(
+      { machineId, model, runtime: parsed.runtime, runtimeConfig },
+      current.workspaceId
+    );
+    if (parsed.runtime === "managed") {
+      const [key] = await db
+        .select({ workspaceId: workspaceAnthropicKeys.workspaceId })
+        .from(workspaceAnthropicKeys)
+        .where(eq(workspaceAnthropicKeys.workspaceId, current.workspaceId))
+        .limit(1);
+      if (!key) {
+        throw new ServiceError("invalid", NO_KEY_MESSAGE);
+      }
+    }
+    return { machineId, model, runtime: parsed.runtime, runtimeConfig };
+  };
+
+  /** Refuses a move while a run of the agent is live, and names the run. */
+  const assertNoLiveRun = async (current: AgentRecord): Promise<void> => {
+    const [live] = await db
+      .select({ id: runs.id, status: runs.status })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.agentId, current.id),
+          inArray(runs.status, [...LIVE_RUN_STATUSES])
+        )
+      )
+      .limit(1);
+    if (live) {
+      throw new ServiceError(
+        "conflict",
+        `Run ${live.id} is ${live.status}. Wait for it to finish or cancel it, then move the agent.`
+      );
+    }
+  };
+
+  /**
+   * Moves an agent to another runtime. Conversation context lives in the
+   * runtime, so the agent's sessions start fresh: their runtime ref is
+   * cleared, and leaving managed closes its sessions and drops their vaults.
+   * Only the agent's owner or an org admin on a browser session may do it,
+   * and not while a run of the agent is live.
+   */
+  const changeRuntime = async (
+    principal: Principal,
+    id: string,
+    target: AgentRuntimeTarget
+  ): Promise<AgentRecord> => {
+    const user = requireUser(principal, AGENT_CHANGE_RUNTIME);
+    const { workspaceId } = user;
+    authorize(user, AGENT_CHANGE_RUNTIME, { kind: AGENT_KIND, workspaceId });
+    const current = await findAgent(db, { id, workspaceId });
+    if (!current) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    assertOwnerOrAdmin(user, current, AGENT_CHANGE_RUNTIME);
+    if (!atomic) {
+      throw new ServiceError(
+        "invalid",
+        "Moving an agent is not available here"
+      );
+    }
+    const parsed = agentRuntimeTargetSchema.parse(target);
+    if (current.status !== "active") {
+      throw new ServiceError("invalid", "Only an active agent can be moved");
+    }
+    const next = await validatedMove(current, parsed);
+    await assertNoLiveRun(current);
+
+    const agentSessions = db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.agentId, id));
+    const leavingManaged =
+      current.runtime === "managed" && next.runtime !== "managed";
+    const vaults = leavingManaged
+      ? await db
+          .select({ vaultId: managedSessions.vaultId })
+          .from(managedSessions)
+          .where(
+            and(
+              inArray(managedSessions.sessionId, agentSessions),
+              isNull(managedSessions.closedAt)
+            )
+          )
+      : [];
+    await atomic([
+      db
+        .update(agents)
+        .set({
+          ...(next.runtime === "machine" ? { computerMachineId: null } : {}),
+          machineId: next.machineId,
+          model: next.model,
+          runtime: next.runtime,
+          runtimeConfig: JSON.stringify(next.runtimeConfig),
+        })
+        .where(and(eq(agents.id, id), eq(agents.workspaceId, workspaceId))),
+      db
+        .update(sessions)
+        .set({ runtimeMachineId: null, runtimeRef: null })
+        .where(eq(sessions.agentId, id)),
+      ...(leavingManaged
+        ? [
+            db
+              .update(managedSessions)
+              .set({ closedAt: new Date().toISOString() })
+              .where(
+                and(
+                  inArray(managedSessions.sessionId, agentSessions),
+                  isNull(managedSessions.closedAt)
+                )
+              ),
+          ]
+        : []),
+    ]);
+    if (dropVaults && vaults.length > 0) {
+      try {
+        await dropVaults(
+          workspaceId,
+          vaults.map((vault) => vault.vaultId)
+        );
+      } catch (error) {
+        // The sessions are closed, so their tokens already fail. A vault left behind is clutter.
+        console.error("Deleting managed session vaults failed:", error);
+      }
+    }
+    await events.append({
+      actor: { id: user.userId, kind: "user" },
+      agentId: id,
+      payload: {
+        changed: changedByMove(current, next),
+        from: current.runtime,
+        to: next.runtime,
+      },
+      type: "agent.updated",
+      workspaceId,
+    });
+    return await get(user, id);
   };
 
   const archive = async (
@@ -1059,6 +1268,7 @@ export const createAgentsService = ({
   return {
     activate,
     archive,
+    changeRuntime,
     checkAddress,
     create,
     createDraft,

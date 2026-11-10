@@ -41,9 +41,15 @@ test("shows the machine and its state for a machine agent", () => {
   expect(html).toContain("Online");
 });
 
-test("offers no choice-like marker or runtime control", () => {
+test("offers no choice-like marker or inline runtime control", () => {
   const html = render({ runtime: "managed" });
   expect(html).not.toContain("Current");
   expect(html).not.toContain("<select");
   expect(html).not.toContain(`disabled=""`);
+});
+
+test("offers a Move agent button, and no dialog until it is clicked", () => {
+  const html = render({ runtime: "cloud" });
+  expect(html).toContain("Move agent");
+  expect(html).not.toContain("Move to");
 });

@@ -45,6 +45,7 @@ case "$*" in
   "service install "*) ${installFailure ? "exit 1" : ":"} ;;
 esac
 case "$1" in
+  doctor) test ! -f "$HOME/doctor-output" || cat "$HOME/doctor-output" ;;
   enroll)
     read -r code; test "$code" = secret || exit 1
     instance=office
@@ -598,5 +599,177 @@ test("replacement without a service prints the saved system run-as in its next s
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain(
     "service install --system --run-as agent-user --instance one --yes"
+  );
+});
+
+const CLAUDE_LOGIN_PROBLEM =
+  "Problem: claude login: Check claude login\nWhy: the run-as user is not logged in.\nFix: sudo -iu dom claude auth login\n";
+const doctorOutput = (sandbox: ReturnType<typeof makeSandbox>, text: string) =>
+  writeFileSync(join(sandbox.home, "doctor-output"), text);
+
+test("the install prints a failed doctor check with its fix and still succeeds", async () => {
+  const fixture = setup();
+  doctorOutput(
+    fixture.sandbox,
+    `Ok: instance: Config is private\n${CLAUDE_LOGIN_PROBLEM}Warning: service: No instance service installed.\nOk: server: reachable\n`
+  );
+  const result = await runScript({ ...fixture, args: ["--code", "secret"] });
+  expect(result.exitCode).toBe(0);
+  expect(readCalls(fixture.sandbox)).toContain("doctor --instance office");
+  expect(result.stdout).toContain("agentum doctor found problems");
+  expect(result.stdout).toContain("Problem: claude login");
+  expect(result.stdout).toContain("Fix: sudo -iu dom claude auth login");
+  expect(result.stdout).not.toContain("Config is private");
+  expect(result.stdout).not.toContain("No instance service installed");
+  expect(result.stdout).not.toContain("reachable");
+});
+
+test("a clean doctor prints no problems", async () => {
+  const fixture = setup();
+  doctorOutput(fixture.sandbox, "Ok: instance: Config is private\n");
+  const result = await runScript({ ...fixture, args: ["--code", "secret"] });
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("found no problems for office");
+});
+
+test("an update runs the doctor for each restarted instance", async () => {
+  const fixture = setup();
+  addInstances(fixture.sandbox.home);
+  doctorOutput(fixture.sandbox, CLAUDE_LOGIN_PROBLEM);
+  const result = await runScript(fixture);
+  expect(result.exitCode).toBe(0);
+  for (const name of ["one", "two"]) {
+    expect(readCalls(fixture.sandbox)).toContain(`doctor --instance ${name}`);
+  }
+  expect(result.stdout).toContain("Problem: claude login");
+});
+
+const stubPackageTools = (sandbox: ReturnType<typeof makeSandbox>) => {
+  stubCommand(sandbox, "apt-get");
+  stubCommand(sandbox, "apt-cache", ["exit 1"]);
+  stubCommand(sandbox, "sudo", [
+    'if [ "$1" = -n ]; then shift; fi',
+    'if [ "$1" = true ]; then exit 0; fi',
+    'exec "$@"',
+  ]);
+};
+
+test("without AGENTUM_DESKTOP the install touches no packages and leaves the desktop off", async () => {
+  const fixture = setup();
+  stubPackageTools(fixture.sandbox);
+  const result = await runScript({ ...fixture, args: ["--code", "secret"] });
+  expect(result.exitCode).toBe(0);
+  const calls = readCalls(fixture.sandbox);
+  expect(calls.some((call) => call.startsWith("apt-get"))).toBe(false);
+  expect(calls.some((call) => call.startsWith("sudo"))).toBe(false);
+  expect(calls).toContain(
+    "service install --user --run-as current --instance office --yes"
+  );
+});
+
+test("AGENTUM_DESKTOP=1 installs the desktop packages through sudo and turns the desktop on", async () => {
+  const fixture = setup();
+  stubPackageTools(fixture.sandbox);
+  const result = await runScript({
+    ...fixture,
+    args: ["--code", "secret"],
+    env: { AGENTUM_DESKTOP: "1" },
+  });
+  expect(result.exitCode).toBe(0);
+  const calls = readCalls(fixture.sandbox);
+  expect(calls).toContain("apt-get update");
+  expect(calls).toContain(
+    "apt-get install -y --no-install-recommends xvfb openbox xdotool xclip chromium fonts-dejavu-core"
+  );
+  expect(calls).toContain(
+    "service install --user --run-as current --instance office --desktop --yes"
+  );
+  // Packages come before enrolment, so a refusal leaves nothing half done.
+  const enrolAt = calls.findIndex((call) => call.startsWith("enroll "));
+  expect(calls.indexOf("apt-get update")).toBeLessThan(enrolAt);
+});
+
+test("AGENTUM_DESKTOP=1 adds chromium-sandbox when apt has it", async () => {
+  const fixture = setup();
+  stubPackageTools(fixture.sandbox);
+  stubCommand(fixture.sandbox, "apt-cache");
+  const result = await runScript({
+    ...fixture,
+    args: ["--code", "secret"],
+    env: { AGENTUM_DESKTOP: "1" },
+  });
+  expect(result.exitCode).toBe(0);
+  expect(readCalls(fixture.sandbox)).toContain(
+    "apt-get install -y --no-install-recommends xvfb openbox xdotool xclip chromium fonts-dejavu-core chromium-sandbox"
+  );
+});
+
+test("AGENTUM_DESKTOP=1 as root runs the package manager directly", async () => {
+  const fixture = setup();
+  stubPackageTools(fixture.sandbox);
+  stubCommand(fixture.sandbox, "id", ["echo 0"]);
+  const script = fixture.script
+    .replaceAll("/usr/local/bin", join(fixture.sandbox.root, "system-bin"))
+    .replaceAll("/etc/agentum", join(fixture.sandbox.root, "system-config"));
+  const result = await runScript({
+    ...fixture,
+    args: ["--code", "secret"],
+    env: { AGENTUM_DESKTOP: "1" },
+    script,
+  });
+  expect(result.exitCode).toBe(0);
+  const calls = readCalls(fixture.sandbox);
+  expect(calls.some((call) => call.startsWith("sudo"))).toBe(false);
+  expect(calls).toContain(
+    "service install --system --run-as current --instance office --desktop --yes"
+  );
+});
+
+test("AGENTUM_DESKTOP=1 without root or sudo stops before enrolling and names the command", async () => {
+  const fixture = setup();
+  stubCommand(fixture.sandbox, "apt-get");
+  stubCommand(fixture.sandbox, "apt-cache", ["exit 1"]);
+  stubCommand(fixture.sandbox, "sudo", ["exit 1"]);
+  const result = await runScript({
+    ...fixture,
+    args: ["--code", "secret"],
+    env: { AGENTUM_DESKTOP: "1" },
+  });
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("Run as root: apt-get update && env");
+  expect(result.stderr).toContain("xvfb openbox xdotool xclip chromium");
+  expect(
+    readCalls(fixture.sandbox).some((call) => call.startsWith("enroll "))
+  ).toBe(false);
+});
+
+test("AGENTUM_DESKTOP=1 re-enrolment reinstalls the saved service with the desktop on", async () => {
+  const fixture = setup();
+  stubPackageTools(fixture.sandbox);
+  addInstances(fixture.sandbox.home);
+  const result = await runScript({
+    ...fixture,
+    args: ["--instance", "one"],
+    env: { AGENTUM_DESKTOP: "1", AGENTUM_ENROLL_CODE: "secret" },
+  });
+  expect(result.exitCode).toBe(0);
+  const calls = readCalls(fixture.sandbox);
+  expect(calls).toContain(
+    "service install --user --run-as current --instance one --desktop --yes"
+  );
+  expect(calls).not.toContain("service restart --instance one");
+});
+
+test("AGENTUM_DESKTOP=1 on an update installs the packages and says how to turn the desktop on", async () => {
+  const fixture = setup();
+  stubPackageTools(fixture.sandbox);
+  addInstances(fixture.sandbox.home);
+  const result = await runScript({
+    ...fixture,
+    env: { AGENTUM_DESKTOP: "1" },
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(
+    "service install --desktop --instance <name> --yes"
   );
 });
