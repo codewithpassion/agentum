@@ -54,7 +54,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { zipSync } from "fflate";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
-import { isUniqueViolation, ServiceError } from "../errors.ts";
+import {
+  invalid,
+  isUniqueViolation,
+  notFound,
+  ServiceError,
+} from "../errors.ts";
 import type { EventsService, PeopleLookup } from "../events.ts";
 import { normalizePath } from "../library/path.ts";
 import type { LibraryBlobs, LibraryService } from "../library.ts";
@@ -177,7 +182,6 @@ interface VersionDraft {
   versionId: string;
 }
 
-const invalid = (message: string) => new ServiceError("invalid", message);
 const hasUtf16Bom = (bytes: Uint8Array): boolean =>
   bytes.byteLength >= 2 &&
   ((bytes[0] === 0xff && bytes[1] === 0xfe) ||
@@ -196,8 +200,6 @@ const checkEncoding = (file: { bytes: Uint8Array; path: string }): void => {
     throw invalid(`${file.path} must be UTF-8, not UTF-16`);
   }
 };
-
-const notFound = () => new ServiceError("not_found", "Artifact not found");
 
 const toHex = (buffer: ArrayBuffer): string =>
   [...new Uint8Array(buffer)]
@@ -369,7 +371,7 @@ export const createArtifactsService = ({
   ): Promise<ArtifactRow> => {
     const row = await findArtifact(db, member.workspaceId, artifactId);
     if (!(row && canSee(member, row))) {
-      throw notFound();
+      throw notFound("Artifact not found");
     }
     return row;
   };
@@ -384,7 +386,7 @@ export const createArtifactsService = ({
   ): Promise<ArtifactRow> => {
     const row = await findArtifact(db, member.workspaceId, artifactId);
     if (!row) {
-      throw notFound();
+      throw notFound("Artifact not found");
     }
     if (
       canSee(member, row) ||
@@ -393,7 +395,7 @@ export const createArtifactsService = ({
     ) {
       return row;
     }
-    throw notFound();
+    throw notFound("Artifact not found");
   };
 
   const managed = async (
@@ -882,7 +884,7 @@ export const createArtifactsService = ({
         ? await maxVersionNumber(db, member.workspaceId, row.id)
         : 0);
     if (baseNumber === 0) {
-      throw notFound();
+      throw notFound("Artifact not found");
     }
     if (input.baseVersion !== baseNumber) {
       throw new ServiceError(
@@ -1220,7 +1222,7 @@ export const createArtifactsService = ({
       ? await findVersionById(db, member.workspaceId, row.currentVersionId)
       : null;
     if (!version) {
-      throw notFound();
+      throw notFound("Artifact not found");
     }
     return version;
   };
@@ -1258,7 +1260,7 @@ export const createArtifactsService = ({
       madeIn(member, row),
     ]);
     if (!card) {
-      throw notFound();
+      throw notFound("Artifact not found");
     }
     const record = policyRecord(row);
     return {

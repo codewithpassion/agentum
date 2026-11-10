@@ -13,14 +13,13 @@ import { type CommentAnchor, commentAnchorSchema } from "@repo/protocol/live";
 import { and, asc, count, eq, gt, isNull, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
-import { ServiceError } from "../errors.ts";
+import { invalid, ServiceError } from "../errors.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Principal } from "../workspaces.ts";
 import { mentionStatements } from "./mentions.ts";
 import {
   canComment,
   type InteractionContext,
-  invalid,
   missing,
   pageSize,
 } from "./shared.ts";

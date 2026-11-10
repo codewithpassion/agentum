@@ -19,13 +19,12 @@ import {
   artifactsUnpinInputSchema,
 } from "@repo/protocol/artifacts";
 import { ulid } from "ulidx";
-import { authorize, ForbiddenError } from "../authz.ts";
+import { authorize } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
+import { requireUser } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
 import { canOpen } from "./policy.ts";
-
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
 export interface PinnedArtifactView {
   artifactId: string;
@@ -34,13 +33,6 @@ export interface PinnedArtifactView {
   surface: ArtifactPinSurface;
   title: string;
 }
-
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
 
 export const createArtifactPinsService = ({
   atomic,

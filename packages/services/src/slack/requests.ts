@@ -7,6 +7,7 @@
  * hand the answer to the requests service. Anything slow comes back as an
  * `after` job, because Slack wants its answer within 3 seconds.
  */
+
 import type { Database } from "@repo/db";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
@@ -25,6 +26,7 @@ import {
 } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
 import { type Clock, replyTargetSchema } from "../runs/types.ts";
+import { TRAILING_SLASHES } from "../shared.ts";
 import type { Principal } from "../workspaces.ts";
 import {
   createSecretReader,
@@ -49,7 +51,6 @@ import {
 import { verifySlackRequest } from "./signature.ts";
 
 const CANT_ANSWER = "You can't answer this one.";
-const TRAILING_SLASHES = /\/+$/;
 const PEER_NAME_MAX = 100;
 
 /** What `run_requests.slack_message` holds: the card, by Slack's `api_app_id`. */

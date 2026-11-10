@@ -1,6 +1,5 @@
-import { ServiceError } from "../errors.ts";
+import { invalid } from "../errors.ts";
 
-const invalid = (message: string) => new ServiceError("invalid", message);
 export const imageMime = async (body: Blob) => {
   const head = new Uint8Array(await body.slice(0, 32).arrayBuffer());
   const ascii = new TextDecoder().decode(head);

@@ -58,7 +58,7 @@ import {
 import { defaultAudience } from "../artifacts/policy.ts";
 import type { ArtifactsService, PublishResult } from "../artifacts/service.ts";
 import { ForbiddenError } from "../authz.ts";
-import { isUniqueViolation, ServiceError } from "../errors.ts";
+import { invalid, isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
 import type { LibraryBlobs } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
@@ -238,7 +238,6 @@ type PublicationActor = Member | GuestPublicationActor;
 export type Row = NonNullable<Awaited<ReturnType<typeof findArtifact>>>;
 const missing = () =>
   new ServiceError("not_found", "Artifact or checkpoint not found");
-const invalid = (message: string) => new ServiceError("invalid", message);
 const participantId = (member: Member) =>
   member.kind === "user"
     ? `u:${member.userId}`

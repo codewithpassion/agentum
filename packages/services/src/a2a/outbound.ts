@@ -73,6 +73,7 @@ import {
   type StartRunOptions,
   TERMINAL_STATUSES,
 } from "../runs/types.ts";
+import { hostOf, TRAILING_SLASHES } from "../shared.ts";
 import { buildPeerEnvelope } from "../speaker-envelope.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { CONNECTION_KIND } from "./access.ts";
@@ -105,7 +106,6 @@ const CONCURRENCY = 5;
 const GET_REFRESH_MS = 5000;
 const MESSAGE_ID_MAX = 200;
 const TASK_NOT_FOUND_CODE = -32_001;
-const TRAILING_SLASHES = /\/+$/;
 const NOT_FOUND = 404;
 const NO_CARD_AFTER_MS = 5 * MINUTE_MS;
 const PEER_NAME_MAX = 100;
@@ -301,13 +301,8 @@ export const createOutboundService = ({
     return row;
   };
 
-  const hostOf = (origin: string | null): string => {
-    try {
-      return origin === null ? "unknown host" : new URL(origin).host;
-    } catch {
-      return "unknown host";
-    }
-  };
+  const hostLabel = (origin: string | null): string =>
+    hostOf(origin) ?? "unknown host";
 
   const peerName = (connection: ConnectionRow): string =>
     connection.peerLabel ?? connection.slug;
@@ -341,7 +336,7 @@ export const createOutboundService = ({
     // The envelope allows 200 characters and a card's name has no limit.
     agentName: capText(peerName(connection), PEER_NAME_MAX),
     connectionId: connection.id,
-    host: hostOf(connection.peerOrigin),
+    host: hostLabel(connection.peerOrigin),
   });
 
   /** What the task says about itself, in plain words of ours. */
@@ -982,7 +977,7 @@ export const createOutboundService = ({
         peers.push({
           connectionId: connection.id,
           description: descriptionOf(connection),
-          host: hostOf(connection.peerOrigin),
+          host: hostLabel(connection.peerOrigin),
           name,
           outboundPolicy: connection.outboundPolicy,
           slug: `${connection.slug}/${slugify(name) || "agent"}`,
@@ -1194,7 +1189,7 @@ export const createOutboundService = ({
   /** What a person sees on the approval card: the peer, where it lives and the whole text. */
   const cardInput = (connection: ConnectionRow, text: string) => ({
     connection: connection.slug,
-    host: hostOf(connection.peerOrigin),
+    host: hostLabel(connection.peerOrigin),
     peer: peerName(connection),
     text,
   });

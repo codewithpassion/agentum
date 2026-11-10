@@ -18,6 +18,7 @@
  *
  * Workspaces that kept skills in the library are migrated on first access.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
@@ -52,7 +53,12 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
-import { isUniqueViolation, ServiceError } from "./errors.ts";
+import {
+  invalid,
+  isUniqueViolation,
+  notFound,
+  ServiceError,
+} from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import { packArchive, unpackArchive } from "./skills-store/archive.ts";
@@ -173,8 +179,6 @@ interface Publication {
   status?: "approved" | "proposed";
 }
 
-const notFound = () => new ServiceError("not_found", "Not found");
-const invalid = (message: string) => new ServiceError("invalid", message);
 const conflict = (message: string) => new ServiceError("conflict", message);
 
 const blobKey = (hash: string) => `skill-blobs/${hash}`;

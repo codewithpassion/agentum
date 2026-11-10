@@ -22,10 +22,11 @@ import { createMasker, type Masker } from "@repo/protocol/masker";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { activityCursor, parseActivityCursor } from "../activity-cursor";
-import { authorize, ForbiddenError } from "../authz";
+import { authorize } from "../authz";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models";
 import type { Fetcher } from "../connectors/mcp";
 import { ServiceError } from "../errors";
+import { requireSession } from "../guards.ts";
 import { type ManagedKeysService, NO_KEY_MESSAGE } from "../managed/keys";
 import type { Clock } from "../runs/types";
 import type { SecretsService } from "../secrets";
@@ -123,14 +124,12 @@ export interface AssistantDeps {
 }
 
 const session = (principal: Principal) => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError("assistant");
-  }
-  authorize(principal, "assistant", {
+  const user = requireSession(principal, "assistant");
+  authorize(user, "assistant", {
     kind: "assistant",
-    workspaceId: principal.workspaceId,
+    workspaceId: user.workspaceId,
   });
-  return principal;
+  return user;
 };
 const transcript = (
   rows: Awaited<ReturnType<typeof conversationMessages>>

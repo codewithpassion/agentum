@@ -1,5 +1,6 @@
 /** Pure request presentation. Input is already scrubbed by the request service,
  * as for protocol.approvalSummary; this module has no secret registry. */
+
 import type { AnswerSurface } from "@repo/db/shared";
 import {
   type ApprovalAnswer,
@@ -12,6 +13,7 @@ import {
   type TakeoverDisplay,
 } from "@repo/protocol/requests";
 import { z } from "zod";
+import { TRAILING_SLASHES } from "../shared.ts";
 
 interface PlainText {
   text: string;
@@ -48,7 +50,6 @@ type TakeoverRequest = Base &
     runId: string;
   };
 export type CardRequest = ApprovalRequest | QuestionRequest | TakeoverRequest;
-const TRAILING_SLASHES = /\/+$/;
 const INDEX = /^(0|[1-9]\d*)$/;
 /**
  * The first part of a card button's `action_id` and of the modal's

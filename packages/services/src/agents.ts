@@ -28,6 +28,7 @@ import { CLOUD_DEFAULT_MODEL, isAnthropicModel } from "./cloud/models.ts";
 import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { effectiveOwner, readableWorkspace, requireUser } from "./guards.ts";
 import { hasAgentHostRole } from "./machines.ts";
 import { NO_KEY_MESSAGE } from "./managed/keys.ts";
 import type { MembersService } from "./members.ts";
@@ -153,8 +154,7 @@ const assertOwnerOrAdmin = (
 ): void => {
   if (
     user.via !== "session" ||
-    (user.isAdmin !== true &&
-      user.userId !== (agent.ownerUserId ?? agent.createdBy))
+    (user.isAdmin !== true && user.userId !== effectiveOwner(agent))
   ) {
     throw new ForbiddenError(action);
   }
@@ -392,21 +392,6 @@ const assertHandsTo = async (
   }
 };
 
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
-
-/** The workspace a non-system principal reads from. */
-const readableWorkspace = (principal: Principal, action: string): string => {
-  if (principal.kind === "system") {
-    throw new ForbiddenError(action);
-  }
-  return principal.workspaceId;
-};
-
 const slugTaken = (slug: string): ServiceError =>
   new ServiceError("conflict", `Slug "${slug}" is taken`);
 
@@ -436,8 +421,8 @@ const assertOwners = async (
   current: AgentRecord,
   owners: z.output<typeof agentOwnersSchema>
 ): Promise<void> => {
-  const effectiveOwner = owners.ownerUserId ?? current.createdBy;
-  if (owners.backupUserId === effectiveOwner) {
+  const nextOwner = owners.ownerUserId ?? current.createdBy;
+  if (owners.backupUserId === nextOwner) {
     throw new ServiceError(
       "invalid",
       "The backup must be someone other than the owner"

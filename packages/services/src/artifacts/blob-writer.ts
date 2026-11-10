@@ -9,7 +9,7 @@ import {
   type ArtifactManifest,
   artifactManifestSchema,
 } from "@repo/protocol/artifacts";
-import { ServiceError } from "../errors.ts";
+import { invalid, ServiceError } from "../errors.ts";
 import type { LibraryBlobs } from "../library.ts";
 
 export interface ArtifactBlobFile {
@@ -45,7 +45,6 @@ export const rethrowArtifactQuotaError = (error: unknown): void => {
   }
 };
 
-const invalid = (message: string) => new ServiceError("invalid", message);
 const BLOB_WRITE_PARALLEL = 8;
 const chunks = <T>(items: readonly T[], size: number): T[][] => {
   const out: T[][] = [];

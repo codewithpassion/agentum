@@ -9,6 +9,7 @@
  * finished since the viewer's midnight. Every lane follows the sessions rules,
  * so another member's ui session or private Slack DM never shows.
  */
+
 import type { Database } from "@repo/db";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import {
@@ -58,6 +59,7 @@ import type { RequestRecord, RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
 import type { Clock } from "./runs/types.ts";
 import { visibleSessions } from "./sessions.ts";
+import { hostOf } from "./shared.ts";
 import type { SkillsStoreService } from "./skills-store.ts";
 import { text } from "./tasks/format.ts";
 import { inBatches, latestBandEvents } from "./tasks/reads.ts";
@@ -202,18 +204,6 @@ const problemOf = (
     return "bounced";
   }
   return status === "interrupted" ? "interrupted" : "failed";
-};
-
-/** The host of an origin such as `https://peer.example`, or null when it is not a URL. */
-const hostOf = (origin: string | null): string | null => {
-  if (origin === null) {
-    return null;
-  }
-  try {
-    return new URL(origin).host;
-  } catch {
-    return null;
-  }
 };
 
 const byAge = (a: DeskCard, b: DeskCard): number =>

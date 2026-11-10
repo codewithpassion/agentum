@@ -6,6 +6,7 @@
  * Every refusal to download is `not_found`, so a caller cannot tell a file
  * that exists from one it may not read.
  */
+
 import type { Database } from "@repo/db";
 import { files } from "@repo/db/schema/files";
 import { runs } from "@repo/db/schema/runs";
@@ -14,7 +15,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
-import { ServiceError } from "./errors.ts";
+import { notFound, ServiceError } from "./errors.ts";
+import { requireUser } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -47,7 +49,6 @@ export interface FileRecord {
 }
 
 type FileRow = typeof files.$inferSelect;
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
 type RunPrincipal = Extract<Principal, { kind: "run" }>;
 
 const stringList = z.array(z.string());
@@ -61,8 +62,6 @@ const toRecord = (row: FileRow): FileRecord => ({
   size: row.size,
   source: row.source,
 });
-
-const notFound = () => new ServiceError("not_found", "File not found");
 
 /** The last path segment, without control characters, trimmed and capped. */
 const sanitizeName = (raw: string): string => {
@@ -117,13 +116,6 @@ const uploadScope = (
     };
   }
   throw new ForbiddenError(UPLOAD_ACTION);
-};
-
-const requireUser = (principal: Principal): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(DESCRIBE_ACTION);
-  }
-  return principal;
 };
 
 export const createFilesService = ({
@@ -242,7 +234,7 @@ export const createFilesService = ({
     const row = await readableFile(principal, fileId);
     const body = row ? await blobs.get(row.r2Key) : null;
     if (!(row && body)) {
-      throw notFound();
+      throw notFound("File not found");
     }
     return { body, file: toRecord(row) };
   };
@@ -251,7 +243,7 @@ export const createFilesService = ({
     principal: Principal,
     fileIds: readonly string[]
   ): Promise<FileRecord[]> => {
-    const user = requireUser(principal);
+    const user = requireUser(principal, DESCRIBE_ACTION);
     authorize(user, DESCRIBE_ACTION, {
       kind: FILE_KIND,
       workspaceId: user.workspaceId,
