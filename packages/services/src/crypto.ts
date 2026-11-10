@@ -7,7 +7,12 @@
  * per value. The additional authenticated data is the JSON array of the
  * workspace, table, row and field ids, so a ciphertext copied into another
  * row, table or field fails to decrypt instead of handing over a credential.
- * The `v1` prefix leaves room for a key rotation.
+ * The `v1` prefix leaves room for a change of format.
+ *
+ * Rotation: a key spec is one base64 key, or `current,previous`
+ * (`keySpec(SECRETS_KEY, SECRETS_KEY_PREVIOUS)`). `importSecretsKey` returns
+ * the current key, and `decryptSecret` falls back to the previous one when the
+ * current one fails. `encryptSecret` always uses the current key.
  *
  * Errors are CryptoErrors that never carry plaintext, ciphertext or key bytes.
  */
@@ -98,25 +103,60 @@ const additionalData = (binding: SecretBinding) =>
 const unreadable = (binding: SecretBinding, cause?: unknown) =>
   new CryptoError(`The stored ${binding.field} cannot be read.`, { cause });
 
-/**
- * The AES-GCM key from `SECRETS_KEY` (standard base64 of 32 bytes).
- * Non-extractable: it can encrypt and decrypt, never be exported.
- */
-export const importSecretsKey = async (base64: string): Promise<CryptoKey> => {
+const KEY_SEPARATOR = ",";
+
+/** `current`, or `current,previous` when a previous key is set. Standard base64 has no comma. */
+export const keySpec = (current: string, previous?: string): string =>
+  previous?.trim()
+    ? `${current.trim()}${KEY_SEPARATOR}${previous.trim()}`
+    : current;
+
+/** The two keys of a spec. `previous` is undefined when the spec has one key. */
+export const splitKeySpec = (
+  spec: string
+): { current: string; previous: string | undefined } => {
+  const [current = "", previous] = spec.split(KEY_SEPARATOR);
+  return { current, previous: previous?.trim() ? previous : undefined };
+};
+
+/** The key a stored value falls back to, by the current key that carries it. */
+const previousKeys = new WeakMap<CryptoKey, CryptoKey>();
+
+const importAesKey = async (
+  base64: string,
+  name: string
+): Promise<CryptoKey> => {
   let raw: Uint8Array<ArrayBuffer>;
   try {
     const binary = atob(base64.trim());
     raw = Uint8Array.from(binary, (char) => char.charCodeAt(0));
   } catch (error: unknown) {
-    throw new CryptoError(INVALID_KEY, { cause: error });
+    throw new CryptoError(INVALID_KEY.replace("SECRETS_KEY", name), {
+      cause: error,
+    });
   }
   if (raw.byteLength !== KEY_BYTES) {
-    throw new CryptoError(INVALID_KEY);
+    throw new CryptoError(INVALID_KEY.replace("SECRETS_KEY", name));
   }
   return await crypto.subtle.importKey("raw", raw, ALGORITHM, false, [
     "decrypt",
     "encrypt",
   ]);
+};
+
+/**
+ * The AES-GCM key from a key spec: `SECRETS_KEY` (standard base64 of 32
+ * bytes), or `SECRETS_KEY,SECRETS_KEY_PREVIOUS`. Non-extractable: it can
+ * encrypt and decrypt, never be exported. A previous key makes
+ * `decryptSecret` try it when the current key fails.
+ */
+export const importSecretsKey = async (spec: string): Promise<CryptoKey> => {
+  const { current, previous } = splitKeySpec(spec);
+  const key = await importAesKey(current, "SECRETS_KEY");
+  if (previous !== undefined) {
+    previousKeys.set(key, await importAesKey(previous, "SECRETS_KEY_PREVIOUS"));
+  }
+  return key;
 };
 
 /** `plaintext` encrypted for `binding`, as `v1:<iv>:<ciphertext>`. */
@@ -136,7 +176,8 @@ export const encryptSecret = async (
 
 /**
  * The plaintext of `stored`, which `encryptSecret` produced for the same
- * `binding` under the same key. Throws a CryptoError for anything else:
+ * `binding` under the same key, or under the previous key when the key was
+ * imported with one. Throws a CryptoError for anything else:
  * another key, another binding, a changed byte, a bad format.
  */
 export const decryptSecret = async (
@@ -154,14 +195,24 @@ export const decryptSecret = async (
   if (!(iv && data) || iv.byteLength !== IV_BYTES) {
     throw unreadable(binding);
   }
+  const params = {
+    additionalData: additionalData(binding),
+    iv,
+    name: ALGORITHM,
+  };
   try {
-    const plaintext = await crypto.subtle.decrypt(
-      { additionalData: additionalData(binding), iv, name: ALGORITHM },
-      key,
-      data
-    );
-    return decoder.decode(plaintext);
+    return decoder.decode(await crypto.subtle.decrypt(params, key, data));
   } catch (error: unknown) {
+    const previous = previousKeys.get(key);
+    if (previous) {
+      try {
+        return decoder.decode(
+          await crypto.subtle.decrypt(params, previous, data)
+        );
+      } catch {
+        // Neither key opens it: report the current key's failure.
+      }
+    }
     // WebCrypto's OperationError says nothing about the key or the data.
     throw unreadable(binding, error);
   }

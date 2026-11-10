@@ -126,6 +126,7 @@ import {
   type CredentialsService,
   createCredentialsService,
 } from "@repo/services/credentials";
+import { keySpec } from "@repo/services/crypto";
 import { createDeskService, type DeskService } from "@repo/services/desk";
 import {
   createDeskApiService,
@@ -570,6 +571,9 @@ export type ComposeEnv = Pick<
     /** Optional secrets, declared here so the type check does not depend on a developer's env file listing them. */
     GOOGLE_OAUTH_CLIENT_ID?: string;
     GOOGLE_OAUTH_CLIENT_SECRET?: string;
+    /** Set only while rotating a key (docs/key-rotation.md). */
+    RUN_TOKEN_KEY_PREVIOUS?: string;
+    SECRETS_KEY_PREVIOUS?: string;
   };
 
 /** A peer fetch that refuses everything, for a composition that has none. */
@@ -1514,8 +1518,8 @@ export const compose = (
       people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
-      runTokenKey: env.RUN_TOKEN_KEY,
-      secretsKey: env.SECRETS_KEY,
+      runTokenKey: keySpec(env.RUN_TOKEN_KEY, env.RUN_TOKEN_KEY_PREVIOUS),
+      secretsKey: keySpec(env.SECRETS_KEY, env.SECRETS_KEY_PREVIOUS),
       // Unset secrets read as empty strings; Google's client needs both.
       sharedGoogleClient:
         env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET

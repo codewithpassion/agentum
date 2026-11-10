@@ -55,6 +55,7 @@ import {
   hashToken,
   importSecretsKey,
   type SecretBinding,
+  splitKeySpec,
   toBase64Url,
   tokenMatchesHash,
 } from "../crypto.ts";
@@ -383,7 +384,7 @@ export const createOutboundService = ({
     }
     const key = await crypto.subtle.importKey(
       "raw",
-      new TextEncoder().encode(secretsKey),
+      new TextEncoder().encode(splitKeySpec(secretsKey).current),
       { hash: "SHA-256", name: "HMAC" },
       false,
       ["sign"]

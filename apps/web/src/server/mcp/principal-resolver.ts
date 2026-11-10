@@ -9,6 +9,7 @@ import {
   type Principal,
 } from "@repo/services/workspaces";
 import type { Composed } from "../compose.ts";
+import { runTokenKeySpec } from "../run-token-key.ts";
 import type { OrgMemberCheck, UserOrgsCheck } from "./clerk-membership.ts";
 import type { VerifiedOAuthToken } from "./clerk-oauth.ts";
 import { oauthClaimVerifier, type TargetWorkspace } from "./oauth-auth.ts";
@@ -45,7 +46,7 @@ export const authenticateBearer = async (
   const resolver = createPrincipalResolver({
     db: composed.db,
     isOrgMember,
-    runTokenKey: await importRunTokenKey(env.RUN_TOKEN_KEY),
+    runTokenKey: await importRunTokenKey(runTokenKeySpec(env)),
     // Only a token that is not an `ag_` or `hm_` credential gets here.
     verifyClerkOAuthToken: oauthClaimVerifier({
       clientName: (clientId) => options.clientName(env)(clientId),

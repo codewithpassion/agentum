@@ -26,7 +26,12 @@ import {
 } from "@repo/protocol/token-prefixes";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { CryptoError, fromBase64Url, toBase64Url } from "./crypto.ts";
+import {
+  CryptoError,
+  fromBase64Url,
+  splitKeySpec,
+  toBase64Url,
+} from "./crypto.ts";
 import { MANAGED_CLAIMER } from "./managed/types.ts";
 import { currentGuestRun } from "./runs/guest-scope.ts";
 
@@ -84,21 +89,45 @@ export type RunTokenResult =
     }
   | { ok: false; reason: RunTokenRefusal };
 
-/** The HMAC key from `RUN_TOKEN_KEY` (standard base64 of 32 bytes). */
-export const importRunTokenKey = async (base64: string): Promise<CryptoKey> => {
+/** The previous key that verifies tokens the current key did not sign. */
+const previousKeys = new WeakMap<CryptoKey, CryptoKey>();
+
+const importHmacKey = async (
+  base64: string,
+  name: string
+): Promise<CryptoKey> => {
+  const invalid = INVALID_KEY.replace("RUN_TOKEN_KEY", name);
   let raw: Uint8Array<ArrayBuffer>;
   try {
     raw = Uint8Array.from(atob(base64.trim()), (char) => char.charCodeAt(0));
   } catch (error: unknown) {
-    throw new CryptoError(INVALID_KEY, { cause: error });
+    throw new CryptoError(invalid, { cause: error });
   }
   if (raw.byteLength !== KEY_BYTES) {
-    throw new CryptoError(INVALID_KEY);
+    throw new CryptoError(invalid);
   }
   return await crypto.subtle.importKey("raw", raw, ALGORITHM, false, [
     "sign",
     "verify",
   ]);
+};
+
+/**
+ * The HMAC key from a key spec: `RUN_TOKEN_KEY` (standard base64 of 32 bytes),
+ * or `RUN_TOKEN_KEY,RUN_TOKEN_KEY_PREVIOUS` (`keySpec` builds it). Tokens are
+ * always signed with the current key. With a previous key, a token the
+ * current key did not sign still verifies under the previous one.
+ */
+export const importRunTokenKey = async (spec: string): Promise<CryptoKey> => {
+  const { current, previous } = splitKeySpec(spec);
+  const key = await importHmacKey(current, "RUN_TOKEN_KEY");
+  if (previous !== undefined) {
+    previousKeys.set(
+      key,
+      await importHmacKey(previous, "RUN_TOKEN_KEY_PREVIOUS")
+    );
+  }
+  return key;
 };
 
 const signFields = async (
@@ -169,12 +198,22 @@ const openFields = async (
     return null;
   }
   // subtle.verify compares in constant time.
-  const genuine = await crypto.subtle.verify(
+  const signedBytes = encoder.encode(signed);
+  let genuine = await crypto.subtle.verify(
     ALGORITHM.name,
     key,
     signature,
-    encoder.encode(signed)
+    signedBytes
   );
+  const previous = previousKeys.get(key);
+  if (!genuine && previous) {
+    genuine = await crypto.subtle.verify(
+      ALGORITHM.name,
+      previous,
+      signature,
+      signedBytes
+    );
+  }
   if (!genuine) {
     return null;
   }

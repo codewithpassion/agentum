@@ -6,7 +6,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { RUN_STATUSES, type RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
-import { isCryptoError } from "./crypto.ts";
+import { isCryptoError, keySpec } from "./crypto.ts";
 import {
   importRunTokenKey,
   RUN_TOKEN_MAX_AGE_MS,
@@ -377,4 +377,39 @@ test("the key must be exactly 32 bytes of base64 and is not extractable", async 
   );
   expect(failures.map(isCryptoError)).toEqual(bad.map(() => true));
   expect(key.extractable).toBe(false);
+});
+
+test("a token signed under the old key verifies under the new pair", async () => {
+  const token = await signRunToken(key, claimsFor());
+  const pair = await importRunTokenKey(keySpec(keyBase64(2), keyBase64(1)));
+  const result = await verify(token, CLAIMED_AT, pair);
+  expect(result.ok).toBe(true);
+});
+
+test("with a previous key set, new tokens are signed under the current key only", async () => {
+  const pair = await importRunTokenKey(keySpec(keyBase64(2), keyBase64(1)));
+  const token = await signRunToken(pair, claimsFor());
+  const current = await importRunTokenKey(keyBase64(2));
+  expect((await verify(token, CLAIMED_AT, current)).ok).toBe(true);
+  // The old key alone refuses it.
+  expect(await verify(token, CLAIMED_AT, key)).toEqual({
+    ok: false,
+    reason: "invalid",
+  });
+});
+
+test("a token signed under neither key of the pair is refused", async () => {
+  const stranger = await importRunTokenKey(keyBase64(3));
+  const token = await signRunToken(stranger, claimsFor());
+  const pair = await importRunTokenKey(keySpec(keyBase64(2), keyBase64(1)));
+  expect(await verify(token, CLAIMED_AT, pair)).toEqual({
+    ok: false,
+    reason: "invalid",
+  });
+});
+
+test("a malformed previous run token key is refused", async () => {
+  await expect(
+    importRunTokenKey(keySpec(keyBase64(2), "short"))
+  ).rejects.toThrow("RUN_TOKEN_KEY_PREVIOUS");
 });

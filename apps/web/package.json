@@ -22,6 +22,7 @@
     "preview": "vite preview",
     "preview:delete": "bun scripts/preview.ts delete --name",
     "preview:deploy": "bun run staging:build && bun scripts/preview.ts deploy --name",
+    "rotate-secrets-key": "bun scripts/rotate-secrets-key.ts",
     "staging:build": "CLOUDFLARE_ENV=staging vite build --mode staging && bun scripts/check-dev-only.ts",
     "staging:deploy": "bun run staging:build && wrangler d1 migrations apply DB --remote --env staging && bun scripts/publish-releases.ts --env staging && wrangler deploy --env staging",
     "test": "bun test",

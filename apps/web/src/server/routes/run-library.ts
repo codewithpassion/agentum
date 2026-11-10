@@ -25,6 +25,7 @@ import { bearerToken, type Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { runTokenKeySpec } from "../run-token-key.ts";
 import { runPrincipal } from "./files.ts";
 import type { AppEnv } from "./groups.ts";
 
@@ -108,7 +109,7 @@ const sessionRoute = guarded(
     }
     let key: CryptoKey;
     try {
-      key = await importRunTokenKey(c.env.RUN_TOKEN_KEY);
+      key = await importRunTokenKey(runTokenKeySpec(c.env));
     } catch {
       return null;
     }
