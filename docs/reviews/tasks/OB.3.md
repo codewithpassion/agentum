@@ -12,13 +12,13 @@ A fresh Docker container (debian:trixie with systemd as PID 1, privileged, host 
 
 - Without the flag: install, enrol, system service, doctor printed `claude login` as the failed check. `machines.doctor_problems` held it and the Machines row showed it. The installer made no package calls.
 - With `AGENTUM_DESKTOP=1`: apt installed the packages, the config saved `desktop: true`, `agentum doctor` reported `desktop packages` ok, the computer role connected with `desktop: true` in `computer_capabilities`, and the row showed the missing login.
-- Finding from the run: Debian's Chromium refuses to start without a sandbox in a container ("No usable sandbox"), so the desktop stayed `desktop: false` until `chromium-sandbox` was installed. The script now adds it when apt has it.
+- Finding from the run: Debian's Chromium refuses to start without a sandbox in a container ("No usable sandbox"), so the desktop stayed `desktop: false` until `chromium-sandbox` was installed. The script now adds it when apt has it. The first with-flag run got `desktop: true` after I installed `chromium-sandbox` by hand. A second run with the final script (fresh container, new code) also reached `desktop: true`.
 - The container had a fake `claude` that reports `loggedIn: false`, because the real CLI needs a login.
 
 ## Review rounds
 
 - Round 1 at 33af232c: one must-fix (the clean-VM run was not recorded, now recorded here), seven nits.
-- Round 2 on the fix commit: see the end of this file.
+- Round 2 on 884b1026 (the review file and a UTF-16-safe message cap): clean. Nits: the cap cuts ASCII at 1000 chars though 2000 would fit.
 
 ## Nits left
 
@@ -32,6 +32,10 @@ A fresh Docker container (debian:trixie with systemd as PID 1, privileged, host 
 
 - A machine whose Claude CLI is missing fails `prerequisites` and never connects, so its row cannot show the failure. A report over a short-lived socket or the enrol response would cover that.
 - One doctor run shared by both roles.
+
+## Checks
+
+`bun run check`, `bun run build` (no `drizzle` in `apps/web/dist/client`) and `cargo test` pass. `bun run test` passes except the miniflare test below. The script, hello and row each have tests.
 
 ## Not verified
 
