@@ -184,7 +184,7 @@ export const createConnectorOAuthService = ({
   db: Database;
   events: EventsService;
   fetch: Fetcher;
-  /** The deployment's Google OAuth client. Used for connectors on accounts.google.com unless a client was typed in. */
+  /** The deployment's Google OAuth client. Used for connectors on a googleapis.com host with Google endpoints, unless a client was typed in. */
   sharedGoogleClient?: SharedGoogleClient;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
