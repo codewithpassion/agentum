@@ -3,9 +3,9 @@ id: CL.5
 title: Shared helpers in apps/web
 milestone: CL
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/CL.5-web-shared-helpers
 lane: web
 executor: claude
 ---
@@ -29,3 +29,4 @@ From the 10 Nov 2026 review. Small cross-cutting things have no shared home in `
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-11: Dom lifted the cleanup hold. Dispatched to a Sonnet implementer on task/CL.5-web-shared-helpers, with a per-task review as team-lead relayed, in parallel with the other CL tasks.
