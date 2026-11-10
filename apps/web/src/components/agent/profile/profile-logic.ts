@@ -63,7 +63,7 @@ const MACHINE_STATE_WORDS: Record<MachineStatus, string> = {
   revoked: "Revoked",
 };
 
-/** The runtime the agent has, in plain words. Only the current one: it cannot be changed. */
+/** The runtime the agent has, in plain words. */
 export const currentRuntime = (
   runtime: AgentRuntime,
   machine: { name: string; status: MachineStatus } | null
