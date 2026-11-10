@@ -34,6 +34,8 @@ test("assistant tools admit member management and admin secret cards only", () =
       "create_api_key",
       "revoke_api_key",
       "create_enrolment_code",
+      "create_trigger",
+      "set_trigger_enabled",
       "delete_connector",
     ]) {
       expect(names).not.toContain(name);

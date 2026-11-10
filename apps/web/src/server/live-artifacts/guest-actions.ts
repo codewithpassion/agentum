@@ -60,6 +60,13 @@ export const guestImages = (env: Env, composed: Composed) =>
     register: async (scope, id) =>
       (await roomStub(env.ARTIFACT_ROOM, scope)).registerImage(id),
   });
+/** The key a guest's room ticket is signed with. Throws when the Worker has no view key, so no ticket is signed with an empty one. */
+export const guestTicketKey = (env: Pick<Env, "ARTIFACT_VIEW_KEY">) => {
+  if (!env.ARTIFACT_VIEW_KEY) {
+    throw new Error("Guest access unavailable");
+  }
+  return `artifact-room:${env.ARTIFACT_VIEW_KEY}`;
+};
 const requiredGuests = async (composed: Composed) => {
   const service = await composed.services.liveGuests?.();
   if (!service) {
@@ -120,7 +127,7 @@ const join = async ({ env, composed, grant, credential }: Input) => {
       version: 1,
       workspaceId: grant.workspaceId,
     },
-    env.ARTIFACT_VIEW_KEY ? `artifact-room:${env.ARTIFACT_VIEW_KEY}` : ""
+    guestTicketKey(env)
   );
   return {
     participant: {

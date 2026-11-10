@@ -35,7 +35,19 @@ import {
 } from "@repo/protocol/machine";
 import type { Product } from "@repo/protocol/releases";
 import { ENROLL_CODE, MACHINE_CREDENTIAL } from "@repo/protocol/token-prefixes";
-import { and, asc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -132,6 +144,31 @@ export interface MachineRecord {
 
 type MachineRow = typeof machines.$inferSelect;
 
+/** The enrol code's own columns, read before the spend. */
+interface SpendableCode {
+  createdBy: string;
+  machineId: string | null;
+  machineName: string;
+  workspaceId: string;
+}
+
+type Statement = Parameters<Atomic>[0][number];
+
+/**
+ * See `spendOf`. `commit` runs the statements and the spend, then asks `landed`
+ * whether the guarded insert kept its row. It is false when another request
+ * spent the code first.
+ */
+interface Spend {
+  commit: (
+    statements: Statement[],
+    landed: () => Promise<boolean>
+  ) => Promise<boolean>;
+  insertCredential: (row: typeof machineCredentials.$inferInsert) => Statement;
+  insertMachine: (row: typeof machines.$inferInsert) => Statement;
+  stillSpendable: SQL;
+}
+
 const capabilitiesSchema = z.record(z.string(), z.json());
 
 /** Whether a machine's stored credential hash gives it the `agent_host` role. */
@@ -200,6 +237,61 @@ export const createMachinesService = ({
   relay: MachineRelayPort;
 }) => {
   const nowIso = () => clock.now().toISOString();
+
+  /**
+   * Writes guarded by an enrol code, so the code is spent in the same `atomic`
+   * call as the rows it pays for. Each insert keeps its row only while the
+   * code is still spendable, and the spend itself comes last, so a failed write
+   * leaves the code unspent and two requests on one code see one winner.
+   */
+  const machineLanded = (machineId: string) => async () =>
+    (
+      await db
+        .select({ id: machines.id })
+        .from(machines)
+        .where(eq(machines.id, machineId))
+        .limit(1)
+    ).length > 0;
+  const credentialLanded = (credentialHash: string) => async () =>
+    (
+      await db
+        .select({ id: machineCredentials.machineId })
+        .from(machineCredentials)
+        .where(eq(machineCredentials.credentialHash, credentialHash))
+        .limit(1)
+    ).length > 0;
+
+  const spendOf = (spendable: SQL | undefined, now: string): Spend => {
+    const stillSpendable = sql`exists (select 1 from ${machineEnrollTokens} where ${spendable})`;
+    const guardedInsert = <
+      T extends typeof machines | typeof machineCredentials,
+    >(
+      table: T,
+      row: Record<string, unknown>
+    ) => {
+      const values = Object.keys(getTableColumns(table)).map((key) => {
+        const value = row[key] ?? null;
+        return sql`${typeof value === "boolean" ? Number(value) : value}`;
+      });
+      return db
+        .insert(table)
+        .select(
+          sql`select ${sql.join(values, sql`, `)} where ${stillSpendable}`
+        );
+    };
+    return {
+      commit: async (statements, landed) => {
+        await atomic([
+          ...statements,
+          db.update(machineEnrollTokens).set({ usedAt: now }).where(spendable),
+        ]);
+        return await landed();
+      },
+      insertCredential: (row) => guardedInsert(machineCredentials, row),
+      insertMachine: (row) => guardedInsert(machines, row),
+      stillSpendable,
+    };
+  };
 
   /**
    * The name a code gives its machine. For a code that adds the computer role
@@ -277,43 +369,43 @@ export const createMachinesService = ({
   };
 
   /**
-   * The computer role for a spent code: a new computer-only machine, or a
-   * credential added to the machine the code names. Null when that machine is
-   * gone, revoked or already has a computer.
+   * The computer role for a code: a new computer-only machine, or a credential
+   * added to the machine the code names. Null when that machine is gone,
+   * revoked or already has a computer, or when the code was spent meanwhile.
    */
-  const enrollComputer = async (spent: {
-    createdBy: string;
-    machineId: string | null;
-    machineName: string;
-    workspaceId: string;
-  }): Promise<{ credential: string; machineId: string } | null> => {
+  const enrollComputer = async (
+    spent: SpendableCode,
+    spend: Spend
+  ): Promise<{ credential: string; machineId: string } | null> => {
     const now = nowIso();
     const { hash, token } = await hashedToken(MACHINE_CREDENTIAL_PREFIX);
     if (spent.machineId === null) {
       const machineId = ulid(clock.now().getTime());
-      await atomic([
-        db.insert(machines).values({
-          capabilities: "{}",
-          computerStatus: "offline",
-          createdAt: now,
-          credentialHash: `${COMPUTER_ONLY_HASH_PREFIX}${toBase64Url(crypto.getRandomValues(new Uint8Array(RANDOM_BYTES)))}`,
-          enrolledBy: spent.createdBy,
-          id: machineId,
-          lastSeenAt: null,
-          name: spent.machineName,
-          singleUser: false,
-          status: "offline",
-          workspaceId: spent.workspaceId,
-        }),
-        db.insert(machineCredentials).values({
-          createdAt: now,
-          credentialHash: hash,
-          machineId,
-          role: "computer",
-          workspaceId: spent.workspaceId,
-        }),
-      ]);
-      return { credential: token, machineId };
+      const won = await spend.commit(
+        [
+          spend.insertMachine({
+            capabilities: "{}",
+            computerStatus: "offline",
+            createdAt: now,
+            credentialHash: `${COMPUTER_ONLY_HASH_PREFIX}${toBase64Url(crypto.getRandomValues(new Uint8Array(RANDOM_BYTES)))}`,
+            enrolledBy: spent.createdBy,
+            id: machineId,
+            name: spent.machineName,
+            singleUser: false,
+            status: "offline",
+            workspaceId: spent.workspaceId,
+          }),
+          spend.insertCredential({
+            createdAt: now,
+            credentialHash: hash,
+            machineId,
+            role: "computer",
+            workspaceId: spent.workspaceId,
+          }),
+        ],
+        machineLanded(machineId)
+      );
+      return won ? { credential: token, machineId } : null;
     }
     const [machine] = await db
       .select({ id: machines.id })
@@ -330,20 +422,23 @@ export const createMachinesService = ({
     if (!machine) {
       return null;
     }
-    await atomic([
-      db.insert(machineCredentials).values({
-        createdAt: now,
-        credentialHash: hash,
-        machineId: machine.id,
-        role: "computer",
-        workspaceId: spent.workspaceId,
-      }),
-      db
-        .update(machines)
-        .set({ computerStatus: "offline" })
-        .where(eq(machines.id, machine.id)),
-    ]);
-    return { credential: token, machineId: machine.id };
+    const won = await spend.commit(
+      [
+        spend.insertCredential({
+          createdAt: now,
+          credentialHash: hash,
+          machineId: machine.id,
+          role: "computer",
+          workspaceId: spent.workspaceId,
+        }),
+        db
+          .update(machines)
+          .set({ computerStatus: "offline" })
+          .where(and(eq(machines.id, machine.id), spend.stillSpendable)),
+      ],
+      credentialLanded(hash)
+    );
+    return won ? { credential: token, machineId: machine.id } : null;
   };
 
   const resolveEnrollRole = async (
@@ -388,60 +483,57 @@ export const createMachinesService = ({
   };
 
   const enrollRoles = async (
-    spent: Pick<
-      typeof machineEnrollTokens.$inferSelect,
-      "createdBy" | "machineName" | "workspaceId"
-    >,
+    spent: SpendableCode,
+    spend: Spend,
     body: RolesEnrollRequest,
     role: MachineEnrollRole,
     now: string
-  ): Promise<RolesEnrollResponse> => {
+  ): Promise<RolesEnrollResponse | null> => {
     const roles: MachineRole[] =
       role === "both" ? ["agent_host", "computer"] : [role];
     const { hash, token } = await hashedToken(MACHINE_CREDENTIAL_PREFIX);
     const machineId = ulid(clock.now().getTime());
-    await atomic([
-      db.insert(machines).values({
-        capabilities: "{}",
-        computerStatus: roles.includes("computer") ? "offline" : null,
-        createdAt: now,
-        credentialHash: roles.includes("agent_host")
-          ? hash
-          : `${COMPUTER_ONLY_HASH_PREFIX}${toBase64Url(crypto.getRandomValues(new Uint8Array(RANDOM_BYTES)))}`,
-        enrolledBy: spent.createdBy,
-        id: machineId,
-        name: spent.machineName,
-        singleUser: roles.includes("agent_host") && body.singleUser,
-        status: "offline",
-        workspaceId: spent.workspaceId,
-      }),
-      ...(roles.includes("computer")
-        ? [
-            db.insert(machineCredentials).values({
-              createdAt: now,
-              credentialHash: hash,
-              machineId,
-              role: "computer",
-              workspaceId: spent.workspaceId,
-            }),
-          ]
-        : []),
-    ]);
-    return {
-      credential: token,
-      machineId,
-      machineName: spent.machineName,
-      roles,
-    };
+    const won = await spend.commit(
+      [
+        spend.insertMachine({
+          capabilities: "{}",
+          computerStatus: roles.includes("computer") ? "offline" : null,
+          createdAt: now,
+          credentialHash: roles.includes("agent_host")
+            ? hash
+            : `${COMPUTER_ONLY_HASH_PREFIX}${toBase64Url(crypto.getRandomValues(new Uint8Array(RANDOM_BYTES)))}`,
+          enrolledBy: spent.createdBy,
+          id: machineId,
+          name: spent.machineName,
+          singleUser: roles.includes("agent_host") && body.singleUser,
+          status: "offline",
+          workspaceId: spent.workspaceId,
+        }),
+        ...(roles.includes("computer")
+          ? [
+              spend.insertCredential({
+                createdAt: now,
+                credentialHash: hash,
+                machineId,
+                role: "computer",
+                workspaceId: spent.workspaceId,
+              }),
+            ]
+          : []),
+      ],
+      machineLanded(machineId)
+    );
+    return won
+      ? { credential: token, machineId, machineName: spent.machineName, roles }
+      : null;
   };
 
   /**
    * Trades an enrol code for a machine and its credential, both shown once.
    * The code is the credential, so there is no principal. Null for a code that
    * is unknown, expired, already used or minted for the other role. The spend
-   * is one conditional write, so two requests racing on one code see one
-   * winner. A crash between the spend and the insert burns the code, and the
-   * user mints another.
+   * is in the same `atomic` call as the inserts, so two requests racing on one
+   * code see one winner and a failed write leaves the code usable.
    */
   const enroll = async (
     input: EnrollInput
@@ -458,48 +550,53 @@ export const createMachinesService = ({
       }
       role = resolved;
     }
+    const spendable = and(
+      eq(machineEnrollTokens.tokenHash, tokenHash),
+      eq(machineEnrollTokens.role, role),
+      ...(newBody ? [isNull(machineEnrollTokens.machineId)] : []),
+      isNull(machineEnrollTokens.usedAt),
+      gt(machineEnrollTokens.expiresAt, now)
+    );
     const [spent] = await db
-      .update(machineEnrollTokens)
-      .set({ usedAt: now })
-      .where(
-        and(
-          eq(machineEnrollTokens.tokenHash, tokenHash),
-          eq(machineEnrollTokens.role, role),
-          ...(newBody ? [isNull(machineEnrollTokens.machineId)] : []),
-          isNull(machineEnrollTokens.usedAt),
-          gt(machineEnrollTokens.expiresAt, now)
-        )
-      )
-      .returning({
+      .select({
         createdBy: machineEnrollTokens.createdBy,
         machineId: machineEnrollTokens.machineId,
         machineName: machineEnrollTokens.machineName,
         workspaceId: machineEnrollTokens.workspaceId,
-      });
+      })
+      .from(machineEnrollTokens)
+      .where(spendable)
+      .limit(1);
     if (!spent) {
       return null;
     }
+    const spend = spendOf(spendable, now);
     if ("role" in body) {
-      return await enrollComputer(spent);
+      return await enrollComputer(spent, spend);
     }
     if (newBody) {
-      return await enrollRoles(spent, body, role, now);
+      return await enrollRoles(spent, spend, body, role, now);
     }
     const { hash, token } = await hashedToken(MACHINE_CREDENTIAL_PREFIX);
     const machineId = ulid(clock.now().getTime());
-    await db.insert(machines).values({
-      capabilities: "{}",
-      createdAt: now,
-      credentialHash: hash,
-      enrolledBy: spent.createdBy,
-      id: machineId,
-      lastSeenAt: null,
-      name: spent.machineName,
-      singleUser: body.singleUser,
-      status: "offline",
-      workspaceId: spent.workspaceId,
-    });
-    return { credential: token, machineId };
+    const won = await spend.commit(
+      [
+        spend.insertMachine({
+          capabilities: "{}",
+          computerStatus: null,
+          createdAt: now,
+          credentialHash: hash,
+          enrolledBy: spent.createdBy,
+          id: machineId,
+          name: spent.machineName,
+          singleUser: body.singleUser,
+          status: "offline",
+          workspaceId: spent.workspaceId,
+        }),
+      ],
+      machineLanded(machineId)
+    );
+    return won ? { credential: token, machineId } : null;
   };
 
   /** The live machine a computer credential belongs to, or null. */

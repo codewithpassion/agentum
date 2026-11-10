@@ -1,7 +1,9 @@
 // The display name of a Client ID Metadata Document (CIMD) client. Such a
 // client's OAuth client_id is an https URL with a path, and that URL serves a
 // JSON document naming the client. The fetch is bounded: 3 seconds, no
-// redirects, and at most 64 KB of body. Any failure gives null.
+// redirects, and at most 64 KB of body. A private or internal address is
+// never fetched. Any failure gives null.
+import { isSafeUrl } from "@repo/services/connectors/url";
 import { sanitizeOAuthClientName } from "@repo/services/oauth-clients";
 
 const TIMEOUT_MS = 3000;
@@ -11,7 +13,11 @@ const JSON_CONTENT_TYPE = /^\s*application\/(?:[\w.-]+\+)?json\s*(?:;|$)/iu;
 
 const isMetadataClientId = (clientId: string): boolean => {
   const url = new URL(clientId);
-  return url.protocol === "https:" && url.pathname !== "/";
+  // The client id is chosen by whoever starts the OAuth flow, so it goes through
+  // the same SSRF guard as every other URL this app fetches on someone's say-so.
+  return (
+    url.protocol === "https:" && url.pathname !== "/" && isSafeUrl(clientId)
+  );
 };
 
 /** The body as text, or null when it passes the byte cap. */

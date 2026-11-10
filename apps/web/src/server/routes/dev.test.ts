@@ -2,7 +2,12 @@ import { expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { migrated } from "@repo/db/test-db";
 import { noopRelay } from "@repo/services/machines/types";
-import { driveCloudRun, offerRunToRelay, runAtomicProbe } from "./dev.ts";
+import {
+  devRoutes,
+  driveCloudRun,
+  offerRunToRelay,
+  runAtomicProbe,
+} from "./dev.ts";
 
 test("the atomic probe leaves no row behind when its second statement fails", async () => {
   const db = migrated();
@@ -89,4 +94,10 @@ test("a cloud action that is unknown, or has no run id, does nothing", async () 
   });
   expect(await driveCloudRun(runs, "offer", {})).toEqual({ ok: false });
   expect(calls).toEqual([]);
+});
+
+test("dev login answers 404 when DEV_LOGIN_EMAIL is not set", async () => {
+  const response = await devRoutes.request("/api/dev-login", {}, {});
+  expect(response.status).toBe(404);
+  expect(await response.text()).toBe("Dev login is not configured.");
 });
