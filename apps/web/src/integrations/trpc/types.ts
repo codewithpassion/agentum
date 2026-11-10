@@ -39,7 +39,11 @@ export type SkillAssignment =
   RouterOutputs["skillStore"]["assignments"][number];
 export type AgentSkill = RouterOutputs["skillStore"]["forAgent"][number];
 export type DeskView = RouterOutputs["desk"]["get"];
-export type TaskView = RouterOutputs["tasks"]["get"];
+type TaskGetResult = RouterOutputs["tasks"]["get"];
+/** A task with its run. */
+export type TaskView = Extract<TaskGetResult, { run: object }>;
+/** A visible session with no run yet, such as a new main thread. */
+export type EmptyTaskView = Extract<TaskGetResult, { run: null }>;
 export type AgentProfileView = RouterOutputs["agentProfile"]["profile"];
 export type MailboxRecord = NonNullable<RouterOutputs["mailbox"]["get"]>;
 export type MailThreadRow = RouterOutputs["threads"][number];

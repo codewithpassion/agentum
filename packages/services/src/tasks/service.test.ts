@@ -617,8 +617,10 @@ test("get by session id opens the latest run of the thread", async () => {
 
   const view = await tasks.get(user(), { sessionId: session });
 
-  expect(view.run.id).toBe("run-02");
-  expect(view.otherRuns.map((run) => run.id)).toEqual(["run-01"]);
+  expect(view.run?.id).toBe("run-02");
+  expect(view.run !== null && view.otherRuns.map((run) => run.id)).toEqual([
+    "run-01",
+  ]);
 });
 
 test("get needs exactly one of run id and session id", async () => {
@@ -1073,4 +1075,26 @@ test("task links subagents with their override model and names their parent", as
     label: "Subagent of Alpha",
     parentRunId: "parent",
   });
+});
+
+test("get by sessionId returns a visible session with no runs, without a run", async () => {
+  await seedSession({ agentId: a1, id: "s-empty", origin: "ui" });
+  await seedSession({
+    actorId: "u2",
+    agentId: a1,
+    id: "s-hidden-empty",
+    origin: "ui",
+  });
+
+  const view = await tasks.get(user(), { sessionId: "s-empty" });
+
+  expect(view.run).toBeNull();
+  expect(view.session.id).toBe("s-empty");
+  expect(view.agent).toMatchObject({ id: a1, name: "Alpha" });
+  await expect(
+    tasks.get(user(), { sessionId: "s-hidden-empty" })
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    tasks.get(user("u1", "w2"), { sessionId: "s-empty" })
+  ).rejects.toMatchObject({ code: "not_found" });
 });
