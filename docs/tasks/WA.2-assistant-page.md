@@ -33,3 +33,4 @@ Spec: `docs/v3/workspace-assistant.md` ("What it is", "The secret card", "Confir
 
 ## Log
 - 2026-11-05: Codex built the page (17e12742). Opus review of WA.1 found no privilege hole and three should-fixes (conversation lock, trusted card outcome, secret-guess oracle) plus nits; fixed in 465a1645. UI pass (6b96b361): agent picker, reason as text, tighter tool lines, rail link removed (Find only). Not yet run against a real model.
+- 2026-11-11: The text above describes the assistant as its own page. After TH.3 and CL.5 that is no longer true, and docs/v3/workspace-assistant.md has the current shape.

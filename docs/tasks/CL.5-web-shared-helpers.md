@@ -3,7 +3,7 @@ id: CL.5
 title: Shared helpers in apps/web
 milestone: CL
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/CL.5-web-shared-helpers
 lane: web
@@ -30,3 +30,4 @@ From the 10 Nov 2026 review. Small cross-cutting things have no shared home in `
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-11: Dom lifted the cleanup hold. Dispatched to a Sonnet implementer on task/CL.5-web-shared-helpers, with a per-task review as team-lead relayed, in parallel with the other CL tasks.
+- 2026-11-11: Merged as 2b9a7f69, review clean with 0 fix rounds. Its merge of main had picked up apps/agentum/pid, so the controller untracked it and added it to apps/agentum/.gitignore on the branch. check, test and build passed on main, and the bundle grep was empty. The implementer left WA.2 to the controller, which logged the change there.
