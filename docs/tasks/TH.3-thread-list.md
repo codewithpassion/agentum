@@ -3,7 +3,7 @@ id: TH.3
 title: One conversation list, and a main thread per agent
 milestone: TH
 size: M
-status: in_progress
+status: done
 depends_on: [TH.1]
 branch: task/TH.3-thread-list
 lane: web
@@ -29,3 +29,4 @@ From the 10 Nov 2026 review. No place lists past conversations per agent, and "N
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-10: dispatched to a Sonnet implementer on task/TH.3-thread-list. Lane rule relaxed for this run (Dom asked for about six in parallel); files checked against the other running tasks. Runs beside TH.2.
+- 2026-11-10: Review had one must-fix: links to /threads/<id> before TH.2's route existed. Resolved by merging TH.2 first. Merged as 3cda9efb. check, test and build green on main (guest-execution.test.ts failed under full-suite load and passed alone, as on main before).
