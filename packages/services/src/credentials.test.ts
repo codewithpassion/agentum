@@ -645,6 +645,75 @@ describe("refresh ahead", () => {
   });
 });
 
+describe("refresh of a shared Google client", () => {
+  const SHARED = "con_shared";
+  const googleConfig = {
+    ...testOAuthConfig(ORIGIN),
+    authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+    client: {
+      clientId: "shared-id",
+      clientSecret: null,
+      redirectUri: null,
+      source: "shared" as const,
+      tokenEndpointAuth: "none" as const,
+    },
+    tokenEndpoint: "https://oauth2.googleapis.com/token",
+  };
+  const expiring = (url: string) =>
+    seedConnector(db, {
+      authKind: "oauth",
+      id: SHARED,
+      now: START,
+      oauth: googleConfig,
+      url,
+      workspaceId: WORKSPACE,
+    })
+      .then(() => assign("agent", agentId, SHARED))
+      .then(() =>
+        seedCredential(db, key, {
+          connectorId: SHARED,
+          expiresAt: iso(MINUTE_MS),
+          now: START,
+          ownerId: agentId,
+          ownerKind: "agent",
+          secret: JSON.stringify({
+            accessToken: "old-access",
+            refreshToken: "old-refresh",
+          }),
+          workspaceId: WORKSPACE,
+        })
+      );
+  const resolveShared = () =>
+    service.resolve({
+      agentId,
+      connectorId: SHARED,
+      onBehalfOfUserId: null,
+      workspaceId: WORKSPACE,
+    });
+
+  test("a connector off Google is not refreshed with the shared client", async () => {
+    const id = await expiring("https://evil.example/mcp");
+
+    await resolveShared();
+
+    expect(tokenCalls).toBe(0);
+    const [row] = await db
+      .select()
+      .from(credentials)
+      .where(eq(credentials.id, id));
+    expect(row?.status).toBe("needs_auth");
+  });
+
+  test("a connector on a Google host still refreshes", async () => {
+    await expiring("https://gmailmcp.googleapis.com/mcp/v1");
+
+    const result = await resolveShared();
+
+    expect(tokenCalls).toBe(1);
+    expect(headerOf(result)).toBe("Bearer fresh-1");
+  });
+});
+
 describe("allowed tools", () => {
   test("resolve returns the allowed tools when the assignment sets them", async () => {
     await seedAssignment(db, {
