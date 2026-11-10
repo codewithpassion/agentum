@@ -176,9 +176,11 @@ function AskBeforeBody({
   initialActions,
   initialLevel,
   mailAllowed,
+  archived,
   onEditSettings,
 }: {
   agentId: string;
+  archived: boolean;
   initialActions: AskBeforeAction[];
   initialLevel: string;
   mailAllowed: string[];
@@ -277,6 +279,7 @@ function AskBeforeBody({
         className="rounded-lg border border-border bg-card px-4"
       >
         <Disclosure
+          defaultOpen={archived}
           summary="Model, environment, network, turn limit, ask overrides"
           title="Advanced"
         >
@@ -331,12 +334,15 @@ function AskBeforeBody({
 export function AskBeforeCard({
   actions,
   agentId,
+  archived,
   level,
   mailAllowed,
   onEditSettings,
 }: {
   agentId: string;
   actions: AskBeforeAction[];
+  /** Archived agents start Advanced open, because their disabled page cannot open it. */
+  archived: boolean;
   /** The agent's ask level: a preset, or custom for one with its own rules. */
   level: string;
   /** Bare email addresses the agent may always email without asking. */
@@ -347,6 +353,7 @@ export function AskBeforeCard({
   return (
     <AskBeforeBody
       agentId={agentId}
+      archived={archived}
       initialActions={actions}
       initialLevel={level}
       key={agentId}

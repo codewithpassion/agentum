@@ -189,6 +189,7 @@ function AgentPage() {
             <AskBeforeCard
               actions={askBefore}
               agentId={agent.id}
+              archived={archived}
               level={askLevel}
               mailAllowed={allowedMailAddresses(rules)}
               onEditSettings={edit}
