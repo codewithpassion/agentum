@@ -16,6 +16,11 @@ const readOnlyServerCall = (node: ts.CallExpression, source: ts.SourceFile) => {
       parent.getText(source) === "guestEmbeds(env, compose(env, false))" &&
       parent.parent.parent.getText(source) ===
         "guestEmbeds(env, compose(env, false)).authorize(claims)") ||
+    // The content route re-reads a share row and a membership, nothing more.
+    (ts.isCallExpression(parent) &&
+      parent.getText(source) === "viewerPorts(compose(env, false))" &&
+      parent.parent.getText(source) ===
+        "viewerStillAllowed(claims, viewerPorts(compose(env, false)))") ||
     (ts.isArrowFunction(parent) &&
       ts.isPropertyAssignment(parent.parent) &&
       parent.parent.getText(source) ===
@@ -73,7 +78,7 @@ test("every source compose caller that can finish a run passes exports and defer
     visit(source);
   }
   expect(checked).toBeGreaterThan(0);
-  expect(readOnly).toBe(2);
+  expect(readOnly).toBe(3);
 });
 
 test("AppHost composition receives the Worker's exports and waitUntil", async () => {
