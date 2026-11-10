@@ -1,12 +1,10 @@
-import { ServiceError } from "../errors.ts";
+import { invalid } from "../errors.ts";
 
 export const LIBRARY_PATH_MAX_BYTES = 512;
 export const LIBRARY_PATH_MAX_SEGMENTS = 20;
 
 const CONTROL_CHARS = /\p{Cc}/u;
 const encoder = new TextEncoder();
-
-const invalid = (message: string) => new ServiceError("invalid", message);
 
 /**
  * The one place library paths are cleaned. Returns the path without a leading

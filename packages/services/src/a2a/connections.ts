@@ -71,13 +71,14 @@ import {
 } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
+import { requireSession } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
+import { idString } from "../shared.ts";
 import type { Principal } from "../workspaces.ts";
 import {
   CONNECTION_KIND,
   requireAdminOrOwner,
   requireReader,
-  requireSession,
   type SessionUser,
 } from "./access.ts";
 import {
@@ -143,8 +144,6 @@ export const REVOKE_ACTION = "a2a.revoke";
 export const READ_ACTION = "a2a.read";
 
 export type PeerPrincipal = Extract<Principal, { kind: "peer" }>;
-
-const idString = z.string().min(1).max(200);
 
 export const skillInputSchema = agentSkillSchema.pick({
   description: true,

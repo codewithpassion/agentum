@@ -1,11 +1,12 @@
 /** External Markdown images for a guarded document edit. Called by the room
  * only after it admitted the edit's guards. Ids derive from the change id and
  * the URL, so a retried change finds its rows and never fetches twice. */
+
 import { files } from "@repo/db/schema/files";
 import { ARTIFACT_MAX_BYTES, ARTIFACT_MAX_FILES } from "@repo/db/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
-import { ServiceError } from "../errors.ts";
+import { invalid } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
 import {
   IMAGE_FILE_PATH,
@@ -23,7 +24,6 @@ type Access = (
   row: { id: string; workspaceId: string; kind: string };
 }>;
 const ID_PREFIX = "edit-";
-const invalid = (message: string) => new ServiceError("invalid", message);
 const manifestKey = (scope: LiveRoomScope) =>
   `${scope.workspaceId}/live-artifacts/${scope.artifactId}/images.json`;
 const hex = (bytes: ArrayBuffer) =>

@@ -7,6 +7,7 @@ import {
   A2A_ACCESS_TOKEN,
   A2A_INVITE_TOKEN,
 } from "@repo/protocol/token-prefixes";
+import { TRAILING_SLASHES } from "../shared.ts";
 
 /** The prefix new access tokens get. Valid only on `/a2a`, `hm_a2a_` too. */
 export const ACCESS_TOKEN_PREFIX = A2A_ACCESS_TOKEN.issue;
@@ -14,7 +15,6 @@ export const ACCESS_TOKEN_PREFIX = A2A_ACCESS_TOKEN.issue;
 export const INVITE_TOKEN_PREFIX = A2A_INVITE_TOKEN.issue;
 
 const CARD_FILE = "/.well-known/agent-card.json";
-const TRAILING_SLASHES = /\/+$/;
 const CONNECTION_PATH = /^\/connect\/([^/]+)$/;
 const CARD_PATH = /^\/a2a\/([^/]+)(?:\/|$)/;
 const INVITE_TOKEN = new RegExp(

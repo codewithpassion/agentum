@@ -5,6 +5,7 @@ import {
   type RailItemKind,
 } from "@repo/db/shared";
 import { PLATFORM_TOOL_LABELS } from "../agent-profile/ask-before.ts";
+import { effectiveOwner } from "../guards.ts";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -325,7 +326,7 @@ export const assigneeOf = (
   agent: { createdBy: string; ownerUserId: string | null },
   memberIds: ReadonlySet<string> | null
 ): string | null => {
-  const who = agent.ownerUserId ?? agent.createdBy;
+  const who = effectiveOwner(agent);
   if (!who) {
     return null;
   }

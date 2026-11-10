@@ -7,6 +7,7 @@
  * person's power to answer approvals. The member's own token on the shared
  * Clerk instance waits for a way to tell flightdex's client from the rest.
  */
+
 import type { Database } from "@repo/db";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -26,6 +27,7 @@ import type { RequestsService } from "./requests.ts";
 import { INPUT_TEXT_MAX } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import { visibleSessions } from "./sessions.ts";
+import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
 
 /** The agent that receives controller messages, by name and ignoring case. */
@@ -35,8 +37,6 @@ const DECIDE_ACTION = "desk.decide";
 const MEMBER_ACTION = "desk.member";
 const SCOPE_ACTION = "desk.scope";
 const WRITE_ACTION = "desk.write";
-
-const idString = z.string().min(1).max(200);
 
 /** Whether an `a2a_send` card carries the message as text, so a person saw all of it. */
 const cardHoldsText = (display: string): boolean => {

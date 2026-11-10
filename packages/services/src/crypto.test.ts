@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ARTIFACT_VIEW_TOKEN } from "@repo/protocol/token-prefixes";
 import {
   CryptoError,
   constantTimeEqual,
@@ -6,9 +7,12 @@ import {
   encryptSecret,
   hashedToken,
   hashToken,
+  hmacKeyFromText,
   importSecretsKey,
   isCryptoError,
   keySpec,
+  openClaims,
+  signClaims,
   splitKeySpec,
   tokenMatchesHash,
 } from "./crypto.ts";
@@ -260,4 +264,41 @@ test("a malformed previous key is refused, not ignored", async () => {
     "short"
   );
   expect(failure.code).toBe("unavailable");
+});
+
+const keyOf = (text: string) => hmacKeyFromText(text);
+
+test.each([false, true])(
+  "signClaims and openClaims: round trip, tamper, wrong key, previous key (signPrefix %p)",
+  async (signPrefix) => {
+    const kind = ARTIFACT_VIEW_TOKEN;
+    const [a, b] = await Promise.all([keyOf("a"), keyOf("b")]);
+    const token = await signClaims(a, kind, { n: 1 }, { signPrefix });
+    expect(await openClaims([a], kind, token, { signPrefix })).toEqual({
+      n: 1,
+    });
+    // Wrong key, then the same key as the previous one.
+    expect(await openClaims([b], kind, token, { signPrefix })).toBeNull();
+    expect(await openClaims([b, a], kind, token, { signPrefix })).toEqual({
+      n: 1,
+    });
+    // A changed payload fails the MAC.
+    const [head, mac] = token.split(".");
+    const forged = `${head?.slice(0, -2)}AA.${mac}`;
+    expect(await openClaims([a], kind, forged, { signPrefix })).toBeNull();
+    // Not this kind of token, or not a token.
+    const other = token.replace("ag_view_", "x_");
+    expect(await openClaims([a], kind, other, { signPrefix })).toBeNull();
+    expect(
+      await openClaims([a], kind, "ag_view_nodot", { signPrefix })
+    ).toBeNull();
+  }
+);
+
+test("signClaims: the prefix is covered only when asked for", async () => {
+  const a = await keyOf("a");
+  const bare = await signClaims(a, ARTIFACT_VIEW_TOKEN, { n: 1 });
+  expect(
+    await openClaims([a], ARTIFACT_VIEW_TOKEN, bare, { signPrefix: true })
+  ).toBeNull();
 });

@@ -8,6 +8,8 @@
  * asking.
  */
 
+import { TRAILING_SLASHES } from "../shared.ts";
+
 /**
  * Bot scopes, sorted alphabetically.
  *
@@ -82,7 +84,6 @@ const EVENTS_PATH = "/api/slack/events";
 const INTERACTIONS_PATH = "/api/slack/interactions";
 
 /** A trailing slash on a pasted origin, stripped before a URL is built. */
-const TRAILING_SLASHES = /\/+$/;
 /** Characters a bot user name may not contain, as runs. */
 const DISALLOWED_BOT_NAME_RUN = /[^a-z0-9_.-]+/g;
 /** Leading and trailing hyphens, which a bot user name may not start or end with. */

@@ -10,35 +10,18 @@ import {
   viewTokenClaimsSchema,
 } from "@repo/protocol/artifacts";
 import { ARTIFACT_VIEW_TOKEN } from "@repo/protocol/token-prefixes";
-import { constantTimeEqual, fromBase64Url, toBase64Url } from "../crypto.ts";
-
-const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
-
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
-const hmacKey = (key: string): Promise<CryptoKey> =>
-  crypto.subtle.importKey("raw", encoder.encode(key), HMAC, false, ["sign"]);
-
-const mac = async (key: string, payload: string): Promise<Uint8Array> =>
-  new Uint8Array(
-    await crypto.subtle.sign(
-      HMAC.name,
-      await hmacKey(key),
-      encoder.encode(payload)
-    )
-  );
+import { hmacKeyFromText, openClaims, signClaims } from "../crypto.ts";
 
 /** A token for `claims`. Throws a ZodError when the claims are invalid. */
 export const signViewToken = async (
   claims: ViewTokenClaims,
   key: string
-): Promise<string> => {
-  const payload = toBase64Url(
-    encoder.encode(JSON.stringify(viewTokenClaimsSchema.parse(claims)))
+): Promise<string> =>
+  signClaims(
+    await hmacKeyFromText(key),
+    ARTIFACT_VIEW_TOKEN,
+    viewTokenClaimsSchema.parse(claims)
   );
-  return `${ARTIFACT_VIEW_TOKEN.issue}${payload}.${toBase64Url(await mac(key, payload))}`;
-};
 
 /**
  * The claims of `token` when it is signed with `key` and not expired at
@@ -50,33 +33,11 @@ export const verifyViewToken = async (
   key: string,
   nowSeconds: number
 ): Promise<ViewTokenClaims | null> => {
-  const body = ARTIFACT_VIEW_TOKEN.strip(token);
-  if (body === null) {
-    return null;
-  }
-  const parts = body.split(".");
-  const [payload, signatureText] = parts;
-  if (parts.length !== 2 || !payload || !signatureText) {
-    return null;
-  }
-  const signature = fromBase64Url(signatureText);
-  if (!signature) {
-    return null;
-  }
-  const expected = await mac(key, payload);
-  if (!constantTimeEqual(expected, signature)) {
-    return null;
-  }
-  const claimsBytes = fromBase64Url(payload);
-  if (!claimsBytes) {
-    return null;
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(decoder.decode(claimsBytes));
-  } catch {
-    return null;
-  }
+  const json = await openClaims(
+    [await hmacKeyFromText(key)],
+    ARTIFACT_VIEW_TOKEN,
+    token
+  );
   const parsed = viewTokenClaimsSchema.safeParse(json);
   if (!parsed.success || parsed.data.expiresAt <= nowSeconds) {
     return null;

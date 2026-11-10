@@ -14,6 +14,7 @@
  * If that second step fails, the object stays and the next write repairs the
  * row.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
@@ -33,7 +34,7 @@ import { conflictPathOf, isConflictPath } from "@repo/library-sync/types";
 import { and, asc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "./authz.ts";
-import { ServiceError } from "./errors.ts";
+import { invalid, notFound, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { agentGrants } from "./library/access.ts";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
@@ -87,9 +88,6 @@ export interface LibraryEntry {
 
 type EntryRow = typeof libraryEntries.$inferSelect;
 type Member = Extract<Principal, { kind: "run" | "user" }>;
-
-const notFound = () => new ServiceError("not_found", "Not found");
-const invalid = (message: string) => new ServiceError("invalid", message);
 
 export const toEntry = (row: EntryRow): LibraryEntry => ({
   etag: row.etag,

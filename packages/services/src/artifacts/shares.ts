@@ -7,6 +7,7 @@
  * row, an event or a log. A share token is stored as a hash plus an AES-GCM
  * copy, and a view token only lives in the URL this service returns.
  */
+
 import type { Database } from "@repo/db";
 import { approvedToolTargets } from "@repo/db/artifact-calls";
 import {
@@ -72,8 +73,9 @@ import {
   isCryptoError,
   type SecretBinding,
 } from "../crypto.ts";
-import { ServiceError } from "../errors.ts";
+import { notFound, ServiceError } from "../errors.ts";
 import type { EventsService, PeopleLookup } from "../events.ts";
+import { requireSession, requireUser } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
 import { checkToolLimits } from "./arg-limits.ts";
@@ -218,31 +220,10 @@ export interface ArtifactSharesDeps {
   viewKey: string;
 }
 
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
-
-/** Link management is for a signed-in person, not for an API key or an agent. */
-const requireSessionUser = (
-  principal: Principal,
-  action: string
-): UserPrincipal => {
-  const user = requireUser(principal, action);
-  if (user.via !== "session") {
-    throw new ForbiddenError(action);
-  }
-  return user;
-};
-
 const policyUser = (user: UserPrincipal): PolicyUser => ({
   isAdmin: user.isAdmin === true,
   userId: user.userId,
 });
-
-const notFound = () => new ServiceError("not_found", "Artifact not found");
 
 const shareStatus = (
   share: Pick<ArtifactShareRow, "expiresAt" | "revokedAt">,
@@ -394,7 +375,7 @@ export const createArtifactSharesService = ({
   ): Promise<ArtifactAccessRow> => {
     const artifact = await getLiveArtifact(db, user.workspaceId, artifactId);
     if (!(artifact && canOpen(artifact, policyUser(user)))) {
-      throw notFound();
+      throw notFound("Artifact not found");
     }
     authorize(user, action, {
       id: artifact.id,
@@ -466,7 +447,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsOpenInput
   ): Promise<ArtifactsOpenOutput> => {
-    const user = requireSessionUser(principal, OPEN_ACTION);
+    const user = requireSession(principal, OPEN_ACTION);
     const {
       artifactId,
       surface,
@@ -545,7 +526,7 @@ export const createArtifactSharesService = ({
           : canOpen(artifact, policyUser(run)))
       )
     ) {
-      throw notFound();
+      throw notFound("Artifact not found");
     }
     authorize(run, TEST_ACTION, {
       id: artifact.id,
@@ -586,7 +567,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsSharesInput
   ): Promise<ArtifactShare[]> => {
-    const user = requireSessionUser(principal, SHARES_ACTION);
+    const user = requireSession(principal, SHARES_ACTION);
     const { artifactId } = artifactsSharesInputSchema.parse(input);
     const artifact = await openableArtifact(user, SHARES_ACTION, artifactId);
     const showUrl = canManage(artifact, policyUser(user));
@@ -662,7 +643,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsCreateShareInput
   ): Promise<ArtifactShare> => {
-    const user = requireSessionUser(principal, CREATE_SHARE_ACTION);
+    const user = requireSession(principal, CREATE_SHARE_ACTION);
     const parsed = artifactsCreateShareInputSchema.parse(input);
     const artifact = await managedArtifact(
       user,
@@ -737,7 +718,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsRevokeShareInput
   ): Promise<void> => {
-    const user = requireSessionUser(principal, REVOKE_SHARE_ACTION);
+    const user = requireSession(principal, REVOKE_SHARE_ACTION);
     const { shareId } = artifactsRevokeShareInputSchema.parse(input);
     const share = await getShareById(db, user.workspaceId, shareId);
     if (!share) {
@@ -764,7 +745,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsViewsInput
   ): Promise<ArtifactsViewsOutput> => {
-    const user = requireSessionUser(principal, VIEWS_ACTION);
+    const user = requireSession(principal, VIEWS_ACTION);
     const { artifactId, cursor, shareId } =
       artifactsViewsInputSchema.parse(input);
     await managedArtifact(user, VIEWS_ACTION, artifactId);
@@ -797,7 +778,7 @@ export const createArtifactSharesService = ({
     principal: Principal,
     input: ArtifactsSetLinksEnabledInput
   ): Promise<void> => {
-    const user = requireSessionUser(principal, SWITCH_ACTION);
+    const user = requireSession(principal, SWITCH_ACTION);
     const { enabled } = artifactsSetLinksEnabledInputSchema.parse(input);
     authorize(user, SWITCH_ACTION, {
       kind: "workspace",

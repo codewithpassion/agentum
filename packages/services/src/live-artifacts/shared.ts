@@ -1,7 +1,7 @@
 import type { RoomTicketClaims } from "@repo/protocol/live";
 import type { SQL } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
-import { ServiceError } from "../errors.ts";
+import { invalid, ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
 import type { LiveArtifactsDeps, Member, Row } from "./service.ts";
 export interface InteractionContext extends LiveArtifactsDeps {
@@ -35,8 +35,6 @@ export interface InteractionContext extends LiveArtifactsDeps {
 }
 export const missing = () =>
   new ServiceError("not_found", "Thread or change not found");
-export const invalid = (message: string) =>
-  new ServiceError("invalid", message);
 export const canComment = (role: RoomTicketClaims["role"]) => {
   if (role === "viewer") {
     throw new ForbiddenError("liveArtifacts.comment");

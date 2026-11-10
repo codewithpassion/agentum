@@ -10,6 +10,7 @@
  * No method, error or log line carries the plaintext key. A rejected key is
  * refused without echoing it, and a failed live check is a no, not its reason.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import {
@@ -20,7 +21,7 @@ import {
   workspaceAnthropicKeys,
 } from "@repo/db/schema/managed";
 import { eq } from "drizzle-orm";
-import { authorize, ForbiddenError } from "../authz.ts";
+import { authorize } from "../authz.ts";
 import {
   decryptSecret,
   encryptSecret,
@@ -28,6 +29,7 @@ import {
   type SecretBinding,
 } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
+import { readableWorkspace, requireUser } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
 
@@ -55,8 +57,6 @@ const binding = (workspaceId: string): SecretBinding => ({
   workspaceId,
 });
 
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
-
 export interface ManagedKeyStatus {
   configured: boolean;
   hint: string | null;
@@ -72,22 +72,6 @@ const NOT_CONFIGURED: ManagedKeyStatus = {
   configured: false,
   hint: null,
   updatedAt: null,
-};
-
-/** Only a signed-in user may set or remove the key. */
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
-
-/** The workspace a non-system principal reads from. */
-const readableWorkspace = (principal: Principal, action: string): string => {
-  if (principal.kind === "system") {
-    throw new ForbiddenError(action);
-  }
-  return principal.workspaceId;
 };
 
 /** Shape only. Whether the key works is what `validate` is for. */

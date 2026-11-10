@@ -15,6 +15,7 @@
  * person and the peer can race without a terminal state ever reverting, and a
  * state change queues its push rows once.
  */
+
 import {
   type SendMessageRequest,
   sendMessageRequestSchema,
@@ -59,6 +60,7 @@ import { z } from "zod";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventRecord, EventsService } from "../events.ts";
+import { requireSession } from "../guards.ts";
 import type { RequestsService } from "../requests.ts";
 import { MAX_RUN_DEPTH } from "../runs/subject.ts";
 import {
@@ -68,9 +70,10 @@ import {
   type StartRunInput,
   type StartRunOptions,
 } from "../runs/types.ts";
+import { hostOf, idString } from "../shared.ts";
 import { buildPeerEnvelope } from "../speaker-envelope.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
-import { requireReader, requireSession } from "./access.ts";
+import { requireReader } from "./access.ts";
 import type { PeerPrincipal } from "./connections.ts";
 import { A2aRateLimitError, A2aTaskError } from "./errors.ts";
 import { HOUR_MS, hourlyCountSql, hourlyUse } from "./hourly.ts";
@@ -83,7 +86,6 @@ import {
 } from "./push-configs.ts";
 import {
   hopsOf,
-  hostOf,
   questionStatusText,
   RUNNING,
   STATUS_TEXT,
@@ -140,7 +142,6 @@ const parseJson = (text: string): unknown => {
 
 const SYSTEM_ACTOR = { id: "tick", kind: "system" } as const;
 
-const idString = z.string().min(1).max(200);
 const historyLengthSchema = z.number().int().min(0).optional();
 
 export const getTaskInputSchema = z.object({

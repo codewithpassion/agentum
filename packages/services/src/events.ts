@@ -40,12 +40,11 @@ import { stripSecrets } from "./events/redact.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import { type PersonName, personLabel, summarize } from "./events/summary.ts";
 import { visibleSessions } from "./sessions.ts";
+import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
 
 const EVENT_READ = "events.read";
 const EVENT_KIND = "event";
-
-const idString = z.string().min(1).max(200);
 
 /**
  * What a caller hands to `append`. The service mints the id and the timestamp.

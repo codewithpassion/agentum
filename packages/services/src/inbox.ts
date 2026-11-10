@@ -7,6 +7,7 @@
  * loop guard (`inbox/loop-guard.ts`) keeps two agents from talking forever.
  * `gateway` is what `completeRun` hands an agent's reply to.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
@@ -37,6 +38,7 @@ import {
   type ReplyTarget,
 } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
+import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
 
 const READ_ACTION = "inbox.read";
@@ -50,8 +52,6 @@ export const THREAD_READ_LIMIT = 500;
 
 /** Ids that sort in creation order even within one millisecond or when the clock steps back. */
 const nextId = monotonicFactory();
-
-const idString = z.string().min(1).max(200);
 
 export const threadCreateInputSchema = z.strictObject({
   title: z.string().trim().min(1).max(TITLE_MAX),

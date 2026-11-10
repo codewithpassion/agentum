@@ -4,13 +4,14 @@
  * of the workspace). An own skill with the same name replaces the shared one
  * whole. Only a run reads them, and only its own agent's skills.
  */
+
 import {
   SKILLS_MAX_BYTES,
   SKILLS_MAX_FILES,
   type SkillFile,
 } from "@repo/protocol/skills";
 import type { AgentsService } from "./agents.ts";
-import { isServiceError, ServiceError } from "./errors.ts";
+import { invalid, isServiceError, notFound, ServiceError } from "./errors.ts";
 import {
   readSkillMeta,
   SKILL_NAME_MAX,
@@ -56,9 +57,6 @@ Write the instructions for the agent here.
 const CONTROL_CHARS = /\p{Cc}/u;
 const UNSAFE_FOLDER = /^$|[/\\\p{Cc}]/u;
 const TOO_BIG = "Skills are limited to 200 files and 5 MB";
-
-const notFound = () => new ServiceError("not_found", "Not found");
-const invalid = (message: string) => new ServiceError("invalid", message);
 
 /** Refuses anything that could climb out of the skill folder, before the library sees it. */
 const relativeSegments = (path: string, minSegments = 2): string[] => {

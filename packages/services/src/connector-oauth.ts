@@ -15,6 +15,7 @@
  * `expiresAt` and `scopes` sit in the clear on the row. The client id, token
  * endpoint and client secret needed to refresh live in `connectors.oauth`.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { connectors, oauthStates } from "@repo/db/schema/connectors";
@@ -50,11 +51,13 @@ import {
   sharedClientApplies,
 } from "./connectors/oauth-config.ts";
 import { InvalidConnectorUrlError } from "./connectors/url.ts";
-import { loadActiveAgent, loadConnector, requireUser } from "./connectors.ts";
+import { loadActiveAgent, loadConnector } from "./connectors.ts";
 import { decryptSecret, encryptSecret, importSecretsKey } from "./crypto.ts";
-import { ServiceError } from "./errors.ts";
+import { invalid, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { requireSession } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
+import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
 
 const CONNECTOR_KIND = "connector";
@@ -77,8 +80,6 @@ const SAME_ORIGIN_PROBE = "https://agentum.invalid";
 const SECRET_FIELD_CLIENT = "oauth.clientSecret";
 const MAX_RETURN_TO_LENGTH = 2048;
 const MAX_ERROR_LENGTH = 300;
-
-const idString = z.string().min(1).max(200);
 
 export const oauthStartSchema = z.strictObject({
   /** `user`, or `agent:<id>`. */
@@ -147,9 +148,6 @@ const withParam = (path: string, key: string, value: string): string => {
   url.searchParams.set(key, value);
   return `${url.pathname}${url.search}${url.hash}`;
 };
-
-const invalid = (message: string): ServiceError =>
-  new ServiceError("invalid", message);
 
 /** `user` or `agent:<id>`, as the owner of the credential this flow will write. */
 const parseOwner = (as: string, userId: string): Owner => {
@@ -369,7 +367,7 @@ export const createConnectorOAuthService = ({
     principal: Principal,
     input: OAuthStartInput
   ): Promise<{ authorizeUrl: string }> => {
-    const user = requireUser(principal, START_ACTION);
+    const user = requireSession(principal, START_ACTION);
     const parsed = oauthStartSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, START_ACTION, {
@@ -445,7 +443,7 @@ export const createConnectorOAuthService = ({
 
   /** Exchanges the code and writes the credential. Throws invalid refusals. */
   const store = async (
-    user: ReturnType<typeof requireUser>,
+    user: ReturnType<typeof requireSession>,
     row: typeof oauthStates.$inferSelect,
     code: string
   ): Promise<void> => {
@@ -554,7 +552,7 @@ export const createConnectorOAuthService = ({
     principal: Principal,
     input: OAuthCompleteInput
   ): Promise<OAuthCompleteResult> => {
-    const user = requireUser(principal, COMPLETE_ACTION);
+    const user = requireSession(principal, COMPLETE_ACTION);
     const parsed = oauthCompleteSchema.parse(input);
     const [row] = await db
       .delete(oauthStates)
@@ -614,7 +612,7 @@ export const createConnectorOAuthService = ({
     principal: Principal,
     input: OAuthClientInput
   ): Promise<void> => {
-    const user = requireUser(principal, SET_CLIENT_ACTION);
+    const user = requireSession(principal, SET_CLIENT_ACTION);
     const parsed = oauthClientSchema.parse(input);
     authorize(user, SET_CLIENT_ACTION, {
       id: parsed.connectorId,

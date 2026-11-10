@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { AgentRecord } from "../agents.ts";
 import type { Payload } from "../events/payload.ts";
 import type { RequestRecord } from "../requests.ts";
+import { idString } from "../shared.ts";
 import type { Principal } from "../workspaces.ts";
 import type { WakeOf } from "./subject.ts";
 
@@ -36,8 +37,6 @@ export const DRY_RUN_ORIGIN = "dry_run" as const;
 export type SessionOrigin =
   | (typeof SESSION_ORIGINS)[number]
   | typeof DRY_RUN_ORIGIN;
-
-const idString = z.string().min(1).max(200);
 
 /** Where the answer goes when the run finishes. */
 export const replyTargetSchema = z.discriminatedUnion("kind", [
