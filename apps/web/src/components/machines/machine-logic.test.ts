@@ -6,8 +6,10 @@ import {
   computerKind,
   computersOf,
   isDaemonOutdated,
+  newMachine,
   revokeMachine,
   roleRows,
+  visibleMachines,
 } from "./machine-logic.ts";
 
 describe("roleRows", () => {
@@ -201,4 +203,42 @@ test("computer-only Rust clients get the Rust update hint", () => {
       "new"
     )
   ).toBe(false);
+});
+
+describe("visibleMachines", () => {
+  const machines = [
+    { id: "a", status: "online" as const },
+    { id: "b", status: "revoked" as const },
+  ];
+  test("hides revoked machines unless asked", () => {
+    expect(visibleMachines(machines, false).map((m) => m.id)).toEqual(["a"]);
+    expect(visibleMachines(machines, true).map((m) => m.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+});
+
+describe("newMachine", () => {
+  const row = (
+    id: string,
+    status: "online" | "offline" | "revoked",
+    computerStatus: "online" | "offline" = "offline"
+  ) => ({ computerStatus, id, name: id, status });
+  test("finds a new machine that has connected", () => {
+    expect(
+      newMachine([row("old", "online"), row("new", "online")], ["old"])?.id
+    ).toBe("new");
+  });
+  test("a computer-only machine counts once its computer is online", () => {
+    expect(newMachine([row("new", "offline", "online")], [])?.id).toBe("new");
+  });
+  test("a redeemed code that never connected is not connected", () => {
+    expect(newMachine([row("new", "offline")], [])).toBeNull();
+  });
+  test("ignores known and revoked machines", () => {
+    expect(
+      newMachine([row("old", "online"), row("gone", "revoked")], ["old"])
+    ).toBeNull();
+  });
 });

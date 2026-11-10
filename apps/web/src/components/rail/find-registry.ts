@@ -16,6 +16,7 @@ import {
   Sparkles,
   Webhook,
 } from "lucide-react";
+import { ENROLL_BUTTON_LABEL } from "#/components/machines/machine-logic.ts";
 import { settingsNav } from "#/components/settings/settings-nav.ts";
 
 export interface FindEntry {
@@ -33,7 +34,7 @@ const settingsHints: Readonly<Record<string, string>> = {
   "/settings/secrets": "Passwords and keys",
 };
 
-/** Listed under "What agents use" as Computers, so not repeated here. */
+/** Listed under "What agents use" as Enrol a machine, so not repeated here. */
 const LISTED_ELSEWHERE = new Set(["/settings/machines"]);
 
 const settingsEntries: readonly FindEntry[] = settingsNav.flatMap((group) =>
@@ -112,9 +113,9 @@ export const findEntries: readonly FindEntry[] = [
   },
   {
     group: "What agents use",
-    hint: "Machines",
+    hint: "Machines and computers",
     icon: Server,
-    label: "Computers",
+    label: ENROLL_BUTTON_LABEL,
     to: "/settings/machines",
   },
   { group: "Agents", icon: Bot, label: "Agents", to: "/agents" },

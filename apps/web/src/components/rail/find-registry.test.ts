@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { ENROLL_BUTTON_LABEL } from "#/components/machines/machine-logic.ts";
 import { agentFindEntries, findEntries, pathOf } from "./find-registry.ts";
 
 const EXCLUDED: Readonly<Record<string, string>> = {
@@ -97,4 +98,10 @@ test("agentFindEntries links each agent by id", () => {
 test("pathOf drops the query string", () => {
   expect(pathOf("/desk?view=board")).toBe("/desk");
   expect(pathOf("/sessions")).toBe("/sessions");
+});
+
+test("Find enrols a machine under the same name as the page button", () => {
+  expect(
+    findEntries.filter((entry) => entry.to === "/settings/machines")
+  ).toEqual([expect.objectContaining({ label: ENROLL_BUTTON_LABEL })]);
 });

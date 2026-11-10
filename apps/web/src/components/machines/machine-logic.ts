@@ -131,3 +131,31 @@ export const revokeMachine = async (
     return error instanceof Error ? error.message : "Something went wrong.";
   }
 };
+
+/** The one name for enrolling a machine, on the page and in Find. */
+export const ENROLL_BUTTON_LABEL = "Enrol a machine";
+
+/** Revoked machines show only when the toggle is on. */
+export const visibleMachines = <T extends Pick<MachineRecord, "status">>(
+  machines: T[],
+  showRevoked: boolean
+): T[] =>
+  showRevoked
+    ? machines
+    : machines.filter((machine) => machine.status !== "revoked");
+
+/**
+ * The first machine whose id was not known when the dialog opened and that has
+ * connected. Redeeming a code makes the row offline, so only an online role counts.
+ */
+export const newMachine = <
+  T extends Pick<MachineRecord, "computerStatus" | "id" | "status">,
+>(
+  machines: T[],
+  knownIds: readonly string[]
+): T | null =>
+  machines.find(
+    (machine) =>
+      !knownIds.includes(machine.id) &&
+      (machine.status === "online" || machine.computerStatus === "online")
+  ) ?? null;

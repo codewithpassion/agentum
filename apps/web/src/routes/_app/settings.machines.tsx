@@ -1,10 +1,15 @@
-import type { MachineRole } from "@repo/db/shared";
+import type { MachineEnrollRole } from "@repo/db/shared";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useEffect, useState } from "react";
-import { CommandBlock } from "#/components/machines/command-block";
-import { agentumInstallCommand } from "#/components/machines/enroll-commands";
-import { EnrollDialog } from "#/components/machines/enroll-dialog";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_ENROLL_ROLE,
+  EnrollDialog,
+} from "#/components/machines/enroll-dialog";
+import {
+  ENROLL_BUTTON_LABEL,
+  visibleMachines,
+} from "#/components/machines/machine-logic";
 import { MachineRow } from "#/components/machines/machine-row";
 import { RevokeDialog } from "#/components/machines/revoke-dialog";
 import { ResponsiveTable } from "#/components/responsive-table/responsive-table";
@@ -43,7 +48,7 @@ export const Route = createFileRoute("/_app/settings/machines")({
 
 interface DialogState {
   machine?: { id: string; name: string; rust?: boolean };
-  role: MachineRole;
+  role: MachineEnrollRole;
 }
 
 function MachinesPage() {
@@ -60,12 +65,21 @@ function MachinesPage() {
     setOrigin(window.location.origin);
   }, []);
 
-  const openEnrol = useCallback(() => setDialog({ role: "agent_host" }), []);
+  const [showRevoked, setShowRevoked] = useState(false);
+  const toggleRevoked = useCallback(() => setShowRevoked((on) => !on), []);
 
-  const openAddComputer = useCallback(
-    () => setDialog({ role: "computer" }),
+  const openEnrol = useCallback(
+    () => setDialog({ role: DEFAULT_ENROLL_ROLE }),
     []
   );
+
+  const knownMachineIds = useMemo(
+    () => machines.map((machine) => machine.id),
+    [machines]
+  );
+  const shown = visibleMachines(machines, showRevoked);
+  const revokedCount =
+    machines.length - visibleMachines(machines, false).length;
 
   const addComputerTo = useCallback(
     (machine: { id: string; name: string; rust?: boolean }) =>
@@ -92,24 +106,29 @@ function MachinesPage() {
           Machines
         </h1>
         <div className="flex items-center gap-2">
-          <Button onClick={openAddComputer} variant="outline">
-            Add computer
-          </Button>
-          <Button onClick={openEnrol}>Enrol machine</Button>
+          {revokedCount > 0 ? (
+            <Button
+              aria-pressed={showRevoked}
+              onClick={toggleRevoked}
+              variant="outline"
+            >
+              {showRevoked ? "Hide" : "Show"} revoked ({revokedCount})
+            </Button>
+          ) : null}
+          {machines.length > 0 ? (
+            <Button onClick={openEnrol}>{ENROLL_BUTTON_LABEL}</Button>
+          ) : null}
         </div>
       </div>
       {machines.length === 0 ? (
         <div className="flex flex-col gap-3">
           <p className="text-muted-foreground text-sm">
-            No machines yet. Enrol one to run agents on it, or add a computer
-            for an agent to use.
+            No machines yet. Enrol one to run agents on it, give agents a
+            computer, or both.
           </p>
-          {origin !== null && (
-            <CommandBlock
-              command={agentumInstallCommand(origin)}
-              heading="Install Agentum on a Linux machine"
-            />
-          )}
+          <div>
+            <Button onClick={openEnrol}>{ENROLL_BUTTON_LABEL}</Button>
+          </div>
         </div>
       ) : (
         <ResponsiveTable>
@@ -124,7 +143,7 @@ function MachinesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {machines.map((machine) => (
+            {shown.map((machine) => (
               <MachineRow
                 key={machine.id}
                 latestDaemonVersion={latestDaemonVersion}
@@ -140,6 +159,7 @@ function MachinesPage() {
       )}
       {dialog ? (
         <EnrollDialog
+          knownMachineIds={knownMachineIds}
           machine={dialog.machine}
           onClose={closeDialog}
           role={dialog.role}
