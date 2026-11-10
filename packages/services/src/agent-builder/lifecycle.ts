@@ -8,7 +8,10 @@
 import type { VoicePreset } from "@repo/db/shared";
 import { z } from "zod";
 import type { AgentRecord, AgentsService } from "../agents.ts";
-import { CLOUD_DEFAULT_MODEL } from "../cloud/models.ts";
+import {
+  CLOUD_DEFAULT_MODEL,
+  CLOUD_OPENROUTER_DEFAULT_MODEL,
+} from "../cloud/models.ts";
 import type { ConnectorsService } from "../connectors.ts";
 import { isServiceError, ServiceError } from "../errors.ts";
 import type { LibraryAccessService } from "../library/access.ts";
@@ -282,16 +285,22 @@ export const createDraftLifecycle = ({
     }
     // The row takes the draft's latest fields before it turns active.
     await agents.update(principal, draftAgentId, rowValues(draft));
+    const names = await catalog(principal);
     // Assignments, schedules and the address refuse an agent that is not active.
     const activated = await agents.activate(principal, draftAgentId, {
       // Only a machine agent takes a machine id.
       machineId: runsOn.runtime === "machine" ? runsOn.machineId : null,
-      model: CLOUD_DEFAULT_MODEL,
+      // `managed` is on offer only with an Anthropic key. A cloud agent without
+      // one runs on OpenRouter, because the Anthropic default would fail every run.
+      model:
+        runsOn.runtime === "cloud" && !names.runtimes.includes("managed")
+          ? CLOUD_OPENROUTER_DEFAULT_MODEL
+          : CLOUD_DEFAULT_MODEL,
       runtime: runsOn.runtime,
     });
     await runSteps(
       activated,
-      stepsFor(principal, activated, draft, await catalog(principal), address)
+      stepsFor(principal, activated, draft, names, address)
     );
     return await agents.get(principal, draftAgentId);
   };

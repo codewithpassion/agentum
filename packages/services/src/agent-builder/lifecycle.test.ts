@@ -10,7 +10,10 @@ import { eq } from "drizzle-orm";
 import { createAgentProfileService } from "../agent-profile.ts";
 import { type AgentRecord, createAgentsService } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
-import { CLOUD_DEFAULT_MODEL } from "../cloud/models.ts";
+import {
+  CLOUD_DEFAULT_MODEL,
+  CLOUD_OPENROUTER_DEFAULT_MODEL,
+} from "../cloud/models.ts";
 import type { ConnectorSummary } from "../connectors.ts";
 import { createConnectorsService } from "../connectors.ts";
 import { createDeskService } from "../desk.ts";
@@ -100,6 +103,8 @@ const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
 });
 
 interface WorldOptions {
+  /** False leaves the workspace with no Anthropic key. Defaults to true. */
+  anthropic?: boolean;
   emailLocal?: string | null;
   /** Keyed by the call label, for example "assign:conn_mail". The call is recorded, then it throws. */
   failures?: Record<string, Error>;
@@ -225,10 +230,18 @@ const makeWorld = (options: WorldOptions = {}) => {
     machines: { list: async () => [] },
     managedKeys: {
       resolve: async () => ({ apiKey: "sk-ant-test", environmentId: null }),
-      status: async () => ({ configured: true, hint: "sk-a", updatedAt: null }),
+      status: async () => ({
+        configured: options.anthropic !== false,
+        hint: "sk-a",
+        updatedAt: null,
+      }),
     },
     modelKeys: {
-      status: async () => ({ configured: false, hint: null, updatedAt: null }),
+      status: async () => ({
+        configured: options.anthropic === false,
+        hint: null,
+        updatedAt: null,
+      }),
     },
     routines,
     runs,
@@ -342,6 +355,23 @@ describe("dryRun", () => {
 });
 
 describe("create", () => {
+  test("a cloud agent with only an OpenRouter key gets an OpenRouter model", async () => {
+    const world = makeWorld({ anthropic: false });
+
+    await world.service.create(user, {
+      draft: { ...draft, runsOn: { runtime: "cloud" } },
+      draftAgentId: "agent_1",
+    });
+
+    expect(world.activateInputs).toEqual([
+      {
+        machineId: null,
+        model: CLOUD_OPENROUTER_DEFAULT_MODEL,
+        runtime: "cloud",
+      },
+    ]);
+  });
+
   test("runs the steps in order and reserves a suggested address when none is given", async () => {
     const world = makeWorld();
 

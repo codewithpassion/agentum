@@ -193,6 +193,38 @@ export const runsOnOptions = (
   return options;
 };
 
+export interface BlankInput {
+  does: string;
+  name: string;
+  runsOn: AgentDraft["runsOn"];
+}
+
+/** A draft with only the three fields Start blank asks for. The builder is never called. */
+export const blankDraft = ({ does, name, runsOn }: BlankInput): AgentDraft => ({
+  does: does.trim(),
+  handsTo: [],
+  library: [],
+  name: name.trim(),
+  rules: [],
+  runsOn,
+  sampleInput: [],
+  skills: [],
+  startsOn: [],
+  tools: [],
+  voice: "friendly",
+});
+
+/** Why Create is disabled on Start blank, or null. */
+export const blankBlocker = (input: BlankInput): string | null => {
+  if (input.name.trim() === "") {
+    return "Name the agent.";
+  }
+  if (input.does.trim() === "") {
+    return "Say what the agent does.";
+  }
+  return input.runsOn === null ? "Pick where it runs." : null;
+};
+
 const NO_KEY_TEXT = "no Anthropic API key";
 
 /** Whether a draft error says the workspace has no Anthropic API key. */
