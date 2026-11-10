@@ -799,6 +799,7 @@ export const createRequestsService = ({
         answeredAt: clock.now().toISOString(),
         answeredBy: principal.userId,
         answeredVia: input.via,
+        questionKeys: null,
         status: "answered",
       })
       .where(
@@ -931,6 +932,7 @@ export const createRequestsService = ({
         answeredAt: clock.now().toISOString(),
         answeredBy: principal.connectionId,
         answeredVia: "a2a",
+        questionKeys: null,
         status: "answered",
       })
       .where(
@@ -971,7 +973,7 @@ export const createRequestsService = ({
     }
     const [closed] = await db
       .update(runRequests)
-      .set({ status: "cancelled" })
+      .set({ questionKeys: null, status: "cancelled" })
       .where(
         and(
           eq(runRequests.id, row.id),
@@ -1050,7 +1052,7 @@ export const createRequestsService = ({
     }
     const closed = await db
       .update(runRequests)
-      .set({ status: "expired" })
+      .set({ questionKeys: null, status: "expired" })
       .where(
         and(
           eq(runRequests.status, "pending"),
@@ -1072,7 +1074,7 @@ export const createRequestsService = ({
   const cancelForRun = async (run: RunRecord) => {
     const closed = await db
       .update(runRequests)
-      .set({ status: "cancelled" })
+      .set({ questionKeys: null, status: "cancelled" })
       .where(
         and(
           eq(runRequests.runId, run.id),

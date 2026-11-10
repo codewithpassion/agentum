@@ -1336,7 +1336,7 @@ export const createOutboundService = ({
   }): Promise<void> => {
     await db
       .update(runRequests)
-      .set({ status: "cancelled" })
+      .set({ questionKeys: null, status: "cancelled" })
       .where(
         and(eq(runRequests.id, card.id), eq(runRequests.status, "pending"))
       );
@@ -1984,7 +1984,7 @@ export const createOutboundService = ({
       );
     const closed = await db
       .update(runRequests)
-      .set({ status: "cancelled" })
+      .set({ questionKeys: null, status: "cancelled" })
       .where(
         and(
           eq(runRequests.workspaceId, revoked.workspaceId),
