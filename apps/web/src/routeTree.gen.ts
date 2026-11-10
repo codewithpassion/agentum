@@ -49,6 +49,7 @@ import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.s
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
 import { Route as AppTasksRunIdRouteImport } from './routes/_app/tasks.$runId'
+import { Route as AppThreadsSessionIdRouteImport } from './routes/_app/threads.$sessionId'
 import { Route as AppSettingsAgentConnectionsIndexRouteImport } from './routes/_app/settings.agent-connections.index'
 import { Route as AppSettingsAgentConnectionsConnectionIdRouteImport } from './routes/_app/settings.agent-connections.$connectionId'
 
@@ -254,6 +255,11 @@ const AppTasksRunIdRoute = AppTasksRunIdRouteImport.update({
   path: '/tasks/$runId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppThreadsSessionIdRoute = AppThreadsSessionIdRouteImport.update({
+  id: '/threads/$sessionId',
+  path: '/threads/$sessionId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsAgentConnectionsIndexRoute =
   AppSettingsAgentConnectionsIndexRouteImport.update({
     id: '/agent-connections/',
@@ -303,6 +309,7 @@ export interface FileRoutesByFullPath {
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
+  '/threads/$sessionId': typeof AppThreadsSessionIdRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/qa/': typeof AppQaIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
@@ -345,6 +352,7 @@ export interface FileRoutesByTo {
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
+  '/threads/$sessionId': typeof AppThreadsSessionIdRoute
   '/agents': typeof AppAgentsIndexRoute
   '/qa': typeof AppQaIndexRoute
   '/settings': typeof AppSettingsIndexRoute
@@ -390,6 +398,7 @@ export interface FileRoutesById {
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/tasks/$runId': typeof AppTasksRunIdRoute
+  '/_app/threads/$sessionId': typeof AppThreadsSessionIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/qa/': typeof AppQaIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
@@ -435,6 +444,7 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/skills/$skillId'
     | '/tasks/$runId'
+    | '/threads/$sessionId'
     | '/agents/'
     | '/qa/'
     | '/settings/'
@@ -477,6 +487,7 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/skills/$skillId'
     | '/tasks/$runId'
+    | '/threads/$sessionId'
     | '/agents'
     | '/qa'
     | '/settings'
@@ -521,6 +532,7 @@ export interface FileRouteTypes {
     | '/_app/settings/secrets'
     | '/_app/skills/$skillId'
     | '/_app/tasks/$runId'
+    | '/_app/threads/$sessionId'
     | '/_app/agents/'
     | '/_app/qa/'
     | '/_app/settings/'
@@ -824,6 +836,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTasksRunIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/threads/$sessionId': {
+      id: '/_app/threads/$sessionId'
+      path: '/threads/$sessionId'
+      fullPath: '/threads/$sessionId'
+      preLoaderRoute: typeof AppThreadsSessionIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/agent-connections/': {
       id: '/_app/settings/agent-connections/'
       path: '/agent-connections'
@@ -893,6 +912,7 @@ interface AppRouteChildren {
   AppQaQuestionIdRoute: typeof AppQaQuestionIdRoute
   AppSkillsSkillIdRoute: typeof AppSkillsSkillIdRoute
   AppTasksRunIdRoute: typeof AppTasksRunIdRoute
+  AppThreadsSessionIdRoute: typeof AppThreadsSessionIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppQaIndexRoute: typeof AppQaIndexRoute
   AppSkillsIndexRoute: typeof AppSkillsIndexRoute
@@ -917,6 +937,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppQaQuestionIdRoute: AppQaQuestionIdRoute,
   AppSkillsSkillIdRoute: AppSkillsSkillIdRoute,
   AppTasksRunIdRoute: AppTasksRunIdRoute,
+  AppThreadsSessionIdRoute: AppThreadsSessionIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppQaIndexRoute: AppQaIndexRoute,
   AppSkillsIndexRoute: AppSkillsIndexRoute,

@@ -62,7 +62,14 @@ const makeTask = (overrides: {
       startedAt: AT,
       status: overrides.status ?? "running",
     },
-    session: { externalKey: null, id: "ses-1", origin: "ui" },
+    session: {
+      archivedAt: null,
+      externalKey: null,
+      id: "ses-1",
+      origin: "ui",
+      pinnedAt: null,
+      title: "Task",
+    },
     startedBy: { kind: "person", label: "Dom" },
     title: "Pay the bills",
   }) as TaskView;

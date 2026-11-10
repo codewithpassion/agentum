@@ -13,7 +13,8 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "needs a connection id, reached from the connections list",
   "/settings/managed-agents": "redirects to model providers",
   "/skills/$skillId": "needs a skill id, reached from the skills list",
-  "/tasks/$runId": "needs a run id, reached from the task lists",
+  "/tasks/$runId": "redirects to its thread",
+  "/threads/$sessionId": "needs a session id, reached from the thread lists",
 };
 
 const routeFiles = readdirSync(
