@@ -26,12 +26,7 @@ import {
 } from "@repo/protocol/token-prefixes";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import {
-  CryptoError,
-  fromBase64Url,
-  splitKeySpec,
-  toBase64Url,
-} from "./crypto.ts";
+import { CryptoError, openClaims, signClaims, splitKeySpec } from "./crypto.ts";
 import { MANAGED_CLAIMER } from "./managed/types.ts";
 import { currentGuestRun } from "./runs/guest-scope.ts";
 
@@ -54,9 +49,6 @@ const CLOCK_SKEW_MS = 60_000;
 const KEY_BYTES = 32;
 const ALGORITHM = { hash: "SHA-256", name: "HMAC" } as const;
 const INVALID_KEY = "RUN_TOKEN_KEY must be 32 random bytes, base64 encoded.";
-
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 
 const payloadSchema = z.tuple([
   z.string().min(1),
@@ -130,32 +122,20 @@ export const importRunTokenKey = async (spec: string): Promise<CryptoKey> => {
   return key;
 };
 
-const signFields = async (
-  key: CryptoKey,
-  prefix: string,
-  fields: readonly [string, string, string, number]
-): Promise<string> => {
-  const payload = toBase64Url(encoder.encode(JSON.stringify(fields)));
-  const signed = `${prefix}${payload}`;
-  const signature = await crypto.subtle.sign(
-    ALGORITHM.name,
-    key,
-    encoder.encode(signed)
-  );
-  return `${signed}.${toBase64Url(new Uint8Array(signature))}`;
-};
+/** The prefix is part of what the MAC covers, so each prefix has its own signatures. */
+const SIGNED = { signPrefix: true } as const;
 
 /** A token for `claims`. Mint it once, when the run is claimed. */
 export const signRunToken = (
   key: CryptoKey,
   claims: RunTokenClaims
 ): Promise<string> =>
-  signFields(key, RUN_TOKEN_PREFIX, [
-    claims.runId,
-    claims.agentId,
-    claims.workspaceId,
-    claims.issuedAt,
-  ]);
+  signClaims(
+    key,
+    RUN_TOKEN,
+    [claims.runId, claims.agentId, claims.workspaceId, claims.issuedAt],
+    SIGNED
+  );
 
 export interface SessionTokenClaims {
   agentId: string;
@@ -170,12 +150,12 @@ export const signSessionToken = (
   key: CryptoKey,
   claims: SessionTokenClaims
 ): Promise<string> =>
-  signFields(key, SESSION_TOKEN_PREFIX, [
-    claims.sessionId,
-    claims.agentId,
-    claims.workspaceId,
-    claims.issuedAt,
-  ]);
+  signClaims(
+    key,
+    SESSION_TOKEN,
+    [claims.sessionId, claims.agentId, claims.workspaceId, claims.issuedAt],
+    SIGNED
+  );
 
 /** The payload of a token whose prefix and signature check, else null. */
 const openFields = async (
@@ -183,46 +163,11 @@ const openFields = async (
   kind: TokenPrefix,
   token: string
 ): Promise<z.infer<typeof payloadSchema> | null> => {
-  const prefix = kind.prefixOf(token);
-  if (prefix === null) {
-    return null;
-  }
-  const parts = token.split(".");
-  const [signed, signatureText] = parts;
-  if (parts.length !== 2 || !signed || !signatureText) {
-    return null;
-  }
-  const signature = fromBase64Url(signatureText);
-  const payload = fromBase64Url(signed.slice(prefix.length));
-  if (!(signature && payload)) {
-    return null;
-  }
-  // subtle.verify compares in constant time.
-  const signedBytes = encoder.encode(signed);
-  let genuine = await crypto.subtle.verify(
-    ALGORITHM.name,
-    key,
-    signature,
-    signedBytes
-  );
   const previous = previousKeys.get(key);
-  if (!genuine && previous) {
-    genuine = await crypto.subtle.verify(
-      ALGORITHM.name,
-      previous,
-      signature,
-      signedBytes
-    );
-  }
-  if (!genuine) {
-    return null;
-  }
-  try {
-    const parsed = payloadSchema.safeParse(JSON.parse(decoder.decode(payload)));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+  const parsed = payloadSchema.safeParse(
+    await openClaims(previous ? [key, previous] : [key], kind, token, SIGNED)
+  );
+  return parsed.success ? parsed.data : null;
 };
 
 /** The claims of a run token whose signature checks, else null. */

@@ -262,3 +262,23 @@ test("a ticket's own payload and signature never verify as an assertion", async 
     .split(".");
   expect(await verify(`hm_adm_${payload}.${signature}`)).toBeNull();
 });
+
+test("an assertion minted before signClaims still verifies, and the new one is the same bytes", async () => {
+  const encoder = new TextEncoder();
+  const hmac = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(`room-admission:${key}`),
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign"]
+  );
+  const payload = Buffer.from(JSON.stringify(admission())).toString(
+    "base64url"
+  );
+  const mac = Buffer.from(
+    await crypto.subtle.sign("HMAC", hmac, encoder.encode(payload))
+  ).toString("base64url");
+  const old = `${(await signRoomAdmission(admission(), key)).split(payload)[0]}${payload}.${mac}`;
+  expect((await verify(old))?.principal).toEqual(principal);
+  expect(await signRoomAdmission(admission(), key)).toBe(old);
+});

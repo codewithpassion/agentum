@@ -17,6 +17,8 @@
  * Errors are CryptoErrors that never carry plaintext, ciphertext or key bytes.
  */
 
+import type { TokenPrefix } from "@repo/protocol/token-prefixes";
+
 /** What a stored secret is bound to: its workspace, table, row and column. */
 export interface SecretBinding {
   field: string;
@@ -218,12 +220,88 @@ export const decryptSecret = async (
   }
 };
 
-/** SHA-256 of the UTF-8 token, lowercase hex. */
-export const hashToken = async (token: string): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(token));
+/** SHA-256 of the UTF-8 text, lowercase hex. */
+export const sha256Hex = async (text: string): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(text));
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+};
+
+/** The name `hashToken` had before `sha256Hex`. Same function. */
+export const hashToken = sha256Hex;
+
+const HMAC = { hash: "SHA-256", name: "HMAC" } as const;
+
+/** An HMAC-SHA-256 key made from the UTF-8 bytes of `text`. */
+export const hmacKeyFromText = (text: string): Promise<CryptoKey> =>
+  crypto.subtle.importKey("raw", encoder.encode(text), HMAC, false, [
+    "sign",
+    "verify",
+  ]);
+
+/**
+ * A signed token: the issue prefix of `kind`, the claims as base64url JSON, a
+ * dot, then the base64url HMAC-SHA-256 of the payload. With `signPrefix` the
+ * MAC covers the prefix and the payload, otherwise the payload alone. Both
+ * forms are in use, so a token minted before this helper keeps verifying.
+ */
+export const signClaims = async (
+  key: CryptoKey,
+  kind: TokenPrefix,
+  claims: unknown,
+  options: { signPrefix?: boolean } = {}
+): Promise<string> => {
+  const prefix = kind.issue;
+  const payload = toBase64Url(encoder.encode(JSON.stringify(claims)));
+  const signed = options.signPrefix ? `${prefix}${payload}` : payload;
+  const mac = await crypto.subtle.sign(HMAC.name, key, encoder.encode(signed));
+  return `${prefix}${payload}.${toBase64Url(new Uint8Array(mac))}`;
+};
+
+/**
+ * The parsed JSON claims of a token that `signClaims` made, else null. The
+ * token may carry any prefix of `kind`, and the caller validates the claims.
+ * The MAC is checked first, against each of `keys` in turn (a current key,
+ * then a previous one), and the payload is parsed only when one matches.
+ * Never throws.
+ */
+export const openClaims = async (
+  keys: readonly CryptoKey[],
+  kind: TokenPrefix,
+  token: string,
+  options: { signPrefix?: boolean } = {}
+): Promise<unknown> => {
+  const prefix = kind.prefixOf(token);
+  if (prefix === null) {
+    return null;
+  }
+  const parts = token.slice(prefix.length).split(".");
+  const [payloadText, signatureText] = parts;
+  if (parts.length !== 2 || !payloadText || !signatureText) {
+    return null;
+  }
+  const signature = fromBase64Url(signatureText);
+  const payload = fromBase64Url(payloadText);
+  if (!(signature && payload)) {
+    return null;
+  }
+  const signed = encoder.encode(
+    options.signPrefix ? `${prefix}${payloadText}` : payloadText
+  );
+  // subtle.verify compares in constant time.
+  const checks = await Promise.all(
+    keys.map((key) => crypto.subtle.verify(HMAC.name, key, signature, signed))
+  );
+  const genuine = checks.some(Boolean);
+  if (!genuine) {
+    return null;
+  }
+  try {
+    return JSON.parse(decoder.decode(payload));
+  } catch {
+    return null;
+  }
 };
 
 /**
