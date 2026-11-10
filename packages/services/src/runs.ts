@@ -127,6 +127,7 @@ export const STALE_QUEUE_MS = 60_000;
  * agent is not free while one of its runs is `running` or `waiting`.
  */
 export const UNCLAIMED_EXPIRY_MS = 60 * 60_000;
+const LEASE_EXPIRED_ERROR = "Lease expired";
 const NEVER_CLAIMED_ERROR = "Never claimed";
 export const WAIT_MAX_MS = 120_000;
 const WAIT_POLL_MS = 500;
@@ -186,7 +187,8 @@ const childOutcome = (child: RunRecord): ChildOutcome => {
   if (child.status === "cancelled") {
     return "cancelled";
   }
-  return child.status === "interrupted" || child.error === NEVER_CLAIMED_ERROR
+  return child.error === LEASE_EXPIRED_ERROR ||
+    child.error === NEVER_CLAIMED_ERROR
     ? "timed out"
     : "failed";
 };
@@ -2036,6 +2038,13 @@ export const createRunsService = ({
     }
   };
 
+  const wakeEnded = async (run: RunRecord): Promise<void> => {
+    const ended = await loadRun(db, run.id);
+    if (ended) {
+      await wakeHandoffParent(ended);
+    }
+  };
+
   /**
    * A hand-off or subagent child that ends, however it ends (finished,
    * failed, cancelled, interrupted or never claimed), wakes the run that
@@ -2045,18 +2054,12 @@ export const createRunsService = ({
    * an inbox post or a Q&A answer started has its own wake and loop guard, so
    * it wakes nothing here. A hand-off to the parent's own agent is that agent's
    * own wake and wakes nothing, which ends chains of wakes; a subagent is the
-   * same agent by design and does wake. A subagent the parent's cancellation
+   * same agent by design and does wake. A parent that is itself a subagent is not woken: a wake started without
+   * the subagent's scope would run with the agent's full access. A subagent the parent's cancellation
    * cancels does not wake the cancelled parent. The woken run is a child of
    * the parent, one level deeper, so a chain of wakes ends at `MAX_RUN_DEPTH`.
    * A refused start leaves the child's end as it was.
    */
-  const wakeEnded = async (run: RunRecord): Promise<void> => {
-    const ended = await loadRun(db, run.id);
-    if (ended) {
-      await wakeHandoffParent(ended);
-    }
-  };
-
   const wakeHandoffParent = async (child: RunRecord): Promise<void> => {
     if (!child.parentRunId || child.dryRun || child.scopeArtifactId) {
       return;
@@ -2065,6 +2068,7 @@ export const createRunsService = ({
       const parent = await loadRun(db, child.parentRunId, child.workspaceId);
       if (
         !parent ||
+        parent.subagentLevel > 0 ||
         (child.subagentLevel === 0 && parent.agentId === child.agentId) ||
         (child.status === "cancelled" &&
           child.subagentLevel > 0 &&
@@ -2732,7 +2736,11 @@ export const createRunsService = ({
       // biome-ignore lint/performance/noAwaitInLoops: compare-and-set per run, so a heartbeat that wins is respected
       const moved = await db
         .update(runs)
-        .set({ error: "Lease expired", finishedAt: now, status: "interrupted" })
+        .set({
+          error: LEASE_EXPIRED_ERROR,
+          finishedAt: now,
+          status: "interrupted",
+        })
         .where(
           and(
             eq(runs.id, row.id),

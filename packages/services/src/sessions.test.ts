@@ -1495,7 +1495,7 @@ test("a hand-off child cancelled while its parent is live wakes it once", async 
   const woken = wakesOf(parent);
   expect(woken).toHaveLength(1);
   expect(woken[0]?.requestId).toBe(`handoff-wake:${child.runId}`);
-  expect(woken[0]?.inputText).toContain("cancelled");
+  expect(woken[0]?.inputText).toContain("was cancelled");
 });
 
 test("a hand-off child the reaper interrupts after its parent ended wakes it once", async () => {
@@ -1560,6 +1560,43 @@ test("a subagent that ends wakes its parent in the parent's session", async () =
   const woken = wakesOf(parent);
   expect(woken).toHaveLength(1);
   expect(woken[0]?.requestId).toBe(`handoff-wake:${sub.runId}`);
+});
+
+test("a child of a subagent does not wake it, so no wake runs outside the subagent's scope", async () => {
+  const parent = await send(user("u1"), "parent");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  db.update(agentRows)
+    .set({ subagents: true })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  const sub = await startHeldSubagent(parent.runId);
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, sub.runId))
+    .run();
+  const handoff = await runs.startRun(
+    runAs(sub.runId, agentId),
+    {
+      agentId: otherAgentId,
+      input: { text: "hand-off" },
+      session: { origin: "mcp" },
+    },
+    { offerLater: true }
+  );
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, handoff.runId))
+    .run();
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, handoff.runId, {
+    status: "done",
+    text: "ok",
+  });
+
+  expect(wakesOf(sub)).toHaveLength(0);
 });
 
 test("cancelling a parent does not wake it for the subagents it cancels", async () => {
