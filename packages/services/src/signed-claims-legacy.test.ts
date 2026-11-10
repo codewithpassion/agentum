@@ -110,7 +110,7 @@ test("run token: the old token verifies, and the new one is the same bytes", asy
     });
   };
   const expired = { ok: false, reason: "expired" } as const;
-  expect(await verifyOld(RUN_TOKEN.issue)).toEqual(expired);
+  expect(await verifyOld("ag_run_")).toEqual(expired);
   expect(await verifyOld("hm_run_")).toEqual(expired);
   const minted = await signRunToken(key, {
     agentId: "agent_1",
