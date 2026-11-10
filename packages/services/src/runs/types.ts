@@ -134,6 +134,12 @@ export interface StartRunOptions {
    * a run principal's start honours it.
    */
   wakeOf?: WakeOf;
+  /**
+   * The run is the wake of a parent whose child ended. It queues behind the
+   * parent's own runs and nobody waits for it, so the busy-ancestor refusal
+   * does not apply. Trusted; never accepted by startRunInputSchema.
+   */
+  wakesParent?: boolean;
 }
 
 /** A run row with its JSON columns parsed. */

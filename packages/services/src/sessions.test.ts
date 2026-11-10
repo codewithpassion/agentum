@@ -1463,7 +1463,10 @@ test("a hand-off child that finishes after its parent ended wakes the parent in 
   expect(runsOf(child.sessionId)).toHaveLength(1);
 });
 
-test("a hand-off child wakes nothing while its parent is still running", async () => {
+const wakesOf = (parent: { runId: string; sessionId: string }) =>
+  runsOf(parent.sessionId).filter((r) => r.id !== parent.runId);
+
+test("a hand-off child that finishes while its parent is live queues a wake behind it", async () => {
   const { child, parent } = await handoffFixture();
 
   await runs.completeRun(SYSTEM_PRINCIPAL, child.runId, {
@@ -1471,7 +1474,154 @@ test("a hand-off child wakes nothing while its parent is still running", async (
     text: "found it",
   });
 
-  expect(runsOf(parent.sessionId)).toHaveLength(1);
+  const woken = wakesOf(parent);
+  expect(woken).toHaveLength(1);
+  expect(woken[0]).toMatchObject({
+    parentRunId: parent.runId,
+    requestId: `handoff-wake:${child.runId}`,
+  });
+  expect(woken[0]?.status).not.toBe("running");
+  expect(woken[0]?.inputText).toContain("finished");
+  expect(
+    db.select().from(runRows).where(eq(runRows.id, parent.runId)).get()?.status
+  ).toBe("running");
+});
+
+test("a hand-off child cancelled while its parent is live wakes it once", async () => {
+  const { child, parent } = await handoffFixture();
+
+  await runs.cancelRun(user("u1"), child.runId);
+
+  const woken = wakesOf(parent);
+  expect(woken).toHaveLength(1);
+  expect(woken[0]?.requestId).toBe(`handoff-wake:${child.runId}`);
+  expect(woken[0]?.inputText).toContain("was cancelled");
+});
+
+test("a hand-off child the reaper interrupts after its parent ended wakes it once", async () => {
+  const { child, parent } = await handoffFixture();
+  db.update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  db.update(runRows)
+    .set({ leaseUntil: "2026-10-16T09:00:00.000Z" })
+    .where(eq(runRows.id, child.runId))
+    .run();
+
+  await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+  await runs.reapExpiredLeases(SYSTEM_PRINCIPAL);
+
+  const woken = wakesOf(parent);
+  expect(woken).toHaveLength(1);
+  expect(woken[0]?.requestId).toBe(`handoff-wake:${child.runId}`);
+  expect(woken[0]?.inputText).toContain("timed out");
+});
+
+test("a failed hand-off child says it failed", async () => {
+  const { child, parent } = await handoffFixture();
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, child.runId, {
+    error: "boom",
+    status: "failed",
+  });
+
+  expect(wakesOf(parent)[0]?.inputText).toContain("failed");
+});
+
+const startHeldSubagent = (parentRunId: string) =>
+  runs.startRun(
+    runAs(parentRunId, agentId),
+    { agentId, input: { text: "dig" }, session: { origin: "mcp" } },
+    { offerLater: true, subagent: { accessScope: {}, level: 1, model: "m" } }
+  );
+
+test("a subagent that ends wakes its parent in the parent's session", async () => {
+  const parent = await send(user("u1"), "parent");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  db.update(agentRows)
+    .set({ subagents: true })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  const sub = await startHeldSubagent(parent.runId);
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, sub.runId))
+    .run();
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, sub.runId, {
+    status: "done",
+    text: "dug",
+  });
+
+  const woken = wakesOf(parent);
+  expect(woken).toHaveLength(1);
+  expect(woken[0]?.requestId).toBe(`handoff-wake:${sub.runId}`);
+});
+
+test("a child of a subagent does not wake it, so no wake runs outside the subagent's scope", async () => {
+  const parent = await send(user("u1"), "parent");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  db.update(agentRows)
+    .set({ subagents: true })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  const sub = await startHeldSubagent(parent.runId);
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, sub.runId))
+    .run();
+  const handoff = await runs.startRun(
+    runAs(sub.runId, agentId),
+    {
+      agentId: otherAgentId,
+      input: { text: "hand-off" },
+      session: { origin: "mcp" },
+    },
+    { offerLater: true }
+  );
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, handoff.runId))
+    .run();
+
+  await runs.completeRun(SYSTEM_PRINCIPAL, handoff.runId, {
+    status: "done",
+    text: "ok",
+  });
+
+  expect(wakesOf(sub)).toHaveLength(0);
+});
+
+test("cancelling a parent does not wake it for the subagents it cancels", async () => {
+  const parent = await send(user("u1"), "parent");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parent.runId))
+    .run();
+  db.update(agentRows)
+    .set({ subagents: true })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  const sub = await startHeldSubagent(parent.runId);
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, sub.runId))
+    .run();
+
+  await runs.cancelRun(user("u1"), parent.runId);
+
+  expect(
+    db.select().from(runRows).where(eq(runRows.id, sub.runId)).get()?.status
+  ).toBe("cancelled");
+
+  expect(wakesOf(parent)).toHaveLength(0);
 });
 
 test("a run an inbox post started is not a hand-off and wakes nothing", async () => {

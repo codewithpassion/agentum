@@ -77,7 +77,7 @@ import {
   guestUnavailable,
   isGuestStartGuardFailure,
 } from "./runs/guest-scope.ts";
-import { handoffWakeText } from "./runs/handoff-wake.ts";
+import { type ChildOutcome, handoffWakeText } from "./runs/handoff-wake.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
 import { peerRootOf } from "./runs/peer-root.ts";
 import {
@@ -127,6 +127,7 @@ export const STALE_QUEUE_MS = 60_000;
  * agent is not free while one of its runs is `running` or `waiting`.
  */
 export const UNCLAIMED_EXPIRY_MS = 60 * 60_000;
+const LEASE_EXPIRED_ERROR = "Lease expired";
 const NEVER_CLAIMED_ERROR = "Never claimed";
 export const WAIT_MAX_MS = 120_000;
 const WAIT_POLL_MS = 500;
@@ -173,6 +174,24 @@ const parentSessionOf = (parentRunId: string | null) =>
 
 /** The session origin of a hand-off: the `send_message` tool starts it. */
 const HANDOFF_ORIGIN = "mcp";
+
+/** A subagent or a parent's wake queues and nobody waits on it, so it skips the busy-ancestor refusal. */
+const startsUnawaited = (options: StartRunOptions): boolean =>
+  options.subagent !== undefined || options.wakesParent === true;
+
+/** How a child run that ended reads in the wake its parent gets. */
+const childOutcome = (child: RunRecord): ChildOutcome => {
+  if (child.status === "done") {
+    return "finished";
+  }
+  if (child.status === "cancelled") {
+    return "cancelled";
+  }
+  return child.error === LEASE_EXPIRED_ERROR ||
+    child.error === NEVER_CLAIMED_ERROR
+    ? "timed out"
+    : "failed";
+};
 
 /** Who a new session belongs to and whether it is private. */
 interface SessionOwner {
@@ -746,7 +765,7 @@ export const createRunsService = ({
       principal,
       agent.id,
       options.wakeOf,
-      options.subagent !== undefined
+      startsUnawaited(options)
     );
     await refuseScopedHandoff(principal);
     await refusePeerHandoffToManaged(
@@ -1768,6 +1787,7 @@ export const createRunsService = ({
       );
     }
     await offerNextWaiting(run);
+    await wakeEnded(run);
   };
 
   /**
@@ -1864,6 +1884,7 @@ export const createRunsService = ({
       throw new ServiceError("conflict", "Run is no longer running");
     }
     await appendRunEvent(run, "run.interrupted", eventActor(principal));
+    await wakeEnded(run);
   };
 
   const deliverReply = async (
@@ -2017,33 +2038,41 @@ export const createRunsService = ({
     }
   };
 
+  const wakeEnded = async (run: RunRecord): Promise<void> => {
+    const ended = await loadRun(db, run.id);
+    if (ended) {
+      await wakeHandoffParent(ended);
+    }
+  };
+
   /**
-   * A hand-off child that ends after the run that handed off to it has ended
-   * wakes that run's agent in the parent's own session. A hand-off is a run
-   * the `send_message` tool started, an `mcp` session. A run an inbox post or
-   * a Q&A answer started has its own wake and loop guard, so it wakes nothing
-   * here. A parent that is still live is not woken: it either waited for the
-   * result in `send_message` or can read it with `get_run`, and a wake for a
-   * result it already has would cost a run each time. A subagent or an agent's
-   * own wake (same agent as its parent) wakes nothing. The woken run is a child
-   * of the parent, one level deeper, so a chain of wakes ends at `MAX_RUN_DEPTH`. A refused start leaves the
-   * child's end as it was.
+   * A hand-off or subagent child that ends, however it ends (finished,
+   * failed, cancelled, interrupted or never claimed), wakes the run that
+   * started it in that run's own session, whether the parent is live or has
+   * ended. A live parent's wake queues behind it like any message to a busy
+   * session. The wake's request id is per child, so a child wakes once. A run
+   * an inbox post or a Q&A answer started has its own wake and loop guard, so
+   * it wakes nothing here. A hand-off to the parent's own agent is that agent's
+   * own wake and wakes nothing, which ends chains of wakes; a subagent is the
+   * same agent by design and does wake. A parent that is itself a subagent is not woken: a wake started without
+   * the subagent's scope would run with the agent's full access. A subagent the parent's cancellation
+   * cancels does not wake the cancelled parent. The woken run is a child of
+   * the parent, one level deeper, so a chain of wakes ends at `MAX_RUN_DEPTH`.
+   * A refused start leaves the child's end as it was.
    */
   const wakeHandoffParent = async (child: RunRecord): Promise<void> => {
-    if (
-      !child.parentRunId ||
-      child.subagentLevel !== 0 ||
-      child.dryRun ||
-      child.scopeArtifactId
-    ) {
+    if (!child.parentRunId || child.dryRun || child.scopeArtifactId) {
       return;
     }
     try {
       const parent = await loadRun(db, child.parentRunId, child.workspaceId);
       if (
         !parent ||
-        parent.agentId === child.agentId ||
-        !TERMINAL_STATUSES.includes(parent.status)
+        parent.subagentLevel > 0 ||
+        (child.subagentLevel === 0 && parent.agentId === child.agentId) ||
+        (child.status === "cancelled" &&
+          child.subagentLevel > 0 &&
+          parent.status === "cancelled")
       ) {
         return;
       }
@@ -2076,9 +2105,9 @@ export const createRunsService = ({
           input: {
             text: handoffWakeText({
               error: child.error,
-              failed: child.status === "failed",
               id: child.id,
               inputText: child.inputText,
+              outcome: childOutcome(child),
               resultText: child.resultText,
             }),
           },
@@ -2088,7 +2117,7 @@ export const createRunsService = ({
             origin: parentSession.origin as StartRunInput["session"]["origin"],
           },
         },
-        { sessionId: parent.sessionId }
+        { sessionId: parent.sessionId, wakesParent: true }
       );
     } catch (error) {
       if (!(error instanceof ServiceError || error instanceof ForbiddenError)) {
@@ -2272,6 +2301,7 @@ export const createRunsService = ({
       }
     }
     await offerNextWaiting(run);
+    await wakeEnded(run);
   };
 
   /**
@@ -2310,6 +2340,7 @@ export const createRunsService = ({
         error: PENDING_FILES_ERROR,
       });
       await offerNextWaiting(run);
+      await wakeEnded(run);
     }
     return true;
   };
@@ -2627,6 +2658,7 @@ export const createRunsService = ({
           );
           await abandonEnded(toRecord(row));
           await offerNextWaiting(toRecord(row));
+          await wakeEnded(toRecord(row));
           result.failed.push({ message: NEVER_CLAIMED_ERROR, runId: row.id });
         }
       } catch (error) {
@@ -2704,7 +2736,11 @@ export const createRunsService = ({
       // biome-ignore lint/performance/noAwaitInLoops: compare-and-set per run, so a heartbeat that wins is respected
       const moved = await db
         .update(runs)
-        .set({ error: "Lease expired", finishedAt: now, status: "interrupted" })
+        .set({
+          error: LEASE_EXPIRED_ERROR,
+          finishedAt: now,
+          status: "interrupted",
+        })
         .where(
           and(
             eq(runs.id, row.id),
@@ -2721,6 +2757,7 @@ export const createRunsService = ({
         );
         await abandonEnded(toRecord(row));
         await offerNextWaiting(toRecord(row));
+        await wakeEnded(toRecord(row));
         interrupted.push(row.id);
       }
     }
