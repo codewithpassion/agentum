@@ -171,6 +171,20 @@ function LevelPicker({
   );
 }
 
+/** The fixed row for mail to people outside the workspace. The badge never wraps. */
+export function OutsideEmailRow() {
+  return (
+    <div className="flex items-center justify-between gap-3 border-border border-t border-dashed py-2.5">
+      <span className="min-w-0 text-sm">
+        Emails someone outside the workspace: always asks
+      </span>
+      <span className="shrink-0 whitespace-nowrap text-muted-foreground text-xs">
+        Always
+      </span>
+    </div>
+  );
+}
+
 function AskBeforeBody({
   agentId,
   initialActions,
@@ -308,14 +322,7 @@ function AskBeforeBody({
                   onToggle={toggle}
                 />
               ))}
-              <div className="flex items-center justify-between gap-3 border-border border-t border-dashed py-2.5">
-                <span className="min-w-0 text-sm">
-                  Emails someone outside the workspace: always asks
-                </span>
-                <span className="text-muted-foreground text-xs max-md:shrink-0 max-md:whitespace-nowrap">
-                  Always
-                </span>
-              </div>
+              <OutsideEmailRow />
               {mailAllowed.length === 0 ? null : (
                 <MailAllowedList addresses={mailAllowed} agentId={agentId} />
               )}
