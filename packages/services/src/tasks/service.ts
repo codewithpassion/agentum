@@ -115,6 +115,13 @@ export interface TaskView {
     name: string;
     runtime: AgentRuntime;
   };
+  /** Threads that hand-offs and helpers of this thread started, oldest first. Only those the caller may see. */
+  children: {
+    agentName: string;
+    id: string;
+    status: RunStatus;
+    title: string;
+  }[];
   /** The session's events of the types the stream carries, oldest first, from every run in it. */
   events: EventRecord[];
   /** True when the session has more events than `events` holds. */
@@ -127,6 +134,8 @@ export interface TaskView {
     status: RunStatus;
     title: string;
   }[];
+  /** The thread this one was started from, when the caller may see it. */
+  parent: { id: string; title: string } | null;
   /** The run's open request that has not expired, or null. */
   request: RequestRecord | null;
   run: {
@@ -145,6 +154,7 @@ export interface TaskView {
     externalKey: string | null;
     id: string;
     origin: string;
+    parentSessionId: string | null;
     pinnedAt: string | null;
     /** The name the person gave the thread, else the title its first run gives it. */
     title: string;
@@ -411,6 +421,85 @@ export const createTasksService = ({
     return latest.id;
   };
 
+  /** The title and the latest run status of each session, in two batched reads. */
+  const titlesAndStatuses = async (rows: SessionRow[]) => {
+    const [sources, sessionRuns] = await Promise.all([
+      loadTitleSources(db, rows),
+      inBatches(
+        rows.map((row) => row.id),
+        (batch) =>
+          db
+            .select({
+              id: runs.id,
+              inputText: runs.inputText,
+              sessionId: runs.sessionId,
+              status: runs.status,
+            })
+            .from(runs)
+            .where(inArray(runs.sessionId, batch))
+            .orderBy(asc(runs.id))
+      ),
+    ]);
+    const first = new Map<string, string>();
+    const latest = new Map<string, RunStatus>();
+    for (const sessionRun of sessionRuns) {
+      if (!first.has(sessionRun.sessionId)) {
+        first.set(sessionRun.sessionId, sessionRun.inputText);
+      }
+      latest.set(sessionRun.sessionId, sessionRun.status);
+    }
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        {
+          status: latest.get(row.id) ?? ("queued" as RunStatus),
+          title:
+            row.title !== null && row.title.trim() !== ""
+              ? row.title
+              : titleFor(sources, row, first.get(row.id) ?? ""),
+        },
+      ])
+    );
+  };
+
+  /** A thread's parent and child threads, those the caller may see. */
+  const relativesOf = async (
+    member: UserPrincipal,
+    session: SessionRow
+  ): Promise<Pick<TaskView, "children" | "parent">> => {
+    const visible = await visibleSessions(db, member);
+    const [parentRows, childRows] = await Promise.all([
+      session.parentSessionId === null
+        ? []
+        : db
+            .select()
+            .from(sessions)
+            .where(and(eq(sessions.id, session.parentSessionId), visible)),
+      db
+        .select({ agentName: agents.name, session: sessions })
+        .from(sessions)
+        .innerJoin(agents, eq(sessions.agentId, agents.id))
+        .where(and(eq(sessions.parentSessionId, session.id), visible))
+        .orderBy(asc(sessions.createdAt), asc(sessions.id)),
+    ]);
+    const known = await titlesAndStatuses([
+      ...parentRows,
+      ...childRows.map((child) => child.session),
+    ]);
+    const [parent] = parentRows;
+    return {
+      children: childRows.map((child) => ({
+        agentName: child.agentName,
+        id: child.session.id,
+        status: known.get(child.session.id)?.status ?? "queued",
+        title: known.get(child.session.id)?.title ?? "",
+      })),
+      parent: parent
+        ? { id: parent.id, title: known.get(parent.id)?.title ?? "" }
+        : null,
+    };
+  };
+
   const get = async (
     principal: Principal,
     rawInput: TaskGetInput
@@ -477,6 +566,7 @@ export const createTasksService = ({
         )
       )
       .orderBy(asc(runs.id));
+    const relatives = await relativesOf(member, row.session);
     const subjects = await mailSubjectsOf(db, member.workspaceId, [
       run.id,
       ...otherRuns.map((other) => other.id),
@@ -495,6 +585,7 @@ export const createTasksService = ({
         name: row.agentName,
         runtime: row.runtime,
       },
+      children: relatives.children,
       events: session.events,
       eventsTruncated: session.truncated,
       otherRuns: otherRuns.map((other) => ({
@@ -504,6 +595,7 @@ export const createTasksService = ({
         status: other.status,
         title: runTitleFor(other.inputText, subjects.get(other.id)),
       })),
+      parent: relatives.parent,
       request: open.get(run.id)?.[0] ?? null,
       run: {
         costUsd: run.usage?.costUsd ?? null,
@@ -520,6 +612,7 @@ export const createTasksService = ({
         externalKey: row.session.externalKey,
         id: row.session.id,
         origin: row.session.origin,
+        parentSessionId: row.session.parentSessionId,
         pinnedAt: row.session.pinnedAt,
         title:
           row.session.title !== null && row.session.title.trim() !== ""

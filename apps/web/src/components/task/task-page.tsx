@@ -50,6 +50,7 @@ import {
   type TaskLive,
 } from "./task-state.ts";
 import { RequestBanner, type TaskTab, TaskTabs } from "./task-tabs.tsx";
+import { ThreadRelatives } from "./thread-relatives.tsx";
 import { RunPicker, sessionRuns } from "./thread-runs.tsx";
 import { ThreadTitle } from "./thread-title.tsx";
 import { useNowMs } from "./use-now-ms.ts";
@@ -296,6 +297,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
         stopping={stopping}
         task={task}
       />
+      <ThreadRelatives parent={task.parent} subThreads={task.children} />
       <TaskTabs
         computer={task.agent.computerMachineId !== null && dockWidth === null}
         conflict={(files?.conflicts.length ?? 0) > 0}

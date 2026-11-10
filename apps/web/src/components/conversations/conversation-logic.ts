@@ -16,8 +16,41 @@ export interface ConversationListItem {
   href?: string;
   id: string;
   kind: ConversationKind;
+  /** The thread this one was started from, when it was started by a hand-off or helper. */
+  parentId?: string;
   title: string;
 }
+
+/**
+ * The rows with each child thread moved under its parent and given a depth of
+ * 1. A child whose parent is not in the list stays where it was, at depth 0.
+ */
+export const nestChildren = <
+  T extends Pick<ConversationListItem, "id" | "kind" | "parentId">,
+>(
+  items: readonly T[]
+): { depth: number; item: T }[] => {
+  const ids = new Set(items.map((item) => item.id));
+  const nested = (item: T) =>
+    item.kind === "thread" &&
+    item.parentId !== undefined &&
+    ids.has(item.parentId);
+  const children = new Map<string, T[]>();
+  for (const item of items.filter(nested)) {
+    const siblings = children.get(item.parentId as string) ?? [];
+    siblings.push(item);
+    children.set(item.parentId as string, siblings);
+  }
+  return items
+    .filter((item) => !nested(item))
+    .flatMap((item) => [
+      { depth: 0, item },
+      ...(children.get(item.id) ?? []).map((child) => ({
+        depth: 1,
+        item: child,
+      })),
+    ]);
+};
 
 export const KIND_LABELS: Record<ConversationKind, string> = {
   assistant: "Assistant",
@@ -60,6 +93,9 @@ export const fromThread = (
   href: threadHref(thread.id),
   id: thread.id,
   kind: "thread",
+  ...(thread.parentSessionId === null
+    ? {}
+    : { parentId: thread.parentSessionId }),
   title: sessionTitle({
     agentName,
     createdAt: thread.createdAt,

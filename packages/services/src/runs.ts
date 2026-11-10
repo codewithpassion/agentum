@@ -77,6 +77,7 @@ import {
   guestUnavailable,
   isGuestStartGuardFailure,
 } from "./runs/guest-scope.ts";
+import { handoffWakeText } from "./runs/handoff-wake.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
 import { peerRootOf } from "./runs/peer-root.ts";
 import {
@@ -169,6 +170,15 @@ const parentSessionOf = (parentRunId: string | null) =>
     : sql<
         string | null
       >`(select session_id from runs where id = ${parentRunId})`;
+
+/** The session origin of a hand-off: the `send_message` tool starts it. */
+const HANDOFF_ORIGIN = "mcp";
+
+/** Who a new session belongs to and whether it is private. */
+interface SessionOwner {
+  actor: { id: string; kind: string };
+  private: boolean;
+}
 
 const STARTING: RunRecord["status"][] = ["queued", "offered"];
 /** A claimed run: working, or waiting for a person's answer. */
@@ -969,6 +979,49 @@ export const createRunsService = ({
     ];
   };
 
+  /**
+   * The statement that opens the session of a new run, or touches the one it
+   * continues. Not async: a query builder is a thenable and would run.
+   */
+  const sessionStatement = (
+    { agent, subject }: Prepared,
+    input: ParsedInput,
+    at: {
+      created: string;
+      sessionId: string;
+      target:
+        | { kind: "continue"; session: typeof sessions.$inferSelect }
+        | { kind: "open"; owner: SessionOwner };
+    }
+  ): Statement => {
+    const { target } = at;
+    if (target.kind === "continue") {
+      return db
+        .update(sessions)
+        .set({
+          lastRunAt: at.created,
+          ...artifactSelectionPatch(target.session, agent.id),
+        })
+        .where(eq(sessions.id, target.session.id));
+    }
+    return db.insert(sessions).values({
+      actorId: target.owner.actor.id,
+      actorKind: target.owner.actor.kind,
+      agentId: agent.id,
+      createdAt: at.created,
+      // Without a key the session is its own key, so the UI can send the
+      // next message to it by id.
+      externalKey: input.session.externalKey ?? at.sessionId,
+      id: at.sessionId,
+      lastRunAt: at.created,
+      origin: input.session.origin,
+      // The session of the run that started this one, when a run did.
+      parentSessionId: parentSessionOf(subject.parentRunId),
+      private: target.owner.private,
+      workspaceId: agent.workspaceId,
+    });
+  };
+
   const insertOnce = async (
     prepared: Prepared,
     input: ParsedInput,
@@ -981,34 +1034,16 @@ export const createRunsService = ({
     const created = now.toISOString();
     const runId = nextRunId(now.getTime());
     const sessionId = known?.id ?? ulid(now.getTime());
-    const sessionActor =
-      options.subagent && sessionPrivacy(input) && subject.onBehalfOfUserId
-        ? { id: subject.onBehalfOfUserId, kind: "user" as const }
-        : subject.actor;
-    const sessionWrite: Statement = known
-      ? db
-          .update(sessions)
-          .set({
-            lastRunAt: created,
-            ...artifactSelectionPatch(known, agent.id),
-          })
-          .where(eq(sessions.id, known.id))
-      : db.insert(sessions).values({
-          actorId: sessionActor.id,
-          actorKind: sessionActor.kind,
-          agentId: agent.id,
-          createdAt: created,
-          // Without a key the session is its own key, so the UI can send the
-          // next message to it by id.
-          externalKey: input.session.externalKey ?? sessionId,
-          id: sessionId,
-          lastRunAt: created,
-          origin: input.session.origin,
-          // The session of the run that started this one, when a run did.
-          parentSessionId: parentSessionOf(subject.parentRunId),
-          private: sessionPrivacy(input),
-          workspaceId,
-        });
+    const sessionWrite = sessionStatement(prepared, input, {
+      created,
+      sessionId,
+      target: known
+        ? { kind: "continue", session: known }
+        : {
+            kind: "open",
+            owner: await newSessionOwner(prepared, input, options),
+          },
+    });
     const runWrite = db.insert(runs).values({
       accessScope: options.subagent
         ? JSON.stringify(options.subagent.accessScope)
@@ -1054,6 +1089,64 @@ export const createRunsService = ({
     } catch (error) {
       return recoverInsertion(error, prepared, input);
     }
+  };
+
+  /**
+   * The person a hand-off's session stays private to, when the run that
+   * handed off sits in a private or `ui` session: that session's own actor.
+   */
+  const privateParentActor = async (
+    parentRunId: string | null,
+    workspaceId: string
+  ) => {
+    if (parentRunId === null) {
+      return null;
+    }
+    const [parent] = await db
+      .select({
+        actorId: sessions.actorId,
+        actorKind: sessions.actorKind,
+        origin: sessions.origin,
+        private: sessions.private,
+      })
+      .from(runs)
+      .innerJoin(sessions, eq(runs.sessionId, sessions.id))
+      .where(and(eq(runs.id, parentRunId), eq(runs.workspaceId, workspaceId)))
+      .limit(1);
+    return parent &&
+      parent.origin !== "artifact" &&
+      (parent.private || parent.origin === "ui")
+      ? parent
+      : null;
+  };
+
+  /**
+   * Who a new session belongs to and whether it is private. A subagent's keeps
+   * the delegated person. A hand-off from a private or `ui` session stays
+   * private to that session's own actor. Anything else belongs to the run's actor.
+   */
+  const newSessionOwner = async (
+    { agent, subject }: Prepared,
+    input: ParsedInput,
+    options: StartRunOptions
+  ): Promise<SessionOwner> => {
+    const inherited = options.subagent
+      ? null
+      : await privateParentActor(subject.parentRunId, agent.workspaceId);
+    if (inherited) {
+      return {
+        actor: { id: inherited.actorId, kind: inherited.actorKind },
+        private: true,
+      };
+    }
+    const delegated =
+      options.subagent && sessionPrivacy(input) && subject.onBehalfOfUserId;
+    return {
+      actor: delegated
+        ? { id: subject.onBehalfOfUserId as string, kind: "user" }
+        : subject.actor,
+      private: sessionPrivacy(input),
+    };
   };
 
   /**
@@ -1912,6 +2005,7 @@ export const createRunsService = ({
     if (failed) {
       await recordFailure(run, result);
       await offerNextWaiting(run);
+      await wakeHandoffParent(after);
       return;
     }
     await appendRunEvent(run, "run.finished", agentActor(run));
@@ -1919,7 +2013,132 @@ export const createRunsService = ({
       await deliverReply(run, { fileIds, text: result.text ?? "" });
     } finally {
       await offerNextWaiting(run);
+      await wakeHandoffParent(after);
     }
+  };
+
+  /**
+   * A hand-off child that ends after the run that handed off to it has ended
+   * wakes that run's agent in the parent's own session. A hand-off is a run
+   * the `send_message` tool started, an `mcp` session. A run an inbox post or
+   * a Q&A answer started has its own wake and loop guard, so it wakes nothing
+   * here. A parent that is still live reads the result itself, and a subagent
+   * or an agent's own wake (same agent as its parent) wakes nothing. A refused start leaves the
+   * child's end as it was.
+   */
+  const wakeHandoffParent = async (child: RunRecord): Promise<void> => {
+    if (
+      !child.parentRunId ||
+      child.subagentLevel !== 0 ||
+      child.dryRun ||
+      child.scopeArtifactId
+    ) {
+      return;
+    }
+    try {
+      const parent = await loadRun(db, child.parentRunId, child.workspaceId);
+      if (
+        !parent ||
+        parent.agentId === child.agentId ||
+        !TERMINAL_STATUSES.includes(parent.status)
+      ) {
+        return;
+      }
+      const [parentSession, childSession] = await Promise.all(
+        [parent.sessionId, child.sessionId].map(async (id) => {
+          const [row] = await db
+            .select({ origin: sessions.origin })
+            .from(sessions)
+            .where(eq(sessions.id, id))
+            .limit(1);
+          return row;
+        })
+      );
+      if (
+        !parentSession ||
+        parentSession.origin === "artifact" ||
+        childSession?.origin !== HANDOFF_ORIGIN
+      ) {
+        return;
+      }
+      await startRun(
+        {
+          agentId: parent.agentId,
+          kind: "run",
+          runId: parent.id,
+          workspaceId: parent.workspaceId,
+        },
+        {
+          agentId: parent.agentId,
+          input: {
+            text: handoffWakeText({
+              error: child.error,
+              failed: child.status === "failed",
+              id: child.id,
+              inputText: child.inputText,
+              resultText: child.resultText,
+            }),
+          },
+          reply: parent.reply.kind === "a2a" ? { kind: "none" } : parent.reply,
+          requestId: `handoff-wake:${child.id}`,
+          session: {
+            origin: parentSession.origin as StartRunInput["session"]["origin"],
+          },
+        },
+        { sessionId: parent.sessionId }
+      );
+    } catch (error) {
+      if (!(error instanceof ServiceError || error instanceof ForbiddenError)) {
+        console.error(`Waking the parent of ${child.id} failed:`, error);
+      }
+    }
+  };
+
+  /**
+   * A person's reply in a thread an agent's hand-off started. `sessionId` is a
+   * trusted option, so the session is checked here: the person must see it, and
+   * it must be a sub-thread, because every other kind of thread has its own
+   * place to reply.
+   */
+  const replyInSubThread = async (
+    principal: Principal,
+    raw: {
+      input: { fileIds?: string[]; text: string };
+      requestId?: string;
+      sessionId: string;
+    }
+  ): Promise<StartResult> => {
+    if (principal.kind !== "user") {
+      throw new ForbiddenError(START_ACTION);
+    }
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, raw.sessionId),
+          await visibleSessions(db, principal)
+        )
+      )
+      .limit(1);
+    if (!session) {
+      throw new ServiceError("not_found", "Session not found");
+    }
+    if (session.parentSessionId === null || session.origin === "artifact") {
+      throw new ServiceError("invalid", "This thread has no sub-thread reply");
+    }
+    return await startRun(
+      principal,
+      {
+        agentId: session.agentId,
+        input: raw.input,
+        requestId: raw.requestId,
+        session: {
+          origin: session.origin as StartRunInput["session"]["origin"],
+        },
+      },
+      { sessionId: session.id }
+    );
   };
 
   /** Only same-agent subagent edges confer ownership; a hand-off ends the chain. */
@@ -2947,6 +3166,7 @@ export const createRunsService = ({
     reapExpiredLeases,
     recordDryRunSkip,
     releaseRun,
+    replyInSubThread,
     resumeRequest,
     startForGuest,
     startRun,

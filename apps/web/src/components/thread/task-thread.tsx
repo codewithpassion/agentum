@@ -30,6 +30,7 @@ import { threadRequestViews } from "./thread-request-views.ts";
 import {
   isActiveStatus,
   latestUserMessage,
+  replyBody,
   replyNote,
   startRunBody,
 } from "./thread-send.ts";
@@ -154,7 +155,8 @@ export function TaskThread({
   );
   const fileIds = useMemo(() => fileIdsOf(messages), [messages]);
   const { files } = useFileInfos(fileIds);
-  const note = replyNote(task.session.origin);
+  const subThread = task.session.parentSessionId !== null;
+  const note = replyNote(task.session.origin, subThread);
   const latestRun = runs.at(-1);
   const latestMessage = messages.findLast(
     (message) => message.role === "assistant" && message.runId === latestRun?.id
@@ -175,6 +177,7 @@ export function TaskThread({
     control: inControl,
     origin: task.session.origin,
     pending: pending?.kind ?? null,
+    subThread,
     working: running,
   });
   const outsideLabels = useMemo(
@@ -253,15 +256,24 @@ export function TaskThread({
         throw new Error("The last message is still being sent.");
       }
       const begin = async () => {
-        await getTrpc().runs.start.mutate(
-          startRunBody({
-            agentId: task.agent.id,
-            fileIds: ids,
-            requestId: crypto.randomUUID(),
-            session: task.session,
-            text,
-          })
-        );
+        await (subThread
+          ? getTrpc().runs.reply.mutate(
+              replyBody({
+                fileIds: ids,
+                requestId: crypto.randomUUID(),
+                sessionId: task.session.id,
+                text,
+              })
+            )
+          : getTrpc().runs.start.mutate(
+              startRunBody({
+                agentId: task.agent.id,
+                fileIds: ids,
+                requestId: crypto.randomUUID(),
+                session: task.session,
+                text,
+              })
+            ));
         onStarted?.();
         // The thread keeps its URL. A reply drops `?run=`, so the page shows the new run.
         await navigate({
@@ -279,7 +291,7 @@ export function TaskThread({
         starting.current = null;
       }
     },
-    [navigate, router, task.agent.id, task.session]
+    [navigate, router, subThread, task.agent.id, task.session]
   );
 
   const edit = useCallback(
