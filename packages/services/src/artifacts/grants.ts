@@ -46,6 +46,7 @@ import { findAgent } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
+import { requireSession } from "../guards.ts";
 import { isPromoteApproval } from "../mail/approval.ts";
 import type { RequestsService } from "../requests.ts";
 import { loadRun } from "../runs/queries.ts";
@@ -739,11 +740,9 @@ export const createArtifactGrantsService = ({
   };
 
   /** A person approves or rejects one grant. The owner or an admin decides. */
-  const decideGrant = async (principal: Principal, raw: unknown) => {
+  const decideGrant = async (caller: Principal, raw: unknown) => {
     const input = artifactsDecideGrantInputSchema.parse(raw);
-    if (principal.kind !== "user" || principal.via !== "session") {
-      throw new ForbiddenError("artifacts.decide_grant");
-    }
+    const principal = requireSession(caller, "artifacts.decide_grant");
     authorize(principal, "artifacts.decide_grant", {
       id: input.grantId,
       kind: "artifact_grant",

@@ -19,6 +19,7 @@ import {
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
+import { requireSession } from "../guards.ts";
 import type { Principal } from "../workspaces.ts";
 import type { createArtifactErrorsService } from "./errors.ts";
 import { agentCanSee, canManage, canOpen } from "./policy.ts";
@@ -45,10 +46,8 @@ export const createArtifactEndpointsService = ({
   clock: { now: () => Date };
   publicBaseUrl?: string;
 }) => {
-  const requireManager = async (principal: Principal, artifactId: string) => {
-    if (principal.kind !== "user" || principal.via !== "session") {
-      throw new ForbiddenError("artifacts.grants");
-    }
+  const requireManager = async (caller: Principal, artifactId: string) => {
+    const principal = requireSession(caller, "artifacts.grants");
     authorize(principal, "artifacts.grants", {
       id: artifactId,
       kind: "artifact",
