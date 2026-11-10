@@ -3,6 +3,7 @@ import { buildReceipt } from "@repo/services/tasks/receipt";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { bandClass } from "#/components/desk/desk-logic.ts";
 import type { RequestView } from "#/components/requests/request-card-logic.ts";
+import { withRun } from "#/components/task/load-task.ts";
 import { Receipt } from "#/components/task/receipt.tsx";
 import { receiptRunOf, statusPill } from "#/components/task/task-logic.ts";
 import {
@@ -44,7 +45,7 @@ function Following({ initial }: { initial: TaskView }) {
 
   const refetch = useCallback(async () => {
     try {
-      const next = await getTrpc().tasks.get.query({ runId });
+      const next = withRun(await getTrpc().tasks.get.query({ runId }));
       setTask(next);
       dispatch({ kind: "task", task: next });
       setError(null);
@@ -121,7 +122,7 @@ export function DryRunResult({ runId }: { runId: string }) {
       .tasks.get.query({ runId })
       .then((next) => {
         if (current) {
-          setTask(next);
+          setTask(withRun(next));
         }
       })
       .catch((cause: unknown) => {

@@ -22,6 +22,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
 import { ActionLog } from "./action-log.tsx";
+import { withRun } from "./load-task.ts";
 import { MailSlot } from "./mail-slot.tsx";
 import { FilesSlot, TaskComputerPanel, useTaskFiles } from "./slots.tsx";
 import {
@@ -111,7 +112,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
 
   const refetch = useCallback(async () => {
     try {
-      const next = await getTrpc().tasks.get.query({ runId });
+      const next = withRun(await getTrpc().tasks.get.query({ runId }));
       setTask(next);
       dispatch({ kind: "task", task: next });
       dispatchThread({ events: next.events, kind: "reset" });

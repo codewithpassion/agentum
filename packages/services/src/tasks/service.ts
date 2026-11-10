@@ -165,6 +165,19 @@ export interface TaskView {
   title: string;
 }
 
+/**
+ * A session the caller can see that has no run yet, such as a new main
+ * thread. It has what the thread page needs to show an empty history and send
+ * the first message.
+ */
+export interface EmptyTaskView
+  extends Pick<
+    TaskView,
+    "agent" | "children" | "parent" | "session" | "title"
+  > {
+  run: null;
+}
+
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
 const queuedSchema = z.object({ origin: z.string() });
@@ -397,11 +410,11 @@ export const createTasksService = ({
     return { events: found, truncated: (await page(1)).length > 0 };
   };
 
-  /** The newest run of a session the member can see. */
+  /** The newest run of a session the member can see, or null when it has none. */
   const latestRunOf = async (
     member: UserPrincipal,
     sessionId: string
-  ): Promise<string> => {
+  ): Promise<string | null> => {
     const [latest] = await db
       .select({ id: runs.id })
       .from(runs)
@@ -415,10 +428,71 @@ export const createTasksService = ({
       )
       .orderBy(desc(runs.id))
       .limit(1);
-    if (!latest) {
+    return latest?.id ?? null;
+  };
+
+  /** A visible session that has no run, as the thread page needs it. */
+  const emptyThreadOf = async (
+    member: UserPrincipal,
+    sessionId: string
+  ): Promise<EmptyTaskView> => {
+    const [row] = await db
+      .select({
+        agentModel: agents.model,
+        agentName: agents.name,
+        computerMachineId: agents.computerMachineId,
+        machineId: machines.id,
+        machineName: machines.name,
+        runtime: agents.runtime,
+        session: sessions,
+      })
+      .from(sessions)
+      .innerJoin(agents, eq(sessions.agentId, agents.id))
+      .leftJoin(machines, eq(sessions.runtimeMachineId, machines.id))
+      .where(
+        and(
+          await visibleSessions(db, member),
+          eq(sessions.id, sessionId),
+          eq(sessions.workspaceId, member.workspaceId)
+        )
+      )
+      .limit(1);
+    if (!row) {
       throw new ServiceError("not_found", "Task not found");
     }
-    return latest.id;
+    const [sources, relatives] = await Promise.all([
+      loadTitleSources(db, [row.session]),
+      relativesOf(member, row.session),
+    ]);
+    const title =
+      row.session.title !== null && row.session.title.trim() !== ""
+        ? row.session.title
+        : titleFor(sources, row.session, "");
+    return {
+      agent: {
+        computerMachineId: row.computerMachineId,
+        id: row.session.agentId,
+        machine:
+          row.machineId === null
+            ? null
+            : { id: row.machineId, name: row.machineName ?? "" },
+        name: row.agentName,
+        runtime: row.runtime,
+      },
+      children: relatives.children,
+      parent: relatives.parent,
+      run: null,
+      session: {
+        archivedAt: row.session.archivedAt,
+        externalKey: row.session.externalKey,
+        id: row.session.id,
+        origin: row.session.origin,
+        parentSessionId: row.session.parentSessionId,
+        pinnedAt: row.session.pinnedAt,
+        title,
+      },
+      title,
+    };
   };
 
   /** The title and the latest run status of each session, in two batched reads. */
@@ -500,16 +574,10 @@ export const createTasksService = ({
     };
   };
 
-  const get = async (
-    principal: Principal,
-    rawInput: TaskGetInput
+  const viewOf = async (
+    member: UserPrincipal,
+    runId: string
   ): Promise<TaskView> => {
-    const member = requireMember(principal);
-    const input = taskGetInputSchema.parse(rawInput);
-    const runId =
-      "runId" in input
-        ? input.runId
-        : await latestRunOf(member, input.sessionId);
     const [row] = await db
       .select({
         agentModel: agents.model,
@@ -639,6 +707,30 @@ export const createTasksService = ({
       ),
     };
   };
+
+  /** A run id gives a task with its run. A session id may give a session with none. */
+  function get(
+    principal: Principal,
+    input: { runId: string }
+  ): Promise<TaskView>;
+  function get(
+    principal: Principal,
+    input: TaskGetInput
+  ): Promise<TaskView | EmptyTaskView>;
+  async function get(
+    principal: Principal,
+    rawInput: TaskGetInput
+  ): Promise<TaskView | EmptyTaskView> {
+    const member = requireMember(principal);
+    const input = taskGetInputSchema.parse(rawInput);
+    if ("runId" in input) {
+      return await viewOf(member, input.runId);
+    }
+    const latest = await latestRunOf(member, input.sessionId);
+    return latest === null
+      ? await emptyThreadOf(member, input.sessionId)
+      : await viewOf(member, latest);
+  }
 
   const list = async (
     principal: Principal,
