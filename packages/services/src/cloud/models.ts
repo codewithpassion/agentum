@@ -22,6 +22,9 @@ export interface CloudModel {
 
 export const CLOUD_DEFAULT_MODEL = "claude-sonnet-5-5";
 
+/** The default for a cloud agent in a workspace that has an OpenRouter key and no Anthropic key. */
+export const CLOUD_OPENROUTER_DEFAULT_MODEL = "openrouter:z-ai/glm-5.3";
+
 export const CLOUD_PROVIDER_LABELS: Record<CloudProvider, string> = {
   anthropic: "Anthropic",
   openrouter: "OpenRouter",

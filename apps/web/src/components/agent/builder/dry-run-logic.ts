@@ -73,18 +73,18 @@ export const wouldLines = (
 
 /**
  * Where the dry run runs and whether it can. It always runs on Cloudflare, so
- * it needs a model key there, and a machine or Anthropic cloud agent is told
+ * it needs an Anthropic key there (it runs the default Anthropic model), and a machine or Anthropic cloud agent is told
  * its own runtime is not the one tried.
  */
 export const dryRunRuntime = (
   catalog: BuilderCatalog,
   runsOn: AgentDraft["runsOn"]
 ): { blocker: string | null; note: string } => {
-  if (!catalog.runtimes.includes("cloud")) {
+  if (!catalog.runtimes.includes("managed")) {
     return {
       blocker:
-        "A dry run needs an OpenRouter or Anthropic key in Settings. You can still create the agent without one.",
-      note: "The dry run runs on Cloudflare and needs a model key.",
+        "A dry run needs an Anthropic API key in Settings. You can still create the agent without one.",
+      note: "The dry run runs on Cloudflare and needs an Anthropic key.",
     };
   }
   if (runsOn === null || runsOn.runtime === "cloud") {

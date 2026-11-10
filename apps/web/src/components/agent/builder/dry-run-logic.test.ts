@@ -210,7 +210,9 @@ describe("dryRunRuntime", () => {
   });
 
   test("says the dry run is on Cloudflare when that is the chosen runtime", () => {
-    expect(dryRunRuntime(catalog(["cloud"]), { runtime: "cloud" })).toEqual({
+    expect(
+      dryRunRuntime(catalog(["managed", "cloud"]), { runtime: "cloud" })
+    ).toEqual({
       blocker: null,
       note: "The dry run runs on Cloudflare, the runtime you chose.",
     });
@@ -228,11 +230,11 @@ describe("dryRunRuntime", () => {
     ).toContain("Anthropic cloud cannot run a dry run");
   });
 
-  test("blocks the run, not Create, when no model key backs Cloudflare", () => {
+  test("blocks the run, not Create, when there is no Anthropic key", () => {
     const result = dryRunRuntime(catalog(["machine"]), {
       machineId: "m1",
       runtime: "machine",
     });
-    expect(result.blocker).toContain("OpenRouter or Anthropic key");
+    expect(result.blocker).toContain("Anthropic API key");
   });
 });

@@ -409,8 +409,10 @@ function NewAgent() {
           Start blank
         </Button>
       </div>
-      {blank ? <BlankAgent catalog={catalog} /> : null}
-      {/* Hidden, not unmounted, so a draft survives a look at Start blank. */}
+      <div hidden={!blank}>
+        <BlankAgent catalog={catalog} />
+      </div>
+      {/* Both sides stay mounted, so neither loses its input when you switch. */}
       <div hidden={blank}>
         <DescribeAgent catalog={catalog} />
       </div>
