@@ -27,6 +27,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { runtimeWords } from "#/components/agent/profile/profile-logic.ts";
 import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { SubmitKeys } from "#/components/composer/submit-keys";
@@ -78,18 +79,10 @@ interface AgentFormProps {
   /** Shown beside the submit button on phones only (sticky footer). */
   extraAction?: ReactNode;
   initial?: AgentFormValues;
-  lockRuntime?: boolean;
   machines: MachineRecord[];
   onSubmit: (values: AgentFormValues) => Promise<void>;
   providerKeys: Record<ModelProvider, boolean>;
   submitLabel: string;
-}
-
-function toRuntime(value: string): AgentFormValues["runtime"] {
-  if (value === "cloud" || value === "fake" || value === "managed") {
-    return value;
-  }
-  return "machine";
 }
 
 interface ProviderGroup {
@@ -170,7 +163,6 @@ function CloudModelNote({
 export function AgentForm({
   initial = defaultValues,
   extraAction,
-  lockRuntime = false,
   machines,
   onSubmit,
   providerKeys,
@@ -214,11 +206,6 @@ export function AgentForm({
       update("model", event.target.value),
     [update]
   );
-  const handleRuntime = useCallback(
-    (event: ChangeEvent<HTMLSelectElement>) =>
-      update("runtime", toRuntime(event.target.value)),
-    [update]
-  );
   const handleEnvironment = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
       const next = event.target.value;
@@ -243,6 +230,7 @@ export function AgentForm({
     [update]
   );
 
+  const runningOn = machines.find((m) => m.id === values.machineId) ?? null;
   const selectable = machines.filter(
     (machine) =>
       machine.status !== "revoked" && machine.roles.includes("agent_host")
@@ -331,18 +319,8 @@ export function AgentForm({
           )}
         </Field>
         <Field>
-          <FieldLabel htmlFor="agent-runtime">Runtime</FieldLabel>
-          <NativeSelect
-            disabled={lockRuntime}
-            id="agent-runtime"
-            onChange={handleRuntime}
-            value={values.runtime}
-          >
-            <option value="machine">machine</option>
-            <option value="managed">managed (Anthropic cloud)</option>
-            <option value="cloud">cloud (Cloudflare)</option>
-            {import.meta.env.DEV ? <option value="fake">fake</option> : null}
-          </NativeSelect>
+          <FieldLabel>Runtime</FieldLabel>
+          <p className="text-sm">{runtimeWords(values.runtime, runningOn)}</p>
           {values.runtime === "managed" && (
             <FieldDescription>
               Runs on Anthropic's cloud, not on one of your machines. It needs

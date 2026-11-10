@@ -1,8 +1,8 @@
 import { Button } from "#/components/ui/button.tsx";
 import type { AgentProfileView } from "#/integrations/trpc/types";
-import { runtimeOptions } from "./profile-logic.ts";
+import { currentRuntime } from "./profile-logic.ts";
 
-/** The "Runs on" side card: the three runtimes, the current one marked. Information only. */
+/** The "Runs on" side card: the agent's runtime as a fact. Information only. */
 export function RunsOnCard({
   header,
   onAdvanced,
@@ -10,47 +10,28 @@ export function RunsOnCard({
   header: AgentProfileView["header"];
   onAdvanced: () => void;
 }) {
-  const options = runtimeOptions(header.runtime, header.machine);
+  const runtime = currentRuntime(header.runtime, header.machine);
   return (
     <section
       aria-label="Runs on"
       className="min-w-0 flex-[1_1_240px] rounded-lg border border-border bg-card p-4"
     >
       <h2 className="font-semibold text-foreground text-sm">Runs on</h2>
-      <p className="mt-1 text-muted-foreground text-xs">
-        Shown for information. The runtime cannot be changed here.
-      </p>
-      <ul className="mt-3 flex flex-col gap-2">
-        {options.map((option) => (
-          <li
-            className={`rounded-md border p-3 ${
-              option.current ? "border-primary bg-primary/5" : "border-border"
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <span className="font-semibold text-sm">{runtime.title}</span>
+        {runtime.machineState === null ? null : (
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold text-xs ${
+              runtime.machineState === "Online"
+                ? "bg-success/15 text-success"
+                : "bg-warning/15 text-warning"
             }`}
-            key={option.runtime}
           >
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="font-semibold text-sm">{option.title}</span>
-              {option.machineState === null ? null : (
-                <span
-                  className={`rounded-full px-2 py-0.5 font-semibold text-xs ${
-                    option.machineState === "Online"
-                      ? "bg-success/15 text-success"
-                      : "bg-warning/15 text-warning"
-                  }`}
-                >
-                  {option.machineState}
-                </span>
-              )}
-              {option.current ? (
-                <span className="rounded-full border border-primary px-2 py-0.5 text-primary text-xs">
-                  Current
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-1 text-muted-foreground text-xs">{option.text}</p>
-          </li>
-        ))}
-      </ul>
+            {runtime.machineState}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-muted-foreground text-xs">{runtime.text}</p>
       <div className="mt-3">
         <Button onClick={onAdvanced} variant="outline">
           Advanced
