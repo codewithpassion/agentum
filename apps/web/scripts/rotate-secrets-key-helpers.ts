@@ -174,7 +174,7 @@ const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
 const ident = (name: string): string => `"${name}"`;
 
 export interface Tally {
-  /** Already under the current key. */
+  /** Already under the current key, or holding no ciphertext. */
   current: number;
   moved: number;
   /** Row keys whose value neither key opens. Ids only, never values. */
