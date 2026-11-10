@@ -1,6 +1,5 @@
 import { useAuth } from "@clerk/tanstack-react-start";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { ChangeModeDialog } from "#/components/secrets/change-mode-dialog";
 import { CreateSecretDialog } from "#/components/secrets/create-secret-dialog";
@@ -15,21 +14,11 @@ import type {
 import { SecretsTable } from "#/components/secrets/secrets-table";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const Route = createFileRoute("/_app/settings/secrets")({
-  loader: async () => {
-    try {
-      return await getTrpc().secrets.list.query();
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+  loader: async () =>
+    loadOrLogin(async () => await getTrpc().secrets.list.query()),
   component: SecretsPage,
 });
 

@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { MailThreadView } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   approvalNote,
   directionLabel,
@@ -39,7 +40,7 @@ export function MailThreadPanel({ onBack, threadId }: MailThreadPanelProps) {
       })
       .catch((cause: unknown) => {
         if (active) {
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(errorMessage(cause));
         }
       });
     return () => {

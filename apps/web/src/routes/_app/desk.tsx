@@ -1,5 +1,4 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { PinnedDeskTiles } from "#/components/artifacts/pinned/pinned-tiles";
@@ -23,6 +22,7 @@ import {
 import { buttonVariants } from "#/components/ui/button";
 import { useIsMobile } from "#/hooks/use-mobile";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 const searchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
@@ -34,19 +34,8 @@ export const Route = createFileRoute("/_app/desk")({
   validateSearch: (search) => searchSchema.parse(search),
   // The agents for the chips and the names on cards. The desk itself loads in
   // the browser, because "today" starts at the viewer's local midnight.
-  loader: async () => {
-    try {
-      return await getTrpc().agents.list.query({});
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+  loader: async () =>
+    loadOrLogin(async () => await getTrpc().agents.list.query({})),
   component: Desk,
 });
 

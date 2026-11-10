@@ -5,9 +5,7 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { Switch } from "#/components/ui/switch";
 import { getTrpc } from "#/integrations/trpc/client";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 /**
  * The pairing block of the Connections card: whether outside clients without a

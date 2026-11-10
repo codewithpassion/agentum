@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Switch } from "#/components/ui/switch.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AgentRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 /** Only the owner or an organisation admin may enable subagents. */
 export function SubagentsSwitch({
@@ -35,7 +36,7 @@ export function SubagentsSwitch({
         await router.invalidate();
         onChanged?.();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       } finally {
         setSaving(false);
       }

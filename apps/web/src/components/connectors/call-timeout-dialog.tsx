@@ -12,12 +12,10 @@ import {
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 const { min, max } = CONNECTOR_CALL_TIMEOUT_SECONDS;
 const WHOLE_NUMBER = /^\d+$/;
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 function parseSeconds(raw: string): number | null {
   const trimmed = raw.trim();

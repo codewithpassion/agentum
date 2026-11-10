@@ -16,6 +16,7 @@ import {
 } from "#/components/ui/table.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { EventLogEntry } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { cn } from "#/lib/utils";
 import { cancelEntryIds } from "./log-logic.ts";
 
@@ -59,7 +60,7 @@ function CancelRunButton({ runId }: { runId: string }) {
       await getTrpc().runs.cancel.mutate({ runId });
       await router.invalidate();
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : CANCEL_FAILED);
+      toast.error(errorMessage(cause, CANCEL_FAILED));
     } finally {
       setCancelling(false);
     }

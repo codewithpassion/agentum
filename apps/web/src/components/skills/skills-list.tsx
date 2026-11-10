@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -9,6 +8,7 @@ import type {
   SkillSummary,
   SkillVersion,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   type AgentNames,
   ownerLabel,

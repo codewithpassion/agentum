@@ -20,6 +20,7 @@ import { Button } from "#/components/ui/button.tsx";
 import { SidebarTrigger } from "#/components/ui/sidebar.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { ActionLog } from "./action-log.tsx";
 import { MailSlot } from "./mail-slot.tsx";
 import { FilesSlot, TaskComputerPanel, useTaskFiles } from "./slots.tsx";
@@ -58,8 +59,7 @@ import { useSessionEvents } from "./use-session-events.ts";
 import { useTaskComputer } from "./use-task-computer.ts";
 import { useTaskMail } from "./use-task-mail.ts";
 
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => errorMessage(cause);
 
 type LiveAction =
   | { frame: Parameters<typeof applyFrame>[1]; kind: "frame" }

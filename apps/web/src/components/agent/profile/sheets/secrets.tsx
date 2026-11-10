@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import type { AgentPanelProps } from "./props.ts";
 import { toggledIds } from "./secrets/grants.ts";
 import { RuntimeNotes } from "./secrets/runtime-notes.tsx";
@@ -26,9 +27,6 @@ interface SecretsState {
   grantedIds: string[];
   secrets: SecretRecord[];
 }
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 export function SecretsPanel({ agent }: AgentPanelProps) {
   const agentId = agent.id;

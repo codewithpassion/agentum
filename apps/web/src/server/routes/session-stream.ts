@@ -16,10 +16,10 @@ import {
 } from "@repo/services/events";
 import type { Principal } from "@repo/services/workspaces";
 import type { Context, Hono } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { encodeFrame } from "../session-stream-core.ts";
 import { eventFrame, STREAM_EVENT_TYPES } from "../session-stream-frames.ts";
 import { type AppEnv, cookieGroup } from "./groups.ts";
+import { jsonError, type SessionDeps, sessionUser } from "./respond.ts";
 
 const UNAUTHORIZED = 401;
 const BAD_REQUEST = 400;
@@ -39,12 +39,7 @@ const SSE_BLOCK_END = "\n\n";
 export const RESUME_ID_MAX = 200;
 const ID_LINE = /^id: (.+)$/m;
 
-export interface SessionStreamRouteDeps {
-  /** The Clerk session of the request: its user and active org, or null. */
-  session: (
-    c: Context<AppEnv>
-  ) => { orgId?: string | null; userId: string | null } | null;
-}
+export type SessionStreamRouteDeps = SessionDeps;
 
 type RouteContext = Context<AppEnv>;
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
@@ -168,27 +163,12 @@ export const relay = (
   });
 };
 
-const jsonError = (
-  c: RouteContext,
-  status: ContentfulStatusCode,
-  error: string
-) => c.json({ error }, status);
-
 /** The user behind the Clerk session, or null when there is none or its org has no workspace row. */
 const authenticate = async (
   c: RouteContext,
   deps: SessionStreamRouteDeps
 ): Promise<UserPrincipal | null> => {
-  const session = deps.session(c);
-  if (!session?.userId) {
-    return null;
-  }
-  const principal = await c
-    .get("composed")
-    .services.workspaces.sessionPrincipal({
-      orgId: session.orgId,
-      userId: session.userId,
-    });
+  const principal = await sessionUser(c, deps);
   return principal?.kind === "user" ? principal : null;
 };
 

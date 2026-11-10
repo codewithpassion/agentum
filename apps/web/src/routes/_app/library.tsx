@@ -1,17 +1,18 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { z } from "zod";
 import { LibraryFilePanel } from "#/components/library/library-file-panel";
 import { LibraryList } from "#/components/library/library-list";
-import { errorMessage, remapPath } from "#/components/library/library-logic";
+import { remapPath } from "#/components/library/library-logic";
 import { LibraryToolbar } from "#/components/library/library-toolbar";
 import { useLibraryRefresh } from "#/components/library/use-library-refresh";
 import { WikiNewPageDialog } from "#/components/library/wiki-new-page-dialog";
 import { WikiPageView } from "#/components/library/wiki-page-view";
 import { WikiTree } from "#/components/library/wiki-tree";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import type { LibraryEntryRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 const searchSchema = z.object({
   dir: z.string().min(1).optional().catch(undefined),
@@ -22,23 +23,14 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/_app/library")({
   validateSearch: (search) => searchSchema.parse(search),
   loaderDeps: ({ search }) => ({ dir: search.dir ?? "" }),
-  loader: async ({ deps }) => {
-    try {
+  loader: async ({ deps }) =>
+    loadOrLogin(async () => {
       const [entries, pages] = await Promise.all([
         getTrpc().library.list.query({ dir: deps.dir }),
         getTrpc().wiki.pages.query(),
       ]);
       return { entries, pages };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: LibraryPage,
 });
 

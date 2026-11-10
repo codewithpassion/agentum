@@ -7,11 +7,9 @@ import { templates } from "@repo/services/agent-builder/templates";
 import {
   createFileRoute,
   Link,
-  redirect,
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useState } from "react";
 import {
   addressSuggestion,
@@ -41,21 +39,14 @@ import {
 import { StartBlank } from "#/components/agent/builder/start-blank";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
+import { errorMessage } from "#/lib/error-message";
 
 export const Route = createFileRoute("/_app/agents/new")({
-  loader: async () => {
-    try {
-      return { catalog: await getTrpc().agentBuilder.catalog.query() };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+  loader: async () =>
+    loadOrLogin(async () => ({
+      catalog: await getTrpc().agentBuilder.catalog.query(),
+    })),
   component: NewAgent,
 });
 
@@ -65,8 +56,7 @@ interface Drafted {
   gaps: ProfileGap[];
 }
 
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => errorMessage(cause);
 
 /** Start blank: saves the draft and activates it, with no builder call. */
 function BlankAgent({ catalog }: { catalog: BuilderCatalog }) {
@@ -193,7 +183,7 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
         })
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }

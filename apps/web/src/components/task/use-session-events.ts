@@ -1,5 +1,6 @@
 import type { StreamFrame } from "@repo/protocol/stream";
 import { useEffect, useRef, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
 import {
   FALLBACK_POLL_MS,
   parseFrame,
@@ -72,13 +73,13 @@ export const useSessionEvents = ({
     if (mode !== "poll") {
       return;
     }
-    const timer = setInterval(() => {
+    const stop = startPolling(() => {
       latest.current.refetch();
     }, FALLBACK_POLL_MS);
     const retryStream = () => setMode("stream");
     window.addEventListener("focus", retryStream);
     return () => {
-      clearInterval(timer);
+      stop();
       window.removeEventListener("focus", retryStream);
     };
   }, [mode]);

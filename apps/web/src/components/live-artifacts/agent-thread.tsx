@@ -1,4 +1,5 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Panel actions capture current form values. */
+
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import type { ThreadEvent } from "@repo/protocol/thread";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,6 +22,7 @@ import {
 } from "#/components/thread/thread-state";
 import { useTaskThreadRuntime } from "#/components/thread/use-task-thread-runtime";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { ToolButton } from "./editor-toolbar";
 import { liveApi } from "./live-api";
 
@@ -42,9 +44,7 @@ export function AgentTranscript({
       setThread((old) => resetThread(old, events));
       setError(undefined);
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Could not load transcript"
-      );
+      setError(errorMessage(cause, "Could not load transcript"));
     }
   }, [sessionId]);
   useEffect(() => {
@@ -66,8 +66,7 @@ export function AgentTranscript({
     []
   );
   const report = useCallback(
-    (cause: unknown) =>
-      setError(cause instanceof Error ? cause.message : "Thread action failed"),
+    (cause: unknown) => setError(errorMessage(cause, "Thread action failed")),
     []
   );
   const runtime = useTaskThreadRuntime({
@@ -162,7 +161,7 @@ export function AgentComposer({
       setText("");
       await onSent();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not ask agent");
+      setError(errorMessage(cause, "Could not ask agent"));
     } finally {
       setBusy(false);
     }

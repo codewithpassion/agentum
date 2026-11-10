@@ -4,10 +4,8 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { addressText } from "./profile-logic.ts";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 export const CHIP_CLASS =
   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs";

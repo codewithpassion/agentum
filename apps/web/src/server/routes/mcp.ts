@@ -37,6 +37,7 @@ import {
   type BearerAuthOptions,
 } from "../mcp/principal-resolver.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
+import { tokenUnauthorized } from "./respond.ts";
 
 /** Largest JSON-RPC request body accepted; a real one is a few KB. */
 export const MAX_MCP_BODY_BYTES = 1024 * 1024;
@@ -100,22 +101,11 @@ const defaultDefer = (c: RouteContext, work: Promise<unknown>) => {
 const unauthorized = (
   metadataUrl: string | null,
   hadToken: boolean
-): Response => {
-  const params = ['realm="agentum"'];
-  if (metadataUrl) {
-    params.push(`resource_metadata="${metadataUrl}"`);
-  }
-  if (hadToken) {
-    params.push('error="invalid_token"');
-  }
-  return Response.json(
-    { error: hadToken ? "invalid_token" : "unauthorized" },
-    {
-      headers: { "WWW-Authenticate": `Bearer ${params.join(", ")}` },
-      status: 401,
-    }
+): Response =>
+  tokenUnauthorized(
+    hadToken,
+    metadataUrl ? [`resource_metadata="${metadataUrl}"`] : []
   );
-};
 
 const forbidden = (): Response =>
   Response.json({ error: "forbidden" }, { status: 403 });

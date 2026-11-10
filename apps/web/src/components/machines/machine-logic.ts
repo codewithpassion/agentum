@@ -1,6 +1,7 @@
 import type { MachineRole } from "@repo/db/shared";
 import type { Product } from "@repo/protocol/releases";
 import type { MachineRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 /** The two roles of a machine, in the words people see. */
 export const ROLE_LABELS: Record<MachineRole, string> = {
@@ -128,7 +129,7 @@ export const revokeMachine = async (
     await revoke({ machineId });
     return null;
   } catch (error) {
-    return error instanceof Error ? error.message : "Something went wrong.";
+    return errorMessage(error);
   }
 };
 

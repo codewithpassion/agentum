@@ -13,6 +13,7 @@ import { ArchiveAgentDialog } from "#/components/agent/archive-agent-dialog";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { MachineRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import type { AgentPanelProps } from "./props.ts";
 
 interface SettingsData {
@@ -42,7 +43,7 @@ export function AdvancedPanel({ agent }: AgentPanelProps) {
       })
       .catch((cause: unknown) => {
         if (active) {
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(errorMessage(cause));
         }
       });
     return () => {

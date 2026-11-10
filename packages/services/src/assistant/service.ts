@@ -25,7 +25,7 @@ import { activityCursor, parseActivityCursor } from "../activity-cursor";
 import { authorize, ForbiddenError } from "../authz";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models";
 import type { Fetcher } from "../connectors/mcp";
-import { ServiceError } from "../errors";
+import { ERROR_REASON, ServiceError } from "../errors";
 import { type ManagedKeysService, NO_KEY_MESSAGE } from "../managed/keys";
 import type { Clock } from "../runs/types";
 import type { SecretsService } from "../secrets";
@@ -578,7 +578,8 @@ export const createAssistantService = (deps: AssistantDeps) => {
     if (containsKey(input.text)) {
       throw new ServiceError(
         "invalid",
-        "That looks like a key. Use Add secret instead."
+        "That looks like a key. Use Add secret instead.",
+        ERROR_REASON.keyInMessage
       );
     }
     const conversationId = input.conversationId ?? ulid();
@@ -714,7 +715,8 @@ export const createAssistantService = (deps: AssistantDeps) => {
     if (containsKey(JSON.stringify(input.outcome))) {
       throw new ServiceError(
         "invalid",
-        "That looks like a key. Use Add secret instead."
+        "That looks like a key. Use Add secret instead.",
+        ERROR_REASON.keyInMessage
       );
     }
     return withLease(row.id, user.workspaceId, async (masker) => {

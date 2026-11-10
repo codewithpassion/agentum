@@ -7,21 +7,16 @@
 
 import { isForbiddenError } from "@repo/services/authz";
 import { isServiceError } from "@repo/services/errors";
-import type { Context } from "hono";
 import { Hono } from "hono";
 import { contentDisposition } from "./files.ts";
 import type { AppEnv } from "./groups.ts";
+import { type SessionDeps, sessionUser } from "./respond.ts";
 
 const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
 const NOT_FOUND = 404;
 
-export interface LibraryRouteDeps {
-  /** The Clerk session of the request: its user and active org, or null. */
-  session: (
-    c: Context<AppEnv>
-  ) => { orgId?: string | null; userId: string | null } | null;
-}
+export type LibraryRouteDeps = SessionDeps;
 
 const SIGN_IN = "Sign in required.";
 
@@ -32,13 +27,7 @@ export const libraryRoutes = (deps: LibraryRouteDeps): Hono<AppEnv> => {
   const routes = new Hono<AppEnv>();
 
   routes.get("/api/library/download", async (c) => {
-    const session = deps.session(c);
-    const principal = session?.userId
-      ? await c.get("composed").services.workspaces.sessionPrincipal({
-          orgId: session.orgId,
-          userId: session.userId,
-        })
-      : null;
+    const principal = await sessionUser(c, deps);
     if (!principal) {
       return c.json({ error: SIGN_IN }, UNAUTHORIZED);
     }

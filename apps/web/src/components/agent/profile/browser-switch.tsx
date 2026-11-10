@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { Switch } from "#/components/ui/switch.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AgentRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { browserConfig, browserOn } from "./profile-logic.ts";
 
 /** The on/off switch for the built-in browser, shown on the Tools row. */
@@ -31,7 +32,7 @@ export function BrowserSwitch({
         await router.invalidate();
         onChanged?.();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       } finally {
         setSaving(false);
       }

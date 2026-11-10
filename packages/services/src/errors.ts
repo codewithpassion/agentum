@@ -10,14 +10,30 @@ const STATUS: Record<ServiceErrorCode, number> = {
   not_found: 404,
 };
 
+/**
+ * Why a refusal happened, for a client that must act on it. Clients read this
+ * and never match the wording of the message.
+ */
+export const ERROR_REASON = {
+  keyInMessage: "key_in_message",
+} as const;
+
+export type ErrorReason = (typeof ERROR_REASON)[keyof typeof ERROR_REASON];
+
 export class ServiceError extends Error {
   override readonly name = "ServiceError";
   readonly code: ServiceErrorCode;
+  readonly reason: ErrorReason | null;
   readonly status: number;
 
-  constructor(code: ServiceErrorCode, message: string) {
+  constructor(
+    code: ServiceErrorCode,
+    message: string,
+    reason: ErrorReason | null = null
+  ) {
     super(message);
     this.code = code;
+    this.reason = reason;
     this.status = STATUS[code];
   }
 }

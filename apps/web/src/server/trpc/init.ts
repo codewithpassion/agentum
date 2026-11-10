@@ -6,8 +6,17 @@ import type { Context } from "./context.ts";
 const t = initTRPC.context<Context>().create({
   // A failed input check carries the schema library's issue list as its
   // message. Send the first issue's text instead, so the UI can show it.
-  errorFormatter: ({ shape, error }) => {
+  errorFormatter: ({ shape: plain, error }) => {
     const cause: unknown = error.cause;
+    // `reason` tells the client why a service refused, so it never has to
+    // match the wording of the message.
+    const shape = {
+      ...plain,
+      data: {
+        ...plain.data,
+        reason: isServiceError(cause) ? cause.reason : null,
+      },
+    };
     if (
       error.code === "BAD_REQUEST" &&
       typeof cause === "object" &&

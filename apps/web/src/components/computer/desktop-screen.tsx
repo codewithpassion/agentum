@@ -17,6 +17,7 @@ import {
 import { Button } from "#/components/ui/button.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import { errorMessage } from "#/lib/error-message";
 import { cn } from "#/lib/utils.ts";
 import {
   readRemoteClipboard,
@@ -143,9 +144,6 @@ function TouchBar({
     </div>
   );
 }
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "The request failed";
 
 /** What the agent's open takeover request lets this person do. */
 export interface TakeoverControls {
@@ -354,8 +352,8 @@ export function DesktopScreen({
       await task();
       return true;
     } catch (cause) {
-      setError(errorMessage(cause));
-      toast.error(errorMessage(cause));
+      setError(errorMessage(cause, "The request failed"));
+      toast.error(errorMessage(cause, "The request failed"));
       return false;
     } finally {
       setBusy(false);

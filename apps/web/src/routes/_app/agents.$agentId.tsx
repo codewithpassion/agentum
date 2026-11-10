@@ -1,5 +1,4 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { ArchivedAgentBanner } from "#/components/agent/archived-agents";
@@ -16,6 +15,7 @@ import { allowedMailAddresses } from "#/components/agent/profile/sheets/mail-log
 import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
 import { ThreadsCard } from "#/components/agent/profile/threads-card";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 const RECENT_TASKS = 5;
 const RECENT_THREADS = 8;
@@ -34,8 +34,8 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
   validateSearch: (search) => searchSchema.parse(search),
-  loader: async ({ params }) => {
-    try {
+  loader: async ({ params }) =>
+    loadOrLogin(async () => {
       const trpc = getTrpc();
       const [
         agent,
@@ -84,16 +84,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         tasks,
         threads,
       };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: AgentPage,
 });
 

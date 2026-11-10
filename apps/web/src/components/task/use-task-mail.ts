@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { MailThreadView } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 /** How often the mail card reads the linked thread again while the run is going. */
 export const MAIL_REFRESH_MS = 5000;
@@ -53,7 +55,7 @@ export function useTaskMail(
         }
       } catch (cause) {
         if (current) {
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(errorMessage(cause));
         }
       }
     };
@@ -63,10 +65,10 @@ export function useTaskMail(
         current = false;
       };
     }
-    const timer = setInterval(load, MAIL_REFRESH_MS);
+    const stop = startPolling(load, MAIL_REFRESH_MS);
     return () => {
       current = false;
-      clearInterval(timer);
+      stop();
     };
   }, [runId, running]);
 

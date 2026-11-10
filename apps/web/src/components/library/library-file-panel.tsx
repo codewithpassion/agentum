@@ -11,7 +11,6 @@ import { SubmitKeys } from "#/components/composer/submit-keys";
 import {
   baseName,
   downloadUrl,
-  errorMessage,
   formatMtime,
   formatSize,
   isConflict,
@@ -29,6 +28,7 @@ import {
 import { Button, buttonVariants } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { LibraryFileView } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { LibraryHistory } from "./library-history-panel.tsx";
 
 type LibraryEntry = LibraryFileView["entry"];

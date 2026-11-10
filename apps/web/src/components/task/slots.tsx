@@ -4,8 +4,10 @@ import {
   type TakeoverControls,
 } from "#/components/computer/desktop-screen.tsx";
 import type { DesktopStatus } from "#/components/computer/desktop-stream.ts";
+import { startPolling } from "#/components/inbox/use-polled-query";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { TaskFilesList, type TaskFilesView } from "./task-files.tsx";
 import type { TakeoverRequest } from "./task-logic.ts";
 
@@ -39,7 +41,7 @@ export function useTaskFiles({
         }
       } catch (cause) {
         if (current) {
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(errorMessage(cause));
         }
       }
     };
@@ -49,10 +51,10 @@ export function useTaskFiles({
         current = false;
       };
     }
-    const timer = setInterval(load, FILES_REFRESH_MS);
+    const stop = startPolling(load, FILES_REFRESH_MS);
     return () => {
       current = false;
-      clearInterval(timer);
+      stop();
     };
   }, [runId, running]);
 

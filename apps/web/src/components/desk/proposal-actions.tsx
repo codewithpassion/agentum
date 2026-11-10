@@ -1,9 +1,9 @@
 import type { DeskCard } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 type Decision = "approve" | "reject";
 

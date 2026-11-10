@@ -1,6 +1,6 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Collaboration actions capture trusted records and current drafts. */
-import { readableMentions } from "@repo/protocol/member-mentions";
 
+import { readableMentions } from "@repo/protocol/member-mentions";
 import {
   type ReactNode,
   useCallback,
@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
 import { MemberMention } from "#/components/live-artifacts/member-mention";
 import {
   Sheet,
@@ -19,6 +20,7 @@ import {
 } from "#/components/ui/sheet";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { AgentComposer, AgentTranscript } from "../live-artifacts/agent-thread";
 import { type LiveOutputs, liveApi } from "../live-artifacts/live-api";
 import { Suggestions } from "../live-artifacts/suggestions";
@@ -66,15 +68,12 @@ export function DeckCollaboration({
       setThreads(nextThreads);
       setChanges(nextChanges);
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Collaboration unavailable"
-      );
+      setError(errorMessage(cause, "Collaboration unavailable"));
     }
   }, [artifactId]);
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+    return startPolling(refresh, 5000);
   }, [refresh]);
   const run = async (action: () => Promise<unknown>) => {
     if (busy) {
@@ -86,7 +85,7 @@ export function DeckCollaboration({
       await action();
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Action failed");
+      setError(errorMessage(cause, "Action failed"));
     } finally {
       setBusy(false);
     }
@@ -402,7 +401,7 @@ function DeckReply({
       setRequestId(crypto.randomUUID());
       await onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not post reply");
+      setError(errorMessage(cause, "Could not post reply"));
     } finally {
       setBusy(false);
     }

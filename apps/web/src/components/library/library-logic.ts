@@ -54,9 +54,6 @@ export const formatMtime = (iso: string): string =>
 export const isConflict = (error: unknown): boolean =>
   error instanceof TRPCClientError && error.data?.code === "CONFLICT";
 
-export const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 /** The URL that downloads a file through the cookie session. */
 export const downloadUrl = (path: string): string =>
   `/api/library/download?path=${encodeURIComponent(path)}`;

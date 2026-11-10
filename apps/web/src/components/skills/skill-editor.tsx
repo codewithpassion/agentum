@@ -19,7 +19,6 @@ import {
   type FilePanelIo,
   LibraryFilePanel,
 } from "#/components/library/library-file-panel";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
@@ -28,6 +27,7 @@ import type {
   LibraryFileView,
   SkillVersionFile,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { bytesToBase64 } from "#/lib/library-content.ts";
 import {
   type Change,

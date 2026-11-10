@@ -1,9 +1,11 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Controlled agent selector captures its current value. */
+
 import type { PageElement } from "@repo/protocol/element-ask";
 import { useCallback, useEffect, useState } from "react";
 import { AgentTranscript } from "#/components/live-artifacts/agent-thread";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { ArtifactFrame, type ArtifactFrameProps } from "./artifact-frame";
 import { contentRef } from "./content-ref";
 
@@ -32,9 +34,7 @@ export function ElementAskViewer(props: ArtifactFrameProps) {
   }, [artifactId]);
   useEffect(() => {
     refresh().catch((cause: unknown) =>
-      setError(
-        cause instanceof Error ? cause.message : "Could not load agent thread"
-      )
+      setError(errorMessage(cause, "Could not load agent thread"))
     );
   }, [refresh]);
   const message = useCallback(
@@ -85,11 +85,7 @@ export function ElementAskViewer(props: ArtifactFrameProps) {
                 await refresh();
                 setError(undefined);
               } catch (cause) {
-                setError(
-                  cause instanceof Error
-                    ? cause.message
-                    : "Could not select agent"
-                );
+                setError(errorMessage(cause, "Could not select agent"));
               } finally {
                 setBusy(false);
               }

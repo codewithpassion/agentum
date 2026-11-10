@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
-import { errorMessage } from "./share-model";
+import { errorMessage } from "#/lib/error-message";
 
 interface Endpoint {
   disabledAt: string | null;

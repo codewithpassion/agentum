@@ -17,17 +17,15 @@ import {
   libraryStatResponseSchema,
   libraryWriteResponseSchema,
 } from "@repo/protocol/library";
-import { isForbiddenError } from "@repo/services/authz";
-import { isServiceError } from "@repo/services/errors";
 import type { LibraryEntry } from "@repo/services/library";
 import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
 import { bearerToken, type Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import { Hono } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { runTokenKeySpec } from "../run-token-key.ts";
 import { runPrincipal } from "./files.ts";
 import type { AppEnv } from "./groups.ts";
+import { jsonError, serviceRefusal } from "./respond.ts";
 
 const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
@@ -48,23 +46,6 @@ type Authenticate = (
   c: RouteContext,
   token: string
 ) => Promise<RunPrincipal | null>;
-
-const jsonError = (
-  c: RouteContext,
-  status: ContentfulStatusCode,
-  error: string
-) => c.json({ error }, status);
-
-/** A refusal the services raised, as a response. Anything else is a bug and rethrows. */
-const refusal = (c: RouteContext, error: unknown): Response => {
-  if (isForbiddenError(error)) {
-    return jsonError(c, FORBIDDEN, NOT_ALLOWED);
-  }
-  if (isServiceError(error)) {
-    return jsonError(c, error.status as ContentfulStatusCode, error.message);
-  }
-  throw error;
-};
 
 /**
  * Wraps a handler in a bearer check. The token must authenticate, and `mayUse`
@@ -88,7 +69,7 @@ const guarded =
     try {
       return await handler(c, principal);
     } catch (error: unknown) {
-      return refusal(c, error);
+      return serviceRefusal(c, error);
     }
   };
 

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { errorMessage } from "./secret-model.ts";
+import { errorMessage } from "#/lib/error-message";
 
 /**
  * Runs one save. `run` makes the call and clears any typed value; `onDone`

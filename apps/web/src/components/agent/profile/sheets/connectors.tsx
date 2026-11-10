@@ -39,6 +39,7 @@ import type {
   ConnectorRecord,
   CredentialRecord,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import type { AgentPanelProps } from "./props.ts";
 
 type PasteAs = "me" | "agent";
@@ -53,9 +54,6 @@ const MODE_LABELS: Record<CredentialMode, string> = {
   user: "Only the person who started the run",
   user_or_agent: "The person who started the run, or the agent when nobody did",
 };
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const parseMode = (value: string): CredentialMode =>
   CREDENTIAL_MODES.find((mode) => mode === value) ?? "user_or_agent";

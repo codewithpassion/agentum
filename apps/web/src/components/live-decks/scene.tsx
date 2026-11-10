@@ -15,6 +15,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { errorMessage } from "#/lib/error-message";
 import { DeckEmbed } from "./embed";
 import { scenePoint } from "./geometry";
 import type { DeckEditorPorts, DeckParticipant } from "./ports";
@@ -472,7 +473,7 @@ function DeckTableCell({
       }
       setActive(true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not open cell");
+      setError(errorMessage(cause, "Could not open cell"));
     } finally {
       setBusy(false);
     }

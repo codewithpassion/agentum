@@ -1,5 +1,4 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   type ConnectedAppAccess,
@@ -7,30 +6,20 @@ import {
 } from "#/components/connected-apps/connected-apps-table";
 import { McpAddress } from "#/components/connected-apps/mcp-address";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
+import { errorMessage } from "#/lib/error-message";
 
 export const Route = createFileRoute("/_app/settings/connected-apps")({
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const [clients, address] = await Promise.all([
         getTrpc().oauthClients.list.query(),
         getTrpc().oauthClients.mcpAddress.query(),
       ]);
       return { address, clients };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: ConnectedAppsPage,
 });
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 function ConnectedAppsPage() {
   const { address, clients } = Route.useLoaderData();

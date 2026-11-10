@@ -18,6 +18,7 @@ import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
 import { Textarea } from "#/components/ui/textarea";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 interface VoiceFieldProps {
   agentId: string;
@@ -62,7 +63,7 @@ export function VoiceField({ agentId, voice }: VoiceFieldProps) {
       await router.invalidate();
       toast.success("Saved");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setSaving(false);
     }

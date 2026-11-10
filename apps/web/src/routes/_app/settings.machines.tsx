@@ -1,6 +1,5 @@
 import type { MachineEnrollRole } from "@repo/db/shared";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_ENROLL_ROLE,
@@ -21,10 +20,11 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const Route = createFileRoute("/_app/settings/machines")({
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const trpc = getTrpc();
       const [machines, latestDaemonVersion, latestRustVersion] =
         await Promise.all([
@@ -33,16 +33,7 @@ export const Route = createFileRoute("/_app/settings/machines")({
           trpc.machines.newestDaemonVersion.query("agentum-rs"),
         ]);
       return { latestDaemonVersion, latestRustVersion, machines };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: MachinesPage,
 });
 

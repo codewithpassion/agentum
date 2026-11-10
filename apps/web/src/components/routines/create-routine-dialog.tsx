@@ -7,7 +7,6 @@ import {
   DictationPreview,
   useDictation,
 } from "#/components/dictation/index.ts";
-import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -26,6 +25,7 @@ import {
 import { Textarea } from "#/components/ui/textarea";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   compilePreset,
   PRESET_KINDS,

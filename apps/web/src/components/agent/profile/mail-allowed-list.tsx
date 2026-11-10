@@ -3,10 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
+import { errorMessage } from "#/lib/error-message";
 
 function MailAllowedRow({
   address,

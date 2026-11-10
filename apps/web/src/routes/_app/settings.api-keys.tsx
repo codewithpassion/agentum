@@ -1,5 +1,4 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
 import { CreateKeyDialog } from "#/components/api-keys/create-key-dialog";
@@ -19,27 +18,15 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import type { ApiKeyRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 export const Route = createFileRoute("/_app/settings/api-keys")({
-  loader: async () => {
-    try {
-      return await getTrpc().apiKeys.list.query();
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+  loader: async () =>
+    loadOrLogin(async () => await getTrpc().apiKeys.list.query()),
   component: ApiKeysPage,
 });
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 function lastUsed(key: ApiKeyRecord): string {
   return key.lastUsedAt

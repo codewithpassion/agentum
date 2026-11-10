@@ -17,6 +17,7 @@ import { useNowMs } from "#/components/task/use-now-ms.ts";
 import { useSessionEvents } from "#/components/task/use-session-events.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { wouldLines } from "./dry-run-logic.ts";
 
 type LiveAction =
@@ -28,8 +29,7 @@ const reduceLive = (live: TaskLive, action: LiveAction): TaskLive =>
     ? applyFrame(live, action.frame)
     : applyTask(live, action.task);
 
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => errorMessage(cause);
 
 /** A dry run opens no requests, so the receipt has none to answer. */
 const NO_REQUESTS: ReadonlyMap<string, RequestView> = new Map();

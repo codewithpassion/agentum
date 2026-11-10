@@ -18,14 +18,12 @@ import {
   waitRequestResponseSchema,
 } from "@repo/protocol/machine";
 import type { ApprovalDisplay } from "@repo/protocol/requests";
-import { isForbiddenError } from "@repo/services/authz";
-import { isServiceError } from "@repo/services/errors";
 import type { MachinePrincipal } from "@repo/services/machines";
 import type { RequestsService } from "@repo/services/requests";
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 import { type AppEnv, bearerGroup } from "./groups.ts";
+import { serviceRefusal } from "./respond.ts";
 
 type RouteContext = Context<AppEnv>;
 type RunHandler = (call: {
@@ -37,24 +35,12 @@ type RunHandler = (call: {
 const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
 const MS_PER_SECOND = 1000;
-const FORBIDDEN = 403;
 
 /** What a service refused with, as a response. Anything else is a bug and rethrows. */
-const refusal = (c: RouteContext, error: unknown): Response => {
-  if (isForbiddenError(error)) {
-    return c.json({ error: "Not allowed." }, FORBIDDEN);
-  }
-  if (isServiceError(error)) {
-    return c.json(
-      { error: error.message },
-      error.status as ContentfulStatusCode
-    );
-  }
-  if (error instanceof z.ZodError) {
-    return c.json({ error: "The request body is not valid." }, BAD_REQUEST);
-  }
-  throw error;
-};
+const refusal = (c: RouteContext, error: unknown): Response =>
+  error instanceof z.ZodError
+    ? c.json({ error: "The request body is not valid." }, BAD_REQUEST)
+    : serviceRefusal(c, error);
 
 const withMachine =
   (handler: RunHandler) =>

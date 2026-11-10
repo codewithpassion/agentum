@@ -22,7 +22,7 @@ import {
 } from "#/components/ui/native-select.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { WikiPageNodeRecord } from "#/integrations/trpc/types";
-import { errorMessage } from "./library-logic.ts";
+import { errorMessage } from "#/lib/error-message";
 import { wikiParentOptions } from "./wiki-logic.ts";
 
 export interface WikiNewPageDialogProps {

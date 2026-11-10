@@ -1,6 +1,9 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Decisions capture one durable suggestion id. */
+
 import type { GuestSuggestionsResult } from "@repo/protocol/guest";
 import { useCallback, useEffect, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
+import { errorMessage } from "#/lib/error-message";
 import type { EditorRole } from "../live-artifacts/editor-ports";
 import { guestHttp } from "./http";
 import type { GuestServices } from "./services";
@@ -26,15 +29,12 @@ export function GuestSuggestions({
         )
       );
     } catch (cause) {
-      failed(
-        cause instanceof Error ? cause.message : "Suggestions unavailable"
-      );
+      failed(errorMessage(cause, "Suggestions unavailable"));
     }
   }, [services, failed]);
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+    return startPolling(refresh, 5000);
   }, [refresh]);
   const decide = async (
     suggestionId: string,
@@ -52,7 +52,7 @@ export function GuestSuggestions({
         )
       );
     } catch (cause) {
-      failed(cause instanceof Error ? cause.message : "Decision failed");
+      failed(errorMessage(cause, "Decision failed"));
     } finally {
       setBusy(false);
     }

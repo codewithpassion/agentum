@@ -2,10 +2,10 @@ import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { CreateRoutineDialog } from "#/components/routines/create-routine-dialog";
 import { RoutineTable } from "#/components/routines/routine-table";
-import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RoutineRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import type { AgentPanelProps } from "./props.ts";
 
 export function RoutinesPanel({ agent }: AgentPanelProps) {

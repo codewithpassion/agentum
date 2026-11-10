@@ -1,11 +1,13 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Artifact-scoped composer actions. */
 /** biome-ignore-all lint/suspicious/noUnnecessaryConditions: Optional storage can be empty; React lifetime refs change during asynchronous actions. */
+
 import type {
   GuestAskAvailability,
   GuestAskResult,
 } from "@repo/protocol/guest";
 import type { GuestGrant } from "@repo/protocol/live";
 import { useEffect, useRef, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
 import type { EditorRole } from "../live-artifacts/editor-ports";
 import { guestHttp } from "./http";
 import { clearPendingAsk, pendingAskKey, readPendingAsk } from "./pending-ask";
@@ -74,10 +76,10 @@ export function GuestAsk({
       }
     };
     refresh();
-    const timer = setInterval(refresh, 3000);
+    const stop = startPolling(refresh, 3000);
     return () => {
       disposed = true;
-      clearInterval(timer);
+      stop();
     };
   }, [services, role, contextVersion, beforeSend]);
   const available =

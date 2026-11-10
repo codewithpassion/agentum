@@ -11,9 +11,7 @@ import {
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 export function OAuthClientDialog({
   connector,

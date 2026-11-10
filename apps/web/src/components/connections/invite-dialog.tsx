@@ -14,11 +14,9 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import type { AddDialogProps } from "./dialog-props.ts";
 import { PublishGate } from "./publish-gate.tsx";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 export function InviteDialog({ agents, onChanged, onClose }: AddDialogProps) {
   const [agentId, setAgentId] = useState("");

@@ -48,11 +48,12 @@ import {
   type StreamItem,
 } from "./a2a-ops.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
+import { bearerChallenge } from "./respond.ts";
 
 type RouteContext = Context<AppEnv>;
 
 const MAX_BODY_BYTES = 256 * 1024;
-const WWW_AUTHENTICATE = 'Bearer realm="agentum"';
+const WWW_AUTHENTICATE = bearerChallenge();
 const BEARER = /^Bearer\s+(\S+)$/i;
 const CARD_MAX_AGE_SECONDS = 300;
 const ETAG_LENGTH = 32;

@@ -1,5 +1,4 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { z } from "zod";
 import { type AddChoice, AddMenu } from "#/components/connections/add-menu";
@@ -9,6 +8,8 @@ import { InviteDialog } from "#/components/connections/invite-dialog";
 import { JoinDialog } from "#/components/connections/join-dialog";
 import { OutsideAgentDialog } from "#/components/connections/outside-agent-dialog";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
+import { errorMessage } from "#/lib/error-message";
 
 const searchSchema = z.object({
   join: z.string().min(1).optional().catch(undefined),
@@ -16,29 +17,17 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_app/settings/agent-connections/")({
   validateSearch: (search) => searchSchema.parse(search),
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const trpc = getTrpc();
       const [connections, agents] = await Promise.all([
         trpc.a2a.list.query({}),
         trpc.agents.list.query({}),
       ]);
       return { agents, connections };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: AgentConnectionsPage,
 });
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 function AgentConnectionsPage() {
   const { agents, connections } = Route.useLoaderData();

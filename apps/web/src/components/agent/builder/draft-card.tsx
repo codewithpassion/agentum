@@ -24,6 +24,7 @@ import {
 import { Input } from "#/components/ui/input.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { Row } from "../profile/profile-row.tsx";
 import {
   decideText,
@@ -43,9 +44,6 @@ import {
 const LOOKUP_DELAY_MS = 400;
 const CHIPS = "flex flex-wrap items-center gap-1.5";
 const MUTED = "text-muted-foreground text-xs";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const capitalise = (word: string): string =>
   word.charAt(0).toUpperCase() + word.slice(1);

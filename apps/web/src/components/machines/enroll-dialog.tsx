@@ -12,6 +12,7 @@ import {
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { CommandBlock } from "./command-block";
 import {
   AGENTUM_DESKTOP_SECCOMP_NOTE,
@@ -68,9 +69,6 @@ export const computerRoleEnrollment = (machine: {
   machine.rust
     ? { machineName: machine.name, role: "both" as const }
     : { machineId: machine.id, role: "computer" as const };
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const dialogTitle = (machine: object | undefined): string =>
   machine ? "Add computer role" : ENROLL_BUTTON_LABEL;

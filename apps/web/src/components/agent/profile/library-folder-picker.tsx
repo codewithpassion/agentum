@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  baseName,
-  errorMessage,
-  parentDir,
-} from "#/components/library/library-logic.ts";
+import { baseName, parentDir } from "#/components/library/library-logic.ts";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -13,6 +9,7 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { folderPaths } from "./library-access.ts";
 
 function FolderOption({

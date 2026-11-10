@@ -12,7 +12,6 @@ import {
   suggestionStatusText,
 } from "#/components/desk/desk-logic.ts";
 import { DiffLines } from "#/components/library/diff-lines.tsx";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Dialog,
@@ -22,6 +21,7 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { reviewDiff } from "./suggestion-review-logic.ts";
 
 type SuggestionState = "pending" | "stale" | "accepted" | "rejected";

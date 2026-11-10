@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -11,6 +10,7 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 export function DeleteConnectorDialog({
   connector,

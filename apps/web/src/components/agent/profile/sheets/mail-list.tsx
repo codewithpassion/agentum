@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { cn } from "#/lib/utils.ts";
 import {
   directionLabel,
@@ -92,7 +93,7 @@ export function MailList({
       })
       .catch((cause: unknown) => {
         if (active) {
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(errorMessage(cause));
         }
       });
     return () => {

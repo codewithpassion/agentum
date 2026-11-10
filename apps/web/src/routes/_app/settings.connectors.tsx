@@ -1,6 +1,5 @@
 import { useAuth } from "@clerk/tanstack-react-start";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { AddConnectorDialog } from "#/components/connectors/add-connector-dialog";
 import { AuthModeDialog } from "#/components/connectors/auth-mode-dialog";
@@ -25,6 +24,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import type {
   ConnectorRecord,
   CredentialRecord,
@@ -32,19 +32,8 @@ import type {
 
 export const Route = createFileRoute("/_app/settings/connectors")({
   validateSearch: (search) => connectSearchSchema.parse(search),
-  loader: async () => {
-    try {
-      return await getTrpc().connectors.list.query();
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+  loader: async () =>
+    loadOrLogin(async () => await getTrpc().connectors.list.query()),
   component: ConnectorsPage,
 });
 

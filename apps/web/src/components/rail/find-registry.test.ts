@@ -6,13 +6,10 @@ import { agentFindEntries, findEntries, pathOf } from "./find-registry.ts";
 
 const EXCLUDED: Readonly<Record<string, string>> = {
   "/agents/$agentId": "needs an agent id, reached from the agent list",
-  "/connectors": "redirects to /settings/connectors",
-  "/machines": "redirects to /settings/machines",
   "/qa/$questionId": "needs a question id, reached from the Q&A list",
   "/settings": "layout wrapper, Settings pages are listed one by one",
   "/settings/agent-connections/$connectionId":
     "needs a connection id, reached from the connections list",
-  "/settings/managed-agents": "redirects to model providers",
   "/skills/$skillId": "needs a skill id, reached from the skills list",
   "/tasks/$runId": "redirects to its thread",
   "/threads/$sessionId": "needs a session id, reached from the thread lists",

@@ -17,6 +17,7 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 const ACCESS_LABELS: Record<ApiKeyAccess, string> = {
   admin: "Admin",
@@ -24,9 +25,6 @@ const ACCESS_LABELS: Record<ApiKeyAccess, string> = {
   read: "Read",
   write: "Write",
 };
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const parseAccess = (value: string): ApiKeyAccess =>
   API_KEY_ACCESS.find((access) => access === value) ?? "read";

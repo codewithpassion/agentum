@@ -9,13 +9,13 @@ import {
 import { saveTextFile } from "#/components/slack/download-manifest";
 import { ListenModeControl } from "#/components/slack/listen-mode-control";
 import { SlackPasteForm } from "#/components/slack/slack-paste-form";
-import { errorMessage } from "#/components/triggers/format";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SlackAppRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import type { AgentPanelProps } from "./props.ts";
 
 const statusLabels: Record<SlackAppRecord["status"], string> = {

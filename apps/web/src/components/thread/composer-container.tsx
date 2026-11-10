@@ -34,6 +34,7 @@ import {
 } from "#/components/ui/attachment.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { libraryAttachment } from "./attachment-adapter.ts";
 import { LibraryPicker } from "./library-picker.tsx";
 
@@ -41,8 +42,7 @@ import { LibraryPicker } from "./library-picker.tsx";
 const MAX_ATTACHMENTS = INPUT_FILES_MAX;
 const BYTES_PER_MB = 1024 * 1024;
 
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => errorMessage(cause);
 
 function ComposerAttachment() {
   const name = useAuiState((state) => state.attachment.name);

@@ -12,6 +12,7 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 export function ArchiveAgentDialog({
   agentId,
@@ -44,7 +45,7 @@ export function ArchiveAgentDialog({
       await router.invalidate();
       await router.navigate({ to: "/agents" });
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
       setPending(false);
     }
   }, [agentId, agentName, router]);

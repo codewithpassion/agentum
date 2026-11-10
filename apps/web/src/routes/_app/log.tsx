@@ -1,6 +1,5 @@
 import { EVENT_TYPES } from "@repo/db/shared";
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute } from "@tanstack/react-router";
 import { type ComponentProps, useCallback } from "react";
 import { z } from "zod";
 import { agentNameMap } from "#/components/inbox/inbox-logic";
@@ -9,6 +8,7 @@ import { dayRangeFilters, LOG_PAGE_SIZE } from "#/components/log/log-logic";
 import { LogPager } from "#/components/log/log-pager";
 import { LogTable } from "#/components/log/log-table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -31,8 +31,8 @@ export const Route = createFileRoute("/_app/log")({
     to: search.to,
     type: search.type,
   }),
-  loader: async ({ deps }) => {
-    try {
+  loader: async ({ deps }) =>
+    loadOrLogin(async () => {
       const [log, agents] = await Promise.all([
         getTrpc().events.list.query({
           agentId: deps.agent,
@@ -44,16 +44,7 @@ export const Route = createFileRoute("/_app/log")({
         getTrpc().agents.list.query({ includeArchived: true }),
       ]);
       return { agents, log };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: LogPage,
 });
 

@@ -2,6 +2,7 @@
 
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { errorMessage } from "#/lib/error-message";
 import { liveApi } from "../live-artifacts/live-api";
 export function CreateDeck() {
   const [title, setTitle] = useState("");
@@ -21,9 +22,7 @@ export function CreateDeck() {
         to: "/a/$artifactId",
       });
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Could not create deck"
-      );
+      setError(errorMessage(cause, "Could not create deck"));
     } finally {
       setBusy(false);
     }

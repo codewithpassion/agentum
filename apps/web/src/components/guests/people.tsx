@@ -1,6 +1,8 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: People actions bind the selected grant. */
+
 import { useCallback, useEffect, useState } from "react";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 type People = Awaited<
   ReturnType<ReturnType<typeof getTrpc>["liveGuests"]["people"]["query"]>
@@ -28,7 +30,7 @@ export function GuestPeople({ artifactId }: { artifactId: string }) {
       await action();
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "People update failed");
+      setError(errorMessage(cause, "People update failed"));
     } finally {
       setBusy(false);
     }

@@ -1,8 +1,8 @@
 import type { RailCard } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
+import { errorMessage } from "#/lib/error-message";
 
 /** A run that failed or a mail that bounced: what happened, the log, and Dismiss. */
 export function ProblemBody({

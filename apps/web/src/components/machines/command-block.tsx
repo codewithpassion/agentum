@@ -1,8 +1,6 @@
 import { type ReactNode, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 export function CommandBlock({
   command,

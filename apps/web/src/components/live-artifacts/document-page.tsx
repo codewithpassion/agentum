@@ -1,4 +1,5 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Selection handlers capture their panel intent. */
+
 import type { Editor } from "@tiptap/core";
 import {
   Component,
@@ -9,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { errorMessage } from "#/lib/error-message";
 import { ExportControls } from "../live-exports/export-controls";
 import { CollaborationPanel, type PanelIntent } from "./collaboration-panel";
 import { DocumentEditor } from "./document-editor";
@@ -31,8 +33,7 @@ class EditorBoundary extends Component<
   override state: { error?: string } = {};
   static getDerivedStateFromError(error: unknown) {
     return {
-      error:
-        error instanceof Error ? error.message : "Document could not be opened",
+      error: errorMessage(error, "Document could not be opened"),
     };
   }
   override render() {

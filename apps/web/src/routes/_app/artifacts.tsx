@@ -1,6 +1,5 @@
 import { ARTIFACT_KINDS } from "@repo/db/shared";
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
 import { ArtifactsFilters } from "#/components/artifacts/list/artifacts-filters.tsx";
@@ -13,6 +12,7 @@ import { CreateDocument } from "#/components/live-artifacts/create-document";
 import { CreateDeck } from "#/components/live-decks/create-deck";
 import { useNowMs } from "#/components/task/use-now-ms.ts";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 const searchSchema = z.object({
   kind: z.enum(ARTIFACT_KINDS).optional().catch(undefined),
@@ -27,19 +27,10 @@ export const Route = createFileRoute("/_app/artifacts")({
     madeBy: search.madeBy,
     shared: search.shared,
   }),
-  loader: async ({ deps }) => {
-    try {
-      return await getTrpc().artifacts.list.query(listInput(deps));
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+  loader: async ({ deps }) =>
+    loadOrLogin(
+      async () => await getTrpc().artifacts.list.query(listInput(deps))
+    ),
   component: ArtifactsPage,
 });
 

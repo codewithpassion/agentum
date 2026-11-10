@@ -164,6 +164,3 @@ export const SHARE_STATUS_LABELS: Record<ArtifactShare["status"], string> = {
 /** A timestamp for tables and logs, in the viewer's time zone. */
 export const formatTimestamp = (iso: string | null): string =>
   iso === null ? "Never" : format(new Date(iso), "d MMM yyyy, HH:mm");
-
-export const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";

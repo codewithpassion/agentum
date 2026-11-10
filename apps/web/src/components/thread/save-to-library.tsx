@@ -1,5 +1,4 @@
 import { type ChangeEvent, useCallback, useState } from "react";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -11,6 +10,7 @@ import {
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 const FALLBACK_AGENT = "agent";
 

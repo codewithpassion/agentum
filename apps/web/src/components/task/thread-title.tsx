@@ -10,10 +10,10 @@ import {
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { newTitle, type ThreadMeta } from "./thread-meta.ts";
 
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => errorMessage(cause);
 
 /** The thread's name, shown big and editable, and its pin and archive buttons. */
 export function ThreadTitle({

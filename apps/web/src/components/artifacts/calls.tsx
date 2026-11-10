@@ -13,9 +13,10 @@ import {
 } from "#/components/ui/table";
 import { TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { AccessLog } from "./access-log.tsx";
 import { EndpointSettings } from "./endpoint-settings";
-import { errorMessage, formatTimestamp } from "./share-model.ts";
+import { formatTimestamp } from "./share-model.ts";
 
 export function CallsTabTrigger({
   kind,

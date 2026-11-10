@@ -12,6 +12,7 @@ import { Label } from "#/components/ui/label";
 import { Textarea } from "#/components/ui/textarea";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   DESCRIPTION_MAX,
   emptySkill,
@@ -33,9 +34,6 @@ type LoadState =
 
 const FORM_NOTE =
   "This text goes on the public card other agents read. It is never taken from the agent's instructions.";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const newKey = (): string => globalThis.crypto.randomUUID();
 

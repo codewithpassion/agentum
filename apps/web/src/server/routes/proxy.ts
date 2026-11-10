@@ -25,6 +25,7 @@ import type { Context } from "hono";
 import { runTokenKeySpec } from "../run-token-key.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 import { filterToolsList } from "./proxy-allowlist.ts";
+import { bearerUnauthorized } from "./respond.ts";
 
 /** Largest JSON-RPC request body forwarded; a real one is a few KB. */
 export const MAX_PROXY_BODY_BYTES = 1024 * 1024;
@@ -70,15 +71,6 @@ export interface ProxyRouteOptions {
 const defaultLog = (entry: LogEntry) => {
   console.log(JSON.stringify(entry));
 };
-
-const unauthorized = (): Response =>
-  Response.json(
-    { error: "unauthorized" },
-    {
-      headers: { "WWW-Authenticate": 'Bearer realm="agentum"' },
-      status: UNAUTHORIZED,
-    }
-  );
 
 const unavailable = (): Response =>
   Response.json(
@@ -664,7 +656,7 @@ export const proxyRoutes = ({
     const { credentials, events } = c.get("composed").services;
     const context = await credentials.runContext(claims);
     if (!context) {
-      return unauthorized();
+      return bearerUnauthorized();
     }
     const resolution = await credentials.resolve({
       runId: claims.runId,
@@ -782,7 +774,7 @@ export const proxyRoutes = ({
       return unavailable();
     }
     if (!claims) {
-      return unauthorized();
+      return bearerUnauthorized();
     }
 
     try {

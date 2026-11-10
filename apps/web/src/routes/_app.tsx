@@ -1,10 +1,8 @@
 import {
   createFileRoute,
   Outlet,
-  redirect,
   retainSearchParams,
 } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
 import type { CSSProperties } from "react";
 import { z } from "zod";
 import { AssistantPanel } from "#/components/assistant/assistant-panel";
@@ -21,6 +19,7 @@ import {
 } from "#/components/ui/sidebar";
 import { useTaskLayout } from "#/hooks/use-task-layout";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 /** The rail is wider than the old sidebar: it holds sentences. */
 const RAIL_WIDTH = { "--sidebar-width": "20rem" } as CSSProperties;
@@ -31,19 +30,8 @@ export const Route = createFileRoute("/_app")({
   }),
   search: { middlewares: [retainSearchParams(["assistant"])] },
   // The rail's New task and Find list the active agents. `agents.list` skips archived ones.
-  loader: async () => {
-    try {
-      return await getTrpc().agents.list.query({});
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+  loader: async () =>
+    loadOrLogin(async () => await getTrpc().agents.list.query({})),
   component: AppLayout,
 });
 

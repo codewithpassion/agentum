@@ -13,11 +13,9 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { ConnectorRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { AuthModeSelect } from "./auth-mode-select";
 import { type HeaderDraft, HeaderFields } from "./header-fields";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 export function AddConnectorDialog({
   onClose,

@@ -2,6 +2,7 @@
 
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { errorMessage } from "#/lib/error-message";
 import { liveApi } from "./live-api";
 
 interface CreateDocumentFormProps {
@@ -18,7 +19,7 @@ export async function createAndOpenDocument(
     const result = await create(title.trim());
     await open(result.artifactId);
   } catch (cause) {
-    return cause instanceof Error ? cause.message : "Could not create document";
+    return errorMessage(cause, "Could not create document");
   }
 }
 

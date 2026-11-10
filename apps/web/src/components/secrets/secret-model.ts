@@ -25,9 +25,6 @@ export const MAX_RULES = 8;
 export const DEFAULT_HEADER = "Authorization";
 export const DEFAULT_TEMPLATE = "Bearer {value}";
 
-export const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
-
 export const emptyRule = (): RuleDraft => ({
   header: DEFAULT_HEADER,
   host: "",

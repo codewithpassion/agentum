@@ -14,6 +14,7 @@ import {
   createAbsolutePositionFromRelativePosition,
   createRelativePositionFromJSON,
 } from "yjs";
+import { startPolling } from "#/components/inbox/use-polled-query";
 import {
   Sheet,
   SheetContent,
@@ -24,6 +25,7 @@ import {
 } from "#/components/ui/sheet";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { AgentComposer, AgentTranscript } from "./agent-thread";
 import { resolveRelative } from "./editor-binding";
 import type { EditorSelection } from "./editor-ports";
@@ -34,8 +36,7 @@ import type { TicketedRoom } from "./room-provider";
 import { Suggestions } from "./suggestions";
 import { useAgentAttachment } from "./use-agent-attachment";
 
-const messageOf = (cause: unknown) =>
-  cause instanceof Error ? cause.message : "The action failed";
+const messageOf = (cause: unknown) => errorMessage(cause, "The action failed");
 export interface PanelIntent {
   kind: "ask" | "comment";
   nonce: string;
@@ -106,8 +107,7 @@ export function CollaborationPanel({
   } = useAgentAttachment(room, refresh);
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+    return startPolling(refresh, 5000);
   }, [refresh]);
   useEffect(() => {
     if (!intent) {

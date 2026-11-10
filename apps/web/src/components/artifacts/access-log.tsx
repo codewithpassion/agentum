@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import {
   describeBrowser,
   describeLink,
@@ -34,7 +35,7 @@ import {
   type OutcomeTone,
   outcomeTone,
 } from "./access-log-model.ts";
-import { errorMessage, formatTimestamp } from "./share-model.ts";
+import { formatTimestamp } from "./share-model.ts";
 
 export interface AccessLogProps {
   artifactId: string;

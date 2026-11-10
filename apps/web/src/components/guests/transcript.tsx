@@ -1,8 +1,11 @@
 /** biome-ignore-all lint/suspicious/noArrayIndexKey: Immutable stored message parts have no separate IDs. */
 /** biome-ignore-all lint/style/noNestedTernary: Read-only transcript renders only text and approval notices. */
+
 import type { GuestSessionResult } from "@repo/protocol/guest";
 import { foldThread, type ThreadEvent } from "@repo/protocol/thread";
 import { useEffect, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
+import { errorMessage } from "#/lib/error-message";
 import { guestHttp } from "./http";
 import type { GuestServices } from "./services";
 import { consumeGuestStream } from "./stream";
@@ -84,9 +87,7 @@ export function GuestTranscript({
     };
     const report = (cause: unknown) => {
       if (!disposed) {
-        failed(
-          cause instanceof Error ? cause.message : "Transcript unavailable"
-        );
+        failed(errorMessage(cause, "Transcript unavailable"));
       }
     };
     const pages = async () => {
@@ -114,11 +115,11 @@ export function GuestTranscript({
       }
     };
     refresh();
-    const timer = setInterval(refresh, 3000);
+    const stop = startPolling(refresh, 3000);
     return () => {
       disposed = true;
       abort.abort();
-      clearInterval(timer);
+      stop();
     };
   }, [services, failed]);
   return (

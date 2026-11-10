@@ -2,12 +2,12 @@ import { useCallback, useState } from "react";
 import { expiryText } from "#/components/requests/request-card-logic.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client.ts";
+import { errorMessage } from "#/lib/error-message";
 import {
   decideAll,
   type GrantDecision,
   type PromoteApproval,
 } from "./grant-approval-model.ts";
-import { errorMessage } from "./share-model.ts";
 
 function AccessList({ items, label }: { items: string[]; label: string }) {
   if (items.length === 0) {

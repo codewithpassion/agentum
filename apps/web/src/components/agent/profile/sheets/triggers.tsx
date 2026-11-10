@@ -1,12 +1,12 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { CreatedTrigger } from "#/components/triggers/create-trigger-dialog";
 import { CreateTriggerDialog } from "#/components/triggers/create-trigger-dialog";
-import { errorMessage } from "#/components/triggers/format";
 import { TriggerSecretDialog } from "#/components/triggers/trigger-secret-dialog";
 import { TriggerTable } from "#/components/triggers/trigger-table";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TriggerRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import type { AgentPanelProps } from "./props.ts";
 
 export function TriggersPanel({ agent }: AgentPanelProps) {

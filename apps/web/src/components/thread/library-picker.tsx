@@ -2,7 +2,6 @@ import { File, Folder } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   baseName,
-  errorMessage,
   formatSize,
   parentDir,
 } from "#/components/library/library-logic.ts";
@@ -16,6 +15,7 @@ import {
 } from "#/components/ui/dialog.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { LibraryEntryRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 export interface LibraryPickerProps {
   /** Called when the dialog closes without a pick. */

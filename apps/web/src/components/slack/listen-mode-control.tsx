@@ -1,9 +1,9 @@
 import { useCallback, useId, useState } from "react";
-import { errorMessage } from "#/components/triggers/format";
 import { Label } from "#/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { SlackAppRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 export interface ListenModeControlProps {
   app: SlackAppRecord;

@@ -1,8 +1,10 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Guest page wires artifact-scoped ports. */
+
 import type { GuestOpenResult } from "@repo/protocol/guest";
 import { guestEndpoints } from "@repo/protocol/guest";
 import type { CommentAnchor } from "@repo/protocol/live";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { errorMessage } from "#/lib/error-message";
 import { DocumentEditor } from "../live-artifacts/document-editor";
 import type { EditorRole } from "../live-artifacts/editor-ports";
 import { TicketedRoom } from "../live-artifacts/room-provider";
@@ -203,9 +205,7 @@ export function GuestViewer({ artifactId }: { artifactId: string }) {
               room?.dispose();
               setSignedOut(true);
             } catch (cause) {
-              failed(
-                cause instanceof Error ? cause.message : "Sign out failed"
-              );
+              failed(errorMessage(cause, "Sign out failed"));
             }
           }}
           type="button"

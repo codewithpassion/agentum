@@ -13,14 +13,12 @@ import {
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import {
   extraToolNames,
   matchesToolFilter,
   type ToolEntry,
 } from "./allowed-tools.ts";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const EXTRA_DESCRIPTION = "Not in the cached tool list. Kept as saved.";
 

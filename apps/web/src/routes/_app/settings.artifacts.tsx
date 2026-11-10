@@ -1,38 +1,14 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute } from "@tanstack/react-router";
 import { LinksSwitchSection } from "#/components/artifacts/links-switch";
 import { getTrpc } from "#/integrations/trpc/client";
-
-const isUnauthorized = (error: unknown): boolean =>
-  error instanceof TRPCClientError && error.data?.code === "UNAUTHORIZED";
-
-/**
- * The A.1 contract has no workspace-level read of the link switch, so read it
- * from the first artifact's detail (`linksEnabled` is a workspace value).
- * Without an artifact, or when the read fails, show the default: on.
- */
-async function readLinksEnabled(): Promise<boolean> {
-  try {
-    const trpc = getTrpc();
-    const { items } = await trpc.artifacts.list.query({});
-    const [first] = items;
-    if (first === undefined) {
-      return true;
-    }
-    const detail = await trpc.artifacts.get.query({
-      artifactId: first.artifactId,
-    });
-    return detail.linksEnabled;
-  } catch (error) {
-    if (isUnauthorized(error)) {
-      throw redirect({ to: "/login" });
-    }
-    return true;
-  }
-}
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const Route = createFileRoute("/_app/settings/artifacts")({
-  loader: async () => ({ linksEnabled: await readLinksEnabled() }),
+  loader: () =>
+    loadOrLogin(async () => {
+      const { enabled } = await getTrpc().artifacts.linksEnabled.query();
+      return { linksEnabled: enabled };
+    }),
   component: ArtifactsSettingsPage,
 });
 
