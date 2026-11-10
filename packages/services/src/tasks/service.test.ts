@@ -163,6 +163,7 @@ interface SeedSession {
   externalKey?: string;
   id: string;
   origin?: string;
+  parentSessionId?: string;
   private?: boolean;
   runtimeMachineId?: string;
   workspaceId?: string;
@@ -178,6 +179,7 @@ const seedSession = async (o: SeedSession): Promise<string> => {
     externalKey: o.externalKey ?? null,
     id: o.id,
     origin: o.origin ?? "ui",
+    parentSessionId: o.parentSessionId ?? null,
     private: o.private ?? false,
     runtimeMachineId: o.runtimeMachineId ?? null,
     workspaceId: o.workspaceId ?? "w1",
@@ -467,6 +469,65 @@ test("a run another run started is a handoff, naming the parent's agent and run"
   });
 });
 
+test("a thread lists its child threads with status, and a child links to its parent", async () => {
+  const parentSession = await seedSession({ agentId: a1, id: "s-parent" });
+  await seedRun({
+    agentId: a1,
+    id: "run-parent",
+    inputText: "plan the launch",
+    sessionId: parentSession,
+    status: "done",
+  });
+  const childSession = await seedSession({
+    agentId: a2,
+    id: "s-child",
+    origin: "mcp",
+    parentSessionId: parentSession,
+  });
+  await seedRun({
+    agentId: a2,
+    id: "run-child",
+    inputText: "draft the copy",
+    parentRunId: "run-parent",
+    sessionId: childSession,
+    status: "running",
+  });
+  await seedSession({
+    actorId: "u2",
+    agentId: a2,
+    id: "s-hidden",
+    origin: "mcp",
+    parentSessionId: parentSession,
+    private: true,
+  });
+  await seedRun({
+    agentId: a2,
+    id: "run-hidden",
+    parentRunId: "run-parent",
+    sessionId: "s-hidden",
+    status: "done",
+  });
+
+  const parentView = await tasks.get(user(), { sessionId: parentSession });
+  const childView = await tasks.get(user(), { sessionId: childSession });
+
+  expect(parentView.parent).toBeNull();
+  expect(parentView.children).toEqual([
+    {
+      agentName: "Beta",
+      id: "s-child",
+      status: "running",
+      title: "draft the copy",
+    },
+  ]);
+  expect(childView.children).toEqual([]);
+  expect(childView.parent).toEqual({
+    id: "s-parent",
+    title: "plan the launch",
+  });
+  expect(childView.session.parentSessionId).toBe("s-parent");
+});
+
 test("a run's cost is the usage's costUsd", async () => {
   await seedTask("run-cost", {
     status: "done",
@@ -543,6 +604,7 @@ test("get returns the run, its agent, its session and the session's other runs, 
     externalKey: "ext-1",
     id: "s-main",
     origin: "ui",
+    parentSessionId: null,
     pinnedAt: null,
     title: "Task run-01",
   });

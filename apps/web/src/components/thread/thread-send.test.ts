@@ -4,6 +4,7 @@ import {
   fileIdsOfAppend,
   isActiveStatus,
   latestUserMessage,
+  replyBody,
   replyNote,
   startRunBody,
   textOfAppend,
@@ -155,4 +156,21 @@ test("isActiveStatus is true for running and waiting only", () => {
   for (const [status, active] of cases) {
     expect(isActiveStatus(status)).toBe(active);
   }
+});
+
+test("a sub-thread replies here whatever its origin, and sends by session id", () => {
+  expect(replyNote("mcp", true)).toBeNull();
+  expect(replyNote("mcp", false)).not.toBeNull();
+  expect(
+    replyBody({
+      fileIds: ["f1"],
+      requestId: "req-1",
+      sessionId: "sess-9",
+      text: "hi",
+    })
+  ).toEqual({
+    input: { fileIds: ["f1"], text: "hi" },
+    requestId: "req-1",
+    sessionId: "sess-9",
+  });
 });

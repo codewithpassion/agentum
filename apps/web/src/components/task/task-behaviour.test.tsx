@@ -33,6 +33,9 @@ test("bottom bar chooses exactly one state, including a newer working run", () =
   );
   expect(bottomState({ ...base, origin: "trigger" })).toBe("routing");
   expect(bottomState({ ...base, origin: "mail" })).toBe("routing");
+  expect(bottomState({ ...base, origin: "mcp", subThread: true })).toBe(
+    "composer"
+  );
 });
 
 test("bar states have their own action, phone Stop, and no disabled composer", () => {

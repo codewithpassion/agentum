@@ -16,8 +16,48 @@ export interface ConversationListItem {
   href?: string;
   id: string;
   kind: ConversationKind;
+  /** The thread this one was started from, when it was started by a hand-off or helper. */
+  parentId?: string;
   title: string;
 }
+
+/** The deepest indent: a hand-off of a hand-off shows one level in, and so do the ones below it. */
+const MAX_INDENT = 2;
+
+/**
+ * The rows with each child thread moved under its parent, a level deeper each
+ * time, to `MAX_INDENT`. A child whose parent is not in the list stays where it
+ * was, at depth 0.
+ */
+export const nestChildren = <
+  T extends Pick<ConversationListItem, "id" | "kind" | "parentId">,
+>(
+  items: readonly T[]
+): { depth: number; item: T }[] => {
+  const ids = new Set(items.map((item) => item.id));
+  const nested = (item: T) =>
+    item.kind === "thread" &&
+    item.parentId !== undefined &&
+    item.parentId !== item.id &&
+    ids.has(item.parentId);
+  const children = new Map<string, T[]>();
+  for (const item of items.filter(nested)) {
+    const siblings = children.get(item.parentId as string) ?? [];
+    siblings.push(item);
+    children.set(item.parentId as string, siblings);
+  }
+  const seen = new Set<string>();
+  const walk = (item: T, depth: number): { depth: number; item: T }[] => {
+    seen.add(item.id);
+    return [
+      { depth, item },
+      ...(children.get(item.id) ?? [])
+        .filter((child) => !seen.has(child.id))
+        .flatMap((child) => walk(child, Math.min(depth + 1, MAX_INDENT))),
+    ];
+  };
+  return items.filter((item) => !nested(item)).flatMap((item) => walk(item, 0));
+};
 
 export const KIND_LABELS: Record<ConversationKind, string> = {
   assistant: "Assistant",
@@ -60,6 +100,9 @@ export const fromThread = (
   href: threadHref(thread.id),
   id: thread.id,
   kind: "thread",
+  ...(thread.parentSessionId === null
+    ? {}
+    : { parentId: thread.parentSessionId }),
   title: sessionTitle({
     agentName,
     createdAt: thread.createdAt,

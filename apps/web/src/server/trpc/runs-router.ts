@@ -29,6 +29,18 @@ export const runsRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.runs.getRun(ctx.principal, input.runId)
     ),
+  /** A reply in a sub-thread: a thread an agent's hand-off started. */
+  reply: workspaceProcedure
+    .input(
+      z.strictObject({
+        input: browserStartRunInputSchema.shape.input,
+        requestId: z.string().min(1).max(200).optional(),
+        sessionId: z.string().min(1),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      ctx.services.runs.replyInSubThread(ctx.principal, input)
+    ),
   start: workspaceProcedure
     .input(browserStartRunInputSchema)
     .mutation(({ ctx, input }) =>

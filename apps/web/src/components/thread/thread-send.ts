@@ -58,9 +58,24 @@ const REPLY_NOTES: Record<string, string> = {
   trigger: "A trigger started this thread, so it has no reply here.",
 };
 
-/** Why a thread started elsewhere is read only here, or null for a thread the UI started. */
-export const replyNote = (origin: string): string | null => {
-  if (origin === "ui") {
+/** The body the browser sends to `runs.reply` in a sub-thread: the session by id, never a key. */
+export const replyBody = (input: {
+  fileIds: string[];
+  requestId: string;
+  sessionId: string;
+  text: string;
+}) => ({
+  input: { fileIds: input.fileIds, text: input.text },
+  requestId: input.requestId,
+  sessionId: input.sessionId,
+});
+
+/**
+ * Why a thread started elsewhere is read only here, or null for a thread the UI
+ * started or one an agent's hand-off started (a sub-thread), which replies here.
+ */
+export const replyNote = (origin: string, subThread = false): string | null => {
+  if (origin === "ui" || subThread) {
     return null;
   }
   return REPLY_NOTES[origin] ?? "This thread is read only here.";

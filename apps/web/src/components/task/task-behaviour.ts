@@ -15,11 +15,14 @@ export function bottomState({
   pending,
   working,
   origin,
+  subThread = false,
 }: {
   control: boolean;
   pending: string | null;
   working: boolean;
   origin: string;
+  /** A thread an agent's hand-off started: it replies here whatever its origin. */
+  subThread?: boolean;
 }): BottomState {
   if (control) {
     return "control";
@@ -30,7 +33,7 @@ export function bottomState({
   if (working) {
     return "working";
   }
-  return origin === "ui" ? "composer" : "routing";
+  return origin === "ui" || subThread ? "composer" : "routing";
 }
 
 /** The split's available width excludes the rail. Below 920px use the tab. */

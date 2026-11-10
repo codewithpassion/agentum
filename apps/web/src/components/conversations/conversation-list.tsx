@@ -6,7 +6,13 @@ import { Button } from "#/components/ui/button.tsx";
 import {
   type ConversationListItem,
   KIND_LABELS,
+  nestChildren,
 } from "./conversation-logic.ts";
+
+const INDENT_CLASSES: Record<number, string | undefined> = {
+  1: "ml-4 border-border border-l pl-1",
+  2: "ml-8 border-border border-l pl-1",
+};
 
 const ROW_CLASS =
   "flex w-full flex-col gap-0.5 rounded-md px-3 py-3 text-left text-sm no-underline hover:bg-muted";
@@ -43,12 +49,14 @@ function RowBody({
 
 function Row({
   active,
+  depth,
   disabled,
   item,
   onSelect,
   showKind,
 }: {
   active: boolean;
+  depth: number;
   disabled: boolean;
   item: ConversationListItem;
   onSelect: ((item: ConversationListItem) => void) | undefined;
@@ -57,7 +65,7 @@ function Row({
   const select = useCallback(() => onSelect?.(item), [item, onSelect]);
   const className = `${ROW_CLASS} ${active ? "bg-muted font-medium" : "text-muted-foreground"}`;
   return (
-    <li>
+    <li className={INDENT_CLASSES[depth]}>
       {item.href === undefined ? (
         <button
           aria-current={active ? "true" : undefined}
@@ -145,9 +153,10 @@ export function ConversationList({
           <p className="px-3 py-4 text-muted-foreground text-sm">{emptyText}</p>
         ) : (
           <ul className="space-y-1">
-            {items.map((item) => (
+            {nestChildren(items).map(({ depth, item }) => (
               <Row
                 active={activeId === item.id}
+                depth={depth}
                 disabled={disabled}
                 item={item}
                 key={`${item.kind}:${item.id}`}
