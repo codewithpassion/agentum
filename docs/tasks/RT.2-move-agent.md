@@ -3,9 +3,9 @@ id: RT.2
 title: Move an agent to another runtime
 milestone: RT
 size: M
-status: todo
+status: in_progress
 depends_on: [RT.1]
-branch: null
+branch: task/RT.2-move-agent
 lane: services
 executor: claude
 ---
@@ -29,3 +29,4 @@ From the 10 Nov 2026 review. `agentUpdateSchema` forbids a runtime change (`pack
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/RT.2-move-agent. Lane rule relaxed for this run; files checked against the other running tasks. Runs beside AB.2, which owns the page layout.

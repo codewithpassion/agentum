@@ -3,9 +3,9 @@ id: TH.4
 title: Hand-offs and helpers show as sub-threads
 milestone: TH
 size: M
-status: todo
+status: in_progress
 depends_on: [TH.2, TH.3]
-branch: null
+branch: task/TH.4-sub-threads
 lane: web
 executor: claude
 ---
@@ -27,3 +27,4 @@ From the 10 Nov 2026 review. Delegated work is disconnected from the conversatio
 
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
+- 2026-11-10: dispatched to a Sonnet implementer on task/TH.4-sub-threads. Lane rule relaxed for this run; files checked against the other running tasks.
