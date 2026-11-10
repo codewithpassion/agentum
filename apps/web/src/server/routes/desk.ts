@@ -15,10 +15,8 @@ import {
   deskDecisionInputSchema,
   deskMessageInputSchema,
 } from "@repo/services/desk-api";
-import { isServiceError } from "@repo/services/errors";
 import type { Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 import {
   authenticateBearer,
@@ -26,6 +24,7 @@ import {
 } from "../mcp/principal-resolver.ts";
 import { DESK_EVENT_TYPES, deskStreamName } from "../session-stream-frames.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
+import { serviceRefusal, tokenUnauthorized } from "./respond.ts";
 import {
   NO_REPLAY,
   RESUME_ID_MAX,
@@ -38,8 +37,6 @@ type RouteContext = Context<AppEnv>;
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
 const BAD_REQUEST = 400;
-const FORBIDDEN = 403;
-const UNAUTHORIZED = 401;
 const UNAVAILABLE = 503;
 const MAX_BODY_BYTES = 64 * 1024;
 const RETRY_AFTER_SECONDS = "30";
@@ -77,35 +74,11 @@ const describeIssue = (error: z.ZodError): string => {
   return path === "" ? issue.message : `${path}: ${issue.message}`;
 };
 
-const unauthorized = (hadToken: boolean): Response =>
-  Response.json(
-    { error: hadToken ? "invalid_token" : "unauthorized" },
-    {
-      headers: {
-        "WWW-Authenticate": `Bearer realm="agentum"${
-          hadToken ? ', error="invalid_token"' : ""
-        }`,
-      },
-      status: UNAUTHORIZED,
-    }
-  );
-
 /** What a service refused with, as a response. Anything else is a bug and rethrows. */
-const refusal = (c: RouteContext, error: unknown): Response => {
-  if (isForbiddenError(error)) {
-    return c.json({ error: "Not allowed." }, FORBIDDEN);
-  }
-  if (isServiceError(error)) {
-    return c.json(
-      { error: error.message },
-      error.status as ContentfulStatusCode
-    );
-  }
-  if (error instanceof z.ZodError) {
-    return c.json({ error: describeIssue(error) }, BAD_REQUEST);
-  }
-  throw error;
-};
+const refusal = (c: RouteContext, error: unknown): Response =>
+  error instanceof z.ZodError
+    ? c.json({ error: describeIssue(error) }, BAD_REQUEST)
+    : serviceRefusal(c, error);
 
 /** The JSON body, or the response that refuses it. */
 const readJson = async (
@@ -187,7 +160,7 @@ export const deskRoutes = ({
     }
     if (!credential) {
       log({ event: "desk.denied", reason: "credential" });
-      return unauthorized(authorization !== null);
+      return tokenUnauthorized(authorization !== null);
     }
     try {
       const member = await c

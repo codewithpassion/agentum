@@ -3,9 +3,9 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { conflictStatusText } from "#/components/desk/desk-logic.ts";
 import { DiffLines } from "#/components/library/diff-lines.tsx";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 type Choice = "keep-library" | "keep-agent";
 

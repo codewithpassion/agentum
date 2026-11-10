@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useGo } from "#/components/rail/rail-link.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { threadHref } from "./conversation-logic.ts";
 
 /** Opens the caller's main thread with an agent, making it on first use. */
@@ -14,11 +15,7 @@ export function useOpenMainThread() {
         const thread = await getTrpc().sessions.main.mutate({ agentId });
         go(threadHref(thread.id));
       } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Could not open the conversation."
-        );
+        toast.error(errorMessage(error, "Could not open the conversation."));
       }
     },
     [go]

@@ -1,27 +1,18 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { ProviderKeyForm } from "#/components/model-providers/provider-key-form";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const Route = createFileRoute("/_app/settings/model-providers")({
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const [anthropic, openrouter] = await Promise.all([
         getTrpc().managedKeys.status.query(),
         getTrpc().modelKeys.status.query({ provider: "openrouter" }),
       ]);
       return { anthropic, openrouter };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: ModelProvidersPage,
 });
 

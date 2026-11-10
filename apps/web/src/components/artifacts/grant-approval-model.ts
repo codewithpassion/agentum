@@ -4,6 +4,7 @@
 import { ARTIFACT_GRANT_KINDS, type ArtifactGrantKind } from "@repo/db/shared";
 import type { ApprovalDisplay } from "@repo/protocol/requests";
 import { z } from "zod";
+import { errorMessage } from "#/lib/error-message";
 
 const PROMOTE_TOOL_NAME = "artifact_promote";
 const PROMOTE_TOOL_KEY = "harbourmaster/artifact_promote";
@@ -100,7 +101,7 @@ export const decideAll = async (
       // biome-ignore lint/performance/noAwaitInLoops: grants are decided one after the other, and a hard error stops the rest
       await decide(grantId, decision);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       if (!message.includes(ALREADY_DECIDED)) {
         throw error;
       }

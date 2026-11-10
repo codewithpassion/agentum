@@ -9,6 +9,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import {
   ASK_LEVEL_OPTIONS,
   type AskBeforeAction,
@@ -20,10 +21,6 @@ import {
 } from "./ask-groups.ts";
 import { Disclosure } from "./disclosure.tsx";
 import { MailAllowedList } from "./mail-allowed-list.tsx";
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 function AskBeforeRow({
   disabled,

@@ -3,9 +3,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 /** Asks the mail service to provision the agent's mailbox, then reloads the page data. */
 export function MailProvisionButton({

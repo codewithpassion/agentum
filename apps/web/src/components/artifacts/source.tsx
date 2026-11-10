@@ -9,8 +9,8 @@ import { Button } from "#/components/ui/button";
 import { Spinner } from "#/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { CallsTabTrigger } from "./calls.tsx";
-import { errorMessage } from "./share-model.ts";
 
 export function ArtifactTabs({
   canManage,

@@ -12,9 +12,10 @@ import type {
   LibraryVersionRecord,
   WikiPageRecord,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { LibraryFilePanel } from "./library-file-panel.tsx";
 import { LibraryHistory } from "./library-history-panel.tsx";
-import { errorMessage, formatMtime } from "./library-logic.ts";
+import { formatMtime } from "./library-logic.ts";
 import { WikiBrokenChip, WikiLiveChip } from "./wiki-link-chip.tsx";
 import { wikiLinkChip } from "./wiki-logic.ts";
 

@@ -1,6 +1,8 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Small editor controls capture the command and its current selection. */
+
 import { EditorContent } from "@tiptap/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { errorMessage } from "#/lib/error-message";
 import { applyBlock, blockActions } from "./editor-actions";
 import { selectedContext } from "./editor-binding";
 import { EditorHistory } from "./editor-history";
@@ -17,9 +19,7 @@ export function DocumentEditor(ports: DocumentEditorPorts) {
   const [dismissedSlash, setDismissedSlash] = useState<number | null>(null);
   const report = useCallback(
     (value: unknown) =>
-      setError(
-        value instanceof Error ? value.message : "The editor action failed"
-      ),
+      setError(errorMessage(value, "The editor action failed")),
     []
   );
   const { editor, upload, revision } = useDocumentEditor(ports, report);

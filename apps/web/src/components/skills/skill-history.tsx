@@ -5,11 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  errorMessage,
-  formatMtime,
-  isConflict,
-} from "#/components/library/library-logic.ts";
+import { formatMtime, isConflict } from "#/components/library/library-logic.ts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,6 +24,7 @@ import type {
   SkillSummary,
   SkillVersion,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { SkillDiff } from "./skill-diff.tsx";
 import {
   type AgentNames,

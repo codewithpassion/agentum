@@ -1,15 +1,15 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { ImportGithubForm } from "#/components/skills/import-github-form.tsx";
 import { SkillNewForm } from "#/components/skills/skill-new-form.tsx";
 import { SkillsList } from "#/components/skills/skills-list.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const Route = createFileRoute("/_app/skills/")({
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const trpc = getTrpc();
       const [skills, assignments, proposals, agents] = await Promise.all([
         trpc.skillStore.list.query(),
@@ -18,16 +18,7 @@ export const Route = createFileRoute("/_app/skills/")({
         trpc.agents.list.query({ includeArchived: true }),
       ]);
       return { agents, assignments, proposals, skills };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: SkillsIndex,
 });
 

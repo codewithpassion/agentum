@@ -1,8 +1,11 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Guest callbacks capture thread identity. */
 /** biome-ignore-all lint/suspicious/noUnnecessaryConditions: The mutable mount ref changes in effect cleanup across awaited requests. */
+
 import type { GuestThread } from "@repo/protocol/guest";
 import type { CommentAnchor, GuestGrant } from "@repo/protocol/live";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
+import { errorMessage } from "#/lib/error-message";
 import type { EditorRole } from "../live-artifacts/editor-ports";
 import { guestHttp } from "./http";
 import {
@@ -57,8 +60,7 @@ export function GuestComments({
   );
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+    return startPolling(refresh, 5000);
   }, [refresh]);
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -70,7 +72,7 @@ export function GuestComments({
       await refresh();
     } catch (cause) {
       if (alive.current) {
-        failed(cause instanceof Error ? cause.message : "Comment failed");
+        failed(errorMessage(cause, "Comment failed"));
       }
     } finally {
       if (alive.current) {

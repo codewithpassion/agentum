@@ -1,34 +1,25 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import {
   type CreatedTrigger,
   CreateTriggerDialog,
 } from "#/components/triggers/create-trigger-dialog";
-import { errorMessage } from "#/components/triggers/format";
 import { TriggerSecretDialog } from "#/components/triggers/trigger-secret-dialog";
 import { TriggerTable } from "#/components/triggers/trigger-table";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
+import { errorMessage } from "#/lib/error-message";
 
 export const Route = createFileRoute("/_app/triggers")({
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const [triggers, agents] = await Promise.all([
         getTrpc().triggers.list.query({}),
         getTrpc().agents.list.query({}),
       ]);
       return { agents, triggers };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: TriggersPage,
 });
 

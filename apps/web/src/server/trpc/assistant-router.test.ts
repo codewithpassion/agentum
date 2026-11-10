@@ -4,6 +4,7 @@ import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
+import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { composeWith } from "../compose";
 import { buildContext } from "./build-context";
 import { appRouter } from "./router";
@@ -125,5 +126,43 @@ test("a session assistant creates an agent through the real MCP ports, services 
     // biome-ignore lint/performance/noAwaitInLoops: Assert each endpoint rejects the principal.
     await expect(request()).rejects.toMatchObject({ code: "FORBIDDEN" });
   }
+  db.client.close();
+});
+
+test("a message that holds a key answers with a reason, not wording to match", async () => {
+  const db = migrated(["org_a"]);
+  const composed = composeWith({
+    db,
+    infra: {
+      atomic: sqliteAtomic(db),
+      blobs: { get: async () => null, put: () => Promise.resolve() },
+      clock: systemClock,
+      devFakeRuntime: true,
+      fetch: () => Promise.resolve(Response.json({})),
+      fileBlobs: memoryFileBlobs(),
+      relay: noopRelay,
+      secretsKey: Buffer.from(new Uint8Array(32).fill(7)).toString("base64"),
+      validateAnthropicKey: async () => true,
+    },
+  });
+  const response = await fetchRequestHandler({
+    createContext: () =>
+      buildContext({
+        composed,
+        session: { orgId: "org_a", orgRole: "org:member", userId: "u1" },
+      }),
+    endpoint: "/api/trpc",
+    req: new Request("http://test/api/trpc/assistant.send", {
+      body: JSON.stringify({ text: "sk-abcdef123456" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }),
+    router: appRouter,
+  });
+  const body = (await response.json()) as {
+    error: { data: { reason: string | null } };
+  };
+  expect(response.status).toBe(400);
+  expect(body.error.data.reason).toBe("key_in_message");
   db.client.close();
 });

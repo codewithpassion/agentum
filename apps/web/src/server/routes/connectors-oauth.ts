@@ -15,18 +15,14 @@ import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ZodError } from "zod";
 import type { AppEnv } from "./groups.ts";
+import { type SessionDeps, sessionUser } from "./respond.ts";
 
 const BAD_REQUEST = 400;
 const FOUND = 302;
 const FORBIDDEN = 403;
 const UNAUTHORIZED = 401;
 
-export interface ConnectorOAuthRouteDeps {
-  /** The Clerk session of the request: its user and active org, or null. */
-  session: (
-    c: Context<AppEnv>
-  ) => { orgId?: string | null; userId: string | null } | null;
-}
+export type ConnectorOAuthRouteDeps = SessionDeps;
 
 type RouteContext = Context<AppEnv>;
 
@@ -39,16 +35,10 @@ const caller = async (
   c: RouteContext,
   deps: ConnectorOAuthRouteDeps
 ): Promise<Caller> => {
-  const session = deps.session(c);
-  if (!session?.userId) {
+  if (!deps.session(c)?.userId) {
     return { kind: "none" };
   }
-  const principal = await c
-    .get("composed")
-    .services.workspaces.sessionPrincipal({
-      orgId: session.orgId,
-      userId: session.userId,
-    });
+  const principal = await sessionUser(c, deps);
   return principal ? { kind: "user", principal } : { kind: "no_workspace" };
 };
 

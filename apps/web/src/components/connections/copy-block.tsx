@@ -1,8 +1,6 @@
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 /** A labelled, read-only block of text with a Copy button. */
 export function CopyBlock({ label, text }: { label: string; text: string }) {

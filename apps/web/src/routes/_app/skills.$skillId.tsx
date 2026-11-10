@@ -2,10 +2,8 @@ import {
   createFileRoute,
   Link,
   notFound,
-  redirect,
   useRouter,
 } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
 import { useCallback, useMemo, useState } from "react";
 import { z } from "zod";
 import { DeleteSkillDialog } from "#/components/skills/delete-skill-dialog";
@@ -24,6 +22,7 @@ import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 const TABS = ["files", "history"] as const;
 
@@ -34,8 +33,8 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_app/skills/$skillId")({
   validateSearch: (search) => searchSchema.parse(search),
-  loader: async ({ params }) => {
-    try {
+  loader: async ({ params }) =>
+    loadOrLogin(async () => {
       const trpc = getTrpc();
       const [skills, versions, agents] = await Promise.all([
         trpc.skillStore.list.query(),
@@ -47,22 +46,7 @@ export const Route = createFileRoute("/_app/skills/$skillId")({
         throw notFound();
       }
       return { agents, skill, versions };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "NOT_FOUND"
-      ) {
-        throw notFound();
-      }
-      throw error;
-    }
-  },
+    }, ["NOT_FOUND"]),
   notFoundComponent: SkillNotFound,
   component: SkillPage,
 });

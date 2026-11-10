@@ -1,5 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { z } from "zod";
 import { useAssistantLocation } from "#/components/assistant/assistant-location";
@@ -12,7 +11,9 @@ import { agentNameMap } from "#/components/inbox/inbox-logic";
 import { SessionFilters } from "#/components/sessions/session-filters";
 import { ORIGIN_VALUES } from "#/components/sessions/sessions-logic";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 const PAGE = 30;
 
@@ -34,23 +35,14 @@ const filtersOf = (search: Search) => ({
 export const Route = createFileRoute("/_app/sessions")({
   validateSearch: (search) => searchSchema.parse(search),
   loaderDeps: ({ search }) => search,
-  loader: async ({ deps }) => {
-    try {
+  loader: async ({ deps }) =>
+    loadOrLogin(async () => {
       const [rows, agents] = await Promise.all([
         getTrpc().conversations.list.query({ ...filtersOf(deps), limit: PAGE }),
         getTrpc().agents.list.query({ includeArchived: true }),
       ]);
       return { agents, rows };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: SessionsPage,
 });
 
@@ -99,9 +91,7 @@ function History({
       setRows((current) => [...current, ...page]);
       setMore(page.length >= PAGE);
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Could not load more."
-      );
+      setError(errorMessage(caught, "Could not load more."));
     } finally {
       setLoading(false);
     }

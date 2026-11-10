@@ -1,14 +1,14 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { AgentsTable } from "#/components/agent/agents-table";
 import { rowsOf } from "#/components/agent/agents-table-logic";
 import { ArchivedAgents } from "#/components/agent/archived-agents";
 import { buttonVariants } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const Route = createFileRoute("/_app/agents/")({
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const [agents, overview, members] = await Promise.all([
         getTrpc().agents.list.query({ includeArchived: true }),
         getTrpc().agents.overview.query(),
@@ -24,16 +24,7 @@ export const Route = createFileRoute("/_app/agents/")({
           members
         ),
       };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: AgentsIndex,
 });
 

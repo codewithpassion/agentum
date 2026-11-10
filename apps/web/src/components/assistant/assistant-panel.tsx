@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { errorMessage } from "#/components/secrets/secret-model";
 import {
   Sheet,
   SheetContent,
@@ -9,6 +8,7 @@ import {
 } from "#/components/ui/sheet";
 import { Spinner } from "#/components/ui/spinner";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { AssistantConversation } from "./assistant-conversation";
 import { useAssistantLocation } from "./assistant-location";
 

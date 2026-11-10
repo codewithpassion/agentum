@@ -16,7 +16,7 @@ import {
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TriggerRecord } from "#/integrations/trpc/types";
-import { errorMessage } from "./format.ts";
+import { errorMessage } from "#/lib/error-message";
 
 export interface CreatedTrigger {
   secret: string;

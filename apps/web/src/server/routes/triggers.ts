@@ -5,22 +5,19 @@
 // `automationRoutes.route("/api/triggers", triggerRoutes())`.
 
 import { readCappedBody } from "@repo/app-gateway/body";
-import { isForbiddenError } from "@repo/services/authz";
-import { isServiceError } from "@repo/services/errors";
 import {
   type FireResult,
   type TriggerPrincipal,
   triggerFireInputSchema,
 } from "@repo/services/triggers";
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 import { type AppEnv, bearerGroup } from "./groups.ts";
+import { bearerUnauthorized, serviceRefusal } from "./respond.ts";
 
 type RouteContext = Context<AppEnv>;
 
 const BAD_REQUEST = 400;
-const UNAUTHORIZED = 401;
 const FORBIDDEN = 403;
 const MAX_BODY_BYTES = 512 * 1024;
 
@@ -35,21 +32,10 @@ const describeIssue = (error: z.ZodError): string => {
 };
 
 /** What a service refused with, as a response. Anything else is a bug and rethrows. */
-const refusal = (c: RouteContext, error: unknown): Response => {
-  if (isForbiddenError(error)) {
-    return c.json({ error: "Not allowed." }, FORBIDDEN);
-  }
-  if (isServiceError(error)) {
-    return c.json(
-      { error: error.message },
-      error.status as ContentfulStatusCode
-    );
-  }
-  if (error instanceof z.ZodError) {
-    return c.json({ error: describeIssue(error) }, BAD_REQUEST);
-  }
-  throw error;
-};
+const refusal = (c: RouteContext, error: unknown): Response =>
+  error instanceof z.ZodError
+    ? c.json({ error: describeIssue(error) }, BAD_REQUEST)
+    : serviceRefusal(c, error);
 
 const readInput = async (
   c: RouteContext
@@ -112,9 +98,7 @@ export const triggerRoutes = () => {
       .get("composed")
       .services.triggers.authenticate(c.req.header("Authorization") ?? null);
     if (!principal) {
-      return c.json({ error: "Invalid trigger token." }, UNAUTHORIZED, {
-        "WWW-Authenticate": 'Bearer realm="agentum"',
-      });
+      return bearerUnauthorized("Invalid trigger token.");
     }
     const triggerId = c.req.param("id");
     if (principal.triggerId !== triggerId) {

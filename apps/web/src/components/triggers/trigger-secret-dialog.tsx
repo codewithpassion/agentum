@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
-import { errorMessage } from "./format.ts";
+import { errorMessage } from "#/lib/error-message";
 
 const curlExample = (origin: string, triggerId: string, secret: string) =>
   [

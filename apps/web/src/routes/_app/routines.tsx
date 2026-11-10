@@ -1,30 +1,21 @@
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { CreateRoutineDialog } from "#/components/routines/create-routine-dialog";
 import { RoutineTable } from "#/components/routines/routine-table";
-import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
+import { errorMessage } from "#/lib/error-message";
 
 export const Route = createFileRoute("/_app/routines")({
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const [routines, agents] = await Promise.all([
         getTrpc().routines.list.query({}),
         getTrpc().agents.list.query({}),
       ]);
       return { agents, routines };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: RoutinesPage,
 });
 

@@ -18,12 +18,10 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AppArtifactsRouteImport } from './routes/_app/artifacts'
 import { Route as AppAssistantRouteImport } from './routes/_app/assistant'
-import { Route as AppConnectorsRouteImport } from './routes/_app/connectors'
 import { Route as AppDeskRouteImport } from './routes/_app/desk'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppLibraryRouteImport } from './routes/_app/library'
 import { Route as AppLogRouteImport } from './routes/_app/log'
-import { Route as AppMachinesRouteImport } from './routes/_app/machines'
 import { Route as AppMapRouteImport } from './routes/_app/map'
 import { Route as AppRoutinesRouteImport } from './routes/_app/routines'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
@@ -43,7 +41,6 @@ import { Route as AppSettingsArtifactsRouteImport } from './routes/_app/settings
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings.connected-apps'
 import { Route as AppSettingsConnectorsRouteImport } from './routes/_app/settings.connectors'
 import { Route as AppSettingsMachinesRouteImport } from './routes/_app/settings.machines'
-import { Route as AppSettingsManagedAgentsRouteImport } from './routes/_app/settings.managed-agents'
 import { Route as AppSettingsModelProvidersRouteImport } from './routes/_app/settings.model-providers'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
@@ -97,11 +94,6 @@ const AppAssistantRoute = AppAssistantRouteImport.update({
   path: '/assistant',
   getParentRoute: () => AppRoute,
 } as any)
-const AppConnectorsRoute = AppConnectorsRouteImport.update({
-  id: '/connectors',
-  path: '/connectors',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppDeskRoute = AppDeskRouteImport.update({
   id: '/desk',
   path: '/desk',
@@ -120,11 +112,6 @@ const AppLibraryRoute = AppLibraryRouteImport.update({
 const AppLogRoute = AppLogRouteImport.update({
   id: '/log',
   path: '/log',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppMachinesRoute = AppMachinesRouteImport.update({
-  id: '/machines',
-  path: '/machines',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMapRoute = AppMapRouteImport.update({
@@ -223,12 +210,6 @@ const AppSettingsMachinesRoute = AppSettingsMachinesRouteImport.update({
   path: '/machines',
   getParentRoute: () => AppSettingsRoute,
 } as any)
-const AppSettingsManagedAgentsRoute =
-  AppSettingsManagedAgentsRouteImport.update({
-    id: '/managed-agents',
-    path: '/managed-agents',
-    getParentRoute: () => AppSettingsRoute,
-  } as any)
 const AppSettingsModelProvidersRoute =
   AppSettingsModelProvidersRouteImport.update({
     id: '/model-providers',
@@ -282,12 +263,10 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/artifacts': typeof AppArtifactsRoute
   '/assistant': typeof AppAssistantRoute
-  '/connectors': typeof AppConnectorsRoute
   '/desk': typeof AppDeskRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
-  '/machines': typeof AppMachinesRoute
   '/map': typeof AppMapRoute
   '/routines': typeof AppRoutinesRoute
   '/sessions': typeof AppSessionsRoute
@@ -304,7 +283,6 @@ export interface FileRoutesByFullPath {
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/connectors': typeof AppSettingsConnectorsRoute
   '/settings/machines': typeof AppSettingsMachinesRoute
-  '/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
@@ -326,12 +304,10 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/artifacts': typeof AppArtifactsRoute
   '/assistant': typeof AppAssistantRoute
-  '/connectors': typeof AppConnectorsRoute
   '/desk': typeof AppDeskRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
-  '/machines': typeof AppMachinesRoute
   '/map': typeof AppMapRoute
   '/routines': typeof AppRoutinesRoute
   '/sessions': typeof AppSessionsRoute
@@ -347,7 +323,6 @@ export interface FileRoutesByTo {
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/connectors': typeof AppSettingsConnectorsRoute
   '/settings/machines': typeof AppSettingsMachinesRoute
-  '/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
@@ -371,12 +346,10 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/_app/artifacts': typeof AppArtifactsRoute
   '/_app/assistant': typeof AppAssistantRoute
-  '/_app/connectors': typeof AppConnectorsRoute
   '/_app/desk': typeof AppDeskRoute
   '/_app/inbox': typeof AppInboxRoute
   '/_app/library': typeof AppLibraryRoute
   '/_app/log': typeof AppLogRoute
-  '/_app/machines': typeof AppMachinesRoute
   '/_app/map': typeof AppMapRoute
   '/_app/routines': typeof AppRoutinesRoute
   '/_app/sessions': typeof AppSessionsRoute
@@ -393,7 +366,6 @@ export interface FileRoutesById {
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/_app/settings/connectors': typeof AppSettingsConnectorsRoute
   '/_app/settings/machines': typeof AppSettingsMachinesRoute
-  '/_app/settings/managed-agents': typeof AppSettingsManagedAgentsRoute
   '/_app/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
@@ -417,12 +389,10 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/artifacts'
     | '/assistant'
-    | '/connectors'
     | '/desk'
     | '/inbox'
     | '/library'
     | '/log'
-    | '/machines'
     | '/map'
     | '/routines'
     | '/sessions'
@@ -439,7 +409,6 @@ export interface FileRouteTypes {
     | '/settings/connected-apps'
     | '/settings/connectors'
     | '/settings/machines'
-    | '/settings/managed-agents'
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/skills/$skillId'
@@ -461,12 +430,10 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/artifacts'
     | '/assistant'
-    | '/connectors'
     | '/desk'
     | '/inbox'
     | '/library'
     | '/log'
-    | '/machines'
     | '/map'
     | '/routines'
     | '/sessions'
@@ -482,7 +449,6 @@ export interface FileRouteTypes {
     | '/settings/connected-apps'
     | '/settings/connectors'
     | '/settings/machines'
-    | '/settings/managed-agents'
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/skills/$skillId'
@@ -505,12 +471,10 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/_app/artifacts'
     | '/_app/assistant'
-    | '/_app/connectors'
     | '/_app/desk'
     | '/_app/inbox'
     | '/_app/library'
     | '/_app/log'
-    | '/_app/machines'
     | '/_app/map'
     | '/_app/routines'
     | '/_app/sessions'
@@ -527,7 +491,6 @@ export interface FileRouteTypes {
     | '/_app/settings/connected-apps'
     | '/_app/settings/connectors'
     | '/_app/settings/machines'
-    | '/_app/settings/managed-agents'
     | '/_app/settings/model-providers'
     | '/_app/settings/secrets'
     | '/_app/skills/$skillId'
@@ -619,13 +582,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAssistantRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/connectors': {
-      id: '/_app/connectors'
-      path: '/connectors'
-      fullPath: '/connectors'
-      preLoaderRoute: typeof AppConnectorsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/desk': {
       id: '/_app/desk'
       path: '/desk'
@@ -652,13 +608,6 @@ declare module '@tanstack/react-router' {
       path: '/log'
       fullPath: '/log'
       preLoaderRoute: typeof AppLogRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/machines': {
-      id: '/_app/machines'
-      path: '/machines'
-      fullPath: '/machines'
-      preLoaderRoute: typeof AppMachinesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/map': {
@@ -794,13 +743,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsMachinesRouteImport
       parentRoute: typeof AppSettingsRoute
     }
-    '/_app/settings/managed-agents': {
-      id: '/_app/settings/managed-agents'
-      path: '/managed-agents'
-      fullPath: '/settings/managed-agents'
-      preLoaderRoute: typeof AppSettingsManagedAgentsRouteImport
-      parentRoute: typeof AppSettingsRoute
-    }
     '/_app/settings/model-providers': {
       id: '/_app/settings/model-providers'
       path: '/model-providers'
@@ -866,7 +808,6 @@ interface AppSettingsRouteChildren {
   AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
   AppSettingsConnectorsRoute: typeof AppSettingsConnectorsRoute
   AppSettingsMachinesRoute: typeof AppSettingsMachinesRoute
-  AppSettingsManagedAgentsRoute: typeof AppSettingsManagedAgentsRoute
   AppSettingsModelProvidersRoute: typeof AppSettingsModelProvidersRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
@@ -880,7 +821,6 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
   AppSettingsConnectorsRoute: AppSettingsConnectorsRoute,
   AppSettingsMachinesRoute: AppSettingsMachinesRoute,
-  AppSettingsManagedAgentsRoute: AppSettingsManagedAgentsRoute,
   AppSettingsModelProvidersRoute: AppSettingsModelProvidersRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
@@ -896,12 +836,10 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 interface AppRouteChildren {
   AppArtifactsRoute: typeof AppArtifactsRoute
   AppAssistantRoute: typeof AppAssistantRoute
-  AppConnectorsRoute: typeof AppConnectorsRoute
   AppDeskRoute: typeof AppDeskRoute
   AppInboxRoute: typeof AppInboxRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppLogRoute: typeof AppLogRoute
-  AppMachinesRoute: typeof AppMachinesRoute
   AppMapRoute: typeof AppMapRoute
   AppRoutinesRoute: typeof AppRoutinesRoute
   AppSessionsRoute: typeof AppSessionsRoute
@@ -921,12 +859,10 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppArtifactsRoute: AppArtifactsRoute,
   AppAssistantRoute: AppAssistantRoute,
-  AppConnectorsRoute: AppConnectorsRoute,
   AppDeskRoute: AppDeskRoute,
   AppInboxRoute: AppInboxRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppLogRoute: AppLogRoute,
-  AppMachinesRoute: AppMachinesRoute,
   AppMapRoute: AppMapRoute,
   AppRoutinesRoute: AppRoutinesRoute,
   AppSessionsRoute: AppSessionsRoute,

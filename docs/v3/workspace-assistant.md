@@ -10,9 +10,9 @@ Secrets must never pass through the chat or the model. T3 Code (pingdotgg/t3code
 
 ## What it is
 
-- A page at `/assistant`, in the rail and in `rail/find-registry.ts`. Desktop: the conversation in the main pane with a list of the person's earlier conversations. Phone: the conversation full screen, with the list behind a back button.
+- A panel that opens over any page, driven by the `assistant` search parameter (`?assistant=<conversation id>`, or `new`). Find opens it, as does the assistant button in the rail header (`components/assistant/assistant-location.ts`). It holds the conversation and a list of the person's earlier conversations, with the list behind a back button on a phone. The old `/assistant?c=` URL redirects to `/desk?assistant=`, and `rail/find-registry.ts` still lists Assistant so Find can open the panel. The person's conversations also show in the shared conversation list, each marked with its kind.
 - Conversations belong to one person in one workspace. Nobody else sees them, admins included.
-- The model call is server side, on the workspace's own key, exactly as the agent builder does it (`packages/services/src/agent-builder/service.ts`: `managedKeys.resolve`, the Anthropic Messages API, `CLOUD_DEFAULT_MODEL`). With no key, the page says so and links to Model providers, as the builder does.
+- The model call is server side, on the workspace's own key, exactly as the agent builder does it (`packages/services/src/agent-builder/service.ts`: `managedKeys.resolve`, the Anthropic Messages API, `CLOUD_DEFAULT_MODEL`). With no key, the panel says so and links to Model providers, as the builder does.
 
 ## Who may do what
 
@@ -54,14 +54,14 @@ A tool whose annotations say `destructiveHint: true` (archive, revoke, cancel ru
 ## Keeping keys out of the chat
 
 - The system prompt says: never ask for a secret, key, token or password in chat; always use `request_secret` or `request_model_key`; never repeat a value.
-- Before a person's message goes to the model, the server checks it for key-shaped text (known prefixes such as `sk-`, `sk-ant-`, `ghp_`, `github_pat_`, `xox`, `AKIA`, `ag_`, `hm_`, a JWT, a PEM block, and a long high-entropy token). If it finds one, it refuses with "That looks like a key. Use Add secret instead." and stores nothing. The page offers Add secret, which opens the same card without the model.
+- Before a person's message goes to the model, the server checks it for key-shaped text (known prefixes such as `sk-`, `sk-ant-`, `ghp_`, `github_pat_`, `xox`, `AKIA`, `ag_`, `hm_`, a JWT, a PEM block, and a long high-entropy token). If it finds one, it refuses with "That looks like a key. Use Add secret instead." and stores nothing. The panel offers Add secret, which opens the same card without the model. The client reads the `reason` the server sends with the refusal (`key_in_message`), not the wording of the message.
 - Tool results are scrubbed for the person's workspace secret values before they reach the model or the tables, as `secrets/scrub.ts` does for runs.
 
 ## The loop
 
 - `assistant.send({ conversationId?, text })` stores the message, then calls the model and runs tools until the model answers in text, stops at a card, or reaches 16 tool calls (then it says it stopped and asks the person to continue).
 - `assistant.resolveCard({ conversationId, toolUseId, outcome })` records the card's outcome as the tool result and continues the loop the same way.
-- No streaming in this version. The page shows a working line while the call runs and renders the stored steps when it returns. A turn that fails keeps everything up to the failure and shows the error.
+- No streaming in this version. The panel shows a working line while the call runs and renders the stored steps when it returns. A turn that fails keeps everything up to the failure and shows the error.
 - Each tool call and result is stored, so a reload shows the same conversation, and an open card is still open.
 
 ## Storage

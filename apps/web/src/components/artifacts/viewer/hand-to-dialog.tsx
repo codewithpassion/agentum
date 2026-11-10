@@ -11,6 +11,7 @@ import {
 } from "#/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import {
   type HandToAgent,
   handToAgentId,
@@ -133,9 +134,7 @@ export function HandToDialog({
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
-          setError(
-            caught instanceof Error ? caught.message : "Could not load agents"
-          );
+          setError(errorMessage(caught, "Could not load agents"));
           setLoading(false);
         }
       });
@@ -158,7 +157,7 @@ export function HandToDialog({
       onOpenChange(false);
       onSaved();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save");
+      setError(errorMessage(caught, "Could not save"));
     } finally {
       setSaving(false);
     }

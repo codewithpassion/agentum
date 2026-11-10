@@ -3,7 +3,8 @@ import { useCallback, useId, useState } from "react";
 import { Label } from "#/components/ui/label";
 import { Switch } from "#/components/ui/switch";
 import { getTrpc } from "#/integrations/trpc/client";
-import { canToggleLinks, errorMessage } from "./share-model.ts";
+import { errorMessage } from "#/lib/error-message";
+import { canToggleLinks } from "./share-model.ts";
 
 export interface LinksSwitchProps {
   enabled: boolean;

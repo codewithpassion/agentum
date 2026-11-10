@@ -1,8 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage } from "#/components/triggers/format";
+import { errorMessage } from "#/lib/error-message";
 
 export const POLL_INTERVAL_MS = 2000;
 export const DESK_POLL_INTERVAL_MS = 10_000;
+
+/**
+ * Calls `run` every `intervalMs`, skipping ticks while the document is hidden.
+ * It also calls `run` when the window gets focus or the document becomes
+ * visible. It does not call `run` on start. Returns the function that stops it.
+ * Every poll in the app goes through here, so a hidden tab stays quiet.
+ */
+export function startPolling(run: () => void, intervalMs: number): () => void {
+  const runIfVisible = (): void => {
+    if (!document.hidden) {
+      run();
+    }
+  };
+  const timer = setInterval(runIfVisible, intervalMs);
+  window.addEventListener("focus", runIfVisible);
+  document.addEventListener("visibilitychange", runIfVisible);
+  return () => {
+    clearInterval(timer);
+    window.removeEventListener("focus", runIfVisible);
+    document.removeEventListener("visibilitychange", runIfVisible);
+  };
+}
 
 /**
  * Runs `load` now, then every `intervalMs` while mounted, skipping ticks
@@ -55,20 +77,11 @@ export function usePolledQuery<T>(
 
   useEffect(() => {
     mountedRef.current = true;
-    const refreshIfVisible = (): void => {
-      if (!document.hidden) {
-        refresh();
-      }
-    };
     refresh();
-    const timer = setInterval(refreshIfVisible, intervalMs);
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
+    const stop = startPolling(refresh, intervalMs);
     return () => {
       mountedRef.current = false;
-      clearInterval(timer);
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
+      stop();
     };
   }, [refresh, intervalMs]);
 

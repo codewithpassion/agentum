@@ -15,6 +15,7 @@ import {
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   bottomState,
   focusRequest,
@@ -43,8 +44,7 @@ import {
 
 const noop = () => undefined;
 
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => errorMessage(cause);
 
 /** The ids of the files the thread shows, so their names and sizes can be looked up. */
 const fileIdsOf = (messages: readonly ThreadMessage[]): string[] => [

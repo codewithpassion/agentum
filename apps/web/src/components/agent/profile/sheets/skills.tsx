@@ -8,7 +8,6 @@ import {
   useState,
 } from "react";
 import { ConfirmButton } from "#/components/confirm-action/confirm-button";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import {
   type AssignedSkill,
   agentAssignments,
@@ -32,6 +31,7 @@ import type {
   SkillSummary,
   SkillVersion,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import type { AgentPanelProps } from "./props.ts";
 
 const SELECT_CLASS =

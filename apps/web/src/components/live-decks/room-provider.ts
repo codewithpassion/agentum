@@ -29,6 +29,7 @@ import {
 import { Awareness, applyAwarenessUpdate } from "y-protocols/awareness";
 import { Doc, encodeStateAsUpdate, encodeStateVector } from "yjs";
 import { z } from "zod";
+import { errorMessage } from "#/lib/error-message";
 import type { DeckParticipant, DeckWhere, PresentationPosition } from "./ports";
 
 type EditorRole = LiveJoinResult["role"];
@@ -700,7 +701,7 @@ export class TicketedDeckRoom {
     if (this.lifecycle.disposed) {
       return;
     }
-    this.options.failed(error instanceof Error ? error.message : "Room failed");
+    this.options.failed(errorMessage(error, "Room failed"));
     this.dispose();
   }
   dispose() {

@@ -1,5 +1,4 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { z } from "zod";
 import { agentNameMap } from "#/components/inbox/inbox-logic";
@@ -8,6 +7,7 @@ import { ThreadList } from "#/components/inbox/thread-list";
 import { ThreadPanel } from "#/components/inbox/thread-panel";
 import { usePolledQuery } from "#/components/inbox/use-polled-query";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import type { InboxThread } from "#/integrations/trpc/types";
 import { cn } from "#/lib/utils.ts";
 
@@ -17,24 +17,15 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_app/inbox")({
   validateSearch: (search) => searchSchema.parse(search),
-  loader: async () => {
-    try {
+  loader: async () =>
+    loadOrLogin(async () => {
       const [threads, agents, me] = await Promise.all([
         getTrpc().inbox.listThreads.query(),
         getTrpc().agents.list.query({}),
         getTrpc().me.query(),
       ]);
       return { agents, threads, userId: me.userId };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: InboxPage,
 });
 

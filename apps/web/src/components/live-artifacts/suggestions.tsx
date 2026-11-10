@@ -1,5 +1,8 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Review actions capture one suggestion. */
+
 import { useCallback, useEffect, useRef, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
+import { errorMessage } from "#/lib/error-message";
 import { ToolButton } from "./editor-toolbar";
 import { type LiveOutputs, liveApi } from "./live-api";
 
@@ -30,17 +33,15 @@ export function Suggestions({
       }
     } catch (cause) {
       if (request === generation.current) {
-        setError(
-          cause instanceof Error ? cause.message : "Suggestions unavailable"
-        );
+        setError(errorMessage(cause, "Suggestions unavailable"));
       }
     }
   }, [artifactId]);
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, 5000);
+    const stop = startPolling(refresh, 5000);
     return () => {
-      clearInterval(timer);
+      stop();
       generation.current += 1;
       mutating.current = false;
     };
@@ -62,7 +63,7 @@ export function Suggestions({
       }
     } catch (cause) {
       if (request === generation.current) {
-        setError(cause instanceof Error ? cause.message : "Decision failed");
+        setError(errorMessage(cause, "Decision failed"));
       }
     } finally {
       if (request === generation.current) {

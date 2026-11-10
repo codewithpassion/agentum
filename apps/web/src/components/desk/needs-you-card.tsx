@@ -22,10 +22,10 @@ import {
   agentInitials,
   agentTileColour,
 } from "#/components/shell/agent-tile.ts";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { SuggestionReview } from "#/components/wiki-suggestions/suggestion-review.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { ConflictResolver } from "./conflict-resolver.tsx";
 import { ProposalActions } from "./proposal-actions.tsx";
 

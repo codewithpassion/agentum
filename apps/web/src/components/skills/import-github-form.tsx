@@ -6,7 +6,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import {
   checkGithubImport,
   type GithubImportErrors,
@@ -17,6 +16,7 @@ import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 interface ImportFields {
   path: string;

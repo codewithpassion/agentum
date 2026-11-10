@@ -14,6 +14,7 @@ import { Label } from "#/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   INBOUND_WORDS,
   isEnded,
@@ -109,9 +110,6 @@ const choose = <T extends string>(
   options: readonly T[],
   value: string
 ): T | undefined => options.find((option) => option === value);
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 function PolicyChoice({
   id,

@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 interface ArchivedAgent {
   id: string;
@@ -31,7 +32,7 @@ function RestoreAgentButton({
       window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
       await router.invalidate();
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }

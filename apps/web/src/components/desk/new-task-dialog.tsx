@@ -33,9 +33,7 @@ import {
 } from "#/components/ui/select.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 /** Starts a task for an agent, in a new session, and reports the new run's and session's ids. */
 export function NewTaskDialog({

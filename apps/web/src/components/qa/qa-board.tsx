@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { usePolledQuery } from "#/components/inbox/use-polled-query";
-import { errorMessage } from "#/components/triggers/format";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { AskDialog } from "./ask-dialog";
 import { QA_FILTERS, type QaFilter, statusOfFilter } from "./qa-logic";
 import { QuestionCard } from "./question-card";

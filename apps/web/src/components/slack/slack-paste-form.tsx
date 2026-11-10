@@ -1,9 +1,9 @@
 import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
-import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 export interface SlackPasteFormProps {
   agentId: string;

@@ -19,12 +19,8 @@ import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { LibraryEntryRecord } from "#/integrations/trpc/types";
-import {
-  baseName,
-  errorMessage,
-  joinPath,
-  parentDir,
-} from "./library-logic.ts";
+import { errorMessage } from "#/lib/error-message";
+import { baseName, joinPath, parentDir } from "./library-logic.ts";
 
 export type MoveMode = "rename" | "move";
 

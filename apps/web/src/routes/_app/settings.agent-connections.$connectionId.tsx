@@ -1,10 +1,4 @@
-import {
-  createFileRoute,
-  Link,
-  redirect,
-  useRouter,
-} from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
 import { type ReactNode, useCallback, useState } from "react";
 import { ConfirmButton } from "#/components/confirm-action/confirm-button";
@@ -21,7 +15,9 @@ import { PoliciesPanel } from "#/components/connections/policies-panel";
 import { Badge } from "#/components/ui/badge";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 type Connection = RouterOutputs["a2a"]["get"];
 
@@ -34,8 +30,8 @@ const CHECK_CODE_STATUSES: string[] = [
 export const Route = createFileRoute(
   "/_app/settings/agent-connections/$connectionId"
 )({
-  loader: async ({ params }) => {
-    try {
+  loader: async ({ params }) =>
+    loadOrLogin(async () => {
       const { connectionId } = params;
       const trpc = getTrpc();
       const [connection, manage, tasks] = await Promise.all([
@@ -44,21 +40,9 @@ export const Route = createFileRoute(
         trpc.a2a.recentTasks.query({ connectionId }),
       ]);
       return { connection, manage, tasks };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      throw error;
-    }
-  },
+    }),
   component: ConnectionPage,
 });
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const ago = (time: string): string =>
   formatDistanceToNow(new Date(time), { addSuffix: true });

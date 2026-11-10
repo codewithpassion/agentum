@@ -8,9 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 export function SecretDialog({
   onDone,

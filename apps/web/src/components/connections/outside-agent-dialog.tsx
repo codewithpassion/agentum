@@ -25,6 +25,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 type Tab = "key" | "call";
 type CardPreview = RouterOutputs["a2a"]["previewCard"];
@@ -53,9 +54,6 @@ const SCHEME_WORDS: Record<CardScheme, string> = {
   none: "No credential needed",
   oauth2_client_credentials: "An OAuth client id and secret",
 };
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 const hasCredential = (
   scheme: CardScheme,

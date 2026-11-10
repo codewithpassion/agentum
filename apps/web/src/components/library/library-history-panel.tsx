@@ -12,12 +12,8 @@ import {
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { LibraryVersionRecord } from "#/integrations/trpc/types";
-import {
-  type DiffLine,
-  errorMessage,
-  formatMtime,
-  lineDiff,
-} from "./library-logic.ts";
+import { errorMessage } from "#/lib/error-message";
+import { type DiffLine, formatMtime, lineDiff } from "./library-logic.ts";
 
 const MAX_COMPARED = 2;
 const NOT_TEXT = "These versions are not text, so they cannot be compared.";

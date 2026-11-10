@@ -16,9 +16,9 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { withoutArgumentLimits } from "./live-link-model";
 import {
-  errorMessage,
   formatTimestamp,
   revokeConfirmCopy,
   SHARE_STATUS_LABELS,

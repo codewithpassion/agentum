@@ -1,6 +1,8 @@
 import type { ArtifactCard } from "@repo/protocol/artifacts";
 import { useEffect, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { artifactHref, audienceBadges } from "./artifacts-logic.ts";
 import { KIND_ICONS } from "./kind-icons.ts";
 
@@ -83,7 +85,7 @@ export function ArtifactsSlot({
         }
       } catch (cause) {
         if (current) {
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(errorMessage(cause));
         }
       }
     };
@@ -93,10 +95,10 @@ export function ArtifactsSlot({
         current = false;
       };
     }
-    const timer = setInterval(load, ARTIFACTS_REFRESH_MS);
+    const stop = startPolling(load, ARTIFACTS_REFRESH_MS);
     return () => {
       current = false;
-      clearInterval(timer);
+      stop();
     };
   }, [runId, running, onCount]);
 

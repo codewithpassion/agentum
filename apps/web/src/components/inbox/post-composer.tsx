@@ -16,11 +16,11 @@ import {
   useDictation,
 } from "#/components/dictation/index.ts";
 import { canSend } from "#/components/inbox/inbox-logic";
-import { errorMessage } from "#/components/triggers/format";
 import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
 import { Textarea } from "#/components/ui/textarea";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 interface PostComposerProps {
   onSent: () => void;

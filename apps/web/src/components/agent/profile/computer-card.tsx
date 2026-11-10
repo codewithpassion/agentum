@@ -6,11 +6,9 @@ import type {
   AgentRecord,
   MachineRecord,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { ComputerChoiceRow } from "./computer-choice-row.tsx";
 import { computerChoices, machineAgentWords } from "./profile-logic.ts";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 /** The "Computer" side card: the machine the agent runs on, or the computers it can attach to. */
 export function ComputerCard({

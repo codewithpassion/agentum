@@ -1,34 +1,19 @@
-import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
-import { TRPCClientError } from "@trpc/client";
+import { createFileRoute } from "@tanstack/react-router";
 import { agentNameMap } from "#/components/inbox/inbox-logic";
 import { QuestionPage } from "#/components/qa/question-page";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const Route = createFileRoute("/_app/qa/$questionId")({
-  loader: async ({ params }) => {
-    try {
+  loader: async ({ params }) =>
+    loadOrLogin(async () => {
       const [view, agents, me] = await Promise.all([
         getTrpc().qa.get.query({ questionId: params.questionId }),
         getTrpc().agents.list.query({ includeArchived: true }),
         getTrpc().me.query(),
       ]);
       return { agentNames: agentNameMap(agents), userId: me.userId, view };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "NOT_FOUND"
-      ) {
-        throw notFound();
-      }
-      throw error;
-    }
-  },
+    }, ["NOT_FOUND"]),
   notFoundComponent: QuestionNotFound,
   component: QuestionRoute,
 });

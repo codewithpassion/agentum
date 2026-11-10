@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -12,6 +11,7 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 export function DeleteSkillDialog({
   onClose,

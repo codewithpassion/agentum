@@ -12,6 +12,7 @@ import {
 } from "#/components/ui/select";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AgentRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   type AskChange,
   backupChoices,
@@ -81,7 +82,7 @@ function AsksSelects({
         await router.invalidate();
         toast.success("Saved");
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       } finally {
         setSaving(false);
       }

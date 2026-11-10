@@ -9,6 +9,7 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { LiveLinkChoice } from "./live-link-choice";
 import { type DataMode, expiryText } from "./live-link-model";
 import {
@@ -17,7 +18,6 @@ import {
   EXPIRY_CHOICES,
   EXPIRY_LABELS,
   type ExpiryChoice,
-  errorMessage,
 } from "./share-model";
 
 export interface CreateLinkFormProps {

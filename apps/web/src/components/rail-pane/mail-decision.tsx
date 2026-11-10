@@ -1,10 +1,10 @@
 import type { RailCard } from "@repo/db/shared";
 import { type ChangeEvent, useCallback, useId, useState } from "react";
 import type { AnswerPayload } from "#/components/requests/request-card-logic.ts";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
+import { errorMessage } from "#/lib/error-message";
 import {
   alwaysSendAnswer,
   notThisTimeAnswer,

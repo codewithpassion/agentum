@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import {
   compareUrl,
   pinnedUrl,

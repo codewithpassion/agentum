@@ -1,10 +1,10 @@
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AgentProfileView, AgentRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   type AccessMode,
   modeLabel,

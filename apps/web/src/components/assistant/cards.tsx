@@ -12,7 +12,6 @@ import { AllowedHostsField } from "#/components/secrets/allowed-hosts-field";
 import { RulesEditor } from "#/components/secrets/rules-editor";
 import {
   emptyRule,
-  errorMessage,
   parseHosts,
   toRules,
 } from "#/components/secrets/secret-model";
@@ -21,6 +20,7 @@ import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import type { AssistantAgent, CardOutcome, PendingCard } from "./types";
 
 import { useCardRecovery } from "./use-card-recovery";

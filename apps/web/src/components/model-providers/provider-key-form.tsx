@@ -3,10 +3,8 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import { errorMessage } from "#/lib/error-message";
 import { keyState } from "./key-state";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 export interface ProviderKeyStatus {
   configured: boolean;

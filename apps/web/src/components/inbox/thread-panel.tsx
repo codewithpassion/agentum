@@ -4,9 +4,9 @@ import { threadWaits } from "#/components/inbox/inbox-logic";
 import { PostComposer } from "#/components/inbox/post-composer";
 import { PostList } from "#/components/inbox/post-list";
 import { usePolledQuery } from "#/components/inbox/use-polled-query";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 
 interface ThreadPanelProps {
   agentNames: ReadonlyMap<string, string>;

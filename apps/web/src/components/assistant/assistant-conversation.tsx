@@ -1,3 +1,4 @@
+import { ERROR_REASON } from "@repo/services/errors";
 import { ArrowLeft, History, Sparkles } from "lucide-react";
 import {
   type ChangeEvent,
@@ -22,13 +23,13 @@ import {
   DictationPreview,
   useDictation,
 } from "#/components/dictation";
-import { errorMessage } from "#/components/secrets/secret-model";
 import { Button } from "#/components/ui/button";
 import { Label } from "#/components/ui/label";
 import { Spinner } from "#/components/ui/spinner";
 import { Textarea } from "#/components/ui/textarea";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
+import { errorMessage, errorReason } from "#/lib/error-message";
 import { useAssistantLocation } from "./assistant-location";
 import { AssistantCard } from "./cards";
 import { AssistantMessages } from "./messages";
@@ -41,6 +42,16 @@ import type {
 
 /** The server caps an assistant list page here; a full page means there may be more. */
 const CONVERSATION_PAGE = 50;
+
+interface Failure {
+  message: string;
+  reason: string | null;
+}
+
+const failureOf = (caught: unknown): Failure => ({
+  message: errorMessage(caught),
+  reason: errorReason(caught),
+});
 
 const manualCard: PendingCard = {
   arguments: {
@@ -72,7 +83,7 @@ export function AssistantConversation({
   const [list, setList] = useState(initialList);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
   const [manual, setManual] = useState(false);
   const [manualVersion, setManualVersion] = useState(0);
   const [showList, setShowList] = useState(false);
@@ -130,7 +141,7 @@ export function AssistantConversation({
         return;
       }
       setBusy(true);
-      setError(null);
+      setFailure(null);
       try {
         await accept(
           await getTrpc().assistant.resolveCard.mutate({
@@ -154,7 +165,7 @@ export function AssistantConversation({
       setBusy(true);
       setShowList(false);
       setManual(false);
-      setError(null);
+      setFailure(null);
       try {
         await accept(
           await getTrpc().assistant.send.mutate({
@@ -164,9 +175,9 @@ export function AssistantConversation({
         );
         setText("");
       } catch (caught) {
-        const message = errorMessage(caught);
-        setError(message);
-        if (message.includes("That looks like a key")) {
+        const next = failureOf(caught);
+        setFailure(next);
+        if (next.reason === ERROR_REASON.keyInMessage) {
           setText("");
         }
         if (conversation) {
@@ -196,7 +207,7 @@ export function AssistantConversation({
         open("new");
       }
     } catch (caught) {
-      setError(errorMessage(caught));
+      setFailure(failureOf(caught));
     } finally {
       setBusy(false);
     }
@@ -205,7 +216,7 @@ export function AssistantConversation({
     setManual(true);
     setManualVersion((version) => version + 1);
     setShowList(false);
-    setError(null);
+    setFailure(null);
   }, []);
 
   const newConversation = useCallback(() => {
@@ -245,7 +256,7 @@ export function AssistantConversation({
         setMoreConversations(page.length >= CONVERSATION_PAGE);
       }
     } catch (caught) {
-      setError(errorMessage(caught));
+      setFailure(failureOf(caught));
     } finally {
       setLoadingMore(false);
     }
@@ -274,7 +285,7 @@ export function AssistantConversation({
         );
       }
     } catch (caught) {
-      setError(errorMessage(caught));
+      setFailure(failureOf(caught));
     } finally {
       setLoadingEarlier(false);
     }
@@ -421,10 +432,10 @@ export function AssistantConversation({
                 Working…
               </p>
             ) : null}
-            {error ? (
+            {failure ? (
               <div className="text-destructive text-sm" role="alert">
-                <p>{error}</p>
-                {error.includes("That looks like a key") && admin ? (
+                <p>{failure.message}</p>
+                {failure.reason === ERROR_REASON.keyInMessage && admin ? (
                   <Button
                     className="mt-2"
                     onClick={openManual}

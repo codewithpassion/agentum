@@ -1,8 +1,6 @@
 import type { ArtifactsOpenOutput } from "@repo/protocol/artifacts";
 import {
   createFileRoute,
-  notFound,
-  redirect,
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
@@ -46,33 +44,20 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Spinner } from "#/components/ui/spinner";
 import { getTrpc } from "#/integrations/trpc/client";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
+import { errorMessage } from "#/lib/error-message";
 
 export const Route = createFileRoute("/a/$artifactId")({
   component: ArtifactViewerPage,
-  loader: async ({ params }) => {
-    try {
+  loader: async ({ params }) =>
+    loadOrLogin(async () => {
       const trpc = getTrpc();
       const [detail, versions] = await Promise.all([
         trpc.artifacts.get.query({ artifactId: params.artifactId }),
         trpc.artifacts.versions.query({ artifactId: params.artifactId }),
       ]);
       return { detail, versions };
-    } catch (error) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        throw redirect({ to: "/login" });
-      }
-      if (
-        error instanceof TRPCClientError &&
-        (error.data?.code === "NOT_FOUND" || error.data?.code === "FORBIDDEN")
-      ) {
-        throw notFound();
-      }
-      throw error;
-    }
-  },
+    }, ["NOT_FOUND", "FORBIDDEN"]),
   notFoundComponent: ArtifactNotFound,
   validateSearch: (search: Record<string, unknown>): { v?: number } => {
     const v = parseVersionSearch(search.v);
@@ -88,10 +73,6 @@ function ArtifactNotFound() {
       </p>
     </main>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong";
 }
 
 type OpenState =

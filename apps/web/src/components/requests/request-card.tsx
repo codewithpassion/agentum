@@ -14,6 +14,7 @@ import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import {
   type A2aSendFields,
   type AnswerPayload,
@@ -33,9 +34,6 @@ import {
   taskSettlement,
   typeQuestion,
 } from "./request-card-logic.ts";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
 
 type CurrentUser = ReturnType<typeof useUser>["user"];
 

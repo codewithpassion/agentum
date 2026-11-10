@@ -20,11 +20,11 @@ import type { Context } from "hono";
 import { runTokenKeySpec } from "../run-token-key.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
 import { PROXY_CAP_MS } from "./proxy.ts";
+import { bearerUnauthorized } from "./respond.ts";
 
 /** Largest request or answer body the relay carries. */
 export const MAX_EGRESS_BODY_BYTES = 10 * 1024 * 1024;
 
-const UNAUTHORIZED = 401;
 const FORBIDDEN = 403;
 const BAD_GATEWAY = 502;
 const UNREACHABLE = 502;
@@ -79,15 +79,6 @@ export interface EgressRouteOptions {
 const defaultLog = (entry: LogEntry) => {
   console.log(JSON.stringify(entry));
 };
-
-const unauthorized = (): Response =>
-  Response.json(
-    { error: "unauthorized" },
-    {
-      headers: { "WWW-Authenticate": 'Bearer realm="agentum"' },
-      status: UNAUTHORIZED,
-    }
-  );
 
 const unavailable = (): Response =>
   Response.json(
@@ -377,7 +368,7 @@ export const egressRoutes = ({
       return unavailable();
     }
     if (!claims) {
-      return unauthorized();
+      return bearerUnauthorized();
     }
     try {
       return await forward(c, claims);

@@ -8,8 +8,9 @@ import {
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { bytesToBase64 } from "#/lib/library-content.ts";
-import { errorMessage, joinPath } from "./library-logic.ts";
+import { joinPath } from "./library-logic.ts";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 

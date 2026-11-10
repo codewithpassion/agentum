@@ -16,9 +16,14 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { createMiddleware } from "hono/factory";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { runTokenKeySpec } from "../run-token-key.ts";
 import type { AppEnv } from "./groups.ts";
+import {
+  jsonError,
+  type SessionDeps,
+  serviceRefusal,
+  sessionUser,
+} from "./respond.ts";
 
 /** Room for multipart boundaries and part headers on top of the file itself. */
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
@@ -26,7 +31,6 @@ const MAX_UPLOAD_BODY_BYTES = MAX_FILE_BYTES + MULTIPART_OVERHEAD_BYTES;
 
 const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
-const FORBIDDEN = 403;
 const NOT_FOUND = 404;
 const TOO_LARGE = 413;
 const CREATED = 201;
@@ -67,12 +71,7 @@ const NON_ASCII_OR_QUOTE = /[^\x20-\x7E]|["\\]/g;
 /** What `encodeURIComponent` leaves raw but an RFC 5987 ext-value does not allow. */
 const EXT_VALUE_RESERVED = /['()*]/g;
 
-export interface FilesRouteDeps {
-  /** The Clerk session of the request: its user and active org, or null. */
-  session: (
-    c: Context<AppEnv>
-  ) => { orgId?: string | null; userId: string | null } | null;
-}
+export type FilesRouteDeps = SessionDeps;
 
 type RouteContext = Context<AppEnv>;
 
@@ -149,12 +148,6 @@ const readLimitedForm = async (request: Request): Promise<FormData> => {
   }
 };
 
-const jsonError = (
-  c: RouteContext,
-  status: ContentfulStatusCode,
-  error: string
-) => c.json({ error }, status);
-
 /**
  * The principal a run token (`hm_run_` or `ag_run_`) names, or null. A missing key, a bad key or
  * a token that does not verify are all null, never a 500.
@@ -197,14 +190,7 @@ const authenticate = (
     const token = bearerToken(authorization);
     return token ? runPrincipal(c, token) : Promise.resolve(null);
   }
-  const session = deps.session(c);
-  if (!session?.userId) {
-    return Promise.resolve(null);
-  }
-  return c.get("composed").services.workspaces.sessionPrincipal({
-    orgId: session.orgId,
-    userId: session.userId,
-  });
+  return sessionUser(c, deps);
 };
 
 const SIGN_IN = "Sign in required.";
@@ -216,17 +202,6 @@ const csrfUnlessBearer = (() => {
     c.req.header("Authorization") === undefined ? guard(c, next) : next()
   );
 })();
-
-/** A refusal the services raised, as a response. Anything else is a bug and rethrows. */
-const refusal = (c: RouteContext, error: unknown): Response => {
-  if (isForbiddenError(error)) {
-    return jsonError(c, FORBIDDEN, "Not allowed.");
-  }
-  if (isServiceError(error)) {
-    return jsonError(c, error.status as ContentfulStatusCode, error.message);
-  }
-  throw error;
-};
 
 export const filesRoutes = (deps: FilesRouteDeps): Hono<AppEnv> => {
   const routes = new Hono<AppEnv>();
@@ -272,7 +247,7 @@ export const filesRoutes = (deps: FilesRouteDeps): Hono<AppEnv> => {
       });
       return c.json(record, CREATED);
     } catch (error: unknown) {
-      return refusal(c, error);
+      return serviceRefusal(c, error);
     }
   });
 

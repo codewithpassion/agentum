@@ -166,9 +166,10 @@ test("key shaped messages store nothing; ordinary long words pass", async () => 
     "b3a0e74c9f2185d6a8e0b2d4c6f901734be28f50a9d61c03e7f48a52b960dc13",
     "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----",
   ]) {
-    await expect(f.service.send(user, { text })).rejects.toThrow(
-      "That looks like a key"
-    );
+    await expect(f.service.send(user, { text })).rejects.toMatchObject({
+      message: expect.stringContaining("That looks like a key"),
+      reason: "key_in_message",
+    });
   }
   expect(await f.db.select().from(assistantMessages)).toHaveLength(0);
   await f.service.send(user, {

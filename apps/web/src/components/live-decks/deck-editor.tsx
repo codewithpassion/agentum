@@ -1,9 +1,11 @@
 /** biome-ignore-all lint/suspicious/noUnnecessaryConditions: Core string dictionaries omit optional keys at runtime; DOM refs can be null between mounts. */
 /** biome-ignore-all lint/performance/noJsxPropsBind: Component event handlers capture the current validated scene and role; descendants are not memoized. */
+
 import { type ElementData, generateKeyBetween } from "@repo/live-deck";
 import { THEME_COLORS } from "@repo/live-doc/schema";
 import type { Editor } from "@tiptap/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { errorMessage } from "#/lib/error-message";
 import { alignmentPatches, transformPatches } from "./geometry";
 import { DeckInspector } from "./inspector";
 import {
@@ -51,8 +53,7 @@ export function DeckEditor({ ports }: { ports: DeckEditorPorts }) {
     [sceneDeck]
   );
   const report = useCallback(
-    (value: unknown) =>
-      setError(value instanceof Error ? value.message : String(value)),
+    (value: unknown) => setError(errorMessage(value)),
     []
   );
   const perform = (action: () => void) => {

@@ -1,8 +1,6 @@
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Something went wrong.";
+import { errorMessage } from "#/lib/error-message";
 
 /** This workspace's own MCP address, with a copy button. */
 export function McpAddress({ url }: { url: string }) {

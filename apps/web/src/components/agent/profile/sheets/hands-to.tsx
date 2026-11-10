@@ -4,6 +4,7 @@ import { Checkbox } from "#/components/ui/checkbox";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { AgentRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import { nextHandsTo } from "./hands-to-next.ts";
 import type { AgentPanelProps } from "./props.ts";
 
@@ -26,7 +27,7 @@ export function HandsToPanel({ agent }: AgentPanelProps) {
       })
       .catch((cause: unknown) => {
         if (active) {
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(errorMessage(cause));
         }
       });
     return () => {
@@ -55,7 +56,7 @@ export function HandsToPanel({ agent }: AgentPanelProps) {
         });
         await router.invalidate();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       } finally {
         setSaving(false);
       }

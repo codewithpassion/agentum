@@ -24,6 +24,7 @@ import {
 import { desktopStatusBody } from "../viewer-hub.ts";
 import { type AppEnv, cookieGroup } from "./groups.ts";
 import { UPGRADE_HEADERS } from "./machines.ts";
+import { type SessionDeps, sessionUser } from "./respond.ts";
 
 const BAD_REQUEST = 400;
 const FORBIDDEN = 403;
@@ -32,12 +33,7 @@ const UNAUTHORIZED = 401;
 const UPGRADE_REQUIRED = 426;
 const BAD_GATEWAY = 502;
 
-export interface DesktopRouteDeps {
-  /** The Clerk session of the request: its user and active org, or null. */
-  session: (
-    c: Context<AppEnv>
-  ) => { orgId?: string | null; userId: string | null } | null;
-}
+export type DesktopRouteDeps = SessionDeps;
 
 type RouteContext = Context<AppEnv>;
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
@@ -84,16 +80,10 @@ const caller = async (
   c: RouteContext,
   deps: DesktopRouteDeps
 ): Promise<UserPrincipal | Response> => {
-  const session = deps.session(c);
-  if (!session?.userId) {
+  if (!deps.session(c)?.userId) {
     return c.json({ error: "unauthorized" }, UNAUTHORIZED);
   }
-  const principal = await c
-    .get("composed")
-    .services.workspaces.sessionPrincipal({
-      orgId: session.orgId,
-      userId: session.userId,
-    });
+  const principal = await sessionUser(c, deps);
   if (!principal) {
     return c.json({ error: "no_workspace" }, NO_WORKSPACE);
   }

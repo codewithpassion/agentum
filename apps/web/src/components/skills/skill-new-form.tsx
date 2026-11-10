@@ -5,11 +5,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { errorMessage } from "#/components/library/library-logic.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { bytesToBase64 } from "#/lib/library-content.ts";
 
 /** The SKILL.md a new skill starts with. Its frontmatter name must equal the skill name. */

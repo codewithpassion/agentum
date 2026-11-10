@@ -3,11 +3,8 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Switch } from "#/components/ui/switch.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import { CHIP_CLASS, TONE_CLASS } from "./chip-list.tsx";
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 /** Chip for the agent's mailbox trigger, with a switch that pauses it. Re-mounts when `paused` changes. */
 export function MailStartChip({

@@ -25,6 +25,7 @@ import type {
   AgentProfileView,
   MachineRecord,
 } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 import {
   hostMachines,
   MOVE_COST,
@@ -44,8 +45,7 @@ interface MoveData {
   hosts: MachineRecord[];
 }
 
-const messageOf = (cause: unknown) =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown) => errorMessage(cause);
 
 /** Moves the agent to another runtime. The server refuses while a run is live and names the run. */
 export function MoveAgentDialog({

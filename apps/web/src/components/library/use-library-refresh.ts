@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { startPolling } from "#/components/inbox/use-polled-query";
 
 /** How often the library refetches while its tab is visible. */
 export const LIBRARY_REFRESH_MS = 5000;
@@ -17,23 +18,14 @@ export function useLibraryRefresh(onTick: () => void): number {
     onTickRef.current = onTick;
   });
 
-  useEffect(() => {
-    const run = (): void => {
-      if (document.hidden) {
-        return;
-      }
-      onTickRef.current();
-      setTick((count) => count + 1);
-    };
-    const timer = setInterval(run, LIBRARY_REFRESH_MS);
-    window.addEventListener("focus", run);
-    document.addEventListener("visibilitychange", run);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("focus", run);
-      document.removeEventListener("visibilitychange", run);
-    };
-  }, []);
+  useEffect(
+    () =>
+      startPolling(() => {
+        onTickRef.current();
+        setTick((count) => count + 1);
+      }, LIBRARY_REFRESH_MS),
+    []
+  );
 
   return tick;
 }

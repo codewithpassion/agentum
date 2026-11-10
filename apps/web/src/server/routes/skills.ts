@@ -6,44 +6,24 @@
 // because the paths are full, not prefixed.
 
 import { skillsListResponseSchema } from "@repo/protocol/skills";
-import { isForbiddenError } from "@repo/services/authz";
-import { isServiceError } from "@repo/services/errors";
 import { bearerToken } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import { Hono } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { runPrincipal } from "./files.ts";
 import type { AppEnv } from "./groups.ts";
+import { jsonError, serviceRefusal } from "./respond.ts";
 
 const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
-const FORBIDDEN = 403;
 
 const INVALID_TOKEN = "Invalid run token.";
 
 type RouteContext = Context<AppEnv>;
 
-const jsonError = (
-  c: RouteContext,
-  status: ContentfulStatusCode,
-  error: string
-) => c.json({ error }, status);
-
 /** The run a bearer `hm_run_` token names, or null. Cookies are never read. */
 const authenticateRun = (c: RouteContext) => {
   const token = bearerToken(c.req.header("Authorization") ?? null);
   return token ? runPrincipal(c, token) : Promise.resolve(null);
-};
-
-/** A refusal the services raised, as a response. Anything else is a bug and rethrows. */
-const refusal = (c: RouteContext, error: unknown): Response => {
-  if (isForbiddenError(error)) {
-    return jsonError(c, FORBIDDEN, "Not allowed.");
-  }
-  if (isServiceError(error)) {
-    return jsonError(c, error.status as ContentfulStatusCode, error.message);
-  }
-  throw error;
 };
 
 export const skillsRoutes = (): Hono<AppEnv> => {
@@ -65,7 +45,7 @@ export const skillsRoutes = (): Hono<AppEnv> => {
         })
       );
     } catch (error: unknown) {
-      return refusal(c, error);
+      return serviceRefusal(c, error);
     }
   });
 
@@ -91,7 +71,7 @@ export const skillsRoutes = (): Hono<AppEnv> => {
         },
       });
     } catch (error: unknown) {
-      return refusal(c, error);
+      return serviceRefusal(c, error);
     }
   });
 

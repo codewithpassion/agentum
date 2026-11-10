@@ -52,6 +52,7 @@ import {
 import { Switch } from "#/components/ui/switch";
 import { Textarea } from "#/components/ui/textarea";
 import type { MachineRecord } from "#/integrations/trpc/types";
+import { errorMessage } from "#/lib/error-message";
 
 export interface AgentFormValues {
   environment: CloudEnvironment;
@@ -249,9 +250,7 @@ export function AgentForm({
       try {
         await onSubmit(values);
       } catch (caught) {
-        setError(
-          caught instanceof Error ? caught.message : "Something went wrong."
-        );
+        setError(errorMessage(caught));
       } finally {
         setPending(false);
       }

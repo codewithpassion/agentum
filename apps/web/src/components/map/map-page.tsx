@@ -18,10 +18,10 @@ import {
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
 import { useNowMs } from "#/components/task/use-now-ms.ts";
-import { errorMessage } from "#/components/triggers/format.ts";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { useIsMobile } from "#/hooks/use-mobile.ts";
 import { getTrpc } from "#/integrations/trpc/client";
+import { errorMessage } from "#/lib/error-message";
 import {
   disconnectMessage,
   encodeNewNode,

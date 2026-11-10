@@ -1,5 +1,7 @@
 /** biome-ignore-all lint/performance/noJsxPropsBind: Page actions capture current artifact and selection. */
+
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "#/lib/error-message";
 import type { LiveOutputs } from "../live-artifacts/live-api";
 import { liveApi } from "../live-artifacts/live-api";
 import { ExportControls } from "../live-exports/export-controls";
@@ -87,7 +89,7 @@ export function LiveDeckPage({
       setConfirm(undefined);
       setAttempt((old) => old + 1);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Restore failed");
+      setError(errorMessage(cause, "Restore failed"));
     } finally {
       setBusy(false);
     }
