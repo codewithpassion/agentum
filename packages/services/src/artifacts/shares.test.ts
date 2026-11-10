@@ -1013,7 +1013,7 @@ test("a manager opens a proposed version, another member does not", async () => 
   expect(published.preview).toBeUndefined();
   const claims = await claimsOf(opened.contentUrl);
   expect(claims).toMatchObject({ versionId: "v3", viewer: "test" });
-  expect(claims?.userId).toBeUndefined();
+  expect(claims?.userId).toBe("u_owner");
   await expect(
     shares.open(member, {
       artifactId: ARTIFACT,

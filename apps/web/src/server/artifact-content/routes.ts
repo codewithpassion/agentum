@@ -1,8 +1,9 @@
 // Content routes for artifacts: `GET /a/<uuid>/c/<token>/<path>` (PRD section
-// 3). Reads the version's manifest and blobs from R2 only, never D1, checks
-// the `ag_view_` token, and sends every response through `withContentHeaders`.
-// Mounted by A.6 before the TanStack fall-through and outside Clerk and the
-// compose middleware: `mountArtifactContentRoutes(app, deps)`.
+// 3). Reads the version's manifest and blobs from R2, checks the `ag_view_`
+// token, then asks `authorizeViewer` whether its link or member is still valid
+// (D1 and Clerk, on each request), and sends every response through
+// `withContentHeaders`. Mounted by A.6 before the TanStack fall-through and
+// outside Clerk and the compose middleware: `mountArtifactContentRoutes(app, deps)`.
 
 import {
   type ContentCspInput,

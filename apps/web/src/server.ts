@@ -89,8 +89,9 @@ mountEndpointRoutes(app, {
   wiring: (c) => appGatewayWiring(c.env, c.executionCtx, import.meta.env.DEV),
 });
 
-// Artifact content: signed view tokens, R2 only. Mounted before Clerk and the
-// compose middleware, so these paths never reach either (R1.21a).
+// Artifact content: signed view tokens, files from R2, and a fresh read of the
+// share row or membership per request. Mounted before Clerk and the compose
+// middleware, so these paths never reach either (R1.21a).
 mountArtifactContentRoutes(app, {
   authorizeGuestEmbed: (claims, env) =>
     guestEmbeds(env, compose(env, false)).authorize(claims),

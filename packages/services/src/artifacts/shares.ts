@@ -496,6 +496,9 @@ export const createArtifactSharesService = ({
       version.status === "proposed"
         ? {
             artifactId,
+            // The id is only for the content route's membership re-check; a
+            // test viewer still reads, writes and calls nothing.
+            userId: user.userId,
             versionId: version.id,
             viewer: "test",
             workspaceId: user.workspaceId,
