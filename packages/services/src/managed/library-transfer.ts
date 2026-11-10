@@ -13,7 +13,9 @@
  *   Skills API path as any skill of the agent;
  * - the text that tells the agent when to run it.
  */
+
 import { hashToken } from "../crypto.ts";
+import { TRAILING_SLASHES } from "../shared.ts";
 import type { FileRecord, ResolvedSkill } from "../skills-store/records.ts";
 import { MAX_SKILLS, type SkillsSource } from "./skills-sync.ts";
 
@@ -35,7 +37,6 @@ const SKILL_ID_PREFIX = "builtin-library-transfer-";
 const VERSION_HEX_DIGITS = 7;
 const HEX_RADIX = 16;
 const ENCODER = new TextEncoder();
-const TRAILING_SLASHES = /\/+$/;
 
 const skillText = (): string => `---
 name: ${LIBRARY_SKILL_NAME}

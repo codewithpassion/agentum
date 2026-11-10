@@ -14,11 +14,12 @@
  * refused without echoing it, and a live check that could not run is refused
  * in words of our own, never the provider's.
  */
+
 import type { Database } from "@repo/db";
 import { workspaceModelKeys } from "@repo/db/schema/model-keys";
 import { MODEL_PROVIDERS, type ModelProvider } from "@repo/db/shared";
 import { and, eq } from "drizzle-orm";
-import { authorize, ForbiddenError } from "./authz.ts";
+import { authorize } from "./authz.ts";
 import {
   decryptSecret,
   encryptSecret,
@@ -26,6 +27,7 @@ import {
   type SecretBinding,
 } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
+import { readableWorkspace, requireUser } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -62,8 +64,6 @@ const binding = (
   workspaceId,
 });
 
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
-
 export interface ModelKeyStatus {
   configured: boolean;
   hint: string | null;
@@ -81,22 +81,6 @@ const hasEveryProvider = (
   flags: Record<string, boolean>
 ): flags is Record<ModelProvider, boolean> =>
   MODEL_PROVIDERS.every((provider) => typeof flags[provider] === "boolean");
-
-/** Only a signed-in user may set or remove the key. */
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
-
-/** The workspace a non-system principal reads from. */
-const readableWorkspace = (principal: Principal, action: string): string => {
-  if (principal.kind === "system") {
-    throw new ForbiddenError(action);
-  }
-  return principal.workspaceId;
-};
 
 /** Shape only. Whether the provider accepts the key is what `validate` is for. */
 const checkShape = (apiKey: string): void => {

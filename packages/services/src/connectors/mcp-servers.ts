@@ -1,4 +1,5 @@
 import { connectorServerKeys, PLATFORM_KEY } from "@repo/protocol/server-keys";
+import { TRAILING_SLASHES } from "../shared.ts";
 
 export interface McpServerEntry {
   headers: Record<string, string>;
@@ -10,8 +11,6 @@ export interface McpServerConnector {
   id: string;
   name: string;
 }
-
-const TRAILING_SLASHES = /\/+$/;
 
 /**
  * The MCP servers an agent reaches, as name and URL: the platform's own

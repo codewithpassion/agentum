@@ -32,12 +32,13 @@ import type { AgentRecord } from "../agents.ts";
 import { authorize } from "../authz.ts";
 import { hashToken } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
+import { requireSession } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
+import { idString } from "../shared.ts";
 import type { Principal } from "../workspaces.ts";
 import {
   CONNECTION_KIND,
   requireAdminOrOwner,
-  requireSession,
   type SessionUser,
 } from "./access.ts";
 import type { ConnectionSummary, PublishedCard } from "./connections.ts";
@@ -62,8 +63,6 @@ export const PAIRING_APPROVE_ACTION = "a2a.pairing_approve";
 
 const WRONG_CODE = "That code is not valid or has expired.";
 const LOCKED = "Too many wrong codes. Pairing is locked for an hour.";
-
-const idString = z.string().min(1).max(200);
 
 export const setPairingOpenInputSchema = z.strictObject({
   agentId: idString,

@@ -22,6 +22,14 @@ export class ServiceError extends Error {
   }
 }
 
+/** A request the caller must fix: 400. */
+export const invalid = (message: string): ServiceError =>
+  new ServiceError("invalid", message);
+
+/** Missing, or not visible to the caller: 404. */
+export const notFound = (message = "Not found"): ServiceError =>
+  new ServiceError("not_found", message);
+
 export const isServiceError = (error: unknown): error is ServiceError =>
   error instanceof ServiceError;
 

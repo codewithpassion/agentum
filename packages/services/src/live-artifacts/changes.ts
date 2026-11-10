@@ -2,14 +2,9 @@ import { artifactLiveChanges as changes } from "@repo/db/schema/live-artifacts";
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
-import { ServiceError } from "../errors.ts";
+import { invalid, ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
-import {
-  type InteractionContext,
-  invalid,
-  missing,
-  pageSize,
-} from "./shared.ts";
+import { type InteractionContext, missing, pageSize } from "./shared.ts";
 
 export const createChangesModule = (ctx: InteractionContext) => ({
   async changes(

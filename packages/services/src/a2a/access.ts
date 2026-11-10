@@ -6,23 +6,13 @@
  * itself to anything.
  */
 import { ForbiddenError } from "../authz.ts";
+import { effectiveOwner } from "../guards.ts";
 import type { Principal } from "../workspaces.ts";
 
 export type SessionUser = Extract<Principal, { kind: "user" }>;
 
 /** The kind `authorize()` is asked about. */
 export const CONNECTION_KIND = "a2a_connection";
-
-/** A signed-in browser session, and nothing else. */
-export const requireSession = (
-  principal: Principal,
-  action: string
-): SessionUser => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
 
 /**
  * Anyone who may look at connections: a person on a session, an API key or a
@@ -37,12 +27,6 @@ export const requireReader = (
   }
   return principal;
 };
-
-/** Who answers for an agent: its owner, falling back to the person who made it. */
-export const effectiveOwner = (agent: {
-  createdBy: string;
-  ownerUserId: string | null;
-}): string => agent.ownerUserId ?? agent.createdBy;
 
 /** Creating, approving and widening need an org admin or the agent's owner. */
 export const requireAdminOrOwner = (

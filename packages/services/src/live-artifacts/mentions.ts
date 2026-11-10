@@ -13,11 +13,11 @@ import {
 import { and, asc, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "../authz.ts";
-import { ServiceError } from "../errors.ts";
+import { invalid, ServiceError } from "../errors.ts";
 import type { Principal } from "../workspaces.ts";
 import { createLiveAccess } from "./access.ts";
 import type { LiveArtifactsDeps, LiveRoomScope } from "./service.ts";
-import { invalid, pageSize } from "./shared.ts";
+import { pageSize } from "./shared.ts";
 
 type User = Extract<Principal, { kind: "user" }>;
 export interface MentionRecipient {

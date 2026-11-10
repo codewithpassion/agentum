@@ -15,6 +15,7 @@ import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "../authz.ts";
+import { invalid } from "../errors.ts";
 import { loadRunByRequest } from "../runs/queries.ts";
 import type { RunsService } from "../runs.ts";
 import { buildSpeakerEnvelope, type SpeakerRoom } from "../speaker-envelope.ts";
@@ -22,7 +23,7 @@ import type { Principal } from "../workspaces.ts";
 import { createLiveAccess } from "./access.ts";
 import type { LiveAskPort } from "./ports.ts";
 import type { LiveArtifactsDeps, LiveRoomScope } from "./service.ts";
-import { canComment, invalid, missing, pageSize } from "./shared.ts";
+import { canComment, missing, pageSize } from "./shared.ts";
 
 const id = z.string().min(1).max(200);
 export const liveAskInputSchema = z.strictObject({

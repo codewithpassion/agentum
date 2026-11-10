@@ -5,6 +5,7 @@
  * Reads and writes are for a signed-in person: the underlying services refuse
  * a run or the system principal for most of them.
  */
+
 import type { Database } from "@repo/db";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -26,9 +27,10 @@ import {
   PLATFORM_TOOL_LABELS,
 } from "./agent-profile/ask-before.ts";
 import type { AgentRecord, AgentsService } from "./agents.ts";
-import { authorize, ForbiddenError } from "./authz.ts";
+import { authorize } from "./authz.ts";
 import type { ConnectorsService } from "./connectors.ts";
 import { ServiceError } from "./errors.ts";
+import { requireUser } from "./guards.ts";
 import { agentGrants } from "./library/access.ts";
 import { agentHomePath } from "./library/home.ts";
 import type { MachinesService } from "./machines.ts";
@@ -214,13 +216,6 @@ export const createAgentProfileService = ({
   tasks: Pick<TasksService, "list">;
   triggers: Pick<TriggersService, "list">;
 }) => {
-  const requireUser = (principal: Principal, action: string): UserPrincipal => {
-    if (principal.kind !== "user") {
-      throw new ForbiddenError(action);
-    }
-    return principal;
-  };
-
   /** The agent, or not_found for one that is missing or still a draft. */
   const loadAgent = async (
     user: UserPrincipal,

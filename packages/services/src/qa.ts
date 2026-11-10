@@ -1,4 +1,5 @@
 /** A workspace's shared question board. Authors come only from trusted principals. */
+
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { qaAnswers, qaQuestions } from "@repo/db/schema/qa";
@@ -21,6 +22,7 @@ import { escapeAngles } from "./inbox/wake-input.ts";
 import { loadRun } from "./runs/queries.ts";
 import type { Clock } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
+import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
 
 const nextId = monotonicFactory();
@@ -30,7 +32,6 @@ const WAKE_QUESTION_BODY_CHARS = 4000;
 const WAKE_ANSWER_CHARS = 10_000;
 const WAKE_MARKER_OPEN = "<untrusted-qa-answer>";
 const WAKE_MARKER_CLOSE = "</untrusted-qa-answer>";
-const idString = z.string().min(1).max(200);
 const bodySchema = z.string().trim().min(1).max(QA_BODY_MAX);
 export const askInputSchema = z.strictObject({
   body: bodySchema,

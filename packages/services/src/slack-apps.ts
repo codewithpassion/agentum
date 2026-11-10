@@ -5,6 +5,7 @@
  * secrets are stored encrypted, bound to their row. Nothing here ever returns
  * a secret: a `SlackAppSummary` has no secret field at all.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { slackApps, slackMessages } from "@repo/db/schema/slack";
@@ -17,11 +18,13 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
-import { authorize, ForbiddenError } from "./authz.ts";
+import { authorize } from "./authz.ts";
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { requireSession } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
+import { idString } from "./shared.ts";
 import { slackSecretBinding } from "./slack/apps.ts";
 import {
   createSlackClient,
@@ -37,8 +40,6 @@ const LIST_ACTION = "slack_apps.list";
 const PASTE_ACTION = "slack_apps.paste";
 const REVOKE_ACTION = "slack_apps.revoke";
 const SET_LISTEN_MODE_ACTION = "slack_apps.set_listen_mode";
-
-const idString = z.string().min(1).max(200);
 
 export const slackManifestInputSchema = z.strictObject({
   agentId: idString,
@@ -106,14 +107,6 @@ const summaryColumns = {
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
-/** Apps are managed from a signed-in session: a Slack message cannot connect one. */
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
-
 /** What a person can do about a failed Slack call, in words for the form. */
 const refusalText = (result: SlackCallResult<object>): string => {
   switch (result.kind) {
@@ -176,7 +169,7 @@ export const createSlackAppsService = ({
     principal: Principal,
     input: SlackManifestInput
   ): Promise<{ filename: string; json: string }> => {
-    const user = requireUser(principal, MANIFEST_ACTION);
+    const user = requireSession(principal, MANIFEST_ACTION);
     const parsed = slackManifestInputSchema.parse(input);
     authorize(user, MANIFEST_ACTION, {
       kind: SLACK_APP_KIND,
@@ -203,7 +196,7 @@ export const createSlackAppsService = ({
     principal: Principal,
     input: SlackAppListInput
   ): Promise<SlackAppSummary[]> => {
-    const user = requireUser(principal, LIST_ACTION);
+    const user = requireSession(principal, LIST_ACTION);
     const parsed = slackAppListInputSchema.parse(input);
     authorize(user, LIST_ACTION, {
       kind: SLACK_APP_KIND,
@@ -246,7 +239,7 @@ export const createSlackAppsService = ({
     principal: Principal,
     input: SlackAppPasteInput
   ): Promise<SlackAppSummary> => {
-    const user = requireUser(principal, PASTE_ACTION);
+    const user = requireSession(principal, PASTE_ACTION);
     const parsed = slackAppPasteInputSchema.parse(input);
     authorize(user, PASTE_ACTION, {
       kind: SLACK_APP_KIND,
@@ -352,7 +345,7 @@ export const createSlackAppsService = ({
     principal: Principal,
     input: SlackAppRevokeInput
   ): Promise<SlackAppSummary> => {
-    const user = requireUser(principal, REVOKE_ACTION);
+    const user = requireSession(principal, REVOKE_ACTION);
     const parsed = slackAppRevokeInputSchema.parse(input);
     authorize(user, REVOKE_ACTION, {
       id: parsed.id,
@@ -397,7 +390,7 @@ export const createSlackAppsService = ({
     principal: Principal,
     input: SlackAppSetListenModeInput
   ): Promise<SlackAppSummary> => {
-    const user = requireUser(principal, SET_LISTEN_MODE_ACTION);
+    const user = requireSession(principal, SET_LISTEN_MODE_ACTION);
     const parsed = slackAppSetListenModeInputSchema.parse(input);
     authorize(user, SET_LISTEN_MODE_ACTION, {
       id: parsed.id,

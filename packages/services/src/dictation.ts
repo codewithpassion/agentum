@@ -1,5 +1,6 @@
-import { authorize, ForbiddenError } from "./authz.ts";
+import { authorize } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
+import { requireSession } from "./guards.ts";
 import { type ModelKeysService, NO_KEY_MESSAGES } from "./model-keys.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -11,14 +12,12 @@ export const DICTATION_MODELS = {
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const MAX_BYTES = 44 + 16_000 * 2 * 16;
 const member = (principal: Principal) => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError("dictation.use");
-  }
-  authorize(principal, "dictation.use", {
+  const user = requireSession(principal, "dictation.use");
+  authorize(user, "dictation.use", {
     kind: "dictation",
-    workspaceId: principal.workspaceId,
+    workspaceId: user.workspaceId,
   });
-  return principal;
+  return user;
 };
 const refuseAudio = (): never => {
   throw new ServiceError(

@@ -8,14 +8,16 @@
  * request, since every request reads the row. `touch` records a use at most
  * every five minutes, so a busy agent does not turn every request into a write.
  */
+
 import type { Database } from "@repo/db";
 import { oauthClients } from "@repo/db/schema/oauth-clients";
 import { OAUTH_CLIENT_ACCESS, type OAuthClientAccess } from "@repo/db/shared";
 import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
-import { authorize, ForbiddenError } from "./authz.ts";
+import { authorize } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
+import { requireSession } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -33,8 +35,6 @@ const OAUTH_CLIENT_KIND = "oauth_client";
 const LIST_ACTION = "oauth_clients.list";
 const SET_ACCESS_ACTION = "oauth_clients.set_access";
 const REVOKE_ACTION = "oauth_clients.revoke";
-
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
 /**
  * An application name as Flightdex stores and compares it. The name is chosen
@@ -139,14 +139,6 @@ const toSummary = (row: Row): OAuthClientSummary => ({
   ...row,
   status: statusOf(row),
 });
-
-/** Keys are managed from a signed-in session: a client cannot approve or revoke clients. */
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
 
 /** The name from `lookup`, sanitized; null when there is no lookup or it fails. */
 const lookupName = async (
@@ -287,7 +279,7 @@ export const createOAuthClientsService = ({
 
   /** The clients of the calling user's workspace, pending first, then most recently used. */
   const list = async (principal: Principal): Promise<OAuthClientSummary[]> => {
-    const user = requireUser(principal, LIST_ACTION);
+    const user = requireSession(principal, LIST_ACTION);
     authorize(user, LIST_ACTION, {
       kind: OAUTH_CLIENT_KIND,
       workspaceId: user.workspaceId,
@@ -313,7 +305,7 @@ export const createOAuthClientsService = ({
     principal: Principal,
     input: OAuthClientSetAccessInput
   ): Promise<OAuthClientSummary> => {
-    const user = requireUser(principal, SET_ACCESS_ACTION);
+    const user = requireSession(principal, SET_ACCESS_ACTION);
     const { access, clientId } = oauthClientSetAccessInputSchema.parse(input);
     authorize(user, SET_ACCESS_ACTION, {
       kind: OAUTH_CLIENT_KIND,
@@ -348,7 +340,7 @@ export const createOAuthClientsService = ({
     principal: Principal,
     input: OAuthClientRevokeInput
   ): Promise<OAuthClientSummary> => {
-    const user = requireUser(principal, REVOKE_ACTION);
+    const user = requireSession(principal, REVOKE_ACTION);
     const { clientId } = oauthClientRevokeInputSchema.parse(input);
     authorize(user, REVOKE_ACTION, {
       id: clientId,
@@ -417,7 +409,7 @@ export const createOAuthClientsService = ({
   const mcpAddress = (
     principal: Principal
   ): { path: string; url: string | null } => {
-    const user = requireUser(principal, LIST_ACTION);
+    const user = requireSession(principal, LIST_ACTION);
     authorize(user, LIST_ACTION, {
       kind: OAUTH_CLIENT_KIND,
       workspaceId: user.workspaceId,

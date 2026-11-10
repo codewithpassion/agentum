@@ -190,15 +190,3 @@ export const hopsOf = (
   }
   return hops;
 };
-
-/** The host of an origin, or null when there is none or it does not parse. */
-export const hostOf = (origin: string | null): string | null => {
-  if (origin === null) {
-    return null;
-  }
-  try {
-    return new URL(origin).host;
-  } catch {
-    return null;
-  }
-};

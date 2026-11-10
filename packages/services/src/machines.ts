@@ -56,6 +56,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { hashedToken, hashToken, toBase64Url } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { requireUser } from "./guards.ts";
 import type {
   ComputerOutcome,
   ComputerStatus as ComputerRelayStatus,
@@ -96,7 +97,6 @@ const ATTACH_ACTION = "machines.attach";
 /** The runtimes whose agent can drive a computer, since a machine agent runs on one already. */
 const ATTACHABLE_RUNTIMES: readonly string[] = ["cloud", "managed"];
 
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
 export type MachinePrincipal = Extract<Principal, { kind: "machine" }>;
 
 /**
@@ -210,13 +210,6 @@ const toRecord = (row: MachineRow): MachineRecord => ({
 
 const computerTaken = () =>
   new ServiceError("conflict", "That computer already serves another agent");
-
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
 
 const requireMachine = (
   principal: Principal,

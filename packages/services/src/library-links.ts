@@ -9,21 +9,12 @@
  * agents reach the library through the `bash` tool.
  */
 
-import { ForbiddenError } from "./authz.ts";
 import type { FileRecord, FilesService } from "./files.ts";
+import { requireUser } from "./guards.ts";
 import type { LibraryEntry, LibraryService } from "./library.ts";
 import type { Principal } from "./workspaces.ts";
 
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
-
 const LAST_SEGMENT = /[^/]*$/;
-
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
 
 export const createLibraryLinksService = ({
   files,

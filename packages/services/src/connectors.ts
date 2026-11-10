@@ -13,6 +13,7 @@
  * `secret`, so no return value, event or error can carry it. The proxy that
  * decrypts it is M3.3.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import {
@@ -76,10 +77,12 @@ import {
   InvalidConnectorUrlError,
 } from "./connectors/url.ts";
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
-import { ServiceError } from "./errors.ts";
+import { invalid, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { requireSession } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { ruleSchema } from "./secrets/rules.ts";
+import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
 
 const CONNECTOR_KIND = "connector";
@@ -109,8 +112,6 @@ const RESERVED_HEADERS = new Set([
 ]);
 
 type UserPrincipal = Extract<Principal, { kind: "user" }>;
-
-const idString = z.string().min(1).max(200);
 
 const headerNameSchema = z
   .string()
@@ -312,9 +313,6 @@ const toSummary = (
   };
 };
 
-const invalid = (message: string): ServiceError =>
-  new ServiceError("invalid", message);
-
 /** Safe guidance for callers that cannot grant access to a workspace secret. */
 export class ConnectorSecretAdminError extends ForbiddenError {
   constructor() {
@@ -322,17 +320,6 @@ export class ConnectorSecretAdminError extends ForbiddenError {
     this.message = "An admin must do this in the app.";
   }
 }
-
-/** Keys and connectors are managed from a signed-in session. */
-export const requireUser = (
-  principal: Principal,
-  action: string
-): UserPrincipal => {
-  if (principal.kind !== "user" || principal.via !== "session") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
 
 /** Assigning connectors also admits write OAuth connections and write/admin keys (MA.1). The registry and credentials stay with a session. */
 const requireAssigner = (
@@ -342,7 +329,7 @@ const requireAssigner = (
   if (principal.kind === "user" && principal.via !== "session") {
     return requireAgentManager(principal, action);
   }
-  return requireUser(principal, action);
+  return requireSession(principal, action);
 };
 
 type ProbeOutcome =
@@ -662,7 +649,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: ConnectorCreateInput
   ): Promise<ConnectorSummary> => {
-    const user = requireUser(principal, CREATE_ACTION);
+    const user = requireSession(principal, CREATE_ACTION);
     const parsed = connectorCreateSchema.parse(input);
     authorize(user, CREATE_ACTION, {
       kind: CONNECTOR_KIND,
@@ -713,7 +700,7 @@ export const createConnectorsService = ({
 
   /** The workspace's connectors with the credentials the caller may see. */
   const list = async (principal: Principal): Promise<ConnectorSummary[]> => {
-    const user = requireUser(principal, LIST_ACTION);
+    const user = requireSession(principal, LIST_ACTION);
     authorize(user, LIST_ACTION, {
       kind: CONNECTOR_KIND,
       workspaceId: user.workspaceId,
@@ -747,7 +734,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: CredentialSetInput
   ): Promise<CredentialSummary> => {
-    const user = requireUser(principal, SET_CREDENTIAL_ACTION);
+    const user = requireSession(principal, SET_CREDENTIAL_ACTION);
     const parsed = credentialSetSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, SET_CREDENTIAL_ACTION, {
@@ -852,7 +839,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: ConnectorAuthModeInput
   ): Promise<ConnectorSummary> => {
-    const user = requireUser(principal, SET_AUTH_MODE_ACTION);
+    const user = requireSession(principal, SET_AUTH_MODE_ACTION);
     const parsed = connectorAuthModeSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, SET_AUTH_MODE_ACTION, {
@@ -921,7 +908,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: ConnectorCallTimeoutInput
   ): Promise<ConnectorSummary> => {
-    const user = requireUser(principal, SET_CALL_TIMEOUT_ACTION);
+    const user = requireSession(principal, SET_CALL_TIMEOUT_ACTION);
     const parsed = connectorCallTimeoutSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, SET_CALL_TIMEOUT_ACTION, {
@@ -1016,7 +1003,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: z.input<typeof unassignInputSchema>
   ): Promise<{ removed: boolean }> => {
-    const user = requireUser(principal, UNASSIGN_ACTION);
+    const user = requireSession(principal, UNASSIGN_ACTION);
     const parsed = unassignInputSchema.parse(input);
     authorize(user, UNASSIGN_ACTION, {
       id: parsed.connectorId,
@@ -1047,7 +1034,7 @@ export const createConnectorsService = ({
     const user =
       principal.kind === "user" && principal.via === "api_key"
         ? requireKey(principal, DELETE_ACTION, "admin")
-        : requireUser(principal, DELETE_ACTION);
+        : requireSession(principal, DELETE_ACTION);
     const parsed = removeInputSchema.parse(input);
     authorize(user, DELETE_ACTION, {
       id: parsed.connectorId,

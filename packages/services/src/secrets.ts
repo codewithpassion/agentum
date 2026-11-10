@@ -14,6 +14,7 @@
  *
  * No method, error or event carries a value.
  */
+
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { connectors } from "@repo/db/schema/connectors";
@@ -36,6 +37,7 @@ import {
 } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { requireUser } from "./guards.ts";
 import { effectiveRunScope, scopeAllows } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 import type { ProxyGrant } from "./secrets/placeholders.ts";
@@ -50,6 +52,7 @@ import {
   rulesSchema,
   storedRulesSchema,
 } from "./secrets/rules.ts";
+import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
 
 const READ_ACTION = "secrets.read";
@@ -178,7 +181,6 @@ export const secretUpdateSchema = z
   );
 export type SecretUpdateInput = z.input<typeof secretUpdateSchema>;
 
-const idString = z.string().min(1).max(200);
 const grantIdsSchema = z.array(idString).max(100);
 
 /** A secret as a reader sees it: everything but the value. */
@@ -245,18 +247,10 @@ const proxyMatches = (
     );
 };
 
-type UserPrincipal = Extract<Principal, { kind: "user" }>;
 type SecretRow = typeof secrets.$inferSelect;
 
 const nameTaken = () =>
   new ServiceError("conflict", "A secret with that name already exists");
-
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
-  if (principal.kind !== "user") {
-    throw new ForbiddenError(action);
-  }
-  return principal;
-};
 
 const binding = (workspaceId: string, secretId: string): SecretBinding => ({
   field: "value",

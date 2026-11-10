@@ -62,7 +62,10 @@ const summaryColumns = {
 };
 
 /** Keys are managed from a signed-in session, or by an admin key (X.10). */
-const requireUser = (principal: Principal, action: string): UserPrincipal => {
+const requireSessionOrAdminKey = (
+  principal: Principal,
+  action: string
+): UserPrincipal => {
   if (principal.kind === "user" && principal.via === "session") {
     return principal;
   }
@@ -100,7 +103,7 @@ export const createApiKeysService = ({
     principal: Principal,
     input: ApiKeyCreateInput
   ): Promise<{ key: ApiKeySummary; secret: string }> => {
-    const user = requireUser(principal, CREATE_ACTION);
+    const user = requireSessionOrAdminKey(principal, CREATE_ACTION);
     const { access, name } = apiKeyCreateInputSchema.parse(input);
     authorize(user, CREATE_ACTION, {
       kind: API_KEY_KIND,
@@ -139,7 +142,7 @@ export const createApiKeysService = ({
 
   /** The calling user's keys in their workspace, newest first, revoked ones included. */
   const list = async (principal: Principal): Promise<ApiKeySummary[]> => {
-    const user = requireUser(principal, LIST_ACTION);
+    const user = requireSessionOrAdminKey(principal, LIST_ACTION);
     authorize(user, LIST_ACTION, {
       kind: API_KEY_KIND,
       workspaceId: user.workspaceId,
@@ -164,7 +167,7 @@ export const createApiKeysService = ({
     principal: Principal,
     keyId: string
   ): Promise<ApiKeySummary> => {
-    const user = requireUser(principal, REVOKE_ACTION);
+    const user = requireSessionOrAdminKey(principal, REVOKE_ACTION);
     authorize(user, REVOKE_ACTION, {
       id: keyId,
       kind: API_KEY_KIND,

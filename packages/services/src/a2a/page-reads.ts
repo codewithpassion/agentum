@@ -3,6 +3,7 @@
  * connection's recent tasks in both directions, and whether the caller may
  * change it. Reads only, for a person or a key. Nothing here carries a token.
  */
+
 import type { Database } from "@repo/db";
 import {
   a2aConnections,
@@ -15,8 +16,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { authorize } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import type { PeopleLookup } from "../events.ts";
+import { effectiveOwner } from "../guards.ts";
 import type { Principal } from "../workspaces.ts";
-import { CONNECTION_KIND, effectiveOwner, requireReader } from "./access.ts";
+import { CONNECTION_KIND, requireReader } from "./access.ts";
 
 export const PAGE_READ_ACTION = "a2a.read";
 export const RECENT_TASKS_LIMIT = 20;
