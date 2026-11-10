@@ -1,6 +1,7 @@
 import { Archive, ArchiveRestore, Pencil, Pin, PinOff } from "lucide-react";
 import {
   type ChangeEvent,
+  type FocusEvent,
   type KeyboardEvent,
   useCallback,
   useEffect,
@@ -45,15 +46,25 @@ export function ThreadTitle({
     },
     [onError]
   );
-  const save = useCallback(async () => {
-    const name = newTitle(draft, meta.title);
-    setEditing(false);
-    if (name !== null) {
-      await change({ title: name }, () =>
-        getTrpc().sessions.rename.mutate({ sessionId: session.id, title: name })
-      );
-    }
-  }, [change, draft, meta.title, session.id]);
+  // Escape unmounts the input, and the blur that follows must not save the draft.
+  const save = useCallback(
+    async (event: FocusEvent<HTMLInputElement>) => {
+      if (event.currentTarget.dataset.cancelled === "true") {
+        return;
+      }
+      const name = newTitle(draft, meta.title);
+      setEditing(false);
+      if (name !== null) {
+        await change({ title: name }, () =>
+          getTrpc().sessions.rename.mutate({
+            sessionId: session.id,
+            title: name,
+          })
+        );
+      }
+    },
+    [change, draft, meta.title, session.id]
+  );
   const togglePin = useCallback(() => {
     const pinned = meta.pinnedAt === null;
     return change({ pinnedAt: pinned ? new Date().toISOString() : null }, () =>
@@ -80,18 +91,14 @@ export function ThreadTitle({
     (event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value),
     []
   );
-  const onKey = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Enter") {
-        event.currentTarget.blur();
-      } else if (event.key === "Escape") {
-        // Blur would save, so mark the draft as the current title first.
-        setDraft(meta.title);
-        setEditing(false);
-      }
-    },
-    [meta.title]
-  );
+  const onKey = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.currentTarget.blur();
+    } else if (event.key === "Escape") {
+      event.currentTarget.dataset.cancelled = "true";
+      setEditing(false);
+    }
+  }, []);
 
   return (
     <div className="flex w-full min-w-0 items-start gap-1 md:flex-1">

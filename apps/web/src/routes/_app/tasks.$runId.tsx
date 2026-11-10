@@ -9,10 +9,11 @@ import {
 export const Route = createFileRoute("/_app/tasks/$runId")({
   validateSearch: (search) =>
     threadSearchSchema.pick({ tab: true }).parse(search),
-  beforeLoad: async ({ params, search }) => {
+  beforeLoad: async ({ location, params, search }) => {
     const task = await loadTask({ runId: params.runId });
     throw redirect({
       ...threadOfTask(task, search.tab),
+      hash: location.hash || undefined,
       replace: true,
       to: "/threads/$sessionId",
     });

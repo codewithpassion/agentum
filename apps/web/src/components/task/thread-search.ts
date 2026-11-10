@@ -21,9 +21,10 @@ export const threadOfTask = (
   },
   tab: ThreadSearch["tab"]
 ): { params: { sessionId: string }; search: ThreadSearch } => {
-  const latest = [task.run.id, ...task.otherRuns.map((run) => run.id)]
-    .sort()
-    .at(-1) as string;
+  const latest = task.otherRuns.reduce(
+    (newest, run) => (run.id > newest ? run.id : newest),
+    task.run.id
+  );
   return {
     params: { sessionId: task.session.id },
     search: { ...runSearch(task.run.id, latest), ...(tab ? { tab } : {}) },

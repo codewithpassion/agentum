@@ -63,15 +63,11 @@ const EVENTS_CAP = EVENT_QUERY_MAX_LIMIT * 3;
 
 const id = z.string().min(1).max(200);
 
-/** A run, or a session: the session's latest run. Exactly one of them. */
-export const taskGetInputSchema = z
-  .strictObject({ runId: id.optional(), sessionId: id.optional() })
-  .refine(
-    (input) => (input.runId === undefined) !== (input.sessionId === undefined),
-    {
-      message: "Give a run id or a session id, not both",
-    }
-  );
+/** A run, or a session: the session's latest run. */
+export const taskGetInputSchema = z.union([
+  z.strictObject({ runId: id }),
+  z.strictObject({ sessionId: id }),
+]);
 export type TaskGetInput = z.input<typeof taskGetInputSchema>;
 
 export const taskListInputSchema = z.strictObject({
@@ -422,7 +418,9 @@ export const createTasksService = ({
     const member = requireMember(principal);
     const input = taskGetInputSchema.parse(rawInput);
     const runId =
-      input.runId ?? (await latestRunOf(member, input.sessionId as string));
+      "runId" in input
+        ? input.runId
+        : await latestRunOf(member, input.sessionId);
     const [row] = await db
       .select({
         agentModel: agents.model,

@@ -252,6 +252,9 @@ export function TaskThread({
       if (starting.current !== null) {
         throw new Error("The last message is still being sent.");
       }
+      const viewingOldRun = new URLSearchParams(window.location.search).has(
+        "run"
+      );
       const begin = async () => {
         await getTrpc().runs.start.mutate(
           startRunBody({
@@ -269,7 +272,10 @@ export function TaskThread({
           search: {},
           to: "/threads/$sessionId",
         });
-        await router.invalidate();
+        // With `?run=` the navigation above already reloads. Without it the URL is unchanged.
+        if (!viewingOldRun) {
+          await router.invalidate();
+        }
       };
       starting.current = begin();
       try {
