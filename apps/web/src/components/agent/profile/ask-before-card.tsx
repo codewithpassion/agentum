@@ -18,6 +18,7 @@ import {
   groupActions,
   isPresetLevel,
 } from "./ask-groups.ts";
+import { Disclosure } from "./disclosure.tsx";
 import { MailAllowedList } from "./mail-allowed-list.tsx";
 
 function errorMessage(cause: unknown): string {
@@ -175,15 +176,16 @@ function AskBeforeBody({
   initialActions,
   initialLevel,
   mailAllowed,
+  onEditSettings,
 }: {
   agentId: string;
   initialActions: AskBeforeAction[];
   initialLevel: string;
   mailAllowed: string[];
+  onEditSettings: () => void;
 }) {
   const [actions, setActions] = useState(initialActions);
   const [level, setLevel] = useState(initialLevel);
-  const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -244,66 +246,94 @@ function AskBeforeBody({
       ),
     [agentId, save]
   );
-  const toggleOpen = useCallback(() => setOpen((value) => !value), []);
 
   const overrides = actions.filter((item) => item.overridden).length;
   const groups = groupActions(actions);
   return (
     <>
-      <LevelPicker disabled={saving} level={level} onChange={changeLevel} />
-      <p className="mt-2 text-muted-foreground text-xs">
-        {level === "custom"
-          ? "This agent uses its own switches. Pick a level to start from one, and your switches stay as they are."
-          : `${overrides} ${overrides === 1 ? "switch is" : "switches are"} set apart from this level.`}
-      </p>
-      <Button
-        aria-expanded={open}
-        className="mt-2"
-        onClick={toggleOpen}
-        size="sm"
-        type="button"
-        variant="outline"
+      <section
+        aria-label="Ask me before it"
+        className="rounded-lg border border-border bg-card px-4 py-3"
       >
-        Customise
-      </Button>
-      {error === undefined ? null : (
-        <p className="mt-2 text-destructive text-sm" role="alert">
-          {error}
+        <h2 className="font-semibold text-sm">Ask me before it…</h2>
+        <p className="mb-2 text-muted-foreground text-xs">
+          The agent stops and asks you before it does what its level covers, and
+          tools it gets later follow the level.
         </p>
-      )}
-      {open ? (
-        <div className="mt-2">
-          {groups.map((group) => (
-            <AskGroupSection
-              disabled={saving}
-              group={group}
-              key={group.name}
-              onGroup={toggleGroup}
-              onToggle={toggle}
-            />
-          ))}
-        </div>
-      ) : null}
-      <div className="mt-2 flex items-center justify-between gap-3 border-border border-t border-dashed py-2.5">
-        <span className="min-w-0 text-sm">
-          Emails someone outside the workspace: always asks
-        </span>
-        <span className="text-muted-foreground text-xs max-md:shrink-0 max-md:whitespace-nowrap">
-          Always
-        </span>
-      </div>
-      {mailAllowed.length === 0 ? null : (
-        <MailAllowedList addresses={mailAllowed} agentId={agentId} />
-      )}
+        <LevelPicker disabled={saving} level={level} onChange={changeLevel} />
+        <p className="mt-2 text-muted-foreground text-xs">
+          {level === "custom"
+            ? "This agent uses its own switches. Pick a level to start from one, and your switches stay as they are."
+            : `${overrides} ${overrides === 1 ? "switch is" : "switches are"} set apart from this level.`}
+        </p>
+        {error === undefined ? null : (
+          <p className="mt-2 text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
+      <section
+        aria-label="Advanced"
+        className="rounded-lg border border-border bg-card px-4"
+      >
+        <Disclosure
+          summary="Model, environment, network, turn limit, ask overrides"
+          title="Advanced"
+        >
+          <div className="flex flex-col gap-3 pb-3">
+            <div>
+              <Button
+                onClick={onEditSettings}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Model, environment, network, turn limit
+              </Button>
+            </div>
+            <div>
+              <h3 className="font-semibold text-sm">Ask overrides</h3>
+              <p className="text-muted-foreground text-xs">
+                Switch single actions on or off, apart from the level.
+              </p>
+              {groups.map((group) => (
+                <AskGroupSection
+                  disabled={saving}
+                  group={group}
+                  key={group.name}
+                  onGroup={toggleGroup}
+                  onToggle={toggle}
+                />
+              ))}
+              <div className="flex items-center justify-between gap-3 border-border border-t border-dashed py-2.5">
+                <span className="min-w-0 text-sm">
+                  Emails someone outside the workspace: always asks
+                </span>
+                <span className="text-muted-foreground text-xs max-md:shrink-0 max-md:whitespace-nowrap">
+                  Always
+                </span>
+              </div>
+              {mailAllowed.length === 0 ? null : (
+                <MailAllowedList addresses={mailAllowed} agentId={agentId} />
+              )}
+            </div>
+          </div>
+        </Disclosure>
+      </section>
     </>
   );
 }
 
+/**
+ * The ask level, then an Advanced card that holds the ask overrides and the
+ * way into the model and runtime settings. They share the ask state.
+ */
 export function AskBeforeCard({
   actions,
   agentId,
   level,
   mailAllowed,
+  onEditSettings,
 }: {
   agentId: string;
   actions: AskBeforeAction[];
@@ -311,24 +341,17 @@ export function AskBeforeCard({
   level: string;
   /** Bare email addresses the agent may always email without asking. */
   mailAllowed: string[];
+  /** Opens the sheet with the model, environment, network and turn limit. */
+  onEditSettings: () => void;
 }) {
   return (
-    <section
-      aria-label="Ask me before it"
-      className="rounded-lg border border-border bg-card px-4 py-3"
-    >
-      <h2 className="font-semibold text-sm">Ask me before it…</h2>
-      <p className="mb-2 text-muted-foreground text-xs">
-        The agent stops and asks you before it does what its level covers, and
-        tools it gets later follow the level.
-      </p>
-      <AskBeforeBody
-        agentId={agentId}
-        initialActions={actions}
-        initialLevel={level}
-        key={agentId}
-        mailAllowed={mailAllowed}
-      />
-    </section>
+    <AskBeforeBody
+      agentId={agentId}
+      initialActions={actions}
+      initialLevel={level}
+      key={agentId}
+      mailAllowed={mailAllowed}
+      onEditSettings={onEditSettings}
+    />
   );
 }

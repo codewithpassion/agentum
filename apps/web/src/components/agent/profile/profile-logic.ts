@@ -29,6 +29,15 @@ type Starts = AgentProfileView["startsOn"];
 type Channels = AgentProfileView["channels"];
 type AgentRefs = AgentProfileView["handsTo"];
 
+export const HANDS_TO_COPY =
+  "Agents this one may pass work to. This is a suggestion to the agent, not a rule: it decides whether to hand work over, and nothing stops it doing the work itself.";
+
+export const SUBAGENTS_COPY =
+  "Helpers this agent starts itself for one job. They end when the job ends.";
+
+export const PEERS_COPY =
+  "Agents outside this workspace, reached over a connection you approve.";
+
 export const LIBRARY_NOTE =
   "On a machine or VM these folders sync live. Each task writes to its task folder.";
 

@@ -173,6 +173,15 @@ function AgentPage() {
             members={members}
             onOpen={openSheet}
             onOpenMail={openMailList}
+            peers={
+              <div className="-mx-4 [&>section]:border-0 [&>section]:bg-transparent [&_h2]:sr-only">
+                <ConnectionsCard
+                  agentId={agent.id}
+                  connections={connections}
+                  published={published}
+                />
+              </div>
+            }
             profile={profile}
           />
           <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
@@ -182,14 +191,10 @@ function AgentPage() {
               agentId={agent.id}
               level={askLevel}
               mailAllowed={allowedMailAddresses(rules)}
+              onEditSettings={edit}
             />
             <ThreadsCard agent={agent} archived={archived} threads={threads} />
             <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
-            <ConnectionsCard
-              agentId={agent.id}
-              connections={connections}
-              published={published}
-            />
             <ComputerCard
               agent={agent}
               header={profile.header}

@@ -1,5 +1,5 @@
 import type { WorkspaceMember } from "@repo/db/shared";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import type {
   AgentProfileView,
   AgentRecord,
@@ -8,6 +8,7 @@ import type {
 import { AsksRow } from "./asks-row.tsx";
 import { BrowserSwitch } from "./browser-switch.tsx";
 import { ChipList } from "./chip-list.tsx";
+import { Disclosure } from "./disclosure.tsx";
 import { LibraryRow } from "./library-row.tsx";
 import { MailProvisionButton } from "./mail-provision-button.tsx";
 import { MailStartChip } from "./mail-start-chip.tsx";
@@ -26,6 +27,7 @@ import { Row } from "./profile-row.tsx";
 import type { SheetId } from "./sheet-ids.ts";
 import { SubagentsSwitch } from "./subagents-switch.tsx";
 import { VoiceField } from "./voice-field.tsx";
+import { WorksWith } from "./works-with.tsx";
 
 /** Characters that can overflow four lines on a 360px phone. */
 const LONG_DOES = 150;
@@ -67,6 +69,7 @@ export function ProfileRows({
   onChanged,
   onOpen,
   onOpenMail,
+  peers,
   profile,
 }: {
   agent: AgentRecord;
@@ -76,6 +79,8 @@ export function ProfileRows({
   onChanged?: () => void;
   onOpen: (sheet: SheetId) => void;
   onOpenMail: () => void;
+  /** The agent's connections, shown under Works with. Left out where they are not loaded. */
+  peers?: ReactNode;
   profile: AgentProfileView;
 }) {
   const open = (sheet: SheetId) => ({
@@ -105,13 +110,10 @@ export function ProfileRows({
         <DoesText does={profile.does} />
       </Row>
       {members === undefined ? null : (
-        <Row label="Asks">
+        <Row label="Owner">
           <AsksRow agent={agent} members={members} />
         </Row>
       )}
-      <Row label="Voice">
-        <VoiceField agentId={agent.id} voice={profile.voice} />
-      </Row>
       <Row label="Tools">
         <ChipList
           action={{ ...open("tools"), label: "+ Add tool" }}
@@ -120,22 +122,6 @@ export function ProfileRows({
             ...toolChips(profile.tools),
           ]}
           extra={<BrowserSwitch agent={agent} onChanged={onChanged} />}
-        />
-      </Row>
-      <Row label="Subagents">
-        <SubagentsSwitch agent={agent} onChanged={onChanged} />
-      </Row>
-      <Row label="Skills">
-        <ChipList
-          action={{ ...open("skills"), label: "+ Add skill" }}
-          chips={skillChips(profile.skills)}
-        />
-      </Row>
-      <Row label="Hands to">
-        <ChipList
-          action={{ ...open("handsTo"), label: "Manage" }}
-          chips={handsToChips(profile.handsTo)}
-          note={receivesFromText(profile.receivesFrom)}
         />
       </Row>
       <Row label="Starts on">
@@ -154,25 +140,51 @@ export function ProfileRows({
           }
         />
       </Row>
-      <Row label="Channels">
-        <ChipList
-          action={{ ...open("channels"), label: "Manage" }}
-          chips={channelChips(
-            profile.channels,
-            profile.header.emailLocal,
-            mailbox?.status ?? null
-          )}
-          extra={
-            mailbox === null && setUpLabel !== null ? (
-              <MailProvisionButton agentId={agent.id} label={setUpLabel} />
-            ) : null
-          }
-          onChipClick={handleChipClick}
-        />
-      </Row>
-      <Row label="Library">
-        <LibraryRow agent={agent} folders={profile.library.folders} />
-      </Row>
+      <WorksWith
+        handsTo={
+          <ChipList
+            action={{ ...open("handsTo"), label: "Manage" }}
+            chips={handsToChips(profile.handsTo)}
+            note={receivesFromText(profile.receivesFrom)}
+          />
+        }
+        peers={peers}
+        subagents={<SubagentsSwitch agent={agent} onChanged={onChanged} />}
+      />
+      <Disclosure
+        className="border-border border-t border-dashed"
+        summary="Voice, skills, library, channels"
+        title="More"
+      >
+        <Row label="Voice">
+          <VoiceField agentId={agent.id} voice={profile.voice} />
+        </Row>
+        <Row label="Skills">
+          <ChipList
+            action={{ ...open("skills"), label: "+ Add skill" }}
+            chips={skillChips(profile.skills)}
+          />
+        </Row>
+        <Row label="Library">
+          <LibraryRow agent={agent} folders={profile.library.folders} />
+        </Row>
+        <Row label="Channels">
+          <ChipList
+            action={{ ...open("channels"), label: "Manage" }}
+            chips={channelChips(
+              profile.channels,
+              profile.header.emailLocal,
+              mailbox?.status ?? null
+            )}
+            extra={
+              mailbox === null && setUpLabel !== null ? (
+                <MailProvisionButton agentId={agent.id} label={setUpLabel} />
+              ) : null
+            }
+            onChipClick={handleChipClick}
+          />
+        </Row>
+      </Disclosure>
     </section>
   );
 }
