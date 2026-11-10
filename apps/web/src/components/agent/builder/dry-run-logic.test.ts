@@ -219,7 +219,7 @@ describe("dryRunRuntime", () => {
   });
 
   test("says so when the chosen runtime cannot run a dry run", () => {
-    const machine = dryRunRuntime(catalog(["machine", "cloud"]), {
+    const machine = dryRunRuntime(catalog(["managed", "machine", "cloud"]), {
       machineId: "m1",
       runtime: "machine",
     });
