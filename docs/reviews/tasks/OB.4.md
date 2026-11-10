@@ -123,11 +123,17 @@ Not tested here. `Desktop::start` refuses non-Linux, and Agentum ships only Linu
 
 ## Review rounds
 
-Filled in after review.
+Round 1 (aceb748): not clean. Two must-fix. The lease claim was wrong, since `isDesktopOp` checks a fixed op set, and the doc promised excerpts it did not hold. Fixed in 1b67885.
+
+Round 2 (1b67885, fix commits only): clean.
+
+Checks: `bun run check` and `bun run build` pass, and `apps/web/dist/client` holds no `drizzle`. `bun run test` failed once per run on a different heavy test (live-deck, a 60 s services timeout, then the Miniflare guest-execution test with `ECONNRESET`) while the host load average sat at 12 to 15. Each passed when run alone (live-deck 64 pass, services 4123 pass, the guest-execution test 1 pass in 77 s). The diff touches only this file.
 
 ## Nits left and ideas beyond scope
 
-Filled in after review.
+Nits left: the a1 audit excerpt is shortened with `...` and omits `"truncated":false`. The recorded-frames section shows p1 to p3 audit entries but not p4's.
+
+Ideas beyond scope: a `--session` per agent turn, so refs from one turn cannot be used in the next. A second spike on Qt and GTK4 apps. Passing the bus through `dbus-x11` autolaunch instead of an explicit address.
 
 ## Steps for Dom
 
