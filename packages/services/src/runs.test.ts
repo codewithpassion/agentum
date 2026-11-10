@@ -3953,9 +3953,12 @@ describe("subagents", () => {
       );
       dispatched.length = 0;
       await runs.completeRun(SYSTEM_PRINCIPAL, child.id, { status: "done" });
-      expect(dispatched).toEqual(
-        older ? [older.runId, followup.id] : [followup.id]
-      );
+      // The child's end also queues a wake for its parent; this test is about the follow-up.
+      expect(
+        dispatched.filter(
+          (id) => !runRow(id)?.requestId?.startsWith("handoff-wake:")
+        )
+      ).toEqual(older ? [older.runId, followup.id] : [followup.id]);
     }
   );
 
