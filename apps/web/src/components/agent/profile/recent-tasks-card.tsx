@@ -5,7 +5,7 @@ import type { RouterOutputs } from "#/integrations/trpc/types";
 
 const SHOWN_TASKS = 5;
 
-/** The agent's most recent tasks, each linking to its run, with a link to the desk filtered to the agent. */
+/** The agent's most recent tasks, each linking to its run, with a link to the conversation list filtered to the agent. */
 export function RecentTasksCard({
   agentId,
   nowMs,
@@ -47,7 +47,7 @@ export function RecentTasksCard({
         <Link
           className="pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center text-sm underline-offset-4 hover:underline"
           search={{ agent: agentId }}
-          to="/desk"
+          to="/sessions"
         >
           All tasks
         </Link>

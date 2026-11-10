@@ -1,9 +1,10 @@
-import { ArrowLeft, History, Plus, Sparkles } from "lucide-react";
+import { ArrowLeft, History, Sparkles } from "lucide-react";
 import {
   type ChangeEvent,
   type FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -11,6 +12,11 @@ import { dictationAdapter } from "#/components/composer/dictation-adapter";
 import { SendHint } from "#/components/composer/send-hint";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { StickyComposer } from "#/components/composer/sticky-composer";
+import { ConversationList } from "#/components/conversations/conversation-list";
+import {
+  type ConversationListItem,
+  fromAssistant,
+} from "#/components/conversations/conversation-logic";
 import {
   DictationButton,
   DictationPreview,
@@ -32,6 +38,9 @@ import type {
   Conversation,
   PendingCard,
 } from "./types";
+
+/** The server caps an assistant list page here; a full page means there may be more. */
+const CONVERSATION_PAGE = 50;
 
 const manualCard: PendingCard = {
   arguments: {
@@ -67,6 +76,11 @@ export function AssistantConversation({
   const [manual, setManual] = useState(false);
   const [manualVersion, setManualVersion] = useState(0);
   const [showList, setShowList] = useState(false);
+  const [moreConversations, setMoreConversations] = useState(
+    initialList.length >= CONVERSATION_PAGE
+  );
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -103,6 +117,7 @@ export function AssistantConversation({
         return;
       }
       setList(nextList);
+      setMoreConversations(nextList.length >= CONVERSATION_PAGE);
       if (!conversation) {
         open(next.id, true);
       }
@@ -207,22 +222,71 @@ export function AssistantConversation({
     []
   );
   const selectConversation = useCallback(
-    (event: import("react").MouseEvent<HTMLButtonElement>) => {
-      const c = event.currentTarget.dataset.conversationId;
+    (item: ConversationListItem) => {
       setShowList(false);
-      open(c ?? "new");
+      open(item.id);
     },
     [open]
   );
+  const items = useMemo(() => list.map(fromAssistant), [list]);
+  const loadMore = useCallback(async () => {
+    const last = list.at(-1);
+    if (!last || loadingMore) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const page = await getTrpc().assistant.list.query({
+        cursor: last.cursor,
+      });
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: The ref changes on unmount while a request is in flight.
+      if (mounted.current) {
+        setList((current) => [...current, ...page]);
+        setMoreConversations(page.length >= CONVERSATION_PAGE);
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [list, loadingMore]);
+  const loadEarlier = useCallback(async () => {
+    const first = conversation?.messages[0];
+    if (!(conversation && first) || loadingEarlier) {
+      return;
+    }
+    setLoadingEarlier(true);
+    try {
+      const page = await getTrpc().assistant.get.query({
+        before: first.seq,
+        conversationId: conversation.id,
+      });
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: The ref changes on unmount while a request is in flight.
+      if (mounted.current) {
+        setConversation((current) =>
+          current?.id === page.id
+            ? {
+                ...current,
+                hasEarlier: page.hasEarlier,
+                messages: [...page.messages, ...current.messages],
+              }
+            : current
+        );
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, [conversation, loadingEarlier]);
 
   return (
     <section aria-label="Workspace assistant" className="flex min-h-0 flex-1">
       <aside
         className={`${showList ? "flex" : "hidden"} order-2 w-full shrink-0 flex-col md:flex md:w-[220px] md:border-l`}
       >
-        <div className="flex items-center justify-between border-b p-4">
-          <h2 className="font-medium text-sm">Conversations</h2>
-          <div className="flex items-center gap-1">
+        <ConversationList
+          actions={
             <Button
               aria-label="Back to conversation"
               className="md:hidden"
@@ -232,40 +296,18 @@ export function AssistantConversation({
             >
               <ArrowLeft className="size-4" />
             </Button>
-            <Button
-              aria-label="New conversation"
-              disabled={busy}
-              onClick={newConversation}
-              size="icon"
-              variant="ghost"
-            >
-              <Plus className="size-4" />
-            </Button>
-          </div>
-        </div>
-        <nav
-          aria-label="Conversations"
-          className="flex-1 space-y-1 overflow-y-auto p-2"
-        >
-          {list.length ? (
-            list.map((item) => (
-              <button
-                className={`block w-full rounded-md px-3 py-3 text-left text-sm hover:bg-muted ${conversation?.id === item.id ? "bg-muted font-medium" : "text-muted-foreground"}`}
-                data-conversation-id={item.id}
-                disabled={busy}
-                key={item.id}
-                onClick={selectConversation}
-                type="button"
-              >
-                {item.title}
-              </button>
-            ))
-          ) : (
-            <p className="px-3 py-4 text-muted-foreground text-sm">
-              Your conversations will appear here. Only you can see them.
-            </p>
-          )}
-        </nav>
+          }
+          activeId={conversation?.id}
+          disabled={busy}
+          emptyText="Your conversations will appear here. Only you can see them."
+          heading="Conversations"
+          items={items}
+          label="Conversations"
+          loadingMore={loadingMore}
+          onLoadMore={moreConversations ? loadMore : undefined}
+          onNew={newConversation}
+          onSelect={selectConversation}
+        />
         <p className="border-t p-4 text-muted-foreground text-xs">
           Private to you in this workspace.
         </p>
@@ -333,6 +375,16 @@ export function AssistantConversation({
                 to add it.
               </p>
             )}
+            {conversation?.hasEarlier ? (
+              <Button
+                disabled={loadingEarlier}
+                onClick={loadEarlier}
+                size="sm"
+                variant="ghost"
+              >
+                {loadingEarlier ? "Loading…" : "Show earlier messages"}
+              </Button>
+            ) : null}
             {conversation ? (
               <AssistantMessages
                 agents={agents}

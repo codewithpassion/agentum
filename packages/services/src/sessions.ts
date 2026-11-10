@@ -160,6 +160,16 @@ const CURSOR_SEPARATOR = "~";
 const cursorOf = (row: SessionRow): string =>
   `${activityOf(row)}${CURSOR_SEPARATOR}${row.id}`;
 
+/** Threads whose stored name or any run's input text contains `query`. */
+const matchesQuery = (query: string | undefined): SQL | undefined => {
+  const term = query?.trim();
+  if (term === undefined || term === "") {
+    return;
+  }
+  const pattern = `%${likeEscape(term)}%`;
+  return sql`(${sessions.title} LIKE ${pattern} ESCAPE '\\' or exists (select 1 from ${runs} where ${runs.sessionId} = ${sessions.id} and ${runs.inputText} LIKE ${pattern} ESCAPE '\\'))`;
+};
+
 const mainKeyOf = (userId: string): string => `main:${userId}`;
 
 const parseCursor = (cursor: string): { at: string; id: string } => {
@@ -567,6 +577,8 @@ export const createSessionsService = ({
       cursor,
       limit = SESSION_LIST_LIMIT,
       origin,
+      query,
+      working,
     }: {
       agentId?: string;
       /** True lists only archived threads. Otherwise archived ones are left out. */
@@ -574,6 +586,10 @@ export const createSessionsService = ({
       cursor?: string;
       limit?: number;
       origin?: SessionOrigin;
+      /** Keeps threads whose stored name or any message a person sent contains this text. */
+      query?: string;
+      /** True keeps threads with a run that is queued, running or waiting. */
+      working?: boolean;
     } = {}
   ): Promise<SessionListItem[]> => {
     const reader = requireReader(principal);
@@ -594,6 +610,10 @@ export const createSessionsService = ({
           archived
             ? isNotNull(sessions.archivedAt)
             : isNull(sessions.archivedAt),
+          matchesQuery(query),
+          working === true
+            ? sql`exists (select 1 from ${runs} where ${runs.sessionId} = ${sessions.id} and ${runs.status} in ('queued', 'offered', 'running', 'waiting'))`
+            : undefined,
           after === undefined
             ? undefined
             : sql`(${ACTIVITY}, ${sessions.id}) < (${after.at}, ${after.id})`

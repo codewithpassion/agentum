@@ -1,4 +1,5 @@
 import {
+  CONVERSATION_PAGE_LIMIT,
   resolveCardInputSchema,
   sendInputSchema,
 } from "@repo/services/assistant/service";
@@ -15,13 +16,36 @@ export const assistantRouter = router({
       ctx.services.assistant.archive(ctx.principal, input.conversationId)
     ),
   get: workspaceProcedure
-    .input(conversationInput)
+    .input(
+      conversationInput.extend({
+        before: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(CONVERSATION_PAGE_LIMIT).optional(),
+      })
+    )
     .query(({ ctx, input }) =>
-      ctx.services.assistant.get(ctx.principal, input.conversationId)
+      ctx.services.assistant.get(ctx.principal, input.conversationId, {
+        before: input.before,
+        limit: input.limit,
+      })
     ),
-  list: workspaceProcedure.query(({ ctx }) =>
-    ctx.services.assistant.list(ctx.principal)
-  ),
+  list: workspaceProcedure
+    .input(
+      z
+        .strictObject({
+          cursor: z.string().min(1).max(300).optional(),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(CONVERSATION_PAGE_LIMIT)
+            .optional(),
+          query: z.string().max(200).optional(),
+        })
+        .optional()
+    )
+    .query(({ ctx, input }) =>
+      ctx.services.assistant.list(ctx.principal, input ?? {})
+    ),
   resolveCard: workspaceProcedure
     .input(resolveCardInputSchema)
     .mutation(({ ctx, input }) =>

@@ -431,6 +431,38 @@ test("list with origin returns only sessions of that origin", async () => {
   expect(items.map((item) => item.id)).not.toContain(ui.sessionId);
 });
 
+test("list with query keeps sessions whose messages or stored name contain the text", async () => {
+  const invoice = await send(user("u1"), "Chase the invoice from Acme");
+  await send(user("u1"), "Plan the offsite");
+  const named = await send(user("u1"), "Something else");
+  await sessions.rename(user("u1"), named.sessionId, "Acme renewal");
+  await send(user("u1"), "100% done");
+
+  const found = await sessions.list(user("u1"), { query: " acme " });
+  const percent = await sessions.list(user("u1"), { query: "100%" });
+  const wildcard = await sessions.list(user("u1"), { query: "%" });
+
+  expect(found.map((item) => item.id).sort()).toEqual(
+    [invoice.sessionId, named.sessionId].sort()
+  );
+  expect(percent).toHaveLength(1);
+  expect(wildcard).toHaveLength(1);
+});
+
+test("list with working keeps sessions that have a run in flight", async () => {
+  const idle = await send(user("u1"), "finished");
+  const busy = await send(user("u1"), "still going");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, busy.runId))
+    .run();
+
+  const items = await sessions.list(user("u1"), { working: true });
+
+  expect(items.map((item) => item.id)).toEqual([busy.sessionId]);
+  expect(items.map((item) => item.id)).not.toContain(idle.sessionId);
+});
+
 test("list without agentId keeps another user's ui and private sessions out", async () => {
   const mine = await send(user("u1"), "mine");
   await send(user("u2"), "theirs in the ui");

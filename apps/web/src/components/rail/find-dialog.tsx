@@ -1,6 +1,7 @@
 import { Bot } from "lucide-react";
 import { useCallback } from "react";
 import { useAssistantLocation } from "#/components/assistant/assistant-location";
+import { useOpenMainThread } from "#/components/conversations/use-main-thread";
 import {
   Command,
   CommandDialog,
@@ -43,7 +44,7 @@ function FindItem({
   );
 }
 
-/** Every page and every agent, searchable. Opens with Ctrl+K or Cmd+K. */
+/** Every page and every agent, searchable. Picking an agent opens your main thread with it. Opens with Ctrl+K or Cmd+K. */
 export function FindDialog({
   agents,
   onOpenChange,
@@ -55,16 +56,20 @@ export function FindDialog({
 }) {
   const go = useGo();
   const { open: openAssistant } = useAssistantLocation();
+  const openMainThread = useOpenMainThread();
   const handlePick = useCallback(
     (to: string) => {
       onOpenChange(false);
+      const agent = agentFindEntries(agents).find((entry) => entry.to === to);
       if (to === "/assistant") {
         openAssistant("new");
+      } else if (agent) {
+        openMainThread(agent.id);
       } else {
         go(to);
       }
     },
-    [go, onOpenChange, openAssistant]
+    [agents, go, onOpenChange, openAssistant, openMainThread]
   );
   return (
     <CommandDialog

@@ -1,4 +1,5 @@
-import { type ChangeEvent, useCallback } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useState } from "react";
+import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import {
   NativeSelect,
@@ -15,7 +16,11 @@ interface SessionFiltersProps {
   agents: readonly { id: string; name: string }[];
   onAgentChange: (next: string | undefined) => void;
   onOriginChange: (next: OriginValue | undefined) => void;
+  onQueryChange: (next: string | undefined) => void;
+  onWorkingChange: (next: boolean) => void;
   origin: OriginValue | undefined;
+  query: string | undefined;
+  working: boolean;
 }
 
 const isOriginValue = (value: string): value is OriginValue =>
@@ -26,8 +31,30 @@ export function SessionFilters({
   agents,
   onAgentChange,
   onOriginChange,
+  onQueryChange,
+  onWorkingChange,
   origin,
+  query,
+  working,
 }: SessionFiltersProps) {
+  const [text, setText] = useState(query ?? "");
+  const handleTextChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value),
+    []
+  );
+  const handleSearch = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const trimmed = text.trim();
+      onQueryChange(trimmed === "" ? undefined : trimmed);
+    },
+    [onQueryChange, text]
+  );
+  const handleWorkingChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) =>
+      onWorkingChange(event.target.checked),
+    [onWorkingChange]
+  );
   const handleAgentChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
       const { value } = event.target;
@@ -49,7 +76,21 @@ export function SessionFilters({
   );
 
   return (
-    <div className="flex flex-wrap gap-4">
+    <div className="flex flex-wrap items-end gap-4">
+      <form
+        className="flex min-w-0 flex-[1_1_220px] flex-col gap-2"
+        onSubmit={handleSearch}
+      >
+        <Label htmlFor="sessions-search">Search</Label>
+        <Input
+          id="sessions-search"
+          maxLength={200}
+          onChange={handleTextChange}
+          placeholder="Search titles and messages"
+          type="search"
+          value={text}
+        />
+      </form>
       <div className="flex min-w-0 flex-col gap-2">
         <Label htmlFor="sessions-agent">Agent</Label>
         <NativeSelect
@@ -79,6 +120,15 @@ export function SessionFilters({
             </NativeSelectOption>
           ))}
         </NativeSelect>
+      </div>
+      <div className="flex min-h-9 items-center gap-2">
+        <input
+          checked={working}
+          id="sessions-working"
+          onChange={handleWorkingChange}
+          type="checkbox"
+        />
+        <Label htmlFor="sessions-working">Running now</Label>
       </div>
     </div>
   );

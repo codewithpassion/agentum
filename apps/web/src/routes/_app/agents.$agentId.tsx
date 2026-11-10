@@ -14,9 +14,11 @@ import { RunsOnCard } from "#/components/agent/profile/runs-on-card";
 import { SHEET_IDS, type SheetId } from "#/components/agent/profile/sheet-ids";
 import { allowedMailAddresses } from "#/components/agent/profile/sheets/mail-logic";
 import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
+import { ThreadsCard } from "#/components/agent/profile/threads-card";
 import { getTrpc } from "#/integrations/trpc/client";
 
 const RECENT_TASKS = 5;
+const RECENT_THREADS = 8;
 
 const searchSchema = z.object({
   // "1" opens the mail list, any other value opens that mail thread. The router
@@ -40,6 +42,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         profile,
         askBefore,
         tasks,
+        threads,
         machines,
         mailbox,
         rules,
@@ -53,6 +56,10 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         trpc.tasks.list.query({
           agentId: params.agentId,
           limit: RECENT_TASKS,
+        }),
+        trpc.sessions.list.query({
+          agentId: params.agentId,
+          limit: RECENT_THREADS,
         }),
         trpc.machines.list.query(),
         trpc.mailbox.get.query({ agentId: params.agentId }),
@@ -72,6 +79,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         published,
         rules,
         tasks,
+        threads,
       };
     } catch (error) {
       if (
@@ -105,6 +113,7 @@ function AgentPage() {
     published,
     rules,
     tasks,
+    threads,
   } = Route.useLoaderData();
   const archived = agent.status === "archived";
   const nowMs = useNowMs();
@@ -169,6 +178,7 @@ function AgentPage() {
               agentId={agent.id}
               mailAllowed={allowedMailAddresses(rules)}
             />
+            <ThreadsCard agent={agent} archived={archived} threads={threads} />
             <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
             <ConnectionsCard
               agentId={agent.id}
