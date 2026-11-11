@@ -52,9 +52,8 @@ const tokenPrefix = (
   };
 };
 
-// Installed daemons and computer clients check the run token, machine
-// credential and enroll code prefixes themselves and know only `hm_`, and
-// they do not update on their own. These three keep being issued as `hm_`
+// Installed machine clients check the run token, machine credential and
+// enroll code prefixes themselves, and they do not update on their own. These three keep being issued as `hm_`
 // until clients that accept `ag_` are out; then drop the "legacy" argument.
 
 /** Run tokens, `<prefix><payload>.<signature>`. */

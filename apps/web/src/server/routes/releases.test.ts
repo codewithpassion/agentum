@@ -93,6 +93,22 @@ describe("latest.json", () => {
     ]);
   });
 
+  it("refuses the retired products even when R2 still holds their files", async () => {
+    const { app, asked } = setup(published);
+    const responses = await Promise.all(
+      [
+        "/releases/agentum/latest.json",
+        "/releases/hm-computer/latest.json",
+        "/releases/agentum/0.1.0+abc1234/agentum-linux-x64",
+        "/releases/hm-computer/0.1.0+abc1234/hm-computer_linux_amd64",
+      ].map((path) => get(app, path))
+    );
+    expect(responses.map((response) => response.status)).toEqual([
+      404, 404, 404, 404,
+    ]);
+    expect(asked).toEqual([]);
+  });
+
   it("serves the manifest as JSON with a short cache", async () => {
     const { app } = setup(published);
     const response = await get(app, "/releases/agentum-rs/latest.json");
