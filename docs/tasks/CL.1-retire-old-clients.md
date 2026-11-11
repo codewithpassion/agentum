@@ -3,7 +3,7 @@ id: CL.1
 title: Retire the TypeScript daemon and the Go computer
 milestone: CL
 size: L
-status: in_progress
+status: done
 depends_on: []
 branch: task/CL.1-retire-old-clients
 lane: ops
@@ -26,3 +26,4 @@ From the 10 Nov 2026 review. Three machine clients are still built and released:
 ## Log
 - 2026-11-10: added from the 10 Nov review, after Dom's decisions (members are trusted with credentials, the assistant may approve skills, assistant conversations share the thread list and are marked).
 - 2026-11-11: Dom said "Switch it now". Production machine morosini-prod moved to the Rust client (new machine "morosini", 0.1.0+b4c01389), bruce-meetings ran on it, and hm-daemon-production is stopped and disabled. The morosini-prod row stays unrevoked as the rollback path until CL.1 is on production. Dom's go replaces the 14-day window in the check. The staging daemon on Morosini moves to the Rust client before this merges. Dispatched.
+- 2026-11-11: staging daemon on Morosini switched (machine "morosini-staging", throwaway agent ran, hm-daemon-staging stopped and disabled). Review clean, merged as 6f76c5a3, gate passed. Staging and production deploy next.
