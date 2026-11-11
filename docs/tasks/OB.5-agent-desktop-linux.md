@@ -31,3 +31,4 @@ Dom chose on 11 Nov 2026 to build the Linux backend that the OB.4 spike recommen
 - 2026-11-11: added from Dom's decision on OB.4. Not dispatched today, because it is size L.
 - 2026-11-11: Dom said "Start now". Dispatched as one task, not split.
 - 2026-11-11: review clean after one fix round, merged as c5454c09, gate passed, on staging (Worker 90cac9eb). Production rides with CL.1. The desktop image needs a rebuild and release before machines get the new binaries.
+- 2026-11-11: on production with CL.1 (Worker 4918f335).
