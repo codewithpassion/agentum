@@ -18,11 +18,6 @@ import {
   AGENTUM_DESKTOP_SECCOMP_NOTE,
   agentumCommand,
   agentumDockerCommand,
-  binaryCommand,
-  DESKTOP_SECCOMP_NOTE,
-  daemonCommand,
-  dockerDesktopCommand,
-  dockerHeadlessCommand,
 } from "./enroll-commands";
 import { EnrollStatus } from "./enroll-status";
 import { ENROLL_BUTTON_LABEL, newMachine, ROLE_LABELS } from "./machine-logic";
@@ -30,7 +25,6 @@ import { ENROLL_BUTTON_LABEL, newMachine, ROLE_LABELS } from "./machine-logic";
 interface EnrollToken {
   code: string;
   expiresAt: string;
-  role: MachineEnrollRole;
 }
 
 export const DEFAULT_ENROLL_ROLE: MachineEnrollRole = "both";
@@ -53,7 +47,7 @@ const ROLE_HINTS: Record<MachineEnrollRole, string> = {
 interface EnrollDialogProps {
   /** Ids of the machines that exist now. A machine not in this list is the one being enrolled. */
   knownMachineIds: readonly string[];
-  machine?: { id: string; name: string; rust?: boolean };
+  machine?: { id: string; name: string };
   onClose: () => void;
   role: MachineEnrollRole;
 }
@@ -61,26 +55,20 @@ interface EnrollDialogProps {
 export const RUST_ADD_ROLE_NOTE =
   "Re-enrol this Rust host with a new both-roles code and --replace. Use agentum list to find its instance; use sudo for a system instance. This creates a new machine record: reassign its agents and revoke the old record afterwards.";
 
-export const computerRoleEnrollment = (machine: {
-  id: string;
-  name: string;
-  rust?: boolean;
-}) =>
-  machine.rust
-    ? { machineName: machine.name, role: "both" as const }
-    : { machineId: machine.id, role: "computer" as const };
+export const computerRoleEnrollment = (machine: { name: string }) => ({
+  machineName: machine.name,
+  role: "both" as const,
+});
 
 const dialogTitle = (machine: object | undefined): string =>
   machine ? "Add computer role" : ENROLL_BUTTON_LABEL;
 
 const dialogDescription = (
-  machine: { name: string; rust?: boolean } | undefined,
+  machine: object | undefined,
   token: EnrollToken | null
 ): string => {
   if (machine) {
-    return machine.rust
-      ? RUST_ADD_ROLE_NOTE
-      : `Add the computer role to ${machine.name}.`;
+    return RUST_ADD_ROLE_NOTE;
   }
   if (token === null) {
     return "Choose a role, name the machine, then create an enrol code for it.";
@@ -151,11 +139,9 @@ export function EnrollDialog({
   const [error, setError] = useState<string | null>(null);
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  // Adding the computer role to a Go machine changes a machine that already exists.
-  const watchesNewMachine = machine === undefined || machine.rust === true;
 
   useEffect(() => {
-    if (token === null || !watchesNewMachine || connectedName !== null) {
+    if (token === null || connectedName !== null) {
       return;
     }
     const startedAt = Date.now();
@@ -174,7 +160,7 @@ export function EnrollDialog({
       }
     }, POLL_MS);
     return () => clearInterval(timer);
-  }, [token, watchesNewMachine, connectedName, knownMachineIds]);
+  }, [token, connectedName, knownMachineIds]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -215,10 +201,7 @@ export function EnrollDialog({
             machineName,
             role,
           });
-      setToken({
-        ...created,
-        role: machine ? computerRoleEnrollment(machine).role : role,
-      });
+      setToken(created);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -240,7 +223,7 @@ export function EnrollDialog({
 
         {token ? (
           <div className="flex flex-col gap-4">
-            {machine?.rust ? (
+            {machine ? (
               <CommandBlock
                 command={`AGENTUM_ENROLL_CODE=${token.code} agentum enroll --instance <instance> --replace\nagentum service restart --instance <instance>`}
                 heading="Replace the existing Rust enrolment"
@@ -266,40 +249,11 @@ export function EnrollDialog({
                 </CommandBlock>
               </>
             )}
-            {token.role !== "both" && (
-              <details open={machine !== undefined}>
-                <summary>Older clients</summary>
-                {token.role === "computer" ? (
-                  <>
-                    <CommandBlock
-                      command={dockerHeadlessCommand(origin, token.code)}
-                      heading="Docker, headless"
-                    />
-                    <CommandBlock
-                      command={dockerDesktopCommand(origin, token.code)}
-                      heading="Docker, with a desktop"
-                    >
-                      <p className="text-muted-foreground text-sm">
-                        {DESKTOP_SECCOMP_NOTE}
-                      </p>
-                    </CommandBlock>
-                    <CommandBlock
-                      command={binaryCommand(origin, token.code)}
-                      heading="Binary"
-                    />
-                  </>
-                ) : (
-                  <CommandBlock command={daemonCommand(origin, token.code)} />
-                )}
-              </details>
-            )}
-            {watchesNewMachine ? (
-              <EnrollStatus
-                connectedName={connectedName}
-                elapsedMs={elapsedMs}
-                origin={origin}
-              />
-            ) : null}
+            <EnrollStatus
+              connectedName={connectedName}
+              elapsedMs={elapsedMs}
+              origin={origin}
+            />
             <p className="text-muted-foreground text-sm">
               Single use. Expires at{" "}
               {new Date(token.expiresAt).toLocaleTimeString()}.

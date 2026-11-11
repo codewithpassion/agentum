@@ -1,14 +1,18 @@
-// Public routes for the daemon and computer releases. No sign-in: like Bun's
+// Public routes for the Agentum client releases. No sign-in: like Bun's
 // installer, `curl <origin>/install.sh | sh` has no session. The binaries hold
 // no secrets (the credential comes from `enroll`). Mounted before Clerk, so no
 // Clerk redirect can catch them, and every path under `/releases` ends here.
 //
-//   GET /install.sh, /install-computer.sh   the script with this origin in it
+//   GET /install-agentum.sh                 the script with this origin in it
+//   GET /install.sh, /install-computer.sh   retired: a script that prints the new command
 //   GET /releases/<product>/latest.json     the manifest the publish script wrote last
 //   GET /releases/<product>/<version>/<file>  a binary, streamed from R2
 
 import type { Context, Hono } from "hono";
-import { renderInstallScript } from "../releases/install-script.ts";
+import {
+  renderInstallScript,
+  retiredInstallScript,
+} from "../releases/install-script.ts";
 import {
   fileKey,
   isProduct,
@@ -27,8 +31,8 @@ const LEADING_WEAK = /^W\//;
 
 export interface ReleaseRoutesDeps {
   bucket: (env: Env) => ReleaseBucket;
-  /** The install scripts as files, with the origin placeholder still in them. */
-  scripts: { agentum: string; computer: string; daemon: string };
+  /** The install script as a file, with the origin placeholder still in it. */
+  scripts: { agentum: string };
 }
 
 const notFound = (): Response =>
@@ -48,21 +52,26 @@ const etagMatches = (header: string | null, etag: string): boolean => {
     .some((candidate) => candidate === "*" || candidate === etag);
 };
 
-const script = (template: string, c: Context<AppEnv>): Response =>
-  new Response(renderInstallScript(template, new URL(c.req.url).origin), {
+const scriptResponse = (body: string): Response =>
+  new Response(body, {
     headers: {
       "Cache-Control": SCRIPT_CACHE,
       "Content-Type": "text/plain; charset=utf-8",
     },
   });
 
+const originOf = (c: Context<AppEnv>): string => new URL(c.req.url).origin;
+
 export const mountReleaseRoutes = (
   app: Hono<AppEnv>,
   deps: ReleaseRoutesDeps
 ): void => {
-  app.get("/install-agentum.sh", (c) => script(deps.scripts.agentum, c));
-  app.get("/install.sh", (c) => script(deps.scripts.daemon, c));
-  app.get("/install-computer.sh", (c) => script(deps.scripts.computer, c));
+  app.get("/install-agentum.sh", (c) =>
+    scriptResponse(renderInstallScript(deps.scripts.agentum, originOf(c)))
+  );
+  for (const retired of ["/install.sh", "/install-computer.sh"]) {
+    app.get(retired, (c) => scriptResponse(retiredInstallScript(originOf(c))));
+  }
 
   app.get("/releases/:product/latest.json", async (c) => {
     const product = c.req.param("product");

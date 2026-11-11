@@ -90,13 +90,13 @@ describe("sha256Hex", () => {
 describe("buildManifest", () => {
   test("records a sha256 and size for each file", () => {
     const manifest = buildManifest(
-      "hm-computer",
+      "agentum-rs",
       VERSION,
-      filesFor("hm-computer")
+      filesFor("agentum-rs")
     );
-    expect(manifest.product).toBe("hm-computer");
+    expect(manifest.product).toBe("agentum-rs");
     expect(manifest.version).toBe(VERSION);
-    const [first] = filesFor("hm-computer");
+    const [first] = filesFor("agentum-rs");
     if (!first) {
       throw new Error("hm-computer ships no files");
     }
@@ -107,12 +107,12 @@ describe("buildManifest", () => {
   });
 
   test("refuses a missing or extra file", () => {
-    const files = filesFor("agentum");
-    expect(() => buildManifest("agentum", VERSION, files.slice(1))).toThrow(
+    const files = filesFor("agentum-rs");
+    expect(() => buildManifest("agentum-rs", VERSION, files.slice(1))).toThrow(
       "must ship"
     );
     expect(() =>
-      buildManifest("agentum", VERSION, [
+      buildManifest("agentum-rs", VERSION, [
         ...files,
         { bytes: new Uint8Array(), name: "stray" },
       ])
@@ -122,7 +122,7 @@ describe("buildManifest", () => {
 
 describe("shouldSkip", () => {
   const manifestText = serializeManifest(
-    buildManifest("agentum", VERSION, filesFor("agentum"))
+    buildManifest("agentum-rs", VERSION, filesFor("agentum-rs"))
   );
 
   test("skips when latest.json already names this version", () => {
@@ -153,31 +153,35 @@ describe("assertCleanTree", () => {
 describe("uploadPlan", () => {
   test("uploads every binary, then latest.json last", () => {
     const manifest = buildManifest(
-      "hm-computer",
+      "agentum-rs",
       VERSION,
-      filesFor("hm-computer")
+      filesFor("agentum-rs")
     );
-    const plan = uploadPlan("hm-computer", VERSION, manifest);
+    const plan = uploadPlan("agentum-rs", VERSION, manifest);
     expect(plan.map((item) => item.key)).toEqual([
-      ...PRODUCT_FILES["hm-computer"].map((name) =>
-        fileKey("hm-computer", VERSION, name)
+      ...PRODUCT_FILES["agentum-rs"].map((name) =>
+        fileKey("agentum-rs", VERSION, name)
       ),
-      manifestKey("hm-computer"),
+      manifestKey("agentum-rs"),
     ]);
   });
 
   test("binaries come from disk, latest.json from its body", () => {
-    const manifest = buildManifest("agentum", VERSION, filesFor("agentum"));
-    const [first, ...rest] = uploadPlan("agentum", VERSION, manifest);
+    const manifest = buildManifest(
+      "agentum-rs",
+      VERSION,
+      filesFor("agentum-rs")
+    );
+    const [first, ...rest] = uploadPlan("agentum-rs", VERSION, manifest);
     expect(first).toEqual({
       contentType: "application/octet-stream",
-      filePath: artifactPath("agentum", "agentum-linux-x64"),
-      key: fileKey("agentum", VERSION, "agentum-linux-x64"),
+      filePath: artifactPath("agentum-rs", "agentum-linux-x64"),
+      key: fileKey("agentum-rs", VERSION, "agentum-linux-x64"),
     });
     expect(rest.at(-1)).toEqual({
       body: serializeManifest(manifest),
       contentType: "application/json",
-      key: manifestKey("agentum"),
+      key: manifestKey("agentum-rs"),
     });
   });
 });
@@ -255,58 +259,23 @@ describe("publish", () => {
       uploader,
     });
 
-    expect(requested).toEqual(["agentum", "hm-computer", "agentum-rs"]);
+    expect(requested).toEqual(["agentum-rs"]);
     expect(puts.map((put) => put.key)).toEqual([
-      ...PRODUCT_FILES.agentum.map((name) => fileKey("agentum", VERSION, name)),
-      manifestKey("agentum"),
-      ...PRODUCT_FILES["hm-computer"].map((name) =>
-        fileKey("hm-computer", VERSION, name)
-      ),
-      manifestKey("hm-computer"),
       ...PRODUCT_FILES["agentum-rs"].map((name) =>
         fileKey("agentum-rs", VERSION, name)
       ),
       manifestKey("agentum-rs"),
     ]);
-    const latest = store.get(manifestKey("hm-computer")) ?? "";
+    const latest = store.get(manifestKey("agentum-rs")) ?? "";
     expect(manifestSchema.parse(JSON.parse(latest)).version).toBe(VERSION);
   });
 
   test("skips a product whose latest.json already names this version", async () => {
-    const live = serializeManifest(
-      buildManifest("agentum", VERSION, filesFor("agentum"))
-    );
-    const { uploader, puts } = fakeUploader({
-      latest: { [manifestKey("agentum")]: live },
-    });
-    const { build, requested } = fakeBuild();
-
-    await publish({
-      allowDirty: false,
-      build,
-      env: "production",
-      log: quiet,
-      packageVersion: "0.1.0",
-      readGit: clean,
-      uploader,
-    });
-
-    expect(requested).toEqual(["hm-computer", "agentum-rs"]);
-    expect(puts.some((put) => put.key.includes("/agentum/"))).toBe(false);
-    expect(puts).toHaveLength(
-      PRODUCT_FILES["hm-computer"].length +
-        PRODUCT_FILES["agentum-rs"].length +
-        2
-    );
-  });
-
-  test("uploads nothing when every product is already live", async () => {
-    const latest = Object.fromEntries(
-      (["agentum", "hm-computer", "agentum-rs"] as const).map((product) => [
-        manifestKey(product),
-        serializeManifest(buildManifest(product, VERSION, filesFor(product))),
-      ])
-    );
+    const latest = {
+      [manifestKey("agentum-rs")]: serializeManifest(
+        buildManifest("agentum-rs", VERSION, filesFor("agentum-rs"))
+      ),
+    };
     const { uploader, puts } = fakeUploader({ latest });
     const { build, requested } = fakeBuild();
 
@@ -357,7 +326,7 @@ describe("publish", () => {
   });
 
   test("a failed binary upload leaves latest.json unwritten", async () => {
-    const failing = fileKey("agentum", VERSION, "agentum-linux-arm64");
+    const failing = fileKey("agentum-rs", VERSION, "agentum-linux-arm64");
     const { uploader, puts, store } = fakeUploader({ failOn: failing });
     const { build } = fakeBuild();
 
@@ -374,9 +343,9 @@ describe("publish", () => {
     ).rejects.toThrow("failed");
 
     expect(puts.map((put) => put.key)).toEqual([
-      fileKey("agentum", VERSION, "agentum-linux-x64"),
+      fileKey("agentum-rs", VERSION, "agentum-linux-x64"),
     ]);
-    expect(store.has(manifestKey("agentum"))).toBe(false);
+    expect(store.has(manifestKey("agentum-rs"))).toBe(false);
   });
 });
 

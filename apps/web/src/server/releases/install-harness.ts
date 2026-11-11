@@ -1,6 +1,6 @@
 // Test harness for the release install scripts. It makes a temp HOME and a stub
 // bin directory, serves a fixture release over a local Bun server, and runs a
-// rendered script with a clean environment. Stubs replace the daemon, `uname`,
+// rendered script with a clean environment. Stubs replace the agentum binary, `uname`,
 // `systemctl` and `claude`, so nothing touches the real HOME, ~/.local/bin,
 // systemd or sudo.
 
@@ -102,33 +102,6 @@ export const stubUname = (
       `  *) echo ${shQuote(system)} ;;`,
       "esac"
     )
-  );
-};
-
-/**
- * The text of a stub daemon binary. It logs its argv, prints `version` for
- * `versionArg` (`--version` for agentum, `version` for hm-computer), and
- * exits with `exitCodes[subcommand]` for a subcommand listed there, so a test
- * can make `install-service` exit 2.
- */
-export const stubDaemon = (
-  name: string,
-  version: string,
-  exitCodes: Record<string, number> = {},
-  versionArg = "--version"
-): string => {
-  const cases = Object.entries(exitCodes).map(
-    ([subcommand, code]) =>
-      `  ${shQuote(subcommand)}) echo ${shQuote(`stub ${subcommand} exit ${code}`)} >&2; exit ${code} ;;`
-  );
-  return lines(
-    "#!/bin/sh",
-    `printf '%s %s\\n' ${shQuote(name)} "$*" >> "$HOME/stub-calls.log"`,
-    'case "$1" in',
-    `  ${shQuote(versionArg)}) echo ${shQuote(version)}; exit 0 ;;`,
-    ...cases,
-    "esac",
-    "exit 0"
   );
 };
 

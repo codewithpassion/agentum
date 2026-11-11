@@ -3,14 +3,10 @@ use serde_json::{Value, json};
 
 #[test]
 fn golden_normalization_and_completion() {
-    let messages: Vec<Value> = serde_json::from_str(include_str!(
-        "../../../daemon/fixtures/tool-run/sdk-messages.json"
-    ))
-    .unwrap();
-    let batches: Vec<Vec<Value>> = serde_json::from_str(include_str!(
-        "../../../daemon/fixtures/tool-run/events.json"
-    ))
-    .unwrap();
+    let messages: Vec<Value> =
+        serde_json::from_str(include_str!("../../testdata/tool-run/sdk-messages.json")).unwrap();
+    let batches: Vec<Vec<Value>> =
+        serde_json::from_str(include_str!("../../testdata/tool-run/events.json")).unwrap();
     let expected: Vec<Value> = batches.into_iter().flatten().collect();
     let mut actual = vec![];
     for message in &messages {
@@ -20,10 +16,8 @@ fn golden_normalization_and_completion() {
         }
     }
     assert_eq!(actual, expected);
-    let complete: Vec<Value> = serde_json::from_str(include_str!(
-        "../../../daemon/fixtures/tool-run/complete.json"
-    ))
-    .unwrap();
+    let complete: Vec<Value> =
+        serde_json::from_str(include_str!("../../testdata/tool-run/complete.json")).unwrap();
     assert_eq!(
         crate::claude::completion(messages.last(), None, None, 100),
         complete[0]
@@ -291,7 +285,7 @@ fn fake(temp: &std::path::Path) -> String {
         .output()
         .unwrap();
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../daemon/fixtures/tool-run/sdk-messages.json");
+        .join("testdata/tool-run/sdk-messages.json");
     let file = temp.join("claude");
     // The wrapper passes the replay file before the driver's flags.
     std::fs::write(
@@ -362,15 +356,11 @@ async fn fake_claude_replay_matches_events_and_complete_over_http() {
         .filter(|(p, _)| p.ends_with("events"))
         .flat_map(|(_, b)| b["events"].as_array().unwrap().clone())
         .collect::<Vec<_>>();
-    let expected: Vec<Vec<Value>> = serde_json::from_str(include_str!(
-        "../../../daemon/fixtures/tool-run/events.json"
-    ))
-    .unwrap();
+    let expected: Vec<Vec<Value>> =
+        serde_json::from_str(include_str!("../../testdata/tool-run/events.json")).unwrap();
     assert_eq!(events, expected.into_iter().flatten().collect::<Vec<_>>());
-    let expected: Vec<Value> = serde_json::from_str(include_str!(
-        "../../../daemon/fixtures/tool-run/complete.json"
-    ))
-    .unwrap();
+    let expected: Vec<Value> =
+        serde_json::from_str(include_str!("../../testdata/tool-run/complete.json")).unwrap();
     assert_eq!(
         calls
             .iter()

@@ -1,4 +1,5 @@
 // Machine procedures: a user enrols, lists and revokes the machines of their workspace and attaches a computer to an agent.
+import { PRODUCTS } from "@repo/protocol/releases";
 import { enrollTokenInputSchema } from "@repo/services/machines";
 import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
@@ -27,7 +28,7 @@ export const machinesRouter = router({
     ctx.services.machines.list(ctx.principal)
   ),
   newestDaemonVersion: workspaceProcedure
-    .input(z.enum(["agentum", "agentum-rs"]).optional())
+    .input(z.enum(PRODUCTS).optional())
     .query(({ ctx, input }) =>
       ctx.services.machines.newestDaemonVersion(ctx.principal, input)
     ),

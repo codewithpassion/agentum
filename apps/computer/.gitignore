@@ -1,6 +1,0 @@
-# Cross-compiled binaries; releases are built in CI, never committed.
-bin/
-
-# Default go build and go test -c outputs.
-/hm-computer
-*.test

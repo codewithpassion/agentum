@@ -1,7 +1,6 @@
 // A cloud run's input files. They reach the model before the first turn, as
 // image blocks or as a list it reads with `read_input_file`. An agent saves its
 // own output files in its task folder in the library, not through this module.
-// Mirrors apps/daemon/src/run-files.ts where the two runtimes share a rule.
 
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";

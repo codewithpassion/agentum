@@ -122,7 +122,7 @@ fn hostname_uses_kernel() {
 #[test]
 fn computer_hello_builder_matches_fixture() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../apps/computer/testdata/protocol/client_to_server_hello.json"
+        "../../../apps/agentum/testdata/protocol/client_to_server_hello.json"
     ))
     .unwrap();
     let expected: wire::ComputerHello = serde_json::from_value(fixture.clone()).unwrap();
@@ -147,18 +147,7 @@ fn config_fixes_use_real_paths_and_private_claude_preserves_daemon_text() {
         assert!(report.fix.contains("/etc/agentum/office"));
         assert!(!report.fix.contains("~/.config"));
     }
-    let source = include_str!("../../daemon/src/install-service.ts");
-    let original = source
-        .lines()
-        .find(|line| line.contains("return `${username} could not run"))
-        .unwrap()
-        .trim()
-        .trim_start_matches("return `")
-        .trim_end_matches("`;");
-    let expected = original
-        .replace("${username}", "dom")
-        .replace("${claude}", "/private/claude")
-        .replace("${AGENT_USER}", "agentum-office");
+    let expected = "dom could not run /private/claude as agentum-office. The binary must be executable by agentum-office, so it cannot sit in a private home directory. Install it system-wide, then run install-service again with --claude <path>";
     assert_eq!(
         private_claude("dom", "office", "/private/claude").meaning,
         expected

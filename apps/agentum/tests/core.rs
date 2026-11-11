@@ -13,9 +13,9 @@ fn every_wire_fixture_round_trips() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for folder in [
         "packages/protocol/fixtures",
-        "apps/computer/testdata/protocol",
-        "apps/computer/testdata/enroll",
-        "apps/daemon/fixtures/tool-run",
+        "apps/agentum/testdata/protocol",
+        "apps/agentum/testdata/enroll",
+        "apps/agentum/testdata/tool-run",
     ] {
         for file in fs::read_dir(root.join(folder)).unwrap() {
             let path = file.unwrap().path();
@@ -45,7 +45,7 @@ fn every_wire_fixture_round_trips() {
                         }
                         _ => panic!("add a typed fixture check for {filename}"),
                     }
-                } else if folder == "apps/computer/testdata/protocol" {
+                } else if folder == "apps/agentum/testdata/protocol" {
                     if filename.starts_with("client_to_server_hello") {
                         round_trip::<wire::ComputerHello>(&value);
                     } else if filename.starts_with("client_to_server_reply") {
@@ -55,7 +55,7 @@ fn every_wire_fixture_round_trips() {
                     } else {
                         round_trip::<wire::ErrorCodes>(&value);
                     }
-                } else if folder == "apps/computer/testdata/enroll" {
+                } else if folder == "apps/agentum/testdata/enroll" {
                     if filename == "request.json" {
                         round_trip::<wire::ComputerEnrollRequest>(&value);
                     } else {
@@ -272,7 +272,7 @@ fn reads_ignore_unknown_fields_and_sends_have_exact_hello_keys() {
             .contains(&serde_json::json!("parallel-subagents"))
     );
     let mut request: Value = serde_json::from_str(include_str!(
-        "../../../apps/computer/testdata/protocol/server_to_client_exec_null_cwd.json"
+        "../testdata/protocol/server_to_client_exec_null_cwd.json"
     ))
     .unwrap();
     request["future"] = serde_json::json!(true);

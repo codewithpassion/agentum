@@ -28,9 +28,7 @@ import {
 import { liveExportRoutes } from "./server/live-exports/routes";
 import { handleMailEvents } from "./server/mail-events.ts";
 import { handleInboundEmail } from "./server/mail-inbound.ts";
-import installDaemonScript from "./server/releases/install.sh?raw";
 import installAgentumScript from "./server/releases/install-agentum.sh?raw";
-import installComputerScript from "./server/releases/install-computer.sh?raw";
 import { mountA2aRoutes } from "./server/routes/a2a.ts";
 import { mountA2aWebhooks } from "./server/routes/a2a-webhooks.ts";
 import { accessRoutes } from "./server/routes/access.ts";
@@ -102,16 +100,12 @@ mountArtifactContentRoutes(app, {
   workspaceId: (claims) => claims.workspaceId,
 });
 
-// The install scripts and the daemon and computer binaries (`/install.sh`,
+// The install script and the Agentum binaries (`/install-agentum.sh`,
 // `/releases/...`), public and read from R2. Before Clerk, so no sign-in
 // redirect can catch `curl`.
 mountReleaseRoutes(app, {
   bucket: (env) => env.FILES,
-  scripts: {
-    agentum: installAgentumScript,
-    computer: installComputerScript,
-    daemon: installDaemonScript,
-  },
+  scripts: { agentum: installAgentumScript },
 });
 
 app.route(
