@@ -228,16 +228,16 @@ fn plan_act(frame: &Value, config: &ComputerConfig, snapshots: &Snapshots) -> Op
     let command = action.replace('_', "-");
     let mut args: Vec<String> = vec![command, reference.into()];
     let mut input = None;
-    match (action, text) {
-        ("select", Some(text)) => args.push(text.into()),
-        (_, Some(text)) => {
-            args.push("--stdin".into());
-            input = Some(text.to_owned());
-        }
-        _ => {}
+    if let (false, Some(text)) = (action == "select", text) {
+        args.push("--stdin".into());
+        input = Some(text.to_owned());
     }
     if headed {
         args.push("--headed".into());
+    }
+    if let (true, Some(text)) = (action == "select", text) {
+        // After `--`, so an option label such as `-1` is a value and never a flag.
+        args.extend(["--".into(), text.into()]);
     }
     let typed = text.map_or(0, |text| text.chars().count()) as u64;
     Ok(Plan {
@@ -598,7 +598,18 @@ mod tests {
             &snapshots,
         )
         .unwrap();
-        assert_eq!(p.args, ["select", "@sabc:e2", "Large"]);
+        assert_eq!(p.args, ["select", "@sabc:e2", "--", "Large"]);
+        let p = plan(
+            &json!({"op":"desktop_act","ref":"@sabc:e2","action":"select","text":"--help","headed":true}),
+            &ComputerConfig {
+                allow_headed: true,
+                ..config
+            },
+            &snapshots,
+        )
+        .unwrap();
+        // Flags come before the separator, the value after it.
+        assert_eq!(p.args, ["select", "@sabc:e2", "--headed", "--", "--help"]);
     }
 
     #[test]
@@ -784,5 +795,51 @@ esac"#,
         d.agent_apps = false;
         assert!(!names(&d).contains(&"ACCESSIBILITY_ENABLED".to_string()));
         assert!(!names(&d).contains(&"CHROMIUM_FLAGS".to_string()));
+    }
+
+    #[test]
+    fn the_opt_in_needs_the_bus_and_agent_desktop_and_a_plain_desktop_does_not() {
+        assert!(!super::super::required_binaries(false).contains(&"dbus-daemon"));
+        assert!(!super::super::required_binaries(false).contains(&"agent-desktop"));
+        let needed = super::super::required_binaries(true);
+        assert!(needed.contains(&"dbus-daemon") && needed.contains(&"agent-desktop"));
+        assert!(
+            super::super::missing_package("agent-desktop")
+                .message
+                .contains("agent-desktop")
+        );
+    }
+
+    #[test]
+    fn the_session_bus_listens_where_the_environment_says() {
+        if !crate::privilege::on_path("dbus-daemon") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let d = Desktop::for_test(dir.path());
+        d.start_bus().unwrap();
+        let address = d.bus.get().expect("bus address").clone();
+        assert_eq!(
+            address,
+            format!("unix:path={}", dir.path().join("bus").display())
+        );
+        assert!(dir.path().join("bus").exists());
+        assert!(
+            d.environment()
+                .contains(&("DBUS_SESSION_BUS_ADDRESS".into(), address))
+        );
+        d.stop();
+    }
+
+    #[test]
+    fn a_bus_that_cannot_start_stops_the_opt_in_but_not_a_plain_desktop() {
+        let dir = tempfile::tempdir().unwrap();
+        let long = dir.path().join("x".repeat(120));
+        fs::create_dir(&long).unwrap();
+        let mut d = Desktop::for_test(&long);
+        assert!(d.start_bus().is_err());
+        d.agent_apps = false;
+        assert!(d.start_bus().is_ok());
+        assert!(d.bus.get().is_none());
     }
 }

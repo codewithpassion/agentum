@@ -1077,14 +1077,19 @@ async fn agent_desktop_audit_records_the_ref_and_a_character_count_never_the_tex
 }
 
 #[test]
-fn an_action_error_that_quotes_the_typed_text_is_redacted_in_the_audit() {
-    let frame = json!({"op":"desktop_act","text":"quoted-secret"});
-    assert_eq!(
-        redacted("STALE_REF: value was quoted-secret", "desktop_act", &frame),
-        "STALE_REF: value was [typed text]"
+fn an_action_refusal_that_quotes_the_typed_text_keeps_only_its_code_in_the_audit() {
+    let quoting = Fault::new(
+        "op_failed",
+        r#"POSTCONDITION_MISMATCH: wanted "a\"b" {"value":"a\"b"}"#,
     );
     assert_eq!(
-        redacted("kept quoted-secret", "exec", &frame),
-        "kept quoted-secret"
+        audited_error(&quoting, "desktop_act"),
+        "POSTCONDITION_MISMATCH"
     );
+    // Our own refusals and other ops keep their message.
+    let ours = Fault::new("denied", "unknown snapshot: take a new snapshot");
+    assert_eq!(audited_error(&ours, "desktop_act"), ours.message);
+    assert_eq!(audited_error(&quoting, "desktop_snapshot"), quoting.message);
+    let timeout = Fault::new("op_failed", "desktop helper timed out");
+    assert_eq!(audited_error(&timeout, "desktop_act"), timeout.message);
 }

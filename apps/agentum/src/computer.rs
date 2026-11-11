@@ -292,7 +292,7 @@ impl Engine {
                     }
                 }
             }
-            Err(e) => entry["error"] = json!(redacted(&e.message, op, &frame)),
+            Err(e) => entry["error"] = json!(audited_error(e, op)),
         }
         self.record(entry);
         if let Ok(value) = &mut result
@@ -549,14 +549,18 @@ fn detect_capabilities(
     }
 }
 
-/// agent-desktop can quote the element's value in an error, and that is what was just typed.
-fn redacted(message: &str, op: &str, frame: &Value) -> String {
-    match frame["text"].as_str() {
-        Some(text) if op == "desktop_act" && !text.is_empty() => {
-            message.replace(text, "[typed text]")
-        }
-        _ => message.into(),
+/// What the audit keeps of an error. agent-desktop can quote the element's value in a refusal,
+/// and for an action that value is what was just typed, so the log keeps only its error code.
+fn audited_error(error: &Fault, op: &str) -> String {
+    if op == "desktop_act"
+        && error.code == "op_failed"
+        && let Some((code, _)) = error.message.split_once(": ")
+        && !code.is_empty()
+        && code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+    {
+        return code.into();
     }
+    error.message.clone()
 }
 
 fn encode_reply(id: &str, result: OpResult<Value>) -> Value {

@@ -470,8 +470,17 @@ impl Desktop {
     /// One session bus per desktop, at a fixed path in the private directory so a restart keeps the
     /// address. It is the bus agent-desktop and the apps' accessibility bridge meet on.
     fn start_bus(&self) -> OpResult<()> {
+        match self.start_bus_inner() {
+            // Only the opt-in needs the bus. Without it a desktop that worked before still starts.
+            Err(error) if !self.agent_apps => {
+                tracing::warn!(reason = %error.message, "Desktop session bus not started");
+                Ok(())
+            }
+            other => other,
+        }
+    }
+    fn start_bus_inner(&self) -> OpResult<()> {
         if !crate::privilege::on_path("dbus-daemon") {
-            // A desktop without the opt-in runs as before on hosts that have no bus.
             return Ok(());
         }
         let socket = self.dir.join("bus");
