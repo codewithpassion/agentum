@@ -833,6 +833,9 @@ esac"#,
 
     #[test]
     fn a_bus_that_cannot_start_stops_the_opt_in_but_not_a_plain_desktop() {
+        if !crate::privilege::on_path("dbus-daemon") {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let long = dir.path().join("x".repeat(120));
         fs::create_dir(&long).unwrap();

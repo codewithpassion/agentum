@@ -1090,6 +1090,11 @@ fn an_action_refusal_that_quotes_the_typed_text_keeps_only_its_code_in_the_audit
     let ours = Fault::new("denied", "unknown snapshot: take a new snapshot");
     assert_eq!(audited_error(&ours, "desktop_act"), ours.message);
     assert_eq!(audited_error(&quoting, "desktop_snapshot"), quoting.message);
+    // Whatever the prefix looks like, a quoted message never reaches the log.
+    for odd in [": quoted", "E2BIG: quoted", "has space: quoted"] {
+        let audited = audited_error(&Fault::new("op_failed", odd), "desktop_act");
+        assert!(!audited.contains("quoted"), "{odd}");
+    }
     let timeout = Fault::new("op_failed", "desktop helper timed out");
     assert_eq!(audited_error(&timeout, "desktop_act"), timeout.message);
 }

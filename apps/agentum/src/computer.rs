@@ -555,10 +555,16 @@ fn audited_error(error: &Fault, op: &str) -> String {
     if op == "desktop_act"
         && error.code == "op_failed"
         && let Some((code, _)) = error.message.split_once(": ")
-        && !code.is_empty()
-        && code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
     {
-        return code.into();
+        let plain = !code.is_empty()
+            && code.len() <= 40
+            && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        return if plain {
+            code
+        } else {
+            "agent-desktop refused the action"
+        }
+        .into();
     }
     error.message.clone()
 }
