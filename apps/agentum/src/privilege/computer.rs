@@ -4,7 +4,7 @@ use super::Problem;
 impl Problem {
     pub const Desktop: Self = Self(|user, instance| {
         let _ = (user, instance);
-        let (tried, reason, meaning, fix) = ("Find desktop programs", "one or more desktop packages are missing", "Desktop operations need Xvfb, openbox, xdotool, xclip and Chromium.", "sudo apt install xvfb openbox xdotool xclip chromium; # Fedora: sudo dnf install xorg-x11-server-Xvfb openbox xdotool xclip chromium".into());
+        let (tried, reason, meaning, fix) = ("Find desktop programs", "one or more desktop packages are missing", "Desktop operations need Xvfb, openbox, xdotool, xclip and Chromium. With --allow-app they also need dbus-daemon, at-spi2-core and agent-desktop.", "sudo apt install xvfb openbox xdotool xclip chromium; # Fedora: sudo dnf install xorg-x11-server-Xvfb openbox xdotool xclip chromium; # --allow-app also needs: dbus-daemon at-spi2-core agent-desktop (github.com/vercel-labs/agent-desktop)".into());
         super::Explanation {
             tried: tried.into(),
             reason: reason.into(),

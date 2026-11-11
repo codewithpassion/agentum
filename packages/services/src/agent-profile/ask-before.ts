@@ -38,7 +38,31 @@ export const BUILTIN_ACTIONS: readonly BuiltinAction[] = [
     label: "Send a message to another agent",
   },
   { key: `${PLATFORM_KEY}/start_subagent`, label: "Start a subagent" },
+  {
+    covers:
+      "Clicking, typing and selecting in an app through its accessibility tree, on a computer that allows apps.",
+    key: `${PLATFORM_KEY}/desktop_act`,
+    label: "Act in a desktop app",
+  },
+  {
+    covers:
+      "The same, with the real mouse and keyboard. The computer's owner can refuse it for good.",
+    key: `${PLATFORM_KEY}/desktop_act_headed`,
+    label: "Use the real mouse and keyboard in a desktop app",
+  },
 ];
+
+/**
+ * Actions that ask at every level, `rarely` and `custom` included, until a rule
+ * on the action says allow. They act inside a person's apps, which no earlier
+ * agent could do, so no agent runs them by surprise. They apply to an agent
+ * whose computer allows apps (`desktopAsksByDefault`); any other agent has no
+ * such tool to ask about.
+ */
+export const ASK_BY_DEFAULT: ReadonlySet<string> = new Set([
+  `${PLATFORM_KEY}/desktop_act`,
+  `${PLATFORM_KEY}/desktop_act_headed`,
+]);
 
 /** What a person reads for a platform tool a switch covers, by rule key. */
 export const PLATFORM_TOOL_LABELS: Readonly<Record<string, string>> = {
@@ -51,6 +75,9 @@ export const PLATFORM_TOOL_LABELS: Readonly<Record<string, string>> = {
   "harbourmaster/computer_write_file": "writing a file on the computer",
   "harbourmaster/deck_read": "reading a live deck",
   "harbourmaster/deck_write": "editing a live deck",
+  "harbourmaster/desktop_act": "acting in a desktop app",
+  "harbourmaster/desktop_act_headed":
+    "acting in a desktop app with the real mouse and keyboard",
   "harbourmaster/document_comment": "commenting on a live document",
   "harbourmaster/document_comments": "reading live document comments",
   "harbourmaster/document_edit": "editing a live document",

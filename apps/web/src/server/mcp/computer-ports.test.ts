@@ -407,6 +407,93 @@ test("desktopInput passes desktop_unavailable and human_in_control through", asy
   });
 });
 
+test("desktopSnapshot sends the request as an app op and reads the tree", async () => {
+  const sent: unknown[] = [];
+  const { ports } = harness(
+    relayWith({
+      desktopApp: (_machineId, principal, input) => {
+        sent.push({ input, principal });
+        return ok({
+          complete: true,
+          ref_count: 4,
+          snapshot_id: "sabc",
+          text: '{"ok":true}',
+        });
+      },
+    })
+  );
+  expect(
+    await ports.desktopSnapshot({
+      app: "chromium",
+      compact: true,
+      interactive: true,
+      root: null,
+      skeleton: false,
+    })
+  ).toEqual({
+    complete: true,
+    ok: true,
+    refCount: 4,
+    snapshotId: "sabc",
+    text: '{"ok":true}',
+  });
+  expect(sent).toEqual([
+    {
+      input: {
+        app: "chromium",
+        compact: true,
+        interactive: true,
+        op: "desktop_snapshot",
+        root: null,
+        skeleton: false,
+      },
+      principal: { agentId: "agent-1", kind: "agent" },
+    },
+  ]);
+});
+
+test("desktopAct and desktopApps read their replies, and a machine refusal is a validation failure", async () => {
+  const { ports } = harness(
+    relayWith({
+      desktopApp: (_machineId, _principal, input) =>
+        input.op === "desktop_apps"
+          ? ok({ apps: [{ name: "chromium" }] })
+          : ok({ app: "chromium", ok: true, text: "{}" }),
+    })
+  );
+  expect(await ports.desktopApps()).toEqual({ apps: ["chromium"], ok: true });
+  expect(
+    await ports.desktopAct({
+      action: "click",
+      headed: false,
+      ref: "@sabc:e1",
+      text: null,
+    })
+  ).toEqual({ app: "chromium", ok: true, text: "{}" });
+  const refused = harness(
+    relayWith({
+      desktopApp: () =>
+        fail("client_error", "denied", "this computer refuses physical input"),
+    })
+  );
+  expect(
+    await refused.ports.desktopAct({
+      action: "click",
+      headed: true,
+      ref: "@sabc:e1",
+      text: null,
+    })
+  ).toEqual({
+    code: "validation",
+    ok: false,
+    reason: "this computer refuses physical input",
+  });
+  const garbled = harness(
+    relayWith({ desktopApp: () => ok({ nonsense: true }) })
+  );
+  expect((await garbled.ports.desktopApps()).ok).toBe(false);
+});
+
 test("screenshot returns the image", async () => {
   const { ports } = harness(
     relayWith({

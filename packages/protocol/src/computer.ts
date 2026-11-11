@@ -42,6 +42,12 @@ export const FILE_CHUNK_BYTES = 256 * 1024;
 
 export const ComputerCapabilitiesSchema = z.object({
   /**
+   * Whether the typed `desktop_snapshot`, `desktop_act` and `desktop_apps` ops are on: the desktop
+   * runs and the machine's owner allowed at least one app. A client sends it only when true, and
+   * absent reads as false, so an older client is never sent an op it would answer with `unknown_op`.
+   */
+  agent_desktop: z.boolean().optional(),
+  /**
    * Whether the machine runs a desktop the desktop ops can drive. Defaults to false, so an older
    * client is never sent an op it would answer with `unknown_op`.
    */
@@ -319,6 +325,102 @@ export type DesktopClipboardSetRequest = z.infer<
   typeof DesktopClipboardSetRequestSchema
 >;
 
+/** An app as the machine's `list-apps` names it, which becomes one argument on the machine. */
+export const DESKTOP_APP_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,63}$/;
+/** A ref from a snapshot: `@` and the snapshot id, then `:e` and the element number. */
+export const DESKTOP_REF_PATTERN = /^@s[a-z0-9]+:e[0-9]+$/;
+export const DesktopAppSchema = z.string().regex(DESKTOP_APP_PATTERN);
+export const DesktopRefSchema = z.string().max(64).regex(DESKTOP_REF_PATTERN);
+
+/** What `desktop_act` can do to a ref. Each one is a fixed command on the machine. */
+export const DESKTOP_ACT_ACTIONS = [
+  "click",
+  "set_value",
+  "type",
+  "toggle",
+  "select",
+  "expand",
+  "collapse",
+] as const;
+export const DesktopActActionSchema = z.enum(DESKTOP_ACT_ACTIONS);
+export type DesktopActAction = z.infer<typeof DesktopActActionSchema>;
+
+const DESKTOP_ACT_TEXT_ACTIONS: ReadonlySet<string> = new Set([
+  "set_value",
+  "type",
+  "select",
+]);
+
+/** Whether an action takes text: the value to set, the keys to type, the option to select. */
+export function desktopActTakesText(action: DesktopActAction): boolean {
+  return DESKTOP_ACT_TEXT_ACTIONS.has(action);
+}
+
+/** Server-chosen `timeout_ms` per agent-desktop op. */
+export const DESKTOP_SNAPSHOT_TIMEOUT_MS = 10_000;
+export const DESKTOP_APPS_TIMEOUT_MS = 6000;
+const DESKTOP_ACT_BASE_TIMEOUT_MS = 12_000;
+const DESKTOP_ACT_MS_PER_TYPED_CHAR = 30;
+
+export const DesktopSnapshotRequestSchema = z.object({
+  app: DesktopAppSchema,
+  compact: z.boolean(),
+  interactive: z.boolean(),
+  op: z.literal("desktop_snapshot"),
+  /** A ref from an earlier snapshot of the same app, to read one region of it. */
+  root: DesktopRefSchema.nullable(),
+  skeleton: z.boolean(),
+});
+export type DesktopSnapshotRequest = z.infer<
+  typeof DesktopSnapshotRequestSchema
+>;
+
+export const DesktopActRequestSchema = z
+  .object({
+    action: DesktopActActionSchema,
+    /** Physical mouse and keyboard input instead of the app's accessibility actions. */
+    headed: z.boolean(),
+    op: z.literal("desktop_act"),
+    ref: DesktopRefSchema,
+    text: DesktopTypeTextSchema.nullable(),
+  })
+  .refine(
+    ({ action, text }) => desktopActTakesText(action) === (text !== null),
+    {
+      message:
+        "Text is required for set_value, type and select, and only for those",
+    }
+  );
+export type DesktopActRequest = z.infer<typeof DesktopActRequestSchema>;
+
+export const DesktopAppsRequestSchema = z.object({
+  op: z.literal("desktop_apps"),
+});
+export type DesktopAppsRequest = z.infer<typeof DesktopAppsRequestSchema>;
+
+/** The three ops that go through the machine's accessibility tree rather than pixels. */
+export type DesktopAppRequest =
+  | DesktopSnapshotRequest
+  | DesktopActRequest
+  | DesktopAppsRequest;
+
+/** The `timeout_ms` the relay sends with an agent-desktop op. Typing is the slow action. */
+export function desktopAppTimeoutMs(request: DesktopAppRequest): number {
+  switch (request.op) {
+    case "desktop_snapshot":
+      return DESKTOP_SNAPSHOT_TIMEOUT_MS;
+    case "desktop_apps":
+      return DESKTOP_APPS_TIMEOUT_MS;
+    case "desktop_act":
+      return (
+        DESKTOP_ACT_BASE_TIMEOUT_MS +
+        DESKTOP_ACT_MS_PER_TYPED_CHAR * (request.text?.length ?? 0)
+      );
+    default:
+      return request satisfies never;
+  }
+}
+
 export const ClientOpRequestSchema = z.discriminatedUnion("op", [
   ExecRequestSchema,
   CancelRequestSchema,
@@ -328,15 +430,30 @@ export const ClientOpRequestSchema = z.discriminatedUnion("op", [
   DesktopInputRequestSchema,
   DesktopClipboardGetRequestSchema,
   DesktopClipboardSetRequestSchema,
+  DesktopSnapshotRequestSchema,
+  DesktopActRequestSchema,
+  DesktopAppsRequestSchema,
 ]);
 export type ClientOpRequest = z.infer<typeof ClientOpRequestSchema>;
+
+const AGENT_DESKTOP_OPS: ReadonlySet<string> = new Set([
+  DesktopSnapshotRequestSchema.shape.op.value,
+  DesktopActRequestSchema.shape.op.value,
+  DesktopAppsRequestSchema.shape.op.value,
+]);
 
 const DESKTOP_OPS: ReadonlySet<string> = new Set([
   DesktopScreenshotRequestSchema.shape.op.value,
   DesktopInputRequestSchema.shape.op.value,
   DesktopClipboardGetRequestSchema.shape.op.value,
   DesktopClipboardSetRequestSchema.shape.op.value,
+  ...AGENT_DESKTOP_OPS,
 ]);
+
+/** The ops that also need the `agent_desktop` capability, which a machine reports only when on. */
+export function isAgentDesktopOp(op: string): boolean {
+  return AGENT_DESKTOP_OPS.has(op);
+}
 
 /** Desktop ops are the only ones gated on the desktop capability and the lease. */
 export function isDesktopOp(op: string): boolean {
@@ -413,6 +530,34 @@ export const DesktopClipboardGetResultPayloadSchema = z.object({
 });
 export type DesktopClipboardGetResultPayload = z.infer<
   typeof DesktopClipboardGetResultPayloadSchema
+>;
+
+export const DesktopSnapshotResultPayloadSchema = z.object({
+  complete: z.boolean(),
+  ref_count: z.number().int().nonnegative(),
+  snapshot_id: z.string().min(1),
+  /** The accessibility tree as the machine's agent-desktop printed it, JSON. */
+  text: z.string(),
+});
+export type DesktopSnapshotResultPayload = z.infer<
+  typeof DesktopSnapshotResultPayloadSchema
+>;
+
+export const DesktopActResultPayloadSchema = z.object({
+  app: z.string(),
+  ok: z.literal(true),
+  /** What agent-desktop printed: how the action was delivered and the element's state after. */
+  text: z.string(),
+});
+export type DesktopActResultPayload = z.infer<
+  typeof DesktopActResultPayloadSchema
+>;
+
+export const DesktopAppsResultPayloadSchema = z.object({
+  apps: z.array(z.object({ name: z.string() })),
+});
+export type DesktopAppsResultPayload = z.infer<
+  typeof DesktopAppsResultPayloadSchema
 >;
 
 /** The error code a daemon answers a desktop op with once its desktop has gone down. */
@@ -649,6 +794,27 @@ export function parseDesktopClipboardGetResult(
   const parsed = DesktopClipboardGetResultPayloadSchema.safeParse(
     parseJson(json)
   );
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function parseDesktopSnapshotResult(
+  json: string
+): DesktopSnapshotResultPayload | undefined {
+  const parsed = DesktopSnapshotResultPayloadSchema.safeParse(parseJson(json));
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function parseDesktopActResult(
+  json: string
+): DesktopActResultPayload | undefined {
+  const parsed = DesktopActResultPayloadSchema.safeParse(parseJson(json));
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function parseDesktopAppsResult(
+  json: string
+): DesktopAppsResultPayload | undefined {
+  const parsed = DesktopAppsResultPayloadSchema.safeParse(parseJson(json));
   return parsed.success ? parsed.data : undefined;
 }
 

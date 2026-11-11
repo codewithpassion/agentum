@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  type DesktopAppRequest,
   type DesktopClipboardSetRequest,
   type DesktopInputRequest,
   type DesktopScreenshotRequest,
@@ -225,6 +226,13 @@ export class MachineRelay extends DurableObject<Env> {
     input: Omit<DesktopScreenshotRequest, "op">
   ): Promise<ComputerOutcome> {
     return this.#relay().computer.desktopScreenshot(principal, input);
+  }
+
+  desktopApp(
+    principal: ComputerPrincipal,
+    input: DesktopAppRequest
+  ): Promise<ComputerOutcome> {
+    return this.#relay().computer.desktopApp(principal, input);
   }
 
   desktopInput(

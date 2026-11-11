@@ -15,8 +15,11 @@ import {
   type ExecResultPayload,
   FILE_CHUNK_BYTES,
   type FileGetResultPayload,
+  parseDesktopActResult,
+  parseDesktopAppsResult,
   parseDesktopOkResult,
   parseDesktopScreenshotResult,
+  parseDesktopSnapshotResult,
   parseExecResult,
   parseFileGetResult,
   parseFilePutResult,
@@ -358,12 +361,63 @@ export const createComputerPorts = ({
     });
 
   return {
+    desktopAct: async ({ action, headed, ref, text }) => {
+      const reply = parseReply(
+        await relay.desktopApp(machineId, agentPrincipal, {
+          action,
+          headed,
+          op: "desktop_act",
+          ref,
+          text,
+        }),
+        parseDesktopActResult
+      );
+      return reply.ok
+        ? { app: reply.value.app, ok: true, text: reply.value.text }
+        : reply;
+    },
+
+    desktopApps: async () => {
+      const reply = parseReply(
+        await relay.desktopApp(machineId, agentPrincipal, {
+          op: "desktop_apps",
+        }),
+        parseDesktopAppsResult
+      );
+      return reply.ok
+        ? { apps: reply.value.apps.map(({ name }) => name), ok: true }
+        : reply;
+    },
+
     desktopInput: async ({ actions }) => {
       const reply = parseReply(
         await relay.desktopInput(machineId, agentPrincipal, { actions }),
         parseDesktopOkResult
       );
       return reply.ok ? { applied: actions.length, ok: true } : reply;
+    },
+
+    desktopSnapshot: async ({ app, compact, interactive, root, skeleton }) => {
+      const reply = parseReply(
+        await relay.desktopApp(machineId, agentPrincipal, {
+          app,
+          compact,
+          interactive,
+          op: "desktop_snapshot",
+          root,
+          skeleton,
+        }),
+        parseDesktopSnapshotResult
+      );
+      return reply.ok
+        ? {
+            complete: reply.value.complete,
+            ok: true,
+            refCount: reply.value.ref_count,
+            snapshotId: reply.value.snapshot_id,
+            text: reply.value.text,
+          }
+        : reply;
     },
 
     exec: async ({ command, timeout_ms }) => {

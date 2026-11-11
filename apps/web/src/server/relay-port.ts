@@ -17,6 +17,8 @@ export const durableRelayPort = (
     computerExec: (machineId, principal, input) =>
       relayOf(machineId).computerExec(principal, input),
     computerStatus: (machineId) => relayOf(machineId).computerStatus(),
+    desktopApp: (machineId, principal, input) =>
+      relayOf(machineId).desktopApp(principal, input),
     desktopInput: (machineId, principal, input) =>
       relayOf(machineId).desktopInput(principal, input),
     desktopScreenshot: (machineId, principal, input) =>

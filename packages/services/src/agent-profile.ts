@@ -34,6 +34,7 @@ import { requireUser } from "./guards.ts";
 import { agentGrants } from "./library/access.ts";
 import { agentHomePath } from "./library/home.ts";
 import type { MachinesService } from "./machines.ts";
+import { desktopAsksByDefault } from "./requests/ask-keys.ts";
 import { askLevelSetInputSchema, type RequestsService } from "./requests.ts";
 import type { RoutinesService } from "./routines.ts";
 import type { SecretsService } from "./secrets.ts";
@@ -456,10 +457,14 @@ export const createAgentProfileService = ({
     const user = requireUser(principal, READ_ACTION);
     const { agentId } = askBeforeInputSchema.parse(raw);
     const agent = await loadAgent(user, READ_ACTION, agentId);
-    const [assignedConnectors, rules, level] = await Promise.all([
+    const [assignedConnectors, rules, level, always] = await Promise.all([
       connectors.agentTools(user, { agentId: agent.id }),
       requests.listRules(user, { agentId: agent.id }),
       requests.askLevel(user, { agentId: agent.id }),
+      desktopAsksByDefault(db, {
+        id: agent.id,
+        workspaceId: agent.workspaceId,
+      }),
     ]);
     // A rule in mode "allow" (from Always allow) is an override to off.
     const modes = new Map(
@@ -472,7 +477,7 @@ export const createAgentProfileService = ({
     );
     return gateableActions(assignedConnectors).map((action) => {
       const mode = modes.get(action.key);
-      const byLevel = levelAsks(level, action);
+      const byLevel = always.has(action.key) || levelAsks(level, action);
       const ask = mode === undefined ? byLevel : mode === "ask";
       const allowed = ask
         ? coveredKeys(action.key)
@@ -519,9 +524,13 @@ export const createAgentProfileService = ({
     const user = requireUser(principal, WRITE_ACTION);
     const { action, agentId, ask } = setAskBeforeInputSchema.parse(raw);
     const agent = await loadAgent(user, WRITE_ACTION, agentId);
-    const [assignedConnectors, level] = await Promise.all([
+    const [assignedConnectors, level, always] = await Promise.all([
       connectors.agentTools(user, { agentId: agent.id }),
       requests.askLevel(user, { agentId: agent.id }),
+      desktopAsksByDefault(db, {
+        id: agent.id,
+        workspaceId: agent.workspaceId,
+      }),
     ]);
     const known = gateableActions(assignedConnectors).find(
       (candidate) => candidate.key === action
@@ -529,7 +538,7 @@ export const createAgentProfileService = ({
     if (!known) {
       throw new ServiceError("invalid", `Unknown action: ${action}`);
     }
-    if (ask === levelAsks(level, known)) {
+    if (ask === (always.has(action) || levelAsks(level, known))) {
       await requests.removeRule(user, { agentId: agent.id, toolKey: action });
     } else {
       await requests.setRule(user, {

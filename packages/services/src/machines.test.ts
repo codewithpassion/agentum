@@ -948,6 +948,19 @@ test("enroll adds no computer to a machine that was revoked or took one since th
   expect(db.select().from(machineCredentials).all()).toHaveLength(1);
 });
 
+test("markComputerOnline stores whether the computer allows apps", async () => {
+  const { machineId } = await enrollComputerOnly("Desk");
+  const hello = computerHello(true);
+  await service.markComputerOnline(machinePrincipal(machineId), {
+    ...hello,
+    capabilities: { ...hello.capabilities, agent_desktop: true },
+  });
+
+  expect(
+    JSON.parse(machineRow(machineId)?.computerCapabilities ?? "null")
+  ).toMatchObject({ agentDesktop: true, desktop: true });
+});
+
 test("authenticate refuses a revoked machine for either role", async () => {
   const { computer, daemon } = await enrollBoth("Both");
   await service.revoke(user, daemon.machineId);
@@ -972,6 +985,7 @@ test("markComputerOnline stores the hello, writes one computer.online and leaves
     status: "offline",
   });
   expect(JSON.parse(row?.computerCapabilities ?? "null")).toEqual({
+    agentDesktop: false,
     arch: "arm64",
     clientVersion: "1.2.3",
     desktop: true,

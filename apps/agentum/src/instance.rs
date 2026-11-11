@@ -94,6 +94,10 @@ pub struct ComputerConfig {
     pub audit_keep: i32,
     pub desktop: bool,
     pub desktop_display: Option<u16>,
+    /// Apps agent-desktop may read and act on, by `list-apps` name. Empty means no agent-desktop.
+    pub allow_apps: Vec<String>,
+    /// Whether `desktop_act` may use physical input (`--headed`). Off by default.
+    pub allow_headed: bool,
     pub allow: Vec<String>,
     pub deny: Vec<String>,
     pub allow_env: Vec<String>,
@@ -113,6 +117,8 @@ impl Default for ComputerConfig {
             audit_keep: 3,
             desktop: false,
             desktop_display: None,
+            allow_apps: vec![],
+            allow_headed: false,
             allow: vec![],
             deny: vec![],
             allow_env: vec![],
@@ -145,6 +151,11 @@ impl ComputerConfig {
                 args.no_workdir_only,
             ),
             (&mut self.desktop, args.desktop, args.no_desktop),
+            (
+                &mut self.allow_headed,
+                args.allow_headed,
+                args.no_allow_headed,
+            ),
         ] {
             if yes || no {
                 *stored = yes;
@@ -154,6 +165,7 @@ impl ComputerConfig {
             (&mut self.allow, &args.allow, args.clear_allow),
             (&mut self.deny, &args.deny, args.clear_deny),
             (&mut self.allow_env, &args.allow_env, args.clear_allow_env),
+            (&mut self.allow_apps, &args.allow_app, args.clear_allow_app),
         ] {
             if clear {
                 stored.clear();

@@ -76,6 +76,10 @@ pub struct ComputerCapabilities {
     pub git: bool,
     pub skills: bool,
     pub desktop: bool,
+    /// The typed agent-desktop ops are on: the desktop runs and `allow_apps` names an app.
+    /// Sent only when on, so a client without the opt-in says what it always said.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_desktop: bool,
     pub desktop_unavailable_reason: Option<String>,
 }
 pub fn arch() -> &'static str {

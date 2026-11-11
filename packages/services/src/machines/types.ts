@@ -1,5 +1,6 @@
 import type {
   ComputerCapabilities,
+  DesktopAppRequest,
   DesktopClipboardSetRequest,
   DesktopInputRequest,
   DesktopScreenshotRequest,
@@ -103,6 +104,12 @@ export interface MachineRelayPort {
     input: Omit<ExecRequest, "op">
   ) => Promise<ComputerOutcome>;
   computerStatus: (machineId: string) => Promise<ComputerStatus>;
+  /** A snapshot of an allowed app's accessibility tree, an action on one of its refs, or the apps that may be read. */
+  desktopApp: (
+    machineId: string,
+    principal: ComputerPrincipal,
+    input: DesktopAppRequest
+  ) => Promise<ComputerOutcome>;
   desktopInput: (
     machineId: string,
     principal: ComputerPrincipal,
@@ -168,6 +175,7 @@ export const noopRelay: MachineRelayPort = {
       version: null,
       workdir: null,
     }),
+  desktopApp: () => Promise.resolve(offlineOutcome),
   desktopInput: () => Promise.resolve(offlineOutcome),
   desktopScreenshot: () => Promise.resolve(offlineOutcome),
   fileGet: () => Promise.resolve(offlineOutcome),

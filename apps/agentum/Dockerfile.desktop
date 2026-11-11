@@ -1,7 +1,14 @@
 # Build the static artifacts first with scripts/build-all.sh. Context: repository root.
+# agent-desktop is pinned by checksum. It is only used on a computer started with --allow-app.
+FROM scratch AS agent-desktop-amd64
+ADD --checksum=sha256:591ae7f4a38479dc045df97e27447c0c8b530441730ab6b990e27c813162af44 https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-x86_64-unknown-linux-gnu.tar.gz /agent-desktop.tar.gz
+FROM scratch AS agent-desktop-arm64
+ADD --checksum=sha256:68e8ebbb4f80e44485d2f1cf972943a38ee43108e2e0ce56bdfa641fd1599f68 https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-aarch64-unknown-linux-gnu.tar.gz /agent-desktop.tar.gz
+FROM agent-desktop-${TARGETARCH} AS agent-desktop
+
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates tini procps chromium fonts-dejavu-core fonts-liberation2 fonts-noto-color-emoji openbox tint2 x11-xserver-utils xclip xdotool xterm xvfb \
+  && apt-get install -y --no-install-recommends at-spi2-core ca-certificates dbus dbus-x11 tini procps chromium fonts-dejavu-core fonts-liberation2 fonts-noto-color-emoji openbox tint2 x11-xserver-utils xclip xdotool xterm xvfb \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 1000 agentum \
   && mkdir -p /var/lib/agentum/config /var/lib/agentum/state \
@@ -11,6 +18,11 @@ COPY --chmod=0755 apps/agentum/dist/agentum-linux-* /tmp/binaries/
 RUN case "$TARGETARCH" in amd64) arch=x64 ;; arm64) arch=arm64 ;; *) exit 1 ;; esac \
   && mv "/tmp/binaries/agentum-linux-$arch" /usr/local/bin/agentum \
   && rm -rf /tmp/binaries
+# The archive holds agent-desktop and its clipboard helper, which must sit beside it.
+COPY --from=agent-desktop /agent-desktop.tar.gz /tmp/agent-desktop.tar.gz
+RUN tar -xzf /tmp/agent-desktop.tar.gz -C /usr/local/bin agent-desktop agent-desktop-linux-clipboard-owner \
+  && chmod 0755 /usr/local/bin/agent-desktop /usr/local/bin/agent-desktop-linux-clipboard-owner \
+  && rm /tmp/agent-desktop.tar.gz
 # Reuse the existing desktop integration, leaving the old image unchanged.
 COPY apps/computer/packaging/desktop/xterm-resources /tmp/xterm-resources
 COPY apps/computer/packaging/desktop/chromium-policy.json /etc/chromium/policies/managed/agentum.json
