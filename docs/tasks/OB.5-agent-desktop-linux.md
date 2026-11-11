@@ -3,9 +3,9 @@ id: OB.5
 title: agent-desktop as an opt-in Linux desktop backend
 milestone: OB
 size: L
-status: todo
+status: in_progress
 depends_on: [OB.4, AB.1]
-branch: null
+branch: task/OB.5-agent-desktop-linux
 lane: computer
 executor: claude
 ---
@@ -29,3 +29,4 @@ Dom chose on 11 Nov 2026 to build the Linux backend that the OB.4 spike recommen
 
 ## Log
 - 2026-11-11: added from Dom's decision on OB.4. Not dispatched today, because it is size L.
+- 2026-11-11: Dom said "Start now". Dispatched as one task, not split.

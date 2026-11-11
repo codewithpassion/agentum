@@ -30,3 +30,4 @@ Today only `completeRun` wakes, and only when the parent run has ended (`package
 - 2026-11-11: added from Dom's decision on the TH.4 question.
 - 2026-11-11: dispatched to a Sonnet implementer on task/TH.6-wake-live-parent, with a per-task review, after Dom's go.
 - 2026-11-11: Merged as f2320012, review clean after 1 fix round. check, test and build passed on main. A parent that is itself a subagent is not woken, because the wake would run without the subagent's scope.
+- 2026-11-11: Dom chose to keep the exception: a parent that is itself a subagent is not woken.
