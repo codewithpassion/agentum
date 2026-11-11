@@ -26,25 +26,22 @@ export const Route = createFileRoute("/_app/settings/machines")({
   loader: async () =>
     loadOrLogin(async () => {
       const trpc = getTrpc();
-      const [machines, latestDaemonVersion, latestRustVersion] =
-        await Promise.all([
-          trpc.machines.list.query(),
-          trpc.machines.newestDaemonVersion.query(),
-          trpc.machines.newestDaemonVersion.query("agentum-rs"),
-        ]);
-      return { latestDaemonVersion, latestRustVersion, machines };
+      const [machines, latestVersion] = await Promise.all([
+        trpc.machines.list.query(),
+        trpc.machines.newestDaemonVersion.query(),
+      ]);
+      return { latestVersion, machines };
     }),
   component: MachinesPage,
 });
 
 interface DialogState {
-  machine?: { id: string; name: string; rust?: boolean };
+  machine?: { id: string; name: string };
   role: MachineEnrollRole;
 }
 
 function MachinesPage() {
-  const { latestDaemonVersion, latestRustVersion, machines } =
-    Route.useLoaderData();
+  const { latestVersion, machines } = Route.useLoaderData();
   const router = useRouter();
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [revoking, setRevoking] = useState<{ id: string; name: string } | null>(
@@ -73,7 +70,7 @@ function MachinesPage() {
     machines.length - visibleMachines(machines, false).length;
 
   const addComputerTo = useCallback(
-    (machine: { id: string; name: string; rust?: boolean }) =>
+    (machine: { id: string; name: string }) =>
       setDialog({ role: "computer", machine }),
     []
   );
@@ -137,8 +134,7 @@ function MachinesPage() {
             {shown.map((machine) => (
               <MachineRow
                 key={machine.id}
-                latestDaemonVersion={latestDaemonVersion}
-                latestRustVersion={latestRustVersion}
+                latestVersion={latestVersion}
                 machine={machine}
                 onAddComputer={addComputerTo}
                 onRevoke={setRevoking}

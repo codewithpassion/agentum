@@ -26,8 +26,7 @@ const machineWith = (doctorProblems: MachineRecord["doctorProblems"]) => ({
 const renderRow = (machine: MachineRecord) =>
   renderToStaticMarkup(
     <MachineRow
-      latestDaemonVersion={null}
-      latestRustVersion={null}
+      latestVersion={null}
       machine={machine}
       onAddComputer={noop}
       onRevoke={noop}
@@ -74,8 +73,7 @@ test("a computer-only Rust machine displays its update command", () => {
   };
   const html = renderToStaticMarkup(
     <MachineRow
-      latestDaemonVersion="0.1.0+go"
-      latestRustVersion="0.1.0+new"
+      latestVersion="0.1.0+new"
       machine={machine}
       onAddComputer={noop}
       onRevoke={noop}

@@ -8,13 +8,13 @@ import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { TableRow } from "#/components/ui/table";
 import type { MachineRecord } from "#/integrations/trpc/types";
-import { agentumInstallCommand, daemonInstallCommand } from "./enroll-commands";
+import { agentumInstallCommand } from "./enroll-commands";
 import {
   canAddComputerRole,
   canRevoke,
   computerKind,
-  daemonProduct,
   isDaemonOutdated,
+  isRustMachine,
   type RoleTone,
   roleRows,
 } from "./machine-logic";
@@ -41,34 +41,26 @@ function lastSeen(machine: MachineRecord): string {
 }
 
 interface MachineRowProps {
-  /** The version of the newest published daemon, or null when there is none. */
-  latestDaemonVersion: string | null;
-  latestRustVersion: string | null;
+  /** The version of the newest published client, or null when there is none. */
+  latestVersion: string | null;
   machine: MachineRecord;
-  onAddComputer: (machine: {
-    id: string;
-    name: string;
-    rust?: boolean;
-  }) => void;
+  onAddComputer: (machine: { id: string; name: string }) => void;
   onRevoke: (machine: { id: string; name: string }) => void;
   /** This deployment's origin, for the update command. Null while it is unknown. */
   origin: string | null;
 }
 
 export function MachineRow({
-  latestDaemonVersion,
-  latestRustVersion,
+  latestVersion,
   machine,
   origin,
   onAddComputer,
   onRevoke,
 }: MachineRowProps) {
   const { id, name } = machine;
-  const rust = daemonProduct(machine) === "agentum-rs";
-  const latestVersion = rust ? latestRustVersion : latestDaemonVersion;
   const handleAddComputer = useCallback(
-    () => onAddComputer({ id, name, rust }),
-    [onAddComputer, id, name, rust]
+    () => onAddComputer({ id, name }),
+    [onAddComputer, id, name]
   );
   const handleRevoke = useCallback(
     () => onRevoke({ id, name }),
@@ -88,7 +80,7 @@ export function MachineRow({
               Daemon {machine.daemonVersion}
             </p>
           )}
-          {isDaemonOutdated(machine, latestDaemonVersion, latestRustVersion) ? (
+          {isDaemonOutdated(machine, latestVersion) ? (
             <p className="text-sm">
               Client update available ({latestVersion}).
               {origin === null ? null : (
@@ -96,9 +88,7 @@ export function MachineRow({
                   {" "}
                   Update by running{" "}
                   <code className="break-all rounded bg-muted px-1 font-mono text-xs">
-                    {rust
-                      ? agentumInstallCommand(origin)
-                      : daemonInstallCommand(origin)}
+                    {agentumInstallCommand(origin)}
                   </code>{" "}
                   on the machine.
                 </>
@@ -146,7 +136,7 @@ export function MachineRow({
       </ResponsiveCell>
       <ResponsiveActions>
         <div className="flex items-center justify-end gap-2 max-md:flex-wrap max-md:justify-start">
-          {canAddComputerRole(machine) ? (
+          {canAddComputerRole(machine) && isRustMachine(machine) ? (
             <Button onClick={handleAddComputer} size="sm" variant="outline">
               Add computer role
             </Button>

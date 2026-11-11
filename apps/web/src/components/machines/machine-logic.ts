@@ -1,5 +1,4 @@
 import type { MachineRole } from "@repo/db/shared";
-import type { Product } from "@repo/protocol/releases";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
 
@@ -64,46 +63,52 @@ export const canAddComputerRole = (
   machine.roles.includes("agent_host") &&
   !machine.roles.includes("computer");
 
+/** The prefix of the version string a Rust client reports in its computer hello. */
+const RUST_VERSION_PREFIX = "agentum-rs@";
+
 /**
- * Whether a machine has a different version from its latest release. Includes
- * computer-only Rust clients, identified by their computer hello version.
- * Any different version counts: builds are ordered by
- * when they were published, not by their number.
+ * Whether a machine runs the Rust client. A machine that last connected with
+ * the retired TypeScript daemon or Go computer client does not, and cannot be
+ * updated in place.
  */
-export const daemonProduct = (
+export const isRustMachine = (
   machine: Pick<MachineRecord, "capabilities"> &
     Partial<Pick<MachineRecord, "computerCapabilities">>
-): Product =>
+): boolean =>
   (typeof machine.capabilities.agentSdk === "string" &&
     machine.capabilities.agentSdk.startsWith("claude-cli@")) ||
   (typeof machine.computerCapabilities?.clientVersion === "string" &&
-    machine.computerCapabilities.clientVersion.startsWith("agentum-rs@"))
-    ? "agentum-rs"
-    : "agentum";
+    machine.computerCapabilities.clientVersion.startsWith(RUST_VERSION_PREFIX));
 
+/**
+ * Whether a Rust machine has a different version from the latest release.
+ * Includes computer-only clients, identified by their computer hello version.
+ * Any different version counts: builds are ordered by when they were
+ * published, not by their number.
+ */
 export const isDaemonOutdated = (
   machine: Pick<MachineRecord, "daemonVersion" | "roles" | "status"> &
     Partial<Pick<MachineRecord, "capabilities" | "computerCapabilities">>,
-  latestVersion: string | null,
-  latestRustVersion: string | null = null
+  latestVersion: string | null
 ): boolean => {
-  const rust =
-    daemonProduct({ ...machine, capabilities: machine.capabilities ?? {} }) ===
-    "agentum-rs";
-  const latest = rust ? latestRustVersion : latestVersion;
+  if (
+    !isRustMachine({ ...machine, capabilities: machine.capabilities ?? {} })
+  ) {
+    return false;
+  }
   const computerVersion = machine.computerCapabilities?.clientVersion;
   let version = machine.daemonVersion;
   if (!machine.roles.includes("agent_host")) {
     version =
-      rust && typeof computerVersion === "string"
-        ? computerVersion.slice("agentum-rs@".length)
+      typeof computerVersion === "string"
+        ? computerVersion.slice(RUST_VERSION_PREFIX.length)
         : null;
   }
   return (
-    latest !== null &&
+    latestVersion !== null &&
     machine.status !== "revoked" &&
     version !== null &&
-    version !== latest
+    version !== latestVersion
   );
 };
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PRODUCTS } from "@repo/protocol/releases";
 import {
   fileKey,
   isReleaseFile,
@@ -15,12 +16,12 @@ const HASH = "a".repeat(64);
 
 const manifestFor = (): Manifest => ({
   files: Object.fromEntries(
-    PRODUCT_FILES["hm-computer"].map((name, index) => [
+    PRODUCT_FILES["agentum-rs"].map((name, index) => [
       name,
       { sha256: HASH, size: index + 1 },
     ])
   ),
-  product: "hm-computer",
+  product: "agentum-rs",
   version: VERSION,
 });
 
@@ -30,32 +31,42 @@ describe("release contract", () => {
   });
 
   test("fileKey and manifestKey live under releases/<product>", () => {
-    expect(fileKey("agentum", VERSION, "agentum-linux-x64")).toBe(
-      "releases/agentum/1.2.3+abc1234/agentum-linux-x64"
+    expect(fileKey("agentum-rs", VERSION, "agentum-linux-x64")).toBe(
+      "releases/agentum-rs/1.2.3+abc1234/agentum-linux-x64"
     );
-    expect(manifestKey("hm-computer")).toBe("releases/hm-computer/latest.json");
+    expect(manifestKey("agentum-rs")).toBe("releases/agentum-rs/latest.json");
   });
 
   test("isReleaseFile accepts a file the product ships", () => {
-    expect(isReleaseFile("agentum", VERSION, "agentum-linux-x64")).toBe(true);
-    expect(
-      isReleaseFile("hm-computer", VERSION, "hm-computer_linux_arm64")
-    ).toBe(true);
+    expect(isReleaseFile("agentum-rs", VERSION, "agentum-linux-x64")).toBe(
+      true
+    );
+    expect(isReleaseFile("agentum-rs", VERSION, "agentum-linux-arm64")).toBe(
+      true
+    );
   });
 
   test("isReleaseFile rejects path tricks", () => {
-    expect(isReleaseFile("agentum", VERSION, "../latest.json")).toBe(false);
-    expect(isReleaseFile("agentum", VERSION, "agentum-linux-x64/../x")).toBe(
+    expect(isReleaseFile("agentum-rs", VERSION, "../latest.json")).toBe(false);
+    expect(isReleaseFile("agentum-rs", VERSION, "agentum-linux-x64/../x")).toBe(
       false
     );
   });
 
   test("isReleaseFile rejects an unknown product, file or version", () => {
     expect(isReleaseFile("other", VERSION, "agentum-linux-x64")).toBe(false);
-    expect(isReleaseFile("agentum", VERSION, "agentum")).toBe(false);
-    expect(isReleaseFile("agentum", "1.2+abc1234", "agentum-linux-x64")).toBe(
-      false
-    );
+    expect(isReleaseFile("agentum-rs", VERSION, "agentum")).toBe(false);
+    expect(
+      isReleaseFile("agentum-rs", "1.2+abc1234", "agentum-linux-x64")
+    ).toBe(false);
+  });
+
+  test("the retired products are not products", () => {
+    expect(PRODUCTS).toEqual(["agentum-rs"]);
+    expect(isReleaseFile("agentum", VERSION, "agentum-linux-x64")).toBe(false);
+    expect(
+      isReleaseFile("hm-computer", VERSION, "hm-computer_linux_amd64")
+    ).toBe(false);
   });
 
   test("serializeManifest parses as JSON and satisfies the schema", () => {
@@ -71,7 +82,7 @@ describe("release contract", () => {
       `  "version": "${VERSION}",`,
     ]);
     expect(lines.filter((line) => line.includes('"sha256"'))).toHaveLength(
-      PRODUCT_FILES["hm-computer"].length
+      PRODUCT_FILES["agentum-rs"].length
     );
   });
 });

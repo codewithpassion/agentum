@@ -6,6 +6,7 @@ import {
   computerKind,
   computersOf,
   isDaemonOutdated,
+  isRustMachine,
   newMachine,
   revokeMachine,
   roleRows,
@@ -137,19 +138,20 @@ describe("revokeMachine", () => {
 
 describe("isDaemonOutdated", () => {
   const machine = {
+    capabilities: { agentSdk: "claude-cli@2.1.300" },
     daemonVersion: "0.1.0+aaa1111" as string | null,
     roles: ["agent_host"] as MachineRole[],
     status: "online" as MachineStatus,
   };
 
-  test("flags a daemon that differs from the published one", () => {
+  test("flags a client that differs from the published one", () => {
     expect(isDaemonOutdated(machine, "0.1.0+bbb2222")).toBe(true);
     expect(
       isDaemonOutdated({ ...machine, daemonVersion: "0.1.0" }, "0.1.0+bbb2222")
     ).toBe(true);
   });
 
-  test("leaves a current daemon alone", () => {
+  test("leaves a current client alone", () => {
     expect(isDaemonOutdated(machine, "0.1.0+aaa1111")).toBe(false);
   });
 
@@ -160,7 +162,7 @@ describe("isDaemonOutdated", () => {
     ).toBe(false);
   });
 
-  test("ignores a revoked machine and a computer-only one", () => {
+  test("ignores a revoked machine and a computer-only one with no version", () => {
     expect(isDaemonOutdated({ ...machine, status: "revoked" }, "0.2.0+x")).toBe(
       false
     );
@@ -168,22 +170,15 @@ describe("isDaemonOutdated", () => {
       isDaemonOutdated({ ...machine, roles: ["computer"] }, "0.2.0+x")
     ).toBe(false);
   });
+
+  test("says nothing about a retired TypeScript daemon", () => {
+    expect(isDaemonOutdated({ ...machine, capabilities: {} }, "0.2.0+x")).toBe(
+      false
+    );
+  });
 });
 
-test("Rust clients compare only the Rust product's version", () => {
-  const machine = {
-    capabilities: { agentSdk: "claude-cli@2.1.300" },
-    daemonVersion: "0.1.0+rust",
-    roles: ["agent_host"] as const,
-    status: "online" as const,
-  };
-  const mutable = { ...machine, roles: [...machine.roles] };
-  expect(isDaemonOutdated(mutable, "0.1.0+old", "0.1.0+rust")).toBe(false);
-  expect(isDaemonOutdated(mutable, "0.1.0+rust", "0.1.0+new")).toBe(true);
-  expect(isDaemonOutdated(mutable, "0.1.0+old", null)).toBe(false);
-});
-
-test("computer-only Rust clients get the Rust update hint", () => {
+test("computer-only Rust clients get the update hint", () => {
   const machine = {
     capabilities: {},
     computerCapabilities: { clientVersion: "agentum-rs@0.1.0+old" },
@@ -191,18 +186,41 @@ test("computer-only Rust clients get the Rust update hint", () => {
     roles: ["computer"] as MachineRole[],
     status: "offline" as const,
   };
-  expect(isDaemonOutdated(machine, "0.1.0+go", "0.1.0+new")).toBe(true);
-  expect(isDaemonOutdated(machine, "0.1.0+go", "0.1.0+old")).toBe(false);
-  expect(isDaemonOutdated({ ...machine, status: "revoked" }, null, "new")).toBe(
+  expect(isDaemonOutdated(machine, "0.1.0+new")).toBe(true);
+  expect(isDaemonOutdated(machine, "0.1.0+old")).toBe(false);
+  expect(isDaemonOutdated({ ...machine, status: "revoked" }, "new")).toBe(
     false
   );
   expect(
     isDaemonOutdated(
       { ...machine, computerCapabilities: { clientVersion: "0.1.0+go" } },
-      "new",
       "new"
     )
   ).toBe(false);
+});
+
+describe("isRustMachine", () => {
+  test("recognises the Rust agent host and the Rust computer hello", () => {
+    expect(
+      isRustMachine({ capabilities: { agentSdk: "claude-cli@2.1.300" } })
+    ).toBe(true);
+    expect(
+      isRustMachine({
+        capabilities: {},
+        computerCapabilities: { clientVersion: "agentum-rs@0.1.0+x" },
+      })
+    ).toBe(true);
+  });
+
+  test("refuses a machine from the retired clients", () => {
+    expect(isRustMachine({ capabilities: {} })).toBe(false);
+    expect(
+      isRustMachine({
+        capabilities: {},
+        computerCapabilities: { clientVersion: "0.1.0+go" },
+      })
+    ).toBe(false);
+  });
 });
 
 describe("visibleMachines", () => {

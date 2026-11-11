@@ -1497,7 +1497,7 @@ export const compose = (
       }),
       ...mailInfra(env),
       // A bucket error must not take the machines page down with it.
-      latestDaemonVersion: async (product = "agentum") => {
+      latestDaemonVersion: async (product = "agentum-rs") => {
         try {
           return (await readManifest(env.FILES, product))?.version ?? null;
         } catch (error) {

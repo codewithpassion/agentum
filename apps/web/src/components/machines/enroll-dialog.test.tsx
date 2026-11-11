@@ -20,13 +20,10 @@ test("the enrol dialog offers each role and both together", () => {
   expect(html).toContain('aria-pressed="true"');
 });
 
-test("adding a role to Rust creates an unbound both-roles code and explains replacement", () => {
-  expect(
-    computerRoleEnrollment({ id: "m", name: "Office", rust: true })
-  ).toEqual({ machineName: "Office", role: "both" });
-  expect(computerRoleEnrollment({ id: "m", name: "Office" })).toEqual({
-    machineId: "m",
-    role: "computer",
+test("adding a role creates an unbound both-roles code and explains replacement", () => {
+  expect(computerRoleEnrollment({ name: "Office" })).toEqual({
+    machineName: "Office",
+    role: "both",
   });
   expect(RUST_ADD_ROLE_NOTE).toContain("both-roles code");
   expect(RUST_ADD_ROLE_NOTE).toContain("--replace");

@@ -3,7 +3,6 @@
 !apps/agentum/
 !apps/agentum/dist/
 !apps/agentum/dist/agentum-linux-*
-!apps/computer/
-!apps/computer/packaging/
-!apps/computer/packaging/desktop/
-!apps/computer/packaging/desktop/**
+!apps/agentum/packaging/
+!apps/agentum/packaging/desktop/
+!apps/agentum/packaging/desktop/**

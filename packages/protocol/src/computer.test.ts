@@ -17,7 +17,7 @@ import {
 } from "./computer.ts";
 
 const FIXTURE_DIR = new URL(
-  "../../../apps/computer/testdata/protocol/",
+  "../../../apps/agentum/testdata/protocol/",
   import.meta.url
 );
 
@@ -27,7 +27,7 @@ const fixtureNames = (await readdir(FIXTURE_DIR)).sort();
 
 /**
  * Meaning, not bytes. The fixtures are pretty-printed in wire order, while zod emits keys in schema
- * order, so this compares the way the Go client's round-trip test does.
+ * order, so this compares the way the Rust client's round-trip test does.
  */
 function asPlainJson(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
@@ -45,7 +45,7 @@ function clientFrameSchema(name: string): z.ZodType | undefined {
 
 /**
  * A server request is one flat object: the envelope's `id` sits next to the op's own fields. The op
- * schema does not know about `id`, so it is read apart and put back, as the Go client does.
+ * schema does not know about `id`, so it is read apart and put back, as the Rust client does.
  */
 function serverFrameAsPlainJson(raw: unknown): unknown {
   const { id } = z.object({ id: z.string().min(1) }).parse(raw);

@@ -21,9 +21,7 @@ export const REPO_ROOT = resolve(import.meta.dir, "../../..");
 
 /** Where each product's build leaves its binaries, relative to the repo root. */
 const ARTIFACT_DIRS: Record<Product, string> = {
-  agentum: "apps/daemon/dist",
   "agentum-rs": "apps/agentum/dist",
-  "hm-computer": "apps/computer/bin",
 };
 
 const BINARY_TYPE = "application/octet-stream";

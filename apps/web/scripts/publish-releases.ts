@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /// <reference types="bun" />
 /**
- * Publishes the daemon and hm-computer binaries to the R2 bucket that the
+ * Publishes the Agentum client binaries to the R2 bucket that the
  * release routes and install scripts read. Run it from apps/web.
  *
  *   bun scripts/publish-releases.ts --env staging
@@ -11,7 +11,7 @@
  * whose latest.json already names this version is skipped. The tests call
  * `publish` with a fake uploader and build, so nothing reaches R2 from there.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { PRODUCTS, type Product } from "@repo/protocol/releases";
@@ -19,7 +19,6 @@ import { file, spawnSync } from "bun";
 import { z } from "zod";
 import { manifestKey, PRODUCT_FILES } from "../src/server/releases/manifest.ts";
 import {
-  artifactDir,
   artifactPath,
   assertCleanTree,
   type BuiltFile,
@@ -37,8 +36,7 @@ import {
 } from "./publish-releases-helpers.ts";
 
 const WEB_DIR = resolve(import.meta.dir, "..");
-const DAEMON_DIR = resolve(REPO_ROOT, "apps/daemon");
-const COMPUTER_DIR = resolve(REPO_ROOT, "apps/computer");
+const AGENTUM_DIR = resolve(REPO_ROOT, "apps/agentum");
 const NOT_FOUND = /The specified key does not exist/;
 
 export interface GitState {
@@ -52,7 +50,7 @@ export interface PublishOptions {
   dryRun?: boolean;
   env: PublishEnv;
   log: (message: string) => void;
-  /** apps/daemon/package.json's version, the first half of the release version. */
+  /** apps/agentum/package.json's version, the first half of the release version. */
   packageVersion: string;
   readGit: () => GitState;
   uploader: Uploader;
@@ -134,42 +132,11 @@ const run = (
   }
 };
 
-const buildDaemon = (version: string): void => {
-  mkdirSync(artifactDir("agentum"), { recursive: true });
-  for (const name of PRODUCT_FILES.agentum) {
-    // agentum-linux-x64 is built with --target=bun-linux-x64.
-    const target = name.replace("agentum-", "bun-");
-    run(
-      [
-        "bun",
-        "build",
-        "--compile",
-        "--minify",
-        `--target=${target}`,
-        "src/main.ts",
-        "--outfile",
-        artifactPath("agentum", name),
-        "--define",
-        `process.env.HM_DAEMON_VERSION=${JSON.stringify(version)}`,
-      ],
-      DAEMON_DIR
-    );
-  }
-};
-
-const buildComputer = (version: string): void => {
-  run(["bash", join(COMPUTER_DIR, "scripts/build-all.sh")], COMPUTER_DIR, {
-    HM_COMPUTER_VERSION: version,
-  });
-};
-
 const BUILDERS: Record<Product, (version: string) => void> = {
-  agentum: buildDaemon,
   "agentum-rs": (version) =>
-    run(["bash", "scripts/build-all.sh"], resolve(REPO_ROOT, "apps/agentum"), {
+    run(["bash", "scripts/build-all.sh"], AGENTUM_DIR, {
       AGENTUM_VERSION: version,
     }),
-  "hm-computer": buildComputer,
 };
 
 const buildProduct = (
@@ -276,7 +243,7 @@ if (import.meta.main) {
   );
   const packageVersion = z
     .object({ version: z.string() })
-    .parse(await file(join(DAEMON_DIR, "package.json")).json()).version;
+    .parse(await file(join(AGENTUM_DIR, "package.json")).json()).version;
   const tempDir = mkdtempSync(join(tmpdir(), "hm-publish-"));
   try {
     await publish({

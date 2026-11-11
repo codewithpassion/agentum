@@ -10,14 +10,7 @@ export const RELEASE_PREFIX = "releases/";
 
 /** The files each product ships. The install scripts pick one by OS and architecture. */
 export const PRODUCT_FILES: Record<Product, readonly string[]> = {
-  agentum: ["agentum-linux-x64", "agentum-linux-arm64"],
   "agentum-rs": ["agentum-linux-x64", "agentum-linux-arm64"],
-  "hm-computer": [
-    "hm-computer_linux_amd64",
-    "hm-computer_linux_arm64",
-    "hm-computer_darwin_amd64",
-    "hm-computer_darwin_arm64",
-  ],
 };
 
 /** `<package version>+<short commit>`, with an optional pre-release tag. */

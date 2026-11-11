@@ -215,9 +215,9 @@ first (`cargo install cargo-zigbuild --locked` and install Zig on PATH, or
 `cargo install cross --locked` and start Docker). Rustup installs both musl
 standard libraries. Artifacts go to `apps/agentum/dist/agentum-linux-{x64,arm64}`.
 Set `AGENTUM_VERSION` to embed the manifest version; otherwise it uses the Cargo
-version plus git SHA. Publishing adds the `agentum-rs` product; the old `agentum`
-and `hm-computer` products remain available. `--dry-run` builds all products and
-prints every upload key and the line-formatted manifests without contacting R2.
+version plus git SHA. Publishing writes the `agentum-rs` product, the only one the release routes
+serve. `--dry-run` builds it and prints every upload key and the line-formatted
+manifest without contacting R2.
 
 Build the images after the static binaries, from the repository root:
 
@@ -262,8 +262,9 @@ the server in the hello (`doctor`) and shows on the machine's row on the Machine
 page. `AGENTUM_DESKTOP=1` installs the desktop packages (apt or dnf, as root or
 through passwordless sudo) before enrolling, and passes `--desktop` to `service install`.
 Existing instances are restarted on update. Replacing an old daemon requires
-`--replace-old`; revoke its old machine record afterwards. The older installers
-and Docker images continue to serve machines running the old clients.
+`--replace-old`; revoke its old machine record afterwards. The TypeScript daemon
+and the Go computer client are gone. Their install URLs (`/install.sh` and
+`/install-computer.sh`) print the `install-agentum.sh` command and fail.
 
 To add a role to a Rust host, create a new **Both roles** code on the Machines
 page and replace the existing instance (find its name with `agentum list`):

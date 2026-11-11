@@ -738,7 +738,7 @@ export const createMachinesService = ({
   /** The newest published daemon version, for the machines page to compare against. */
   const newestDaemonVersion = async (
     principal: Principal,
-    product: Product = "agentum"
+    product: Product = "agentum-rs"
   ): Promise<string | null> => {
     if (principal.kind === "system") {
       throw new ForbiddenError(READ_ACTION);

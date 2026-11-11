@@ -5,7 +5,7 @@ The build runs as an Opus controller session with Sonnet dispatchers and Haiku w
 
 ## Bun
 
-Bun is the package manager, test runner and script runner: `bun install`, `bun test`, `bun run <script>`, `bunx <package>`. `apps/web` is TanStack Start built with Vite and runs on Cloudflare Workers, so Bun runtime APIs (`Bun.file`, `Bun.$`, `bun:sqlite`) stay in scripts and tests and never ship in the Worker. `apps/daemon`, from M1, runs on Bun itself. Run tests with `bun run test` from the root, not a bare `bun test`, so each package's `bunfig.toml` applies (`apps/web` preloads a `cloudflare:workers` shim).
+Bun is the package manager, test runner and script runner: `bun install`, `bun test`, `bun run <script>`, `bunx <package>`. `apps/web` is TanStack Start built with Vite and runs on Cloudflare Workers, so Bun runtime APIs (`Bun.file`, `Bun.$`, `bun:sqlite`) stay in scripts and tests and never ship in the Worker. `apps/agentum` is the machine client, a Rust binary built with cargo (`cd apps/agentum && cargo test`). Run tests with `bun run test` from the root, not a bare `bun test`, so each package's `bunfig.toml` applies (`apps/web` preloads a `cloudflare:workers` shim).
 
 ## shadcn components
 

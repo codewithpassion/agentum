@@ -860,7 +860,7 @@ async fn encoders_match_fixtures_from_engine_replies() {
     fn fixture(name: &str) -> Value {
         serde_json::from_slice(
             &fs::read(format!(
-                "../computer/testdata/protocol/client_to_server_reply_{name}.json"
+                "testdata/protocol/client_to_server_reply_{name}.json"
             ))
             .unwrap(),
         )

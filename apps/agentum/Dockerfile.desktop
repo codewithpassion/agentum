@@ -24,11 +24,11 @@ RUN tar -xzf /tmp/agent-desktop.tar.gz -C /usr/local/bin agent-desktop agent-des
   && chmod 0755 /usr/local/bin/agent-desktop /usr/local/bin/agent-desktop-linux-clipboard-owner \
   && rm /tmp/agent-desktop.tar.gz
 # Reuse the existing desktop integration, leaving the old image unchanged.
-COPY apps/computer/packaging/desktop/xterm-resources /tmp/xterm-resources
-COPY apps/computer/packaging/desktop/chromium-policy.json /etc/chromium/policies/managed/agentum.json
-COPY --chmod=0755 apps/computer/packaging/desktop/chromium /usr/local/bin/chromium
-COPY --chmod=0755 apps/computer/packaging/desktop/openbox /usr/local/bin/openbox
-COPY --chmod=0755 apps/computer/packaging/desktop/desktop-session /usr/local/bin/hm-desktop-session
+COPY apps/agentum/packaging/desktop/xterm-resources /tmp/xterm-resources
+COPY apps/agentum/packaging/desktop/chromium-policy.json /etc/chromium/policies/managed/agentum.json
+COPY --chmod=0755 apps/agentum/packaging/desktop/chromium /usr/local/bin/chromium
+COPY --chmod=0755 apps/agentum/packaging/desktop/openbox /usr/local/bin/openbox
+COPY --chmod=0755 apps/agentum/packaging/desktop/desktop-session /usr/local/bin/hm-desktop-session
 RUN cat /tmp/xterm-resources >> /etc/X11/app-defaults/XTerm && rm /tmp/xterm-resources
 RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 USER 1000:1000
