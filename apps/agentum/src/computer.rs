@@ -223,12 +223,7 @@ impl Engine {
             "file_put" => self.transfers.put(frame.clone(), &self.policy).await,
             "file_get" => files::get(frame.clone(), &self.policy),
             op if op.starts_with("desktop_") => {
-                crate::desktop::dispatch(
-                    self.desktop.as_deref(),
-                    &frame,
-                    self.policy.config.read_only,
-                )
-                .await
+                crate::desktop::dispatch(self.desktop.as_deref(), &frame, &self.policy.config).await
             }
             _ => Err(Fault::new(
                 "unknown_op",
@@ -249,6 +244,20 @@ impl Engine {
                     .collect::<Vec<_>>()
             );
         }
+        if matches!(op, "desktop_snapshot" | "desktop_act" | "desktop_apps") {
+            // The app, ref and action the model named, and how much it typed, never what.
+            for key in ["app", "ref", "action"] {
+                if let Some(value) = frame[key].as_str() {
+                    entry[key] = json!(value.chars().take(64).collect::<String>());
+                }
+            }
+            if let Some(text) = frame["text"].as_str() {
+                entry["typed"] = json!(text.chars().count());
+            }
+            if frame["headed"] == true {
+                entry["headed"] = json!(true);
+            }
+        }
         if op == "cancel" {
             entry["command"] = json!(format!(
                 "cancel {}",
@@ -262,6 +271,11 @@ impl Engine {
                 }
                 if let Some(text) = r["text"].as_str() {
                     entry["bytes"] = json!(text.len());
+                }
+                if op == "desktop_act"
+                    && let Some(app) = r["app"].as_str()
+                {
+                    entry["app"] = json!(app);
                 }
                 if op == "desktop_clipboard_set" {
                     entry["bytes"] = json!(frame["text"].as_str().map_or(0, str::len));
@@ -278,7 +292,7 @@ impl Engine {
                     }
                 }
             }
-            Err(e) => entry["error"] = json!(e.message),
+            Err(e) => entry["error"] = json!(redacted(&e.message, op, &frame)),
         }
         self.record(entry);
         if let Ok(value) = &mut result
@@ -358,6 +372,7 @@ impl Role for Computer {
             match crate::desktop::Desktop::launch(
                 state,
                 self.config.computer.desktop_display.unwrap_or(90),
+                !self.config.computer.allow_apps.is_empty(),
             ) {
                 Ok(d) => Some(Arc::new(d)),
                 Err(e) => {
@@ -369,9 +384,11 @@ impl Role for Computer {
         } else {
             None
         };
-        let _ = self
-            .capabilities
-            .set(detect_capabilities(desktop.is_some(), reason));
+        let _ = self.capabilities.set(detect_capabilities(
+            desktop.is_some(),
+            desktop.is_some() && !self.config.computer.allow_apps.is_empty(),
+            reason,
+        ));
         let engine=Engine::new(self.config.computer.clone(),state.into(),self.config_dir.clone(),self.workdir.clone(),desktop).map_err(|e|Error::new(5,format!("Prepare computer role: {}. Check ownership and permissions of {} and the --workdir setting.",e.message,state.display())))?;
         let _ = self.engine.set(Arc::new(engine));
         Ok(())
@@ -398,6 +415,7 @@ impl Role for Computer {
                 git: c.git,
                 skills: c.skills,
                 desktop: c.desktop,
+                agent_desktop: c.agent_desktop,
                 desktop_unavailable_reason: c.desktop_unavailable_reason.clone(),
             })
             .unwrap_or(ComputerCapabilities {
@@ -405,6 +423,7 @@ impl Role for Computer {
                 git: false,
                 skills: false,
                 desktop: false,
+                agent_desktop: false,
                 desktop_unavailable_reason: None,
             });
         let capabilities = self.worker.get().map_or(capabilities, |w| w.capabilities());
@@ -505,7 +524,11 @@ pub(crate) fn ensure_directory(path: &std::path::Path) -> std::io::Result<()> {
         .create(path)
 }
 
-fn detect_capabilities(desktop: bool, reason: Option<String>) -> ComputerCapabilities {
+fn detect_capabilities(
+    desktop: bool,
+    agent_desktop: bool,
+    reason: Option<String>,
+) -> ComputerCapabilities {
     let python3 = on_path("python3");
     let git = on_path("git");
     let skills = python3
@@ -521,7 +544,18 @@ fn detect_capabilities(desktop: bool, reason: Option<String>) -> ComputerCapabil
         git,
         skills,
         desktop,
+        agent_desktop,
         desktop_unavailable_reason: reason,
+    }
+}
+
+/// agent-desktop can quote the element's value in an error, and that is what was just typed.
+fn redacted(message: &str, op: &str, frame: &Value) -> String {
+    match frame["text"].as_str() {
+        Some(text) if op == "desktop_act" && !text.is_empty() => {
+            message.replace(text, "[typed text]")
+        }
+        _ => message.into(),
     }
 }
 

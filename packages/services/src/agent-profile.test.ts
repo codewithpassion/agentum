@@ -506,6 +506,8 @@ test("askBefore lists the built-ins and the connector tools that change things",
     "run_skill_script",
     "harbourmaster/send_message",
     "harbourmaster/start_subagent",
+    "harbourmaster/desktop_act",
+    "harbourmaster/desktop_act_headed",
     "xero/create_bill",
     "xero-2/send-invoice",
   ]);
@@ -809,7 +811,12 @@ test("send_message and start_subagent are gateable actions", async () => {
     actions
       .filter((row) => row.action.startsWith("harbourmaster/"))
       .map((row) => row.action)
-  ).toEqual(["harbourmaster/send_message", "harbourmaster/start_subagent"]);
+  ).toEqual([
+    "harbourmaster/send_message",
+    "harbourmaster/start_subagent",
+    "harbourmaster/desktop_act",
+    "harbourmaster/desktop_act_headed",
+  ]);
   await service.setAskBefore(user(), {
     action: "harbourmaster/start_subagent",
     agentId: a1,
@@ -869,6 +876,8 @@ test("each level asks about its own set of actions, and keeps asking when a conn
     "run_skill_script",
     "harbourmaster/send_message",
     "harbourmaster/start_subagent",
+    "harbourmaster/desktop_act",
+    "harbourmaster/desktop_act_headed",
     "xero/create_bill",
   ]);
 
@@ -971,4 +980,87 @@ test("the level of an agent in another workspace is not readable or writable", a
     .catch((cause: unknown) => cause);
   expect(reads).toMatchObject({ code: "not_found" });
   expect(writes).toMatchObject({ code: "not_found" });
+});
+
+const DESKTOP_KEYS = [
+  "harbourmaster/desktop_act",
+  "harbourmaster/desktop_act_headed",
+];
+
+/** A computer that reported what its hello said, attached to the agent. */
+const attachComputer = async (capabilities: string | null) => {
+  await db.insert(machines).values({
+    capabilities: "{}",
+    computerCapabilities: capabilities,
+    computerStatus: "online",
+    createdAt: NOW,
+    credentialHash: "hash",
+    enrolledBy: "u1",
+    id: "m-desk",
+    lastSeenAt: null,
+    name: "Desk",
+    singleUser: false,
+    status: "online",
+    workspaceId: "w1",
+  });
+  await db
+    .update(agentRows)
+    .set({ computerMachineId: "m-desk" })
+    .where(eq(agentRows.id, a1));
+};
+
+test("an agent whose computer allows apps asks before acting in one, at every level", async () => {
+  await attachComputer(JSON.stringify({ agentDesktop: true, desktop: true }));
+  for (const level of ["rarely", "outside", "everything"] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: each level is set, then read
+    await service.setAskLevel(user(), { agentId: a1, level });
+    expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual(
+      expect.arrayContaining(DESKTOP_KEYS)
+    );
+    expect(await asking()).toEqual(expect.arrayContaining(DESKTOP_KEYS));
+  }
+  await db
+    .update(agentRows)
+    .set({ askLevel: "custom" })
+    .where(eq(agentRows.id, a1));
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual(
+    DESKTOP_KEYS
+  );
+});
+
+test("an allow rule stops the question, and turning the switch back on removes the rule", async () => {
+  await attachComputer(JSON.stringify({ agentDesktop: true, desktop: true }));
+  await service.setAskBefore(user(), {
+    action: "harbourmaster/desktop_act",
+    agentId: a1,
+    ask: false,
+  });
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual([
+    "harbourmaster/desktop_act_headed",
+  ]);
+  expect(
+    (await service.askBefore(user(), { agentId: a1 })).find(
+      (row) => row.action === "harbourmaster/desktop_act"
+    )
+  ).toMatchObject({ ask: false, overridden: true });
+  await service.setAskBefore(user(), {
+    action: "harbourmaster/desktop_act",
+    agentId: a1,
+    ask: true,
+  });
+  expect(await requests.listRules(user(), { agentId: a1 })).toEqual([]);
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual(
+    DESKTOP_KEYS
+  );
+});
+
+test("an agent with no computer, a computer without apps or an unreadable hello asks about no app tool", async () => {
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual([]);
+  await attachComputer(JSON.stringify({ agentDesktop: false, desktop: true }));
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual([]);
+  await db
+    .update(machines)
+    .set({ computerCapabilities: "not json" })
+    .where(eq(machines.id, "m-desk"));
+  expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual([]);
 });

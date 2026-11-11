@@ -307,7 +307,10 @@ describe("computer and browser capabilities", () => {
         snapshot: uncalled,
       },
       computer: {
+        desktopAct: uncalled,
+        desktopApps: uncalled,
         desktopInput: uncalled,
+        desktopSnapshot: uncalled,
         exec: uncalled,
         listDir: uncalled,
         readFile: uncalled,
@@ -359,7 +362,10 @@ test("computer and browser calls work over MCP and writes respect dry run", asyn
       snapshot: uncalled,
     },
     computer: {
+      desktopAct: uncalled,
+      desktopApps: uncalled,
       desktopInput: uncalled,
+      desktopSnapshot: uncalled,
       exec: uncalled,
       listDir: uncalled,
       readFile: (input) =>

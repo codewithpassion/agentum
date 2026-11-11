@@ -18,15 +18,18 @@ import {
   classifyClientFrame,
   DESKTOP_CLIPBOARD_TIMEOUT_MS,
   DESKTOP_SCREENSHOT_TIMEOUT_MS,
+  type DesktopAppRequest,
   type DesktopClipboardSetRequest,
   type DesktopInputRequest,
   type DesktopScreenshotRequest,
+  desktopAppTimeoutMs,
   desktopInputTimeoutMs,
   type ExecRequest,
   type FileGetRequest,
   type FilePutRequest,
   type HelloMessage,
   HelloMessageSchema,
+  isAgentDesktopOp,
   isDesktopOp,
   MAX_IN_FLIGHT_EXEC,
   MAX_QUEUE_DEPTH,
@@ -94,6 +97,8 @@ const CLEAR_CLIPBOARD = {
 
 const HUMAN_IN_CONTROL_MESSAGE =
   "A person has taken control of this computer. Desktop actions and commands are paused until they hand it back.";
+const AGENT_DESKTOP_OFF_MESSAGE =
+  "App control is off on this computer. Its owner enables it by allowing apps (agentum run --allow-app). Use desktop_screenshot and desktop_input instead.";
 const CLEARING_MESSAGE =
   "The desktop is being cleared after a person used it. It is available again once the computer confirms.";
 const OTHER_PERSON_MESSAGE = "Another person has control of this desktop.";
@@ -774,6 +779,9 @@ export const createComputerRelayCore = <S extends RelaySocket = RelaySocket>({
     if (isDesktopOp(op) && hello?.capabilities.desktop !== true) {
       return refusal("desktop_unavailable", desktopUnavailableMessage());
     }
+    if (isAgentDesktopOp(op) && hello?.capabilities.agent_desktop !== true) {
+      return refusal("desktop_unavailable", AGENT_DESKTOP_OFF_MESSAGE);
+    }
     const at = now();
     const decision = decide(op, principal, at);
     if (decision.kind === "refuse") {
@@ -1083,6 +1091,8 @@ export const createComputerRelayCore = <S extends RelaySocket = RelaySocket>({
       ),
     closed,
     connect,
+    desktopApp: (principal: ComputerPrincipal, input: DesktopAppRequest) =>
+      request({ ...input, timeout_ms: desktopAppTimeoutMs(input) }, principal),
     desktopInput: (
       principal: ComputerPrincipal,
       input: Omit<DesktopInputRequest, "op">

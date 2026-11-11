@@ -11,6 +11,7 @@ import {
   ClientOpRequestSchema,
   DESKTOP_CLIPBOARD_TIMEOUT_MS,
   DESKTOP_SCREENSHOT_TIMEOUT_MS,
+  desktopAppTimeoutMs,
   desktopInputTimeoutMs,
   MAX_IN_FLIGHT_EXEC,
   MAX_QUEUE_DEPTH,
@@ -237,10 +238,11 @@ beforeEach(async () => {
 });
 
 /** The v1 hello of a computer with a desktop, or without one. */
-const hello = (desktop = true): string =>
+const hello = (desktop = true, agentDesktop = false): string =>
   JSON.stringify({
     arch: "amd64",
     capabilities: {
+      ...(agentDesktop ? { agent_desktop: true } : {}),
       desktop,
       desktop_unavailable_reason: null,
       git: true,
@@ -788,6 +790,110 @@ describe("orphans", () => {
     expect(targets).toHaveLength(MAX_ORPHANS);
     expect(targets[0]).toBe("id-2");
     expect(targets.at(-1)).toBe(`id-${total}`);
+  });
+});
+
+describe("app ops", () => {
+  const SNAPSHOT = {
+    app: "chromium",
+    compact: true,
+    interactive: true,
+    op: "desktop_snapshot",
+    root: null,
+    skeleton: false,
+  } as const;
+  const dialWith = async (desktop: boolean, agentDesktop: boolean) => {
+    const identity = await enrolComputer();
+    const socket = await dial(identity);
+    await core.message(socket, hello(desktop, agentDesktop));
+    return socket;
+  };
+
+  test("they are refused desktop_unavailable unless the hello reported agent_desktop", async () => {
+    const socket = await dialWith(true, false);
+
+    const outcomes = await Promise.all(
+      [
+        SNAPSHOT,
+        { op: "desktop_apps" } as const,
+        {
+          action: "click",
+          headed: false,
+          op: "desktop_act",
+          ref: "@sabc:e1",
+          text: null,
+        } as const,
+      ].map((request) => core.desktopApp(agent("a1"), request))
+    );
+    for (const outcome of outcomes) {
+      expect(outcome).toMatchObject({
+        ok: false,
+        reason: "desktop_unavailable",
+      });
+    }
+    expect(opFrames(socket, "desktop_snapshot")).toEqual([]);
+    expect(opFrames(socket, "desktop_act")).toEqual([]);
+    expect(opFrames(socket, "desktop_apps")).toEqual([]);
+  });
+
+  test("they are refused when the machine reports agent_desktop without a desktop", async () => {
+    await dialWith(false, true);
+
+    expect(await core.desktopApp(agent("a1"), SNAPSHOT)).toMatchObject({
+      ok: false,
+      reason: "desktop_unavailable",
+    });
+  });
+
+  test("a snapshot takes the lease and goes out with its timeout", async () => {
+    const socket = await dialWith(true, true);
+
+    fire(core.desktopApp(agent("a1"), SNAPSHOT));
+    await settle();
+
+    const frame = lastOp(socket, "desktop_snapshot");
+    expect(ClientOpRequestSchema.parse(frame)).toEqual(SNAPSHOT);
+    expect(frame.timeout_ms).toBe(desktopAppTimeoutMs(SNAPSHOT));
+    expect(await core.status()).toMatchObject({
+      control: { holder: { agentId: "a1", kind: "agent" } },
+    });
+    expect(await core.desktopApp(agent("a2"), SNAPSHOT)).toMatchObject({
+      ok: false,
+      reason: "desktop_busy",
+    });
+  });
+
+  test("typing gets longer than a click, and a person holding the desktop stops the agent", async () => {
+    const socket = await dialWith(true, true);
+    const click = {
+      action: "click",
+      headed: false,
+      op: "desktop_act",
+      ref: "@sabc:e1",
+      text: null,
+    } as const;
+    const type = {
+      ...click,
+      action: "type",
+      headed: true,
+      text: "Ada",
+    } as const;
+
+    fire(core.desktopApp(agent("a1"), type));
+    await settle();
+
+    const frame = lastOp(socket, "desktop_act");
+    expect(ClientOpRequestSchema.parse(frame)).toEqual(type);
+    expect(frame.timeout_ms).toBe(desktopAppTimeoutMs(type));
+    expect(desktopAppTimeoutMs(type)).toBeGreaterThan(
+      desktopAppTimeoutMs(click)
+    );
+
+    await core.takeHumanLease("u1");
+    expect(await core.desktopApp(agent("a1"), click)).toMatchObject({
+      ok: false,
+      reason: "human_in_control",
+    });
   });
 });
 

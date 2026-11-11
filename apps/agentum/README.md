@@ -96,6 +96,29 @@ Computer policy flags such as `--read-only`, `--workdir-only`, `--allow`, `--den
 installation and are saved in config. Flags on `run` apply to that run; `--save`
 persists them. Running computer commands as root requires `--allow-root`.
 
+## Controlling apps through accessibility (opt-in)
+
+A desktop can also give agents `desktop_apps`, `desktop_snapshot`, `desktop_act` and
+`desktop_act_headed`, which read an app's accessibility tree and act on its elements by ref,
+through [agent-desktop](https://github.com/vercel-labs/agent-desktop) (Linux only, Apache-2.0).
+It is off until the computer names apps:
+
+```sh
+agentum run --desktop --allow-app chromium --allow-app "Mousepad"   # names as agent-desktop list-apps prints them
+```
+
+`--allow-app` is repeatable and empty means off. A snapshot names one allowed app, and an action is
+checked against the app of the snapshot its ref came from. `--read-only` refuses actions and still
+allows snapshots. Physical mouse and keyboard input (`desktop_act_headed`) is refused unless the
+computer also has `--allow-headed`. Chromium needs it to type into a page's text field. The audit log
+records the app, ref, action and the number of characters typed, never the text.
+
+This starts one D-Bus session bus per desktop, which every program on the desktop shares, and turns on
+Chromium's accessibility. The desktop image ships the pinned agent-desktop; a host install needs
+`dbus-daemon`, `at-spi2-core` and `agent-desktop` on PATH. `exec` is not restricted by the app list:
+a shell command can still run agent-desktop itself, so keep `computer_exec` behind Ask before. Not
+supported on macOS.
+
 ## Diagnose and manage the service
 
 ```sh

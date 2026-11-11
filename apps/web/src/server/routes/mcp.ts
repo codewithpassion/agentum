@@ -523,7 +523,12 @@ export const mcpRoutes = ({
           subagents,
           admin: adminAccessOf(principal),
           browser,
-          computer: computer ? { desktop: computer.desktop } : undefined,
+          computer: computer
+            ? {
+                agentDesktop: computer.agentDesktop,
+                desktop: computer.desktop,
+              }
+            : undefined,
           mail: hasMailbox,
           qa: true,
           readOnly: isReadOnly(principal),

@@ -8,7 +8,7 @@ pub fn checks(ctx: &Context<'_>) -> Vec<Check> {
     }
     let mut checks = vec![ok("computer", "Computer policy and limits loaded")];
     if config.computer.desktop {
-        if ["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
+        if crate::desktop::required_binaries(!config.computer.allow_apps.is_empty())
             .iter()
             .all(|name| crate::privilege::on_path(name))
         {

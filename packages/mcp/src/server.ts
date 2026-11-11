@@ -30,7 +30,7 @@ export interface ServerOptions {
   /** Management access: write/admin API keys, or a write OAuth connection (agents only). */
   admin?: "admin" | "write" | "oauth-write";
   browser?: boolean;
-  computer?: { desktop: boolean };
+  computer?: { agentDesktop?: boolean; desktop: boolean };
   /** Record skipped writes without calling their ports. */
   dryRun?: {
     record: (skip: { summary: string; tool: string }) => Promise<void>;

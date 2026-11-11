@@ -250,6 +250,7 @@ impl Worker {
                 git: false,
                 skills: false,
                 desktop: false,
+                agent_desktop: false,
                 desktop_unavailable_reason: Some(
                     s.unavailable
                         .clone()
@@ -368,7 +369,11 @@ fn prepare_worker(
     config.allow_root = false;
     let mut reason = None;
     let desktop = if config.desktop {
-        match crate::desktop::Desktop::launch(&cache, config.desktop_display.unwrap_or(90)) {
+        match crate::desktop::Desktop::launch(
+            &cache,
+            config.desktop_display.unwrap_or(90),
+            !config.allow_apps.is_empty(),
+        ) {
             Ok(d) => Some(Arc::new(d)),
             Err(e) => {
                 reason = Some(e.message.chars().take(256).collect());
@@ -378,7 +383,11 @@ fn prepare_worker(
     } else {
         None
     };
-    let capabilities = detect_capabilities(desktop.is_some(), reason);
+    let capabilities = detect_capabilities(
+        desktop.is_some(),
+        desktop.is_some() && !config.allow_apps.is_empty(),
+        reason,
+    );
     let mut engine = Engine::prepare(
         config,
         cache,
@@ -607,7 +616,7 @@ mod recovery_tests {
         let init: Init = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
         println!(
             "{}",
-            json!({"ready":{"capabilities":{"python3":true,"git":true,"skills":true,"desktop":false,"desktop_unavailable_reason":null},"workdir":init.work}})
+            json!({"ready":{"capabilities":{"python3":true,"git":true,"skills":true,"desktop":false,"agent_desktop":false,"desktop_unavailable_reason":null},"workdir":init.work}})
         );
         std::io::stdout().flush().unwrap();
         if count == 1 {

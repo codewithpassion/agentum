@@ -796,7 +796,7 @@ fn sweep_ignores_missing_stale_and_gone_process_identity() {
 #[test]
 fn detect_capabilities_reports_skills_only_when_the_import_succeeds() {
     if let Ok(case) = std::env::var("RC5_CAP_CASE") {
-        let c = detect_capabilities(false, None);
+        let c = detect_capabilities(false, false, None);
         let values: Vec<bool> = case.split(',').map(|v| v == "1").collect();
         assert_eq!(
             (c.python3, c.git, c.skills),
@@ -989,4 +989,102 @@ async fn frames_beyond_the_handler_cap_are_refused_and_exec_reservations_release
     .unwrap();
     assert_eq!(result.unwrap_err().code, 3);
     server.await.unwrap();
+}
+
+fn apps_config(apps: &[&str]) -> crate::instance::ComputerConfig {
+    crate::instance::ComputerConfig {
+        allow_apps: apps.iter().map(|app| (*app).into()).collect(),
+        ..Default::default()
+    }
+}
+#[tokio::test]
+async fn agent_desktop_ops_are_refused_while_the_opt_in_is_off() {
+    let (_dir, e) = setup(Default::default());
+    for frame in [
+        json!({"op":"desktop_snapshot","app":"chromium"}),
+        json!({"op":"desktop_apps"}),
+        json!({"op":"desktop_act","ref":"@sabc:e1","action":"click"}),
+    ] {
+        assert_eq!(e.dispatch(frame).await.unwrap_err().code, "denied");
+    }
+}
+#[tokio::test]
+async fn agent_desktop_policy_refuses_before_any_desktop_is_needed() {
+    let (_dir, e) = setup(apps_config(&["chromium"]));
+    for (frame, code) in [
+        (json!({"op":"desktop_snapshot"}), "denied"),
+        (json!({"op":"desktop_snapshot","app":"xterm"}), "denied"),
+        (
+            json!({"op":"desktop_act","ref":"@sabc:e1","action":"click"}),
+            "denied",
+        ),
+        (
+            json!({"op":"desktop_act","ref":"@sabc:e1","action":"click","headed":true}),
+            "denied",
+        ),
+        (
+            json!({"op":"desktop_act","ref":"nonsense","action":"click"}),
+            "bad_request",
+        ),
+        // Everything the policy allows still needs a running desktop.
+        (
+            json!({"op":"desktop_snapshot","app":"chromium"}),
+            "desktop_unavailable",
+        ),
+        (json!({"op":"desktop_apps"}), "desktop_unavailable"),
+    ] {
+        assert_eq!(
+            e.dispatch(frame.clone()).await.unwrap_err().code,
+            code,
+            "{frame}"
+        );
+    }
+    let (_dir, read_only) = setup(crate::instance::ComputerConfig {
+        read_only: true,
+        ..apps_config(&["chromium"])
+    });
+    assert_eq!(
+        read_only
+            .dispatch(json!({"op":"desktop_act","ref":"@sabc:e1","action":"click"}))
+            .await
+            .unwrap_err()
+            .code,
+        "read_only"
+    );
+}
+#[tokio::test]
+async fn agent_desktop_audit_records_the_ref_and_a_character_count_never_the_text() {
+    let (_dir, e) = setup(apps_config(&["chromium"]));
+    for frame in [
+        json!({"op":"desktop_act","ref":"@sabc:e2","action":"type","text":"hunter2-secret","headed":true}),
+        json!({"op":"desktop_snapshot","app":"chromium"}),
+    ] {
+        assert!(e.dispatch(frame).await.is_err());
+    }
+    let audit = fs::read_to_string(e.state.join("audit.jsonl")).unwrap();
+    assert!(!audit.contains("hunter2-secret"));
+    let entries: Vec<serde_json::Value> = audit
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let act = &entries[0];
+    assert_eq!(act["op"], "desktop_act");
+    assert_eq!(act["ref"], "@sabc:e2");
+    assert_eq!(act["action"], "type");
+    assert_eq!(act["typed"], 14);
+    assert_eq!(act["headed"], true);
+    assert_eq!(entries[1]["app"], "chromium");
+}
+
+#[test]
+fn an_action_error_that_quotes_the_typed_text_is_redacted_in_the_audit() {
+    let frame = json!({"op":"desktop_act","text":"quoted-secret"});
+    assert_eq!(
+        redacted("STALE_REF: value was quoted-secret", "desktop_act", &frame),
+        "STALE_REF: value was [typed text]"
+    );
+    assert_eq!(
+        redacted("kept quoted-secret", "exec", &frame),
+        "kept quoted-secret"
+    );
 }

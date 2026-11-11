@@ -1,5 +1,5 @@
 import type { QaAuthorKind, QaStatus, TriggerKind } from "@repo/db/shared";
-import type { DesktopAction } from "@repo/protocol/computer";
+import type { DesktopActAction, DesktopAction } from "@repo/protocol/computer";
 import type { DeckCreationPort, DeckPort } from "./tools/deck";
 import type { LivePort } from "./tools/live";
 
@@ -599,9 +599,32 @@ export interface ToolImage {
 
 /** Paths are absolute logical computer paths, resolved by the bound adapter. */
 export interface ComputerPort {
+  /** A physical-input action when `headed`, otherwise the app's own accessibility action. */
+  desktopAct: (input: {
+    action: DesktopActAction;
+    headed: boolean;
+    ref: string;
+    text: string | null;
+  }) => Promise<PortResult<{ app: string; text: string }>>;
+  /** The allowed apps that are running. */
+  desktopApps: () => Promise<PortResult<{ apps: string[] }>>;
   desktopInput: (input: {
     actions: DesktopAction[];
   }) => Promise<PortResult<{ applied?: number }>>;
+  desktopSnapshot: (input: {
+    app: string;
+    compact: boolean;
+    interactive: boolean;
+    root: string | null;
+    skeleton: boolean;
+  }) => Promise<
+    PortResult<{
+      complete: boolean;
+      refCount: number;
+      snapshotId: string;
+      text: string;
+    }>
+  >;
   exec: (input: {
     command: string;
     timeout_ms: number;

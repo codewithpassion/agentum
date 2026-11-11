@@ -193,6 +193,7 @@ test("a run with no computer gets the browser tools and no computer tools", asyn
 test("a run whose agent has a computer gets the computer tools, desktop included", async () => {
   const principal = await runAs(true);
   expect(await resolveRunComputer(composed.services, principal)).toEqual({
+    agentDesktop: false,
     desktop: true,
     machineId: MACHINE_ID,
   });

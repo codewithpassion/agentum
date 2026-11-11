@@ -13,7 +13,16 @@ import {
 } from "./computer-support";
 
 const port = (overrides: Partial<ComputerPort> = {}): ComputerPort => ({
+  desktopAct: async () => ({ app: "chromium", ok: true, text: "{}" }),
+  desktopApps: async () => ({ apps: ["chromium"], ok: true }),
   desktopInput: async () => ({ ok: true }),
+  desktopSnapshot: async () => ({
+    complete: true,
+    ok: true,
+    refCount: 1,
+    snapshotId: "s1",
+    text: '{"tree":{"role":"window"}}',
+  }),
   exec: async () => ({ exitCode: 0, ok: true, stderr: "", stdout: "hello" }),
   listDir: async () => ({
     entries: [{ directory: true, name: "notes", size: 0 }],
@@ -28,9 +37,10 @@ const port = (overrides: Partial<ComputerPort> = {}): ComputerPort => ({
   ...overrides,
 });
 const call = (computer: ComputerPort, name: string, input: unknown = {}) => {
-  const tool = computerTools({ computer }, { desktop: true }).find(
-    (item) => item.name === name
-  );
+  const tool = computerTools(
+    { computer },
+    { agentDesktop: true, desktop: true }
+  ).find((item) => item.name === name);
   if (!tool) {
     throw new Error(name);
   }
@@ -344,4 +354,153 @@ test("edit refuses an oversized source and reports a failed write", async () => 
   );
   expect(result.isError).toBe(true);
   expect(JSON.stringify(result.content)).toContain("offline");
+});
+
+describe("app tools", () => {
+  const names = (options: { agentDesktop?: boolean; desktop: boolean }) =>
+    computerTools({ computer: port() }, options).map((tool) => tool.name);
+
+  test("they exist only on a desktop whose owner allowed apps", () => {
+    const appTools = [
+      "desktop_act",
+      "desktop_act_headed",
+      "desktop_apps",
+      "desktop_snapshot",
+    ];
+    for (const options of [
+      { desktop: true },
+      { agentDesktop: false, desktop: true },
+      { agentDesktop: true, desktop: false },
+    ]) {
+      for (const name of appTools) {
+        expect(names(options)).not.toContain(name);
+      }
+    }
+    for (const name of appTools) {
+      expect(names({ agentDesktop: true, desktop: true })).toContain(name);
+    }
+  });
+
+  test("a snapshot hands back the tree as data and remembers nothing itself", async () => {
+    const seen: unknown[] = [];
+    const result = await call(
+      port({
+        desktopSnapshot: (input) => {
+          seen.push(input);
+          return Promise.resolve({
+            complete: true,
+            ok: true,
+            refCount: 3,
+            snapshotId: "sabc",
+            text: '{"role":"window"}',
+          });
+        },
+      }),
+      "desktop_snapshot",
+      { app: "chromium" }
+    );
+    expect(seen).toEqual([
+      {
+        app: "chromium",
+        compact: true,
+        interactive: true,
+        root: null,
+        skeleton: false,
+      },
+    ]);
+    expect(result.structuredContent).toEqual({
+      complete: true,
+      refCount: 3,
+      snapshotId: "sabc",
+      tree: { role: "window" },
+    });
+  });
+
+  test("a snapshot with no app, a flag for an app or a bad root never reaches the port", async () => {
+    const results = await Promise.all(
+      [{}, { app: "" }, { app: "-x" }, { app: "chromium", root: "--help" }].map(
+        (input) => call(port(), "desktop_snapshot", input)
+      )
+    );
+    for (const result of results) {
+      expect(result.isError).toBe(true);
+    }
+  });
+
+  test("a tree too large for the model asks it to read less", async () => {
+    const result = await call(
+      port({
+        desktopSnapshot: async () => ({
+          complete: true,
+          ok: true,
+          refCount: 9000,
+          snapshotId: "sbig",
+          text: "x".repeat(64_001),
+        }),
+      }),
+      "desktop_snapshot",
+      { app: "chromium" }
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain("root");
+  });
+
+  test("the two act tools differ only in the headed flag they send", async () => {
+    const sent: unknown[] = [];
+    const computer = port({
+      desktopAct: (input) => {
+        sent.push(input);
+        return Promise.resolve({ app: "chromium", ok: true, text: "{}" });
+      },
+    });
+    await call(computer, "desktop_act", { action: "click", ref: "@sabc:e1" });
+    await call(computer, "desktop_act_headed", {
+      action: "type",
+      ref: "@sabc:e2",
+      text: "Ada",
+    });
+    expect(sent).toEqual([
+      { action: "click", headed: false, ref: "@sabc:e1", text: null },
+      { action: "type", headed: true, ref: "@sabc:e2", text: "Ada" },
+    ]);
+  });
+
+  test("text is required exactly where an action takes it", async () => {
+    const results = await Promise.all(
+      ["desktop_act", "desktop_act_headed"].flatMap((name) =>
+        [
+          { action: "type", ref: "@sabc:e1" },
+          { action: "click", ref: "@sabc:e1", text: "x" },
+          { action: "click", ref: "e1" },
+          { action: "close-app", ref: "@sabc:e1" },
+        ].map((input) => call(port(), name, input))
+      )
+    );
+    for (const result of results) {
+      expect(result.isError).toBe(true);
+    }
+  });
+
+  test("the app list passes the port's names through", async () => {
+    expect((await call(port(), "desktop_apps")).structuredContent).toEqual({
+      apps: ["chromium"],
+    });
+  });
+
+  test("a refusal from the machine reads as guidance", async () => {
+    const result = await call(
+      port({
+        desktopAct: async () => ({
+          code: "validation",
+          ok: false,
+          reason:
+            "this computer refuses physical input for agent-desktop (--allow-headed)",
+        }),
+      }),
+      "desktop_act_headed",
+      { action: "click", ref: "@sabc:e1" }
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain("--allow-headed");
+  });
 });

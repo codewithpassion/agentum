@@ -2,6 +2,8 @@
 use crate::computer::{Fault, OpResult};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
+mod apps;
+pub use apps::valid_app;
 use std::{
     fs,
     io::{Read, Write},
@@ -9,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
     thread,
@@ -253,6 +255,12 @@ struct Life {
 }
 pub struct Desktop {
     display: u16,
+    /// Whether the opt-in is on: the bus is required and apps expose their accessibility tree.
+    agent_apps: bool,
+    /// The session bus every program on this desktop shares, once it is up.
+    bus: OnceLock<String>,
+    snapshots: apps::Snapshots,
+    agent_desktop: String,
     dir: PathBuf,
     auth: PathBuf,
     cookie: Vec<u8>,
@@ -262,14 +270,53 @@ pub struct Desktop {
     threads: Mutex<Vec<thread::JoinHandle<()>>>,
 }
 impl Desktop {
-    pub fn environment(&self) -> [(String, String); 2] {
-        [
+    pub fn environment(&self) -> Vec<(String, String)> {
+        let mut environment = vec![
             ("DISPLAY".into(), format!(":{}", self.display)),
             (
                 "XAUTHORITY".into(),
                 self.auth.to_string_lossy().into_owned(),
             ),
-        ]
+        ];
+        if let Some(bus) = self.bus.get() {
+            environment.push(("DBUS_SESSION_BUS_ADDRESS".into(), bus.clone()));
+            environment.push((
+                "XDG_RUNTIME_DIR".into(),
+                self.dir.to_string_lossy().into_owned(),
+            ));
+        }
+        if self.agent_apps {
+            // Chromium joins the accessibility bus only with both of these. Debian's wrapper
+            // reads CHROMIUM_FLAGS, and the image's own wrapper passes it through.
+            environment.push(("ACCESSIBILITY_ENABLED".into(), "1".into()));
+            environment.push((
+                "CHROMIUM_FLAGS".into(),
+                "--force-renderer-accessibility".into(),
+            ));
+        }
+        environment
+    }
+    /// A desktop with no X server or processes, for tests that run helpers.
+    #[cfg(test)]
+    fn for_test(dir: &Path) -> Self {
+        Self {
+            display: 0,
+            agent_apps: true,
+            bus: OnceLock::new(),
+            snapshots: Default::default(),
+            agent_desktop: "agent-desktop".into(),
+            dir: dir.into(),
+            auth: dir.join("Xauthority"),
+            cookie: vec![],
+            life: Arc::new(Life {
+                stop: AtomicBool::new(false),
+                xvfb: AtomicU32::new(0),
+                pids: Mutex::new(vec![]),
+            }),
+            turn: Arc::new(Semaphore::new(1)),
+            shots: Arc::new(Semaphore::new(2)),
+            threads: Mutex::new(vec![]),
+        }
     }
     fn command(&self, name: &str) -> Command {
         let mut c = Command::new(name);
@@ -316,7 +363,7 @@ impl Desktop {
         connect_display(self.display, &self.cookie, budget)
     }
 
-    pub fn start(state: &Path, display: u16) -> OpResult<Self> {
+    pub fn start(state: &Path, display: u16, agent_apps: bool) -> OpResult<Self> {
         if !cfg!(target_os = "linux") {
             return Err(unavailable("desktop is supported only on Linux"));
         }
@@ -344,6 +391,10 @@ impl Desktop {
         write_xauthority(&auth, display, &cookie)?;
         let d = Self {
             display,
+            agent_apps,
+            bus: OnceLock::new(),
+            snapshots: Default::default(),
+            agent_desktop: "agent-desktop".into(),
             dir,
             auth,
             cookie,
@@ -380,15 +431,16 @@ impl Desktop {
         }
         Ok(d)
     }
-    pub fn launch(state: &Path, display: u16) -> OpResult<Self> {
-        if let Some(binary) = ["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
+    pub fn launch(state: &Path, display: u16, agent_apps: bool) -> OpResult<Self> {
+        if let Some(binary) = required_binaries(agent_apps)
             .iter()
             .find(|b| !crate::privilege::on_path(b))
         {
             return Err(missing_package(binary));
         }
-        let d = Self::start(state, display)?;
+        let d = Self::start(state, display, agent_apps)?;
         let result = (|| {
+            d.start_bus()?;
             d.supervise(d.command("openbox"), false)?;
             let profile = tempfile::tempdir_in(&d.dir)?;
             let mut c = d.command("chromium");
@@ -414,6 +466,39 @@ impl Desktop {
             )));
         }
         Ok(d)
+    }
+    /// One session bus per desktop, at a fixed path in the private directory so a restart keeps the
+    /// address. It is the bus agent-desktop and the apps' accessibility bridge meet on.
+    fn start_bus(&self) -> OpResult<()> {
+        if !crate::privilege::on_path("dbus-daemon") {
+            // A desktop without the opt-in runs as before on hosts that have no bus.
+            return Ok(());
+        }
+        let socket = self.dir.join("bus");
+        let address = format!("unix:path={}", socket.display());
+        if address.len() > 100 {
+            return Err(unavailable(
+                "the state directory path is too long for a D-Bus socket",
+            ));
+        }
+        let _ = fs::remove_file(&socket);
+        let mut bus = self.command("dbus-daemon");
+        bus.args([
+            "--session",
+            "--nofork",
+            "--nopidfile",
+            &format!("--address={address}"),
+        ]);
+        self.supervise(bus, false)?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !socket.exists() {
+            if Instant::now() > deadline {
+                return Err(unavailable("dbus-daemon did not start within 10 seconds"));
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        let _ = self.bus.set(address);
+        Ok(())
     }
     fn supervise(&self, mut command: Command, xvfb: bool) -> OpResult<()> {
         let mut child = command.spawn().map_err(failed)?;
@@ -601,6 +686,13 @@ fn sandbox_failure(text: &str) -> String {
 fn alive_result(result: std::result::Result<(), nix::errno::Errno>) -> bool {
     matches!(result, Ok(()) | Err(nix::errno::Errno::EPERM))
 }
+pub fn required_binaries(agent_apps: bool) -> Vec<&'static str> {
+    let mut binaries = vec!["Xvfb", "openbox", "xdotool", "xclip", "chromium"];
+    if agent_apps {
+        binaries.extend(["dbus-daemon", "agent-desktop"]);
+    }
+    binaries
+}
 fn missing_package(binary: &str) -> Fault {
     unavailable(format!(
         "{binary} is missing. {}",
@@ -634,12 +726,18 @@ fn write_xauthority(path: &Path, display: u16, cookie: &[u8]) -> OpResult<()> {
     }
     crate::instance::atomic_write(path, &data).map_err(|e| unavailable(e.to_string()))
 }
-fn run_helper(
+struct Finished {
+    status: std::process::ExitStatus,
+    data: Vec<u8>,
+    errors: std::sync::mpsc::Receiver<Vec<u8>>,
+    deadline: Instant,
+}
+fn run_process(
     mut command: Command,
     input: Option<&str>,
     budget: Duration,
     cap: usize,
-) -> OpResult<Vec<u8>> {
+) -> OpResult<Finished> {
     if budget.is_zero() {
         return Err(Fault::new(
             "op_failed",
@@ -647,7 +745,6 @@ fn run_helper(
         ));
     }
     let capture = cap > 0;
-    let sandbox = command.get_program() == "chromium";
     if capture {
         command.stderr(Stdio::piped());
     }
@@ -724,9 +821,26 @@ fn run_helper(
             "desktop result exceeds its size limit",
         ));
     }
-    if !status.success() {
-        let error = error_receiver
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+    Ok(Finished {
+        status,
+        data,
+        errors: error_receiver,
+        deadline,
+    })
+}
+fn run_helper(
+    command: Command,
+    input: Option<&str>,
+    budget: Duration,
+    cap: usize,
+) -> OpResult<Vec<u8>> {
+    let sandbox = command.get_program() == "chromium";
+    let finished = run_process(command, input, budget, cap)?;
+    let data = finished.data;
+    if !finished.status.success() {
+        let error = finished
+            .errors
+            .recv_timeout(finished.deadline.saturating_duration_since(Instant::now()))
             .unwrap_or_default();
         let text = String::from_utf8_lossy(&error);
         if text.contains("not available") {
@@ -744,9 +858,13 @@ fn run_helper(
 pub async fn dispatch(
     desktop: Option<&Desktop>,
     frame: &Value,
-    read_only: bool,
+    config: &crate::instance::ComputerConfig,
 ) -> OpResult<Value> {
     let op = frame["op"].as_str().unwrap_or("");
+    if matches!(op, "desktop_snapshot" | "desktop_act" | "desktop_apps") {
+        return apps::dispatch(desktop, frame, config).await;
+    }
+    let read_only = config.read_only;
     let typed = match op {
         "desktop_screenshot" => {
             quality(frame)?;
@@ -901,7 +1019,7 @@ mod tests {
         let display = crate::instance::free_display(&[], Path::new("/tmp")).unwrap();
         let lock = format!("/tmp/.X{display}-lock");
         fs::write(&lock, std::process::id().to_string()).unwrap();
-        let result = Desktop::start(dir.path(), display);
+        let result = Desktop::start(dir.path(), display, false);
         let _ = fs::remove_file(lock);
         assert!(result.is_err());
     }
@@ -921,7 +1039,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let display = crate::instance::free_display(&[], Path::new("/tmp")).unwrap();
-        let d = Desktop::start(dir.path(), display).unwrap();
+        let d = Desktop::start(dir.path(), display, false).unwrap();
         let result = d.screenshot(60, Duration::from_secs(4)).unwrap();
         assert_eq!(result["width"], 1280);
         assert_eq!(result["height"], 800);
@@ -1039,7 +1157,7 @@ mod parity_tests {
             return;
         }
         let _display = DISPLAY_TEST_LOCK.lock().unwrap();
-        if let Some(binary) = ["Xvfb", "openbox", "xdotool", "xclip", "chromium"]
+        if let Some(binary) = required_binaries(false)
             .iter()
             .find(|b| !crate::privilege::on_path(b))
         {
@@ -1052,7 +1170,7 @@ mod parity_tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let display = crate::instance::free_display(&[], Path::new("/tmp")).unwrap();
-        let d = match Desktop::launch(dir.path(), display) {
+        let d = match Desktop::launch(dir.path(), display, false) {
             Ok(d) => d,
             Err(e) => {
                 assert!(e.message.contains("sandbox"), "{}", e.message);
@@ -1062,18 +1180,26 @@ mod parity_tests {
         dispatch(
             Some(&d),
             &json!({"op":"desktop_input","actions":[{"type":"mouse_move","x":10,"y":20}]}),
-            false,
+            &Default::default(),
         )
         .await
         .unwrap();
-        dispatch(Some(&d), &json!({"op":"desktop_clipboard_set","text":"clipboard round trip","selections":["clipboard"]}), false).await.unwrap();
-        let result = dispatch(Some(&d), &json!({"op":"desktop_clipboard_get"}), false)
-            .await
-            .unwrap();
+        dispatch(Some(&d), &json!({"op":"desktop_clipboard_set","text":"clipboard round trip","selections":["clipboard"]}), &Default::default()).await.unwrap();
+        let result = dispatch(
+            Some(&d),
+            &json!({"op":"desktop_clipboard_get"}),
+            &Default::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(result["text"], "clipboard round trip");
-        let result = dispatch(Some(&d), &json!({"op":"desktop_screenshot"}), false)
-            .await
-            .unwrap();
+        let result = dispatch(
+            Some(&d),
+            &json!({"op":"desktop_screenshot"}),
+            &Default::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(result["width"], 1280);
         assert_eq!(result["media_type"], "image/jpeg");
     }
@@ -1098,7 +1224,7 @@ mod restart_tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let display = crate::instance::free_display(&[], Path::new("/tmp")).unwrap();
-        let d = Desktop::start(dir.path(), display).unwrap();
+        let d = Desktop::start(dir.path(), display, false).unwrap();
         let marker = dir.path().join("wm-starts");
         let mut command = d.command("sh");
         command

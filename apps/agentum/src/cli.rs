@@ -212,6 +212,18 @@ pub struct ComputerArgs {
     /// Use this X display number (90 or higher)
     #[arg(long, value_parser = clap::value_parser!(u16).range(90..))]
     pub desktop_display: Option<u16>,
+    /// Let agents read and act on this app through agent-desktop, by `list-apps` name (repeatable)
+    #[arg(long, value_parser = app_name)]
+    pub allow_app: Vec<String>,
+    /// Clear saved agent-desktop app allow entries
+    #[arg(long)]
+    pub clear_allow_app: bool,
+    /// Let agent-desktop actions use physical mouse and keyboard input
+    #[arg(long)]
+    pub allow_headed: bool,
+    /// Refuse physical input from agent-desktop actions
+    #[arg(long, conflicts_with = "allow_headed")]
+    pub no_allow_headed: bool,
     /// Allow commands matching this pattern (repeatable)
     #[arg(long, value_parser = nonempty)]
     pub allow: Vec<String>,
@@ -230,6 +242,16 @@ pub struct ComputerArgs {
     /// Clear saved environment allow entries
     #[arg(long)]
     pub clear_allow_env: bool,
+}
+fn app_name(value: &str) -> Result<String, String> {
+    if crate::desktop::valid_app(value) {
+        Ok(value.into())
+    } else {
+        Err(
+            "use an app name from agent-desktop list-apps: letters, digits, spaces and . _ + -"
+                .into(),
+        )
+    }
 }
 fn nonempty(value: &str) -> Result<String, String> {
     if value.trim().is_empty() {

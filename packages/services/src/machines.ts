@@ -879,6 +879,7 @@ export const createMachinesService = ({
       .update(machines)
       .set({
         computerCapabilities: JSON.stringify({
+          agentDesktop: hello.capabilities.agent_desktop === true,
           arch: hello.arch,
           clientVersion: hello.version,
           desktop: hello.capabilities.desktop,

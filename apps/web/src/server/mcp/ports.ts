@@ -152,7 +152,11 @@ const toTriggerChange = (change: TriggerWithSecret): TriggerChange => ({
 export const resolveRunComputer = async (
   services: Pick<Services, "agents" | "machines">,
   principal: Principal
-): Promise<{ desktop: boolean; machineId: string } | null> => {
+): Promise<{
+  agentDesktop: boolean;
+  desktop: boolean;
+  machineId: string;
+} | null> => {
   if (principal.kind !== "run") {
     return null;
   }
@@ -170,8 +174,11 @@ export const resolveRunComputer = async (
   ) {
     return null;
   }
+  const desktop = machine.computerCapabilities?.desktop === true;
   return {
-    desktop: machine.computerCapabilities?.desktop === true,
+    agentDesktop:
+      desktop && machine.computerCapabilities?.agentDesktop === true,
+    desktop,
     machineId: machine.id,
   };
 };

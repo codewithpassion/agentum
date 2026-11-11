@@ -131,6 +131,11 @@ fn run_as_and_computer_settings_are_a_stable_config_contract() {
         "--read-only",
         "--allow-env",
         "LANG",
+        "--allow-app",
+        "chromium",
+        "--allow-app",
+        "Google Chrome",
+        "--allow-headed",
         "--max-file-bytes",
         "42",
         "--audit-keep",
@@ -146,6 +151,15 @@ fn run_as_and_computer_settings_are_a_stable_config_contract() {
     assert_eq!(settings.audit_keep, -1);
     assert!(settings.desktop && settings.read_only);
     assert_eq!(settings.allow_env, ["LANG"]);
+    assert_eq!(settings.allow_apps, ["chromium", "Google Chrome"]);
+    assert!(settings.allow_headed);
+    assert!(
+        agentum::instance::ComputerConfig::default()
+            .allow_apps
+            .is_empty()
+    );
+    assert!(!agentum::instance::ComputerConfig::default().allow_headed);
+    assert!(Cli::try_parse_from(["agentum", "run", "--allow-app", "-x"]).is_err());
     let json = serde_json::to_value(&settings).unwrap();
     assert_eq!(json["workdir"], "/work");
 }
