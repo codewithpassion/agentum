@@ -352,7 +352,7 @@ import { r2FileBlobs } from "./r2-files.ts";
 import { r2LibraryBlobs } from "./r2-library.ts";
 import { r2SkillBlobs } from "./r2-skills.ts";
 import { durableRelayPort } from "./relay-port.ts";
-import { readManifest } from "./releases/store.ts";
+import { outdatedVersions, readManifest } from "./releases/store.ts";
 import { TASK_EVENT_TYPES } from "./session-stream-frames.ts";
 import {
   type SessionStreamPort,
@@ -423,6 +423,10 @@ export interface Infra {
   organizations?: OrganizationsPort;
   /** Reads a Clerk organisation's name, for naming a workspace. Without it, a workspace is named by its org id. */
   orgName?: (clerkOrgId: string) => Promise<string | null>;
+  outdatedDaemonVersions?: (
+    versions: readonly string[],
+    product?: Product
+  ) => Promise<string[]>;
   /**
    * How we reach an A2A peer: no private address, no redirect, HTTPS outside
    * dev, a timeout, and in-process dispatch for our own origin. Without it,
@@ -885,6 +889,7 @@ export const composeWith = ({
     db,
     events,
     latestDaemonVersion: infra.latestDaemonVersion,
+    outdatedDaemonVersions: infra.outdatedDaemonVersions,
     relay: infra.relay,
   });
   const managedKeys = createManagedKeysService({
@@ -1515,6 +1520,14 @@ export const compose = (
       members: clerkMembers(env.CLERK_SECRET_KEY),
       organizations: clerkOrganizations(env.CLERK_SECRET_KEY),
       orgName: clerkOrgName(env.CLERK_SECRET_KEY),
+      outdatedDaemonVersions: async (versions, product = "agentum-rs") => {
+        try {
+          return await outdatedVersions(env.FILES, product, versions);
+        } catch (error) {
+          console.error("dating the daemon releases failed", error);
+          return [];
+        }
+      },
       people: clerkPeople(env.CLERK_SECRET_KEY),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
