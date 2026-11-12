@@ -227,6 +227,7 @@ export const createMachinesService = ({
   db,
   events,
   latestDaemonVersion,
+  outdatedDaemonVersions,
   relay,
 }: {
   atomic: Atomic;
@@ -235,6 +236,11 @@ export const createMachinesService = ({
   events: EventsService;
   /** The version of the newest published daemon, or null when there is none. Without it the answer is null. */
   latestDaemonVersion?: (product?: Product) => Promise<string | null>;
+  /** Which of these versions were published before the latest release. Without it the answer is none. */
+  outdatedDaemonVersions?: (
+    versions: readonly string[],
+    product?: Product
+  ) => Promise<string[]>;
   relay: MachineRelayPort;
 }) => {
   const nowIso = () => clock.now().toISOString();
@@ -750,6 +756,22 @@ export const createMachinesService = ({
     return (await latestDaemonVersion?.(product)) ?? null;
   };
 
+  /** The given daemon versions that are older than the latest release, for the machines page to flag. */
+  const outdatedVersionsAmong = async (
+    principal: Principal,
+    versions: readonly string[],
+    product: Product = "agentum-rs"
+  ): Promise<string[]> => {
+    if (principal.kind === "system") {
+      throw new ForbiddenError(READ_ACTION);
+    }
+    authorize(principal, READ_ACTION, {
+      kind: MACHINE_KIND,
+      workspaceId: principal.workspaceId,
+    });
+    return (await outdatedDaemonVersions?.(versions, product)) ?? [];
+  };
+
   /**
    * The relay heard from its machine (`hello` or a ping). Sets `online` and
    * `last_seen_at`, and `capabilities` and `daemon_version` when the daemon sent them, and appends
@@ -1139,6 +1161,7 @@ export const createMachinesService = ({
     markOffline,
     markOnline,
     newestDaemonVersion,
+    outdatedVersionsAmong,
     pendingOffers,
     requireComputer,
     revoke,

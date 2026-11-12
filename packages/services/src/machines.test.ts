@@ -122,13 +122,17 @@ const eventsOf = (
 ) => events.query(system, WORKSPACE, { types: [type] });
 
 /** Builds the service. */
-const build = (latestDaemonVersion?: () => Promise<string | null>): Service =>
+const build = (
+  latestDaemonVersion?: () => Promise<string | null>,
+  outdatedDaemonVersions?: (versions: readonly string[]) => Promise<string[]>
+): Service =>
   createMachinesService({
     atomic: sqliteAtomic(db),
     clock,
     db,
     events,
     latestDaemonVersion,
+    outdatedDaemonVersions,
     relay,
   });
 
@@ -509,6 +513,19 @@ test("newestDaemonVersion reads the published version for a member, and is null 
   await expect(withRelease.newestDaemonVersion(system)).rejects.toBeInstanceOf(
     ForbiddenError
   );
+});
+
+test("outdatedVersionsAmong asks the release store for a member, and is empty without one", async () => {
+  const withRelease = build(undefined, (versions) =>
+    Promise.resolve(versions.filter((version) => version === "0.1.0+old"))
+  );
+  expect(
+    await withRelease.outdatedVersionsAmong(user, ["0.1.0+old", "0.1.0+new"])
+  ).toEqual(["0.1.0+old"]);
+  expect(await service.outdatedVersionsAmong(user, ["0.1.0+old"])).toEqual([]);
+  await expect(
+    withRelease.outdatedVersionsAmong(system, ["0.1.0+old"])
+  ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
 test("markOnline stores the daemon version and a ping without one keeps it", async () => {

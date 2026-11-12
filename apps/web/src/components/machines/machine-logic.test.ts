@@ -10,6 +10,7 @@ import {
   newMachine,
   revokeMachine,
   roleRows,
+  updatableVersions,
   visibleMachines,
 } from "./machine-logic.ts";
 
@@ -143,38 +144,82 @@ describe("isDaemonOutdated", () => {
     roles: ["agent_host"] as MachineRole[],
     status: "online" as MachineStatus,
   };
+  const old = ["0.1.0+aaa1111"];
 
-  test("flags a client that differs from the published one", () => {
-    expect(isDaemonOutdated(machine, "0.1.0+bbb2222")).toBe(true);
+  test("flags a client the server lists as older than the published one", () => {
+    expect(isDaemonOutdated(machine, "0.1.0+bbb2222", old)).toBe(true);
+  });
+
+  test("leaves a client the server does not list alone, even if it differs", () => {
+    expect(isDaemonOutdated(machine, "0.1.0+bbb2222", [])).toBe(false);
     expect(
-      isDaemonOutdated({ ...machine, daemonVersion: "0.1.0" }, "0.1.0+bbb2222")
-    ).toBe(true);
+      isDaemonOutdated(
+        { ...machine, daemonVersion: "0.1.0+dev" },
+        "0.1.0+bbb2222",
+        old
+      )
+    ).toBe(false);
   });
 
   test("leaves a current client alone", () => {
-    expect(isDaemonOutdated(machine, "0.1.0+aaa1111")).toBe(false);
+    expect(isDaemonOutdated(machine, "0.1.0+aaa1111", old)).toBe(false);
   });
 
   test("says nothing without a published release or a reported version", () => {
-    expect(isDaemonOutdated(machine, null)).toBe(false);
+    expect(isDaemonOutdated(machine, null, old)).toBe(false);
     expect(
-      isDaemonOutdated({ ...machine, daemonVersion: null }, "0.1.0+bbb2222")
+      isDaemonOutdated(
+        { ...machine, daemonVersion: null },
+        "0.1.0+bbb2222",
+        old
+      )
     ).toBe(false);
   });
 
   test("ignores a revoked machine and a computer-only one with no version", () => {
-    expect(isDaemonOutdated({ ...machine, status: "revoked" }, "0.2.0+x")).toBe(
-      false
-    );
     expect(
-      isDaemonOutdated({ ...machine, roles: ["computer"] }, "0.2.0+x")
+      isDaemonOutdated({ ...machine, status: "revoked" }, "0.2.0+x", old)
+    ).toBe(false);
+    expect(
+      isDaemonOutdated({ ...machine, roles: ["computer"] }, "0.2.0+x", old)
     ).toBe(false);
   });
 
   test("says nothing about a retired TypeScript daemon", () => {
-    expect(isDaemonOutdated({ ...machine, capabilities: {} }, "0.2.0+x")).toBe(
-      false
-    );
+    expect(
+      isDaemonOutdated({ ...machine, capabilities: {} }, "0.2.0+x", old)
+    ).toBe(false);
+  });
+});
+
+describe("updatableVersions", () => {
+  test("lists each version once, from Rust machines that are not revoked", () => {
+    const rust = {
+      capabilities: { agentSdk: "claude-cli@2.1.300" },
+      daemonVersion: "0.1.0+a" as string | null,
+      roles: ["agent_host"] as MachineRole[],
+      status: "online" as MachineStatus,
+    };
+    const computer = {
+      capabilities: {},
+      computerCapabilities: { clientVersion: "agentum-rs@0.1.0+b" },
+      daemonVersion: null,
+      roles: ["computer"] as MachineRole[],
+      status: "offline" as MachineStatus,
+    };
+    expect(
+      updatableVersions([
+        rust,
+        { ...rust },
+        computer,
+        {
+          ...rust,
+          daemonVersion: "0.1.0+c",
+          status: "revoked" as MachineStatus,
+        },
+        { ...rust, capabilities: {}, daemonVersion: "0.1.0+d" },
+      ])
+    ).toEqual(["0.1.0+a", "0.1.0+b"]);
   });
 });
 
@@ -186,15 +231,17 @@ test("computer-only Rust clients get the update hint", () => {
     roles: ["computer"] as MachineRole[],
     status: "offline" as const,
   };
-  expect(isDaemonOutdated(machine, "0.1.0+new")).toBe(true);
-  expect(isDaemonOutdated(machine, "0.1.0+old")).toBe(false);
-  expect(isDaemonOutdated({ ...machine, status: "revoked" }, "new")).toBe(
+  const old = ["0.1.0+old"];
+  expect(isDaemonOutdated(machine, "0.1.0+new", old)).toBe(true);
+  expect(isDaemonOutdated(machine, "0.1.0+old", old)).toBe(false);
+  expect(isDaemonOutdated({ ...machine, status: "revoked" }, "new", old)).toBe(
     false
   );
   expect(
     isDaemonOutdated(
       { ...machine, computerCapabilities: { clientVersion: "0.1.0+go" } },
-      "new"
+      "new",
+      old
     )
   ).toBe(false);
 });

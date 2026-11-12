@@ -7,6 +7,7 @@ import {
 } from "#/components/machines/enroll-dialog";
 import {
   ENROLL_BUTTON_LABEL,
+  updatableVersions,
   visibleMachines,
 } from "#/components/machines/machine-logic";
 import { MachineRow } from "#/components/machines/machine-row";
@@ -30,7 +31,10 @@ export const Route = createFileRoute("/_app/settings/machines")({
         trpc.machines.list.query(),
         trpc.machines.newestDaemonVersion.query(),
       ]);
-      return { latestVersion, machines };
+      const outdatedVersions = await trpc.machines.outdatedDaemonVersions.query(
+        { versions: updatableVersions(machines) }
+      );
+      return { latestVersion, machines, outdatedVersions };
     }),
   component: MachinesPage,
 });
@@ -41,7 +45,7 @@ interface DialogState {
 }
 
 function MachinesPage() {
-  const { latestVersion, machines } = Route.useLoaderData();
+  const { latestVersion, machines, outdatedVersions } = Route.useLoaderData();
   const router = useRouter();
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [revoking, setRevoking] = useState<{ id: string; name: string } | null>(
@@ -139,6 +143,7 @@ function MachinesPage() {
                 onAddComputer={addComputerTo}
                 onRevoke={setRevoking}
                 origin={origin}
+                outdatedVersions={outdatedVersions}
               />
             ))}
           </TableBody>

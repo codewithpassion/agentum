@@ -80,35 +80,56 @@ export const isRustMachine = (
   (typeof machine.computerCapabilities?.clientVersion === "string" &&
     machine.computerCapabilities.clientVersion.startsWith(RUST_VERSION_PREFIX));
 
+type DaemonMachine = Pick<MachineRecord, "daemonVersion" | "roles" | "status"> &
+  Partial<Pick<MachineRecord, "capabilities" | "computerCapabilities">>;
+
 /**
- * Whether a Rust machine has a different version from the latest release.
- * Includes computer-only clients, identified by their computer hello version.
- * Any different version counts: builds are ordered by when they were
- * published, not by their number.
+ * The client version of a Rust machine that is not revoked, or null. Computer-only
+ * clients are identified by their computer hello version.
  */
-export const isDaemonOutdated = (
-  machine: Pick<MachineRecord, "daemonVersion" | "roles" | "status"> &
-    Partial<Pick<MachineRecord, "capabilities" | "computerCapabilities">>,
-  latestVersion: string | null
-): boolean => {
+export const updatableVersion = (machine: DaemonMachine): string | null => {
   if (
+    machine.status === "revoked" ||
     !isRustMachine({ ...machine, capabilities: machine.capabilities ?? {} })
   ) {
-    return false;
+    return null;
+  }
+  if (machine.roles.includes("agent_host")) {
+    return machine.daemonVersion;
   }
   const computerVersion = machine.computerCapabilities?.clientVersion;
-  let version = machine.daemonVersion;
-  if (!machine.roles.includes("agent_host")) {
-    version =
-      typeof computerVersion === "string"
-        ? computerVersion.slice(RUST_VERSION_PREFIX.length)
-        : null;
-  }
+  return typeof computerVersion === "string"
+    ? computerVersion.slice(RUST_VERSION_PREFIX.length)
+    : null;
+};
+
+/** The distinct client versions on the page, to ask the server which are old. */
+export const updatableVersions = (machines: DaemonMachine[]): string[] => [
+  ...new Set(
+    machines.flatMap((machine) => {
+      const version = updatableVersion(machine);
+      return version === null ? [] : [version];
+    })
+  ),
+];
+
+/**
+ * Whether a Rust machine runs a build published before the latest release.
+ * Builds are ordered by their R2 upload time, which only the server can read,
+ * so `outdated` is the server's list of old versions. A version the server
+ * does not list (current, newer or unknown to R2) gets no notice.
+ */
+export const isDaemonOutdated = (
+  machine: DaemonMachine,
+  latestVersion: string | null,
+  outdated: readonly string[]
+): boolean => {
+  const version = updatableVersion(machine);
   return (
     latestVersion !== null &&
-    machine.status !== "revoked" &&
     version !== null &&
-    version !== latestVersion
+    version !== latestVersion &&
+    outdated.includes(version)
   );
 };
 

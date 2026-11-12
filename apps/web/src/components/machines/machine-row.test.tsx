@@ -31,6 +31,7 @@ const renderRow = (machine: MachineRecord) =>
       onAddComputer={noop}
       onRevoke={noop}
       origin={null}
+      outdatedVersions={[]}
     />
   );
 
@@ -78,6 +79,7 @@ test("a computer-only Rust machine displays its update command", () => {
       onAddComputer={noop}
       onRevoke={noop}
       origin="https://example.com"
+      outdatedVersions={["0.1.0+old"]}
     />
   );
   expect(html).toContain("Client update available (0.1.0+new)");

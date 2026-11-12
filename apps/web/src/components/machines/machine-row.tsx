@@ -48,6 +48,8 @@ interface MachineRowProps {
   onRevoke: (machine: { id: string; name: string }) => void;
   /** This deployment's origin, for the update command. Null while it is unknown. */
   origin: string | null;
+  /** Client versions the server found older than the latest release. */
+  outdatedVersions: readonly string[];
 }
 
 export function MachineRow({
@@ -56,6 +58,7 @@ export function MachineRow({
   origin,
   onAddComputer,
   onRevoke,
+  outdatedVersions,
 }: MachineRowProps) {
   const { id, name } = machine;
   const handleAddComputer = useCallback(
@@ -80,7 +83,7 @@ export function MachineRow({
               Daemon {machine.daemonVersion}
             </p>
           )}
-          {isDaemonOutdated(machine, latestVersion) ? (
+          {isDaemonOutdated(machine, latestVersion, outdatedVersions) ? (
             <p className="text-sm">
               Client update available ({latestVersion}).
               {origin === null ? null : (
