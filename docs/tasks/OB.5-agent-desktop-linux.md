@@ -32,3 +32,4 @@ Dom chose on 11 Nov 2026 to build the Linux backend that the OB.4 spike recommen
 - 2026-11-11: Dom said "Start now". Dispatched as one task, not split.
 - 2026-11-11: review clean after one fix round, merged as c5454c09, gate passed, on staging (Worker 90cac9eb). Production rides with CL.1. The desktop image needs a rebuild and release before machines get the new binaries.
 - 2026-11-11: on production with CL.1 (Worker 4918f335).
+- 2026-11-12: images rebuilt from ee1dcb6b (workflow run 43160541463, success). Pushed agentum:latest, agentum:<sha>, agentum:desktop and agentum:desktop-<sha>, amd64 and arm64.
