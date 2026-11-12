@@ -18,6 +18,7 @@ import {
   bucketNameFor,
   buildManifest,
   buildVersion,
+  checkPrebuilt,
   parseArgs,
   sha256Hex,
   shouldSkip,
@@ -39,14 +40,24 @@ describe("parseArgs", () => {
   test("reads --env and --allow-dirty", () => {
     expect(parseArgs(["--env", "staging"])).toEqual({
       allowDirty: false,
+      binariesOnly: false,
       dryRun: false,
       env: "staging",
+      prebuilt: false,
     });
     expect(parseArgs(["--allow-dirty", "--env", "production"])).toEqual({
       allowDirty: true,
+      binariesOnly: false,
       dryRun: false,
       env: "production",
+      prebuilt: false,
     });
+  });
+
+  test("reads --binaries-only and --prebuilt", () => {
+    expect(
+      parseArgs(["--env", "staging", "--binaries-only", "--prebuilt"])
+    ).toMatchObject({ binariesOnly: true, prebuilt: true });
   });
 
   test("refuses a missing env", () => {
@@ -218,14 +229,13 @@ const fakeUploader = (
   const store = new Map(Object.entries(options.latest ?? {}));
   const uploader: Uploader = {
     get: (key) => Promise.resolve(store.get(key) ?? null),
+    has: (key) => Promise.resolve(store.has(key)),
     put: (key, source, contentType) => {
       if (key === options.failOn) {
         return Promise.reject(new Error(`upload of ${key} failed`));
       }
       puts.push({ contentType, key, source });
-      if ("body" in source) {
-        store.set(key, source.body);
-      }
+      store.set(key, "body" in source ? source.body : "binary");
       return Promise.resolve();
     },
   };
@@ -363,6 +373,9 @@ test("dry run builds manifests without reading or writing the uploader", async (
       get: () => {
         throw new Error("network read");
       },
+      has: () => {
+        throw new Error("network read");
+      },
       put: () => {
         throw new Error("network write");
       },
@@ -370,4 +383,142 @@ test("dry run builds manifests without reading or writing the uploader", async (
   });
   expect(logs.join("\n")).toContain("releases/agentum-rs/latest.json");
   expect(logs.join("\n")).toContain('"agentum-linux-arm64": { "sha256":');
+});
+
+describe("checkPrebuilt", () => {
+  const found = (overrides: Record<string, Uint8Array | null> = {}) =>
+    PRODUCT_FILES["agentum-rs"].map((name) => ({
+      bytes:
+        name in overrides
+          ? (overrides[name] ?? null)
+          : new TextEncoder().encode(`elf ${VERSION} elf`),
+      name,
+    }));
+
+  test("returns the binaries when all carry the version", () => {
+    const files = checkPrebuilt("agentum-rs", VERSION, found());
+    expect(files.map((entry) => entry.name)).toEqual([
+      ...PRODUCT_FILES["agentum-rs"],
+    ]);
+  });
+
+  test("refuses a missing or empty binary", () => {
+    expect(() =>
+      checkPrebuilt("agentum-rs", VERSION, found({ "agentum-linux-x64": null }))
+    ).toThrow("agentum-linux-x64 is missing or empty");
+    expect(() =>
+      checkPrebuilt(
+        "agentum-rs",
+        VERSION,
+        found({ "agentum-linux-arm64": new Uint8Array() })
+      )
+    ).toThrow("agentum-linux-arm64 is missing or empty");
+  });
+
+  test("refuses a binary built from another commit", () => {
+    expect(() =>
+      checkPrebuilt(
+        "agentum-rs",
+        VERSION,
+        found({ "agentum-linux-x64": new TextEncoder().encode("0.1.0+other") })
+      )
+    ).toThrow("built from another commit");
+  });
+});
+
+describe("publish, binaries only", () => {
+  const options = (uploader: Uploader, extra: { dryRun?: boolean } = {}) => ({
+    allowDirty: false,
+    binariesOnly: true,
+    build: fakeBuild().build,
+    env: "staging" as const,
+    log: quiet,
+    packageVersion: "0.1.0",
+    readGit: clean,
+    uploader,
+    ...extra,
+  });
+
+  test("uploads the binaries and never touches latest.json", async () => {
+    const reads: string[] = [];
+    const { uploader, puts } = fakeUploader();
+    const spy: Uploader = {
+      ...uploader,
+      get: (key) => {
+        reads.push(key);
+        return uploader.get(key);
+      },
+    };
+
+    await publish(options(spy));
+
+    expect(puts.map((put) => put.key)).toEqual(
+      PRODUCT_FILES["agentum-rs"].map((name) =>
+        fileKey("agentum-rs", VERSION, name)
+      )
+    );
+    expect(reads).toEqual([]);
+  });
+
+  test("does not skip or replace a latest.json that names this version", async () => {
+    const latest = {
+      [manifestKey("agentum-rs")]: serializeManifest(
+        buildManifest("agentum-rs", VERSION, filesFor("agentum-rs"))
+      ),
+    };
+    const { uploader, puts, store } = fakeUploader({ latest });
+    const before = store.get(manifestKey("agentum-rs"));
+
+    await publish(options(uploader));
+
+    expect(puts.length).toBe(PRODUCT_FILES["agentum-rs"].length);
+    expect(store.get(manifestKey("agentum-rs"))).toBe(before);
+  });
+
+  test("skips a version whose binaries exist and never overwrites them", async () => {
+    const existing = PRODUCT_FILES["agentum-rs"].map((name) =>
+      fileKey("agentum-rs", VERSION, name)
+    );
+    const { uploader, puts } = fakeUploader({
+      latest: Object.fromEntries(existing.map((key) => [key, "old"])),
+    });
+
+    await publish(options(uploader));
+
+    expect(puts).toEqual([]);
+  });
+
+  test("uploads only the binaries that are missing", async () => {
+    const [first, ...rest] = PRODUCT_FILES["agentum-rs"].map((name) =>
+      fileKey("agentum-rs", VERSION, name)
+    );
+    const { uploader, puts } = fakeUploader({
+      latest: { [first ?? ""]: "old" },
+    });
+
+    await publish(options(uploader));
+
+    expect(puts.map((put) => put.key)).toEqual(rest);
+  });
+
+  test("a dry run lists only release binary keys and uploads nothing", async () => {
+    const { uploader, puts } = fakeUploader();
+    const lines: string[] = [];
+
+    await publish({
+      ...options(uploader, { dryRun: true }),
+      log: (line) => lines.push(line),
+    });
+
+    expect(puts).toEqual([]);
+    const keys = lines
+      .filter((line) => line.startsWith("put "))
+      .map((line) => line.slice(4));
+    expect(keys).toEqual(
+      PRODUCT_FILES["agentum-rs"].map((name) =>
+        fileKey("agentum-rs", VERSION, name)
+      )
+    );
+    expect(lines.join("\n")).not.toContain("latest.json");
+  });
 });

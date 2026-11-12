@@ -28,14 +28,18 @@ const BINARY_TYPE = "application/octet-stream";
 const MANIFEST_TYPE = "application/json";
 
 const USAGE =
-  "Usage: bun scripts/publish-releases.ts --env staging|production [--allow-dirty] [--dry-run]";
+  "Usage: bun scripts/publish-releases.ts --env staging|production [--allow-dirty] [--dry-run] [--binaries-only] [--prebuilt]";
 
 export type PublishEnv = "staging" | "production";
 
 export interface PublishArgs {
   allowDirty: boolean;
+  /** Upload the version's binaries only: never read or write latest.json, never overwrite. */
+  binariesOnly: boolean;
   dryRun: boolean;
   env: PublishEnv;
+  /** Upload the binaries already in dist/ instead of building them. */
+  prebuilt: boolean;
 }
 
 export const parseArgs = (argv: readonly string[]): PublishArgs => {
@@ -43,6 +47,8 @@ export const parseArgs = (argv: readonly string[]): PublishArgs => {
   let env: string | undefined;
   let allowDirty = false;
   let dryRun = false;
+  let binariesOnly = false;
+  let prebuilt = false;
   while (args.length > 0) {
     const arg = args.shift();
     if (arg === "--env") {
@@ -51,6 +57,10 @@ export const parseArgs = (argv: readonly string[]): PublishArgs => {
       dryRun = true;
     } else if (arg === "--allow-dirty") {
       allowDirty = true;
+    } else if (arg === "--binaries-only") {
+      binariesOnly = true;
+    } else if (arg === "--prebuilt") {
+      prebuilt = true;
     } else {
       throw new Error(`Unknown argument "${arg}". ${USAGE}`);
     }
@@ -63,7 +73,7 @@ export const parseArgs = (argv: readonly string[]): PublishArgs => {
       `--env must be staging or production, got "${env}". ${USAGE}`
     );
   }
-  return { allowDirty, dryRun, env };
+  return { allowDirty, binariesOnly, dryRun, env, prebuilt };
 };
 
 /** `<package version>+<short commit>`, checked against the release pattern. */
@@ -87,6 +97,36 @@ export interface BuiltFile {
   bytes: Uint8Array;
   name: string;
 }
+
+/** A binary looked up in dist/: `bytes` is null when the file is missing. */
+export interface FoundFile {
+  bytes: Uint8Array | null;
+  name: string;
+}
+
+/**
+ * Checks a prebuilt dist/ before it is uploaded: every product binary is present
+ * and non-empty, and carries the version string, so it was built from this commit.
+ */
+export const checkPrebuilt = (
+  product: Product,
+  version: string,
+  found: readonly FoundFile[]
+): BuiltFile[] => {
+  const needle = Buffer.from(version);
+  return PRODUCT_FILES[product].map((name) => {
+    const bytes = found.find((entry) => entry.name === name)?.bytes;
+    if (!bytes || bytes.byteLength === 0) {
+      throw new Error(`Prebuilt ${name} is missing or empty in dist/.`);
+    }
+    if (!Buffer.from(bytes).includes(needle)) {
+      throw new Error(
+        `Prebuilt ${name} does not carry version ${version}. It was built from another commit.`
+      );
+    }
+    return { bytes, name };
+  });
+};
 
 /** The manifest for one product's build. The files must be exactly the product's files. */
 export const buildManifest = (
@@ -161,6 +201,8 @@ export type UploadItem = UploadSource & { key: string; contentType: string };
 /** The R2 operations the publish script needs. The real one calls wrangler. */
 export interface Uploader {
   get: (key: string) => Promise<string | null>;
+  /** True when the key already exists in the bucket. */
+  has: (key: string) => Promise<boolean>;
   put: (
     key: string,
     source: UploadSource,
@@ -170,18 +212,23 @@ export interface Uploader {
 
 /**
  * The uploads for one product, in order: every binary, then latest.json. The
- * manifest is last, so a failed upload leaves `latest` on the old build.
+ * manifest is last, so a failed upload leaves `latest` on the old build. With
+ * `includeManifest` false the plan is the binaries alone.
  */
 export const uploadPlan = (
   product: Product,
   version: string,
-  manifest: Manifest
+  manifest: Manifest,
+  includeManifest = true
 ): UploadItem[] => {
   const binaries: UploadItem[] = Object.keys(manifest.files).map((name) => ({
     contentType: BINARY_TYPE,
     filePath: artifactPath(product, name),
     key: fileKey(product, version, name),
   }));
+  if (!includeManifest) {
+    return binaries;
+  }
   return [
     ...binaries,
     {

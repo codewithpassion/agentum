@@ -219,6 +219,17 @@ version plus git SHA. Publishing writes the `agentum-rs` product, the only one t
 serve. `--dry-run` builds it and prints every upload key and the line-formatted
 manifest without contacting R2.
 
+The `agentum images` workflow also uploads binaries, but never moves `latest.json`.
+It builds once into `dist/`, runs `publish-releases.ts --binaries-only --prebuilt`
+for the staging bucket and, when chosen in the `buckets` input, the production
+bucket, then builds the images from the same `dist/`. The binaries land under
+`releases/agentum-rs/<version>/`, so a machine on an image has a known version,
+and no image build is offered as an update. A version already in a bucket is
+skipped and never overwritten. It needs the repo secrets `CLOUDFLARE_API_TOKEN`
+(Workers R2 Storage edit on both buckets) and `CLOUDFLARE_ACCOUNT_ID`; without
+the token it warns, skips the upload and still builds the images. `latest.json`
+moves only through the manual `publish-releases.ts` run.
+
 Build the images after the static binaries, from the repository root:
 
 ```sh

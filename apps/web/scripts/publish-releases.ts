@@ -8,7 +8,19 @@
  *   bun scripts/publish-releases.ts --env production --allow-dirty
  *
  * Each product's binaries go under their version, then latest.json. A product
- * whose latest.json already names this version is skipped. The tests call
+ * whose latest.json already names this version is skipped.
+ *
+ * CI (the agentum images workflow) runs it as
+ *
+ *   bun scripts/publish-releases.ts --env staging --binaries-only --prebuilt
+ *
+ * `--prebuilt` uploads the binaries already in apps/agentum/dist/ instead of
+ * building them, so R2 holds the bytes the images carry. It refuses a missing or
+ * empty binary, or one built from another commit. `--binaries-only` uploads the
+ * binaries under their version and never reads or writes latest.json, and it
+ * skips a binary that already exists and never overwrites one. Image builds
+ * therefore make their version known to the Machines page without offering it
+ * to anyone. latest.json moves only through the manual publish. The tests call
  * `publish` with a fake uploader and build, so nothing reaches R2 from there.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -25,6 +37,7 @@ import {
   bucketNameFor,
   buildManifest,
   buildVersion,
+  checkPrebuilt,
   type PublishEnv,
   parseArgs,
   REPO_ROOT,
@@ -46,6 +59,7 @@ export interface GitState {
 
 export interface PublishOptions {
   allowDirty: boolean;
+  binariesOnly?: boolean;
   build: (version: string, product: Product) => Promise<BuiltFile[]>;
   dryRun?: boolean;
   env: PublishEnv;
@@ -59,9 +73,36 @@ export interface PublishOptions {
 const sourceOf = (item: UploadItem): UploadSource =>
   "filePath" in item ? { filePath: item.filePath } : { body: item.body };
 
+const uploadItem = async (
+  item: UploadItem,
+  {
+    binariesOnly,
+    dryRun,
+    log,
+    uploader,
+  }: Pick<PublishOptions, "dryRun" | "log" | "uploader"> & {
+    binariesOnly: boolean;
+  }
+): Promise<void> => {
+  // Binaries-only never overwrites: an existing binary keeps its bytes and upload time.
+  if (binariesOnly && !dryRun && (await uploader.has(item.key))) {
+    log(`${item.key} already exists, skipping`);
+    return;
+  }
+  log(`put ${item.key}`);
+  if (dryRun) {
+    if ("body" in item) {
+      log(item.body);
+    }
+    return;
+  }
+  await uploader.put(item.key, sourceOf(item), item.contentType);
+};
+
 export const publish = async ({
   env,
   allowDirty,
+  binariesOnly = false,
   dryRun = false,
   packageVersion,
   uploader,
@@ -72,12 +113,18 @@ export const publish = async ({
   const git = readGit();
   assertCleanTree(git.statusPorcelain, allowDirty);
   const version = buildVersion(packageVersion, git.shortCommit);
-  log(`${dryRun ? "dry run" : "publishing"} ${version} to ${env}`);
+  log(
+    `${dryRun ? "dry run" : "publishing"} ${version} to ${env}${binariesOnly ? " (binaries only)" : ""}`
+  );
 
+  // Binaries-only never reads latest.json: it has no say in what is live.
   const live = await Promise.all(
     PRODUCTS.map(async (product) => ({
       product,
-      text: dryRun ? null : await uploader.get(manifestKey(product)),
+      text:
+        dryRun || binariesOnly
+          ? null
+          : await uploader.get(manifestKey(product)),
     }))
   );
   const pending: Product[] = [];
@@ -94,16 +141,9 @@ export const publish = async ({
     // biome-ignore lint/performance/noAwaitInLoops: uploads run in order
     const files = await build(version, product);
     const manifest = buildManifest(product, version, files);
-    for (const item of uploadPlan(product, version, manifest)) {
-      log(`put ${item.key}`);
-      if (dryRun) {
-        if ("body" in item) {
-          log(item.body);
-        }
-      } else {
-        // biome-ignore lint/performance/noAwaitInLoops: latest.json must come last
-        await uploader.put(item.key, sourceOf(item), item.contentType);
-      }
+    for (const item of uploadPlan(product, version, manifest, !binariesOnly)) {
+      // biome-ignore lint/performance/noAwaitInLoops: latest.json must come last
+      await uploadItem(item, { binariesOnly, dryRun, log, uploader });
     }
     log(`${product}: ${dryRun ? "built" : "published"} ${version}`);
   }
@@ -152,6 +192,25 @@ const buildProduct = (
   );
 };
 
+/** The binaries a build left in dist/, checked against the version. */
+const readPrebuilt = async (
+  version: string,
+  product: Product
+): Promise<BuiltFile[]> =>
+  checkPrebuilt(
+    product,
+    version,
+    await Promise.all(
+      PRODUCT_FILES[product].map(async (name) => {
+        const binary = file(artifactPath(product, name));
+        return {
+          bytes: (await binary.exists()) ? await binary.bytes() : null,
+          name,
+        };
+      })
+    )
+  );
+
 const git = (args: string[]): string => {
   const result = spawnSync(["git", ...args], {
     cwd: REPO_ROOT,
@@ -166,8 +225,13 @@ const git = (args: string[]): string => {
   return decode(result.stdout);
 };
 
-const readGitState = (): GitState => ({
-  shortCommit: git(["rev-parse", "--short", "HEAD"]).trim(),
+/** A prebuilt dist/ carries build.rs's version, which uses an 8 character commit. */
+const readGitState = (shortLength?: number): GitState => ({
+  shortCommit: git([
+    "rev-parse",
+    shortLength ? `--short=${shortLength}` : "--short",
+    "HEAD",
+  ]).trim(),
   statusPorcelain: git(["status", "--porcelain"]),
 });
 
@@ -212,6 +276,19 @@ const wranglerUploader = (
       `get ${key} failed (exit ${result.exitCode}): ${stderr.trim()}`
     );
   },
+  has: (key) => {
+    const result = wranglerR2(["get", `${bucket}/${key}`, "--pipe"], env);
+    if (result.exitCode === 0) {
+      return Promise.resolve(true);
+    }
+    const stderr = decode(result.stderr);
+    if (NOT_FOUND.test(stderr)) {
+      return Promise.resolve(false);
+    }
+    throw new Error(
+      `has ${key} failed (exit ${result.exitCode}): ${stderr.trim()}`
+    );
+  },
   put: (key, source, contentType) => {
     const filePath =
       "body" in source ? stageBody(tempDir, key, source.body) : source.filePath;
@@ -236,7 +313,9 @@ const wranglerUploader = (
 });
 
 if (import.meta.main) {
-  const { env, allowDirty, dryRun } = parseArgs(process.argv.slice(2));
+  const { env, allowDirty, binariesOnly, dryRun, prebuilt } = parseArgs(
+    process.argv.slice(2)
+  );
   const bucket = bucketNameFor(
     env,
     await file(join(WEB_DIR, "wrangler.jsonc")).text()
@@ -248,12 +327,13 @@ if (import.meta.main) {
   try {
     await publish({
       allowDirty,
-      build: buildProduct,
+      binariesOnly,
+      build: prebuilt ? readPrebuilt : buildProduct,
       dryRun,
       env,
       log: logLine,
       packageVersion,
-      readGit: readGitState,
+      readGit: () => readGitState(prebuilt ? 8 : undefined),
       uploader: wranglerUploader(bucket, env, tempDir),
     });
   } finally {
