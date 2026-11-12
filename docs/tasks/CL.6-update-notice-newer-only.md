@@ -3,7 +3,7 @@ id: CL.6
 title: Offer a client update only when the release is newer
 milestone: CL
 size: S
-status: review
+status: done
 depends_on: [CL.1]
 branch: task/CL.6-update-notice-newer-only
 lane: web
@@ -35,3 +35,4 @@ Today `latestDaemonVersion` in `apps/web/src/server/compose.ts` reads `latest.js
 ## Log
 - 2026-11-12: Dom asked for it after the Machines page offered Morosini a downgrade, and picked R2 upload times over a date in the version or a semver bump. Production needs team-lead's go-ahead. Dispatched.
 - 2026-11-12: review clean after 0 fix rounds, merged as a5962fb7, gate passed. On staging (Worker 56cc20cb): morosini-staging on 0.1.0+ee1dcb6b shows no notice. Production waits for team-lead's go.
+- 2026-11-13: on production (Worker 9d9287db, bookmark 00000038-000008b0-00005121-1dcc59e27c9e167fac5d78dcda73111b, no migrations). Health and /login 200. morosini on 0.1.0+ee1dcb6b shows no notice. bot-ccau (CCAU workspace, offline) runs 0.1.0+e30f620f, which was never published to production R2 (it came from an image build), so by this task's rule it gets no notice. The same holds for any machine on an image or local build. Raised with team-lead as a possible follow-up.
