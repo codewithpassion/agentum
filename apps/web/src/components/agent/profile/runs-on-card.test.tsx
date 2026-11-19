@@ -25,10 +25,10 @@ const render = (overrides: Partial<AgentProfileView["header"]>) =>
 
 test("shows only the current runtime as one line with its detail", () => {
   const html = render({ runtime: "cloud" });
-  expect(html).toContain("Cloudflare");
+  expect(html).toContain("Cloud");
   expect(html).toContain("Always on, lowest cost for many small jobs.");
   expect(html).not.toContain("Anthropic cloud");
-  expect(html).not.toContain("Our machine");
+  expect(html).not.toContain("My computer");
   expect(html).not.toContain("<li");
 });
 
@@ -37,8 +37,24 @@ test("shows the machine and its state for a machine agent", () => {
     machine: { id: "m1", name: "laptop", status: "online" },
     runtime: "machine",
   });
-  expect(html).toContain("Our machine: laptop");
+  expect(html).toContain("My computer: laptop");
   expect(html).toContain("Online");
+});
+
+test("shows the plain runtime title for each runtime", () => {
+  const cloud = render({ runtime: "cloud" });
+  const managed = render({ runtime: "managed" });
+  const machine = render({
+    machine: { id: "m1", name: "laptop", status: "online" },
+    runtime: "machine",
+  });
+  expect(cloud).toContain("Cloud");
+  expect(managed).toContain("Anthropic cloud");
+  expect(machine).toContain("My computer: laptop");
+  for (const html of [cloud, managed, machine]) {
+    expect(html).not.toContain("Cloudflare");
+    expect(html).not.toContain("Our machine");
+  }
 });
 
 test("offers no choice-like marker or inline runtime control", () => {

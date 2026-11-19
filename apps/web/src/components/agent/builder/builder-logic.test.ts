@@ -211,9 +211,9 @@ describe("runsOnOptions", () => {
 
   test("lists usable runtimes and every machine", () => {
     expect(runsOnOptions(catalog, null).map((o) => o.label)).toEqual([
-      "Cloudflare",
-      "studio-nuc",
-      "laptop",
+      "Cloud",
+      "My computer: studio-nuc",
+      "My computer: laptop",
     ]);
   });
 
