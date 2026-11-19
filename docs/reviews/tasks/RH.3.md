@@ -28,3 +28,7 @@
 ## Steps for Dom
 
 None. No account or dashboard steps.
+
+## Checks after `git merge main`
+
+`bun run check` and `bun run build` pass. `bun run test` passes except `src/server/live-artifacts/guest-execution.test.ts` (miniflare "other side closed"), which also fails alone on plain `main` in a clean worktree on this machine under load, so it is not from RH.3. It is the flaky test noted in `docs/reviews/tasks/NV.1.md`.
