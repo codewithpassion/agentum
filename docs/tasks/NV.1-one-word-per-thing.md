@@ -3,7 +3,7 @@ id: NV.1
 title: "One word per thing in the web app"
 milestone: NV
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/NV.1-one-word-per-thing
 lane: web-shell
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone NV. The app uses task, run, session and 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/NV.1-one-word-per-thing (v4 controller session).
+- 2026-11-20: merged as a5b9a50a, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/NV.1/browser.md. check, test and build passed on main. Three Find entries (Assistant, Apps, Enrol a machine) keep a label that differs from their page heading on purpose, with the reasons recorded in find-registry.test.ts.
