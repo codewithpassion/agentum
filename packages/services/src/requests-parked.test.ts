@@ -392,3 +392,21 @@ test("a run that replies to a peer's task is not deferred", async () => {
   await ask(started.runId);
   expect(await requests.defersQuestion(machine, started.runId)).toBe(false);
 });
+
+test("two completes that race on a parked turn deliver one reply and wake once", async () => {
+  const started = await startRun();
+  await claim(started.runId);
+  const opened = await ask(started.runId);
+  const settled = await Promise.allSettled([
+    endTurn(started.runId),
+    endTurn(started.runId),
+  ]);
+  expect(
+    settled.filter((outcome) => outcome.status === "fulfilled")
+  ).toHaveLength(1);
+  expect(delivered).toEqual(["I asked you."]);
+  await answer(opened.id);
+  expect(
+    sessionRuns(started.sessionId).filter((row) => row.id !== started.runId)
+  ).toHaveLength(1);
+});

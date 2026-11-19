@@ -2047,7 +2047,12 @@ export const createRunsService = ({
     result: RunResultInput,
     fileIds: string[]
   ): Promise<void> => {
-    const parkWrite = db
+    // The session id goes first and alone: the same turn reports it on every call, so a losing duplicate repeats a harmless write.
+    if (result.runtimeRef) {
+      await runtimeRefWrite(principal, run, result.runtimeRef);
+    }
+    // The write says whether this call parked the run, so only the winner delivers and wakes anything.
+    const parked = await db
       .update(runs)
       .set({
         leaseUntil: null,
@@ -2060,14 +2065,16 @@ export const createRunsService = ({
           eq(runs.id, run.id),
           currentGuestRun(nowIso()),
           inArray(runs.status, LIVE),
-          // A run that parked already is not parked twice, so a second complete delivers nothing.
           isNotNull(runs.leaseUntil)
         )
-      );
-    await writeWithRuntimeRef(principal, run, result.runtimeRef, parkWrite);
-    const parked = await loadRun(db, run.id);
-    if (!(parked && isParked(parked))) {
+      )
+      .returning({ id: runs.id });
+    if (parked.length === 0) {
       throw new ServiceError("conflict", "Run is no longer running");
+    }
+    const parkedRun = await loadRun(db, run.id);
+    if (!(parkedRun && isParked(parkedRun))) {
+      throw new ServiceError("conflict", "Run is no longer waiting");
     }
     if (run.status !== "waiting") {
       await appendRunEvent(run, "run.waiting", agentActor(run));
@@ -2084,7 +2091,7 @@ export const createRunsService = ({
     for (const listener of parkedListeners) {
       try {
         // biome-ignore lint/performance/noAwaitInLoops: listeners run in order
-        await listener(parked);
+        await listener(parkedRun);
       } catch (error) {
         console.error(`Continuing parked run ${run.id} failed:`, error);
       }
