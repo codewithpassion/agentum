@@ -7,7 +7,7 @@ import type { RunRecord } from "./types.ts";
 /**
  * Whether a machine run may end its turn on a question and get the answer as a
  * follow-up run. Only a plain run: work a peer set going, a hand-off child, a
- * subagent, a dry run and a guest's or an artifact's run keep waiting, since
+ * subagent, a dry run, an app's run and an artifact-scoped (guest) run keep waiting, since
  * something is waiting on each. The request opens and the run parks under the
  * same rule, so a daemon that asks for more is refused.
  */
@@ -19,6 +19,8 @@ export const runDefersQuestions = async (
     run.claimedBy === null ||
     run.claimedBy === "system" ||
     run.dryRun ||
+    // An app takes one `finished` reply per run, so a run it started cannot answer twice.
+    run.reply.kind === "app" ||
     run.scopeArtifactId !== null ||
     run.parentRunId !== null ||
     run.subagentLevel > 0 ||

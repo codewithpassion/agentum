@@ -1826,7 +1826,7 @@ export const createRunsService = ({
   /**
    * The daemon is still working: the lease moves to 90 seconds from now, or
    * to `options.leaseMs` for a caller that is the system (a cloud run's object).
-   * Refused with 409 unless the run is `running` or `waiting`. The write is conditional, so
+   * Refused with 409 unless the run is `running` or `waiting` with a lease: a parked run has none. The write is conditional, so
    * a run the reaper just interrupted stays interrupted.
    */
   const heartbeatRun = async (
@@ -2096,6 +2096,12 @@ export const createRunsService = ({
     result: RunResultInput,
     fileIds: string[]
   ): Promise<boolean> => {
+    if (isParked(run)) {
+      throw new ServiceError(
+        "conflict",
+        "Run is already waiting for an answer"
+      );
+    }
     const asking =
       result.status === "done" &&
       result.awaitingAnswer === true &&

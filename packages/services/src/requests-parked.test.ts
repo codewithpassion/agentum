@@ -326,7 +326,7 @@ test("a parked run is not reaped for its missing lease", async () => {
   expect(run(started.runId)?.status).toBe("waiting");
 });
 
-test("the parked turn's text is delivered as the reply, and the follow-up delivers its own", async () => {
+test("the parked turn's text is delivered as the reply", async () => {
   const started = await startRun();
   await claim(started.runId);
   await ask(started.runId);
@@ -358,4 +358,26 @@ test("a machine that claims to have asked on a hand-off child is not parked", as
   await endTurn(child.runId);
   expect(run(child.runId)?.status).toBe("done");
   expect(opened.status).toBe("pending");
+});
+
+test("a run that replies to an app is not deferred", async () => {
+  const started = await startRun();
+  db.update(runRows)
+    .set({
+      reply: JSON.stringify({ artifactId: "a1", kind: "app", state: "" }),
+    })
+    .where(eq(runRows.id, started.runId))
+    .run();
+  await claim(started.runId);
+  await ask(started.runId);
+  expect(await requests.defersQuestion(machine, started.runId)).toBe(false);
+});
+
+test("a second complete on a parked run is refused and delivers nothing more", async () => {
+  const started = await startRun();
+  await claim(started.runId);
+  await ask(started.runId);
+  await endTurn(started.runId);
+  await expect(endTurn(started.runId)).rejects.toThrow();
+  expect(delivered).toEqual(["I asked you."]);
 });

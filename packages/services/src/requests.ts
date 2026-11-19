@@ -823,13 +823,13 @@ export const createRequestsService = ({
       settled.workspaceId,
       settled.agentId
     );
-    const wake = questionWakeText(asked);
+    const wake = questionWakeText(asked, (line) => masker?.mask(line) ?? line);
     try {
       await runs.startRun(
         SYSTEM_PRINCIPAL,
         {
           agentId: settled.agentId,
-          input: { text: masker?.mask(wake) ?? wake },
+          input: { text: wake },
           reply: settled.reply,
           requestId: `question-answer:${settled.id}`,
           session: {
