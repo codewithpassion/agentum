@@ -1,3 +1,4 @@
+import { useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { ThreadsCard } from "#/components/agent/profile/threads-card.tsx";
 import { TaskPage } from "#/components/task/task-page.tsx";
@@ -48,7 +49,9 @@ function MainThread({
     };
   }, [agentId, archived]);
 
-  // A send stays in the room: read the thread again and show its new run.
+  // A send stays in the room: read the thread again and show its new run, and
+  // reload the room so Work and the conversation list see the new task.
+  const router = useRouter();
   const sessionId = main.status === "ready" ? main.task.session.id : null;
   const refresh = useCallback(async () => {
     if (sessionId === null) {
@@ -56,10 +59,11 @@ function MainThread({
     }
     try {
       setMain({ status: "ready", task: await readTask(sessionId) });
+      await router.invalidate();
     } catch (cause) {
       setMain({ message: errorMessage(cause), status: "error" });
     }
-  }, [sessionId]);
+  }, [router, sessionId]);
 
   if (archived) {
     return (

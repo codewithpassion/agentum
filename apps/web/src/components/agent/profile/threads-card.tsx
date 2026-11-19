@@ -35,7 +35,7 @@ export function ThreadsCard({
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
         <h2 className="font-semibold text-sm">Conversations</h2>
         {archived ? null : (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <MainThreadButton agentId={agent.id}>
               Open main conversation
             </MainThreadButton>
