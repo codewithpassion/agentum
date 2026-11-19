@@ -1,23 +1,24 @@
 import { isAnthropicModel } from "@repo/services/cloud/models";
 import type { MachineRecord } from "#/integrations/trpc/types";
+import { RUNTIME_NAMES } from "./profile-logic.ts";
 
 export type MoveTarget = "cloud" | "machine" | "managed";
 
 export const MOVE_TARGETS: readonly { id: MoveTarget; title: string }[] = [
-  { id: "cloud", title: "Cloudflare" },
-  { id: "managed", title: "Anthropic cloud" },
-  { id: "machine", title: "Our machine" },
+  { id: "cloud", title: RUNTIME_NAMES.cloud },
+  { id: "managed", title: RUNTIME_NAMES.managed },
+  { id: "machine", title: RUNTIME_NAMES.machine },
 ];
 
 /** What a move costs, shown before the person confirms. */
 export const MOVE_COST =
   "Open conversations start fresh, because the new runtime does not have their context. Files in the agent's sandbox do not move.";
 
-/** Extra to say for one target. A Cloudflare conversation is stored by Cloudflare and a move does not erase it. */
+/** Extra to say for one target. A Cloud conversation is stored by Cloudflare and a move does not erase it. */
 export const moveNote = (target: MoveTarget): string | null => {
   switch (target) {
     case "cloud":
-      return "A conversation that ran on Cloudflare before may pick up there, without what happened since.";
+      return "A conversation that ran on Cloud before may pick up there, without what happened since.";
     case "machine":
       return "The agent's computer is detached.";
     default:

@@ -27,6 +27,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Disclosure } from "#/components/agent/profile/disclosure.tsx";
 import { runtimeWords } from "#/components/agent/profile/profile-logic.ts";
 import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
@@ -285,9 +286,9 @@ export function AgentForm({
           </div>
           <DictationButton dictation={dictation} />
         </Field>
-        <Field>
-          <FieldLabel htmlFor="agent-model">Model</FieldLabel>
-          {values.runtime === "cloud" ? (
+        {values.runtime === "cloud" && (
+          <Field>
+            <FieldLabel htmlFor="agent-model">Model</FieldLabel>
             <NativeSelect
               id="agent-model"
               onChange={handleCloudModel}
@@ -303,20 +304,11 @@ export function AgentForm({
                 />
               ))}
             </NativeSelect>
-          ) : (
-            <Input
-              id="agent-model"
-              onChange={handleModel}
-              value={values.model}
-            />
-          )}
-          {values.runtime === "cloud" && found !== undefined && (
-            <CloudModelNote entry={found} providerKeys={providerKeys} />
-          )}
-          {values.runtime === "managed" && (
-            <FieldDescription>Use opus, sonnet or haiku.</FieldDescription>
-          )}
-        </Field>
+            {found !== undefined && (
+              <CloudModelNote entry={found} providerKeys={providerKeys} />
+            )}
+          </Field>
+        )}
         <Field>
           <FieldLabel>Runtime</FieldLabel>
           <p className="text-sm">{runtimeWords(values.runtime, runningOn)}</p>
@@ -333,60 +325,20 @@ export function AgentForm({
           )}
           {values.runtime === "cloud" && (
             <FieldDescription>
-              Runs on Cloudflare, not on one of your machines. In the isolate
-              environment it has no shell (the Environment setting below can
-              give it a Linux VM) and no local files, but it can use library
-              bash, connectors and this workspace's skills. It runs a skill's
-              TypeScript or JavaScript scripts in a short-lived sandbox with
-              network access and no secrets of yours (a script imports only its
-              own skill files, and stops after 30 seconds). It sees attached
-              images (about 1 MB in total) and can read attached text files. It
-              returns a file when it writes it to its task folder in the
-              library, and everything there shows in the task's Files panel.
+              Runs in the cloud, not on one of your machines. In the isolate
+              environment it has no shell (the Environment setting under
+              Advanced can give it a Linux VM) and no local files, but it can
+              use library bash, connectors and this workspace's skills. It runs
+              a skill's TypeScript or JavaScript scripts in a short-lived
+              sandbox with network access and no secrets of yours (a script
+              imports only its own skill files, and stops after 30 seconds). It
+              sees attached images (about 1 MB in total) and can read attached
+              text files. It returns a file when it writes it to its task folder
+              in the library, and everything there shows in the task's Files
+              panel.
             </FieldDescription>
           )}
         </Field>
-        {values.runtime === "cloud" && (
-          <Field>
-            <FieldLabel htmlFor="agent-environment">Environment</FieldLabel>
-            <NativeSelect
-              id="agent-environment"
-              onChange={handleEnvironment}
-              value={values.environment}
-            >
-              {CLOUD_ENVIRONMENTS.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.label}
-                </option>
-              ))}
-            </NativeSelect>
-            <FieldDescription>
-              The isolate is the default: it starts in milliseconds, costs
-              almost nothing and has no shell. A Linux VM is a real Linux
-              machine with a shell, bun and node, but it takes a few seconds to
-              start and is billed while it runs. The VM sleeps after a few
-              minutes idle, and its /workspace folder comes back on the next
-              message. Scripts and commands in the VM have network access and
-              never see this platform's secrets.
-            </FieldDescription>
-          </Field>
-        )}
-        {values.runtime === "cloud" && (
-          <Field>
-            <FieldLabel htmlFor="agent-network">Network access</FieldLabel>
-            <Switch
-              checked={values.networkAccess}
-              id="agent-network"
-              onCheckedChange={handleNetworkAccess}
-            />
-            <FieldDescription>
-              Lets this agent fetch web pages and call APIs from the isolate
-              with web_fetch and curl, with private and internal addresses
-              blocked. Linux VM agents always have network access, whatever this
-              says.
-            </FieldDescription>
-          </Field>
-        )}
         {values.runtime === "machine" && (
           <Field>
             <FieldLabel htmlFor="agent-machine">Machine</FieldLabel>
@@ -411,27 +363,85 @@ export function AgentForm({
             )}
           </Field>
         )}
-        {(values.runtime === "cloud" || values.runtime === "machine") && (
-          <Field>
-            <FieldLabel htmlFor="agent-max-turns">Turn limit</FieldLabel>
-            <Input
-              id="agent-max-turns"
-              max={MAX_TURNS_MAX}
-              min={MAX_TURNS_MIN}
-              onChange={handleMaxTurns}
-              placeholder={String(MAX_TURNS_DEFAULT)}
-              step={1}
-              type="number"
-              value={values.maxTurns}
-            />
-            <FieldDescription>
-              The most model turns one run may take before it is stopped as
-              failed. Leave it empty for the default of {MAX_TURNS_DEFAULT}, or
-              set a number from {MAX_TURNS_MIN} to {MAX_TURNS_MAX}.
-            </FieldDescription>
-          </Field>
-        )}
       </FieldGroup>
+      <Disclosure title="Advanced">
+        <FieldGroup>
+          {values.runtime !== "cloud" && (
+            <Field>
+              <FieldLabel htmlFor="agent-model">Model</FieldLabel>
+              <Input
+                id="agent-model"
+                onChange={handleModel}
+                value={values.model}
+              />
+              {values.runtime === "managed" && (
+                <FieldDescription>Use opus, sonnet or haiku.</FieldDescription>
+              )}
+            </Field>
+          )}
+          {values.runtime === "cloud" && (
+            <Field>
+              <FieldLabel htmlFor="agent-environment">Environment</FieldLabel>
+              <NativeSelect
+                id="agent-environment"
+                onChange={handleEnvironment}
+                value={values.environment}
+              >
+                {CLOUD_ENVIRONMENTS.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </NativeSelect>
+              <FieldDescription>
+                The isolate is the default: it starts in milliseconds, costs
+                almost nothing and has no shell. A Linux VM is a real Linux
+                machine with a shell, bun and node, but it takes a few seconds
+                to start and is billed while it runs. The VM sleeps after a few
+                minutes idle, and its /workspace folder comes back on the next
+                message. Scripts and commands in the VM have network access and
+                never see this platform's secrets.
+              </FieldDescription>
+            </Field>
+          )}
+          {values.runtime === "cloud" && (
+            <Field>
+              <FieldLabel htmlFor="agent-network">Network access</FieldLabel>
+              <Switch
+                checked={values.networkAccess}
+                id="agent-network"
+                onCheckedChange={handleNetworkAccess}
+              />
+              <FieldDescription>
+                Lets this agent fetch web pages and call APIs from the isolate
+                with web_fetch and curl, with private and internal addresses
+                blocked. Linux VM agents always have network access, whatever
+                this says.
+              </FieldDescription>
+            </Field>
+          )}
+          {(values.runtime === "cloud" || values.runtime === "machine") && (
+            <Field>
+              <FieldLabel htmlFor="agent-max-turns">Turn limit</FieldLabel>
+              <Input
+                id="agent-max-turns"
+                max={MAX_TURNS_MAX}
+                min={MAX_TURNS_MIN}
+                onChange={handleMaxTurns}
+                placeholder={String(MAX_TURNS_DEFAULT)}
+                step={1}
+                type="number"
+                value={values.maxTurns}
+              />
+              <FieldDescription>
+                The most model turns one run may take before it is stopped as
+                failed. Leave it empty for the default of {MAX_TURNS_DEFAULT},
+                or set a number from {MAX_TURNS_MIN} to {MAX_TURNS_MAX}.
+              </FieldDescription>
+            </Field>
+          )}
+        </FieldGroup>
+      </Disclosure>
       {error !== null && (
         <p className="text-destructive text-sm" role="alert">
           {error}
