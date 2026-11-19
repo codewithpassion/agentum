@@ -37,6 +37,8 @@ export const connectors = sqliteTable(
     callTimeoutSeconds: integer("call_timeout_seconds")
       .notNull()
       .default(CONNECTOR_CALL_TIMEOUT_SECONDS.default),
+    // The catalogue entry this connector was added from. Null for a custom one.
+    catalogKey: text("catalog_key"),
     createdAt: createdAt(),
     // Clerk user id.
     createdBy: text("created_by").notNull(),
