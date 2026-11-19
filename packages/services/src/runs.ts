@@ -2059,7 +2059,9 @@ export const createRunsService = ({
         and(
           eq(runs.id, run.id),
           currentGuestRun(nowIso()),
-          inArray(runs.status, LIVE)
+          inArray(runs.status, LIVE),
+          // A run that parked already is not parked twice, so a second complete delivers nothing.
+          isNotNull(runs.leaseUntil)
         )
       );
     await writeWithRuntimeRef(principal, run, result.runtimeRef, parkWrite);

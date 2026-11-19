@@ -381,3 +381,14 @@ test("a second complete on a parked run is refused and delivers nothing more", a
   await expect(endTurn(started.runId)).rejects.toThrow();
   expect(delivered).toEqual(["I asked you."]);
 });
+
+test("a run that replies to a peer's task is not deferred", async () => {
+  const started = await startRun();
+  db.update(runRows)
+    .set({ reply: JSON.stringify({ kind: "a2a", taskId: "t1" }) })
+    .where(eq(runRows.id, started.runId))
+    .run();
+  await claim(started.runId);
+  await ask(started.runId);
+  expect(await requests.defersQuestion(machine, started.runId)).toBe(false);
+});
