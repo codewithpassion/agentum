@@ -31,8 +31,6 @@ export interface RoomData {
 export interface RoomTabProps {
   /** The current time, null until the page has mounted. */
   nowMs: number | null;
-  /** Opens the mailbox sheet on its thread list. */
-  onOpenMail: () => void;
   /** Opens a tab, replacing the search. */
   onOpenTab: (tab: RoomTab) => void;
   room: RoomData;

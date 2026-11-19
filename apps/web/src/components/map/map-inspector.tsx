@@ -12,7 +12,6 @@ import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import type {
   AgentProfileView,
   AgentRecord,
-  MailboxRecord,
   RouterOutputs,
 } from "#/integrations/trpc/types";
 import {
@@ -189,14 +188,10 @@ function PluggedIn({
   );
 }
 
-/** What the editor needs: the agent and mailbox it edits, and the reload after a change. */
+/** What the editor needs: the agent whose room it links to. */
 interface EditorState {
   agent: AgentRecord | null;
-  mailbox: MailboxRecord | null;
-  onChanged: () => void;
 }
-
-const doNothing = (): void => undefined;
 
 /** The editable rows in place of the read-only "Plugged in" block. */
 function EditableProfile({
@@ -438,12 +433,10 @@ const subtitleOf = (
 export interface MapInspectorProps {
   editor?: boolean;
   editorAgent?: AgentRecord | null;
-  editorMailbox?: MailboxRecord | null;
   graph: MapGraphView;
   node: MapNodeView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
-  onChanged?: () => void;
   onClose: () => void;
   profile: AgentProfileView | null;
   /** The agent whose profile the node shows: its own, or the one a trigger starts. */
@@ -457,12 +450,10 @@ export interface MapInspectorProps {
 export function MapInspector({
   editor,
   editorAgent,
-  editorMailbox,
   graph,
   node,
   nowMs,
   onAnswer,
-  onChanged,
   onClose,
   profile,
   profileAgentId = null,
@@ -471,13 +462,7 @@ export function MapInspector({
 }: MapInspectorProps) {
   const agentId = agentIdOf(node.key);
   const editing: EditorState | null =
-    editor === true
-      ? {
-          agent: editorAgent ?? null,
-          mailbox: editorMailbox ?? null,
-          onChanged: onChanged ?? doNothing,
-        }
-      : null;
+    editor === true ? { agent: editorAgent ?? null } : null;
   let profileLinkId: string | null = null;
   if (node.kind === "agent") {
     profileLinkId = agentId;

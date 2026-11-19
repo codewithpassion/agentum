@@ -14,7 +14,7 @@ test("Keys shows tools, channels, works with and ask before", () => {
     "Tools",
     "Channels",
     "Works with",
-    "Ask before",
+    "Ask me before it",
     "Hands to",
     "Subagents",
     "Peers",

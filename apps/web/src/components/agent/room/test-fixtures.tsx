@@ -73,7 +73,6 @@ const noop = (): void => undefined;
 
 export const fixtureTabProps = (): RoomTabProps => ({
   nowMs: null,
-  onOpenMail: noop,
   onOpenTab: noop,
   room: fixtureRoom(),
 });

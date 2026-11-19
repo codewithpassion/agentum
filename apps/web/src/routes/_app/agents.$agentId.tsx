@@ -113,6 +113,18 @@ function useNowMs(): number | null {
   return nowMs;
 }
 
+/** Disables every control inside it, for an archived agent. */
+function Disabled({ children, when }: { children: ReactNode; when: boolean }) {
+  return (
+    <fieldset
+      className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0"
+      disabled={when}
+    >
+      {children}
+    </fieldset>
+  );
+}
+
 function AgentPage() {
   const room = Route.useLoaderData();
   const { agent } = room;
@@ -157,26 +169,26 @@ function AgentPage() {
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       {archived ? <ArchivedAgentBanner agent={agent} /> : null}
-      <fieldset
-        className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0"
-        disabled={archived}
-      >
+      <Disabled when={archived}>
         <RoomHeader
           onEdit={edit}
           onOpenMail={openMailList}
           onStarted={openTask}
           room={room}
         />
-        <TabBar onSelect={openTab} selected={tab} />
-        <div aria-labelledby={tabId(tab)} id={panelId(tab)} role="tabpanel">
-          <Body
-            nowMs={nowMs}
-            onOpenMail={openMailList}
-            onOpenTab={openTab}
-            room={room}
-          />
+      </Disabled>
+      {/* Outside the fieldset, so an archived agent's tabs still switch. */}
+      <TabBar onSelect={openTab} selected={tab} />
+      <Disabled when={archived}>
+        <div
+          aria-labelledby={tabId(tab)}
+          id={panelId(tab)}
+          role="tabpanel"
+          tabIndex={-1}
+        >
+          <Body nowMs={nowMs} onOpenTab={openTab} room={room} />
         </div>
-      </fieldset>
+      </Disabled>
       {archived ? null : (
         <MailSheet
           agent={agent}

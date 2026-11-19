@@ -46,7 +46,7 @@ const SHEET_TABS: Record<LegacySheet, RoomTab> = {
 
 /**
  * The tab a room URL opens. `?tab=` wins. Old links keep working: `?sheet=`
- * maps through SHEET_TABS and `?mail=` opens Keys, where the mailbox lives.
+ * maps through SHEET_TABS and `?mail=` opens Keys, where mail is set up.
  */
 export const resolveTab = (search: {
   mail?: string | undefined;

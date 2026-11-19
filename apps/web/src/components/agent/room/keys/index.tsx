@@ -51,16 +51,14 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
         }
         subagents={<SubagentsSwitch agent={room.agent} />}
       />
-      <RoomSection title="Ask before">
-        <AskBeforeCard
-          actions={room.askBefore}
-          agentId={room.agent.id}
-          archived={room.agent.status === "archived"}
-          level={room.askLevel}
-          mailAllowed={allowedMailAddresses(room.rules)}
-          onEditSettings={openSettings}
-        />
-      </RoomSection>
+      <AskBeforeCard
+        actions={room.askBefore}
+        agentId={room.agent.id}
+        archived={room.agent.status === "archived"}
+        level={room.askLevel}
+        mailAllowed={allowedMailAddresses(room.rules)}
+        onEditSettings={openSettings}
+      />
     </TabBody>
   );
 }

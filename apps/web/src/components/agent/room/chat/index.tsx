@@ -54,7 +54,11 @@ function MainThread({
     if (sessionId === null) {
       return;
     }
-    setMain({ status: "ready", task: await readTask(sessionId) });
+    try {
+      setMain({ status: "ready", task: await readTask(sessionId) });
+    } catch (cause) {
+      setMain({ message: errorMessage(cause), status: "error" });
+    }
   }, [sessionId]);
 
   if (archived) {
