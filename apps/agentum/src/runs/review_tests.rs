@@ -335,6 +335,28 @@ async fn abort_during_mcp_handover_reaps_and_completes() {
 }
 
 #[tokio::test]
+async fn parked_question_completes_with_awaiting_answer() {
+    let (url, server, task) = server().await;
+    let temp = tempfile::tempdir().unwrap();
+    let host = host(&url, temp.path());
+    let mut c = claim("r");
+    c["currentApprovals"] = json!(false);
+    c["toolRules"] = json!([]);
+    c["questionsLater"] = json!(true);
+    *server.claim_override.lock().unwrap() = Some(c);
+    server
+        .deferred
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    expected(temp.path(), &json!({"mode":"parked"}));
+    host.offer("A".into(), "r".into());
+    wait_calls(&server, "complete", 1).await;
+    let body = complete(&server);
+    assert_eq!(body["status"], "done", "{body}");
+    assert_eq!(body["awaitingAnswer"], true);
+    task.abort();
+}
+
+#[tokio::test]
 async fn no_rules_skips_hook_empty_rules_still_asks_and_waiting_gate_keeps_timers() {
     for mode in ["no-rules", "question", "waiting"] {
         let (url, server, task) = server().await;

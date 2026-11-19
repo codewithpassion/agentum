@@ -18,6 +18,7 @@ import {
   eventsRequestSchema,
   eventsResponseSchema,
   FEATURE_LIBRARY_LIVE,
+  FEATURE_PARKED_QUESTIONS,
   FEATURE_REQUESTS,
   hasDaemonFeature,
   heartbeatResponseSchema,
@@ -496,5 +497,56 @@ describe("roles enrol request", () => {
         machineEnrollRequestSchema.safeParse({ ...raw, ...fields }).success
       ).toBe(false);
     }
+  });
+});
+
+describe("parked questions feature", () => {
+  test("hasDaemonFeature finds the parked-questions feature in a header", () => {
+    expect(
+      hasDaemonFeature("requests, parked-questions", FEATURE_PARKED_QUESTIONS)
+    ).toBe(true);
+    expect(hasDaemonFeature("requests", FEATURE_PARKED_QUESTIONS)).toBe(false);
+  });
+
+  test("claim-response accepts questionsLater true and refuses false", async () => {
+    const parsed = claimResponseSchema.parse(
+      await loadFixture("claim-response")
+    );
+    expect(
+      claimResponseSchema.parse({ ...parsed, questionsLater: true })
+        .questionsLater
+    ).toBe(true);
+    expect(
+      claimResponseSchema.safeParse({ ...parsed, questionsLater: false })
+        .success
+    ).toBe(false);
+  });
+
+  test("complete-request accepts awaitingAnswer on done and refuses it on failed", async () => {
+    const done = (await loadFixture("complete-request-done")) as Record<
+      string,
+      unknown
+    >;
+    const failed = (await loadFixture("complete-request-failed")) as Record<
+      string,
+      unknown
+    >;
+    expect(
+      completeRequestSchema.safeParse({ ...done, awaitingAnswer: true }).success
+    ).toBe(true);
+    expect(
+      completeRequestSchema.safeParse({ ...failed, awaitingAnswer: true })
+        .success
+    ).toBe(false);
+  });
+
+  test("create-request response accepts deferred true", () => {
+    expect(
+      createRequestResponseSchema.safeParse({
+        deferred: true,
+        requestId: "req_1",
+        status: "pending",
+      }).success
+    ).toBe(true);
   });
 });
