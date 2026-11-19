@@ -3,9 +3,9 @@ id: JB.3
 title: "Describe a job, get a draft"
 milestone: JB
 size: M
-status: todo
+status: in_progress
 depends_on: [JB.1]
-branch: null
+branch: task/JB.3-job-drafting
 lane: builder
 executor: codex
 ---
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone JB. A person types "Every Friday, summar
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/JB.3-job-drafting (v4 controller session).
