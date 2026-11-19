@@ -151,3 +151,19 @@ test("decideInputSchema refuses a decision other than approve or reject", () => 
     decideInputSchema.safeParse({ changeId: "c1", decision: "undo" }).success
   ).toBe(false);
 });
+
+test("addInputSchema turns line breaks into one space and counts after that", () => {
+  const parsed = addInputSchema.parse({
+    ...addInput,
+    text: "  Mia wants\n\ndrafts as\tGoogle Docs  ",
+  });
+  expect(parsed.text).toBe("Mia wants drafts as Google Docs");
+
+  const spaced = `${"a".repeat(MEMORY_NOTE_MAX_CHARS - 2)}\n\n\n\nb`;
+  expect(addInputSchema.safeParse({ ...addInput, text: spaced }).success).toBe(
+    true
+  );
+  expect(
+    addInputSchema.safeParse({ ...addInput, text: " \n\t " }).success
+  ).toBe(false);
+});

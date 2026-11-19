@@ -28,7 +28,13 @@ const MAX_RULE_CHARS = 200;
 
 const agentIdSchema = z.string().min(1);
 const noteKindSchema = z.enum(MEMORY_NOTE_KINDS);
-const noteTextSchema = z.string().trim().min(1).max(MEMORY_NOTE_MAX_CHARS);
+const WHITESPACE_RUN = /\s+/g;
+// A note is one line: line breaks and runs of whitespace become one space
+// before the length is counted.
+const noteTextSchema = z
+  .string()
+  .transform((text) => text.replace(WHITESPACE_RUN, " ").trim())
+  .pipe(z.string().min(1).max(MEMORY_NOTE_MAX_CHARS));
 const sourceSchema = z.strictObject({
   id: z.string().min(1),
   kind: z.enum(MEMORY_SOURCE_KINDS),
@@ -94,6 +100,8 @@ export const rulesSetInputSchema = z.strictObject({
   rules: rememberRulesSchema,
 });
 
+export type UndoChangeInput = z.infer<typeof undoInputSchema>;
+export type RulesGetInput = z.infer<typeof rulesGetInputSchema>;
 export type AddNoteInput = z.infer<typeof addInputSchema>;
 export type EditNoteInput = z.infer<typeof editInputSchema>;
 export type ForgetNoteInput = z.infer<typeof forgetInputSchema>;
@@ -211,10 +219,7 @@ export const createMemoryService = () => {
   };
 
   const rules = {
-    get: (
-      principal: Principal,
-      input: z.infer<typeof rulesGetInputSchema>
-    ): Promise<MemoryRules> => {
+    get: (principal: Principal, input: RulesGetInput): Promise<MemoryRules> => {
       const workspaceId = readableWorkspace(principal, MEMORY_READ);
       authorize(
         principal,
