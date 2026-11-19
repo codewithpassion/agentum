@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AGENT_TEMPLATE_IDS } from "@repo/db/shared";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agentLibraryAccess } from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -934,4 +935,22 @@ describe("create on the real services", () => {
       ])
     );
   });
+});
+
+describe("template creation with recording fakes", () => {
+  for (const id of AGENT_TEMPLATE_IDS) {
+    test(`${id} can be saved and activated after choosing cloud`, async () => {
+      const world = makeWorld();
+      const result = await world.service.fromTemplate(user, id);
+      const ready: AgentDraft = { ...result.draft, runsOn: { runtime: "cloud" } };
+      const saved = await world.service.saveDraft(user, { draft: ready });
+      const active = await world.service.create(user, { draft: ready, draftAgentId: saved.id });
+      expect(active.status).toBe("active");
+      expect(world.createDraftInputs[0]).toMatchObject({
+        name: ready.name, instructions: ready.does,
+      });
+      expect(world.activateInputs[0]).toMatchObject({ runtime: "cloud" });
+      expect(world.calls).toEqual(["createDraft", "update", "activate", "reserve:inbox-helper-2"]);
+    });
+  }
 });
