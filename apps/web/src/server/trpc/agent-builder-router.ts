@@ -4,7 +4,10 @@ import {
   dryRunInputSchema,
   saveDraftInputSchema,
 } from "@repo/services/agent-builder/lifecycle";
-import { draftInputSchema } from "@repo/services/agent-builder/service";
+import {
+  draftInputSchema,
+  fromTemplateInputSchema,
+} from "@repo/services/agent-builder/service";
 import { router, workspaceProcedure } from "./init.ts";
 
 export const agentBuilderRouter = router({
@@ -30,6 +33,11 @@ export const agentBuilderRouter = router({
     .input(dryRunInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.services.agentBuilder.dryRun(ctx.principal, input)
+    ),
+  fromTemplate: workspaceProcedure
+    .input(fromTemplateInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.agentBuilder.fromTemplate(ctx.principal, input)
     ),
   saveDraft: workspaceProcedure
     .input(saveDraftInputSchema)

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AGENT_TEMPLATE_IDS } from "@repo/db/shared";
 import type { AgentRecord } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models.ts";
@@ -9,7 +10,7 @@ import type { MachineRecord } from "../machines.ts";
 import { type ManagedKeyResolution, NO_KEY_MESSAGE } from "../managed/keys.ts";
 import type { SkillRecord } from "../skills-store/records.ts";
 import type { Principal } from "../workspaces.ts";
-import type { AgentDraft } from "./draft.ts";
+import { type AgentDraft, agentDraftSchema } from "./draft.ts";
 import { type AgentBuilderDeps, createAgentBuilderService } from "./service.ts";
 
 const user: Principal = {
@@ -414,5 +415,42 @@ describe("draft", () => {
       service.draft(system, { description: "Sort my inbox" })
     ).rejects.toBeInstanceOf(ForbiddenError);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("fromTemplate", () => {
+  for (const id of AGENT_TEMPLATE_IDS) {
+    test(`${id} drafts without a key or a model call`, async () => {
+      const deps = buildDeps({ anthropicConfigured: false, key: null });
+      deps.managedKeys.resolve = unused;
+      const service = createAgentBuilderService(deps);
+      const result = await service.fromTemplate(user, id);
+      expect(agentDraftSchema.safeParse(result.draft).success).toBe(true);
+      expect(result.draft.tools).toEqual([]);
+      expect(result.gaps).toEqual([
+        { field: "runs_on", question: "Where it runs" },
+      ]);
+      expect(result.didList).toContain(`Named it ${result.draft.name}`);
+      expect(
+        result.didList.some((line) => line.startsWith("Suggested job: "))
+      ).toBe(true);
+    });
+  }
+
+  test("refuses the system principal before validating the key or reading the catalog", async () => {
+    const deps = buildDeps();
+    deps.connectors.list = unused;
+    const service = createAgentBuilderService(deps);
+    await expect(
+      service.fromTemplate({ kind: "system" }, "invalid")
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test("refuses an unknown template before reading the catalog", async () => {
+    const deps = buildDeps();
+    deps.connectors.list = unused;
+    await expect(
+      createAgentBuilderService(deps).fromTemplate(user, "invalid")
+    ).rejects.toThrow();
   });
 });

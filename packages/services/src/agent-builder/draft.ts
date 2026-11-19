@@ -60,6 +60,7 @@ export type BuilderRuntime = z.infer<typeof runtimeSchema>;
 export interface BuilderCatalog {
   agents: { id: string; name: string; does: string }[];
   connectors: {
+    catalogKey?: string;
     id: string;
     name: string;
     description: string;

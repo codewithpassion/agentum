@@ -45,15 +45,17 @@ const noStarts: Starts = { routines: [], slackMention: null, triggers: [] };
 
 describe("runtimeWords", () => {
   test("names the machine it runs on", () => {
-    expect(runtimeWords("machine", { name: "laptop" })).toBe("Runs on laptop");
+    expect(runtimeWords("machine", { name: "laptop" })).toBe(
+      "Runs on My computer: laptop"
+    );
   });
 
   test("falls back when a machine agent has no machine", () => {
-    expect(runtimeWords("machine", null)).toBe("Runs on a machine");
+    expect(runtimeWords("machine", null)).toBe("Runs on My computer");
   });
 
   test("names the other runtimes", () => {
-    expect(runtimeWords("cloud", null)).toBe("Runs on Cloudflare");
+    expect(runtimeWords("cloud", null)).toBe("Runs on Cloud");
     expect(runtimeWords("managed", null)).toBe("Runs on Anthropic cloud");
     expect(runtimeWords("fake", null)).toBe("Runs on a test runner");
   });
@@ -74,7 +76,7 @@ describe("currentRuntime", () => {
     expect(currentRuntime("cloud", null)).toEqual({
       machineState: null,
       text: "Always on, lowest cost for many small jobs.",
-      title: "Cloudflare",
+      title: "Cloud",
     });
   });
 
@@ -84,7 +86,7 @@ describe("currentRuntime", () => {
 
   test("names the machine and its state on the machine runtime", () => {
     const online = currentRuntime("machine", laptop("online"));
-    expect(online.title).toBe("Our machine: laptop");
+    expect(online.title).toBe("My computer: laptop");
     expect(online.machineState).toBe("Online");
     expect(currentRuntime("machine", laptop("offline")).machineState).toBe(
       "Offline"
@@ -93,13 +95,13 @@ describe("currentRuntime", () => {
 
   test("a machine agent without a machine has no name or state", () => {
     const option = currentRuntime("machine", null);
-    expect(option.title).toBe("Our machine");
+    expect(option.title).toBe("My computer");
     expect(option.machineState).toBeNull();
   });
 
   test("other runtimes show no machine name or state", () => {
     const option = currentRuntime("cloud", laptop("online"));
-    expect(option.title).toBe("Cloudflare");
+    expect(option.title).toBe("Cloud");
     expect(option.machineState).toBeNull();
   });
 });

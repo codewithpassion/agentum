@@ -41,17 +41,26 @@ export const PEERS_COPY =
 export const LIBRARY_NOTE =
   "On a machine or VM these folders sync live. Each task writes to its task folder.";
 
+export const RUNTIME_NAMES = {
+  cloud: "Cloud",
+  fake: "Test runner",
+  machine: "My computer",
+  managed: "Anthropic cloud",
+} as const satisfies Record<AgentRuntime, string>;
+
 export const runtimeWords = (
   runtime: AgentRuntime,
   machine: { name: string } | null
 ): string => {
   switch (runtime) {
     case "machine":
-      return machine ? `Runs on ${machine.name}` : "Runs on a machine";
+      return machine
+        ? `Runs on ${RUNTIME_NAMES.machine}: ${machine.name}`
+        : `Runs on ${RUNTIME_NAMES.machine}`;
     case "cloud":
-      return "Runs on Cloudflare";
+      return `Runs on ${RUNTIME_NAMES.cloud}`;
     case "managed":
-      return "Runs on Anthropic cloud";
+      return `Runs on ${RUNTIME_NAMES.managed}`;
     default:
       return "Runs on a test runner";
   }
@@ -62,7 +71,7 @@ export interface RuntimeFact {
   machineState: string | null;
   /** The plain-words description. */
   text: string;
-  /** "Anthropic cloud", or "Our machine: laptop" when the agent runs on that machine. */
+  /** "Anthropic cloud", or "My computer: laptop" when the agent runs on that machine. */
   title: string;
 }
 
@@ -82,25 +91,27 @@ export const currentRuntime = (
       return {
         machineState: null,
         text: "Managed Agents. Simplest. Has its own sandbox.",
-        title: "Anthropic cloud",
+        title: RUNTIME_NAMES.managed,
       };
     case "cloud":
       return {
         machineState: null,
         text: "Always on, lowest cost for many small jobs.",
-        title: "Cloudflare",
+        title: RUNTIME_NAMES.cloud,
       };
     case "machine":
       return {
         machineState: machine ? MACHINE_STATE_WORDS[machine.status] : null,
         text: "Claude Code on that machine. Sees local files.",
-        title: machine ? `Our machine: ${machine.name}` : "Our machine",
+        title: machine
+          ? `${RUNTIME_NAMES.machine}: ${machine.name}`
+          : RUNTIME_NAMES.machine,
       };
     default:
       return {
         machineState: null,
         text: "A built-in runner for testing. It does not run real work.",
-        title: "Test runner",
+        title: RUNTIME_NAMES.fake,
       };
   }
 };
