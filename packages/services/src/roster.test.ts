@@ -2,6 +2,11 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
+import {
+  agentMailboxes,
+  mailMessages,
+  mailThreads,
+} from "@repo/db/schema/mail";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
@@ -187,6 +192,8 @@ test("the system principal is refused", async () => {
   await expect(service.list(system)).rejects.toBeInstanceOf(ForbiddenError);
 });
 
+const X_RUN_ELLIPSIS = /^x+\.\.\.$/;
+
 const seedRun = (
   id: string,
   values: Partial<typeof runs.$inferInsert> = {},
@@ -310,7 +317,7 @@ test("Needs you beats stopped and working; problems remain stopped", async () =>
   });
 });
 
-test("idle uses the earliest enabled routine in the workspace timezone", async () => {
+test("idle uses the earliest enabled routine, each cron read in its own zone", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   db.update(workspaces)
     .set({ timezone: "Australia/Sydney" })
@@ -339,8 +346,120 @@ test("idle uses the earliest enabled routine in the workspace timezone", async (
       .run();
   }
   expect((await service.list(user))[0]?.statusLine).toBe(
+    // 12:00 UTC is 11:00 pm in Sydney.
+    "Idle. Next run 1 Jan, 11:00 pm"
+  );
+});
+
+test("a routine with no zone of its own is read in the workspace timezone", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  db.update(workspaces)
+    .set({ timezone: "Australia/Sydney" })
+    .where(eq(workspaces.id, WORKSPACE))
+    .run();
+  db.insert(triggers)
+    .values({
+      agentId: "a1",
+      createdAt: NOW,
+      createdBy: "u1",
+      cron: "0 12 * * *",
+      id: "t1",
+      kind: "routine",
+      name: "t1",
+      timezone: null,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await service.list(user))[0]?.statusLine).toBe(
     "Idle. Next run 1 Jan, 12:00 pm"
   );
+});
+
+test("a run started by mail is titled by its mail subject,", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { inputText: "x".repeat(300) });
+  const [card] = await service.list(user);
+  const clipped = String(card?.statusLine);
+  expect(clipped).toMatch(X_RUN_ELLIPSIS);
+  expect(clipped.length).toBeLessThan(120);
+
+  db.delete(runs).run();
+  db.delete(sessions).run();
+  seedRun("r2", { inputText: "New mail arrived" });
+  db.insert(agentMailboxes)
+    .values({
+      address: "alpha@example.test",
+      agentId: "a1",
+      createdAt: NOW,
+      id: "mb1",
+      status: "active",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(mailThreads)
+    .values({
+      externalThreadId: "ext1",
+      id: "th1",
+      lastMessageAt: NOW,
+      mailboxId: "mb1",
+      subject: "Invoice 42",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(mailMessages)
+    .values({
+      ccAddresses: "[]",
+      createdAt: NOW,
+      direction: "in",
+      externalMessageId: "m1",
+      fromAddress: "bo@example.test",
+      id: "msg1",
+      runId: "r2",
+      snippet: "",
+      status: "received",
+      subject: "Invoice 42",
+      threadId: "th1",
+      toAddresses: "[]",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await service.list(user))[0]?.statusLine).toBe("Invoice 42");
+});
+
+test("a bounced-mail problem is a Needs you item", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  railView.needsYou = [
+    {
+      assigneeName: "Ann",
+      assigneeUserId: "u1",
+      cards: [
+        {
+          agentId: "a1",
+          agentName: "Alpha",
+          at: NOW,
+          detail: "Mail to bo@example.test bounced",
+          expiresAt: null,
+          id: "p1",
+          kind: "problem",
+          mail: null,
+          passedOnBy: null,
+          runId: "r1",
+          status: "Mail bounced",
+          threadId: null,
+          title: "Reply to Bo",
+        },
+      ],
+      dueAt: null,
+      escalatedToMe: false,
+      id: "p1",
+      mine: true,
+    },
+  ];
+  expect((await service.list(user))[0]).toMatchObject({
+    needsYouCount: 1,
+    state: "needs_you",
+    statusLine: "Reply to Bo",
+  });
 });
 
 test("cost sums the last seven days, rounds once to cents, excludes dry and hidden runs", async () => {

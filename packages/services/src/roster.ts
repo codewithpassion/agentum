@@ -16,9 +16,10 @@ import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { readableWorkspace } from "./guards.ts";
+import { mailSubjectsOf } from "./mail-subjects.ts";
 import { runTitleText } from "./mail-title-text.ts";
 import type { MembersService } from "./members.ts";
-import { assigneeOf } from "./rail/logic.ts";
+import { assigneeOf, MAIL_BOUNCED_STATUS } from "./rail/logic.ts";
 import type { RailService } from "./rail.ts";
 import { nextFireTime } from "./routines/cron.ts";
 import type { Clock } from "./runs/types.ts";
@@ -107,7 +108,9 @@ const waitingFacts = (view: RailView): Map<string, Wait> => {
   const waiting = new Map<string, Wait>();
   for (const item of view.needsYou) {
     for (const card of item.cards) {
-      if (card.kind === "problem") {
+      // A failed or interrupted run is "stopped". Bounced mail has no run
+      // state to show, so it stays a Needs you item as in the rail.
+      if (card.kind === "problem" && card.status !== MAIL_BOUNCED_STATUS) {
         continue;
       }
       const seen = waiting.get(card.agentId);
@@ -122,7 +125,11 @@ const waitingFacts = (view: RailView): Map<string, Wait> => {
 };
 
 const nextRuns = (
-  routines: { agentId: string; cron: string | null }[],
+  routines: {
+    agentId: string;
+    cron: string | null;
+    timezone: string | null;
+  }[],
   timezone: string,
   now: Date
 ) => {
@@ -131,8 +138,8 @@ const nextRuns = (
     if (!routine.cron) {
       continue;
     }
-    // The roster uses workspace time, even for a routine with its own zone.
-    const fire = nextFireTime(routine.cron, timezone, now);
+    // A routine's cron is read in its own zone, else the workspace's.
+    const fire = nextFireTime(routine.cron, routine.timezone || timezone, now);
     if (
       fire !== null &&
       fire < (next.get(routine.agentId) ?? Number.POSITIVE_INFINITY)
@@ -149,9 +156,11 @@ const activityFor = (input: {
   active: RunFact | undefined;
   machineStatus: string | null;
   fire: number | undefined;
+  runTitle: string;
   timeFormat: Intl.DateTimeFormat;
 }): Pick<AgentCard, "state" | "statusLine"> => {
-  const { wait, last, active, machineStatus, fire, timeFormat } = input;
+  const { wait, last, active, machineStatus, fire, runTitle, timeFormat } =
+    input;
   if (wait) {
     return { state: "needs_you", statusLine: wait.title };
   }
@@ -167,7 +176,7 @@ const activityFor = (input: {
     return { state: "stopped", statusLine: "Stopped part way" };
   }
   if (active) {
-    return { state: "working", statusLine: runTitleText(active.inputText) };
+    return { state: "working", statusLine: runTitle };
   }
   return {
     state: "idle",
@@ -253,7 +262,11 @@ export const createRosterService = ({
           )
           .orderBy(desc(ranked.createdAt), desc(ranked.id)),
         db
-          .select({ agentId: triggers.agentId, cron: triggers.cron })
+          .select({
+            agentId: triggers.agentId,
+            cron: triggers.cron,
+            timezone: triggers.timezone,
+          })
           .from(triggers)
           .where(
             and(
@@ -276,6 +289,12 @@ export const createRosterService = ({
       directory?.map((entry) => [entry.userId, entry.name])
     );
     const { latest, running, costs } = runFacts(runList, weekStart);
+    // A run started by mail is titled by its mail's subject, as on the desk.
+    const subjectOf = await mailSubjectsOf(
+      db,
+      workspaceId,
+      [...running.values()].map((run) => run.id)
+    );
     const waiting = waitingFacts(view);
     const timezone = workspace[0]?.timezone ?? "UTC";
     const next = nextRuns(routines, timezone, now);
@@ -307,6 +326,9 @@ export const createRosterService = ({
           fire: next.get(row.id),
           last,
           machineStatus,
+          runTitle: active
+            ? runTitleText(active.inputText, subjectOf.get(active.id))
+            : "",
           timeFormat,
           wait,
         }),
