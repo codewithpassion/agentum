@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_TEMPLATE_IDS } from "@repo/db/shared";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agentLibraryAccess } from "@repo/db/schema/library";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces } from "@repo/db/schema/workspaces";
+import { AGENT_TEMPLATE_IDS } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
@@ -942,15 +942,27 @@ describe("template creation with recording fakes", () => {
     test(`${id} can be saved and activated after choosing cloud`, async () => {
       const world = makeWorld();
       const result = await world.service.fromTemplate(user, id);
-      const ready: AgentDraft = { ...result.draft, runsOn: { runtime: "cloud" } };
+      const ready: AgentDraft = {
+        ...result.draft,
+        runsOn: { runtime: "cloud" },
+      };
       const saved = await world.service.saveDraft(user, { draft: ready });
-      const active = await world.service.create(user, { draft: ready, draftAgentId: saved.id });
+      const active = await world.service.create(user, {
+        draft: ready,
+        draftAgentId: saved.id,
+      });
       expect(active.status).toBe("active");
       expect(world.createDraftInputs[0]).toMatchObject({
-        name: ready.name, instructions: ready.does,
+        instructions: ready.does,
+        name: ready.name,
       });
       expect(world.activateInputs[0]).toMatchObject({ runtime: "cloud" });
-      expect(world.calls).toEqual(["createDraft", "update", "activate", "reserve:inbox-helper-2"]);
+      expect(world.calls).toEqual([
+        "createDraft",
+        "update",
+        "activate",
+        "reserve:inbox-helper-2",
+      ]);
     });
   }
 });

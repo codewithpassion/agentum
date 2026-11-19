@@ -35,7 +35,7 @@ import {
   reconcileDraft,
 } from "./draft.ts";
 import { createDraftLifecycle, type LifecycleDeps } from "./lifecycle.ts";
-import { templates } from "./templates.ts";
+import { templateDraft, templates } from "./templates.ts";
 
 const ACTION = "agent_builder.draft";
 const KIND = "agent_builder";
@@ -47,6 +47,8 @@ const DESCRIPTION_LIMIT = 8000;
 const DOES_LIMIT = 200;
 const FAILED_MESSAGE =
   "The builder could not draft a profile. Try again, or describe the agent differently.";
+
+export const fromTemplateInputSchema = z.enum(AGENT_TEMPLATE_IDS);
 
 export const draftInputSchema = z.strictObject({
   description: z.string().trim().min(1).max(DESCRIPTION_LIMIT),
@@ -273,6 +275,18 @@ export const createAgentBuilderService = ({
     throw new ServiceError("invalid", FAILED_MESSAGE);
   };
 
+  const fromTemplate = async (
+    principal: Principal,
+    key: string
+  ): Promise<DraftResult> => {
+    workspaceOf(principal);
+    const id = fromTemplateInputSchema.parse(key);
+    const choices = await catalog(principal);
+    const { raw, notes } = templateDraft(id, choices);
+    const reconciled = reconcileDraft(raw, choices);
+    return { ...reconciled, didList: [...reconciled.didList, ...notes] };
+  };
+
   const lifecycle = createDraftLifecycle({
     agents,
     catalog,
@@ -284,7 +298,7 @@ export const createAgentBuilderService = ({
     workspaceOf,
   });
 
-  return { catalog, draft, ...lifecycle };
+  return { catalog, draft, fromTemplate, ...lifecycle };
 };
 
 export type AgentBuilderService = ReturnType<typeof createAgentBuilderService>;
