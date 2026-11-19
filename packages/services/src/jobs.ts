@@ -4,6 +4,7 @@ import { authorize } from "./authz.ts";
 import { requireWriter } from "./automation-access.ts";
 import { notFound } from "./errors.ts";
 import { readableWorkspace } from "./guards.ts";
+import type { JobDrafter } from "./job-drafting/draft.ts";
 import type { Principal } from "./workspaces.ts";
 
 const JOBS_READ = "jobs.read";
@@ -27,10 +28,10 @@ export const runNowInputSchema = z.strictObject({
 });
 
 /**
- * Stub: a workspace with no jobs, a draft that echoes the text, and a run-now
+ * Stub: a workspace with no jobs, a model-backed draft, and a run-now
  * that finds no job. The Jobs service task reads the real rows.
  */
-export const createJobsService = () => {
+export const createJobsService = ({ drafter }: { drafter: JobDrafter }) => {
   const forAgent = (
     principal: Principal,
     agentId: string
@@ -62,15 +63,7 @@ export const createJobsService = () => {
       kind: JOBS_KIND,
       workspaceId,
     });
-    return Promise.resolve({
-      asksBefore: null,
-      cron: null,
-      deliversTo: null,
-      does: text,
-      source: "app",
-      timezone: null,
-      when: "",
-    });
+    return drafter.draft(principal, agentId, text);
   };
 
   const runNow = (

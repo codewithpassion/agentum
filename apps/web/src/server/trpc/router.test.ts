@@ -5,8 +5,8 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { defaultAgentAvatar } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
-import { NO_KEY_MESSAGE } from "@repo/services/managed/keys";
 import { noopRelay } from "@repo/services/machines/types";
+import { NO_KEY_MESSAGE } from "@repo/services/managed/keys";
 import { systemClock } from "@repo/services/runs/types";
 import { eq } from "drizzle-orm";
 import { composeWith, type Infra } from "../compose.ts";
@@ -230,7 +230,10 @@ test("jobs.draft needs a workspace key and jobs.runNow finds no job", async () =
   const agent = await caller.agents.create(agentInput);
 
   await expect(
-    caller.jobs.draft({ agentId: agent.id, text: "Every Friday send the digest" })
+    caller.jobs.draft({
+      agentId: agent.id,
+      text: "Every Friday send the digest",
+    })
   ).rejects.toMatchObject({ code: "BAD_REQUEST", message: NO_KEY_MESSAGE });
   await expect(caller.jobs.runNow({ jobId: "nope" })).rejects.toMatchObject({
     code: "NOT_FOUND",
