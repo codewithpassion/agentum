@@ -367,7 +367,9 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
           {draft === undefined ? null : (
             <DryRunPanel
               createBlocker={
-                dictating ? "Finish dictation first." : createBlocker(gaps)
+                dictating
+                  ? "Finish dictation first."
+                  : (createBlocker(gaps) ?? redraftBlocker(draft))
               }
               error={panelError}
               onCreate={createAgent}
