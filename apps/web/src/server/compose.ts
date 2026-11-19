@@ -1386,7 +1386,7 @@ export const composeWith = ({
       files,
       inbox,
       jobs: createJobsService(),
-      keys: createKeysService(),
+      keys: createKeysService({ db, people: infra.people }),
       library,
       libraryAccess,
       libraryLinks,
