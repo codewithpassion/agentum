@@ -124,7 +124,7 @@ export function GuestTranscript({
   }, [services, failed]);
   return (
     <section aria-label="Shared agent transcript">
-      <h2>Agent thread</h2>
+      <h2>Agent conversation</h2>
       {foldThread(events).map((message) => (
         <article key={message.id}>
           <strong>{message.actorDisplay?.name ?? message.role}</strong>

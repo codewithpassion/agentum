@@ -126,7 +126,7 @@ export function ThreadContainer({
         {earlier}
         <ThreadPrimitive.Empty>
           <p className="text-muted-foreground text-sm">
-            Nothing in this thread yet.
+            Nothing in this conversation yet.
           </p>
         </ThreadPrimitive.Empty>
         <ThreadPrimitive.Messages

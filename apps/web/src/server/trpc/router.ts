@@ -4,10 +4,13 @@ import { artifactSharesRouter } from "./artifact-shares-router.ts";
 import { artifactStorageRouter } from "./artifact-storage-router.ts";
 import { artifactsRouter } from "./artifacts-router.ts";
 import { automationRouter } from "./automation-router.ts";
+import { catalogRouter } from "./catalog-router.ts";
 import { mergeRouters, router, workspaceProcedure } from "./init.ts";
+import { keysRouter } from "./keys-router.ts";
 import { createLiveArtifactsRouter } from "./live-artifacts-router";
 import { liveGuestsRouter } from "./live-guests-router";
 import { mailRouter } from "./mail-router.ts";
+import { rosterRouter } from "./roster-router.ts";
 import { runtimeRouter } from "./runtime-router.ts";
 
 // One router per lane, merged here. A lane edits its own file, not this one.
@@ -32,6 +35,8 @@ export const appRouter = mergeRouters(
       artifactSharesRouter,
       artifactStorageRouter
     ),
+    catalog: catalogRouter,
+    keys: keysRouter,
     liveArtifacts: createLiveArtifactsRouter((ctx) => {
       if (!ctx.services.liveArtifacts) {
         throw new TRPCError({
@@ -42,6 +47,7 @@ export const appRouter = mergeRouters(
       return ctx.services.liveArtifacts;
     }),
     liveGuests: liveGuestsRouter,
+    roster: rosterRouter,
   })
 );
 

@@ -2,6 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runs } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
+import { defaultAgentAvatar } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
@@ -147,4 +148,70 @@ test("service errors keep their meaning over tRPC", async () => {
       session: { origin: "ui" },
     })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
+test("roster.list returns one idle card per active agent, with an avatar from the name", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  expect(await caller.roster.list()).toEqual([
+    {
+      avatar: defaultAgentAvatar(agentInput.name),
+      costThisWeekCents: 0,
+      id: agent.id,
+      isLead: false,
+      jobLine: "",
+      learnedCount: 0,
+      name: agentInput.name,
+      needsYouCount: 0,
+      ownerName: "",
+      slug: agent.slug,
+      state: "idle",
+      statusLine: "Idle",
+      teamId: null,
+      weeklyCapCents: null,
+    },
+  ]);
+});
+
+test("roster.list is 401 without a workspace", async () => {
+  await expect(
+    (await callerFor({ orgId: null, userId: "user_1" })).roster.list()
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
+test("keys.forAgent returns the five empty parts", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  expect(await caller.keys.forAgent({ agentId: agent.id })).toEqual({
+    apps: [],
+    asksBefore: { level: "rarely", overrides: [] },
+    identity: { emailAddress: null, slackApp: null },
+    otherAgents: { connections: [], handsTo: [] },
+    secrets: [],
+  });
+});
+
+test("keys.forAgent is 401 without a workspace", async () => {
+  await expect(
+    (await callerFor({ orgId: null, userId: "user_1" })).keys.forAgent({
+      agentId: "any",
+    })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
+test("catalog.list is empty and catalog.add refuses an unknown key", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  expect(await caller.catalog.list()).toEqual([]);
+  await expect(caller.catalog.add({ key: "nope" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+});
+
+test("catalog.list is 401 without a workspace", async () => {
+  await expect(
+    (await callerFor({ orgId: null, userId: "user_1" })).catalog.list()
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

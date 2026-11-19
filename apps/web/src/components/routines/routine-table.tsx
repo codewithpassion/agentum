@@ -102,7 +102,7 @@ function RoutineRow({
           </div>
         </div>
       </ResponsiveCell>
-      <ResponsiveCell className="text-muted-foreground" label="Next run">
+      <ResponsiveCell className="text-muted-foreground" label="Next task">
         {nextRunLabel(routine)}
       </ResponsiveCell>
       <ResponsiveCell className="text-muted-foreground" label="Last fired">
@@ -171,7 +171,7 @@ export function RoutineTable({
           <TableHead>Name</TableHead>
           {showAgent ? <TableHead>Agent</TableHead> : null}
           <TableHead>Schedule</TableHead>
-          <TableHead>Next run</TableHead>
+          <TableHead>Next task</TableHead>
           <TableHead>Last fired</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>

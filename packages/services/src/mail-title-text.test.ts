@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { runTitleText } from "./mail-title-text.ts";
+import {
+  readableTitle,
+  runInputText,
+  runTitleText,
+} from "./mail-title-text.ts";
 import { buildPeerEnvelope } from "./speaker-envelope.ts";
 
 test("a run a peer started is titled by what the peer said, not the envelope", () => {
@@ -11,13 +15,11 @@ test("a run a peer started is titled by what the peer said, not the envelope", (
   expect(runTitleText(envelope)).toBe("Summarise the deploy.");
 });
 
-test("text that only looks like an envelope stays as it is", () => {
-  const looksLike = '{"harbourmaster_turn": "not an envelope"}';
-
-  expect(runTitleText(looksLike)).toBe(looksLike);
-  expect(runTitleText('{"harbourmaster_turn":{"text":')).toBe(
-    '{"harbourmaster_turn":{"text":'
+test("unreadable run inputs have a safe title", () => {
+  expect(runTitleText('{"harbourmaster_turn": "not an envelope"}')).toBe(
+    "Conversation"
   );
+  expect(runTitleText('{"harbourmaster_turn":{"text":')).toBe("Conversation");
 });
 
 test("mail and plain titles are unchanged", () => {
@@ -26,4 +28,64 @@ test("mail and plain titles are unchanged", () => {
   expect(runTitleText("anything", "Re: Quarterly numbers")).toBe(
     "Quarterly numbers"
   );
+});
+
+test("readableTitle loosely unwraps envelopes without requiring speaker fields", () => {
+  expect(
+    readableTitle(
+      ' {"harbourmaster_turn":{"text":"Hello there", "extra":true}}'
+    )
+  ).toBe("Hello there");
+  expect(readableTitle('{"harbourmaster_turn":{"text":"Hi"}}')).toBe("Hi");
+});
+
+test("readableTitle strips markers and uses the first nonempty line", () => {
+  expect(
+    readableTitle("[ATTACHMENT:/tmp/a]\n\n  Hello   team\t today\nSecond line")
+  ).toBe("Hello team today");
+  expect(readableTitle("Hello [ATTACHMENT:/tmp/a] team")).toBe("Hello team");
+});
+
+test.each([
+  "",
+  "  \n\t",
+  "[ATTACHMENT:/tmp/a]",
+  "<div>Hello</div>",
+  "<!-- comment -->",
+  '<?xml version="1.0"?><root/>',
+  '{"a":1}',
+  "[1,2]",
+  '{\n  "a": 1\n}',
+  '{"harbourmaster_turn":',
+  '{"question":"What is the weather in Sydney tomorrow and the day after that? Plea...',
+  '{"type":"form",\n  "fields": []',
+  '[{"id":1,',
+])("readableTitle rejects unreadable input %s", (raw) => {
+  expect(readableTitle(raw)).toBeUndefined();
+});
+
+test("readableTitle allows prose and caps at 80 including dots", () => {
+  expect(readableTitle("[draft] hello")).toBe("[draft] hello");
+  expect(readableTitle("< 3 items")).toBe("< 3 items");
+  expect(readableTitle("a".repeat(80))).toBe("a".repeat(80));
+  expect(readableTitle("a".repeat(81))).toBe(`${"a".repeat(77)}...`);
+});
+
+test("multiline tags do not become titles", () => {
+  expect(readableTitle('<div\n class="content">Hello</div>')).toBeUndefined();
+});
+
+test("runInputText keeps a plain request whole and unwraps envelopes to their first line", () => {
+  const plain =
+    "Write the report.\nInclude the totals, in full, for every region.";
+  expect(runInputText(plain)).toBe(plain);
+  expect(runInputText("Inbound mail. From a@b.c")).toBe("Inbound mail");
+  expect(
+    runInputText(
+      buildPeerEnvelope(
+        { agentName: "H", connectionId: "c", host: "h.x" },
+        "Hi\nthere"
+      )
+    )
+  ).toBe("Hi");
 });

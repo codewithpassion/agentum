@@ -43,6 +43,8 @@ import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import { errorMessage } from "#/lib/error-message";
 
+export const PAGE_HEADING = "New agent";
+
 export const Route = createFileRoute("/_app/agents/new")({
   loader: async () =>
     loadOrLogin(async () => ({
@@ -409,7 +411,7 @@ function NewAgent() {
         </Link>
         {" › New agent"}
       </div>
-      <h1 className="font-heading text-3xl text-foreground">New agent</h1>
+      <h1 className="font-heading text-3xl text-foreground">{PAGE_HEADING}</h1>
       <div className="flex flex-wrap items-center gap-2">
         <Button
           aria-pressed={!blank}

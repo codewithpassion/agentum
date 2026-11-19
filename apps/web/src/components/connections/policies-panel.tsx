@@ -31,7 +31,7 @@ const WHOLE_NUMBER = /^\d+$/;
 
 const INBOUND_LABELS: Record<A2aInboundPolicy, string> = {
   approve: "Ask first",
-  auto: "Start a run at once",
+  auto: "Start a task at once",
   off: "Off",
 };
 const TOOL_LABELS: Record<A2aToolPolicy, string> = {
@@ -269,7 +269,7 @@ export function PoliciesPanel({
       {showIncoming ? (
         <PolicyChoice
           id="tool"
-          legend="Tools in runs this peer starts"
+          legend="Tools in tasks this peer starts"
           onChange={handleToolChange}
           options={toolOptions}
           value={picks.toolPolicy ?? current.toolPolicy}

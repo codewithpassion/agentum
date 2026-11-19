@@ -8,6 +8,7 @@ import {
   eq,
   exists,
   inArray,
+  isNotNull,
   isNull,
   lt,
   notExists,
@@ -116,6 +117,7 @@ export const claimForMachine = async (
     libraryLiveForDaemon?: boolean;
     currentApprovalsForDaemon?: boolean;
     requestsForDaemon?: boolean;
+    questionsLaterForDaemon?: boolean;
     platformUrl: string;
   }
 ): Promise<MachineClaim> => {
@@ -213,7 +215,14 @@ export const claimForMachine = async (
                   ),
                   eq(sibling.sessionId, runs.sessionId)
                 ),
-                inArray(sibling.status, ["running", "waiting"])
+                // A run parked on a question has no process, so it holds neither lane.
+                or(
+                  eq(sibling.status, "running"),
+                  and(
+                    eq(sibling.status, "waiting"),
+                    isNotNull(sibling.leaseUntil)
+                  )
+                )
               )
             )
         ),
@@ -333,6 +342,7 @@ export const claimForMachine = async (
     },
     runToken,
     ...currentApprovalClaim(options.currentApprovalsForDaemon),
+    ...questionsLaterClaim(options),
     ...daemonRules(toolRules),
     session: {
       id: session.id,
@@ -348,6 +358,15 @@ const daemonRules = (toolRules: string[] | undefined) =>
 
 const currentApprovalClaim = (supported?: boolean) =>
   supported ? { currentApprovals: true as const } : {};
+
+/** Only a daemon that raises requests and names the feature may end a turn on a question. */
+const questionsLaterClaim = (options: {
+  questionsLaterForDaemon?: boolean;
+  requestsForDaemon?: boolean;
+}) =>
+  options.questionsLaterForDaemon === true && options.requestsForDaemon === true
+    ? { questionsLater: true as const }
+    : {};
 
 const supportsCurrentApprovals = (options: {
   currentApprovalsForDaemon?: boolean;

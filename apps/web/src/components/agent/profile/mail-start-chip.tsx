@@ -42,7 +42,7 @@ export function MailStartChip({
     <span className={`${CHIP_CLASS} ${TONE_CLASS.default}`}>
       Mail to {address}
       <Switch
-        aria-label={`Mail to ${address} starts runs`}
+        aria-label={`Mail to ${address} starts tasks`}
         checked={on}
         disabled={saving}
         onCheckedChange={toggle}

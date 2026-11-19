@@ -103,9 +103,9 @@ test("status text names the runs and the runtime of a known agent", () => {
   });
   const [known, unknown] = nodes;
   expect(known?.type === "agent" && known.data.statusText).toBe(
-    "31 runs · Anthropic cloud"
+    "31 tasks · Anthropic cloud"
   );
-  expect(unknown?.type === "agent" && unknown.data.statusText).toBe("0 runs");
+  expect(unknown?.type === "agent" && unknown.data.statusText).toBe("0 tasks");
 });
 
 test("status text uses the singular for one run and the pause text when waiting", () => {
@@ -118,7 +118,7 @@ test("status text uses the singular for one run and the pause text when waiting"
   });
   const [one, paused] = nodes;
   expect(one?.type === "agent" && one.data.statusText).toBe(
-    "1 run · Our machine"
+    "1 task · Our machine"
   );
   expect(paused?.type === "agent" && paused.data.statusText).toBe(
     "Paused, needs you"
@@ -137,7 +137,7 @@ test("a running agent shows the same run text as an idle one", () => {
     selectedKey: null,
   });
   expect(node?.type === "agent" && node.data.statusText).toBe(
-    "2 runs · Cloudflare"
+    "2 tasks · Cloudflare"
   );
 });
 
@@ -365,7 +365,7 @@ test("toFlowEdges gives each wire an id, a label and its data", () => {
   expect(live?.source).toBe("trigger:t1");
   expect(live?.target).toBe("agent:a1");
   expect(live?.type).toBe("count");
-  expect(live?.label).toBe("0 runs");
+  expect(live?.label).toBe("0 tasks");
   expect(live?.animated).toBe(true);
   expect(live?.data).toEqual({
     active: true,
@@ -434,9 +434,9 @@ test("toFlowEdges runs handoffs vertically and other wires left to right", () =>
 });
 
 test("wireLabel uses the singular for one and the plural otherwise", () => {
-  expect(wireLabel({ count7d: 1, kind: "trigger" })).toBe("1 run");
-  expect(wireLabel({ count7d: 2, kind: "trigger" })).toBe("2 runs");
-  expect(wireLabel({ count7d: 0, kind: "trigger" })).toBe("0 runs");
+  expect(wireLabel({ count7d: 1, kind: "trigger" })).toBe("1 task");
+  expect(wireLabel({ count7d: 2, kind: "trigger" })).toBe("2 tasks");
+  expect(wireLabel({ count7d: 0, kind: "trigger" })).toBe("0 tasks");
   expect(wireLabel({ count7d: 1, kind: "handoff" })).toBe("1 handoff");
   expect(wireLabel({ count7d: 5, kind: "handoff" })).toBe("5 handoffs");
   expect(wireLabel({ count7d: 1, kind: "slack" })).toBe("1 message");

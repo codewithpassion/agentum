@@ -7,6 +7,8 @@ import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
+export const PAGE_HEADING = "Skills";
+
 export const Route = createFileRoute("/_app/skills/")({
   loader: async () =>
     loadOrLogin(async () => {
@@ -38,7 +40,7 @@ function SkillsIndex() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-8">
-      <h1 className="font-heading text-3xl text-foreground">Skills</h1>
+      <h1 className="font-heading text-3xl text-foreground">{PAGE_HEADING}</h1>
       <Button
         aria-controls="skills-add-forms"
         aria-expanded={adding}

@@ -6,7 +6,11 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { AGENT_RUNTIMES, ASK_LEVELS } from "../shared.ts";
+import {
+  AGENT_RUNTIMES,
+  ASK_LEVELS,
+  NEUTRAL_AGENT_AVATAR_JSON,
+} from "../shared.ts";
 import { machines } from "./machines.ts";
 import { workspaces } from "./workspaces.ts";
 
@@ -17,6 +21,8 @@ export const agents = sqliteTable(
     askLevel: text("ask_level", { enum: ASK_LEVELS })
       .notNull()
       .default("rarely"),
+    // JSON `{ color, glyph }`. `defaultAgentAvatar(name)` fills it when an agent is created.
+    avatar: text("avatar").notNull().default(NEUTRAL_AGENT_AVATAR_JSON),
     // The computer this agent drives. A computer serves one agent at a time
     // (`agents_computer_machine_unique`).
     // Clerk user id of the backup who is asked too once a request waits long.

@@ -42,7 +42,7 @@ test("run picker labels the current run of the session", async () => {
   });
   await router.load();
   const html = renderToStaticMarkup(<RouterProvider router={router} />);
-  expect(html).toContain("Run 1 of 2");
+  expect(html).toContain("Task 1 of 2");
   expect(html).not.toContain("Inbound mail");
 });
 

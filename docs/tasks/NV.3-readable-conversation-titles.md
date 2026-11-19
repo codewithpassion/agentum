@@ -3,7 +3,7 @@ id: NV.3
 title: "Every conversation has a readable title"
 milestone: NV
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/NV.3-readable-conversation-titles
 lane: services-sessions
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone NV. A run not started by mail keeps its 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/NV.3-readable-conversation-titles (v4 controller session).
+- 2026-11-20: merged as 088e9602, review clean after 2 fix rounds. check, test and build passed on main (first test run failed only on the flaky guest-execution.test.ts; the re-run passed). Dom: run `cd apps/web && bun run retitle-sessions --remote` (dry run), then with `--apply`.

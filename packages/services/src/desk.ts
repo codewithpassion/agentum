@@ -214,13 +214,8 @@ const byAge = (a: DeskCard, b: DeskCard): number =>
  * takes its mail's subject. Its first line is a notice to the agent, which no
  * card shows.
  */
-const titleOf = (inputText: string, mailSubject?: string): string => {
-  const [line] = text(inputText).split("\n");
-  return clip(
-    runTitleText(line?.trim() ?? "", mailSubject) || "Task",
-    TITLE_MAX
-  );
-};
+const titleOf = (inputText: string, mailSubject?: string): string =>
+  clip(runTitleText(text(inputText), mailSubject), TITLE_MAX);
 
 export const createDeskService = ({
   a2a,

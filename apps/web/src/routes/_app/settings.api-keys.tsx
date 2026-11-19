@@ -22,6 +22,8 @@ import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import type { ApiKeyRecord } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
 
+export const PAGE_HEADING = "API keys";
+
 export const Route = createFileRoute("/_app/settings/api-keys")({
   loader: async () =>
     loadOrLogin(async () => await getTrpc().apiKeys.list.query()),
@@ -136,7 +138,9 @@ function ApiKeysPage() {
   return (
     <section className="mx-auto max-w-3xl">
       <div className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-heading text-3xl text-foreground">API keys</h1>
+        <h1 className="font-heading text-3xl text-foreground">
+          {PAGE_HEADING}
+        </h1>
         <Button onClick={openCreate}>Create key</Button>
       </div>
       {error !== null && (

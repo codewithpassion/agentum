@@ -40,7 +40,7 @@ export function NewTaskDialog({
   agents,
   onOpenChange,
   onStarted,
-  triggerLabel = "+ New task",
+  triggerLabel = "+ New conversation",
 }: {
   agents: readonly { id: string; name: string }[];
   /** Called when the dialog opens or closes, for a parent that must stay mounted while it is open. */
@@ -127,7 +127,7 @@ export function NewTaskDialog({
       </DialogTrigger>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>New task</DialogTitle>
+          <DialogTitle>New conversation</DialogTitle>
         </DialogHeader>
         {agents.length === 0 ? (
           <p className="text-muted-foreground text-sm">
@@ -173,7 +173,7 @@ export function NewTaskDialog({
             </div>
             <DialogFooter>
               <Button disabled={!canStart} type="submit">
-                Start task
+                Start conversation
                 <SubmitKeys />
               </Button>
             </DialogFooter>

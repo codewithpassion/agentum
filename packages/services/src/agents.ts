@@ -13,6 +13,7 @@ import {
   AGENT_STATUSES,
   type AgentRuntime,
   type AgentStatus,
+  defaultAgentAvatar,
   LIVE_RUN_STATUSES,
 } from "@repo/db/shared";
 import { MAX_TURNS_KEY, maxTurnsError } from "@repo/protocol/safeguards";
@@ -542,6 +543,7 @@ export const createAgentsService = ({
     await assertHandsTo(db, { handsTo: parsed.handsTo, id, workspaceId });
     const row: AgentRow = {
       askLevel: "rarely",
+      avatar: JSON.stringify(defaultAgentAvatar(parsed.name)),
       backupUserId: null,
       computerMachineId: null,
       createdAt: new Date().toISOString(),

@@ -117,7 +117,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       stage = 7;
       continue;
     }
-    if (expected.mode === "question" || expected.mode === "waiting") {
+    if (["question", "parked", "waiting"].includes(expected.mode)) {
       send({
         message: { content: [{ text: "waiting", type: "text" }] },
         type: "assistant",
@@ -128,11 +128,13 @@ for await (const line of createInterface({ input: process.stdin })) {
           input: {
             hook_event_name: "PreToolUse",
             tool_input:
-              expected.mode === "question"
+              expected.mode === "question" || expected.mode === "parked"
                 ? { questions: [{ question: "Pick?" }] }
                 : { command: "echo yes" },
             tool_name:
-              expected.mode === "question" ? "AskUserQuestion" : "Bash",
+              expected.mode === "question" || expected.mode === "parked"
+                ? "AskUserQuestion"
+                : "Bash",
             tool_use_id: "q",
           },
           subtype: "hook_callback",

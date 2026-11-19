@@ -244,6 +244,25 @@ test("a question request opens too", async () => {
   );
 });
 
+test("a question on a plain run is deferred, and an approval is not", async () => {
+  const { credential, runId } = await runningRun();
+
+  const question = createRequestResponseSchema.parse(
+    await (
+      await create(runId, credential, {
+        display: { questions: [{ question: "Which database?" }] },
+        kind: "question",
+        toolName: "ask",
+        toolUseId: "toolu_q",
+      })
+    ).json()
+  );
+  const approval = await opened(runId, credential);
+
+  expect(question.deferred).toBe(true);
+  expect(approval.deferred).toBeUndefined();
+});
+
 test("a display that does not match its kind is refused with 400", async () => {
   const { credential, runId } = await runningRun();
 

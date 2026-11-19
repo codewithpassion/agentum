@@ -66,7 +66,8 @@ export function AgentTranscript({
     []
   );
   const report = useCallback(
-    (cause: unknown) => setError(errorMessage(cause, "Thread action failed")),
+    (cause: unknown) =>
+      setError(errorMessage(cause, "Conversation action failed")),
     []
   );
   const runtime = useTaskThreadRuntime({
@@ -80,7 +81,7 @@ export function AgentTranscript({
     () => ({
       agentName,
       answer: () =>
-        Promise.reject(new Error("Open the run to answer this request")),
+        Promise.reject(new Error("Open the task to answer this request")),
       editableId: null,
       edited: new Set(),
       files: new Map(),
@@ -114,7 +115,7 @@ export function AgentTranscript({
             href={`/tasks/${encodeURIComponent(message.runId ?? "")}`}
             key={message.id}
           >
-            Open run and approvals
+            Open task and approvals
           </a>
         ))}
     </section>
@@ -198,7 +199,7 @@ export function AgentComposer({
       >
         {busy ? "Sending…" : "Send to agent"}
       </ToolButton>
-      {!canAsk && <p>Your role allows reading this thread.</p>}
+      {!canAsk && <p>Your role allows reading this conversation.</p>}
       {Boolean(error) && <p role="alert">{error}</p>}
     </form>
   );

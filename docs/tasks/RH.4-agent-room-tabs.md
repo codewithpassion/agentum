@@ -3,9 +3,9 @@ id: RH.4
 title: "Agent room: one page with seven tabs"
 milestone: RH
 size: L
-status: todo
+status: in_progress
 depends_on: [NV.2]
-branch: null
+branch: task/RH.4-agent-room-tabs
 lane: web-agent
 executor: claude
 ---
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone RH. The profile holds nine rows, five ca
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/RH.4-agent-room-tabs (v4 controller session).

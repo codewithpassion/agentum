@@ -11,6 +11,8 @@ import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import { errorMessage } from "#/lib/error-message";
 
+export const PAGE_HEADING = "Triggers";
+
 export const Route = createFileRoute("/_app/triggers")({
   loader: async () =>
     loadOrLogin(async () => {
@@ -103,7 +105,9 @@ function TriggersPage() {
   return (
     <section className="mx-auto max-w-3xl">
       <div className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-heading text-3xl text-foreground">Triggers</h1>
+        <h1 className="font-heading text-3xl text-foreground">
+          {PAGE_HEADING}
+        </h1>
         <Button onClick={openCreate}>Create trigger</Button>
       </div>
       {error !== null && (
@@ -111,8 +115,8 @@ function TriggersPage() {
       )}
       {triggers.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          No triggers yet. Create one to let an outside system start an agent
-          run over HTTP.
+          No triggers yet. Create one to let an outside system start a task for
+          an agent over HTTP.
         </p>
       ) : (
         <TriggerTable

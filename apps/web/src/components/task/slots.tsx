@@ -74,7 +74,9 @@ export function FilesSlot({
 }) {
   return (
     <section className="flex flex-col gap-3" data-testid="slot-files">
-      <h2 className="text-muted-foreground text-sm">Files from run {number}</h2>
+      <h2 className="text-muted-foreground text-sm">
+        Files from task {number}
+      </h2>
       {error === null ? null : <p role="alert">{error}</p>}
       {files === null ? (
         <p className="text-muted-foreground text-sm">Loading files…</p>

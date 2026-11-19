@@ -106,21 +106,21 @@ test("replyNote is null for the ui origin", () => {
 
 test("replyNote explains where to reply for each other origin", () => {
   expect(replyNote("slack")).toBe(
-    "This thread belongs to a Slack conversation. Reply there."
+    "This conversation came from Slack. Reply there."
   );
   expect(replyNote("inbox")).toBe(
-    "This thread belongs to an inbox conversation. Reply in the inbox."
+    "This conversation came from the inbox. Reply in the inbox."
   );
   expect(replyNote("routine")).toBe(
-    "A routine started this thread, so it has no reply here."
+    "A routine started this conversation, so it has no reply here."
   );
   expect(replyNote("trigger")).toBe(
-    "A trigger started this thread, so it has no reply here."
+    "A trigger started this conversation, so it has no reply here."
   );
   expect(replyNote("mcp")).toBe(
-    "An MCP client started this thread. Reply from that client."
+    "An MCP client started this conversation. Reply from that client."
   );
-  expect(replyNote("elsewhere")).toBe("This thread is read only here.");
+  expect(replyNote("elsewhere")).toBe("This conversation is read only here.");
 });
 
 const message = (id: string, role: ThreadMessage["role"]) => ({ id, role });

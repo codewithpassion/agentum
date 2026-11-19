@@ -12,6 +12,7 @@ import { agents as agentRows } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
 import { guestRunScopes } from "@repo/db/schema/live-artifacts";
 import { machines } from "@repo/db/schema/machines";
+import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { type AgentRuntime, taskFolderPath } from "@repo/db/shared";
@@ -68,6 +69,7 @@ import {
 } from "./run-tokens.ts";
 import { validateSubagentAccess } from "./runs/access-scope.ts";
 import { authorizeArtifactRun } from "./runs/artifact-access.ts";
+import { runDefersQuestions } from "./runs/deferral.ts";
 import { createFakeRuntime } from "./runs/fake-runtime.ts";
 import { noneGateway } from "./runs/gateways.ts";
 import {
@@ -90,6 +92,7 @@ import {
 import { type RunRow, toRecord, toSummary } from "./runs/records.ts";
 import {
   type Actor,
+  continuationSubject,
   deriveSubject,
   eventActor,
   MAX_RUN_DEPTH,
@@ -100,6 +103,7 @@ import {
   type AdapterDeps,
   type Clock,
   type Gateway,
+  isParked,
   type MachineClaim,
   RUN_EVENT_TYPES,
   type RunEventInput,
@@ -222,6 +226,7 @@ const dryRunSkipSchema = z.strictObject({
 });
 
 const runResultSchema = z.strictObject({
+  awaitingAnswer: z.literal(true).optional(),
   error: z.string().max(10_000).optional(),
   fileIds: z.array(z.string().min(1).max(200)).max(100).optional(),
   runtimeRef: z.string().min(1).max(500).optional(),
@@ -455,6 +460,22 @@ const refuseForeignRequest = (
 /** A peer's request, or a wake carrying a peer's answer: a run a peer's text sets going. */
 const startsFromPeerText = (principal: Principal, options: StartRunOptions) =>
   principal.kind === "peer" || options.wakeOf !== undefined;
+
+/** The subject of a run that continues a parked one. Only the platform itself starts one, for the parked run's own agent. */
+const continuationSubjectOf = (
+  principal: Principal,
+  agent: { id: string; workspaceId: string },
+  parked: RunRecord
+): Subject => {
+  if (
+    principal.kind !== "system" ||
+    parked.agentId !== agent.id ||
+    parked.workspaceId !== agent.workspaceId
+  ) {
+    throw new ForbiddenError(START_ACTION);
+  }
+  return continuationSubject(parked);
+};
 
 export const createRunsService = ({
   adapters,
@@ -706,6 +727,21 @@ export const createRunsService = ({
     }
   };
 
+  const subjectOfStart = (
+    principal: Principal,
+    agent: { id: string; workspaceId: string },
+    options: StartRunOptions
+  ): Promise<Subject> | Subject =>
+    options.continuationOf
+      ? continuationSubjectOf(principal, agent, options.continuationOf)
+      : deriveSubject(
+          db,
+          principal,
+          agent.id,
+          options.wakeOf,
+          startsUnawaited(options)
+        );
+
   type Prepared = Awaited<ReturnType<typeof prepareStart>>;
 
   const refuseScopedHandoff = async (principal: Principal) => {
@@ -760,13 +796,7 @@ export const createRunsService = ({
         clock.now()
       );
     }
-    const subject = await deriveSubject(
-      db,
-      principal,
-      agent.id,
-      options.wakeOf,
-      startsUnawaited(options)
-    );
+    const subject = await subjectOfStart(principal, agent, options);
     await refuseScopedHandoff(principal);
     await refusePeerHandoffToManaged(
       agent.runtime,
@@ -1381,6 +1411,7 @@ export const createRunsService = ({
       libraryLiveForDaemon?: boolean;
       currentApprovalsForDaemon?: boolean;
       requestsForDaemon?: boolean;
+      questionsLaterForDaemon?: boolean;
       platformUrl: string;
     }
   ): Promise<MachineClaim> => {
@@ -1607,6 +1638,8 @@ export const createRunsService = ({
         and(
           eq(runs.id, run.id),
           eq(runs.status, "waiting"),
+          // A parked run has no process to resume.
+          isNotNull(runs.leaseUntil),
           currentGuestRun(nowIso())
         )
       )
@@ -1793,7 +1826,7 @@ export const createRunsService = ({
   /**
    * The daemon is still working: the lease moves to 90 seconds from now, or
    * to `options.leaseMs` for a caller that is the system (a cloud run's object).
-   * Refused with 409 unless the run is `running` or `waiting`. The write is conditional, so
+   * Refused with 409 unless the run is `running` or `waiting` with a lease: a parked run has none. The write is conditional, so
    * a run the reaper just interrupted stays interrupted.
    */
   const heartbeatRun = async (
@@ -1818,7 +1851,9 @@ export const createRunsService = ({
         and(
           eq(runs.id, run.id),
           currentGuestRun(nowIso()),
-          inArray(runs.status, LIVE)
+          inArray(runs.status, LIVE),
+          // A parked run has no process, and a late heartbeat must not give it a lease.
+          isNotNull(runs.leaseUntil)
         )
       )
       .returning({ id: runs.id });
@@ -1909,8 +1944,8 @@ export const createRunsService = ({
 
   /**
    * The Claude Code session id, valid only on the machine that ran it. The
-   * write applies only while the run is still `running` or `waiting`, and goes in the same
-   * atomic write as the run's own update.
+   * write applies only while the run is still `running` or `waiting`. It goes
+   * in the same atomic write as the run's own update (`completeRun`, `parkRun`).
    */
   const runtimeRefWrite = (
     principal: Principal,
@@ -1966,6 +2001,174 @@ export const createRunsService = ({
     });
   };
 
+  /** The run's own write, preceded by the session's runtime ref when the turn reported one. */
+  const writeWithRuntimeRef = async (
+    principal: Principal,
+    run: RunRecord,
+    runtimeRef: string | undefined,
+    runWrite: Statement
+  ): Promise<void> => {
+    await atomic(
+      runtimeRef
+        ? [runtimeRefWrite(principal, run, runtimeRef), runWrite]
+        : [runWrite]
+    );
+  };
+
+  /** Whether the run opened a question, open or closed. */
+  const askedQuestion = async (run: RunRecord): Promise<boolean> => {
+    const [asked] = await db
+      .select({ id: runRequests.id })
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.runId, run.id),
+          eq(runRequests.workspaceId, run.workspaceId),
+          eq(runRequests.kind, "question")
+        )
+      )
+      .limit(1);
+    return asked !== undefined;
+  };
+
+  type ParkedListener = (run: RunRecord) => Promise<void>;
+  const parkedListeners: ParkedListener[] = [];
+
+  /**
+   * A turn that ended on a question the platform answers later does not finish
+   * the run. The run stays `waiting`, without a lease, so the reaper leaves it
+   * alone and neither its agent nor its session is held. The listeners then
+   * find out whether every question has closed already. The session id is
+   * stored now, because the follow-up resumes it.
+   */
+  const parkRun = async (
+    principal: Principal,
+    run: RunRecord,
+    result: RunResultInput,
+    fileIds: string[]
+  ): Promise<void> => {
+    const parkWrite = db
+      .update(runs)
+      .set({
+        leaseUntil: null,
+        resultText: result.text ?? null,
+        status: "waiting",
+        usage: result.usage ? JSON.stringify(result.usage) : null,
+      })
+      .where(
+        and(
+          eq(runs.id, run.id),
+          currentGuestRun(nowIso()),
+          inArray(runs.status, LIVE),
+          isNotNull(runs.leaseUntil)
+        )
+      )
+      .returning({ id: runs.id });
+    // One write, and its rows say whether this call parked the run: only the
+    // winner delivers and wakes anything. A losing duplicate repeats the same
+    // session id, which does no harm.
+    let won = false;
+    await atomic(
+      [
+        ...(result.runtimeRef
+          ? [runtimeRefWrite(principal, run, result.runtimeRef)]
+          : []),
+        parkWrite,
+      ],
+      (results) => {
+        won =
+          z.array(z.object({ id: z.string() })).parse(results.at(-1)).length >
+          0;
+      }
+    );
+    if (!won) {
+      throw new ServiceError("conflict", "Run is no longer running");
+    }
+    // Built from what this call wrote, so an answer or a cancel that lands now
+    // cannot make the winner fail.
+    const parkedRun: RunRecord = {
+      ...run,
+      leaseUntil: null,
+      resultText: result.text ?? null,
+      status: "waiting",
+      usage: result.usage ?? null,
+    };
+    if (run.status !== "waiting") {
+      await appendRunEvent(run, "run.waiting", agentActor(run));
+    }
+    // The turn's own words (what it asked) reach the requester now, as a finished turn's would.
+    try {
+      await deliverReply(run, { fileIds, text: result.text ?? "" });
+    } catch (error) {
+      console.error(
+        `Delivering the reply of parked run ${run.id} failed:`,
+        error
+      );
+    }
+    for (const listener of parkedListeners) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: listeners run in order
+        await listener(parkedRun);
+      } catch (error) {
+        console.error(`Continuing parked run ${run.id} failed:`, error);
+      }
+    }
+  };
+
+  /** Parks a machine's `done` turn that says it ended on a question the run really asked. False for any other completion. */
+  const parkIfAsking = async (
+    principal: Principal,
+    run: RunRecord,
+    result: RunResultInput,
+    fileIds: string[]
+  ): Promise<boolean> => {
+    if (isParked(run)) {
+      throw new ServiceError(
+        "conflict",
+        "Run is already waiting for an answer"
+      );
+    }
+    const asking =
+      result.status === "done" &&
+      result.awaitingAnswer === true &&
+      principal.kind === "machine" &&
+      (await askedQuestion(run)) &&
+      (await runDefersQuestions(db, run));
+    if (asking) {
+      await parkRun(principal, run, result, fileIds);
+    }
+    return asking;
+  };
+
+  /**
+   * Ends a parked run once its questions have closed. Only one caller wins,
+   * so the follow-up that carries the answers starts once. Returns the run for
+   * the winner and null for everyone else.
+   */
+  const settleParkedRun = async (
+    principal: Principal,
+    runId: string
+  ): Promise<RunRecord | null> => {
+    requireSystem(principal, "runs.settleParked");
+    const run = await requireRun(principal, runId);
+    const settled = await db
+      .update(runs)
+      .set({ finishedAt: nowIso(), status: "done" })
+      .where(
+        and(
+          eq(runs.id, run.id),
+          eq(runs.status, "waiting"),
+          isNull(runs.leaseUntil)
+        )
+      )
+      .returning({ id: runs.id });
+    if (settled.length === 0) {
+      return null;
+    }
+    await appendRunEvent(run, "run.finished", agentActor(run));
+    return await loadRun(db, run.id);
+  };
+
   const completeRun = async (
     principal: Principal,
     runId: string,
@@ -1990,6 +2193,9 @@ export const createRunsService = ({
       runId: run.id,
       workspaceId: run.workspaceId,
     });
+    if (await parkIfAsking(principal, run, result, fileIds)) {
+      return;
+    }
     const failed = result.status === "failed";
     const error = failed ? failureError(result) : null;
     const finishedAt = nowIso();
@@ -2010,11 +2216,7 @@ export const createRunsService = ({
         )
       );
     // The session write goes first: it only applies while the run is live.
-    await atomic(
-      result.runtimeRef
-        ? [runtimeRefWrite(principal, run, result.runtimeRef), runWrite]
-        : [runWrite]
-    );
+    await writeWithRuntimeRef(principal, run, result.runtimeRef, runWrite);
     const after = await loadRun(db, run.id);
     // Told apart from a concurrent completion with the same status by the
     // time this call wrote: only the call whose write applied sees its own.
@@ -3203,11 +3405,16 @@ export const createRunsService = ({
      * fail the write.
      */
     onEvent: eventsService.onAppend,
+    /** Registers a listener for a run that parked on a question, once it is parked. */
+    onParked: (listener: ParkedListener) => {
+      parkedListeners.push(listener);
+    },
     reapExpiredLeases,
     recordDryRunSkip,
     releaseRun,
     replyInSubThread,
     resumeRequest,
+    settleParkedRun,
     startForGuest,
     startRun,
     startSubagent,

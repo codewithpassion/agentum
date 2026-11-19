@@ -45,7 +45,7 @@ function TaskRow({ task }: { task: Task }) {
           params={{ runId: task.runId }}
           to="/tasks/$runId"
         >
-          Open run
+          Open task
         </Link>
       )}
     </li>

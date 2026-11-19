@@ -30,6 +30,8 @@ import type {
   CredentialRecord,
 } from "#/integrations/trpc/types";
 
+export const PAGE_HEADING = "Connectors";
+
 export const Route = createFileRoute("/_app/settings/connectors")({
   validateSearch: (search) => connectSearchSchema.parse(search),
   loader: async () =>
@@ -383,7 +385,9 @@ function ConnectorsPage() {
   return (
     <section className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-heading text-3xl text-foreground">Connectors</h1>
+        <h1 className="font-heading text-3xl text-foreground">
+          {PAGE_HEADING}
+        </h1>
         <Button onClick={openAdd}>Add connector</Button>
       </div>
       {connectNotice !== null && (

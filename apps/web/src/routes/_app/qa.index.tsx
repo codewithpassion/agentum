@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { agentNameMap } from "#/components/inbox/inbox-logic";
 import { QaBoard } from "#/components/qa/qa-board";
+import { QA_HEADING } from "#/components/qa/qa-heading";
 import { type QaFilter, statusOfFilter } from "#/components/qa/qa-logic";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
@@ -9,6 +10,8 @@ import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 const searchSchema = z.object({
   status: z.enum(["open", "answered", "all"]).optional().catch(undefined),
 });
+
+export const PAGE_HEADING = QA_HEADING;
 
 export const Route = createFileRoute("/_app/qa/")({
   validateSearch: (search) => searchSchema.parse(search),
