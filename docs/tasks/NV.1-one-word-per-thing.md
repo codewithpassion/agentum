@@ -3,9 +3,9 @@ id: NV.1
 title: "One word per thing in the web app"
 milestone: NV
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/NV.1-one-word-per-thing
 lane: web-shell
 executor: claude
 ---
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone NV. The app uses task, run, session and 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/NV.1-one-word-per-thing (v4 controller session).

@@ -3,9 +3,9 @@ id: NV.4
 title: "A waiting question no longer holds the machine lane"
 milestone: NV
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/NV.4-question-frees-machine-lane
 lane: daemon
 executor: claude
 ---
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone NV. Found on 18 Nov (`docs/analysis/smal
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/NV.4-question-frees-machine-lane (v4 controller session).

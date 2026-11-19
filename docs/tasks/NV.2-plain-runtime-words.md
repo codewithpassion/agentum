@@ -3,9 +3,9 @@ id: NV.2
 title: "Plain words for where an agent runs"
 milestone: NV
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/NV.2-plain-runtime-words
 lane: web-agent
 executor: claude
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone NV. The Edit sheet asks for Runtime, Env
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/NV.2-plain-runtime-words (v4 controller session).

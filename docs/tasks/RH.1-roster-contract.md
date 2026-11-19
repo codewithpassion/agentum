@@ -3,9 +3,9 @@ id: RH.1
 title: "Roster contract: avatar column, card types, router"
 milestone: RH
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/RH.1-roster-contract
 lane: contract
 executor: claude
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone RH. Contract task for RH. It alone chang
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/RH.1-roster-contract (v4 controller session).

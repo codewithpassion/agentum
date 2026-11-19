@@ -3,9 +3,9 @@ id: NV.3
 title: "Every conversation has a readable title"
 milestone: NV
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/NV.3-readable-conversation-titles
 lane: services-sessions
 executor: codex
 ---
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone NV. A run not started by mail keeps its 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/NV.3-readable-conversation-titles (v4 controller session).
