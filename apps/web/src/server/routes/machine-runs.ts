@@ -13,6 +13,7 @@ import {
   FEATURE_CURRENT_APPROVALS,
   FEATURE_LIBRARY_LIVE,
   FEATURE_LIBRARY_SYNC,
+  FEATURE_PARKED_QUESTIONS,
   FEATURE_REQUESTS,
   hasDaemonFeature,
   waitRequestResponseSchema,
@@ -102,6 +103,11 @@ export const machineRunRoutes = () => {
           requestsForDaemon: hasDaemonFeature(
             c.req.header(DAEMON_FEATURES_HEADER),
             FEATURE_REQUESTS
+          ),
+          // A daemon that names it may end its turn on a question we defer.
+          questionsLaterForDaemon: hasDaemonFeature(
+            c.req.header(DAEMON_FEATURES_HEADER),
+            FEATURE_PARKED_QUESTIONS
           ),
           // The address the daemon reached us at is one it can use for /mcp.
           platformUrl: new URL(c.req.url).origin,
@@ -199,6 +205,15 @@ export const machineRunRoutes = () => {
         .services.requests.open(principal, input);
       return c.json(
         createRequestResponseSchema.parse({
+          // A question the daemon need not wait for: its answer comes as a follow-up run.
+          deferred:
+            kind === "question" &&
+            opened.status === "pending" &&
+            (await c
+              .get("composed")
+              .services.requests.defersQuestion(principal, runId))
+              ? true
+              : undefined,
           outcome: opened.outcome ?? undefined,
           requestId: opened.id,
           status: opened.status,

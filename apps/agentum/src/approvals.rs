@@ -4,12 +4,19 @@ use crate::runs::{
     helpers::text,
 };
 use serde_json::{Value, json};
-use std::{collections::HashSet, sync::Mutex};
+use std::{
+    collections::HashSet,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio_util::sync::CancellationToken;
 
 pub const HOOK_TIMEOUT_SECONDS: u64 = 90_000;
 const UNAVAILABLE: &str = "The platform could not take this request, so the call did not run.";
 const ABORTED: &str = "The run is ending, so the call did not run.";
+const PARKED: &str = "Your question was sent to the person. Their answer will arrive later as a new message in this conversation, so do not wait for it. End your turn now without calling more tools, and say briefly what you asked.";
 pub fn tool_key(name: &str, servers: &[String]) -> String {
     let lower = name.to_lowercase();
     match lower.as_str() {
@@ -111,6 +118,8 @@ pub struct Gate {
     asking: Mutex<HashSet<String>>,
     servers: Vec<String>,
     current: bool,
+    later: bool,
+    parked: AtomicBool,
 }
 impl Gate {
     pub fn new(api: RunApi, claim: &Value) -> Self {
@@ -130,7 +139,12 @@ impl Gate {
                 .flat_map(|o| o.keys().cloned())
                 .collect(),
             current: claim["currentApprovals"] == true,
+            later: claim["questionsLater"] == true,
+            parked: AtomicBool::new(false),
         }
+    }
+    pub fn parked(&self) -> bool {
+        self.parked.load(Ordering::SeqCst)
     }
     async fn retry<T, F, Fut>(&self, cancel: &CancellationToken, mut work: F) -> Result<T>
     where
@@ -232,6 +246,10 @@ impl Gate {
         let mut outcome = opened["outcome"].clone();
         if outcome.is_null() && !opened["requestId"].is_string() {
             return Err(Denial::Unavailable);
+        }
+        if asks && self.later && opened["deferred"] == true && outcome.is_null() {
+            self.parked.store(true, Ordering::SeqCst);
+            return Err(Denial::Reason(PARKED.into()));
         }
         while outcome.is_null() {
             outcome = self

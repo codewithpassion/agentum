@@ -120,6 +120,20 @@ const subjectOfRun = async (
   };
 };
 
+/**
+ * The subject of the run that picks up where a parked run stopped: the same
+ * actor, delegation and place in the tree, so a long thread of questions never
+ * goes deeper.
+ */
+export const continuationSubject = (
+  run: Pick<RunRecord, "actor" | "depth" | "onBehalfOfUserId" | "parentRunId">
+): Subject => ({
+  actor: run.actor,
+  depth: run.depth,
+  onBehalfOfUserId: run.onBehalfOfUserId,
+  parentRunId: run.parentRunId,
+});
+
 /** Floors a peer's claimed hops and clamps them to the tree. NaN and missing count as 0. */
 const clampHops = (hops: number | undefined): number => {
   const floored = Math.floor(hops ?? 0);

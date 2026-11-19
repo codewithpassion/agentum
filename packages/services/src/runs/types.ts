@@ -101,6 +101,13 @@ export interface StartRunOptions {
    */
   alongside?: (ids: { runId: string; sessionId: string }) => Statement[];
   /**
+   * The run continues `continuationOf`, which ended its turn on a question and
+   * is parked. It takes that run's actor, delegation and place in the run tree,
+   * so each round of questions does not go one level deeper. Trusted; never
+   * accepted by startRunInputSchema.
+   */
+  continuationOf?: RunRecord;
+  /**
    * A dry run reads and thinks, and skips every write. It runs on the cloud
    * runtime whatever the agent's runtime is, and may start on a `draft` agent.
    * It is not in `startRunInputSchema` on purpose: the browser schema is built
@@ -191,6 +198,13 @@ export interface RunSummary {
   status: RunStatus;
 }
 
+/**
+ * A run whose turn ended on a question: `waiting`, with no lease and no process.
+ * It holds neither its agent's lane nor its session until the question closes.
+ */
+export const isParked = (run: Pick<RunRecord, "leaseUntil" | "status">) =>
+  run.status === "waiting" && run.leaseUntil === null;
+
 /** The statuses a run never leaves (an `interrupted` run only gains `process_ended_at`). */
 export const TERMINAL_STATUSES: readonly RunStatus[] = [
   "done",
@@ -215,6 +229,11 @@ export interface RunEventInput {
 }
 
 export interface RunResult {
+  /**
+   * A `done` turn that ended on a question the platform will answer with a
+   * follow-up run. The run stays `waiting`, without a lease, until it closes.
+   */
+  awaitingAnswer?: true;
   error?: string;
   fileIds?: string[];
   /** The Claude Code session id, stored on the session. */
@@ -254,6 +273,8 @@ export interface MachineClaim {
     string,
     { headers: Record<string, string>; type: "http"; url: string }
   >;
+  /** Sent to a daemon that names `parked-questions`: it may end its turn on a question the platform defers. */
+  questionsLater?: true;
   run: {
     subagentLevel?: number;
     agentId: string;
