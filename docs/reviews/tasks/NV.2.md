@@ -18,8 +18,13 @@
 - `agent-form.test.tsx:82`: `toContain("Name")` proves nothing about the model select, since Name is always there. The `id="agent-model"` check in the same test does the work.
 - `runs-on-card.test.tsx:28`: `toContain("Cloud")` also passes on "Cloudflare". The newer test in the file checks that "Cloudflare" is gone.
 
+## Browser proof
+
+Pass at both sizes with no console errors or failed requests. Report and screenshots: `docs/reviews/tasks/NV.2/browser.md`. The verifier could not test a My computer agent because the local workspace has no machine.
+
 ## Ideas beyond the scope
 
+- The Start blank "Runs on" chips still say "Cloudflare" (`builder-logic.ts:160`), and so does Settings, Model providers. The Anthropic cloud card text still says "Managed Agents".
 - `builder-logic.ts` (the Start blank "Runs on" chips), `dry-run-logic.ts`, `map-logic.ts` and the landing page still say "Cloudflare" and "Our machine". They sit outside the three files the task names.
 - The runtime stays a read-only line in the Edit form. Changing it is the Move agent dialog, which carries the blockers (no Anthropic key, no machine). A real three-way control in the form would need those blockers.
 
