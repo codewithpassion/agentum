@@ -3,9 +3,9 @@ id: FR.4
 title: "Templates gallery"
 milestone: FR
 size: S
-status: todo
+status: in_progress
 depends_on: [FR.1]
-branch: null
+branch: task/FR.4-templates-gallery
 lane: web-builder
 executor: claude
 ---
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone FR. Show the templates where a person cr
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/FR.4-templates-gallery (v4 controller session).

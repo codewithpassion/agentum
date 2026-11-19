@@ -3,7 +3,7 @@ id: NV.2
 title: "Plain words for where an agent runs"
 milestone: NV
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/NV.2-plain-runtime-words
 lane: web-agent
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone NV. The Edit sheet asks for Runtime, Env
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/NV.2-plain-runtime-words (v4 controller session).
 - 2026-11-20: scope widened to the Start blank runtime chips, which still said "Cloudflare". The task's browser check goes through Start blank, so the old word would show in its own flow.
+- 2026-11-20: merged as 6648fd38, review clean after 0 fix rounds (plus a clean re-review of the widened scope). Browser proof passed at both sizes: docs/reviews/tasks/NV.2/browser.md. check, test and build passed on main.
