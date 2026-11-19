@@ -32,6 +32,8 @@ executor: claude   # v2 tasks: claude (Haiku workers) or codex (one Codex job)
 
 v2 tasks (`V<n>.<k>`) carry `lane` and `executor`. Their scope comes from `docs/v2/build-plan.md` and the task file itself. Each v2 milestone starts with a contract task, `V<n>.1`, which alone changes `packages/db/src/schema` and generates migrations, so parallel tasks never collide on migration numbers.
 
+v4 tasks (prefixes NV, RH, KY, JB, ME, DR, SP, TM, SL, TX, FR) follow `docs/v4/build-plan.md`. Their contract tasks sit in the lane `contract`, and that file lists the lanes and the extra rules for parallel work.
+
 A task is ready when it is `todo` and every task in `depends_on` is `done`. `bun run tasks` lists all tasks, marks the ready ones with `*`, and fails on an unknown status or dependency.
 
 Only the controller edits task files, in the main checkout, and commits each change straight to `main` (`tasks: M0.2 in_progress`). Every status change also appends a dated line to the task's log: dispatched, review verdict, merged, blocked and why. The frontmatter and the logs are the handoff, so a new controller session reads this file and runs `bun run tasks`.

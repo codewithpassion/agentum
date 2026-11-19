@@ -1,0 +1,28 @@
+---
+id: TM.4
+title: "Lead role: team tools and proposals"
+milestone: TM
+size: M
+status: todo
+depends_on: [TM.3]
+branch: null
+lane: mcp
+executor: claude
+---
+
+From `docs/v4/build-plan.md`, milestone TM. A lead coordinates. It may propose changes to its members and never writes them.
+
+## Scope
+
+- Tools in `packages/mcp/src/tools/` for a run woken by a team room whose agent is that team's lead: `team_post(topic, text)`, `team_open_topic(title, members?)`, `team_members()`, `team_propose_change(agentId, field, value, reason)` where field is `instructions`, `model`, `effort` or `contextBudget`.
+- `team_propose_change` creates an approval request for the member's owner through `requests`. On approval the service applies the change. Access, keys, ask-before rules and connectors can never be proposed.
+- In a room run the lead gets team tools, read tools and `send_message` only. This is a tool restriction applied where the run's tool list is built, not a prompt line. In its own conversations the agent keeps its normal tools.
+- `admin-access.ts` stays as it is: a run principal still cannot manage another agent directly.
+
+## Check
+
+- Tool tests: non-lead refused, proposal approved and applied, proposal rejected, forbidden field refused, the room-run tool list.
+- `bun run check && bun run test && bun run build` pass.
+
+## Log
+- 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
