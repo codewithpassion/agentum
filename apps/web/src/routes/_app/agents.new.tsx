@@ -37,6 +37,7 @@ import {
   type DryRunStep,
 } from "#/components/agent/builder/dry-run-panel";
 import { StartBlank } from "#/components/agent/builder/start-blank";
+import { TemplateGallery } from "#/components/agent/builder/template-gallery";
 import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
@@ -136,11 +137,30 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
   const address =
     addressEdit ?? (draft === undefined ? "" : addressSuggestion(draft.name));
 
-  const pickTemplate = useCallback((id: AgentTemplateId) => {
-    setDescription(templates[id].description);
-    setVoice(templates[id].voice);
-    setTemplateId(id);
-  }, []);
+  /** Loads the template's draft straight into the review screen, with no model call. */
+  const pickTemplate = useCallback(
+    async (id: AgentTemplateId) => {
+      if (busy || pending !== null) {
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        setDrafted(await getTrpc().agentBuilder.fromTemplate.mutate(id));
+        // The box and the voice follow, so Redraft starts from the template.
+        setDescription(templates[id].description);
+        setVoice(templates[id].voice);
+        setTemplateId(id);
+        setLocked({});
+        setAddressEdit(undefined);
+      } catch (cause) {
+        setError(errorMessage(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, pending]
+  );
 
   const edit = useCallback(
     (patch: Partial<AgentDraft>) => {
@@ -301,64 +321,71 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
   );
 
   return (
-    <div className="flex flex-wrap items-start gap-5">
-      <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3.5">
-        <DescribePanel
-          busy={busy || draftDictating || pending !== null}
-          description={description}
-          error={error}
-          hasDraft={draft !== undefined}
-          onDescription={setDescription}
-          onDictationBusyChange={setDescriptionDictating}
-          onDraft={runDraft}
-          onTemplate={pickTemplate}
-          onVoice={pickVoice}
-          steps={
-            drafted === undefined ? [] : builderSteps(drafted.didList, gaps)
-          }
-          voice={draft?.voice ?? voice}
+    <div className="flex flex-col gap-5">
+      {draft === undefined ? (
+        <TemplateGallery
+          busy={busy || pending !== null}
+          onPick={pickTemplate}
         />
-      </div>
-      <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-3.5">
-        {draft === undefined ? (
-          <p className="rounded-lg border border-border border-dashed p-6 text-muted-foreground text-sm">
-            Describe the agent and press Draft. The draft shows here, and every
-            part of it stays editable.
-          </p>
-        ) : (
-          <DraftCard
-            address={address}
-            catalog={catalog}
-            disabled={busy || descriptionDictating || pending !== null}
-            draft={draft}
-            gaps={gaps}
-            locked={locked}
-            onAddress={setAddressEdit}
-            onDictationBusyChange={setDraftDictating}
-            onEdit={edit}
-          />
-        )}
-        {draft === undefined ? null : (
-          <DryRunPanel
-            createBlocker={
-              dictating ? "Finish dictation first." : createBlocker(gaps)
+      ) : null}
+      <div className="flex flex-wrap items-start gap-5">
+        <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3.5">
+          <DescribePanel
+            busy={busy || draftDictating || pending !== null}
+            description={description}
+            error={error}
+            hasDraft={draft !== undefined}
+            onDescription={setDescription}
+            onDictationBusyChange={setDescriptionDictating}
+            onDraft={runDraft}
+            onVoice={pickVoice}
+            steps={
+              drafted === undefined ? [] : builderSteps(drafted.didList, gaps)
             }
-            error={panelError}
-            onCreate={createAgent}
-            onDiscard={discardDraft}
-            onRun={runDry}
-            onSample={editSample}
-            pending={pending}
-            runBlocker={
-              dictating
-                ? "Finish dictation first."
-                : (redraftBlocker(draft) ?? dryRun.blocker)
-            }
-            runId={runId}
-            runtimeNote={dryRun.note}
-            sample={draft.sampleInput}
+            voice={draft?.voice ?? voice}
           />
-        )}
+        </div>
+        <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-3.5">
+          {draft === undefined ? (
+            <p className="rounded-lg border border-border border-dashed p-6 text-muted-foreground text-sm">
+              Describe the agent and press Draft. The draft shows here, and
+              every part of it stays editable.
+            </p>
+          ) : (
+            <DraftCard
+              address={address}
+              catalog={catalog}
+              disabled={busy || descriptionDictating || pending !== null}
+              draft={draft}
+              gaps={gaps}
+              locked={locked}
+              onAddress={setAddressEdit}
+              onDictationBusyChange={setDraftDictating}
+              onEdit={edit}
+            />
+          )}
+          {draft === undefined ? null : (
+            <DryRunPanel
+              createBlocker={
+                dictating ? "Finish dictation first." : createBlocker(gaps)
+              }
+              error={panelError}
+              onCreate={createAgent}
+              onDiscard={discardDraft}
+              onRun={runDry}
+              onSample={editSample}
+              pending={pending}
+              runBlocker={
+                dictating
+                  ? "Finish dictation first."
+                  : (redraftBlocker(draft) ?? dryRun.blocker)
+              }
+              runId={runId}
+              runtimeNote={dryRun.note}
+              sample={draft.sampleInput}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
