@@ -678,6 +678,7 @@ export const createConnectorsService = ({
       authKind: found.authKind,
       authMode: parsed.authMode,
       callTimeoutSeconds: CONNECTOR_CALL_TIMEOUT_SECONDS.default,
+      catalogKey: null,
       createdAt: now.toISOString(),
       createdBy: user.userId,
       headerName:
