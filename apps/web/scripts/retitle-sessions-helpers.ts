@@ -1,7 +1,4 @@
-import {
-  conversationTitle,
-  readableTitle,
-} from "@repo/services/mail-title-text";
+import { conversationTitle, storedTitle } from "@repo/services/mail-title-text";
 
 export interface RetitleRow {
   agentName: string | null;
@@ -21,7 +18,7 @@ const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
 /** Pure repair plan. Origin names deliberately do not override the first input in this one-off repair. */
 export const planRetitles = (rows: readonly RetitleRow[]) => {
   const updates = rows.flatMap((row) => {
-    if (row.title === null || readableTitle(row.title, false) !== undefined) {
+    if (row.title === null || storedTitle(row.title) !== undefined) {
       return [];
     }
     return [

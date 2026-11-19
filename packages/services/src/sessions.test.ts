@@ -1847,7 +1847,13 @@ test.each([
 test("rename rejects JSON, markup and markers, and keeps readable text shown", async () => {
   const started = await send(user("u1"), "Opening");
   await Promise.all(
-    ['{"name":1}', "<p>My title</p>", "[ATTACHMENT:/tmp/a]"].map((bad) =>
+    [
+      '{"name":1}',
+      "<p>My title</p>",
+      "[ATTACHMENT:/tmp/a]",
+      "My title [ATTACHMENT:/tmp/a]",
+      "Hi <b>there</b>",
+    ].map((bad) =>
       expect(
         sessions.rename(user("u1"), started.sessionId, bad)
       ).rejects.toMatchObject({ code: "invalid" })

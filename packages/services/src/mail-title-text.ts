@@ -29,7 +29,7 @@ const WHITESPACE_RE = /\s+/g;
 const JSON_START_RE = /^(\{\s*"|\[\s*[[{"])/;
 const MARKUP_RE = /<\/?[a-z][^>]*>|<!--|<\?|<!doctype/i;
 
-/** Also rejects truncated legacy envelopes that no longer parse as JSON. */
+/** JSON, or the start of JSON cut short (a truncated envelope, or the 60 character cut of the TH.1 backfill). */
 export const isJsonTitle = (raw: string): boolean => {
   const text = raw.trim();
   if (ENVELOPE_PREFIX_RE.test(text) || JSON_START_RE.test(text)) {
@@ -82,6 +82,12 @@ export const readableTitle = (
   }
   return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX - 3)}...` : text;
 };
+
+/** Whether a person's own title holds no JSON, marker or markup anywhere, not only at the start. */
+export const isPlainTitle = (name: string): boolean =>
+  readableTitle(name, false) !== undefined &&
+  stripAttachmentMarkers(name) === name &&
+  !MARKUP_RE.test(name);
 
 /** A stored title when it is still readable: the one check every read path shares. */
 export const storedTitle = (title: string | null): string | undefined =>

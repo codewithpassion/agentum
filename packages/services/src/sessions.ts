@@ -38,6 +38,7 @@ import { mailSubjectsOf } from "./mail-subjects.ts";
 import {
   conversationTitle,
   isJsonTitle,
+  isPlainTitle,
   mailTitleOf,
   readableTitle,
   runTitleText,
@@ -952,9 +953,12 @@ export const createSessionsService = ({
         new ServiceError("invalid", "Title must not be JSON")
       );
     }
-    if (readableTitle(name, false) === undefined) {
+    if (!isPlainTitle(name)) {
       return Promise.reject(
-        new ServiceError("invalid", "Title must be readable text")
+        new ServiceError(
+          "invalid",
+          "Title must be plain text, without markup or attachment markers"
+        )
       );
     }
     return change(principal, sessionId, { title: name });
