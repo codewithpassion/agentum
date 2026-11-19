@@ -61,7 +61,7 @@ export const nestChildren = <
 
 export const KIND_LABELS: Record<ConversationKind, string> = {
   assistant: "Assistant",
-  thread: "Thread",
+  thread: "Conversation",
 };
 
 export const threadHref = (sessionId: string): string =>

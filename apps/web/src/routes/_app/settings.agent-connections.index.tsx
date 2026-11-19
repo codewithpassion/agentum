@@ -15,6 +15,8 @@ const searchSchema = z.object({
   join: z.string().min(1).optional().catch(undefined),
 });
 
+export const PAGE_HEADING = "Agent connections";
+
 export const Route = createFileRoute("/_app/settings/agent-connections/")({
   validateSearch: (search) => searchSchema.parse(search),
   loader: async () =>
@@ -77,7 +79,7 @@ function AgentConnectionsPage() {
     <section className="mx-auto max-w-4xl">
       <div className="mb-2 flex items-center justify-between gap-4">
         <h1 className="font-heading text-3xl text-foreground">
-          Agent connections
+          {PAGE_HEADING}
         </h1>
         <AddMenu onChoose={chooseAdd} />
       </div>

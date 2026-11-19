@@ -37,7 +37,7 @@ export function ThreadsCard({
         {archived ? null : (
           <div className="flex gap-2">
             <MainThreadButton agentId={agent.id}>
-              Open main thread
+              Open main conversation
             </MainThreadButton>
             <NewTaskDialog
               agents={agents}

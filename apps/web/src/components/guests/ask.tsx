@@ -122,7 +122,7 @@ export function GuestAsk({
         setPending(undefined);
         setText("");
         setNotice(
-          `Request ${result.status}. Follow the shared agent thread below.`
+          `Request ${result.status}. Follow the shared agent conversation below.`
         );
       }
     } catch {
@@ -184,7 +184,7 @@ export function GuestAsk({
             clearPendingAsk(key, pending.requestId);
             setPending(undefined);
             setNotice(
-              "Saved retry cleared. The earlier request may still run in the shared thread."
+              "Saved retry cleared. The earlier request may still run in the shared conversation."
             );
           }}
           type="button"

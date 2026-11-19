@@ -15,6 +15,8 @@ const searchSchema = z.object({
   thread: z.string().min(1).optional().catch(undefined),
 });
 
+export const PAGE_HEADING = "Inbox";
+
 export const Route = createFileRoute("/_app/inbox")({
   validateSearch: (search) => searchSchema.parse(search),
   loader: async () =>
@@ -58,7 +60,9 @@ function InboxPage() {
           threadId !== undefined && "max-md:hidden"
         )}
       >
-        <h1 className="font-heading text-3xl text-foreground">Inbox</h1>
+        <h1 className="font-heading text-3xl text-foreground">
+          {PAGE_HEADING}
+        </h1>
         <NewThreadForm onCreated={openThread} />
         {list.error === null ? null : (
           <p className="text-destructive text-sm">{list.error}</p>

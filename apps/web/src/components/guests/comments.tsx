@@ -85,7 +85,7 @@ export function GuestComments({
       <h2>Comments</h2>
       <p>
         Comments are shared with everyone who can access this artifact. Address
-        a new comment to the agent to request an answer in its thread.
+        a new comment to the agent to request an answer in its conversation.
       </p>
       {threads.map((thread) => (
         <article key={thread.id}>

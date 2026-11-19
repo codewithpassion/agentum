@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_app")({
     assistant: z.string().min(1).max(200).optional().catch(undefined),
   }),
   search: { middlewares: [retainSearchParams(["assistant"])] },
-  // The rail's New task and Find list the active agents. `agents.list` skips archived ones.
+  // The rail's New conversation and Find list the active agents. `agents.list` skips archived ones.
   loader: async () =>
     loadOrLogin(async () => await getTrpc().agents.list.query({})),
   component: AppLayout,

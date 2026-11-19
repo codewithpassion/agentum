@@ -104,7 +104,7 @@ export function ThreadTitle({
     <div className="flex w-full min-w-0 items-start gap-1 md:flex-1">
       {editing ? (
         <Input
-          aria-label="Thread name"
+          aria-label="Conversation name"
           autoFocus
           className="h-9 min-w-0 flex-1 font-heading text-lg md:text-[22px]"
           maxLength={200}
@@ -123,7 +123,7 @@ export function ThreadTitle({
       {editing ? null : (
         <>
           <Button
-            aria-label="Rename thread"
+            aria-label="Rename conversation"
             className="size-8 shrink-0"
             onClick={startEditing}
             size="icon"
@@ -133,7 +133,9 @@ export function ThreadTitle({
             <Pencil aria-hidden="true" />
           </Button>
           <Button
-            aria-label={meta.pinnedAt === null ? "Pin thread" : "Unpin thread"}
+            aria-label={
+              meta.pinnedAt === null ? "Pin conversation" : "Unpin conversation"
+            }
             aria-pressed={meta.pinnedAt !== null}
             className="size-8 shrink-0"
             onClick={togglePin}
@@ -149,7 +151,9 @@ export function ThreadTitle({
           </Button>
           <Button
             aria-label={
-              meta.archivedAt === null ? "Archive thread" : "Unarchive thread"
+              meta.archivedAt === null
+                ? "Archive conversation"
+                : "Unarchive conversation"
             }
             aria-pressed={meta.archivedAt !== null}
             className="size-8 shrink-0"

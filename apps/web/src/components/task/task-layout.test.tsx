@@ -71,14 +71,14 @@ test("run picker orders every run and summarizes only uniform earlier statuses",
       title: "Third",
     }).map((r) => r.id)
   ).toEqual(["1", "2", "3"]);
-  expect(earlierRunsLabel(runs)).toBe("2 earlier runs in this thread");
+  expect(earlierRunsLabel(runs)).toBe("2 earlier tasks in this conversation");
   expect(
     earlierRunsLabel([
       runs[0] as (typeof runs)[number],
       runs[0] as (typeof runs)[number],
       runs[0] as (typeof runs)[number],
     ])
-  ).toBe("3 earlier runs in this thread · all done");
+  ).toBe("3 earlier tasks in this conversation · all done");
 });
 
 test("Stop is only available for active runs", () => {

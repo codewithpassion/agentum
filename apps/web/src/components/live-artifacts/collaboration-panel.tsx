@@ -149,7 +149,7 @@ export function CollaborationPanel({
           >
             {
               {
-                agent: "Agent thread",
+                agent: "Agent conversation",
                 changes: "Agent changes",
                 comments: "Comments",
               }[name]
@@ -200,7 +200,7 @@ export function CollaborationPanel({
               sessionId={session.id}
             />
           ) : (
-            <p>Select an agent to open this artifact’s shared thread.</p>
+            <p>Select an agent to open this artifact’s shared conversation.</p>
           )}
           <AgentComposer
             artifactId={artifactId}
@@ -276,7 +276,7 @@ export function CollaborationPanel({
             <li key={change.id}>
               <p>{change.summary}</p>
               <time>{change.createdAt}</time>{" "}
-              <a href={`/tasks/${encodeURIComponent(change.runId)}`}>Run</a>
+              <a href={`/tasks/${encodeURIComponent(change.runId)}`}>Task</a>
               {change.revertedAt ? (
                 <p>Reverted by {change.revertedBy}</p>
               ) : (
@@ -372,7 +372,7 @@ function PanelFrame({
         <SheetHeader>
           <SheetTitle>Artifact collaboration</SheetTitle>
           <SheetDescription>
-            Shared agent thread, anchored comments and agent changes.
+            Shared agent conversation, anchored comments and agent changes.
           </SheetDescription>
         </SheetHeader>
         <div className="live-collaboration-panel">{children}</div>

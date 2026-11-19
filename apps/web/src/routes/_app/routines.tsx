@@ -7,6 +7,8 @@ import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import { errorMessage } from "#/lib/error-message";
 
+export const PAGE_HEADING = "Routines";
+
 export const Route = createFileRoute("/_app/routines")({
   loader: async () =>
     loadOrLogin(async () => {
@@ -89,7 +91,9 @@ function RoutinesPage() {
   return (
     <section className="mx-auto max-w-4xl">
       <div className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-heading text-3xl text-foreground">Routines</h1>
+        <h1 className="font-heading text-3xl text-foreground">
+          {PAGE_HEADING}
+        </h1>
         <Button onClick={openCreate}>Create routine</Button>
       </div>
       {error !== null && (

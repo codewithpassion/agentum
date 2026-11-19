@@ -32,6 +32,8 @@ const filtersOf = (search: Search) => ({
   working: search.working,
 });
 
+export const PAGE_HEADING = "Conversations";
+
 export const Route = createFileRoute("/_app/sessions")({
   validateSearch: (search) => searchSchema.parse(search),
   loaderDeps: ({ search }) => search,
@@ -146,7 +148,7 @@ function SessionsPage() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-6">
-      <h1 className="font-heading text-3xl text-foreground">Conversations</h1>
+      <h1 className="font-heading text-3xl text-foreground">{PAGE_HEADING}</h1>
       <SessionFilters
         agentId={search.agent}
         agents={agents}

@@ -263,7 +263,7 @@ describe("shownRunOf", () => {
     expect(shownRunOf("r9", recent)).toEqual({
       band: null,
       id: "r9",
-      title: "Waiting run",
+      title: "Waiting task",
     });
   });
 });

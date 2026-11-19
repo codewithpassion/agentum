@@ -22,6 +22,8 @@ const searchSchema = z.object({
   type: z.enum(EVENT_TYPES).optional().catch(undefined),
 });
 
+export const PAGE_HEADING = "Log";
+
 export const Route = createFileRoute("/_app/log")({
   validateSearch: (search) => searchSchema.parse(search),
   loaderDeps: ({ search }) => ({
@@ -74,7 +76,7 @@ function LogPage() {
 
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-6">
-      <h1 className="font-heading text-3xl text-foreground">Log</h1>
+      <h1 className="font-heading text-3xl text-foreground">{PAGE_HEADING}</h1>
       <LogFilters
         agentId={agent}
         agents={agents}

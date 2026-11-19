@@ -61,7 +61,7 @@ test("bar states have their own action, phone Stop, and no disabled composer", (
         typing={typing}
       />
     );
-  expect(render("working")).toContain("Run 3 is working");
+  expect(render("working")).toContain("Task 3 is working");
   expect(render("working")).toContain("Jump to latest");
   expect(render("working")).toContain("Stop");
   expect(render("waiting")).toContain("Go to the request");
@@ -100,7 +100,7 @@ test("failed runs preserve the raw error and only link named model providers", (
   const raw = "No model providers configured.\nProvider key missing.";
   const html = renderToStaticMarkup(<RunFailure error={raw} />);
   expect(html).toContain(raw);
-  expect(html).toContain("Run failed");
+  expect(html).toContain("Task failed");
   expect(html).toContain("/settings/model-providers");
   expect(html).not.toContain("Retry");
   expect(

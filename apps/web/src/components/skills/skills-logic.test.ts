@@ -20,7 +20,7 @@ test("authorLabel names the agent and the run", () => {
   );
   expect(
     authorLabel({ id: "a1", kind: "agent", runId: "run_0123456789" }, names)
-  ).toBe("Pelican, run 23456789");
+  ).toBe("Pelican, task 23456789");
   expect(authorLabel({ id: "a1", kind: "agent", runId: null }, names)).toBe(
     "Pelican"
   );

@@ -51,8 +51,9 @@ interface ConnectorsState {
 
 const MODE_LABELS: Record<CredentialMode, string> = {
   agent: "Always the agent",
-  user: "Only the person who started the run",
-  user_or_agent: "The person who started the run, or the agent when nobody did",
+  user: "Only the person who started the task",
+  user_or_agent:
+    "The person who started the task, or the agent when nobody did",
 };
 
 const parseMode = (value: string): CredentialMode =>

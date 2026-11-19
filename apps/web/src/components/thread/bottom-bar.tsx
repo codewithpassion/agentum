@@ -72,7 +72,7 @@ export function BottomBar({
         <p className="truncate">
           {workingLabel
             ? `Working · ${workingLabel}`
-            : `Run ${runNumber} is working.`}
+            : `Task ${runNumber} is working.`}
         </p>
         <p className="text-muted-foreground text-xs">Reply when it is done.</p>
       </div>
@@ -98,13 +98,14 @@ export function BottomBar({
 function RoutingBar({ origin, href }: { origin: string; href?: string }) {
   const mail = origin === "mail";
   const text: Record<string, string> = {
-    mail: "Mail started this thread. Replies go by mail.",
-    trigger: "A trigger started this thread, so it takes no replies here.",
+    mail: "Mail started this conversation. Replies go by mail.",
+    trigger:
+      "A trigger started this conversation, so it takes no replies here.",
   };
   return (
     <div className="text-muted-foreground text-sm">
       <span className={href ? "hidden md:inline" : undefined}>
-        {text[origin] ?? "This thread takes no replies here."}
+        {text[origin] ?? "This conversation takes no replies here."}
       </span>
       {href ? (
         <a
@@ -112,7 +113,7 @@ function RoutingBar({ origin, href }: { origin: string; href?: string }) {
           href={href}
         >
           <span className="mr-1 md:hidden">
-            {mail ? "Mail thread ·" : "Trigger thread ·"}
+            {mail ? "Mail thread ·" : "Trigger conversation ·"}
           </span>
           {mail ? "Open the mail thread" : "Open the trigger"}
         </a>

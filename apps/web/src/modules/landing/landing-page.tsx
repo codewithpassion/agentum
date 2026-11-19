@@ -14,7 +14,7 @@ const STEPS = [
     title: "Pick where it runs",
   },
   {
-    body: "Start a task from the desk, or give it a schedule, a web trigger, an email address or a Slack mention.",
+    body: "Start a conversation from the desk, or give it a schedule, a web trigger, an email address or a Slack mention.",
     title: "Tell it when to start",
   },
   {
@@ -175,7 +175,7 @@ export function LandingPage({ signInHref }: LandingPageProps) {
                 </p>
               </div>
               <CyberFrame
-                alt="The map of a workspace, with two agents and their recent runs"
+                alt="The map of a workspace, with two agents and their recent tasks"
                 height={770}
                 src={map}
                 width={1600}

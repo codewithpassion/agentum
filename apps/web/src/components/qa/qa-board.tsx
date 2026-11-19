@@ -6,6 +6,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
 import { AskDialog } from "./ask-dialog";
+import { QA_HEADING } from "./qa-heading";
 import { QA_FILTERS, type QaFilter, statusOfFilter } from "./qa-logic";
 import { QuestionCard } from "./question-card";
 
@@ -88,7 +89,9 @@ export function QaBoard({ agentNames, filter, initial, userId }: QaBoardProps) {
     <section className="mx-auto flex max-w-3xl flex-col gap-6">
       <header className="flex flex-wrap items-center gap-3">
         <div className="min-w-48 flex-1">
-          <h1 className="font-heading text-3xl text-foreground">Q&amp;A</h1>
+          <h1 className="font-heading text-3xl text-foreground">
+            {QA_HEADING}
+          </h1>
           <p className="text-muted-foreground text-sm">
             Questions from people and agents, answered in one place
           </p>

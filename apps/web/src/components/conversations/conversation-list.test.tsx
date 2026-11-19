@@ -103,7 +103,7 @@ test("on the history page: threads link to their page, assistant rows are button
   expect(html).toContain("Pelican, UI, Done");
   expect(html).toContain('data-conversation-id="chat-1"');
   expect(html).not.toContain('data-conversation-id="s 1"');
-  expect(html).toContain(">Thread<");
+  expect(html).toContain(">Conversation<");
   expect(html).toContain(">Assistant<");
   expect(html).toContain("Show more");
 });

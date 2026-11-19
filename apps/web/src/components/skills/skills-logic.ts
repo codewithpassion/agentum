@@ -30,7 +30,7 @@ export const authorLabel = (
   const name = agentNames.get(author.id) ?? "Unknown agent";
   return author.runId === null
     ? name
-    : `${name}, run ${author.runId.slice(-RUN_ID_TAIL)}`;
+    : `${name}, task ${author.runId.slice(-RUN_ID_TAIL)}`;
 };
 
 export const statusLabel = (status: SkillVersion["status"]): string => {

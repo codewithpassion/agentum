@@ -35,7 +35,7 @@ export function earlierRunsLabel(runs: readonly ThreadRun[]): string {
     uniform && (runs[0]?.status === "done" || runs[0]?.status === "failed")
       ? ` · all ${runs[0].status}`
       : "";
-  return `${runs.length} earlier runs in this thread${suffix}`;
+  return `${runs.length} earlier tasks in this conversation${suffix}`;
 }
 
 export const runPickerStatus = (status: RunStatus): string =>
@@ -59,7 +59,7 @@ export function RunPicker({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          aria-label={`Run ${number} of ${runs.length}`}
+          aria-label={`Task ${number} of ${runs.length}`}
           className="h-10 shrink-0 md:h-7"
           size="sm"
           variant="outline"
@@ -68,7 +68,7 @@ export function RunPicker({
             {number}/{runs.length}
           </span>
           <span className="hidden md:inline">
-            Run {number} of {runs.length}
+            Task {number} of {runs.length}
           </span>{" "}
           ▾
         </Button>
@@ -87,7 +87,7 @@ export function RunPicker({
               to="/threads/$sessionId"
             >
               <span>
-                Run {index + 1} · {runPickerStatus(run.status)} ·{" "}
+                Task {index + 1} · {runPickerStatus(run.status)} ·{" "}
                 {run.createdAt.slice(11, 16)}
               </span>
               <span className="w-full truncate text-muted-foreground">
