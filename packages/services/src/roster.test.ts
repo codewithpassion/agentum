@@ -375,7 +375,7 @@ test("a routine with no zone of its own is read in the workspace timezone", asyn
   );
 });
 
-test("a run started by mail is titled by its mail subject,", async () => {
+test("a run started by mail is titled by its mail subject", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   seedRun("r1", { inputText: "x".repeat(300) });
   const [card] = await service.list(user);
