@@ -29,9 +29,14 @@ export type VoicePreset = (typeof VOICE_PRESETS)[number];
 
 /** The starting points the builder offers. */
 export const AGENT_TEMPLATE_IDS = [
-  "sort_inbox",
-  "chase_invoices",
-  "research_topic",
+  "inbox_triage",
+  "meeting_follow_up",
+  "lead_research",
+  "invoice_filing",
+  "weekly_report",
+  "support_first_reply",
+  "drive_tidy",
+  "social_drafts",
 ] as const;
 export type AgentTemplateId = (typeof AGENT_TEMPLATE_IDS)[number];
 
