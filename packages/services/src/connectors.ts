@@ -79,7 +79,7 @@ import {
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { invalid, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireSession } from "./guards.ts";
+import { requireAdminSession, requireSession } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { ruleSchema } from "./secrets/rules.ts";
 import { idString } from "./shared.ts";
@@ -88,6 +88,8 @@ import type { Principal } from "./workspaces.ts";
 const CONNECTOR_KIND = "connector";
 const CREATE_ACTION = "connectors.create";
 const LIST_ACTION = "connectors.list";
+const MINE_ACTION = "connectors.mine";
+const REMOVE_CREDENTIAL_ACTION = "connectors.removeCredential";
 const SET_CREDENTIAL_ACTION = "connectors.setCredential";
 const SET_AUTH_MODE_ACTION = "connectors.setAuthMode";
 const SET_CALL_TIMEOUT_ACTION = "connectors.setCallTimeout";
@@ -185,6 +187,10 @@ export const unassignInputSchema = z.strictObject({
   connectorId: idString,
 });
 
+export const removeCredentialInputSchema = z.strictObject({
+  connectorId: idString,
+});
+
 export const removeInputSchema = z.strictObject({ connectorId: idString });
 
 export const agentInputSchema = z.strictObject({ agentId: idString });
@@ -223,6 +229,12 @@ export interface ConnectorSummary {
   toolsFetchedAt: string | null;
   url: string;
 }
+
+/** The connector fields a member needs to manage their own sign-in. */
+export type MySignIn = Pick<
+  ConnectorSummary,
+  "id" | "name" | "url" | "authKind" | "status" | "oauth" | "myCredential"
+> & { shared: boolean };
 
 export interface AssignmentSummary {
   agentId: string;
@@ -649,7 +661,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: ConnectorCreateInput
   ): Promise<ConnectorSummary> => {
-    const user = requireSession(principal, CREATE_ACTION);
+    const user = requireAdminSession(principal, CREATE_ACTION);
     const parsed = connectorCreateSchema.parse(input);
     authorize(user, CREATE_ACTION, {
       kind: CONNECTOR_KIND,
@@ -723,6 +735,96 @@ export const createConnectorsService = ({
         )
       )
     );
+  };
+
+  const mine = async (principal: Principal): Promise<MySignIn[]> => {
+    const user = requireSession(principal, MINE_ACTION);
+    authorize(user, MINE_ACTION, {
+      kind: CONNECTOR_KIND,
+      workspaceId: user.workspaceId,
+    });
+    const rows = await db
+      .select()
+      .from(connectors)
+      .where(eq(connectors.workspaceId, user.workspaceId))
+      .orderBy(asc(connectors.createdAt), asc(connectors.id));
+    const owned = await credentialsOf(user.workspaceId, user.userId);
+    return rows.map((row) => {
+      const credential = owned.find(
+        (item) =>
+          item.connectorId === row.id &&
+          item.ownerKind === "user" &&
+          item.ownerId === user.userId
+      );
+      return {
+        authKind: row.authKind,
+        id: row.id,
+        myCredential: credential ? toCredentialSummary(credential) : null,
+        name: row.name,
+        oauth: oauthSummary(row, sharedGoogleClient),
+        shared: Boolean(row.secretId || row.headerTemplate),
+        status: row.status,
+        url: row.url,
+      };
+    });
+  };
+
+  const removeCredential = async (
+    principal: Principal,
+    input: z.input<typeof removeCredentialInputSchema>
+  ): Promise<{ removed: boolean }> => {
+    const user = requireSession(principal, REMOVE_CREDENTIAL_ACTION);
+    const { connectorId } = removeCredentialInputSchema.parse(input);
+    const { workspaceId, userId } = user;
+    authorize(user, REMOVE_CREDENTIAL_ACTION, {
+      id: connectorId,
+      kind: CONNECTOR_KIND,
+      workspaceId,
+    });
+    await loadConnector(db, connectorId, workspaceId);
+    // Disconnect is idempotent, including when only a pending OAuth flow exists.
+    // Runs keep running: an already sent call cannot be recalled; later lookups
+    // find no credential. Refresh/replacement writes are fenced against deletion.
+    let removed = false;
+    await atomic(
+      [
+        db
+          .delete(credentials)
+          .where(
+            and(
+              eq(credentials.workspaceId, workspaceId),
+              eq(credentials.connectorId, connectorId),
+              eq(credentials.ownerKind, "user"),
+              eq(credentials.ownerId, userId)
+            )
+          )
+          .returning({ id: credentials.id }),
+        db
+          .delete(oauthStates)
+          .where(
+            and(
+              eq(oauthStates.workspaceId, workspaceId),
+              eq(oauthStates.connectorId, connectorId),
+              eq(oauthStates.ownerKind, "user"),
+              eq(oauthStates.ownerId, userId),
+              eq(oauthStates.initiatorUserId, userId)
+            )
+          ),
+      ],
+      (results) => {
+        removed = Array.isArray(results[0]) && results[0].length > 0;
+      }
+    );
+    // Like connector deletion, log only after the delete is known to have happened.
+    if (removed) {
+      await events.append({
+        actor: { id: userId, kind: "user" },
+        payload: { connectorId, ownerId: userId, ownerKind: "user" },
+        type: "credential.revoked",
+        workspaceId,
+      });
+    }
+    return { removed };
   };
 
   /**
@@ -840,7 +942,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: ConnectorAuthModeInput
   ): Promise<ConnectorSummary> => {
-    const user = requireSession(principal, SET_AUTH_MODE_ACTION);
+    const user = requireAdminSession(principal, SET_AUTH_MODE_ACTION);
     const parsed = connectorAuthModeSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, SET_AUTH_MODE_ACTION, {
@@ -909,7 +1011,7 @@ export const createConnectorsService = ({
     principal: Principal,
     input: ConnectorCallTimeoutInput
   ): Promise<ConnectorSummary> => {
-    const user = requireSession(principal, SET_CALL_TIMEOUT_ACTION);
+    const user = requireAdminSession(principal, SET_CALL_TIMEOUT_ACTION);
     const parsed = connectorCallTimeoutSchema.parse(input);
     const { workspaceId } = user;
     authorize(user, SET_CALL_TIMEOUT_ACTION, {
@@ -1035,7 +1137,7 @@ export const createConnectorsService = ({
     const user =
       principal.kind === "user" && principal.via === "api_key"
         ? requireKey(principal, DELETE_ACTION, "admin")
-        : requireSession(principal, DELETE_ACTION);
+        : requireAdminSession(principal, DELETE_ACTION);
     const parsed = removeInputSchema.parse(input);
     authorize(user, DELETE_ACTION, {
       id: parsed.connectorId,
@@ -1210,7 +1312,9 @@ export const createConnectorsService = ({
     assignments,
     create,
     list,
+    mine,
     remove,
+    removeCredential,
     setAuthMode,
     setCallTimeout,
     setCredential,

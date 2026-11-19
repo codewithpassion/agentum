@@ -169,7 +169,7 @@ beforeEach(() => {
 });
 
 const add = (authMode?: "auto" | "oauth" | "none") =>
-  service.create(dom, { authMode, name: "Open", url: MCP_URL });
+  service.create(admin, { authMode, name: "Open", url: MCP_URL });
 
 test("automatic on a server that answers without a 401 saves it as needing no auth, and never runs discovery", async () => {
   const connector = await add();
@@ -200,7 +200,7 @@ test("forced OAuth runs the ladder on a server that answers 200, and a client ca
     })
   ).rejects.toThrow(NO_REGISTER_PATTERN);
 
-  await oauth.setClient(dom, {
+  await oauth.setClient(admin, {
     clientId: "cid",
     clientSecret: "csecret",
     connectorId: connector.id,
@@ -241,11 +241,11 @@ test("automatic on a server that answers 401 still finds OAuth", async () => {
 
 test("the choice persists, and a probe with the same answer leaves it", async () => {
   const connector = await add("oauth");
-  await oauth.setClient(dom, {
+  await oauth.setClient(admin, {
     clientId: "cid",
     connectorId: connector.id,
   });
-  const again = await service.setAuthMode(dom, {
+  const again = await service.setAuthMode(admin, {
     authMode: "oauth",
     connectorId: connector.id,
   });
@@ -264,14 +264,14 @@ test("switching an existing connector to OAuth and back to none", async () => {
   const connector = await add();
   expect(connector.authKind).toBe("none");
 
-  const forced = await service.setAuthMode(dom, {
+  const forced = await service.setAuthMode(admin, {
     authMode: "oauth",
     connectorId: connector.id,
   });
   expect(forced.authKind).toBe("oauth");
   expect(forced.status).toBe("needs_auth");
 
-  const off = await service.setAuthMode(dom, {
+  const off = await service.setAuthMode(admin, {
     authMode: "none",
     connectorId: connector.id,
   });
@@ -293,7 +293,7 @@ test("changing the kind drops the logins the old kind stored", async () => {
     updatedAt: START,
     workspaceId: WORKSPACE,
   });
-  await service.setAuthMode(dom, {
+  await service.setAuthMode(admin, {
     authMode: "none",
     connectorId: connector.id,
   });
@@ -341,7 +341,7 @@ const linkedConnector = async () => {
 
 test("API key header forces header even when the server offers OAuth", async () => {
   requiresAuth = true;
-  const connector = await service.create(dom, {
+  const connector = await service.create(admin, {
     authMode: "header",
     name: "Header",
     url: MCP_URL,

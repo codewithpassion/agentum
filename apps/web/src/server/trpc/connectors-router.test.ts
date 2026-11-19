@@ -70,7 +70,11 @@ const callerFor = async (session: {
 
 test("no tRPC response carries the stored header value", async () => {
   const value = `Bearer ${TOKEN}`;
-  const caller = await callerFor({ orgId: "org_a", orgRole: "org:admin", userId: "user_1" });
+  const caller = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
   const agent = await caller.agents.create({
     model: "claude-sonnet",
     name: "Bruce",
@@ -121,7 +125,11 @@ test("no tRPC response carries the stored header value", async () => {
 });
 
 test("a private IP URL is refused with a BAD_REQUEST", async () => {
-  const caller = await callerFor({ orgId: "org_a", orgRole: "org:admin", userId: "user_1" });
+  const caller = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
 
   await expect(
     caller.connectors.create({ name: "Bad", url: "https://10.0.0.5/mcp" })
@@ -140,7 +148,11 @@ test("a caller without a session gets UNAUTHORIZED", async () => {
 });
 
 test("a connector's call time limit defaults to 60 and setCallTimeout stores a new one", async () => {
-  const caller = await callerFor({ orgId: "org_a", orgRole: "org:admin", userId: "user_1" });
+  const caller = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
   const connector = await caller.connectors.create({
     name: "Slow",
     url: `${PUBLIC_ORIGIN}/mcp`,
@@ -157,7 +169,11 @@ test("a connector's call time limit defaults to 60 and setCallTimeout stores a n
 });
 
 test("setCallTimeout refuses a limit outside 10 to 300 and changes nothing", async () => {
-  const caller = await callerFor({ orgId: "org_a", orgRole: "org:admin", userId: "user_1" });
+  const caller = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
   const connector = await caller.connectors.create({
     name: "Bounded",
     url: `${PUBLIC_ORIGIN}/mcp`,
@@ -173,16 +189,33 @@ test("setCallTimeout refuses a limit outside 10 to 300 and changes nothing", asy
   expect((await caller.connectors.list())[0]?.callTimeoutSeconds).toBe(60);
 });
 
-
 test("a member connects and disconnects through tRPC while registry writes are forbidden", async () => {
-  const admin = await callerFor({ orgId: "org_a", orgRole: "org:admin", userId: "admin" });
+  const admin = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "admin",
+  });
   const member = await callerFor({ orgId: "org_a", userId: "member" });
-  const connector = await admin.connectors.create({ name: "Stub", url: `${PUBLIC_ORIGIN}/mcp` });
+  const connector = await admin.connectors.create({
+    name: "Stub",
+    url: `${PUBLIC_ORIGIN}/mcp`,
+  });
   expect(await member.connectors.list()).toHaveLength(1);
   expect((await member.connectors.mine())[0]?.myCredential).toBeNull();
-  await member.connectors.setCredential({ connectorId: connector.id, value: `Bearer ${TOKEN}` });
-  expect((await member.connectors.mine())[0]?.myCredential?.ownerId).toBe("member");
-  expect(await member.connectors.removeCredential({ connectorId: connector.id })).toEqual({ removed: true });
-  await expect(member.connectors.remove({ connectorId: connector.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(member.connectors.create({ name: "Denied", url: `${PUBLIC_ORIGIN}/mcp` })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await member.connectors.setCredential({
+    connectorId: connector.id,
+    value: `Bearer ${TOKEN}`,
+  });
+  expect((await member.connectors.mine())[0]?.myCredential?.ownerId).toBe(
+    "member"
+  );
+  expect(
+    await member.connectors.removeCredential({ connectorId: connector.id })
+  ).toEqual({ removed: true });
+  await expect(
+    member.connectors.remove({ connectorId: connector.id })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(
+    member.connectors.create({ name: "Denied", url: `${PUBLIC_ORIGIN}/mcp` })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
