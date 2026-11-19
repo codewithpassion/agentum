@@ -1426,7 +1426,7 @@ export const composeWith = ({
       }),
       rail,
       requests,
-      roster: createRosterService({ db }),
+      roster: createRosterService({ clock: infra.clock, db, members, rail }),
       routines,
       runSkills,
       runs,
