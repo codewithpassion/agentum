@@ -14,7 +14,7 @@ Accepted exceptions to "label equals heading", listed with reasons in the test: 
 
 ## Test environment
 
-`src/server/live-artifacts/guest-execution.test.ts` fails with a miniflare ECONNRESET on this machine, with or without this change (checked on a stash of unchanged code). `bun run test` therefore exits 1 on that one test. Every other test passes.
+`src/server/live-artifacts/guest-execution.test.ts` failed twice with a miniflare ECONNRESET while other agents were running on this machine, and also failed on a stash of unchanged code. After `git merge main` the full `bun run test` passed, including that test.
 
 ## Nits left
 
