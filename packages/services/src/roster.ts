@@ -1,20 +1,33 @@
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
+import { machines } from "@repo/db/schema/machines";
+import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
+import { triggers } from "@repo/db/schema/triggers";
+import { workspaces } from "@repo/db/schema/workspaces";
 import {
   AGENT_AVATAR_COLORS,
   type AgentAvatar,
   type AgentCard,
   defaultAgentAvatar,
+  type RailView,
 } from "@repo/db/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { authorize } from "./authz.ts";
+import { authorize, ForbiddenError } from "./authz.ts";
 import { readableWorkspace } from "./guards.ts";
+import { runTitleText } from "./mail-title-text.ts";
+import type { MembersService } from "./members.ts";
+import { assigneeOf } from "./rail/logic.ts";
+import type { RailService } from "./rail.ts";
+import { nextFireTime } from "./routines/cron.ts";
+import type { Clock } from "./runs/types.ts";
+import { visibleSessions } from "./sessions.ts";
 import type { Principal } from "./workspaces.ts";
 
 const ROSTER_READ = "roster.read";
 const ROSTER_KIND = "roster";
-const JOB_LINE_MAX_CHARS = 140;
+const JOB_LINE_MAX_CHARS = 80;
 
 type AgentRow = typeof agents.$inferSelect;
 
@@ -36,50 +49,272 @@ const avatarFor = (row: AgentRow): AgentAvatar => {
   return parsed.success ? parsed.data : defaultAgentAvatar(row.name);
 };
 
-const jobLineFor = (soul: string): string => {
-  const firstLine =
-    soul
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? "";
-  return Array.from(firstLine).slice(0, JOB_LINE_MAX_CHARS).join("");
+// A sentence ends at punctuation followed by whitespace/end; collapse line breaks
+// within it. Clip by Unicode code points so a glyph is never cut in half.
+const SENTENCE_END = /(?<=[.!?])(?:\s|$)/u;
+const WHITESPACE = /\s+/g;
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+const jobLineFor = (instructions: string): string =>
+  Array.from(
+    instructions.trim().split(SENTENCE_END)[0]?.replace(WHITESPACE, " ") ?? ""
+  )
+    .slice(0, JOB_LINE_MAX_CHARS)
+    .join("");
+
+type RunFact = Pick<
+  typeof runs.$inferSelect,
+  "agentId" | "createdAt" | "id" | "inputText" | "status" | "usage"
+>;
+interface Wait {
+  count: number;
+  owner: string;
+  title: string;
+}
+
+const costOf = (raw: string | null): number => {
+  const usage = raw ? parseJson(raw) : null;
+  if (
+    usage &&
+    typeof usage === "object" &&
+    "costUsd" in usage &&
+    typeof usage.costUsd === "number" &&
+    Number.isFinite(usage.costUsd)
+  ) {
+    return usage.costUsd;
+  }
+  return 0;
 };
 
-/**
- * Stub: every card reads as idle with no spend, counts or owner. RH.2 computes
- * the state, the status line, the counts and the owner name.
- */
-const toAgentCard = (row: AgentRow): AgentCard => ({
-  avatar: avatarFor(row),
-  costThisWeekCents: 0,
-  id: row.id,
-  isLead: false,
-  jobLine: jobLineFor(row.soul),
-  learnedCount: 0,
-  name: row.name,
-  needsYouCount: 0,
-  ownerName: "",
-  slug: row.slug,
-  state: "idle",
-  statusLine: "Idle",
-  teamId: null,
-  weeklyCapCents: null,
-});
+const runFacts = (runList: RunFact[], weekStart: string) => {
+  const latest = new Map<string, RunFact>();
+  const running = new Map<string, RunFact>();
+  const costs = new Map<string, number>();
+  for (const run of runList) {
+    if (!latest.has(run.agentId)) {
+      latest.set(run.agentId, run);
+    }
+    if (run.status === "running" && !running.has(run.agentId)) {
+      running.set(run.agentId, run);
+    }
+    if (run.createdAt >= weekStart) {
+      costs.set(run.agentId, (costs.get(run.agentId) ?? 0) + costOf(run.usage));
+    }
+  }
+  return { costs, latest, running };
+};
 
-export const createRosterService = ({ db }: { db: Database }) => {
+const waitingFacts = (view: RailView): Map<string, Wait> => {
+  const waiting = new Map<string, Wait>();
+  for (const item of view.needsYou) {
+    for (const card of item.cards) {
+      if (card.kind === "problem") {
+        continue;
+      }
+      const seen = waiting.get(card.agentId);
+      waiting.set(card.agentId, {
+        count: (seen?.count ?? 0) + 1,
+        owner: item.assigneeName ?? "",
+        title: seen?.title ?? card.title,
+      });
+    }
+  }
+  return waiting;
+};
+
+const nextRuns = (
+  routines: { agentId: string; cron: string | null }[],
+  timezone: string,
+  now: Date
+) => {
+  const next = new Map<string, number>();
+  for (const routine of routines) {
+    if (!routine.cron) {
+      continue;
+    }
+    // The roster uses workspace time, even for a routine with its own zone.
+    const fire = nextFireTime(routine.cron, timezone, now);
+    if (
+      fire !== null &&
+      fire < (next.get(routine.agentId) ?? Number.POSITIVE_INFINITY)
+    ) {
+      next.set(routine.agentId, fire);
+    }
+  }
+  return next;
+};
+
+const activityFor = (input: {
+  wait: Wait | undefined;
+  last: RunFact | undefined;
+  active: RunFact | undefined;
+  machineStatus: string | null;
+  fire: number | undefined;
+  timeFormat: Intl.DateTimeFormat;
+}): Pick<AgentCard, "state" | "statusLine"> => {
+  const { wait, last, active, machineStatus, fire, timeFormat } = input;
+  if (wait) {
+    return { state: "needs_you", statusLine: wait.title };
+  }
+  // No stopped wording is specified; name the reason in plain words.
+  // Machines call their archived state "revoked" in the existing schema.
+  if (machineStatus === "revoked") {
+    return { state: "stopped", statusLine: "Machine archived" };
+  }
+  if (last?.status === "failed") {
+    return { state: "stopped", statusLine: "Failed" };
+  }
+  if (last?.status === "interrupted") {
+    return { state: "stopped", statusLine: "Stopped part way" };
+  }
+  if (active) {
+    return { state: "working", statusLine: runTitleText(active.inputText) };
+  }
+  return {
+    state: "idle",
+    statusLine:
+      fire === undefined ? "Idle" : `Idle. Next run ${timeFormat.format(fire)}`,
+  };
+};
+
+export const createRosterService = ({
+  db,
+  rail,
+  clock,
+  members,
+}: {
+  db: Database;
+  rail: Pick<RailService, "get">;
+  clock: Pick<Clock, "now">;
+  members?: Pick<MembersService, "list">;
+}) => {
   const list = async (principal: Principal): Promise<AgentCard[]> => {
     const workspaceId = readableWorkspace(principal, ROSTER_READ);
     authorize(principal, ROSTER_READ, { kind: ROSTER_KIND, workspaceId });
-    const rows = await db
-      .select()
-      .from(agents)
+    if (principal.kind !== "user") {
+      throw new ForbiddenError(ROSTER_READ);
+    }
+    const now = clock.now();
+    // Match the Agents overview: "this week" is a rolling seven days.
+    const weekStart = new Date(now.getTime() - WEEK_MS).toISOString();
+    const visible = await visibleSessions(db, principal, now.toISOString());
+    const ranked = db
+      .select({
+        agentId: runs.agentId,
+        createdAt: runs.createdAt,
+        id: runs.id,
+        inputText: runs.inputText,
+        rank: sql<number>`row_number() over (partition by ${runs.agentId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as(
+          "rank"
+        ),
+        status: runs.status,
+        usage: runs.usage,
+      })
+      .from(runs)
       .where(
-        and(eq(agents.workspaceId, workspaceId), eq(agents.status, "active"))
+        and(
+          eq(runs.workspaceId, workspaceId),
+          eq(runs.dryRun, false),
+          inArray(
+            runs.sessionId,
+            db.select({ id: sessions.id }).from(sessions).where(visible)
+          )
+        )
       )
-      .orderBy(asc(agents.name), asc(agents.id));
-    return rows.map(toAgentCard);
+      .as("ranked");
+    const [rows, runList, routines, workspace, view, directory] =
+      await Promise.all([
+        // Keep the same active-only visibility and ordering as agents.list.
+        db
+          .select({ agent: agents, machineStatus: machines.status })
+          .from(agents)
+          .leftJoin(
+            machines,
+            and(
+              eq(machines.id, agents.machineId),
+              eq(machines.workspaceId, workspaceId)
+            )
+          )
+          .where(
+            and(
+              eq(agents.workspaceId, workspaceId),
+              eq(agents.status, "active")
+            )
+          )
+          .orderBy(asc(agents.name), asc(agents.id)),
+        db
+          .select()
+          .from(ranked)
+          .where(
+            or(
+              eq(ranked.rank, 1),
+              eq(ranked.status, "running"),
+              sql`${ranked.createdAt} >= ${weekStart}`
+            )
+          )
+          .orderBy(desc(ranked.createdAt), desc(ranked.id)),
+        db
+          .select({ agentId: triggers.agentId, cron: triggers.cron })
+          .from(triggers)
+          .where(
+            and(
+              eq(triggers.workspaceId, workspaceId),
+              eq(triggers.kind, "routine"),
+              isNull(triggers.disabledAt),
+              isNull(triggers.revokedAt)
+            )
+          ),
+        db
+          .select({ timezone: workspaces.timezone })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId)),
+        // Use the rail's owner/creator, backup escalation, private-session rules,
+        // grouping and plainTitle logic. Problems are stopped, not open waits.
+        rail.get(principal, { dayStart: weekStart, scope: "mine" }),
+        members ? members.list(principal).catch(() => null) : null,
+      ]);
+    const names = new Map(
+      directory?.map((entry) => [entry.userId, entry.name])
+    );
+    const { latest, running, costs } = runFacts(runList, weekStart);
+    const waiting = waitingFacts(view);
+    const timezone = workspace[0]?.timezone ?? "UTC";
+    const next = nextRuns(routines, timezone, now);
+    // Include a date so tomorrow's slot cannot be mistaken for today's.
+    const timeFormat = new Intl.DateTimeFormat("en-AU", {
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      month: "short",
+      timeZone: timezone,
+    });
+    return rows.map(({ agent: row, machineStatus }): AgentCard => {
+      const wait = waiting.get(row.id);
+      const last = latest.get(row.id);
+      const active = running.get(row.id);
+      return {
+        avatar: avatarFor(row),
+        costThisWeekCents: Math.round((costs.get(row.id) ?? 0) * 100),
+        id: row.id,
+        isLead: false,
+        jobLine: jobLineFor(row.instructions),
+        learnedCount: 0,
+        name: row.name,
+        needsYouCount: wait?.count ?? 0,
+        ownerName: names.get(assigneeOf(row, null) ?? "") ?? wait?.owner ?? "",
+        slug: row.slug,
+        ...activityFor({
+          active,
+          fire: next.get(row.id),
+          last,
+          machineStatus,
+          timeFormat,
+          wait,
+        }),
+        teamId: null,
+        weeklyCapCents: null,
+      };
+    });
   };
-
   return { list };
 };
 

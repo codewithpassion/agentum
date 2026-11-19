@@ -1,19 +1,19 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
-import type { RailView } from "@repo/db/shared";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { eq } from "drizzle-orm";
-import { createAgentsService } from "./agents.ts";
-import { createEventsService } from "./events.ts";
-import { agents } from "@repo/db/schema/agents";
 import { workspaces } from "@repo/db/schema/workspaces";
+import type { RailView } from "@repo/db/shared";
 import { defaultAgentAvatar } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
+import { createEventsService } from "./events.ts";
 import { createRosterService } from "./roster.ts";
 import type { Principal } from "./workspaces.ts";
 
@@ -72,22 +72,41 @@ const insertAgent = (
 beforeEach(() => {
   const migratedDb = migrated();
   queries = 0;
-  db = Object.assign(drizzle(migratedDb.client, { logger: { logQuery: () => { queries += 1; } } }), { client: migratedDb.client });
+  db = Object.assign(
+    drizzle(migratedDb.client, {
+      logger: {
+        logQuery: () => {
+          queries += 1;
+        },
+      },
+    }),
+    { client: migratedDb.client }
+  );
   seedWorkspace(db, WORKSPACE);
   seedWorkspace(db, OTHER_WORKSPACE);
-  railView = { needsYou: [], working: [], doneToday: 0, counts: { mine: 0, everyone: 0 }, setup: [] };
-  service = createRosterService({ db, clock, rail: { get: () => Promise.resolve(railView) } });
+  railView = {
+    counts: { everyone: 0, mine: 0 },
+    doneToday: 0,
+    needsYou: [],
+    setup: [],
+    working: [],
+  };
+  service = createRosterService({
+    clock,
+    db,
+    rail: { get: () => Promise.resolve(railView) },
+  });
 });
 
 test("lists active agents only, ordered by name, each as an idle card", async () => {
   insertAgent({
     avatar: '{"color":"blue","glyph":"Z"}',
     id: "a-zeta",
-    name: "Zeta",
     instructions: "  \n  Line one.  \nLine two",
+    name: "Zeta",
     soul: "Ignored soul",
   });
-  insertAgent({ id: "a-alpha", name: "Alpha", instructions: "x".repeat(200) });
+  insertAgent({ id: "a-alpha", instructions: "x".repeat(200), name: "Alpha" });
   insertAgent({ id: "a-old", name: "Old", status: "archived" });
   insertAgent({ id: "a-draft", name: "Drafted", status: "draft" });
 
@@ -168,34 +187,80 @@ test("the system principal is refused", async () => {
   await expect(service.list(system)).rejects.toBeInstanceOf(ForbiddenError);
 });
 
-const seedRun = (id: string, values: Partial<typeof runs.$inferInsert> = {}, sessionValues: Partial<typeof sessions.$inferInsert> = {}) => {
-  db.insert(sessions).values({ id: `s-${id}`, agentId: "a1", actorId: "u1", actorKind: "user", origin: "slack", createdAt: NOW, workspaceId: WORKSPACE, ...sessionValues }).run();
-  db.insert(runs).values({ id, agentId: "a1", actorId: "u1", actorKind: "user", inputText: "Prepare the report", status: "running", createdAt: NOW, sessionId: `s-${id}`, workspaceId: WORKSPACE, ...values }).run();
+const seedRun = (
+  id: string,
+  values: Partial<typeof runs.$inferInsert> = {},
+  sessionValues: Partial<typeof sessions.$inferInsert> = {}
+) => {
+  db.insert(sessions)
+    .values({
+      actorId: "u1",
+      actorKind: "user",
+      agentId: "a1",
+      createdAt: NOW,
+      id: `s-${id}`,
+      origin: "slack",
+      workspaceId: WORKSPACE,
+      ...sessionValues,
+    })
+    .run();
+  db.insert(runs)
+    .values({
+      actorId: "u1",
+      actorKind: "user",
+      agentId: "a1",
+      createdAt: NOW,
+      id,
+      inputText: "Prepare the report",
+      sessionId: `s-${id}`,
+      status: "running",
+      workspaceId: WORKSPACE,
+      ...values,
+    })
+    .run();
 };
 
 test("a running run supplies its task title", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   seedRun("r1");
-  expect((await service.list(user))[0]).toMatchObject({ state: "working", statusLine: "Prepare the report" });
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "working",
+    statusLine: "Prepare the report",
+  });
 });
 
-test.each(["failed", "interrupted"] as const)("a %s last run is stopped, ahead of a running run", async (status) => {
-  insertAgent({ id: "a1", name: "Alpha" });
-  seedRun("r1", { createdAt: "2025-12-31T23:00:00.000Z" });
-  seedRun("r2", { status });
-  expect((await service.list(user))[0]?.state).toBe("stopped");
-});
+test.each(["failed", "interrupted"] as const)(
+  "a %s last run is stopped, ahead of a running run",
+  async (status) => {
+    insertAgent({ id: "a1", name: "Alpha" });
+    seedRun("r1", { createdAt: "2025-12-31T23:00:00.000Z" });
+    seedRun("r2", { status });
+    expect((await service.list(user))[0]?.state).toBe("stopped");
+  }
+);
 
 test("an older failure does not stop a newer successful run", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
-  seedRun("r1", { status: "failed", createdAt: "2025-12-31T23:00:00.000Z" });
+  seedRun("r1", { createdAt: "2025-12-31T23:00:00.000Z", status: "failed" });
   seedRun("r2", { status: "done" });
   expect((await service.list(user))[0]?.state).toBe("idle");
 });
 
-test("an archived machine stops an agent even with a running run", async () => {
-  db.insert(machines).values({ id: "m1", name: "Mac", workspaceId: WORKSPACE, createdAt: NOW, capabilities: "{}", credentialHash: "hash", enrolledBy: "u1", singleUser: false, status: "archived" }).run();
-  insertAgent({ id: "a1", name: "Alpha", machineId: "m1" });
+test("a revoked (archived) machine stops an agent even with a running run", async () => {
+  db.insert(machines)
+    .values({
+      capabilities: "{}",
+      createdAt: NOW,
+      credentialHash: "hash",
+      enrolledBy: "u1",
+      id: "m1",
+      name: "Mac",
+      singleUser: false,
+      status: "revoked",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  insertAgent({ id: "a1", machineId: "m1", name: "Alpha" });
   seedRun("r1");
   expect((await service.list(user))[0]?.state).toBe("stopped");
 });
@@ -203,30 +268,100 @@ test("an archived machine stops an agent even with a running run", async () => {
 test("Needs you beats stopped and working; problems remain stopped", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   seedRun("r1", { status: "failed" });
-  const card = { id: "q1", agentId: "a1", agentName: "Alpha", at: NOW, kind: "question" as const, title: "Which report?", detail: "", expiresAt: null, mail: null, passedOnBy: null, runId: "r1", status: "Waiting", threadId: null };
-  railView.needsYou = [{ id: "q1", assigneeName: "Ann", assigneeUserId: "u1", cards: [card], dueAt: null, escalatedToMe: false, mine: true }];
-  expect((await service.list(user))[0]).toMatchObject({ state: "needs_you", statusLine: "Which report?", needsYouCount: 1, ownerName: "Ann" });
-  railView.needsYou[0]!.cards = [{ ...card, kind: "problem" }];
-  expect((await service.list(user))[0]).toMatchObject({ state: "stopped", needsYouCount: 0 });
+  const card = {
+    agentId: "a1",
+    agentName: "Alpha",
+    at: NOW,
+    detail: "",
+    expiresAt: null,
+    id: "q1",
+    kind: "question" as const,
+    mail: null,
+    passedOnBy: null,
+    runId: "r1",
+    status: "Waiting",
+    threadId: null,
+    title: "Which report?",
+  };
+  railView.needsYou = [
+    {
+      assigneeName: "Ann",
+      assigneeUserId: "u1",
+      cards: [card],
+      dueAt: null,
+      escalatedToMe: false,
+      id: "q1",
+      mine: true,
+    },
+  ];
+  expect((await service.list(user))[0]).toMatchObject({
+    needsYouCount: 1,
+    ownerName: "Ann",
+    state: "needs_you",
+    statusLine: "Which report?",
+  });
+  const [item] = railView.needsYou;
+  if (item) {
+    item.cards = [{ ...card, kind: "problem" }];
+  }
+  expect((await service.list(user))[0]).toMatchObject({
+    needsYouCount: 0,
+    state: "stopped",
+  });
 });
 
 test("idle uses the earliest enabled routine in the workspace timezone", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
-  db.update(workspaces).set({ timezone: "Australia/Sydney" }).where(eq(workspaces.id, WORKSPACE)).run();
-  for (const [id, cron, disabledAt, revokedAt] of [["late", "0 15 * * *", null, null], ["next", "0 12 * * *", null, null], ["disabled", "1 11 * * *", NOW, null], ["revoked", "2 11 * * *", null, NOW]] as const) {
-    db.insert(triggers).values({ id, agentId: "a1", name: id, kind: "routine", cron, createdAt: NOW, createdBy: "u1", workspaceId: WORKSPACE, timezone: "UTC", disabledAt, revokedAt }).run();
+  db.update(workspaces)
+    .set({ timezone: "Australia/Sydney" })
+    .where(eq(workspaces.id, WORKSPACE))
+    .run();
+  for (const [id, cron, disabledAt, revokedAt] of [
+    ["late", "0 15 * * *", null, null],
+    ["next", "0 12 * * *", null, null],
+    ["disabled", "1 11 * * *", NOW, null],
+    ["revoked", "2 11 * * *", null, NOW],
+  ] as const) {
+    db.insert(triggers)
+      .values({
+        agentId: "a1",
+        createdAt: NOW,
+        createdBy: "u1",
+        cron,
+        disabledAt,
+        id,
+        kind: "routine",
+        name: id,
+        revokedAt,
+        timezone: "UTC",
+        workspaceId: WORKSPACE,
+      })
+      .run();
   }
-  expect((await service.list(user))[0]?.statusLine).toBe("Idle. Next run 1 Jan, 12:00 pm");
+  expect((await service.list(user))[0]?.statusLine).toBe(
+    "Idle. Next run 1 Jan, 12:00 pm"
+  );
 });
 
 test("cost sums the last seven days, rounds once to cents, excludes dry and hidden runs", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   seedRun("one", { usage: '{"costUsd":0.124}' });
-  seedRun("two", { usage: '{"costUsd":0.124}', status: "done", createdAt: "2025-12-25T00:00:00.000Z" });
-  seedRun("old", { usage: '{"costUsd":100}', createdAt: "2025-12-24T23:59:59.999Z" });
-  seedRun("dry", { usage: '{"costUsd":100}', dryRun: true });
-  seedRun("hidden", { usage: '{"costUsd":100}' }, { private: true, actorId: "u2" });
-  seedRun("missing", { usage: '{}' });
+  seedRun("two", {
+    createdAt: "2025-12-25T00:00:00.000Z",
+    status: "done",
+    usage: '{"costUsd":0.124}',
+  });
+  seedRun("old", {
+    createdAt: "2025-12-24T23:59:59.999Z",
+    usage: '{"costUsd":100}',
+  });
+  seedRun("dry", { dryRun: true, usage: '{"costUsd":100}' });
+  seedRun(
+    "hidden",
+    { usage: '{"costUsd":100}' },
+    { actorId: "u2", private: true }
+  );
+  seedRun("missing", { usage: "{}" });
   expect((await service.list(user))[0]?.costThisWeekCents).toBe(25);
 });
 
@@ -236,9 +371,18 @@ test("a member sees exactly the same agents as agents.list", async () => {
   insertAgent({ id: "archived", name: "Archived", status: "archived" });
   insertAgent({ id: "draft", name: "Draft", status: "draft" });
   insertAgent({ id: "foreign", name: "Foreign", workspaceId: OTHER_WORKSPACE });
-  const events = createEventsService({ db, blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() } });
-  const agentService = createAgentsService({ db, atomic: sqliteAtomic(db), events });
-  expect((await service.list(user)).map((card) => card.id)).toEqual((await agentService.list(user)).map((agent) => agent.id));
+  const events = createEventsService({
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    db,
+  });
+  const agentService = createAgentsService({
+    atomic: sqliteAtomic(db),
+    db,
+    events,
+  });
+  expect((await service.list(user)).map((card) => card.id)).toEqual(
+    (await agentService.list(user)).map((agent) => agent.id)
+  );
 });
 
 test("50 agents use a constant number of database queries", async () => {
@@ -249,4 +393,49 @@ test("50 agents use a constant number of database queries", async () => {
   queries = 0;
   expect(await service.list(user)).toHaveLength(50);
   expect(queries).toBeLessThanOrEqual(8);
+});
+
+test("job line keeps the first sentence and clips Unicode instructions to 80 characters", async () => {
+  insertAgent({
+    id: "a1",
+    instructions: "  Keep\naccounts tidy! Send a report.",
+    name: "Alpha",
+    soul: "Ignore me.",
+  });
+  insertAgent({
+    id: "a2",
+    instructions: `${"★".repeat(79)}😀😀`,
+    name: "Beta",
+  });
+  expect((await service.list(user)).map((card) => card.jobLine)).toEqual([
+    "Keep accounts tidy!",
+    `${"★".repeat(79)}😀`,
+  ]);
+});
+
+test("owner names are resolved for idle agents with creator fallback", async () => {
+  insertAgent({ id: "a1", name: "Alpha", ownerUserId: "u2" });
+  insertAgent({ id: "a2", name: "Beta" });
+  const named = createRosterService({
+    clock,
+    db,
+    members: {
+      list: () =>
+        Promise.resolve([
+          { name: "Ann", userId: "u1" },
+          { name: "Bob", userId: "u2" },
+        ]),
+    },
+    rail: { get: () => Promise.resolve(railView) },
+  });
+  expect((await named.list(user)).map((card) => card.ownerName)).toEqual([
+    "Bob",
+    "Ann",
+  ]);
+});
+
+test("authorization fails before executing a database query", async () => {
+  queries = 0;
+  await expect(service.list(system)).rejects.toBeInstanceOf(ForbiddenError);
+  expect(queries).toBe(0);
 });
