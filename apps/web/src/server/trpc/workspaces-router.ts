@@ -30,4 +30,10 @@ export const workspacesRouter = router({
   mine: signedInProcedure.query(({ ctx }) =>
     ctx.services.workspaces.mine(ctx.userId)
   ),
+  /** Sets the timezone the workspace's routines read their schedules in. The caller must be an admin. */
+  setTimezone: workspaceProcedure
+    .input(z.strictObject({ timezone: z.string() }))
+    .mutation(({ ctx, input }) =>
+      ctx.services.workspaces.setTimezone(ctx.principal, input.timezone)
+    ),
 });
