@@ -212,6 +212,8 @@ pub struct ClaimResponse {
     pub tool_rules: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_approvals: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub questions_later: Option<bool>,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -398,6 +400,7 @@ pub fn daemon_hello(version: &str, claude_version: &str) -> DaemonHello {
                 "library-live",
                 "current-approvals",
                 "parallel-subagents",
+                "parked-questions",
             ]
             .map(String::from)
             .to_vec(),

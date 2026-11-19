@@ -3,7 +3,7 @@ id: NV.4
 title: "A waiting question no longer holds the machine lane"
 milestone: NV
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/NV.4-question-frees-machine-lane
 lane: daemon
@@ -29,3 +29,5 @@ From `docs/v4/build-plan.md`, milestone NV. Found on 18 Nov (`docs/analysis/smal
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/NV.4-question-frees-machine-lane (v4 controller session).
+- 2026-11-20: four fix rounds so far. The race fix and a2a exclusion are in; round 4 left one must-fix (parkRun's two writes are not batched through atomic). Sent back for a fifth round with the grants.ts:617 pattern, since it's a repo-rule fix, not a product decision.
+- 2026-11-20: merged as 7ce41567, review clean after 5 fix rounds. check, test and build passed on main (first test run failed only on the flaky guest-execution.test.ts; the re-run passed). Dom: deploy the Worker before the daemon, because the older Worker's strict complete schema rejects awaitingAnswer.

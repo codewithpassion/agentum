@@ -1,0 +1,1 @@
+ALTER TABLE `connectors` ADD `catalog_key` text;

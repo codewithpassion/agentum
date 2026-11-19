@@ -41,6 +41,7 @@ import {
   canonicalEffect,
   matchesEffectApproval,
 } from "./requests/outbound.ts";
+import { questionWakeText } from "./requests/question-wake.ts";
 import {
   answerInputSchema,
   answerSchemas,
@@ -56,10 +57,11 @@ import {
   scrubText,
 } from "./requests/records.ts";
 import { importRunTokenKey } from "./run-tokens.ts";
+import { runDefersQuestions } from "./runs/deferral.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
 import { peerRootOf, peerRootsOf } from "./runs/peer-root.ts";
 import { loadRun } from "./runs/queries.ts";
-import type { Clock, RunRecord } from "./runs/types.ts";
+import { type Clock, isParked, type RunRecord } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import type { SecretsService } from "./secrets.ts";
 import { visibleSessions } from "./sessions.ts";
@@ -752,11 +754,112 @@ export const createRequestsService = ({
       throw error;
     }
   };
+  /**
+   * Whether the daemon may end its turn on this run's question: the answer
+   * then comes as a follow-up run, so the machine's lane is free meanwhile. Only
+   * a plain run on a machine. Work a peer set going, a hand-off child, a
+   * subagent and a guest's run keep waiting, since something is waiting on each.
+   */
+  const defersQuestion = async (
+    principal: Principal,
+    runId: string
+  ): Promise<boolean> => {
+    const run = await requireRun(principal, runId);
+    writer(principal, run);
+    return (
+      principal.kind === "machine" &&
+      run.claimedBy === principal.machineId &&
+      (await runDefersQuestions(db, run))
+    );
+  };
+  /**
+   * A parked run's questions have all closed: it ends, and a follow-up run in
+   * the same session carries the answers. The run's end is decided by one
+   * conditional write, so a second caller, such as a second answer or the
+   * listener that fires when the run parks, starts nothing.
+   */
+  const continueParked = async (run: RunRecord) => {
+    const [pending] = await db
+      .select({ id: runRequests.id })
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.runId, run.id),
+          eq(runRequests.status, "pending"),
+          notDetachedApproval
+        )
+      )
+      .limit(1);
+    if (pending) {
+      return;
+    }
+    const settled = await runs.settleParkedRun(SYSTEM_PRINCIPAL, run.id);
+    if (!settled) {
+      return;
+    }
+    const [session] = await db
+      .select({ origin: sessions.origin })
+      .from(sessions)
+      .where(eq(sessions.id, settled.sessionId))
+      .limit(1);
+    if (!session) {
+      console.error("A parked run's session is gone", settled.id);
+      return;
+    }
+    const asked = await db
+      .select()
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.runId, settled.id),
+          eq(runRequests.workspaceId, settled.workspaceId),
+          eq(runRequests.kind, "question")
+        )
+      )
+      .orderBy(runRequests.createdAt, runRequests.id);
+    // The answers are what the person typed. The follow-up's input is stored and
+    // shown as an event, so the agent's granted secret values are masked in it.
+    const masker = await secrets.maskerFor(
+      settled.workspaceId,
+      settled.agentId
+    );
+    const wake = questionWakeText(asked, (line) => masker?.mask(line) ?? line);
+    try {
+      await runs.startRun(
+        SYSTEM_PRINCIPAL,
+        {
+          agentId: settled.agentId,
+          input: { text: wake },
+          reply: settled.reply,
+          requestId: `question-answer:${settled.id}`,
+          session: {
+            origin: session.origin as Parameters<
+              RunsService["startRun"]
+            >[1]["session"]["origin"],
+          },
+        },
+        { continuationOf: settled, sessionId: settled.sessionId }
+      );
+    } catch (error) {
+      // The parked run has ended and the answers stay on their requests. Log it so one refused start does not fail the person's answer.
+      console.error(
+        "Starting the follow-up of a parked run failed",
+        settled.id,
+        error
+      );
+    }
+  };
+  runs.onParked(continueParked);
   const resume = async (row: RequestRow) => {
     if (isDetachedApproval(row)) {
       return;
     }
     if (!(await mayResume(row))) {
+      return;
+    }
+    const run = await loadRun(db, row.runId, row.workspaceId);
+    if (run && isParked(run)) {
+      await continueParked(run);
       return;
     }
     await markRunningIfSettled(row.runId);
@@ -1239,6 +1342,7 @@ export const createRequestsService = ({
     askLevel,
     cancel,
     cancelForRun,
+    defersQuestion,
     expireDue,
     listPending,
     listRules,

@@ -38,6 +38,9 @@ export const FEATURE_CURRENT_APPROVALS = "current-approvals";
 /** The daemon takes `library_changed` relay frames and the claim's library `roots` and `taskFolder` (V4). */
 export const FEATURE_LIBRARY_LIVE = "library-live";
 
+/** The daemon ends a turn at once on a question the Worker says it will answer later, and reports `awaitingAnswer` when it completes. */
+export const FEATURE_PARKED_QUESTIONS = "parked-questions";
+
 /** Whether the value of `DAEMON_FEATURES_HEADER` names `feature`. */
 export const hasDaemonFeature = (
   header: string | null | undefined,
@@ -243,6 +246,9 @@ export const claimResponseSchema = z.strictObject({
       url: z.string(),
     })
   ),
+  // Sent only to a daemon that names FEATURE_PARKED_QUESTIONS (the schema is
+  // strict, so an older daemon would reject the key).
+  questionsLater: z.literal(true).optional(),
   run: z.strictObject({
     agentId: z.string(),
     id: z.string(),
@@ -302,7 +308,13 @@ const completeOutcomeFields = {
 };
 
 export const completeRequestSchema = z.discriminatedUnion("status", [
-  z.strictObject({ status: z.literal("done"), ...completeOutcomeFields }),
+  z.strictObject({
+    // The daemon's turn ended on a question the server will answer with a
+    // follow-up run. The Worker must be deployed before the daemon.
+    awaitingAnswer: z.literal(true).optional(),
+    status: z.literal("done"),
+    ...completeOutcomeFields,
+  }),
   // Deploy the Worker before the daemon: the schema is strict, so an older
   // Worker rejects a `stop` key, and the daemon sends it on a turn-limit stop.
   z.strictObject({
@@ -326,6 +338,9 @@ export const createRequestBodySchema = z.strictObject({
 export type CreateRequestBody = z.infer<typeof createRequestBodySchema>;
 
 export const createRequestResponseSchema = z.strictObject({
+  // Set on an open question the Worker will deliver as a follow-up run, so the
+  // daemon need not wait for it.
+  deferred: z.literal(true).optional(),
   outcome: requestOutcomeSchema.optional(),
   requestId: z.string(),
   status: z.enum(REQUEST_STATUSES),

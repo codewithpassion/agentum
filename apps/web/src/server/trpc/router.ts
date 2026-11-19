@@ -4,7 +4,9 @@ import { artifactSharesRouter } from "./artifact-shares-router.ts";
 import { artifactStorageRouter } from "./artifact-storage-router.ts";
 import { artifactsRouter } from "./artifacts-router.ts";
 import { automationRouter } from "./automation-router.ts";
+import { catalogRouter } from "./catalog-router.ts";
 import { mergeRouters, router, workspaceProcedure } from "./init.ts";
+import { keysRouter } from "./keys-router.ts";
 import { createLiveArtifactsRouter } from "./live-artifacts-router";
 import { liveGuestsRouter } from "./live-guests-router";
 import { mailRouter } from "./mail-router.ts";
@@ -33,6 +35,8 @@ export const appRouter = mergeRouters(
       artifactSharesRouter,
       artifactStorageRouter
     ),
+    catalog: catalogRouter,
+    keys: keysRouter,
     liveArtifacts: createLiveArtifactsRouter((ctx) => {
       if (!ctx.services.liveArtifacts) {
         throw new TRPCError({
