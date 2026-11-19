@@ -211,14 +211,7 @@ function EditableProfile({
   if (profile === null || editor.agent === null) {
     return <ProfileStatus error={profileError} />;
   }
-  return (
-    <AgentEditor
-      agent={editor.agent}
-      mailbox={editor.mailbox}
-      onChanged={editor.onChanged}
-      profile={profile}
-    />
-  );
+  return <AgentEditor agent={editor.agent} />;
 }
 
 function LastRun({

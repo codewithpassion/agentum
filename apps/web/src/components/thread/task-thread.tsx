@@ -75,6 +75,7 @@ export function TaskThread({
   onComputer,
   onFiles,
   onConflicts,
+  onSent,
   routingHref: externalRoutingHref,
   filesText = "",
   stop,
@@ -86,6 +87,8 @@ export function TaskThread({
   onComputer?: () => void;
   onFiles?: () => void;
   onConflicts?: () => void;
+  /** Called after a send in place of opening the thread's own URL, for a host that shows the thread itself. */
+  onSent?: () => Promise<void>;
   routingHref?: string;
   filesText?: string;
   stop?: () => void;
@@ -276,6 +279,10 @@ export function TaskThread({
               })
             ));
         onStarted?.();
+        if (onSent !== undefined) {
+          await onSent();
+          return;
+        }
         // The thread keeps its URL. A reply drops `?run=`, so the page shows the new run.
         await navigate({
           params: { sessionId: task.session.id },
@@ -292,7 +299,7 @@ export function TaskThread({
         starting.current = null;
       }
     },
-    [navigate, router, subThread, task.agent.id, task.session]
+    [navigate, onSent, router, subThread, task.agent.id, task.session]
   );
 
   const edit = useCallback(

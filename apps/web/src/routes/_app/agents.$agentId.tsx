@@ -1,19 +1,25 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { ArchivedAgentBanner } from "#/components/agent/archived-agents";
-import { AskBeforeCard } from "#/components/agent/profile/ask-before-card";
-import { ComputerCard } from "#/components/agent/profile/computer-card";
-import { ConnectionsCard } from "#/components/agent/profile/connections-card";
-import { ManageSheet } from "#/components/agent/profile/manage-sheet";
-import { ProfileHeader } from "#/components/agent/profile/profile-header";
-import { ProfileRows } from "#/components/agent/profile/profile-rows";
-import { RecentTasksCard } from "#/components/agent/profile/recent-tasks-card";
-import { RunsOnCard } from "#/components/agent/profile/runs-on-card";
-import { SHEET_IDS, type SheetId } from "#/components/agent/profile/sheet-ids";
-import { allowedMailAddresses } from "#/components/agent/profile/sheets/mail-logic";
 import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
-import { ThreadsCard } from "#/components/agent/profile/threads-card";
+import { ChatTab } from "#/components/agent/room/chat";
+import { FilesTab } from "#/components/agent/room/files";
+import { JobsTab } from "#/components/agent/room/jobs";
+import { KeysTab } from "#/components/agent/room/keys";
+import { KnowsTab } from "#/components/agent/room/knows";
+import type { RoomTabProps } from "#/components/agent/room/room-data";
+import { RoomHeader } from "#/components/agent/room/room-header";
+import { SettingsTab } from "#/components/agent/room/settings";
+import { panelId, TabBar, tabId } from "#/components/agent/room/tab-bar";
+import {
+  DEFAULT_TAB,
+  ROOM_TABS,
+  type RoomTab,
+  resolveTab,
+  SHEET_IDS,
+} from "#/components/agent/room/tabs";
+import { WorkTab } from "#/components/agent/room/work";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
@@ -29,8 +35,20 @@ const searchSchema = z.object({
       z.string().min(1).max(200).optional()
     )
     .catch(undefined),
+  // Old links: each sheet is now a section of a tab, see resolveTab.
   sheet: z.enum(SHEET_IDS).optional().catch(undefined),
+  tab: z.enum(ROOM_TABS).optional().catch(undefined),
 });
+
+const TABS: Record<RoomTab, (props: RoomTabProps) => ReactNode> = {
+  chat: ChatTab,
+  files: FilesTab,
+  jobs: JobsTab,
+  keys: KeysTab,
+  knows: KnowsTab,
+  settings: SettingsTab,
+  work: WorkTab,
+};
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
   validateSearch: (search) => searchSchema.parse(search),
@@ -96,44 +114,36 @@ function useNowMs(): number | null {
 }
 
 function AgentPage() {
-  const {
-    agent,
-    askBefore,
-    askLevel,
-    connections,
-    machines,
-    members,
-    mailbox,
-    profile,
-    published,
-    rules,
-    tasks,
-    threads,
-  } = Route.useLoaderData();
+  const room = Route.useLoaderData();
+  const { agent } = room;
   const archived = agent.status === "archived";
   const nowMs = useNowMs();
-  const { mail, sheet } = Route.useSearch();
+  const search = Route.useSearch();
+  const tab = resolveTab(search);
   const navigate = Route.useNavigate();
   const router = useRouter();
 
-  const openSheet = useCallback(
-    (next: SheetId | undefined) =>
-      navigate({ search: { sheet: next }, replace: true }),
+  // The tab is explicit while the mailbox sheet is open, so closing it keeps the tab.
+  const searchTab = tab === DEFAULT_TAB ? undefined : tab;
+  const openTab = useCallback(
+    (next: RoomTab) =>
+      navigate({
+        search: { tab: next === DEFAULT_TAB ? undefined : next },
+        replace: true,
+      }),
     [navigate]
   );
-  const edit = useCallback(() => openSheet("edit"), [openSheet]);
-  // The panels change what the rows show, so reload the profile as the sheet closes.
-  const close = useCallback(async () => {
-    await openSheet(undefined);
-    await router.invalidate();
-  }, [openSheet, router]);
+  const edit = useCallback(() => openTab("settings"), [openTab]);
   const openMail = useCallback(
     (next: string | undefined) =>
-      navigate({ search: { mail: next }, replace: true }),
-    [navigate]
+      navigate({
+        search: { mail: next, tab: next === undefined ? searchTab : tab },
+        replace: true,
+      }),
+    [navigate, searchTab, tab]
   );
   const openMailList = useCallback(() => openMail("1"), [openMail]);
-  // A thread can change what the header and rows show, so reload as the sheet closes.
+  // A thread can change what the header shows, so reload as the sheet closes.
   const closeMail = useCallback(async () => {
     await openMail(undefined);
     await router.invalidate();
@@ -143,6 +153,7 @@ function AgentPage() {
     [navigate]
   );
 
+  const Body = TABS[tab];
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       {archived ? <ArchivedAgentBanner agent={agent} /> : null}
@@ -150,61 +161,29 @@ function AgentPage() {
         className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0"
         disabled={archived}
       >
-        <ProfileHeader
-          header={profile.header}
-          mailbox={mailbox}
+        <RoomHeader
           onEdit={edit}
           onOpenMail={openMailList}
           onStarted={openTask}
+          room={room}
         />
-        <div className="flex flex-wrap items-start gap-4">
-          <ProfileRows
-            agent={agent}
-            mailbox={mailbox}
-            members={members}
-            onOpen={openSheet}
+        <TabBar onSelect={openTab} selected={tab} />
+        <div aria-labelledby={tabId(tab)} id={panelId(tab)} role="tabpanel">
+          <Body
+            nowMs={nowMs}
             onOpenMail={openMailList}
-            peers={
-              <div className="-mx-4 [&>section]:border-0 [&>section]:bg-transparent [&_h2]:sr-only">
-                <ConnectionsCard
-                  agentId={agent.id}
-                  connections={connections}
-                  published={published}
-                />
-              </div>
-            }
-            profile={profile}
+            onOpenTab={openTab}
+            room={room}
           />
-          <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
-            <RunsOnCard header={profile.header} onAdvanced={edit} />
-            <AskBeforeCard
-              actions={askBefore}
-              agentId={agent.id}
-              archived={archived}
-              level={askLevel}
-              mailAllowed={allowedMailAddresses(rules)}
-              onEditSettings={edit}
-            />
-            <ThreadsCard agent={agent} archived={archived} threads={threads} />
-            <RecentTasksCard agentId={agent.id} nowMs={nowMs} tasks={tasks} />
-            <ComputerCard
-              agent={agent}
-              header={profile.header}
-              machines={machines}
-            />
-          </aside>
         </div>
       </fieldset>
       {archived ? null : (
-        <>
-          <ManageSheet agent={agent} onClose={close} sheet={sheet} />
-          <MailSheet
-            agent={agent}
-            mail={mail}
-            onChange={openMail}
-            onClose={closeMail}
-          />
-        </>
+        <MailSheet
+          agent={agent}
+          mail={search.mail}
+          onChange={openMail}
+          onClose={closeMail}
+        />
       )}
     </section>
   );
