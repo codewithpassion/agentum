@@ -67,7 +67,15 @@ const startIn = (
   text: string,
   session: {
     externalKey?: string;
-    origin: "ui" | "slack" | "inbox" | "trigger" | "dry_run" | "qa" | "a2a" | "artifact";
+    origin:
+      | "ui"
+      | "slack"
+      | "inbox"
+      | "trigger"
+      | "dry_run"
+      | "qa"
+      | "a2a"
+      | "artifact";
     private?: boolean;
   }
 ) =>
@@ -294,7 +302,10 @@ test("a routine session is titled by its prompt first line", async () => {
 
   const [item] = await sessions.list(user("u1"), { origin: "trigger" });
 
-  expect(item).toMatchObject({ id: started.sessionId, title: "summarise the day" });
+  expect(item).toMatchObject({
+    id: started.sessionId,
+    title: "summarise the day",
+  });
 });
 
 test("a trigger with a blank name, or no row, is titled by the first message", async () => {
@@ -1751,49 +1762,127 @@ test("main raises a conflict instead of returning a thread another user holds un
   });
 });
 
-for (const origin of ["ui", "slack", "trigger", "qa", "a2a", "artifact"] as const) {
+for (const origin of [
+  "ui",
+  "slack",
+  "trigger",
+  "qa",
+  "a2a",
+  "artifact",
+] as const) {
   test(`${origin} titles use the envelope text`, async () => {
     if (origin === "artifact") {
-      db.insert(artifacts).values({
-        audience: "private", createdAt: START, createdById: "u1", createdByKind: "user",
-        id: "title-artifact", kind: "document", ownerUserId: "u1", title: "Doc",
-        updatedAt: START, workspaceId: WORKSPACE,
-      }).run();
+      db.insert(artifacts)
+        .values({
+          audience: "private",
+          createdAt: START,
+          createdById: "u1",
+          createdByKind: "user",
+          id: "title-artifact",
+          kind: "document",
+          ownerUserId: "u1",
+          title: "Doc",
+          updatedAt: START,
+          workspaceId: WORKSPACE,
+        })
+        .run();
     }
     const envelope = buildPeerEnvelope(
       { agentName: "Peer", connectionId: "con-title", host: "peer.example" },
       "Review the proposal\nThen reply"
     );
     // An unreadable HTTP trigger name must fall through to its message.
-    if (origin === "trigger") { insertTrigger("title-trigger", "http", '{"name":1}'); }
+    if (origin === "trigger") {
+      insertTrigger("title-trigger", "http", '{"name":1}');
+    }
     const started = await startIn(
       origin === "trigger" ? triggerPrincipal("title-trigger") : user("u1"),
-      agentId, envelope,
-      { origin, ...(origin === "artifact" ? { externalKey: "title-artifact" } : {}) }
+      agentId,
+      envelope,
+      {
+        origin,
+        ...(origin === "artifact" ? { externalKey: "title-artifact" } : {}),
+      }
     );
-    if (origin === "slack") { insertSlackName(started.sessionId, "title-label", "#team"); }
-    const expected = origin === "slack" ? "#team: Review the proposal" : "Review the proposal";
+    if (origin === "slack") {
+      insertSlackName(started.sessionId, "title-label", "#team");
+    }
+    const expected =
+      origin === "slack" ? "#team: Review the proposal" : "Review the proposal";
     const items = await sessions.list(user("u1"), { agentId });
-    expect(items.find((item) => item.id === started.sessionId)?.title).toBe(expected);
-    expect((await sessions.transcript(user("u1"), started.sessionId)).session.title).toBe(expected);
+    expect(items.find((item) => item.id === started.sessionId)?.title).toBe(
+      expected
+    );
+    expect(
+      (await sessions.transcript(user("u1"), started.sessionId)).session.title
+    ).toBe(expected);
   });
 }
 
 test("raw JSON falls back to the agent name", async () => {
   await send(user("u1"), '{"payload":true}');
-  expect((await sessions.list(user("u1")))[0]?.title).toBe("Conversation with Fake");
+  expect((await sessions.list(user("u1")))[0]?.title).toBe(
+    "Conversation with Fake"
+  );
 });
 
-test.each(['{"payload":true}', '{"harbourmaster_turn":{"text":"stale"}}', '<p>stale</p>', '[ATTACHMENT:/tmp/a]', '   '])("unreadable stored title %s is ignored", async (title) => {
+test.each([
+  '{"payload":true}',
+  '{"harbourmaster_turn":{"text":"stale"}}',
+  "<p>stale</p>",
+  "[ATTACHMENT:/tmp/a]",
+  "   ",
+])("unreadable stored title %s is ignored", async (title) => {
   const started = await send(user("u1"), "Readable opening");
-  db.update(sessionRows).set({ title }).where(eq(sessionRows.id, started.sessionId)).run();
+  db.update(sessionRows)
+    .set({ title })
+    .where(eq(sessionRows.id, started.sessionId))
+    .run();
   expect((await sessions.list(user("u1")))[0]?.title).toBe("Readable opening");
-  expect((await sessions.transcript(user("u1"), started.sessionId)).session.title).toBe("Readable opening");
+  expect(
+    (await sessions.transcript(user("u1"), started.sessionId)).session.title
+  ).toBe("Readable opening");
 });
 
 test("rename rejects JSON but keeps other person supplied text", async () => {
   const started = await send(user("u1"), "Opening");
-  await expect(sessions.rename(user("u1"), started.sessionId, '{"name":1}')).rejects.toMatchObject({ code: "invalid" });
-  await sessions.rename(user("u1"), started.sessionId, '<p>My title</p>');
-  expect(db.select().from(sessionRows).where(eq(sessionRows.id, started.sessionId)).get()?.title).toBe('<p>My title</p>');
+  await expect(
+    sessions.rename(user("u1"), started.sessionId, '{"name":1}')
+  ).rejects.toMatchObject({ code: "invalid" });
+  await sessions.rename(user("u1"), started.sessionId, "<p>My title</p>");
+  expect(
+    db
+      .select()
+      .from(sessionRows)
+      .where(eq(sessionRows.id, started.sessionId))
+      .get()?.title
+  ).toBe("<p>My title</p>");
+});
+
+test("an unreadable agent name gives the generic fallback", async () => {
+  await send(user("u1"), "{}");
+  db.update(agentRows)
+    .set({ name: "{}" })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  expect((await sessions.list(user("u1")))[0]?.title).toBe("Conversation");
+});
+
+test("unreadable inbox names and Slack labels fall through to the message", async () => {
+  insertThread("bad-title", "<b>Thread</b>");
+  const inbox = await startIn(user("u1"), agentId, "Inbox opening", {
+    externalKey: "bad-title",
+    origin: "inbox",
+  });
+  const slack = await startIn(user("u1"), agentId, "Slack opening", {
+    origin: "slack",
+  });
+  insertSlackName(slack.sessionId, "bad-label", '{"label":"raw"}');
+  const items = await sessions.list(user("u1"));
+  expect(items.find((item) => item.id === inbox.sessionId)?.title).toBe(
+    "Inbox opening"
+  );
+  expect(items.find((item) => item.id === slack.sessionId)?.title).toBe(
+    "Slack opening"
+  );
 });
