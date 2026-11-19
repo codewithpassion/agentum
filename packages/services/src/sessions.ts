@@ -947,7 +947,7 @@ export const createSessionsService = ({
         )
       );
     }
-    // Preserve existing rename validation; only JSON adds a new restriction.
+    // A person's title may not hold JSON, markup or attachment markers, so what is stored is what shows.
     if (isJsonTitle(name)) {
       return Promise.reject(
         new ServiceError("invalid", "Title must not be JSON")
