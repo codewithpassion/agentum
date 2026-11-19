@@ -36,7 +36,7 @@ const avatarFor = (row: AgentRow): AgentAvatar => {
   return parsed.success ? parsed.data : defaultAgentAvatar(row.name);
 };
 
-const jobLineFor = (soul: string): string => {
+export const jobLineFor = (soul: string): string => {
   const firstLine =
     soul
       .split("\n")
