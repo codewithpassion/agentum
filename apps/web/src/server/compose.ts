@@ -232,6 +232,7 @@ import {
   createRequestsService,
   type RequestsService,
 } from "@repo/services/requests";
+import { createRosterService, type RosterService } from "@repo/services/roster";
 import {
   createRoutinesService,
   type RoutinesService,
@@ -517,6 +518,7 @@ export interface Services {
   qa: QaService;
   rail: RailService;
   requests: RequestsService;
+  roster: RosterService;
   routines: RoutinesService;
   runSkills: RunSkillsService;
   runs: RunsService;
@@ -1412,6 +1414,7 @@ export const composeWith = ({
       }),
       rail,
       requests,
+      roster: createRosterService({ db }),
       routines,
       runSkills,
       runs,

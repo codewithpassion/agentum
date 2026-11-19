@@ -1185,3 +1185,80 @@ export interface ArtifactLiveCheckpointPayload {
 export const LIVE_POSITION_ENCODING_VERSION = 1;
 export const LIVE_AGENT_PRESENCE_CLEAR_MS = 5000;
 export const LIVE_POINTER_UPDATES_PER_SECOND = 20;
+
+/** The colours an agent's avatar can take. The default is picked from the first letter of the name. */
+export const AGENT_AVATAR_COLORS = [
+  "slate",
+  "red",
+  "orange",
+  "amber",
+  "green",
+  "teal",
+  "blue",
+  "violet",
+] as const;
+export type AgentAvatarColor = (typeof AGENT_AVATAR_COLORS)[number];
+
+/** What `agents.avatar` holds as JSON: a colour and one glyph, usually the first letter of the name. */
+export interface AgentAvatar {
+  color: AgentAvatarColor;
+  glyph: string;
+}
+
+const LOWERCASE_ASCII = /[a-z]/;
+const NO_GLYPH = "?";
+
+/**
+ * The avatar a new agent gets. The glyph is the first character of the name, upper-cased when it is
+ * ASCII, and the colour is picked by that character's code point. The migration that added the
+ * column backfills with the same rule in SQL, so keep the two in step.
+ */
+export const defaultAgentAvatar = (name: string): AgentAvatar => {
+  const [first] = Array.from(name);
+  if (first === undefined) {
+    return { color: AGENT_AVATAR_COLORS[0], glyph: NO_GLYPH };
+  }
+  const code = first.codePointAt(0) ?? 0;
+  return {
+    color: AGENT_AVATAR_COLORS[code % AGENT_AVATAR_COLORS.length] ?? "slate",
+    glyph: LOWERCASE_ASCII.test(first) ? first.toUpperCase() : first,
+  };
+};
+
+/** The avatar column's database default, for rows written without one. */
+export const NEUTRAL_AGENT_AVATAR_JSON = JSON.stringify({
+  color: "slate",
+  glyph: NO_GLYPH,
+} satisfies AgentAvatar);
+
+/** The order a Roster card wall reads in: what needs a person first, idle agents last. */
+export const AGENT_CARD_STATES = [
+  "needs_you",
+  "stopped",
+  "working",
+  "idle",
+] as const;
+export type AgentCardState = (typeof AGENT_CARD_STATES)[number];
+
+/** One agent on the Roster home. */
+export interface AgentCard {
+  avatar: AgentAvatar;
+  costThisWeekCents: number;
+  id: string;
+  isLead: boolean;
+  /** What the agent is for, one line. */
+  jobLine: string;
+  learnedCount: number;
+  name: string;
+  needsYouCount: number;
+  /** Display name of the person who answers for the agent. */
+  ownerName: string;
+  slug: string;
+  state: AgentCardState;
+  /** What the agent is doing or waiting on, one plain line. */
+  statusLine: string;
+  /** The agent's home team, or null. */
+  teamId: string | null;
+  /** The weekly spend cap in cents, or null for no cap. */
+  weeklyCapCents: number | null;
+}

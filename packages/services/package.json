@@ -106,6 +106,7 @@
     "./rail": "./src/rail.ts",
     "./rail/logic": "./src/rail/logic.ts",
     "./requests": "./src/requests.ts",
+    "./roster": "./src/roster.ts",
     "./speaker-envelope": "./src/speaker-envelope.ts",
     "./actor-display": "./src/actor-display.ts",
     "./runs": "./src/runs.ts",
