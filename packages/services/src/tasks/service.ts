@@ -5,7 +5,6 @@
  * status band. A run is visible when its session is, so another member's ui
  * session or private Slack DM never shows. Writes happen in `runs`.
  */
-
 import type { Database } from "@repo/db";
 import { a2aConnections } from "@repo/db/schema/a2a";
 import { agents } from "@repo/db/schema/agents";
@@ -39,7 +38,7 @@ import {
   taskFilesInputSchema,
 } from "../library/task-files.ts";
 import { mailSubjectsOf } from "../mail-subjects.ts";
-import { readableTitle } from "../mail-title-text.ts";
+import { storedTitle } from "../mail-title-text.ts";
 import type { RequestRecord, RequestsService } from "../requests.ts";
 import { toRecord } from "../runs/records.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
@@ -467,10 +466,7 @@ export const createTasksService = ({
       relativesOf(member, row.session),
     ]);
     const title =
-      row.session.title !== null &&
-      readableTitle(row.session.title, false) !== undefined
-        ? row.session.title
-        : titleFor(sources, row.session, "");
+      storedTitle(row.session.title) ?? titleFor(sources, row.session, "");
     return {
       agent: {
         computerMachineId: row.computerMachineId,
@@ -531,9 +527,8 @@ export const createTasksService = ({
         {
           status: latest.get(row.id) ?? ("queued" as RunStatus),
           title:
-            row.title !== null && readableTitle(row.title, false) !== undefined
-              ? row.title
-              : titleFor(sources, row, first.get(row.id) ?? ""),
+            storedTitle(row.title) ??
+            titleFor(sources, row, first.get(row.id) ?? ""),
         },
       ])
     );
@@ -686,15 +681,13 @@ export const createTasksService = ({
         parentSessionId: row.session.parentSessionId,
         pinnedAt: row.session.pinnedAt,
         title:
-          row.session.title !== null &&
-          readableTitle(row.session.title, false) !== undefined
-            ? row.session.title
-            : titleFor(
-                sources,
-                row.session,
-                first.inputText,
-                subjects.get(first.id)
-              ),
+          storedTitle(row.session.title) ??
+          titleFor(
+            sources,
+            row.session,
+            first.inputText,
+            subjects.get(first.id)
+          ),
       },
       startedBy,
       subagents: subagents.map((child) => ({

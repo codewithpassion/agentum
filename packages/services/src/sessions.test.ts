@@ -1844,19 +1844,27 @@ test.each([
   ).toBe("Readable opening");
 });
 
-test("rename rejects JSON but keeps other person supplied text", async () => {
+test("rename rejects JSON, markup and markers, and keeps readable text shown", async () => {
   const started = await send(user("u1"), "Opening");
-  await expect(
-    sessions.rename(user("u1"), started.sessionId, '{"name":1}')
-  ).rejects.toMatchObject({ code: "invalid" });
-  await sessions.rename(user("u1"), started.sessionId, "<p>My title</p>");
-  expect(
-    db
-      .select()
-      .from(sessionRows)
-      .where(eq(sessionRows.id, started.sessionId))
-      .get()?.title
-  ).toBe("<p>My title</p>");
+  await Promise.all(
+    ['{"name":1}', "<p>My title</p>", "[ATTACHMENT:/tmp/a]"].map((bad) =>
+      expect(
+        sessions.rename(user("u1"), started.sessionId, bad)
+      ).rejects.toMatchObject({ code: "invalid" })
+    )
+  );
+  await sessions.rename(user("u1"), started.sessionId, "My title");
+  expect((await sessions.list(user("u1")))[0]?.title).toBe("My title");
+});
+
+test("input cut short mid-JSON, as the TH.1 backfill left it, is not a title", async () => {
+  await send(
+    user("u1"),
+    '{"question":"What is the weather in Sydney tomorrow and the day after that? Please...'
+  );
+  await send(user("u1"), '{"type":"form",\n  "fields": []}');
+  const titles = (await sessions.list(user("u1"))).map((item) => item.title);
+  expect(titles).toEqual(["Conversation with Fake", "Conversation with Fake"]);
 });
 
 test("an unreadable agent name gives the generic fallback", async () => {

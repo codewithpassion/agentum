@@ -215,7 +215,7 @@ const byAge = (a: DeskCard, b: DeskCard): number =>
  * card shows.
  */
 const titleOf = (inputText: string, mailSubject?: string): string =>
-  clip(runTitleText(text(inputText), mailSubject) || "Task", TITLE_MAX);
+  clip(runTitleText(text(inputText), mailSubject), TITLE_MAX);
 
 export const createDeskService = ({
   a2a,

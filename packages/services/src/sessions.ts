@@ -41,6 +41,7 @@ import {
   mailTitleOf,
   readableTitle,
   runTitleText,
+  storedTitle,
   TITLE_MAX,
 } from "./mail-title-text.ts";
 import { currentGuestRun } from "./runs/guest-scope.ts";
@@ -535,11 +536,9 @@ export const createSessionsService = ({
     return new Map(
       rows.map((row) => {
         const first = firstRuns.get(row.id);
-        if (
-          row.title !== null &&
-          readableTitle(row.title, false) !== undefined
-        ) {
-          return [row.id, row.title];
+        const stored = storedTitle(row.title);
+        if (stored !== undefined) {
+          return [row.id, stored];
         }
         return [
           row.id,
@@ -951,6 +950,11 @@ export const createSessionsService = ({
     if (isJsonTitle(name)) {
       return Promise.reject(
         new ServiceError("invalid", "Title must not be JSON")
+      );
+    }
+    if (readableTitle(name, false) === undefined) {
+      return Promise.reject(
+        new ServiceError("invalid", "Title must be readable text")
       );
     }
     return change(principal, sessionId, { title: name });

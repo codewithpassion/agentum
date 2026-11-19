@@ -25,12 +25,14 @@ export const TITLE_MAX = 80;
 const ENVELOPE_PREFIX_RE = /^\{\s*"harbourmaster_turn"/;
 const LINE_RE = /\r?\n/;
 const WHITESPACE_RE = /\s+/g;
+/** The start of JSON that may have been cut short, as the TH.1 backfill did at 60 characters. */
+const JSON_START_RE = /^(\{\s*"|\[\s*[[{"])/;
 const MARKUP_RE = /<\/?[a-z][^>]*>|<!--|<\?|<!doctype/i;
 
 /** Also rejects truncated legacy envelopes that no longer parse as JSON. */
 export const isJsonTitle = (raw: string): boolean => {
   const text = raw.trim();
-  if (ENVELOPE_PREFIX_RE.test(text)) {
+  if (ENVELOPE_PREFIX_RE.test(text) || JSON_START_RE.test(text)) {
     return true;
   }
   if (!(text.startsWith("{") || text.startsWith("["))) {
@@ -81,6 +83,12 @@ export const readableTitle = (
   return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX - 3)}...` : text;
 };
 
+/** A stored title when it is still readable: the one check every read path shares. */
+export const storedTitle = (title: string | null): string | undefined =>
+  title !== null && readableTitle(title, false) !== undefined
+    ? title
+    : undefined;
+
 /** Shared by session reads and the one-off repair, including unnamed agents. */
 export const conversationTitle = (
   input: string,
@@ -111,4 +119,24 @@ export const runTitleText = (inputText: string, subject?: string): string => {
   return spoken?.startsWith(INBOUND_MAIL_PREFIX)
     ? INBOUND_MAIL_TITLE
     : (spoken ?? "Conversation");
+};
+
+/**
+ * What the task receipt shows for a run's first step: the whole input, or the
+ * first line of what an envelope says, never the wrapper. Not cut to a title.
+ */
+export const runInputText = (inputText: string): string => {
+  if (ENVELOPE_PREFIX_RE.test(inputText.trim())) {
+    try {
+      const parsed = JSON.parse(inputText);
+      if (typeof parsed?.harbourmaster_turn?.text === "string") {
+        return parsed.harbourmaster_turn.text.split(LINE_RE)[0] ?? "";
+      }
+    } catch {
+      return inputText;
+    }
+  }
+  return inputText.startsWith(INBOUND_MAIL_PREFIX)
+    ? INBOUND_MAIL_TITLE
+    : inputText;
 };
