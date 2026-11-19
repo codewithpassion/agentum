@@ -102,6 +102,7 @@ pub async fn execute(
     let mut sync = None;
     let mut live = false;
     let mut watcher = None;
+    let mut gate_kept = None;
     let work = async {
         let workspace = text(&claim["run"]["workspaceId"]);
         let agent = text(&claim["run"]["agentId"]);
@@ -191,6 +192,7 @@ pub async fn execute(
         } else {
             None
         };
+        gate_kept.clone_from(&gate);
         if cancel.is_cancelled() {
             return Ok(json!({"status":"aborted"}));
         }
@@ -246,11 +248,14 @@ pub async fn execute(
     {
         tracing::warn!("Final library sync failed");
     }
-    let body = if cancel.is_cancelled() {
+    let mut body = if cancel.is_cancelled() {
         json!({"status":"aborted"})
     } else {
         body.unwrap_or_else(|e| json!({"status":"failed","error":api.http.masker.mask(&e.message)}))
     };
+    if body["status"] == "done" && gate_kept.as_ref().is_some_and(|gate| gate.parked()) {
+        body["awaitingAnswer"] = json!(true);
+    }
     beat_stop.cancel();
     let _ = beat.await;
     if let Err(e) = api.call("complete", Some(&body)).await {
