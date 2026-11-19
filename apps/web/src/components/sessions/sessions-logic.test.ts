@@ -43,8 +43,8 @@ test("an unknown origin is returned as is", () => {
   expect(originLabel({ origin: "", private: true })).toBe("");
 });
 
-test("a session with no runs reads as No runs", () => {
-  expect(statusLabel(null)).toBe("No runs");
+test("a session with no tasks reads as No tasks", () => {
+  expect(statusLabel(null)).toBe("No tasks");
 });
 
 test("every run status has a label, and queued and offered both read as Queued", () => {

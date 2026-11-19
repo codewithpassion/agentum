@@ -57,7 +57,7 @@ export function ArchiveAgentDialog({
           <AlertDialogTitle>Archive {agentName}?</AlertDialogTitle>
           <AlertDialogDescription>
             The agent is archived and no longer shows in the agent list. Its
-            past sessions stay in the Log.
+            past conversations stay in the Log.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error === undefined ? null : (

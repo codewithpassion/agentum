@@ -83,7 +83,7 @@ export function EmptyThread({ task }: { task: EmptyTaskView }) {
           className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
         >
           <SidebarTrigger className="hidden size-6 md:inline-flex" />
-          <Link to="/desk">Desk</Link> › Thread
+          <Link to="/desk">Desk</Link> › Conversation
         </nav>
         <h1 className="font-heading text-foreground text-xl">{task.title}</h1>
         <p className="text-muted-foreground text-xs">{task.agent.name}</p>

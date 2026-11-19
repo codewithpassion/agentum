@@ -5,7 +5,7 @@ import type { EmptyTaskView, TaskView } from "#/integrations/trpc/types";
 /** A task read by run id always has its run. */
 export const withRun = (view: TaskView | EmptyTaskView): TaskView => {
   if (view.run === null) {
-    throw new Error("The run has no thread yet.");
+    throw new Error("The task has no conversation yet.");
   }
   return view;
 };

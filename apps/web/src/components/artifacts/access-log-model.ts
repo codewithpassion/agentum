@@ -102,7 +102,7 @@ const MEMBER_SURFACES: Record<ArtifactView["surface"], string> = {
   room: "Room",
   share: "Member",
   test: "Member, artifact test",
-  thread: "Member, in thread",
+  thread: "Member, in conversation",
   viewer: "Member, in viewer",
 };
 

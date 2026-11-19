@@ -44,7 +44,7 @@ export const originLabel = (item: {
 export const statusLabel = (status: SessionListItem["status"]): string => {
   switch (status) {
     case null:
-      return "No runs";
+      return "No tasks";
     case "queued":
     case "offered":
       return "Queued";

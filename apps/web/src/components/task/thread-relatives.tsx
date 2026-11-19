@@ -32,7 +32,7 @@ export function ThreadRelatives({
         </p>
       )}
       {subThreads.length === 0 ? null : (
-        <ul aria-label="Sub-threads" className="space-y-0.5">
+        <ul aria-label="Sub-conversations" className="space-y-0.5">
           {subThreads.map((child) => (
             <li className="flex items-center gap-2" key={child.id}>
               <Link

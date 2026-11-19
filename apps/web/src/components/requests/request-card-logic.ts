@@ -103,7 +103,7 @@ export const settledLine = (
     case "expired":
       return "Expired, nobody answered";
     case "cancelled":
-      return "Withdrawn, the run ended";
+      return "Withdrawn, the task ended";
     case "conflict":
       return "Already answered somewhere else";
     default: {

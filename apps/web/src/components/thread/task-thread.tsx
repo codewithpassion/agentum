@@ -135,7 +135,7 @@ export function TaskThread({
       const first = visibleMessages.find((message) => message.runId === run.id);
       if (first) {
         markers.set(first.id, {
-          label: `Run ${index + 1} of ${runs.length}${run.id === task.run.id ? " · this run" : ""} · ${run.createdAt.slice(11, 16)}`,
+          label: `Task ${index + 1} of ${runs.length}${run.id === task.run.id ? " · this task" : ""} · ${run.createdAt.slice(11, 16)}`,
           runId: run.id,
         });
       }
@@ -233,7 +233,7 @@ export function TaskThread({
   const rawError =
     typeof failureEvent?.payload.error === "string"
       ? failureEvent.payload.error
-      : "The run failed.";
+      : "The task failed.";
   const currentTool = latestMessage?.parts.findLast(
     (part) => part.type === "tool-call" && part.ok === null
   );

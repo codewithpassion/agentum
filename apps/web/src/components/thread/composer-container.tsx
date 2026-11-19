@@ -179,7 +179,7 @@ export function ComposerContainer({
       <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
         <span className="font-medium">Reply</span>
         <span className="text-muted-foreground">
-          Sending starts run {nextRun ?? 2} in this thread
+          Sending starts task {nextRun ?? 2} in this conversation
         </span>
       </div>
       <div className="relative">

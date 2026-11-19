@@ -51,11 +51,11 @@ export const startRunBody = (input: {
 });
 
 const REPLY_NOTES: Record<string, string> = {
-  inbox: "This thread belongs to an inbox conversation. Reply in the inbox.",
-  mcp: "An MCP client started this thread. Reply from that client.",
-  routine: "A routine started this thread, so it has no reply here.",
-  slack: "This thread belongs to a Slack conversation. Reply there.",
-  trigger: "A trigger started this thread, so it has no reply here.",
+  inbox: "This conversation came from an inbox. Reply in the inbox.",
+  mcp: "An MCP client started this conversation. Reply from that client.",
+  routine: "A routine started this conversation, so it has no reply here.",
+  slack: "This conversation came from Slack. Reply there.",
+  trigger: "A trigger started this conversation, so it has no reply here.",
 };
 
 /** The body the browser sends to `runs.reply` in a sub-thread: the session by id, never a key. */
@@ -78,7 +78,7 @@ export const replyNote = (origin: string, subThread = false): string | null => {
   if (origin === "ui" || subThread) {
     return null;
   }
-  return REPLY_NOTES[origin] ?? "This thread is read only here.";
+  return REPLY_NOTES[origin] ?? "This conversation is read only here.";
 };
 
 /** The id of the last user message, or null when the thread has none. */

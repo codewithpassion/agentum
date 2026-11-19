@@ -9,7 +9,7 @@ export const ACTION_BUTTON_CLASS = "max-md:size-10 max-md:px-0";
 
 /**
  * Closes the menu on Escape and on a press outside `ref`. It stays out of the
- * way while the New task dialog is open: the dialog renders in a portal, so
+ * way while the New conversation dialog is open: the dialog renders in a portal, so
  * its clicks and its Escape would otherwise read as outside and unmount it.
  */
 function useDismiss(
@@ -42,7 +42,7 @@ function useDismiss(
 }
 
 /**
- * The New button and the small menu under it: New task, New agent. The menu is
+ * The New button and the small menu under it: New conversation, New agent. The menu is
  * a panel anchored under the button rather than a popover, because
  * NewTaskDialog carries its own trigger and a popover would unmount it as the
  * dialog opens.
@@ -93,7 +93,7 @@ export function RailNewMenu({
             agents={agents}
             onOpenChange={setDialogOpen}
             onStarted={handleStarted}
-            triggerLabel="New task"
+            triggerLabel="New conversation"
           />
           <RailLink
             className="flex min-h-10 items-center justify-center rounded-lg px-2.5 text-sm no-underline hover:bg-muted md:min-h-8"

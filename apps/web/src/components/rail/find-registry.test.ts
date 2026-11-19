@@ -15,9 +15,11 @@ const EXCLUDED: Readonly<Record<string, string>> = {
   "/threads/$sessionId": "needs a session id, reached from the thread lists",
 };
 
-const routeFiles = readdirSync(
-  join(import.meta.dir, "../../routes/_app")
-).filter((file) => file.endsWith(".tsx"));
+const ROUTES_DIR = join(import.meta.dir, "../../routes/_app");
+
+const routeFiles = readdirSync(ROUTES_DIR).filter((file) =>
+  file.endsWith(".tsx")
+);
 
 const TSX_EXTENSION = /\.tsx$/;
 
@@ -102,4 +104,42 @@ test("Find enrols a machine under the same name as the page button", () => {
   expect(
     findEntries.filter((entry) => entry.to === "/settings/machines")
   ).toEqual([expect.objectContaining({ label: ENROLL_BUTTON_LABEL })]);
+});
+
+/** Entries whose label is not the heading of a page of its own, with why. */
+const LABEL_EXCEPTIONS: Readonly<Record<string, string>> = {
+  "/artifacts?kind=app": "the Apps filter of the Artifacts page",
+  "/assistant": "redirects to the Desk with the assistant open, no heading",
+  "/desk?view=board": "the board view of the Desk page",
+  "/settings/machines": "named after the page button, see the test below",
+};
+
+function routeFileOf(path: string): string {
+  const file = routeFiles.find((candidate) => routePathOf(candidate) === path);
+  if (file === undefined) {
+    throw new Error(`No route file for ${path}`);
+  }
+  return join(ROUTES_DIR, file);
+}
+
+test("each Find label is the heading its page exports", async () => {
+  const checked = findEntries.filter(
+    (entry) => !(entry.to in LABEL_EXCEPTIONS)
+  );
+  const routes: { PAGE_HEADING?: unknown }[] = await Promise.all(
+    checked.map((entry) => import(routeFileOf(pathOf(entry.to))))
+  );
+  const mismatched = checked.flatMap((entry, index) =>
+    routes[index]?.PAGE_HEADING === entry.label
+      ? []
+      : [`${entry.to}: ${entry.label} is not ${routes[index]?.PAGE_HEADING}`]
+  );
+  expect(mismatched).toEqual([]);
+});
+
+test("every label exception is a registry entry", () => {
+  const targets = new Set(findEntries.map((entry) => entry.to));
+  expect(
+    Object.keys(LABEL_EXCEPTIONS).filter((to) => !targets.has(to))
+  ).toEqual([]);
 });

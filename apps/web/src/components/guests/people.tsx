@@ -149,7 +149,7 @@ export function GuestPeople({ artifactId }: { artifactId: string }) {
                 {grant.expiresAt
                   ? new Date(grant.expiresAt).toLocaleString()
                   : "No expiry"}{" "}
-                · {grant.agentRunsPerDay} runs/day
+                · {grant.agentRunsPerDay} tasks/day
               </p>
               <label>
                 Role

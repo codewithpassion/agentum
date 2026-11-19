@@ -127,7 +127,7 @@ describe("settledLine", () => {
       "Expired, nobody answered"
     );
     expect(settledLine("approval", { status: "cancelled" }, null)).toBe(
-      "Withdrawn, the run ended"
+      "Withdrawn, the task ended"
     );
     expect(settledLine("approval", { status: "conflict" }, null)).toBe(
       "Already answered somewhere else"
