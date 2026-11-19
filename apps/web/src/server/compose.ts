@@ -154,6 +154,7 @@ import {
   createReportedReader,
   createRunRequestReader,
 } from "@repo/services/investigator-report";
+import { createJobsService, type JobsService } from "@repo/services/jobs";
 import { createKeysService, type KeysService } from "@repo/services/keys";
 import {
   createLibraryService,
@@ -503,6 +504,7 @@ export interface Services {
   events: EventsService;
   files: FilesService;
   inbox: InboxService;
+  jobs: JobsService;
   keys: KeysService;
   library: LibraryService;
   libraryAccess: LibraryAccessService;
@@ -1383,6 +1385,7 @@ export const composeWith = ({
       events,
       files,
       inbox,
+      jobs: createJobsService(),
       keys: createKeysService(),
       library,
       libraryAccess,

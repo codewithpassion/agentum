@@ -1,9 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
+import { eq } from "drizzle-orm";
 import { type Composed, composeWith, type Infra } from "../compose.ts";
 import { buildContext } from "./build-context.ts";
 import { appRouter } from "./router.ts";
@@ -157,4 +159,46 @@ test("invite emails an invitation from the caller's workspace, for an admin only
     admin.workspaces.invite({ email: "nope", role: "org:member" })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(invited).toHaveLength(1);
+});
+
+test("setTimezone changes the workspace zone for an admin and refuses a member", async () => {
+  const admin = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
+  expect(
+    await admin.workspaces.setTimezone({ timezone: " Australia/Sydney " })
+  ).toEqual({ timezone: "Australia/Sydney" });
+  const [row] = db
+    .select({ timezone: workspaces.timezone })
+    .from(workspaces)
+    .where(eq(workspaces.clerkOrgId, "org_a"))
+    .all();
+  expect(row?.timezone).toBe("Australia/Sydney");
+
+  const member = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:member",
+    userId: "user_2",
+  });
+  await expect(
+    member.workspaces.setTimezone({ timezone: "Europe/Paris" })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(
+    admin.workspaces.setTimezone({ timezone: "Not/AZone" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  const [after] = db
+    .select({ timezone: workspaces.timezone })
+    .from(workspaces)
+    .where(eq(workspaces.clerkOrgId, "org_a"))
+    .all();
+  expect(after?.timezone).toBe("Australia/Sydney");
+});
+
+test("setTimezone answers 401 when signed out", async () => {
+  const caller = await callerFor({ userId: null });
+  await expect(
+    caller.workspaces.setTimezone({ timezone: "UTC" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

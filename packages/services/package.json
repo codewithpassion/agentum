@@ -71,6 +71,7 @@
     "./inbox/wake-input": "./src/inbox/wake-input.ts",
     "./investigator-report": "./src/investigator-report.ts",
     "./live-artifacts/ticket": "./src/live-artifacts/ticket.ts",
+    "./jobs": "./src/jobs.ts",
     "./keys": "./src/keys.ts",
     "./library": "./src/library.ts",
     "./library-links": "./src/library-links.ts",

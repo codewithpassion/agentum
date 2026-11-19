@@ -6,6 +6,7 @@ import { artifactsRouter } from "./artifacts-router.ts";
 import { automationRouter } from "./automation-router.ts";
 import { catalogRouter } from "./catalog-router.ts";
 import { mergeRouters, router, workspaceProcedure } from "./init.ts";
+import { jobsRouter } from "./jobs-router.ts";
 import { keysRouter } from "./keys-router.ts";
 import { createLiveArtifactsRouter } from "./live-artifacts-router";
 import { liveGuestsRouter } from "./live-guests-router";
@@ -36,6 +37,7 @@ export const appRouter = mergeRouters(
       artifactStorageRouter
     ),
     catalog: catalogRouter,
+    jobs: jobsRouter,
     keys: keysRouter,
     liveArtifacts: createLiveArtifactsRouter((ctx) => {
       if (!ctx.services.liveArtifacts) {

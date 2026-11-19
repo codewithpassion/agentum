@@ -3,9 +3,9 @@ id: KY.2
 title: "Keys read model: everything an agent may use"
 milestone: KY
 size: M
-status: todo
+status: in_progress
 depends_on: [KY.1]
-branch: null
+branch: task/KY.2-keys-read-model
 lane: services-keys
 executor: codex
 ---
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone KY. One call returns what an agent can u
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/KY.2-keys-read-model (v4 controller session).
