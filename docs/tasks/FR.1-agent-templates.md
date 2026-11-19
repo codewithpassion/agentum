@@ -3,7 +3,7 @@ id: FR.1
 title: "Agent templates"
 milestone: FR
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/FR.1-agent-templates
 lane: builder
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone FR. A new workspace should start from so
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/FR.1-agent-templates (v4 controller session).
+- 2026-11-20: merged as cac2bfb6, review clean after 0 fix rounds. check, test and build passed on main.
