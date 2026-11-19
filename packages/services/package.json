@@ -86,6 +86,7 @@
     "./machines/lease": "./src/machines/lease.ts",
     "./machines/runtime": "./src/machines/runtime.ts",
     "./machines/types": "./src/machines/types.ts",
+    "./mail-title-text": "./src/mail-title-text.ts",
     "./mail": "./src/mail/index.ts",
     "./mail/outbound": "./src/mail/outbound.ts",
     "./mail/types": "./src/mail/types.ts",
