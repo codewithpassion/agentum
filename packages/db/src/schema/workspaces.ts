@@ -5,7 +5,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { IDENTITY_PROVIDERS } from "../shared.ts";
+import { DEFAULT_NEVER_REMEMBER_JSON, IDENTITY_PROVIDERS } from "../shared.ts";
 
 /** One row per Clerk org that has access. Made by the add-workspace script or the create-workspace screen. The only table with no workspace_id. */
 export const workspaces = sqliteTable("workspaces", {
@@ -20,6 +20,10 @@ export const workspaces = sqliteTable("workspaces", {
     .notNull()
     .default(true),
   name: text("name").notNull(),
+  // JSON array of topics no agent in the workspace keeps. Agents add their own in `agents.remember`.
+  neverRemember: text("never_remember")
+    .notNull()
+    .default(DEFAULT_NEVER_REMEMBER_JSON),
   // The default timezone for routines.
   timezone: text("timezone").notNull(),
 });
