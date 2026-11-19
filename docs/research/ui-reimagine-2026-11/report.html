@@ -1,0 +1,2635 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>
+      Agentum UI reimagined: research, three proposals and the gap map
+    </title>
+    <style>
+    :root {
+      --ink: #1b2430;
+      --mute: #5d6b7c;
+      --line: #d9dee5;
+      --bg: #f6f4ef;
+      --card: #fff;
+      --navy: #1f3a5f;
+      --orange: #d9772b;
+      --green: #2f8f5b;
+      --red: #c0483c;
+      --amber: #c98a12;
+      --soft: #eef2f7;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font:
+        16px / 1.55 system-ui,
+        -apple-system,
+        "Segoe UI",
+        sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    main {
+      max-width: 1080px;
+      padding: 40px 24px 80px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      line-height: 1.15;
+      color: var(--navy);
+    }
+    h2 {
+      padding-top: 18px;
+      margin: 56px 0 12px;
+      font-size: 24px;
+      color: var(--navy);
+      border-top: 2px solid var(--navy);
+    }
+    h3 {
+      margin: 28px 0 8px;
+      font-size: 18px;
+    }
+    p {
+      max-width: 76ch;
+      margin: 0 0 12px;
+    }
+    ul,
+    ol {
+      max-width: 76ch;
+      padding-left: 22px;
+      margin: 0 0 12px;
+    }
+    li {
+      margin-bottom: 5px;
+    }
+    .lede {
+      font-size: 18px;
+      color: var(--mute);
+    }
+    .meta {
+      margin-bottom: 28px;
+      font-size: 14px;
+      color: var(--mute);
+    }
+    nav {
+      padding: 14px 18px;
+      margin: 20px 0;
+      font-size: 14px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    nav a {
+      margin-right: 14px;
+      color: var(--navy);
+      white-space: nowrap;
+    }
+    table {
+      width: 100%;
+      margin: 12px 0 20px;
+      font-size: 14px;
+      border-collapse: collapse;
+      background: var(--card);
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+      border: 1px solid var(--line);
+    }
+    th {
+      font-weight: 600;
+      background: var(--soft);
+    }
+    .box {
+      padding: 16px 18px;
+      margin: 14px 0;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .box.rec {
+      border-left: 5px solid var(--orange);
+    }
+    .tag {
+      display: inline-block;
+      padding: 1px 8px;
+      font-size: 12px;
+      white-space: nowrap;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 99px;
+    }
+    .have {
+      color: #1d6a41;
+      background: #e3f3ea;
+      border-color: #b7dcc7;
+    }
+    .part {
+      color: #7d5a08;
+      background: #fbf0d6;
+      border-color: #ecd49a;
+    }
+    .gap {
+      color: #8f2f25;
+      background: #f8e1de;
+      border-color: #e9b8b1;
+    }
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 800px) {
+      .grid2 {
+        grid-template-columns: 1fr;
+      }
+    }
+    /* wireframes */
+    .mock {
+      margin: 14px 0 6px;
+      overflow: hidden;
+      font-size: 12px;
+      line-height: 1.35;
+      background: #fff;
+      border: 1px solid #b9c2ce;
+      border-radius: 10px;
+    }
+    .mock .bar {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      padding: 7px 12px;
+      color: #fff;
+      background: var(--navy);
+    }
+    .mock .bar b {
+      font-size: 13px;
+    }
+    .mock .bar span {
+      opacity: 0.8;
+    }
+    .mock .bar .r {
+      display: flex;
+      gap: 10px;
+      margin-left: auto;
+    }
+    .mock .body {
+      padding: 12px;
+      background: #fafbfc;
+    }
+    .cap {
+      margin: 0 0 18px;
+      font-size: 13px;
+      color: var(--mute);
+    }
+    .cols {
+      display: grid;
+      gap: 10px;
+    }
+    .c3 {
+      grid-template-columns: 190px 1fr 220px;
+    }
+    .c2 {
+      grid-template-columns: 1fr 250px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 800px) {
+      .c3,
+      .c2 {
+        grid-template-columns: 1fr;
+      }
+      .cards {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    .card {
+      padding: 10px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .card.dash {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 96px;
+      color: var(--mute);
+      border-style: dashed;
+    }
+    .av {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      margin-right: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      vertical-align: middle;
+      color: #fff;
+      background: var(--navy);
+      border-radius: 50%;
+    }
+    .av.o {
+      background: var(--orange);
+    }
+    .av.g {
+      background: var(--green);
+    }
+    .av.p {
+      background: #6b4fa0;
+    }
+    .av.h {
+      background: #8793a3;
+    }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      margin-right: 5px;
+      background: var(--green);
+      border-radius: 50%;
+    }
+    .dot.w {
+      background: var(--amber);
+    }
+    .dot.n {
+      background: var(--red);
+    }
+    .dot.i {
+      background: #aab3bf;
+    }
+    .sm {
+      font-size: 11px;
+      color: var(--mute);
+    }
+    .pane {
+      padding: 10px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .pane h5 {
+      margin: 0 0 6px;
+      font-size: 11px;
+      color: var(--mute);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .row {
+      padding: 5px 0;
+      overflow-wrap: anywhere;
+      border-bottom: 1px solid #eef0f3;
+    }
+    .row:last-child {
+      border-bottom: 0;
+    }
+    .chip {
+      display: inline-block;
+      padding: 1px 8px;
+      margin: 2px 3px 2px 0;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 99px;
+    }
+    .chip.on {
+      color: #fff;
+      background: var(--navy);
+      border-color: var(--navy);
+    }
+    .chip.warn {
+      background: #fbf0d6;
+      border-color: #ecd49a;
+    }
+    .msg {
+      padding: 7px 9px;
+      margin-bottom: 7px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .msg.me {
+      background: #eef2f7;
+    }
+    .msg.ask {
+      background: #fffaf0;
+      border-color: #ecd49a;
+    }
+    .btn {
+      display: inline-block;
+      padding: 1px 8px;
+      margin-right: 4px;
+      color: var(--navy);
+      background: #fff;
+      border: 1px solid var(--navy);
+      border-radius: 6px;
+    }
+    .btn.f {
+      color: #fff;
+      background: var(--navy);
+    }
+    .mock .tabs span {
+      display: inline-block;
+      padding: 4px 9px;
+      color: var(--mute);
+      border-bottom: 2px solid transparent;
+    }
+    .mock .tabs span.on {
+      font-weight: 600;
+      color: var(--ink);
+      border-color: var(--orange);
+    }
+    .need {
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      background: #fffaf0;
+      border: 1px solid #ecd49a;
+      border-radius: 8px;
+    }
+    .team {
+      margin: 10px 0 6px;
+      font-weight: 600;
+    }
+    .sent {
+      font-size: 13px;
+      line-height: 1.9;
+    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Agentum UI reimagined</h1>
+      <p class="lede">
+        What other agent platforms do, where the field is going, three ways
+        Agentum could look, and what each one needs us to build.
+      </p>
+      <p class="meta">
+        19 November 2026, second version. Research notes sit beside this file in
+        <code>docs/research/ui-reimagine-2026-11/</code>. Nothing here is built
+        and no code changed.
+      </p>
+      <div class="box rec">
+        <p>
+          <b>Changed in this version, after Dom's review.</b>
+          Dom accepted the recommendation, so the Roster is the shell. Three
+          sections are new: <a href="#rooms">team rooms and Slack</a>,
+          <a href="#dan">what the IndyDevDan transcript adds</a>, and
+          <a href="#memory">memory and dreaming</a>. The gap map and build order
+          follow from them. Dom's decisions from the same day are in
+          <a href="#open">the last section</a>.
+        </p>
+      </div>
+
+      <nav>
+        <a href="#short">Short version</a>
+        <a href="#others">Other platforms</a>
+        <a href="#patterns">Patterns and trends</a>
+        <a href="#today">Agentum today</a>
+        <a href="#model">Shared concept</a>
+        <a href="#a">A: Roster</a>
+        <a href="#b">B: Rooms</a>
+        <a href="#c">C: Jobs</a>
+        <a href="#compare">Compare</a>
+        <a href="#rooms">Rooms and Slack</a>
+        <a href="#dan">IndyDevDan</a>
+        <a href="#memory">Memory and dreaming</a>
+        <a href="#gap">Gap map</a>
+        <a href="#build">Build order</a>
+        <a href="#open">Decisions</a>
+      </nav>
+
+      <h2 id="short">The short version</h2>
+      <p>
+        Agentum has more working machinery than any product in this survey.
+        Three runtimes, A2A, a versioned skill store, a library with two-way
+        sync, agent email, Slack apps, computer use with take-over, approvals
+        with escalation. The awkwardness is not missing features. A new admin
+        meets about twenty nouns before the first task finishes, nine pages can
+        only be reached through Find, and one conversation goes by four names.
+      </p>
+      <p>
+        Every platform I looked at answers one question first. Is the thing a
+        person holds in their head the agent, the team, or the work? Agentum
+        today answers "the work" on the home screen and "the agent" everywhere
+        else, and that split is where the UI feels wrong. The three proposals
+        below each pick one answer and follow it through.
+      </p>
+      <div class="box rec">
+        <p>
+          <b>The direction, now agreed.</b>
+          Build proposal A, the Roster, as the shell. It is what you described:
+          cards for agents, talk to them, manage them, group them into teams.
+          Take the team room from B as the page a team opens into, linked to a
+          Slack channel. Take the job sentence from C as the way to set what
+          starts an agent. The survey backs this split. People name agents and
+          track work, so agents should be the places and work should be what
+          shows on them.
+        </p>
+        <p>
+          Two things are absent and matter most. Agents have no memory of their
+          own, and there is no team object. Both are new builds. Memory now has
+          its own design below: rules for what an agent keeps, a nightly dream
+          that cleans it up, and a team dream where agents reconcile with each
+          other. Most of the rest is renaming and regrouping what exists.
+        </p>
+      </div>
+
+      <h2 id="others">What the other platforms do</h2>
+      <p>
+        Full notes with sources are in <code>hermes-agent.md</code>,
+        <code>openclaw.md</code>, <code>manus.md</code> and
+        <code>platform-survey.md</code>. I used none of these products hands-on.
+        Everything comes from their docs, release notes and press.
+      </p>
+      <table>
+        <tr>
+          <th>Product</th>
+          <th>The unit</th>
+          <th>Home screen</th>
+          <th>Teams</th>
+          <th>How it learns</th>
+          <th>Worth taking</th>
+          <th>Weak spot</th>
+        </tr>
+        <tr>
+          <td>
+            <b>Hermes Agent</b><br><span class="sm">v0.23, Nov 2026</span>
+          </td>
+          <td>
+            A profile, shown as a Bot. Each has its own SOUL.md, memory, skills,
+            schedule and bot token
+          </td>
+          <td>
+            Sidebar with Sessions and Bots tabs, chat in the centre, files and
+            terminal on the right
+          </td>
+          <td>
+            Group chats of 2 to 6 bots with a lead bot or a router. Kanban for
+            long work
+          </td>
+          <td>
+            A background review after each turn writes memory and skills. Writes
+            are staged with a diff to approve
+          </td>
+          <td>
+            One permanent chat per bot. Simple and Advanced modes. Subagent
+            strip above the composer with steer and stop. Price shown inside the
+            approval prompt
+          </td>
+          <td>
+            Profile, bot, agent, gateway and workspace overlap. YAML config. No
+            org roles
+          </td>
+        </tr>
+        <tr>
+          <td><b>OpenClaw</b></td>
+          <td>
+            A persistent agent defined by workspace files, reached through chat
+            channels
+          </td>
+          <td>
+            Control UI with an agent roster and a Sessions board sorted by
+            state: Needs input, Stuck, Working, Done
+          </td>
+          <td>
+            Coordinator teams with lane contracts. Subagents panel with
+            view-only transcripts
+          </td>
+          <td>Nightly memory pass shown as a Dream Diary with rollback</td>
+          <td>
+            The state-sorted board. "Involving me" filter. Agent questions as
+            cards above the composer. Desktop viewer with take control and hand
+            back
+          </td>
+          <td>
+            Terminal-first setup. Roles are not a security boundary. No spend
+            cap
+          </td>
+        </tr>
+        <tr>
+          <td><b>Manus</b></td>
+          <td>
+            The task. One chat, one cloud computer, one deliverable. No named
+            agents in the core product
+          </td>
+          <td>A prompt box. Zero setup</td>
+          <td>
+            Wide Research fans a list out to sub-agents. A main task can start
+            parallel tasks
+          </td>
+          <td>
+            "Save this run as a skill". Projects carry a master instruction and
+            knowledge
+          </td>
+          <td>
+            Live "computer" panel beside the chat. Replay by share link.
+            Automations page with test run and a calendar. Browser take-over for
+            logins
+          </td>
+          <td>Nothing persists as a colleague. Credit burn is opaque</td>
+        </tr>
+        <tr>
+          <td>
+            <b>Microsoft</b><br>
+            <span class="sm">Agent 365, Copilot Studio, Entra Agent ID</span>
+          </td>
+          <td>
+            An agent with a directory identity, a mailbox and a human sponsor
+          </td>
+          <td>Teams and Outlook. Admin gets a registry</td>
+          <td>Agents listed in the directory next to people</td>
+          <td>Mostly configured, not learned</td>
+          <td>
+            Every agent has a named human who answers for it. Governance as its
+            own product
+          </td>
+          <td>Built for IT admins. A small company would drown</td>
+        </tr>
+        <tr>
+          <td>
+            <b>Anthropic</b><br>
+            <span class="sm">Cowork, Managed Agents, Claude Code teams</span>
+          </td>
+          <td>The conversation or task, with skills and projects around it</td>
+          <td>Chat, with background tasks listed</td>
+          <td>A lead and 3 to 5 teammates sharing a task list, no nesting</td>
+          <td>Memory reviewed between runs, shown to the user</td>
+          <td>
+            Shallow teams with a lead. Default "ask" on writes. Plain-language
+            run summaries
+          </td>
+          <td>Chat-first is poor at showing parallel background work</td>
+        </tr>
+        <tr>
+          <td><b>Lindy, Relevance AI</b></td>
+          <td>A named AI employee</td>
+          <td>Agent list with describe-to-create and templates</td>
+          <td>Relevance draws a workforce canvas</td>
+          <td>Per-agent memory you can edit</td>
+          <td>
+            Templates gallery. Describe to create. Lindy dropped its flow canvas
+            because business users would not draw flows
+          </td>
+          <td>Canvas builders are precise and unused</td>
+        </tr>
+        <tr>
+          <td><b>Paperclip</b></td>
+          <td>A company of agents</td>
+          <td>Sells an org chart, opens on a task manager</td>
+          <td>Org chart with roles and budgets</td>
+          <td>None notable</td>
+          <td>Per-agent budget with auto-pause</td>
+          <td>The org chart is the demo, not the daily screen</td>
+        </tr>
+        <tr>
+          <td><b>Slack, Linear, Notion</b></td>
+          <td>The agent as a member of the tool you already use</td>
+          <td>No new app</td>
+          <td>Channels and assignments</td>
+          <td>Varies</td>
+          <td>
+            Assign work to an agent the way you assign a person. Linear keeps a
+            human delegate on every agent task
+          </td>
+          <td>No home for memory, files or spend</td>
+        </tr>
+      </table>
+      <p>
+        The two videos add the human side. IndyDevDan argues for a small team of
+        durable specialists with one lead in front and the human near the loop
+        instead of in it. The earlier analysis in
+        <code>docs/analysis/small-agent-teams.md</code>
+        found Agentum already has most of his mechanisms under other names. The
+        Day AI talk, from a former HubSpot product chief, makes the business
+        case. Each agent should be long-lived, hold one job, and sit under a
+        named person who manages it and gets the credit. He rejects the single
+        faceless assistant. He also wants agents to keep standing promises such
+        as "this format every Tuesday", and to show what they did unprompted.
+        For this version I read the full IndyDevDan transcript, and
+        <a href="#dan">its team features and settings</a>
+        have their own section.
+      </p>
+      <p>
+        One note on Manus. Press reports say the Meta deal was unwound in 2026
+        and Manus is independent again. I could not confirm that from Manus
+        itself, so treat it as unverified.
+      </p>
+
+      <h2 id="patterns">
+        Patterns that keep coming back, and where this is going
+      </h2>
+      <div class="grid2">
+        <div class="box">
+          <h3 style="margin-top:0">What works for business users</h3>
+          <ul>
+            <li>
+              The agent as a teammate with a profile. People know how to deal
+              with a colleague.
+            </li>
+            <li>
+              A needs-you queue. It is the most valuable screen in every product
+              that has one. It fails when it floods.
+            </li>
+            <li>
+              Describe to create, then review a draft. This is now the default
+              everywhere.
+            </li>
+            <li>
+              One permanent conversation per agent, with tasks hanging off it.
+            </li>
+            <li>
+              A live view of the agent's computer. It builds trust in week one
+              and is ignored after.
+            </li>
+            <li>Memory and skill changes shown as a diff to approve.</li>
+            <li>Spend shown per agent, with a cap that pauses the agent.</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3 style="margin-top:0">What fails</h3>
+          <ul>
+            <li>
+              Flow canvases. Precise, and business users will not draw them.
+              Agentum's Map is this.
+            </li>
+            <li>
+              Org charts as the daily screen. Good in a demo. You were right to
+              rule it out on 26 October.
+            </li>
+            <li>
+              Chat as the only screen. Easy to start, blind to background work.
+            </li>
+            <li>
+              Living only in Slack or Teams. No place for files, memory,
+              settings or cost.
+            </li>
+            <li>
+              Config in files. Hermes and OpenClaw both lose non-technical users
+              at YAML.
+            </li>
+          </ul>
+        </div>
+      </div>
+      <h3>Where it is heading in the next year or two</h3>
+      <ol>
+        <li>
+          Agents get their own identity: a name, an email address, credentials
+          that belong to them. Agentum already does the mailbox and the agent
+          credential mode.
+        </li>
+        <li>
+          Every agent has a named human owner. Agentum has owner and backup.
+        </li>
+        <li>
+          People become managers of a few agents each. The home screen becomes a
+          management screen.
+        </li>
+        <li>
+          Teams stay shallow. A lead and three to five members, no nesting.
+        </li>
+        <li>
+          Agents improve between runs, and a person reviews what changed. This
+          is the largest gap in Agentum.
+        </li>
+        <li>Work starts from schedules and events more than from prompts.</li>
+        <li>
+          Each agent keeps a persistent home with files, instructions and
+          memory. Agentum has the files part.
+        </li>
+        <li>
+          A2A and MCP connect agents across vendors. Agentum is ahead here.
+        </li>
+        <li>
+          Governance and audit turn into selling points. Agentum has the event
+          log.
+        </li>
+        <li>
+          Billing moves to budgets with caps. Agentum shows cost per run and per
+          agent week and stops there.
+        </li>
+      </ol>
+
+      <h2 id="today">Agentum today, and why it feels awkward</h2>
+      <p>
+        The full inventory is in <code>agentum-inventory.md</code>. The
+        capability list is long and most of it is on production. The trouble is
+        in how it is arranged.
+      </p>
+      <table>
+        <tr>
+          <th>Friction</th>
+          <th>What happens</th>
+        </tr>
+        <tr>
+          <td>Hidden pages</td>
+          <td>
+            Conversations, Log, Questions, Threads, Map, Schedules, Web
+            triggers, Skills and all artifacts exist only in Find. You have to
+            know a page exists to search for it.
+          </td>
+        </tr>
+        <tr>
+          <td>Four names for one thing</td>
+          <td>
+            Task, run, session and thread all mean one conversation with an
+            agent. Find calls the forum "Threads" while the URL for an agent
+            conversation is <code>/threads</code>.
+          </td>
+        </tr>
+        <tr>
+          <td>Three places that ask you something</td>
+          <td>Needs you, Q&amp;A and Inbox.</td>
+        </tr>
+        <tr>
+          <td>Connecting a tool crosses four places</td>
+          <td>
+            Settings Connectors, Settings Secrets, the Tools sheet and the
+            Channels sheet. Non-admins cannot see Settings, where their own
+            credential lives.
+          </td>
+        </tr>
+        <tr>
+          <td>Starting work is split five ways</td>
+          <td>
+            Routines, Triggers, the Starts on sheet, the Map, and mail and Slack
+            under Channels.
+          </td>
+        </tr>
+        <tr>
+          <td>A dense profile</td>
+          <td>
+            Nine rows, five cards and six sheets on one page, with no rule for
+            what goes where.
+          </td>
+        </tr>
+        <tr>
+          <td>Two homes</td>
+          <td>
+            The desk pane and the Board, with global actions spread over a top
+            bar and a rail.
+          </td>
+        </tr>
+        <tr>
+          <td>Plumbing words</td>
+          <td>
+            Connector, secret, proxy, runtime, isolate, trigger, routine,
+            session, artifact, machine, manifest, MCP.
+          </td>
+        </tr>
+        <tr>
+          <td>A key wall on day one</td>
+          <td>A new workspace needs an Anthropic key before anything runs.</td>
+        </tr>
+      </table>
+      <p>
+        The desk was built work-first on purpose. I think that choice was sound
+        for approvals and wrong as the whole home. When you open the app you see
+        a queue, and the agents you set up are a footer tab away. You described
+        the opposite picture: agents in front, work visible on them.
+      </p>
+
+      <h2 id="model">One concept model under all three proposals</h2>
+      <p>
+        All three proposals share the same seven nouns. The proposals differ in
+        which noun is the front door. Cutting from twenty nouns to seven is most
+        of the fix, whichever layout you pick.
+      </p>
+      <table>
+        <tr>
+          <th>Noun</th>
+          <th>What it means to the user</th>
+          <th>What it absorbs from today</th>
+        </tr>
+        <tr>
+          <td><b>Agent</b></td>
+          <td>
+            A named colleague with one job, an owner, a face and an address
+          </td>
+          <td>
+            Agent, voice, owner and backup, runtime, model, email address, Slack
+            app
+          </td>
+        </tr>
+        <tr>
+          <td><b>Team</b></td>
+          <td>
+            A few agents and people with a lead, a shared room and a shared
+            folder
+          </td>
+          <td>
+            Hands to, forum inbox, A2A connections for outside members. The team
+            object itself is new
+          </td>
+        </tr>
+        <tr>
+          <td><b>Conversation</b></td>
+          <td>
+            Talking with an agent or a team. Work it does shows inside as tasks
+          </td>
+          <td>Task, run, session, thread, inbox thread, Q&amp;A question</td>
+        </tr>
+        <tr>
+          <td><b>Job</b></td>
+          <td>A standing promise. "Every Tuesday, send the pipeline report"</td>
+          <td>Routines, web triggers, mail and Slack starts, the Map</td>
+        </tr>
+        <tr>
+          <td><b>Keys</b></td>
+          <td>What an agent may use and sign in to</td>
+          <td>
+            Connectors, credentials and their modes, secrets, API keys, A2A
+            access keys, ask-before rules
+          </td>
+        </tr>
+        <tr>
+          <td><b>Knows</b></td>
+          <td>
+            What an agent has learned and how it does things. Editable, with
+            history
+          </td>
+          <td>Skills, wiki, instructions. Memory is new</td>
+        </tr>
+        <tr>
+          <td><b>Files</b></td>
+          <td>The agent's home folder, team folders, and things agents made</td>
+          <td>Library, run files, artifacts, apps, live documents and decks</td>
+        </tr>
+      </table>
+      <p>
+        Needs you stays as it is. It is not a noun the user has to learn. It is
+        the place where agents reach them.
+      </p>
+      <p>
+        Where an agent runs drops out of the daily vocabulary. The user picks
+        "Cloud", "Anthropic cloud" or "My computer" once, in plain words, and
+        isolate, VM and Pi Durable stay under Advanced. I use "Keys" because you
+        said agents should have keys. It also maps well to how a business owner
+        thinks about a new hire: what do I give them the keys to?
+      </p>
+
+      <h2 id="a">Proposal A: the Roster</h2>
+      <p>
+        <b>The agent is the front door.</b>
+        Home is a wall of agent cards grouped by team. Each card shows what the
+        agent is doing now, not how it is configured. Click a card and you are
+        in that agent's room, already talking to it. This is the closest to what
+        you described, and it borrows from Hermes Bot Mode, Lindy and the
+        OpenClaw roster.
+      </p>
+
+      <div class="mock">
+        <div class="bar">
+          <b>Agentum</b><span>Harbour Edge</span>
+          <div class="r">
+            <span>Find</span><span>Files</span><span>Spend</span
+            ><span>+ New agent</span>
+          </div>
+        </div>
+        <div class="body">
+          <div class="need">
+            <b>3 things need you</b>
+            &nbsp;
+            <span class="chip warn">Ledger wants to pay invoice 4471</span
+            ><span class="chip warn">Scout asks: which region first?</span
+            ><span class="chip warn">Quill learned 2 things, review</span>
+          </div>
+          <div class="team">
+            Sales team <span class="sm">lead Scout, 3 agents, 2 people</span>
+            <span class="btn">Open room</span>
+          </div>
+          <div class="cards">
+            <div class="card">
+              <span class="av">Sc</span><b>Scout</b>
+              <span class="tag">lead</span>
+              <div class="sm">Finds and qualifies leads</div>
+              <p style="margin:8px 0 4px">
+                <span class="dot"></span>Working on the Tuesday pipeline report
+              </p>
+              <div class="sm">Owner Dom. $4.10 this week</div>
+            </div>
+            <div class="card">
+              <span class="av o">Qu</span><b>Quill</b>
+              <div class="sm">Drafts outreach mail</div>
+              <p style="margin:8px 0 4px">
+                <span class="dot w"></span>Waiting for you, 2 drafts
+              </p>
+              <div class="sm">Owner Mia. $1.85 this week</div>
+            </div>
+            <div class="card">
+              <span class="av g">Ta</span><b>Tally</b>
+              <div class="sm">Keeps the CRM clean</div>
+              <p style="margin:8px 0 4px">
+                <span class="dot i"></span>Idle. Next run today 17:00
+              </p>
+              <div class="sm">Owner Dom. $0.60 this week</div>
+            </div>
+            <div class="card dash">+ Add to team</div>
+          </div>
+          <div class="team">
+            Back office <span class="sm">lead Ledger, 2 agents, 1 person</span>
+            <span class="btn">Open room</span>
+          </div>
+          <div class="cards">
+            <div class="card">
+              <span class="av p">Le</span><b>Ledger</b>
+              <span class="tag">lead</span>
+              <div class="sm">Files invoices and chases payments</div>
+              <p style="margin:8px 0 4px">
+                <span class="dot n"></span>Stopped. Needs approval to pay
+              </p>
+              <div class="sm">Owner Dom. $2.30 this week</div>
+            </div>
+            <div class="card">
+              <span class="av h">Ar</span><b>Archie</b>
+              <div class="sm">Keeps the shared drive tidy</div>
+              <p style="margin:8px 0 4px">
+                <span class="dot"></span>Sorting 14 new files
+              </p>
+              <div class="sm">Owner Mia. $0.40 this week</div>
+            </div>
+            <div class="card dash">+ New agent</div>
+            <div class="card dash">Start from a template</div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">
+        Home. Cards sort themselves so that anything waiting on you comes first.
+        The strip at the top is the current Needs you rail, flattened.
+      </p>
+
+      <div class="mock">
+        <div class="bar">
+          <b>Agentum</b><span>Sales team / Scout</span>
+          <div class="r">
+            <span>Find</span><span>Files</span><span>Spend</span>
+          </div>
+        </div>
+        <div class="body">
+          <div class="cols c3">
+            <div class="pane">
+              <span class="av">Sc</span><b>Scout</b>
+              <span class="tag">lead</span>
+              <p class="sm" style="margin:6px 0">
+                Finds and qualifies leads for the sales team.
+              </p>
+              <div class="row">Owner <b>Dom</b>, backup Mia</div>
+              <div class="row">scout@harbouredge.agentumbot.io</div>
+              <div class="row">Runs in Cloud</div>
+              <div class="row">Asks before mail to outside people</div>
+              <div class="row">$4.10 of $20 this week</div>
+              <h5 style="margin-top:10px">Conversations</h5>
+              <div class="row"><b>Main</b></div>
+              <div class="row">Pipeline report format</div>
+              <div class="row">Trade show list</div>
+            </div>
+            <div class="pane">
+              <div class="tabs">
+                <span class="on">Chat</span><span>Work</span><span>Files</span
+                ><span>Knows</span><span>Keys</span><span>Jobs</span
+                ><span>Settings</span>
+              </div>
+              <div style="margin-top:8px">
+                <div class="msg me">
+                  Add the Queensland councils to this week's list.
+                </div>
+                <div class="msg">
+                  <b>Scout</b>
+                  Added 31 councils. I gave the contact lookup to two helpers so
+                  it finishes before the report.
+                  <div class="sm">
+                    Task: council contacts. 2 helpers running.
+                  </div>
+                </div>
+                <div class="msg ask">
+                  <b>Scout asks</b>
+                  Which region should I qualify first?
+                  <span class="btn">North</span
+                  ><span class="btn">South East</span
+                  ><span class="btn">You choose</span>
+                </div>
+                <div class="msg sm">
+                  Helpers: <span class="chip">lookup A, 12 of 16</span
+                  ><span class="chip">lookup B, 9 of 15</span>
+                  <span class="btn">Steer</span><span class="btn">Stop</span>
+                </div>
+                <div class="msg" style="color:#8793a3">
+                  Message Scout, or hold Ctrl+D to dictate
+                </div>
+              </div>
+            </div>
+            <div class="pane">
+              <h5>Right now</h5>
+              <div class="row">
+                <span class="dot"></span>Writing pipeline-report.md
+              </div>
+              <div class="row">
+                Screen <span class="btn">Watch</span
+                ><span class="btn">Take over</span>
+              </div>
+              <h5 style="margin-top:10px">Made today</h5>
+              <div class="row">councils-qld.csv</div>
+              <div class="row">Pipeline dashboard, v7</div>
+              <h5 style="margin-top:10px">Learned this week</h5>
+              <div class="row">
+                "Dom wants councils split by region"
+                <span class="btn">Edit</span>
+              </div>
+              <div class="row">
+                New skill: council lookup <span class="btn">Review</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">
+        An agent's room. The tabs are the seven nouns. Chat opens on the one
+        permanent conversation. Config never sits between you and the agent.
+      </p>
+
+      <h3>How the pieces fit</h3>
+      <ul>
+        <li>
+          <b>Create.</b>
+          "New agent" keeps the describe, draft, dry run flow. Add a templates
+          row and a team starter that creates a lead with three specialists.
+        </li>
+        <li>
+          <b>Teams.</b>
+          A team is a labelled group on home with a lead badge. "Open room"
+          opens the team conversation from proposal B. Dragging a card into a
+          group adds the agent.
+        </li>
+        <li>
+          <b>Keys tab.</b>
+          One page per agent. Apps it can use, whose sign-in each uses, its own
+          email and Slack identity, secrets, outside agents it may talk to, and
+          what it must ask before doing. The workspace-wide connector registry
+          moves behind this.
+        </li>
+        <li>
+          <b>Knows tab.</b>
+          Instructions, skills, wiki pages it reads, and its memory, each with
+          history. "Learned this week" is the review queue.
+        </li>
+        <li>
+          <b>Jobs tab.</b>
+          Everything that starts this agent without you, written as sentences.
+          See proposal C.
+        </li>
+        <li>
+          <b>Subagents.</b>
+          Shown as helpers on the task that started them, with steer and stop.
+          They never get a card.
+        </li>
+      </ul>
+      <h3>What I like and what worries me</h3>
+      <p>
+        It is the easiest of the three to explain to a business owner. "These
+        are your agents. Click one and talk to it." The risk is that a card wall
+        turns into a dashboard nobody reads once there are twenty agents, so
+        cards must lead with live work and waiting items, and teams must
+        collapse. It also makes cross-agent work a second-class view. That is
+        why the top strip and the team room matter.
+      </p>
+
+      <h2 id="b">Proposal B: Rooms</h2>
+      <p>
+        <b>The team is the front door.</b>
+        The app looks like a messaging tool. The left column lists team rooms
+        and direct chats with agents. You talk to a room, the lead agent picks
+        who does the work, and the reply comes back in the thread. Agents and
+        people are both members. This borrows from Hermes group chats, Slack and
+        IndyDevDan's lead-and-specialists shape.
+      </p>
+
+      <div class="mock">
+        <div class="bar">
+          <b>Agentum</b><span>Harbour Edge</span>
+          <div class="r">
+            <span>Find</span><span>Files</span><span>+ New</span>
+          </div>
+        </div>
+        <div class="body">
+          <div class="cols c3">
+            <div class="pane">
+              <h5>Needs you <span class="tag part">3</span></h5>
+              <div class="row">Pay invoice 4471</div>
+              <div class="row">Which region first?</div>
+              <h5 style="margin-top:10px">Teams</h5>
+              <div class="row">
+                <b>Sales</b> <span class="tag part">1</span>
+              </div>
+              <div class="row">Back office <span class="tag part">1</span></div>
+              <div class="row sm">+ New team</div>
+              <h5 style="margin-top:10px">Agents</h5>
+              <div class="row"><span class="dot"></span>Scout</div>
+              <div class="row"><span class="dot w"></span>Quill</div>
+              <div class="row"><span class="dot i"></span>Tally</div>
+              <div class="row"><span class="dot n"></span>Ledger</div>
+              <h5 style="margin-top:10px">People</h5>
+              <div class="row">Dom, Mia</div>
+            </div>
+            <div class="pane">
+              <b>Sales</b>
+              <span class="sm">Scout leads. Quill, Tally, Dom, Mia</span>
+              <div style="margin-top:8px">
+                <div class="msg me">
+                  <b>Dom</b>
+                  We have a booth at the Brisbane trade show in March. Get us
+                  ready.
+                </div>
+                <div class="msg">
+                  <b>Scout</b> <span class="tag">lead</span> Plan: I build the
+                  attendee list. Quill drafts the invite mail. Tally tags
+                  existing contacts. First pass by Thursday.
+                  <div class="sm">
+                    Assigned to Scout, Quill, Tally. 3 tasks.
+                  </div>
+                </div>
+                <div class="msg">
+                  <b>Tally</b>
+                  Tagged 212 contacts as Brisbane region.
+                  <span class="chip">brisbane-contacts.csv</span>
+                </div>
+                <div class="msg ask">
+                  <b>Quill</b>
+                  wants to send 40 invites to outside addresses.
+                  <span class="btn f">Review drafts</span
+                  ><span class="btn">Allow</span><span class="btn">Deny</span>
+                </div>
+                <div class="msg" style="color:#8793a3">
+                  Message the team. Use @ to pick one agent.
+                </div>
+              </div>
+            </div>
+            <div class="pane">
+              <h5>Team</h5>
+              <div class="row">
+                <span class="av">Sc</span>Scout <span class="tag">lead</span>
+              </div>
+              <div class="row"><span class="av o">Qu</span>Quill</div>
+              <div class="row"><span class="av g">Ta</span>Tally</div>
+              <h5 style="margin-top:10px">Team rules</h5>
+              <div class="row sm">
+                Short replies. Scout assigns. Ask before any outside mail.
+                <span class="btn">Edit</span>
+              </div>
+              <h5 style="margin-top:10px">Shared folder</h5>
+              <div class="row">trade-show/ <span class="sm">6 files</span></div>
+              <h5 style="margin-top:10px">Standing jobs</h5>
+              <div class="row">Tue 9:00 pipeline report</div>
+              <h5 style="margin-top:10px">Board</h5>
+              <div class="row">2 working, 1 waiting, 5 done</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">
+        A team room. Clicking a member opens the same agent profile as proposal
+        A, as a side panel.
+      </p>
+
+      <h3>How the pieces fit</h3>
+      <ul>
+        <li>
+          <b>Create.</b>
+          "New team" asks what the team is for and drafts a lead and members. A
+          single agent is a team of one and shows under Agents.
+        </li>
+        <li>
+          <b>The lead.</b>
+          The lead reads every message in the room and assigns. It can propose
+          changes to a member's instructions or model, and the owner approves.
+          It never writes those changes itself.
+        </li>
+        <li>
+          <b>Team rules.</b>
+          The fixed lines in <code>inbox/wake-input.ts</code> become an editable
+          setting. Quoted posts stay outside the editable part, as the 18
+          November analysis asked.
+        </li>
+        <li>
+          <b>Outside members.</b>
+          An A2A connection shows as a guest member of a room. A Hermes agent
+          can sit in the Sales room.
+        </li>
+        <li>
+          <b>Slack.</b>
+          A room can mirror to a Slack channel, so the same conversation runs in
+          both places.
+        </li>
+      </ul>
+      <h3>What I like and what worries me</h3>
+      <p>
+        It reuses the most. The forum inbox, mentions, the loop guard and
+        hands-to are already a room system without a front end to match.
+        Everyone knows how to use a chat app. My worry is that it buries the
+        agent. Config, memory, keys and spend end up two clicks behind a member
+        list, and a person with one agent gets a chat app with one contact. It
+        also invites noise. Three agents posting status into a room becomes a
+        channel people mute.
+      </p>
+
+      <h2 id="c">Proposal C: Jobs</h2>
+      <p>
+        <b>The work is the front door.</b>
+        Home lists the standing jobs the business has handed over, each as a
+        sentence, and a daily brief of what got done. Agents are who does the
+        job. This follows Manus Automations and the Day AI talk's standing
+        promises, and it grows from the current desk.
+      </p>
+
+      <div class="mock">
+        <div class="bar">
+          <b>Agentum</b><span>Harbour Edge</span>
+          <div class="r">
+            <span>Find</span><span>Agents</span><span>Files</span
+            ><span>+ New job</span>
+          </div>
+        </div>
+        <div class="body">
+          <div class="cols c2">
+            <div>
+              <div class="pane" style="margin-bottom:10px">
+                <h5>Today's brief</h5>
+                <div class="row">
+                  <span class="av">Sc</span>Scout sent the pipeline report to
+                  the sales room. 4 deals moved, 1 at risk.
+                </div>
+                <div class="row">
+                  <span class="av p">Le</span>Ledger filed 9 invoices. One needs
+                  your approval to pay.
+                </div>
+                <div class="row">
+                  <span class="av h">Ar</span>Archie sorted 14 files and found 2
+                  duplicates.
+                </div>
+              </div>
+              <div class="pane">
+                <h5>Jobs</h5>
+                <div class="row sent">
+                  <span class="dot"></span
+                  ><span class="chip">Every Tuesday 9:00</span>
+                  <span class="chip on">Scout</span>
+                  sends the pipeline report to
+                  <span class="chip">Sales room</span>
+                  <span class="sm">last run today, on time</span>
+                </div>
+                <div class="row sent">
+                  <span class="dot n"></span
+                  ><span class="chip">When mail arrives at billing@</span>
+                  <span class="chip on">Ledger</span>
+                  files the invoice and
+                  <span class="chip warn">asks before paying</span>
+                  <span class="sm">1 waiting on you</span>
+                </div>
+                <div class="row sent">
+                  <span class="dot"></span
+                  ><span class="chip">When a lead fills the web form</span>
+                  <span class="chip on">Sales team</span>
+                  qualifies it and drafts a reply
+                  <span class="sm">12 this week</span>
+                </div>
+                <div class="row sent">
+                  <span class="dot i"></span
+                  ><span class="chip">Every night</span>
+                  <span class="chip on">Archie</span>
+                  tidies the shared drive
+                  <span class="sm">next 23:00</span>
+                </div>
+                <div class="row sent sm">
+                  + Describe a new job. "Every Friday, summarise support tickets
+                  for me."
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="pane" style="margin-bottom:10px">
+                <h5>Needs you <span class="tag part">3</span></h5>
+                <div class="row">
+                  Pay invoice 4471, $1,240 <span class="btn f">Open</span>
+                </div>
+                <div class="row">Scout asks which region first</div>
+                <div class="row">Quill learned 2 things</div>
+              </div>
+              <div class="pane">
+                <h5>One-off</h5>
+                <div class="row">Ask an agent to do something now</div>
+                <div class="row sm">
+                  Trade show prep, Sales team, 3 tasks running
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">
+        Home. A job is one sentence made of chips: when, who, does what, with
+        which keys, asks before what, delivers where.
+      </p>
+
+      <h3>How the pieces fit</h3>
+      <ul>
+        <li>
+          <b>Create.</b>
+          You describe an outcome. The builder drafts the job sentence and picks
+          or creates the agent. The user may never open an agent page.
+        </li>
+        <li>
+          <b>Job page.</b>
+          The sentence, a test run, the run history with results, and what the
+          agent learned doing it.
+        </li>
+        <li>
+          <b>Agents and teams.</b>
+          A secondary page with the card wall from proposal A.
+        </li>
+        <li>
+          <b>One-off work.</b>
+          A prompt box in the Manus style that routes to an agent or team.
+        </li>
+      </ul>
+      <h3>What I like and what worries me</h3>
+      <p>
+        It speaks the language of an owner who wants results and does not care
+        how many agents there are. The brief is the best answer in this report
+        to "what did they do while I was away?". It also folds routines,
+        triggers, mail starts and the Map into one idea. But it is the furthest
+        from what you described. Agents fade into the background, talking to one
+        becomes a side path, and teams have no natural place. A job list also
+        looks empty and dull on day one, when a card with a face does not.
+      </p>
+
+      <h2 id="compare">The three side by side</h2>
+      <table>
+        <tr>
+          <th></th>
+          <th>A: Roster</th>
+          <th>B: Rooms</th>
+          <th>C: Jobs</th>
+        </tr>
+        <tr>
+          <td>Front door</td>
+          <td>The agent</td>
+          <td>The team</td>
+          <td>The work</td>
+        </tr>
+        <tr>
+          <td>Best for</td>
+          <td>A person managing 3 to 15 agents</td>
+          <td>A company that works in chat and wants agents in the flow</td>
+          <td>An owner who wants outcomes and little contact</td>
+        </tr>
+        <tr>
+          <td>Talking to an agent</td>
+          <td>One click from home</td>
+          <td>The whole app</td>
+          <td>A side path</td>
+        </tr>
+        <tr>
+          <td>Teams</td>
+          <td>Groups of cards with a lead, room on demand</td>
+          <td>First-class</td>
+          <td>Weak. A team is a name in a sentence</td>
+        </tr>
+        <tr>
+          <td>Self-improvement on show</td>
+          <td>Strong. "Learned this week" on every agent</td>
+          <td>Medium. Lives on the member profile</td>
+          <td>Medium. Lives on the job page</td>
+        </tr>
+        <tr>
+          <td>Background work on show</td>
+          <td>Card status line</td>
+          <td>Room posts, risk of noise</td>
+          <td>Strong. Brief and job status</td>
+        </tr>
+        <tr>
+          <td>Day one with one agent</td>
+          <td>One card and a chat. Fine</td>
+          <td>A chat app with one contact. Thin</td>
+          <td>One sentence. Thin</td>
+        </tr>
+        <tr>
+          <td>Reuse of current code</td>
+          <td>Agent list, profile, thread page, rail sources</td>
+          <td>Inbox, mentions, loop guard, hands-to, thread page</td>
+          <td>Desk, Board, routines, triggers, builder</td>
+        </tr>
+        <tr>
+          <td>Biggest new build</td>
+          <td>Card status service, Keys and Knows tabs</td>
+          <td>Team object, lead routing, room UI</td>
+          <td>Job object over triggers, the brief</td>
+        </tr>
+        <tr>
+          <td>Fits your description</td>
+          <td>Closest</td>
+          <td>Partly, on teams</td>
+          <td>Least</td>
+        </tr>
+      </table>
+
+      <h2 id="rooms">Team rooms and Slack</h2>
+      <p>
+        Yes, your reading is right. A team room and a Slack channel are one
+        conversation seen in two places. Agentum keeps the record and Slack is a
+        second window onto it. You can talk to the team from either side.
+      </p>
+      <table>
+        <tr>
+          <th>In Agentum</th>
+          <th>In Slack</th>
+          <th>State today</th>
+        </tr>
+        <tr>
+          <td>Team room</td>
+          <td>One channel, linked on the team page</td>
+          <td><span class="tag gap">Gap</span> No team, so no link</td>
+        </tr>
+        <tr>
+          <td>Topic inside the room</td>
+          <td>A thread in the channel</td>
+          <td>
+            <span class="tag part">Partial</span>
+            One session per Slack thread exists, per agent
+          </td>
+        </tr>
+        <tr>
+          <td>Agent member</td>
+          <td>
+            That agent's own Slack app. <code>@Scout</code> works and Scout
+            posts under its own name
+          </td>
+          <td><span class="tag have">Have</span> One app per agent</td>
+        </tr>
+        <tr>
+          <td>Person member</td>
+          <td>Their Slack user</td>
+          <td>
+            <span class="tag have">Have</span> <code>identity_links</code>
+          </td>
+        </tr>
+        <tr>
+          <td>Approval or question</td>
+          <td>A card with buttons in the thread</td>
+          <td><span class="tag have">Have</span></td>
+        </tr>
+        <tr>
+          <td>Decision queue from the lead</td>
+          <td>One message listing the questions, each with buttons</td>
+          <td><span class="tag gap">Gap</span></td>
+        </tr>
+        <tr>
+          <td>Files and things agents made</td>
+          <td>File upload or a link back to Agentum</td>
+          <td><span class="tag have">Have</span> for files</td>
+        </tr>
+        <tr>
+          <td>Dream diary for the team</td>
+          <td>A morning post from the lead</td>
+          <td><span class="tag gap">Gap</span></td>
+        </tr>
+      </table>
+      <h3>What has to be built</h3>
+      <ul>
+        <li>
+          <b>The link.</b>
+          One channel per team, set on the team page. Each member's app joins
+          the channel.
+        </li>
+        <li>
+          <b>Mirroring both ways.</b>
+          A Slack message shows in the room. A room post shows in the channel
+          under the agent's name. A person who types in Agentum appears in Slack
+          through the lead's app, marked with their name.
+        </li>
+        <li>
+          <b>One copy per message.</b>
+          Every agent app already receives every message in a channel it sits
+          in. With four members, four apps hear the same message, so the room
+          records it once by channel and timestamp.
+        </li>
+        <li>
+          <b>Unmentioned messages go to the lead.</b>
+          Today an agent acts on a mention, a direct message, or a reply in a
+          thread it started. In a team channel, a message that names nobody goes
+          to the lead, which answers or assigns. A team setting turns this off
+          so the lead only hears mentions.
+        </li>
+        <li>
+          <b>One loop guard.</b>
+          Posts from Slack and from the room count together, so agents cannot
+          chat in circles through the other side.
+        </li>
+      </ul>
+      <h3>Limits</h3>
+      <p>
+        Slack has no place for memory, keys, files or spend, so those stay in
+        Agentum. That is the split the survey found everywhere: talk in the
+        channel, manage in the app.
+      </p>
+      <p>
+        Setup is the weak point. Each agent's Slack app is a six-step manifest
+        paste today, so a team of four means four pastes. Decided on 19
+        November: one Slack app per agent stays, so <code>@Scout</code> keeps
+        working, and one Slack channel maps to exactly one team room. The
+        install flow should get shorter.
+      </p>
+
+      <h2 id="dan">What the IndyDevDan transcript adds</h2>
+      <p>
+        For the first version I used the 18 November analysis only. I have now
+        read the whole transcript. The analysis compares his mechanisms with
+        Agentum's code. The transcript adds what his product shows on screen and
+        which settings he exposes. Notes with times are in
+        <code>indydevdan-transcript-notes.md</code>.
+      </p>
+      <table>
+        <tr>
+          <th>What he shows</th>
+          <th>Agentum today</th>
+          <th>In the redesign</th>
+        </tr>
+        <tr>
+          <td>
+            <b>Team selector.</b>
+            A hotkey lists four agents. Picking one switches to its chat, its
+            pages and its settings
+          </td>
+          <td>Agents table, then a profile</td>
+          <td>The Roster home is this, with live status on each card</td>
+        </tr>
+        <tr>
+          <td>
+            <b>Lead agent.</b>
+            One agent you talk to. Its only job is managing the team, and it
+            never does the work
+          </td>
+          <td>None</td>
+          <td>
+            A lead role per team. It gets team tools only. That is a tool
+            restriction, not a persona
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <b>Chat rooms per piece of work.</b>
+            The lead opens a conversation for each job, sometimes with only one
+            member in it
+          </td>
+          <td>Forum threads, started by people</td>
+          <td>
+            Topics inside the team room. The lead can open one and pick who is
+            in it. A topic is a Slack thread
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <b>Everyone reads, the mentioned reply.</b>
+            Each agent sees every message and stays quiet unless named
+          </td>
+          <td>Only mentioned agents wake, and they see the last ten posts</td>
+          <td>
+            Keep waking only the mentioned. Give them everything since they last
+            spoke
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <b>Conversation prompt.</b>
+            An editable setting he calls the social contract. Short messages,
+            speak from your lane, stay quiet when others are named
+          </td>
+          <td>Three fixed lines in source</td>
+          <td>
+            Team rules on the team page, editable, with quoted posts kept out of
+            the editable part
+          </td>
+        </tr>
+        <tr>
+          <td><b>Your name and handle.</b> How the team addresses you</td>
+          <td>Slack identity links</td>
+          <td>
+            A small profile setting that makes mentions of people work in rooms
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <b>Lead-run discussion.</b>
+            "Drive a three round discussion." Each member posts once per round
+          </td>
+          <td>The loop guard stops wakes after three agent posts in a row</td>
+          <td>
+            A bounded discussion the lead can start, with a round count the
+            guard allows
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <b>Team ask.</b>
+            The lead queues several decisions as one questionnaire with options.
+            He can dismiss it and ask for it again
+          </td>
+          <td>Single questions with choices</td>
+          <td>A decision queue card in Needs you and in Slack</td>
+        </tr>
+        <tr>
+          <td>
+            <b>Per-agent model, thinking level and context size.</b>
+            Members picked their own. One chose a cheaper model
+          </td>
+          <td>One model string per agent</td>
+          <td>
+            Three plain choices per agent: how capable, how hard it thinks, how
+            much it holds in mind
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <b>Tools as switches.</b>
+            Coding tools, sub-agents, durable jobs, team control and others,
+            toggled per agent
+          </td>
+          <td>Tool rules and connectors in sheets</td>
+          <td>The Keys tab</td>
+        </tr>
+        <tr>
+          <td>
+            <b>Lead changes members.</b>
+            The lead applies new settings to members directly, and they rename
+            themselves
+          </td>
+          <td>Refused by design</td>
+          <td>
+            The lead proposes, the owner approves. I would not copy direct
+            writes
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <b>Reply tags.</b>
+            Each reply links to the thing the agent made
+          </td>
+          <td>Run id stored on a post and not shown</td>
+          <td>Every room post links to its file, artifact and task</td>
+        </tr>
+        <tr>
+          <td>
+            <b>One-line tool summaries.</b>
+            Traces fold to one line per tool call
+          </td>
+          <td>
+            The join exists in <code>tasks/receipt.ts</code>. The action log
+            still lists raw entries
+          </td>
+          <td>Use the summaries in the conversation view</td>
+        </tr>
+      </table>
+      <p>
+        I would leave out his every-minute lead tick, per-agent themes, and
+        members reconfiguring themselves without a person approving. He builds
+        for one engineer who trusts his own agents. A small company needs the
+        approval step.
+      </p>
+
+      <h2 id="memory">Memory and dreaming</h2>
+      <p>
+        This is the largest missing piece, and you asked for two things in it. A
+        way to define what an agent should remember, and a dream: a scheduled
+        pass where the agent reviews and reconciles its memory, also with other
+        agents. The full design is in <code>memory-and-dreaming.md</code>.
+      </p>
+      <p>
+        Three products already dream. Claude Managed Agents run a batch job over
+        past transcripts that writes a new memory store and leaves the old one
+        untouched for review. OpenClaw runs a nightly sweep and shows a Dream
+        Diary with rollback. Your own Brain has a nightly dream engine with
+        merge, contradiction and hygiene steps. Hermes shows what happens
+        without one. Its memory is capped at 2,200 characters and the agent has
+        to free space by hand. The shape to copy is the same in all three: write
+        a new version, show what changed, let a person roll it back.
+      </p>
+
+      <div class="mock">
+        <div class="bar">
+          <b>Agentum</b><span>Sales team / Scout</span>
+          <div class="r">
+            <span>Find</span><span>Files</span><span>Spend</span>
+          </div>
+        </div>
+        <div class="body">
+          <div class="tabs">
+            <span>Chat</span><span>Work</span><span>Files</span
+            ><span class="on">Knows</span><span>Keys</span><span>Jobs</span
+            ><span>Settings</span>
+          </div>
+          <div class="cols c2" style="margin-top:8px">
+            <div>
+              <div class="pane" style="margin-bottom:10px">
+                <h5>Last night's dream</h5>
+                <div class="row">
+                  Scout reviewed 14 conversations and 3 answered requests.
+                </div>
+                <div class="row">
+                  <span class="chip">3 added</span
+                  ><span class="chip">2 merged</span
+                  ><span class="chip">4 dropped, out of date</span
+                  ><span class="chip warn">1 question for you</span>
+                  <span class="btn">See changes</span
+                  ><span class="btn">Undo this night</span>
+                </div>
+                <div class="row msg ask" style="margin:6px 0 0">
+                  <b>Scout asks</b>
+                  Mia said reports go out Monday. Dom said Tuesday on 4 Nov.
+                  Which is right? <span class="btn">Monday</span
+                  ><span class="btn">Tuesday</span>
+                </div>
+              </div>
+              <div class="pane">
+                <h5>What Scout remembers</h5>
+                <div class="row"><b>About people</b></div>
+                <div class="row">
+                  Mia wants drafts as Google Docs, not attachments
+                  <span class="sm">from a chat with Mia, 11 Nov</span>
+                  <span class="btn">Edit</span><span class="btn">Forget</span>
+                </div>
+                <div class="row"><b>Corrections</b></div>
+                <div class="row">
+                  Do not email councils on Fridays
+                  <span class="sm">Dom denied a send, 12 Nov</span>
+                  <span class="btn">Edit</span><span class="btn">Forget</span>
+                </div>
+                <div class="row"><b>Work in progress</b></div>
+                <div class="row">
+                  Trade show list: Queensland done, NSW waiting on Tally
+                  <span class="sm">Scout, yesterday</span>
+                </div>
+                <div class="row"><b>Where things are</b></div>
+                <div class="row">
+                  Pipeline numbers live in the Sales sheet, tab Q4
+                  <span class="sm">Scout, 2 Nov</span>
+                </div>
+                <div class="row sm">
+                  Skills (4) and instructions sit below, each with history.
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="pane" style="margin-bottom:10px">
+                <h5>Remember</h5>
+                <div class="row">Client preferences</div>
+                <div class="row">Decisions about the pipeline</div>
+                <div class="row">How each person likes reports</div>
+                <div class="row sm">+ Add</div>
+                <h5 style="margin-top:10px">Never remember</h5>
+                <div class="row">
+                  Passwords, card and bank numbers
+                  <span class="sm">workspace rule</span>
+                </div>
+                <div class="row">Deal prices</div>
+              </div>
+              <div class="pane">
+                <h5>How Scout learns</h5>
+                <div class="row">
+                  <span class="chip">Ask me first</span
+                  ><span class="chip on">Tell me after</span
+                  ><span class="chip">Quietly</span>
+                </div>
+                <div class="row">
+                  Dreams <span class="chip on">Nightly</span
+                  ><span class="chip">Weekly</span><span class="chip">Off</span>
+                </div>
+                <div class="row">
+                  Shares with Sales team <span class="chip on">On</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">
+        The Knows tab. The right column is where the owner defines what the
+        agent keeps. The top left is the dream diary.
+      </p>
+
+      <h3>What an agent remembers</h3>
+      <p>
+        Four kinds of note, each short and each carrying its source. About
+        people. Corrections, with the reason. Work in progress. Where things
+        are. How to do a task is a skill, which Agentum already versions and
+        approves. What was said is history, which the sessions and event log
+        already hold, so the agent gets a search tool over its own past and no
+        copy.
+      </p>
+      <h3>Defining what to remember</h3>
+      <p>
+        The owner writes two short lists in plain words, Remember and Never
+        remember. The builder drafts the first from the job description. The
+        workspace sets Never rules every agent inherits. One more choice sets
+        how the agent learns. "Ask me first" holds every new note. "Tell me
+        after" applies notes at once and lists them. "Quietly" shows them only
+        in the diary. I would default to "Tell me after". Skill changes always
+        ask. An agent cannot edit its own rules.
+      </p>
+      <h3>How a note gets written</h3>
+      <ul>
+        <li>
+          A person says "remember that", or presses Remember on a message.
+        </li>
+        <li>
+          The agent notes something during work, with a
+          <code>remember</code>
+          tool.
+        </li>
+        <li>The dream finds it.</li>
+      </ul>
+      <h3>The dream</h3>
+      <p>
+        A scheduled run for one agent, on a cheap model, counted against the
+        agent's spend cap. It skips itself when nothing happened. It reads
+        conversations, task results, requests and their answers, edits and
+        resends, failed runs, and rejected proposals. A denied approval is the
+        strongest signal in that list.
+      </p>
+      <ol>
+        <li>
+          <b>Collect</b>
+          what happened since the last dream, leaving out anything a Never rule
+          covers.
+        </li>
+        <li><b>Extract</b> candidate notes with their sources.</li>
+        <li><b>Merge</b> them into existing notes and remove duplicates.</li>
+        <li>
+          <b>Reconcile.</b>
+          The newer note from a person wins. When it is unclear, ask.
+        </li>
+        <li>
+          <b>Prune</b>
+          finished work notes and notes unused for a long time. Stay under a
+          size budget by merging.
+        </li>
+        <li>
+          <b>Promote.</b>
+          A repeated procedure becomes a skill proposal. A note the team needs
+          becomes a team memory proposal.
+        </li>
+        <li>
+          <b>Write</b>
+          one new memory version and a diary entry in plain words.
+        </li>
+      </ol>
+      <p>
+        Only three things reach Needs you: a contradiction the dream cannot
+        settle, a skill change, and notes held by "Ask me first". Everything
+        else is in the diary, with one button to undo the night.
+      </p>
+      <h3>The team dream</h3>
+      <p>
+        After the members' dreams, the lead runs one for the team. This is where
+        agents reconcile with each other.
+      </p>
+      <ul>
+        <li>
+          <b>Conflicts between members.</b>
+          Scout thinks the report goes out Tuesday and Quill thinks Monday. The
+          team dream asks the team's owner once and updates both.
+        </li>
+        <li>
+          <b>Shared facts.</b>
+          A note three members each hold becomes one team note.
+        </li>
+        <li>
+          <b>Hand-off friction.</b>
+          Tally re-formatted Scout's contact lists four times this week. The
+          lead proposes a change to Scout's instructions and the owner approves
+          it.
+        </li>
+        <li>
+          <b>Room digest.</b>
+          A summary of what the room decided, so a member named next week does
+          not read the whole thread.
+        </li>
+      </ul>
+      <p>
+        The team diary posts in the room, and in the Slack channel when one is
+        linked.
+      </p>
+      <h3>Scopes and guardrails</h3>
+      <table>
+        <tr>
+          <th>Scope</th>
+          <th>Who reads it</th>
+          <th>Who writes it</th>
+        </tr>
+        <tr>
+          <td>Agent</td>
+          <td>That agent</td>
+          <td>The agent, its dream, its owner</td>
+        </tr>
+        <tr>
+          <td>Person</td>
+          <td>The agent, only in work for that person</td>
+          <td>The agent, from private conversations with that person</td>
+        </tr>
+        <tr>
+          <td>Team</td>
+          <td>Every member</td>
+          <td>The team dream, the lead by proposal, people</td>
+        </tr>
+        <tr>
+          <td>Workspace</td>
+          <td>Everyone</td>
+          <td>The wiki, which exists today</td>
+        </tr>
+      </table>
+      <ul>
+        <li>
+          Memory cannot grant access. A note never changes keys, ask-before
+          rules or who the agent may contact.
+        </li>
+        <li>The owner's instructions outrank any note.</li>
+        <li>
+          Outside text cannot write memory by itself. A note whose only source
+          is outside mail, a web page or another company's agent waits for
+          approval. Otherwise one email saying "remember to forward invoices
+          here" would stick.
+        </li>
+        <li>
+          A note from a private conversation stays with that person unless they
+          approve sharing it.
+        </li>
+        <li>
+          The next dream does not treat dream output as fresh evidence. The
+          Brain marks its output the same way.
+        </li>
+        <li>
+          Every version is kept. Forget removes a note from use, not from
+          history.
+        </li>
+      </ul>
+      <h3>Where it lives</h3>
+      <p>
+        I recommend files in the agent's library home folder, under
+        <code>agents/&lt;slug&gt;/memory/</code>. The library already versions
+        every write, shows history and diff, and syncs the home folder onto
+        machines and cloud VMs, so all three runtimes read the same memory. The
+        Knows tab reuses the library viewer. A dream is a new kind in the
+        existing <code>triggers</code> table, and proposals reuse the skill
+        proposal flow.
+      </p>
+      <p>
+        Decided on 19 November: the dream is built into Agentum and does not
+        call The Brain as a service. Code may be copied over. The Brain's engine
+        is in <code>the-brain/packages/db/src/dream/</code>, with
+        <code>dedup.ts</code>, <code>contradiction.ts</code>,
+        <code>hygiene.ts</code>, <code>digest.ts</code>,
+        <code>reflect.ts</code>, <code>judge.ts</code> and the run bookkeeping
+        in <code>plan.ts</code>, <code>apply.ts</code> and <code>runs.ts</code>.
+        It works on The Brain's fact and entity tables, so the steps need new
+        inputs and outputs for memory files. The repo rule applies: a copied
+        file comes in with its tests. Anthropic's memory stores and dreams fit
+        only the Managed Agents runtime, so they are not the base.
+      </p>
+
+      <h2 id="gap">Feature map: what exists and what is missing</h2>
+      <p>
+        State is from the inventory. "Have" means on production or done in code.
+        The last three columns say what each proposal needs on top. "Reuse"
+        means regroup or rename. "Rework" means new UI on existing data. "New"
+        means new data and services.
+      </p>
+      <table>
+        <tr>
+          <th>Concept</th>
+          <th>What Agentum has</th>
+          <th>State</th>
+          <th>A: Roster</th>
+          <th>B: Rooms</th>
+          <th>C: Jobs</th>
+        </tr>
+        <tr>
+          <td>Agent identity: name, job, voice, owner, address</td>
+          <td>
+            Agents table, owner and backup, soul, email per agent, Slack app per
+            agent
+          </td>
+          <td><span class="tag have">Have</span></td>
+          <td>Rework into a card and a header. Add an avatar</td>
+          <td>Reuse as member profile</td>
+          <td>Reuse</td>
+        </tr>
+        <tr>
+          <td>Live status per agent</td>
+          <td>Run states, rail sources, cost per agent week</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>New small service that writes one status line</td>
+          <td>Presence dot only</td>
+          <td>Per job, from the same data</td>
+        </tr>
+        <tr>
+          <td>Create by describing</td>
+          <td>Builder with draft and dry run</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Reuse. Add templates</td>
+          <td>Extend to draft a whole team</td>
+          <td>Extend to draft a job and its agent</td>
+        </tr>
+        <tr>
+          <td>Templates and team starters</td>
+          <td>None</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>New</td>
+          <td>New</td>
+          <td>New, as job templates</td>
+        </tr>
+        <tr>
+          <td>One conversation per agent, with tasks inside</td>
+          <td>Main thread per agent, sub-threads, assistant-ui thread page</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Reuse. Rename four nouns to one</td>
+          <td>Reuse as direct chats</td>
+          <td>Reuse behind one-off work</td>
+        </tr>
+        <tr>
+          <td>Needs you</td>
+          <td>
+            Requests, 13 item kinds, escalation after 4 hours, Slack cards
+          </td>
+          <td><span class="tag have">Have</span></td>
+          <td>Rework as a top strip and card badges</td>
+          <td>Reuse as a list plus inline cards</td>
+          <td>Reuse as a column</td>
+        </tr>
+        <tr>
+          <td>Teams</td>
+          <td>Hands-to only. No team object</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>New. Team table, lead, group on home</td>
+          <td>New, and it is the core</td>
+          <td>New, light</td>
+        </tr>
+        <tr>
+          <td>Team room</td>
+          <td>
+            Forum inbox with mentions and loop guard. Run link stored and not
+            shown
+          </td>
+          <td><span class="tag part">Partial</span></td>
+          <td>Rework inbox into a room per team</td>
+          <td>Rework. Largest UI piece</td>
+          <td>Optional</td>
+        </tr>
+        <tr>
+          <td>Lead agent</td>
+          <td>
+            None. The workspace assistant acts as a person, not as a durable
+            agent
+          </td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>New. Lead role with propose-then-approve</td>
+          <td>New. Must also route every room message</td>
+          <td>New, only for team jobs</td>
+        </tr>
+        <tr>
+          <td>Editable team rules</td>
+          <td>Three fixed lines in source</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>New setting</td>
+          <td>New setting</td>
+          <td>Skip</td>
+        </tr>
+        <tr>
+          <td>Room linked to a Slack channel</td>
+          <td>
+            One Slack app per agent, mentions, threads, approval cards, identity
+            links
+          </td>
+          <td><span class="tag part">Partial</span></td>
+          <td>
+            New. Channel link, two-way mirror, one copy per message, unmentioned
+            messages to the lead
+          </td>
+          <td>Same, and central</td>
+          <td>Optional</td>
+        </tr>
+        <tr>
+          <td>Topics the lead can open</td>
+          <td>Forum threads started by people</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>Rework. Topic with chosen members, shown as a Slack thread</td>
+          <td>Same</td>
+          <td>Skip</td>
+        </tr>
+        <tr>
+          <td>Full catch-up when mentioned</td>
+          <td>Last ten posts</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>
+            Rework. Everything since the agent last spoke, plus the room digest
+          </td>
+          <td>Same</td>
+          <td>Skip</td>
+        </tr>
+        <tr>
+          <td>Lead-run discussion rounds</td>
+          <td>The loop guard stops agent-only exchanges</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>New. A bounded discussion with a round count</td>
+          <td>Same</td>
+          <td>Skip</td>
+        </tr>
+        <tr>
+          <td>Decision queue</td>
+          <td>Single questions with choices</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>New card that holds several questions</td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Capability, thinking level and context size per agent</td>
+          <td>One model string per agent</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>
+            New fields in <code>runtimeConfig</code>, three plain choices in
+            Settings
+          </td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>A person's name and handle</td>
+          <td>Slack identity links</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>Small profile setting</td>
+          <td>Same</td>
+          <td>Skip</td>
+        </tr>
+        <tr>
+          <td>Subagents</td>
+          <td>Child runs, own model, narrowed access, 5 live, 2 levels</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Rework as a helper strip with steer and stop</td>
+          <td>Same</td>
+          <td>Same, on the job page</td>
+        </tr>
+        <tr>
+          <td>Outside agents</td>
+          <td>A2A 1.0 server and client, invites, keys, Hermes pairing</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Reuse under Keys. Show as a guest card</td>
+          <td>Reuse. Guest member of a room</td>
+          <td>Reuse</td>
+        </tr>
+        <tr>
+          <td>Keys: apps, sign-ins, secrets, ask-before</td>
+          <td>
+            Connectors, three credential modes, secrets vault, ask levels and
+            tool rules. Spread over four places
+          </td>
+          <td><span class="tag have">Have</span></td>
+          <td>Rework into one Keys tab per agent</td>
+          <td>Same tab on the member profile</td>
+          <td>"Uses" and "asks before" chips</td>
+        </tr>
+        <tr>
+          <td>App catalogue</td>
+          <td>None. A connector is a name, a URL and an auth mode</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>New</td>
+          <td>New</td>
+          <td>New</td>
+        </tr>
+        <tr>
+          <td>Skills</td>
+          <td>
+            Git-like store, versions, proposals with approval, GitHub import
+          </td>
+          <td><span class="tag have">Have</span></td>
+          <td>Reuse under Knows</td>
+          <td>Reuse</td>
+          <td>Reuse</td>
+        </tr>
+        <tr>
+          <td>Agent memory notes</td>
+          <td>
+            None. The library gives versioned files in each agent's home folder
+          </td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>
+            New. Memory files, a <code>remember</code> tool, loading at run
+            start, notes by kind on the Knows tab
+          </td>
+          <td>Same</td>
+          <td>Same, shown per job</td>
+        </tr>
+        <tr>
+          <td>Remember rules</td>
+          <td>None</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>
+            New. Remember and Never lists, workspace defaults, three learning
+            levels
+          </td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>The dream</td>
+          <td>None. Routines can schedule a run. No workspace timezone</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>
+            New trigger kind, seven steps, diary, undo. Timezone setting first
+          </td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Team memory and team dream</td>
+          <td>None</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>
+            New, after teams exist. Team folder, lead-run dream, diary in the
+            room and Slack
+          </td>
+          <td>Same</td>
+          <td>Skip</td>
+        </tr>
+        <tr>
+          <td>History search for the agent</td>
+          <td>Sessions and events are stored. No tool reads them back</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>New tool over the agent's own past conversations</td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Remember from chat</td>
+          <td>None</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>New. A Remember button on messages and "remember that"</td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Self-improvement review</td>
+          <td>Skill proposals and wiki suggestions reach Needs you</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>
+            Rework. "Learned this week" joins skill proposals with dream
+            questions
+          </td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Persistent files per agent and team</td>
+          <td>
+            Library with versions, two-way sync, home folder per agent, granted
+            folders
+          </td>
+          <td><span class="tag have">Have</span></td>
+          <td>Reuse as the Files tab</td>
+          <td>Reuse. Team folder is a granted folder</td>
+          <td>Reuse</td>
+        </tr>
+        <tr>
+          <td>Things agents made</td>
+          <td>
+            Artifacts, apps with endpoints, live docs and decks not yet accepted
+          </td>
+          <td><span class="tag part">Partial</span></td>
+          <td>Reuse inside Files. Bring the viewer into the shell</td>
+          <td>Reuse as cards in the room</td>
+          <td>Reuse as job outputs</td>
+        </tr>
+        <tr>
+          <td>Jobs: what starts an agent</td>
+          <td>Routines, web triggers, mail, Slack, Map. Five places</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Rework into a Jobs tab with sentences</td>
+          <td>Rework into standing jobs per room</td>
+          <td>New job object over triggers. Core of C</td>
+        </tr>
+        <tr>
+          <td>Daily brief of unprompted work</td>
+          <td>"Done today" count in the rail</td>
+          <td><span class="tag gap">Gap</span></td>
+          <td>Optional, on home</td>
+          <td>Optional, as a lead post</td>
+          <td>New, and it is the core</td>
+        </tr>
+        <tr>
+          <td>Live computer and take-over</td>
+          <td>Computer use, live screen, take control and hand back</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Reuse in the "Right now" panel</td>
+          <td>Reuse</td>
+          <td>Reuse</td>
+        </tr>
+        <tr>
+          <td>Where it runs</td>
+          <td>
+            Machine, cloud isolate, cloud VM, Anthropic Managed Agents, move
+            agent
+          </td>
+          <td><span class="tag have">Have</span></td>
+          <td>Rework wording to three plain choices</td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Own hardware</td>
+          <td>
+            Enrol a machine as agent host or computer. Nothing for other devices
+          </td>
+          <td><span class="tag part">Partial</span></td>
+          <td>Show a machine as a place an agent lives</td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Spend</td>
+          <td>Cost per run and per agent week</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>New. Workspace page, per-agent cap, auto-pause</td>
+          <td>Same, per team</td>
+          <td>Same, per job</td>
+        </tr>
+        <tr>
+          <td>Audit</td>
+          <td>Append-only event log, per-thread log</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Reuse as an Activity tab</td>
+          <td>Reuse</td>
+          <td>Reuse as run history</td>
+        </tr>
+        <tr>
+          <td>First run</td>
+          <td>Setup items in the rail. Needs a model key first</td>
+          <td><span class="tag part">Partial</span></td>
+          <td>New. Starter credit or a guided key step, then a template</td>
+          <td>Same</td>
+          <td>Same</td>
+        </tr>
+        <tr>
+          <td>Map</td>
+          <td>Canvas of triggers, agents and outputs</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Keep as a read-only picture, off the main path</td>
+          <td>Drop</td>
+          <td>Drop. Job sentences replace it</td>
+        </tr>
+        <tr>
+          <td>Q&amp;A board and forum inbox</td>
+          <td>Two separate pages</td>
+          <td><span class="tag have">Have</span></td>
+          <td>Fold into rooms and Needs you</td>
+          <td>Fold into rooms</td>
+          <td>Fold into Needs you</td>
+        </tr>
+      </table>
+
+      <h2 id="build">What to build, in order</h2>
+      <p>
+        The Roster is chosen, so the shell comes early and the tabs fill in as
+        the pieces land.
+      </p>
+      <ol>
+        <li>
+          <b>Cut the vocabulary.</b>
+          One word for a conversation. One name per page, matching Find. Fold
+          Q&amp;A and the forum into Needs you and rooms. This is renaming and
+          routing, with no schema change.
+        </li>
+        <li>
+          <b>The Roster home and the agent room.</b>
+          The card wall with a status line per agent, and the agent page with
+          seven tabs. Knows, Keys and Jobs start as the existing pages
+          regrouped.
+        </li>
+        <li>
+          <b>Keys.</b>
+          One page per agent that joins connectors, credentials, secrets, the
+          agent's mail and Slack identity, A2A access and ask-before rules. Let
+          non-admins manage their own sign-ins there. Then add an app catalogue
+          so connecting Gmail is a click instead of a URL.
+        </li>
+        <li>
+          <b>Jobs as sentences.</b>
+          One editor for routines, web triggers, mail and Slack starts. The data
+          model already has a single <code>triggers</code> table with a kind
+          column, so this is mostly UI. Add the workspace timezone here, because
+          jobs and dreams both need it.
+        </li>
+        <li>
+          <b>Memory.</b>
+          Memory files in the agent's home folder, the <code>remember</code> and
+          history search tools, loading at run start, the Knows tab with notes
+          by kind, the Remember and Never lists, and the Remember button in
+          chat.
+        </li>
+        <li>
+          <b>The dream.</b>
+          A dream trigger kind, the seven steps, the diary, undo, and "Learned
+          this week" on the card and the Knows tab. This is the build that makes
+          "self-improving" true.
+        </li>
+        <li>
+          <b>Spend.</b>
+          A workspace usage page, a weekly cap per agent, and auto-pause with a
+          Needs you item. Dreams count against the cap.
+        </li>
+        <li>
+          <b>Teams and rooms.</b>
+          A team table with a lead, members and a shared folder. The room, with
+          topics, full catch-up on mention, editable team rules and links from
+          each post to its task and files. A lead that holds team tools only and
+          proposes changes for the owner to approve. Capability, thinking level
+          and context size per agent.
+        </li>
+        <li>
+          <b>Slack link.</b>
+          One channel per team, mirrored both ways, with unmentioned messages
+          going to the lead.
+        </li>
+        <li>
+          <b>Team extras.</b>
+          The team dream and team memory, lead-run discussion rounds, and the
+          decision queue.
+        </li>
+        <li>
+          <b>First run.</b>
+          A guided key step or starter credit, then templates and a team
+          starter.
+        </li>
+      </ol>
+      <p>
+        Fix one known defect along the way. An unanswered question holds an
+        agent's whole lane on a machine for up to a day, as the 18 November
+        analysis found. On a card wall that agent would show as stuck with no
+        reason a business user could act on.
+      </p>
+      <p>
+        Hardware beyond computers stays out of this plan. The enrol flow covers
+        machines, and I found no competitor doing more for business users.
+      </p>
+
+      <h2 id="open">Decided, and still open</h2>
+      <p>Dom's decisions on 19 November 2026.</p>
+      <table>
+        <tr>
+          <th>Question</th>
+          <th>Decision</th>
+        </tr>
+        <tr>
+          <td>The shell</td>
+          <td>The Roster, with team rooms and job sentences</td>
+        </tr>
+        <tr>
+          <td>The name</td>
+          <td>Team room</td>
+        </tr>
+        <tr>
+          <td>Slack</td>
+          <td>
+            One Slack app per agent. One Slack channel maps to one team room
+          </td>
+        </tr>
+        <tr>
+          <td>Lead listening</td>
+          <td>
+            A room message that names nobody goes to the lead, with a switch to
+            turn it off
+          </td>
+        </tr>
+        <tr>
+          <td>Learning default</td>
+          <td>"Tell me after" for notes. Skill changes always ask</td>
+        </tr>
+        <tr>
+          <td>Memory store</td>
+          <td>Files in the agent's library home folder</td>
+        </tr>
+        <tr>
+          <td>Dreams</td>
+          <td>
+            Built into Agentum. No call to The Brain as a service. Code may be
+            copied from The Brain
+          </td>
+        </tr>
+      </table>
+      <p>Still open.</p>
+      <ol>
+        <li>
+          <b>May a dream read private conversations?</b>
+          I assumed yes, with the notes kept to that person unless they approve
+          sharing.
+        </li>
+        <li>
+          <b>May a lead change its members?</b>
+          I assumed propose and approve only, where IndyDevDan lets the lead
+          write directly.
+        </li>
+        <li>
+          <b>Team wording.</b>
+          On 26 October you ruled out org charts and staff or hiring language. I
+          kept org charts out and used "team", "lead" and "owner". Is
+          "colleague" language on the agent card fine, or should cards stay
+          neutral?
+        </li>
+        <li>
+          <b>Can an agent be in two teams?</b>
+          I assumed yes, with one home team. Its own memory travels with it and
+          team memory does not.
+        </li>
+      </ol>
+
+      <h2>Research files</h2>
+      <table>
+        <tr>
+          <th>File</th>
+          <th>Contents</th>
+        </tr>
+        <tr>
+          <td><code>agentum-inventory.md</code></td>
+          <td>
+            Every capability with state, UI location and code path. Routes,
+            flows, friction points, data model
+          </td>
+        </tr>
+        <tr>
+          <td><code>hermes-agent.md</code></td>
+          <td>
+            Hermes Agent v0.23: profiles and bots, group chats, learning loop,
+            desktop and web app, Hermes Cloud
+          </td>
+        </tr>
+        <tr>
+          <td><code>openclaw.md</code></td>
+          <td>
+            OpenClaw Control UI, sessions board, subagents panel, Dream Diary,
+            team preset
+          </td>
+        </tr>
+        <tr>
+          <td><code>manus.md</code></td>
+          <td>
+            Manus task model, computer panel, automations, Wide Research,
+            projects and skills
+          </td>
+        </tr>
+        <tr>
+          <td><code>platform-survey.md</code></td>
+          <td>
+            Microsoft, Anthropic, OpenAI, Google and ten teammate products, with
+            patterns, trends and design questions
+          </td>
+        </tr>
+        <tr>
+          <td><code>agent-teams-video.md</code></td>
+          <td>The Day AI talk and related Brain documents</td>
+        </tr>
+        <tr>
+          <td><code>indydevdan-transcript-notes.md</code></td>
+          <td>
+            Team features and settings from the full IndyDevDan transcript, with
+            times
+          </td>
+        </tr>
+        <tr>
+          <td><code>memory-and-dreaming.md</code></td>
+          <td>
+            Design note for remember rules, memory scopes, the dream and the
+            team dream
+          </td>
+        </tr>
+        <tr>
+          <td><code>../../analysis/small-agent-teams.md</code></td>
+          <td>
+            The 18 November analysis of IndyDevDan's small agent teams video
+          </td>
+        </tr>
+      </table>
+      <p class="sm">
+        Limits. I used none of the surveyed products. openai.com blocked
+        fetches, so the OpenAI notes come from press. User sentiment on Hermes
+        is thin because Reddit blocked fetches. The inventory read the code on
+        main and did not check the live Worker.
+      </p>
+    </main>
+  </body>
+</html>
