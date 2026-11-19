@@ -1,69 +1,65 @@
-# NV.2 browser verification
+# NV.2 browser verification (round 2)
 
-Verifier: independent browser check, not the builder.
-Branch: `task/NV.2-plain-runtime-words` at `89a6d11e`, worktree `/home/roboto/devel/harbourmaster-wt/NV.2`.
-App: `bunx vite dev --port 5192` from `apps/web` after `wrangler d1 migrations apply DB --local`. Signed in with "Dev login (local only)" on `/login`. Browser: agent-browser session `nv2-verify`, headless Chromium. Desktop is 1280x800, phone is 390x844.
+Verifier: independent browser check, agent-browser session `nv2-verify2`, headless Chromium.
+Build: worktree `/home/roboto/devel/harbourmaster-wt/NV.2`, branch `task/NV.2-plain-runtime-words` (96043a36 plus docs).
+Server: `bunx vite dev --port 5193` from `apps/web`, after `wrangler d1 migrations apply DB --local` (no migrations pending).
+Data: local D1 with machine `studio-nuc` (agent_host, shown Online) and the Anthropic key set by the earlier round.
 
-## Setup note
+## Sign-in
 
-On the first visit to Start blank, "Runs on" offered no choice: "No runtime is available. Add a provider key or a machine in Settings." (that page was captured before the setup below, and the file was later overwritten). I set the workspace Anthropic API key in the app UI at Settings > Model providers, using the key in `apps/web/.env.local`. After that, Start blank offered "Anthropic cloud" and "Cloudflare". No machine is registered, so no agent could be created on "My computer".
-
-I tested two agents at each size: one on Cloud (`cloud`) and one on Anthropic cloud (`managed`). The cloud agent covers Environment, Network access and Turn limit. The managed agent covers the raw model id and lists "Cloud" as a Move to choice. Agents created: NV2 Desk Agent (cloud, twice, because the first run was repeated to capture network data), NV2 Managed Agent (managed) and NV2 Phone Agent (cloud). The phone pass used NV2 Managed Agent again for flows 2 to 4.
-
-## How console and network were read
-
-`agent-browser network requests` captured nothing in this setup. Instead, after each page load I wrapped `window.fetch` to record each request's status, raised the resource-timing buffer, and listed every resource entry with a status of 400 or more. I read the console and page errors with `agent-browser console` and `agent-browser errors` after each flow, and I checked the vite server log.
+The browser profile still held a Clerk session from the earlier round, so `/login` showed "You're signed in as dev@rockyshoreslabs.io" and no "Dev login (local only)" link. I opened the link's target, `/api/dev-login`, directly. It redirected to `/dev-login?token=…` and then to `/desk` with a fresh session.
 
 ## Desktop (1280x800)
 
-### Flow 1: create with Start blank (cloud)
-On /agents/new I clicked "Start blank", filled Name "NV2 Desk Agent" and What it does, and picked "Cloudflare" under Runs on. The Start blank page has no Advanced section, so none was opened. Clicking "Create agent" led to `/agents/01M7TTDZ2KG1T6X0BV6CXPAD52`. Requests `agentBuilder.saveDraft` and `agentBuilder.create` both returned 200. Screenshot: desktop-1.png (form filled, Cloudflare picked).
+### Cloud agent `nv2-cloud-d`
 
-### Flow 2: Runs on card (cloud)
-The header chip reads "Runs on Cloud". The card reads "Runs on / Cloud / Always on, lowest cost for many small jobs." with "Move agent" and "Advanced" buttons. Neither "Cloudflare" nor "Our machine" appears anywhere on the profile page. Clicking the card's "Advanced" opened the "Edit agent" sheet. Screenshot: desktop-2.png.
+1. Start blank: the Runs on chips read "Anthropic cloud", "Cloud", "My computer: studio-nuc". No "Cloudflare" or "Our machine" anywhere on the page (desktop-1). Filled the name and "What it does", picked Cloud (aria-pressed true), clicked Create agent without opening any Advanced section (desktop-2). The agent was created and the page went to its profile, with the header badge "Runs on Cloud".
+2. Profile: the Runs on card shows "Cloud", "Always on, lowest cost for many small jobs.", Move agent, Advanced (desktop-3).
+3. Edit form, from the card's Advanced button: Model select (friendly names), Runtime "Runs on Cloud". Environment, Network access and Turn limit are not shown while the form's Advanced is closed (desktop-4). Opening Advanced shows Environment (Isolate / Linux VM), Network access and Turn limit (desktop-5). Set Turn limit to 120, saved, and the "Saved" toast appeared (desktop-6). `agents.update` returned 200.
+4. Move agent: the Move to options are "Anthropic cloud" and "My computer", with Cloud left out (desktop-7). Selecting My computer adds the Machine select (studio-nuc) and the line "The agent's computer is detached." (desktop-8). Selecting Anthropic cloud shows only the standard text. Cancel closed the dialog, and the agent still runs on Cloud.
 
-### Flow 3: Edit form (cloud)
-The Runtime line reads "Runs on Cloud". While the form's Advanced disclosure was closed, the sheet had no Environment select, no Network access switch and no Turn limit field. The word "Environment" did appear once, inside the runtime help text ("the Environment setting under Advanced"). After I opened Advanced, the sheet showed Environment (Isolate / Linux VM), Network access (on) and Turn limit. I set Turn limit to 120 and clicked "Save changes". `agents.update` returned 200, and a "Saved" toast appeared. Screenshots: desktop-3.png (Advanced closed), desktop-4.png (Advanced open, 120 entered), desktop-5.png (Saved).
+### Anthropic cloud agent `nv2-managed-d`
 
-### Flow 4: Move agent (cloud)
-Move to offered "Anthropic cloud" and "My computer". The dialog leaves out the agent's current runtime, so "Cloud" is not listed for a cloud agent. I clicked Cancel, the dialog closed, and the agent still runs on Cloud. Screenshot: desktop-6.png.
+1. Start blank: picked Anthropic cloud (aria-pressed true) (desktop-9). Created. Header badge "Runs on Anthropic cloud".
+2. Runs on card: "Anthropic cloud", "Managed Agents. Simplest. Has its own sandbox." (desktop-10).
+3. Edit form: Runtime "Runs on Anthropic cloud". With Advanced closed, no Model field is visible and the raw model id is hidden (desktop-11). Opening Advanced shows the Model textbox `claude-sonnet-5-5` with "Use opus, sonnet or haiku." (desktop-12). Changed it to `claude-haiku-5-5`, saved, and "Saved" appeared (desktop-13).
+4. Move agent: the options are "Cloud" and "My computer" (desktop-14). Cloud adds "A conversation that ran on Cloud before may pick up there, without what happened since." My computer adds the Machine select and "The agent's computer is detached." Cancel, and the agent still runs on Anthropic cloud.
 
-### Second agent on Anthropic cloud (flows 1 to 4)
-Start blank with "Anthropic cloud" created NV2 Managed Agent (`/agents/01M7TTFZ4A0KND8VYMNN7ANDDH`). Its Runs on card reads "Anthropic cloud". The Edit sheet's Runtime line reads "Runs on Anthropic cloud". With Advanced closed, the sheet showed no model id. After I opened Advanced, it showed a Model textbox holding `claude-sonnet-5-5`. A managed agent has no Turn limit field, which matches "where applicable" in the brief. I changed the model to `claude-haiku-4-5` and saved. `agents.update` returned 200 and "Saved" appeared. Move to offered "Cloud" and "My computer". I cancelled without moving. Screenshots: desktop-7.png (Start blank, Anthropic cloud picked), desktop-8.png (profile), desktop-9.png (Advanced open, model id edited), desktop-10.png (Saved), desktop-11.png (Move to: Cloud, My computer).
+### My computer agent `nv2-machine-d`
+
+1. Start blank: picked "My computer: studio-nuc" (aria-pressed true) (desktop-15). Created. Header badge "Runs on My computer: studio-nuc".
+2. Runs on card: "My computer: studio-nuc" with an "Online" badge, "Claude Code on that machine. Sees local files." (desktop-16).
+3. Edit form: Runtime "Runs on My computer: studio-nuc". The Machine select ("studio-nuc (online)") stays visible outside Advanced. With Advanced closed, the model id and Turn limit are hidden (desktop-17). Opening Advanced shows the Model textbox (`claude-sonnet-5-5`) and Turn limit (desktop-18). Set Turn limit to 150, saved, and "Saved" appeared (desktop-19).
+4. Move agent: the options are "Cloud", "Anthropic cloud" and "My computer". My computer is kept for a machine agent, as the spec requires (desktop-20). Each option showed the text described above. Cancel, and the agent is unchanged.
 
 ## Phone (390x844)
 
-### Flow 1: create with Start blank (cloud)
-Same steps, with name "NV2 Phone Agent" and "Cloudflare" picked. The form fits the width, and "Create agent" led to `/agents/01M7TTHPJ3H3QRVR076FVR19HQ`. `agentBuilder.create` returned 200. Screenshot: phone-1.png.
+Same steps, same results.
 
-### Flow 2: Runs on card (cloud)
-The card reads "Runs on / Cloud / Always on, lowest cost for many small jobs." and stacks below the main column. The card's "Advanced" opened the Edit sheet. Screenshot: phone-2.png.
+- `nv2-cloud-p`: chips wrap to two lines and all three read correctly (phone-1). Created, and the card reads "Cloud" (phone-2). With Advanced closed the form has Model and "Runs on Cloud" (phone-3). Open, it shows Environment, Network access and Turn limit (phone-4). Turned Network access off, set Turn limit to 120, saved, and "Saved" appeared (phone-5). Move to offered Anthropic cloud and My computer. Cancel (phone-6).
+- `nv2-managed-p`: chip selected (phone-7). The card reads "Anthropic cloud" (phone-8). Closed form: "Runs on Anthropic cloud", no model id (phone-9). Open: Model `claude-sonnet-5-5` (phone-10). Changed it to `claude-haiku-5-5`, and "Saved" appeared (phone-11). Move to offered Cloud and My computer. Cancel (phone-12).
+- `nv2-machine-p`: chip selected (phone-13). The card reads "My computer: studio-nuc", Online (phone-14). Closed form: "Runs on My computer: studio-nuc", Machine select visible, no model id or Turn limit (phone-15). Open: Model and Turn limit (phone-16). Set Turn limit to 150, and "Saved" appeared (phone-17). After a reload, the Turn limit field holds 150. Move to offered Cloud, Anthropic cloud and My computer. Cancel (phone-18).
 
-### Flow 3: Edit form (cloud)
-The Runtime line reads "Runs on Cloud". With Advanced closed, the sheet had no Network access switch, no Turn limit field and no Environment select. After I opened Advanced, it showed Environment, Network access and Turn limit. I switched Network access off and saved. `agents.update` returned 200, and "Saved" appeared. Screenshots: phone-3.png (Advanced closed), phone-4.png (Advanced open, switch off), phone-5.png (Saved).
-
-### Flow 4: Move agent (cloud)
-Move to offered "Anthropic cloud" and "My computer". I cancelled, and the agent still runs on Cloud. Screenshot: phone-6.png.
-
-### Anthropic cloud agent (flows 2 to 4)
-The card reads "Anthropic cloud". The Edit sheet's Runtime line reads "Runs on Anthropic cloud". With Advanced closed, no model id showed. After I opened Advanced, the Model textbox showed `claude-haiku-4-5`, which confirms the desktop save persisted. I changed it back to `claude-sonnet-5-5` and saved. `agents.update` returned 200 and "Saved" appeared. Move to offered "Cloud" and "My computer". I cancelled. Screenshots: phone-7.png (card), phone-8.png (Advanced, model id), phone-9.png (Saved), phone-10.png (Move to: Cloud).
+After the phone pass, I searched the Start blank page and a profile page for "Cloudflare" and "Our machine". Neither word appears.
 
 ## Console and network
 
-There were no console errors and no page errors in any flow at either size. Every recorded fetch returned 200, and no resource returned 400 or more. The vite log shows no server errors.
+Real errors: none. `agent-browser errors` was empty after every flow. A fetch hook plus Resource Timing captured every tRPC request in each flow, including `agentBuilder.saveDraft`, `agentBuilder.create`, `agents.update`, `machines.list`, `agents.providerKeys` and the Clerk token refresh. All returned 200. No request failed, and no resource returned 4xx or 5xx.
 
-Noise only (dev-only, not errors):
-- `[warning] Clerk: Clerk has been loaded with development keys` comes from the dev Clerk instance.
-- `[info] Download the React DevTools` is printed by React in dev builds.
-- `[debug] [vite] connecting... / connected.` comes from HMR.
+Dev noise, not counted:
+- `[vite] connecting…` / `[vite] connected.` is the Vite HMR client.
+- "Download the React DevTools…" is a React dev-build notice.
+- "Clerk has been loaded with development keys" is from the Clerk dev instance.
+- "Automatic fallback to software WebGL has been deprecated" and "No available adapters." appeared only on the public `/login` page. They come from its canvas in headless Chromium, which has no GPU, and are not part of the NV.2 flows.
 
-## Findings outside the scoped files
+`networkidle` never settles under Vite because the HMR socket stays open, so I used fixed waits instead.
 
-1. The Start blank "Runs on" picker still labels `cloud` as **"Cloudflare"** (`apps/web/src/components/agent/builder/builder-logic.ts:160`, used by `start-blank.tsx` and `draft-card.tsx`). This is the very flow named in the Check line. A user picks "Cloudflare" on create, and the profile then says "Cloud". The spec's Scope lists only agent-form, runs-on-card and move-agent-dialog, so this is not a broken requirement. It does work against the milestone's aim that a business user sees three plain names. A one-line follow-up should fix it.
-2. Settings > Model providers still says "Cloudflare agents and Managed Agents both run on your workspace's own Anthropic API key." This is outside NV.2 scope.
-3. The Anthropic cloud card says "Managed Agents. Simplest. Has its own sandbox." The product term "Managed Agents" remains in the card's help line. This is minor.
-4. The "My computer" choices were seen only in the Move to list. This workspace has no machine, so the "My computer" Runs on card and its Edit form (model id plus Turn limit) were not exercised.
+## Observations (non-blocking)
+
+- The Anthropic cloud card's description still says "Managed Agents. Simplest. Has its own sandbox." The label is plain, but the blurb uses the product term. The spec only names the labels.
+- Choosing "My computer" in the Move dialog for an agent already on My computer still shows "The agent's computer is detached." That is existing dialog copy and outside this task.
+- `snapshot -i` gave no ref to the "My computer: studio-nuc" chip, although the full accessibility tree lists it as a button and clicking it works. This is a tooling quirk, not an app fault.
 
 ## Verdict
 
-**pass.** All four flows worked at both sizes, for a Cloud agent and an Anthropic cloud agent, with no console errors and no failed requests. The Runs on card, the Edit form and the Move agent dialog use only Cloud, Anthropic cloud and My computer. Advanced is closed by default and holds Environment, Network access, Turn limit and the model id. Finding 1 (the "Cloudflare" label on Start blank) should get a follow-up.
+**Pass.** Every flow (Start blank create, Runs on card, Edit form with the Advanced disclosure closed and open plus a save, Move dialog names) works for all three runtimes at 1280x800 and at 390x844. There were no console errors and no failed requests. I moved no agents and changed no source files.

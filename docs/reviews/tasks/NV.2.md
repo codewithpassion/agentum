@@ -2,7 +2,8 @@
 
 ## Verdict per round
 
-- Round 1, d7a5f40b: clean after 0 fix rounds. No must-fix findings, five nits.
+- Round 1, d7a5f40b: clean. No must-fix findings, five nits.
+- Round 2, 96043a36 (scope widened to the Start blank runtime chips): clean. No must-fix findings, two nits.
 
 ## What changed
 
@@ -12,6 +13,13 @@
 
 ## Nits left
 
+Round 2:
+
+- `builder-logic.ts:160`: `RUNTIME_LABELS` now only passes two `RUNTIME_NAMES` entries through. Line 175 could index `RUNTIME_NAMES` directly.
+- `task/task-logic.ts:112`: its own `RUNTIME_LABELS` still says "Managed agent", "A machine" and "Fake runtime". Outside this task.
+
+Round 1:
+
 - `runs-on-card.tsx:44`: the card's "Advanced" button opens the panel, and the form inside now has its own closed "Advanced" section. Two things carry the same name.
 - `profile-logic.ts:57-63`: "Runs on Cloud" and "Runs on My computer: laptop" have a capital mid-sentence. The profile header and map inspector show the same line.
 - `move-agent-logic.ts:21`: "A conversation that ran on Cloud before may pick up there" would read better as "ran in the cloud".
@@ -20,12 +28,12 @@
 
 ## Browser proof
 
-Pass at both sizes with no console errors or failed requests. Report and screenshots: `docs/reviews/tasks/NV.2/browser.md`. The verifier could not test a My computer agent because the local workspace has no machine.
+Pass at both sizes with no console errors or failed requests. Report and screenshots: `docs/reviews/tasks/NV.2/browser.md`. Round 2 (96043a36) ran a fresh verifier for all three runtimes, with a seeded `studio-nuc` machine in the local D1, so the My computer path shows in Start blank, the Runs on card, the Edit form and the Move agent dialog. Round 1 had no machine and could not exercise it.
 
 ## Ideas beyond the scope
 
-- The Start blank "Runs on" chips still say "Cloudflare" (`builder-logic.ts:160`), and so does Settings, Model providers. The Anthropic cloud card text still says "Managed Agents".
-- `builder-logic.ts` (the Start blank "Runs on" chips), `dry-run-logic.ts`, `map-logic.ts` and the landing page still say "Cloudflare" and "Our machine". They sit outside the three files the task names.
+- Settings, Model providers still says "Cloudflare". The Anthropic cloud card text still says "Managed Agents". The Move dialog note "The agent's computer is detached." also shows for an agent already on My computer.
+- `dry-run-logic.ts`, `map-logic.ts` and the landing page still say "Cloudflare" and "Our machine". They sit outside the three files the task names.
 - The runtime stays a read-only line in the Edit form. Changing it is the Move agent dialog, which carries the blockers (no Anthropic key, no machine). A real three-way control in the form would need those blockers.
 
 ## Test status
