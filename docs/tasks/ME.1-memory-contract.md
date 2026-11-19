@@ -3,9 +3,9 @@ id: ME.1
 title: "Memory contract: tables, file format, router"
 milestone: ME
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/ME.1-memory-contract
 lane: contract
 executor: claude
 ---
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone ME. Contract task for ME. It alone chang
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/ME.1-memory-contract (v4 controller session).
