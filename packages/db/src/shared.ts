@@ -1262,3 +1262,77 @@ export interface AgentCard {
   /** The weekly spend cap in cents, or null for no cap. */
   weeklyCapCents: number | null;
 }
+
+/** One app (connector) an agent may call, on the Keys tab. */
+export interface AgentKeyApp {
+  /** Tool names the agent may call, or null for every tool. */
+  allowedTools: string[] | null;
+  connectorId: string;
+  connectorName: string;
+  credentialMode: CredentialMode;
+  /** Whose sign-in the agent uses now. Null when no one has signed in yet. */
+  signIn: {
+    ownerKind: CredentialOwnerKind;
+    ownerName: string;
+    status: CredentialStatus;
+  } | null;
+}
+
+/** One secret the agent is granted. The value is never part of this. */
+export interface AgentKeySecret {
+  id: string;
+  kind: SecretMode;
+  name: string;
+}
+
+/** One agent this agent is connected to, by A2A or inside the workspace. */
+export interface AgentKeyConnection {
+  connectionId: string;
+  peerKind: A2aPeerKind;
+  peerName: string;
+  status: A2aConnectionStatus;
+}
+
+/** An agent this agent hands work to. */
+export interface AgentKeyHandsTo {
+  agentId: string;
+  name: string;
+}
+
+/** A tool the agent asks about (or not) whatever its level says. */
+export interface AgentKeyAskOverride {
+  mode: ToolRuleMode;
+  toolKey: string;
+}
+
+/** Everything the Keys tab shows for one agent, in five parts. */
+export interface AgentKeys {
+  apps: AgentKeyApp[];
+  asksBefore: {
+    level: AskLevel;
+    overrides: AgentKeyAskOverride[];
+  };
+  identity: {
+    /** The agent's email address, or null when it has none. */
+    emailAddress: string | null;
+    /** The state of the agent's Slack app, or null when it has none. */
+    slackApp: SlackAppStatus | null;
+  };
+  otherAgents: {
+    connections: AgentKeyConnection[];
+    handsTo: AgentKeyHandsTo[];
+  };
+  secrets: AgentKeySecret[];
+}
+
+/** One app the workspace can add from the catalogue. */
+export interface CatalogEntry {
+  authKind: ConnectorAuthKind;
+  /** Tool names a new agent may call by default. */
+  defaultAllowedTools: string[];
+  description: string;
+  icon: string;
+  key: string;
+  name: string;
+  url: string;
+}

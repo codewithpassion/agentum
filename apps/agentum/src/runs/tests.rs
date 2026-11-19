@@ -69,6 +69,7 @@ struct Server {
     faults: Arc<Mutex<HashMap<String, u16>>>,
     blocked: Arc<Mutex<HashMap<String, Arc<Notify>>>>,
     outcome: Arc<Mutex<Option<Value>>>,
+    deferred: Arc<std::sync::atomic::AtomicBool>,
     must_exit: Arc<Mutex<Option<PathBuf>>>,
 }
 async fn server() -> (String, Server, tokio::task::JoinHandle<()>) {
@@ -216,6 +217,10 @@ async fn server() -> (String, Server, tokio::task::JoinHandle<()>) {
             return axum::Json(json!({"required":true})).into_response();
         }
         if uri.ends_with("requests") {
+            if state.deferred.load(std::sync::atomic::Ordering::SeqCst) {
+                return axum::Json(json!({"requestId":"q","status":"pending","deferred":true}))
+                    .into_response();
+            }
             if let Some(outcome) = state.outcome.lock().unwrap().clone() {
                 return axum::Json(json!({"requestId":"q", "outcome":outcome})).into_response();
             }
@@ -1144,6 +1149,77 @@ async fn questions_filter_answers_and_fail_closed_on_bad_http() {
 }
 
 #[tokio::test]
+async fn questions_park_only_when_claim_and_deferral_both_say_so() {
+    use axum::{Router, extract::Request, response::IntoResponse, routing::any};
+    for later in [true, false] {
+        let waits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = waits.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new().route(
+            "/{*path}",
+            any(move |req: Request| {
+                let count = count.clone();
+                async move {
+                    if req.uri().path().contains("requests/q") {
+                        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        return axum::Json(json!({"requestId":"q","status":"answered","outcome":{"status":"answered","answer":{"answers":{"Pick?":"a"}}}})).into_response();
+                    }
+                    axum::Json(json!({"requestId":"q","status":"pending","deferred":true}))
+                        .into_response()
+                }
+            }),
+        );
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let api = RunApi::new(
+            Http::new(
+                &url,
+                "machine-secret",
+                Masker::default(),
+                CancellationToken::new(),
+                30,
+            ),
+            "r",
+        );
+        let gate = crate::approvals::Gate::new(
+            api,
+            &json!({"toolRules":["bash"],"mcpServers":{},"questionsLater":later}),
+        );
+        let input = json!({"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"t","tool_input":{"questions":[{"question":"Pick?","options":[{"label":"a"}]}]}});
+        let result = gate.hook(&input, CancellationToken::new()).await;
+        assert_eq!(gate.parked(), later);
+        if later {
+            let decision = &result["hookSpecificOutput"];
+            assert_eq!(decision["permissionDecision"], "deny");
+            assert!(
+                decision["permissionDecisionReason"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("later")
+            );
+            assert_eq!(waits.load(std::sync::atomic::Ordering::SeqCst), 0);
+            // A repeat question after parking is denied without opening another.
+            let again = json!({"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"t2","tool_input":{"questions":[{"question":"Again?"}]}});
+            let repeat = gate.hook(&again, CancellationToken::new()).await;
+            assert_eq!(repeat["hookSpecificOutput"]["permissionDecision"], "deny");
+            assert!(
+                repeat["hookSpecificOutput"]["permissionDecisionReason"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("later")
+            );
+        } else {
+            assert_eq!(
+                result["hookSpecificOutput"]["updatedInput"]["answers"],
+                json!({"Pick?":"a"})
+            );
+            assert_eq!(waits.load(std::sync::atomic::Ordering::SeqCst), 1);
+        }
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn event_batches_cap_at_100_and_keep_sequence_across_batches() {
     let (url, server, task) = server().await;
     let temp = tempfile::tempdir().unwrap();
@@ -1278,7 +1354,8 @@ async fn relay_offer_reaches_role_executor_and_hello_advertises_cli_features() {
             "requests",
             "library-live",
             "current-approvals",
-            "parallel-subagents"
+            "parallel-subagents",
+            "parked-questions"
         ])
     );
     server_task.abort();

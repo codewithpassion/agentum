@@ -107,6 +107,10 @@ import {
   createBrowserService,
 } from "@repo/services/browser";
 import type { BrowserDriver } from "@repo/services/browser/types";
+import {
+  type CatalogService,
+  createCatalogService,
+} from "@repo/services/catalog";
 import { createCloudRuntime } from "@repo/services/cloud/runtime";
 import type { CloudRunnerPort } from "@repo/services/cloud/types";
 import {
@@ -150,6 +154,7 @@ import {
   createReportedReader,
   createRunRequestReader,
 } from "@repo/services/investigator-report";
+import { createKeysService, type KeysService } from "@repo/services/keys";
 import {
   createLibraryService,
   type LibraryBlobs,
@@ -485,6 +490,7 @@ export interface Services {
   artifacts: ArtifactsService;
   assistant: AssistantService;
   browser: BrowserService;
+  catalog: CatalogService;
   connections: ConnectionsService;
   connectorOAuth: ConnectorOAuthService;
   connectors: ConnectorsService;
@@ -497,6 +503,7 @@ export interface Services {
   events: EventsService;
   files: FilesService;
   inbox: InboxService;
+  keys: KeysService;
   library: LibraryService;
   libraryAccess: LibraryAccessService;
   libraryLinks: LibraryLinksService;
@@ -1363,6 +1370,7 @@ export const composeWith = ({
       artifacts: liveArtifactMutations(artifacts, liveArtifacts),
       assistant,
       browser,
+      catalog: createCatalogService(),
       connections,
       connectorOAuth,
       connectors,
@@ -1375,6 +1383,7 @@ export const composeWith = ({
       events,
       files,
       inbox,
+      keys: createKeysService(),
       library,
       libraryAccess,
       libraryLinks,

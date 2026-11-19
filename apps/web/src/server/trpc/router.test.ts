@@ -179,3 +179,39 @@ test("roster.list is 401 without a workspace", async () => {
     (await callerFor({ orgId: null, userId: "user_1" })).roster.list()
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("keys.forAgent returns the five empty parts", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  expect(await caller.keys.forAgent({ agentId: agent.id })).toEqual({
+    apps: [],
+    asksBefore: { level: "rarely", overrides: [] },
+    identity: { emailAddress: null, slackApp: null },
+    otherAgents: { connections: [], handsTo: [] },
+    secrets: [],
+  });
+});
+
+test("keys.forAgent is 401 without a workspace", async () => {
+  await expect(
+    (await callerFor({ orgId: null, userId: "user_1" })).keys.forAgent({
+      agentId: "any",
+    })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
+test("catalog.list is empty and catalog.add refuses an unknown key", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  expect(await caller.catalog.list()).toEqual([]);
+  await expect(caller.catalog.add({ key: "nope" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+});
+
+test("catalog.list is 401 without a workspace", async () => {
+  await expect(
+    (await callerFor({ orgId: null, userId: "user_1" })).catalog.list()
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});

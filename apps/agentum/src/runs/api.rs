@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 pub const FEATURES: &str =
-    "library-sync,requests,library-live,current-approvals,parallel-subagents";
+    "library-sync,requests,library-live,current-approvals,parallel-subagents,parked-questions";
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 pub struct Failure {
