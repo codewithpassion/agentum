@@ -3,9 +3,9 @@ id: RH.3
 title: "Home page: the agent card wall"
 milestone: RH
 size: M
-status: todo
+status: in_progress
 depends_on: [RH.1, NV.1]
-branch: null
+branch: task/RH.3-roster-home
 lane: web-home
 executor: claude
 ---
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone RH. Home becomes a wall of agent cards. 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/RH.3-roster-home (v4 controller session).
