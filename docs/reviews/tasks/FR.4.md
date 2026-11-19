@@ -6,7 +6,9 @@ Round 1, commit f41f480c: must-fix, one item. A template could be picked while d
 
 Round 2, commit a24723ab (the fix commit only): clean, nothing must-fix. One fix round.
 
-After round 2 the browser verifier failed the first run at d7bd2bad's parent: Create agent stayed disabled on a workspace with no Anthropic key, although the panel says you can still create without one. The dry-run blocker was also blocking Create. Commit d7bd2bad fixes it and adds `dry-run-panel.test.tsx`. That small commit was verified by the second browser run (pass) and by the unit test, and it did not get its own reviewer.
+After round 2 the browser verifier failed its first run: Create agent stayed disabled on a workspace with no Anthropic key, although the panel says you can still create without one. The dry-run blocker was also blocking Create. Commit d7bd2bad fixes it and adds `dry-run-panel.test.tsx`. The second browser run passed.
+
+Round 3, commit d7bd2bad (reviewed after the coordinator asked): clean, nothing must-fix. The reviewer confirmed that dictation, pending and open gaps still block Create, that the name and "does" checks still do through the route's `createBlocker`, and that the server `create` needs no key or dry run. The new test fails on the old code.
 
 Checks: `bun run check` and `bun run build` pass. `bun run test` passes everything (4380 web tests) except `guest execution: HTTP cap/start, durable recovery, signed MCP and suggestions` in `apps/web/src/server/live-artifacts/guest-execution.test.ts`. That test fails alone and on a clean `main` checkout too, with a workerd `ECONNRESET` from Miniflare, so it does not come from this task. FR.1's review recorded the same test failing.
 
@@ -26,6 +28,8 @@ Browser proof: `docs/reviews/tasks/FR.4/browser.md`, pass at 1280x800 and 390x84
 
 ## Nits left
 
+- Round 3: the comment above `const why` in `dry-run-panel.tsx` describes the Create button, not `why`. The `create-why` test id can now hold a run-only reason. Only the first reason shows, so an open gap hides the missing-key hint. The `redraftBlocker` messages say "before you redraft" when they now also explain a disabled Create.
+- Round 3: `dry-run-panel.test.tsx` passes vacuously if its button regex stops matching, copies the key note instead of importing it, and does not check that Run is disabled. No test covers the route's Create-blocker wiring.
 - Picking a template replaces whatever the person typed in the describe box, as the old chips did.
 - The gallery hides once a draft exists, so switching template means Discard first, which leaves the page.
 - A failed `fromTemplate` shows its error in the describe panel's slot, not next to the gallery.
