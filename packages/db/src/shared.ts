@@ -1344,3 +1344,43 @@ export interface CatalogEntry {
   name: string;
   url: string;
 }
+
+/** What starts a job. The first four are trigger kinds; `slack` is a message to the agent's Slack app. */
+export const JOB_SOURCES = ["routine", "http", "mail", "app", "slack"] as const;
+export type JobSource = (typeof JOB_SOURCES)[number];
+
+/** One way an agent starts, read as a sentence: when, what it does, who it asks first and where the result goes. */
+export interface JobSentence {
+  agent: { id: string; name: string };
+  /** Who the agent asks before it acts, in words. Null when it asks no one. */
+  asksBefore: string | null;
+  /** Where the result goes, in words. Null when nowhere in particular. */
+  deliversTo: string | null;
+  /** What the agent does, in words. */
+  does: string;
+  enabled: boolean;
+  /** The trigger or routine row this sentence reads, or the Slack app id for `slack`. */
+  id: string;
+  /** When the last run started, as an ISO time. Null when it has not run. */
+  lastRunAt: string | null;
+  /** Whether the last run ended well. Null when it has not run. */
+  lastRunOk: boolean | null;
+  /** When a routine fires next, as an ISO time. Null for a start that has no schedule. */
+  nextRunAt: string | null;
+  source: JobSource;
+  /** What starts it, in words: "Every weekday at 9:00", "When mail arrives". */
+  when: string;
+}
+
+/** A job the model proposes from a person's text, for the person to review before it is saved. */
+export interface ProposedTrigger {
+  asksBefore: string | null;
+  /** Five-field cron for a routine, read in `timezone`. Null for every other source. */
+  cron: string | null;
+  deliversTo: string | null;
+  does: string;
+  source: JobSource;
+  /** An IANA zone for a routine. Null for every other source. */
+  timezone: string | null;
+  when: string;
+}

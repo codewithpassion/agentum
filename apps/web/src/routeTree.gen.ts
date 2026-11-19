@@ -19,6 +19,7 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as AppArtifactsRouteImport } from './routes/_app/artifacts'
 import { Route as AppAssistantRouteImport } from './routes/_app/assistant'
 import { Route as AppDeskRouteImport } from './routes/_app/desk'
+import { Route as AppHomeRouteImport } from './routes/_app/home'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppLibraryRouteImport } from './routes/_app/library'
 import { Route as AppLogRouteImport } from './routes/_app/log'
@@ -97,6 +98,11 @@ const AppAssistantRoute = AppAssistantRouteImport.update({
 const AppDeskRoute = AppDeskRouteImport.update({
   id: '/desk',
   path: '/desk',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHomeRoute = AppHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => AppRoute,
 } as any)
 const AppInboxRoute = AppInboxRouteImport.update({
@@ -264,6 +270,7 @@ export interface FileRoutesByFullPath {
   '/artifacts': typeof AppArtifactsRoute
   '/assistant': typeof AppAssistantRoute
   '/desk': typeof AppDeskRoute
+  '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
@@ -305,6 +312,7 @@ export interface FileRoutesByTo {
   '/artifacts': typeof AppArtifactsRoute
   '/assistant': typeof AppAssistantRoute
   '/desk': typeof AppDeskRoute
+  '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
@@ -347,6 +355,7 @@ export interface FileRoutesById {
   '/_app/artifacts': typeof AppArtifactsRoute
   '/_app/assistant': typeof AppAssistantRoute
   '/_app/desk': typeof AppDeskRoute
+  '/_app/home': typeof AppHomeRoute
   '/_app/inbox': typeof AppInboxRoute
   '/_app/library': typeof AppLibraryRoute
   '/_app/log': typeof AppLogRoute
@@ -390,6 +399,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/assistant'
     | '/desk'
+    | '/home'
     | '/inbox'
     | '/library'
     | '/log'
@@ -431,6 +441,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/assistant'
     | '/desk'
+    | '/home'
     | '/inbox'
     | '/library'
     | '/log'
@@ -472,6 +483,7 @@ export interface FileRouteTypes {
     | '/_app/artifacts'
     | '/_app/assistant'
     | '/_app/desk'
+    | '/_app/home'
     | '/_app/inbox'
     | '/_app/library'
     | '/_app/log'
@@ -587,6 +599,13 @@ declare module '@tanstack/react-router' {
       path: '/desk'
       fullPath: '/desk'
       preLoaderRoute: typeof AppDeskRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/home': {
+      id: '/_app/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof AppHomeRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/inbox': {
@@ -837,6 +856,7 @@ interface AppRouteChildren {
   AppArtifactsRoute: typeof AppArtifactsRoute
   AppAssistantRoute: typeof AppAssistantRoute
   AppDeskRoute: typeof AppDeskRoute
+  AppHomeRoute: typeof AppHomeRoute
   AppInboxRoute: typeof AppInboxRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppLogRoute: typeof AppLogRoute
@@ -860,6 +880,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppArtifactsRoute: AppArtifactsRoute,
   AppAssistantRoute: AppAssistantRoute,
   AppDeskRoute: AppDeskRoute,
+  AppHomeRoute: AppHomeRoute,
   AppInboxRoute: AppInboxRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppLogRoute: AppLogRoute,
