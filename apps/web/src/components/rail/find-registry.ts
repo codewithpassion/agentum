@@ -5,6 +5,7 @@ import {
   FolderOpen,
   Inbox,
   Kanban,
+  LayoutGrid,
   ListChecks,
   type LucideIcon,
   Map as MapIcon,
@@ -50,6 +51,13 @@ const settingsEntries: readonly FindEntry[] = settingsNav.flatMap((group) =>
 );
 
 export const findEntries: readonly FindEntry[] = [
+  {
+    group: "Work",
+    hint: "Agents",
+    icon: LayoutGrid,
+    label: "Home",
+    to: "/home",
+  },
   { group: "Work", icon: Sparkles, label: "Assistant", to: "/assistant" },
   {
     group: "Work",

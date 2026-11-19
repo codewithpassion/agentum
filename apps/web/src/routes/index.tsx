@@ -31,7 +31,7 @@ export const Route = createFileRoute("/")({
       }
       throw error;
     }
-    throw redirect({ to: "/desk" });
+    throw redirect({ to: "/home" });
   },
   component: Landing,
   head: () => ({
