@@ -8,6 +8,7 @@ import { mergeRouters, router, workspaceProcedure } from "./init.ts";
 import { createLiveArtifactsRouter } from "./live-artifacts-router";
 import { liveGuestsRouter } from "./live-guests-router";
 import { mailRouter } from "./mail-router.ts";
+import { rosterRouter } from "./roster-router.ts";
 import { runtimeRouter } from "./runtime-router.ts";
 
 // One router per lane, merged here. A lane edits its own file, not this one.
@@ -42,6 +43,7 @@ export const appRouter = mergeRouters(
       return ctx.services.liveArtifacts;
     }),
     liveGuests: liveGuestsRouter,
+    roster: rosterRouter,
   })
 );
 
