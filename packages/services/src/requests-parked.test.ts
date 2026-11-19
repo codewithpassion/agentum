@@ -404,6 +404,8 @@ test("two completes that race on a parked turn deliver one reply and wake once",
   expect(
     settled.filter((outcome) => outcome.status === "fulfilled")
   ).toHaveLength(1);
+  const loser = settled.find((outcome) => outcome.status === "rejected");
+  expect(loser?.status === "rejected" && loser.reason?.code).toBe("conflict");
   expect(delivered).toEqual(["I asked you."]);
   await answer(opened.id);
   expect(

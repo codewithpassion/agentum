@@ -1944,8 +1944,8 @@ export const createRunsService = ({
 
   /**
    * The Claude Code session id, valid only on the machine that ran it. The
-   * write applies only while the run is still `running` or `waiting`, and goes in the same
-   * atomic write as the run's own update.
+   * write applies only while the run is still `running` or `waiting`. It goes
+   * in the same atomic write as the run's own update (`completeRun`, `parkRun`).
    */
   const runtimeRefWrite = (
     principal: Principal,
@@ -2047,12 +2047,7 @@ export const createRunsService = ({
     result: RunResultInput,
     fileIds: string[]
   ): Promise<void> => {
-    // The session id goes first and alone: the same turn reports it on every call, so a losing duplicate repeats a harmless write.
-    if (result.runtimeRef) {
-      await runtimeRefWrite(principal, run, result.runtimeRef);
-    }
-    // The write says whether this call parked the run, so only the winner delivers and wakes anything.
-    const parked = await db
+    const parkWrite = db
       .update(runs)
       .set({
         leaseUntil: null,
@@ -2069,13 +2064,35 @@ export const createRunsService = ({
         )
       )
       .returning({ id: runs.id });
-    if (parked.length === 0) {
+    // One write, and its rows say whether this call parked the run: only the
+    // winner delivers and wakes anything. A losing duplicate repeats the same
+    // session id, which does no harm.
+    let won = false;
+    await atomic(
+      [
+        ...(result.runtimeRef
+          ? [runtimeRefWrite(principal, run, result.runtimeRef)]
+          : []),
+        parkWrite,
+      ],
+      (results) => {
+        won =
+          z.array(z.object({ id: z.string() })).parse(results.at(-1)).length >
+          0;
+      }
+    );
+    if (!won) {
       throw new ServiceError("conflict", "Run is no longer running");
     }
-    const parkedRun = await loadRun(db, run.id);
-    if (!(parkedRun && isParked(parkedRun))) {
-      throw new ServiceError("conflict", "Run is no longer waiting");
-    }
+    // Built from what this call wrote, so an answer or a cancel that lands now
+    // cannot make the winner fail.
+    const parkedRun: RunRecord = {
+      ...run,
+      leaseUntil: null,
+      resultText: result.text ?? null,
+      status: "waiting",
+      usage: result.usage ?? null,
+    };
     if (run.status !== "waiting") {
       await appendRunEvent(run, "run.waiting", agentActor(run));
     }
