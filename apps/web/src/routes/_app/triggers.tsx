@@ -115,8 +115,8 @@ function TriggersPage() {
       )}
       {triggers.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          No triggers yet. Create one to let an outside system start an agent
-          run over HTTP.
+          No triggers yet. Create one to let an outside system start a task for
+          an agent over HTTP.
         </p>
       ) : (
         <TriggerTable
