@@ -140,7 +140,7 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
   /** Loads the template's draft straight into the review screen, with no model call. */
   const pickTemplate = useCallback(
     async (id: AgentTemplateId) => {
-      if (busy || pending !== null) {
+      if (dictating || busy || pending !== null) {
         return;
       }
       setBusy(true);
@@ -159,7 +159,7 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
         setBusy(false);
       }
     },
-    [busy, pending]
+    [dictating, busy, pending]
   );
 
   const edit = useCallback(
@@ -324,7 +324,7 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
     <div className="flex flex-col gap-5">
       {draft === undefined ? (
         <TemplateGallery
-          busy={busy || pending !== null}
+          busy={busy || dictating || pending !== null}
           onPick={pickTemplate}
         />
       ) : null}

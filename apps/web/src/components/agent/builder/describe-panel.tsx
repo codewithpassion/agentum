@@ -184,7 +184,7 @@ export function DescribePanel({
 
         <div className="flex flex-col gap-2">
           <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-            Or start from
+            Or import
           </Label>
           <div className="flex flex-wrap items-center gap-1.5">
             <ChipButton<string>
