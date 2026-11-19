@@ -215,3 +215,48 @@ test("catalog.list is 401 without a workspace", async () => {
     (await callerFor({ orgId: null, userId: "user_1" })).catalog.list()
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("jobs.list and jobs.forAgent are empty for a workspace with no jobs", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  expect(await caller.jobs.list()).toEqual([]);
+  expect(await caller.jobs.forAgent({ agentId: agent.id })).toEqual([]);
+});
+
+test("jobs.draft proposes a trigger from the text and jobs.runNow finds no job", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  expect(
+    await caller.jobs.draft({ agentId: agent.id, text: " Send the digest " })
+  ).toEqual({
+    asksBefore: null,
+    cron: null,
+    deliversTo: null,
+    does: "Send the digest",
+    source: "app",
+    timezone: null,
+    when: "",
+  });
+  await expect(caller.jobs.runNow({ jobId: "nope" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+});
+
+test("jobs procedures are 401 without a workspace", async () => {
+  const caller = await callerFor({ orgId: null, userId: "user_1" });
+
+  await expect(caller.jobs.list()).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.jobs.forAgent({ agentId: "any" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    caller.jobs.draft({ agentId: "any", text: "x" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(caller.jobs.runNow({ jobId: "any" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+});
