@@ -1,6 +1,8 @@
 import { outcomeText } from "@repo/protocol/requests";
 import { outcomeOf, type RequestRow } from "./records.ts";
 
+/** Under the longest input a run takes, so a long answer is cut and never refused. */
+const WAKE_TEXT_MAX = 90_000;
 const WITHDRAWN = "The question was withdrawn.";
 
 /** What one closed question says to the agent. A person's withdrawal is not the run ending, so it gets its own line. */
@@ -20,4 +22,6 @@ export const questionWakeText = (rows: readonly RequestRow[]): string =>
   [
     "The questions you asked have closed. Continue the task from where you stopped.",
     ...rows.map(lineOf),
-  ].join("\n");
+  ]
+    .join("\n")
+    .slice(0, WAKE_TEXT_MAX);

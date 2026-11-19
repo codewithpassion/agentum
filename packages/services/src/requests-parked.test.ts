@@ -39,6 +39,7 @@ let nowMs: number;
 let runs: RunsService;
 let requests: RequestsService;
 let agentId: string;
+let delivered: string[];
 
 const clock: Clock = {
   now: () => new Date(nowMs),
@@ -93,6 +94,7 @@ const answer = (
 
 beforeEach(async () => {
   db = migrated();
+  delivered = [];
   nowMs = Date.parse(START);
   db.insert(workspaces)
     .values({
@@ -142,7 +144,15 @@ beforeEach(async () => {
     clock,
     db,
     devFakeRuntime: false,
-    gateways: [],
+    gateways: [
+      {
+        deliver: (_target, message) => {
+          delivered.push(message.text);
+          return Promise.resolve();
+        },
+        kind: "none",
+      },
+    ],
     runTokenKey: KEY,
   });
   requests = createRequestsService({
@@ -314,4 +324,38 @@ test("a parked run is not reaped for its missing lease", async () => {
   nowMs += 60 * 60 * 1000;
   await runs.reapExpiredLeases({ kind: "system" });
   expect(run(started.runId)?.status).toBe("waiting");
+});
+
+test("the parked turn's text is delivered as the reply, and the follow-up delivers its own", async () => {
+  const started = await startRun();
+  await claim(started.runId);
+  await ask(started.runId);
+  await endTurn(started.runId);
+  expect(delivered).toEqual(["I asked you."]);
+});
+
+test("a late heartbeat does not give a parked run a lease", async () => {
+  const started = await startRun();
+  await claim(started.runId);
+  await ask(started.runId);
+  await endTurn(started.runId);
+  await expect(runs.heartbeatRun(machine, started.runId)).rejects.toThrow();
+  expect(run(started.runId)?.leaseUntil).toBeNull();
+});
+
+test("a machine that claims to have asked on a hand-off child is not parked", async () => {
+  const parent = await startRun("parent");
+  await claim(parent.runId);
+  await runs.completeRun(machine, parent.runId, { status: "done" });
+  const child = await startRun("child");
+  db.update(runRows)
+    .set({ parentRunId: parent.runId })
+    .where(eq(runRows.id, child.runId))
+    .run();
+  await claim(child.runId);
+  const opened = await ask(child.runId);
+  expect(await requests.defersQuestion(machine, child.runId)).toBe(false);
+  await endTurn(child.runId);
+  expect(run(child.runId)?.status).toBe("done");
+  expect(opened.status).toBe("pending");
 });

@@ -176,6 +176,9 @@ impl Gate {
         let name = text(&input["tool_name"]);
         let key = tool_key(name, &self.servers);
         let asks = matches!(name, "AskUserQuestion" | "ask_user");
+        if asks && self.parked() {
+            return Err(Denial::Reason(PARKED.into()));
+        }
         let api = self.api.with_cancel(cancel.clone());
         let required = if self.current && !asks {
             let response = api

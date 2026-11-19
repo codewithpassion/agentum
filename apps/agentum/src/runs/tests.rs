@@ -1198,6 +1198,16 @@ async fn questions_park_only_when_claim_and_deferral_both_say_so() {
                     .contains("later")
             );
             assert_eq!(waits.load(std::sync::atomic::Ordering::SeqCst), 0);
+            // A repeat question after parking is denied without opening another.
+            let again = json!({"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"t2","tool_input":{"questions":[{"question":"Again?"}]}});
+            let repeat = gate.hook(&again, CancellationToken::new()).await;
+            assert_eq!(repeat["hookSpecificOutput"]["permissionDecision"], "deny");
+            assert!(
+                repeat["hookSpecificOutput"]["permissionDecisionReason"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("later")
+            );
         } else {
             assert_eq!(
                 result["hookSpecificOutput"]["updatedInput"]["answers"],

@@ -69,6 +69,7 @@ import {
 } from "./run-tokens.ts";
 import { validateSubagentAccess } from "./runs/access-scope.ts";
 import { authorizeArtifactRun } from "./runs/artifact-access.ts";
+import { runDefersQuestions } from "./runs/deferral.ts";
 import { createFakeRuntime } from "./runs/fake-runtime.ts";
 import { noneGateway } from "./runs/gateways.ts";
 import {
@@ -1850,7 +1851,9 @@ export const createRunsService = ({
         and(
           eq(runs.id, run.id),
           currentGuestRun(nowIso()),
-          inArray(runs.status, LIVE)
+          inArray(runs.status, LIVE),
+          // A parked run has no process, and a late heartbeat must not give it a lease.
+          isNotNull(runs.leaseUntil)
         )
       )
       .returning({ id: runs.id });
@@ -2041,7 +2044,8 @@ export const createRunsService = ({
   const parkRun = async (
     principal: Principal,
     run: RunRecord,
-    result: RunResultInput
+    result: RunResultInput,
+    fileIds: string[]
   ): Promise<void> => {
     const parkWrite = db
       .update(runs)
@@ -2066,6 +2070,15 @@ export const createRunsService = ({
     if (run.status !== "waiting") {
       await appendRunEvent(run, "run.waiting", agentActor(run));
     }
+    // The turn's own words (what it asked) reach the requester now, as a finished turn's would.
+    try {
+      await deliverReply(run, { fileIds, text: result.text ?? "" });
+    } catch (error) {
+      console.error(
+        `Delivering the reply of parked run ${run.id} failed:`,
+        error
+      );
+    }
     for (const listener of parkedListeners) {
       try {
         // biome-ignore lint/performance/noAwaitInLoops: listeners run in order
@@ -2080,15 +2093,17 @@ export const createRunsService = ({
   const parkIfAsking = async (
     principal: Principal,
     run: RunRecord,
-    result: RunResultInput
+    result: RunResultInput,
+    fileIds: string[]
   ): Promise<boolean> => {
     const asking =
       result.status === "done" &&
       result.awaitingAnswer === true &&
       principal.kind === "machine" &&
-      (await askedQuestion(run));
+      (await askedQuestion(run)) &&
+      (await runDefersQuestions(db, run));
     if (asking) {
-      await parkRun(principal, run, result);
+      await parkRun(principal, run, result, fileIds);
     }
     return asking;
   };
@@ -2146,7 +2161,7 @@ export const createRunsService = ({
       runId: run.id,
       workspaceId: run.workspaceId,
     });
-    if (await parkIfAsking(principal, run, result)) {
+    if (await parkIfAsking(principal, run, result, fileIds)) {
       return;
     }
     const failed = result.status === "failed";

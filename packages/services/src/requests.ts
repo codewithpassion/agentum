@@ -57,6 +57,7 @@ import {
   scrubText,
 } from "./requests/records.ts";
 import { importRunTokenKey } from "./run-tokens.ts";
+import { runDefersQuestions } from "./runs/deferral.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
 import { peerRootOf, peerRootsOf } from "./runs/peer-root.ts";
 import { loadRun } from "./runs/queries.ts";
@@ -765,23 +766,11 @@ export const createRequestsService = ({
   ): Promise<boolean> => {
     const run = await requireRun(principal, runId);
     writer(principal, run);
-    if (
-      principal.kind !== "machine" ||
-      run.claimedBy !== principal.machineId ||
-      run.dryRun ||
-      run.scopeArtifactId !== null ||
-      run.parentRunId !== null ||
-      run.subagentLevel > 0 ||
-      (await peerRootsOf(db, run)).length > 0
-    ) {
-      return false;
-    }
-    const [session] = await db
-      .select({ origin: sessions.origin })
-      .from(sessions)
-      .where(eq(sessions.id, run.sessionId))
-      .limit(1);
-    return session !== undefined && session.origin !== "artifact";
+    return (
+      principal.kind === "machine" &&
+      run.claimedBy === principal.machineId &&
+      (await runDefersQuestions(db, run))
+    );
   };
   /**
    * A parked run's questions have all closed: it ends, and a follow-up run in
@@ -813,6 +802,10 @@ export const createRequestsService = ({
       .from(sessions)
       .where(eq(sessions.id, settled.sessionId))
       .limit(1);
+    if (!session) {
+      console.error("A parked run's session is gone", settled.id);
+      return;
+    }
     const asked = await db
       .select()
       .from(runRequests)
@@ -824,15 +817,19 @@ export const createRequestsService = ({
         )
       )
       .orderBy(runRequests.createdAt, runRequests.id);
-    if (!session) {
-      return;
-    }
+    // The answers are what the person typed. The follow-up's input is stored and
+    // shown as an event, so the agent's granted secret values are masked in it.
+    const masker = await secrets.maskerFor(
+      settled.workspaceId,
+      settled.agentId
+    );
+    const wake = questionWakeText(asked);
     try {
       await runs.startRun(
         SYSTEM_PRINCIPAL,
         {
           agentId: settled.agentId,
-          input: { text: questionWakeText(asked) },
+          input: { text: masker?.mask(wake) ?? wake },
           reply: settled.reply,
           requestId: `question-answer:${settled.id}`,
           session: {
