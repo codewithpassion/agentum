@@ -98,7 +98,11 @@ export function ChatTab({ room }: RoomTabProps) {
         />
       </div>
       <div className="flex h-[70vh] min-h-96 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
-        <MainThread agentId={agent.id} archived={agent.status === "archived"} />
+        <MainThread
+          agentId={agent.id}
+          archived={agent.status === "archived"}
+          key={agent.id}
+        />
       </div>
     </div>
   );

@@ -1,17 +1,9 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { ArchivedAgentBanner } from "#/components/agent/archived-agents";
 import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
-import { ChatTab } from "#/components/agent/room/chat";
-import { FilesTab } from "#/components/agent/room/files";
-import { JobsTab } from "#/components/agent/room/jobs";
-import { KeysTab } from "#/components/agent/room/keys";
-import { KnowsTab } from "#/components/agent/room/knows";
-import type { RoomTabProps } from "#/components/agent/room/room-data";
-import { RoomHeader } from "#/components/agent/room/room-header";
-import { SettingsTab } from "#/components/agent/room/settings";
-import { panelId, TabBar, tabId } from "#/components/agent/room/tab-bar";
+import { RoomFrame } from "#/components/agent/room/room-frame";
 import {
   DEFAULT_TAB,
   ROOM_TABS,
@@ -19,7 +11,6 @@ import {
   resolveTab,
   SHEET_IDS,
 } from "#/components/agent/room/tabs";
-import { WorkTab } from "#/components/agent/room/work";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
@@ -39,16 +30,6 @@ const searchSchema = z.object({
   sheet: z.enum(SHEET_IDS).optional().catch(undefined),
   tab: z.enum(ROOM_TABS).optional().catch(undefined),
 });
-
-const TABS: Record<RoomTab, (props: RoomTabProps) => ReactNode> = {
-  chat: ChatTab,
-  files: FilesTab,
-  jobs: JobsTab,
-  keys: KeysTab,
-  knows: KnowsTab,
-  settings: SettingsTab,
-  work: WorkTab,
-};
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
   validateSearch: (search) => searchSchema.parse(search),
@@ -113,18 +94,6 @@ function useNowMs(): number | null {
   return nowMs;
 }
 
-/** Disables every control inside it, for an archived agent. */
-function Disabled({ children, when }: { children: ReactNode; when: boolean }) {
-  return (
-    <fieldset
-      className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0"
-      disabled={when}
-    >
-      {children}
-    </fieldset>
-  );
-}
-
 function AgentPage() {
   const room = Route.useLoaderData();
   const { agent } = room;
@@ -165,30 +134,18 @@ function AgentPage() {
     [navigate]
   );
 
-  const Body = TABS[tab];
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-4">
       {archived ? <ArchivedAgentBanner agent={agent} /> : null}
-      <Disabled when={archived}>
-        <RoomHeader
-          onEdit={edit}
-          onOpenMail={openMailList}
-          onStarted={openTask}
-          room={room}
-        />
-      </Disabled>
-      {/* Outside the fieldset, so an archived agent's tabs still switch. */}
-      <TabBar onSelect={openTab} selected={tab} />
-      <Disabled when={archived}>
-        <div
-          aria-labelledby={tabId(tab)}
-          id={panelId(tab)}
-          role="tabpanel"
-          tabIndex={-1}
-        >
-          <Body nowMs={nowMs} onOpenTab={openTab} room={room} />
-        </div>
-      </Disabled>
+      <RoomFrame
+        nowMs={nowMs}
+        onEdit={edit}
+        onOpenMail={openMailList}
+        onOpenTab={openTab}
+        onStarted={openTask}
+        room={room}
+        tab={tab}
+      />
       {archived ? null : (
         <MailSheet
           agent={agent}
