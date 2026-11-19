@@ -9,6 +9,7 @@ import {
 import { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { EmptyThread as realEmptyThread } from "#/components/thread/empty-thread.tsx";
 import { getTrpc as realGetTrpc } from "#/integrations/trpc/client";
 import { fixtureRoom } from "../test-fixtures.tsx";
 
@@ -66,6 +67,9 @@ beforeAll(() => {
 
 afterAll(() => {
   mock.module("#/integrations/trpc/client", () => ({ getTrpc: realGetTrpc }));
+  mock.module("#/components/thread/empty-thread.tsx", () => ({
+    EmptyThread: realEmptyThread,
+  }));
   Object.assign(globalThis, previousGlobals);
 });
 
