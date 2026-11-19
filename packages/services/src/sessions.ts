@@ -35,7 +35,16 @@ import { ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import type { EventRecord, EventsService } from "./events.ts";
 import { mailSubjectsOf } from "./mail-subjects.ts";
-import { mailTitleOf, runTitleText } from "./mail-title-text.ts";
+import {
+  conversationTitle,
+  isJsonTitle,
+  isPlainTitle,
+  mailTitleOf,
+  readableTitle,
+  runTitleText,
+  storedTitle,
+  TITLE_MAX,
+} from "./mail-title-text.ts";
 import { currentGuestRun } from "./runs/guest-scope.ts";
 import { loadRun } from "./runs/queries.ts";
 import { toRecord, toSummary } from "./runs/records.ts";
@@ -54,7 +63,6 @@ const SESSION_KIND = "session";
 /** Dry-run sessions are private to their builder and never listed or searched. */
 /** Sessions one list call returns, newest first. */
 export const SESSION_LIST_LIMIT = 50;
-const TITLE_MAX = 60;
 /** The longest name a person may give a thread. */
 const TITLE_MAX_STORED = 200;
 /** Matching message events one search reads, newest first. */
@@ -189,7 +197,7 @@ const requireReader = (principal: Principal): Reader => {
 
 const truncate = (raw: string): string => {
   const text = raw.trim();
-  return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX)}...` : text;
+  return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX - 3)}...` : text;
 };
 
 const slackLabelSchema = z.object({ label: z.string() });
@@ -346,7 +354,7 @@ const triggerNamesOf = async (
   const found = await db
     .select({ id: triggers.id, name: triggers.name })
     .from(triggers)
-    .where(inArray(triggers.id, ids));
+    .where(and(inArray(triggers.id, ids), eq(triggers.kind, "http")));
   for (const trigger of found) {
     names.set(trigger.id, trigger.name);
   }
@@ -402,21 +410,23 @@ const slackLabelsOf = async (
 
 /** What can name a session besides its first message, read once for a set of sessions. */
 export interface TitleSources {
+  agentNames: Map<string, string>;
   labels: Map<string, string | null>;
   threadTitles: Map<string, string>;
   triggerNames: Map<string, string>;
 }
 
 /**
- * Reads the names that title `rows`: a trigger or routine by its trigger, an
- * inbox session by its thread, a Slack session by its label. At most three
+ * Reads the names that title `rows`: an HTTP trigger by its trigger, an
+ * inbox session by its thread, a Slack session by its label. At most four
  * batched reads cover all the rows, none one per session.
  */
 export const loadTitleSources = async (
   db: Database,
   rows: readonly SessionRow[]
 ): Promise<TitleSources> => {
-  const [triggerNames, threadTitles, labels] = await Promise.all([
+  const agentIds = [...new Set(rows.map((row) => row.agentId))];
+  const [triggerNames, threadTitles, labels, agentRows] = await Promise.all([
     triggerNamesOf(
       db,
       rows.flatMap((row) => (row.actorKind === "trigger" ? [row.actorId] : []))
@@ -433,8 +443,19 @@ export const loadTitleSources = async (
       db,
       rows.flatMap((row) => (row.origin === "slack" ? [row.id] : []))
     ),
+    agentIds.length === 0
+      ? []
+      : db
+          .select({ id: agents.id, name: agents.name })
+          .from(agents)
+          .where(inArray(agents.id, agentIds)),
   ]);
-  return { labels, threadTitles, triggerNames };
+  return {
+    agentNames: new Map(agentRows.map((agent) => [agent.id, agent.name])),
+    labels,
+    threadTitles,
+    triggerNames,
+  };
 };
 
 /**
@@ -443,22 +464,25 @@ export const loadTitleSources = async (
  * origin. Otherwise, or when that name is gone, the first message.
  */
 export const titleFor = (
-  { labels, threadTitles, triggerNames }: TitleSources,
+  { agentNames, labels, threadTitles, triggerNames }: TitleSources,
   row: SessionRow,
   first: string,
   mailSubject?: string
 ): string => {
-  const subject = mailTitleOf(mailSubject);
+  const subject = readableTitle(mailTitleOf(mailSubject) ?? "", false);
   if (subject !== undefined) {
     return truncate(subject);
   }
-  const name = sourceName(row, triggerNames, threadTitles);
-  const label = labels.get(row.id) ?? null;
-  if (name !== undefined && name.trim() !== "") {
+  const name = readableTitle(
+    sourceName(row, triggerNames, threadTitles) ?? "",
+    false
+  );
+  const label = readableTitle(labels.get(row.id) ?? "", false);
+  if (name !== undefined) {
     return truncate(name);
   }
-  const text = runTitleText(first);
-  return truncate(label === null ? text : `${label}: ${text}`);
+  const text = conversationTitle(first, agentNames.get(row.agentId));
+  return truncate(label === undefined ? text : `${label}: ${text}`);
 };
 
 /**
@@ -467,7 +491,7 @@ export const titleFor = (
  * own name, so the rows of a thread tell apart.
  */
 export const runTitleFor = (first: string, mailSubject?: string): string =>
-  truncate(runTitleText(first.split("\n")[0] ?? "", mailSubject));
+  truncate(runTitleText(first, mailSubject));
 
 export const createSessionsService = ({
   db,
@@ -513,8 +537,9 @@ export const createSessionsService = ({
     return new Map(
       rows.map((row) => {
         const first = firstRuns.get(row.id);
-        if (row.title !== null && row.title.trim() !== "") {
-          return [row.id, row.title];
+        const stored = storedTitle(row.title);
+        if (stored !== undefined) {
+          return [row.id, stored];
         }
         return [
           row.id,
@@ -919,6 +944,20 @@ export const createSessionsService = ({
         new ServiceError(
           "invalid",
           `Title must be 1 to ${TITLE_MAX_STORED} characters`
+        )
+      );
+    }
+    // A person's title may not hold JSON, markup or attachment markers, so what is stored is what shows.
+    if (isJsonTitle(name)) {
+      return Promise.reject(
+        new ServiceError("invalid", "Title must not be JSON")
+      );
+    }
+    if (!isPlainTitle(name)) {
+      return Promise.reject(
+        new ServiceError(
+          "invalid",
+          "Title must be plain text, without markup or attachment markers"
         )
       );
     }
