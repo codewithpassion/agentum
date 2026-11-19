@@ -64,3 +64,19 @@ export const resolveTab = (search: {
   }
   return DEFAULT_TAB;
 };
+
+/**
+ * The search an old `?sheet=` link becomes, or null when the URL has no
+ * `sheet`. The route redirects to it, so the address bar shows `?tab=`.
+ */
+export const legacySheetSearch = (search: {
+  mail?: string | undefined;
+  sheet?: LegacySheet | undefined;
+  tab?: RoomTab | undefined;
+}): { mail?: string; tab: RoomTab } | null => {
+  if (search.sheet === undefined) {
+    return null;
+  }
+  const tab = resolveTab(search);
+  return search.mail === undefined ? { tab } : { mail: search.mail, tab };
+};

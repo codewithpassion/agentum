@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { ArchivedAgentBanner } from "#/components/agent/archived-agents";
@@ -6,6 +6,7 @@ import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
 import { RoomFrame } from "#/components/agent/room/room-frame";
 import {
   DEFAULT_TAB,
+  legacySheetSearch,
   ROOM_TABS,
   type RoomTab,
   resolveTab,
@@ -33,6 +34,18 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
   validateSearch: (search) => searchSchema.parse(search),
+  // An old ?sheet= link lands on the tab that holds it, with ?tab= in the address bar.
+  beforeLoad: ({ params, search }) => {
+    const next = legacySheetSearch(search);
+    if (next !== null) {
+      throw redirect({
+        params,
+        replace: true,
+        search: next,
+        to: "/agents/$agentId",
+      });
+    }
+  },
   loader: async ({ params }) =>
     loadOrLogin(async () => {
       const trpc = getTrpc();

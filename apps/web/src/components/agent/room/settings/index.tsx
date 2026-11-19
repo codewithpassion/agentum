@@ -4,12 +4,13 @@ import { ComputerCard } from "#/components/agent/profile/computer-card.tsx";
 import { RunsOnCard } from "#/components/agent/profile/runs-on-card.tsx";
 import { AdvancedPanel } from "#/components/agent/profile/sheets/advanced.tsx";
 import type { RoomTabProps } from "../room-data.ts";
-import { RoomSection, TabBody } from "../section.tsx";
+import { Manage, RoomSection, TabBody } from "../section.tsx";
 
 const FORM_ID = "room-settings-form";
 
 /** The room's Settings tab: where the agent runs, its computer, and the agent form. */
 export function SettingsTab({ room }: RoomTabProps) {
+  const archived = room.agent.status === "archived";
   const scrollToForm = useCallback(() => {
     document.getElementById(FORM_ID)?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -25,12 +26,16 @@ export function SettingsTab({ room }: RoomTabProps) {
       </div>
       {room.members === null ? null : (
         <RoomSection title="Owner">
-          <AsksRow agent={room.agent} members={room.members} />
+          <Manage archived={archived}>
+            <AsksRow agent={room.agent} members={room.members} />
+          </Manage>
         </RoomSection>
       )}
       <RoomSection title="Edit agent">
         <div id={FORM_ID}>
-          <AdvancedPanel agent={room.agent} />
+          <Manage archived={archived}>
+            <AdvancedPanel agent={room.agent} />
+          </Manage>
         </div>
       </RoomSection>
     </TabBody>

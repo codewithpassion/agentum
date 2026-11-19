@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   DEFAULT_TAB,
   type LegacySheet,
+  legacySheetSearch,
   ROOM_TABS,
   type RoomTab,
   resolveTab,
@@ -58,4 +59,18 @@ test("?tab= wins over the old params", () => {
   expect(resolveTab({ sheet: "tools", tab: "work" })).toBe("work");
   expect(resolveTab({ mail: "1", tab: "files" })).toBe("files");
   expect(resolveTab({ mail: "1", sheet: "skills" })).toBe("knows");
+});
+
+test("an old ?sheet= link redirects to ?tab=, and other URLs stay put", () => {
+  expect(legacySheetSearch({ sheet: "skills" })).toEqual({ tab: "knows" });
+  expect(legacySheetSearch({ mail: "1", sheet: "tools" })).toEqual({
+    mail: "1",
+    tab: "keys",
+  });
+  expect(legacySheetSearch({ sheet: "tools", tab: "work" })).toEqual({
+    tab: "work",
+  });
+  expect(legacySheetSearch({})).toBeNull();
+  expect(legacySheetSearch({ mail: "1" })).toBeNull();
+  expect(legacySheetSearch({ tab: "files" })).toBeNull();
 });

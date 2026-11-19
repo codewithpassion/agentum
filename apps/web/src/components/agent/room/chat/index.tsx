@@ -1,5 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ThreadsCard } from "#/components/agent/profile/threads-card.tsx";
 import { TaskPage } from "#/components/task/task-page.tsx";
 import { EmptyThread } from "#/components/thread/empty-thread.tsx";
@@ -59,9 +60,14 @@ function MainThread({
     }
     try {
       setMain({ status: "ready", task: await readTask(sessionId) });
-      await router.invalidate();
     } catch (cause) {
       setMain({ message: errorMessage(cause), status: "error" });
+      return;
+    }
+    try {
+      await router.invalidate();
+    } catch (cause) {
+      toast.error(errorMessage(cause, "Could not refresh the page."));
     }
   }, [router, sessionId]);
 

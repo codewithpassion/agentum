@@ -12,10 +12,11 @@ import { SlackPanel } from "#/components/agent/profile/sheets/slack.tsx";
 import { SubagentsSwitch } from "#/components/agent/profile/subagents-switch.tsx";
 import { WorksWith } from "#/components/agent/profile/works-with.tsx";
 import type { RoomTabProps } from "../room-data.ts";
-import { RoomSection, TabBody } from "../section.tsx";
+import { Manage, RoomSection, TabBody } from "../section.tsx";
 
 /** The room's Keys tab: the agent's tools, channels, the agents it works with, and what needs asking first. */
 export function KeysTab({ onOpenTab, room }: RoomTabProps) {
+  const archived = room.agent.status === "archived";
   const openSettings = useCallback(() => onOpenTab("settings"), [onOpenTab]);
   const provisionLabel =
     room.mailbox === null
@@ -29,17 +30,25 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
     <TabBody>
       <RoomSection title="Tools">
         <BrowserSwitch agent={room.agent} />
-        <ConnectorsPanel agent={room.agent} />
-        <SecretsPanel agent={room.agent} />
+        <Manage archived={archived}>
+          <ConnectorsPanel agent={room.agent} />
+          <SecretsPanel agent={room.agent} />
+        </Manage>
       </RoomSection>
       <RoomSection title="Channels">
-        <SlackPanel agent={room.agent} />
+        <Manage archived={archived}>
+          <SlackPanel agent={room.agent} />
+        </Manage>
         {provisionLabel === null ? null : (
           <MailProvisionButton agentId={room.agent.id} label={provisionLabel} />
         )}
       </RoomSection>
       <WorksWith
-        handsTo={<HandsToPanel agent={room.agent} />}
+        handsTo={
+          <Manage archived={archived}>
+            <HandsToPanel agent={room.agent} />
+          </Manage>
+        }
         peers={
           <div className="[&>section]:border-0 [&>section]:bg-transparent [&_h2]:sr-only">
             <ConnectionsCard
@@ -54,7 +63,7 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       <AskBeforeCard
         actions={room.askBefore}
         agentId={room.agent.id}
-        archived={room.agent.status === "archived"}
+        archived={archived}
         level={room.askLevel}
         mailAllowed={allowedMailAddresses(room.rules)}
         onEditSettings={openSettings}
