@@ -45,11 +45,11 @@ export const AgentCardView = ({ card }: { card: AgentCard }) => (
         <span className="sr-only">{STATE_LABELS[card.state]}</span>
       </span>
       {card.jobLine === "" ? null : (
-        <p className="line-clamp-2 text-muted-foreground text-sm">
+        <span className="line-clamp-2 block text-muted-foreground text-sm">
           {card.jobLine}
-        </p>
+        </span>
       )}
-      <p className="line-clamp-2 text-sm">{card.statusLine}</p>
+      <span className="line-clamp-2 block text-sm">{card.statusLine}</span>
       <span className="flex min-w-0 flex-wrap justify-between gap-x-3 text-muted-foreground text-xs">
         <span className="truncate">{`Owner ${card.ownerName}`}</span>
         <span className="shrink-0">
