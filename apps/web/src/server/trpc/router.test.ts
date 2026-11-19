@@ -5,6 +5,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { defaultAgentAvatar } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
+import { NO_KEY_MESSAGE } from "@repo/services/managed/keys";
 import { noopRelay } from "@repo/services/machines/types";
 import { systemClock } from "@repo/services/runs/types";
 import { eq } from "drizzle-orm";
@@ -224,21 +225,13 @@ test("jobs.list and jobs.forAgent are empty for a workspace with no jobs", async
   expect(await caller.jobs.forAgent({ agentId: agent.id })).toEqual([]);
 });
 
-test("jobs.draft proposes a trigger from the text and jobs.runNow finds no job", async () => {
+test("jobs.draft needs a workspace key and jobs.runNow finds no job", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
   const agent = await caller.agents.create(agentInput);
 
-  expect(
-    await caller.jobs.draft({ agentId: agent.id, text: " Send the digest " })
-  ).toEqual({
-    asksBefore: null,
-    cron: null,
-    deliversTo: null,
-    does: "Send the digest",
-    source: "app",
-    timezone: null,
-    when: "",
-  });
+  await expect(
+    caller.jobs.draft({ agentId: agent.id, text: "Every Friday send the digest" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: NO_KEY_MESSAGE });
   await expect(caller.jobs.runNow({ jobId: "nope" })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
