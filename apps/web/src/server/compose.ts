@@ -1383,7 +1383,7 @@ export const composeWith = ({
       events,
       files,
       inbox,
-      keys: createKeysService(),
+      keys: createKeysService({ db, people: infra.people }),
       library,
       libraryAccess,
       libraryLinks,
