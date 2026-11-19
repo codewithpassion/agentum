@@ -6,6 +6,8 @@ import { buttonVariants } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
+export const PAGE_HEADING = "Agents";
+
 export const Route = createFileRoute("/_app/agents/")({
   loader: async () =>
     loadOrLogin(async () => {
@@ -34,7 +36,9 @@ function AgentsIndex() {
   return (
     <section className="mx-auto max-w-5xl">
       <header className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-heading text-3xl text-foreground">Agents</h1>
+        <h1 className="font-heading text-3xl text-foreground">
+          {PAGE_HEADING}
+        </h1>
         <Link className={buttonVariants()} to="/agents/new">
           New agent
         </Link>

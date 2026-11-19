@@ -56,7 +56,7 @@ export function TaskFilesList({
       </div>
       {empty ? (
         <p className="text-muted-foreground text-sm">
-          {number === undefined ? "" : `No files from run ${number}. `}The task
+          {number === undefined ? "" : `No files from task ${number}. `}The task
           folder is empty and nothing outside it changed.
         </p>
       ) : (

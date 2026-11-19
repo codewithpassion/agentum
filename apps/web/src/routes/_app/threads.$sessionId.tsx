@@ -35,10 +35,10 @@ function ThreadNotFound() {
   return (
     <section className="mx-auto max-w-3xl">
       <h1 className="font-heading text-3xl text-foreground">
-        Thread not found
+        Conversation not found
       </h1>
       <p className="mt-4 text-muted-foreground text-sm">
-        This thread does not exist, or you cannot see it.
+        This conversation does not exist, or you cannot see it.
       </p>
     </section>
   );

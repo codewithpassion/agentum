@@ -129,14 +129,14 @@ export const sortConnections = <T extends ConnectionLike>(
 /** What a peer's message may do, said plainly, for the switch beside it. */
 export const INBOUND_WORDS: Record<A2aInboundPolicy, string> = {
   approve: "Each incoming message waits for a person to approve it.",
-  auto: "A message from this peer starts a run at once, with no one reading it first. Anyone who holds the peer's key can give your agent work.",
+  auto: "A message from this peer starts a task at once, with no one reading it first. Anyone who holds the peer's key can give your agent work.",
   off: "Incoming messages from this peer are refused.",
 };
 
 export const TOOL_WORDS: Record<A2aToolPolicy, string> = {
   agent_rules:
-    "In a run this peer starts, the agent follows its usual rules for tools and may use them without asking. A machine agent can run shell commands on its computer.",
-  ask: "Every tool call in a run this peer starts asks a person first.",
+    "In a task this peer starts, the agent follows its usual rules for tools and may use them without asking. A machine agent can run shell commands on its computer.",
+  ask: "Every tool call in a task this peer starts asks a person first.",
 };
 
 export const OUTBOUND_WORDS: Record<A2aOutboundPolicy, string> = {
@@ -213,7 +213,7 @@ export const hermesConfigYaml = (input: {
 
 /** What a key connection says about approval, for Hermes: it never gets the later answer by itself. */
 export const HERMES_APPROVAL_NOTE =
-  'With approval on, a Hermes agent gets "waiting for approval" and not the later answer. The answer stays in the session for its next message in that context. Choose "Start a run at once" for this connection if you trust the peer.';
+  'With approval on, a Hermes agent gets "waiting for approval" and not the later answer. The answer stays in the conversation for its next message in that context. Choose "Start a task at once" for this connection if you trust the peer.';
 
 /** The alternative to a key: an outside client pairs with a code, and needs no key from the owner. */
 export const PAIRING_INTRO =
@@ -320,5 +320,5 @@ export const revokeWords = (
             ? `, and ${connection.agentName} can no longer message it`
             : ""
         }.`;
-  return `${stops} Messages waiting for approval are declined and runs it started are cancelled. The connection stays listed as revoked. ${RECONNECT_WORDS[connection.peerKind]}`;
+  return `${stops} Messages waiting for approval are declined and tasks it started are cancelled. The connection stays listed as revoked. ${RECONNECT_WORDS[connection.peerKind]}`;
 };

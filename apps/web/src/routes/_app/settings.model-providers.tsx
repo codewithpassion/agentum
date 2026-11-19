@@ -4,6 +4,8 @@ import { ProviderKeyForm } from "#/components/model-providers/provider-key-form"
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
+export const PAGE_HEADING = "Model providers";
+
 export const Route = createFileRoute("/_app/settings/model-providers")({
   loader: async () =>
     loadOrLogin(async () => {
@@ -48,7 +50,7 @@ function ModelProvidersPage() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-6">
-      <h1 className="font-heading text-3xl text-foreground">Model providers</h1>
+      <h1 className="font-heading text-3xl text-foreground">{PAGE_HEADING}</h1>
       <div className="flex flex-col gap-6">
         <ProviderKeyForm
           description="Cloudflare agents and Managed Agents both run on your workspace's own Anthropic API key. The key is stored encrypted and is never shown again; only its last four characters are."

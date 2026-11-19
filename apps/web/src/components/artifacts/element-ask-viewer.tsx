@@ -34,7 +34,7 @@ export function ElementAskViewer(props: ArtifactFrameProps) {
   }, [artifactId]);
   useEffect(() => {
     refresh().catch((cause: unknown) =>
-      setError(errorMessage(cause, "Could not load agent thread"))
+      setError(errorMessage(cause, "Could not load agent conversation"))
     );
   }, [refresh]);
   const message = useCallback(
@@ -64,7 +64,7 @@ export function ElementAskViewer(props: ArtifactFrameProps) {
         onMessage={message}
       />
       <aside
-        aria-label="Artifact agent thread"
+        aria-label="Artifact agent conversation"
         className="max-h-[30vh] shrink-0 overflow-auto border-border border-l p-3 md:h-full md:max-h-none md:w-80"
       >
         <label>

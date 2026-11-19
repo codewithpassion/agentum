@@ -52,8 +52,8 @@ export function DeleteConnectorDialog({
           <AlertDialogTitle>Delete {connector.name}?</AlertDialogTitle>
           <AlertDialogDescription>
             Deleting removes its stored credentials and its assignments to
-            agents. It is refused while a run of an assigned agent is live. This
-            cannot be undone.
+            agents. It is refused while a task of an assigned agent is live.
+            This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error === null ? null : (

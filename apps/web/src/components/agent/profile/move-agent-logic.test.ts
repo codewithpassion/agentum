@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import {
   hostMachines,
+  MOVE_TARGETS,
   moveBlocker,
   needsAnthropicModel,
 } from "./move-agent-logic.ts";
@@ -13,6 +14,14 @@ const machine = (overrides: Partial<MachineRecord>): MachineRecord =>
     status: "online",
     ...overrides,
   }) as MachineRecord;
+
+test("MOVE_TARGETS are named with the plain runtime names, in order", () => {
+  expect(MOVE_TARGETS.map((target) => target.title)).toEqual([
+    "Cloud",
+    "Anthropic cloud",
+    "My computer",
+  ]);
+});
 
 test("hostMachines keeps agent_host machines that are not revoked", () => {
   const hosts = hostMachines([

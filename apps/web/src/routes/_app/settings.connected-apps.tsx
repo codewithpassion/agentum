@@ -9,6 +9,8 @@ import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 import { errorMessage } from "#/lib/error-message";
 
+export const PAGE_HEADING = "Connected apps";
+
 export const Route = createFileRoute("/_app/settings/connected-apps")({
   loader: async () =>
     loadOrLogin(async () => {
@@ -72,7 +74,7 @@ function ConnectedAppsPage() {
     <section className="mx-auto max-w-3xl">
       <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="font-heading text-3xl text-foreground">
-          Connected apps
+          {PAGE_HEADING}
         </h1>
       </div>
       {mcpUrl === null ? null : <McpAddress url={mcpUrl} />}

@@ -30,7 +30,7 @@ export function RunFailure({ error }: { error: string }) {
       className="border border-destructive/50 bg-destructive/10 p-3 text-sm"
       role="alert"
     >
-      <h3 className="mb-2 font-medium text-destructive">Run failed</h3>
+      <h3 className="mb-2 font-medium text-destructive">Task failed</h3>
       <pre className="whitespace-pre-wrap break-words font-mono text-xs">
         {error}
       </pre>

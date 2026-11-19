@@ -20,6 +20,8 @@ const searchSchema = z.object({
   shared: z.literal(true).optional().catch(undefined),
 });
 
+export const PAGE_HEADING = "Artifacts";
+
 export const Route = createFileRoute("/_app/artifacts")({
   validateSearch: (search) => searchSchema.parse(search),
   loaderDeps: ({ search }) => ({
@@ -53,7 +55,7 @@ function ArtifactsPage() {
 
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-6">
-      <h1 className="font-heading text-3xl text-foreground">Artifacts</h1>
+      <h1 className="font-heading text-3xl text-foreground">{PAGE_HEADING}</h1>
       <div className="flex flex-wrap items-end gap-4">
         <CreateDeck />
         <CreateDocument />

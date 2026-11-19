@@ -45,7 +45,7 @@ function agentLabel(
   return agentNames.get(entry.agentId) ?? "Agent";
 }
 
-const CANCEL_FAILED = "Could not cancel the run.";
+const CANCEL_FAILED = "Could not cancel the task.";
 
 /** Shows the "Links" label beside the actions cell in the phone card, as ResponsiveCell does for its cells. */
 const LINKS_LABEL_CLASS =
@@ -68,13 +68,13 @@ function CancelRunButton({ runId }: { runId: string }) {
   return (
     <ConfirmButton
       className="ml-2"
-      confirmLabel="Cancel run"
+      confirmLabel="Cancel task"
       data-testid="log-cancel"
-      description="The run stops now. Work it has not finished is lost."
+      description="The task stops now. Work it has not finished is lost."
       disabled={cancelling}
       onConfirm={cancel}
       size="sm"
-      title="Cancel this run?"
+      title="Cancel this task?"
       variant="outline"
     >
       Cancel

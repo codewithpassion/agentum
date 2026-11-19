@@ -3,9 +3,9 @@ id: KY.1
 title: "Keys contract: catalogue key, read model types, router"
 milestone: KY
 size: S
-status: todo
+status: done
 depends_on: []
-branch: null
+branch: task/KY.1-keys-contract
 lane: contract
 executor: claude
 ---
@@ -25,3 +25,5 @@ From `docs/v4/build-plan.md`, milestone KY. Contract task for KY. It alone chang
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/KY.1-keys-contract (v4 controller session).
+- 2026-11-20: merged as 7cd3a0fe, review clean after 0 fix rounds. check, test and build passed on main.

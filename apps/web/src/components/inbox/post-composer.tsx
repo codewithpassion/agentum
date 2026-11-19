@@ -89,7 +89,7 @@ export function PostComposer({ onSent, threadId }: PostComposerProps) {
         </div>
         <DictationButton dictation={dictation} />
         <p className="text-muted-foreground text-xs" id={hintId}>
-          Mention an agent with @slug to start a run.
+          Mention an agent with @slug to start a task.
         </p>
         <div className="flex items-center gap-2">
           <Button

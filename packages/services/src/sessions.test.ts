@@ -19,6 +19,7 @@ import { createEventsService } from "./events.ts";
 import type { Clock } from "./runs/types.ts";
 import { createRunsService, type RunsService } from "./runs.ts";
 import { createSessionsService, type SessionsService } from "./sessions.ts";
+import { buildPeerEnvelope } from "./speaker-envelope.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -66,7 +67,15 @@ const startIn = (
   text: string,
   session: {
     externalKey?: string;
-    origin: "ui" | "slack" | "inbox" | "trigger" | "dry_run";
+    origin:
+      | "ui"
+      | "slack"
+      | "inbox"
+      | "trigger"
+      | "dry_run"
+      | "qa"
+      | "a2a"
+      | "artifact";
     private?: boolean;
   }
 ) =>
@@ -168,14 +177,14 @@ test("list takes the title from the first message and the status from the last r
   expect(item).toMatchObject({ status: "interrupted", title: "opening" });
 });
 
-test("the title is the first message trimmed to 60 characters, in the list and the transcript", async () => {
+test("the title is the first message trimmed to 80 characters, in the list and the transcript", async () => {
   const long = `  ${"word ".repeat(30)}`;
   const started = await send(user("u1"), long);
 
   const [item] = await sessions.list(user("u1"), { agentId });
   const { session } = await sessions.transcript(user("u1"), started.sessionId);
 
-  const expected = `${long.trim().slice(0, 60)}...`;
+  const expected = `${long.trim().slice(0, 77)}...`;
   expect(item?.title).toBe(expected);
   expect(session.title).toBe(expected);
 });
@@ -282,18 +291,21 @@ test("a trigger session is not readable from another workspace", async () => {
   });
 });
 
-test("a routine session is titled by the routine's name", async () => {
+test("a routine session is titled by its prompt first line", async () => {
   insertTrigger("trg-digest", "routine", "Daily digest");
   const started = await startIn(
     triggerPrincipal("trg-digest"),
     agentId,
-    "summarise the day",
+    "summarise the day\nThen report issues",
     { origin: "trigger" }
   );
 
   const [item] = await sessions.list(user("u1"), { origin: "trigger" });
 
-  expect(item).toMatchObject({ id: started.sessionId, title: "Daily digest" });
+  expect(item).toMatchObject({
+    id: started.sessionId,
+    title: "summarise the day",
+  });
 });
 
 test("a trigger with a blank name, or no row, is titled by the first message", async () => {
@@ -1748,4 +1760,143 @@ test("main raises a conflict instead of returning a thread another user holds un
   await expect(sessions.main(user("u2"), agentId)).rejects.toMatchObject({
     code: "conflict",
   });
+});
+
+for (const origin of [
+  "ui",
+  "slack",
+  "trigger",
+  "qa",
+  "a2a",
+  "artifact",
+] as const) {
+  test(`${origin} titles use the envelope text`, async () => {
+    if (origin === "artifact") {
+      db.insert(artifacts)
+        .values({
+          audience: "private",
+          createdAt: START,
+          createdById: "u1",
+          createdByKind: "user",
+          id: "title-artifact",
+          kind: "document",
+          ownerUserId: "u1",
+          title: "Doc",
+          updatedAt: START,
+          workspaceId: WORKSPACE,
+        })
+        .run();
+    }
+    const envelope = buildPeerEnvelope(
+      { agentName: "Peer", connectionId: "con-title", host: "peer.example" },
+      "Review the proposal\nThen reply"
+    );
+    // An unreadable HTTP trigger name must fall through to its message.
+    if (origin === "trigger") {
+      insertTrigger("title-trigger", "http", '{"name":1}');
+    }
+    const started = await startIn(
+      origin === "trigger" ? triggerPrincipal("title-trigger") : user("u1"),
+      agentId,
+      envelope,
+      {
+        origin,
+        ...(origin === "artifact" ? { externalKey: "title-artifact" } : {}),
+      }
+    );
+    if (origin === "slack") {
+      insertSlackName(started.sessionId, "title-label", "#team");
+    }
+    const expected =
+      origin === "slack" ? "#team: Review the proposal" : "Review the proposal";
+    const items = await sessions.list(user("u1"), { agentId });
+    expect(items.find((item) => item.id === started.sessionId)?.title).toBe(
+      expected
+    );
+    expect(
+      (await sessions.transcript(user("u1"), started.sessionId)).session.title
+    ).toBe(expected);
+  });
+}
+
+test("raw JSON falls back to the agent name", async () => {
+  await send(user("u1"), '{"payload":true}');
+  expect((await sessions.list(user("u1")))[0]?.title).toBe(
+    "Conversation with Fake"
+  );
+});
+
+test.each([
+  '{"payload":true}',
+  '{"harbourmaster_turn":{"text":"stale"}}',
+  "<p>stale</p>",
+  "[ATTACHMENT:/tmp/a]",
+  "   ",
+])("unreadable stored title %s is ignored", async (title) => {
+  const started = await send(user("u1"), "Readable opening");
+  db.update(sessionRows)
+    .set({ title })
+    .where(eq(sessionRows.id, started.sessionId))
+    .run();
+  expect((await sessions.list(user("u1")))[0]?.title).toBe("Readable opening");
+  expect(
+    (await sessions.transcript(user("u1"), started.sessionId)).session.title
+  ).toBe("Readable opening");
+});
+
+test("rename rejects JSON, markup and markers, and keeps readable text shown", async () => {
+  const started = await send(user("u1"), "Opening");
+  await Promise.all(
+    [
+      '{"name":1}',
+      "<p>My title</p>",
+      "[ATTACHMENT:/tmp/a]",
+      "My title [ATTACHMENT:/tmp/a]",
+      "Hi <b>there</b>",
+    ].map((bad) =>
+      expect(
+        sessions.rename(user("u1"), started.sessionId, bad)
+      ).rejects.toMatchObject({ code: "invalid" })
+    )
+  );
+  await sessions.rename(user("u1"), started.sessionId, "My title");
+  expect((await sessions.list(user("u1")))[0]?.title).toBe("My title");
+});
+
+test("input cut short mid-JSON, as the TH.1 backfill left it, is not a title", async () => {
+  await send(
+    user("u1"),
+    '{"question":"What is the weather in Sydney tomorrow and the day after that? Please...'
+  );
+  await send(user("u1"), '{"type":"form",\n  "fields": []}');
+  const titles = (await sessions.list(user("u1"))).map((item) => item.title);
+  expect(titles).toEqual(["Conversation with Fake", "Conversation with Fake"]);
+});
+
+test("an unreadable agent name gives the generic fallback", async () => {
+  await send(user("u1"), "{}");
+  db.update(agentRows)
+    .set({ name: "{}" })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  expect((await sessions.list(user("u1")))[0]?.title).toBe("Conversation");
+});
+
+test("unreadable inbox names and Slack labels fall through to the message", async () => {
+  insertThread("bad-title", "<b>Thread</b>");
+  const inbox = await startIn(user("u1"), agentId, "Inbox opening", {
+    externalKey: "bad-title",
+    origin: "inbox",
+  });
+  const slack = await startIn(user("u1"), agentId, "Slack opening", {
+    origin: "slack",
+  });
+  insertSlackName(slack.sessionId, "bad-label", '{"label":"raw"}');
+  const items = await sessions.list(user("u1"));
+  expect(items.find((item) => item.id === inbox.sessionId)?.title).toBe(
+    "Inbox opening"
+  );
+  expect(items.find((item) => item.id === slack.sessionId)?.title).toBe(
+    "Slack opening"
+  );
 });

@@ -40,6 +40,7 @@ import {
   MapConfirmDialog,
 } from "./map-confirm-dialog.tsx";
 import { MapEditContext } from "./map-edit-context.ts";
+import { MAP_HEADING } from "./map-heading.ts";
 import { MapInspectorPane } from "./map-inspector-pane.tsx";
 import { agentIdOf, runCountsByAgent } from "./map-logic.ts";
 import { PickBanner, SideArea } from "./map-touch-panels.tsx";
@@ -108,7 +109,7 @@ function ModeToggle({
         type="button"
         variant={mode === "runs" ? "secondary" : "ghost"}
       >
-        Runs · last 7 days
+        Tasks · last 7 days
       </Button>
     </fieldset>
   );
@@ -498,7 +499,9 @@ export function MapPage() {
     <section className="mx-auto flex max-w-7xl flex-col gap-4">
       <header className="flex flex-wrap items-center gap-3">
         <div className="min-w-60 flex-1">
-          <h1 className="font-heading text-3xl text-foreground">Map</h1>
+          <h1 className="font-heading text-3xl text-foreground">
+            {MAP_HEADING}
+          </h1>
           <p className="text-muted-foreground text-sm">
             Who starts what, who hands to whom, and where the results go
           </p>

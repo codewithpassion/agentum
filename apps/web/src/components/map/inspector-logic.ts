@@ -179,5 +179,5 @@ export const shownRunOf = (
   }
   return waitingRunId === undefined
     ? null
-    : { band: null, id: waitingRunId, title: "Waiting run" };
+    : { band: null, id: waitingRunId, title: "Waiting task" };
 };

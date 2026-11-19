@@ -3,7 +3,7 @@ id: RH.1
 title: "Roster contract: avatar column, card types, router"
 milestone: RH
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/RH.1-roster-contract
 lane: contract
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone RH. Contract task for RH. It alone chang
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/RH.1-roster-contract (v4 controller session).
+- 2026-11-20: merged as b545b055, review clean after 0 fix rounds. check, test and build passed on main (the first test run failed on the daemon timing test abort_escalates_to_kill_and_reaps_whole_group, which RH.1 doesn't touch; the re-run passed). Dom: apply migration 0053 to a copy of the staging D1 data and check every agent has a valid avatar.

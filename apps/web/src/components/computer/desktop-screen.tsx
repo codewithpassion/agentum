@@ -573,7 +573,7 @@ export function DesktopScreen({
         <p className="text-muted-foreground text-sm">
           {takeover
             ? "Waiting for you to take over. The request and its Take over button are in the conversation."
-            : "A live view of the computer as it is now, not a recording of this run. You can take over when the agent asks."}
+            : "A live view of the computer as it is now, not a recording of this task. You can take over when the agent asks."}
         </p>
       ) : null}
       {inControl || requestInConversation ? null : (

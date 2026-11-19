@@ -96,7 +96,8 @@ export function CreateTriggerDialog({
         <DialogHeader>
           <DialogTitle>Create trigger</DialogTitle>
           <DialogDescription>
-            A trigger lets an outside system start a run of an agent over HTTP.
+            A trigger lets an outside system start a task for an agent over
+            HTTP.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">

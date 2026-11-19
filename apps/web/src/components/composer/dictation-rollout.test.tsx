@@ -36,6 +36,7 @@ for (const key of [
   "Node",
   "getComputedStyle",
   "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ]) {
   previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));

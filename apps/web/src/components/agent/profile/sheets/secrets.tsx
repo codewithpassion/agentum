@@ -91,12 +91,12 @@ export function SecretsPanel({ agent }: AgentPanelProps) {
   return (
     <section className="flex max-w-3xl flex-col gap-4">
       <p className="text-sm">
-        A granted secret is delivered on every run of this agent. A proxy secret
-        is added as a header to requests to its hosts, so the agent&apos;s code
-        never sees it. An env secret is set as an environment variable for
-        machine and Linux VM agents. An isolate agent gets a placeholder
-        instead, which is filled in only for the secret&apos;s allowed hosts.
-        Secrets are managed under{" "}
+        A granted secret is delivered on every task of this agent. A proxy
+        secret is added as a header to requests to its hosts, so the
+        agent&apos;s code never sees it. An env secret is set as an environment
+        variable for machine and Linux VM agents. An isolate agent gets a
+        placeholder instead, which is filled in only for the secret&apos;s
+        allowed hosts. Secrets are managed under{" "}
         <Link to="/settings/secrets">Settings, Secrets</Link>.
       </p>
       {error !== undefined && (

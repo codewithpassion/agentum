@@ -312,11 +312,11 @@ function AgentBody({
       {profile === null && run === null ? null : (
         <>
           <p className="mt-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">
-            Last run
+            Last task
           </p>
           <div className="mt-1">
             {run === null ? (
-              <p className="text-muted-foreground text-sm">No runs yet.</p>
+              <p className="text-muted-foreground text-sm">No tasks yet.</p>
             ) : (
               <LastRun
                 node={node}

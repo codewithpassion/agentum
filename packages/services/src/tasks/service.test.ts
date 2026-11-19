@@ -911,7 +911,7 @@ test("list titles a ui run with its trimmed input", async () => {
   expect(item?.title).toBe("Plan the offsite");
 });
 
-test("list titles a routine run with the routine's name", async () => {
+test("list titles a routine run with its prompt", async () => {
   await insertTrigger("trg-weekly", "routine", "Weekly report");
   await runs.startRun(triggerPrincipal("trg-weekly", a1), {
     agentId: a1,
@@ -921,7 +921,7 @@ test("list titles a routine run with the routine's name", async () => {
 
   const [item] = await tasks.list(user(), { limit: 10 });
 
-  expect(item?.title).toBe("Weekly report");
+  expect(item?.title).toBe("build the report");
 });
 
 test("list gives each run its status band: done, failed, queued and waiting", async () => {

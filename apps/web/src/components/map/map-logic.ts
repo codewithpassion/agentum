@@ -94,7 +94,7 @@ const WIRE_NOUNS: Record<MapWireKind, [singular: string, plural: string]> = {
   library: ["write", "writes"],
   qa: ["question", "questions"],
   slack: ["message", "messages"],
-  trigger: ["run", "runs"],
+  trigger: ["task", "tasks"],
 };
 
 export function wireLabel(wire: {
@@ -192,7 +192,7 @@ export interface FlowNodeContext {
 }
 
 function runsText(runs: number): string {
-  return `${runs} ${runs === 1 ? "run" : "runs"}`;
+  return `${runs} ${runs === 1 ? "task" : "tasks"}`;
 }
 
 function agentStatus(

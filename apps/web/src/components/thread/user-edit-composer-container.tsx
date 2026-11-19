@@ -63,7 +63,7 @@ export function UserEditComposerContainer() {
             </div>
             <DictationButton dictation={dictation} />
             <p className="text-muted-foreground text-xs">
-              This sends a new message and starts a new run. The agent still
+              This sends a new message and starts a new task. The agent still
               remembers the earlier message.
             </p>
             <div className="flex flex-wrap items-center justify-end gap-2">

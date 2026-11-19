@@ -317,7 +317,8 @@ export function TaskPage({ initial }: { initial: TaskView }) {
       {latest.id === runId ? null : (
         <div className="flex shrink-0 flex-wrap justify-between gap-1 border-info/40 border-b bg-info/10 px-4 py-2 text-info text-xs md:px-6">
           <span>
-            Viewing run {number} of {runs.length}. Files and Log show this run.
+            Viewing task {number} of {runs.length}. Files and Log show this
+            task.
           </span>
           <Link
             className="underline"
@@ -325,7 +326,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
             search={{}}
             to="/threads/$sessionId"
           >
-            Go to the latest run
+            Go to the latest task
           </Link>
         </div>
       )}
@@ -408,7 +409,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
             role="tabpanel"
           >
             <p className="mb-3 text-muted-foreground text-sm">
-              Log of run {number} · every event, oldest first
+              Log of task {number} · every event, oldest first
             </p>
             <ActionLog entries={log} />
           </div>
@@ -479,7 +480,7 @@ function TaskHeader({
         className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
       >
         <SidebarTrigger className="hidden size-6 md:inline-flex" />
-        <Link to="/desk">Desk</Link> › Thread
+        <Link to="/desk">Desk</Link> › Conversation
       </nav>
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
         <ThreadTitle
@@ -560,7 +561,7 @@ function TaskHeader({
         </span>
         <span>
           · {costText(task.run.costUsd)}{" "}
-          {isActive(runStatus) ? "so far" : "this run"}
+          {isActive(runStatus) ? "so far" : "this task"}
         </span>
         <RunPicker runId={runId} runs={runs} sessionId={task.session.id} />
       </div>

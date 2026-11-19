@@ -256,7 +256,7 @@ export function DeckCollaboration({
           <article key={change.id}>
             <p>{change.summary}</p>
             <time>{change.createdAt}</time>
-            <a href={`/tasks/${encodeURIComponent(change.runId)}`}>Open run</a>
+            <a href={`/tasks/${encodeURIComponent(change.runId)}`}>Open task</a>
             {change.revertedAt ? (
               <p>Reverted</p>
             ) : (
@@ -350,7 +350,7 @@ function DeckPanelFrame({
         <SheetHeader>
           <SheetTitle>Deck collaboration</SheetTitle>
           <SheetDescription>
-            Shared agent thread and slide or element comments.
+            Shared agent conversation and slide or element comments.
           </SheetDescription>
         </SheetHeader>
         <div className="ld-collaboration">{children}</div>

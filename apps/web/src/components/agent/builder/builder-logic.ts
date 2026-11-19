@@ -3,6 +3,7 @@ import type {
   AgentDraft,
   BuilderCatalog,
 } from "@repo/services/agent-builder/draft";
+import { RUNTIME_NAMES } from "#/components/agent/profile/profile-logic.ts";
 
 /** Mirrors the description limit in `@repo/services/agent-builder/service`, which the browser cannot import. */
 export const DESCRIPTION_LIMIT = 8000;
@@ -157,8 +158,8 @@ export interface RunsOnOption {
 }
 
 const RUNTIME_LABELS = {
-  cloud: "Cloudflare",
-  managed: "Anthropic cloud",
+  cloud: RUNTIME_NAMES.cloud,
+  managed: RUNTIME_NAMES.managed,
 } as const;
 
 /** Where the agent can run in this workspace: each usable runtime and each machine. */
@@ -182,7 +183,7 @@ export const runsOnOptions = (
     for (const machine of catalog.machines) {
       options.push({
         key: `machine:${machine.id}`,
-        label: machine.name,
+        label: `${RUNTIME_NAMES.machine}: ${machine.name}`,
         note: machine.online ? null : "offline",
         selected:
           runsOn?.runtime === "machine" && runsOn.machineId === machine.id,

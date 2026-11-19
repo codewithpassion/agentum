@@ -60,8 +60,8 @@ export function ListenModeControl({ app, onChanged }: ListenModeControlProps) {
       )}
       <p className="text-muted-foreground text-xs">
         In all-messages mode the agent reads every message in the channels it is
-        in and can start a run about every five minutes per busy channel, which
-        uses model credit; mentions and direct messages still start a run at
+        in and can start a task about every five minutes per busy channel, which
+        uses model credit; mentions and direct messages still start a task at
         once.
       </p>
       <p className="text-muted-foreground text-xs">

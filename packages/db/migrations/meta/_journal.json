@@ -372,6 +372,20 @@
       "when": 1794274721031,
       "tag": "0052_unknown_veda",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1795121260320,
+      "tag": "0053_classy_blackheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1795125326480,
+      "tag": "0054_volatile_ego",
+      "breakpoints": true
     }
   ]
 }
