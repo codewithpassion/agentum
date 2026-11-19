@@ -53,9 +53,9 @@ export const findEntries: readonly FindEntry[] = [
   { group: "Work", icon: Sparkles, label: "Assistant", to: "/assistant" },
   {
     group: "Work",
-    hint: "Desk",
+    hint: "Board",
     icon: Kanban,
-    label: "Board",
+    label: "Desk",
     to: "/desk?view=board",
   },
   {

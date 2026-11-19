@@ -109,7 +109,7 @@ test("replyNote explains where to reply for each other origin", () => {
     "This conversation came from Slack. Reply there."
   );
   expect(replyNote("inbox")).toBe(
-    "This conversation came from an inbox. Reply in the inbox."
+    "This conversation came from the inbox. Reply in the inbox."
   );
   expect(replyNote("routine")).toBe(
     "A routine started this conversation, so it has no reply here."

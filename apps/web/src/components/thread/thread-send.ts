@@ -51,7 +51,7 @@ export const startRunBody = (input: {
 });
 
 const REPLY_NOTES: Record<string, string> = {
-  inbox: "This conversation came from an inbox. Reply in the inbox.",
+  inbox: "This conversation came from the inbox. Reply in the inbox.",
   mcp: "An MCP client started this conversation. Reply from that client.",
   routine: "A routine started this conversation, so it has no reply here.",
   slack: "This conversation came from Slack. Reply there.",

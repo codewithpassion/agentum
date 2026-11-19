@@ -110,7 +110,6 @@ test("Find enrols a machine under the same name as the page button", () => {
 const LABEL_EXCEPTIONS: Readonly<Record<string, string>> = {
   "/artifacts?kind=app": "the Apps filter of the Artifacts page",
   "/assistant": "redirects to the Desk with the assistant open, no heading",
-  "/desk?view=board": "the board view of the Desk page",
   "/settings/machines": "named after the page button, see the test below",
 };
 

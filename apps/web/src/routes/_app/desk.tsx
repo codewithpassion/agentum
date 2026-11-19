@@ -30,6 +30,8 @@ const searchSchema = z.object({
   view: z.literal("board").optional().catch(undefined),
 });
 
+export const PAGE_HEADING = "Desk";
+
 export const Route = createFileRoute("/_app/desk")({
   validateSearch: (search) => searchSchema.parse(search),
   // The agents for the chips and the names on cards. The desk itself loads in
@@ -140,7 +142,9 @@ function BoardView() {
     <section className="mx-auto flex max-w-6xl flex-col gap-5">
       <header className="flex flex-wrap items-center gap-3">
         <div className="min-w-60 flex-1">
-          <h1 className="font-heading text-3xl text-foreground">Desk</h1>
+          <h1 className="font-heading text-3xl text-foreground">
+            {PAGE_HEADING}
+          </h1>
           <p className="text-muted-foreground text-sm">
             {nowMs === null ? "" : `${dateText(nowMs)} · `}
             {agents.length} {agents.length === 1 ? "agent" : "agents"}
