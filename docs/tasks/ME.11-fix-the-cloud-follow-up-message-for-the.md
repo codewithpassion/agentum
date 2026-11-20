@@ -3,9 +3,9 @@ id: ME.11
 title: "Fix the cloud follow-up message for the scripted model"
 milestone: ME
 size: S
-status: todo
+status: in_progress
 depends_on: [ME.9]
-branch: null
+branch: task/ME.11-fix-the-cloud-follow-up-message-for-the
 lane: runtimes
 executor: claude
 ---
@@ -25,3 +25,4 @@ Find the cause and fix it, or fix the faux model if it is only there. Check the 
 
 ## Log
 - 2026-11-20: added from the ME walkthrough.
+- 2026-11-20: dispatched on task/ME.11-fix-the-cloud-follow-up-message-for-the (v4 controller session).
