@@ -3,9 +3,9 @@ id: NV.6
 title: "Runtime names on the task page and in the builder"
 milestone: NV
 size: S
-status: todo
+status: in_progress
 depends_on: [RH.5]
-branch: null
+branch: task/NV.6-runtime-names-task-page
 lane: web-thread
 executor: claude
 ---
@@ -31,3 +31,4 @@ From the NV gate review, round 2 (`docs/reviews/NV-2.md`, finding 1 with finding
 ## Log
 - 2026-11-20: added from the NV gate review, round 2 (one must-fix).
 - 2026-11-20: waits for RH.5, which holds the web-agent lane these notes live in.
+- 2026-11-20: dispatched on task/NV.6-runtime-names-task-page (v4 controller session).
