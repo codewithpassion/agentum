@@ -23,6 +23,10 @@ import { ServiceError } from "../errors.ts";
 import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
 import type { LibraryService } from "../library.ts";
+import {
+  libraryMemoryReader,
+  type MemoryFileReader,
+} from "../memory/prompt.ts";
 import { askKeysOf } from "../requests/ask-keys.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
@@ -44,14 +48,28 @@ export interface MachineClaimDeps {
   db: Database;
   /** Lease length in milliseconds. */
   leaseMs: number;
-  /** Lists the conflict copies the claim hands over. Without it, the claim names no library paths. */
-  library?: Pick<LibraryService, "pendingConflicts">;
+  /**
+   * Lists the conflict copies the claim hands over. Without it, the claim names no library paths.
+   * With `read` too, the claim puts the agent's memory notes into its instructions.
+   */
+  library?: Pick<LibraryService, "pendingConflicts"> &
+    Partial<Pick<LibraryService, "read">>;
   now: () => Date;
   /** The agent's granted secrets. Without it, no secret reaches the machine. */
   secrets?: Pick<SecretsService, "announceDelivery" | "resolveForAgent">;
   /** Mints the run token. The claim is the only caller. */
   signToken: (claims: RunTokenClaims) => Promise<string>;
 }
+
+/** Reads the agent's memory files, when the daemon's library can read files. */
+const memoryReaderFor = (
+  library: MachineClaimDeps["library"],
+  run: RunRecord,
+  slug: string
+): MemoryFileReader | undefined =>
+  library?.read
+    ? libraryMemoryReader({ read: library.read }, run, slug)
+    : undefined;
 
 /** The library part of a claim, for a daemon that syncs the library. */
 const claimLibrary = async (
@@ -276,7 +294,9 @@ export const claimForMachine = async (
     // The relay authenticates a call with the run's own token.
     env[RELAY_TOKEN_ENV] = runToken;
   }
-  const context = await buildLaunchContext(db, claimedRun, agent);
+  const context = await buildLaunchContext(db, claimedRun, agent, {
+    readMemoryFile: memoryReaderFor(deps.library, claimedRun, agent.slug),
+  });
   const guidance = granted
     ? secretsGuidance({
         base: options.platformUrl,
@@ -319,6 +339,7 @@ export const claimForMachine = async (
     inputFileIds: claimedRun.inputFileIds,
     instructions: [
       agentPrompt(agent, context.handoffNames, {
+        memory: context.memory,
         multiPerson: context.multiPerson,
       }),
       guidance,

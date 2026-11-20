@@ -374,7 +374,8 @@ export interface RunsServiceOptions {
    * for the agent, and each new run gets its task folder. Without it, the claim
    * names no library paths and runs get no folder.
    */
-  library?: Pick<LibraryService, "mkdir" | "pendingConflicts">;
+  library?: Pick<LibraryService, "mkdir" | "pendingConflicts"> &
+    Partial<Pick<LibraryService, "read">>;
   people?: PeopleLookup;
   /**
    * `RUN_TOKEN_KEY` (base64, 32 bytes). Only the machine claim needs it, which

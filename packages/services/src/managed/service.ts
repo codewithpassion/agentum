@@ -62,6 +62,7 @@ import type { EventsService } from "../events.ts";
 import { agentHomePath, ensureAgentHome } from "../library/home.ts";
 import type { LibraryService } from "../library.ts";
 import { notDetachedApproval } from "../mail/approval.ts";
+import { libraryMemoryReader, type PromptMemory } from "../memory/prompt.ts";
 import { askKeysOf as askKeysOfAgent } from "../requests/ask-keys.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
@@ -161,7 +162,8 @@ export interface ManagedServiceOptions {
   gatewayFor: (key: { apiKey: string; environment: IdCache }) => ManagedGateway;
   keys: Pick<ManagedKeysService, "rememberEnvironment" | "resolve">;
   /** The workspace library. A run's agent keeps its home folder there. */
-  library: Pick<LibraryService, "mkdir" | "stat">;
+  library: Pick<LibraryService, "mkdir" | "stat"> &
+    Partial<Pick<LibraryService, "read">>;
   /**
    * The helper script (`library.js`) that moves files between the sandbox
    * disk and the library. With it, each session gets a library token in its
@@ -245,7 +247,8 @@ const systemOf = (
   secretsText: string,
   libraryText: string,
   computer: AgentComputer | null,
-  multiPerson: boolean
+  multiPerson: boolean,
+  memory: PromptMemory | null
 ): string =>
   [
     // Preserve the managed runtime's default identity when instructions are blank.
@@ -255,7 +258,7 @@ const systemOf = (
         instructions: agent.instructions.trim() || `You are ${agent.name}.`,
       },
       handoffNames,
-      { multiPerson }
+      { memory, multiPerson }
     ),
     workspaceInstructions({
       // A managed run's reply is shown as it is: nothing reads the markers.
@@ -852,6 +855,18 @@ export const createManagedService = ({
       ? libraryTransferGuidance({ base, slug: agent.slug })
       : "";
 
+  /** Reads the agent's memory files as the run, when the library can read files. */
+  const memoryReaderOf = (run: RunRecord, agent: AgentRecord) => {
+    const readLibrary = library.read;
+    return readLibrary
+      ? libraryMemoryReader(
+          { read: (principal, path) => readLibrary(principal, path) },
+          run,
+          agent.slug
+        )
+      : undefined;
+  };
+
   /** Sends the run's input to Anthropic. Returns false when the run was failed instead. */
   const launch = async (
     run: RunRecord,
@@ -883,7 +898,9 @@ export const createManagedService = ({
       },
       agent.slug
     );
-    const context = await buildLaunchContext(db, run, agent);
+    const context = await buildLaunchContext(db, run, agent, {
+      readMemoryFile: memoryReaderOf(run, agent),
+    });
     const servers = mcpServerUrls({
       connectors: context.connectors,
       platformUrl: publicBaseUrl,
@@ -918,7 +935,8 @@ export const createManagedService = ({
       grants.guidance,
       libraryGuidanceOf(agent, publicBaseUrl, resolved),
       computer,
-      context.multiPerson
+      context.multiPerson,
+      context.memory
     );
     const askKeys = await runAskKeys(agent, run);
     const fingerprint = await hashToken(
