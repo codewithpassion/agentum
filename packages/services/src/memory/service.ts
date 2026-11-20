@@ -711,6 +711,13 @@ export const createMemoryService = ({
         throw missingNote(loaded, input.noteId);
       }
       requireMayChangeShared(actor, agent, note.userScope);
+      // A run that sees a person's private notes could put text from that chat
+      // into a shared note, so it may edit only private ones.
+      if (provenance.userScope !== null && note.userScope === null) {
+        throw invalid(
+          "A run in a private conversation cannot edit a shared note"
+        );
+      }
       return {
         action: "edit",
         change: {
