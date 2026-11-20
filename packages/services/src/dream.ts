@@ -16,6 +16,7 @@ import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isReadOnly } from "./automation-access.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
+import { heldCounts } from "./dream/held.ts";
 import { readOptions } from "./dream/question-options.ts";
 import {
   loadDreamAgent,
@@ -44,6 +45,7 @@ import type { MemoryService } from "./memory/service.ts";
 import { toChange } from "./memory/service.ts";
 import type { Clock } from "./runs/types.ts";
 import { idString } from "./shared.ts";
+import type { SkillsStoreService } from "./skills-store.ts";
 import type { Principal } from "./workspaces.ts";
 
 const DREAM_READ = "dream.read";
@@ -92,6 +94,7 @@ export interface DreamDeps {
   managedKeys: Pick<ManagedKeysService, "resolve">;
   /** A person's answer to a question forgets the notes it did not keep, as that person. */
   memory: Pick<MemoryService, "forget">;
+  skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent">;
 }
 
 /** What one `fireDue` call did. Run ids, and the agents whose dream could not start. */
@@ -124,6 +127,20 @@ export const createDreamService = (deps: DreamDeps) => {
       throw noDreamRun(id);
     }
     return row;
+  };
+
+  /** The dreams as the contract type, each with the changes it still holds. */
+  const withHeld = async (rows: readonly RunRow[]): Promise<DreamRun[]> => {
+    const held = await heldCounts(
+      db,
+      rows.map((row) => row.id)
+    );
+    return rows.map((row) => toRun(row, held.get(row.id) ?? 0));
+  };
+
+  const oneWithHeld = async (row: RunRow): Promise<DreamRun> => {
+    const [run] = await withHeld([row]);
+    return run as DreamRun;
   };
 
   /** The owner or an org admin, on a browser session: who may start, undo or decide a dream. */
@@ -159,7 +176,7 @@ export const createDreamService = (deps: DreamDeps) => {
       )
       .orderBy(desc(dreamRuns.startedAt), desc(dreamRuns.id))
       .limit(RUNS_LIMIT);
-    return rows.map(toRun);
+    return await withHeld(rows);
   };
 
   const get = async (
@@ -168,7 +185,7 @@ export const createDreamService = (deps: DreamDeps) => {
   ): Promise<DreamRun> => {
     const workspaceId = readableWorkspace(principal, DREAM_READ);
     authorize(principal, DREAM_READ, dreamResource(workspaceId, dreamRunId));
-    return toRun(await runIn(workspaceId, dreamRunId));
+    return await oneWithHeld(await runIn(workspaceId, dreamRunId));
   };
 
   /** Starts a dream of the agent now. A dream that fails is a `failed` run, returned like any other. */
@@ -179,7 +196,8 @@ export const createDreamService = (deps: DreamDeps) => {
     const workspaceId = readableWorkspace(principal, DREAM_WRITE);
     authorize(principal, DREAM_WRITE, dreamResource(workspaceId, agentId));
     const { agent } = await ownerSession(principal, workspaceId, agentId);
-    return await runner.run(agent.id);
+    const run = await runner.run(agent.id);
+    return await oneWithHeld(await runIn(workspaceId, run.id));
   };
 
   /** Stub: the team dream task (TX.2) fills this in. */
@@ -209,7 +227,7 @@ export const createDreamService = (deps: DreamDeps) => {
       run.agentId
     );
     await undoer.undo(run, agent, user.userId);
-    return toRun(await runIn(workspaceId, dreamRunId));
+    return await oneWithHeld(await runIn(workspaceId, dreamRunId));
   };
 
   /** The `memory_changes` rows one dream wrote, held or applied. A person's private notes show to that person only. */
@@ -264,7 +282,7 @@ export const createDreamService = (deps: DreamDeps) => {
       run.agentId
     );
     await undoer.decide(run, agent, user.userId, input.decision);
-    return toRun(await runIn(workspaceId, input.dreamRunId));
+    return await oneWithHeld(await runIn(workspaceId, input.dreamRunId));
   };
 
   const openQuestion = async (

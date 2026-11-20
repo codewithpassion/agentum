@@ -3,11 +3,16 @@
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import type { LibraryChange } from "@repo/db/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { cloudEnvironmentOf } from "../cloud/environment.ts";
 import { agentGrants } from "./access.ts";
 import { mayReadMemoryPath } from "./memory-paths.ts";
+import {
+  type PrivateNotesSession,
+  privateNotesUserOf,
+} from "./private-notes.ts";
 import { librarySyncScope } from "./sync-paths.ts";
 
 /** The runs that take the change, with the changed paths each one covers. */
@@ -38,6 +43,7 @@ interface RunRow {
   onBehalfOfUserId: string | null;
   runtime: string;
   runtimeConfig: string;
+  session: PrivateNotesSession;
   sessionId: string;
 }
 
@@ -66,8 +72,9 @@ const isCovered = (root: string, path: string): boolean =>
  * changed paths, leaving out the run that made the change. A machine run goes
  * by the machine that claimed it. A cloud run counts only in a Linux VM,
  * because an isolate reads the library directly. A private memory file reaches
- * only the run for the person it belongs to, so a run with no on-behalf user
- * hears about none.
+ * only a run that passes the rule in `private-notes.ts` for the person it
+ * belongs to, so a run with no on-behalf user, or in a shared session, hears
+ * about none.
  */
 export const createLibraryAudience =
   ({ db }: { db: Database }) =>
@@ -81,11 +88,18 @@ export const createLibraryAudience =
         onBehalfOfUserId: runs.onBehalfOfUserId,
         runtime: agents.runtime,
         runtimeConfig: agents.runtimeConfig,
+        session: {
+          actorId: sessions.actorId,
+          actorKind: sessions.actorKind,
+          origin: sessions.origin,
+          private: sessions.private,
+        },
         sessionId: runs.sessionId,
         slug: agents.slug,
       })
       .from(runs)
       .innerJoin(agents, eq(agents.id, runs.agentId))
+      .innerJoin(sessions, eq(sessions.id, runs.sessionId))
       .where(
         and(
           eq(runs.workspaceId, change.workspaceId),
@@ -119,9 +133,10 @@ export const createLibraryAudience =
         roots = librarySyncScope(row.slug, grants).map((grant) => grant.path);
         scopes.set(row.agentId, roots);
       }
+      const privateUserId = privateNotesUserOf(row, row.session);
       const covered = change.paths.filter(
         (path) =>
-          mayReadMemoryPath(path, row.onBehalfOfUserId) &&
+          mayReadMemoryPath(path, privateUserId) &&
           roots.some((root) => isCovered(root, path))
       );
       if (covered.length > 0) {

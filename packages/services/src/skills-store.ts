@@ -1234,6 +1234,41 @@ export const createSkillsStoreService = ({
   ): Promise<{ skill: SkillRecord; version: VersionRecord }> => {
     const c = memberOf(principal, "skills.create", true);
     await ensureMigrated(principal);
+    return createFor(c, input);
+  };
+
+  /** Internal dream entry: agent authorship without manufacturing a run. */
+  const proposeForAgent = async (
+    principal: Principal,
+    input: CreateInput & { agentId: string }
+  ): Promise<{ skill: SkillRecord; version: VersionRecord }> => {
+    const c = peopleOf(principal, "skills.create");
+    // Only the in-process dream principal may author as an agent; a person or a key may not.
+    if (principal.kind !== "user" || principal.dream !== true) {
+      throw new ForbiddenError("skills.create");
+    }
+    if (
+      !(await findAgent(db, { id: input.agentId, workspaceId: c.workspaceId }))
+    ) {
+      throw notFound();
+    }
+    await ensureMigrated(principal);
+    return createFor(
+      {
+        ...c,
+        agentId: input.agentId,
+        id: input.agentId,
+        kind: "agent",
+        runId: null,
+      },
+      { files: input.files, message: input.message, name: input.name }
+    );
+  };
+
+  const createFor = async (
+    c: Caller,
+    input: CreateInput
+  ): Promise<{ skill: SkillRecord; version: VersionRecord }> => {
     const parsed = createInputSchema.parse(input);
     assertSkillName(parsed.name);
     const files = await planWrites(parsed.files, new Map());
@@ -2317,6 +2352,7 @@ export const createSkillsStoreService = ({
     migrateLibrary,
     pin,
     proposals,
+    proposeForAgent,
     readFile,
     reject,
     remove,

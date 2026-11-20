@@ -177,6 +177,20 @@ const assertOwnerOrAdmin = (
   }
 };
 
+/** Subagents need the owner or an admin on a session; hands-to needs the owner or an admin. */
+const assertOwnerOnlyFields = (
+  user: UserPrincipal,
+  agent: AgentRecord,
+  parsed: { handsTo?: string[]; subagents?: boolean }
+): void => {
+  if (parsed.subagents !== undefined) {
+    assertOwnerOrAdmin(user, agent);
+  }
+  if (parsed.handsTo !== undefined) {
+    requireAgentOwnerOrAdmin(user, agent, AGENT_UPDATE);
+  }
+};
+
 const statusSchema = z.enum(AGENT_STATUSES);
 
 export const slugSchema = z
@@ -902,9 +916,7 @@ export const createAgentsService = ({
     const parsed = agentUpdateSchema.parse(
       withConfigPatch(input, current, runtimeConfigPatch)
     );
-    if (parsed.subagents !== undefined) {
-      assertOwnerOrAdmin(user, current);
-    }
+    assertOwnerOnlyFields(user, current, parsed);
     await assertAgentPatch(current, parsed);
 
     const slug = parsed.slug ?? current.slug;

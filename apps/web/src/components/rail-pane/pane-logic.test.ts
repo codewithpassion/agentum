@@ -108,6 +108,15 @@ describe("cardView", () => {
   test("a dream question without its dream falls back to the body view", () => {
     expect(cardView(card({ kind: "dream_question" }))).toBe("body");
   });
+
+  test("a held dream with its dream run gets the dream held view", () => {
+    const dreamHeld = { dreamRunId: "d1" };
+    expect(cardView(card({ dreamHeld, kind: "dream_held" }))).toBe("dreamHeld");
+  });
+
+  test("a held dream without its dream run falls back to the body view", () => {
+    expect(cardView(card({ kind: "dream_held" }))).toBe("body");
+  });
 });
 
 describe("selectItem", () => {

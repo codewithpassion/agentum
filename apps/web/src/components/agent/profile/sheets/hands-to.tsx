@@ -8,7 +8,10 @@ import { errorMessage } from "#/lib/error-message";
 import { nextHandsTo } from "./hands-to-next.ts";
 import type { AgentPanelProps } from "./props.ts";
 
-export function HandsToPanel({ agent }: AgentPanelProps) {
+export function HandsToPanel({
+  agent,
+  canManage,
+}: AgentPanelProps & { canManage: boolean }) {
   const router = useRouter();
   const agentId = agent.id;
   const [agents, setAgents] = useState<AgentRecord[] | undefined>();
@@ -90,7 +93,7 @@ export function HandsToPanel({ agent }: AgentPanelProps) {
             {others.map((other) => (
               <HandsToRow
                 checked={agent.handsTo.includes(other.id)}
-                disabled={saving}
+                disabled={saving || !canManage}
                 key={other.id}
                 name={other.name}
                 onToggle={toggle}
@@ -108,6 +111,12 @@ export function HandsToPanel({ agent }: AgentPanelProps) {
       <p className="text-muted-foreground text-sm">
         Pick the agents this one can hand work to.
       </p>
+      {canManage ? null : (
+        <p className="text-muted-foreground text-xs">
+          Only the agent&apos;s owners and admins can change who it hands work
+          to.
+        </p>
+      )}
       {body}
     </section>
   );

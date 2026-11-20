@@ -30,6 +30,7 @@ import {
 } from "../memory/files.ts";
 import { MEMORY_PROMPT_MAX_CHARS } from "../memory/prompt.ts";
 import type { Clock } from "../runs/types.ts";
+import type { SkillsStoreService } from "../skills-store.ts";
 import type { Principal } from "../workspaces.ts";
 import { applyRows, pathOfRow, rowsFromPlan } from "./changeset.ts";
 import { createDreamCollector } from "./collect.ts";
@@ -47,6 +48,7 @@ import {
 } from "./rows.ts";
 import type { Judge } from "./steps/judge.ts";
 import { mergeNotes } from "./steps/merge.ts";
+import { type ProcedureDraft, promoteProcedures } from "./steps/promote.ts";
 import { pruneNotes } from "./steps/prune.ts";
 import { reconcileNotes } from "./steps/reconcile.ts";
 
@@ -69,6 +71,7 @@ export interface RunDeps {
   fetch: Fetcher;
   library: DreamMemoryLibrary;
   managedKeys: Pick<ManagedKeysService, "resolve">;
+  skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent">;
 }
 
 const countsOf = (plan: DreamPlan): DreamCounts => ({
@@ -279,6 +282,7 @@ export const createDreamRunner = (deps: RunDeps) => {
     notes: MemoryNote[];
     outside: boolean;
     plan: DreamPlan;
+    proposals: ProcedureDraft[];
   }
 
   /** The model's work: candidates, then merge, reconcile and prune, each on the last one's notes. */
@@ -287,7 +291,8 @@ export const createDreamRunner = (deps: RunDeps) => {
     items: Parameters<typeof extractCandidates>[0]["items"],
     notes: MemoryNote[],
     apiKey: string,
-    today: string
+    today: string,
+    existingNames: string[] | null
   ): Promise<Outcome & { usage: DreamUsage }> => {
     const model = createDreamModel({ apiKey, fetch: deps.fetch });
     try {
@@ -314,6 +319,27 @@ export const createDreamRunner = (deps: RunDeps) => {
         notes: reconciled.notes,
         today,
       });
+      const rejected = items
+        .filter((item) => item.kind === "skill_proposal")
+        .flatMap((item) => {
+          try {
+            const parsed = JSON.parse(item.text) as {
+              message?: unknown;
+            } | null;
+            return typeof parsed?.message === "string" ? [parsed.message] : [];
+          } catch {
+            return [];
+          }
+        });
+      const proposals =
+        existingNames === null
+          ? []
+          : await promoteProcedures({
+              existingNames,
+              items,
+              judge: model.judge,
+              rejected,
+            });
       if (model.failedCalls() > 0) {
         throw new ServiceError("invalid", MODEL_FAILED);
       }
@@ -321,6 +347,7 @@ export const createDreamRunner = (deps: RunDeps) => {
         notes: pruned.notes,
         outside: extracted.outside,
         plan: [...merged.changes, ...reconciled.changes, ...pruned.changes],
+        proposals,
         usage: model.usage(),
       };
     } catch (error) {
@@ -328,6 +355,37 @@ export const createDreamRunner = (deps: RunDeps) => {
       // biome-ignore lint/style/useErrorCause: DreamFailure holds the cause in its own field
       throw new DreamFailure(error, model.usage());
     }
+  };
+
+  const fileProposals = async (
+    agent: DreamAgent,
+    principal: Principal,
+    drafts: readonly ProcedureDraft[],
+    items: Parameters<typeof promoteProcedures>[0]["items"]
+  ): Promise<(string | null)[]> => {
+    const proposals: (string | null)[] = [];
+    for (const draft of drafts) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: publish independently, retaining successful proposals
+        await deps.skillsStore.proposeForAgent(principal, {
+          agentId: agent.id,
+          files: [{ content: draft.content, path: "SKILL.md" }],
+          message: draft.title,
+          name: draft.name,
+        });
+        // Conservatively redact a title when ANY cited evidence is not workspace-scoped.
+        proposals.push(
+          draft.evidence.every((id) =>
+            items.some((item) => item.id === id && item.scope === "workspace")
+          )
+            ? draft.title
+            : null
+        );
+      } catch {
+        // Another dream may have filed the name, or storage may be unavailable. Memory is safe.
+      }
+    }
+    return proposals;
   };
 
   const dream = async (
@@ -353,12 +411,22 @@ export const createDreamRunner = (deps: RunDeps) => {
     if (problem) {
       throw new ServiceError("invalid", describeProblem(...problem));
     }
+    // Retain names even when every version was rejected: rejection is not permission to refile.
+    let existingNames: string[] | null = null;
+    try {
+      existingNames = (await deps.skillsStore.list(principal))
+        .filter((skill) => skill.ownerAgentId === agent.id)
+        .map((skill) => skill.name);
+    } catch {
+      // An unavailable skill store must not prevent the memory plan from being saved.
+    }
     const thought = await think(
       agent,
       collection.items,
       loaded.notes,
       key.apiKey,
-      today
+      today,
+      existingNames
     );
     const usage = JSON.stringify(thought.usage);
     const known = await openQuestionSets(agent.id);
@@ -371,15 +439,16 @@ export const createDreamRunner = (deps: RunDeps) => {
     const notes = new Map(loaded.notes.map((note) => [note.id, note]));
     const counts = countsOf(plan);
     const held = agent.rules.learnLevel === "ask_first" || thought.outside;
-    const diary = writeDiary({
+    const diaryInput = {
       counts,
       held,
-      noteText: (id) => {
+      noteText: (id: string) => {
         const note = notes.get(id);
         return note && note.userScope === null ? note.text : null;
       },
       plan,
-    });
+    };
+    const diary = writeDiary(diaryInput);
     const rows = rowsFromPlan(plan, {
       agentId: agent.id,
       createdAt: clock.now().toISOString(),
@@ -411,6 +480,26 @@ export const createDreamRunner = (deps: RunDeps) => {
       },
       today,
     });
+    // Skills always ask a person, independently of a held memory batch or learn level.
+    // Store memory first so a publication failure cannot discard or fail its plan.
+    const proposals = await fileProposals(
+      agent,
+      principal,
+      thought.proposals,
+      collection.items
+    );
+    if (proposals.length > 0) {
+      try {
+        await db
+          .update(dreamRuns)
+          .set({
+            diary: writeDiary({ ...diaryInput, proposals }),
+          })
+          .where(eq(dreamRuns.id, runId));
+      } catch {
+        // A diary write failure after publishing must not turn the stored memory plan into a failure.
+      }
+    }
   };
 
   interface Store {

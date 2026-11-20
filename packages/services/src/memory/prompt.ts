@@ -71,19 +71,20 @@ const workspaceNever = (json: string): readonly string[] => {
 /**
  * Reads the agent's note files once and picks what fits the budget. A file
  * that does not parse is skipped, as the format promises it is left untouched.
- * Private notes load only for the person the run acts for.
+ * Private notes load only for `privateNotesUserId`, which the caller takes
+ * from the rule in `library/private-notes.ts`.
  */
 export const loadPromptMemory = async (
   read: MemoryFileReader,
   input: {
     agentRemember: string;
-    onBehalfOfUserId: string | null;
+    privateNotesUserId: string | null;
     workspaceNever: string;
   }
 ): Promise<PromptMemory> => {
   const paths = KINDS.map((kind) => `${kind}.md`);
-  if (input.onBehalfOfUserId !== null) {
-    paths.push(`private/${input.onBehalfOfUserId}.md`);
+  if (input.privateNotesUserId !== null) {
+    paths.push(`private/${input.privateNotesUserId}.md`);
   }
   const files = await Promise.all(
     paths.map(async (path) => ({ path, text: await read(path) }))
