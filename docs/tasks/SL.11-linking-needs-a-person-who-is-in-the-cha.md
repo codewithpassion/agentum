@@ -3,7 +3,7 @@ id: SL.11
 title: "Linking needs a person who is in the channel"
 milestone: SL
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/SL.11-linking-needs-a-person-who-is-in-the-cha
 lane: services-teams
@@ -38,3 +38,4 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 2).
 - 2026-11-21: browser re-run as the plain member passed at both sizes, admin path too. Ready at 2e23a52a.
 - 2026-11-21: merge conflict with SL.12 in slack-room-flow.test.ts. Sent back to merge main.
 - 2026-11-21: merged origin/main, resolution reviewed clean. Ready at 1bf02377.
+- 2026-11-21: merged 9357ef6f, merge check passed. Done.
