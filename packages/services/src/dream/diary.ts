@@ -123,18 +123,23 @@ const changeLine = (
 
 export const writeDiary = (input: {
   counts: DreamCounts;
+  /** Null titles have private or outside evidence and must remain generic. */
+  proposals?: readonly (string | null)[];
   plan: DreamPlan;
   held: boolean;
   noteText: (noteId: string) => string | null;
 }): string => {
-  const { counts, plan, held, noteText } = input;
+  const { counts, plan, held, noteText, proposals = [] } = input;
+  const skillLines = proposals.map((title) =>
+    title === null ? "Proposed a skill." : `Proposed a skill: ${clip(title)}`
+  );
   const nothingChanged =
     counts.added === 0 &&
     counts.merged === 0 &&
     counts.dropped === 0 &&
     counts.questions === 0;
   if (nothingChanged) {
-    return NOTHING_CHANGED;
+    return skillLines.length > 0 ? skillLines.join("\n") : NOTHING_CHANGED;
   }
 
   const summary = `${held ? HELD_PREFIX : ""}${countSentence(counts, held)}`;
@@ -144,5 +149,5 @@ export const writeDiary = (input: {
   if (plan.length > MAX_LINES) {
     lines.push(`...and ${plan.length - MAX_LINES} more.`);
   }
-  return [summary, ...lines].join("\n");
+  return [summary, ...lines, ...skillLines].join("\n");
 };
