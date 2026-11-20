@@ -11,6 +11,7 @@ import { keysRouter } from "./keys-router.ts";
 import { createLiveArtifactsRouter } from "./live-artifacts-router";
 import { liveGuestsRouter } from "./live-guests-router";
 import { mailRouter } from "./mail-router.ts";
+import { memoryRouter } from "./memory-router.ts";
 import { rosterRouter } from "./roster-router.ts";
 import { runtimeRouter } from "./runtime-router.ts";
 
@@ -49,6 +50,7 @@ export const appRouter = mergeRouters(
       return ctx.services.liveArtifacts;
     }),
     liveGuests: liveGuestsRouter,
+    memory: memoryRouter,
     roster: rosterRouter,
   })
 );

@@ -219,6 +219,7 @@ import {
   type MemberLister,
   type MembersService,
 } from "@repo/services/members";
+import { createMemoryService, type MemoryService } from "@repo/services/memory";
 import {
   createModelKeysService,
   type ModelKeysService,
@@ -521,6 +522,7 @@ export interface Services {
   managedKeys: ManagedKeysService;
   map: MapService;
   members: MembersService;
+  memory: MemoryService;
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
@@ -1414,6 +1416,7 @@ export const composeWith = ({
       managedKeys,
       map,
       members,
+      memory: createMemoryService(),
       modelKeys,
       network,
       oauthClients,
