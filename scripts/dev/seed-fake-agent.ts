@@ -15,6 +15,7 @@ import {
 
 const SEED_USER_ID = "seed-script";
 const AGENT_SLUG = "fake-echo";
+const AGENT_NAME = "Fake echo";
 
 /**
  * Creates the workspace for `orgId` and the fake agent in it, or finds the
@@ -22,10 +23,14 @@ const AGENT_SLUG = "fake-echo";
  */
 export const seedFakeAgent = async ({
   db,
+  name = AGENT_NAME,
   orgId,
+  slug = AGENT_SLUG,
 }: {
   db: Database;
+  name?: string;
   orgId: string;
+  slug?: string;
 }): Promise<string> => {
   const workspace = await devUserPrincipal(db, orgId);
   const principal: Principal = {
@@ -36,12 +41,10 @@ export const seedFakeAgent = async ({
 
   const existing = (
     await agents.list(principal, { includeArchived: true })
-  ).find((agent) => agent.slug === AGENT_SLUG);
+  ).find((agent) => agent.slug === slug);
   if (existing) {
     if (existing.status === "archived") {
-      process.stderr.write(
-        `Agent ${AGENT_SLUG} (${existing.id}) is archived.\n`
-      );
+      process.stderr.write(`Agent ${slug} (${existing.id}) is archived.\n`);
     }
     return existing.id;
   }
@@ -49,11 +52,11 @@ export const seedFakeAgent = async ({
   const created = await agents.create(principal, {
     instructions: "Echoes whatever it is told.",
     model: "fake",
-    name: "Fake echo",
+    name,
     runtime: "fake",
-    slug: AGENT_SLUG,
+    slug,
   });
-  process.stderr.write(`Created agent ${AGENT_SLUG} (${created.id}).\n`);
+  process.stderr.write(`Created agent ${slug} (${created.id}).\n`);
   return created.id;
 };
 
@@ -62,7 +65,14 @@ export const main = async (): Promise<void> => {
   const local = openLocalDatabase();
   process.stderr.write(`Seeding ${local.file}.\n`);
   try {
-    const agentId = await seedFakeAgent({ db: local.db, orgId });
+    // Optional: `bun scripts/dev/seed-fake-agent.ts <slug> <name>` makes another one.
+    const [slug, name] = process.argv.slice(2);
+    const agentId = await seedFakeAgent({
+      db: local.db,
+      orgId,
+      ...(name ? { name } : {}),
+      ...(slug ? { slug } : {}),
+    });
     process.stdout.write(`${agentId}\n`);
   } finally {
     local.close();
