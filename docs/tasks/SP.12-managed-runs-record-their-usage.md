@@ -3,7 +3,7 @@ id: SP.12
 title: "Managed runs record their usage"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/SP.12-managed-runs-record-their-usage
 lane: runtimes
@@ -25,3 +25,4 @@ a managed service test where the fake session reports usage, and the finished ru
 - 2026-11-21: dispatched.
 - 2026-11-21: review clean after one fix round. Controller decision: opus and sonnet fallback rates set to Opus 5.5 ($4/$20) and Sonnet 5.5 ($2/$10) from Anthropic's model docs, replacing unchecked estimates. Small fix commit before merge.
 - 2026-11-21: rate fix reviewed clean. Ready at 12ee354b. Queued for merge.
+- 2026-11-21: merged cc973c7d, batch merge check with SL.5, SP.13 and SP.12 passed. Done.

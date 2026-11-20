@@ -1,15 +1,21 @@
 /**
  * `slack_history` and `slack_search`: an agent reads a channel or thread from
- * Slack, or searches the messages the Slack app has stored. History only reads
- * channels the bot is in, so a channel it was not invited to is refused before
- * Slack is asked. Search reads our own database and needs Slack only to turn a
- * channel name into an id.
+ * Slack, or searches our own database. History only reads channels the bot is
+ * in, so a channel it was not invited to is refused before Slack is asked.
+ * Search reads the messages the Slack app has stored and the messages of the
+ * team room a linked channel feeds, and needs Slack only to turn a channel name
+ * into an id.
  */
 import type { Database } from "@repo/db";
 import { ServiceError } from "./errors.ts";
 import type { SlackClient, SlackFetch } from "./slack/client.ts";
-import { SEARCH_LIMIT_MAX, searchMessages } from "./slack/messages.ts";
+import {
+  SEARCH_LIMIT_MAX,
+  type SearchHit,
+  searchMessages,
+} from "./slack/messages.ts";
 import { nameUsers } from "./slack/names.ts";
+import { searchRoomMessages } from "./slack/room-search.ts";
 import {
   createAgentClients,
   type RunPrincipal,
@@ -98,6 +104,32 @@ const windowOf = ({ since, until }: { since?: string; until?: string }) => {
 /** Slack ts strings are seconds with a fraction, so the time is the part before the dot. */
 const timeOf = (ts: string): string =>
   new Date(Math.trunc(Number(ts)) * 1000).toISOString();
+
+/**
+ * Newest first, then by Slack ts. A message found by both sources (same channel
+ * and ts) is kept once, and the list is cut to `limit`.
+ */
+const mergeHits = (
+  stored: SearchHit[],
+  room: SearchHit[],
+  limit: number
+): SearchHit[] => {
+  const seen = new Set<string>();
+  const merged: SearchHit[] = [];
+  const newestFirst = [...stored, ...room].sort(
+    (a, b) =>
+      Date.parse(b.createdAt) - Date.parse(a.createdAt) ||
+      b.ts.localeCompare(a.ts)
+  );
+  for (const hit of newestFirst) {
+    const key = `${hit.channelId} ${hit.ts}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(hit);
+    }
+  }
+  return merged.slice(0, limit);
+};
 
 /** Looks a channel up by id or by name, with or without `#`, among the channels the bot is in. */
 const findChannel = async (client: SlackClient, channel: string) => {
@@ -225,23 +257,39 @@ export const createSlackHistoryService = ({
         : (await findChannel(client, input.channel)).id;
     }
 
-    const hits = await searchMessages(db, {
-      appId: app.id,
-      channelId,
-      limit,
-      person: input.person,
-      query,
+    const searchWindow = {
       since:
         window.since === undefined
           ? undefined
           : new Date(window.since).toISOString(),
-      teamId: app.teamId,
       until:
         window.until === undefined
           ? undefined
           : new Date(window.until).toISOString(),
-      workspaceId: run.workspaceId,
-    });
+    };
+    const [stored, room] = await Promise.all([
+      searchMessages(db, {
+        appId: app.id,
+        channelId,
+        limit,
+        person: input.person,
+        query,
+        teamId: app.teamId,
+        workspaceId: run.workspaceId,
+        ...searchWindow,
+      }),
+      searchRoomMessages(db, {
+        agentId: run.agentId,
+        channelId,
+        limit,
+        person: input.person,
+        query,
+        slackTeamId: app.teamId,
+        workspaceId: run.workspaceId,
+        ...searchWindow,
+      }),
+    ]);
+    const hits = mergeHits(stored, room, limit);
 
     return {
       hits: hits.map(

@@ -25,3 +25,4 @@ a rollup test with three days of $0.004 gives a week of $0.01 where today's code
 ## Log
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 6c8077d5 after one fix round, review clean. Queued for merge.

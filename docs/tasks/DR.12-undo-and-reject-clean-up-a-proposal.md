@@ -3,9 +3,9 @@ id: DR.12
 title: "Undo and Reject clean up a proposal"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [DR.7]
-branch: null
+branch: task/DR.12-undo-and-reject-clean-up-a-proposal
 lane: services-skills
 executor: claude
 ---
@@ -27,3 +27,4 @@ service tests for both, and the Knows tab no longer lists a skill with no approv
 
 ## Log
 - 2026-11-20: added from the dream walkthrough.
+- 2026-11-21: dispatched.

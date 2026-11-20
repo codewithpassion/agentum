@@ -123,3 +123,42 @@ test("a model that gives nothing, or something unreadable, is an error", async (
   await expect(run("not json")).rejects.toBeInstanceOf(ExtractError);
   await expect(run('{"other":1}')).rejects.toBeInstanceOf(ExtractError);
 });
+
+test("the prompt tells the model to keep a disagreement as two notes and to write no invented history", async () => {
+  const systems: string[] = [];
+  await extractCandidates({
+    items: [item("a")],
+    judge: (_prompt, sent) => {
+      systems.push(sent);
+      return Promise.resolve('{"notes":[]}');
+    },
+    never: [],
+    remember: [],
+  });
+  const [system] = systems;
+  expect(system).toContain("keep both");
+  expect(system).toContain("one note for each");
+  expect(system).toContain("previously noted");
+  expect(system).toContain("unclear");
+});
+
+test("two pieces of evidence that disagree stay two candidates, each with its own source", async () => {
+  const { candidates } = await ask(
+    [
+      item("a", { text: "Invoices are paid on Thursdays" }),
+      item("b", { text: "Invoices are paid on Fridays" }),
+    ],
+    [
+      {
+        evidence: ["e1"],
+        kind: "work",
+        text: "Invoices are paid on Thursdays",
+      },
+      { evidence: ["e2"], kind: "work", text: "Invoices are paid on Fridays" },
+    ]
+  );
+  expect(candidates.map((entry) => [entry.text, entry.source?.id])).toEqual([
+    ["Invoices are paid on Thursdays", "s_a"],
+    ["Invoices are paid on Fridays", "s_b"],
+  ]);
+});

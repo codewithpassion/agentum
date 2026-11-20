@@ -146,3 +146,28 @@ test("a person without an avatar shows one letter of their name", () => {
   expect(html).toContain(">D</span>");
   expect(html).not.toContain(">DF</span>");
 });
+
+test("a Slack guest's post shows the guest's name, a Slack guest tag and the message only", () => {
+  const html = render({
+    author: {
+      avatar: null,
+      handle: null,
+      id: "slack:T0TEAM:U0GUEST",
+      kind: "user",
+      name: "Priya",
+    },
+    authorLabel: "Priya",
+    post: {
+      ...basePost,
+      authorId: "slack:T0TEAM:U0GUEST",
+      authorKind: "user",
+      text: "Priya (Slack guest): can we move the call?",
+    },
+  });
+  expect(html).toContain('<span class="font-medium text-sm">Priya</span>');
+  expect(html).toContain(
+    '<span class="text-muted-foreground text-xs">Slack guest</span>'
+  );
+  expect(html).toContain("can we move the call?");
+  expect(html).not.toContain("(Slack guest):");
+});

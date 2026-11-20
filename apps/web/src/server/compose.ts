@@ -352,6 +352,7 @@ import {
   clerkUserOrganizations,
 } from "./clerk-organizations.ts";
 import { clerkPeople } from "./clerk-people.ts";
+import { devSlackFetch, fakeSlackUrl } from "./dev-slack-fetch.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { guestRuntimeOptions } from "./guest-runtime-options";
 import { inProcessFetch } from "./in-process.ts";
@@ -464,6 +465,8 @@ export interface Infra {
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
   publicBaseUrl?: string;
   relay: MachineRelayPort;
+  /** Dev only: the origin of the request being served, so a Cloud run can tell it `publicBaseUrl` is on another port. */
+  requestOrigin?: string;
   /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
   runTokenKey?: string;
   /** `SECRETS_KEY`. Storing a connector credential or a workspace secret encrypts with it. */
@@ -719,6 +722,7 @@ export const composeWith = ({
               read: (principal, path) => library.read(principal, path),
             },
             platformUrl: infra.publicBaseUrl,
+            requestOrigin: infra.requestOrigin,
             runner: infra.cloudRunner,
             runTokenKey: infra.runTokenKey,
           }),
@@ -1566,7 +1570,8 @@ export const compose = (
   env: ComposeEnv,
   devFakeRuntime: boolean,
   defer?: (work: Promise<void>) => void,
-  exports?: AppWorkerExports
+  exports?: AppWorkerExports,
+  requestOrigin?: string
 ): Composed => {
   const db = drizzle(env.DB);
   let composed: Composed;
@@ -1597,6 +1602,11 @@ export const compose = (
         transcribe: env.SHARE_OPEN_LIMIT,
       },
       exportPDF: exportPrintPDF(env.BROWSER),
+      // Dev builds only, and only when a walkthrough names a fake Slack.
+      fetch: devSlackFetch({
+        base: fakeSlackUrl(),
+        dev: devFakeRuntime,
+      }),
       fileBlobs: r2FileBlobs(env.FILES),
       // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),
@@ -1655,6 +1665,7 @@ export const compose = (
       proxyFetch: inProcessFetch(env as Env, defer),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
+      requestOrigin: devFakeRuntime ? requestOrigin : undefined,
       runTokenKey: keySpec(env.RUN_TOKEN_KEY, env.RUN_TOKEN_KEY_PREVIOUS),
       secretsKey: keySpec(env.SECRETS_KEY, env.SECRETS_KEY_PREVIOUS),
       // Unset secrets read as empty strings; Google's client needs both.
