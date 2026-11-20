@@ -287,6 +287,8 @@ import {
   createSlackRequests,
   type SlackRequests,
 } from "@repo/services/slack/requests";
+import { createRoomOutbound } from "@repo/services/slack/room-out";
+import { createRoomStatus } from "@repo/services/slack/room-status";
 import {
   createDbStatusPorts,
   createSlackStatus,
@@ -990,6 +992,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     defer: infra.defer,
+    events,
     fetch: connectorFetch,
     publicBaseUrl: infra.publicBaseUrl,
     requests: {
@@ -1000,6 +1003,18 @@ export const composeWith = ({
     secretsKey: infra.secretsKey,
   });
   events.onAppend(slackRequests.onEvent);
+  // A post in a team room whose team is linked to a Slack channel goes out to the channel.
+  events.onAppend(
+    createRoomOutbound({
+      clock: infra.clock,
+      db,
+      defer: infra.defer,
+      events,
+      fetch: connectorFetch,
+      people: infra.people,
+      secretsKey: infra.secretsKey,
+    }).onEvent
+  );
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
   const artifactErrors = createArtifactErrorsService({
@@ -1510,6 +1525,11 @@ export const composeWith = ({
         atomic: infra.atomic,
         clock: infra.clock,
         db,
+        slackStatus: createRoomStatus({
+          db,
+          fetch: connectorFetch,
+          secretsKey: infra.secretsKey,
+        }),
       }),
       triggers,
       wiki,
