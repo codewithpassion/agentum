@@ -176,13 +176,59 @@ test("with teams, cards group under their team heading and agents in no team com
   expect(html.split('href="/agents/new"').length - 1).toBe(2);
 });
 
-test("a team with no cards still gets a group with its add card", () => {
-  const html = render([card("Loner", "idle")], [], undefined, [
-    team("t_ops", "Ops", null),
-  ]);
+test("a team with no agents gets no group, and No team still shows", () => {
+  const html = render(
+    [card("Loner", "idle"), inTeam(card("Ruby", "idle", "a_ruby"), "t_ops")],
+    [],
+    undefined,
+    [team("t_ops", "Ops", null), team("t_empty", "Empty", null)]
+  );
   expect(html).toContain("Ops</span>");
-  expect(html).toContain("0 agents");
-  expect(html).toContain("Add to team</button>");
+  expect(html).toContain("No team");
+  expect(html).not.toContain("Empty</span>");
+  expect(html).not.toContain("/teams/t_empty/room");
+  expect(html.split("Add to team</button>").length - 1).toBe(1);
+});
+
+test("with Everyone the only team holding agents, the wall is flat with no headings", () => {
+  const html = render(
+    [
+      inTeam(card("Ruby", "idle", "a_ruby"), "t_all"),
+      inTeam(card("Sam", "working", "a_sam"), "t_all"),
+    ],
+    [],
+    undefined,
+    [team("t_all", "Everyone", null), team("t_ops", "Ops", null)]
+  );
+  expect(html).toContain("Ruby");
+  expect(html).toContain("Sam");
+  expect(html).not.toContain("<h2");
+  expect(html).not.toContain("Add to team");
+  expect(html).not.toContain("Open room");
+  expect(html.split('href="/agents/new"').length - 1).toBe(2);
+});
+
+test("a fresh workspace with only an empty Everyone team shows the empty state, no group", () => {
+  const html = render([], [], <div data-testid="guide" />, [
+    team("t_all", "Everyone", null),
+  ]);
+  expect(html).toContain('data-testid="guide"');
+  expect(html).not.toContain("<h2");
+  expect(html).not.toContain("Everyone");
+});
+
+test("Everyone with agents next to another team with agents still groups", () => {
+  const html = render(
+    [
+      inTeam(card("Ruby", "idle", "a_ruby"), "t_all"),
+      inTeam(card("Tess", "idle", "a_tess"), "t_dev"),
+    ],
+    [],
+    undefined,
+    [team("t_all", "Everyone", null), team("t_dev", "Dev", null)]
+  );
+  expect(html).toContain("Everyone</span>");
+  expect(html).toContain("Dev</span>");
 });
 
 test("with no teams the wall stays flat, with no headings or Add to team", () => {
