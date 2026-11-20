@@ -79,7 +79,11 @@ import {
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { invalid, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireAdminSession, requireSession } from "./guards.ts";
+import {
+  requireAdminSession,
+  requireAgentOwnerOrAdmin,
+  requireSession,
+} from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { ruleSchema } from "./secrets/rules.ts";
 import { idString } from "./shared.ts";
@@ -213,6 +217,8 @@ export interface ConnectorSummary {
   authMode: ConnectorAuthMode;
   /** Seconds a tool call may take before it is stopped. */
   callTimeoutSeconds: number;
+  /** The catalogue entry this connector was added from, or null for a custom one. */
+  catalogKey: string | null;
   createdAt: string;
   headerName: string | null;
   headerTemplate: string | null;
@@ -233,7 +239,14 @@ export interface ConnectorSummary {
 /** The connector fields a member needs to manage their own sign-in. */
 export type MySignIn = Pick<
   ConnectorSummary,
-  "id" | "name" | "url" | "authKind" | "status" | "oauth" | "myCredential"
+  | "id"
+  | "name"
+  | "url"
+  | "authKind"
+  | "headerName"
+  | "status"
+  | "oauth"
+  | "myCredential"
 > & { shared: boolean };
 
 export interface AssignmentSummary {
@@ -309,6 +322,7 @@ const toSummary = (
     authKind: row.authKind,
     authMode: row.authMode,
     callTimeoutSeconds: row.callTimeoutSeconds,
+    catalogKey: row.catalogKey,
     createdAt: row.createdAt,
     headerName: row.headerName,
     headerTemplate: row.headerTemplate,
@@ -758,6 +772,7 @@ export const createConnectorsService = ({
       );
       return {
         authKind: row.authKind,
+        headerName: row.headerName,
         id: row.id,
         myCredential: credential ? toCredentialSummary(credential) : null,
         name: row.name,
@@ -857,12 +872,15 @@ export const createConnectorsService = ({
         "This connector uses a workspace secret. Ask an admin to change it in Settings, Connectors."
       );
     }
-    const owner: { id: string; kind: CredentialOwnerKind } = parsed.agentId
-      ? {
-          id: (await loadActiveAgent(db, parsed.agentId, workspaceId)).id,
-          kind: "agent",
-        }
-      : { id: user.userId, kind: "user" };
+    let owner: { id: string; kind: CredentialOwnerKind } = {
+      id: user.userId,
+      kind: "user",
+    };
+    if (parsed.agentId) {
+      const agent = await loadActiveAgent(db, parsed.agentId, workspaceId);
+      requireAgentOwnerOrAdmin(user, agent, SET_CREDENTIAL_ACTION);
+      owner = { id: agent.id, kind: "agent" };
+    }
 
     // Before the value leaves for the server: a missing key fails here.
     const key = await cryptoKey();

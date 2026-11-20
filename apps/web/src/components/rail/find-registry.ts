@@ -29,9 +29,10 @@ export interface FindEntry {
 
 const settingsHints: Readonly<Record<string, string>> = {
   "/settings/agent-connections": "Other agents",
-  "/settings/connectors": "Apps",
+  "/settings/connectors": "Connectors",
   "/settings/model-providers": "AI account",
-  "/settings/secrets": "Passwords and keys",
+  "/settings/secrets": "Secrets",
+  "/settings/sign-ins": "Your logins",
 };
 
 /** Listed under "What agents use" as Enrol a machine, so not repeated here. */

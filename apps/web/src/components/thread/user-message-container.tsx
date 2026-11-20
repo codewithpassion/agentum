@@ -5,6 +5,7 @@ import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 import { FileChips } from "./file-chips.tsx";
+import { MessageMenu } from "./message-menu.tsx";
 import { RunMarker } from "./run-marker.tsx";
 import { ThreadAuthor } from "./thread-author.tsx";
 import { OutsideInput } from "./thread-cards.tsx";
@@ -80,6 +81,7 @@ export function UserMessageContainer() {
                   </span>
                 </Button>
               ) : null}
+              {outsideLabels?.has(id) ? null : <MessageMenu text={text} />}
             </div>
           </MessageContent>
         </Message>

@@ -3,6 +3,7 @@ import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { teamMembers, teams } from "@repo/db/schema/teams";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
@@ -102,6 +103,27 @@ const runFacts = (runList: RunFact[], weekStart: string) => {
     }
   }
   return { costs, latest, running };
+};
+
+interface HomeTeam {
+  isLead: boolean;
+  teamId: string;
+}
+
+// Rows arrive ordered by team id, so the first home team per agent is the lowest.
+const homeTeamsFor = (
+  rows: { agentId: string; leadAgentId: string | null; teamId: string }[]
+): Map<string, HomeTeam> => {
+  const homes = new Map<string, HomeTeam>();
+  for (const row of rows) {
+    if (!homes.has(row.agentId)) {
+      homes.set(row.agentId, {
+        isLead: row.leadAgentId === row.agentId,
+        teamId: row.teamId,
+      });
+    }
+  }
+  return homes;
 };
 
 const waitingFacts = (view: RailView): Map<string, Wait> => {
@@ -230,7 +252,7 @@ export const createRosterService = ({
         )
       )
       .as("ranked");
-    const [rows, runList, routines, workspace, view, directory] =
+    const [rows, runList, routines, workspace, view, directory, homeRows] =
       await Promise.all([
         // Keep the same active-only visibility and ordering as agents.list.
         db
@@ -284,7 +306,25 @@ export const createRosterService = ({
         // grouping and plainTitle logic. Problems are stopped, not open waits.
         rail.get(principal, { dayStart: weekStart, scope: "mine" }),
         members ? members.list(principal).catch(() => null) : null,
+        db
+          .select({
+            agentId: teamMembers.memberId,
+            leadAgentId: teams.leadAgentId,
+            teamId: teams.id,
+          })
+          .from(teamMembers)
+          .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+          .where(
+            and(
+              eq(teams.workspaceId, workspaceId),
+              eq(teamMembers.memberKind, "agent"),
+              eq(teamMembers.isHome, true),
+              isNull(teams.archivedAt)
+            )
+          )
+          .orderBy(asc(teams.id)),
       ]);
+    const homeTeams = homeTeamsFor(homeRows);
     const names = new Map(
       directory?.map((entry) => [entry.userId, entry.name])
     );
@@ -310,11 +350,12 @@ export const createRosterService = ({
       const wait = waiting.get(row.id);
       const last = latest.get(row.id);
       const active = running.get(row.id);
+      const home = homeTeams.get(row.id);
       return {
         avatar: avatarFor(row),
         costThisWeekCents: Math.round((costs.get(row.id) ?? 0) * 100),
         id: row.id,
-        isLead: false,
+        isLead: home?.isLead ?? false,
         jobLine: jobLineFor(row.instructions),
         learnedCount: 0,
         name: row.name,
@@ -332,7 +373,7 @@ export const createRosterService = ({
           timeFormat,
           wait,
         }),
-        teamId: null,
+        teamId: home?.teamId ?? null,
         weeklyCapCents: null,
       };
     });

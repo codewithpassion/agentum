@@ -6,6 +6,7 @@ import {
 } from "@repo/db/schema/connectors";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
@@ -14,10 +15,12 @@ import { createAgentsService, findAgent } from "../agents.ts";
 import { createEventsService } from "../events.ts";
 import { createMachineRuntime } from "../machines/runtime.ts";
 import { noopRelay } from "../machines/types.ts";
+import { serializeMemoryFile } from "../memory/codec.ts";
+import type { MemoryFileReader } from "../memory/prompt.ts";
 import { createRunsService } from "../runs.ts";
 import { SLACK_GUIDANCE } from "../slack/guidance.ts";
 import type { Principal } from "../workspaces.ts";
-import { buildLaunchContext } from "./launch-context.ts";
+import { buildLaunchContext, type LaunchContext } from "./launch-context.ts";
 import { loadRun } from "./queries.ts";
 
 const WORKSPACE = "w1";
@@ -53,13 +56,35 @@ const addConnector = (id: string, createdAt: string) => {
     .run();
 };
 
-const build = async () => {
+const build = async (options: { readMemoryFile?: MemoryFileReader } = {}) => {
   const run = await loadRun(db, runId, WORKSPACE);
   const agent = await findAgent(db, { id: agentId, workspaceId: WORKSPACE });
   if (!(run && agent)) {
     throw new Error("fixture missing");
   }
-  return await buildLaunchContext(db, run, agent);
+  return await buildLaunchContext(db, run, agent, options);
+};
+
+const memoryNote = (n: number, text: string, userScope: string | null) => ({
+  date: "2026-10-16",
+  id: `01HZ7KQ3M8V2X4R6T9B1C5${String(n).padStart(4, "0")}`,
+  kind: "work" as const,
+  source: null,
+  text,
+  userScope,
+  writtenBy: "agent" as const,
+});
+
+const memoryFiles =
+  (files: Record<string, string>): MemoryFileReader =>
+  (path) =>
+    Promise.resolve(files[path] ?? null);
+
+const notesOf = (context: LaunchContext) => {
+  if (!context.memory) {
+    throw new Error("no memory in the launch context");
+  }
+  return context.memory.notes;
 };
 
 beforeEach(async () => {
@@ -166,4 +191,81 @@ test("a run's access scope narrows the connectors in the context", async () => {
 
   expect(context.connectors.map((connector) => connector.id)).toEqual(["c2"]);
   expect(context.scope).toEqual({ connectors: ["c2"] });
+});
+
+test("with a memory reader the context holds the agent's notes and the run person's private notes only", async () => {
+  db.update(runRows)
+    .set({ onBehalfOfUserId: "user_a1" })
+    .where(eq(runRows.id, runId))
+    .run();
+  const read = memoryFiles({
+    "private/user_a1.md": serializeMemoryFile("private/user_a1.md", [
+      memoryNote(3, "Ana's private brief", "user_a1"),
+    ]),
+    "private/user_b2.md": serializeMemoryFile("private/user_b2.md", [
+      memoryNote(4, "Ben's private brief", "user_b2"),
+    ]),
+    "work.md": serializeMemoryFile("work.md", [
+      memoryNote(1, "Trade show list waits on Tally", null),
+    ]),
+  });
+
+  const context = await build({ readMemoryFile: read });
+
+  expect(
+    notesOf(context)
+      .map((item) => item.id)
+      .sort()
+  ).toEqual(["01HZ7KQ3M8V2X4R6T9B1C50001", "01HZ7KQ3M8V2X4R6T9B1C50003"]);
+});
+
+test("a session with several speakers sees no private notes", async () => {
+  db.update(runRows)
+    .set({ onBehalfOfUserId: "user_a1" })
+    .where(eq(runRows.id, runId))
+    .run();
+  const run = db.select().from(runRows).where(eq(runRows.id, runId)).get();
+  db.update(sessionRows)
+    .set({ origin: "slack" })
+    .where(eq(sessionRows.id, run?.sessionId ?? ""))
+    .run();
+  const read = memoryFiles({
+    "private/user_a1.md": serializeMemoryFile("private/user_a1.md", [
+      memoryNote(3, "Ana's private brief", "user_a1"),
+    ]),
+    "work.md": serializeMemoryFile("work.md", [
+      memoryNote(1, "Trade show list waits on Tally", null),
+    ]),
+  });
+
+  const context = await build({ readMemoryFile: read });
+
+  expect(notesOf(context).map((item) => item.id)).toEqual([
+    "01HZ7KQ3M8V2X4R6T9B1C50001",
+  ]);
+});
+
+test("a run with no person behind it sees no private notes", async () => {
+  db.update(runRows)
+    .set({ onBehalfOfUserId: null })
+    .where(eq(runRows.id, runId))
+    .run();
+  const read = memoryFiles({
+    "private/user_a1.md": serializeMemoryFile("private/user_a1.md", [
+      memoryNote(3, "Ana's private brief", "user_a1"),
+    ]),
+    "work.md": serializeMemoryFile("work.md", [
+      memoryNote(1, "Trade show list waits on Tally", null),
+    ]),
+  });
+
+  const context = await build({ readMemoryFile: read });
+
+  expect(notesOf(context).map((item) => item.id)).toEqual([
+    "01HZ7KQ3M8V2X4R6T9B1C50001",
+  ]);
+});
+
+test("without a memory reader the context has no memory", async () => {
+  expect((await build()).memory).toBeNull();
 });

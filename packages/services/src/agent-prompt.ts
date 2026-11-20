@@ -1,11 +1,12 @@
 import type { AgentRecord } from "./agents.ts";
+import { memorySection, type PromptMemory } from "./memory/prompt.ts";
 
 /** The profile's instructions, voice, and currently available handoff targets. */
 export const agentPrompt = (
   agent: Pick<AgentRecord, "instructions" | "soul" | "handsTo"> &
     Partial<Pick<AgentRecord, "subagents">>,
   handsToNames: readonly string[],
-  options: { multiPerson?: boolean } = {}
+  options: { memory?: PromptMemory | null; multiPerson?: boolean } = {}
 ): string =>
   [
     agent.instructions,
@@ -18,6 +19,7 @@ export const agentPrompt = (
     agent.handsTo.length > 0 && handsToNames.length > 0
       ? `You can hand work to: ${handsToNames.join(", ")} (use send_message)`
       : "",
+    options.memory ? memorySection(options.memory) : "",
   ]
     .filter((part) => part !== "")
     .join("\n\n");

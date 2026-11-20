@@ -62,6 +62,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         members,
         connections,
         published,
+        keys,
       ] = await Promise.all([
         trpc.agents.get.query({ id: params.agentId }),
         trpc.agentProfile.profile.query({ agentId: params.agentId }),
@@ -81,12 +82,14 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         trpc.members.list.query().catch(() => null),
         trpc.a2a.list.query({ agentId: params.agentId }).catch(() => []),
         trpc.a2a.published.query({ agentId: params.agentId }).catch(() => null),
+        trpc.keys.forAgent.query({ agentId: params.agentId }).catch(() => null),
       ]);
       return {
         agent,
         askBefore,
         askLevel,
         connections,
+        keys,
         machines,
         members,
         mailbox,

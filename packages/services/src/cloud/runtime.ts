@@ -9,6 +9,8 @@ import type { AgentRecord } from "../agents.ts";
 import { buildMcpServers } from "../connectors/mcp-servers.ts";
 import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
+import type { LibraryService } from "../library.ts";
+import { libraryMemoryReader } from "../memory/prompt.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import { requireOrdinaryMachineRun } from "../runs/guest-scope.ts";
 import { buildLaunchContext } from "../runs/launch-context.ts";
@@ -45,13 +47,15 @@ const desktopOf = (json: string | null): boolean => {
  * that the browser cancels would strand the run until its lease expired. A
  * failed wake leaves the run queued or offered for the minute sweep. The run
  * token is signed before the claim, which is fine because it is only checked
- * when used.
+ * when used. With `library`, the agent's memory notes go into its instructions.
  */
 export const createCloudRuntime = ({
+  library,
   platformUrl,
   runner,
   runTokenKey,
 }: {
+  library?: Pick<LibraryService, "read">;
   platformUrl: string;
   runner: CloudRunnerPort;
   runTokenKey: string;
@@ -108,7 +112,11 @@ export const createCloudRuntime = ({
   ): Promise<void> => {
     requireOrdinaryMachineRun(run);
     const computer = await computerFor(db, run);
-    const context = await buildLaunchContext(db, run, agent);
+    const context = await buildLaunchContext(db, run, agent, {
+      readMemoryFile: library
+        ? libraryMemoryReader(library, run, agent.slug)
+        : undefined,
+    });
     const runToken = await signRunToken(await hmacKey(), {
       agentId: run.agentId,
       issuedAt: deps.clock.now().getTime(),
@@ -121,6 +129,7 @@ export const createCloudRuntime = ({
         id: agent.id,
         instructions: [
           agentPrompt(agent, context.handoffNames, {
+            memory: context.memory,
             multiPerson: context.multiPerson,
           }),
           context.slack,
