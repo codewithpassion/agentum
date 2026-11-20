@@ -17,7 +17,6 @@ import {
   type ThreadState,
 } from "#/components/thread/thread-state.ts";
 import { Button } from "#/components/ui/button.tsx";
-import { SidebarTrigger } from "#/components/ui/sidebar.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
@@ -500,7 +499,6 @@ function TaskHeader({
           aria-label="Breadcrumb"
           className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
         >
-          <SidebarTrigger className="hidden size-6 md:inline-flex" />
           <Link to="/desk">Desk</Link> › Conversation
         </nav>
       )}

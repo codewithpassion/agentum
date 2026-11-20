@@ -3,7 +3,7 @@ import { NeedsYouRow } from "#/components/rail/rail-needs-you.tsx";
 
 const noop = () => undefined;
 
-/** The Needs you list a phone shows on `/desk` with no item, where the rail is closed. It uses the rail's own rows. */
+/** The Needs you list a phone shows on `/desk` with no item, where the drawer is closed. It uses the rail's own rows. */
 export function InlineList({
   items,
   nowMs,

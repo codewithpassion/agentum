@@ -250,7 +250,11 @@ import {
   createRunSkillsService,
   type RunSkillsService,
 } from "@repo/services/run-skills";
-import { createRunsService, type RunsService } from "@repo/services/runs";
+import {
+  createRunsService,
+  type RunsService,
+  type RunsServiceOptions,
+} from "@repo/services/runs";
 import {
   type Clock,
   type Gateway,
@@ -447,6 +451,11 @@ export interface Infra {
   peerFetch?: A2aFetch;
   /** Names the people behind user ids in the Log. Without it, the Log shows ids. */
   people?: PeopleLookup;
+  /**
+   * Reaches this deployment's own routes in the same isolate. With
+   * `publicBaseUrl`, it is how the fake runtime's tool mode calls `/api/proxy`.
+   */
+  proxyFetch?: (request: Request) => Promise<Response>;
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
   publicBaseUrl?: string;
   relay: MachineRelayPort;
@@ -669,6 +678,14 @@ const lazyGuestService = (
     return guests;
   };
 };
+
+/** The fake runtime's way to the connector proxy, when this deployment can offer one. */
+const proxyAccessOf = (
+  infra: Pick<Infra, "proxyFetch" | "publicBaseUrl">
+): RunsServiceOptions["proxy"] =>
+  infra.publicBaseUrl && infra.proxyFetch
+    ? { baseUrl: infra.publicBaseUrl, fetch: infra.proxyFetch }
+    : undefined;
 
 export const composeWith = ({
   db,
@@ -1018,6 +1035,7 @@ export const composeWith = ({
     guestsOff: infra.guestsOff,
     library,
     people: infra.people,
+    proxy: proxyAccessOf(infra),
     runTokenKey: infra.runTokenKey,
     secrets,
   });
@@ -1583,6 +1601,7 @@ export const compose = (
         }
       },
       people: clerkPeople(env.CLERK_SECRET_KEY),
+      proxyFetch: inProcessFetch(env as Env, defer),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
       runTokenKey: keySpec(env.RUN_TOKEN_KEY, env.RUN_TOKEN_KEY_PREVIOUS),

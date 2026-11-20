@@ -17,6 +17,10 @@ export interface ClerkOrgName {
   name: string;
 }
 
+/** Settings is one page of tabs on desktop, and the index of every page on a phone. */
+export const settingsHref = (isMobile: boolean): string =>
+  isMobile ? "/settings" : "/settings/model-providers";
+
 const CANNOT_SWITCH_MESSAGE = "Could not switch workspace.";
 const ADMIN_ROLE = "org:admin";
 
