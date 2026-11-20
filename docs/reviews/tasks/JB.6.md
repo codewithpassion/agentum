@@ -5,10 +5,11 @@
 - Round 0 (opus reviewer on 2e43360): clean, no must-fix. All four required roster tests present and passing, plus mail-subject, timezone and running-newer-than-done cases.
 - Browser proof (fresh verifier, `docs/reviews/tasks/JB.6/browser.md`): pass at 1280x800 and 390x844. Card reads "Done 4:13 pm: <title>" after Run now, with ". Next run 23 Nov, 9:00 am" when a routine exists, and "Idle" before any run.
 
-After the clean verdict the dispatcher made one small change the reviewer did not see: a title that already ends in `.`, `!` or `?` (a clipped "..." title showed "fla....") now joins "Next run" with a space and no second full stop. One new test covers it. `bun run check`, the roster tests and the build pass after it.
+- Round 1 (fresh opus reviewer on c648a021, commits after 2e43360 only): clean, no must-fix. After the first clean verdict the dispatcher joined "Next run" to a title that already ends in `.`, `!`, `?` or the ellipsis character with a single space instead of ". " (a clipped title had shown "fla...."). A parameterised test covers `?`, `.`, `...` and the single ellipsis character. Roster tests (41), `bun run check`, `bun run test` and `bun run build` pass.
 
 ## Nits left
 
+- Round 1 nits: the join test has no `!` case and repeats its title column; a closing quote or bracket after punctuation, a trailing `:` or `;`, and full-width `？` or `。` still get ". ". All rare and cosmetic.
 - A `finishedAt` in the future (clock skew) counts as "within a day" and shows "Done" with a future time. Unlikely, since the server sets it.
 - `recentlyFinishedAt` runs twice per agent (once for the subject lookup, once in `activityFor`). Negligible cost.
 - The card's `line-clamp-2` does not clamp in the browser (pre-existing, also on the job line), so a long line wraps to three or four lines instead of being cut. Nothing is hidden.
