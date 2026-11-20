@@ -62,6 +62,20 @@ The memory service checks every add and edit against the workspace's never list 
 
 A note that matches is refused with an `invalid` error naming the entry and the list, which the `remember` tool hands back to the agent. The service writes one `memory_changes` row with status `rejected` and `decided_at` set, no `decided_by` and no library version. The row's text names the entry and does not repeat the note, because the topic is one the owner does not want kept.
 
+## Notes that outside text could have written
+
+A note an agent writes is held at every learn level when its source is outside text. Outside text means mail, an A2A peer, or a run that used the web. The code is `usedWeb` in `packages/services/src/memory/provenance.ts` and `outsideSourceOf` in `guards.ts`. A person's own note is never held for this.
+
+A run counts as having used the web when its event log has any `network.request`, whatever its `via` (`curl`, `run_script` or `web_fetch`). It also counts when it has any `browser.action`, or a `tool.call` of a web tool. The web tools are `WebFetch` and `WebSearch` on a machine (Claude Code), and `web_fetch` and `web_search` in managed and cloud runs (Pi). Tool names match without regard to case.
+
+The log has a blind spot. A real shell can fetch a page and leave nothing in the log. Claude Code's `Bash` on a machine, the `bash` tool of Managed Agents, the `bash` tool of a cloud Linux VM, and the computer shell (`computer_exec`, named `mcp__<server>__computer_exec` on a machine) can all run `curl`, and no event records the request. The cloud isolate has no shell. Its library `curl` and `run_script` write `network.request` events, so the service sees them.
+
+Because a shell fetch cannot be seen, the service holds every agent note from a run that called one of those shell tools, as if the run had used the web. A run that never called a shell tool cannot have fetched through one. The controller decided this on 20 Nov 2026. It is deliberate: holding a note is safer than applying text from outside that nobody saw. The cost is that a shell-using agent's notes wait for approval.
+
+A `tool.call` whose payload is over 64 KB goes to the blob store, and its row keeps no tool name. The service counts such a call as a web use, whatever it was.
+
+Two gaps remain. A run that reaches the web through a connector (MCP) tool other than those named above is not seen. A shell tool that Claude Code adds on another platform, such as PowerShell, is not in the list.
+
 ## Examples
 
 `agents/scout/memory/people.md`

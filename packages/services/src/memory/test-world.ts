@@ -36,10 +36,20 @@ export const SESSION = {
   ui: "s_ui",
 } as const;
 export const RUN = {
+  bigCall: "r_big_call",
+  browser: "r_browser",
+  computerShell: "r_computer_shell",
+  curl: "r_curl",
+  machineSearch: "r_machine_search",
+  machineWeb: "r_machine_web",
   mail: "r_mail",
+  managedWeb: "r_managed_web",
   peer: "r_peer",
   privateA: "r_private_a",
   privateB: "r_private_b",
+  script: "r_script",
+  shell: "r_shell",
+  tools: "r_tools",
   ui: "r_ui",
   web: "r_web",
 } as const;
@@ -90,6 +100,16 @@ interface RunSeed {
   parentRunId?: string;
   sessionId: string;
 }
+interface EventSeed {
+  id: string;
+  /** Stored as JSON. Left out, the payload is null. */
+  payload?: unknown;
+  payloadRef?: string;
+  runId: string;
+  type: string;
+}
+/** A `tool.call` payload, as every runtime stores one. */
+const toolCall = (name: string) => ({ input: {}, name, toolUseId: "t1" });
 
 export const makeWorld = (
   options: {
@@ -205,6 +225,21 @@ export const makeWorld = (
   seedSession({ id: SESSION.peer, origin: "a2a" });
   seedRun({ id: RUN.ui, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
   seedRun({ id: RUN.web, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
+  // Runs that each used the web once, through one tool, and a run that used none.
+  for (const id of [
+    RUN.curl,
+    RUN.script,
+    RUN.machineWeb,
+    RUN.managedWeb,
+    RUN.machineSearch,
+    RUN.shell,
+    RUN.computerShell,
+    RUN.browser,
+    RUN.bigCall,
+    RUN.tools,
+  ]) {
+    seedRun({ id, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
+  }
   seedRun({
     id: RUN.privateA,
     onBehalfOfUserId: USER_A,
@@ -230,21 +265,94 @@ export const makeWorld = (
     parentRunId: RUN.peer,
     sessionId: SESSION.ui,
   });
+  const seedEvent = (seed: EventSeed) =>
+    db
+      .insert(events)
+      .values({
+        actorId: AGENT,
+        actorKind: "agent",
+        agentId: AGENT,
+        createdAt,
+        id: seed.id,
+        payload:
+          seed.payload === undefined ? null : JSON.stringify(seed.payload),
+        payloadRef: seed.payloadRef ?? null,
+        runId: seed.runId,
+        sessionId: SESSION.ui,
+        type: seed.type,
+        workspaceId: WORKSPACE,
+      })
+      .run();
   // A web_fetch call, which makes this run's notes web-sourced.
-  db.insert(events)
-    .values({
-      actorId: AGENT,
-      actorKind: "agent",
-      agentId: AGENT,
-      createdAt,
-      id: "ev_web_1",
-      payload: JSON.stringify({ via: "web_fetch" }),
-      runId: RUN.web,
-      sessionId: SESSION.ui,
-      type: "network.request",
-      workspaceId: WORKSPACE,
-    })
-    .run();
+  seedEvent({
+    id: "ev_web_1",
+    payload: { via: "web_fetch" },
+    runId: RUN.web,
+    type: "network.request",
+  });
+  // One web use per run, and the ordinary tools that are not web use.
+  seedEvent({
+    id: "ev_curl_1",
+    payload: { via: "curl" },
+    runId: RUN.curl,
+    type: "network.request",
+  });
+  seedEvent({
+    id: "ev_script_1",
+    payload: { via: "run_script" },
+    runId: RUN.script,
+    type: "network.request",
+  });
+  seedEvent({
+    id: "ev_machine_web_1",
+    payload: toolCall("WebFetch"),
+    runId: RUN.machineWeb,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_managed_web_1",
+    payload: toolCall("web_fetch"),
+    runId: RUN.managedWeb,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_machine_search_1",
+    payload: toolCall("WebSearch"),
+    runId: RUN.machineSearch,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_shell_1",
+    payload: toolCall("Bash"),
+    runId: RUN.shell,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_computer_shell_1",
+    payload: toolCall("mcp__harbourmaster__computer_exec"),
+    runId: RUN.computerShell,
+    type: "tool.call",
+  });
+  seedEvent({ id: "ev_browser_1", runId: RUN.browser, type: "browser.action" });
+  seedEvent({
+    id: "ev_big_call_1",
+    payload: {},
+    payloadRef: "payloads/w/ev.json",
+    runId: RUN.bigCall,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_tools_read_1",
+    payload: toolCall("Read"),
+    runId: RUN.tools,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_tools_write_1",
+    payload: toolCall("Write"),
+    runId: RUN.tools,
+    type: "tool.call",
+  });
 
   return { atomic, baseBlobs, clock, db, library, service };
 };

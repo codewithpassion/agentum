@@ -6,7 +6,7 @@ import { events } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { sessions } from "@repo/db/schema/sessions";
 import type { MemorySource } from "@repo/db/shared";
-import { and, eq, like, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isReadOnly } from "../automation-access.ts";
 import { invalid, notFound } from "../errors.ts";
@@ -22,7 +22,19 @@ export const MEMORY_KIND = "memory";
 
 // A private file is named after a Clerk user id, see `PRIVATE_PATH` in codec.ts.
 const USER_ID = /^user_[A-Za-z0-9]+$/;
-const WEB_FETCH_PAYLOAD = '%"via":"web_fetch"%';
+
+// Tool calls that bring outside text into a run, by lower-cased name. Claude Code
+// on a machine records `WebFetch` and `WebSearch`, Managed Agents and Pi record
+// `web_fetch` and `web_search`. Every runtime stores a call as a `tool.call`
+// event whose payload has the tool's `name`.
+const WEB_TOOLS = ["webfetch", "websearch", "web_fetch", "web_search"];
+// A real shell can run `curl` with nothing in the log: Claude Code's `Bash`, the
+// `bash` of Managed Agents and of a cloud Linux VM, and the computer's shell
+// (`computer_exec`, named `mcp__<server>__computer_exec` on a machine). A run
+// that called one is treated as having used the web. See docs/v4/memory-format.md.
+const SHELL_TOOLS = ["bash"];
+const COMPUTER_SHELL_NAME = "%computer_exec";
+const toolName = sql`lower(json_extract(${events.payload}, '$.name'))`;
 
 export const isUserId = (value: string | null): value is string =>
   value !== null && USER_ID.test(value);
@@ -151,6 +163,12 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
     return session;
   };
 
+  /**
+   * True when the run could have read outside text. Any `network.request` counts,
+   * whatever its `via` (`curl`, `run_script` or `web_fetch`), and so does a
+   * `browser.action`, a web tool call, and a shell call. A tool call whose
+   * payload went to the blob store keeps no name in the row, so it counts too.
+   */
   const usedWeb = async (runId: string): Promise<boolean> => {
     const [row] = await db
       .select({ id: events.id })
@@ -159,10 +177,14 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
         and(
           eq(events.runId, runId),
           or(
-            eq(events.type, "browser.action"),
+            inArray(events.type, ["browser.action", "network.request"]),
             and(
-              eq(events.type, "network.request"),
-              like(events.payload, WEB_FETCH_PAYLOAD)
+              eq(events.type, "tool.call"),
+              or(
+                inArray(toolName, [...WEB_TOOLS, ...SHELL_TOOLS]),
+                like(toolName, COMPUTER_SHELL_NAME),
+                isNotNull(events.payloadRef)
+              )
             )
           )
         )

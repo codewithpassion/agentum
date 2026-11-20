@@ -288,6 +288,49 @@ test("a note from mail, a web page or an A2A peer is held at every level", async
   expect(await readError(world, "people.md")).toMatchObject(NOT_FOUND);
 });
 
+// Each of these runs used the web once, through one tool, shell or browser.
+const WEB_RUNS = [
+  RUN.curl,
+  RUN.script,
+  RUN.machineWeb,
+  RUN.managedWeb,
+  RUN.machineSearch,
+  RUN.shell,
+  RUN.computerShell,
+  RUN.browser,
+  RUN.bigCall,
+];
+
+test("a note from a run that used the web through any tool is held at quiet and tell_after", async () => {
+  const world = makeWorld();
+  const statuses: string[] = [];
+  for (const level of ["quiet", "tell_after"] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: each level is set before its notes are written
+    await setLevel(world, level);
+    const changes = await Promise.all(
+      WEB_RUNS.map((runId) => world.service.add(run(runId), note()))
+    );
+    statuses.push(...changes.map((change) => change.status));
+  }
+  expect(statuses).toHaveLength(WEB_RUNS.length * 2);
+  expect(new Set(statuses)).toEqual(new Set(["held"]));
+  expect(await readError(world, "people.md")).toMatchObject(NOT_FOUND);
+});
+
+test("a note from a ui run or a run with only ordinary tools applies at tell_after and quiet", async () => {
+  const world = makeWorld();
+  const statuses: string[] = [];
+  for (const level of ["tell_after", "quiet"] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: each level is set before its notes are written
+    await setLevel(world, level);
+    const changes = await Promise.all(
+      [RUN.ui, RUN.tools].map((runId) => world.service.add(run(runId), note()))
+    );
+    statuses.push(...changes.map((change) => change.status));
+  }
+  expect(statuses).toEqual(["applied", "applied", "applied", "applied"]);
+});
+
 test("a note a person writes from a mail conversation still applies", async () => {
   const world = makeWorld();
 
