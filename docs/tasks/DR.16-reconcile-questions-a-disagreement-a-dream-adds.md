@@ -3,9 +3,9 @@ id: DR.16
 title: "Reconcile questions a disagreement a dream adds"
 milestone: DR
 size: M
-status: todo
+status: in_progress
 depends_on: [DR.10, DR.9]
-branch: null
+branch: task/DR.16-reconcile-questions-a-disagreement-a-dream-adds
 lane: services-dream
 executor: claude
 ---
@@ -28,3 +28,4 @@ In `packages/services/src/dream/run.ts` and `steps/reconcile.ts`, let reconcile 
 
 ## Log
 - 2026-11-21: added by controller, split from DR.10.
+- 2026-11-21: dispatched.

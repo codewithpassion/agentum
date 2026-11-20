@@ -24,3 +24,4 @@ component tests for held, approved, rejected, question answered and undone, and 
 ## Log
 - 2026-11-20: added from the dream walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at b0d5cdd9 after one fix round, review clean, browser pass at both sizes. Scope grew by one service field (DreamRun.openQuestions in dream.ts), needed for the answered-question state.

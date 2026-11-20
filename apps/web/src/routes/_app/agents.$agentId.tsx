@@ -1,3 +1,4 @@
+import { sumSpendCents } from "@repo/db/shared";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
@@ -39,7 +40,7 @@ const loadRoomSpend = async (agentId: string): Promise<RoomSpend> => {
     return {
       capCents: cap?.weeklyCapCents ?? null,
       paused: (cap?.pausedAt ?? null) !== null,
-      weekCents: rows.reduce((total, row) => total + row.cents, 0),
+      weekCents: sumSpendCents(rows),
     };
   } catch {
     return { capCents: null, paused: false, weekCents: null };

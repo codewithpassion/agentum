@@ -6,6 +6,7 @@ import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
+import { sumSpendCents } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
@@ -188,11 +189,11 @@ test("daily rollups sum before rounding, include dreams and unpriced tasks, excl
   await run("foreign", "foreign", monday, '{"costUsd":99}');
   await dream("foreign", "foreign", monday, 99);
   expect(await spend.workspace(user, range)).toEqual([
-    { agentId: "a", cents: 2, day: "2026-11-16", tasks: 4 },
-    { agentId: "b", cents: 25, day: "2026-11-17", tasks: 0 },
+    { agentId: "a", cents: 2, day: "2026-11-16", micros: 16_000, tasks: 4 },
+    { agentId: "b", cents: 25, day: "2026-11-17", micros: 250_000, tasks: 0 },
   ]);
   expect(await spend.byAgent(user, "a", range)).toEqual([
-    { agentId: "a", cents: 2, day: "2026-11-16", tasks: 4 },
+    { agentId: "a", cents: 2, day: "2026-11-16", micros: 16_000, tasks: 4 },
   ]);
   expect(
     await Promise.all(
@@ -206,8 +207,8 @@ test("unpriced rows sort by day then agent, with an empty dream table", async ()
   await run("b", "b", monday, null);
   await run("a", "a", monday, "bad");
   expect(await spend.workspace(user, range)).toEqual([
-    { agentId: "a", cents: 0, day: "2026-11-16", tasks: 1 },
-    { agentId: "b", cents: 0, day: "2026-11-16", tasks: 1 },
+    { agentId: "a", cents: 0, day: "2026-11-16", micros: 0, tasks: 1 },
+    { agentId: "b", cents: 0, day: "2026-11-16", micros: 0, tasks: 1 },
   ]);
 });
 test("week to date includes Monday and dreams through now, excluding Sunday, dry runs and future", async () => {
@@ -283,9 +284,23 @@ test("a team row has no agent, keeps its teamId, and sorts by team id among agen
     range
   );
   expect(rows).toEqual([
-    { agentId: null, cents: 40, day: "2026-11-16", tasks: 0, teamId: "a" },
-    { agentId: "b", cents: 10, day: "2026-11-16", tasks: 1 },
-    { agentId: null, cents: 30, day: "2026-11-16", tasks: 0, teamId: "c" },
+    {
+      agentId: null,
+      cents: 40,
+      day: "2026-11-16",
+      micros: 400_000,
+      tasks: 0,
+      teamId: "a",
+    },
+    { agentId: "b", cents: 10, day: "2026-11-16", micros: 100_000, tasks: 1 },
+    {
+      agentId: null,
+      cents: 30,
+      day: "2026-11-16",
+      micros: 300_000,
+      tasks: 0,
+      teamId: "c",
+    },
   ]);
   expect(rows.map((row) => "teamId" in row)).toEqual([true, false, true]);
 });
@@ -293,9 +308,32 @@ test("a team row has no agent, keeps its teamId, and sorts by team id among agen
 test("a team dream is its own workspace row and counts toward no agent", async () => {
   await teamDream("td", "team-a", monday, 0.25);
   expect(await spend.workspace(user, range)).toEqual([
-    { agentId: null, cents: 25, day: "2026-11-16", tasks: 0, teamId: "team-a" },
+    {
+      agentId: null,
+      cents: 25,
+      day: "2026-11-16",
+      micros: 250_000,
+      tasks: 0,
+      teamId: "team-a",
+    },
   ]);
   expect(await spend.byAgent(user, "a", range)).toEqual([]);
   await teamDream("td-future", "team-a", "2026-11-17T02:00:00.001Z", 99);
   expect(await spend.weekToDate("a")).toBe(0);
+});
+
+test("a week of small days is rounded once, not once per day", () => {
+  const facts = ["2026-11-16", "2026-11-17", "2026-11-18"].map((day) => ({
+    agentId: "a",
+    at: `${day}T02:00:00.000Z`,
+    costUsd: 0.004,
+    tasks: 1,
+  }));
+  const rows = rollupSpend(facts, "UTC", {
+    from: "2026-11-16",
+    to: "2026-11-18",
+  });
+  expect(rows.map((row) => row.cents)).toEqual([0, 0, 0]);
+  expect(rows.map((row) => row.micros)).toEqual([4000, 4000, 4000]);
+  expect(sumSpendCents(rows)).toBe(1);
 });

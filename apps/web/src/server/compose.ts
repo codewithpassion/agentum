@@ -994,7 +994,7 @@ export const composeWith = ({
   });
   // A connector that needs a login tells the person in Slack, privately.
   events.onAppend(slackGateway.notifyNeedsAuth);
-  // An approval or a question goes to Slack as a card, and the card settles when it closes.
+  // An approval, a question or a decision queue goes to Slack as a card, and the card settles when it closes.
   // `requests` is built below, so the card code reaches it lazily.
   const slackRequests = createSlackRequests({
     clock: infra.clock,
@@ -1005,6 +1005,8 @@ export const composeWith = ({
     publicBaseUrl: infra.publicBaseUrl,
     requests: {
       answer: (principal, input) => requests.answer(principal, input),
+      answerDecisions: (principal, input, via) =>
+        requests.answerDecisions(principal, input, via),
       cancel: (principal, requestId) => requests.cancel(principal, requestId),
       outcome: (principal, requestId) => requests.outcome(principal, requestId),
     },

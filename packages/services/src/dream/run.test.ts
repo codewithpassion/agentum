@@ -448,6 +448,18 @@ test("answering a question keeps the chosen note and forgets the other, either w
   }
 });
 
+test("a dream reports how many of its questions are still open, and none once answered", async () => {
+  const { first, question, run, w } = await askedWorld();
+  expect(run.counts.questions).toBe(1);
+  expect(run.openQuestions).toBe(1);
+  expect((await w.dream.list(w.owner, AGENT))[0]?.openQuestions).toBe(1);
+
+  await w.dream.answer(w.owner, { noteId: first, questionId: question.id });
+
+  expect((await w.dream.get(w.owner, run.id)).openQuestions).toBe(0);
+  expect((await w.dream.list(w.owner, AGENT))[0]?.openQuestions).toBe(0);
+});
+
 test("a member cannot answer a question about shared notes: nothing is forgotten and the question stays open", async () => {
   const { first, question, second, w } = await askedWorld();
 

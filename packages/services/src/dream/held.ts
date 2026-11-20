@@ -3,7 +3,7 @@
 // for its agent's owner or an org admin, who approve or reject all of it.
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
-import { dreamRuns } from "@repo/db/schema/dreams";
+import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
 import { memoryChanges } from "@repo/db/schema/memory";
 import { and, count, eq, exists, inArray, isNull, or } from "drizzle-orm";
 import type { Principal } from "../workspaces.ts";
@@ -39,6 +39,27 @@ export const heldCounts = async (
   return new Map(
     rows.flatMap((row) => (row.id === null ? [] : [[row.id, row.held]]))
   );
+};
+
+/** How many questions each of these dreams still has open. A dream with none is absent. */
+export const openQuestionCounts = async (
+  db: Database,
+  dreamRunIds: readonly string[]
+): Promise<Map<string, number>> => {
+  if (dreamRunIds.length === 0) {
+    return new Map();
+  }
+  const rows = await db
+    .select({ id: dreamQuestions.dreamRunId, open: count() })
+    .from(dreamQuestions)
+    .where(
+      and(
+        inArray(dreamQuestions.dreamRunId, [...dreamRunIds]),
+        eq(dreamQuestions.status, "open")
+      )
+    )
+    .groupBy(dreamQuestions.dreamRunId);
+  return new Map(rows.map((row) => [row.id, row.open]));
 };
 
 /** The held dreams this person may decide: the owner's agents, or every agent for an org admin. */

@@ -93,15 +93,84 @@ export function countsSentence(counts: DreamCounts): string {
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
 }
 
-/** The line that says the dream asked the owner something, or null when it asked nothing. The count is what the dream asked, so the line stays true after the owner answers. */
-export function questionsSentence(questions: number): string | null {
-  if (questions === 0) {
+/** The held sentence `writeDiary` puts first in a dream the owner still had to approve. */
+const HELD_SENTENCE = "These changes wait for your approval.";
+const WANTS_SENTENCE = /^Wants to [^.]*\./;
+const WANTS_TO = /^Wants to /;
+const WOULD_LEADS: readonly (readonly [RegExp, string])[] = [
+  [/^Would add/, "Added"],
+  [/^Would merge/, "Merged"],
+  [/^Would drop/, "Dropped"],
+];
+/** The sentence the diary ends its first line with while questions are open. */
+const WAITING_QUESTIONS = /(?:^| )\d+ questions? (?:is|are) waiting for you\.$/;
+
+/** True once a dream that was held has been approved: its changes were written. */
+function wasApproved(run: DreamRun): boolean {
+  return (
+    (run.status === "done" || run.status === "undone") &&
+    run.heldChanges === 0 &&
+    run.resultVersion !== null
+  );
+}
+
+/**
+ * The diary as it is true now. The diary is written once, when the dream
+ * ends, so a held dream's first line still says its changes wait for approval,
+ * and a question is still "waiting" after it was answered. Once those no longer
+ * apply the line goes, and the lines for the changes read in the past tense
+ * after an approval. The card says what is true about the questions itself
+ * (`questionsLine`), so the diary's own sentence about them always goes.
+ */
+export function currentDiary(run: DreamRun): string {
+  const [first = "", ...rest] = run.diary.split("\n");
+  let summary = first.replace(WAITING_QUESTIONS, "").trimEnd();
+  let lines = rest;
+  const held = run.heldChanges > 0;
+  if (summary.startsWith(HELD_SENTENCE) && !held) {
+    summary = summary.slice(HELD_SENTENCE.length).trimStart();
+    if (wasApproved(run)) {
+      summary = summary.replace(WANTS_SENTENCE, countsSentence(run.counts));
+      lines = rest.map((line) => {
+        const lead = WOULD_LEADS.find(([pattern]) => pattern.test(line));
+        return lead ? line.replace(lead[0], lead[1]) : line;
+      });
+    } else {
+      summary = summary.replace(WANTS_TO, "Wanted to ");
+    }
+  }
+  return [summary, ...lines].filter((line) => line !== "").join("\n");
+}
+
+/**
+ * What the card says about the questions the dream asked, and whether they
+ * still wait. Null when it asked none, or when a reject or an undo closed
+ * them (the card's own line for that says so).
+ */
+export function questionsLine(
+  run: DreamRun
+): { open: boolean; text: string } | null {
+  const asked = run.counts.questions;
+  if (asked === 0) {
     return null;
   }
-  if (questions === 1) {
-    return "It asked you one question.";
+  const { openQuestions: open } = run;
+  if (open > 0) {
+    const waiting = open === 1 ? "is" : "are";
+    const text =
+      open === asked
+        ? `${asked === 1 ? "One question" : `${asked} questions`} ${waiting} waiting for you.`
+        : `${open} of ${asked} questions ${waiting} still waiting for you.`;
+    return { open: true, text };
   }
-  return `It asked you ${questions} questions.`;
+  if (run.status !== "done" || wasRejected(run)) {
+    return null;
+  }
+  const text =
+    asked === 1
+      ? "You answered the question."
+      : `You answered ${asked === 2 ? "both" : `all ${asked}`} questions.`;
+  return { open: false, text };
 }
 
 /** The calendar day of a moment in the viewer's time zone, as a day count. */

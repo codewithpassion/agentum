@@ -95,6 +95,11 @@ let respond: Responder;
 let answerCalls: AnswerCall[];
 let cancelCalls: { principal: Principal; requestId: string }[];
 let answerImpl: (call: AnswerCall) => Promise<void>;
+let decisionCalls: {
+  input: { decisions: Record<string, string>; requestId: string };
+  principal: Principal;
+  via: string;
+}[];
 let outcomeImpl: () => Promise<RequestOutcome | null>;
 let gateway: ReturnType<typeof createSlackRequests>;
 let appended: EventInput[];
@@ -334,6 +339,7 @@ beforeEach(async () => {
   calls = [];
   respond = defaultResponder;
   answerCalls = [];
+  decisionCalls = [];
   appended = [];
   cancelCalls = [];
   answerImpl = () => Promise.resolve();
@@ -379,13 +385,47 @@ beforeEach(async () => {
       answerCalls.push(call);
       return answerImpl(call);
     },
+    // Like the service: answers add to the row's, and the last one closes it.
+    answerDecisions: async (
+      principal: Principal,
+      input: { decisions: Record<string, string>; requestId: string },
+      via: string
+    ) => {
+      decisionCalls.push({ input, principal, via });
+      const row = readRequest();
+      const display = JSON.parse(row?.display ?? "{}") as {
+        questions: { id: string }[];
+      };
+      const all = {
+        ...(row?.answer ? JSON.parse(row.answer).decisions : {}),
+        ...input.decisions,
+      };
+      const complete = display.questions.every(({ id }) => id in all);
+      db.update(runRequests)
+        .set({
+          answer: JSON.stringify({ decisions: all }),
+          answeredBy: CLERK_USER,
+          answeredVia: "slack",
+          ...(complete
+            ? { answeredAt: START, status: "answered" as const }
+            : {}),
+        })
+        .where(eq(runRequests.id, REQUEST))
+        .run();
+      if (complete) {
+        await gateway.onEvent(eventOf("request.answered", REQUEST));
+      }
+    },
     cancel: async (principal: Principal, requestId: string) => {
       cancelCalls.push({ principal, requestId });
       settleRow({ answer: null, answeredVia: null, status: "cancelled" });
       await gateway.onEvent(eventOf("request.cancelled", REQUEST));
     },
     outcome: () => outcomeImpl(),
-  } as unknown as Pick<RequestsService, "answer" | "cancel" | "outcome">;
+  } as unknown as Pick<
+    RequestsService,
+    "answer" | "answerDecisions" | "cancel" | "outcome"
+  >;
 
   gateway = createSlackRequests({
     clock,
@@ -1151,4 +1191,154 @@ test("a Slack run's failed card is not a team room problem", async () => {
   await gateway.onEvent(eventOf("request.opened", REQUEST));
 
   expect(appended).toHaveLength(0);
+});
+
+const decisionsDisplay = JSON.stringify({
+  questions: [
+    { id: "q1", options: ["Blue", "Red"], text: "Which colour?" },
+    { id: "q2", options: ["Now", "Later"], text: "When?" },
+  ],
+});
+
+/** A pending decision queue for the seeded run. */
+const seedDecisions = (overrides: RequestSeed = {}) =>
+  seedRequest({
+    display: decisionsDisplay,
+    kind: "decisions",
+    toolKey: null,
+    toolName: "ask_decisions",
+    toolUseId: "decisions:1",
+    ...overrides,
+  });
+
+const decisionClick = (
+  question: number,
+  option: number,
+  slackUserId?: string
+) =>
+  signedClick(
+    clickPayload({
+      actionId: `ag_req:${REQUEST}:decide:${question}:${option}`,
+      slackUserId,
+    })
+  );
+
+test("posts a decision queue as one message with a button row per question", async () => {
+  seedRun(slackReply);
+  seedDecisions();
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  const [post] = callsTo("chat.postMessage");
+  expect(callsTo("chat.postMessage")).toHaveLength(1);
+  expect(field(post as Recorded, "thread_ts")).toBe(THREAD);
+  const blocks = post?.body?.blocks as { type: string }[];
+  expect(blocks.filter((block) => block.type === "actions")).toHaveLength(2);
+  const text = JSON.stringify(blocks);
+  for (const id of ["0:0", "0:1", "1:0", "1:1"]) {
+    expect(text).toContain(`"action_id":"ag_req:${REQUEST}:decide:${id}"`);
+  }
+  expect(readRequest()?.slackMessage).toBe(storedSlackMessage);
+});
+
+test("a click answers that question as the linked person and updates the message", async () => {
+  seedRun(slackReply);
+  seedDecisions({ slackMessage: storedSlackMessage });
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  await runAfter(await gateway.interact(await decisionClick(0, 1)));
+
+  expect(decisionCalls).toEqual([
+    {
+      input: { decisions: { q1: "Red" }, requestId: REQUEST },
+      principal: {
+        kind: "user",
+        userId: CLERK_USER,
+        via: "slack",
+        workspaceId: WORKSPACE,
+      },
+      via: "slack",
+    },
+  ]);
+  expect(answerCalls).toHaveLength(0);
+  expect(readRequest()?.status).toBe("pending");
+  const [update] = callsTo("chat.update");
+  const blocks = update?.body?.blocks as { type: string }[];
+  const text = JSON.stringify(blocks);
+  expect(text).toContain("Answer: Red");
+  // The answered question lost its buttons, the open one kept them.
+  expect(blocks.filter((block) => block.type === "actions")).toHaveLength(1);
+  expect(text).toContain(`ag_req:${REQUEST}:decide:1:0`);
+  expect(text).not.toContain(`ag_req:${REQUEST}:decide:0:0`);
+});
+
+test("the last click closes the queue and the message shows every answer", async () => {
+  seedRun(slackReply);
+  seedDecisions({ slackMessage: storedSlackMessage });
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  await runAfter(await gateway.interact(await decisionClick(1, 0)));
+  await runAfter(await gateway.interact(await decisionClick(0, 0)));
+
+  expect(decisionCalls.map((call) => call.input.decisions)).toEqual([
+    { q2: "Now" },
+    { q1: "Blue" },
+  ]);
+  expect(readRequest()?.status).toBe("answered");
+  const update = callsTo("chat.update").at(-1);
+  const blocks = update?.body?.blocks as { type: string }[];
+  expect(blocks.some((block) => block.type === "actions")).toBe(false);
+  const text = JSON.stringify(blocks);
+  expect(text).toContain("Answer: Blue");
+  expect(text).toContain("Answer: Now");
+  expect(field(update as Recorded, "text")).toContain("Answered");
+});
+
+test("a click on a question that already has an answer changes nothing", async () => {
+  seedRun(slackReply);
+  seedDecisions({
+    answer: JSON.stringify({ decisions: { q1: "Blue" } }),
+    slackMessage: storedSlackMessage,
+  });
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  await runAfter(await gateway.interact(await decisionClick(0, 1)));
+
+  expect(decisionCalls).toHaveLength(0);
+  const [update] = callsTo("chat.update");
+  expect(JSON.stringify(update?.body?.blocks)).toContain("Answer: Blue");
+});
+
+test("a click from a Slack user with no link is refused and answers nothing", async () => {
+  seedRun(slackReply);
+  seedDecisions({ slackMessage: storedSlackMessage });
+
+  await runAfter(
+    await gateway.interact(await decisionClick(0, 0, STRANGER_SLACK_ID))
+  );
+
+  expect(decisionCalls).toHaveLength(0);
+  expect(callsTo("chat.postEphemeral")).toHaveLength(1);
+});
+
+test("a queue that expires with one answer settles its message and says which has none", async () => {
+  seedRun(slackReply);
+  seedDecisions({
+    answer: JSON.stringify({ decisions: { q1: "Blue" } }),
+    slackMessage: storedSlackMessage,
+  });
+  settleRow({
+    answer: JSON.stringify({ decisions: { q1: "Blue" } }),
+    answeredVia: null,
+    status: "expired",
+  });
+
+  await gateway.onEvent(eventOf("request.expired", REQUEST));
+
+  const [update] = callsTo("chat.update");
+  const text = JSON.stringify(update?.body?.blocks);
+  expect(text).toContain("Answer: Blue");
+  expect(text).toContain("No answer");
+  expect(text).toContain("Expired");
+  expect(text).not.toContain('"type":"actions"');
 });

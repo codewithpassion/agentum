@@ -1670,6 +1670,8 @@ export interface DreamRun {
   /** How many of its changes still wait for the owner's approval. Zero once decided, and on a dream that held nothing. */
   heldChanges: number;
   id: string;
+  /** How many of the questions it asked still wait for an answer. Zero once they are answered or closed by an undo or a reject, and on a dream that asked none. */
+  openQuestions: number;
   /** The library version id the dream wrote last, or null when it wrote nothing. A dream may write several files; every version it wrote is on a `memory_changes` row that names it. */
   resultVersion: string | null;
   /** The start of the window the dream read: when the agent's previous dream began, or null for its first. */
@@ -1735,15 +1737,27 @@ export type SpendPauseReason = (typeof SPEND_PAUSE_REASONS)[number];
 export interface SpendRow {
   /** The agent that spent. Null on a team's row, which has no agent. */
   agentId: string | null;
-  /** Cents spent on the day. */
+  /** Cents spent on the day, rounded. Sum `micros` for a week, never this. */
   cents: number;
   /** The day as `YYYY-MM-DD`. */
   day: string;
+  /** Millionths of a dollar spent on the day, unrounded. */
+  micros: number;
   /** How many runs that day counts. */
   tasks: number;
   /** The team whose dreams spent it. Set only on a team's row, where `agentId` is null. */
   teamId?: string;
 }
+
+const MICROS_PER_CENT = 10_000;
+
+/** Cents for an amount in millionths of a dollar, rounded once. */
+export const microsToCents = (micros: number): number =>
+  Math.round(micros / MICROS_PER_CENT);
+
+/** A week's cents: the rows' unrounded amounts summed, then rounded once. */
+export const sumSpendCents = (rows: readonly SpendRow[]): number =>
+  microsToCents(rows.reduce((total, row) => total + row.micros, 0));
 
 /** An agent's pause state. Both fields are null while it runs. */
 export interface SpendPause {
