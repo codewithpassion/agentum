@@ -27,7 +27,7 @@ The fixes: the service collapses line breaks and whitespace runs to one space be
 
 ## Test notes
 
-- `bun run test` passed once in full. On the second full run, `guest-execution.test.ts` in apps/web failed (miniflare "other side closed", host load average about 12). Run alone with `bun test src/server/live-artifacts/guest-execution.test.ts` it failed the same way under that load. Known flake, recorded in `docs/reviews/tasks/NV.1.md`. Every other package passed: services 4308, mcp 443, protocol 374, db 121.
+- `bun run test` passed in full once. On later full runs (also after `git merge main`), only `guest-execution.test.ts` in apps/web failed (miniflare "other side closed", host load average about 12). Run alone it failed once under that load and passed on the next run (120 s). Known flake, recorded in `docs/reviews/tasks/NV.1.md`. All other packages passed, and `bun test scripts` passed.
 - The migration applies locally with `wrangler d1 migrations apply DB --local`. An ad-hoc upgrade check (migrations 0000 to 0054, then a workspace and an agent inserted, then 0055) gave the defaults to both existing rows and left no foreign key violation.
 
 ## Steps for Dom
