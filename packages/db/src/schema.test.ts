@@ -64,6 +64,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "browser_sessions",
     "connectors",
     "credentials",
+    "dream_questions",
     "dream_runs",
     "events",
     "files",
@@ -133,7 +134,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(92);
+  expect(tables.length).toBe(93);
 
   for (const table of tables) {
     const column = client

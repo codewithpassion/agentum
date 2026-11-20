@@ -595,6 +595,15 @@ test("dream changes are NOT_FOUND while the stub changes nothing", async () => {
   await expect(caller.dream.undo({ dreamRunId: "d1" })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
+  await expect(
+    caller.dream.changes({ dreamRunId: "d1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.dream.decide({ decision: "approve", dreamRunId: "d1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.dream.answer({ noteId: "n1", questionId: "q1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
 test("dream inputs that are not valid are BAD_REQUEST", async () => {
@@ -615,6 +624,12 @@ test("dream inputs that are not valid are BAD_REQUEST", async () => {
   await expect(
     caller.dream.list({ agentId: "a1", extra: true } as never)
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    caller.dream.decide({ decision: "maybe", dreamRunId: "d1" } as never)
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    caller.dream.answer({ noteId: "", questionId: "q1" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
 test("dream procedures are 401 without a workspace", async () => {
@@ -632,4 +647,13 @@ test("dream procedures are 401 without a workspace", async () => {
   await expect(caller.dream.undo({ dreamRunId: "d1" })).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
+  await expect(
+    caller.dream.changes({ dreamRunId: "d1" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.dream.decide({ decision: "reject", dreamRunId: "d1" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.dream.answer({ noteId: "n1", questionId: "q1" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

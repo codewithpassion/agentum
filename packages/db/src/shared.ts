@@ -129,9 +129,10 @@ export const INPUT_FILES_MAX = 20;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 /**
- * `dream` is made and removed by the system from `agents.remember.dreamSchedule`,
- * one per agent. No person creates one by hand: `triggers.create` makes `http`
- * triggers only.
+ * `dream` is the system's, one per agent, made and removed from
+ * `agents.remember.dreamSchedule` (DR.4 owns that). No person creates one by
+ * hand: `triggers.create` makes `http` triggers only. The map and the jobs list
+ * leave it out.
  */
 export const TRIGGER_KINDS = [
   "http",
@@ -801,6 +802,8 @@ export interface RailCard {
   at: string;
   /** What the card is about, from the desk card's band: the version message, the skill name, the reply text. On a problem, the sentence that says what happened. */
   detail: string;
+  /** Set on `dream_question`: the question and the notes to choose between. */
+  dream?: DreamNeedsYou;
   expiresAt: string | null;
   /** The source card's id, so request ids stay answerable. */
   id: string;
@@ -948,6 +951,8 @@ export interface DeskCard {
   artifactId?: string;
   at: string;
   band: StatusBand;
+  /** Set on a `dream_question` card. */
+  dream?: DreamNeedsYou;
   id: string;
   kind: DeskCardKind;
   lane: DeskLane;
@@ -961,8 +966,14 @@ export interface DeskCard {
 export const MAP_NODE_KINDS = ["trigger", "agent", "output"] as const;
 export type MapNodeKind = (typeof MAP_NODE_KINDS)[number];
 
-/** What starts an agent. `slack` is an agent's Slack app, which is not a `triggers` row. */
-export const MAP_TRIGGER_KINDS = [...TRIGGER_KINDS, "slack"] as const;
+/** What starts an agent on the map. `slack` is an agent's Slack app, which is not a `triggers` row. The system's `dream` trigger is not drawn. */
+export const MAP_TRIGGER_KINDS = [
+  "http",
+  "routine",
+  "mail",
+  "app",
+  "slack",
+] as const;
 export type MapTriggerKind = (typeof MAP_TRIGGER_KINDS)[number];
 
 /** Where an agent's work lands. */
@@ -1597,7 +1608,11 @@ export type DreamPlan = DreamPlanChange[];
 /** One dream of one agent. Its note changes are the `memory_changes` rows that name it in `dreamRunId`. */
 export interface DreamRun {
   agentId: string;
-  /** The latest library version id of each memory file before the dream wrote anything. Undo restores them. */
+  /**
+   * The latest library version id of each memory file that existed before the
+   * dream wrote anything. Undo restores them. A file the dream created has no
+   * entry: find its versions through the run's `memory_changes` rows.
+   */
   baseVersion: string[];
   counts: DreamCounts;
   /** The plain-words entry the owner reads. Empty until the run ends. */
@@ -1606,7 +1621,7 @@ export interface DreamRun {
   error: string | null;
   finishedAt: string | null;
   id: string;
-  /** The library version id the dream wrote last. Null when it wrote nothing. */
+  /** The library version id the dream wrote last, or null when it wrote nothing. A dream may write several files; every version it wrote is on a `memory_changes` row that names it. */
   resultVersion: string | null;
   /** The start of the window the dream read: when the agent's previous dream began, or null for its first. */
   since: string | null;
@@ -1614,6 +1629,44 @@ export interface DreamRun {
   status: DreamRunStatus;
   usage: DreamUsage | null;
 }
+
+export const DREAM_QUESTION_STATUSES = ["open", "answered"] as const;
+export type DreamQuestionStatus = (typeof DREAM_QUESTION_STATUSES)[number];
+
+/** One of the notes a dream question asks a person to choose between. `text` is the note's text when the dream asked. */
+export interface DreamQuestionOption {
+  noteId: string;
+  text: string;
+}
+
+/** A contradiction a dream could not settle. The answer keeps one option's note and drops the others. */
+export interface DreamQuestion {
+  agentId: string;
+  /** When a person answered. Null while open. */
+  answeredAt: string | null;
+  /** Clerk user id of that person. */
+  answeredBy: string | null;
+  /** The option they kept. Null while open. */
+  answeredNoteId: string | null;
+  createdAt: string;
+  dreamRunId: string;
+  id: string;
+  /** The notes that disagree, at least two. */
+  options: DreamQuestionOption[];
+  question: string;
+  status: DreamQuestionStatus;
+}
+
+/** What a `dream_question` Needs you card holds: the question and one button per option. */
+export interface DreamNeedsYou {
+  options: DreamQuestionOption[];
+  question: string;
+  questionId: string;
+}
+
+/** What a person decides on a dream held by the `ask_first` learn level: all of its changes, or none. */
+export const DREAM_DECISIONS = ["approve", "reject"] as const;
+export type DreamDecision = (typeof DREAM_DECISIONS)[number];
 
 /** Why an agent is paused: it reached its weekly cap, or a person paused it. */
 export const SPEND_PAUSE_REASONS = ["spend_cap", "manual"] as const;

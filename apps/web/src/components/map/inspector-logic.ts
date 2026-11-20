@@ -87,7 +87,6 @@ export const countOf = (wires: readonly WireLike[]): number =>
 
 const TRIGGER_WORDS: Record<string, string> = {
   app: "App",
-  dream: "Dream",
   http: "HTTP",
   mail: "Mail",
   routine: "Schedule",

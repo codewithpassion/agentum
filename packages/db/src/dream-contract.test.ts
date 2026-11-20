@@ -6,6 +6,7 @@ import { workspaces } from "./schema/workspaces.ts";
 import {
   DEFAULT_DREAM_COUNTS_JSON,
   DREAM_MODEL,
+  DREAM_QUESTION_STATUSES,
   DREAM_RUN_STATUSES,
   NEEDS_YOU_HEADINGS,
   NEEDS_YOU_KINDS,
@@ -191,4 +192,61 @@ test("two agents may each have one dream trigger", () => {
     .where(eq(triggers.kind, "dream"))
     .all();
   expect(rows.length).toBe(2);
+});
+
+test("dream_questions has the documented columns and refuses a missing dream run", () => {
+  const { client } = migrated();
+  const columns = client
+    .query<Column, []>("PRAGMA table_info(dream_questions)")
+    .all();
+
+  expect(columns.map((c) => c.name).sort()).toEqual([
+    "agent_id",
+    "answered_at",
+    "answered_by",
+    "answered_note_id",
+    "created_at",
+    "dream_run_id",
+    "id",
+    "options",
+    "question",
+    "status",
+    "workspace_id",
+  ]);
+  const nullable = ["answered_at", "answered_by", "answered_note_id"];
+  for (const column of columns) {
+    expect(column.notnull, column.name).toBe(
+      nullable.includes(column.name) ? 0 : 1
+    );
+  }
+  expect(DREAM_QUESTION_STATUSES).toEqual(["open", "answered"]);
+});
+
+test("a dream question needs its dream run", () => {
+  const { client } = migrated();
+  client.run("PRAGMA foreign_keys = ON");
+  client.run(
+    "INSERT INTO workspaces (id, clerk_org_id, created_at, name, timezone) VALUES ('w1', 'org_w1', ?, 'w1', 'UTC')",
+    [NOW]
+  );
+  client.run(
+    "INSERT INTO agents (id, workspace_id, created_at, created_by, instructions, model, name, runtime, runtime_config, slug, status) VALUES ('a1', 'w1', ?, 'u1', '', 'm', 'a1', 'fake', '{}', 'a1', 'active')",
+    [NOW]
+  );
+  const insertQuestion = () =>
+    client.run(
+      "INSERT INTO dream_questions (id, workspace_id, agent_id, dream_run_id, created_at, options, question, status) VALUES ('q1', 'w1', 'a1', 'd1', ?, '[]', 'Which?', 'open')",
+      [NOW]
+    );
+
+  expect(insertQuestion).toThrow();
+  client.run(
+    "INSERT INTO dream_runs (id, workspace_id, agent_id, started_at, status) VALUES ('d1', 'w1', 'a1', ?, 'done')",
+    [NOW]
+  );
+  insertQuestion();
+  const row = client
+    .query<{ status: string }, []>("SELECT status FROM dream_questions")
+    .get();
+  expect(row?.status).toBe("open");
 });

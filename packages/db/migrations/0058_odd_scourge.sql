@@ -1,3 +1,22 @@
+CREATE TABLE `dream_questions` (
+	`agent_id` text NOT NULL,
+	`answered_at` text,
+	`answered_by` text,
+	`answered_note_id` text,
+	`created_at` text NOT NULL,
+	`dream_run_id` text NOT NULL,
+	`id` text PRIMARY KEY NOT NULL,
+	`options` text NOT NULL,
+	`question` text NOT NULL,
+	`status` text NOT NULL,
+	`workspace_id` text NOT NULL,
+	FOREIGN KEY (`agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`dream_run_id`) REFERENCES `dream_runs`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX `dream_questions_status_idx` ON `dream_questions` (`workspace_id`,`status`);--> statement-breakpoint
+CREATE INDEX `dream_questions_run_idx` ON `dream_questions` (`dream_run_id`);--> statement-breakpoint
 CREATE TABLE `dream_runs` (
 	`agent_id` text NOT NULL,
 	`base_version` text DEFAULT '[]' NOT NULL,

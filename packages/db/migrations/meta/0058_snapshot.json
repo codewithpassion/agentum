@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "66b40558-5b05-4b0e-830b-456fe6390104",
+  "id": "9361fa2b-f14d-4e79-823a-631a9dfb9cd2",
   "prevId": "faef6140-7b45-4a02-8f30-ee54cd143436",
   "tables": {
     "a2a_agent_cards": {
@@ -3339,6 +3339,132 @@
         "oauth_states_workspace_id_workspaces_id_fk": {
           "name": "oauth_states_workspace_id_workspaces_id_fk",
           "tableFrom": "oauth_states",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "dream_questions": {
+      "name": "dream_questions",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "answered_at": {
+          "name": "answered_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "answered_by": {
+          "name": "answered_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "answered_note_id": {
+          "name": "answered_note_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dream_run_id": {
+          "name": "dream_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "options": {
+          "name": "options",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question": {
+          "name": "question",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "dream_questions_status_idx": {
+          "name": "dream_questions_status_idx",
+          "columns": ["workspace_id", "status"],
+          "isUnique": false
+        },
+        "dream_questions_run_idx": {
+          "name": "dream_questions_run_idx",
+          "columns": ["dream_run_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "dream_questions_agent_id_agents_id_fk": {
+          "name": "dream_questions_agent_id_agents_id_fk",
+          "tableFrom": "dream_questions",
+          "tableTo": "agents",
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dream_questions_dream_run_id_dream_runs_id_fk": {
+          "name": "dream_questions_dream_run_id_dream_runs_id_fk",
+          "tableFrom": "dream_questions",
+          "tableTo": "dream_runs",
+          "columnsFrom": ["dream_run_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "dream_questions_workspace_id_workspaces_id_fk": {
+          "name": "dream_questions_workspace_id_workspaces_id_fk",
+          "tableFrom": "dream_questions",
           "tableTo": "workspaces",
           "columnsFrom": ["workspace_id"],
           "columnsTo": ["id"],

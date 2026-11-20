@@ -1,6 +1,10 @@
 import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { id, workspaceId } from "../columns.ts";
-import { DEFAULT_DREAM_COUNTS_JSON, DREAM_RUN_STATUSES } from "../shared.ts";
+import { createdAt, id, workspaceId } from "../columns.ts";
+import {
+  DEFAULT_DREAM_COUNTS_JSON,
+  DREAM_QUESTION_STATUSES,
+  DREAM_RUN_STATUSES,
+} from "../shared.ts";
 import { agents } from "./agents.ts";
 import { workspaces } from "./workspaces.ts";
 
@@ -38,5 +42,39 @@ export const dreamRuns = sqliteTable(
   },
   (t) => [
     index("dream_runs_agent_idx").on(t.workspaceId, t.agentId, t.startedAt),
+  ]
+);
+
+/**
+ * A contradiction a dream could not settle, asked of the agent's owner as a
+ * `dream_question` Needs you card. The answer keeps one of the options and
+ * drops the others.
+ */
+export const dreamQuestions = sqliteTable(
+  "dream_questions",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    // ISO 8601 UTC. Set with `answered_by` and `answered_note_id` when a person answers.
+    answeredAt: text("answered_at"),
+    // Clerk user id.
+    answeredBy: text("answered_by"),
+    // The option the person kept.
+    answeredNoteId: text("answered_note_id"),
+    createdAt: createdAt(),
+    dreamRunId: text("dream_run_id")
+      .notNull()
+      .references(() => dreamRuns.id),
+    id: id(),
+    // JSON `DreamQuestionOption[]`, at least two: the notes that disagree, with their text when the dream asked.
+    options: text("options").notNull(),
+    question: text("question").notNull(),
+    status: text("status", { enum: DREAM_QUESTION_STATUSES }).notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    index("dream_questions_status_idx").on(t.workspaceId, t.status),
+    index("dream_questions_run_idx").on(t.dreamRunId),
   ]
 );

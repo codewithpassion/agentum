@@ -1,6 +1,11 @@
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
-import type { DreamRun } from "@repo/db/shared";
+import {
+  DREAM_DECISIONS,
+  type DreamQuestion,
+  type DreamRun,
+  type MemoryChange,
+} from "@repo/db/shared";
 import { z } from "zod";
 import { authorize } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
@@ -17,8 +22,22 @@ export const dreamAgentInputSchema = z.strictObject({ agentId: idString });
 
 export const dreamRunIdInputSchema = z.strictObject({ dreamRunId: idString });
 
+/** The option kept: one of the question's `options`, by note id. */
+export const dreamAnswerInputSchema = z.strictObject({
+  noteId: idString,
+  questionId: idString,
+});
+
+/** Approves or rejects every change of a dream that the `ask_first` learn level held. */
+export const dreamDecideInputSchema = z.strictObject({
+  decision: z.enum(DREAM_DECISIONS),
+  dreamRunId: idString,
+});
+
 export type DreamAgentInput = z.input<typeof dreamAgentInputSchema>;
 export type DreamRunIdInput = z.input<typeof dreamRunIdInputSchema>;
+export type DreamAnswerInput = z.input<typeof dreamAnswerInputSchema>;
+export type DreamDecideInput = z.input<typeof dreamDecideInputSchema>;
 
 export interface DreamDeps {
   atomic: Atomic;
@@ -34,6 +53,9 @@ const dreamResource = (workspaceId: string, id?: string) => ({
 
 const noDreamRun = (dreamRunId: string) =>
   Promise.reject(new ServiceError("not_found", `No dream run "${dreamRunId}"`));
+
+const noQuestion = (questionId: string) =>
+  Promise.reject(new ServiceError("not_found", `No question "${questionId}"`));
 
 /**
  * Stub: no dream run is listed, and a read or a change finds no dream run.
@@ -68,7 +90,45 @@ export const createDreamService = (_deps: DreamDeps) => {
     return noDreamRun(dreamRunId);
   };
 
-  return { get, list, runNow, undo };
+  /** The `memory_changes` rows one dream wrote, held or applied. */
+  const changes = (
+    principal: Principal,
+    dreamRunId: string
+  ): Promise<MemoryChange[]> => {
+    const workspaceId = readableWorkspace(principal, DREAM_READ);
+    authorize(principal, DREAM_READ, dreamResource(workspaceId, dreamRunId));
+    return noDreamRun(dreamRunId);
+  };
+
+  /** Approves or rejects the changes a dream held. `memory.decide` refuses these rows: a dream's changes are decided together. */
+  const decide = (
+    principal: Principal,
+    input: DreamDecideInput
+  ): Promise<DreamRun> => {
+    const workspaceId = readableWorkspace(principal, DREAM_WRITE);
+    authorize(
+      principal,
+      DREAM_WRITE,
+      dreamResource(workspaceId, input.dreamRunId)
+    );
+    return noDreamRun(input.dreamRunId);
+  };
+
+  /** Keeps the chosen note, drops the others, and closes the question. */
+  const answer = (
+    principal: Principal,
+    input: DreamAnswerInput
+  ): Promise<DreamQuestion> => {
+    const workspaceId = readableWorkspace(principal, DREAM_WRITE);
+    authorize(
+      principal,
+      DREAM_WRITE,
+      dreamResource(workspaceId, input.questionId)
+    );
+    return noQuestion(input.questionId);
+  };
+
+  return { answer, changes, decide, get, list, runNow, undo };
 };
 
 export type DreamService = ReturnType<typeof createDreamService>;
