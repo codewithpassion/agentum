@@ -18,7 +18,7 @@ export const entries: readonly CatalogEntry[] = [
     name: "Gmail",
     url: "https://gmailmcp.googleapis.com/mcp/v1",
   },
-  // https://linear.app/docs/mcp (tool names: https://linear.app/integrations/slack)
+  // https://linear.app/docs/mcp
   {
     authKind: "oauth",
     defaultAllowedTools: [
