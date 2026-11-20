@@ -1670,6 +1670,8 @@ export interface DreamRun {
   /** How many of its changes still wait for the owner's approval. Zero once decided, and on a dream that held nothing. */
   heldChanges: number;
   id: string;
+  /** How many of the questions it asked still wait for an answer. Zero once they are answered or closed by an undo or a reject, and on a dream that asked none. */
+  openQuestions: number;
   /** The library version id the dream wrote last, or null when it wrote nothing. A dream may write several files; every version it wrote is on a `memory_changes` row that names it. */
   resultVersion: string | null;
   /** The start of the window the dream read: when the agent's previous dream began, or null for its first. */

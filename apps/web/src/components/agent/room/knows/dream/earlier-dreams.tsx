@@ -4,6 +4,7 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { changeWhen } from "../learned-logic.ts";
 import {
   countsSentence,
+  currentDiary,
   earlierRuns,
   RUN_STATUS_LABELS,
   wasRejected,
@@ -14,7 +15,8 @@ import { SeeChanges } from "./see-changes.tsx";
 /** The line under an earlier dream's badge, or null when it has none. */
 function detailOf(run: DreamRun): string | null {
   if ((run.status === "done" && run.heldChanges > 0) || wasRejected(run)) {
-    return run.diary === "" ? null : run.diary;
+    const diary = currentDiary(run);
+    return diary === "" ? null : diary;
   }
   if (run.status === "done") {
     return countsSentence(run.counts);
