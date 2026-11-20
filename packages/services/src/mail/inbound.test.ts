@@ -647,3 +647,63 @@ test("only the system principal records an undelivered mail", async () => {
     })
   ).rejects.toThrow();
 });
+const pauseAgent = () => {
+  db.update(agents)
+    .set({ pausedAt: now, pausedReason: "spend_cap" })
+    .where(eq(agents.id, "a"))
+    .run();
+};
+const recordReplies = () => {
+  const replies: Parameters<MailboxPort["reply"]>[] = [];
+  port.reply = (...args) => {
+    replies.push(args);
+    return Promise.resolve({
+      messageId: `out-${replies.length}`,
+      rfcMessageId: `<out-${replies.length}>`,
+      threadId: "t",
+    });
+  };
+  return replies;
+};
+test("a paused agent starts no run, and the sender gets the pause reason", async () => {
+  pauseAgent();
+  const replies = recordReplies();
+  await service.receive(message());
+  expect(db.select().from(runRows).all()).toHaveLength(0);
+  expect(offered).toHaveLength(0);
+  expect(db.select().from(mailMessages).all()).toHaveLength(2);
+  expect(replies).toHaveLength(1);
+  expect(replies[0]?.[1]).toBe("t");
+  expect(replies[0]?.[2]).toMatchObject({
+    subject: "Re: Help",
+    text: "A is paused. Its weekly limit was reached.",
+    to: ["sender@example.net"],
+  });
+});
+test("a second mail in a paused thread sends no second notice", async () => {
+  pauseAgent();
+  const replies = recordReplies();
+  await service.receive(message());
+  await service.receive(message("again"));
+  expect(replies).toHaveLength(1);
+  expect(
+    db
+      .select()
+      .from(mailMessages)
+      .all()
+      .filter((m) => m.direction === "out")
+  ).toHaveLength(1);
+});
+test("a redelivered paused mail sends no notice", async () => {
+  pauseAgent();
+  const replies = recordReplies();
+  port.storeInbound = async (_ref, mail) => ({
+    attachments: [],
+    duplicate: true,
+    messageId: mail.messageId ?? "m",
+    threadId: "t",
+  });
+  await service.receive(message());
+  expect(replies).toHaveLength(0);
+  expect(offered).toHaveLength(0);
+});

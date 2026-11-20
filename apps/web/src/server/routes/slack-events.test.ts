@@ -1,5 +1,6 @@
 import { beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { type Atomic, sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -471,6 +472,33 @@ test("two events for one message create one run", async () => {
   await send(second);
 
   expect(allRuns()).toHaveLength(1);
+});
+
+test("a mention to a paused agent starts no run, answers 200, and replies once in the thread", async () => {
+  await db
+    .update(agentRows)
+    .set({ pausedAt: new Date(nowMs).toISOString(), pausedReason: "spend_cap" })
+    .where(eq(agentRows.id, agentId));
+  const body = await fixture("mention");
+
+  const first = await send(body);
+  expect(first.status).toBe(OK);
+  expect(allRuns()).toHaveLength(0);
+  await runAfterJobs();
+  const posts = () =>
+    slackCalls.filter((call) => call.method === "chat.postMessage");
+  expect(posts()).toHaveLength(1);
+  expect(posts()[0]?.body).toMatchObject({
+    channel: "C0CHAN",
+    text: "Bruce is paused. Its weekly limit was reached.",
+    thread_ts: "1789171201.000100",
+  });
+
+  const second = await send(body);
+  expect(second.status).toBe(OK);
+  await runAfterJobs();
+  expect(posts()).toHaveLength(1);
+  expect(allRuns()).toHaveLength(0);
 });
 
 test("an app that is not installed yet is 401", async () => {

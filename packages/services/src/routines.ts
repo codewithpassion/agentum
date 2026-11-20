@@ -54,7 +54,7 @@ import {
   requireReader,
   requireWriter,
 } from "./automation-access.ts";
-import { ServiceError } from "./errors.ts";
+import { isAgentPaused, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import {
   isValidTimeZone,
@@ -133,6 +133,8 @@ export interface FireDueResult {
   fired: string[];
   /** Slots whose run another tick had already written. */
   readBack: string[];
+  /** Routines whose slot passed while their agent was paused. No run, no failure. */
+  skipped: string[];
 }
 
 /** What one `settleRuns` call did: how many routines it updated. */
@@ -568,26 +570,37 @@ export const createRoutinesService = ({
     // The id of the run this call tries to write. A started run with another
     // id is the one a duplicate slot handed back.
     let attempted = "";
-    const started = await runsService.startRun(
-      {
-        agentId: row.agentId,
-        kind: "trigger",
-        triggerId: row.id,
-        workspaceId: row.workspaceId,
-      },
-      {
-        agentId: row.agentId,
-        input: { text: row.prompt ?? "" },
-        requestId: `trigger:${row.id}:${due}`,
-        session: { origin: "trigger" },
-      },
-      {
-        alongside: ({ runId }) => {
-          attempted = runId;
-          return [advance({ lastFiredAt: now.toISOString() })];
+    let started: { runId: string; sessionId: string };
+    try {
+      started = await runsService.startRun(
+        {
+          agentId: row.agentId,
+          kind: "trigger",
+          triggerId: row.id,
+          workspaceId: row.workspaceId,
         },
+        {
+          agentId: row.agentId,
+          input: { text: row.prompt ?? "" },
+          requestId: `trigger:${row.id}:${due}`,
+          session: { origin: "trigger" },
+        },
+        {
+          alongside: ({ runId }) => {
+            attempted = runId;
+            return [advance({ lastFiredAt: now.toISOString() })];
+          },
+        }
+      );
+    } catch (error) {
+      if (!isAgentPaused(error)) {
+        throw error;
       }
-    );
+      // The slot passes with no run: the routine keeps its schedule and no failure is counted.
+      await advance({});
+      result.skipped.push(row.id);
+      return;
+    }
     if (started.runId === attempted) {
       await events.append({
         actor: { id: row.id, kind: "trigger" },
@@ -613,7 +626,12 @@ export const createRoutinesService = ({
    */
   const fireDue = async (principal: Principal): Promise<FireDueResult> => {
     requireSystem(principal, FIRE_ACTION);
-    const result: FireDueResult = { failed: [], fired: [], readBack: [] };
+    const result: FireDueResult = {
+      failed: [],
+      fired: [],
+      readBack: [],
+      skipped: [],
+    };
     const due = (
       await db
         .select({ routine: triggers })

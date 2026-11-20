@@ -398,22 +398,41 @@ test("spend.workspace and spend.byAgent are empty while nothing is spent", async
   );
 });
 
-test("spend.setCap and spend.resume are NOT_FOUND while the stub changes nothing", async () => {
+test("spend.setCap and spend.resume change the caps and the pause through the router", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const admin = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_2",
+  });
   const agent = await caller.agents.create(agentInput);
 
+  expect(
+    await caller.spend.setCap({ agentId: agent.id, weeklyCapCents: 5000 })
+  ).toEqual({ agentId: agent.id, weeklyCapCents: 5000 });
   await expect(
-    caller.spend.setCap({ agentId: agent.id, weeklyCapCents: 5000 })
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(
-    caller.spend.setCap({ agentId: null, weeklyCapCents: null })
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(
-    caller.spend.resume({ agentId: agent.id })
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(
-    caller.spend.resume({ agentId: agent.id, weeklyCapCents: 8000 })
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    caller.spend.setCap({ agentId: null, weeklyCapCents: 9000 })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  expect(
+    await admin.spend.setCap({ agentId: null, weeklyCapCents: 9000 })
+  ).toEqual({ agentId: null, weeklyCapCents: 9000 });
+  expect(
+    await caller.spend.resume({ agentId: agent.id, weeklyCapCents: 8000 })
+  ).toEqual({ pausedAt: null, pausedReason: null, weeklyCapCents: 8000 });
+  await expect(caller.spend.resume({ agentId: "nope" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  expect(await caller.spend.caps()).toEqual({
+    agents: [
+      {
+        agentId: agent.id,
+        pausedAt: null,
+        pausedReason: null,
+        weeklyCapCents: 8000,
+      },
+    ],
+    workspaceCapCents: 9000,
+  });
 });
 
 test("spend.caps has no workspace cap and no agent entries yet", async () => {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { HOPS_METADATA_KEY } from "@repo/a2a/extensions";
 import { a2aConnections, a2aOutbox, a2aTasks } from "@repo/db/schema/a2a";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -19,6 +20,7 @@ import {
   member,
   OTHER_CONNECTION,
   peerOf,
+  START,
   textMessage,
 } from "./tasks-fixture.ts";
 
@@ -121,6 +123,22 @@ describe("inbound policy", () => {
     expect(["queued", "offered"]).toContain(
       (await runOf(task.id))?.status ?? ""
     );
+  });
+
+  test("a message to a paused agent ends failed with a plain status, and starts no run", async () => {
+    await f.connect({ inboundPolicy: "auto" });
+    await f.db
+      .update(agentRows)
+      .set({ pausedAt: START, pausedReason: "spend_cap" })
+      .where(eq(agentRows.id, AGENT));
+    const task = await f.tasks.sendMessage(
+      peerOf(),
+      textMessage("m1", "Hello")
+    );
+    expect(task.status.state).toBe("TASK_STATE_FAILED");
+    expect(statusText(task)).toBe("This agent is paused.");
+    expect(await runOf(task.id)).toBeUndefined();
+    expect(f.dispatched).toHaveLength(0);
   });
 
   test("off refuses the message and records it", async () => {

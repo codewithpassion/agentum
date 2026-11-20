@@ -193,6 +193,9 @@ interface Starter {
 /** A card before its `startedBy` is named. */
 type Draft = Omit<DeskCard, "startedBy"> & { starter: Starter };
 
+/** What a `spend_pause` card says under its heading. */
+const SPEND_PAUSE_BAND = "Paused at its weekly limit";
+
 /** The title of a card for a GitHub update that a person proposed. */
 const GITHUB_UPDATE_TITLE = "Update from GitHub to review";
 
@@ -453,6 +456,7 @@ export const createDeskService = ({
       suggestions,
       heldNotes,
       a2aList,
+      spendPauses,
     ] = await Promise.all([
       pendingRecords(member),
       skillsStore.proposals(member),
@@ -494,6 +498,20 @@ export const createDeskService = ({
           )
         ),
       a2aWaiting(member),
+      // A pause stays a card until someone resumes the agent, so it needs no row of its own.
+      db
+        .select({
+          id: agentRows.id,
+          pausedAt: agentRows.pausedAt,
+        })
+        .from(agentRows)
+        .where(
+          and(
+            eq(agentRows.workspaceId, member.workspaceId),
+            eq(agentRows.status, "active"),
+            eq(agentRows.pausedReason, "spend_cap")
+          )
+        ),
     ]);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
@@ -620,6 +638,7 @@ export const createDeskService = ({
       pending,
       proposedRoutines,
       proposedTriggers,
+      spendPauses,
       suggestions: suggestions.filter(
         (suggestion) => !drafts.has(suggestion.agentId)
       ),
@@ -754,6 +773,19 @@ export const createDeskService = ({
           needsYouKind: "memory_note",
           starter: { id: note.agentId, kind: "agent" },
           title: clip(note.text, TITLE_MAX),
+        })
+      ),
+      ...sources.spendPauses.map(
+        (agent): Draft => ({
+          agentId: agent.id,
+          at: agent.pausedAt ?? "",
+          band: { text: SPEND_PAUSE_BAND, tone: "waiting" },
+          id: agent.id,
+          kind: "proposal",
+          lane: "needs_you",
+          needsYouKind: "spend_pause",
+          starter: { id: agent.id, kind: "agent" },
+          title: SPEND_PAUSE_BAND,
         })
       ),
       ...sources.suggestions.map(
@@ -1242,6 +1274,7 @@ export const createDeskService = ({
       sources.conflicts.length +
       sources.suggestions.length +
       sources.heldNotes.length +
+      sources.spendPauses.length +
       sources.pending.length +
       sources.versions.length +
       sources.proposedTriggers.length +
