@@ -81,7 +81,7 @@ export function AddApp({
     <>
       {" "}
       Add one that is not listed on the{" "}
-      <Link to="/settings/connectors">Connectors page</Link>.
+      <Link to="/settings/connectors">Apps page</Link>.
     </>
   ) : null;
 

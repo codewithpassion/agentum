@@ -1,8 +1,15 @@
 import type { Database } from "@repo/db";
+import { agents } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { and, asc, eq } from "drizzle-orm";
 import { type AgentRecord, handsToNames } from "../agents.ts";
 import type { McpServerConnector } from "../connectors/mcp-servers.ts";
+import {
+  loadPromptMemory,
+  type MemoryFileReader,
+  type PromptMemory,
+} from "../memory/prompt.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
 import { effectiveRunScope, modelOfRun, scopeAllows } from "./access-scope.ts";
 import { sessionSupportsSpeakers } from "./speakers.ts";
@@ -17,6 +24,8 @@ export interface LaunchContext {
   connectors: McpServerConnector[];
   /** Names of the agents it can hand off to. */
   handoffNames: string[];
+  /** Notes and rules for the prompt, null when the caller gave no way to read memory. */
+  memory: PromptMemory | null;
   /** The model the run asks for. */
   model: string;
   /** The session has more than one speaker. */
@@ -27,10 +36,38 @@ export interface LaunchContext {
   slack: string;
 }
 
+/** The run's notes and rules, read once. Private notes load only for the person it acts for, and never in a session with several speakers. */
+const memoryFor = async (
+  db: Database,
+  run: RunRecord,
+  read: MemoryFileReader,
+  multiPerson: boolean
+): Promise<PromptMemory> => {
+  const [agentRow] = await db
+    .select({ remember: agents.remember })
+    .from(agents)
+    .where(
+      and(eq(agents.id, run.agentId), eq(agents.workspaceId, run.workspaceId))
+    )
+    .limit(1);
+  const [workspaceRow] = await db
+    .select({ never: workspaces.neverRemember })
+    .from(workspaces)
+    .where(eq(workspaces.id, run.workspaceId))
+    .limit(1);
+  return await loadPromptMemory(read, {
+    agentRemember: agentRow?.remember ?? "",
+    // A thread with several people shows its reply to all of them.
+    onBehalfOfUserId: multiPerson ? null : run.onBehalfOfUserId,
+    workspaceNever: workspaceRow?.never ?? "",
+  });
+};
+
 export const buildLaunchContext = async (
   db: Database,
   run: RunRecord,
-  agent: AgentRecord
+  agent: AgentRecord,
+  options: { readMemoryFile?: MemoryFileReader } = {}
 ): Promise<LaunchContext> => {
   const assigned = await db
     .select({ id: connectors.id, name: connectors.name })
@@ -44,13 +81,17 @@ export const buildLaunchContext = async (
     )
     .orderBy(asc(agentConnectors.createdAt), asc(agentConnectors.connectorId));
   const scope = await effectiveRunScope(db, run.workspaceId, run.id);
+  const multiPerson = await sessionSupportsSpeakers(db, run);
   return {
     connectors: assigned.filter((connector) =>
       scopeAllows(scope, "connectors", connector.id)
     ),
     handoffNames: await handsToNames(db, agent),
+    memory: options.readMemoryFile
+      ? await memoryFor(db, run, options.readMemoryFile, multiPerson)
+      : null,
     model: modelOfRun(run, agent),
-    multiPerson: await sessionSupportsSpeakers(db, run),
+    multiPerson,
     scope,
     slack: await slackGuidanceFor(db, {
       agentId: run.agentId,

@@ -32,6 +32,7 @@ const appNamed = (connectorId: string): AgentKeyApp => {
 
 const mineWith = (overrides: Partial<MySignIn>): MySignIn => ({
   authKind: "oauth",
+  headerName: null,
   id: "conn_gmail",
   myCredential: null,
   name: "Gmail",

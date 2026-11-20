@@ -239,7 +239,14 @@ export interface ConnectorSummary {
 /** The connector fields a member needs to manage their own sign-in. */
 export type MySignIn = Pick<
   ConnectorSummary,
-  "id" | "name" | "url" | "authKind" | "status" | "oauth" | "myCredential"
+  | "id"
+  | "name"
+  | "url"
+  | "authKind"
+  | "headerName"
+  | "status"
+  | "oauth"
+  | "myCredential"
 > & { shared: boolean };
 
 export interface AssignmentSummary {
@@ -765,6 +772,7 @@ export const createConnectorsService = ({
       );
       return {
         authKind: row.authKind,
+        headerName: row.headerName,
         id: row.id,
         myCredential: credential ? toCredentialSummary(credential) : null,
         name: row.name,

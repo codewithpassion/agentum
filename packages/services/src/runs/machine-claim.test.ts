@@ -15,11 +15,13 @@ import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
+import { ServiceError } from "../errors.ts";
 import { createEventsService } from "../events.ts";
 import { memoryLibraryBlobs } from "../library/memory.ts";
-import { createLibraryService } from "../library.ts";
+import { createLibraryService, type LibraryService } from "../library.ts";
 import { createMachineRuntime } from "../machines/runtime.ts";
 import { noopRelay } from "../machines/types.ts";
+import { serializeMemoryFile } from "../memory/codec.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
 import { createSecretsService, type SecretsService } from "../secrets.ts";
 import { SLACK_GUIDANCE } from "../slack/guidance.ts";
@@ -521,8 +523,16 @@ test("a claim still succeeds when recording the delivery fails", async () => {
   expect(status(started.runId)?.status).toBe("running");
 });
 
-/** A runs service whose claim lists the library, over a library service on the test db. */
-const runsWithLibrary = () => {
+/**
+ * A runs service whose claim lists the library, over a library service on the
+ * test db. `claimLibrary` shapes the library the claim sees, for fakes.
+ */
+const runsWithLibrary = (
+  claimLibrary: (
+    library: LibraryService
+  ) => Pick<LibraryService, "mkdir" | "pendingConflicts"> &
+    Partial<Pick<LibraryService, "read">> = (library) => library
+) => {
   const store = new Map<string, string>();
   const blobs = {
     get: (key: string) => Promise.resolve(store.get(key) ?? null),
@@ -546,7 +556,7 @@ const runsWithLibrary = () => {
     db,
     devFakeRuntime: false,
     gateways: [],
-    library,
+    library: claimLibrary(library),
     runTokenKey: KEY,
     secrets,
   });
@@ -855,4 +865,138 @@ test("the claim carries a subagent's override and can run it alongside its paren
   expect(claimedChild.session.id).not.toBe(claimedParent.session.id);
   expect(status(parent.runId)?.status).toBe("running");
   expect(status(child.runId)?.status).toBe("running");
+});
+
+/** A memory file as the library holds it: one note, written by a person. */
+const memoryFile = (
+  path: string,
+  text: string,
+  userScope: string | null
+): string =>
+  serializeMemoryFile(path, [
+    {
+      date: "2026-11-02",
+      id: "01HZ7KQ3M8V2X4R6T9B1C50001",
+      kind: "people",
+      source: null,
+      text,
+      userScope,
+      writtenBy: "person",
+    },
+  ]);
+
+/** A library read that serves the given files and reports every other path as not found. */
+const fileLibrary = (
+  files: Record<string, string>
+): Pick<LibraryService, "read"> => ({
+  read: (_principal, path) => {
+    const text = files[path];
+    if (text === undefined) {
+      return Promise.reject(
+        new ServiceError("not_found", `No file at ${path}`)
+      );
+    }
+    const bytes = new TextEncoder().encode(text);
+    return Promise.resolve({
+      bytes,
+      entry: {
+        etag: null,
+        kind: "file",
+        mtime: START,
+        path,
+        size: bytes.length,
+        updatedBy: { id: "agent", kind: "agent" },
+      },
+    });
+  },
+});
+
+test("a claim with a library read puts the agent's memory after its own instructions", async () => {
+  const { service } = runsWithLibrary((library) => ({
+    ...library,
+    ...fileLibrary({
+      "agents/box/memory/people.md": memoryFile(
+        "people.md",
+        "Dom takes calls at 9am",
+        null
+      ),
+    }),
+  }));
+
+  const claimed = await claimWith(service, agentId);
+
+  expect(claimed.instructions).toContain("## Memory");
+  expect(claimed.instructions).toContain("Dom takes calls at 9am");
+  expect(claimed.instructions.indexOf("Be brief.")).toBeLessThan(
+    claimed.instructions.indexOf("## Memory")
+  );
+});
+
+test("a private note shows when the run acts for the person it belongs to", async () => {
+  const { service } = runsWithLibrary((library) => ({
+    ...library,
+    ...fileLibrary({
+      "agents/box/memory/private/user_dom.md": memoryFile(
+        "private/user_dom.md",
+        "Dom wants short replies",
+        "user_dom"
+      ),
+    }),
+  }));
+  const started = await service.startRun(
+    { ...user, userId: "user_dom" },
+    {
+      agentId,
+      input: { text: "hi" },
+      session: { origin: "ui" },
+    }
+  );
+
+  const claimed = await service.claimRunForMachine(
+    machine("m1"),
+    started.runId,
+    { platformUrl: PLATFORM }
+  );
+
+  expect(claimed.instructions).toContain("Dom wants short replies");
+});
+
+test("a private note stays out of a run for another person", async () => {
+  const { service } = runsWithLibrary((library) => ({
+    ...library,
+    ...fileLibrary({
+      "agents/box/memory/people.md": memoryFile(
+        "people.md",
+        "Everyone sees this",
+        null
+      ),
+      "agents/box/memory/private/user_dom.md": memoryFile(
+        "private/user_dom.md",
+        "Dom wants short replies",
+        "user_dom"
+      ),
+    }),
+  }));
+
+  const claimed = await claimWith(service, agentId);
+
+  expect(claimed.instructions).toContain("Everyone sees this");
+  expect(claimed.instructions).not.toContain("Dom wants short replies");
+});
+
+test("a claim whose library has no read shows no memory section", async () => {
+  const { library, service } = runsWithLibrary(
+    ({ mkdir, pendingConflicts }) => ({ mkdir, pendingConflicts })
+  );
+  await library.write(
+    user,
+    "agents/box/memory/people.md",
+    new TextEncoder().encode(
+      memoryFile("people.md", "Dom takes calls at 9am", null)
+    )
+  );
+
+  const claimed = await claimWith(service, agentId);
+
+  expect(claimed.instructions).toBe("Be brief.");
 });

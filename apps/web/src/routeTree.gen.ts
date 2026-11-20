@@ -45,6 +45,7 @@ import { Route as AppSettingsConnectorsRouteImport } from './routes/_app/setting
 import { Route as AppSettingsMachinesRouteImport } from './routes/_app/settings.machines'
 import { Route as AppSettingsModelProvidersRouteImport } from './routes/_app/settings.model-providers'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
+import { Route as AppSettingsSignInsRouteImport } from './routes/_app/settings.sign-ins'
 import { Route as AppSettingsTimezoneRouteImport } from './routes/_app/settings.timezone'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
@@ -234,6 +235,11 @@ const AppSettingsSecretsRoute = AppSettingsSecretsRouteImport.update({
   path: '/secrets',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsSignInsRoute = AppSettingsSignInsRouteImport.update({
+  id: '/sign-ins',
+  path: '/sign-ins',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsTimezoneRoute = AppSettingsTimezoneRouteImport.update({
   id: '/timezone',
   path: '/timezone',
@@ -305,6 +311,7 @@ export interface FileRoutesByFullPath {
   '/settings/machines': typeof AppSettingsMachinesRoute
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/settings/sign-ins': typeof AppSettingsSignInsRoute
   '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
@@ -348,6 +355,7 @@ export interface FileRoutesByTo {
   '/settings/machines': typeof AppSettingsMachinesRoute
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/settings/sign-ins': typeof AppSettingsSignInsRoute
   '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
@@ -394,6 +402,7 @@ export interface FileRoutesById {
   '/_app/settings/machines': typeof AppSettingsMachinesRoute
   '/_app/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
+  '/_app/settings/sign-ins': typeof AppSettingsSignInsRoute
   '/_app/settings/timezone': typeof AppSettingsTimezoneRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/tasks/$runId': typeof AppTasksRunIdRoute
@@ -440,6 +449,7 @@ export interface FileRouteTypes {
     | '/settings/machines'
     | '/settings/model-providers'
     | '/settings/secrets'
+    | '/settings/sign-ins'
     | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
@@ -483,6 +493,7 @@ export interface FileRouteTypes {
     | '/settings/machines'
     | '/settings/model-providers'
     | '/settings/secrets'
+    | '/settings/sign-ins'
     | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
@@ -528,6 +539,7 @@ export interface FileRouteTypes {
     | '/_app/settings/machines'
     | '/_app/settings/model-providers'
     | '/_app/settings/secrets'
+    | '/_app/settings/sign-ins'
     | '/_app/settings/timezone'
     | '/_app/skills/$skillId'
     | '/_app/tasks/$runId'
@@ -807,6 +819,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsSecretsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/sign-ins': {
+      id: '/_app/settings/sign-ins'
+      path: '/sign-ins'
+      fullPath: '/settings/sign-ins'
+      preLoaderRoute: typeof AppSettingsSignInsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/timezone': {
       id: '/_app/settings/timezone'
       path: '/timezone'
@@ -867,6 +886,7 @@ interface AppSettingsRouteChildren {
   AppSettingsMachinesRoute: typeof AppSettingsMachinesRoute
   AppSettingsModelProvidersRoute: typeof AppSettingsModelProvidersRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
+  AppSettingsSignInsRoute: typeof AppSettingsSignInsRoute
   AppSettingsTimezoneRoute: typeof AppSettingsTimezoneRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSettingsAgentConnectionsConnectionIdRoute: typeof AppSettingsAgentConnectionsConnectionIdRoute
@@ -881,6 +901,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsMachinesRoute: AppSettingsMachinesRoute,
   AppSettingsModelProvidersRoute: AppSettingsModelProvidersRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
+  AppSettingsSignInsRoute: AppSettingsSignInsRoute,
   AppSettingsTimezoneRoute: AppSettingsTimezoneRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSettingsAgentConnectionsConnectionIdRoute:

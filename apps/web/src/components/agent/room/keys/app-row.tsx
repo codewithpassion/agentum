@@ -101,7 +101,7 @@ function ConnectControls({
         This app needs an admin to set up its client before anyone can connect.{" "}
         {isAdmin ? (
           <Link to="/settings/connectors">
-            Set the client on the Connectors page.
+            Set the client on the Apps page.
           </Link>
         ) : null}
       </p>

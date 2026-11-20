@@ -1069,6 +1069,7 @@ test("members manage only their own sign-in and receive only member fields", asy
   expect(await service.list(sam)).toHaveLength(1);
   expect(only(await service.mine(sam))).toEqual({
     authKind: "header",
+    headerName: "Authorization",
     id: connector.id,
     myCredential: null,
     name: connector.name,
@@ -1173,6 +1174,7 @@ test("mine marks workspace-secret connectors without exposing their configuratio
   expect(summary.shared).toBe(true);
   expect(Object.keys(summary).sort()).toEqual([
     "authKind",
+    "headerName",
     "id",
     "myCredential",
     "name",
