@@ -8,6 +8,8 @@
 - Round 2, on 92908ed7 and 1c7b8dc1 (fresh reviewer, asked by the controller): clean, no must-fix. 1c7b8dc1 adds `inbox.topicTeam`, which answers null for a missing or hidden topic where `readThread` answers 404, and the redirect uses it, so the 404 is gone.
 - Browser proof, third run (1c7b8dc1): pass at 1280x800 and 390x844 for the unreadable id (in-app and full load), a topic in Everyone, a topic in a second team, and plain `/inbox`. No console errors, every request 200. Report and screenshots: `docs/reviews/tasks/TM.9/browser.md`, Round 3 section.
 
+- Merge of main with TX.3 (bfd74f4e): conflicts in `inbox.ts` and `inbox-router.ts` resolved by keeping main's discussion methods and `stopDiscussion` and the branch's `topicTeam`. A fresh reviewer checked the resolution: clean. Check, test and build pass.
+
 ## Decisions
 
 - `inbox.topicTeam` (service method and tRPC query) exists so the redirect can ask for a topic's team without a 404 for an unreadable id. It hides a limited topic the same way `readThread` does.
