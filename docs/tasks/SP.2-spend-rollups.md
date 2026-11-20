@@ -3,9 +3,9 @@ id: SP.2
 title: "Spend rollups from run usage"
 milestone: SP
 size: M
-status: todo
+status: in_progress
 depends_on: [SP.1]
-branch: null
+branch: task/SP.2-spend-rollups
 lane: services-spend
 executor: codex
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone SP. Cost shows per run and per agent wee
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: from the DR.1 review: spend rollups also count `dream_runs.usage`.
+- 2026-11-20: dispatched on task/SP.2-spend-rollups (v4 controller session).

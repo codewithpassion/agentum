@@ -3,7 +3,7 @@ id: FX.1
 title: "Stabilise the two live-artifacts workerd tests"
 milestone: FX
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/FX.1-stable-workerd-tests
 lane: live-artifacts-tests
@@ -35,3 +35,4 @@ It failed the same way on commits from before any v4 merge, so the cause is in t
 - 2026-11-20: added on Dom's request after these tests failed most merge checks of the v4 build.
 - 2026-11-20: dispatched on task/FX.1-stable-workerd-tests (v4 controller session).
 - 2026-11-20: scope adds the services never-claimed-runs timing test, which now fails most full runs under load.
+- 2026-11-20: merged as 8050342d, review clean after 0 fix rounds. check, test and build passed on main, fully green. Root causes in docs/reviews/tasks/FX.1.md.

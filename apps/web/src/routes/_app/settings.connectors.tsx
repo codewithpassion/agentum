@@ -432,7 +432,7 @@ function ConnectorsPage() {
         </ResponsiveTable>
       )}
       <p className="mt-6 text-muted-foreground text-sm">
-        Paste a credential as an agent from the agent&apos;s Connectors tab.
+        Paste a credential as an agent from the agent&apos;s Keys tab.
       </p>
       {adding ? (
         <AddConnectorDialog onClose={closeAdd} onCreated={handleCreated} />
