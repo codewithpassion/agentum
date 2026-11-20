@@ -172,7 +172,7 @@ export function AssistantMessageContainer() {
               <StatusLine />
             )}
             {status === "running" ? null : (
-              <div className="flex items-center gap-2 text-muted-foreground text-xs">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs empty:hidden">
                 <MessageMenu text={text} />
               </div>
             )}

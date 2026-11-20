@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { EllipsisIcon } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -25,7 +25,12 @@ function RememberMenu({
   text: string;
 }) {
   const navigate = useNavigate();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const returnFocus = useCallback((event: Event) => {
+    event.preventDefault();
+    triggerRef.current?.focus();
+  }, []);
   const openDialog = useCallback(() => setDialogOpen(true), []);
   const onSaved = useCallback(
     () =>
@@ -51,6 +56,7 @@ function RememberMenu({
             aria-label="Message actions"
             className="min-h-10 md:min-h-9"
             data-testid="message-menu"
+            ref={triggerRef}
             size="icon-sm"
             type="button"
             variant="ghost"
@@ -71,6 +77,7 @@ function RememberMenu({
       <RememberDialog
         agentId={agentId}
         messageText={text}
+        onCloseAutoFocus={returnFocus}
         onOpenChange={setDialogOpen}
         onSaved={onSaved}
         open={dialogOpen}

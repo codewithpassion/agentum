@@ -8,6 +8,7 @@ import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -158,6 +159,7 @@ export function RememberDialog({
   open,
   onOpenChange,
   onSaved,
+  onCloseAutoFocus,
 }: {
   agentId: string;
   sessionId: string;
@@ -165,13 +167,19 @@ export function RememberDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
+  /** Where focus goes when the dialog closes. Radix has no trigger to return it to when the dialog is opened from a menu item. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const handleClose = useCallback(() => onOpenChange(false), [onOpenChange]);
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Remember this</DialogTitle>
+          <DialogDescription>
+            Save this to the agent's memory. You can edit or forget it on the
+            Knows tab.
+          </DialogDescription>
         </DialogHeader>
         {/* Radix unmounts the content when the dialog closes, so the form
             starts from the message text each time it opens. */}
