@@ -1629,6 +1629,8 @@ export type DreamPlanChange =
   | {
       action: "add";
       kind: MemoryNoteKind;
+      /** The id the note is written under, when a question in the same plan names it. Otherwise the row gets one. */
+      noteId?: string;
       source: MemorySource | null;
       text: string;
       userScope: string | null;

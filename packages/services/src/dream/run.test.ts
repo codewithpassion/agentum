@@ -521,6 +521,108 @@ test("a question names one of its notes, and the same pair is not asked twice", 
   expect(first).toBeTruthy();
 });
 
+/** A model that keeps two notes that disagree, one per conversation, and asks the owner when reconcile judges them together. */
+const disagreeingWorld = () =>
+  makeDreamWorld(({ kind, prompt }) => {
+    if (kind === "extract") {
+      return JSON.stringify({
+        notes: [
+          {
+            evidence: ["e1"],
+            kind: "work",
+            text: "Invoices are paid on Thursdays",
+          },
+          {
+            evidence: ["e2"],
+            kind: "work",
+            text: "Invoices are paid on Fridays",
+          },
+        ],
+      });
+    }
+    if (kind === "reconcile") {
+      const ids = [...prompt.matchAll(/id=(\S+)/g)].map((match) => match[1]);
+      return ids.length >= 2
+        ? JSON.stringify({
+            conflicts: [
+              {
+                confidence: 0.9,
+                ids,
+                question: "Are invoices paid on Thursdays or Fridays?",
+              },
+            ],
+          })
+        : JSON.stringify({ conflicts: [] });
+    }
+    return quietAnswer({ kind, prompt });
+  });
+
+test("two candidates that disagree are added, and one question names both new notes", async () => {
+  const w = disagreeingWorld();
+  w.say("Invoices go out on Thursdays");
+  w.say("Invoices go out on Fridays");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.status).toBe("done");
+  expect(run.counts).toEqual({ added: 2, dropped: 0, merged: 0, questions: 1 });
+  const notes = await w.service.list(w.owner, { agentId: AGENT });
+  expect(notes.map((item) => item.text).sort()).toEqual([
+    "Invoices are paid on Fridays",
+    "Invoices are paid on Thursdays",
+  ]);
+  const questions = await w.db.select().from(dreamQuestions);
+  expect(questions).toHaveLength(1);
+  expect(questions[0]?.status).toBe("open");
+  const asked = JSON.parse(defined(questions[0]).options) as {
+    noteId: string;
+    text: string;
+  }[];
+  expect(asked.map((option) => option.noteId).sort()).toEqual(
+    notes.map((item) => item.id).sort()
+  );
+  expect(asked.map((option) => option.text).sort()).toEqual([
+    "Invoices are paid on Fridays",
+    "Invoices are paid on Thursdays",
+  ]);
+  expect(run.diary).toContain(
+    "Asked: Are invoices paid on Thursdays or Fridays?"
+  );
+});
+
+test("an answered question settles its group: the next dream asks nothing about it", async () => {
+  const w = disagreeingWorld();
+  w.say("Invoices go out on Thursdays");
+  w.say("Invoices go out on Fridays");
+  await w.dream.runNow(w.owner, AGENT);
+  const [question] = await w.db.select().from(dreamQuestions);
+  const [keep] = (
+    JSON.parse(defined(question).options) as { noteId: string }[]
+  ).map((option) => option.noteId);
+  await w.dream.answer(w.owner, {
+    noteId: defined(keep),
+    questionId: defined(question).id,
+  });
+  w.setScript(quietAnswer);
+  w.say("Nothing else to report");
+  const before = w.calls.length;
+  const next = await w.dream.runNow(w.owner, AGENT);
+  expect(next.counts.questions).toBe(0);
+  expect(await w.db.select().from(dreamQuestions)).toHaveLength(1);
+  expect(w.calls.slice(before).some((call) => call.kind === "reconcile")).toBe(
+    false
+  );
+});
+
+test("a held batch asks nothing about the notes it would add", async () => {
+  const w = disagreeingWorld();
+  w.setRules({ learnLevel: "ask_first" });
+  w.say("Invoices go out on Thursdays");
+  w.say("Invoices go out on Fridays");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.heldChanges).toBe(2);
+  expect(run.counts.questions).toBe(0);
+  expect(await w.db.select().from(dreamQuestions)).toHaveLength(0);
+});
+
 test("a question about a private note is the note's person's alone", async () => {
   const w = makeDreamWorld(({ kind, prompt }) => {
     if (kind === "reconcile") {
