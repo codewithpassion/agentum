@@ -3,7 +3,7 @@ id: SP.9
 title: "A cap pause ends with its week"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: [SP.5]
 branch: task/SP.9-a-cap-pause-ends-with-its-week
 lane: worker
@@ -30,3 +30,4 @@ A service test with the clock set across Monday 00:00 in the workspace timezone:
 - 2026-11-21: dispatched.
 - 2026-11-21: review clean with no fix rounds. The last commit (wording) wasn't reviewed, so it goes back for a fresh review of that commit.
 - 2026-11-21: wording commit reviewed clean (two nits left: stale pausedAt comment in the schema, and help text that doesn't say raising a cap lifts the pause). Ready at 9038a8f8. Queued for merge.
+- 2026-11-21: merged 108f50cb, batch merge check with FX.3, SP.10 and SP.9 passed. Done.
