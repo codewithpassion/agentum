@@ -1,5 +1,5 @@
 /** biome-ignore-all lint/suspicious/useAwait: Async act flushes effects. */
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import type { DecisionsDisplay } from "@repo/protocol/requests";
 import {
   type HTMLButtonElement,
@@ -9,7 +9,8 @@ import {
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { DecisionsCard } from "./decisions-card.tsx";
+import { getTrpc as realGetTrpc } from "#/integrations/trpc/client";
+import { DecisionsCard, LiveDecisionsCard } from "./decisions-card.tsx";
 import type { RequestView } from "./request-card-logic.ts";
 
 type DecisionsView = Extract<RequestView, { kind: "decisions" }>;
@@ -300,6 +301,36 @@ test("typed text on a free-text question is sent trimmed, and typing clears the 
     await click(harness, "Send answers");
     expect(sent).toEqual([{ region: "Asia" }]);
   } finally {
+    await harness.close();
+  }
+});
+
+test("a live card drawn from an event alone shows the answers the pending list has saved", async () => {
+  mock.module("#/integrations/trpc/client", () => ({
+    getTrpc: () => ({
+      requests: {
+        pending: {
+          query: () =>
+            Promise.resolve([
+              {
+                answer: { decisions: { deploy: "Yes" } },
+                id: "req",
+              },
+            ]),
+        },
+      },
+    }),
+  }));
+  const harness = await mount();
+  try {
+    await harness.render(<LiveDecisionsCard nowMs={0} view={viewWith({})} />);
+    expect(
+      harness.container.querySelector('[role="status"]')?.textContent
+    ).toBe("1 of 3 answered");
+  } finally {
+    mock.module("#/integrations/trpc/client", () => ({
+      getTrpc: realGetTrpc,
+    }));
     await harness.close();
   }
 });

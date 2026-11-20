@@ -1,6 +1,12 @@
 import { RAIL_REFRESH_EVENT } from "@repo/db/shared";
 import type { Decision } from "@repo/protocol/requests";
-import { type ChangeEvent, useCallback, useState } from "react";
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -126,6 +132,10 @@ export function DecisionsCard({
   const [given, setGiven] = useState<Readonly<Record<string, string>>>(
     view.given
   );
+  // Answers saved by someone else, or learned after the card opened, join those already known.
+  useEffect(() => {
+    setGiven((prev) => ({ ...prev, ...view.given }));
+  }, [view.given]);
   const [inputs, setInputs] = useState<DecisionInputs>(EMPTY_DECISION_INPUTS);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -272,6 +282,27 @@ export function LiveDecisionsCard({
   const onDismiss = useCallback(async () => {
     await getTrpc().requests.dismissDecisions.mutate({ requestId: view.id });
   }, [view.id]);
+  // A card drawn from an event alone has no saved answers. The pending list has them.
+  const [saved, setSaved] = useState<Readonly<Record<string, string>>>({});
+  useEffect(() => {
+    let active = true;
+    getTrpc()
+      .requests.pending.query({})
+      .then((records) => {
+        const record = records.find(({ id }) => id === view.id);
+        if (active && record?.answer && "decisions" in record.answer) {
+          setSaved(record.answer.decisions);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [view.id]);
+  const current = useMemo(
+    () => ({ ...view, given: { ...view.given, ...saved } }),
+    [saved, view]
+  );
   const closed = useCallback(() => {
     window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
     onClosed?.();
@@ -282,7 +313,7 @@ export function LiveDecisionsCard({
       onClosed={closed}
       onDismiss={onDismiss}
       onSend={onSend}
-      view={view}
+      view={current}
     />
   );
 }

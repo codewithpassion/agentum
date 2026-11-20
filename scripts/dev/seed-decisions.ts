@@ -112,17 +112,11 @@ export const main = async (): Promise<void> => {
         expiresAt,
         new Date(now).toISOString()
       );
-    // The conversation finds its card through the run's `request.opened` event.
-    const seq =
-      client
-        .query<{ next: number }, [string]>(
-          "SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM events WHERE run_id = ?"
-        )
-        .get(run.id)?.next ?? 1;
+    // The conversation finds its card through the run's `request.opened` event. Its seq stays null, as the service writes it, so a live run's own events are not dropped.
     client
       .query(
-        `INSERT INTO events (id, workspace_id, agent_id, session_id, run_id, seq, type, actor_kind, actor_id, payload, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'request.opened', 'agent', ?, ?, ?)`
+        `INSERT INTO events (id, workspace_id, agent_id, session_id, run_id, type, actor_kind, actor_id, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, 'request.opened', 'agent', ?, ?, ?)`
       )
       .run(
         ulid(now),
@@ -130,7 +124,6 @@ export const main = async (): Promise<void> => {
         run.agent_id,
         run.session_id,
         run.id,
-        seq,
         run.agent_id,
         JSON.stringify({
           display: DISPLAY,
