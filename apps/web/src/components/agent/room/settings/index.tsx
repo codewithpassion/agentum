@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { AsksRow } from "#/components/agent/profile/asks-row.tsx";
@@ -6,6 +7,7 @@ import { RunsOnCard } from "#/components/agent/profile/runs-on-card.tsx";
 import { AdvancedPanel } from "#/components/agent/profile/sheets/advanced.tsx";
 import { CapField } from "#/components/spend/cap-field.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
+import { canManageAgentKeys } from "../keys/keys-logic.ts";
 import type { RoomTabProps } from "../room-data.ts";
 import { Manage, RoomSection, TabBody } from "../section.tsx";
 import { PlainChoices } from "./plain-choices.tsx";
@@ -15,6 +17,12 @@ const FORM_ID = "room-settings-form";
 /** The room's Settings tab: where the agent runs, its computer, and the agent form. */
 export function SettingsTab({ room }: RoomTabProps) {
   const archived = room.agent.status === "archived";
+  const { orgRole, userId } = useAuth();
+  const canChangeOwners = canManageAgentKeys({
+    agent: room.agent,
+    isAdmin: orgRole === "org:admin",
+    userId,
+  });
   const agentId = room.agent.id;
   const router = useRouter();
   const scrollToForm = useCallback(() => {
@@ -55,7 +63,11 @@ export function SettingsTab({ room }: RoomTabProps) {
       {room.members === null ? null : (
         <RoomSection title="Owner">
           <Manage archived={archived}>
-            <AsksRow agent={room.agent} members={room.members} />
+            <AsksRow
+              agent={room.agent}
+              canChange={canChangeOwners}
+              members={room.members}
+            />
           </Manage>
         </RoomSection>
       )}

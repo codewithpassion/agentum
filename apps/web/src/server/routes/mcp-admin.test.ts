@@ -48,16 +48,16 @@ let composed: Composed;
 let workspaceId: string;
 let app: Hono<AppEnv>;
 
-const session = (isAdmin: boolean): Principal => ({
+const session = (isAdmin: boolean, userId = "u1"): Principal => ({
   isAdmin,
   kind: "user",
-  userId: "u1",
+  userId,
   via: "session",
   workspaceId,
 });
 
-const mintKey = async (access: "admin" | "read" | "write") =>
-  composed.services.apiKeys.create(session(true), {
+const mintKey = async (access: "admin" | "read" | "write", userId = "u1") =>
+  composed.services.apiKeys.create(session(true, userId), {
     access,
     name: `${access} key`,
   });
@@ -544,6 +544,45 @@ test("OAuth read sees only the agent list and details among management tools", a
     });
     expect(result.body.result?.isError ?? true).toBe(true);
   }
+});
+
+test("set_agent_owners: a write key that is neither owner nor admin is refused; the owner and an admin key succeed", async () => {
+  const owner = (await mintKey("write", "u2")).secret;
+  const member = (await mintKey("write")).secret;
+  const admin = (await mintKey("admin")).secret;
+  const agent = "owned-agent";
+  const readOwner = async () =>
+    (await call(admin, "get_agent", { agent })).structuredContent as {
+      agent: { ownerUserId: string | null };
+    };
+  expect(
+    (
+      await call(owner, "create_agent", {
+        model: "fake",
+        name: "Owned agent",
+        runtime: "managed",
+      })
+    ).isError
+  ).toBeFalsy();
+
+  const refused = await call(member, "set_agent_owners", {
+    agent,
+    ownerUserId: "u1",
+  });
+  expect(refused.isError).toBe(true);
+  expect((await readOwner()).agent.ownerUserId).toBeNull();
+
+  expect(
+    (await call(owner, "set_agent_owners", { agent, ownerUserId: "u1" }))
+      .isError
+  ).toBeFalsy();
+  expect((await readOwner()).agent.ownerUserId).toBe("u1");
+
+  expect(
+    (await call(admin, "set_agent_owners", { agent, ownerUserId: null }))
+      .isError
+  ).toBeFalsy();
+  expect((await readOwner()).agent.ownerUserId).toBeNull();
 });
 
 test("run, machine and Slack ports offer none of the agent management writes", () => {

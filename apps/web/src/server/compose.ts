@@ -1213,6 +1213,7 @@ export const composeWith = ({
     directory: infra.slackDirectory ?? unlinkedDirectory,
     events,
     fetch: connectorFetch,
+    inbox,
     people: infra.people,
     runs,
     secretsKey: infra.secretsKey,
@@ -1380,6 +1381,13 @@ export const composeWith = ({
         principal.kind === "user" && principal.isAdmin === true
       ),
   });
+  const memory = createMemoryService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    library,
+  });
   const composed: Composed = {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -1420,6 +1428,11 @@ export const composeWith = ({
         atomic: infra.atomic,
         clock: infra.clock,
         db,
+        events,
+        fetch: connectorFetch,
+        library,
+        managedKeys,
+        memory,
       }),
       events,
       files,
@@ -1460,13 +1473,7 @@ export const composeWith = ({
       managedKeys,
       map,
       members,
-      memory: createMemoryService({
-        atomic: infra.atomic,
-        clock: infra.clock,
-        db,
-        events,
-        library,
-      }),
+      memory,
       modelKeys,
       network,
       oauthClients,

@@ -21,6 +21,7 @@ import { and, desc, eq, gte, isNull, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "../authz.ts";
+import { syncDreamTriggers } from "../dream/trigger.ts";
 import { invalid, isServiceError, notFound, ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
 import {
@@ -148,7 +149,7 @@ export type ListNotesInput = z.infer<typeof listInputSchema>;
 export type ListTeamInput = z.infer<typeof listTeamInputSchema>;
 export type SetRulesInput = z.infer<typeof rulesSetInputSchema>;
 
-type ChangeRow = typeof memoryChanges.$inferSelect;
+export type ChangeRow = typeof memoryChanges.$inferSelect;
 interface AgentInfo {
   id: string;
   ownerUserId: string;
@@ -190,7 +191,7 @@ const agentOf = (row: ChangeRow): string => {
   return row.agentId;
 };
 
-const toChange = (row: ChangeRow): MemoryChange => ({
+export const toChange = (row: ChangeRow): MemoryChange => ({
   action: row.action,
   agentId: row.agentId,
   createdAt: row.createdAt,
@@ -379,6 +380,11 @@ export const createMemoryService = ({
     }
     if (row.action === "merge" || row.groupId !== null) {
       throw invalid("A merged change is decided and undone with its dream");
+    }
+    if (row.dreamRunId !== null) {
+      throw invalid(
+        "A change a dream made is decided and undone with its dream"
+      );
     }
     return row;
   };
@@ -934,6 +940,9 @@ export const createMemoryService = ({
           workspaceId,
         }),
       ]);
+      // The dream trigger follows the schedule. The rules are saved either way,
+      // and the minute tick repairs the trigger if this fails.
+      await syncDreamTriggers(db, clock.now(), agent.id).catch(() => 0);
       return await rules.get(principal, { agentId: agent.id });
     },
   };
