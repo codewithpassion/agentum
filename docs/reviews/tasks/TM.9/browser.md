@@ -34,3 +34,31 @@ Desktop: /home, then /inbox?thread=<V2 Desktop Team topic> (full load), redirect
 Phone: /home, then /inbox?thread=<V2 Phone Team topic>, redirect, Back went to /home (phone-12.png). Plain /inbox then Back also went to /home. Back from the room reached through "Open thread" went to the desk card. Pass.
 
 Verdict: pass (all flows A to G at both sizes, no console errors or failed requests in the flows as specified; one 404 console error only when a made-up thread id is reached by in-app navigation, noted under D)
+
+## Round 3 (1c7b8dc1): no-404 redirect
+
+Dev server on port 5188 (PIDs 2716684 and 2716796, both stopped at the end), local D1 migrations applied, dev login, agent-browser session `tm9-verify3`, chrome-headless-shell. Desktop 1280x800, phone 390x844. Topics and teams created in this round: Everyone topics "R3 desktop everyone" (01M7WTFRDYTY4E51N2ENCZT9AM) and "R3 phone everyone" (01M7WTNSDNKJXZEGC5J3X1T6JB); teams "R3 Desktop Team" (01M7WTHA8GS4M8WEQ2HC58ECZ5, topic 01M7WTHQ67DHFNH5WCKW4AA0B7) and "R3 Phone Team" (01M7WTPW2MV6YRDWF5G9HZ1BAH, topic 01M7WTQB3BN5DT7TRMA6YAY21V). Everyone team id: 01M7WQ0CNMC184NQHW1MJ2JK9P.
+
+How "in-app" navigation was done: the app exposes `window.__TSR_ROUTER__`, so after loading a signed-in page I ran `__TSR_ROUTER__.navigate({to:'/inbox', search:{thread:<id>}})`. That is a client-side navigation with no page reload, so the `inbox.topicTeam` query runs from the browser. Before each in-app navigation I cleared the console and error log and wrapped `window.fetch` to record the HTTP status of every request (agent-browser's request log has no status codes). For full page loads I read `performance.getEntriesByType('resource')` for any entry with status 0 or 400+.
+
+Console and network: in every flow the console held only ignorable lines (Vite connect debug lines, the React DevTools info line, the Clerk development-keys warning; these appear only after a full page load). No "Failed to load resource" line, no page error, no `errors` output. Every recorded fetch returned 200, including `inbox.topicTeam` for the made-up id `does-not-exist` (200, answers null) and for the real ids. No 404 anywhere, so the Round 2 console error is gone. `wait --load networkidle` still never settles on the room page (it polls `inbox.listThreads`), so fixed waits were used.
+
+### D. /inbox?thread=does-not-exist
+Desktop, in-app navigation: from /home, router navigate to /inbox?thread=does-not-exist. Landed on /teams/01M7WQ0CNMC184NQHW1MJ2JK9P/room with no `topic` param, heading "Everyone", topic list visible, "Pick a topic, or start a new one." (desktop-r3-1.png). `inbox.topicTeam` returned 200. Stayed 24 seconds, console and errors empty. Pass.
+Desktop, full page load of the same URL: same landing, same hint (desktop-r3-2.png). After 21 seconds the console held only the Vite, React DevTools and Clerk lines, no errors, no resource with status 0 or 400+. Direct unauthenticated fetch of `inbox.topicTeam` answers 401, as expected. Pass.
+Phone, in-app navigation: same URL and hint, topic list behind the "Topics" button (phone-r3-1.png). 24 seconds, console and errors empty, `inbox.topicTeam` 200. Pass.
+Phone, full page load: same landing (phone-r3-2.png), 21 seconds, only ignorable lines, no failed resources. Topics button opens the Everyone topic list (phone-r3-3.png). Pass.
+
+### B. Topic in Everyone
+Desktop: created topic "R3 desktop everyone", posted "r3 desktop everyone post", went to /home, then in-app navigate to /inbox?thread=01M7WTFRDYTY4E51N2ENCZT9AM. Landed on /teams/01M7WQ0CNMC184NQHW1MJ2JK9P/room?topic=01M7WTFRDYTY4E51N2ENCZT9AM, topic open, post visible (desktop-r3-3.png). `inbox.topicTeam` 200, console and errors empty. Pass.
+Phone: same with "R3 phone everyone" and its post; landed in the Everyone room with the topic open and post visible (phone-r3-4.png). `inbox.topicTeam` 200, console and errors empty. Pass.
+
+### C. Topic in another team
+Desktop: Teams, New team "R3 Desktop Team", opened its room, created topic "R3 desktop team topic" with post "r3 desktop team post", went to /home, then in-app navigate to /inbox?thread=01M7WTHQ67DHFNH5WCKW4AA0B7. Landed on /teams/01M7WTHA8GS4M8WEQ2HC58ECZ5/room?topic=01M7WTHQ67DHFNH5WCKW4AA0B7, heading "R3 Desktop Team", topic open, post visible (desktop-r3-4.png). `inbox.topicTeam` 200, console and errors empty. Pass.
+Phone: same with "R3 Phone Team" and "R3 phone team topic"; landed in /teams/01M7WTPW2MV6YRDWF5G9HZ1BAH/room?topic=01M7WTQB3BN5DT7TRMA6YAY21V, heading "R3 Phone Team", post visible (phone-r3-5.png). `inbox.topicTeam` 200, console and errors empty. Pass.
+
+### G. Plain /inbox and Back
+Desktop: /home, then /inbox by full load, landed on the Everyone room (desktop-r3-5.png). Back went to /home, not /inbox (desktop-r3-6.png). Same result with an in-app navigate to /inbox: landed on the Everyone room, Back went to /home. Console clean. Pass.
+Phone: same sequence. Landed on the Everyone room (phone-r3-6.png), Back went to /home (phone-r3-7.png), in-app variant also went back to /home. Console clean. Pass.
+
+Round 3 verdict: pass (flows D, B, C and G pass at desktop and phone; the 404 console error on in-app navigation to a made-up thread id is gone, with no console errors and no non-200 requests in any flow)
