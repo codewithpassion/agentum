@@ -3,9 +3,9 @@ id: FX.1
 title: "Stabilise the two live-artifacts workerd tests"
 milestone: FX
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/FX.1-stable-workerd-tests
 lane: live-artifacts-tests
 executor: claude
 ---
@@ -31,3 +31,4 @@ It failed the same way on commits from before any v4 merge, so the cause is in t
 
 ## Log
 - 2026-11-20: added on Dom's request after these tests failed most merge checks of the v4 build.
+- 2026-11-20: dispatched on task/FX.1-stable-workerd-tests (v4 controller session).
