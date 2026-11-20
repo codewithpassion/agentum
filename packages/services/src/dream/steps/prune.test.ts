@@ -82,6 +82,22 @@ test("prune by age", async () => {
   expect(calls).toHaveLength(0);
 });
 
+test("prune by age never drops a note a person wrote", async () => {
+  const { calls, judge } = fakeJudge(() => null);
+  const person = note("p1", { date: ago(400), writtenBy: "person" });
+  const result = await pruneNotes({
+    judge,
+    maxChars: 1_000_000,
+    notes: [person, note("a1", { date: ago(400), writtenBy: "agent" })],
+    today: TODAY,
+  });
+  expect(result.changes).toEqual([
+    { action: "drop", noteId: "a1", reason: "Not changed for 60 days" },
+  ]);
+  expect(result.notes).toEqual([person]);
+  expect(calls).toHaveLength(0);
+});
+
 test("prune by age drops dream-written notes too", async () => {
   const { judge } = fakeJudge(() => null);
   const result = await pruneNotes({

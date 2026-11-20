@@ -2,8 +2,9 @@
 // must be old enough before it can lapse. The Brain decays confidence from real
 // recall traces and soft-expires a fact so it can come back. A note has no use
 // signal, only the day it was written, and a `drop` is undone through the
-// dream's undo, so the age rule here is blunter than the Brain's. The task asks
-// for it as written: notes older than 60 days go. The merge verdict and its floor come from
+// dream's undo, so the age rule here is blunter than the Brain's. A note a person
+// wrote is never aged out, because the newer word of a person wins; only notes
+// the agent or a dream wrote older than 60 days go. The merge verdict and its floor come from
 // judge.ts and apply.ts (AUTO_APPLY_FLOOR), and the size budget reuses them.
 // The finished-work pass and the size budget are new for notes.
 import type { DreamPlanChange, MemoryNote } from "@repo/db/shared";
@@ -106,7 +107,8 @@ const dayTime = (value: string): number | null => {
 /**
  * The ids of notes more than STALE_DAYS old. `date` is the day of the last
  * write, not the last use, so a note the agent still uses can go stale.
- * A date that does not parse is never stale. Dream-written notes age too.
+ * A note a person wrote never goes stale. A date that does not parse is never
+ * stale. Notes the agent or a dream wrote age.
  */
 const staleNoteIds = (
   notes: readonly MemoryNote[],
@@ -116,7 +118,11 @@ const staleNoteIds = (
   const stale = new Set<string>();
   for (const note of notes) {
     const noteTime = dayTime(note.date);
-    if (noteTime !== null && (todayTime - noteTime) / DAY_MS > STALE_DAYS) {
+    if (
+      note.writtenBy !== "person" &&
+      noteTime !== null &&
+      (todayTime - noteTime) / DAY_MS > STALE_DAYS
+    ) {
       stale.add(note.id);
     }
   }
