@@ -43,6 +43,14 @@ const session: Principal = {
   workspaceId: WORKSPACE,
 };
 
+const members = {
+  list: () =>
+    Promise.resolve([
+      { name: "Ann", userId: "u1" },
+      { name: "Ben", userId: "u2" },
+    ]),
+};
+
 let db: ReturnType<typeof migrated>;
 let admin: AdminService;
 let secrets: SecretsService;
@@ -86,7 +94,7 @@ beforeEach(() => {
   };
   const atomic = sqliteAtomic(db);
   events = createEventsService({ blobs, db });
-  const agents = createAgentsService({ db, events });
+  const agents = createAgentsService({ db, events, members });
   agentsService = agents;
   apiKeysService = createApiKeysService({ clock, db, events });
   secrets = createSecretsService({
@@ -536,6 +544,31 @@ test("non-management principals cannot call any agent management writes directly
       await expect(invoke()).rejects.toBeInstanceOf(ForbiddenError);
     }
   }
+});
+
+test("set owners: the agent's owner and an admin may change them, another member may not", async () => {
+  const agent = await admin.createAgent(writeKey, agentInput);
+  const otherMember: Principal = {
+    apiKey: { access: "write", id: "k-other" },
+    kind: "user",
+    userId: "u2",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  await expect(
+    admin.setAgentOwners(otherMember, agent.id, { ownerUserId: "u2" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(agentsService.get(session, agent.id)).resolves.toMatchObject({
+    backupUserId: null,
+    ownerUserId: null,
+  });
+
+  await expect(
+    admin.setAgentOwners(writeKey, agent.id, { ownerUserId: "u2" })
+  ).resolves.toMatchObject({ ownerUserId: "u2" });
+  await expect(
+    admin.setAgentOwners(session, agent.id, { backupUserId: "u1" })
+  ).resolves.toMatchObject({ backupUserId: "u1", ownerUserId: "u2" });
 });
 
 test("browser members manage agents; only browser admins grant and revoke secrets", async () => {

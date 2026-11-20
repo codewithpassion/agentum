@@ -1022,7 +1022,7 @@ test("setOwners lists only the keys that changed", async () => {
     backupUserId: "u3",
     ownerUserId: "u2",
   });
-  await owned.setOwners(user, agent.id, {
+  await owned.setOwners({ ...user, isAdmin: true }, agent.id, {
     backupUserId: "u1",
     ownerUserId: "u2",
   });
@@ -1042,7 +1042,9 @@ test("setOwners with the same values returns the record and writes no event", as
   const owned = withMembers();
   const input = { backupUserId: "u3", ownerUserId: "u2" };
   await owned.setOwners(user, agent.id, input);
-  expect(await owned.setOwners(user, agent.id, input)).toMatchObject(input);
+  expect(
+    await owned.setOwners({ ...user, isAdmin: true }, agent.id, input)
+  ).toMatchObject(input);
   expect(await updatedEvents(agent.id)).toHaveLength(1);
 });
 
@@ -1058,7 +1060,7 @@ test("setOwners clears both owners with nulls", async () => {
     ownerUserId: "u2",
   });
   expect(
-    await owned.setOwners(user, agent.id, {
+    await owned.setOwners({ ...user, isAdmin: true }, agent.id, {
       backupUserId: null,
       ownerUserId: null,
     })
@@ -1159,6 +1161,113 @@ test("setOwners refuses a non-user principal", async () => {
       ownerUserId: "u2",
     })
   ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("setOwners lets the creator change owners while no owner is set", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Creator owns",
+    runtime: "fake",
+  });
+  expect(
+    await withMembers().setOwners(user, agent.id, {
+      backupUserId: null,
+      ownerUserId: "u2",
+    })
+  ).toMatchObject({ ownerUserId: "u2" });
+});
+
+test("after the owner moves to u2, u2 can change owners and the former owner is refused", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Handover",
+    runtime: "fake",
+  });
+  const owned = withMembers();
+  const newOwner: Principal = { ...user, userId: "u2" };
+  await owned.setOwners(user, agent.id, {
+    backupUserId: null,
+    ownerUserId: "u2",
+  });
+  expect(
+    await owned.setOwners(newOwner, agent.id, {
+      backupUserId: null,
+      ownerUserId: "u3",
+    })
+  ).toMatchObject({ ownerUserId: "u3" });
+  await expect(
+    owned.setOwners(user, agent.id, { backupUserId: null, ownerUserId: "u1" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.get(user, agent.id)).toMatchObject({
+    ownerUserId: "u3",
+  });
+});
+
+test("setOwners lets an admin session change owners of an agent it does not own", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Admin session",
+    runtime: "fake",
+  });
+  const admin: Principal = { ...user, isAdmin: true, userId: "u2" };
+  expect(
+    await withMembers().setOwners(admin, agent.id, {
+      backupUserId: null,
+      ownerUserId: "u3",
+    })
+  ).toMatchObject({ ownerUserId: "u3" });
+});
+
+test("setOwners lets an admin API key change owners of an agent it does not own", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Admin key",
+    runtime: "fake",
+  });
+  const adminKey: Principal = {
+    ...user,
+    apiKey: { access: "admin", id: "k-admin" },
+    userId: "u2",
+    via: "api_key",
+  };
+  expect(
+    await withMembers().setOwners(adminKey, agent.id, {
+      backupUserId: null,
+      ownerUserId: "u3",
+    })
+  ).toMatchObject({ ownerUserId: "u3" });
+});
+
+test("setOwners refuses a plain member, a write key or a session, and changes nothing", async () => {
+  const agent = await service.create(user, {
+    model: "m",
+    name: "Guarded",
+    runtime: "fake",
+  });
+  const owned = withMembers();
+  await owned.setOwners(user, agent.id, {
+    backupUserId: "u3",
+    ownerUserId: "u2",
+  });
+  const session: Principal = { ...user, userId: "u3" };
+  const writeKey: Principal = {
+    ...user,
+    apiKey: { access: "write", id: "k-write" },
+    userId: "u3",
+    via: "api_key",
+  };
+  const attempt = { backupUserId: null, ownerUserId: "u1" };
+  await expect(
+    owned.setOwners(session, agent.id, attempt)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    owned.setOwners(writeKey, agent.id, attempt)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.get(user, agent.id)).toMatchObject({
+    backupUserId: "u3",
+    ownerUserId: "u2",
+  });
+  expect(await updatedEvents(agent.id)).toHaveLength(1);
 });
 
 test("an agent service built without members refuses setOwners with invalid", async () => {
