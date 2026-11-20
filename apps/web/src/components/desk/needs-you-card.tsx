@@ -1,4 +1,5 @@
 import {
+  type AgentAvatar,
   type DeskCard,
   NEEDS_YOU_HEADINGS,
   type NeedsYouKind,
@@ -18,10 +19,7 @@ import type {
   AnswerPayload,
   RequestView,
 } from "#/components/requests/request-card-logic.ts";
-import {
-  agentInitials,
-  agentTileColour,
-} from "#/components/shell/agent-tile.ts";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import { SpendPause } from "#/components/spend/spend-pause-card.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { SuggestionReview } from "#/components/wiki-suggestions/suggestion-review.tsx";
@@ -304,6 +302,7 @@ export function NeedsYouBody({
 /** A card in the Needs you lane: an ask, a proposal or a thread reply that waits on a person. */
 export function NeedsYouCard({
   agentName,
+  avatar,
   card,
   nowMs,
   onAnswer,
@@ -312,6 +311,7 @@ export function NeedsYouCard({
   version,
 }: {
   agentName: string;
+  avatar: AgentAvatar;
   card: DeskCard;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
@@ -326,11 +326,7 @@ export function NeedsYouCard({
       data-testid="needs-you-card"
     >
       <header className="flex items-center gap-2.5">
-        <span
-          className={`grid size-[30px] shrink-0 place-items-center rounded-lg font-bold text-white text-xs ${agentTileColour(agentName)}`}
-        >
-          {agentInitials(agentName)}
-        </span>
+        <AgentTile avatar={avatar} />
         <h3 className="font-semibold">
           {headingFor(agentName, card.needsYouKind)}
         </h3>

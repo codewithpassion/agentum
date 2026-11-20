@@ -1,4 +1,9 @@
-import type { KeyChip, ReceiptStep, ReceiptStepKind } from "@repo/db/shared";
+import type {
+  AgentAvatar,
+  KeyChip,
+  ReceiptStep,
+  ReceiptStepKind,
+} from "@repo/db/shared";
 import { Fragment } from "react";
 import { bandClass } from "#/components/desk/desk-logic.ts";
 import { ExpandableText } from "#/components/expandable-text/expandable-text.tsx";
@@ -7,10 +12,7 @@ import type {
   AnswerPayload,
   RequestView,
 } from "#/components/requests/request-card-logic.ts";
-import {
-  agentInitials,
-  agentTileColour,
-} from "#/components/shell/agent-tile.ts";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import {
   chipText,
   countText,
@@ -34,10 +36,10 @@ const timeText = (iso: string | null): string | null =>
   iso === null ? null : TIME_FORMAT.format(new Date(iso));
 
 function StepTile({
-  agentName,
+  avatar,
   kind,
 }: {
-  agentName: string;
+  avatar: AgentAvatar;
   kind: ReceiptStepKind;
 }) {
   if (kind === "trigger") {
@@ -47,13 +49,7 @@ function StepTile({
       </span>
     );
   }
-  return (
-    <span
-      className={`grid size-[30px] shrink-0 place-items-center rounded-lg font-bold text-white text-xs ${agentTileColour(agentName)}`}
-    >
-      {agentInitials(agentName)}
-    </span>
-  );
+  return <AgentTile avatar={avatar} />;
 }
 
 function KeyChips({ chips, label }: { chips: KeyChip[]; label: string }) {
@@ -84,14 +80,14 @@ function KeyChips({ chips, label }: { chips: KeyChip[]; label: string }) {
 }
 
 function ReceiptCard({
-  agentName,
+  avatar,
   nowMs,
   onAnswer,
   request,
   startedAt,
   step,
 }: {
-  agentName: string;
+  avatar: AgentAvatar;
   nowMs: number | null;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
   request: RequestView | undefined;
@@ -113,7 +109,7 @@ function ReceiptCard({
       data-testid="receipt-step"
     >
       <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <StepTile agentName={agentName} kind={step.kind} />
+        <StepTile avatar={avatar} kind={step.kind} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{`${step.index}. ${step.title}`}</div>
           <div className="truncate text-muted-foreground text-xs">
@@ -171,14 +167,14 @@ function ReceiptLink({
 
 /** The receipt of a task: one card per step, joined by links that count what moved on. */
 export function Receipt({
-  agentName,
+  avatar,
   events,
   nowMs,
   onAnswer,
   requests,
   steps,
 }: {
-  agentName: string;
+  avatar: AgentAvatar;
   events: readonly { createdAt: string; id: string }[];
   nowMs: number | null;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
@@ -193,7 +189,7 @@ export function Receipt({
       {steps.map((step, index) => (
         <Fragment key={step.index}>
           <ReceiptCard
-            agentName={agentName}
+            avatar={avatar}
             nowMs={nowMs}
             onAnswer={onAnswer}
             request={

@@ -1,28 +1,11 @@
 import type { RailItem, RailScope } from "@repo/db/shared";
-import {
-  agentInitials,
-  agentTileColour,
-} from "#/components/shell/agent-tile.ts";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import { cn } from "#/lib/utils";
 import { RailLink } from "./rail-link.tsx";
 import { dueLabel, extraCardsLabel, rowDetail } from "./rail-logic.ts";
 
 const ROW_CLASS =
   "block min-h-10 rounded-lg border border-border border-l-[3px] bg-card px-2.5 py-2 text-sm no-underline hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-foreground focus-visible:outline-offset-2";
-
-function AgentTile({ name }: { name: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "flex size-[1.125rem] shrink-0 items-center justify-center rounded font-semibold text-[9px] text-white",
-        agentTileColour(name)
-      )}
-    >
-      {agentInitials(name)}
-    </span>
-  );
-}
 
 export function NeedsYouRow({
   fresh,
@@ -62,7 +45,9 @@ export function NeedsYouRow({
         {first.title}
       </span>
       <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-muted-foreground text-xs">
-        {first.agentName === "" ? null : <AgentTile name={first.agentName} />}
+        {first.agentName === "" ? null : (
+          <AgentTile avatar={first.agentAvatar} size="xs" />
+        )}
         {due === null ? null : (
           <span className="font-medium text-primary">{due}</span>
         )}

@@ -20,6 +20,7 @@ import { railScope } from "./scope-storage.ts";
 // first.
 
 const card = (id: string) => ({
+  agentAvatar: { color: "slate" as const, glyph: "?" },
   agentId: "a1",
   agentName: "Alpha",
   at: "2026-10-31T01:00:00.000Z",

@@ -819,6 +819,8 @@ export interface RailMail {
 export interface RailCard {
   /** Set on the A2A kinds: who is asking and what they sent. */
   a2a?: A2aNeedsYou;
+  /** The agent's stored tile, or the default for its name when the card has no stored agent. */
+  agentAvatar: AgentAvatar;
   /** Empty when no agent is involved. */
   agentId: string;
   agentName: string;

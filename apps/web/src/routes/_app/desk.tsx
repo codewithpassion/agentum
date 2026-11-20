@@ -84,8 +84,14 @@ function BoardView() {
   const { agent } = Route.useSearch();
   const navigate = Route.useNavigate();
   const nowMs = useNowMs();
-  const agentNames = useMemo(
-    () => new Map(agents.map((entry) => [entry.id, entry.name])),
+  const agentsById = useMemo(
+    () =>
+      new Map(
+        agents.map((entry) => [
+          entry.id,
+          { avatar: entry.avatar, name: entry.name },
+        ])
+      ),
     [agents]
   );
 
@@ -176,7 +182,7 @@ function BoardView() {
         <p className="text-muted-foreground text-sm">Loading the desk…</p>
       ) : (
         <DeskBoard
-          agentNames={agentNames}
+          agents={agentsById}
           desk={data.desk}
           nowMs={nowMs}
           onAnswer={answer}

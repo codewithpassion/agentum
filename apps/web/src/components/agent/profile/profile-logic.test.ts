@@ -29,6 +29,7 @@ type Channels = Parameters<typeof channelChips>[0];
 type AgentRefs = Parameters<typeof handsToChips>[0];
 
 const header = (overrides: Partial<Header> = {}): Header => ({
+  avatar: { color: "blue", glyph: "S" },
   emailLocal: null,
   id: "agent_1",
   machine: null,

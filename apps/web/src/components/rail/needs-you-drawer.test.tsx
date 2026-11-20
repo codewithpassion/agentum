@@ -17,6 +17,7 @@ const router = createRouter({
 });
 
 const card = (id: string, title: string): RailCard => ({
+  agentAvatar: { color: "slate", glyph: "?" },
   agentId: "",
   agentName: "",
   at: "2026-11-20T09:00:00.000Z",
