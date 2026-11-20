@@ -137,7 +137,8 @@ const composeServices: MiddlewareHandler<AppEnv> = async (c, next) => {
       (work) => {
         c.executionCtx.waitUntil(work);
       },
-      c.executionCtx.exports
+      c.executionCtx.exports,
+      new URL(c.req.url).origin
     )
   );
   await next();
