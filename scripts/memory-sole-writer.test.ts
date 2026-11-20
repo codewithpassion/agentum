@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
-const ROOT = resolve(import.meta.dir, "../../../..");
+const ROOT = resolve(import.meta.dir, "..");
 const SOURCES = ["packages", "apps"];
 // The library defines `writeMemoryFiles`; the memory service's file module is the one caller.
 const ALLOWED = [
