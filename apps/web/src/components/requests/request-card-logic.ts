@@ -23,6 +23,7 @@ import {
   type TakeoverDisplay,
   takeoverDisplaySchema,
 } from "@repo/protocol/requests";
+import { clockTime, type Viewer } from "#/lib/time.ts";
 
 const MS_PER_MINUTE = 60_000;
 const MINUTES_PER_HOUR = 60;
@@ -427,19 +428,20 @@ export const typeQuestion = (
   text: { ...inputs.text, [question]: text },
 });
 
-/** Task conversation wording, with timestamps from the stored closing event. */
+/** Task conversation wording, with timestamps from the stored closing event, in the viewer's zone. */
 export function taskSettlement(
   kind: RequestView["kind"],
   settled: Settled,
   at: string | undefined,
   edited: boolean,
-  fallback: string
+  fallback: string,
+  viewer: Viewer
 ): string {
   if (settled.status === "cancelled" && edited) {
     return "Cancelled, you edited the message";
   }
   if (kind === "takeover" && settled.status === "answered") {
-    return `Handed back${at ? ` at ${at.slice(11, 16)}` : ""}`;
+    return `Handed back${at ? ` at ${clockTime(at, viewer)}` : ""}`;
   }
-  return `${fallback}${at && settled.status === "answered" ? ` at ${at.slice(11, 16)}` : ""}`;
+  return `${fallback}${at && settled.status === "answered" ? ` at ${clockTime(at, viewer)}` : ""}`;
 }

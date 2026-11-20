@@ -106,6 +106,7 @@ const card = (
 ): AgentCard => ({
   avatar: { color: "slate", glyph: name.charAt(0) },
   costThisWeekCents: 0,
+  doneAt: null,
   id,
   isLead: false,
   jobLine: "",

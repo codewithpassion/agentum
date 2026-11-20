@@ -13,6 +13,7 @@ import { tabFocusIndex } from "#/components/task/task-tabs.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
+import { useViewer } from "#/hooks/use-viewer.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
 import {
@@ -593,6 +594,7 @@ export function RequestCard({
   title?: string;
 }) {
   const { user } = useUser();
+  const viewer = useViewer();
 
   if (view.settled !== null) {
     return (
@@ -605,7 +607,8 @@ export function RequestCard({
           view.settled,
           settledAt,
           cancelledByEdit,
-          settledLine(view.kind, view.settled, answeredBy(view.settled, user))
+          settledLine(view.kind, view.settled, answeredBy(view.settled, user)),
+          viewer
         )}
       </p>
     );

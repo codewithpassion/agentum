@@ -2,6 +2,7 @@
 // to the task folder, the tag of an edit made outside it, and the file time.
 
 import type { LibraryVersionOp } from "@repo/db/shared";
+import { clockTime, type Viewer } from "#/lib/time.ts";
 
 /** A path with the task folder stripped from its front, or the path unchanged when it is not under the folder. */
 export const relativeToFolder = (path: string, folder: string): string => {
@@ -20,8 +21,9 @@ export const OUTSIDE_TAGS: Record<LibraryVersionOp, string> = {
 export const outsideTag = (op: LibraryVersionOp, version: number): string =>
   `${OUTSIDE_TAGS[op]} · v${version}`;
 
-/** The HH:MM part of a stored UTC ISO time, such as "10:01" for "2026-10-27T10:01:30.000Z". */
-export const fileTime = (iso: string): string => iso.slice(11, 16);
+/** The time of day a stored UTC ISO time falls on, in the viewer's zone. */
+export const fileTime = (iso: string, viewer: Viewer): string =>
+  clockTime(iso, viewer);
 
 /** The entries of kind "file", in their given order. */
 export const fileEntries = <T extends { kind: "file" | "dir" }>(

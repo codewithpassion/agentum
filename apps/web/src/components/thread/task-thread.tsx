@@ -13,9 +13,11 @@ import {
   sessionRuns,
 } from "#/components/task/thread-runs.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { useViewer } from "#/hooks/use-viewer.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
+import { clockTime } from "#/lib/time.ts";
 import {
   bottomState,
   focusRequest,
@@ -102,6 +104,7 @@ export function TaskThread({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
+  const viewer = useViewer();
   const starting = useRef<Promise<void> | null>(null);
   const [edited, setEdited] = useState<ReadonlySet<string>>(() => new Set());
   // Read after mount: the server render has no session storage.
@@ -138,13 +141,13 @@ export function TaskThread({
       const first = visibleMessages.find((message) => message.runId === run.id);
       if (first) {
         markers.set(first.id, {
-          label: `Task ${index + 1} of ${runs.length}${run.id === task.run.id ? " · this task" : ""} · ${run.createdAt.slice(11, 16)}`,
+          label: `Task ${index + 1} of ${runs.length}${run.id === task.run.id ? " · this task" : ""} · ${clockTime(run.createdAt, viewer)}`,
           runId: run.id,
         });
       }
     }
     return markers;
-  }, [runs, visibleMessages, task.run.id]);
+  }, [runs, visibleMessages, task.run.id, viewer]);
   const viewedMessageIds = useMemo(
     () =>
       new Set(
@@ -203,12 +206,12 @@ export function TaskThread({
               : [
                   [
                     message.id,
-                    `${label}${message.createdAt ? ` · ${message.createdAt.slice(11, 16)}` : ""}`,
+                    `${label}${message.createdAt ? ` · ${clockTime(message.createdAt, viewer)}` : ""}`,
                   ] as const,
                 ];
           })
       ),
-    [messages, task.startedBy]
+    [messages, task.startedBy, viewer]
   );
   const memberLabels = useMemo(
     () =>
@@ -220,10 +223,10 @@ export function TaskThread({
           )
           .map((message) => [
             message.id,
-            `${message.actorDisplay?.name ?? task.startedBy.label}${message.createdAt ? ` · ${message.createdAt.slice(11, 16)}` : ""}`,
+            `${message.actorDisplay?.name ?? task.startedBy.label}${message.createdAt ? ` · ${clockTime(message.createdAt, viewer)}` : ""}`,
           ])
       ),
-    [messages, outsideLabels, task.startedBy.label]
+    [messages, outsideLabels, task.startedBy.label, viewer]
   );
   const lastAnswer = messages.findLast(
     (message) => message.role === "assistant" && message.runId === task.run.id

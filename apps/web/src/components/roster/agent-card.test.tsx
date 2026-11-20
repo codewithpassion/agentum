@@ -17,6 +17,7 @@ const router = createRouter({
 const baseCard: AgentCard = {
   avatar: { color: "blue", glyph: "R" },
   costThisWeekCents: 410,
+  doneAt: null,
   id: "agent_123",
   isLead: false,
   jobLine: "Reviews incoming vendor invoices",

@@ -1,11 +1,14 @@
 import type { ActionLogEntry } from "@repo/db/shared";
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button.tsx";
+import { useViewer } from "#/hooks/use-viewer.ts";
+import { clockTime } from "#/lib/time.ts";
 import { logTagClass } from "./task-logic.ts";
 
 function LogRow({ entry }: { entry: ActionLogEntry }) {
   const [expanded, setExpanded] = useState(false);
   const expand = useCallback(() => setExpanded(true), []);
+  const viewer = useViewer();
   return (
     <li
       className="grid grid-cols-[52px_1fr] gap-2 border-b py-2 text-sm md:grid-cols-[52px_92px_1fr]"
@@ -13,7 +16,7 @@ function LogRow({ entry }: { entry: ActionLogEntry }) {
       data-testid="action-log-entry"
     >
       <time className="text-muted-foreground text-xs" dateTime={entry.at}>
-        {entry.at.slice(11, 16)}
+        {clockTime(entry.at, viewer)}
       </time>
       <span
         className={`self-start justify-self-start rounded px-1.5 py-px font-mono text-[11px] ${logTagClass(entry.kind)}`}

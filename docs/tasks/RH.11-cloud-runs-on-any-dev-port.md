@@ -3,9 +3,9 @@ id: RH.11
 title: "Cloud runs on any dev port"
 milestone: RH
 size: S
-status: todo
+status: in_progress
 depends_on: [RH.7]
-branch: null
+branch: task/RH.11-cloud-runs-on-any-dev-port
 lane: worker
 executor: claude
 ---
@@ -25,3 +25,4 @@ A test with a mismatched localhost URL. Browser: a Cloud agent on a non-default 
 
 ## Log
 - 2026-11-20: added from the RH walkthrough.
+- 2026-11-21: dispatched.

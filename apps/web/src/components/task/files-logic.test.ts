@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
+import type { Viewer } from "#/lib/time.ts";
 import {
   fileEntries,
   fileTime,
   outsideTag,
   relativeToFolder,
 } from "./files-logic.ts";
+
+const SYDNEY: Viewer = { locale: "en-AU", timeZone: "Australia/Sydney" };
+const UTC: Viewer = { locale: "en-GB", timeZone: "UTC" };
 
 test("a path under the folder loses the folder prefix", () => {
   expect(
@@ -34,9 +38,14 @@ test("each edit op has its own tag with the version", () => {
   expect(outsideTag("move", 12)).toBe("moved · v12");
 });
 
-test("a file time is its HH:MM part, read as stored", () => {
-  expect(fileTime("2026-10-27T10:01:30.000Z")).toBe("10:01");
-  expect(fileTime("2026-10-27T23:59:00.000Z")).toBe("23:59");
+test("a file time shows the clock in the viewer's zone", () => {
+  expect(fileTime("2026-10-27T10:01:30.000Z", SYDNEY)).toBe("9:01 pm");
+  expect(fileTime("2026-10-27T23:59:00.000Z", SYDNEY)).toBe("10:59 am");
+});
+
+test("a file time for a UTC viewer is the stored UTC clock", () => {
+  expect(fileTime("2026-10-27T10:01:30.000Z", UTC)).toBe("10:01");
+  expect(fileTime("2026-10-27T23:59:00.000Z", UTC)).toBe("23:59");
 });
 
 test("the file entries keep only files, in order", () => {
