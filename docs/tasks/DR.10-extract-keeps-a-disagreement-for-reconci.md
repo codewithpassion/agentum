@@ -3,9 +3,9 @@ id: DR.10
 title: "Extract keeps a disagreement for reconcile"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [DR.7]
-branch: null
+branch: task/DR.10-extract-keeps-a-disagreement-for-reconci
 lane: services-dream-inputs
 executor: claude
 ---
@@ -23,3 +23,4 @@ extract tests with a fake model for both shapes. A real-model run of two people 
 
 ## Log
 - 2026-11-20: added from the dream walkthrough.
+- 2026-11-21: dispatched.
