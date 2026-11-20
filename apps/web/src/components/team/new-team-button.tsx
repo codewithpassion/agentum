@@ -36,7 +36,7 @@ export function NewTeamButton({
       );
       if (failed.length > 0) {
         toast.warning(
-          `${team.name} was created, but ${failed.length} could not be added. Add them on the team page.`
+          `${team.name} was created, but ${failed.length} could not be added (${failed[0]?.reason}). Add them on the team page.`
         );
       }
       setOpen(false);

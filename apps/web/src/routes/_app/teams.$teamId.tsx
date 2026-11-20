@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_app/teams/$teamId")({
         trpc.teams.get.query({ teamId: params.teamId }),
         trpc.roster.list.query(),
         trpc.members.list.query().catch(() => null),
-        trpc.teams.profiles.get.query({}),
+        trpc.teams.profiles.get.query({}).catch(() => null),
         trpc.jobs.list.query().catch(() => null),
       ]);
       return { agents, jobs, people, profile, team };
@@ -25,16 +25,21 @@ export const Route = createFileRoute("/_app/teams/$teamId")({
 function TeamRoute() {
   const { agents, jobs, people, profile, team } = Route.useLoaderData();
   const { orgRole, userId } = useAuth();
-  const canEdit = canEditTeam({
-    isAdmin: orgRole === "org:admin",
-    ownerUserId: team.ownerUserId,
-    userId,
-  });
+  // An archived team refuses every change except removing a member.
+  const canEdit =
+    team.archivedAt === null &&
+    canEditTeam({
+      isAdmin: orgRole === "org:admin",
+      ownerUserId: team.ownerUserId,
+      userId,
+    });
   return (
     <TeamPage
       agents={agents}
       canEdit={canEdit}
       jobs={jobs}
+      // The page keeps form state, so another team must remount it.
+      key={team.id}
       people={people}
       profile={profile}
       team={team}
