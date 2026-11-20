@@ -15,6 +15,7 @@ const run = (overrides: Partial<DreamRun> = {}): DreamRun => ({
   diary: "",
   error: null,
   finishedAt: null,
+  heldChanges: 0,
   id: "run_1",
   resultVersion: null,
   since: null,

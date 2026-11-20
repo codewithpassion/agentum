@@ -1,4 +1,4 @@
-import type { DreamRun, DreamSchedule } from "@repo/db/shared";
+import type { DreamDecision, DreamRun, DreamSchedule } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 import { useCallback } from "react";
@@ -12,6 +12,7 @@ import {
   questionsSentence,
 } from "./dream-logic.ts";
 import { DreamSchedulePicker } from "./dream-schedule.tsx";
+import { HeldBatch } from "./held-batch.tsx";
 import { SeeChanges } from "./see-changes.tsx";
 import type { DreamPending } from "./use-dream.ts";
 
@@ -21,6 +22,7 @@ export interface DreamCardProps {
   /** An archived agent: no button acts. */
   disabled: boolean;
   nowMs: number;
+  onDecide: (dreamRunId: string, decision: DreamDecision) => void;
   onRunNow: () => void;
   onSchedule: (schedule: DreamSchedule) => void;
   onUndo: (dreamRunId: string) => void;
@@ -52,10 +54,18 @@ function UndoNight({
   );
 }
 
+/** The decision being sent for a held batch, or null when the card waits for something else. */
+function decisionPending(
+  pending: DreamCardProps["pending"]
+): DreamDecision | null {
+  return pending === "approve" || pending === "reject" ? pending : null;
+}
+
 function DreamBody({
   agentName,
   canChange,
   disabled,
+  onDecide,
   onUndo,
   pending,
   state,
@@ -63,6 +73,7 @@ function DreamBody({
   agentName: string;
   canChange: boolean;
   disabled: boolean;
+  onDecide: (dreamRunId: string, decision: DreamDecision) => void;
   onUndo: (dreamRunId: string) => void;
   pending: DreamCardProps["pending"];
   state: DreamCardState;
@@ -95,6 +106,22 @@ function DreamBody({
             {state.run.error}
           </p>
         )}
+      </>
+    );
+  }
+  if (state.kind === "held") {
+    return (
+      <>
+        <p className="whitespace-pre-line [overflow-wrap:anywhere]">
+          {state.run.diary}
+        </p>
+        <HeldBatch
+          canDecide={canChange}
+          disabled={disabled}
+          dreamRunId={state.run.id}
+          onDecide={onDecide}
+          pending={decisionPending(pending)}
+        />
       </>
     );
   }
@@ -145,6 +172,7 @@ export function DreamCard({
   canChange,
   disabled,
   nowMs,
+  onDecide,
   onRunNow,
   onSchedule,
   onUndo,
@@ -168,6 +196,7 @@ export function DreamCard({
         agentName={agentName}
         canChange={canChange}
         disabled={disabled}
+        onDecide={onDecide}
         onUndo={onUndo}
         pending={pending}
         state={state}

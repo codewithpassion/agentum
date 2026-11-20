@@ -275,6 +275,9 @@ export const plainTitle = (card: CardFacts): string => {
   if (card.kind === "dream_question") {
     return NEEDS_YOU_HEADINGS.dream_question(card.agentName);
   }
+  if (card.kind === "dream_held") {
+    return NEEDS_YOU_HEADINGS.dream_held(card.agentName);
+  }
   if (card.kind !== "approval") {
     return card.title;
   }
@@ -329,6 +332,9 @@ export const plainStatus = (card: CardFacts): string => {
   }
   if (card.kind === "dream_question") {
     return "Question from its dream";
+  }
+  if (card.kind === "dream_held") {
+    return "Waiting for your approval";
   }
   return NEEDS_YOU_HEADINGS[card.kind](card.agentName);
 };

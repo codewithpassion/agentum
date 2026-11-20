@@ -1,13 +1,14 @@
-import type { DreamRun } from "@repo/db/shared";
+import type { DreamDecision, DreamRun } from "@repo/db/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
 
 /** What the dream card waits for: a dream started here, or a night being undone. */
-export type DreamPending = "run" | "undo";
+export type DreamPending = "run" | "undo" | DreamDecision;
 
 /** One agent's dreams and the actions on them. */
 export interface DreamApi {
+  decide: (dreamRunId: string, decision: DreamDecision) => void;
   error: string | undefined;
   pending: DreamPending | null;
   runNow: () => void;
@@ -90,5 +91,14 @@ export function useDream(
     [act]
   );
 
-  return { error, pending, runNow, runs, undo };
+  const decide = useCallback(
+    (dreamRunId: string, decision: DreamDecision) => {
+      act(decision, () =>
+        getTrpc().dream.decide.mutate({ decision, dreamRunId })
+      );
+    },
+    [act]
+  );
+
+  return { decide, error, pending, runNow, runs, undo };
 }

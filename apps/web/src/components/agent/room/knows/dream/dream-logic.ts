@@ -11,6 +11,7 @@ export type DreamCardState =
   | { kind: "skipped"; run: DreamRun }
   | { kind: "failed"; run: DreamRun }
   | { kind: "undone"; run: DreamRun }
+  | { kind: "held"; run: DreamRun }
   | { kind: "done"; questions: number; run: DreamRun };
 
 const DAY_MS = 86_400_000;
@@ -36,6 +37,9 @@ export function dreamCardState(runs: readonly DreamRun[]): DreamCardState {
   const [newest] = sortRuns(runs);
   if (!newest) {
     return { kind: "none" };
+  }
+  if (newest.status === "done" && newest.heldChanges > 0) {
+    return { kind: "held", run: newest };
   }
   if (newest.status === "done") {
     return {
@@ -105,10 +109,15 @@ export function dreamTitle(startedAt: string, nowMs: number): string {
   return `Dream from ${days} days ago`;
 }
 
-/** Only a finished dream that changed notes can be undone. */
+/** Only a finished dream that wrote its changes can be undone. A held or rejected batch wrote nothing, so there is nothing to undo. */
 export function canUndoRun(run: DreamRun): boolean {
   const { added, dropped, merged } = run.counts;
-  return run.status === "done" && added + dropped + merged > 0;
+  return (
+    run.status === "done" &&
+    run.heldChanges === 0 &&
+    run.resultVersion !== null &&
+    added + dropped + merged > 0
+  );
 }
 
 export const RUN_STATUS_LABELS: Record<DreamRunStatus, string> = {

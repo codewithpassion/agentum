@@ -90,6 +90,7 @@ const api = (over: Partial<MemoryData> = {}): MemoryApi => ({
 });
 
 const dreamApi = (over: Partial<DreamApi> = {}): DreamApi => ({
+  decide: noop,
   error: undefined,
   pending: null,
   runNow: noop,
@@ -144,6 +145,7 @@ test("the dream card shows the latest dream and Dream now for the owner", () => 
     diary: "Sorter reviewed 14 conversations.",
     error: null,
     finishedAt: "2026-11-20T02:05:00.000Z",
+    heldChanges: 0,
     id: "dream_1",
     resultVersion: null,
     since: null,

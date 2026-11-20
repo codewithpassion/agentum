@@ -25,6 +25,7 @@ const run = (overrides: Partial<DreamRun> = {}): DreamRun => ({
   diary: "",
   error: null,
   finishedAt: null,
+  heldChanges: 0,
   id: "run_1",
   resultVersion: null,
   since: null,
@@ -40,6 +41,7 @@ const props = (overrides: Partial<DreamCardProps> = {}): DreamCardProps => ({
   canChange: true,
   disabled: false,
   nowMs: NOW,
+  onDecide: noop,
   onRunNow: noop,
   onSchedule: noop,
   onUndo: noop,
@@ -187,6 +189,7 @@ test("a done dream shows the diary and what it changed, with no question line", 
       run({
         counts: { added: 2, dropped: 0, merged: 1, questions: 0 },
         diary: "Tidied the people notes.",
+        resultVersion: "version_1",
         status: "done",
       }),
     ],
@@ -238,6 +241,7 @@ test("Dream now and the schedule picker are absent without canChange, and the sc
 test("a member cannot undo a night, and a night that changed nothing has no Undo", () => {
   const changed = run({
     counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+    resultVersion: "version_1",
     status: "done",
   });
   const asMember = render({ canChange: false, runs: [changed] });
@@ -253,6 +257,7 @@ test("an archived agent gets no buttons that act", () => {
     runs: [
       run({
         counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+        resultVersion: "version_1",
         status: "done",
       }),
     ],
@@ -271,6 +276,7 @@ test("Dream now shows Dreaming and Undo shows Undoing while those actions are pe
     runs: [
       run({
         counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+        resultVersion: "version_1",
         status: "done",
       }),
     ],
@@ -318,6 +324,7 @@ test("clicking Undo this night calls onUndo with the run id", async () => {
           run({
             counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
             id: "run_7",
+            resultVersion: "version_1",
             status: "done",
           }),
         ],
@@ -347,6 +354,71 @@ test("clicking a schedule option calls onSchedule with that schedule", async () 
     const radio = weekly?.querySelector("button");
     await act(async () => radio?.click());
     expect(chosen).toEqual(["weekly"]);
+  } finally {
+    await unmount();
+  }
+});
+
+const heldRun = (overrides: Partial<DreamRun> = {}): DreamRun =>
+  run({
+    counts: { added: 1, dropped: 1, merged: 0, questions: 0 },
+    diary: "Two changes to hold.",
+    heldChanges: 2,
+    id: "run_held",
+    status: "done",
+    ...overrides,
+  });
+
+test("a held dream shows its diary and the held batch with Approve and Reject", () => {
+  const document = render({ runs: [heldRun()] });
+  expect(card(document)?.getAttribute("data-state")).toBe("held");
+  expect(card(document)?.textContent).toContain("Two changes to hold.");
+  expect(document.querySelector('[data-testid="held-batch"]')).not.toBeNull();
+  expect(buttonNamed(document, "Approve")?.disabled).toBe(false);
+  expect(buttonNamed(document, "Reject")?.disabled).toBe(false);
+});
+
+test("a held dream for a member shows the batch with no Approve or Reject and no Dream now", () => {
+  const document = render({ canChange: false, runs: [heldRun()] });
+  expect(document.querySelector('[data-testid="held-batch"]')).not.toBeNull();
+  expect(buttonNamed(document, "Approve")).toBeUndefined();
+  expect(buttonNamed(document, "Reject")).toBeUndefined();
+  expect(buttonNamed(document, "Dream now")).toBeUndefined();
+});
+
+test("a held dream has no Undo button and no counts line", () => {
+  const document = render({ runs: [heldRun()] });
+  expect(buttonNamed(document, "Undo this night")).toBeUndefined();
+  expect(card(document)?.textContent).not.toContain("Added 1 note");
+});
+
+test("the held batch's buttons are disabled for an archived agent", () => {
+  const document = render({ disabled: true, runs: [heldRun()] });
+  expect(buttonNamed(document, "Approve")?.disabled).toBe(true);
+  expect(buttonNamed(document, "Reject")?.disabled).toBe(true);
+});
+
+test("clicking Approve and Reject on a held dream calls onDecide with the run id and the decision", async () => {
+  const decided: string[][] = [];
+  const { container, unmount } = await mount(
+    <DreamCard
+      {...props({
+        onDecide: (id, decision) => decided.push([id, decision]),
+        runs: [heldRun()],
+      })}
+    />
+  );
+  try {
+    const find = (name: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent === name
+      );
+    await act(async () => find("Approve")?.click());
+    await act(async () => find("Reject")?.click());
+    expect(decided).toEqual([
+      ["run_held", "approve"],
+      ["run_held", "reject"],
+    ]);
   } finally {
     await unmount();
   }

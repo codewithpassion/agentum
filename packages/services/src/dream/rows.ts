@@ -45,7 +45,7 @@ const usageSchema = z.object({
   outputTokens: z.number().optional(),
 });
 
-export const toRun = (row: RunRow): DreamRun => {
+export const toRun = (row: RunRow, heldChanges = 0): DreamRun => {
   const counts = countsSchema.safeParse(parseJson(row.counts));
   const base = z.array(z.string()).safeParse(parseJson(row.baseVersion));
   const usage: DreamUsage | null = row.usage
@@ -60,6 +60,7 @@ export const toRun = (row: RunRow): DreamRun => {
     diary: row.diary,
     error: row.error,
     finishedAt: row.finishedAt,
+    heldChanges,
     id: row.id,
     resultVersion: row.resultVersion,
     since: row.since,

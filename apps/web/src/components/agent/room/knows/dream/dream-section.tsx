@@ -34,7 +34,7 @@ export function DreamSection({
     (dreamSchedule: DreamSchedule) => setRules({ ...rules, dreamSchedule }),
     [rules, setRules]
   );
-  const { error, pending, runNow, runs, undo } = dream;
+  const { decide, error, pending, runNow, runs, undo } = dream;
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="dream-section">
       {error === undefined ? null : (
@@ -49,6 +49,7 @@ export function DreamSection({
             canChange={canChange}
             disabled={disabled}
             nowMs={nowMs}
+            onDecide={decide}
             onRunNow={runNow}
             onSchedule={changeSchedule}
             onUndo={undo}

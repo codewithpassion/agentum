@@ -30,6 +30,7 @@ function makeRun(overrides: Partial<DreamRun>): DreamRun {
     diary: "",
     error: null,
     finishedAt: null,
+    heldChanges: 0,
     id: "run-1",
     resultVersion: null,
     since: null,
@@ -112,6 +113,28 @@ test("dreamCardState of a done run carries its question count", () => {
   expect(dreamCardState([run])).toEqual({
     kind: "done",
     questions: 3,
+    run,
+  });
+});
+
+test("dreamCardState of a done run with held changes is held", () => {
+  const run = makeRun({
+    counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+    heldChanges: 2,
+    status: "done",
+  });
+  expect(dreamCardState([run])).toEqual({ kind: "held", run });
+});
+
+test("dreamCardState of a done run with no held changes is done", () => {
+  const run = makeRun({
+    counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+    heldChanges: 0,
+    status: "done",
+  });
+  expect(dreamCardState([run])).toEqual({
+    kind: "done",
+    questions: 0,
     run,
   });
 });
@@ -259,17 +282,44 @@ test("dreamTitle gives the day count for older dreams", () => {
 test("canUndoRun is true only for a done run that changed notes", () => {
   const changed = { added: 1, dropped: 0, merged: 0, questions: 0 };
   for (const status of ALL_STATUSES) {
-    expect(canUndoRun(makeRun({ counts: changed, status }))).toBe(
-      status === "done"
-    );
+    expect(
+      canUndoRun(
+        makeRun({ counts: changed, resultVersion: "version-1", status })
+      )
+    ).toBe(status === "done");
   }
-  expect(canUndoRun(makeRun({ status: "done" }))).toBe(false);
+  expect(
+    canUndoRun(makeRun({ resultVersion: "version-1", status: "done" }))
+  ).toBe(false);
   expect(
     canUndoRun(
       makeRun({
         counts: { added: 0, dropped: 0, merged: 0, questions: 3 },
         status: "done",
       })
+    )
+  ).toBe(false);
+});
+
+test("canUndoRun is false for a held run, whose changes were never written", () => {
+  const changed = { added: 1, dropped: 0, merged: 0, questions: 0 };
+  expect(
+    canUndoRun(
+      makeRun({
+        counts: changed,
+        heldChanges: 2,
+        resultVersion: "version-1",
+        status: "done",
+      })
+    )
+  ).toBe(false);
+});
+
+test("canUndoRun is false for a run with no result version", () => {
+  const changed = { added: 1, dropped: 0, merged: 0, questions: 0 };
+  expect(
+    canUndoRun(
+      makeRun({ counts: changed, resultVersion: null, status: "done" })
     )
   ).toBe(false);
 });
