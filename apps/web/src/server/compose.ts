@@ -298,6 +298,7 @@ import {
   createSlackSendService,
   type SlackSendService,
 } from "@repo/services/slack-send";
+import { createSpendService, type SpendService } from "@repo/services/spend";
 import {
   createTakeoverService,
   type TakeoverService,
@@ -543,6 +544,7 @@ export interface Services {
   slackHistory: SlackHistoryService;
   slackRequests: SlackRequests;
   slackSend: SlackSendService;
+  spend: SpendService;
   takeover: TakeoverService;
   tasks: TasksService;
   triggers: TriggersService;
@@ -1373,7 +1375,7 @@ export const composeWith = ({
       artifacts: liveArtifactMutations(artifacts, liveArtifacts),
       assistant,
       browser,
-      catalog: createCatalogService(),
+      catalog: createCatalogService({ clock: infra.clock, db }),
       connections,
       connectorOAuth,
       connectors,
@@ -1454,6 +1456,11 @@ export const composeWith = ({
       slackHistory,
       slackRequests,
       slackSend,
+      spend: createSpendService({
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+      }),
       takeover,
       tasks,
       triggers,
