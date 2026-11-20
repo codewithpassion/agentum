@@ -35,4 +35,4 @@ The fixes: `dream_questions.team_id` and a nullable `dream_questions.agent_id`, 
 
 ## Beyond the scope
 
-- Dreams and team dreams are not yet counted in spend (see the DR.1 record).
+- A team dream's cost is in `dream_runs.usage` with no agent. `spend.ts` joins dream runs to agents, so it skips team dreams. The controller should name who owns charging a team dream (the lead, or the workspace).
