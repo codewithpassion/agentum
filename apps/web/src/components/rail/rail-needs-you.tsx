@@ -66,7 +66,7 @@ export function NeedsYouRow({
         {due === null ? null : (
           <span className="font-medium text-primary">{due}</span>
         )}
-        <span>{rowDetail(first)}</span>
+        <span className="min-w-0 break-words">{rowDetail(first)}</span>
         {first.passedOnBy === null ? null : (
           <span>passed on by {first.passedOnBy}</span>
         )}

@@ -139,5 +139,8 @@ test("a long held note is clipped", () => {
 
 test("a held note with no text and other cards keep their status", () => {
   expect(rowDetail(railCard({ kind: "memory_note" }))).toBe("mem-cloud asks");
+  expect(rowDetail(railCard({ detail: " \n ", kind: "memory_note" }))).toBe(
+    "mem-cloud asks"
+  );
   expect(rowDetail(railCard({ detail: "Which date?" }))).toBe("mem-cloud asks");
 });
