@@ -36,7 +36,7 @@ export function bottomState({
   return origin === "ui" || subThread ? "composer" : "routing";
 }
 
-/** The split's available width excludes the rail. Below 920px use the tab. */
+/** The split's available width is the page's. Below 920px use the tab. */
 export const computerWidth = (available: number): number | null =>
   available < 920 ? null : Math.min(560, available - 560);
 

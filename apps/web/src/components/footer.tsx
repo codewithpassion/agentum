@@ -1,7 +1,7 @@
 import { useIsAppShell } from "#/hooks/use-app-shell";
 
 interface FooterProps {
-  /** Render the app-shell footer, which sits inside the sidebar inset. */
+  /** Render the app-shell footer, which sits under the page content. */
   shell?: boolean;
 }
 

@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { dueLabel, extraCardsLabel, openQuestionsLabel } from "./rail-logic.ts";
+import {
+  actionableNeedsYou,
+  dueLabel,
+  extraCardsLabel,
+  needsYouLabel,
+  openQuestionsLabel,
+} from "./rail-logic.ts";
 
 const now = new Date(2026, 9, 31, 10, 0);
 
@@ -68,4 +74,31 @@ test("open questions label counts questions and is null at zero", () => {
   expect(openQuestionsLabel(1)).toBe("1 open question");
   expect(openQuestionsLabel(2)).toBe("2 open questions");
   expect(openQuestionsLabel(14)).toBe("14 open questions");
+});
+
+const firstItem = { cards: [{ id: "card-1" }], id: "a" };
+const secondItem = { cards: [{ id: "card-2" }, { id: "card-3" }], id: "b" };
+const waitingItems = [firstItem, secondItem];
+
+test("needs you keeps every item when there are none", () => {
+  expect(actionableNeedsYou([], "card-1")).toEqual([]);
+});
+
+test("needs you drops an item with a card under the live task control", () => {
+  expect(actionableNeedsYou(waitingItems, "card-3")).toEqual([firstItem]);
+  expect(actionableNeedsYou(waitingItems, "card-1")).toEqual([secondItem]);
+});
+
+test("needs you keeps every item when there is no task control", () => {
+  expect(actionableNeedsYou(waitingItems, null)).toEqual(waitingItems);
+  expect(actionableNeedsYou(waitingItems, undefined)).toEqual(waitingItems);
+});
+
+test("needs you label is empty before the first answer", () => {
+  expect(needsYouLabel(null)).toBe("");
+});
+
+test("needs you label shows zero and positive counts", () => {
+  expect(needsYouLabel(0)).toBe("0");
+  expect(needsYouLabel(3)).toBe("3");
 });

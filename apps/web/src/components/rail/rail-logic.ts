@@ -70,3 +70,17 @@ export function openQuestionsLabel(count: number): string | null {
   }
   return count === 1 ? "1 open question" : `${count} open questions`;
 }
+
+/** Items the person can act on. An item under their live task control is not. */
+export function actionableNeedsYou<
+  T extends { cards: readonly { id: string }[] },
+>(items: readonly T[], controlRequestId: string | null | undefined): T[] {
+  return items.filter(
+    (item) => !item.cards.some((card) => card.id === controlRequestId)
+  );
+}
+
+/** Badge text for the Needs you count. Empty until the first answer. */
+export function needsYouLabel(count: number | null): string {
+  return count === null ? "" : String(count);
+}

@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SidebarProvider } from "#/components/ui/sidebar";
 import { type PinnedArtifact, pinnedHref, sortPinned } from "./pinned-logic.ts";
 import { PinnedSidebarGroup } from "./pinned-sidebar.tsx";
 import { PinnedDeskTiles } from "./pinned-tiles.tsx";
@@ -40,18 +39,12 @@ test("desk tiles list each pin as a link, and nothing without pins", () => {
   expect(html.indexOf("First")).toBeLessThan(html.indexOf("Second"));
 });
 
-test("the sidebar group lists pins under a Pinned label, and nothing without pins", () => {
-  expect(
-    renderToStaticMarkup(
-      <SidebarProvider>
-        <PinnedSidebarGroup pins={[]} />
-      </SidebarProvider>
-    )
-  ).not.toContain("Pinned");
+test("the drawer group lists pins under a Pinned label, and nothing without pins", () => {
+  expect(renderToStaticMarkup(<PinnedSidebarGroup pins={[]} />)).not.toContain(
+    "Pinned"
+  );
   const html = renderToStaticMarkup(
-    <SidebarProvider>
-      <PinnedSidebarGroup pins={[pin({ title: "Sales" })]} />
-    </SidebarProvider>
+    <PinnedSidebarGroup pins={[pin({ title: "Sales" })]} />
   );
   expect(html).toContain("Pinned");
   expect(html).toContain("Sales");
