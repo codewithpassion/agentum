@@ -130,6 +130,7 @@ import {
   type StartRunOptions,
   startRunInputSchema,
   TERMINAL_STATUSES,
+  type Usage,
   usageSchema,
 } from "./runs/types.ts";
 import type { SecretsService } from "./secrets.ts";
@@ -2022,7 +2023,11 @@ export const createRunsService = ({
    * close). The process has already exited, so the run ends `interrupted` with
    * `process_ended_at` set, and Retry is offered at once.
    */
-  const abortedCompletion = async (principal: Principal, run: RunRecord) => {
+  const abortedCompletion = async (
+    principal: Principal,
+    run: RunRecord,
+    usage?: Usage
+  ) => {
     if (!LIVE.includes(run.status)) {
       await recordProcessEnded(run);
       return;
@@ -2035,6 +2040,7 @@ export const createRunsService = ({
         finishedAt: now,
         processEndedAt: now,
         status: "interrupted",
+        ...(usage ? { usage: JSON.stringify(usage) } : {}),
       })
       .where(
         and(
@@ -2048,6 +2054,9 @@ export const createRunsService = ({
       throw new ServiceError("conflict", "Run is no longer running");
     }
     await appendRunEvent(run, "run.interrupted", eventActor(principal));
+    if (usage) {
+      await enforceCap(run.agentId);
+    }
     await wakeEnded(run);
   };
 
@@ -2308,6 +2317,44 @@ export const createRunsService = ({
     }
   };
 
+  /**
+   * A runtime reports its cost after its run was cancelled or interrupted.
+   * Only `usage` is written, so status, reply and events stay as they are.
+   */
+  const recordLateUsage = async (run: RunRecord, usage: Usage) => {
+    await db
+      .update(runs)
+      .set({ usage: JSON.stringify(usage) })
+      .where(
+        and(
+          eq(runs.id, run.id),
+          inArray(runs.status, ["cancelled", "interrupted"])
+        )
+      );
+    await enforceCap(run.agentId);
+  };
+
+  /**
+   * Handles a completion that needs no live run: an `aborted` one, or a late
+   * report with usage for a run that is already cancelled or interrupted.
+   * Returns true when it handled the completion.
+   */
+  const completeEndedRun = async (
+    principal: Principal,
+    run: RunRecord,
+    result: RunResult
+  ): Promise<boolean> => {
+    const ended = run.status === "cancelled" || run.status === "interrupted";
+    if (ended && result.usage) {
+      await recordLateUsage(run, result.usage);
+    }
+    if (result.status === "aborted") {
+      await abortedCompletion(principal, run, result.usage);
+      return true;
+    }
+    return ended && result.usage !== undefined;
+  };
+
   const completeRun = async (
     principal: Principal,
     runId: string,
@@ -2319,8 +2366,10 @@ export const createRunsService = ({
       runResultSchema.parse(rawResult),
       await runMasker(run)
     );
-    if (result.status === "aborted") {
-      await abortedCompletion(principal, run);
+    if (
+      (await completeEndedRun(principal, run, result)) ||
+      result.status === "aborted"
+    ) {
       return;
     }
     if (!LIVE.includes(run.status)) {

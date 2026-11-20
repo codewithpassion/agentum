@@ -81,7 +81,7 @@ import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
 import { buildLaunchContext } from "../runs/launch-context.ts";
 import { notHeldByPause } from "../runs/pause-hold.ts";
 import { loadRun } from "../runs/queries.ts";
-import type { Clock, RunRecord } from "../runs/types.ts";
+import type { Clock, RunRecord, Usage } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
@@ -123,6 +123,7 @@ import {
   type ManagedPollerPort,
   type ManagedStepResult,
 } from "./types.ts";
+import { managedRunUsage } from "./usage.ts";
 
 /** How often a running run's session is read. */
 export const POLL_MS = 2000;
@@ -336,11 +337,27 @@ export const createManagedService = ({
     return tokenKey;
   };
 
-  const failRun = async (run: RunRecord, error: string) => {
+  /** What the run's session used, for a run that has one. */
+  const usageOf = (
+    run: RunRecord,
+    session: Pick<SessionRow, "anthropicSessionId">,
+    gateway: ManagedGateway
+  ) =>
+    session.anthropicSessionId
+      ? managedRunUsage({
+          db,
+          gateway,
+          run,
+          sessionId: session.anthropicSessionId,
+        })
+      : Promise.resolve(undefined);
+
+  const failRun = async (run: RunRecord, error: string, usage?: Usage) => {
     try {
       await runsApi.completeRun(SYSTEM_PRINCIPAL, run.id, {
         error,
         status: "failed",
+        ...(usage ? { usage } : {}),
       });
     } catch (caught) {
       // Cancelled or finished meanwhile: the run is no longer ours to fail.
@@ -1101,9 +1118,10 @@ export const createManagedService = ({
     gateway: ManagedGateway,
     error: string
   ) => {
+    const usage = await usageOf(run, session, gateway);
     // Whatever the session was doing is unknown, so it is never reused.
     await closeSession(session, gateway);
-    await failRun(run, error);
+    await failRun(run, error, usage);
     await offerNext(run);
   };
 
@@ -1492,9 +1510,11 @@ export const createManagedService = ({
     }
     if (outcome.status === "idle") {
       const text = await finalReply(db, run);
+      const usage = await usageOf(run, session, gateway);
       await runsApi.completeRun(SYSTEM_PRINCIPAL, run.id, {
         status: "done",
         text,
+        ...(usage ? { usage } : {}),
       });
       await offerNext(run);
       return DONE;
@@ -1663,6 +1683,29 @@ export const createManagedService = ({
       : { answer: DONE };
   };
 
+  /** What the run's session used, read from scratch. Undefined when there is no session or key, or the read fails. */
+  const usageOfSessionOf = async (
+    run: RunRecord
+  ): Promise<Usage | undefined> => {
+    try {
+      const [[session], key] = await Promise.all([
+        db
+          .select()
+          .from(managedSessions)
+          .where(eq(managedSessions.sessionId, run.sessionId))
+          .limit(1),
+        keys.resolve(run.workspaceId),
+      ]);
+      return session && key
+        ? await usageOf(run, session, gatewayOf(run.workspaceId, key))
+        : undefined;
+    } catch (error) {
+      console.error(
+        `Reading the usage of managed run ${run.id} failed: ${describeError(error)}`
+      );
+    }
+  };
+
   const step = async (runId: string): Promise<ManagedStepResult> => {
     const ready = await prepare(runId);
     if ("answer" in ready) {
@@ -1684,10 +1727,13 @@ export const createManagedService = ({
       );
       const result = await countFailure(run);
       if (result.next === null) {
+        // Read before `abandon` closes the session. Best effort: Anthropic may be down.
+        const usage = await usageOfSessionOf(run);
         await abandon(run);
         await failRun(
           run,
-          `Anthropic could not be reached: ${describeError(error)}`
+          `Anthropic could not be reached: ${describeError(error)}`,
+          usage
         );
         await offerNext(run);
       }

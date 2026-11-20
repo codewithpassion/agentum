@@ -345,7 +345,7 @@ test("a run token resolves while heartbeats keep the lease, and stops once the l
   expect(await resolve()).toBeNull();
 });
 
-test("an expired lease interrupts the run, and the run then refuses every write but an aborted completion", async () => {
+test("an expired lease interrupts the run, and the run then refuses every write but an aborted completion or a late usage report", async () => {
   const { credential, machineId } = await enrol("laptop");
   const agentId = await agentOn(machineId, "Box");
   const started = await start(agentId);
@@ -359,10 +359,23 @@ test("an expired lease interrupts the run, and the run then refuses every write 
   expect(
     (await call("events", started.runId, credential, ONE_EVENT)).status
   ).toBe(409);
-  expect((await call("complete", started.runId, credential, DONE)).status).toBe(
-    409
-  );
+  // A completion with usage lands as a late report (SP.13), one without is refused.
+  expect(
+    (
+      await call("complete", started.runId, credential, {
+        status: "done",
+        text: "hi",
+      })
+    ).status
+  ).toBe(409);
   expect((await call("heartbeat", started.runId, credential)).status).toBe(409);
+  expect((await call("complete", started.runId, credential, DONE)).status).toBe(
+    200
+  );
+  expect(row(started.runId)).toMatchObject({
+    resultText: null,
+    status: "interrupted",
+  });
 
   const aborted = await call("complete", started.runId, credential, {
     status: "aborted",
