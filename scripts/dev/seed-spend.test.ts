@@ -184,7 +184,7 @@ test("runs at the week boundary fall on the right side of local midnight", () =>
   expect(runByRequest(db, "seed-spend:run:12").created_at).toBe(
     "2026-11-15T13:20:00.000Z"
   );
-  // Index 11: Sunday 23:40 Sydney, which is last week although Monday has begun in UTC.
+  // Index 11: Sunday 23:40 Sydney, which is last week in either zone.
   expect(runByRequest(db, "seed-spend:run:11").created_at).toBe(
     "2026-11-15T12:40:00.000Z"
   );

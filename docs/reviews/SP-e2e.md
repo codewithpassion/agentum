@@ -34,7 +34,7 @@ The hand sum is raw SQL on the local database, with no service in between (query
 | Fake second, page | $0 | $0 | $0 | $2.00 | $0.55 |
 | Page total row | $1.50 | $0.75 | $3.00 | $4.05 | $1.60 |
 
-The Sunday 23:40 run counts in last week and the Monday 00:20 run in this week, as the Sydney calendar says. In UTC both fall on the other side of the line. The dry run, the tokens-only run and the cost-less fake runs add nothing. The dreams add their `costUsd`, which matches input and output tokens at the Haiku rates ($0.40 for 2,000,000 in and 400,000 out). A failed run counts too. The agent header pill, the Home card and the table agree with each other.
+The Sunday 23:40 run counts in last week and the Monday 00:20 run in this week, as the Sydney calendar says. Only the Monday run tests the zone: at 13:20Z on Sunday it would count in last week if the page used UTC. The dry run, the tokens-only run and the cost-less fake runs add nothing. The dreams add their `costUsd`, which matches input and output tokens at the Haiku rates ($0.40 for 2,000,000 in and 400,000 out). A failed run counts too. The agent header pill, the Home card and the table agree with each other.
 
 | Check | Result |
 |---|---|
@@ -79,9 +79,9 @@ Check: a rollup test with three days of $0.004 gives a week of $0.01 where today
 
 Proposed task SP.8, "Resume says what it will do".
 
-When an agent is paused at $1.05 of a $1.00 cap, Resume (without raising the cap) clears the pause, the next run starts, and `enforceCap` pauses the agent again as that run ends. SP.3 lists this in its nits. The card does not say it. It reads only "The limit is $1 a week." with Resume and Raise the limit. The owner who clicks Resume gets one run and a new Needs you card. A mail that arrived during the pause is stored and never run, and the notice does not tell the sender to send it again.
+When an agent is paused at $1.05 of a $1.00 cap, Resume (without raising the cap) clears the pause, the next run starts, and `enforceCap` pauses the agent again as that run ends. SP.3's spec lets a run through before the pause lands, and the card does not say so. It reads only "The limit is $1 a week." with Resume and Raise the limit. The owner who clicks Resume gets one run and a new Needs you card. A mail that arrived during the pause is stored and never run, and the notice does not tell the sender to send it again.
 
-Scope: the pause card shows the week-to-date next to the limit, "$1.05 of $1 this week". When the week-to-date is at or over the limit, Resume says "Lets one more task start, then pauses again", or Raise the limit stands alone. The mail notice adds "Send it again once the agent is resumed."
+Scope: the pause card shows the week-to-date next to the limit, "$1.05 of $1 this week". When the week-to-date is at or over the limit, the card drops Resume and offers Raise the limit alone. The mail notice adds "Send it again once the agent is resumed."
 
 Check: component tests for both card states. A mail service test that the notice carries the line. A browser pass at both sizes.
 
@@ -93,11 +93,11 @@ Only `spend.resume` clears `paused_at`. A grep finds no other place. A cap is we
 
 Scope if Dom agrees: the minute tick clears `spend_cap` pauses when the agent's and the workspace's week-to-date are under their caps. The Needs you card is derived from the pause, so it goes too. A `manual` pause stays.
 
-Check: a service test with the clock set across Monday 00:00 in the workspace timezone: paused on Sunday, resumed by the tick on Monday. A `manual` pause is untouched. An agent still over a raised-below-spend cap is not resumed.
+Check: a service test with the clock set across Monday 00:00 in the workspace timezone: paused on Sunday, resumed by the tick on Monday. A `manual` pause is untouched. An agent whose cap is still below its week-to-date is not resumed.
 
 ### Smaller things
 
-- - Setting a cap below the week-to-date pauses nothing at once. The pause lands when the next run ends, and that run still starts. SP.3's spec says so, and the Settings field text does not.
+- Setting a cap below the week-to-date pauses nothing at once. The pause lands when the next run ends, and that run still starts. SP.3's spec says so, and the Settings field text does not.
 - Both browser passes saw the `400` console error in the dev-login hop (known noise).
 
 ## Steps for Dom
@@ -109,6 +109,7 @@ Decide finding 5, whether a cap pause lifts itself on Monday. Nothing needs his 
 Run it with `sqlite3` against the newest file in `apps/web/.wrangler/state/v3/d1/miniflare-D1DatabaseObject/`. It assumes the seeded timezone, Australia/Sydney, which is UTC+11 until the clocks change in April 2027. Weeks start Monday. `(team dream)` is a row with no agent.
 
 ```sql
+-- One workspace in the local database. Add a workspace_id filter if there are more.
 WITH facts AS (
   SELECT agent_id, datetime(created_at, '+11 hours') AS local,
          COALESCE(json_extract(usage, '$.costUsd'), 0) AS usd

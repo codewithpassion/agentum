@@ -7,7 +7,8 @@
 // through `/cdn-cgi/handler/email`. The mailbox row is written directly: going
 // through the app would ask Cloudflare for a real Email Routing rule.
 // Progress goes to stderr, a JSON summary with the hand sums to stdout. Run
-// from the repo root, after one dev login has made the workspace:
+// from the repo root, after one dev login has made the workspace. Run it after
+// Monday 01:10 in the workspace timezone, or this week's rows lie in the future:
 // `bun scripts/dev/seed-spend.ts [--timezone Australia/Sydney] [--mail-domain agents.rockyshoreslabs.io]`.
 import type { Database as Sqlite } from "bun:sqlite";
 import { parseArgs } from "node:util";
@@ -117,7 +118,7 @@ const RUNS: RunSpec[] = [
   { agent: "a", at: [-3, "12:00"], tokens: [500_000, 100_000] },
   // A dry run is never counted.
   { agent: "a", at: [-2, "10:00"], cost: 9.99, dryRun: true },
-  // Sunday 23:40 local is last week, although Monday has begun in UTC.
+  // Sunday 23:40 local is last week. It sits just before the line in either zone.
   { agent: "a", at: [-1, "23:40"], cost: 0.35 },
   // Monday 00:20 local is this week, although it is still Sunday in UTC.
   { agent: "a", at: [0, "00:20"], cost: 0.25 },
@@ -259,7 +260,7 @@ const ensureTeam = (client: Sqlite, workspaceId: string, now: Date): string => {
   return id;
 };
 
-/** The mailbox as `mail.agent.provision` leaves it when routing succeeds, minus the Cloudflare call. */
+/** The mailbox rows `provision` leaves when routing succeeds, minus the Cloudflare call and the `mailbox.provisioned` event. */
 const ensureMailbox = (
   client: Sqlite,
   workspaceId: string,
@@ -276,18 +277,20 @@ const ensureMailbox = (
     return;
   }
   const id = ulid(now.getTime());
-  client.run("UPDATE agents SET email_local = ? WHERE id = ?", [
-    MAIL_LOCAL,
-    agentId,
-  ]);
-  client.run(
-    "INSERT INTO agent_mailboxes (id, address, agent_id, created_at, routing_rule_id, status, workspace_id) VALUES (?, ?, ?, ?, 'local-seed', 'active', ?)",
-    [id, `${MAIL_LOCAL}@${domain}`, agentId, now.toISOString(), workspaceId]
-  );
-  client.run(
-    "INSERT OR IGNORE INTO triggers (id, agent_id, created_at, created_by, kind, name, workspace_id) VALUES (?, ?, ?, ?, 'mail', 'Mail', ?)",
-    [`mail:${id}`, agentId, now.toISOString(), SEED_USER, workspaceId]
-  );
+  client.transaction(() => {
+    client.run("UPDATE agents SET email_local = ? WHERE id = ?", [
+      MAIL_LOCAL,
+      agentId,
+    ]);
+    client.run(
+      "INSERT INTO agent_mailboxes (id, address, agent_id, created_at, routing_rule_id, status, workspace_id) VALUES (?, ?, ?, ?, 'local-seed', 'active', ?)",
+      [id, `${MAIL_LOCAL}@${domain}`, agentId, now.toISOString(), workspaceId]
+    );
+    client.run(
+      "INSERT OR IGNORE INTO triggers (id, agent_id, created_at, created_by, kind, name, workspace_id) VALUES (?, ?, ?, ?, 'mail', 'Mail', ?)",
+      [`mail:${id}`, agentId, now.toISOString(), SEED_USER, workspaceId]
+    );
+  })();
 };
 
 export const main = async (): Promise<void> => {
@@ -297,6 +300,7 @@ export const main = async (): Promise<void> => {
       timezone: { default: DEFAULT_TIMEZONE, type: "string" },
     },
   });
+  const mailDomain = values["mail-domain"].trim().toLowerCase();
   const orgId = requireOrgId();
   const local = openLocalDatabase();
   process.stderr.write(`Seeding ${local.file}.\n`);
@@ -338,7 +342,7 @@ export const main = async (): Promise<void> => {
     const counts = seedSpend({
       ...ids,
       client,
-      mailDomain: values["mail-domain"],
+      mailDomain,
       timezone: values.timezone,
     });
     process.stderr.write(
@@ -348,7 +352,7 @@ export const main = async (): Promise<void> => {
     client.close();
   }
   process.stdout.write(
-    `${JSON.stringify({ agentA: ids.agentA, agentB: ids.agentB, mail: `${MAIL_LOCAL}@${values["mail-domain"]}` })}\n`
+    `${JSON.stringify({ agentA: ids.agentA, agentB: ids.agentB, mail: `${MAIL_LOCAL}@${mailDomain}` })}\n`
   );
 };
 
