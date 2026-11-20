@@ -121,6 +121,8 @@ export const loadMemory = (
   ]);
 
 const PRIVATE_FOLDER = "private";
+/** A person's private note file. Anything else in the folder is not memory. */
+const PRIVATE_NOTE_FILE = /^user_[A-Za-z0-9]+\.md$/;
 
 /**
  * Every memory file there is: the shared ones, the index and each person's
@@ -139,8 +141,9 @@ export const loadEveryMemoryFile = async (
       `${memoryFolderOf(slug)}/${PRIVATE_FOLDER}`
     );
     privateFiles = entries
-      .filter((entry) => entry.kind === "file")
-      .map((entry) => `${PRIVATE_FOLDER}/${entry.path.split("/").pop()}`);
+      .map((entry) => entry.path.split("/").pop() ?? "")
+      .filter((name) => PRIVATE_NOTE_FILE.test(name))
+      .map((name) => `${PRIVATE_FOLDER}/${name}`);
   } catch (error) {
     if (!(isServiceError(error) && error.code === "not_found")) {
       throw error;
@@ -304,4 +307,21 @@ export const commitFiles = async ({
     throw invalid("The dream's files were not written");
   }
   return written;
+};
+
+/** The latest library version of each of the memory files that exist, by path relative to the memory folder. */
+export const latestVersionIds = async (
+  library: Pick<MemoryLibrary, "versions">,
+  principal: Principal,
+  slug: string,
+  paths: readonly string[]
+): Promise<string[]> => {
+  const folder = memoryFolderOf(slug);
+  const latest = await Promise.all(
+    paths.map(
+      async (path) =>
+        (await library.versions(principal, `${folder}/${path}`))[0]?.id ?? null
+    )
+  );
+  return latest.flatMap((id) => id ?? []);
 };

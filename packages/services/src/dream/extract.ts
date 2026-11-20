@@ -117,14 +117,22 @@ const sourceOf = (evidence: readonly DreamInput[]): NoteCandidate["source"] => {
   return null;
 };
 
-/**
- * Asks the model for candidate notes. Throws `ExtractError` when it gives
- * nothing readable. A note that mentions a never-list entry, holds a secret,
- * cites no evidence or is not one clean line is left out.
- */
-export const extractCandidates = async (
-  input: ExtractInput
-): Promise<Extracted> => {
+/** Evidence a note can be kept from: shared, or private to a person who has a private file. */
+const usable = (item: DreamInput): boolean =>
+  item.userId ? isUserId(item.userId) : item.scope !== "private";
+
+/** One group per person, and one for evidence that belongs to nobody, so a call never sees two people's words. */
+const groupsOf = (items: readonly DreamInput[]): DreamInput[][] => {
+  const groups = new Map<string, DreamInput[]>();
+  for (const item of items.filter(usable)) {
+    const key = item.userId ?? "";
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.values()];
+};
+
+/** One call for one group's evidence. */
+const extractGroup = async (input: ExtractInput): Promise<Extracted> => {
   const raw = await input.judge(promptFor(input), EXTRACT_SYSTEM);
   if (raw === null) {
     throw new ExtractError("The model gave no answer");
@@ -164,4 +172,26 @@ export const extractCandidates = async (
     });
   }
   return { candidates, outside };
+};
+
+/**
+ * Asks the model for candidate notes, one call for each person's private
+ * evidence and one for the rest, so what a note is about can never be mixed up
+ * with another person's words, whatever evidence the model cites. Throws
+ * `ExtractError` when a call gives nothing readable. A note that mentions a
+ * never-list entry, holds a secret, cites no evidence or is not one clean line
+ * is left out.
+ */
+export const extractCandidates = async (
+  input: ExtractInput
+): Promise<Extracted> => {
+  const results = await Promise.all(
+    groupsOf(input.items).map((items) => extractGroup({ ...input, items }))
+  );
+  return {
+    candidates: results
+      .flatMap((result) => result.candidates)
+      .slice(0, MAX_CANDIDATES),
+    outside: results.some((result) => result.outside),
+  };
 };

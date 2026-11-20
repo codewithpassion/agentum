@@ -536,16 +536,17 @@ test("folding an exact duplicate leaves the keeper's writer and date, and a merg
 });
 
 test("one dream writes two people's private files in a single library commit", async () => {
-  const w = makeDreamWorld(({ kind }) =>
-    kind === "extract"
-      ? JSON.stringify({
-          notes: [
-            { evidence: ["e1"], kind: "people", text: "A likes calls" },
-            { evidence: ["e2"], kind: "people", text: "B likes email" },
-          ],
-        })
-      : JSON.stringify({ conflicts: [], finished: [], groups: [] })
-  );
+  const w = makeDreamWorld((call) => {
+    if (call.kind !== "extract") {
+      return quietAnswer(call);
+    }
+    const text = call.prompt.includes("A likes calls")
+      ? "A likes calls"
+      : "B likes email";
+    return JSON.stringify({
+      notes: [{ evidence: ["e1"], kind: "people", text }],
+    });
+  });
   w.say("A likes calls", SESSION.privateA);
   w.say("B likes email", SESSION.privateB);
   const run = await w.dream.runNow(w.owner, AGENT);
@@ -560,4 +561,79 @@ test("one dream writes two people's private files in a single library commit", a
   expect(await w.dream.changes(person(USER_A), run.id)).toHaveLength(1);
   expect(await w.dream.changes(person(USER_B), run.id)).toHaveLength(1);
   expect(await w.dream.changes(w.owner, run.id)).toHaveLength(0);
+});
+
+const indexText = async (w: ReturnType<typeof makeDreamWorld>) =>
+  (await w.files())["index.md"];
+
+test("undo keeps the index in step with the files: a dream that touched only a private file leaves the shared list alone", async () => {
+  const w = makeDreamWorld(({ kind }) =>
+    kind === "extract"
+      ? JSON.stringify({
+          notes: [{ evidence: ["e1"], kind: "people", text: "A likes calls" }],
+        })
+      : JSON.stringify({ conflicts: [], finished: [], groups: [] })
+  );
+  await addNote(w, "people", "Tom reads reports on his phone");
+  const before = await indexText(w);
+  w.say("A likes calls", SESSION.privateA);
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.status).toBe("done");
+  await w.dream.undo(w.owner, run.id);
+  expect(await indexText(w)).toBe(before);
+  expect(before).toContain("Tom reads reports");
+});
+
+test("undo lists a note a person wrote in another file after the dream", async () => {
+  const w = makeDreamWorld(keepsOne("Mia wants Google Docs"));
+  w.say("Mia wants drafts as Google Docs");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  await addNote(w, "places", "Invoices live in the Sales sheet");
+  await w.dream.undo(w.owner, run.id);
+  const files = await w.files();
+  expect(files["index.md"]).toContain("Invoices live in the Sales sheet");
+  expect(files["index.md"]).not.toContain("Mia wants Google Docs");
+  expect(files["places.md"]).toContain("Invoices live in the Sales sheet");
+});
+
+test("approving a held batch is refused when a note it touches changed after the dream", async () => {
+  const w = makeDreamWorld(keepsOne("Mia wants Google Docs"));
+  w.setRules({ learnLevel: "ask_first" });
+  w.say("Mia wants drafts as Google Docs");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  await addNote(w, "people", "Tom reads reports on his phone");
+  await expect(
+    w.dream.decide(w.owner, { decision: "approve", dreamRunId: run.id })
+  ).rejects.toMatchObject({ code: "conflict" });
+  expect(
+    (await w.service.list(w.owner, { agentId: AGENT })).map((item) => item.text)
+  ).toEqual(["Tom reads reports on his phone"]);
+  // The owner can still reject it.
+  await w.dream.decide(w.owner, { decision: "reject", dreamRunId: run.id });
+  expect((await w.dream.changes(w.owner, run.id))[0]?.status).toBe("rejected");
+});
+
+test("each person's notes are measured against the prompt they share with the shared notes, not against everyone's together", async () => {
+  const w = makeDreamWorld();
+  const long = (label: string) => `${label} ${"x".repeat(400)}`;
+  await addNote(w, "work", long("shared 0"));
+  await addNote(w, "work", long("shared 1"));
+  for (const [user, session] of [
+    [USER_A, SESSION.privateA],
+    [USER_B, SESSION.privateB],
+  ] as const) {
+    for (let index = 0; index < 10; index += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: notes are written in order
+      await w.service.add(person(user), {
+        agentId: AGENT,
+        kind: "places",
+        source: { id: session, kind: "session" },
+        text: long(`${user} ${index}`),
+      });
+    }
+  }
+  w.say("Anything new");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.status).toBe("done");
+  expect(w.calls.some((call) => call.kind === "condense")).toBe(false);
 });

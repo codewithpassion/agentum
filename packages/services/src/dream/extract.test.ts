@@ -38,17 +38,38 @@ test("a note takes its source from the evidence it cites and is shared when the 
   expect(outside).toBe(false);
 });
 
-test("private evidence makes a private note, and two people's evidence in one note is refused", async () => {
-  const items = [
-    item("a", { scope: "private", userId: "user_a" }),
-    item("b", { scope: "private", userId: "user_b" }),
-  ];
-  const { candidates } = await ask(items, [
-    { evidence: ["e1"], kind: "people", text: "A likes calls" },
-    { evidence: ["e1", "e2"], kind: "people", text: "A and B like calls" },
-  ]);
-  expect(candidates.map((entry) => [entry.text, entry.userScope])).toEqual([
-    ["A likes calls", "user_a"],
+test("each person's private evidence is asked about on its own, and a note belongs to the person it came from", async () => {
+  const prompts: string[] = [];
+  const { candidates } = await extractCandidates({
+    items: [
+      item("a", { scope: "private", userId: "user_a" }),
+      item("b", { scope: "private", userId: "user_b" }),
+      item("c"),
+    ],
+    judge: (prompt) => {
+      prompts.push(prompt);
+      const from = ["a", "b", "c"].find((id) => prompt.includes(`text ${id}`));
+      return Promise.resolve(
+        JSON.stringify({
+          notes: [{ evidence: ["e1"], kind: "people", text: `From ${from}` }],
+        })
+      );
+    },
+    never: [],
+    remember: [],
+  });
+  expect(prompts).toHaveLength(3);
+  for (const prompt of prompts) {
+    expect(
+      ["a", "b", "c"].filter((id) => prompt.includes(`text ${id}`))
+    ).toHaveLength(1);
+  }
+  expect(
+    candidates.map((entry) => [entry.text, entry.userScope]).sort()
+  ).toEqual([
+    ["From a", "user_a"],
+    ["From b", "user_b"],
+    ["From c", null],
   ]);
 });
 

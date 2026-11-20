@@ -15,12 +15,14 @@ import {
   buildIndex,
   MemoryCodecError,
   type MemoryFiles,
+  parseMemoryFile,
   serializeMemoryFile,
 } from "../memory/codec.ts";
 import {
   changedPaths,
   commitFiles,
   type DreamMemoryLibrary,
+  latestVersionIds,
   loadEveryMemoryFile,
 } from "../memory/files.ts";
 import type { Clock } from "../runs/types.ts";
@@ -43,6 +45,15 @@ const staleMemory = () =>
     "conflict",
     "Memory changed after this dream ran, so it cannot be undone as a whole. Forget or edit the notes you do not want."
   );
+
+const notesIn = (files: MemoryFiles) =>
+  Object.entries(files).flatMap(([path, text]) => {
+    if (path === INDEX) {
+      return [];
+    }
+    const parsed = parseMemoryFile(path, text);
+    return parsed.ok ? parsed.notes : [];
+  });
 
 export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
   const rowsOf = (runId: string, status: "applied" | "held") =>
@@ -73,14 +84,16 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     for (const id of toRun(run).baseVersion) {
       // biome-ignore lint/performance/noAwaitInLoops: one version at a time
       const { bytes, version } = await library.readVersion(principal, id);
-      if (version.path.startsWith(folder)) {
-        restored[version.path.slice(folder.length)] = decoder.decode(bytes);
+      const path = version.path.slice(folder.length);
+      // The index is rebuilt from the restored files, never restored: a person
+      // may have written other files since, and the index must list them.
+      if (version.path.startsWith(folder) && path !== INDEX) {
+        restored[path] = decoder.decode(bytes);
       }
     }
     // A file the dream made has no earlier version: it goes back to empty.
     for (const path of paths) {
-      restored[path] ??=
-        path === INDEX ? buildIndex([]) : serializeMemoryFile(path, []);
+      restored[path] ??= serializeMemoryFile(path, []);
     }
     return restored;
   };
@@ -92,8 +105,13 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
   ): Promise<void> => {
     const principal = dreamPrincipal(agent);
     const folder = memoryFolderOf(agent.slug);
+    // A row whose file the dream did not change has no version to compare.
     const made = new Map(
-      rows.map((row) => [pathOfRow(row), row.libraryVersionId] as const)
+      rows.flatMap((row) =>
+        row.libraryVersionId === null
+          ? []
+          : [[pathOfRow(row), row.libraryVersionId] as const]
+      )
     );
     for (const [path, versionId] of made) {
       // biome-ignore lint/performance/noAwaitInLoops: one file at a time
@@ -122,11 +140,18 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     await ensureUntouched(agent, rows);
     const principal = dreamPrincipal(agent);
     const loaded = await loadEveryMemoryFile(library, principal, agent.slug);
-    const paths = [...new Set([...rows.map(pathOfRow), INDEX])];
-    const next = {
+    const paths = [
+      ...new Set(
+        rows.flatMap((row) =>
+          row.libraryVersionId === null ? [] : pathOfRow(row)
+        )
+      ),
+    ];
+    const next: MemoryFiles = {
       ...loaded.texts,
       ...(await restoredFiles(run, agent, paths)),
     };
+    next[INDEX] = buildIndex(notesIn(next));
     const now = clock.now().toISOString();
     const statements = (): Statement[] => [
       db
@@ -196,6 +221,17 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
       return;
     }
     const principal = dreamPrincipal(agent);
+    // The files the dream was made against must be the files there are now.
+    const against = new Set(toRun(run).baseVersion);
+    const latest = await latestVersionIds(library, principal, agent.slug, [
+      ...new Set(rows.map(pathOfRow)),
+    ]);
+    if (latest.some((id) => !against.has(id))) {
+      throw new ServiceError(
+        "conflict",
+        "Memory changed since this dream ran, so its changes no longer fit. Reject them."
+      );
+    }
     const loaded = await loadEveryMemoryFile(library, principal, agent.slug);
     let next: MemoryFiles;
     try {
@@ -223,8 +259,7 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
             .set({
               ...decided,
               libraryVersionId:
-                written.versionByPath.get(pathOfRow(row)) ??
-                written.resultVersion,
+                written.versionByPath.get(pathOfRow(row)) ?? null,
               status: "applied",
             })
             .where(

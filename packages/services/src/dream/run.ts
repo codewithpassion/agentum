@@ -25,6 +25,7 @@ import {
   commitFiles,
   type DreamMemoryLibrary,
   describeProblem,
+  latestVersionIds,
   loadEveryMemoryFile,
 } from "../memory/files.ts";
 import { MEMORY_PROMPT_MAX_CHARS } from "../memory/prompt.ts";
@@ -43,6 +44,7 @@ import {
   type RunRow,
   toRun,
 } from "./rows.ts";
+import type { Judge } from "./steps/judge.ts";
 import { mergeNotes } from "./steps/merge.ts";
 import { pruneNotes } from "./steps/prune.ts";
 import { reconcileNotes } from "./steps/reconcile.ts";
@@ -92,6 +94,55 @@ class DreamFailure extends Error {
     this.usage = usage;
   }
 }
+
+/**
+ * Prunes each scope against the memory prompt budget it shares: a person's
+ * prompt holds the shared notes and that person's private notes, so the shared
+ * notes are pruned first and each person's own notes get what is left.
+ */
+const pruneByScope = async ({
+  adds,
+  held,
+  judge,
+  notes,
+  today,
+}: {
+  adds: DreamPlan;
+  held: readonly string[];
+  judge: Judge;
+  notes: readonly MemoryNote[];
+  today: string;
+}): Promise<{ changes: DreamPlan; notes: MemoryNote[] }> => {
+  const addedBy = (scope: string | null): number =>
+    adds.reduce(
+      (sum, change) =>
+        sum +
+        (change.action === "add" && change.userScope === scope
+          ? change.text.length
+          : 0),
+      0
+    );
+  const prune = (scope: string | null, maxChars: number) =>
+    pruneNotes({
+      held,
+      judge,
+      maxChars: Math.max(0, maxChars),
+      notes: notes.filter((note) => note.userScope === scope),
+      today,
+    });
+  const shared = await prune(null, MEMORY_PROMPT_MAX_CHARS - addedBy(null));
+  const owners = [...new Set(notes.flatMap((note) => note.userScope ?? []))];
+  const privates = await Promise.all(
+    owners.map((owner) =>
+      prune(owner, MEMORY_PROMPT_MAX_CHARS - shared.chars - addedBy(owner))
+    )
+  );
+  const results = [shared, ...privates];
+  return {
+    changes: results.flatMap((result) => result.changes),
+    notes: results.flatMap((result) => result.notes),
+  };
+};
 
 export const createDreamRunner = (deps: RunDeps) => {
   const { atomic, clock, db, library } = deps;
@@ -220,6 +271,8 @@ export const createDreamRunner = (deps: RunDeps) => {
     });
 
   interface Outcome {
+    /** The notes once the plan applies, so a question shows the text a merge left. */
+    notes: MemoryNote[];
     outside: boolean;
     plan: DreamPlan;
   }
@@ -250,15 +303,10 @@ export const createDreamRunner = (deps: RunDeps) => {
         judge: model.judge,
         notes: merged.notes,
       });
-      const addedChars = merged.changes.reduce(
-        (sum, change) =>
-          sum + (change.action === "add" ? change.text.length : 0),
-        0
-      );
-      const pruned = await pruneNotes({
+      const pruned = await pruneByScope({
+        adds: merged.changes,
         held: reconciled.held,
         judge: model.judge,
-        maxChars: Math.max(0, MEMORY_PROMPT_MAX_CHARS - addedChars),
         notes: reconciled.notes,
         today,
       });
@@ -266,6 +314,7 @@ export const createDreamRunner = (deps: RunDeps) => {
         throw new ServiceError("invalid", MODEL_FAILED);
       }
       return {
+        notes: pruned.notes,
         outside: extracted.outside,
         plan: [...merged.changes, ...reconciled.changes, ...pruned.changes],
         usage: model.usage(),
@@ -335,7 +384,12 @@ export const createDreamRunner = (deps: RunDeps) => {
       status: held ? "held" : "applied",
       workspaceId: agent.workspaceId,
     });
-    const questions = questionStatements(agent, runId, plan, notes);
+    const questions = questionStatements(
+      agent,
+      runId,
+      plan,
+      new Map(thought.notes.map((note) => [note.id, note]))
+    );
     const summary = {
       counts: JSON.stringify(counts),
       diary,
@@ -343,10 +397,17 @@ export const createDreamRunner = (deps: RunDeps) => {
       usage,
     };
     if (rows.length === 0 || held) {
+      // A held batch records the files it was made against. Approving it later
+      // is refused when any of them has changed since.
+      const against = held
+        ? await latestVersionIds(library, principal, agent.slug, [
+            ...new Set(rows.map(pathOfRow)),
+          ])
+        : [];
       await atomic([
         ...rows.map((row) => db.insert(memoryChanges).values(row)),
         ...questions,
-        finish(runId, summary),
+        finish(runId, { ...summary, baseVersion: JSON.stringify(against) }),
       ]);
       return;
     }
@@ -370,9 +431,7 @@ export const createDreamRunner = (deps: RunDeps) => {
         ...rows.map((row) =>
           db.insert(memoryChanges).values({
             ...row,
-            libraryVersionId:
-              written.versionByPath.get(pathOfRow(row)) ??
-              written.resultVersion,
+            libraryVersionId: written.versionByPath.get(pathOfRow(row)) ?? null,
           })
         ),
         ...questions,

@@ -940,8 +940,9 @@ export const createMemoryService = ({
           workspaceId,
         }),
       ]);
-      // The dream trigger follows the schedule. The minute tick repairs it if this fails.
-      await syncDreamTriggers(db, clock.now(), agent.id);
+      // The dream trigger follows the schedule. The rules are saved either way,
+      // and the minute tick repairs the trigger if this fails.
+      await syncDreamTriggers(db, clock.now(), agent.id).catch(() => 0);
       return await rules.get(principal, { agentId: agent.id });
     },
   };

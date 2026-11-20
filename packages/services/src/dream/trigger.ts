@@ -85,6 +85,9 @@ interface Candidate {
   workspaceId: string;
 }
 
+/** The agent's schedule, nightly when the column holds nothing usable. `json_extract` throws on malformed JSON, so the text is checked first. */
+const scheduleSql = sql`coalesce(case when json_valid(${agents.remember}) then json_extract(${agents.remember}, '$.dreamSchedule') end, 'nightly')`;
+
 const liveDream = and(eq(triggers.kind, "dream"), isNull(triggers.revokedAt));
 
 const candidates = async (
@@ -112,12 +115,12 @@ const candidates = async (
         // Skip what is already right, in SQL, so a quiet minute reads nothing.
         agentId === null
           ? sql`(
-              (${triggers.id} is null and coalesce(json_extract(${agents.remember}, '$.dreamSchedule'), 'nightly') <> 'off')
+              (${triggers.id} is null and ${scheduleSql} <> 'off')
               or (${triggers.id} is not null and (
-                coalesce(json_extract(${agents.remember}, '$.dreamSchedule'), 'nightly') = 'off'
+                ${scheduleSql} = 'off'
                 or ${triggers.nextRunAt} is null
                 or ${triggers.timezone} is not ${workspaces.timezone}
-                or ${triggers.cron} is not case coalesce(json_extract(${agents.remember}, '$.dreamSchedule'), 'nightly') when 'weekly' then ${DREAM_CRONS.weekly} else ${DREAM_CRONS.nightly} end
+                or ${triggers.cron} is not case ${scheduleSql} when 'weekly' then ${DREAM_CRONS.weekly} else ${DREAM_CRONS.nightly} end
               ))
             )`
           : undefined
