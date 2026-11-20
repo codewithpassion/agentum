@@ -1,6 +1,8 @@
 # SP end-to-end: the spend walkthrough
 
-Task SP.5, branch `task/SP.5-spend-e2e`. The walkthrough ran on local against the dev server of this worktree, with the fake runtime and seeded usage rows. It walked the pause and resume flow from mail and from the UI, and compared the Spend page with a hand sum of `runs.usage` and `dream_runs.usage`. A fresh verifier repeated it in the browser at 1280x800 and 390x844 and passed it (`docs/reviews/tasks/SP.5/browser.md`). A first verifier failed on two points that were mistakes in its brief (the Home card figure and a second 409 from Dream now), and its report is kept as `browser-round1.md`. The pause, the refusals, the mail notice and Resume all work. The page matches the hand sum to the cent except where it rounds (finding 3), and it leaves out a team dream (finding 1). Five gaps are proposed as tasks below. No product code changed on this branch. The only additions are the seed script and its test.
+Task SP.5, branch `task/SP.5-spend-e2e`. The walkthrough ran on local against the dev server of this worktree, with the fake runtime and seeded usage rows. It walked the pause and resume flow from mail and from the UI, and compared the Spend page with a hand sum of `runs.usage` and `dream_runs.usage`. A fresh verifier repeated it in the browser at 1280x800 and 390x844 and passed it (`docs/reviews/tasks/SP.5/browser.md`). A first verifier failed on two points that were mistakes in its brief (the Home card figure and a second 409 from Dream now), and its report is kept as `browser-round1.md`. The pause, the refusals, the mail notice and Resume all work. The page matches the hand sum to the cent except where it rounds (finding 3). Five gaps are proposed as tasks below. No product code changed on this branch. The only additions are the seed script and its test.
+
+The browser proof ran before TX.2 merged. TX.2 counts a team dream in the page total and the workspace cap, which changed one result, so after merging main I reran flow A and the workspace cap on the merged tree myself, at both sizes (`after-merge-desktop-1.png`, `after-merge-phone-1.png`). The tables below show the merged result and say where the verifier saw the older one.
 
 ## What ran
 
@@ -24,7 +26,7 @@ Seeded usage, in USD. Weeks start Monday in the workspace timezone. Dry runs and
 
 ## Hand sum against the page
 
-The hand sum is raw SQL on the local database, with no service in between (query at the end of this file). The page and the hand sum agree on every cell but one, and that one is a rounding rule.
+The hand sum is raw SQL on the local database, with no service in between (query at the end of this file). The page and the hand sum agree on every cell but one, and that one is a rounding rule. This is the merged result, with the team dream counted.
 
 | Agent | 19 Oct | 26 Oct | 2 Nov | Last week | This week |
 |---|---|---|---|---|---|
@@ -32,7 +34,10 @@ The hand sum is raw SQL on the local database, with no service in between (query
 | Fake echo, page | $1.50 | $0.75 | $3.00 | $2.05 | $1.05 |
 | Fake second, hand sum | 0 | 0 | 0 | 2.00 | 0.55 |
 | Fake second, page | $0 | $0 | $0 | $2.00 | $0.55 |
-| Page total row | $1.50 | $0.75 | $3.00 | $4.05 | $1.60 |
+| Team dreams, hand sum and page | $0 | $0 | $0 | $0 | $0.60 |
+| Page total row | $1.50 | $0.75 | $3.00 | $4.05 | $2.20 |
+
+Before TX.2 merged, the page had no Team dreams row and the this-week total read $1.60. That is what the verifier saw.
 
 The Sunday 23:40 run counts in last week and the Monday 00:20 run in this week, as the Sydney calendar says. Only the Monday run tests the zone: at 13:20Z on Sunday it would count in last week if the page used UTC. The dry run, the tokens-only run and the cost-less fake runs add nothing. The dreams add their `costUsd`, which matches input and output tokens at the Haiku rates ($0.40 for 2,000,000 in and 400,000 out). A failed run counts too. The agent header pill, the Home card and the table agree with each other.
 
@@ -42,8 +47,8 @@ The Sunday 23:40 run counts in last week and the Monday 00:20 run in this week, 
 | A mail to the paused agent | The sender gets a reply, "Fake echo is paused. Its weekly limit was reached.", shown in the agent's mail sheet. A second mail in the same thread gets no second reply. No run starts. |
 | Resume (same cap, still over) | The agent resumes. The next mail starts a run, and the agent pauses again as it finishes (finding 4). |
 | Raise the limit to $20 | The agent resumes and the next mail runs with no pause. |
-| Workspace cap $2.00 | Nothing pauses. The seeded week is $2.20 with the team dream, and $1.60 without it (finding 1). |
-| Workspace cap $1.50, a run on Fake second | Both agents pause. The card for Fake echo says the workspace limit was reached and that raising the agent's limit will not restart it. |
+| Workspace cap $2.00, a run on Fake second | Both agents pause. The week is $2.20 with the team dream, over the cap. Before TX.2 merged, the page read $1.60 and nothing paused (finding 1). |
+| Workspace cap $1.50, a run on Fake second | Both agents pause, as with $2.00. The card for Fake echo says the workspace limit was reached and that raising the agent's limit will not restart it. |
 | Dream now on a paused agent | Refused with "Fake echo is paused, so it does not dream". |
 | Start a task in the UI on a paused agent | Refused in the dialog, with a 409 in the network log (the designed refusal, checked in `browser.md`). |
 
@@ -51,19 +56,19 @@ The Sunday 23:40 run counts in last week and the Monday 00:20 run in this week, 
 
 They run from most to least important. Each proposed task has a scope and a check. None is done here, and the ids are suggestions for the controller.
 
-### 1. A team dream is not in the page total or the workspace cap
+### 1. A team dream was left out of the page total and the workspace cap (fixed by TX.2)
 
-On this branch `spend.read` joins `dream_runs` to `agents`, so a row with `agent_id` null (a team dream) drops out of every sum. The seeded team dream of $0.60 is in the hand sum and not in the page: this week reads $1.60 where the data says $2.20. A workspace cap of $2.00 pauses nobody. The controller already decided (TX.2 log, 20 Nov) that a team dream counts toward the workspace's weekly spend and cap. TX.2 carries that change in `spend.ts` and `spend-rollups.ts`, and it is not merged yet. This is an expected gap, not a new task. Check it after TX.2 merges: rerun this walkthrough, and the page's this-week total and the workspace-cap pause must include the $0.60.
+Before TX.2 merged, `spend.read` joined `dream_runs` to `agents`, so a team dream (`agent_id` null) dropped out of every sum. The seeded $0.60 team dream was in the hand sum and not on the page, which read $1.60 where the data says $2.20, and a workspace cap of $2.00 paused nobody. The controller had decided (TX.2 log, 20 Nov) that a team dream counts toward the workspace's weekly spend and cap. TX.2 does that. On the merged tree the Spend page has a "Team dreams" row with $0.60, this week totals $2.20, "Workspace: $2.20 of $2 this week" shows, and a run on Fake second pauses both agents at a $2.00 workspace cap. No task needed. The browser verifier's report shows the older result.
 
 ### 2. A dream that crosses a cap pauses nobody
 
 Proposed task SP.6, "A dream that ends over a cap pauses its agent".
 
-`enforceCap` is called from `runs.ts` only (the two places a turn ends, lines 2164 and 2303). The dream service has no `spend` dependency, and `compose.ts` builds it without one. A dream's cost counts toward the week, but if it is the spend that crosses the cap, nothing pauses until some run finishes. A dream often runs when an agent is otherwise idle, so a cap passed by a dream can stay unenforced for days. I read this from the code and did not run it live. A dream needs a workspace Anthropic key, and the scripted model (DR.13) is not built.
+`enforceCap` is called from `runs.ts` only (the two places a turn ends, lines 2164 and 2303). TX.2 gave the team dream a `spend` dependency that asks `workspaceOver` before it runs and calls `enforceWorkspaceCap` after, but an agent's own dream has none. An agent dream's cost counts toward the week, but if it is the spend that crosses the cap, nothing pauses until some run finishes. A dream often runs when an agent is otherwise idle, so a cap passed by a dream can stay unenforced for days. I read this from the code and did not run it live. A dream needs a workspace Anthropic key, and the scripted model (DR.13) is not built.
 
-Scope: give `createDreamService` an optional `spend: Pick<SpendService, "enforceCap">`, as `runs.ts` has, and call it when an agent's dream ends and recorded usage. For a team dream, call a workspace-wide check that pauses every active agent when the workspace is over its cap. That part follows TX.2. Wire it in `compose.ts`.
+Scope: add `enforceCap` to the dream's `spend` dependency, and call it when an agent's dream ends and recorded usage. The team dream already does the workspace version. `compose.ts` already passes `spend` to the dream service.
 
-Check: a service test with the fake model. An agent at $0.99 of a $1.00 cap runs a dream that costs $0.02, and ends paused with reason `spend_cap` and a Needs you item. A team dream over the workspace cap pauses every active agent. A dream under the cap pauses nobody. `bun run check && bun run test && bun run build` pass. Then repeat the walkthrough with the seeded dream rows.
+Check: a service test with the fake model. An agent at $0.99 of a $1.00 cap runs a dream that costs $0.02, and ends paused with reason `spend_cap` and a Needs you item. A dream under the cap pauses nobody. `bun run check && bun run test && bun run build` pass. Then repeat the walkthrough with the seeded dream rows.
 
 ### 3. The page rounds each agent-day, so small spend disappears
 
