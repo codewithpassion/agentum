@@ -121,6 +121,11 @@ export interface TeamsDeps {
   atomic: Atomic;
   clock: Clock;
   db: Database;
+  /** Which member agents have their Slack app in the team's linked channel (`slack/room-status.ts`). */
+  slackStatus: (
+    workspaceId: string,
+    teamId: string
+  ) => Promise<TeamSlackStatus>;
 }
 
 const teamResource = (workspaceId: string, id?: string) => ({
@@ -129,7 +134,7 @@ const teamResource = (workspaceId: string, id?: string) => ({
   workspaceId,
 });
 
-// The Slack link calls below are stubs; the Slack service task fills them.
+// `slack.link` and `slack.unlink` below are stubs; no task fills them yet.
 const noTeam = (teamId: string) =>
   Promise.reject(new ServiceError("not_found", `No team "${teamId}"`));
 
@@ -180,7 +185,12 @@ const uniqueWrite = async (write: () => Promise<void>, message: string) => {
   }
 };
 
-export const createTeamsService = ({ db, atomic, clock }: TeamsDeps) => {
+export const createTeamsService = ({
+  db,
+  atomic,
+  clock,
+  slackStatus: readSlackStatus,
+}: TeamsDeps) => {
   const teamRow = async (workspaceId: string, teamId: string) => {
     const [row] = await db
       .select()
@@ -619,7 +629,9 @@ export const createTeamsService = ({ db, atomic, clock }: TeamsDeps) => {
   ): Promise<TeamSlackStatus> => {
     const workspaceId = readableWorkspace(principal, TEAMS_READ);
     authorize(principal, TEAMS_READ, teamResource(workspaceId, teamId));
-    return noTeam(teamId);
+    return teamRow(workspaceId, teamId).then(() =>
+      readSlackStatus(workspaceId, teamId)
+    );
   };
 
   const getProfile = async (

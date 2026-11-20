@@ -297,7 +297,9 @@ export const createDreamRunner = (deps: RunDeps) => {
     const model = createDreamModel({ apiKey, fetch: deps.fetch });
     try {
       const extracted = await extractCandidates({
-        items,
+        // A rejected skill proposal is evidence for `promote` only. Notes made
+        // from it are noise ("a skill was rejected"), so extraction never sees it.
+        items: items.filter((item) => item.kind !== "skill_proposal"),
         judge: model.judge,
         never: [...agent.workspaceNever, ...agent.rules.never],
         remember: agent.rules.remember,

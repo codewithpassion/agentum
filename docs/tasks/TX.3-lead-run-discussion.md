@@ -3,9 +3,9 @@ id: TX.3
 title: "Lead-run discussion rounds"
 milestone: TX
 size: M
-status: todo
+status: in_progress
 depends_on: [TX.1, TM.4]
-branch: null
+branch: task/TX.3-lead-run-discussion
 lane: services-inbox
 executor: codex
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone TX. From the transcript: "drive a three 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-21: dispatched on task/TX.3-lead-run-discussion (v4 controller session).

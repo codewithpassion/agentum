@@ -18,7 +18,7 @@ import { z } from "zod";
 import { findAgent } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
 import { isServiceError } from "../errors.ts";
-import type { EventRecord } from "../events.ts";
+import type { EventRecord, EventsService } from "../events.ts";
 import { isA2aApproval } from "../mail/approval.ts";
 import {
   outcomeOf,
@@ -49,6 +49,8 @@ import {
   requestCard,
   settledCard,
 } from "./request-cards.ts";
+import { reportRoomFailure } from "./room-failure.ts";
+import { findOutboundRoom, topicRootTs } from "./room-out-store.ts";
 import { verifySlackRequest } from "./signature.ts";
 
 const CANT_ANSWER = "You can't answer this one.";
@@ -101,6 +103,8 @@ interface Destination {
   app: SlackAppRow;
   channel: string;
   client: SlackClient;
+  /** Set when the destination is a linked team room's Slack thread, so a failure can tell the team owner. */
+  room?: { slackTeamId: string; teamId: string; threadId: string };
   threadTs?: string;
 }
 
@@ -114,6 +118,8 @@ export interface SlackRequestsOptions {
   db: Database;
   /** Runs work after the response (`waitUntil`). Without it, the work is awaited. */
   defer?: (work: Promise<void>) => void;
+  /** Records the failure of a card for a linked team room. */
+  events: Pick<EventsService, "append">;
   fetch: SlackFetch;
   publicBaseUrl?: string;
   requests: Pick<RequestsService, "answer" | "cancel" | "outcome">;
@@ -125,6 +131,7 @@ export const createSlackRequests = ({
   clock,
   db,
   defer,
+  events,
   fetch: slackFetch,
   publicBaseUrl = "",
   requests,
@@ -197,6 +204,66 @@ export const createSlackRequests = ({
     return app && client
       ? { app, channel: reply.channel, client, threadTs: reply.threadTs }
       : null;
+  };
+
+  /**
+   * The Slack thread of a topic whose team room is linked to a channel, through
+   * the agent's own app. Null when the topic is not in a linked room, has no
+   * Slack thread yet, or the agent has no app in that Slack workspace. The card
+   * goes through the agent's own app only, because a click is answered by the
+   * app that posted it and `handle` checks that it belongs to the request's agent.
+   */
+  const roomDestination = async (
+    run: { agentId: string; workspaceId: string },
+    threadId: string
+  ): Promise<Destination | null> => {
+    const room = await findOutboundRoom(db, {
+      threadId,
+      workspaceId: run.workspaceId,
+    });
+    const threadTs = room ? await topicRootTs(db, { threadId }) : null;
+    const app = room
+      ? await findInstalledApp(db, {
+          agentId: run.agentId,
+          teamId: room.slackTeamId,
+          workspaceId: run.workspaceId,
+        })
+      : null;
+    const client = app ? await clientOf(app) : null;
+    return room && threadTs && app && client
+      ? {
+          app,
+          channel: room.channelId,
+          client,
+          room: {
+            slackTeamId: room.slackTeamId,
+            teamId: room.teamId,
+            threadId,
+          },
+          threadTs,
+        }
+      : null;
+  };
+
+  /** Tells the team owner a card did not reach the room's Slack thread. */
+  const reportCardFailure = async (
+    row: RequestRow,
+    destination: Destination,
+    error: string
+  ): Promise<void> => {
+    if (!destination.room) {
+      return;
+    }
+    await reportRoomFailure(events, {
+      agentId: row.agentId,
+      channelId: destination.channel,
+      error,
+      requestId: row.id,
+      slackTeamId: destination.room.slackTeamId,
+      teamId: destination.room.teamId,
+      threadId: destination.room.threadId,
+      workspaceId: row.workspaceId,
+    });
   };
 
   /**
@@ -342,6 +409,7 @@ export const createSlackRequests = ({
     );
     if (posted.kind !== "ok") {
       console.warn("Slack notice not posted", describeFailure(posted));
+      await reportCardFailure(row, destination, describeFailure(posted));
     }
   };
 
@@ -367,10 +435,16 @@ export const createSlackRequests = ({
       run.reply === null
         ? null
         : replyTargetSchema.parse(JSON.parse(run.reply));
-    const destination =
-      reply?.kind === "slack"
-        ? await threadDestination(run, reply)
-        : await dmDestination(run);
+    let destination: Destination | null = null;
+    if (reply?.kind === "slack") {
+      destination = await threadDestination(run, reply);
+    } else {
+      destination =
+        reply?.kind === "inbox"
+          ? await roomDestination(run, reply.threadId)
+          : null;
+      destination ??= await dmDestination(run);
+    }
     if (!destination) {
       return;
     }
@@ -390,6 +464,7 @@ export const createSlackRequests = ({
     );
     if (posted.kind !== "ok") {
       console.warn("Slack request card not posted", describeFailure(posted));
+      await reportCardFailure(row, destination, describeFailure(posted));
       return;
     }
     await db

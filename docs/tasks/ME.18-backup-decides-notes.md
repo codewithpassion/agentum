@@ -3,9 +3,9 @@ id: ME.18
 title: "The backup owner decides held notes and dream questions"
 milestone: ME
 size: S
-status: todo
+status: in_progress
 depends_on: [ME.17]
-branch: null
+branch: task/ME.18-backup-decides-notes
 lane: services-rail
 executor: claude
 ---
@@ -29,3 +29,4 @@ Controller decision (20 Nov 2026): an agent's backup owner counts as an owner fo
 
 ## Log
 - 2026-11-20: added from the ME.17 review.
+- 2026-11-20: dispatched on task/ME.18-backup-decides-notes (v4 controller session).

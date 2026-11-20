@@ -4,6 +4,7 @@ import { agents } from "@repo/db/schema/agents";
 import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
 import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
+import type { TeamSlackStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { ForbiddenError } from "./authz.ts";
 
@@ -31,11 +32,15 @@ const system: Principal = { kind: "system" };
 const NOW = "2026-01-01T00:00:00.000Z";
 let db: ReturnType<typeof migrated>;
 let service: ReturnType<typeof createTeamsService>;
+let statusCalls: { teamId: string; workspaceId: string }[];
+let statusAnswer: TeamSlackStatus;
 const admin: Principal = { ...user, isAdmin: true };
 const other: Principal = { ...user, userId: "u2" };
 
 beforeEach(() => {
   db = migrated();
+  statusCalls = [];
+  statusAnswer = { apps: [], link: null };
   for (const id of [WORKSPACE, "w2"]) {
     db.insert(workspaces)
       .values({
@@ -73,6 +78,10 @@ beforeEach(() => {
     atomic: sqliteAtomic(db),
     clock: { now: () => new Date(NOW), sleep: () => Promise.resolve() },
     db,
+    slackStatus: (workspaceId, teamId) => {
+      statusCalls.push({ teamId, workspaceId });
+      return Promise.resolve(statusAnswer);
+    },
   });
 });
 
@@ -565,7 +574,7 @@ test("slack link parses a team, a Slack workspace and a channel", () => {
   );
 });
 
-test("stub slack.link, slack.unlink and slack.status reject with not_found for a user", async () => {
+test("stub slack.link and slack.unlink reject with not_found for a user", async () => {
   await expect(
     service.slack.link(user, {
       channelId: "C1",
@@ -576,12 +585,42 @@ test("stub slack.link, slack.unlink and slack.status reject with not_found for a
   await expect(service.slack.unlink(user, "t1")).rejects.toMatchObject({
     code: "not_found",
   });
+});
+
+test("slack.status of an unknown team is not_found and reads nothing", async () => {
   await expect(service.slack.status(user, "t1")).rejects.toMatchObject({
     code: "not_found",
   });
+  expect(statusCalls).toEqual([]);
 });
 
-test("stub slack calls throw ForbiddenError for the system principal", () => {
+test("slack.status of a team in another workspace is not_found", async () => {
+  seedTeam("t-other", { workspaceId: "w2" });
+
+  await expect(service.slack.status(user, "t-other")).rejects.toMatchObject({
+    code: "not_found",
+  });
+  expect(statusCalls).toEqual([]);
+});
+
+test("slack.status gives what the status read says for a team of the workspace", async () => {
+  seedTeam("t1");
+  statusAnswer = {
+    apps: [{ agentId: "a1", botUserId: "U0BOT", inChannel: false }],
+    link: {
+      channelId: "C1",
+      createdAt: NOW,
+      linkedBy: "u1",
+      slackTeamId: "T1",
+      teamId: "t1",
+    },
+  };
+
+  expect(await service.slack.status(user, "t1")).toEqual(statusAnswer);
+  expect(statusCalls).toEqual([{ teamId: "t1", workspaceId: WORKSPACE }]);
+});
+
+test("slack calls throw ForbiddenError for the system principal", () => {
   expect(() => service.slack.status(system, "t1")).toThrow(ForbiddenError);
   expect(() => service.slack.unlink(system, "t1")).toThrow(ForbiddenError);
 });

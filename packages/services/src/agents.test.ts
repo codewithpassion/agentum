@@ -839,6 +839,82 @@ test("reservation writes the address and event; a second reservation conflicts w
   ).rejects.toMatchObject({ code: "not_found" });
 });
 
+const sessionAdmin: Principal = {
+  isAdmin: true,
+  kind: "user",
+  userId: "u3",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
+const adminApiKey: Principal = {
+  apiKey: { access: "admin", id: "k-admin" },
+  kind: "user",
+  userId: "u4",
+  via: "api_key",
+  workspaceId: WORKSPACE,
+};
+const plainMember: Principal = {
+  kind: "user",
+  userId: "u2",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
+const memberWriteKey: Principal = {
+  apiKey: { access: "write", id: "k-write" },
+  kind: "user",
+  userId: "u2",
+  via: "api_key",
+  workspaceId: WORKSPACE,
+};
+
+test("the owner, an org admin and an admin key may reserve an agent's address", async () => {
+  const owned = await createFake("Owned");
+  expect(await service.reserveAddress(user, owned.id, "owned")).toMatchObject({
+    emailLocal: "owned",
+  });
+  const byAdmin = await createFake("By Admin");
+  expect(
+    await service.reserveAddress(sessionAdmin, byAdmin.id, "by-admin")
+  ).toMatchObject({ emailLocal: "by-admin" });
+  const byKey = await createFake("By Key");
+  expect(
+    await service.reserveAddress(adminApiKey, byKey.id, "by-key")
+  ).toMatchObject({ emailLocal: "by-key" });
+});
+
+test("a plain member or a write key of one may not reserve another person's agent address", async () => {
+  const agent = await createFake("Guarded");
+  await service.reserveAddress(user, agent.id, "kept");
+  await expect(
+    service.reserveAddress(plainMember, agent.id, "stolen")
+  ).rejects.toMatchObject({ code: "forbidden" });
+  await expect(
+    service.reserveAddress(memberWriteKey, agent.id, "stolen")
+  ).rejects.toMatchObject({ code: "forbidden" });
+  const row = db.select().from(agents).where(eq(agents.id, agent.id)).get();
+  expect(row?.emailLocal).toBe("kept");
+  expect(
+    await events.query(user, WORKSPACE, {
+      agentId: agent.id,
+      types: ["agent.address_reserved"],
+    })
+  ).toHaveLength(1);
+});
+
+test("the owner set on an agent reserves its address, and its creator is refused once replaced", async () => {
+  const agent = await createFake("Handed");
+  await withMembers().setOwners(user, agent.id, {
+    backupUserId: "u3",
+    ownerUserId: "u2",
+  });
+  await expect(
+    service.reserveAddress(user, agent.id, "creator")
+  ).rejects.toMatchObject({ code: "forbidden" });
+  expect(
+    await service.reserveAddress(plainMember, agent.id, "owner")
+  ).toMatchObject({ emailLocal: "owner" });
+});
+
 test("drafts use cloud defaults, remain readable, and choose slugs including discarded drafts", async () => {
   const first = await service.createDraft(user, {
     name: "Builder",

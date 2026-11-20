@@ -31,6 +31,8 @@ let rules: Map<string, string>;
 let failure: Error | null;
 let failAt: "find" | "create";
 let creates: number;
+let finds: number;
+let deletes: number;
 let managedRules: Set<string>;
 const mailbox: MailboxPort = {
   discard: () => Promise.resolve(),
@@ -59,6 +61,7 @@ const routing: EmailRoutingPort = {
     return Promise.resolve({ id: "rule" });
   },
   deleteRule: (id) => {
+    deletes += 1;
     for (const [address, rule] of rules) {
       if (rule === id) {
         rules.delete(address);
@@ -67,6 +70,7 @@ const routing: EmailRoutingPort = {
     return Promise.resolve();
   },
   findRule: (address) => {
+    finds += 1;
     if (failure && failAt === "find") {
       throw failure;
     }
@@ -85,6 +89,27 @@ const options = () => ({
   mailbox,
   routing,
 });
+const member: Principal = {
+  kind: "user",
+  userId: "member",
+  via: "session",
+  workspaceId: "w",
+};
+const memberKey: Principal = {
+  apiKey: { access: "write", id: "key-write" },
+  kind: "user",
+  userId: "member",
+  via: "api_key",
+  workspaceId: "w",
+};
+const orgAdmin: Principal = { ...member, isAdmin: true, userId: "admin" };
+const adminKey: Principal = {
+  apiKey: { access: "admin", id: "key-admin" },
+  kind: "user",
+  userId: "keeper",
+  via: "api_key",
+  workspaceId: "w",
+};
 const insertAgent = (
   id = "a",
   status = "active",
@@ -114,6 +139,8 @@ beforeEach(() => {
   failure = null;
   failAt = "create";
   creates = 0;
+  finds = 0;
+  deletes = 0;
   db.insert(workspaces)
     .values({
       clerkOrgId: "org",
@@ -405,4 +432,60 @@ test("one refused agent does not stop the sweep", async () => {
     console.error = logged;
   }
   expect((await service.get(user, "c"))?.status).toBe("active");
+});
+
+const agentRow = () => db.select().from(agents).where(eq(agents.id, "a")).get();
+const mailboxRows = () => db.select().from(agentMailboxes).all();
+
+test("the owner, an org admin and an admin key can provision and disable", async () => {
+  for (const [index, principal] of [user, orgAdmin, adminKey].entries()) {
+    const agentId = `managed-${index}`;
+    insertAgent(agentId);
+    // biome-ignore lint/performance/noAwaitInLoops: each principal gets its own agent
+    expect((await service.provision(principal, agentId)).status).toBe("active");
+    expect((await service.disable(principal, agentId)).status).toBe("disabled");
+  }
+  expect(creates).toBe(3);
+});
+
+test("a plain member cannot provision and the refusal changes nothing", async () => {
+  for (const principal of [member, memberKey]) {
+    // biome-ignore lint/performance/noAwaitInLoops: check each refused principal
+    await expect(service.provision(principal, "a")).rejects.toThrow(
+      ForbiddenError
+    );
+  }
+  expect(agentRow()?.emailLocal).toBe("a");
+  expect(mailboxRows()).toHaveLength(0);
+  expect(db.select().from(triggers).all()).toHaveLength(0);
+  expect(finds).toBe(0);
+  expect(creates).toBe(0);
+  expect(deletes).toBe(0);
+});
+
+test("a plain member cannot disable and the active mailbox and rule stay unchanged", async () => {
+  await service.provision(user, "a");
+  const before = { agent: agentRow(), mailboxes: mailboxRows() };
+  const triggersBefore = db.select().from(triggers).all();
+  const findsBefore = finds;
+  for (const principal of [member, memberKey]) {
+    // biome-ignore lint/performance/noAwaitInLoops: check each refused principal
+    await expect(service.disable(principal, "a")).rejects.toThrow(
+      ForbiddenError
+    );
+  }
+  expect({ agent: agentRow(), mailboxes: mailboxRows() }).toEqual(before);
+  expect(db.select().from(triggers).all()).toEqual(triggersBefore);
+  expect(rules.get("a@example.com")).toBe("rule");
+  expect(finds).toBe(findsBefore);
+  expect(deletes).toBe(0);
+  expect(creates).toBe(1);
+});
+
+test("a plain member can read the mailbox", async () => {
+  const row = await service.provision(user, "a");
+  expect(await service.get(member, "a")).toMatchObject({
+    id: row.id,
+    status: "active",
+  });
 });

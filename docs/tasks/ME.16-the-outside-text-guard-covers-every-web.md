@@ -3,7 +3,7 @@ id: ME.16
 title: "The outside-text guard covers every web path"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/ME.16-the-outside-text-guard-covers-every-web
 lane: services-memory
@@ -27,3 +27,4 @@ Service tests: a `remember` from a run whose only web use is a cloud `curl`, a c
 ## Log
 - 2026-11-20: added from the ME gate review, round 1.
 - 2026-11-20: dispatched on task/ME.16-the-outside-text-guard-covers-every-web (v4 controller session).
+- 2026-11-21: merged as 6f5f4779, review clean after 2 fix rounds. check, test and build passed on main. Open limits decided in ME.19.
