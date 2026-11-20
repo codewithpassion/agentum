@@ -79,7 +79,7 @@ const addRows = (change: Change<"add">, ctx: PlanContext): Row[] => [
     action: "add",
     id: nextId(),
     kind: change.kind,
-    noteId: nextId(),
+    noteId: change.noteId ?? nextId(),
     text: change.text,
     userScope: change.userScope,
   },

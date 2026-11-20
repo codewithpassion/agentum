@@ -3,7 +3,7 @@ id: DR.16
 title: "Reconcile questions a disagreement a dream adds"
 milestone: DR
 size: M
-status: in_progress
+status: done
 depends_on: [DR.10, DR.9]
 branch: task/DR.16-reconcile-questions-a-disagreement-a-dream-adds
 lane: services-dream
@@ -30,3 +30,4 @@ In `packages/services/src/dream/run.ts` and `steps/reconcile.ts`, let reconcile 
 - 2026-11-21: added by controller, split from DR.10.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at f71d97f7, review clean with no fix rounds. The real-model run (claude-haiku-5-5, $0.0005) ended with an open question naming both new notes. Known limit: a held batch (ask first, or outside evidence) still raises no question about notes it would add. Queued for merge.
+- 2026-11-21: merged 6d660b87, batch merge check with DR.16, DR.12 and SL.12 passed. Done.

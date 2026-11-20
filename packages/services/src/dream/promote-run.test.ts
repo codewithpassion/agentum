@@ -6,6 +6,7 @@ import {
   defined,
   makeDreamWorld,
   quiet,
+  RUN,
   SESSION,
 } from "./test-dream.ts";
 
@@ -13,7 +14,9 @@ const title = "Summarize reports";
 const seedRuns = (
   w: DreamWorld,
   batch: string,
-  sessionId: string = SESSION.shared
+  sessionId: string = SESSION.shared,
+  name = "report-summary",
+  noteKind = "work"
 ) => {
   const ids = [1, 2, 3].map((n) => `${batch}-${n}`);
   for (const id of ids) {
@@ -34,21 +37,29 @@ const seedRuns = (
       })
       .run();
   }
-  w.setScript((call) =>
-    call.kind === "promote"
-      ? JSON.stringify({
-          procedures: [
-            {
-              description: "Read reports and send summaries.",
-              evidence: ids,
-              name: "report-summary",
-              steps: ["Read the report.", "Send the summary."],
-              title,
-            },
-          ],
-        })
-      : quiet(call)
-  );
+  w.setScript((call) => {
+    if (call.kind === "extract") {
+      return JSON.stringify({
+        notes: [
+          { evidence: ["e1"], kind: noteKind, text: `Note for ${batch}` },
+        ],
+      });
+    }
+    if (call.kind !== "promote") {
+      return quiet(call);
+    }
+    return JSON.stringify({
+      procedures: [
+        {
+          description: "Read reports and send summaries.",
+          evidence: ids,
+          name,
+          steps: ["Read the report.", "Send the summary."],
+          title,
+        },
+      ],
+    });
+  });
 };
 
 test("a dream files once, lists it in the diary, and never refiles after rejection", async () => {
@@ -208,4 +219,69 @@ test("a rejected skill proposal is not evidence for a note", async () => {
   expect(
     w.calls.filter((call) => call.kind === "promote").at(-1)?.prompt
   ).toContain("skill_proposal");
+});
+
+test("undoing a dream withdraws its skill proposal and leaves a later dream's alone", async () => {
+  const w = makeDreamWorld();
+  w.say("Something happened");
+  seedRuns(w, "first", SESSION.shared, "first-skill");
+  const first = await w.dream.runNow(w.owner, AGENT);
+  seedRuns(w, "second", SESSION.shared, "second-skill", "people");
+  const second = await w.dream.runNow(w.owner, AGENT);
+  expect(first.diary).toContain("Proposed a skill");
+  expect(await w.skillsStore.proposals(w.owner)).toHaveLength(2);
+
+  await w.dream.undo(w.owner, first.id);
+
+  const left = await w.skillsStore.proposals(w.owner);
+  const names = (await w.skillsStore.list(w.owner)).filter((skill) =>
+    left.some((version) => version.skillId === skill.id)
+  );
+  expect(names.map((skill) => skill.name)).toEqual(["second-skill"]);
+  const assigned = await w.skillsStore.assignments(w.owner);
+  expect(assigned.map((item) => item.skillId)).toEqual(
+    left.map((version) => version.skillId)
+  );
+  expect(second.status).toBe("done");
+});
+
+test("undoing a dream keeps a skill proposal a person already approved", async () => {
+  const w = makeDreamWorld();
+  seedRuns(w, "only");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  const proposal = defined((await w.skillsStore.proposals(w.owner))[0]);
+  await w.skillsStore.approve(w.owner, {
+    skillId: proposal.skillId,
+    version: 1,
+  });
+
+  await w.dream.undo(w.owner, run.id);
+
+  expect((await w.skillsStore.list(w.owner))[0]?.latestApprovedVersion).toBe(1);
+  expect(await w.skillsStore.assignments(w.owner)).toHaveLength(1);
+});
+
+test("undoing a dream keeps a skill the agent proposed from an ordinary run", async () => {
+  const w = makeDreamWorld();
+  seedRuns(w, "only");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  const { skill } = await w.skillsStore.create(
+    { agentId: AGENT, kind: "run", runId: RUN.shared, workspaceId: WORKSPACE },
+    {
+      files: [
+        {
+          content:
+            "---\nname: from-chat\ndescription: Made in chat.\n---\n\nDo it.\n",
+          path: "SKILL.md",
+        },
+      ],
+      message: "From chat",
+      name: "from-chat",
+    }
+  );
+
+  await w.dream.undo(w.owner, run.id);
+
+  const left = await w.skillsStore.proposals(w.owner);
+  expect(left.map((version) => version.skillId)).toEqual([skill.id]);
 });

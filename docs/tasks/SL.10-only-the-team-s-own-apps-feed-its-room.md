@@ -3,9 +3,9 @@ id: SL.10
 title: "Only the team's own apps feed its room"
 milestone: SL
 size: S
-status: todo
+status: done
 depends_on: []
-branch: null
+branch: task/SL.10-only-the-team-s-own-apps-feed-its-room
 lane: slack
 executor: claude
 ---
@@ -30,3 +30,6 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 1).
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
+- 2026-11-21: ready at 5148f3e1, review clean with no fix rounds.
+- 2026-11-21: merged c4952195, merge check passed. Done.
