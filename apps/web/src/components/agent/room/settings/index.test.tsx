@@ -119,3 +119,10 @@ test("Settings has a weekly spend limit that shows the saved cap", () => {
   expect(html).toContain("Weekly limit");
   expect(html).toMatch(AGENT_CAP_INPUT);
 });
+
+test("Settings has the three plain choices", () => {
+  const html = renderInRoom(<SettingsTab {...fixtureTabProps()} />);
+  expect(html).toContain("Capability");
+  expect(html).toContain("Thinking level");
+  expect(html).toContain("Context size");
+});

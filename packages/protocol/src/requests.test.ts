@@ -352,6 +352,21 @@ describe("approvalSummary", () => {
     expect(approvalSummary("a2a_send", {})).toBe("Use a2a_send");
   });
 
+  test("names who proposes a change to which member and field", () => {
+    expect(
+      approvalSummary("team_propose_change", {
+        agentName: "Scout",
+        field: "model",
+        leadName: "Maya",
+        reason: "Cheaper",
+        value: "m",
+      })
+    ).toBe("Maya proposes changing Scout's model");
+    expect(approvalSummary("team_propose_change", {})).toBe(
+      "Use team_propose_change"
+    );
+  });
+
   test("summarises commands, MCP tools, and common built-in inputs on one line", () => {
     expect(approvalSummary("Bash", { command: "git push\norigin main" })).toBe(
       "Run `git push origin main`"

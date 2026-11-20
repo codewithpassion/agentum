@@ -506,6 +506,9 @@ export const mcpRoutes = ({
     const hasMailbox =
       await composed.services.mail.agent.hasActiveMailbox(principal);
     const subagents = await composed.services.runs.subagentTools(principal);
+    // The team tools are for a lead's run in its team room.
+    const teamRoom =
+      (await composed.services.teamLead.roomRun(principal)) !== null;
     const handler = createMcpHandler(
       () =>
         createAgentumMcpServer(ports, {
@@ -532,6 +535,7 @@ export const mcpRoutes = ({
           mail: hasMailbox,
           qa: true,
           readOnly: isReadOnly(principal),
+          teamRoom,
         }),
       options
     );

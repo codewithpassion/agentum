@@ -1,13 +1,16 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import {
   agentConnectors as agentConnectorRows,
   connectors as connectorRows,
 } from "@repo/db/schema/connectors";
+import { inboxThreads as threadRows } from "@repo/db/schema/inbox";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { slackApps } from "@repo/db/schema/slack";
+import { teams as teamRows } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -54,6 +57,68 @@ const addConnector = (id: string, createdAt: string) => {
   db.insert(agentConnectorRows)
     .values({ agentId, connectorId: id, createdAt, workspaceId: WORKSPACE })
     .run();
+};
+
+const runSessionId = () => {
+  const run = db.select().from(runRows).where(eq(runRows.id, runId)).get();
+  return run?.sessionId ?? "";
+};
+
+const setRunSession = (values: { externalKey?: string; origin?: string }) => {
+  db.update(sessionRows)
+    .set(values)
+    .where(eq(sessionRows.id, runSessionId()))
+    .run();
+};
+
+const addTeam = (
+  id: string,
+  values: { archivedAt?: string; leadAgentId?: string } = {}
+) => {
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id,
+      name: id,
+      slug: id,
+      workspaceId: WORKSPACE,
+      ...values,
+    })
+    .run();
+};
+
+const addTopic = (threadId: string, teamId: string) => {
+  db.insert(threadRows)
+    .values({
+      createdAt: START,
+      createdBy: "u1",
+      id: threadId,
+      lastPostAt: START,
+      teamId,
+      title: threadId,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+};
+
+const addOtherAgent = () => {
+  const id = "agent-other";
+  db.insert(agentRows)
+    .values({
+      createdAt: START,
+      createdBy: "u1",
+      id,
+      instructions: "",
+      model: "m",
+      name: id,
+      runtime: "machine",
+      runtimeConfig: "{}",
+      slug: id,
+      status: "active",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  return id;
 };
 
 const build = async (options: { readMemoryFile?: MemoryFileReader } = {}) => {
@@ -335,4 +400,57 @@ test("a run with no person behind it sees no private notes", async () => {
 
 test("without a memory reader the context has no memory", async () => {
   expect((await build()).memory).toBeNull();
+});
+
+test("a lead's run in its team room gets no connectors", async () => {
+  addConnector("c1", "2026-10-16T10:00:01.000Z");
+  addTeam("ops", { leadAgentId: agentId });
+  addTopic("t1", "ops");
+  setRunSession({ externalKey: "t1", origin: "inbox" });
+
+  expect((await build()).connectors).toEqual([]);
+});
+
+test("a run in a topic whose team has another lead keeps its connectors", async () => {
+  addConnector("c1", "2026-10-16T10:00:01.000Z");
+  addTeam("ops", { leadAgentId: addOtherAgent() });
+  addTopic("t1", "ops");
+  setRunSession({ externalKey: "t1", origin: "inbox" });
+
+  const context = await build();
+
+  expect(context.connectors.map((connector) => connector.id)).toEqual(["c1"]);
+});
+
+test("a run in a topic whose team has no lead keeps its connectors", async () => {
+  addConnector("c1", "2026-10-16T10:00:01.000Z");
+  addTeam("ops");
+  addTopic("t1", "ops");
+  setRunSession({ externalKey: "t1", origin: "inbox" });
+
+  const context = await build();
+
+  expect(context.connectors.map((connector) => connector.id)).toEqual(["c1"]);
+});
+
+test("the lead's run in an ordinary session keeps its connectors", async () => {
+  addConnector("c1", "2026-10-16T10:00:01.000Z");
+  addTeam("ops", { leadAgentId: agentId });
+  addTopic("t1", "ops");
+  setRunSession({ externalKey: "t1" });
+
+  const context = await build();
+
+  expect(context.connectors.map((connector) => connector.id)).toEqual(["c1"]);
+});
+
+test("an archived team does not restrict its lead's run", async () => {
+  addConnector("c1", "2026-10-16T10:00:01.000Z");
+  addTeam("ops", { archivedAt: START, leadAgentId: agentId });
+  addTopic("t1", "ops");
+  setRunSession({ externalKey: "t1", origin: "inbox" });
+
+  const context = await build();
+
+  expect(context.connectors.map((connector) => connector.id)).toEqual(["c1"]);
 });

@@ -12,6 +12,7 @@ import {
   type PromptMemory,
 } from "../memory/prompt.ts";
 import { slackGuidanceFor } from "../slack/guidance.ts";
+import { leadRoomOf } from "../teams/room-run.ts";
 import { effectiveRunScope, modelOfRun, scopeAllows } from "./access-scope.ts";
 import { sessionSupportsSpeakers } from "./speakers.ts";
 import type { RunAccessScope, RunRecord } from "./types.ts";
@@ -21,7 +22,7 @@ import type { RunAccessScope, RunRecord } from "./types.ts";
  * machine claim and the managed session each map it to their own shape.
  */
 export interface LaunchContext {
-  /** The agent's connectors the run may reach, in a stable order. */
+  /** The agent's connectors the run may reach, in a stable order. A lead's team-room run has none. */
   connectors: McpServerConnector[];
   /** Names of the agents it can hand off to. */
   handoffNames: string[];
@@ -68,17 +69,23 @@ export const buildLaunchContext = async (
   agent: AgentRecord,
   options: { readMemoryFile?: MemoryFileReader } = {}
 ): Promise<LaunchContext> => {
-  const assigned = await db
-    .select({ id: connectors.id, name: connectors.name })
-    .from(agentConnectors)
-    .innerJoin(connectors, eq(connectors.id, agentConnectors.connectorId))
-    .where(
-      and(
-        eq(agentConnectors.agentId, run.agentId),
-        eq(agentConnectors.workspaceId, run.workspaceId)
-      )
-    )
-    .orderBy(asc(agentConnectors.createdAt), asc(agentConnectors.connectorId));
+  const inLeadRoom = (await leadRoomOf(db, run)) !== null;
+  const assigned = inLeadRoom
+    ? []
+    : await db
+        .select({ id: connectors.id, name: connectors.name })
+        .from(agentConnectors)
+        .innerJoin(connectors, eq(connectors.id, agentConnectors.connectorId))
+        .where(
+          and(
+            eq(agentConnectors.agentId, run.agentId),
+            eq(agentConnectors.workspaceId, run.workspaceId)
+          )
+        )
+        .orderBy(
+          asc(agentConnectors.createdAt),
+          asc(agentConnectors.connectorId)
+        );
   const scope = await effectiveRunScope(db, run.workspaceId, run.id);
   const multiPerson = await sessionSupportsSpeakers(db, run);
   return {
