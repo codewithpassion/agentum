@@ -1,5 +1,4 @@
 import type { SpendRow } from "@repo/db/shared";
-import { costOf } from "./usage-cost.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -37,8 +36,8 @@ export const paddedWindow = (from: string, to: string) => ({
 export interface SpendFact {
   agentId: string;
   at: string;
+  costUsd: number;
   tasks: number;
-  usage: string | null;
 }
 
 export const rollupSpend = (
@@ -61,7 +60,7 @@ export const rollupSpend = (
       tasks: 0,
     };
     // Keep USD in the accumulator, then convert and round once per agent-day.
-    row.cents += costOf(fact.usage);
+    row.cents += fact.costUsd;
     row.tasks += fact.tasks;
     buckets.set(key, row);
   }

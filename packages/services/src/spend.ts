@@ -22,6 +22,7 @@ import {
   paddedWindow,
   rollupSpend,
 } from "./spend-rollups.ts";
+import { costOf } from "./usage-cost.ts";
 import type { Principal } from "./workspaces.ts";
 
 const SPEND_READ = "spend.read";
@@ -142,8 +143,16 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     ]);
     return rollupSpend(
       [
-        ...runRows.map((row) => ({ ...row, tasks: 1 })),
-        ...dreams.map((row) => ({ ...row, tasks: 0 })),
+        ...runRows.map((row) => ({
+          ...row,
+          costUsd: costOf(row.usage),
+          tasks: 1,
+        })),
+        ...dreams.map((row) => ({
+          ...row,
+          costUsd: costOf(row.usage),
+          tasks: 0,
+        })),
       ],
       workspaceRow.timezone,
       range
