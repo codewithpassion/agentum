@@ -32,3 +32,4 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 3).
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 2af8e6dc after one fix round, review clean. The guard sits in requests.answer, so an admin's Always allow still works by mail. Queued for merge.

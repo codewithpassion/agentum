@@ -3,7 +3,7 @@ id: SP.7
 title: "Spend rounds the week, not each day"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: [SP.5]
 branch: task/SP.7-spend-rounds-the-week-not-each-day
 lane: services-spend
@@ -30,3 +30,4 @@ a rollup test with three days of $0.004 gives a week of $0.01 where today's code
 - 2026-11-21: merged main with SP.8, resolution reviewed clean. Ready at 8253a2b8. Queued for merge.
 - 2026-11-21: second merge conflict, with SP.10 and SP.9 in spend-logic and spend-caps tests. Sent back to merge origin/main.
 - 2026-11-21: merged origin/main (SP.9, SP.10), resolution reviewed clean. Ready at a3f02420.
+- 2026-11-21: merged 76ad9723, merge check passed. Done.

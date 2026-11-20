@@ -28,3 +28,4 @@ service tests for both, and the Knows tab no longer lists a skill with no approv
 ## Log
 - 2026-11-20: added from the dream walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at db49d2a0 after one fix round, review clean. Queued for merge.

@@ -3,9 +3,9 @@ id: TM.20
 title: "A lead's room run gets no shell, file or web tools"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/TM.20-a-lead-s-room-run-gets-no-shell-file-or
 lane: runtimes
 executor: claude
 ---
@@ -26,3 +26,4 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 2).
 - `bun run check && bun run test && bun run build` pass, including the agentum-rs tests.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.

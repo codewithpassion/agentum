@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import type { MemoryNote } from "@repo/db/shared";
 import type { Judge } from "./judge.ts";
-import { reconcileNotes } from "./reconcile.ts";
+import { incomingNote, reconcileNotes } from "./reconcile.ts";
 
 const note = (id: string, overrides: Partial<MemoryNote> = {}): MemoryNote => ({
   date: "2026-11-02",
@@ -286,4 +286,135 @@ test("result.notes drops dropped notes and keeps questioned ones", async () => {
     { action: "question", noteIds: ["n3", "n4"], question: "Or this one?" },
   ]);
   expect(result.notes).toEqual([n3, n2, n4]);
+});
+
+test("two disagreeing incoming notes make one question and never become notes", async () => {
+  const a = note("new1", { text: "Always ask first.", writtenBy: "agent" });
+  const b = note("new2", { text: "Never ask first.", writtenBy: "agent" });
+  const { calls, judge } = fakeJudge(() =>
+    verdict({
+      confidence: 0.9,
+      ids: ["new1", "new2"],
+      question: "Which is right?",
+    })
+  );
+  const result = await reconcileNotes({ incoming: [a, b], judge, notes: [] });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.prompt).toContain("id=new1");
+  expect(calls[0]?.prompt).toContain("id=new2");
+  expect(result.changes).toEqual([
+    {
+      action: "question",
+      noteIds: ["new1", "new2"],
+      question: "Which is right?",
+    },
+  ]);
+  expect(result.notes).toEqual([]);
+  expect(result.held).toEqual(["new1", "new2"]);
+});
+
+test("an incoming note never wins over an existing person note", async () => {
+  const existing = note("n1", {
+    date: "2026-11-01",
+    text: "Always ask first.",
+    writtenBy: "person",
+  });
+  const incoming = note("new1", {
+    date: "2026-11-10",
+    text: "Never ask first.",
+    writtenBy: "agent",
+  });
+  const { judge } = fakeJudge(() =>
+    verdict({
+      confidence: 0.9,
+      ids: ["n1", "new1"],
+      question: "Which is right?",
+    })
+  );
+  const result = await reconcileNotes({
+    incoming: [incoming],
+    judge,
+    notes: [existing],
+  });
+  expect(result.changes).toEqual([
+    {
+      action: "question",
+      noteIds: ["n1", "new1"],
+      question: "Which is right?",
+    },
+  ]);
+  expect(result.notes).toEqual([existing]);
+});
+
+test("two dream-written notes in an answered group are not judged again", async () => {
+  const a = note("n1", { date: "2026-11-01", writtenBy: "dream" });
+  const b = note("n2", { date: "2026-11-10", writtenBy: "dream" });
+  const { calls, judge } = fakeJudge(() =>
+    verdict({ confidence: 0.9, ids: ["n1", "n2"], question: "Which is right?" })
+  );
+  const result = await reconcileNotes({ incoming: [], judge, notes: [a, b] });
+  expect(calls).toHaveLength(0);
+  expect(result).toEqual({ changes: [], held: [], notes: [a, b] });
+});
+
+test("incoming notes of another kind or userScope are judged apart", async () => {
+  const people = [
+    note("n1", { date: "2026-11-01" }),
+    note("n2", { date: "2026-11-02", writtenBy: "person" }),
+  ];
+  const incoming = [
+    note("new1", { kind: "people", userScope: "user_1" }),
+    note("new2", { kind: "people", userScope: "user_1" }),
+    note("new3", { kind: "work" }),
+    note("new4", { kind: "work" }),
+  ];
+  const { calls, judge } = fakeJudge(() => verdict());
+  const result = await reconcileNotes({ incoming, judge, notes: people });
+  expect(calls).toHaveLength(3);
+  expect(calls[0]?.prompt).toContain("id=n1");
+  expect(calls[0]?.prompt).not.toContain("id=new");
+  expect(calls[1]?.prompt).toContain("id=new1");
+  expect(calls[1]?.prompt).not.toContain("id=n1");
+  expect(calls[1]?.prompt).not.toContain("id=new3");
+  expect(calls[2]?.prompt).toContain("id=new3");
+  expect(calls[2]?.prompt).not.toContain("id=new1");
+  expect(calls[2]?.prompt).not.toContain("id=n1");
+  expect(result.changes).toEqual([]);
+  expect(result.notes).toEqual(people);
+});
+
+test("an incoming note does not make a dream-only conflict a question", async () => {
+  const a = note("n1", { date: "2026-11-01", writtenBy: "dream" });
+  const b = note("n2", { date: "2026-11-05", writtenBy: "dream" });
+  const incoming = note("new1", { date: "2026-11-10", writtenBy: "agent" });
+  const { calls, judge } = fakeJudge(() =>
+    verdict({ confidence: 0.9, ids: ["n1", "n2"], question: "Which is right?" })
+  );
+  const result = await reconcileNotes({
+    incoming: [incoming],
+    judge,
+    notes: [a, b],
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.prompt).toContain("id=new1");
+  expect(result.changes).toEqual([]);
+  expect(result.held).toEqual([]);
+  expect(result.notes).toEqual([a, b]);
+});
+
+test("incomingNote builds the note an add will become", () => {
+  const built = incomingNote(
+    { action: "add", kind: "people", source: null, text: "x", userScope: null },
+    "n9",
+    "2026-11-21"
+  );
+  expect(built).toEqual({
+    date: "2026-11-21",
+    id: "n9",
+    kind: "people",
+    source: null,
+    text: "x",
+    userScope: null,
+    writtenBy: "agent",
+  });
 });

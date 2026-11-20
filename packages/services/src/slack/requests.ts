@@ -12,12 +12,16 @@ import type { Database } from "@repo/db";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
 import { identityLinks } from "@repo/db/schema/workspaces";
-import { isDecisionsDisplay } from "@repo/protocol/requests";
+import {
+  type DecisionsAnswer,
+  decisionsAnswerSchema,
+  isDecisionsDisplay,
+} from "@repo/protocol/requests";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
-import { isServiceError } from "../errors.ts";
+import { ERROR_REASON, isServiceError } from "../errors.ts";
 import type { EventRecord, EventsService } from "../events.ts";
 import { isA2aApproval } from "../mail/approval.ts";
 import {
@@ -113,6 +117,19 @@ const accepted = (
   response?: Record<string, unknown>
 ): InteractResult => ({ after, kind: "accepted", response });
 
+/** Reads a click with the questions or decisions of the request it is for, which its buttons index into. */
+const parseClick = (
+  payload: unknown,
+  display: ReturnType<typeof requestRecord>["display"]
+): InteractionResult => {
+  if (!("questions" in display)) {
+    return parseInteraction(payload);
+  }
+  return isDecisionsDisplay(display)
+    ? parseInteraction(payload, undefined, display.questions)
+    : parseInteraction(payload, display.questions);
+};
+
 export interface SlackRequestsOptions {
   clock: Clock;
   db: Database;
@@ -122,7 +139,10 @@ export interface SlackRequestsOptions {
   events: Pick<EventsService, "append">;
   fetch: SlackFetch;
   publicBaseUrl?: string;
-  requests: Pick<RequestsService, "answer" | "cancel" | "outcome">;
+  requests: Pick<
+    RequestsService,
+    "answer" | "answerDecisions" | "cancel" | "outcome"
+  >;
   /** `SECRETS_KEY`, base64. */
   secretsKey?: string;
 }
@@ -153,6 +173,12 @@ export const createSlackRequests = ({
     return row ?? null;
   };
 
+  /** The answers a decision queue has so far, by question id. */
+  const answersOf = (row: RequestRow): Record<string, string> =>
+    row.answer
+      ? decisionsAnswerSchema.parse(JSON.parse(row.answer)).decisions
+      : {};
+
   const cardOf = async (row: RequestRow): Promise<CardRequest> => {
     const agent = await findAgent(db, {
       id: row.agentId,
@@ -176,9 +202,12 @@ export const createSlackRequests = ({
       };
     }
     if ("questions" in display) {
-      // A decision queue has no Slack card until TX.6 adds one.
       if (isDecisionsDisplay(display)) {
-        throw new Error("Slack does not show decision queues yet");
+        return {
+          ...base,
+          answers: answersOf(row),
+          decisions: display.questions,
+        };
       }
       return { ...base, questions: display.questions };
     }
@@ -338,6 +367,17 @@ export const createSlackRequests = ({
     );
   };
 
+  /** The Slack message of a request's card, with the app that posted it. Null when no card was posted or the app is gone. */
+  const messageOf = async (row: RequestRow) => {
+    if (row.slackMessage === null) {
+      return null;
+    }
+    const message = slackMessageSchema.parse(JSON.parse(row.slackMessage));
+    const app = await findAppByApiId(db, message.appId);
+    const client = app ? await clientOf(app) : null;
+    return app && client ? { app, client, message } : null;
+  };
+
   /**
    * Closes the card of a request that is no longer pending. Safe to run more
    * than once, and a no-op when no card was posted.
@@ -345,17 +385,13 @@ export const createSlackRequests = ({
   const settle = async (requestId: string): Promise<void> => {
     const row = await loadRow(requestId);
     const outcome = row ? outcomeOf(row) : null;
-    if (!(row && outcome && row.slackMessage !== null)) {
+    const target = row && outcome ? await messageOf(row) : null;
+    if (!(row && outcome && target)) {
       return;
     }
-    const message = slackMessageSchema.parse(JSON.parse(row.slackMessage));
-    const app = await findAppByApiId(db, message.appId);
-    const client = app ? await clientOf(app) : null;
-    if (!client) {
-      return;
-    }
+    const { app, client, message } = target;
     const card = settledCard(await cardOf(row), {
-      by: app ? await answeredByName(row, app, client) : undefined,
+      by: await answeredByName(row, app, client),
       outcome,
       via: row.answeredVia ?? undefined,
     });
@@ -369,6 +405,32 @@ export const createSlackRequests = ({
     );
     if (updated.kind !== "ok") {
       console.warn("Slack request card not settled", describeFailure(updated));
+    }
+  };
+
+  /**
+   * Redraws the card of a request that is still pending, so the answers given
+   * so far show. A no-op when the request has closed (`settle` draws that) or
+   * no card was posted.
+   */
+  const refresh = async (requestId: string): Promise<void> => {
+    const row = await loadRow(requestId);
+    const target = row?.status === "pending" ? await messageOf(row) : null;
+    if (!(row && target)) {
+      return;
+    }
+    const { client, message } = target;
+    const card = requestCard(await cardOf(row));
+    const updated = await withRetry(clock, () =>
+      client.updateMessage({
+        blocks: card.blocks,
+        channel: message.channel,
+        text: card.text,
+        ts: message.ts,
+      })
+    );
+    if (updated.kind !== "ok") {
+      console.warn("Slack request card not updated", describeFailure(updated));
     }
   };
 
@@ -567,7 +629,8 @@ export const createSlackRequests = ({
   const refuse = async (
     app: SlackAppRow,
     payload: unknown,
-    slackUserId: string
+    slackUserId: string,
+    text = CANT_ANSWER
   ): Promise<void> => {
     const place = placeSchema.safeParse(payload);
     const channel =
@@ -579,12 +642,42 @@ export const createSlackRequests = ({
     await withRetry(clock, () =>
       client.postEphemeral({
         channel,
-        text: CANT_ANSWER,
+        text,
         threadTs:
           place.data?.message?.thread_ts ?? place.data?.container?.thread_ts,
         user: slackUserId,
       })
     );
+  };
+
+  /**
+   * One click on a decision queue answers one question and redraws the card.
+   * A question that already has an answer is left as it is, so a click on a
+   * card that was not redrawn in time cannot overwrite it.
+   */
+  const answerDecision = async (
+    principal: Principal,
+    requestId: string,
+    sent: DecisionsAnswer
+  ): Promise<void> => {
+    const row = await loadRow(requestId);
+    if (!row) {
+      return;
+    }
+    const given = answersOf(row);
+    const fresh = Object.entries(sent.decisions).filter(
+      ([questionId]) => !(questionId in given)
+    );
+    if (fresh.length === 0) {
+      await refresh(requestId);
+      return;
+    }
+    await requests.answerDecisions(
+      principal,
+      { decisions: Object.fromEntries(fresh), requestId },
+      "slack"
+    );
+    await refresh(requestId);
   };
 
   const answer = async (
@@ -595,6 +688,8 @@ export const createSlackRequests = ({
     try {
       if (parsed.cancel) {
         await requests.cancel(principal, requestId);
+      } else if ("decisions" in parsed.answer) {
+        await answerDecision(principal, requestId, parsed.answer);
       } else {
         await requests.answer(principal, {
           answer: parsed.answer,
@@ -683,12 +778,7 @@ export const createSlackRequests = ({
       return accepted();
     }
     const { display } = requestRecord(row);
-    const parsed = parseInteraction(
-      payload,
-      "questions" in display && !isDecisionsDisplay(display)
-        ? display.questions
-        : undefined
-    );
+    const parsed = parseClick(payload, display);
     // Takeover control and hand-back require the browser; Slack only cancels.
     if (!canInteract(row, parsed)) {
       return accepted();
@@ -711,7 +801,20 @@ export const createSlackRequests = ({
         } else if (access.kind === "settled") {
           await settle(row.id);
         } else if (parsed.ok) {
-          await answer(access.principal, row.id, parsed);
+          try {
+            await answer(access.principal, row.id, parsed);
+          } catch (error) {
+            // The card stays open: only the person who pressed sees why.
+            if (
+              !(
+                isServiceError(error) &&
+                error.reason === ERROR_REASON.alwaysAllowOwnerOnly
+              )
+            ) {
+              throw error;
+            }
+            await refuse(app, payload, slackUserId, error.message);
+          }
         } else {
           await openModal(app, row, parsed.triggerId);
         }

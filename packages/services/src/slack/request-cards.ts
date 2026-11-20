@@ -6,6 +6,9 @@ import {
   type ApprovalAnswer,
   type ApprovalDisplay,
   approvalAnswerSchema,
+  type Decision,
+  type DecisionsAnswer,
+  decisionsAnswerSchema,
   type QuestionAnswer,
   type QuestionDisplay,
   questionAnswerSchema,
@@ -49,7 +52,16 @@ type TakeoverRequest = Base &
     publicBaseUrl: string;
     runId: string;
   };
-export type CardRequest = ApprovalRequest | QuestionRequest | TakeoverRequest;
+export type DecisionsRequest = Base & {
+  /** Maps a decision id to the answer given so far. */
+  answers: Record<string, string>;
+  decisions: Decision[];
+};
+export type CardRequest =
+  | ApprovalRequest
+  | QuestionRequest
+  | TakeoverRequest
+  | DecisionsRequest;
 const INDEX = /^(0|[1-9]\d*)$/;
 /**
  * The first part of a card button's `action_id` and of the modal's
@@ -60,9 +72,9 @@ const ACTION_ID = "ag_req";
 const ACTION_IDS = new Set([ACTION_ID, "hm_req"]);
 const MODAL_ID = "ag_req_modal";
 const MODAL_IDS = new Set([MODAL_ID, "hm_req_modal"]);
-const isChoiceAction = (parts: string[]): boolean =>
+const isIndexedAction = (parts: string[], kind: string): boolean =>
   parts.length === 5 &&
-  parts[2] === "choice" &&
+  parts[2] === kind &&
   INDEX.test(parts[3] ?? "") &&
   INDEX.test(parts[4] ?? "");
 const plain = (text: string): PlainText => ({ text, type: "plain_text" });
@@ -181,7 +193,64 @@ export const takeoverCard = (request: TakeoverRequest): RequestCard => ({
   text: escapeSlack(`${request.agentName}: ${request.reason}`),
 });
 
-export const requestCard = (request: CardRequest): RequestCard => {
+const decisionBlocks = (
+  request: DecisionsRequest,
+  decision: Decision,
+  decisionIndex: number,
+  settled: boolean
+): Block[] => {
+  const heading = `*${decisionIndex + 1}.* ${escapeSlack(decision.text)}`;
+  const answer = request.answers[decision.id];
+  if (answer !== undefined) {
+    return [section(`${heading}\nAnswer: ${escapeSlack(answer)}`)];
+  }
+  if (settled) {
+    return [section(`${heading}\n_No answer_`)];
+  }
+  const hint = decision.freeText
+    ? "\n_You can also type your own answer in Agentum._"
+    : "";
+  return [
+    section(`${heading}${hint}`),
+    {
+      elements: decision.options.map((option, position) =>
+        button(
+          option,
+          `${ACTION_ID}:${request.requestId}:decide:${decisionIndex}:${position}`
+        )
+      ),
+      type: "actions",
+    },
+  ];
+};
+
+export const decisionsCard = (
+  request: DecisionsRequest,
+  { settled }: { settled: boolean }
+): RequestCard => {
+  const count = request.decisions.length;
+  const heading = count === 1 ? "1 decision" : `${count} decisions`;
+  return {
+    blocks: [
+      section(`*${escapeSlack(request.agentName)}* has ${heading} to make`),
+      ...request.decisions.flatMap((decision, index) =>
+        decisionBlocks(request, decision, index, settled)
+      ),
+      expiry(request.expiresAt),
+    ],
+    text: escapeSlack(
+      `${request.agentName}: ${request.decisions.map((decision) => decision.text).join("; ")}`
+    ),
+  };
+};
+
+export const requestCard = (
+  request: CardRequest,
+  settled = false
+): RequestCard => {
+  if ("decisions" in request) {
+    return decisionsCard(request, { settled });
+  }
   if ("reason" in request) {
     return takeoverCard(request);
   }
@@ -290,7 +359,7 @@ export const settledCard = (
     }
     status = `${action}${by ? ` by ${by}` : ""}${via ? ` on ${via === "web" ? "the web" : "Slack"}` : ""}`;
   }
-  const card = requestCard(request);
+  const card = requestCard(request, true);
   return {
     blocks: [
       ...card.blocks.filter((block) => block.type !== "actions"),
@@ -339,7 +408,10 @@ interface Identity {
   userId: string;
 }
 type ParsedAnswer =
-  | { answer: ApprovalAnswer | QuestionAnswer; cancel?: never }
+  | {
+      answer: ApprovalAnswer | QuestionAnswer | DecisionsAnswer;
+      cancel?: never;
+    }
   | { cancel: true; answer?: never };
 
 export type InteractionResult =
@@ -407,10 +479,32 @@ type Parsed =
   | ({ requestId: string } & ParsedAnswer)
   | Exclude<InteractionResult, { ok: true }>;
 
+const parseDecision = (
+  parts: string[],
+  requestId: string,
+  decisions: Decision[] | undefined
+): Parsed => {
+  if (decisions === undefined) {
+    return { ok: false, reason: "questions_required", requestId };
+  }
+  const decision = decisions[Number(parts[3])];
+  const option = decision?.options[Number(parts[4])];
+  if (decision === undefined || option === undefined) {
+    return { ok: false, reason: "invalid", requestId };
+  }
+  return {
+    answer: decisionsAnswerSchema.parse({
+      decisions: { [decision.id]: option },
+    }),
+    requestId,
+  };
+};
+
 const parseAction = (
   action: z.infer<typeof actionSchema>,
   payload: unknown,
-  questions: Questions | undefined
+  questions: Questions | undefined,
+  decisions: Decision[] | undefined
 ): Parsed => {
   const [clicked] = action.actions;
   const parts = (clicked?.action_id ?? "").split(":");
@@ -430,7 +524,10 @@ const parseAction = (
       userId: identity.user.id,
     };
   }
-  if (isChoiceAction(parts)) {
+  if (isIndexedAction(parts, "decide")) {
+    return parseDecision(parts, requestId, decisions);
+  }
+  if (isIndexedAction(parts, "choice")) {
     if (questions === undefined) {
       return { ok: false, reason: "questions_required", requestId };
     }
@@ -482,18 +579,20 @@ const parseSubmission = (
  * Choice buttons and modal submissions carry indices, not text, because Slack caps
  * button values and private metadata. The caller loads the request's questions
  * from its stored display and parses again with them; without them those two
- * interactions answer `questions_required`.
+ * interactions answer `questions_required`. A decision button needs `decisions`
+ * the same way.
  */
 export const parseInteraction = (
   payload: unknown,
-  questions?: Questions
+  questions?: Questions,
+  decisions?: Decision[]
 ): InteractionResult => {
   try {
     const action = actionSchema.safeParse(payload);
     const submission = submissionSchema.safeParse(payload);
     let parsed: Parsed = { ok: false, reason: "invalid" };
     if (action.success) {
-      parsed = parseAction(action.data, payload, questions);
+      parsed = parseAction(action.data, payload, questions, decisions);
     } else if (submission.success) {
       parsed = parseSubmission(submission.data.view, questions);
     }

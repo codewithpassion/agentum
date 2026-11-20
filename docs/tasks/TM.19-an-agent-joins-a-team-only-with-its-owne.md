@@ -33,3 +33,4 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 1).
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: controller ran the read-only count on remote D1. Production and staging hold 0 cross-owner agent memberships (team owner differs from the agent's owner, or either is unset). Nothing to migrate.

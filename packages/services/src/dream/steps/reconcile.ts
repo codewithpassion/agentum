@@ -28,9 +28,31 @@ export interface ReconcileResult extends StepResult {
 }
 
 export interface ReconcileInput {
+  /**
+   * Notes the dream is about to add, so two candidates that disagree, or one
+   * that disagrees with an existing note, can raise a question. They count as
+   * fresh evidence. They are judged with the existing notes of their kind and
+   * scope, but never appear in the result's `notes`.
+   */
+  incoming?: readonly MemoryNote[];
   judge: Judge;
   notes: readonly MemoryNote[];
 }
+
+/** An `add` of the plan as a note the judge can name: the id the plan gives it, `today`, and the agent as writer, since it comes from what the agent did. */
+export const incomingNote = (
+  candidate: Extract<DreamPlanChange, { action: "add" }>,
+  noteId: string,
+  today: string
+): MemoryNote => ({
+  date: today,
+  id: noteId,
+  kind: candidate.kind,
+  source: candidate.source,
+  text: candidate.text,
+  userScope: candidate.userScope,
+  writtenBy: "agent",
+});
 
 const PERSON_WINS_REASON = "A newer note from a person says otherwise";
 const FALLBACK_QUESTION = "These notes disagree. Which one is right?";
@@ -174,14 +196,16 @@ const reconcileGroup = async (
 
 /**
  * Finds notes that disagree, one judge call per group of one kind and scope
- * that holds at least one fresh note. A dropped note leaves `notes`; a questioned
- * note stays.
+ * that holds at least one fresh note. A group of notes that only dreams wrote
+ * is skipped, so a question a person already answered is not asked again. A
+ * dropped note leaves `notes`; a questioned note stays.
  */
 export const reconcileNotes = async ({
+  incoming = [],
   judge,
   notes,
 }: ReconcileInput): Promise<ReconcileResult> => {
-  const groups = scopeGroups(notes).filter(
+  const groups = scopeGroups([...notes, ...incoming]).filter(
     (group) => group.length >= 2 && hasFreshEvidence(group)
   );
   const changes = (

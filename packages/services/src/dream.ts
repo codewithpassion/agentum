@@ -29,7 +29,7 @@ import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isReadOnly } from "./automation-access.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
-import { heldCounts } from "./dream/held.ts";
+import { heldCounts, openQuestionCounts } from "./dream/held.ts";
 import { readOptions } from "./dream/question-options.ts";
 import {
   loadDreamAgent,
@@ -40,6 +40,10 @@ import {
 } from "./dream/rows.ts";
 import { createDreamRunner } from "./dream/run.ts";
 import { createTeamAnswer } from "./dream/team/answer.ts";
+import {
+  createTeamDiaryPoster,
+  type TeamDiaryPostResult,
+} from "./dream/team/diary-post.ts";
 import { createTeamDreamRunner } from "./dream/team/run.ts";
 import { loadTeamRecord } from "./dream/team/team.ts";
 import { createTeamUndo } from "./dream/team/undo.ts";
@@ -110,13 +114,13 @@ export interface DreamDeps {
   events: Pick<EventsService, "readPayload">;
   /** The same fetch the agent builder calls Anthropic with. */
   fetch: Fetcher;
-  /** The team diary is posted in the team room through this. */
+  /** The team diary (at its 08:00 slot) and the hand-off requests are posted in the team room through this. */
   inbox: Pick<InboxService, "postNotice">;
   library: DreamMemoryLibrary;
   managedKeys: Pick<ManagedKeysService, "resolve">;
   /** A person's answer to a question forgets the notes it did not keep, as that person. */
   memory: Pick<MemoryService, "forget">;
-  skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent">;
+  skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent" | "reject">;
   /** A team dream's cost counts toward the workspace's weekly cap: it asks before it runs and tells after. */
   spend?: {
     enforceWorkspaceCap: (workspaceId: string) => Promise<void>;
@@ -154,6 +158,11 @@ export const createDreamService = (deps: DreamDeps) => {
   const teamRunner = createTeamDreamRunner(deps);
   const teamUndoer = createTeamUndo(deps);
   const teamAnswerer = createTeamAnswer(deps);
+  const diaryPoster = createTeamDiaryPoster({
+    clock,
+    db,
+    inbox: deps.inbox,
+  });
 
   const runIn = async (workspaceId: string, id: string): Promise<RunRow> => {
     const [row] = await db
@@ -167,13 +176,16 @@ export const createDreamService = (deps: DreamDeps) => {
     return row;
   };
 
-  /** The dreams as the contract type, each with the changes it still holds. */
+  /** The dreams as the contract type, each with the changes it still holds and the questions still open. */
   const withHeld = async (rows: readonly RunRow[]): Promise<DreamRun[]> => {
-    const held = await heldCounts(
-      db,
-      rows.map((row) => row.id)
+    const ids = rows.map((row) => row.id);
+    const [held, open] = await Promise.all([
+      heldCounts(db, ids),
+      openQuestionCounts(db, ids),
+    ]);
+    return rows.map((row) =>
+      toRun(row, held.get(row.id) ?? 0, open.get(row.id) ?? 0)
     );
-    return rows.map((row) => toRun(row, held.get(row.id) ?? 0));
   };
 
   const oneWithHeld = async (row: RunRow): Promise<DreamRun> => {
@@ -286,7 +298,7 @@ export const createDreamService = (deps: DreamDeps) => {
       workspaceId,
       run.agentId
     );
-    await undoer.undo(run, agent, user.userId);
+    await undoer.undo(run, agent, user.userId, principal);
     return await oneWithHeld(await runIn(workspaceId, dreamRunId));
   };
 
@@ -654,6 +666,16 @@ export const createDreamService = (deps: DreamDeps) => {
     return result;
   };
 
+  /** The minute tick's diary job: posts each team diary that is due at its 08:00 slot, once. */
+  const postTeamDiaries = async (
+    principal: Principal
+  ): Promise<TeamDiaryPostResult> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(DREAM_FIRE);
+    }
+    return await diaryPoster.postDue();
+  };
+
   /** The minute tick's repair job: every active agent whose schedule is not off has its dream trigger. */
   const syncTriggers = async (principal: Principal): Promise<number> => {
     if (principal.kind !== "system") {
@@ -670,6 +692,7 @@ export const createDreamService = (deps: DreamDeps) => {
     fireDueTeams,
     get,
     list,
+    postTeamDiaries,
     runNow,
     runTeamNow,
     syncTriggers,

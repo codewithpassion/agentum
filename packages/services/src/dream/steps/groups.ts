@@ -16,7 +16,7 @@ export interface StepResult {
   changes: DreamPlan;
   /**
    * The input notes after the changes, so the next step works on what is left.
-   * A note a plan adds has no id yet, so it is not in here.
+   * A note a plan adds is not in here, even though it has an id by reconcile.
    */
   notes: MemoryNote[];
 }

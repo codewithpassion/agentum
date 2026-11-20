@@ -16,4 +16,8 @@ export const dreamJobs: readonly TickJob[] = [
     name: "dream.fireTeams",
     run: ({ services }) => services.dream.fireDueTeams(SYSTEM_PRINCIPAL),
   },
+  {
+    name: "dream.postDiaries",
+    run: ({ services }) => services.dream.postTeamDiaries(SYSTEM_PRINCIPAL),
+  },
 ];

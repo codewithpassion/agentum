@@ -7,6 +7,7 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
+  type AnswerSurface,
   APPROVAL_TTL_MS,
   type ComputerTakeoverRequestedPayload,
   DECISIONS_MAX,
@@ -40,10 +41,10 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
-import { ServiceError } from "./errors.ts";
+import { ERROR_REASON, ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
-import { requireAgentOwnerOrAdmin } from "./guards.ts";
+import { isAgentOwnerOrAdmin, requireAgentOwnerOrAdmin } from "./guards.ts";
 import {
   isDetachedApproval,
   isPromoteApproval,
@@ -106,6 +107,8 @@ export const askLevelSetInputSchema = rulesListInputSchema.extend({
 });
 /** As long as a message a peer may send, so an answer is never refused for its length alone. */
 const PEER_ANSWER_MAX = 30_000;
+const ALWAYS_ALLOW_OWNER_ONLY =
+  "Only the agent's owner can always allow this. Allow it once instead.";
 const UNKNOWN_PEER_HOST = "unknown host";
 
 export const peerAnswerInputSchema = z.strictObject({
@@ -418,7 +421,25 @@ export const createRequestsService = ({
     requireAgentOwnerOrAdmin(user, agent, "requests.set_rule");
     await putRule(principal, input);
   };
-  /** For the answer path only, because any member may answer a request. */
+  /** Allow once and deny are for any member, but a standing rule is the owner's call. */
+  const requireAlwaysAllowRight = async (
+    principal: Principal,
+    agentId: string
+  ) => {
+    const { agent, user } = await ruleAgent(principal, agentId);
+    if (!isAgentOwnerOrAdmin(user, agent)) {
+      throw new ServiceError(
+        "invalid",
+        ALWAYS_ALLOW_OWNER_ONLY,
+        ERROR_REASON.alwaysAllowOwnerOnly
+      );
+    }
+  };
+  /**
+   * For callers that run after `answer` closed a request. `answer` has already
+   * refused anyone but the owner or an admin, so this checks nothing; the mail
+   * release has no admin flag to check with.
+   */
   const recordAlwaysAllow = (
     principal: Principal,
     input: { agentId: string; toolKey: string }
@@ -1147,7 +1168,8 @@ export const createRequestsService = ({
     principal: Extract<Principal, { kind: "user" }>,
     row: RequestRow,
     display: z.infer<typeof decisionsDisplaySchema>,
-    sent: Record<string, string>
+    sent: Record<string, string>,
+    via: AnswerSurface
   ) => {
     const given = row.answer
       ? decisionsAnswerSchema.parse(JSON.parse(row.answer)).decisions
@@ -1159,7 +1181,7 @@ export const createRequestsService = ({
       .set({
         answer: JSON.stringify({ decisions: all }),
         answeredBy: principal.userId,
-        answeredVia: "web",
+        answeredVia: via,
         ...(complete
           ? { answeredAt: clock.now().toISOString(), status: "answered" }
           : {}),
@@ -1181,11 +1203,12 @@ export const createRequestsService = ({
    * A person answers some of a queue's questions and leaves the others. The
    * request closes with the last answer, and then the agent's follow-up
    * starts. Two members answering at once both land, and only one write
-   * closes the request.
+   * closes the request. `via` is the surface the person answered on.
    */
   const answerDecisions = async (
     principal: Principal,
-    raw: z.input<typeof answerDecisionsInputSchema>
+    raw: z.input<typeof answerDecisionsInputSchema>,
+    via: AnswerSurface = "web"
   ): Promise<RequestRecord> => {
     const input = answerDecisionsInputSchema.parse(raw);
     const { row: first } = await requireRequest(principal, input.requestId);
@@ -1197,7 +1220,7 @@ export const createRequestsService = ({
     let row = first;
     for (let attempt = 1; attempt <= ANSWER_ATTEMPTS; attempt += 1) {
       // biome-ignore lint/performance/noAwaitInLoops: a retry follows the write it lost to
-      const written = await writeDecisions(principal, row, display, sent);
+      const written = await writeDecisions(principal, row, display, sent, via);
       if (written) {
         const masker = await secrets.maskerFor(
           written.saved.workspaceId,
@@ -1211,7 +1234,7 @@ export const createRequestsService = ({
               ...scrubAnswer({ decisions: written.all }, masker),
               answeredBy: principal.userId,
               kind: written.saved.kind,
-              via: "web",
+              via,
             },
             principal.userId
           );
@@ -1324,6 +1347,7 @@ export const createRequestsService = ({
     const parsed = answerSchemas[row.kind].parse(input.answer);
     await checkProposalAnswer(principal, row, parsed);
     if ("decision" in parsed && parsed.decision === "always_allow") {
+      await requireAlwaysAllowRight(principal, row.agentId);
       const run = await loadRun(db, row.runId, row.workspaceId);
       if (run && (await peerRootsOf(db, run)).length > 0) {
         throw new ServiceError(

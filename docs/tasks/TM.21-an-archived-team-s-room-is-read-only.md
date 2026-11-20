@@ -3,9 +3,9 @@ id: TM.21
 title: "An archived team's room is read-only"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/TM.21-an-archived-team-s-room-is-read-only
 lane: services-inbox
 executor: claude
 ---
@@ -26,3 +26,4 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 3).
 - `bun run check && bun run test && bun run build` pass.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.

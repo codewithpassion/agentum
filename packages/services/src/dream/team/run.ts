@@ -567,7 +567,7 @@ export const createTeamDreamRunner = (deps: TeamRunDeps) => {
       team,
       teamLoaded,
     });
-    await announce(team, diary, thought.friction);
+    await announce(team, thought.friction);
   };
 
   interface Store {
@@ -655,22 +655,12 @@ export const createTeamDreamRunner = (deps: TeamRunDeps) => {
     });
   };
 
-  /** The diary in the room, by the lead or the system, and one request to the lead for each hand-off finding. A failure here never undoes the dream. */
+  /** One request to the lead for each hand-off finding. The diary is not posted here: it waits for its 08:00 slot. A failure here never undoes the dream. */
   const announce = async (
     team: TeamInfo,
-    diary: string,
     friction: readonly Friction[]
   ): Promise<void> => {
     try {
-      await deps.inbox.postNotice(
-        { kind: "system" },
-        {
-          authorAgentId: team.leadAgentId,
-          teamId: team.id,
-          text: diary,
-          title: TEAM_DIARY_TOPIC,
-        }
-      );
       if (!(team.leadAgentId && team.ownerUserId)) {
         return;
       }
