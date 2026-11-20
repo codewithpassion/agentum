@@ -31,6 +31,8 @@ export const memoryChanges = sqliteTable(
     decidedBy: text("decided_by"),
     // The dream run that made the change. No foreign key until the dream tables exist.
     dreamRunId: text("dream_run_id"),
+    // The id of the `merge` row when this row belongs to a merge: set on that row itself and on the `forget` row of each note it absorbed. Null for every other change.
+    groupId: text("group_id"),
     id: id(),
     kind: text("kind", { enum: MEMORY_NOTE_KINDS }).notNull(),
     // The library version this change wrote. Null while held and when rejected.

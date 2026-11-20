@@ -7,7 +7,7 @@ Memory is files in the agent's library home, `agents/<slug>/memory/`. The home i
 The memory folder holds these files:
 
 - `people.md`, `corrections.md`, `work.md` and `places.md`, one file per note kind. The file name is the kind.
-- `index.md`, generated. See The index.
+- `index.md`, generated. See the index section below.
 - `private/<userId>.md`, notes from that person's private conversations, of any kind. `userId` is a Clerk user id.
 
 Only the memory service (`@repo/services/memory`) writes these files for agents, dreams and the Knows tab. Each write is one library version, so history and rollback come from the library. A person may also fix a file by hand in the library editor. A file that does not parse is reported with its line number, left untouched, and never overwritten. While a file does not parse, the service refuses new notes of its kind and says why.
@@ -34,7 +34,7 @@ A note is a list item of fixed lines. The first line starts with `- `. Each late
 | by | `person`, `agent` or `dream`. |
 | text | One line of 1 to 500 characters, with no leading or trailing space and no line break. The value is everything after the first `: `, so text may contain colons. The service turns line breaks and runs of whitespace into one space, trims the ends, and only then counts characters. |
 
-The field is named `by` here and "written by" in the table and the types. Notes are separated by one blank line and kept oldest first. A file is a title line, a blank line, then the notes, and ends with one newline. A file with no notes is the title line and one newline.
+The field is named `by` here and `written_by` (`writtenBy` in the types) on a change row. Notes are separated by one blank line and kept oldest first. A file is a title line, a blank line, then the notes, and ends with one newline. A file with no notes is the title line and one newline.
 
 An edit keeps the note's id and source, replaces its text, and sets its date and `by` to the day and writer of the edit.
 
@@ -50,7 +50,7 @@ Private notes never appear in the index, because everyone who may read the agent
 
 ## The change log
 
-Every change also writes one row in the `memory_changes` table (columns in `packages/db/src/schema/memory.ts`). The action is `add`, `edit`, `forget` or `merge`. The status is `applied`, `held`, `rejected` or `undone`. Forget removes the note from its file and keeps the history in library versions. A merge writes one `merge` row for the note that stays (its `note_id`, with the merged text) and one `forget` row for each note it absorbed, all in the same write, so all of them hold the same `library_version_id`. Undoing any row of such a group undoes the group. A note a dream writes has `by: dream` and the source it learned the note from, and its change row also names the dream in `dream_run_id`.
+Every change also writes one row in the `memory_changes` table (columns in `packages/db/src/schema/memory.ts`). The action is `add`, `edit`, `forget` or `merge`. The status is `applied`, `held`, `rejected` or `undone`. Forget removes the note from its file and keeps the history in library versions. A merge writes one `merge` row for the note that stays (its `note_id`, with the merged text) and one `forget` row for each note it absorbed. These rows share a `group_id`, which is the id of the `merge` row. They are written together, in one call, with one status: all `applied` with the same `library_version_id`, or all `held` with none. A decision (`decide`) or an undo on any row of a group acts on the whole group. A note a dream writes has `by: dream` and the source it learned the note from, and its change row also names the dream in `dream_run_id`.
 
 A row links to the library version it wrote through `library_version_id`. That column stays empty while a change is held and when it is rejected.
 

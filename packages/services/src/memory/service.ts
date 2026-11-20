@@ -100,7 +100,6 @@ export const rulesSetInputSchema = z.strictObject({
   rules: rememberRulesSchema,
 });
 
-export type UndoChangeInput = z.infer<typeof undoInputSchema>;
 export type RulesGetInput = z.infer<typeof rulesGetInputSchema>;
 export type AddNoteInput = z.infer<typeof addInputSchema>;
 export type EditNoteInput = z.infer<typeof editInputSchema>;

@@ -5,6 +5,7 @@ CREATE TABLE `memory_changes` (
 	`decided_at` text,
 	`decided_by` text,
 	`dream_run_id` text,
+	`group_id` text,
 	`id` text PRIMARY KEY NOT NULL,
 	`kind` text NOT NULL,
 	`library_version_id` text,

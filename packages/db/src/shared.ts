@@ -1453,6 +1453,8 @@ export interface MemoryChange {
   decidedBy: string | null;
   /** The dream that made the change, or null. */
   dreamRunId: string | null;
+  /** Set on the rows of one merge: the id of its `merge` row. Null for every other change. */
+  groupId: string | null;
   id: string;
   kind: MemoryNoteKind;
   /** The library version the change wrote. Null while held and when rejected. */

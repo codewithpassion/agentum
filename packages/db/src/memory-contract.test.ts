@@ -27,6 +27,7 @@ const MEMORY_CHANGES_NULLABLE = [
   "decided_at",
   "decided_by",
   "dream_run_id",
+  "group_id",
   "library_version_id",
   "source_id",
   "source_kind",

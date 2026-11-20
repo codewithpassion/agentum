@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "55138e5b-77c3-4380-b2aa-8b8c9f321a27",
+  "id": "767da43d-e716-4327-8562-00de9dffe219",
   "prevId": "ac5b06b7-9fd1-4847-ab97-f098d89124d5",
   "tables": {
     "a2a_agent_cards": {
@@ -7229,6 +7229,13 @@
         },
         "dream_run_id": {
           "name": "dream_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
