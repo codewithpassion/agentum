@@ -8,6 +8,7 @@ import { LeadPicker } from "./lead-picker.tsx";
 import { MemberList } from "./member-list.tsx";
 import { NewTeamButton } from "./new-team-button.tsx";
 import { ProfileForm } from "./profile-form.tsx";
+import { RoomLink } from "./room-link.tsx";
 import { RulesEditor } from "./rules-editor.tsx";
 import { TeamJobs } from "./team-jobs.tsx";
 import {
@@ -154,7 +155,10 @@ export function TeamPage({
             {lead === undefined ? "No lead." : `${lead.label} leads.`}
           </p>
         </div>
-        <NewTeamButton agents={agents} people={people} youId={userId} />
+        <div className="flex flex-wrap items-center gap-2">
+          <RoomLink teamId={team.id} teamName={team.name} />
+          <NewTeamButton agents={agents} people={people} youId={userId} />
+        </div>
       </header>
       {canEdit ? null : (
         <p className="text-muted-foreground text-sm">

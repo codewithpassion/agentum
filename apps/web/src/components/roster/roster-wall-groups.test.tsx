@@ -212,7 +212,20 @@ test("a stored choice applies on the next visit, for that person only", async ()
   expect(other.container.textContent).toContain("Zed");
 });
 
-test("Add to team opens the picker, lists agents outside the team and adds the pick", async () => {
+const pickAgent = async (dialog: Element | null, agentId: string) => {
+  const select = dialog?.querySelector("select") as HTMLSelectElement;
+  select.value = agentId;
+  await act(async () => {
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  const add = [...(dialog?.querySelectorAll("button") ?? [])].find(
+    (button) => button.textContent === "Add"
+  );
+  await act(async () => add?.click());
+  await settle();
+};
+
+test("Add to team opens the one member picker, lists agents outside the team and adds the pick", async () => {
   const added: [string, string][] = [];
   const { container } = await mount("user_1", (teamId, agentId) => {
     added.push([teamId, agentId]);
@@ -228,16 +241,33 @@ test("Add to team opens the picker, lists agents outside the team and adds the p
 
   const dialog = document.querySelector('[role="dialog"]');
   expect(dialog?.textContent).toContain("Add to Ops");
-  expect(dialog?.textContent).toContain("Tess");
-  expect(dialog?.textContent).toContain("In Dev");
-  expect(dialog?.textContent).toContain("Zed");
-  expect(dialog?.textContent).not.toContain("Ruby");
-
-  const zed = [...(dialog?.querySelectorAll("button") ?? [])].find((button) =>
-    button.textContent?.includes("Zed")
+  const options = [...(dialog?.querySelectorAll("option") ?? [])].map(
+    (option) => option.textContent
   );
-  await act(async () => zed?.click());
-  await settle();
+  expect(options).toEqual(["Choose an agent", "Tess", "Zed"]);
+
+  await pickAgent(dialog, "zed");
   expect(added).toEqual([["t_ops", "zed"]]);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+test("a refused add keeps the picker open and shows the message", async () => {
+  const { container } = await mount("user_1", () =>
+    Promise.reject(new Error("Only the team owner can add agents."))
+  );
+  await act(async () =>
+    (
+      container.querySelector(
+        'button[aria-label="Add to team Ops"]'
+      ) as HTMLButtonElement
+    ).click()
+  );
+  await settle();
+
+  const dialog = document.querySelector('[role="dialog"]');
+  await pickAgent(dialog, "zed");
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+    "Only the team owner can add agents."
+  );
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 });
