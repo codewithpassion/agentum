@@ -3,7 +3,7 @@ id: ME.10
 title: "Private notes stay private, and the never list holds on write"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: [ME.3, ME.5]
 branch: task/ME.10-private-notes-and-never-list
 lane: services-memory
@@ -29,3 +29,4 @@ From the ME.5 review (`docs/reviews/tasks/ME.5.md`). Two gaps against the ME dec
 ## Log
 - 2026-11-20: added from the ME.5 review.
 - 2026-11-20: dispatched on task/ME.10-private-notes-and-never-list (v4 controller session).
+- 2026-11-20: merged as 2ec22717, review clean after 0 fix rounds. check and build passed on main; tests passed except the two known flakes in FX.1 (services never-claimed-runs timing test, guest-execution). Private notes were already hidden from runs since ME.3; this task pinned that with tests and added the never-list refusal.

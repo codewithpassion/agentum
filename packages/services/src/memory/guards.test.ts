@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { findSecret, outsideSourceOf } from "./guards";
+import { findSecret, neverEntryIn, outsideSourceOf } from "./guards";
 
 // Sample secrets are built from pieces at runtime, so no real key is committed.
 
@@ -158,4 +158,67 @@ test("outsideSourceOf is null for internal origins", () => {
   for (const origin of origins) {
     expect(outsideSourceOf({ origin, peer: false, web: false })).toBeNull();
   }
+});
+
+test("neverEntryIn matches ignoring case and punctuation", () => {
+  expect(neverEntryIn("Tom's SALARY is up", ["Salary"])).toBe("Salary");
+});
+
+test("neverEntryIn matches any term of an entry split on commas", () => {
+  expect(neverEntryIn("Her bonus was paid", ["Salary, bonus"])).toBe(
+    "Salary, bonus"
+  );
+  expect(neverEntryIn("the medical file", ["Dental; medical"])).toBe(
+    "Dental; medical"
+  );
+  expect(neverEntryIn("the medical file", ["Dental/medical"])).toBe(
+    "Dental/medical"
+  );
+  expect(neverEntryIn("the medical file", ["Dental\nmedical"])).toBe(
+    "Dental\nmedical"
+  );
+});
+
+test("neverEntryIn does not split an entry on and or or", () => {
+  expect(neverEntryIn("Tom's salary is up", ["Salary and bonus"])).toBeNull();
+});
+
+test("neverEntryIn tolerates a plural in either direction", () => {
+  expect(neverEntryIn("Her passwords are in the vault", ["Password"])).toBe(
+    "Password"
+  );
+  expect(neverEntryIn("the password is old", ["Passwords"])).toBe("Passwords");
+});
+
+test("neverEntryIn matches a multi-word entry only in order and as whole words", () => {
+  expect(
+    neverEntryIn("Her health details are private", ["Health details"])
+  ).toBe("Health details");
+  expect(neverEntryIn("details of health", ["Health details"])).toBeNull();
+  expect(neverEntryIn("health", ["Health details"])).toBeNull();
+});
+
+test("neverEntryIn does not match a partial word", () => {
+  expect(neverEntryIn("my monkey and keyboard", ["key"])).toBeNull();
+  expect(neverEntryIn("the payment is due", ["pay"])).toBeNull();
+  expect(neverEntryIn("the key is here", ["key"])).toBe("key");
+});
+
+test("neverEntryIn returns null for an empty list or entries with no usable term", () => {
+  expect(neverEntryIn("Salary", [])).toBeNull();
+  expect(neverEntryIn("Salary", ["", "   ", " ,; / "])).toBeNull();
+  expect(neverEntryIn("", ["Salary"])).toBeNull();
+});
+
+test("neverEntryIn returns the trimmed entry and the first entry that matches", () => {
+  expect(neverEntryIn("salary", ["   Salary  "])).toBe("Salary");
+  expect(
+    neverEntryIn("Salary and health details", ["Health details", "Salary"])
+  ).toBe("Health details");
+});
+
+test("neverEntryIn matches non-ASCII words", () => {
+  expect(neverEntryIn("Mein Gehalt steigt", ["Gehalt"])).toBe("Gehalt");
+  expect(neverEntryIn("Das Café ist offen", ["café"])).toBe("café");
+  expect(neverEntryIn("Das Cafe\u0301 ist offen", ["Café"])).toBe("Café");
 });

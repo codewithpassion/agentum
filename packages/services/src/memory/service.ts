@@ -40,7 +40,7 @@ import {
   type MemoryLibrary,
   pathOfNote,
 } from "./files.ts";
-import { findSecret } from "./guards.ts";
+import { findSecret, neverEntryIn } from "./guards.ts";
 import {
   createMemoryActors,
   isUserId,
@@ -147,6 +147,8 @@ interface AgentInfo {
   ownerUserId: string;
   rules: RememberRules;
   slug: string;
+  /** The workspace's never list, which every agent in it inherits. */
+  workspaceNever: string[];
 }
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -243,6 +245,35 @@ const refuseSecret = (text: string): void => {
   }
 };
 
+/** A note that mentions an entry of a never list. It carries the plan, so the refusal can be recorded. */
+class NeverListRefusal extends Error {
+  readonly entry: string;
+  readonly list: "agent" | "workspace";
+  readonly plan: WritePlan;
+
+  constructor(plan: WritePlan, entry: string, list: "agent" | "workspace") {
+    super(
+      `This note was not kept. It mentions "${entry}", which is on ${list === "workspace" ? "the workspace's" : "this agent's"} never-remember list. Leave that out.`
+    );
+    this.entry = entry;
+    this.list = list;
+    this.plan = plan;
+  }
+}
+
+/** The never list entry a note's text mentions, the workspace's list first. */
+const neverHitOf = (
+  agent: AgentInfo,
+  text: string
+): { entry: string; list: "agent" | "workspace" } | null => {
+  const workspaceEntry = neverEntryIn(text, agent.workspaceNever);
+  if (workspaceEntry !== null) {
+    return { entry: workspaceEntry, list: "workspace" };
+  }
+  const agentEntry = neverEntryIn(text, agent.rules.never);
+  return agentEntry === null ? null : { entry: agentEntry, list: "agent" };
+};
+
 const missingNote = (loaded: LoadedMemory, noteId: string) => {
   const unreadable = Object.entries(loaded.problems).map(([path, problem]) =>
     describeProblem(path, problem)
@@ -285,11 +316,19 @@ export const createMemoryService = ({
     if (!row) {
       throw notFound(`No agent "${agentId}"`);
     }
+    const [workspace] = await db
+      .select({ neverRemember: workspaces.neverRemember })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .limit(1);
     return {
       id: row.id,
       ownerUserId: effectiveOwner(row),
       rules: rulesFrom(row.remember),
       slug: row.slug,
+      workspaceNever: workspace
+        ? neverFrom(workspace.neverRemember)
+        : [...DEFAULT_NEVER_REMEMBER],
     };
   };
 
@@ -382,7 +421,7 @@ export const createMemoryService = ({
     actor: MemoryActor,
     agent: AgentInfo,
     plan: WritePlan,
-    status: "applied" | "held",
+    status: "applied" | "held" | "rejected",
     libraryVersionId: string | null
   ): ChangeRow => ({
     action: plan.action,
@@ -406,12 +445,11 @@ export const createMemoryService = ({
   });
 
   /**
-   * Puts one change through the learn level and the guards. A person's change
-   * applies. An agent's change is held when the level is ask_first or its
-   * source is outside text. A held change writes only its row. An applied one
-   * writes the files, a library version and its row in one call.
+   * Writes one change: a person's applies. An agent's is held when the level is
+   * ask_first or its source is outside text. A held change writes only its row.
+   * An applied one writes the files, a library version and its row in one call.
    */
-  const submit = async (
+  const place = async (
     actor: MemoryActor,
     agent: AgentInfo,
     provenance: Provenance,
@@ -442,6 +480,43 @@ export const createMemoryService = ({
       throw invalid("The change was not recorded");
     }
     return toChange(applied);
+  };
+
+  /**
+   * Puts one change through the never list, the learn level and the guards. A
+   * note that mentions a never list entry is refused and recorded as a rejected
+   * change. The row names the entry and leaves out the note's text, since the
+   * topic is one the owner does not want kept. Anything else goes to `place`.
+   */
+  const submit = async (
+    actor: MemoryActor,
+    agent: AgentInfo,
+    provenance: Provenance,
+    planOf: (loaded: LoadedMemory) => WritePlan
+  ): Promise<MemoryChange> => {
+    const checkedPlanOf = (loaded: LoadedMemory): WritePlan => {
+      const plan = planOf(loaded);
+      const hit =
+        plan.action === "forget" ? null : neverHitOf(agent, plan.text);
+      if (hit) {
+        throw new NeverListRefusal(plan, hit.entry, hit.list);
+      }
+      return plan;
+    };
+    try {
+      return await place(actor, agent, provenance, checkedPlanOf);
+    } catch (error) {
+      if (!(error instanceof NeverListRefusal)) {
+        throw error;
+      }
+      const refused: ChangeRow = {
+        ...changeRow(actor, agent, error.plan, "rejected", null),
+        decidedAt: now(),
+        text: `Not kept: it mentions "${error.entry}" from the ${error.list === "workspace" ? "workspace's" : "agent's"} never list`,
+      };
+      await atomic([db.insert(memoryChanges).values(refused)]);
+      throw invalid(error.message);
+    }
   };
 
   const list = async (

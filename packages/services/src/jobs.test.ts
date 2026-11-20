@@ -113,7 +113,7 @@ beforeEach(() => {
 afterEach(() => db.client.close());
 
 const insert = (
-  kind: "routine" | "http" | "mail" | "app",
+  kind: "routine" | "http" | "mail" | "app" | "dream",
   id: string = kind,
   agentId = "a1"
 ) => {
@@ -206,6 +206,13 @@ test("slack sentence uses app id, installed status and listen mode", async () =>
       ...sentence("s1", "slack", "When a message arrives in Slack"),
       enabled: false,
     },
+  ]);
+});
+test("the system's dream trigger is not a job", async () => {
+  insert("dream");
+  insert("http");
+  expect(await service.list(user)).toEqual([
+    sentence("http", "http", "When its web address is called"),
   ]);
 });
 test("forAgent and workspace filtering and deterministic ordering", async () => {

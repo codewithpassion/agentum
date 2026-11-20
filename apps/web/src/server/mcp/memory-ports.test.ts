@@ -265,3 +265,42 @@ test("trusted runs without user delegation may remember; forged run agents canno
     await composed.services.memory.changes(user, { agentId })
   ).toHaveLength(1);
 });
+
+test("remember passes the never list refusal back to the agent", async () => {
+  await composed.services.memory.rules.set(user, {
+    agentId,
+    rules: {
+      dreamSchedule: "nightly",
+      learnLevel: "tell_after",
+      never: ["Salary"],
+      remember: [],
+      shareWithTeam: true,
+    },
+  });
+  const run = await start(user);
+  const { client, close } = await connect(asRun(run.runId));
+  try {
+    const refused = await client.callTool({
+      arguments: { kind: "people", text: "Tom asked about his salary review" },
+      name: "remember",
+    });
+    expect(refused.isError).toBe(true);
+    expect(refused.structuredContent).toMatchObject({ code: "validation" });
+    expect(textOf(refused)).toContain("never-remember list");
+    expect(textOf(refused)).toContain('"Salary"');
+    const changes = await composed.services.memory.changes(user, { agentId });
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.status).toBe("rejected");
+    expect(changes[0]?.text).not.toContain("Tom asked about his salary review");
+    const kept = await client.callTool({
+      arguments: { kind: "people", text: "Tom prefers calls" },
+      name: "remember",
+    });
+    expect(kept.isError).not.toBe(true);
+    expect(kept.structuredContent).toMatchObject({ status: "applied" });
+    const notes = await composed.services.memory.list(user, { agentId });
+    expect(notes.map((note) => note.text)).toEqual(["Tom prefers calls"]);
+  } finally {
+    await close();
+  }
+});

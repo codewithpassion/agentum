@@ -3,7 +3,7 @@ id: DR.1
 title: "Dream contract: trigger kind, dream runs, router"
 milestone: DR
 size: S
-status: in_progress
+status: done
 depends_on: [ME.1]
 branch: task/DR.1-dream-contract
 lane: contract
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone DR. Contract task for DR. It alone chang
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/DR.1-dream-contract (v4 controller session).
+- 2026-11-20: merged as 80fb9604, review clean after 2 fix rounds. check, build and web tests passed on main; services failed only the known never-claimed-runs timing test (FX.1). Migration 0058 goes out with the next deploy.

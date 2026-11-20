@@ -704,3 +704,100 @@ test("the sandbox helper pushes and pulls through the session routes with a sess
     await rm(root, { force: true, recursive: true });
   }
 });
+
+/** A run of the agent for `onBehalfOfUserId`, claimed now. An agent runs one run at a time, so the caller ends it before the next. */
+const runActingFor = async (
+  owner: User,
+  agentId: string,
+  onBehalfOfUserId: string | null
+) => {
+  const run = await claimedRun(owner, agentId);
+  db.update(runs).set({ onBehalfOfUserId }).where(eq(runs.id, run.runId)).run();
+  return run;
+};
+
+/** What a run sees with its own token: the private folder, the private file, and people.md. */
+const memoryViewOf = (
+  run: { runId: string; runToken: string },
+  privateFolder: string,
+  privateFile: string,
+  peopleFile: string
+) =>
+  Promise.all([
+    listOf(run.runId, run.runToken, privateFolder),
+    statOf(run.runId, run.runToken, privateFile),
+    readOf(run.runId, run.runToken, privateFile),
+    readOf(run.runId, run.runToken, peopleFile),
+  ]);
+
+test("the daemon's library routes show a run only the private notes of the person it acts for", async () => {
+  const agentId = await newAgent(userA, "Scout");
+  const { slug } = await composed.services.agents.get(userA, agentId);
+  const privateFolder = `agents/${slug}/memory/private`;
+  const privateFile = `${privateFolder}/user_a.md`;
+  const peopleFile = `agents/${slug}/memory/people.md`;
+  await composed.services.library.writeMemoryFiles(
+    userA,
+    [
+      { bytes: TEXT.encode("a notes"), path: privateFile },
+      { bytes: TEXT.encode("shared"), path: peopleFile },
+    ],
+    () => []
+  );
+  const privateEntry = await composed.services.library.stat(userA, privateFile);
+
+  const runForA = await runActingFor(userA, agentId, "user_a");
+  const [listedA, statedA, readA, peopleA] = await memoryViewOf(
+    runForA,
+    privateFolder,
+    privateFile,
+    peopleFile
+  );
+  expect(listedA.status).toBe(200);
+  expect(await listedA.json()).toEqual({
+    entries: [
+      { etag: privateEntry.etag, kind: "file", path: privateFile, size: 7 },
+    ],
+  });
+  expect(statedA.status).toBe(200);
+  expect(readA.status).toBe(200);
+  expect(DECODE.decode(await readA.arrayBuffer())).toBe("a notes");
+  expect(peopleA.status).toBe(200);
+  expect(DECODE.decode(await peopleA.arrayBuffer())).toBe("shared");
+  db.update(runs)
+    .set({ status: "done" })
+    .where(eq(runs.id, runForA.runId))
+    .run();
+
+  const runForB = await runActingFor(userA, agentId, "user_b");
+  const [listedB, statedB, readB, peopleB] = await memoryViewOf(
+    runForB,
+    privateFolder,
+    privateFile,
+    peopleFile
+  );
+  expect(listedB.status).toBe(200);
+  expect(await listedB.json()).toEqual({ entries: [] });
+  expect(statedB.status).toBe(404);
+  expect(readB.status).toBe(404);
+  expect(peopleB.status).toBe(200);
+  expect(DECODE.decode(await peopleB.arrayBuffer())).toBe("shared");
+  db.update(runs)
+    .set({ status: "done" })
+    .where(eq(runs.id, runForB.runId))
+    .run();
+
+  const runForNobody = await runActingFor(userA, agentId, null);
+  const [listedN, statedN, readN, peopleN] = await memoryViewOf(
+    runForNobody,
+    privateFolder,
+    privateFile,
+    peopleFile
+  );
+  expect(listedN.status).toBe(200);
+  expect(await listedN.json()).toEqual({ entries: [] });
+  expect(statedN.status).toBe(404);
+  expect(readN.status).toBe(404);
+  expect(peopleN.status).toBe(200);
+  expect(DECODE.decode(await peopleN.arrayBuffer())).toBe("shared");
+});
