@@ -204,12 +204,12 @@ const readBlock = (
   if (
     !value ||
     value.length > MEMORY_NOTE_MAX_CHARS ||
-    value.trim() !== value
+    normalizeText(value) !== value
   ) {
     fail(
       path,
       textLine,
-      `Expected 1 to ${MEMORY_NOTE_MAX_CHARS} characters without surrounding whitespace`
+      `Expected 1 to ${MEMORY_NOTE_MAX_CHARS} characters, with single spaces and no surrounding whitespace`
     );
   }
   return {
@@ -256,7 +256,7 @@ const normalizeText = (text: string): string =>
 /**
  * Retains file/insertion order (oldest first); edits keep their position even
  * though their date changes. Canonical format examples round trip byte for byte.
- * Hand-edited whitespace runs are accepted on read and normalized on write.
+ * Text with whitespace runs is rejected on read, so what parses serializes back to the same bytes.
  */
 export const serializeMemoryFile = (
   path: string,
@@ -270,7 +270,7 @@ export const serializeMemoryFile = (
     ) {
       return fail(
         path,
-        3 + index * (info.kind ? 7 : 8),
+        3 + index * (info.kind ? 6 : 7),
         "Note does not belong to this file"
       );
     }
@@ -352,7 +352,7 @@ const loadFiles = (files: Readonly<MemoryFiles>) => {
     contents.set(path, notes);
     const privateFile = fileInfo(path).userScope !== null;
     for (const [index, note] of notes.entries()) {
-      const line = 3 + index * (privateFile ? 8 : 7);
+      const line = 3 + index * (privateFile ? 7 : 6);
       const previous = locations.get(noteKey(note.id));
       if (previous) {
         fail(
@@ -481,5 +481,3 @@ export const budget = (
   }
   return selected;
 };
-
-export { apply as applyMemoryChange, budget as budgetNotes };

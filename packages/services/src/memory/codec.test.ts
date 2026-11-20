@@ -60,6 +60,8 @@ const privateFile = `# Private notes
   by: person
   text: Partner brief draft waits on the pricing table from Tally
 `;
+const DUPLICATE_ACROSS_FILES =
+  /work\.md:3: Duplicate note id .* \(also people\.md:9\)/;
 const parsed = (path: string, text: string) => {
   const result = parseMemoryFile(path, text);
   if (!result.ok) {
@@ -118,6 +120,8 @@ const invalid: [string, string, number][] = [
   ["public kind", single.replace("  date:", "  kind: people\n  date:"), 4],
   ["empty text", single.replace(note().text, ""), 7],
   ["long text", single.replace(note().text, "a".repeat(501)), 7],
+  ["inner space run", single.replace("drafts as", "drafts  as"), 7],
+  ["inner tab", single.replace("drafts as", "drafts\tas"), 7],
   ["leading space", single.replace("text: Mia", "text:  Mia"), 7],
   ["trailing space", single.replace("attachments\n", "attachments \n"), 7],
   ["missing separator", people.replace("attachments\n\n", "attachments\n"), 8],
@@ -344,4 +348,17 @@ test("ULIDs accept either case and cannot duplicate the same id with different c
       { action: "add", note: note({ id: ids[0].toLowerCase() }) }
     )
   ).toThrow(MemoryCodecError);
+});
+
+test("a duplicate id across files names both files and lines", () => {
+  const work = serializeMemoryFile("work.md", [
+    note({ id: ids[1], kind: "work", text: "first" }),
+    note({ id: ids[0], kind: "work", text: "second" }),
+  ]);
+  expect(() =>
+    apply(
+      { "people.md": people, "work.md": work },
+      { action: "forget", noteId: ids[2] }
+    )
+  ).toThrow(DUPLICATE_ACROSS_FILES);
 });
