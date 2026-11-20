@@ -248,10 +248,11 @@ test("a held memory note shows its text and Approve and Reject decide that chang
           agentName="Builder"
           card={{
             ...thread,
+            band: { text: "The office is in Fremantle", tone: "waiting" },
             id: "change_1",
             kind: "proposal",
             needsYouKind: "memory_note",
-            title: "The office is in Fremantle",
+            title: "Builder wants to remember something",
           }}
           nowMs={0}
           onAnswer={answer}

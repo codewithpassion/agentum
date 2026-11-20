@@ -6,7 +6,11 @@ import { errorMessage } from "#/lib/error-message";
 
 type Decision = "approve" | "reject";
 
-/** The note the agent wants to keep, with Approve and Reject. The card's id is the held change's id. */
+/**
+ * The note the agent wants to keep, with Approve and Reject. The card's id is
+ * the held change's id. The note's text is the band text: the rail card's title
+ * is its heading ("<agent> wants to remember something").
+ */
 export function MemoryNoteActions({
   card,
   onChanged,
@@ -39,7 +43,7 @@ export function MemoryNoteActions({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-1">
-        <p className="font-semibold">{card.title}</p>
+        <p className="font-semibold">{card.band.text}</p>
         <p className="text-muted-foreground text-xs">
           Held until you approve it. Approving adds it to what the agent knows.
         </p>
