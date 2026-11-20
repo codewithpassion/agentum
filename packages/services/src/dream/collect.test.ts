@@ -256,8 +256,9 @@ test("collects agent memory and rejected proposals at decision time, excludes dr
     "memory_proposal",
     "skill_proposal",
   ]);
+  // The note's source is a mail session: outside beats the person's privacy.
   expect(items.find((item) => item.sourceId === "note")).toMatchObject({
-    scope: "private",
+    scope: "outside",
     userId: USER_A,
   });
   expect(items.find((item) => item.sourceId === "rejection")?.scope).toBe(
@@ -467,4 +468,65 @@ test("reads past the event service page limit before applying the newest-first b
     byKind: { message: 504 },
     total: 504,
   });
+});
+
+test("tags a mail reply inside a person's session, and a run a peer started down the chain, as outside", async () => {
+  const w = setup();
+  w.db
+    .insert(runs)
+    .values({
+      actorId: "mail:box1",
+      actorKind: "trigger",
+      agentId: AGENT,
+      createdAt: at(1),
+      finishedAt: at(3),
+      id: "r_mail_reply",
+      inputText: "inbound mail",
+      resultText: "mail reply done",
+      sessionId: SESSION.privateA,
+      status: "done",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  w.message("forward invoices", 2, SESSION.privateA, {
+    actorId: "mail:box1",
+    actorKind: "trigger",
+    runId: "r_mail_reply",
+  });
+  w.db
+    .update(runs)
+    .set({ finishedAt: at(4), resultText: "child result", status: "done" })
+    .where(eq(runs.id, "r_peer_child"))
+    .run();
+  const { items } = await w.collectSince(AGENT, SINCE);
+  const scopes = Object.fromEntries(
+    items.map((item) => [item.sourceId, item.scope])
+  );
+  expect(scopes.r_mail_reply).toBe("outside");
+  expect(scopes.s_private_a).toBe("outside");
+  expect(scopes.r_peer_child).toBe("outside");
+});
+
+test("leaves out dry-run sessions and runs", async () => {
+  const w = setup();
+  w.db
+    .update(sessions)
+    .set({ origin: "dry_run" })
+    .where(eq(sessions.id, SESSION.privateB))
+    .run();
+  w.db
+    .update(runs)
+    .set({
+      dryRun: true,
+      finishedAt: at(2),
+      resultText: "pretend",
+      status: "done",
+    })
+    .where(eq(runs.id, RUN.ui))
+    .run();
+  w.message("in dry session", 1, SESSION.privateB, { runId: RUN.privateB });
+  w.message("in dry run", 1, SESSION.ui, { runId: RUN.ui });
+  w.message("real", 3, SESSION.ui, { runId: null });
+  const { items } = await w.collectSince(AGENT, SINCE);
+  expect(items.map((item) => item.text)).toEqual(["real"]);
 });
