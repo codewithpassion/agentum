@@ -85,6 +85,9 @@ let slackCalls: SlackCall[];
 let slackEmail: string | null;
 let downloadStatus: number;
 let statusAnswer: Record<string, unknown>;
+let postSeq: number;
+let postAnswer: (call: SlackCall) => Response | null;
+let outOfChannel: Set<string>;
 let directory: {
   emailOwner: string | null;
   member: boolean;
@@ -133,19 +136,39 @@ const fakeSlack = async (
   const method = address.pathname.replace("/api/", "");
   const body: Record<string, unknown> =
     typeof init?.body === "string" ? JSON.parse(init.body) : {};
-  slackCalls.push({
+  const call: SlackCall = {
     auth: headers.get("Authorization"),
     body,
     method,
     query: Object.fromEntries(address.searchParams),
-  });
+  };
+  slackCalls.push(call);
+  if (method === "chat.postMessage") {
+    const answered = postAnswer(call);
+    if (answered) {
+      return answered;
+    }
+  }
+  const postTs = `1789171300.${String(postSeq).padStart(6, "0")}`;
+  if (method === "chat.postMessage") {
+    postSeq += 1;
+  }
   const answers: Record<string, unknown> = {
     "chat.postEphemeral": { ok: true },
-    "chat.postMessage": { ok: true, ts: "1789171300.000100" },
+    "chat.postMessage": { ok: true, ts: postTs },
     "conversations.info":
       address.searchParams.get("channel") === "C0GONE"
         ? { error: "channel_not_found", ok: false }
-        : { channel: { id: "C0CHAN", name: "launch" }, ok: true },
+        : {
+            channel: {
+              id: "C0CHAN",
+              is_member: !outOfChannel.has(
+                (headers.get("Authorization") ?? "").replace("Bearer ", "")
+              ),
+              name: "launch",
+            },
+            ok: true,
+          },
     "files.completeUploadExternal": { ok: true },
     "files.getUploadURLExternal": {
       file_id: OUTPUT_FILE_ID,
@@ -203,6 +226,9 @@ beforeEach(async () => {
   slackEmail = "newcomer@example.com";
   downloadStatus = OK;
   statusAnswer = { ok: true };
+  postSeq = 100;
+  postAnswer = () => null;
+  outOfChannel = new Set();
   directory = { emailOwner: null, member: false };
   infra = testInfra();
   composed = freshRequest();
@@ -1495,6 +1521,10 @@ interface RoomApp {
 let roomApps: RoomApp[];
 let roomTeamId: string;
 
+/** The first app keeps `BOT_TOKEN`, every other room app has a token of its own. */
+const appToken = (apiAppId: string): string =>
+  apiAppId === "A0APP" ? BOT_TOKEN : `xoxb-${apiAppId}`;
+
 /** A Slack app row for an agent, signed with the same secret as the first app. */
 const addApp = async (input: {
   agentId: string;
@@ -1509,7 +1539,7 @@ const addApp = async (input: {
     botToken: await encryptSecret(
       key,
       slackSecretBinding(row, "bot_token"),
-      BOT_TOKEN
+      appToken(input.apiAppId)
     ),
     botUserId: input.botUserId,
     createdAt: new Date(nowMs).toISOString(),
@@ -1902,4 +1932,263 @@ test("a write that loses the Slack message key leaves no post and no topic", asy
   expect(roomPosts()).toHaveLength(1);
   expect(roomTopics()).toHaveLength(1);
   expect(roomRows()).toHaveLength(1);
+});
+
+// Room to Slack (SL.3): a post made in Agentum goes out to the linked channel.
+
+const DOM_USER = {
+  kind: "user",
+  userId: DOM,
+  via: "session",
+  workspaceId: "",
+} as const;
+
+const postCalls = () =>
+  slackCalls.filter((c) => c.method === "chat.postMessage");
+const failedEvents = () =>
+  db
+    .select()
+    .from(eventRows)
+    .where(eq(eventRows.type, "slack.room_send_failed"))
+    .all();
+
+/** Dom opens a topic in the team room and posts `text` in it, as himself. */
+const domPosts = async (text: string, threadId?: string) => {
+  const dom = { ...DOM_USER, workspaceId };
+  const topic =
+    threadId ??
+    (
+      await composed.services.inbox.createThread(dom, {
+        teamId: roomTeamId,
+        title: "Plan",
+      })
+    ).id;
+  await composed.services.inbox.post(dom, { text, threadId: topic });
+  return topic;
+};
+
+/** The run a mention started for the agent, as the principal that posts its reply. */
+const runPrincipalOf = (slug: string) => {
+  const [run] = roomRunsBy(slug);
+  if (!run) {
+    throw new Error(`no run for ${slug}`);
+  }
+  return {
+    agentId: run.agentId,
+    kind: "run",
+    runId: run.id,
+    workspaceId,
+  } as const;
+};
+
+const ownerProblems = async () => {
+  const view = await composed.services.rail.get(
+    { ...ROOM_OWNER, workspaceId },
+    { dayStart: new Date(nowMs - 3_600_000).toISOString(), scope: "mine" }
+  );
+  return view.needsYou.filter((item) =>
+    item.cards.some((card) => card.kind === "problem")
+  );
+};
+
+test("a person's post goes out through the lead's app with their name, and later posts reply in its thread", async () => {
+  await setupRoom({ leadListens: false });
+  await composed.services.teams.profiles.set(
+    { ...DOM_USER, workspaceId },
+    { handle: "dom", name: "Dom" }
+  );
+
+  const topic = await domPosts("Launch plan draft is ready.");
+  await domPosts("Second thought.", topic);
+
+  const [first, second, ...rest] = postCalls();
+  expect(rest).toEqual([]);
+  expect(first?.auth).toBe(`Bearer ${BOT_TOKEN}`);
+  expect(first?.body).toMatchObject({
+    channel: ROOM_CHANNEL,
+    text: "*Dom:* Launch plan draft is ready.",
+  });
+  expect(first?.body.thread_ts).toBeUndefined();
+  expect(second?.body).toMatchObject({
+    channel: ROOM_CHANNEL,
+    text: "*Dom:* Second thought.",
+    thread_ts: "1789171300.000100",
+  });
+  expect(roomRows()).toMatchObject([
+    { direction: "out", threadTs: null, ts: "1789171300.000100" },
+    {
+      direction: "out",
+      threadTs: "1789171300.000100",
+      ts: "1789171300.000101",
+    },
+  ]);
+  expect(failedEvents()).toEqual([]);
+});
+
+test("an agent's post goes out through its own app, with no name in front", async () => {
+  await setupRoom({ leadListens: false });
+  const ada = roomApps[1] as RoomApp;
+  const topic = await domPosts(`@${ada.slug} please look at this.`);
+  await composed.services.inbox.post(runPrincipalOf(ada.slug), {
+    text: "On it.",
+    threadId: topic,
+  });
+
+  const [fromDom, fromAda, ...rest] = postCalls();
+  expect(rest).toEqual([]);
+  expect(fromDom?.auth).toBe(`Bearer ${BOT_TOKEN}`);
+  expect(fromAda?.auth).toBe(`Bearer ${appToken(ada.apiAppId)}`);
+  expect(fromAda?.body).toMatchObject({
+    text: "On it.",
+    thread_ts: "1789171300.000100",
+  });
+});
+
+test("an agent whose app is not in the channel posts through the lead's app under its name", async () => {
+  await setupRoom({ leadListens: false });
+  const ada = roomApps[1] as RoomApp;
+  const topic = await domPosts(`@${ada.slug} please look at this.`);
+  postAnswer = (call) =>
+    call.auth === `Bearer ${appToken(ada.apiAppId)}`
+      ? Response.json({ error: "not_in_channel", ok: false })
+      : null;
+  slackCalls = [];
+
+  await composed.services.inbox.post(runPrincipalOf(ada.slug), {
+    text: "On it.",
+    threadId: topic,
+  });
+
+  const [refused, sent, ...rest] = postCalls();
+  expect(rest).toEqual([]);
+  expect(refused?.auth).toBe(`Bearer ${appToken(ada.apiAppId)}`);
+  expect(sent?.auth).toBe(`Bearer ${BOT_TOKEN}`);
+  expect(sent?.body.text).toBe("*Ada:* On it.");
+  expect(failedEvents()).toEqual([]);
+  expect(roomRows()).toHaveLength(2);
+});
+
+test("a send that fails three times raises a problem item for the team owner, and the next send that works clears it", async () => {
+  await setupRoom({ leadListens: false });
+  postAnswer = () => new Response("", { status: 503 });
+
+  const topic = await domPosts("Anyone there?");
+
+  expect(postCalls()).toHaveLength(3);
+  expect(roomRows()).toEqual([]);
+  expect(failedEvents()).toMatchObject([
+    {
+      payload: expect.stringContaining('"error":"http_503"'),
+      type: "slack.room_send_failed",
+    },
+  ]);
+  const problems = await ownerProblems();
+  expect(problems).toHaveLength(1);
+  expect(problems[0]?.cards[0]).toMatchObject({
+    kind: "problem",
+    runId: null,
+    status: "Not reaching Slack",
+    threadId: topic,
+  });
+
+  postAnswer = () => null;
+  // The event log stamps failures with the wall clock, so the retry runs a minute after it.
+  nowMs = Date.now() + 60_000;
+  await domPosts("Retrying.", topic);
+
+  expect(roomRows()).toMatchObject([{ direction: "out" }]);
+  expect(await ownerProblems()).toEqual([]);
+});
+
+test("a person who is not the team owner sees no problem item", async () => {
+  await setupRoom({ leadListens: false });
+  postAnswer = () => Response.json({ error: "not_in_channel", ok: false });
+
+  await domPosts("Anyone there?");
+
+  expect(failedEvents()).toHaveLength(1);
+  const view = await composed.services.rail.get(
+    { ...DOM_USER, workspaceId },
+    { dayStart: new Date(nowMs - 3_600_000).toISOString(), scope: "mine" }
+  );
+  expect(view.needsYou.filter((i) => i.cards[0]?.kind === "problem")).toEqual(
+    []
+  );
+});
+
+test("a message that came from Slack is not sent back, and neither is the echo of a post that went out", async () => {
+  await setupRoom({ leadListens: false });
+
+  await sendToAllApps({ text: "Hello from Slack.", ts: ROOM_FIRST_TS });
+  await runAfterJobs();
+  expect(postCalls()).toEqual([]);
+
+  const topic = roomTopics()[0]?.id;
+  await domPosts("Answering in Agentum.", topic);
+  expect(postCalls()).toHaveLength(1);
+  const sentTs = roomRows().find((row) => row.direction === "out")?.ts;
+  expect(sentTs).toBeDefined();
+
+  // Slack tells every app about the bot's own message, with the bot as the sender.
+  await sendToAllApps({
+    text: "*Dom:* Answering in Agentum.",
+    threadTs: ROOM_FIRST_TS,
+    ts: sentTs ?? "",
+    user: "U0BOT",
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toHaveLength(2);
+  expect(postCalls()).toHaveLength(1);
+});
+
+test("a limited topic stays out of Slack", async () => {
+  await setupRoom({ leadListens: false });
+  const dom = { ...DOM_USER, workspaceId };
+  const topic = await composed.services.inbox.createThread(dom, {
+    members: [{ id: agentId, kind: "agent" }],
+    teamId: roomTeamId,
+    title: "Private",
+  });
+
+  await composed.services.inbox.post(dom, {
+    text: "Just us.",
+    threadId: topic.id,
+  });
+
+  expect(postCalls()).toEqual([]);
+  expect(failedEvents()).toEqual([]);
+});
+
+test("a topic of a team with no Slack link stays out of Slack", async () => {
+  await setupRoom({ leadListens: false });
+  await db.delete(teamSlackLinks);
+
+  await domPosts("Not linked any more.");
+
+  expect(postCalls()).toEqual([]);
+});
+
+test("slack.status lists the member apps that are not in the channel", async () => {
+  await setupRoom();
+  const cy = roomApps[2] as RoomApp;
+  outOfChannel.add(appToken(cy.apiAppId));
+
+  const status = await composed.services.teams.slack.status(
+    { ...ROOM_OWNER, workspaceId },
+    roomTeamId
+  );
+
+  expect(status.link).toMatchObject({
+    channelId: ROOM_CHANNEL,
+    teamId: roomTeamId,
+  });
+  expect(
+    Object.fromEntries(status.apps.map((a) => [a.agentId, a.inChannel]))
+  ).toEqual({
+    [agentId]: true,
+    [(roomApps[1] as RoomApp).agentId]: true,
+    [cy.agentId]: false,
+    [(roomApps[3] as RoomApp).agentId]: true,
+  });
 });

@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+import { events } from "@repo/db/schema/events";
 import { libraryEntries } from "@repo/db/schema/library";
 import { memoryChanges } from "@repo/db/schema/memory";
+import { runs } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { LearnLevel } from "@repo/db/shared";
 import { eq } from "drizzle-orm";
@@ -286,6 +288,96 @@ test("a note from mail, a web page or an A2A peer is held at every level", async
   }
   expect(statuses).toEqual(["held", "held", "held", "held"]);
   expect(await readError(world, "people.md")).toMatchObject(NOT_FOUND);
+});
+
+// Each of these runs used the web once, through one tool, shell or browser.
+const WEB_RUNS = [
+  RUN.curl,
+  RUN.script,
+  RUN.machineWeb,
+  RUN.managedWeb,
+  RUN.machineSearch,
+  RUN.shell,
+  RUN.computerShell,
+  RUN.browser,
+  RUN.bigCall,
+  RUN.desktop,
+  RUN.skillScript,
+  // A subagent of a run that used the web, and the parent of a subagent that did.
+  RUN.webChild,
+  RUN.familyParent,
+];
+
+test("a note from a run that used the web through any tool is held at quiet and tell_after", async () => {
+  const world = makeWorld();
+  const statuses: string[] = [];
+  for (const level of ["quiet", "tell_after"] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: each level is set before its notes are written
+    await setLevel(world, level);
+    const changes = await Promise.all(
+      WEB_RUNS.map((runId) => world.service.add(run(runId), note()))
+    );
+    statuses.push(...changes.map((change) => change.status));
+  }
+  expect(statuses).toHaveLength(WEB_RUNS.length * 2);
+  expect(new Set(statuses)).toEqual(new Set(["held"]));
+  expect(await readError(world, "people.md")).toMatchObject(NOT_FOUND);
+});
+
+test("a family of more than 100 runs is still checked, and the web use of its last member holds the note", async () => {
+  const world = makeWorld();
+  await setLevel(world, "quiet");
+  const base = {
+    actorId: USER_A,
+    actorKind: "user",
+    agentId: AGENT,
+    createdAt: "2026-11-20T10:00:00.000Z",
+    inputText: "hi",
+    onBehalfOfUserId: USER_A,
+    parentRunId: RUN.tools,
+    sessionId: SESSION.ui,
+    status: "running",
+    workspaceId: WORKSPACE,
+  } as const;
+  const ids = Array.from({ length: 120 }, (_, index) => `r_many_${index}`);
+  world.db
+    .insert(runs)
+    .values(ids.map((id) => ({ ...base, id })))
+    .run();
+  const quiet = await world.service.add(run(RUN.tools), note());
+  expect(quiet.status).toBe("applied");
+
+  world.db
+    .insert(events)
+    .values({
+      actorId: AGENT,
+      actorKind: "agent",
+      agentId: AGENT,
+      createdAt: base.createdAt,
+      id: "ev_many_web",
+      payload: JSON.stringify({ via: "curl" }),
+      runId: ids.at(-1) ?? "",
+      sessionId: SESSION.ui,
+      type: "network.request",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const held = await world.service.add(run(RUN.tools), note());
+  expect(held.status).toBe("held");
+});
+
+test("a note from a ui run or a run with only ordinary tools applies at tell_after and quiet", async () => {
+  const world = makeWorld();
+  const statuses: string[] = [];
+  for (const level of ["tell_after", "quiet"] as const) {
+    // biome-ignore lint/performance/noAwaitInLoops: each level is set before its notes are written
+    await setLevel(world, level);
+    const changes = await Promise.all(
+      [RUN.ui, RUN.tools].map((runId) => world.service.add(run(runId), note()))
+    );
+    statuses.push(...changes.map((change) => change.status));
+  }
+  expect(statuses).toEqual(["applied", "applied", "applied", "applied"]);
 });
 
 test("a note a person writes from a mail conversation still applies", async () => {
