@@ -3,9 +3,9 @@ id: FR.2
 title: "Team starter: a lead and three specialists"
 milestone: FR
 size: S
-status: todo
+status: in_progress
 depends_on: [FR.1, TM.4]
-branch: null
+branch: task/FR.2-team-starter
 lane: builder
 executor: codex
 ---
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone FR. From the 18 Nov analysis, item 8.
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/FR.2-team-starter (v4 controller session).

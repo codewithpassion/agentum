@@ -3,7 +3,7 @@ id: ME.14
 title: "One rule for who may see a person's private notes"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/ME.14-one-rule-for-who-may-see-a-person-s-priv
 lane: services-library
@@ -23,3 +23,4 @@ Service tests: a team room run started by A's post has none of A's private notes
 ## Log
 - 2026-11-20: added from the ME gate review, round 1.
 - 2026-11-20: dispatched on task/ME.14-one-rule-for-who-may-see-a-person-s-priv (v4 controller session).
+- 2026-11-20: merged as ec28f707, review clean after 0 fix rounds. One private-notes rule for prompt, library, audience, session reads and search_history. check, test and build passed on main.

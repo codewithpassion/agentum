@@ -1,6 +1,7 @@
 import type { DreamSchedule, RememberRules } from "@repo/db/shared";
 import { useCallback } from "react";
 import { DreamCard } from "./dream-card.tsx";
+import { decisionPending } from "./dream-logic.ts";
 import { EarlierDreams } from "./earlier-dreams.tsx";
 import type { DreamApi } from "./use-dream.ts";
 
@@ -34,7 +35,7 @@ export function DreamSection({
     (dreamSchedule: DreamSchedule) => setRules({ ...rules, dreamSchedule }),
     [rules, setRules]
   );
-  const { error, pending, runNow, runs, undo } = dream;
+  const { decide, error, pending, runNow, runs, undo } = dream;
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="dream-section">
       {error === undefined ? null : (
@@ -49,6 +50,7 @@ export function DreamSection({
             canChange={canChange}
             disabled={disabled}
             nowMs={nowMs}
+            onDecide={decide}
             onRunNow={runNow}
             onSchedule={changeSchedule}
             onUndo={undo}
@@ -56,7 +58,17 @@ export function DreamSection({
             runs={runs}
             schedule={rules.dreamSchedule}
           />
-          <EarlierDreams nowMs={nowMs} runs={runs} />
+          <EarlierDreams
+            canChange={canChange}
+            disabled={
+              disabled ||
+              (pending !== null && decisionPending(pending) === null)
+            }
+            nowMs={nowMs}
+            onDecide={decide}
+            pending={decisionPending(pending)}
+            runs={runs}
+          />
         </>
       )}
     </div>
