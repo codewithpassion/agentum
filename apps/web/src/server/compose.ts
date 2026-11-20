@@ -1213,6 +1213,7 @@ export const composeWith = ({
     directory: infra.slackDirectory ?? unlinkedDirectory,
     events,
     fetch: connectorFetch,
+    inbox,
     people: infra.people,
     runs,
     secretsKey: infra.secretsKey,
