@@ -94,9 +94,9 @@ test("a note applied before a connector answered is held, and so is one before a
   expect(rows(world).find((row) => row.id === first.id)?.status).toBe("held");
 
   const other = makeWorld();
-  const shellNote = await other.service.add(run(RUN.ui), note);
-  arrives(other, RUN.ui, "tool.call", toolCall("bash"));
-  expect(await holdAfter(other, RUN.ui)).toBe(1);
+  const shellNote = await other.service.add(run(RUN.room), note);
+  arrives(other, RUN.room, "tool.call", toolCall("bash"));
+  expect(await holdAfter(other, RUN.room)).toBe(1);
   expect(rows(other).find((row) => row.id === shellNote.id)?.status).toBe(
     "held"
   );

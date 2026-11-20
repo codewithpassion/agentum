@@ -65,12 +65,12 @@ const changeRows = (world: World) =>
 test("tell_after applies an agent's note at once, with a version, an index and a change row", async () => {
   const world = makeWorld();
 
-  const change = await world.service.add(run(RUN.ui), note());
+  const change = await world.service.add(run(RUN.room), note());
 
   expect(change).toMatchObject({
     action: "add",
     kind: "people",
-    source: { id: RUN.ui, kind: "run" },
+    source: { id: RUN.room, kind: "run" },
     status: "applied",
     userScope: null,
     writtenBy: "agent",
@@ -79,7 +79,7 @@ test("tell_after applies an agent's note at once, with a version, an index and a
   const file = await readFile(world);
   expect(file).toContain(`- id: ${change.noteId}`);
   expect(file).toContain("  by: agent");
-  expect(file).toContain("  source: run:r_ui");
+  expect(file).toContain("  source: run:r_room");
   expect(await readFile(world, person(USER_A), "index.md")).toContain(
     `- ${change.noteId}: Mia wants drafts as Google Docs`
   );
@@ -99,7 +99,7 @@ test("quiet applies an agent's note at once too", async () => {
   const world = makeWorld();
   await setLevel(world, "quiet");
 
-  const change = await world.service.add(run(RUN.ui), note());
+  const change = await world.service.add(run(RUN.room), note());
 
   expect(change.status).toBe("applied");
   expect(await readFile(world)).toContain(change.noteId);
@@ -109,7 +109,7 @@ test("ask_first holds an agent's note: a held row, no file, no version", async (
   const world = makeWorld();
   await setLevel(world, "ask_first");
 
-  const change = await world.service.add(run(RUN.ui), note());
+  const change = await world.service.add(run(RUN.room), note());
 
   expect(change).toMatchObject({ libraryVersionId: null, status: "held" });
   expect(await readError(world, "people.md")).toMatchObject(NOT_FOUND);
@@ -159,12 +159,12 @@ test("ask_first holds an agent's edit and forget of a note too", async () => {
   const added = await world.service.add(person(USER_A), note());
   await setLevel(world, "ask_first");
 
-  const edit = await world.service.edit(run(RUN.ui), {
+  const edit = await world.service.edit(run(RUN.room), {
     agentId: AGENT,
     noteId: added.noteId,
     text: "Changed",
   });
-  const forget = await world.service.forget(run(RUN.ui), {
+  const forget = await world.service.forget(run(RUN.room), {
     agentId: AGENT,
     noteId: added.noteId,
   });
@@ -175,7 +175,7 @@ test("ask_first holds an agent's edit and forget of a note too", async () => {
 
 test("an edit keeps the note's id and source and sets the day and writer", async () => {
   const world = makeWorld();
-  const added = await world.service.add(run(RUN.ui), note());
+  const added = await world.service.add(run(RUN.room), note());
 
   await world.service.edit(person(OWNER), {
     agentId: AGENT,
@@ -190,7 +190,7 @@ test("an edit keeps the note's id and source and sets the day and writer", async
     date: "2026-11-20",
     id: added.noteId,
     kind: "people",
-    source: { id: RUN.ui, kind: "run" },
+    source: { id: RUN.room, kind: "run" },
     text: "Mia wants Google Docs",
     userScope: null,
     writtenBy: "person",
@@ -243,7 +243,7 @@ test("a note that matches a secret pattern is refused, whoever writes it, and le
 
   const errors = await Promise.all(
     secrets.flatMap((secret) =>
-      [person(USER_A), run(RUN.ui)].map((principal) =>
+      [person(USER_A), run(RUN.room)].map((principal) =>
         errorOf(world.service.add(principal, { ...note(), text: secret }))
       )
     )
@@ -270,7 +270,7 @@ test("a held level does not turn a secret into a held note: it is refused first"
 
   expect(
     await errorOf(
-      world.service.add(run(RUN.ui), { ...note(), text: CARD_NOTE })
+      world.service.add(run(RUN.room), { ...note(), text: CARD_NOTE })
     )
   ).toMatchObject({ code: "invalid" });
   expect(changeRows(world)).toEqual([]);
@@ -370,7 +370,7 @@ test("a family of more than 100 runs is still checked, and the web use of its la
 
 test("a note from a ui run, a run with only ordinary tools, or a run whose connector calls returned no text applies at tell_after and quiet", async () => {
   const world = makeWorld();
-  const quietRuns = [RUN.ui, RUN.tools, RUN.connectorIdle];
+  const quietRuns = [RUN.ui, RUN.room, RUN.tools, RUN.connectorIdle];
   const statuses: string[] = [];
   for (const level of ["tell_after", "quiet"] as const) {
     // biome-ignore lint/performance/noAwaitInLoops: each level is set before its notes are written
@@ -429,7 +429,7 @@ test("a run writes as itself and cannot name another source", async () => {
 
   expect(
     await errorOf(
-      world.service.add(run(RUN.ui), {
+      world.service.add(run(RUN.room), {
         ...note(),
         source: { id: SESSION.ui, kind: "session" },
       })
@@ -454,7 +454,7 @@ test("a note that mentions an entry of the agent's never list is refused and rec
   await setLevel(world, "tell_after", ["Salary"]);
 
   const error = await errorOf(
-    world.service.add(run(RUN.ui), { ...note(), text: SALARY_NOTE })
+    world.service.add(run(RUN.room), { ...note(), text: SALARY_NOTE })
   );
 
   expect(error).toMatchObject({ code: "invalid" });
@@ -489,7 +489,7 @@ test("the workspace never list refuses too", async () => {
     .run();
 
   const error = await errorOf(
-    world.service.add(run(RUN.ui), {
+    world.service.add(run(RUN.room), {
       ...note(),
       text: "Mia shared her health details",
     })
@@ -498,13 +498,13 @@ test("the workspace never list refuses too", async () => {
   expect(error).toMatchObject({ code: "invalid" });
   expect(String(error)).toContain("the workspace's");
   expect(changeRows(world).map((row) => row.status)).toEqual(["rejected"]);
-  const clean = await world.service.add(run(RUN.ui), note());
+  const clean = await world.service.add(run(RUN.room), note());
   expect(clean.status).toBe("applied");
 });
 
 test("a person's add and edit are refused too, and an edit keeps the note as it was", async () => {
   const world = makeWorld();
-  const added = await world.service.add(run(RUN.ui), note());
+  const added = await world.service.add(run(RUN.room), note());
   await setLevel(world, "tell_after", ["Salary"]);
 
   const edit = await errorOf(
@@ -531,13 +531,13 @@ test("a person's add and edit are refused too, and an edit keeps the note as it 
 
 test("a forget of a note that mentions a never list entry still works", async () => {
   const world = makeWorld();
-  const added = await world.service.add(run(RUN.ui), {
+  const added = await world.service.add(run(RUN.room), {
     ...note(),
     text: SALARY_NOTE,
   });
   await setLevel(world, "tell_after", ["Salary"]);
 
-  const forgotten = await world.service.forget(run(RUN.ui), {
+  const forgotten = await world.service.forget(run(RUN.room), {
     agentId: AGENT,
     noteId: added.noteId,
   });
@@ -554,7 +554,7 @@ test("ask_first does not hold a note the never list refuses", async () => {
 
   expect(
     await errorOf(
-      world.service.add(run(RUN.ui), { ...note(), text: SALARY_NOTE })
+      world.service.add(run(RUN.room), { ...note(), text: SALARY_NOTE })
     )
   ).toMatchObject({ code: "invalid" });
   expect(changeRows(world).map((row) => row.status)).toEqual(["rejected"]);
@@ -586,7 +586,7 @@ test("a note that only shares part of a never list entry is kept", async () => {
   const world = makeWorld();
   await setLevel(world, "tell_after", ["Health details"]);
 
-  const change = await world.service.add(run(RUN.ui), {
+  const change = await world.service.add(run(RUN.room), {
     ...note(),
     text: "Mia keeps health records in the Sales sheet",
   });
@@ -709,7 +709,7 @@ test("a private conversation of someone else cannot be a person's source", async
 test("approving a held note writes it and clears the item", async () => {
   const world = makeWorld();
   await setLevel(world, "ask_first");
-  const held = await world.service.add(run(RUN.ui), note());
+  const held = await world.service.add(run(RUN.room), note());
 
   const decided = await world.service.decide(person(OWNER), {
     changeId: held.id,
@@ -744,12 +744,12 @@ test("approving a held edit and a held forget changes the note", async () => {
   const world = makeWorld();
   const added = await world.service.add(person(USER_A), note());
   await setLevel(world, "ask_first");
-  const edit = await world.service.edit(run(RUN.ui), {
+  const edit = await world.service.edit(run(RUN.room), {
     agentId: AGENT,
     noteId: added.noteId,
     text: "Mia wants Docs",
   });
-  const forget = await world.service.forget(run(RUN.ui), {
+  const forget = await world.service.forget(run(RUN.room), {
     agentId: AGENT,
     noteId: added.noteId,
   });
@@ -771,7 +771,7 @@ test("approving a held edit and a held forget changes the note", async () => {
 test("rejecting a held note leaves memory alone and records who decided", async () => {
   const world = makeWorld();
   await setLevel(world, "ask_first");
-  const held = await world.service.add(run(RUN.ui), note());
+  const held = await world.service.add(run(RUN.room), note());
 
   const decided = await world.service.decide(person(OWNER), {
     changeId: held.id,
@@ -789,11 +789,11 @@ test("rejecting a held note leaves memory alone and records who decided", async 
 test("a run, a key and a missing change cannot decide", async () => {
   const world = makeWorld();
   await setLevel(world, "ask_first");
-  const held = await world.service.add(run(RUN.ui), note());
+  const held = await world.service.add(run(RUN.room), note());
   const input = { changeId: held.id, decision: "approve" } as const;
 
   expect(
-    await errorOf(world.service.decide(run(RUN.ui), input))
+    await errorOf(world.service.decide(run(RUN.room), input))
   ).toBeInstanceOf(ForbiddenError);
   expect(
     await errorOf(
@@ -817,7 +817,7 @@ test("a run, a key and a missing change cannot decide", async () => {
 
 test("undo of an add removes the note and marks the change undone", async () => {
   const world = makeWorld();
-  const added = await world.service.add(run(RUN.ui), note());
+  const added = await world.service.add(run(RUN.room), note());
 
   const undone = await world.service.undo(person(OWNER), added.id);
 
@@ -835,7 +835,7 @@ test("undo of an add removes the note and marks the change undone", async () => 
 
 test("undo of an edit restores the text, date and writer from the earlier version", async () => {
   const world = makeWorld();
-  const added = await world.service.add(run(RUN.ui), note());
+  const added = await world.service.add(run(RUN.room), note());
   const before = await world.service.list(person(USER_A), {
     agentId: AGENT,
   });
@@ -854,7 +854,7 @@ test("undo of an edit restores the text, date and writer from the earlier versio
 
 test("undo of a forget brings the note back as it was", async () => {
   const world = makeWorld();
-  const added = await world.service.add(run(RUN.ui), note());
+  const added = await world.service.add(run(RUN.room), note());
   const before = await world.service.list(person(USER_A), {
     agentId: AGENT,
   });
@@ -879,7 +879,7 @@ test("undo refuses when the note changed since, and a held or rejected change", 
     text: "Newer text",
   });
   await setLevel(world, "ask_first");
-  const held = await world.service.add(run(RUN.ui), note());
+  const held = await world.service.add(run(RUN.room), note());
 
   expect(
     await errorOf(world.service.undo(person(OWNER), added.id))
@@ -890,7 +890,7 @@ test("undo refuses when the note changed since, and a held or rejected change", 
     code: "conflict",
   });
   expect(
-    await errorOf(world.service.undo(run(RUN.ui), added.id))
+    await errorOf(world.service.undo(run(RUN.room), added.id))
   ).toBeInstanceOf(ForbiddenError);
   expect(
     await errorOf(world.service.undo(person(OWNER), "nope"))
@@ -920,14 +920,14 @@ test("no run can write the memory folder through the library", async () => {
   expect(
     await errorOf(
       world.library.write(
-        run(RUN.ui),
+        run(RUN.room),
         `${MEMORY}/people.md`,
         new TextEncoder().encode("# People\n")
       )
     )
   ).toBeInstanceOf(ForbiddenError);
   expect(
-    await errorOf(world.library.remove(run(RUN.ui), `${MEMORY}/people.md`))
+    await errorOf(world.library.remove(run(RUN.room), `${MEMORY}/people.md`))
   ).toBeInstanceOf(ForbiddenError);
   expect(await readFile(world)).toContain("Mia wants");
 });
@@ -966,7 +966,7 @@ test("approving a held add or undoing a forget never overwrites a file that does
     noteId: added.noteId,
   });
   await setLevel(world, "ask_first");
-  const held = await world.service.add(run(RUN.ui), note());
+  const held = await world.service.add(run(RUN.room), note());
   const broken = "# People\n\n- id: not-a-ulid\n";
   await world.library.write(
     person(USER_A),

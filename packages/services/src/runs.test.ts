@@ -1305,7 +1305,10 @@ const runWithMemory = async () => {
     afterToolEvents: (heldRunId) =>
       memory.holdAfterOutsideText(SYSTEM_PRINCIPAL, heldRunId),
   });
-  const { runId } = await start(user, spyAgentId);
+  // A team room run writes a shared note. A run in the person's own `ui` chat writes to their private file, which needs a Clerk user id.
+  const { runId } = await start(user, spyAgentId, {
+    session: { origin: "inbox" },
+  });
   await runs.claimRun(SYSTEM_PRINCIPAL, runId);
   const note = await memory.add(
     {
