@@ -60,7 +60,7 @@ function EarlierDream({
         </Badge>
       </div>
       {detail === null ? null : (
-        <p className="whitespace-pre-line text-muted-foreground text-sm">
+        <p className="whitespace-pre-line text-muted-foreground text-sm [overflow-wrap:anywhere]">
           {detail}
         </p>
       )}
