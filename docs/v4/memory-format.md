@@ -77,7 +77,7 @@ A `tool.call` whose payload is over 64 KB goes to the blob store, and its row ke
 Limits that remain:
 
 - Tool calls of machine and Managed Agents runs reach the event log after the call, in batches. A `remember` made within seconds of a web tool call can be written before that call shows, and then applies. `network.request` events from cloud runs are written at the call, so they have no such delay.
-- Only the run's own chain is checked. A later run in the same session, for example a follow-up on Managed Agents or a continuation of a parked run, still has an earlier run's web text in its context, and the guard does not look at the earlier run. Holding every note of a session after one web fetch is a separate decision.
+- Only the run's own chain is checked. A later run in the same session, for example a follow-up on Managed Agents or a continuation of a top-level parked run, still has an earlier run's web text in its context, and the guard does not look at the earlier run. Holding every note of a session after one web fetch is a separate decision.
 - A connector (MCP) tool, such as Gmail, Slack or a documentation search, can also return text from outside. This guard does not treat connector calls as web use. Which connectors count is a separate decision.
 - Claude Code tools that run a command other than `Bash`, such as `Monitor` or `PowerShell` on Windows, are not in the list.
 - Pi shortens long tool names and may add a suffix. A suffixed name of a tool in the list is missed.
