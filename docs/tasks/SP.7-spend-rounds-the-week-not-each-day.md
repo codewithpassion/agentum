@@ -3,9 +3,9 @@ id: SP.7
 title: "Spend rounds the week, not each day"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: [SP.5]
-branch: null
+branch: task/SP.7-spend-rounds-the-week-not-each-day
 lane: services-spend
 executor: claude
 ---
@@ -24,3 +24,4 @@ a rollup test with three days of $0.004 gives a week of $0.01 where today's code
 
 ## Log
 - 2026-11-21: added from the spend walkthrough.
+- 2026-11-21: dispatched.
