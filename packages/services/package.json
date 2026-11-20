@@ -136,6 +136,7 @@
     "./slack-history": "./src/slack-history.ts",
     "./slack-send": "./src/slack-send.ts",
     "./slack/apps": "./src/slack/apps.ts",
+    "./slack/fake-slack": "./src/slack/fake-slack.ts",
     "./slack/gateway": "./src/slack/gateway.ts",
     "./slack/guidance": "./src/slack/guidance.ts",
     "./slack/manifest": "./src/slack/manifest.ts",

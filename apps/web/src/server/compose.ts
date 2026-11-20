@@ -352,6 +352,7 @@ import {
   clerkUserOrganizations,
 } from "./clerk-organizations.ts";
 import { clerkPeople } from "./clerk-people.ts";
+import { devSlackFetch, fakeSlackUrl } from "./dev-slack-fetch.ts";
 import { createGithubSkillFetcher } from "./github-skill-source.ts";
 import { guestRuntimeOptions } from "./guest-runtime-options";
 import { inProcessFetch } from "./in-process.ts";
@@ -1592,6 +1593,11 @@ export const compose = (
         transcribe: env.SHARE_OPEN_LIMIT,
       },
       exportPDF: exportPrintPDF(env.BROWSER),
+      // Dev builds only, and only when a walkthrough names a fake Slack.
+      fetch: devSlackFetch({
+        base: fakeSlackUrl(),
+        dev: devFakeRuntime,
+      }),
       fileBlobs: r2FileBlobs(env.FILES),
       // A bare `fetch` loses its receiver in workerd ("Illegal invocation").
       github: createGithubSkillFetcher((url, init) => fetch(url, init)),

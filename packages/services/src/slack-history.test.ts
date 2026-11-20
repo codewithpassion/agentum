@@ -1,8 +1,15 @@
 import { beforeEach, expect, test } from "bun:test";
 import { agents as agentRows } from "@repo/db/schema/agents";
+import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
-import { slackApps, slackMessages } from "@repo/db/schema/slack";
+import {
+  slackApps,
+  slackMessages,
+  slackRoomMessages,
+  teamSlackLinks,
+} from "@repo/db/schema/slack";
+import { teamMembers, teams } from "@repo/db/schema/teams";
 import {
   identityLinks,
   workspaces as workspaceRows,
@@ -609,4 +616,83 @@ test("search reads the stored rows, so it makes no call to Slack for an id", asy
   await service.search(runPrincipal, { channel: "C0GENERAL", query: "slack" });
 
   expect(calls).toHaveLength(0);
+});
+
+test("search returns a message of a linked team room, shown with the guest's name", async () => {
+  db.insert(teams)
+    .values({
+      createdAt: START,
+      id: "team_room",
+      name: "Room",
+      slug: "room",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(teamMembers)
+    .values({
+      memberId: AGENT,
+      memberKind: "agent",
+      teamId: "team_room",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(teamSlackLinks)
+    .values({
+      channelId: "C0GENERAL",
+      createdAt: START,
+      id: "link1",
+      linkedBy: ANN_EMAIL,
+      slackTeamId: TEAM,
+      teamId: "team_room",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(inboxThreads)
+    .values({
+      createdAt: START,
+      createdBy: "user_ann",
+      id: "th_room",
+      lastPostAt: START,
+      teamId: "team_room",
+      title: "launch",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(inboxPosts)
+    .values({
+      authorId: `slack:${TEAM}:${GHOST_USER}`,
+      authorKind: "user",
+      createdAt: START,
+      id: "post_room",
+      text: "Gina Guest (Slack guest): ship the launch notes",
+      threadId: "th_room",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(slackRoomMessages)
+    .values({
+      channelId: "C0GENERAL",
+      createdAt: START,
+      direction: "in",
+      id: "srm1",
+      postId: "post_room",
+      slackTeamId: TEAM,
+      threadTs: null,
+      ts: "1700000500.000100",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
+  const result = await service.search(runPrincipal, { query: "launch" });
+
+  expect(result.hits).toEqual([
+    {
+      author: "Gina Guest (Slack guest)",
+      channel: "C0GENERAL",
+      text: "ship the launch notes",
+      threadTs: null,
+      time: new Date(1_700_000_500_000).toISOString(),
+      ts: "1700000500.000100",
+    },
+  ]);
 });

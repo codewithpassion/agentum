@@ -5,6 +5,7 @@ import {
   assignedTo,
   authorName,
   canPostInRoom,
+  guestOfPost,
   isEveryone,
   memberOfPost,
   requestsOfTopic,
@@ -247,12 +248,16 @@ test("roomMembers lists a member once even when a row repeats", () => {
 });
 
 test("memberOfPost returns the directory entry for a known author", () => {
-  const post = { authorId: "u_amir", authorKind: "user" as const };
+  const post = { authorId: "u_amir", authorKind: "user" as const, text: "" };
   expect(memberOfPost(post, directory)).toEqual(amir);
 });
 
 test("memberOfPost falls back to Agent for an unknown agent author", () => {
-  const post = { authorId: "agent_gone", authorKind: "agent" as const };
+  const post = {
+    authorId: "agent_gone",
+    authorKind: "agent" as const,
+    text: "",
+  };
   expect(memberOfPost(post, directory)).toEqual({
     avatar: null,
     handle: null,
@@ -263,13 +268,79 @@ test("memberOfPost falls back to Agent for an unknown agent author", () => {
 });
 
 test("memberOfPost falls back to Teammate for an unknown person author", () => {
-  const post = { authorId: "u_ghost", authorKind: "user" as const };
+  const post = { authorId: "u_ghost", authorKind: "user" as const, text: "" };
   expect(memberOfPost(post, directory)).toEqual({
     avatar: null,
     handle: null,
     id: "u_ghost",
     kind: "user",
     name: "Teammate",
+  });
+});
+
+test("memberOfPost names a Slack guest after the prefix in the text", () => {
+  const post = {
+    authorId: "slack:T0TEAM:U0GUEST",
+    authorKind: "user" as const,
+    text: "Priya (Slack guest): can we move the call?",
+  };
+  expect(memberOfPost(post, directory)).toEqual({
+    avatar: null,
+    handle: null,
+    id: "slack:T0TEAM:U0GUEST",
+    kind: "user",
+    name: "Priya",
+  });
+});
+
+test("memberOfPost prefers a known directory member over the guest name", () => {
+  const post = {
+    authorId: "u_amir",
+    authorKind: "user" as const,
+    text: "Priya (Slack guest): hello",
+  };
+  expect(memberOfPost(post, directory)).toEqual(amir);
+});
+
+test("guestOfPost splits a Slack guest post into name and message", () => {
+  const post = {
+    authorId: "slack:T0TEAM:U0GUEST",
+    authorKind: "user" as const,
+    text: "Priya (Slack guest): can we move the call?",
+  };
+  expect(guestOfPost(post)).toEqual({
+    name: "Priya",
+    text: "can we move the call?",
+  });
+});
+
+test("guestOfPost returns null for a Clerk user whose text contains the phrase", () => {
+  const post = {
+    authorId: "u_amir",
+    authorKind: "user" as const,
+    text: "Priya (Slack guest): she asked me to forward this",
+  };
+  expect(guestOfPost(post)).toBeNull();
+});
+
+test("guestOfPost returns null for an agent post with the prefix", () => {
+  const post = {
+    authorId: "slack:T0TEAM:U0GUEST",
+    authorKind: "agent" as const,
+    text: "Priya (Slack guest): hello",
+  };
+  expect(guestOfPost(post)).toBeNull();
+});
+
+test("guestOfPost keeps every line of a multi-line message", () => {
+  const post = {
+    authorId: "slack:T0TEAM:U0GUEST",
+    authorKind: "user" as const,
+    text: "Priya (Slack guest): line one\n\nline two\nline three",
+  };
+  expect(guestOfPost(post)).toEqual({
+    name: "Priya",
+    text: "line one\n\nline two\nline three",
   });
 });
 
