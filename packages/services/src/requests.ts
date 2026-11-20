@@ -982,7 +982,7 @@ export const createRequestsService = ({
    * An agent raises several decisions as one card. It returns at once and the
    * run is never held: the request is detached (see `isDecisionsRequest`), and
    * its answers come back as a follow-up run when it closes. The same questions
-   * raised again while the card is open give the card back, so a retried call
+   * raised again by the same run while the card is open give the card back, so a retried call
    * adds no second one; once it is dismissed or closed, they raise a new card.
    */
   const openDecisions = async (
@@ -1015,8 +1015,7 @@ export const createRequestsService = ({
       .from(runRequests)
       .where(
         and(
-          eq(runRequests.sessionId, run.sessionId),
-          eq(runRequests.agentId, run.agentId),
+          eq(runRequests.runId, run.id),
           eq(runRequests.kind, "decisions"),
           eq(runRequests.status, "pending"),
           gt(runRequests.expiresAt, clock.now().toISOString()),
@@ -1634,7 +1633,7 @@ export const createRequestsService = ({
       await announce(row, "request.cancelled");
     }
   };
-  /** A decision queue outlives a run that finished, but not one a person cancelled: nothing may start work from it again. */
+  /** A decision queue outlives a run that finished, but not one that was cancelled: nothing may start work from it again. */
   const cancelDecisionsForRun = async (run: RunRecord) => {
     const closed = await db
       .update(runRequests)

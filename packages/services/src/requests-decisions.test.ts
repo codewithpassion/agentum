@@ -397,3 +397,14 @@ test("the pending list masks the answers given so far", async () => {
   // The row keeps what the person typed, for the agent.
   expect(row(opened.id)?.answer).toContain("hunter2");
 });
+
+test("the same questions raised by a later run get a card of their own, which that run's cancel closes", async () => {
+  const first = await raisedAndDone();
+  const second = await startRun();
+  await claim(second.runId);
+  const mine = await raise(second.runId);
+  expect(mine.id).not.toBe(first.opened.id);
+  await runs.cancelRun(user, second.runId);
+  expect(row(mine.id)?.status).toBe("cancelled");
+  expect(row(first.opened.id)?.status).toBe("pending");
+});
