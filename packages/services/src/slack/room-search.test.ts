@@ -48,6 +48,8 @@ interface PostSeed {
   authorKind: "agent" | "user";
   channelId: string;
   minute: number;
+  /** The team of the topic. Defaults to the team the channel is linked to. */
+  teamId?: string;
   text: string;
   threadId?: string;
   threadTs?: string | null;
@@ -65,7 +67,9 @@ const seedPost = (seed: PostSeed) => {
         createdBy: ANN_CLERK,
         id: threadId,
         lastPostAt: at(seed.minute),
-        teamId: TEAM,
+        teamId:
+          seed.teamId ??
+          (seed.channelId === SECOND_CHANNEL ? SECOND_TEAM : TEAM),
         title: "topic",
         workspaceId: WORKSPACE,
       })
@@ -493,4 +497,41 @@ test("a team that is not the linked one gets no hit", async () => {
   });
 
   expect(await search({ agentId: OUTSIDER_AGENT })).toEqual([]);
+});
+
+test("a post of an earlier team's topic is not found once the channel is linked to another team", async () => {
+  // The channel was linked to OTHER_TEAM, then unlinked and linked to TEAM. The old rows stay.
+  seedPost({
+    authorId: "slack:T0SLACK:U0GUEST",
+    authorKind: "user",
+    channelId: ROOM_CHANNEL,
+    minute: 1,
+    teamId: OTHER_TEAM,
+    text: "Gina Guest (Slack guest): deploy the old secret plan",
+  });
+  seedPost({
+    authorId: "slack:T0SLACK:U0GUEST",
+    authorKind: "user",
+    channelId: ROOM_CHANNEL,
+    minute: 2,
+    text: "Gina Guest (Slack guest): deploy the new plan",
+  });
+
+  const hits = await search({ query: "deploy" });
+
+  expect(hits.map((hit) => hit.text)).toEqual(["deploy the new plan"]);
+});
+
+test("a word of a guest's label does not match the guest's post", async () => {
+  seedPost({
+    authorId: "slack:T0SLACK:U0GUEST",
+    authorKind: "user",
+    channelId: ROOM_CHANNEL,
+    minute: 1,
+    text: "Gina Guest (Slack guest): deploy the worker tonight",
+  });
+
+  expect(await search({ query: "guest" })).toEqual([]);
+  expect(await search({ query: "Gina" })).toEqual([]);
+  expect(await search({ query: "worker" })).toHaveLength(1);
 });

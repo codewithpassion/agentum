@@ -546,13 +546,24 @@ test("slack_history and slack_search both find the room's messages", async () =>
   expect(found.hits.map((hit) => hit.text)).toEqual([
     "Budget needs a number by Monday",
   ]);
+  expect(fake.deliveryErrors).toEqual([]);
 });
 
-test("a channel that is not linked keeps its old path", async () => {
-  fake.say({ channel: CHANNEL, text: "Hello there", user: DOM_SLACK });
+test("a channel that is not linked keeps its old path: a mention starts the agent's own Slack run and the room records nothing", async () => {
+  const mention = fake.say({
+    channel: CHANNEL,
+    text: `<@${ADA.botUserId}> hello there`,
+    user: DOM_SLACK,
+  });
   await settle();
 
   expect(topics()).toHaveLength(0);
   expect(posts()).toHaveLength(0);
   expect(db.select().from(slackRoomMessages).all()).toHaveLength(0);
+  // The per-agent path ran: Ada has one run, answered in the thread of the mention.
+  expect(
+    runs().filter((run) => run.agentId === agentIds.get("Ada"))
+  ).toHaveLength(1);
+  expect(slackPostsBy(ADA).at(0)).toMatchObject({ threadTs: mention.ts });
+  expect(fake.deliveryErrors).toEqual([]);
 });

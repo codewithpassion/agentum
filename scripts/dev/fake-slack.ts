@@ -294,11 +294,13 @@ export const main = (): Promise<void> => {
               headers: { "Content-Type": "text/html; charset=utf-8" },
             });
       }
-      const input: unknown = await request.json();
+      const input: unknown = await request.json().catch(() => null);
       return isRecord(input)
         ? control(fake, config, url.pathname, input)
         : json({ error: "send a JSON object" }, BAD_REQUEST);
     },
+    // Only this machine may write through the fake: it signs with fixed secrets.
+    hostname: "localhost",
     port: Number(values.port ?? DEFAULT_PORT),
   });
   process.stderr.write(

@@ -6,7 +6,11 @@
  */
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
-import { inboxPosts, inboxThreadMembers } from "@repo/db/schema/inbox";
+import {
+  inboxPosts,
+  inboxThreadMembers,
+  inboxThreads,
+} from "@repo/db/schema/inbox";
 import { slackRoomMessages, teamSlackLinks } from "@repo/db/schema/slack";
 import { teamMembers, teams } from "@repo/db/schema/teams";
 import { identityLinks } from "@repo/db/schema/workspaces";
@@ -31,7 +35,7 @@ export interface RoomSearchInput {
   limit: number;
   /**
    * The name a result is shown with (a guest's name, an agent's name, or a
-   * person's email), or the Slack user id of a person without an email. Matched
+   * person's email), or the Agentum user id of a person without an email. Matched
    * case-insensitively against that same name.
    */
   person?: string;
@@ -69,11 +73,10 @@ const shownName = sql<string>`(case
   when ${linkedEmail} is not null then ${linkedEmail}
   else ${inboxPosts.authorId} end)`;
 
-/** The post text after a guest's `<Name> (Slack guest): ` prefix. Other text is returned as it is. */
-const withoutGuestPrefix = (text: string): string => {
-  const at = text.indexOf(GUEST_SEPARATOR);
-  return at === -1 ? text : text.slice(at + GUEST_SEPARATOR.length);
-};
+/** The text a person wrote: a guest's post without its `<Name> (Slack guest): ` prefix, any other post as stored. */
+const bodyText = sql<string>`(case
+  when ${isGuestPost} and instr(${inboxPosts.text}, ${GUEST_SEPARATOR}) > 0 then substr(${inboxPosts.text}, instr(${inboxPosts.text}, ${GUEST_SEPARATOR}) + ${GUEST_SEPARATOR.length})
+  else ${inboxPosts.text} end)`;
 
 /**
  * Searches the room posts of one Slack team's linked channels. Only channels
@@ -108,7 +111,7 @@ export const searchRoomMessages = async (
   }
   for (const word of words) {
     conditions.push(
-      sql`${inboxPosts.text} LIKE ${`%${escapeLike(word)}%`} ESCAPE '\\'`
+      sql`${bodyText} LIKE ${`%${escapeLike(word)}%`} ESCAPE '\\'`
     );
   }
   if (input.person !== undefined) {
@@ -123,13 +126,11 @@ export const searchRoomMessages = async (
 
   const rows = await db
     .select({
-      authorId: inboxPosts.authorId,
-      authorKind: inboxPosts.authorKind,
       channelId: slackRoomMessages.channelId,
       clerkEmail: linkedEmail,
       createdAt: inboxPosts.createdAt,
       slackUserId: shownName,
-      text: inboxPosts.text,
+      text: bodyText,
       threadTs: slackRoomMessages.threadTs,
       ts: slackRoomMessages.ts,
     })
@@ -144,6 +145,15 @@ export const searchRoomMessages = async (
     )
     .innerJoin(teams, eq(teams.id, teamSlackLinks.teamId))
     .innerJoin(inboxPosts, eq(inboxPosts.id, slackRoomMessages.postId))
+    // The topic must belong to the team the channel is linked to now. An old link's
+    // rows stay after an unlink, and must not reach the next team.
+    .innerJoin(
+      inboxThreads,
+      and(
+        eq(inboxThreads.id, inboxPosts.threadId),
+        eq(inboxThreads.teamId, teams.id)
+      )
+    )
     .leftJoin(
       agents,
       and(
@@ -161,11 +171,7 @@ export const searchRoomMessages = async (
       clerkEmail: row.clerkEmail,
       createdAt: row.createdAt,
       slackUserId: row.slackUserId,
-      text:
-        row.authorId.startsWith(GUEST_AUTHOR_PREFIX) &&
-        row.authorKind === "user"
-          ? withoutGuestPrefix(row.text)
-          : row.text,
+      text: row.text,
       threadTs: row.threadTs,
       ts: row.ts,
     })
