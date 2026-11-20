@@ -1,4 +1,4 @@
-import { Bot } from "lucide-react";
+import { Bot, Users } from "lucide-react";
 import { useCallback } from "react";
 import { useAssistantLocation } from "#/components/assistant/assistant-location";
 import { useOpenMainThread } from "#/components/conversations/use-main-thread";
@@ -15,6 +15,7 @@ import {
   agentFindEntries,
   type FindEntry,
   findEntries,
+  teamFindEntries,
 } from "./find-registry.ts";
 import { useGo } from "./rail-link.tsx";
 
@@ -44,15 +45,17 @@ function FindItem({
   );
 }
 
-/** Every page and every agent, searchable. Picking an agent opens your main thread with it. Opens with Ctrl+K or Cmd+K. */
+/** Every page, agent and team, searchable. Picking an agent opens your main thread with it. Opens with Ctrl+K or Cmd+K. */
 export function FindDialog({
   agents,
   onOpenChange,
   open,
+  teams,
 }: {
   agents: readonly { id: string; name: string }[];
   onOpenChange: (open: boolean) => void;
   open: boolean;
+  teams: readonly { id: string; name: string }[];
 }) {
   const go = useGo();
   const { open: openAssistant } = useAssistantLocation();
@@ -73,13 +76,13 @@ export function FindDialog({
   );
   return (
     <CommandDialog
-      description="Find an agent, a page or a setting"
+      description="Find an agent, a team, a page or a setting"
       onOpenChange={onOpenChange}
       open={open}
       title="Find"
     >
       <Command>
-        <CommandInput placeholder="Find an agent, a page or a setting" />
+        <CommandInput placeholder="Find an agent, a team, a page or a setting" />
         <CommandList>
           <CommandEmpty>Nothing matches.</CommandEmpty>
           {groupNames.map((group) => (
@@ -94,6 +97,15 @@ export function FindDialog({
                     <FindItem
                       entry={{ ...agent, icon: Bot }}
                       key={agent.id}
+                      onPick={handlePick}
+                    />
+                  ))
+                : null}
+              {group === "Teams"
+                ? teamFindEntries(teams).map((team) => (
+                    <FindItem
+                      entry={{ ...team, icon: Users }}
+                      key={team.id}
                       onPick={handlePick}
                     />
                   ))
