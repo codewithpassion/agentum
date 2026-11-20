@@ -110,6 +110,7 @@ const KEYS = [
 ];
 const decisions: unknown[] = [];
 const grantQueries: unknown[] = [];
+const memoryDecisions: unknown[] = [];
 beforeAll(() => {
   for (const key of KEYS) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
@@ -168,6 +169,14 @@ beforeAll(() => {
             ]),
         },
       },
+      memory: {
+        decide: {
+          mutate: (input: unknown) => {
+            memoryDecisions.push(input);
+            return Promise.resolve({});
+          },
+        },
+      },
     }),
   }));
 });
@@ -220,6 +229,51 @@ test("person grant card reviews its own version, links the app and decides pendi
       { decision: "approved", grantId: "g2" },
     ]);
     expect(changed).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a held memory note shows its text and Approve and Reject decide that change", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container as unknown as Element);
+  let changed = 0;
+  const onChanged = () => {
+    changed += 1;
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <NeedsYouBody
+          agentName="Builder"
+          card={{
+            ...thread,
+            id: "change_1",
+            kind: "proposal",
+            needsYouKind: "memory_note",
+            title: "The office is in Fremantle",
+          }}
+          nowMs={0}
+          onAnswer={answer}
+          onChanged={onChanged}
+          request={null}
+          version={null}
+        />
+      )
+    );
+    expect(container.textContent).toContain("The office is in Fremantle");
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Approve",
+      "Reject",
+    ]);
+    await act(async () => buttons[0]?.click());
+    await act(async () => buttons[1]?.click());
+    expect(memoryDecisions).toEqual([
+      { changeId: "change_1", decision: "approve" },
+      { changeId: "change_1", decision: "reject" },
+    ]);
+    expect(changed).toBe(2);
   } finally {
     await act(async () => root.unmount());
   }

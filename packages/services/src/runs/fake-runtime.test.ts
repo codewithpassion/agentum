@@ -3,11 +3,15 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
+import type { MemoryNote } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "../agents.ts";
 import { seedAssignment, seedConnector } from "../connectors/test-seed.ts";
+import { notFound } from "../errors.ts";
 import { type Blobs, createEventsService } from "../events.ts";
+import type { LibraryService } from "../library.ts";
+import { serializeMemoryFile } from "../memory/codec.ts";
 import { importRunTokenKey, verifyAgentToken } from "../run-tokens.ts";
 import { createRunsService, type RunsService } from "../runs.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
@@ -123,7 +127,10 @@ const stubProxy: ProxyAccess = {
   },
 };
 
-const buildRuns = (proxy?: ProxyAccess): RunsService => {
+const buildRuns = (
+  proxy?: ProxyAccess,
+  library?: Pick<LibraryService, "mkdir" | "pendingConflicts" | "read">
+): RunsService => {
   const blobs = memoryBlobs();
   return createRunsService({
     adapters: [],
@@ -133,6 +140,7 @@ const buildRuns = (proxy?: ProxyAccess): RunsService => {
     db,
     devFakeRuntime: true,
     gateways: [],
+    library,
     proxy,
     runTokenKey: RUN_TOKEN_KEY,
   });
@@ -264,4 +272,51 @@ test("a tool run without a proxy fails with a line saying so", async () => {
   const { summary } = await runAs(user, await agentWithApp("fake-tool"), "hi");
 
   expect(summary.status).toBe("failed");
+});
+
+const MEMORY_PREFIX = /^.*\/memory\//;
+
+const note = (text: string): MemoryNote => ({
+  date: "2026-11-20",
+  id: "01HZ7KQ3M8V2X4R6T9B1C50001",
+  kind: "work",
+  source: null,
+  text,
+  userScope: null,
+  writtenBy: "person",
+});
+
+/** A library holding the given files under the agent's memory folder, keyed by the path after `memory/`. */
+const libraryWith = (files: Record<string, string>) => ({
+  mkdir: () => Promise.resolve(),
+  pendingConflicts: () => Promise.resolve([]),
+  read: (_principal: Principal, path: string) => {
+    const text = files[path.replace(MEMORY_PREFIX, "")];
+    return text === undefined
+      ? Promise.reject(notFound("File"))
+      : Promise.resolve({ bytes: new TextEncoder().encode(text) });
+  },
+});
+
+test("a fake run lists the notes its prompt carried, so a person can see memory reached it", async () => {
+  runs = buildRuns(
+    undefined,
+    libraryWith({
+      "work.md": serializeMemoryFile("work.md", [
+        note("Invoices go to Finance"),
+      ]),
+    }) as never
+  );
+  const { summary } = await runAs(user, await agentWithApp("m"), "hello");
+
+  expect(summary.resultText).toBe(
+    "Echo: hello\n\nI remember:\n- Invoices go to Finance"
+  );
+});
+
+test("a fake run with a library but no notes still echoes alone", async () => {
+  runs = buildRuns(undefined, libraryWith({}) as never);
+  const { summary } = await runAs(user, await agentWithApp("m"), "hello");
+
+  expect(summary.resultText).toBe("Echo: hello");
 });
