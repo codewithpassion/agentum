@@ -17,6 +17,8 @@ Dom asked on 20 Nov 2026 for these to be fixed. Two tests in `apps/web/src/serve
 
 It failed the same way on commits from before any v4 merge, so the cause is in the tests or their fixtures, not in v4 code. LR.17 (room admissions in the Durable Object) is a separate open task; don't fix it here.
 
+- `packages/services/src/runs.test.ts`: "an hour of never-claimed runs stays bounded and the sweep still reaches a crash-left run". It times out at 65 to 78 s in full runs under load and passes alone (added 20 Nov).
+
 ## Scope
 
 - Find why each test fails under load: a fixed port, a timeout too short for a busy host, a workerd process restart race, or a real ordering bug the load exposes. Write down the cause in the review file.
@@ -32,3 +34,4 @@ It failed the same way on commits from before any v4 merge, so the cause is in t
 ## Log
 - 2026-11-20: added on Dom's request after these tests failed most merge checks of the v4 build.
 - 2026-11-20: dispatched on task/FX.1-stable-workerd-tests (v4 controller session).
+- 2026-11-20: scope adds the services never-claimed-runs timing test, which now fails most full runs under load.

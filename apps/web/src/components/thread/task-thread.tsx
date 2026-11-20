@@ -387,6 +387,7 @@ export function TaskThread({
       nowMs,
       onComputer,
       outsideLabels,
+      remember: { agentId: task.agent.id, sessionId: task.session.id },
       requests: conversationRequests,
       requestTimes,
       runMarkers,
@@ -413,7 +414,9 @@ export function TaskThread({
       note,
       nowMs,
       conversationRequests,
+      task.agent.id,
       task.agent.name,
+      task.session.id,
       runMarkers,
       viewedMessageIds,
     ]

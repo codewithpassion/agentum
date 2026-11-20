@@ -142,3 +142,26 @@ export const handsToWords = (handsTo: AgentKeyHandsTo[]): string =>
   handsTo.length === 0
     ? "Hands work to no one."
     : `Hands work to ${handsTo.map((agent) => agent.name).join(", ")}.`;
+
+/**
+ * Whether the person may set or replace the agent's own credential: an org
+ * admin, or the agent's owner. The owner is `ownerUserId`, or `createdBy` when
+ * no owner is set.
+ */
+export const canSetAgentCredential = ({
+  agent,
+  isAdmin,
+  userId,
+}: {
+  agent: { createdBy: string; ownerUserId: string | null };
+  isAdmin: boolean;
+  userId: string | null | undefined;
+}): boolean => {
+  if (isAdmin) {
+    return true;
+  }
+  if (!userId) {
+    return false;
+  }
+  return userId === (agent.ownerUserId ?? agent.createdBy);
+};

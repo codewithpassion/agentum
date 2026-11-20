@@ -3,9 +3,9 @@ id: ME.10
 title: "Private notes stay private, and the never list holds on write"
 milestone: ME
 size: M
-status: todo
+status: in_progress
 depends_on: [ME.3, ME.5]
-branch: null
+branch: task/ME.10-private-notes-and-never-list
 lane: services-memory
 executor: claude
 ---
@@ -28,3 +28,4 @@ From the ME.5 review (`docs/reviews/tasks/ME.5.md`). Two gaps against the ME dec
 
 ## Log
 - 2026-11-20: added from the ME.5 review.
+- 2026-11-20: dispatched on task/ME.10-private-notes-and-never-list (v4 controller session).

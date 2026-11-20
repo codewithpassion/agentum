@@ -13,6 +13,7 @@ import { Bubble, BubbleContent } from "#/components/ui/bubble.tsx";
 import { Message, MessageContent } from "#/components/ui/message.tsx";
 import { Spinner } from "#/components/ui/spinner.tsx";
 import { FileChips } from "./file-chips.tsx";
+import { MessageMenu } from "./message-menu.tsx";
 import { ReasoningContainer, ReasoningPart } from "./reasoning-container.tsx";
 import { RunMarker } from "./run-marker.tsx";
 import { FilesLine, RunFailure } from "./thread-cards.tsx";
@@ -123,6 +124,12 @@ export function AssistantMessageContainer() {
   const id = useAuiState((state) => state.message.id);
   const { failure, filesLine, requests } = useThreadEnv();
   const runId = useAuiState((state) => state.message.metadata.custom.runId);
+  const status = useAuiState((state) => state.message.status?.type);
+  const text = useAuiState((state) =>
+    state.message.content
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("\n")
+  );
   const requestIds = useAuiState((state) =>
     state.message.content
       .filter((part) => part.type === "data" && part.name === "request")
@@ -163,6 +170,11 @@ export function AssistantMessageContainer() {
               <RunFailure error={failure.error} />
             ) : (
               <StatusLine />
+            )}
+            {status === "running" ? null : (
+              <div className="flex items-center gap-2 text-muted-foreground text-xs empty:hidden">
+                <MessageMenu text={text} />
+              </div>
             )}
             {filesLine?.messageId === id ? (
               <FilesLine

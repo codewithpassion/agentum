@@ -3,9 +3,9 @@ id: ME.8
 title: "Held notes in Needs you, learned count on the card"
 milestone: ME
 size: S
-status: todo
+status: in_progress
 depends_on: [ME.1, RH.2]
-branch: null
+branch: task/ME.8-memory-needs-you-and-count
 lane: services-rail
 executor: codex
 ---
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone ME. Held notes must reach the person, an
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/ME.8-memory-needs-you-and-count (v4 controller session).
