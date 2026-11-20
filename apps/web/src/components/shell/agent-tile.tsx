@@ -14,7 +14,7 @@ export const AVATAR_CLASSES: Readonly<Record<AgentAvatarColor, string>> = {
 };
 
 /** Whole class names, so Tailwind finds them. */
-export const AGENT_TILE_SIZES = {
+const AGENT_TILE_SIZES = {
   lg: "size-10 rounded-lg text-base",
   md: "size-8 rounded-lg text-sm",
   sm: "size-6 rounded-lg text-xs",

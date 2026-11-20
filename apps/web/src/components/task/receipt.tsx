@@ -44,7 +44,7 @@ function StepTile({
 }) {
   if (kind === "trigger") {
     return (
-      <span className="grid size-[30px] shrink-0 place-items-center rounded-lg bg-muted font-bold text-muted-foreground text-xs">
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted font-bold text-muted-foreground text-xs">
         →
       </span>
     );
