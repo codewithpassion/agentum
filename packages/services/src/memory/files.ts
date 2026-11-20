@@ -25,6 +25,9 @@ export type MemoryLibrary = Pick<
   "read" | "readVersion" | "versions" | "writeMemoryFiles"
 >;
 
+/** What the dream needs on top: listing a folder, to find every person's private file. */
+export type DreamMemoryLibrary = MemoryLibrary & Pick<LibraryService, "list">;
+
 export interface LoadedMemory {
   /** The etag of every file that exists, `index.md` included. Paths are relative to the memory folder. */
   etags: Record<string, string>;
@@ -62,23 +65,13 @@ const readText = async (
   }
 };
 
-/**
- * The files the principal may see: the four shared kinds, the index, and the
- * private file of `userScope` when there is one. A file that does not parse is
- * reported in `problems` and left out of `files` and `notes`.
- */
-export const loadMemory = async (
+const loadPaths = async (
   library: MemoryLibrary,
   principal: Principal,
   slug: string,
-  userScope: string | null
+  paths: readonly string[]
 ): Promise<LoadedMemory> => {
   const folder = memoryFolderOf(slug);
-  const paths = [
-    ...MEMORY_NOTE_KINDS.map((kind) => `${kind}.md`),
-    ...(userScope === null ? [] : [`private/${userScope}.md`]),
-    INDEX,
-  ];
   const found = await Promise.all(
     paths.map((path) => readText(library, principal, folder, path))
   );
@@ -108,6 +101,56 @@ export const loadMemory = async (
     }
   }
   return loaded;
+};
+
+/**
+ * The files the principal may see: the four shared kinds, the index, and the
+ * private file of `userScope` when there is one. A file that does not parse is
+ * reported in `problems` and left out of `files` and `notes`.
+ */
+export const loadMemory = (
+  library: MemoryLibrary,
+  principal: Principal,
+  slug: string,
+  userScope: string | null
+): Promise<LoadedMemory> =>
+  loadPaths(library, principal, slug, [
+    ...MEMORY_NOTE_KINDS.map((kind) => `${kind}.md`),
+    ...(userScope === null ? [] : [`private/${userScope}.md`]),
+    INDEX,
+  ]);
+
+const PRIVATE_FOLDER = "private";
+
+/**
+ * Every memory file there is: the shared ones, the index and each person's
+ * private file. Only the dream may read this much, through a principal that
+ * carries `dream`.
+ */
+export const loadEveryMemoryFile = async (
+  library: DreamMemoryLibrary,
+  principal: Principal,
+  slug: string
+): Promise<LoadedMemory> => {
+  let privateFiles: string[] = [];
+  try {
+    const entries = await library.list(
+      principal,
+      `${memoryFolderOf(slug)}/${PRIVATE_FOLDER}`
+    );
+    privateFiles = entries
+      .filter((entry) => entry.kind === "file")
+      .map((entry) => `${PRIVATE_FOLDER}/${entry.path.split("/").pop()}`);
+  } catch (error) {
+    if (!(isServiceError(error) && error.code === "not_found")) {
+      throw error;
+    }
+  }
+  return await loadPaths(library, principal, slug, [
+    ...MEMORY_NOTE_KINDS.map((kind) => `${kind}.md`),
+    ...privateFiles,
+    INDEX,
+  ]);
 };
 
 /** Why a file is refused, in words a person can act on. */
@@ -182,4 +225,83 @@ export const commitChange = async ({
       return statements(version.id);
     }
   );
+};
+
+// A dream writes several files and rows in one call, and puts them back.
+// Everything it writes lands together: the files, the library versions and the
+// caller's rows (`memory_changes`, the run), so a dream that fails leaves memory
+// as it was. It lives here because this module is the only caller of the
+// library's memory write (`scripts/memory-sole-writer.test.ts`).
+export interface Written {
+  /** The latest version of each file that existed before this write. Undo puts them back. */
+  baseVersion: string[];
+  /** The last version this write made. */
+  resultVersion: string;
+  /** The version this write made of each file, by path relative to the memory folder. */
+  versionByPath: Map<string, string>;
+}
+
+/** The files whose bytes differ from what was loaded. */
+export const changedPaths = (
+  loaded: LoadedMemory,
+  next: Readonly<MemoryFiles>
+): string[] =>
+  Object.keys(next).filter((path) => next[path] !== loaded.texts[path]);
+
+/**
+ * Writes every file of `next` that differs from `loaded`, each guarded by the
+ * etag it was loaded with. `statements` runs once the versions exist, and its
+ * statements commit with the files. Throws `invalid` when nothing differs and
+ * the library's `conflict` when a file changed since it was loaded.
+ */
+export const commitFiles = async ({
+  library,
+  loaded,
+  next,
+  principal,
+  slug,
+  statements,
+}: {
+  library: Pick<MemoryLibrary, "versions" | "writeMemoryFiles">;
+  loaded: LoadedMemory;
+  next: Readonly<MemoryFiles>;
+  principal: Principal;
+  slug: string;
+  statements: (written: Written) => Statement[];
+}): Promise<Written> => {
+  const paths = changedPaths(loaded, next);
+  if (paths.length === 0) {
+    throw invalid("The dream changed nothing");
+  }
+  const folder = memoryFolderOf(slug);
+  const base = await Promise.all(
+    paths.map(async (path) =>
+      path in loaded.texts
+        ? ((await library.versions(principal, `${folder}/${path}`))[0]?.id ??
+          null)
+        : null
+    )
+  );
+  const baseVersion = base.flatMap((id) => id ?? []);
+  let written: Written | null = null;
+  await library.writeMemoryFiles(
+    principal,
+    paths.map((path) => ({
+      bytes: encoder.encode(next[path]),
+      ifEtag: loaded.etags[path],
+      path: `${folder}/${path}`,
+    })),
+    (versions) => {
+      const versionByPath = new Map(
+        paths.map((path, index) => [path, versions[index]?.id ?? ""] as const)
+      );
+      const resultVersion = versions.at(-1)?.id ?? "";
+      written = { baseVersion, resultVersion, versionByPath };
+      return statements(written);
+    }
+  );
+  if (!written) {
+    throw invalid("The dream's files were not written");
+  }
+  return written;
 };

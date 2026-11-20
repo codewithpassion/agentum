@@ -427,3 +427,12 @@ test.each([
 ] as const)("problemDetail %#", (input, expected) => {
   expect(problemDetail(input)).toBe(expected);
 });
+
+test("plainTitle and plainStatus for a dream question", () => {
+  const question = card({
+    kind: "dream_question",
+    title: "Which note is current?",
+  });
+  expect(plainTitle(question)).toBe("Ada has a question from its dream");
+  expect(plainStatus(question)).toBe("Question from its dream");
+});

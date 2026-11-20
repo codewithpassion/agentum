@@ -14,6 +14,7 @@ import { skillVersions } from "@repo/db/schema/skills";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   APPROVAL_TTL_MS,
+  type DeskCard,
   MAIL_APPROVAL_TTL_MS,
   MAIL_SEND_TOOL,
   RAIL_ESCALATE_AFTER_MS,
@@ -1411,5 +1412,63 @@ test("a private held note goes to its person alone, with no backup step", async 
     assigneeUserId: "u2",
     escalatedToMe: false,
     mine: true,
+  });
+});
+
+test("a dream question card keeps its options on the rail card", async () => {
+  const dream = {
+    options: [
+      { noteId: "n1", text: "Keep the old address" },
+      { noteId: "n2", text: "Use the new address" },
+    ],
+    question: "Which address is current?",
+    questionId: "q1",
+  };
+  // The desk does not build dream cards yet, so the rail reads one from a fake desk.
+  const dreamCard: DeskCard = {
+    agentId: a1,
+    at: new Date(now).toISOString(),
+    band: { text: "Asks a question", tone: "waiting" },
+    dream,
+    id: "dream-q1",
+    kind: "request",
+    lane: "needs_you",
+    needsYouKind: "dream_question",
+    startedBy: "u1",
+    title: "Which address is current?",
+  };
+  const withDream: typeof desk = {
+    ...desk,
+    railSources: async (principal, input) => {
+      const sources = await desk.railSources(principal, input);
+      return { ...sources, needsYou: [dreamCard, ...sources.needsYou] };
+    },
+  };
+  const dreamRail = createRailService({
+    agents,
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    desk: withDream,
+    members: createMembersService({
+      db,
+      lister: () =>
+        memberList === null
+          ? Promise.reject(new Error("Clerk is down"))
+          : Promise.resolve(memberList),
+    }),
+    people: (ids) => (people ? people(ids) : Promise.resolve(new Map())),
+  });
+
+  const result = await dreamRail.get(user(), {
+    dayStart: DAY_START,
+    scope: "mine",
+  });
+  const cards = result.needsYou.flatMap((item) => item.cards);
+  expect(cards.find(({ id }) => id === "dream-q1")).toMatchObject({
+    dream,
+    kind: "dream_question",
+    status: "Question from its dream",
+    title: "Alpha has a question from its dream",
   });
 });

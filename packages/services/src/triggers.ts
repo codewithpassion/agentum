@@ -258,6 +258,26 @@ export const createTriggersService = ({
     return summary;
   };
 
+  /**
+   * Refuses a dream trigger. The lookups below filter on kind, so a dream
+   * row would read as not found; this checks the row itself first.
+   */
+  const refuseDream = async (triggerId: string, workspaceId: string) => {
+    const [row] = await db
+      .select({ kind: triggers.kind })
+      .from(triggers)
+      .where(
+        and(eq(triggers.id, triggerId), eq(triggers.workspaceId, workspaceId))
+      )
+      .limit(1);
+    if (row?.kind === "dream") {
+      throw new ServiceError(
+        "invalid",
+        "A dream trigger follows the agent's dream schedule"
+      );
+    }
+  };
+
   const reassign = async (
     principal: Principal,
     triggerId: string,
@@ -270,6 +290,7 @@ export const createTriggersService = ({
       kind: TRIGGER_KIND,
       workspaceId: user.workspaceId,
     });
+    await refuseDream(triggerId, user.workspaceId);
     const current = await requireLive(triggerId, user.workspaceId, true);
     if (current.kind === "app") {
       throw new ServiceError("invalid", "App triggers cannot be reassigned");
@@ -457,6 +478,7 @@ export const createTriggersService = ({
     if (actor.kind === "run" && enabled) {
       throw new ForbiddenError(ENABLE_ACTION);
     }
+    await refuseDream(triggerId, actor.workspaceId);
     const current = await requireLive(triggerId, actor.workspaceId);
     if (actor.kind === "run" && current.kind === "app") {
       throw new ForbiddenError(ENABLE_ACTION);
@@ -499,6 +521,7 @@ export const createTriggersService = ({
       kind: TRIGGER_KIND,
       workspaceId: actor.workspaceId,
     });
+    await refuseDream(triggerId, actor.workspaceId);
     const current = await requireSummary(triggerId, actor.workspaceId);
     if (actor.kind === "run" && current.proposedByAgentId !== actor.agentId) {
       throw new ForbiddenError(REVOKE_ACTION);

@@ -1,0 +1,426 @@
+// One dream of one agent: read what happened since the last one, ask the model
+// for notes worth keeping, run the three steps, and write the plan (or hold it
+// for the owner). The run is recorded as it goes. Nothing is written to memory
+// until the model's work is complete, so a dream that fails leaves memory as
+// it was.
+import type { Database } from "@repo/db";
+import type { Atomic, Statement } from "@repo/db/atomic";
+import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
+import { memoryChanges } from "@repo/db/schema/memory";
+import type {
+  DreamCounts,
+  DreamPlan,
+  DreamRun,
+  DreamUsage,
+  MemoryNote,
+} from "@repo/db/shared";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { ulid } from "ulidx";
+import type { Fetcher } from "../connectors/mcp.ts";
+import { ServiceError } from "../errors.ts";
+import type { EventsService } from "../events.ts";
+import { type ManagedKeysService, NO_KEY_MESSAGE } from "../managed/keys.ts";
+import { MemoryCodecError } from "../memory/codec.ts";
+import {
+  commitFiles,
+  type DreamMemoryLibrary,
+  describeProblem,
+  loadEveryMemoryFile,
+} from "../memory/files.ts";
+import { MEMORY_PROMPT_MAX_CHARS } from "../memory/prompt.ts";
+import type { Clock } from "../runs/types.ts";
+import { applyRows, pathOfRow, rowsFromPlan } from "./changeset.ts";
+import { createDreamCollector } from "./collect.ts";
+
+import { writeDiary } from "./diary.ts";
+import { extractCandidates } from "./extract.ts";
+import { createDreamModel } from "./model.ts";
+import { storeOptions } from "./question-options.ts";
+import {
+  type DreamAgent,
+  dreamPrincipal,
+  loadDreamAgent,
+  type RunRow,
+  toRun,
+} from "./rows.ts";
+import { mergeNotes } from "./steps/merge.ts";
+import { pruneNotes } from "./steps/prune.ts";
+import { reconcileNotes } from "./steps/reconcile.ts";
+
+const DATE_LENGTH = 10;
+/** A run still `running` after this long is taken for one that died. */
+export const STALE_RUN_MS = 60 * 60_000;
+const ERROR_MAX = 300;
+const SKIPPED_DIARY = "Nothing happened since the last dream.";
+const FAILED_DIARY = "The dream did not finish. Memory is unchanged.";
+const ABANDONED = "The dream did not finish";
+const MODEL_FAILED = "A model call failed";
+/** Statuses after which the next dream starts reading where this one began. */
+const ADVANCING = ["done", "skipped", "undone"] as const;
+
+export interface RunDeps {
+  atomic: Atomic;
+  clock: Clock;
+  db: Database;
+  events: Pick<EventsService, "readPayload">;
+  fetch: Fetcher;
+  library: DreamMemoryLibrary;
+  managedKeys: Pick<ManagedKeysService, "resolve">;
+}
+
+const countsOf = (plan: DreamPlan): DreamCounts => ({
+  added: plan.filter((change) => change.action === "add").length,
+  dropped: plan.filter((change) => change.action === "drop").length,
+  merged: plan.filter((change) => change.action === "merge").length,
+  questions: plan.filter((change) => change.action === "question").length,
+});
+
+const messageOf = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).slice(0, ERROR_MAX);
+
+const sameIds = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && [...a].sort().join() === [...b].sort().join();
+
+/** A dream that failed, with what its model calls cost before it did. */
+class DreamFailure extends Error {
+  override readonly cause: unknown;
+  readonly usage: DreamUsage | null;
+
+  constructor(cause: unknown, usage: DreamUsage | null) {
+    super(messageOf(cause));
+    this.cause = cause;
+    this.usage = usage;
+  }
+}
+
+export const createDreamRunner = (deps: RunDeps) => {
+  const { atomic, clock, db, library } = deps;
+  const collector = createDreamCollector({
+    db,
+    events: deps.events,
+  });
+
+  const runRow = async (id: string): Promise<RunRow> => {
+    const [row] = await db
+      .select()
+      .from(dreamRuns)
+      .where(eq(dreamRuns.id, id))
+      .limit(1);
+    if (!row) {
+      throw new ServiceError("not_found", `No dream run "${id}"`);
+    }
+    return row;
+  };
+
+  /** Where the next dream starts reading: the start of the last one that moved on. */
+  const sinceOf = async (agentId: string): Promise<string | null> => {
+    const [last] = await db
+      .select({ startedAt: dreamRuns.startedAt })
+      .from(dreamRuns)
+      .where(
+        and(
+          eq(dreamRuns.agentId, agentId),
+          inArray(dreamRuns.status, [...ADVANCING])
+        )
+      )
+      .orderBy(desc(dreamRuns.startedAt))
+      .limit(1);
+    return last?.startedAt ?? null;
+  };
+
+  /** Runs that died while `running` become `failed`; a live one blocks a second dream. */
+  const claim = async (agentId: string, now: Date): Promise<void> => {
+    const cutoff = new Date(now.getTime() - STALE_RUN_MS).toISOString();
+    await db
+      .update(dreamRuns)
+      .set({
+        error: ABANDONED,
+        finishedAt: now.toISOString(),
+        status: "failed",
+      })
+      .where(
+        and(
+          eq(dreamRuns.agentId, agentId),
+          eq(dreamRuns.status, "running"),
+          lt(dreamRuns.startedAt, cutoff)
+        )
+      );
+    const [live] = await db
+      .select({ id: dreamRuns.id })
+      .from(dreamRuns)
+      .where(
+        and(eq(dreamRuns.agentId, agentId), eq(dreamRuns.status, "running"))
+      )
+      .limit(1);
+    if (live) {
+      throw new ServiceError("conflict", "This agent is already dreaming");
+    }
+  };
+
+  const finish = (
+    runId: string,
+    fields: Partial<typeof dreamRuns.$inferInsert>
+  ): Statement =>
+    db
+      .update(dreamRuns)
+      .set({ finishedAt: clock.now().toISOString(), ...fields })
+      .where(eq(dreamRuns.id, runId));
+
+  /** Open questions of the agent, as the sets of note ids they ask about. */
+  const openQuestionSets = async (agentId: string): Promise<string[][]> => {
+    const rows = await db
+      .select({ options: dreamQuestions.options })
+      .from(dreamQuestions)
+      .where(
+        and(
+          eq(dreamQuestions.agentId, agentId),
+          eq(dreamQuestions.status, "open")
+        )
+      );
+    return rows.map((row) => {
+      try {
+        const parsed = JSON.parse(row.options) as { noteId: string }[];
+        return parsed.map((option) => option.noteId);
+      } catch {
+        return [];
+      }
+    });
+  };
+
+  const questionStatements = (
+    agent: DreamAgent,
+    runId: string,
+    plan: DreamPlan,
+    notes: ReadonlyMap<string, MemoryNote>
+  ): Statement[] =>
+    plan.flatMap((change) => {
+      if (change.action !== "question") {
+        return [];
+      }
+      const asked = change.noteIds.flatMap((id) => notes.get(id) ?? []);
+      const scope = asked[0]?.userScope ?? null;
+      if (asked.length < 2 || asked.some((note) => note.userScope !== scope)) {
+        return [];
+      }
+      return [
+        db.insert(dreamQuestions).values({
+          agentId: agent.id,
+          createdAt: clock.now().toISOString(),
+          dreamRunId: runId,
+          id: ulid(),
+          options: storeOptions(
+            asked.map((note) => ({ noteId: note.id, text: note.text })),
+            scope
+          ),
+          question: change.question,
+          status: "open",
+          workspaceId: agent.workspaceId,
+        }),
+      ];
+    });
+
+  interface Outcome {
+    outside: boolean;
+    plan: DreamPlan;
+  }
+
+  /** The model's work: candidates, then merge, reconcile and prune, each on the last one's notes. */
+  const think = async (
+    agent: DreamAgent,
+    items: Parameters<typeof extractCandidates>[0]["items"],
+    notes: MemoryNote[],
+    apiKey: string,
+    today: string
+  ): Promise<Outcome & { usage: DreamUsage }> => {
+    const model = createDreamModel({ apiKey, fetch: deps.fetch });
+    try {
+      const extracted = await extractCandidates({
+        items,
+        judge: model.judge,
+        never: [...agent.workspaceNever, ...agent.rules.never],
+        remember: agent.rules.remember,
+      });
+      const merged = await mergeNotes({
+        candidates: extracted.candidates,
+        judge: model.judge,
+        notes,
+        today,
+      });
+      const reconciled = await reconcileNotes({
+        judge: model.judge,
+        notes: merged.notes,
+      });
+      const addedChars = merged.changes.reduce(
+        (sum, change) =>
+          sum + (change.action === "add" ? change.text.length : 0),
+        0
+      );
+      const pruned = await pruneNotes({
+        held: reconciled.held,
+        judge: model.judge,
+        maxChars: Math.max(0, MEMORY_PROMPT_MAX_CHARS - addedChars),
+        notes: reconciled.notes,
+        today,
+      });
+      if (model.failedCalls() > 0) {
+        throw new ServiceError("invalid", MODEL_FAILED);
+      }
+      return {
+        outside: extracted.outside,
+        plan: [...merged.changes, ...reconciled.changes, ...pruned.changes],
+        usage: model.usage(),
+      };
+    } catch (error) {
+      // Keep what the calls cost even when the dream fails.
+      // biome-ignore lint/style/useErrorCause: DreamFailure holds the cause in its own field
+      throw new DreamFailure(error, model.usage());
+    }
+  };
+
+  const dream = async (
+    agent: DreamAgent,
+    runId: string,
+    since: string | null
+  ): Promise<void> => {
+    const today = clock.now().toISOString().slice(0, DATE_LENGTH);
+    const collection = await collector.collectSince(agent.id, since);
+    if (collection.items.length === 0) {
+      await atomic([
+        finish(runId, { diary: SKIPPED_DIARY, status: "skipped" }),
+      ]);
+      return;
+    }
+    const key = await deps.managedKeys.resolve(agent.workspaceId);
+    if (!key) {
+      throw new ServiceError("invalid", NO_KEY_MESSAGE);
+    }
+    const principal = dreamPrincipal(agent);
+    const loaded = await loadEveryMemoryFile(library, principal, agent.slug);
+    const [problem] = Object.entries(loaded.problems);
+    if (problem) {
+      throw new ServiceError("invalid", describeProblem(...problem));
+    }
+    const thought = await think(
+      agent,
+      collection.items,
+      loaded.notes,
+      key.apiKey,
+      today
+    );
+    const usage = JSON.stringify(thought.usage);
+    const known = await openQuestionSets(agent.id);
+    // A question that is already open is not asked again.
+    const plan = thought.plan.filter(
+      (change) =>
+        change.action !== "question" ||
+        !known.some((ids) => sameIds(ids, change.noteIds))
+    );
+    const notes = new Map(loaded.notes.map((note) => [note.id, note]));
+    const counts = countsOf(plan);
+    const held = agent.rules.learnLevel === "ask_first" || thought.outside;
+    const diary = writeDiary({
+      counts,
+      held,
+      noteText: (id) => {
+        const note = notes.get(id);
+        return note && note.userScope === null ? note.text : null;
+      },
+      plan,
+    });
+    const rows = rowsFromPlan(plan, {
+      agentId: agent.id,
+      createdAt: clock.now().toISOString(),
+      notes,
+      runId,
+      status: held ? "held" : "applied",
+      workspaceId: agent.workspaceId,
+    });
+    const questions = questionStatements(agent, runId, plan, notes);
+    const summary = {
+      counts: JSON.stringify(counts),
+      diary,
+      status: "done" as const,
+      usage,
+    };
+    if (rows.length === 0 || held) {
+      await atomic([
+        ...rows.map((row) => db.insert(memoryChanges).values(row)),
+        ...questions,
+        finish(runId, summary),
+      ]);
+      return;
+    }
+    let next: Record<string, string>;
+    try {
+      next = applyRows(loaded.files, rows, today);
+    } catch (error) {
+      if (error instanceof MemoryCodecError) {
+        // biome-ignore lint/style/useErrorCause: ServiceError has no cause parameter
+        throw new ServiceError("conflict", error.message);
+      }
+      throw error;
+    }
+    await commitFiles({
+      library,
+      loaded,
+      next,
+      principal,
+      slug: agent.slug,
+      statements: (written) => [
+        ...rows.map((row) =>
+          db.insert(memoryChanges).values({
+            ...row,
+            libraryVersionId:
+              written.versionByPath.get(pathOfRow(row)) ??
+              written.resultVersion,
+          })
+        ),
+        ...questions,
+        finish(runId, {
+          ...summary,
+          baseVersion: JSON.stringify(written.baseVersion),
+          resultVersion: written.resultVersion,
+        }),
+      ],
+    });
+  };
+
+  /**
+   * Runs one dream for the agent, now. The run row exists before any work, so
+   * a dream that dies is still on record. A dream that fails is a `failed` run,
+   * not an error: it returns normally. Only a dream that could not start
+   * (the agent is already dreaming) throws.
+   */
+  const run = async (agentId: string): Promise<DreamRun> => {
+    const agent = await loadDreamAgent(db, agentId);
+    const now = clock.now();
+    await claim(agent.id, now);
+    const runId = ulid();
+    await db.insert(dreamRuns).values({
+      agentId: agent.id,
+      id: runId,
+      since: await sinceOf(agent.id),
+      startedAt: now.toISOString(),
+      status: "running",
+      workspaceId: agent.workspaceId,
+    });
+    const started = await runRow(runId);
+    try {
+      await dream(agent, runId, started.since);
+    } catch (error) {
+      const failure =
+        error instanceof DreamFailure ? error : new DreamFailure(error, null);
+      await atomic([
+        finish(runId, {
+          diary: FAILED_DIARY,
+          error: messageOf(failure.cause),
+          status: "failed",
+          usage: failure.usage ? JSON.stringify(failure.usage) : null,
+        }),
+      ]);
+    }
+    return toRun(await runRow(runId));
+  };
+
+  return { run };
+};

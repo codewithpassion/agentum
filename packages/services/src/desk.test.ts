@@ -1,6 +1,7 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
+import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts } from "@repo/db/schema/library";
 import {
@@ -8,6 +9,7 @@ import {
   mailMessages,
   mailThreads,
 } from "@repo/db/schema/mail";
+import { memoryChanges } from "@repo/db/schema/memory";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
@@ -22,6 +24,7 @@ import type { WaitingMessage } from "./a2a/needs-you.ts";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createDeskService, type DeskInput } from "./desk.ts";
+import { storeOptions } from "./dream/question-options.ts";
 import { createEventsService, type PeopleLookup } from "./events.ts";
 import { createInboxService } from "./inbox.ts";
 import { memoryLibraryBlobs } from "./library/memory.ts";
@@ -1417,4 +1420,123 @@ test("a person's update stacked on a lapsed run proposal does not break Needs yo
   const rail = await desk.railSources(user(), { dayStart: DAY_START });
 
   expect(rail.needsYou).toEqual([]);
+});
+
+const DREAM_RUN = "dream1";
+const DREAM_OPTIONS = [
+  { noteId: "n1", text: "The deploy is on Fridays" },
+  { noteId: "n2", text: "The deploy is on Mondays" },
+];
+
+const insertDreamRun = () =>
+  db.insert(dreamRuns).values({
+    agentId: a1,
+    id: DREAM_RUN,
+    startedAt: new Date(NOW).toISOString(),
+    status: "done",
+    workspaceId: "w1",
+  });
+
+const questionRow = (
+  row: Pick<typeof dreamQuestions.$inferInsert, "id"> &
+    Partial<typeof dreamQuestions.$inferInsert>
+): typeof dreamQuestions.$inferInsert => ({
+  agentId: a1,
+  createdAt: new Date(NOW).toISOString(),
+  dreamRunId: DREAM_RUN,
+  options: storeOptions(DREAM_OPTIONS, null),
+  question: "When is the deploy?",
+  status: "open",
+  workspaceId: "w1",
+  ...row,
+});
+
+test("an open dream question waits in Needs you with its options", async () => {
+  await insertDreamRun();
+  await db.insert(dreamQuestions).values(questionRow({ id: "q1" }));
+
+  const cards = (await get()).needsYou;
+
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toMatchObject({
+    agentId: a1,
+    dream: {
+      options: DREAM_OPTIONS,
+      question: "When is the deploy?",
+      questionId: "q1",
+    },
+    id: "q1",
+    kind: "proposal",
+    needsYouKind: "dream_question",
+    title: "When is the deploy?",
+  });
+  expect(cards[0]).not.toHaveProperty("forUserId");
+  expect(await desk.needsYouCount(user())).toBe(1);
+});
+
+test("an answered dream question leaves Needs you", async () => {
+  await insertDreamRun();
+  await db
+    .insert(dreamQuestions)
+    .values(questionRow({ id: "q1", status: "answered" }));
+
+  expect((await get()).needsYou).toEqual([]);
+});
+
+test("a dream question about a private note shows only to its person", async () => {
+  await insertDreamRun();
+  await db
+    .insert(dreamQuestions)
+    .values(
+      questionRow({ id: "q1", options: storeOptions(DREAM_OPTIONS, "u1") })
+    );
+
+  const owner = (await get({}, user("u1"))).needsYou;
+  const other = (await get({}, user("u2"))).needsYou;
+
+  expect(owner).toHaveLength(1);
+  expect(owner[0]).toMatchObject({
+    forUserId: "u1",
+    needsYouKind: "dream_question",
+  });
+  expect(other).toEqual([]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(0);
+});
+
+test("a held memory change from a dream waits as the dream's question, not as a note card", async () => {
+  await insertDreamRun();
+  const createdAt = new Date(NOW).toISOString();
+  await db.insert(memoryChanges).values([
+    {
+      action: "add",
+      agentId: a1,
+      createdAt,
+      dreamRunId: DREAM_RUN,
+      id: "dream-note",
+      kind: "work",
+      noteId: "note-dream",
+      status: "held",
+      text: "Dream note",
+      workspaceId: "w1",
+      writtenBy: "dream",
+    },
+    {
+      action: "add",
+      agentId: a1,
+      createdAt,
+      dreamRunId: null,
+      id: "agent-note",
+      kind: "work",
+      noteId: "note-agent",
+      status: "held",
+      text: "Agent note",
+      workspaceId: "w1",
+      writtenBy: "agent",
+    },
+  ]);
+
+  const cards = (await get()).needsYou;
+
+  expect(ids(cards)).toEqual(["agent-note"]);
+  expect(cards[0]).toMatchObject({ needsYouKind: "memory_note" });
 });

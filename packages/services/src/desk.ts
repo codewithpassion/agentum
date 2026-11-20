@@ -18,6 +18,7 @@ import {
   artifactVersions,
 } from "@repo/db/schema/artifacts";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
+import { dreamQuestions } from "@repo/db/schema/dreams";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
@@ -53,6 +54,7 @@ import { z } from "zod";
 import type { A2aNeedsYouSource } from "./a2a/needs-you.ts";
 import { replacementVersions } from "./artifacts/replacements.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import { readOptions } from "./dream/question-options.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
 import type { InboxService } from "./inbox.ts";
@@ -461,6 +463,7 @@ export const createDeskService = ({
 
       suggestions,
       heldNotes,
+      dreamRows,
       a2aList,
     ] = await Promise.all([
       pendingRecords(member),
@@ -497,11 +500,24 @@ export const createDeskService = ({
             isNull(memoryChanges.decidedAt),
             // A team's held notes have no agent. The team dream (TX.2) shows them.
             isNotNull(memoryChanges.agentId),
+            // A dream's held batch is decided as a whole in `dream.decide`, not note by note.
+            isNull(memoryChanges.dreamRunId),
             // Private memory keeps its person's visibility, including on the rail.
             or(
               isNull(memoryChanges.userScope),
               eq(memoryChanges.userScope, member.userId)
             )
+          )
+        ),
+      db
+        .select()
+        .from(dreamQuestions)
+        .where(
+          and(
+            eq(dreamQuestions.workspaceId, member.workspaceId),
+            eq(dreamQuestions.status, "open"),
+            // A team's question has no agent. The team dream shows it later.
+            isNotNull(dreamQuestions.agentId)
           )
         ),
       a2aWaiting(member),
@@ -603,6 +619,26 @@ export const createDeskService = ({
         )
         .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
+      dreamQuestions: dreamRows.flatMap((row) => {
+        if (row.agentId === null || drafts.has(row.agentId)) {
+          return [];
+        }
+        const { options, userScope } = readOptions(row.options);
+        // A question about a private note belongs to its person alone.
+        if (userScope !== null && userScope !== member.userId) {
+          return [];
+        }
+        return [
+          {
+            agentId: row.agentId,
+            createdAt: row.createdAt,
+            id: row.id,
+            options,
+            question: row.question,
+            userScope,
+          },
+        ];
+      }),
       heldNotes: heldNotes.flatMap((row) =>
         row.agentId === null || drafts.has(row.agentId)
           ? []
@@ -769,6 +805,25 @@ export const createDeskService = ({
           needsYouKind: "memory_note",
           starter: { id: note.agentId, kind: "agent" },
           title: clip(note.text, TITLE_MAX),
+        })
+      ),
+      ...sources.dreamQuestions.map(
+        (question): Draft => ({
+          agentId: question.agentId,
+          at: question.createdAt,
+          band: { text: clip(question.question), tone: "waiting" },
+          dream: {
+            options: question.options,
+            question: question.question,
+            questionId: question.id,
+          },
+          ...(question.userScope ? { forUserId: question.userScope } : {}),
+          id: question.id,
+          kind: "proposal",
+          lane: "needs_you",
+          needsYouKind: "dream_question",
+          starter: { id: question.agentId, kind: "agent" },
+          title: clip(question.question, TITLE_MAX),
         })
       ),
       ...sources.suggestions.map(
@@ -1257,6 +1312,7 @@ export const createDeskService = ({
       sources.conflicts.length +
       sources.suggestions.length +
       sources.heldNotes.length +
+      sources.dreamQuestions.length +
       sources.pending.length +
       sources.versions.length +
       sources.proposedTriggers.length +
