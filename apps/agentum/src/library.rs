@@ -211,8 +211,18 @@ pub fn with_memory_root(roots: Value, slug: &str) -> Value {
 }
 /// Removes every `agents/*/memory/private` folder from the working copy's `library/`. It reads
 /// the disk, not the manifest, so it also catches a file that was edited, made by hand or left
-/// by an older daemon. Errors are not forgiven: a run must not start with a private file in reach.
+/// by an older daemon. When the folders cannot be walked (an agent made a link or a file where
+/// a folder belongs) the whole copy and its manifest are removed instead, so the next sync
+/// starts clean. An error is returned only when even that fails: a run must not start with a
+/// private file in reach.
 pub async fn purge_private(disk: &Disk) -> Result<()> {
+    if purge_private_folders(disk).await.is_ok() {
+        return Ok(());
+    }
+    tracing::warn!("Library copy could not be walked; removing it");
+    remove_copy(disk).await
+}
+async fn purge_private_folders(disk: &Disk) -> Result<()> {
     for (kind, slug) in disk.list("library/agents").await? {
         if kind != "dir" {
             continue;
@@ -223,6 +233,22 @@ pub async fn purge_private(disk: &Disk) -> Result<()> {
         }
     }
     Ok(())
+}
+/// Removes `library/` whatever it is (a folder, a file or a link, which is removed and not
+/// followed) and the manifest, which would otherwise read every missing file as a local delete.
+async fn remove_copy(disk: &Disk) -> Result<()> {
+    if disk.user.is_some() {
+        disk.remove("library", true).await?;
+    } else {
+        let path = disk.root.join("library");
+        match tokio::fs::symlink_metadata(&path).await {
+            Ok(meta) if meta.is_dir() => tokio::fs::remove_dir_all(&path).await?,
+            Ok(_) => tokio::fs::remove_file(&path).await?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    disk.remove("library.manifest.json", false).await
 }
 pub fn hash(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))

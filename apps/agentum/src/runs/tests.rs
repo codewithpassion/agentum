@@ -1642,6 +1642,42 @@ async fn purge_private_removes_every_agents_private_folder_from_the_copy() {
 }
 
 #[tokio::test]
+async fn purge_private_resets_a_copy_it_cannot_walk() {
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(outside.path().join("private")).unwrap();
+    std::fs::write(outside.path().join("private/user_a.md"), b"secret").unwrap();
+    // An agent made `memory` a link, so the folder cannot be walked.
+    let linked = tempfile::tempdir().unwrap();
+    let disk = crate::files::Disk::new(linked.path().into(), None);
+    disk.write("library/agents/ada/people.md", b"x")
+        .await
+        .unwrap();
+    disk.write("library.manifest.json", b"[]").await.unwrap();
+    std::os::unix::fs::symlink(
+        outside.path(),
+        linked.path().join("library/agents/ada/memory"),
+    )
+    .unwrap();
+    crate::library::purge_private(&disk).await.unwrap();
+    assert!(!linked.path().join("library").exists());
+    assert!(!linked.path().join("library.manifest.json").exists());
+    assert!(outside.path().join("private/user_a.md").exists());
+    // An agent replaced `library` with a file.
+    let plain = tempfile::tempdir().unwrap();
+    std::fs::write(plain.path().join("library"), b"not a folder").unwrap();
+    let disk = crate::files::Disk::new(plain.path().into(), None);
+    crate::library::purge_private(&disk).await.unwrap();
+    assert!(!plain.path().join("library").exists());
+    // `library` itself is a link.
+    let root = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.path().join("library")).unwrap();
+    let disk = crate::files::Disk::new(root.path().into(), None);
+    crate::library::purge_private(&disk).await.unwrap();
+    assert!(root.path().join("library").symlink_metadata().is_err());
+    assert!(outside.path().join("private/user_a.md").exists());
+}
+
+#[tokio::test]
 async fn private_memory_never_survives_a_run_in_the_working_copy() {
     let (url, server, task) = server().await;
     let temp = tempfile::tempdir().unwrap();
