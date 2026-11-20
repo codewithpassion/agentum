@@ -37,7 +37,11 @@ import {
 } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireAgentOwnerOrAdmin, requireUser } from "./guards.ts";
+import {
+  requireAgentOwnerOrAdmin,
+  requireUser,
+  type UserPrincipal,
+} from "./guards.ts";
 import { effectiveRunScope, scopeAllows } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 import type { ProxyGrant } from "./secrets/placeholders.ts";
@@ -249,6 +253,25 @@ const proxyMatches = (
 
 type SecretRow = typeof secrets.$inferSelect;
 
+/**
+ * Creating, changing and deleting a workspace secret is for an org admin on a
+ * browser session or an admin key, as connectors are. A write key or a connected
+ * app does not count, since any member can mint one. Granting a secret to an
+ * agent stays with the agent's owner or an admin.
+ */
+const requireSecretAdmin = (
+  principal: Principal,
+  action: string
+): UserPrincipal => {
+  const user = requireUser(principal, action);
+  const isAdminSession = user.via === "session" && user.isAdmin === true;
+  const isAdminKey = user.via === "api_key" && user.apiKey?.access === "admin";
+  if (!(isAdminSession || isAdminKey)) {
+    throw new ForbiddenError(`${action}: only an admin manages secrets`);
+  }
+  return user;
+};
+
 const nameTaken = () =>
   new ServiceError("conflict", "A secret with that name already exists");
 
@@ -405,7 +428,7 @@ export const createSecretsService = ({
     principal: Principal,
     input: SecretCreateInput
   ): Promise<SecretSummary> => {
-    const user = requireUser(principal, WRITE_ACTION);
+    const user = requireSecretAdmin(principal, WRITE_ACTION);
     const { workspaceId } = user;
     authorize(user, WRITE_ACTION, { kind: SECRET_KIND, workspaceId });
     const parsed = secretCreateSchema.parse(input);
@@ -440,20 +463,17 @@ export const createSecretsService = ({
     return toSummary(row);
   };
 
-  /** Replaces the value, the mode and rules, or both. The old value is gone for good. Only an org admin changes the mode. */
+  /** Replaces the value, the mode, the rules or the hosts. The old value is gone for good. */
   const update = async (
     principal: Principal,
     id: string,
     input: SecretUpdateInput
   ): Promise<SecretSummary> => {
-    const user = requireUser(principal, WRITE_ACTION);
+    const user = requireSecretAdmin(principal, WRITE_ACTION);
     const { workspaceId } = user;
     authorize(user, WRITE_ACTION, { id, kind: SECRET_KIND, workspaceId });
     const patch = secretUpdateSchema.parse(input);
     const row = await requireSecret(workspaceId, id);
-    if (patch.mode !== undefined && patch.mode !== row.mode && !user.isAdmin) {
-      throw new ForbiddenError(`${WRITE_ACTION}: changing a secret's mode`);
-    }
     const mode = patch.mode ?? row.mode;
     const rules = rulesFor(mode, patch.rules, row);
     const allowedHosts = allowedHostsFor(mode, patch.allowedHosts, row);
@@ -492,7 +512,7 @@ export const createSecretsService = ({
 
   /** Deletes the secret and every grant of it. Idempotent. */
   const remove = async (principal: Principal, id: string): Promise<void> => {
-    const user = requireUser(principal, WRITE_ACTION);
+    const user = requireSecretAdmin(principal, WRITE_ACTION);
     const { workspaceId } = user;
     authorize(user, WRITE_ACTION, { id, kind: SECRET_KIND, workspaceId });
     await atomic([

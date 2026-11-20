@@ -225,18 +225,21 @@ const INCIDENT = "inc_01HZX3Y5N7Q9R2T4V6W8A0B1C2";
 
 /** Grants the agent the investigator's ingest token, a proxy secret for the control-plane host. */
 const grantIngestToken = async () => {
-  const secret = await composed.services.secrets.create(user, {
-    mode: "proxy",
-    name: "CONTROL_PLANE_INGEST_TOKEN",
-    rules: [
-      {
-        header: "Authorization",
-        host: "cp.example.com",
-        template: "Bearer {value}",
-      },
-    ],
-    value: "cpt_test_token_0123456789",
-  });
+  const secret = await composed.services.secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "proxy",
+      name: "CONTROL_PLANE_INGEST_TOKEN",
+      rules: [
+        {
+          header: "Authorization",
+          host: "cp.example.com",
+          template: "Bearer {value}",
+        },
+      ],
+      value: "cpt_test_token_0123456789",
+    }
+  );
   await composed.services.secrets.setGrants(user, agentId, [secret.id]);
 };
 

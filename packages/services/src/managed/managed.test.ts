@@ -87,6 +87,13 @@ const person = (userId: string): Principal => ({
 });
 const dom = person("user_dom");
 const sam = person("user_sam");
+const domAdmin: Principal = {
+  isAdmin: true,
+  kind: "user",
+  userId: "user_dom",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
 
 /** One Anthropic session as the fake keeps it. */
 interface FakeSession {
@@ -2234,10 +2241,10 @@ describe("secrets", () => {
   const PROXY_VALUE = "proxy-secret-value-0123";
 
   const envSecret = (name: string, value = ENV_VALUE) =>
-    secrets.create(dom, { mode: "env", name, value });
+    secrets.create(domAdmin, { mode: "env", name, value });
 
   const proxySecret = () =>
-    secrets.create(dom, {
+    secrets.create(domAdmin, {
       mode: "proxy",
       name: "OPENAI_API_KEY",
       rules: [
@@ -2299,7 +2306,7 @@ describe("secrets", () => {
     await secrets.setGrants(dom, agentId, [env.id]);
     const first = await start(dom, "one");
     await drive(first.runId);
-    await secrets.update(dom, env.id, { value: "env-secret-value-4567" });
+    await secrets.update(domAdmin, env.id, { value: "env-secret-value-4567" });
     const second = await start(dom, "two");
 
     await managed.step(second.runId);

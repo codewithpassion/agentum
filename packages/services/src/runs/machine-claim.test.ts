@@ -409,23 +409,29 @@ const PROXY_VALUE = "proxy-secret-value-0123";
 
 /** An env secret and a proxy secret, both granted to `agent`. */
 const grantBoth = async (agent: string) => {
-  const env = await secrets.create(user, {
-    mode: "env",
-    name: "PLAIN_KEY",
-    value: ENV_VALUE,
-  });
-  const proxied = await secrets.create(user, {
-    mode: "proxy",
-    name: "OPENAI_API_KEY",
-    rules: [
-      {
-        header: "Authorization",
-        host: "api.openai.com",
-        template: "Bearer {value}",
-      },
-    ],
-    value: PROXY_VALUE,
-  });
+  const env = await secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "env",
+      name: "PLAIN_KEY",
+      value: ENV_VALUE,
+    }
+  );
+  const proxied = await secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "proxy",
+      name: "OPENAI_API_KEY",
+      rules: [
+        {
+          header: "Authorization",
+          host: "api.openai.com",
+          template: "Bearer {value}",
+        },
+      ],
+      value: PROXY_VALUE,
+    }
+  );
   await secrets.setGrants(user, agent, [env.id, proxied.id]);
 };
 
@@ -469,14 +475,17 @@ test("a claim announces the delivery with names and hosts only", async () => {
 });
 
 test("an agent with a proxy secret only gets the relay token, and one with no grant gets nothing", async () => {
-  const proxied = await secrets.create(user, {
-    mode: "proxy",
-    name: "OPENAI_API_KEY",
-    rules: [
-      { header: "x-api-key", host: "api.openai.com", template: "{value}" },
-    ],
-    value: PROXY_VALUE,
-  });
+  const proxied = await secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "proxy",
+      name: "OPENAI_API_KEY",
+      rules: [
+        { header: "x-api-key", host: "api.openai.com", template: "{value}" },
+      ],
+      value: PROXY_VALUE,
+    }
+  );
   await secrets.setGrants(user, agentId, [proxied.id]);
 
   const granted = await claim("m1", (await start(agentId)).runId);

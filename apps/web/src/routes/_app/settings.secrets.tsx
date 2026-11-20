@@ -28,6 +28,7 @@ function SecretsPage() {
   const secrets = Route.useLoaderData();
   const router = useRouter();
   const { orgRole } = useAuth();
+  const canManage = orgRole === "org:admin";
   const [active, setActive] = useState<ActiveDialog | null>(null);
 
   const openCreate = useCallback(() => setActive({ kind: "create" }), []);
@@ -64,9 +65,17 @@ function SecretsPage() {
         <h1 className="font-heading text-3xl text-foreground">
           {PAGE_HEADING}
         </h1>
-        <Button onClick={openCreate}>New secret</Button>
+        <Button disabled={!canManage} onClick={openCreate}>
+          New secret
+        </Button>
       </div>
       <div className="flex flex-col gap-2 text-muted-foreground text-sm">
+        {canManage ? null : (
+          <p>
+            Only an admin can add, change or delete secrets. Ask an admin to do
+            it, or grant an existing secret to your agent on its Keys tab.
+          </p>
+        )}
         <p>
           A secret's value is encrypted and never shown again. You can only
           replace it.
@@ -82,7 +91,8 @@ function SecretsPage() {
         </p>
       </div>
       <SecretsTable
-        onChangeMode={orgRole === "org:admin" ? openMode : undefined}
+        canManage={canManage}
+        onChangeMode={openMode}
         onDelete={openDelete}
         onEditHosts={openHosts}
         onEditRules={openRules}

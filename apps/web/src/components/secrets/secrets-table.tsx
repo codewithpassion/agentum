@@ -17,7 +17,10 @@ import { hostsOf, type SecretRecord } from "./secret-model.ts";
 
 type SecretAction = (secret: SecretRecord) => void;
 
+const ADMIN_ONLY_TITLE = "Only an admin can change secrets";
+
 function SecretRow({
+  canManage,
   onChangeMode,
   onDelete,
   onEditHosts,
@@ -25,7 +28,8 @@ function SecretRow({
   onReplace,
   secret,
 }: {
-  onChangeMode: SecretAction | undefined;
+  canManage: boolean;
+  onChangeMode: SecretAction;
   onDelete: SecretAction;
   onEditHosts: SecretAction;
   onEditRules: SecretAction;
@@ -42,10 +46,11 @@ function SecretRow({
     [onEditHosts, secret]
   );
   const changeMode = useCallback(
-    () => onChangeMode?.(secret),
+    () => onChangeMode(secret),
     [onChangeMode, secret]
   );
   const remove = useCallback(() => onDelete(secret), [onDelete, secret]);
+  const adminOnlyTitle = canManage ? undefined : ADMIN_ONLY_TITLE;
 
   return (
     <TableRow>
@@ -65,24 +70,52 @@ function SecretRow({
       </ResponsiveCell>
       <ResponsiveActions>
         <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
-          <Button onClick={replace} size="sm" variant="outline">
+          <Button
+            disabled={!canManage}
+            onClick={replace}
+            size="sm"
+            title={adminOnlyTitle}
+            variant="outline"
+          >
             Replace value
           </Button>
           {secret.mode === "proxy" ? (
-            <Button onClick={editRules} size="sm" variant="outline">
+            <Button
+              disabled={!canManage}
+              onClick={editRules}
+              size="sm"
+              title={adminOnlyTitle}
+              variant="outline"
+            >
               Edit rules
             </Button>
           ) : (
-            <Button onClick={editHosts} size="sm" variant="outline">
+            <Button
+              disabled={!canManage}
+              onClick={editHosts}
+              size="sm"
+              title={adminOnlyTitle}
+              variant="outline"
+            >
               Edit hosts
             </Button>
           )}
-          {onChangeMode === undefined ? null : (
-            <Button onClick={changeMode} size="sm" variant="outline">
-              Change mode
-            </Button>
-          )}
-          <Button onClick={remove} size="sm" variant="outline">
+          <Button
+            disabled={!canManage}
+            onClick={changeMode}
+            size="sm"
+            title={adminOnlyTitle}
+            variant="outline"
+          >
+            Change mode
+          </Button>
+          <Button
+            disabled={!canManage}
+            onClick={remove}
+            size="sm"
+            title={adminOnlyTitle}
+            variant="outline"
+          >
             Delete
           </Button>
         </div>
@@ -92,6 +125,7 @@ function SecretRow({
 }
 
 export function SecretsTable({
+  canManage,
   onChangeMode,
   onDelete,
   onEditHosts,
@@ -99,8 +133,9 @@ export function SecretsTable({
   onReplace,
   secrets,
 }: {
-  /** Left out for a member who is not an admin: only an admin changes a secret's mode. */
-  onChangeMode?: SecretAction;
+  /** False for a member who is not an admin: every change button is disabled. */
+  canManage: boolean;
+  onChangeMode: SecretAction;
   onDelete: SecretAction;
   onEditHosts: SecretAction;
   onEditRules: SecretAction;
@@ -131,6 +166,7 @@ export function SecretsTable({
       <TableBody>
         {secrets.map((secret) => (
           <SecretRow
+            canManage={canManage}
             key={secret.id}
             onChangeMode={onChangeMode}
             onDelete={onDelete}
