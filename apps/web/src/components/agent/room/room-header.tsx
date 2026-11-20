@@ -1,5 +1,6 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { Link } from "@tanstack/react-router";
+import { canManageAgentKeys } from "#/components/agent/agent-rights.ts";
 import { AddressChip } from "#/components/agent/profile/address-chip.tsx";
 import { MailProvisionButton } from "#/components/agent/profile/mail-provision-button.tsx";
 import { MailStatus } from "#/components/agent/profile/mail-status.tsx";
@@ -16,7 +17,6 @@ import {
 import { capLine } from "#/components/spend/spend-logic.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { jobLine, ownerName } from "./header-logic.ts";
-import { canManageAgentKeys } from "./keys/keys-logic.ts";
 import type { RoomData } from "./room-data.ts";
 
 /** Avatar, name, job line, owner, address, where it runs, and Run now. */

@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, expect, mock, test } from "bun:test";
 import { fixtureRoom, renderInRoom } from "./test-fixtures.tsx";
 
 // The header reads Clerk's auth state to decide who may reserve an address or set up mail.
@@ -8,6 +8,10 @@ mock.module("@clerk/tanstack-react-start", () => ({
 }));
 
 const { RoomHeader } = await import("./room-header.tsx");
+
+beforeEach(() => {
+  current = { orgRole: "org:admin", userId: "user_1" };
+});
 
 const noop = (): void => undefined;
 const render = (room = fixtureRoom()) =>
