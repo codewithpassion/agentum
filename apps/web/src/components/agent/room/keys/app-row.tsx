@@ -34,9 +34,11 @@ const mutedText = "text-muted-foreground text-xs";
 const canConnectAsAgent = (
   app: AgentKeyApp,
   mine: MySignIn | undefined,
-  canEdit: boolean
+  canEdit: boolean,
+  canSetCredential: boolean
 ): boolean => {
-  if (!canEdit || app.credentialMode === "user" || mine === undefined) {
+  const mayChange = canEdit && canSetCredential;
+  if (!mayChange || app.credentialMode === "user" || mine === undefined) {
     return false;
   }
   if (mine.authKind !== "oauth" && mine.authKind !== "header") {
@@ -66,6 +68,7 @@ function ConnectControls({
   agentId,
   app,
   canEdit,
+  canSetCredential,
   connector,
   isAdmin,
   mine,
@@ -74,6 +77,7 @@ function ConnectControls({
   agentId: string;
   app: AgentKeyApp;
   canEdit: boolean;
+  canSetCredential: boolean;
   connector: ConnectorRecord | undefined;
   isAdmin: boolean;
   mine: MySignIn | undefined;
@@ -134,7 +138,10 @@ function ConnectControls({
   }
 
   let connectAgent: ReactNode = null;
-  if (mine !== undefined && canConnectAsAgent(app, mine, canEdit)) {
+  if (
+    mine !== undefined &&
+    canConnectAsAgent(app, mine, canEdit, canSetCredential)
+  ) {
     if (mine.authKind === "header") {
       connectAgent = (
         <Button onClick={handlePasteAgent} size="sm" variant="outline">
@@ -173,6 +180,7 @@ export function AppRow({
   agentId,
   app,
   canEdit,
+  canSetCredential,
   connector,
   isAdmin,
   mine,
@@ -184,6 +192,8 @@ export function AppRow({
   agentId: string;
   app: AgentKeyApp;
   canEdit: boolean;
+  /** Whether the person may set or replace the agent's own credential (its owner or an admin). */
+  canSetCredential: boolean;
   /** The full connector, for its own status and secret. Undefined until it has loaded. */
   connector: ConnectorRecord | undefined;
   isAdmin: boolean;
@@ -268,6 +278,7 @@ export function AppRow({
           agentId={agentId}
           app={app}
           canEdit={canEdit}
+          canSetCredential={canSetCredential}
           connector={connector}
           isAdmin={isAdmin}
           mine={mine}

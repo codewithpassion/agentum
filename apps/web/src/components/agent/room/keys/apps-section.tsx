@@ -17,7 +17,7 @@ import type {
 import { errorMessage } from "#/lib/error-message";
 import { AddApp } from "./add-app.tsx";
 import { AppRow } from "./app-row.tsx";
-import { isSecretBacked } from "./keys-logic.ts";
+import { canSetAgentCredential, isSecretBacked } from "./keys-logic.ts";
 
 type MySignIn = RouterOutputs["connectors"]["mine"][number];
 
@@ -41,8 +41,9 @@ export function AppsSection({
   agent: AgentRecord;
   apps: AgentKeyApp[];
 }) {
-  const { orgRole } = useAuth();
+  const { orgRole, userId } = useAuth();
   const isAdmin = orgRole === "org:admin";
+  const canSetCredential = canSetAgentCredential({ agent, isAdmin, userId });
   const router = useRouter();
   const agentId = agent.id;
   const agentRef = useMemo(
@@ -179,6 +180,7 @@ export function AppsSection({
               agentId={agentId}
               app={app}
               canEdit={canEdit(connectorOf(app.connectorId))}
+              canSetCredential={canSetCredential}
               connector={connectorOf(app.connectorId)}
               isAdmin={isAdmin}
               key={app.connectorId}
