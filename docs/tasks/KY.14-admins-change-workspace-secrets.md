@@ -3,7 +3,7 @@ id: KY.14
 title: "Only admins change or delete a workspace secret"
 milestone: KY
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/KY.14-admins-change-workspace-secrets
 lane: services-secrets
@@ -33,3 +33,4 @@ Controller decision (Dom's "don't wait for me", 20 Nov 2026): take the default. 
 ## Log
 - 2026-11-20: added from the KY gate review, round 1.
 - 2026-11-20: dispatched on task/KY.14-admins-change-workspace-secrets (v4 controller session).
+- 2026-11-20: merged as 9f68f728, review clean after 0 fix rounds. Browser proof passed: docs/reviews/tasks/KY.14/browser.md. check, test and build passed on main.

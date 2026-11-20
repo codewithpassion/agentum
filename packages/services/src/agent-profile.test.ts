@@ -49,6 +49,14 @@ const user = (workspaceId = "w1"): Principal => ({
   workspaceId,
 });
 
+const admin = (workspaceId = "w1"): Principal => ({
+  isAdmin: true,
+  kind: "user",
+  userId: "u1",
+  via: "session",
+  workspaceId,
+});
+
 let db: ReturnType<typeof migrated>;
 let agents: AgentsService;
 let secrets: ReturnType<typeof createSecretsService>;
@@ -307,7 +315,7 @@ test("profile fills every row from seeded data", async () => {
     tool("create_bill", false),
     tool("list_bills", true),
   ]);
-  const secret = await secrets.create(user(), {
+  const secret = await secrets.create(admin(), {
     mode: "env",
     name: "XERO_TENANT",
     value: "tenant-value-123",

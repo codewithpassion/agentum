@@ -20,7 +20,6 @@ let agentId: string;
 let person: Principal;
 let slug: string;
 let run: Principal;
-const SESSION_ID = "sess_memory_tools";
 
 beforeEach(async () => {
   db = migrated(["org_a"]);
@@ -57,17 +56,6 @@ beforeEach(async () => {
     session: { origin: "mcp" },
   });
   run = { agentId: agent.id, kind: "run", runId: started.runId, workspaceId };
-  db.insert(sessionRows)
-    .values({
-      actorId: "user_1",
-      actorKind: "user",
-      agentId,
-      createdAt: new Date().toISOString(),
-      id: SESSION_ID,
-      origin: "mcp",
-      workspaceId,
-    })
-    .run();
 });
 
 const connect = async (principal: Principal) => {
@@ -77,7 +65,19 @@ const connect = async (principal: Principal) => {
     client.callTool({ arguments: args, name });
 };
 
+/** A run in a ui session opened by the person it acts for, which is where private notes are visible. */
 const insertRun = (runId: string, onBehalfOfUserId: string | null) => {
+  db.insert(sessionRows)
+    .values({
+      actorId: onBehalfOfUserId ?? "user_1",
+      actorKind: "user",
+      agentId,
+      createdAt: new Date().toISOString(),
+      id: `sess_${runId}`,
+      origin: "ui",
+      workspaceId,
+    })
+    .run();
   db.insert(runRows)
     .values({
       actorId: "user_1",
@@ -89,7 +89,7 @@ const insertRun = (runId: string, onBehalfOfUserId: string | null) => {
       inputText: "hi",
       onBehalfOfUserId,
       outputFileIds: "[]",
-      sessionId: SESSION_ID,
+      sessionId: `sess_${runId}`,
       status: "running",
       workspaceId,
     })

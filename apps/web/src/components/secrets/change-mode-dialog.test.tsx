@@ -185,18 +185,36 @@ test("the service's error is shown as it is", async () => {
 
 const noop = () => undefined;
 
-test("only a table given onChangeMode (an admin's) shows Change mode", () => {
-  const props = {
-    onDelete: noop,
-    onEditHosts: noop,
-    onEditRules: noop,
-    onReplace: noop,
-    secrets: [secretOf({ mode: "env" })],
-  };
-  expect(renderToStaticMarkup(<SecretsTable {...props} />)).not.toContain(
-    "Change mode"
+const tableProps = {
+  onChangeMode: noop,
+  onDelete: noop,
+  onEditHosts: noop,
+  onEditRules: noop,
+  onReplace: noop,
+  secrets: [secretOf({ mode: "env" })],
+};
+
+const disabledButtons = (markup: string): string[] =>
+  [...markup.matchAll(/<button[^>]*>[^<]*<\/button>/g)]
+    .map((match) => match[0])
+    .filter((button) => button.includes(' disabled=""'))
+    .map((button) => button.replace(/<[^>]+>/g, "").trim());
+
+test("the table always shows Change mode, and disables every action without canManage", () => {
+  const member = renderToStaticMarkup(
+    <SecretsTable {...tableProps} canManage={false} />
   );
-  expect(
-    renderToStaticMarkup(<SecretsTable {...props} onChangeMode={noop} />)
-  ).toContain("Change mode");
+  expect(member).toContain("Change mode");
+  expect(disabledButtons(member)).toEqual([
+    "Replace value",
+    "Edit hosts",
+    "Change mode",
+    "Delete",
+  ]);
+
+  const admin = renderToStaticMarkup(
+    <SecretsTable {...tableProps} canManage />
+  );
+  expect(admin).toContain("Change mode");
+  expect(disabledButtons(admin)).toEqual([]);
 });

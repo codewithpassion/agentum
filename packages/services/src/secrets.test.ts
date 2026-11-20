@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { connectors as connectorRows } from "@repo/db/schema/connectors";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { secrets as secretRows } from "@repo/db/schema/secrets";
@@ -38,6 +39,7 @@ const outsider: Principal = {
   workspaceId: OTHER_WORKSPACE,
 };
 const admin: Principal = { ...user, isAdmin: true };
+const outsiderAdmin: Principal = { ...outsider, isAdmin: true };
 const runPrincipal: Principal = {
   agentId: "ag",
   kind: "run",
@@ -151,12 +153,12 @@ beforeEach(async () => {
 });
 
 const proxySecret = (name = "OPENAI_API_KEY", value = OPENAI) =>
-  service.create(user, { mode: "proxy", name, rules: [rule], value });
+  service.create(admin, { mode: "proxy", name, rules: [rule], value });
 
 describe("storing", () => {
   test("a value is stored encrypted and no read returns it", async () => {
     const created = await proxySecret();
-    const updated = await service.update(user, created.id, {
+    const updated = await service.update(admin, created.id, {
       value: ECHO,
     });
     const listed = await service.list(user);
@@ -203,7 +205,7 @@ describe("storing", () => {
   test("a name is unique per workspace", async () => {
     await proxySecret();
     expect(await failure(proxySecret())).toMatchObject({ code: "conflict" });
-    await service.create(outsider, {
+    await service.create(outsiderAdmin, {
       mode: "env",
       name: "OPENAI_API_KEY",
       value: OPENAI,
@@ -236,12 +238,12 @@ describe("storing", () => {
       value: OPENAI,
       ...change,
     };
-    expect(await failure(service.create(user, input))).toBeDefined();
+    expect(await failure(service.create(admin, input))).toBeDefined();
     expect(db.select().from(secretRows).all()).toHaveLength(0);
   });
 
   test("an ordinary name is still accepted next to the refused ones", async () => {
-    const created = await service.create(user, {
+    const created = await service.create(admin, {
       mode: "env",
       name: "OPENAI_API_KEY",
       value: OPENAI,
@@ -252,7 +254,7 @@ describe("storing", () => {
   test("a proxy secret needs rules, an env secret takes none, and a proxy value must fit a header", async () => {
     expect(
       await failure(
-        service.create(user, {
+        service.create(admin, {
           mode: "proxy",
           name: "NO_RULES",
           rules: [],
@@ -262,7 +264,7 @@ describe("storing", () => {
     ).toBeDefined();
     expect(
       await failure(
-        service.create(user, {
+        service.create(admin, {
           mode: "proxy",
           name: "BAD_VALUE",
           rules: [rule],
@@ -272,7 +274,7 @@ describe("storing", () => {
     ).toMatchObject({ code: "invalid" });
     expect(
       await failure(
-        service.create(user, {
+        service.create(admin, {
           mode: "env",
           name: "WITH_RULES",
           rules: [rule],
@@ -281,7 +283,7 @@ describe("storing", () => {
       )
     ).toBeDefined();
     // An env secret may be a multi-line value, such as a PEM key.
-    await service.create(user, {
+    await service.create(admin, {
       mode: "env",
       name: "PEM_KEY",
       value: "-----BEGIN KEY-----\nabc\n-----END KEY-----",
@@ -293,7 +295,7 @@ describe("storing", () => {
     await service.setGrants(user, agentA, [created.id]);
     const before = await service.resolveForAgent(WORKSPACE, agentA);
     nowMs += 1000;
-    await service.update(user, created.id, { value: ECHO });
+    await service.update(admin, created.id, { value: ECHO });
     const after = await service.resolveForAgent(WORKSPACE, agentA);
     expect(after.revision).not.toBe(before.revision);
     const matches = await service.proxyFor(WORKSPACE, agentA, "api.openai.com");
@@ -305,7 +307,7 @@ describe("storing", () => {
   });
 
   test("an update can switch a secret between env and proxy", async () => {
-    const created = await service.create(user, {
+    const created = await service.create(admin, {
       mode: "env",
       name: "SWITCHER_KEY",
       value: OPENAI,
@@ -327,32 +329,151 @@ describe("storing", () => {
     expect(back.allowedHosts).toEqual(["api.openai.com"]);
   });
 
-  test("a member who is not an admin cannot change the mode, but can edit within it", async () => {
-    const created = await service.create(user, {
+  test("an admin can switch the mode and edit within it", async () => {
+    const created = await service.create(admin, {
       mode: "env",
       name: "SWITCHER_KEY",
       value: OPENAI,
     });
-    expect(
-      await failure(
-        service.update(user, created.id, { mode: "proxy", rules: [rule] })
-      )
-    ).toBeInstanceOf(ForbiddenError);
-    expect((await service.list(user))[0]?.mode).toBe("env");
-    const same = await service.update(user, created.id, {
-      allowedHosts: ["api.openai.com"],
-      mode: "env",
+    const switched = await service.update(admin, created.id, {
+      mode: "proxy",
+      rules: [rule],
     });
-    expect(same.allowedHosts).toEqual(["api.openai.com"]);
+    expect(switched.mode).toBe("proxy");
+    expect((await service.list(user))[0]?.mode).toBe("proxy");
+    const edited = { ...rule, host: "api.example.com" };
+    const within = await service.update(admin, created.id, {
+      rules: [edited],
+    });
+    expect(within.rules).toEqual([edited]);
+    expect((await service.list(user))[0]?.rules).toEqual([edited]);
+  });
+
+  test("only an org admin or an admin key creates, changes or deletes a secret", async () => {
+    const orgAdmin: Principal = {
+      isAdmin: true,
+      kind: "user",
+      userId: "u9",
+      via: "session",
+      workspaceId: WORKSPACE,
+    };
+    const adminKey: Principal = {
+      apiKey: { access: "admin", id: "k-admin", name: "admin key" },
+      kind: "user",
+      userId: "u3",
+      via: "api_key",
+      workspaceId: WORKSPACE,
+    };
+    const writeKey: Principal = {
+      apiKey: { access: "write", id: "k-write", name: "write key" },
+      kind: "user",
+      userId: "u3",
+      via: "api_key",
+      workspaceId: WORKSPACE,
+    };
+    const ownerNotAdmin: Principal = {
+      isAdmin: false,
+      kind: "user",
+      userId: user.kind === "user" ? user.userId : "",
+      via: "session",
+      workspaceId: WORKSPACE,
+    };
+    const member: Principal = {
+      isAdmin: false,
+      kind: "user",
+      userId: "u4",
+      via: "session",
+      workspaceId: WORKSPACE,
+    };
+    const oauth: Principal = {
+      kind: "user",
+      oauthClient: { access: "write", clientId: "c1" },
+      userId: "u5",
+      via: "oauth",
+      workspaceId: WORKSPACE,
+    };
+
+    const secretPair = async (suffix: string) => ({
+      env: await service.create(admin, {
+        allowedHosts: ["api.example.com"],
+        mode: "env",
+        name: `ENV_${suffix}`,
+        value: ECHO,
+      }),
+      proxy: await proxySecret(`PROXY_${suffix}`),
+    });
+    const before = await secretPair("KEPT");
+    const beforeList = await service.list(user);
+    const edited = { ...rule, host: "api.example.com" };
+
+    const refusedFrom = async (refused: Principal) => {
+      expect(
+        await failure(
+          service.create(refused, {
+            mode: "env",
+            name: "REFUSED_KEY",
+            value: ECHO,
+          })
+        )
+      ).toBeInstanceOf(ForbiddenError);
+      expect(
+        await failure(
+          service.update(refused, before.env.id, { value: "changed-0123456" })
+        )
+      ).toBeInstanceOf(ForbiddenError);
+      expect(
+        await failure(
+          service.update(refused, before.env.id, {
+            allowedHosts: ["other.example.com"],
+          })
+        )
+      ).toBeInstanceOf(ForbiddenError);
+      expect(
+        await failure(
+          service.update(refused, before.proxy.id, { rules: [edited] })
+        )
+      ).toBeInstanceOf(ForbiddenError);
+      expect(
+        await failure(service.remove(refused, before.env.id))
+      ).toBeInstanceOf(ForbiddenError);
+    };
+    await Promise.all(
+      [writeKey, ownerNotAdmin, member, oauth].map(refusedFrom)
+    );
+    expect(await service.list(user)).toEqual(beforeList);
+
+    const allowedFrom = async (suffix: string, allowed: Principal) => {
+      const pair = await secretPair(suffix);
+      const valued = await service.update(allowed, pair.env.id, {
+        value: "changed-0123456",
+      });
+      expect(valued.id).toBe(pair.env.id);
+      const hosted = await service.update(allowed, pair.env.id, {
+        allowedHosts: ["other.example.com"],
+      });
+      expect(hosted.allowedHosts).toEqual(["other.example.com"]);
+      const ruled = await service.update(allowed, pair.proxy.id, {
+        rules: [edited],
+      });
+      expect(ruled.rules).toEqual([edited]);
+      await service.remove(allowed, pair.env.id);
+      await service.remove(allowed, pair.proxy.id);
+      const ids = (await service.list(user)).map((row) => row.id);
+      expect(ids).not.toContain(pair.env.id);
+      expect(ids).not.toContain(pair.proxy.id);
+    };
+    await allowedFrom("ORG", orgAdmin);
+    await allowedFrom("KEY", adminKey);
+    expect(await service.list(user)).toEqual(beforeList);
   });
 
   test("another workspace cannot see, change or delete a secret", async () => {
     const created = await proxySecret();
     expect(await service.list(outsider)).toEqual([]);
     expect(
-      await failure(service.update(outsider, created.id, { value: ECHO }))
+      await failure(service.update(outsiderAdmin, created.id, { value: ECHO }))
     ).toMatchObject({ code: "not_found" });
-    await service.remove(outsider, created.id);
+    await service.remove(outsiderAdmin, created.id);
     expect(await service.list(user)).toHaveLength(1);
   });
 
@@ -378,7 +499,7 @@ describe("storing", () => {
 describe("grants", () => {
   test("grants are per agent", async () => {
     const created = await proxySecret();
-    const env = await service.create(user, {
+    const env = await service.create(admin, {
       mode: "env",
       name: "PLAIN_KEY",
       value: ECHO,
@@ -406,7 +527,7 @@ describe("grants", () => {
 
   test("setGrants replaces the whole set and revoking removes the secret from the run", async () => {
     const one = await proxySecret();
-    const two = await service.create(user, {
+    const two = await service.create(admin, {
       mode: "env",
       name: "SECOND_KEY",
       value: ECHO,
@@ -423,7 +544,7 @@ describe("grants", () => {
 
   test("a grant needs an agent and a secret of the same workspace", async () => {
     const created = await proxySecret();
-    const foreign = await service.create(outsider, {
+    const foreign = await service.create(outsiderAdmin, {
       mode: "env",
       name: "FOREIGN_KEY",
       value: ECHO,
@@ -443,10 +564,66 @@ describe("grants", () => {
   test("deleting a secret removes its grants", async () => {
     const created = await proxySecret();
     await service.setGrants(user, agentA, [created.id]);
-    await service.remove(user, created.id);
+    await service.remove(admin, created.id);
     expect(await service.grantsOf(user, agentA)).toEqual([]);
     expect(db.select().from(secretRows).all()).toHaveLength(0);
-    await service.remove(user, created.id);
+    await service.remove(admin, created.id);
+  });
+
+  test("a refused remove leaves every agent's grants and the connector rows unchanged", async () => {
+    const member: Principal = {
+      isAdmin: false,
+      kind: "user",
+      userId: "u4",
+      via: "session",
+      workspaceId: WORKSPACE,
+    };
+    const created = await proxySecret();
+    await service.setGrants(user, agentA, [created.id]);
+    await service.setGrants(user, agentB, [created.id]);
+    db.insert(connectorRows)
+      .values({
+        authKind: "header",
+        authMode: "header",
+        createdAt: START,
+        createdBy: "u1",
+        headerTemplate: "Bearer {value}",
+        id: "linked-connector",
+        name: "Linked",
+        secretId: created.id,
+        status: "ok",
+        url: "https://api.openai.com/mcp",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    const connectorOf = () =>
+      db
+        .select()
+        .from(connectorRows)
+        .where(eq(connectorRows.id, "linked-connector"))
+        .get();
+    const secretOf = () =>
+      db.select().from(secretRows).where(eq(secretRows.id, created.id)).get();
+    const connectorBefore = connectorOf();
+    const secretBefore = secretOf();
+
+    expect(await failure(service.remove(member, created.id))).toBeInstanceOf(
+      ForbiddenError
+    );
+    expect(await service.grantsOf(user, agentA)).toEqual([created.id]);
+    expect(await service.grantsOf(user, agentB)).toEqual([created.id]);
+    expect(secretOf()).toEqual(secretBefore);
+    expect(connectorOf()).toEqual(connectorBefore);
+
+    await service.remove(admin, created.id);
+    expect(await service.grantsOf(user, agentA)).toEqual([]);
+    expect(await service.grantsOf(user, agentB)).toEqual([]);
+    expect(secretOf()).toBeUndefined();
+    expect(connectorOf()).toMatchObject({
+      headerTemplate: "Bearer {value}",
+      secretId: null,
+      status: "needs_auth",
+    });
   });
 
   test("only the agent's owner or an org admin changes its grants, an admin key does, and a write key does not unless its person owns the agent", async () => {
@@ -480,7 +657,7 @@ describe("grants", () => {
       apiKey: { access: "admin", id: "k-admin", name: "admin key" },
     };
     const one = await proxySecret();
-    const two = await service.create(user, {
+    const two = await service.create(admin, {
       mode: "env",
       name: "SECOND_KEY",
       value: ECHO,
@@ -531,7 +708,7 @@ describe("grants", () => {
 
 describe("allowed hosts", () => {
   test("an env secret keeps its allowed hosts, lower-cased and without repeats", async () => {
-    const created = await service.create(user, {
+    const created = await service.create(admin, {
       allowedHosts: ["API.Example.com", "*.example.org", "api.example.com"],
       mode: "env",
       name: "HOSTED_KEY",
@@ -543,7 +720,7 @@ describe("allowed hosts", () => {
   });
 
   test("an env secret created without hosts has none", async () => {
-    const created = await service.create(user, {
+    const created = await service.create(admin, {
       mode: "env",
       name: "PLAIN_KEY",
       value: ECHO,
@@ -554,7 +731,7 @@ describe("allowed hosts", () => {
   test("a proxy secret given allowed hosts is refused, on create and on update", async () => {
     expect(
       await failure(
-        service.create(user, {
+        service.create(admin, {
           allowedHosts: ["api.openai.com"],
           mode: "proxy",
           name: "OPENAI_API_KEY",
@@ -568,7 +745,7 @@ describe("allowed hosts", () => {
     const proxied = await proxySecret();
     expect(
       await failure(
-        service.update(user, proxied.id, { allowedHosts: ["api.openai.com"] })
+        service.update(admin, proxied.id, { allowedHosts: ["api.openai.com"] })
       )
     ).toMatchObject({ code: "invalid" });
   });
@@ -580,7 +757,7 @@ describe("allowed hosts", () => {
   ])("refuses a host that is %s", async (_label, host) => {
     expect(
       await failure(
-        service.create(user, {
+        service.create(admin, {
           allowedHosts: [host],
           mode: "env",
           name: "BAD_HOST_KEY",
@@ -592,19 +769,19 @@ describe("allowed hosts", () => {
   });
 
   test("an update sets and clears the hosts and bumps the version", async () => {
-    const created = await service.create(user, {
+    const created = await service.create(admin, {
       mode: "env",
       name: "HOST_KEY",
       value: ECHO,
     });
-    const set = await service.update(user, created.id, {
+    const set = await service.update(admin, created.id, {
       allowedHosts: ["api.example.com"],
     });
     expect(set.allowedHosts).toEqual(["api.example.com"]);
     const [listed] = await service.list(user);
     expect(listed?.allowedHosts).toEqual(["api.example.com"]);
 
-    const cleared = await service.update(user, created.id, {
+    const cleared = await service.update(admin, created.id, {
       allowedHosts: [],
     });
     expect(cleared.allowedHosts).toEqual([]);
@@ -615,7 +792,7 @@ describe("allowed hosts", () => {
   });
 
   test("switching an env secret with hosts to proxy clears the hosts", async () => {
-    const created = await service.create(user, {
+    const created = await service.create(admin, {
       allowedHosts: ["api.openai.com"],
       mode: "env",
       name: "SWITCH_HOSTS",
@@ -633,13 +810,13 @@ describe("allowed hosts", () => {
   });
 
   test("placeholdersFor lists granted env secrets only, with hosts and no value", async () => {
-    const hosted = await service.create(user, {
+    const hosted = await service.create(admin, {
       allowedHosts: ["api.example.com"],
       mode: "env",
       name: "HOSTED_KEY",
       value: ECHO,
     });
-    const bare = await service.create(user, {
+    const bare = await service.create(admin, {
       mode: "env",
       name: "BARE_KEY",
       value: "bare-value-0123456",
@@ -663,7 +840,7 @@ describe("allowed hosts", () => {
 
   test("proxyRulesFor lists granted proxy secrets with host and header only, no value", async () => {
     const proxied = await proxySecret();
-    const env = await service.create(user, {
+    const env = await service.create(admin, {
       mode: "env",
       name: "ENV_KEY",
       value: ECHO,
@@ -682,13 +859,13 @@ describe("allowed hosts", () => {
   });
 
   test("envGrantsFor returns the agent's granted env secrets with value and hosts", async () => {
-    const hosted = await service.create(user, {
+    const hosted = await service.create(admin, {
       allowedHosts: ["api.example.com"],
       mode: "env",
       name: "HOSTED_KEY",
       value: ECHO,
     });
-    const other = await service.create(user, {
+    const other = await service.create(admin, {
       mode: "env",
       name: "OTHER_KEY",
       value: "other-value-0123",
@@ -708,7 +885,7 @@ describe("allowed hosts", () => {
 
   test("list never carries a secret value, env or proxy", async () => {
     const proxied = await proxySecret();
-    const hosted = await service.create(user, {
+    const hosted = await service.create(admin, {
       allowedHosts: ["api.example.com"],
       mode: "env",
       name: "HOSTED_KEY",
@@ -723,7 +900,7 @@ describe("allowed hosts", () => {
 
 describe("proxy rules", () => {
   test("a request matches by host, exact or wildcard, and not outside the grant", async () => {
-    const created = await service.create(user, {
+    const created = await service.create(admin, {
       mode: "proxy",
       name: "MIXED_KEY",
       rules: [
@@ -757,13 +934,13 @@ describe("proxy rules", () => {
   });
 
   test("proxyForNames returns the named proxy secrets' rules for a host, without an agent grant", async () => {
-    await service.create(user, {
+    await service.create(admin, {
       mode: "proxy",
       name: "NAMED_KEY",
       rules: [rule],
       value: OPENAI,
     });
-    await service.create(user, {
+    await service.create(admin, {
       mode: "env",
       name: "NAMED_ENV",
       value: ECHO,
@@ -799,7 +976,7 @@ describe("proxy rules", () => {
   });
 
   test("an env secret is never added to a request", async () => {
-    const env = await service.create(user, {
+    const env = await service.create(admin, {
       mode: "env",
       name: "PLAIN_KEY",
       value: ECHO,
@@ -814,7 +991,7 @@ describe("proxy rules", () => {
 describe("redaction and events", () => {
   test("the masker replaces every granted value, env and proxy, with its name", async () => {
     const proxied = await proxySecret();
-    const env = await service.create(user, {
+    const env = await service.create(admin, {
       mode: "env",
       name: "PLAIN_KEY",
       value: ECHO,
@@ -831,7 +1008,7 @@ describe("redaction and events", () => {
 
   test("delivery and injection events hold names and hosts, never a value", async () => {
     const proxied = await proxySecret();
-    const env = await service.create(user, {
+    const env = await service.create(admin, {
       mode: "env",
       name: "PLAIN_KEY",
       value: ECHO,
@@ -872,13 +1049,13 @@ describe("redaction and events", () => {
 });
 
 test("assistant workspace masker skips values shorter than eight characters", async () => {
-  await service.create(user, {
+  await service.create(admin, {
     allowedHosts: [],
     mode: "env",
     name: "SHORT",
     value: "temporary-long-value",
   });
-  await service.create(user, {
+  await service.create(admin, {
     allowedHosts: [],
     mode: "env",
     name: "LONG",
@@ -906,7 +1083,7 @@ test("assistant workspace masker skips values shorter than eight characters", as
 });
 
 test("secure card receipts read stored metadata and grants in the caller's workspace", async () => {
-  const secret = await service.create(user, {
+  const secret = await service.create(admin, {
     allowedHosts: ["api.example.com"],
     mode: "env",
     name: "TOKEN",
@@ -923,7 +1100,7 @@ test("secure card receipts read stored metadata and grants in the caller's works
 });
 
 test("subagents refuse ungranted secrets and apply the parent intersection on every resolution", async () => {
-  const env = await service.create(user, {
+  const env = await service.create(admin, {
     mode: "env",
     name: "SCOPED_KEY",
     value: ECHO,

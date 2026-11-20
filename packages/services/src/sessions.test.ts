@@ -694,6 +694,58 @@ test("a private Slack DM is visible only to the user who started it, and to runs
   ).toBe(thread.sessionId);
 });
 
+// The same rule as the private memory file: a run sees the person's ui and
+// private sessions only when its own session is one of those, for that person.
+test("a run in a shared session cannot list, read or search the person's private sessions", async () => {
+  const mine = await send(user("u1"), "needle in my ui thread");
+  const dm = await startIn(user("u1"), agentId, "needle in my dm", {
+    externalKey: "dm-1",
+    origin: "slack",
+    private: true,
+  });
+  const channel = await startIn(user("u1"), agentId, "needle in a channel", {
+    externalKey: "thread-1",
+    origin: "slack",
+  });
+  const room = await startIn(user("u1"), agentId, "needle in a room", {
+    origin: "inbox",
+  });
+  const principal = runAs(room.runId, agentId);
+
+  const listed = await sessions.list(principal, { agentId });
+  const found = await sessions.search(principal, { agentId, query: "needle" });
+  const transcript = await sessions
+    .transcript(principal, mine.sessionId)
+    .catch((caught: unknown) => caught);
+
+  const shared = [channel.sessionId, room.sessionId].sort();
+  expect(listed.map((item) => item.id).sort()).toEqual(shared);
+  expect(found.map((hit) => hit.session.id).sort()).toEqual(shared);
+  expect(transcript).toMatchObject({ code: "not_found" });
+  expect(
+    await sessions
+      .transcript(principal, dm.sessionId)
+      .catch((caught: unknown) => caught)
+  ).toMatchObject({ code: "not_found" });
+});
+
+test("a run in the person's private session searches their ui and private sessions", async () => {
+  const mine = await send(user("u1"), "needle in my ui thread");
+  const dm = await startIn(user("u1"), agentId, "needle in my dm", {
+    externalKey: "dm-1",
+    origin: "slack",
+    private: true,
+  });
+  const found = await sessions.search(runAs(dm.runId, agentId), {
+    agentId,
+    query: "needle",
+  });
+
+  expect(found.map((hit) => hit.session.id).sort()).toEqual(
+    [mine.sessionId, dm.sessionId].sort()
+  );
+});
+
 test("a run cannot read a session of another agent", async () => {
   const mine = await send(user("u1"), "mine");
   const elsewhere = await startIn(user("u1"), otherAgentId, "elsewhere", {

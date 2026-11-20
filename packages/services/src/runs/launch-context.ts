@@ -5,6 +5,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { and, asc, eq } from "drizzle-orm";
 import { type AgentRecord, handsToNames } from "../agents.ts";
 import type { McpServerConnector } from "../connectors/mcp-servers.ts";
+import { loadPrivateNotesUser } from "../library/private-notes.ts";
 import {
   loadPromptMemory,
   type MemoryFileReader,
@@ -37,12 +38,11 @@ export interface LaunchContext {
   slack: string;
 }
 
-/** The run's notes and rules, read once. Private notes load only for the person it acts for, and never in a session with several speakers. */
+/** The run's notes and rules, read once. Private notes load by the rule in `library/private-notes.ts`. */
 const memoryFor = async (
   db: Database,
   run: RunRecord,
-  read: MemoryFileReader,
-  multiPerson: boolean
+  read: MemoryFileReader
 ): Promise<PromptMemory> => {
   const [agentRow] = await db
     .select({ remember: agents.remember })
@@ -58,8 +58,7 @@ const memoryFor = async (
     .limit(1);
   return await loadPromptMemory(read, {
     agentRemember: agentRow?.remember ?? "",
-    // A thread with several people shows its reply to all of them.
-    onBehalfOfUserId: multiPerson ? null : run.onBehalfOfUserId,
+    privateNotesUserId: await loadPrivateNotesUser(db, run),
     workspaceNever: workspaceRow?.never ?? "",
   });
 };
@@ -95,7 +94,7 @@ export const buildLaunchContext = async (
     ),
     handoffNames: await handsToNames(db, agent),
     memory: options.readMemoryFile
-      ? await memoryFor(db, run, options.readMemoryFile, multiPerson)
+      ? await memoryFor(db, run, options.readMemoryFile)
       : null,
     model: modelOfRun(run, agent),
     multiPerson,
