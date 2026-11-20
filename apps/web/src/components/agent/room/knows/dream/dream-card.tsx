@@ -165,14 +165,14 @@ function DreamBody({
       </>
     );
   }
+  const diary = currentDiary(state.run);
+  const counts = countsSentence(state.run.counts);
   return (
     <>
-      <p className="whitespace-pre-line [overflow-wrap:anywhere]">
-        {currentDiary(state.run)}
-      </p>
-      <p className="text-muted-foreground text-sm">
-        {countsSentence(state.run.counts)}
-      </p>
+      <p className="whitespace-pre-line [overflow-wrap:anywhere]">{diary}</p>
+      {diary.startsWith(counts) ? null : (
+        <p className="text-muted-foreground text-sm">{counts}</p>
+      )}
       <QuestionsLine run={state.run} />
       <div className="flex flex-col items-start gap-2">
         {canChange && canUndoRun(state.run) && !disabled ? (

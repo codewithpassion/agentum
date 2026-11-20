@@ -478,7 +478,7 @@ test("an approved dream drops the held sentence and words its changes in the pas
   expect(text).not.toContain("wait for your approval");
   expect(text).not.toContain("Wants to");
   expect(text).not.toContain("Would add");
-  expect(text).toContain("Added 3 notes.");
+  expect(text.split("Added 3 notes.")).toHaveLength(2);
   expect(text).toContain("Added: Ships on Fridays.");
   expect(text).toContain("You approved these changes.");
   expect(buttonNamed(document, "Approve")).toBeUndefined();

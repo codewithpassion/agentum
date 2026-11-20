@@ -492,3 +492,12 @@ test("an applied, held or empty dream was not rejected", () => {
   ).toBe(false);
   expect(wasRejected(makeRun({ status: "done" }))).toBe(false);
 });
+
+test("currentDiary drops the held sentence of a questions-only dream once nothing is held", () => {
+  const asked = makeRun({
+    counts: { added: 0, dropped: 0, merged: 0, questions: 1 },
+    diary:
+      "These changes wait for your approval. 1 question is waiting for you.\nAsked: Which?",
+  });
+  expect(currentDiary(asked)).toBe("Asked: Which?");
+});

@@ -94,7 +94,7 @@ export function countsSentence(counts: DreamCounts): string {
 }
 
 /** The held sentence `writeDiary` puts first in a dream the owner still had to approve. */
-const HELD_SENTENCE = "These changes wait for your approval. ";
+const HELD_SENTENCE = "These changes wait for your approval.";
 const WANTS_SENTENCE = /^Wants to [^.]*\./;
 const WANTS_TO = /^Wants to /;
 const WOULD_LEADS: readonly (readonly [RegExp, string])[] = [
@@ -128,7 +128,7 @@ export function currentDiary(run: DreamRun): string {
   let lines = rest;
   const held = run.heldChanges > 0;
   if (summary.startsWith(HELD_SENTENCE) && !held) {
-    summary = summary.slice(HELD_SENTENCE.length);
+    summary = summary.slice(HELD_SENTENCE.length).trimStart();
     if (wasApproved(run)) {
       summary = summary.replace(WANTS_SENTENCE, countsSentence(run.counts));
       lines = rest.map((line) => {
