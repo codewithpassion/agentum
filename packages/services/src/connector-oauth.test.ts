@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentsTable } from "@repo/db/schema/agents";
 import {
   connectors,
   credentials,
@@ -400,6 +401,53 @@ test("connecting as an agent from outside its workspace is refused", async () =>
     })
   ).rejects.toThrow(AGENT_NOT_FOUND_PATTERN);
   expect(await db.select().from(oauthStates).all()).toHaveLength(0);
+});
+
+test("only the agent's owner or an admin connects as the agent", async () => {
+  const connector = await addConnector();
+  const lee = { ...principalOf("user_lee"), isAdmin: false };
+  const as = `agent:${agent.id}`;
+  await db
+    .update(agentsTable)
+    .set({ ownerUserId: "user_sam" })
+    .where(eq(agentsTable.id, agent.id));
+
+  // The owner, though no admin, and an admin who does not own it.
+  const byOwner = await connect(sam, connector.id, as);
+  expect(await oauth.complete(sam, byOwner)).toMatchObject({ error: null });
+  const byAdmin = await connect(dom, connector.id, as);
+  expect(await oauth.complete(dom, byAdmin)).toMatchObject({ error: null });
+  // A plain member is refused at the start, and nothing is stored for them.
+  const before = await db.select().from(oauthStates).all();
+  await expect(
+    oauth.start(lee, {
+      as,
+      connectorId: connector.id,
+      origin: APP_ORIGIN,
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await db.select().from(oauthStates).all()).toEqual(before);
+  // A member may still connect as themselves.
+  const mine = await connect(lee, connector.id, "user");
+  expect(await oauth.complete(lee, mine)).toMatchObject({ error: null });
+});
+
+test("an owner who lost the agent before the callback cannot finish connecting as it", async () => {
+  const connector = await addConnector();
+  await db
+    .update(agentsTable)
+    .set({ ownerUserId: "user_sam" })
+    .where(eq(agentsTable.id, agent.id));
+  const started = await connect(sam, connector.id, `agent:${agent.id}`);
+  await db
+    .update(agentsTable)
+    .set({ ownerUserId: "user_dom" })
+    .where(eq(agentsTable.id, agent.id));
+
+  await expect(oauth.complete(sam, started)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  expect(credentialRows(connector.id)).toHaveLength(0);
 });
 
 test("a malformed `as` is refused", async () => {
