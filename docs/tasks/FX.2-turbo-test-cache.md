@@ -3,9 +3,9 @@ id: FX.2
 title: "Turbo caches test results per package"
 milestone: FX
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/FX.2-turbo-test-cache
 lane: ops-turbo
 executor: claude
 ---
@@ -28,3 +28,4 @@ Dom asked on 20 Nov 2026. `turbo.json` has `"test": { "cache": false }`, so ever
 
 ## Log
 - 2026-11-20: added on Dom's request, from the controller's timing analysis.
+- 2026-11-20: dispatched on task/FX.2-turbo-test-cache (v4 controller session).
