@@ -15,7 +15,8 @@ export function DoesText({
   does: string;
   full?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(full);
+  const [expanded, setExpanded] = useState(false);
+  const shown = full || expanded;
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   if (does === "") {
     return <p className="text-muted-foreground">No instructions yet.</p>;
@@ -23,19 +24,19 @@ export function DoesText({
   return (
     <>
       <p
-        className={`whitespace-pre-line max-md:[overflow-wrap:anywhere] ${expanded ? "" : "line-clamp-4"}`}
+        className={`whitespace-pre-line max-md:[overflow-wrap:anywhere] ${shown ? "" : "line-clamp-4"}`}
         data-testid="profile-does"
       >
         {does}
       </p>
       {!full && (does.length > LONG_DOES || does.includes("\n")) ? (
         <button
-          aria-expanded={expanded}
+          aria-expanded={shown}
           className="mt-1 text-primary text-xs hover:underline md:hidden"
           onClick={toggle}
           type="button"
         >
-          {expanded ? "Show less" : "Show more"}
+          {shown ? "Show less" : "Show more"}
         </button>
       ) : null}
     </>

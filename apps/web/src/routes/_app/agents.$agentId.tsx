@@ -7,6 +7,7 @@ import { RoomFrame } from "#/components/agent/room/room-frame";
 import {
   DEFAULT_TAB,
   legacyRedirectSearch,
+  MAIL_LIST,
   mailParam,
   ROOM_TABS,
   type RoomTab,
@@ -139,7 +140,7 @@ function AgentPage() {
       }),
     [navigate, searchTab, tab]
   );
-  const openMailList = useCallback(() => openMail("1"), [openMail]);
+  const openMailList = useCallback(() => openMail(MAIL_LIST), [openMail]);
   // A thread can change what the header shows, so reload as the sheet closes.
   const closeMail = useCallback(async () => {
     await openMail(undefined);

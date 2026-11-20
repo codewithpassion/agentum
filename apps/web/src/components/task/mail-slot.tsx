@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { MailTone } from "#/components/agent/profile/sheets/mail-logic.ts";
+import { mailParam } from "#/components/agent/room/tabs.ts";
 import { Button } from "#/components/ui/button.tsx";
 import type { MailThreadView } from "#/integrations/trpc/types";
 import { mailMessageRows } from "./mail-logic.ts";
@@ -64,7 +65,7 @@ export function MailSlot({
           <Button asChild className="self-start" size="sm" variant="outline">
             <Link
               params={{ agentId }}
-              search={{ mail: thread.id }}
+              search={{ mail: mailParam(thread.id), tab: "keys" }}
               to="/agents/$agentId"
             >
               Open the mail thread

@@ -16,7 +16,7 @@ export function KnowsTab({ room }: RoomTabProps) {
         <VoiceField agentId={room.agent.id} voice={room.profile.voice} />
       </RoomSection>
       <RoomSection title="Skills">
-        <Manage archived={room.agent.status === "archived"}>
+        <Manage archived={archived}>
           <SkillsPanel agent={room.agent} />
         </Manage>
       </RoomSection>

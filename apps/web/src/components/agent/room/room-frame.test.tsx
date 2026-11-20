@@ -50,9 +50,6 @@ test("an active agent has nothing disabled", () => {
   expect(document.querySelector("fieldset[disabled]")).toBeNull();
 });
 
-const CONTROLS =
-  'button, input, select, textarea, a[href], [role="combobox"], [role="switch"]';
-
 const renderTab = (tab: RoomTab, archived: boolean) => {
   const room = fixtureRoom();
   room.agent.status = archived ? "archived" : "active";
@@ -76,7 +73,12 @@ const renderTab = (tab: RoomTab, archived: boolean) => {
   return document;
 };
 
-/** happy-dom's `:disabled` ignores fieldsets, so apply the HTML rule here: its own attribute, or a disabled fieldset around it. */
+const FORM_CONTROLS = "button, input, select, textarea";
+
+/**
+ * happy-dom's `:disabled` ignores fieldsets, so apply the HTML rule here. It
+ * covers form controls only: its own attribute, or a disabled fieldset around it.
+ */
 const isDisabled = (control: {
   closest: (selector: string) => unknown;
   hasAttribute: (name: string) => boolean;
@@ -84,22 +86,37 @@ const isDisabled = (control: {
   control.hasAttribute("disabled") ||
   control.closest("fieldset[disabled]") !== null;
 
+/** Links a fieldset cannot disable. On an archived agent they may only open read-only pages. */
+const READ_ONLY_HREFS = ["/sessions", "/tasks/", "/threads/", "/settings"];
+
 const TABS_WITH_PANELS = ["keys", "knows", "jobs", "settings"] as const;
 
-test("every control in an archived agent's tabs is disabled", () => {
+test("every form control in an archived agent's tabs is disabled", () => {
   for (const tab of ROOM_TABS) {
     const panel = renderTab(tab, true).querySelector('[role="tabpanel"]');
-    for (const control of panel?.querySelectorAll(CONTROLS) ?? []) {
+    for (const control of panel?.querySelectorAll(FORM_CONTROLS) ?? []) {
       expect(isDisabled(control)).toBe(true);
     }
   }
   // The same selector finds enabled controls on an active agent, so the loop above is not empty.
   for (const tab of ["files", "knows"] as const) {
     const panel = renderTab(tab, false).querySelector('[role="tabpanel"]');
-    const enabled = [...(panel?.querySelectorAll(CONTROLS) ?? [])].filter(
+    const enabled = [...(panel?.querySelectorAll(FORM_CONTROLS) ?? [])].filter(
       (control) => !isDisabled(control)
     );
     expect(enabled.length).toBeGreaterThan(0);
+  }
+});
+
+test("an archived agent's tabs link only to read-only pages", () => {
+  for (const tab of ROOM_TABS) {
+    const panel = renderTab(tab, true).querySelector('[role="tabpanel"]');
+    for (const link of panel?.querySelectorAll("a[href]") ?? []) {
+      const href = link.getAttribute("href") ?? "";
+      expect(READ_ONLY_HREFS.some((prefix) => href.startsWith(prefix))).toBe(
+        true
+      );
+    }
   }
 });
 

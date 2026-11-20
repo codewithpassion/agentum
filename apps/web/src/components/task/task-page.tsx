@@ -386,7 +386,7 @@ export function TaskPage({
               requests={requests}
               routingHref={
                 mailThread
-                  ? `/agents/${task.agent.id}?mail=${encodeURIComponent(mailThread.id)}`
+                  ? `/agents/${task.agent.id}?tab=keys&mail=${encodeURIComponent(mailThread.id)}`
                   : undefined
               }
               stop={stop}
