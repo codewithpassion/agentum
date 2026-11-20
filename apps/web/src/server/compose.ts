@@ -313,6 +313,7 @@ import {
   type TasksService,
 } from "@repo/services/tasks/service";
 import { createTeamsService, type TeamsService } from "@repo/services/teams";
+import { createLeadService, type LeadService } from "@repo/services/teams/lead";
 import {
   createTriggersService,
   type TriggersService,
@@ -559,6 +560,7 @@ export interface Services {
   spend: SpendService;
   takeover: TakeoverService;
   tasks: TasksService;
+  teamLead: LeadService;
   teams: TeamsService;
   triggers: TriggersService;
   wiki: WikiService;
@@ -1502,6 +1504,7 @@ export const composeWith = ({
       spend,
       takeover,
       tasks,
+      teamLead: createLeadService({ agents, db, events, inbox, requests }),
       teams: createTeamsService({
         atomic: infra.atomic,
         clock: infra.clock,

@@ -31,6 +31,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
+import { requireAgentOwnerOrAdmin } from "./guards.ts";
 import {
   isDetachedApproval,
   isPromoteApproval,
@@ -69,6 +70,7 @@ import type { RunsService } from "./runs.ts";
 import type { SecretsService } from "./secrets.ts";
 import { visibleSessions } from "./sessions.ts";
 import { buildPeerEnvelope } from "./speaker-envelope.ts";
+import { isTeamProposal, proposalOf } from "./teams/proposal.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 export type { RequestRecord } from "./requests/records.ts";
@@ -668,10 +670,15 @@ export const createRequestsService = ({
       ? PEER_QUESTION_TTL_MS
       : TTL[kind];
 
+  const askedAgentOf = (run: RunRecord, options: { agentId?: string }) =>
+    options.agentId ?? run.agentId;
+
   const open = async (
     principal: Principal,
     raw: z.input<typeof openInputSchema>,
-    options: { ttlMs?: number } = {}
+    // `agentId` asks the request of another agent than the run's own, so a
+    // lead's proposal reaches the member's owner (TM.4).
+    options: { agentId?: string; ttlMs?: number } = {}
   ) => {
     const input = openInputSchema.parse(raw);
     const run = await requireRun(principal, input.runId);
@@ -692,7 +699,7 @@ export const createRequestsService = ({
     const now = clock.now();
     const [row] = await insertPending(
       {
-        agentId: run.agentId,
+        agentId: askedAgentOf(run, options),
         answer: null,
         answeredAt: null,
         answeredBy: null,
@@ -917,6 +924,42 @@ export const createRequestsService = ({
     }
     throw new ServiceError("not_found", "No decision queue is open");
   };
+  /**
+   * A lead's proposal is decided by the member's owner or an admin, not by
+   * any member who can see the card: the answer applies a change to the member.
+   */
+  const requireProposalApprover = async (
+    principal: Extract<Principal, { kind: "user" }>,
+    row: RequestRow
+  ) => {
+    const proposal = proposalOf(JSON.parse(row.display));
+    const agent = proposal
+      ? await findAgent(db, {
+          id: proposal.agentId,
+          workspaceId: row.workspaceId,
+        })
+      : null;
+    if (!agent) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    requireAgentOwnerOrAdmin(principal, agent, "teams.approve_change");
+  };
+  const checkProposalAnswer = async (
+    principal: Extract<Principal, { kind: "user" }>,
+    row: RequestRow,
+    parsed: z.infer<(typeof answerSchemas)[RequestRow["kind"]]>
+  ) => {
+    if (!isTeamProposal(row)) {
+      return;
+    }
+    await requireProposalApprover(principal, row);
+    if ("decision" in parsed && parsed.decision === "always_allow") {
+      throw new ServiceError(
+        "invalid",
+        "Always allow can't be set for a proposed change. Allow it once instead."
+      );
+    }
+  };
   const answer = async (
     principal: Principal,
     raw: z.input<typeof answerInputSchema>
@@ -933,6 +976,7 @@ export const createRequestsService = ({
     }
     refuseDecisions(row);
     const parsed = answerSchemas[row.kind].parse(input.answer);
+    await checkProposalAnswer(principal, row, parsed);
     if ("decision" in parsed && parsed.decision === "always_allow") {
       const run = await loadRun(db, row.runId, row.workspaceId);
       if (run && (await peerRootsOf(db, run)).length > 0) {
