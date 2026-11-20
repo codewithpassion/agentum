@@ -7,6 +7,7 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
+  type AnswerSurface,
   APPROVAL_TTL_MS,
   type ComputerTakeoverRequestedPayload,
   DECISIONS_MAX,
@@ -1147,7 +1148,8 @@ export const createRequestsService = ({
     principal: Extract<Principal, { kind: "user" }>,
     row: RequestRow,
     display: z.infer<typeof decisionsDisplaySchema>,
-    sent: Record<string, string>
+    sent: Record<string, string>,
+    via: AnswerSurface
   ) => {
     const given = row.answer
       ? decisionsAnswerSchema.parse(JSON.parse(row.answer)).decisions
@@ -1159,7 +1161,7 @@ export const createRequestsService = ({
       .set({
         answer: JSON.stringify({ decisions: all }),
         answeredBy: principal.userId,
-        answeredVia: "web",
+        answeredVia: via,
         ...(complete
           ? { answeredAt: clock.now().toISOString(), status: "answered" }
           : {}),
@@ -1181,11 +1183,12 @@ export const createRequestsService = ({
    * A person answers some of a queue's questions and leaves the others. The
    * request closes with the last answer, and then the agent's follow-up
    * starts. Two members answering at once both land, and only one write
-   * closes the request.
+   * closes the request. `via` is the surface the person answered on.
    */
   const answerDecisions = async (
     principal: Principal,
-    raw: z.input<typeof answerDecisionsInputSchema>
+    raw: z.input<typeof answerDecisionsInputSchema>,
+    via: AnswerSurface = "web"
   ): Promise<RequestRecord> => {
     const input = answerDecisionsInputSchema.parse(raw);
     const { row: first } = await requireRequest(principal, input.requestId);
@@ -1197,7 +1200,7 @@ export const createRequestsService = ({
     let row = first;
     for (let attempt = 1; attempt <= ANSWER_ATTEMPTS; attempt += 1) {
       // biome-ignore lint/performance/noAwaitInLoops: a retry follows the write it lost to
-      const written = await writeDecisions(principal, row, display, sent);
+      const written = await writeDecisions(principal, row, display, sent, via);
       if (written) {
         const masker = await secrets.maskerFor(
           written.saved.workspaceId,
@@ -1211,7 +1214,7 @@ export const createRequestsService = ({
               ...scrubAnswer({ decisions: written.all }, masker),
               answeredBy: principal.userId,
               kind: written.saved.kind,
-              via: "web",
+              via,
             },
             principal.userId
           );

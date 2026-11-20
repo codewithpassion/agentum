@@ -239,6 +239,18 @@ test("the last answer closes the request and starts one follow-up with one line 
   expect(followUps(started.sessionId, started.runId)).toHaveLength(1);
 });
 
+test("an answer says which surface it came from, the web by default", async () => {
+  const { opened } = await raisedAndDone();
+  await answerSome(opened.id, { q1: "Red" });
+  expect(row(opened.id)?.answeredVia).toBe("web");
+  await requests.answerDecisions(
+    user,
+    { decisions: { q3: "Now" }, requestId: opened.id },
+    "slack"
+  );
+  expect(row(opened.id)?.answeredVia).toBe("slack");
+});
+
 test("an answer that is not an option, or an unknown question, is refused", async () => {
   const { opened } = await raisedAndDone();
   await expect(answerSome(opened.id, { q1: "Green" })).rejects.toThrow(

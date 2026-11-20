@@ -505,7 +505,7 @@ test("the room digest is stored, and only open topics are read", async () => {
   expect(run.diary).toContain("Updated the room digest");
 });
 
-test("the diary is posted by the lead, or by the system when the team has none", async () => {
+test("the diary is not posted in the room at dream time, for a team with a lead or without one", async () => {
   const w = makeTeamWorld(
     answerFor((call) => ({
       conflicts: [],
@@ -523,15 +523,11 @@ test("the diary is posted by the lead, or by the system when the team has none",
   await note(w, QUILL, "places", "Sheet one");
   await note(w, TALLY, "places", "Sheet two");
   const withLead = await w.dream.runTeamNow(person(OWNER), TEAM);
-  const first = defined(w.notices[0]);
-  expect(first.authorAgentId).toBe(SCOUT);
-  expect(first.teamId).toBe(TEAM);
-  expect(first.text).toBe(withLead.diary);
+  expect(withLead.status).toBe("done");
+  expect(withLead.diary).not.toBe("");
   const bare = await w.dream.runTeamNow(person(OWNER), BARE);
   expect(bare.status).toBe("done");
-  const last = defined(w.notices.at(-1));
-  expect(last.authorAgentId).toBeNull();
-  expect(last.teamId).toBe(BARE);
+  expect(w.notices).toEqual([]);
 });
 
 test("repeated hand-off rework asks the lead to propose a change; with no lead it is only in the diary", async () => {
@@ -584,6 +580,7 @@ test("repeated hand-off rework asks the lead to propose a change; with no lead i
   expect(run.diary).toContain(
     "Hand-off: Tally re-formatted Quill's contact lists four times."
   );
+  expect(w.notices.some((notice) => notice.text === run.diary)).toBe(false);
   const ask = defined(w.notices.find((notice) => notice.wake !== undefined));
   expect(ask.wake).toEqual({ agentId: SCOUT, asUserId: OWNER });
   expect(ask.text).toContain("team_propose_change");
