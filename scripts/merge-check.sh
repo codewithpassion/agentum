@@ -3,10 +3,10 @@
 # Runs install, check, test and build. Skips the Rust daemon tests (agentum-rs)
 # when the merge doesn't touch apps/agentum, because they take about a minute
 # and nothing else depends on them.
-# Usage: scripts/merge-check.sh [<base-ref>]   (base defaults to HEAD^1, the main side of the merge)
+# Usage: scripts/merge-check.sh [<base-ref>]   (base defaults to the main side of the latest merge commit)
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-base="${1:-HEAD^1}"
+base="${1:-$(git log --merges -1 --format=%H)^1}"
 filter=()
 if git diff --quiet "$base" HEAD -- apps/agentum; then
   filter=(--filter='!agentum-rs')
