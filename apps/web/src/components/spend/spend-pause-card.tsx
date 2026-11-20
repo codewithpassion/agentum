@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/tanstack-react-start";
+import { type SpendRow, sumSpendCents } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import {
   type ChangeEvent,
@@ -168,17 +169,17 @@ const pauseLimitText = (
 
 /** The workspace total, and what counts against the agent: its own spend under its own limit, else the workspace total it runs under. */
 const weekSpend = (
-  rows: readonly { agentId: string | null; cents: number }[],
+  rows: readonly SpendRow[],
   agentId: string,
   hasOwnCap: boolean
 ): { spentCents: number; totalCents: number } => {
-  const totalCents = rows.reduce((sum, row) => sum + row.cents, 0);
+  const totalCents = sumSpendCents(rows);
   if (!hasOwnCap) {
     return { spentCents: totalCents, totalCents };
   }
-  const spentCents = rows
-    .filter((row) => row.agentId === agentId)
-    .reduce((sum, row) => sum + row.cents, 0);
+  const spentCents = sumSpendCents(
+    rows.filter((row) => row.agentId === agentId)
+  );
   return { spentCents, totalCents };
 };
 

@@ -4,11 +4,12 @@ import { agents } from "@repo/db/schema/agents";
 import { dreamRuns } from "@repo/db/schema/dreams";
 import { runs } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type {
-  SpendCap,
-  SpendCaps,
-  SpendResume,
-  SpendRow,
+import {
+  type SpendCap,
+  type SpendCaps,
+  type SpendResume,
+  type SpendRow,
+  sumSpendCents,
 } from "@repo/db/shared";
 import { and, asc, eq, gte, isNotNull, isNull, lt, lte } from "drizzle-orm";
 import { z } from "zod";
@@ -234,13 +235,9 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     );
   };
 
-  // Weekly cents sum rounded agent-days so cap enforcement agrees with the spend page.
-  const totalCents = (rows: SpendRow[]) =>
-    rows.reduce((total, row) => total + row.cents, 0);
-
   const weekToDate = async (agentId: string): Promise<number> => {
     const context = await agentContext(agentId);
-    return totalCents(await weekRows(context.workspace, agentId));
+    return sumSpendCents(await weekRows(context.workspace, agentId));
   };
 
   /** Whether the agent's week has reached its own cap, and the workspace's week its cap. */
@@ -258,9 +255,11 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     return {
       agentOver:
         agentCap !== null &&
-        totalCents(rows.filter((row) => row.agentId === agentId)) >= agentCap,
+        sumSpendCents(rows.filter((row) => row.agentId === agentId)) >=
+          agentCap,
       context,
-      workspaceOver: workspaceCap !== null && totalCents(rows) >= workspaceCap,
+      workspaceOver:
+        workspaceCap !== null && sumSpendCents(rows) >= workspaceCap,
     };
   };
 
@@ -313,7 +312,7 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
       throw new ServiceError("not_found", `No workspace "${workspaceId}"`);
     }
     const cap = workspace.weeklyCapCents;
-    return cap !== null && totalCents(await weekRows(workspace)) >= cap;
+    return cap !== null && sumSpendCents(await weekRows(workspace)) >= cap;
   };
 
   /** Pauses every active agent in the workspace once it is over its cap. Same pause as `enforceCap`. */

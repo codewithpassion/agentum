@@ -1,5 +1,6 @@
-import type { SpendRow } from "@repo/db/shared";
+import { microsToCents, type SpendRow } from "@repo/db/shared";
 
+const MICROS_PER_USD = 1_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const dayFormatter = (timezone: string) =>
@@ -47,6 +48,7 @@ const newRow = (fact: SpendFact, day: string): SpendRow => ({
   agentId: fact.agentId,
   cents: 0,
   day,
+  micros: 0,
   tasks: 0,
   ...(fact.teamId === undefined ? {} : { teamId: fact.teamId }),
 });
@@ -68,14 +70,14 @@ export const rollupSpend = (
     }
     const key = JSON.stringify([day, fact.agentId, fact.teamId ?? null]);
     const row = buckets.get(key) ?? newRow(fact, day);
-    // Keep USD in the accumulator, then convert and round once per agent-day.
-    row.cents += fact.costUsd;
+    // Whole millionths of a dollar, so sums stay exact integers.
+    row.micros += Math.round(fact.costUsd * MICROS_PER_USD);
     row.tasks += fact.tasks;
     buckets.set(key, row);
   }
   return Array.from(buckets.values(), (row) => ({
     ...row,
-    cents: Math.round(row.cents * 100),
+    cents: microsToCents(row.micros),
   })).sort(
     (a, b) =>
       a.day.localeCompare(b.day) ||
