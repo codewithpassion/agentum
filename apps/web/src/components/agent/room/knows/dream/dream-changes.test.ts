@@ -79,6 +79,7 @@ function makeChange(overrides: Partial<MemoryChange>): MemoryChange {
     noteId: NOTE_ID,
     source: null,
     status: "applied",
+    teamId: null,
     text: "New text",
     userScope: null,
     writtenBy: "dream",

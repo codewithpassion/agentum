@@ -35,6 +35,7 @@ function makeRun(overrides: Partial<DreamRun>): DreamRun {
     since: null,
     startedAt: new Date(2026, 10, 19, 3, 0, 0).toISOString(),
     status: "done",
+    teamId: null,
     usage: null,
     ...overrides,
   };

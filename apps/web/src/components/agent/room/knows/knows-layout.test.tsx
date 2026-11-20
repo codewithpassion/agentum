@@ -149,6 +149,7 @@ test("the dream card shows the latest dream and Dream now for the owner", () => 
     since: null,
     startedAt: "2026-11-20T02:00:00.000Z",
     status: "done",
+    teamId: null,
     usage: null,
   };
   const document = render(api(), true, false, dreamApi({ runs: [run] }));

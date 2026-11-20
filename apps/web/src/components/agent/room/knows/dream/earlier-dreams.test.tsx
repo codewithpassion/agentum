@@ -20,6 +20,7 @@ const run = (overrides: Partial<DreamRun> = {}): DreamRun => ({
   since: null,
   startedAt: new Date(NOW - 3_600_000).toISOString(),
   status: "done",
+  teamId: null,
   usage: null,
   ...overrides,
 });
