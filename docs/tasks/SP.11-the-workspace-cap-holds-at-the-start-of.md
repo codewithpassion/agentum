@@ -3,9 +3,9 @@ id: SP.11
 title: "The workspace cap holds at the start of a run"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SP.11-the-workspace-cap-holds-at-the-start-of
 lane: services-runs
 executor: claude
 ---
@@ -30,3 +30,4 @@ A component test shows the pause card without Resume for a non-admin while the w
 
 ## Log
 - 2026-11-21: added from the SP gate review, round 1.
+- 2026-11-21: dispatched on task/SP.11-the-workspace-cap-holds-at-the-start-of (v4 controller session).
