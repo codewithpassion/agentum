@@ -644,6 +644,157 @@ test("assign defaults to user_or_agent, changes the mode, and unassign removes i
   ).toEqual({ removed: false });
 });
 
+const lee = principalOf("user_lee");
+
+/** Two agents Sam owns: one for each caller to act on. */
+const samsAgents = async () => ({
+  mine: await agents.create(sam, {
+    model: "claude-sonnet",
+    name: "Sammy",
+    runtime: "fake",
+  }),
+  other: await agents.create(sam, {
+    model: "claude-sonnet",
+    name: "Sammy two",
+    runtime: "fake",
+  }),
+});
+
+test("only the agent's owner or an admin assigns a connector to it", async () => {
+  const connector = await addHeaderConnector();
+  const { mine, other } = await samsAgents();
+
+  await expect(
+    service.assign(lee, { agentId: mine.id, connectorId: connector.id })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.assignments(dom, { agentId: mine.id })).toEqual([]);
+
+  expect(
+    await service.assign(sam, { agentId: mine.id, connectorId: connector.id })
+  ).toMatchObject({ agentId: mine.id, credentialMode: "user_or_agent" });
+  expect(
+    await service.assign(dom, { agentId: other.id, connectorId: connector.id })
+  ).toMatchObject({ agentId: other.id, credentialMode: "user_or_agent" });
+});
+
+test("a write key or a connected app assigns only as the agent's owner, and an admin key assigns to any agent", async () => {
+  const connector = await addHeaderConnector();
+  const { mine } = await samsAgents();
+  const input = { agentId: mine.id, connectorId: connector.id };
+  const writeKey = (userId: string): Principal => ({
+    apiKey: { access: "write", id: "k1" },
+    kind: "user",
+    userId,
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  });
+  const oauthWrite = (userId: string): Principal => ({
+    kind: "user",
+    oauthClient: { access: "write", clientId: "claude" },
+    userId,
+    via: "oauth",
+    workspaceId: WORKSPACE,
+  });
+  const adminKey: Principal = {
+    apiKey: { access: "admin", id: "k2" },
+    kind: "user",
+    userId: "user_lee",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+
+  await expect(
+    service.assign(writeKey("user_lee"), input)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.assign(oauthWrite("user_lee"), input)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.assignments(dom, { agentId: mine.id })).toEqual([]);
+
+  await service.assign(writeKey("user_sam"), input);
+  await service.assign(oauthWrite("user_sam"), input);
+  expect(
+    await service.assign(adminKey, { ...input, credentialMode: "agent" })
+  ).toMatchObject({ credentialMode: "agent" });
+});
+
+test("only the agent's owner or an admin changes a credential mode", async () => {
+  const connector = await addHeaderConnector();
+  const { mine, other } = await samsAgents();
+  const assignment = { agentId: mine.id, connectorId: connector.id };
+  await service.assign(sam, assignment);
+  await service.assign(sam, { ...assignment, agentId: other.id });
+
+  await expect(
+    service.assign(lee, { ...assignment, credentialMode: "agent" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.assignments(dom, { agentId: mine.id })).toMatchObject([
+    { credentialMode: "user_or_agent" },
+  ]);
+
+  expect(
+    await service.assign(sam, { ...assignment, credentialMode: "agent" })
+  ).toMatchObject({ credentialMode: "agent" });
+  expect(
+    await service.assign(dom, {
+      ...assignment,
+      agentId: other.id,
+      credentialMode: "agent",
+    })
+  ).toMatchObject({ credentialMode: "agent" });
+});
+
+test("only the agent's owner or an admin changes its allowed tools", async () => {
+  const connector = await addHeaderConnector();
+  const { mine, other } = await samsAgents();
+  const assignment = { agentId: mine.id, connectorId: connector.id };
+  await service.assign(sam, { ...assignment, allowedTools: ["echo"] });
+  await service.assign(sam, {
+    ...assignment,
+    agentId: other.id,
+    allowedTools: ["echo"],
+  });
+
+  await expect(
+    service.assign(lee, { ...assignment, allowedTools: ["search"] })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.assignments(dom, { agentId: mine.id })).toMatchObject([
+    { allowedTools: ["echo"] },
+  ]);
+
+  expect(
+    await service.assign(sam, { ...assignment, allowedTools: ["search"] })
+  ).toMatchObject({ allowedTools: ["search"] });
+  expect(
+    await service.assign(dom, {
+      ...assignment,
+      agentId: other.id,
+      allowedTools: ["search"],
+    })
+  ).toMatchObject({ allowedTools: ["search"] });
+});
+
+test("only the agent's owner or an admin unassigns a connector, even once archived", async () => {
+  const connector = await addHeaderConnector();
+  const { mine, other } = await samsAgents();
+  const assignment = { agentId: mine.id, connectorId: connector.id };
+  await service.assign(sam, assignment);
+  await service.assign(sam, { ...assignment, agentId: other.id });
+
+  await expect(service.unassign(lee, assignment)).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  expect(await service.assignments(dom, { agentId: mine.id })).toHaveLength(1);
+
+  expect(await service.unassign(sam, assignment)).toEqual({ removed: true });
+  expect(await service.assignments(dom, { agentId: mine.id })).toEqual([]);
+
+  await agents.archive(dom, other.id);
+  expect(
+    await service.unassign(dom, { ...assignment, agentId: other.id })
+  ).toEqual({ removed: true });
+});
+
 test("assign stores the allowed tools, and assignments lists them", async () => {
   const connector = await addHeaderConnector();
 

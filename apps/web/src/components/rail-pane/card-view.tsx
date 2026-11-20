@@ -7,6 +7,7 @@ import {
   offersAlwaysAllow,
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
+import { DreamQuestionBody } from "./dream-question.tsx";
 import { HowItGotHere } from "./how-it-got-here.tsx";
 import { MailDecision } from "./mail-decision.tsx";
 import { cardView, deskCardOf, expiryNote } from "./pane-logic.ts";
@@ -18,6 +19,8 @@ export interface CardActions {
   onDismiss: (runId: string) => Promise<void>;
   /** Runs once a card is dealt with, to move on. */
   onDone: (cardId: string) => Promise<void>;
+  /** Keeps the chosen note of a dream's question. Rejects with the reason when it fails. */
+  onDreamAnswer: (questionId: string, noteId: string) => Promise<void>;
 }
 
 /** The Cc addresses of the held mail behind a request. */
@@ -42,7 +45,7 @@ function CardBody({
   version: { number: number; skillId: string } | null;
   waitingOn: string | null;
 }) {
-  const { onAnswer, onDismiss, onDone } = actions;
+  const { onAnswer, onDismiss, onDone, onDreamAnswer } = actions;
   const answerMail = useCallback(
     async (cardId: string, payload: AnswerPayload) => {
       await onAnswer(cardId, payload);
@@ -68,7 +71,19 @@ function CardBody({
     [card.id, onDismiss, onDone]
   );
 
+  const answerDream = useCallback(
+    async (questionId: string, noteId: string) => {
+      await onDreamAnswer(questionId, noteId);
+      await onDone(card.id);
+    },
+    [card.id, onDone, onDreamAnswer]
+  );
+
   switch (cardView(card)) {
+    case "dream":
+      return card.dream === undefined ? null : (
+        <DreamQuestionBody dream={card.dream} onAnswer={answerDream} />
+      );
     case "mail":
       return (
         <MailDecision
