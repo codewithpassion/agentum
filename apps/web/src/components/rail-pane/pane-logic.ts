@@ -166,8 +166,11 @@ export const itemAfterAnswer = (
   return first === undefined ? nextItemId(view, item.id) : first.id;
 };
 
-/** Which body a card gets: a problem, a held mail, a dream question, or the plain body. */
-export type CardKind = "dream" | "mail" | "problem" | "body";
+/**
+ * Which body a card gets: a problem, a held mail, a dream question, a held
+ * dream, or the plain body.
+ */
+export type CardKind = "dream" | "dreamHeld" | "mail" | "problem" | "body";
 
 export const cardView = (card: RailCard): CardKind => {
   if (card.kind === "problem") {
@@ -178,6 +181,9 @@ export const cardView = (card: RailCard): CardKind => {
   }
   if (card.kind === "dream_question" && card.dream !== undefined) {
     return "dream";
+  }
+  if (card.kind === "dream_held" && card.dreamHeld !== undefined) {
+    return "dreamHeld";
   }
   return "body";
 };

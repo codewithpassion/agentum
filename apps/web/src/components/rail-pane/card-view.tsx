@@ -1,4 +1,4 @@
-import type { RailCard } from "@repo/db/shared";
+import type { DreamDecision, RailCard } from "@repo/db/shared";
 import { useCallback } from "react";
 import { NeedsYouBody } from "#/components/desk/needs-you-card.tsx";
 import {
@@ -7,6 +7,7 @@ import {
   offersAlwaysAllow,
   type RequestView,
 } from "#/components/requests/request-card-logic.ts";
+import { DreamHeldBody } from "./dream-held.tsx";
 import { DreamQuestionBody } from "./dream-question.tsx";
 import { HowItGotHere } from "./how-it-got-here.tsx";
 import { MailDecision } from "./mail-decision.tsx";
@@ -21,6 +22,8 @@ export interface CardActions {
   onDone: (cardId: string) => Promise<void>;
   /** Keeps the chosen note of a dream's question. Rejects with the reason when it fails. */
   onDreamAnswer: (questionId: string, noteId: string) => Promise<void>;
+  /** Approves or rejects a dream the learn level held. Rejects with the reason when it fails. */
+  onDreamDecide: (dreamRunId: string, decision: DreamDecision) => Promise<void>;
 }
 
 /** The Cc addresses of the held mail behind a request. */
@@ -45,7 +48,7 @@ function CardBody({
   version: { number: number; skillId: string } | null;
   waitingOn: string | null;
 }) {
-  const { onAnswer, onDismiss, onDone, onDreamAnswer } = actions;
+  const { onAnswer, onDismiss, onDone, onDreamAnswer, onDreamDecide } = actions;
   const answerMail = useCallback(
     async (cardId: string, payload: AnswerPayload) => {
       await onAnswer(cardId, payload);
@@ -78,11 +81,22 @@ function CardBody({
     },
     [card.id, onDone, onDreamAnswer]
   );
+  const decideDream = useCallback(
+    async (dreamRunId: string, decision: DreamDecision) => {
+      await onDreamDecide(dreamRunId, decision);
+      await onDone(card.id);
+    },
+    [card.id, onDone, onDreamDecide]
+  );
 
   switch (cardView(card)) {
     case "dream":
       return card.dream === undefined ? null : (
         <DreamQuestionBody dream={card.dream} onAnswer={answerDream} />
+      );
+    case "dreamHeld":
+      return card.dreamHeld === undefined ? null : (
+        <DreamHeldBody dreamHeld={card.dreamHeld} onDecide={decideDream} />
       );
     case "mail":
       return (

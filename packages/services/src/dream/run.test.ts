@@ -163,6 +163,8 @@ test("the learn level ask_first holds the whole plan as one batch until the owne
 
   expect(run.status).toBe("done");
   expect(run.resultVersion).toBeNull();
+  expect(run.heldChanges).toBe(1);
+  expect((await w.dream.list(w.owner, AGENT))[0]?.heldChanges).toBe(1);
   expect(run.diary).toContain("wait for your approval");
   expect(await w.files()).toEqual(before);
   const held = await w.dream.changes(w.owner, run.id);
@@ -180,6 +182,7 @@ test("the learn level ask_first holds the whole plan as one batch until the owne
     dreamRunId: run.id,
   });
   expect(approved.resultVersion).not.toBeNull();
+  expect(approved.heldChanges).toBe(0);
   expect(approved.diary).toContain("You approved these changes.");
   const notes = await w.service.list(w.owner, { agentId: AGENT });
   expect(notes.map((item) => item.text)).toEqual(["Mia wants Google Docs"]);
@@ -195,7 +198,11 @@ test("rejecting a held batch changes nothing", async () => {
   w.say("Mia wants drafts as Google Docs");
   const run = await w.dream.runNow(w.owner, AGENT);
   const before = await w.files();
-  await w.dream.decide(w.owner, { decision: "reject", dreamRunId: run.id });
+  const rejected = await w.dream.decide(w.owner, {
+    decision: "reject",
+    dreamRunId: run.id,
+  });
+  expect(rejected.heldChanges).toBe(0);
   expect(await w.files()).toEqual(before);
   expect((await w.dream.changes(w.owner, run.id))[0]?.status).toBe("rejected");
 });

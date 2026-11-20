@@ -1,4 +1,5 @@
 import {
+  type DreamDecision,
   RAIL_REFRESH_EVENT,
   type RailItem,
   type RailView,
@@ -332,6 +333,12 @@ export function RailPane({
     },
     []
   );
+  const decideDream = useCallback(
+    async (dreamRunId: string, decision: DreamDecision) => {
+      await getTrpc().dream.decide.mutate({ decision, dreamRunId });
+    },
+    []
+  );
 
   // After any action: tell the rail, and open what comes next.
   const done = useCallback(
@@ -363,8 +370,9 @@ export function RailPane({
       onDismiss: dismiss,
       onDone: done,
       onDreamAnswer: answerDream,
+      onDreamDecide: decideDream,
     }),
-    [answer, answerDream, dismiss, done]
+    [answer, answerDream, decideDream, dismiss, done]
   );
 
   if (data === null || nowMs === null) {

@@ -5,7 +5,8 @@ import { errorMessage } from "#/lib/error-message";
 import { ChangesList } from "./changes-list.tsx";
 import { type DreamChangeView, loadDreamChanges } from "./dream-changes.ts";
 
-function OpenChanges({ runId }: { runId: string }): ReactElement {
+/** The changes of one dream, read when it mounts. */
+export function OpenChanges({ runId }: { runId: string }): ReactElement {
   const [views, setViews] = useState<DreamChangeView[] | undefined>();
   const [failure, setFailure] = useState<string | undefined>();
 
