@@ -3,7 +3,7 @@ id: KY.2
 title: "Keys read model: everything an agent may use"
 milestone: KY
 size: M
-status: in_progress
+status: done
 depends_on: [KY.1]
 branch: task/KY.2-keys-read-model
 lane: services-keys
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone KY. One call returns what an agent can u
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/KY.2-keys-read-model (v4 controller session).
+- 2026-11-20: merged as 25885db6, review clean after 0 fix rounds. check and build passed on main. bun run test passed except guest-execution.test.ts; that test also failed alone, and failed the same way side by side on the pre-merge commit 7ba1f579, so it is not from KY.2.
