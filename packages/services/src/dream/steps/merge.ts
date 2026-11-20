@@ -16,9 +16,7 @@ import {
   notesAfterMerge,
   parseMergeGroups,
   pickKeeper,
-  renderNote,
   type StepResult,
-  scopeGroups,
 } from "./groups.ts";
 import {
   AUTO_APPLY_FLOOR,
@@ -33,6 +31,9 @@ export type NoteCandidate = Extract<DreamPlanChange, { action: "add" }>;
 
 type AddChange = NoteCandidate;
 type MergeChange = Extract<DreamPlanChange, { action: "merge" }>;
+type DropChange = Extract<DreamPlanChange, { action: "drop" }>;
+
+const REPLACED_REASON = "A newer note of another kind replaces it";
 
 export interface MergeInput {
   candidates: readonly NoteCandidate[];
@@ -47,7 +48,7 @@ export interface MergeResult extends StepResult {
   skippedGroups: number;
 }
 
-const MERGE_SYSTEM = `You are a memory-consolidation judge. You get the notes an agent keeps, all of one kind. Find the notes that say the same thing, or nearly the same thing, and should become one clean note. Reply with ONE JSON object and no prose, shaped like {"groups":[{"ids":[string],"text":string,"confidence":number,"rationale":string}]}. Each group has at least two ids and a confidence from 0 to 1. Its text is the single merged note, on one line, under 500 characters. Notes that are distinct, or that disagree, go in no group. Use the exact ids you are given.`;
+const MERGE_SYSTEM = `You are a memory-consolidation judge. You get the notes an agent keeps, all for one owner, and each line names the note's kind. Find the notes that say the same thing, or nearly the same thing, and should become one clean note. A newer note that corrects or replaces an older one, even of another kind, goes in a group with the older note, and its text is the corrected one. Reply with ONE JSON object and no prose, shaped like {"groups":[{"ids":[string],"text":string,"confidence":number,"rationale":string}]}. Each group has at least two ids and a confidence from 0 to 1. Its text is the single merged note, on one line, under 500 characters. Notes that are distinct, or that disagree, go in no group. Use the exact ids you are given.`;
 
 /** One note the judge may see: an existing note, or a candidate not yet kept. */
 interface Item {
@@ -65,6 +66,7 @@ interface Item {
 interface State {
   adds: AddChange[];
   consumed: Set<string>;
+  drops: DropChange[];
   merges: MergeChange[];
   notes: MemoryNote[];
   skippedGroups: number;
@@ -185,8 +187,8 @@ const addOf = (item: Item, text: string): AddChange => ({
 
 const renderItem = (item: Item): string =>
   item.note === null
-    ? `- id=${item.label} (by new): ${item.text}`
-    : renderNote(item.label, item.note);
+    ? `- id=${item.label} (kind ${item.kind}, by new): ${item.text}`
+    : `- id=${item.label} (kind ${item.kind}, by ${item.note.writtenBy}, ${item.note.date}): ${item.text}`;
 
 const groupPrompt = (group: readonly Item[]): string =>
   `Notes:\n${group.map(renderItem).join("\n")}\n\nReply with the JSON object.`;
@@ -235,6 +237,54 @@ const judgeGroup = async (
 const itemNote = (item: Item): MemoryNote[] =>
   item.note === null ? [] : [item.note];
 
+/** Splits items into groups of one `userScope`, in first-seen order. A group may mix kinds, so a correction meets the note it corrects. */
+const userScopeGroups = (items: readonly Item[]): Item[][] => {
+  const groups = new Map<string | null, Item[]>();
+  for (const item of items) {
+    const group = groups.get(item.userScope);
+    if (group) {
+      group.push(item);
+    } else {
+      groups.set(item.userScope, [item]);
+    }
+  }
+  return [...groups.values()];
+};
+
+/** The kind a merged note takes: a newcomer's, else that of the existing note with the latest date. */
+const newestKind = (
+  newcomers: readonly Item[],
+  existing: readonly MemoryNote[]
+): MemoryNoteKind | null => {
+  const [firstNewcomer] = newcomers;
+  if (firstNewcomer) {
+    return firstNewcomer.kind;
+  }
+  const latest = existing.reduce<MemoryNote | null>(
+    (best, note) => (best === null || note.date > best.date ? note : best),
+    null
+  );
+  return latest?.kind ?? null;
+};
+
+/** No existing note has the newer note's kind: the older notes are dropped and the newer note is added with its own kind. */
+const replaceOtherKinds = (
+  existing: readonly MemoryNote[],
+  newcomer: Item | undefined,
+  text: string,
+  state: State
+): void => {
+  if (!newcomer) {
+    return;
+  }
+  const gone = new Set(existing.map((note) => note.id));
+  for (const id of gone) {
+    state.drops.push({ action: "drop", noteId: id, reason: REPLACED_REASON });
+  }
+  state.adds.push(addOf(newcomer, text));
+  state.notes = state.notes.filter((note) => !gone.has(note.id));
+};
+
 /** Applies one verdict: a merge into the keeper, an add for candidates alone, or nothing. */
 const applyVerdict = (
   group: readonly Item[],
@@ -261,8 +311,10 @@ const applyVerdict = (
     }
     return;
   }
-  const keeper = pickKeeper(existing);
+  const kind = newestKind(newcomers, existing);
+  const keeper = pickKeeper(existing.filter((note) => note.kind === kind));
   if (keeper === null) {
+    replaceOtherKinds(existing, firstNewcomer, verdict.text, state);
     return;
   }
   const absorbed = existing.filter((note) => note.id !== keeper.id);
@@ -301,7 +353,7 @@ const applyGroup = (
 /**
  * Finds the merges and adds for a batch of candidate notes. Exact duplicates
  * are folded or dropped with no model call. Near duplicates go to the judge,
- * one call per group of one kind and one userScope.
+ * one call per group of one userScope, whatever the kinds.
  */
 export const mergeNotes = async (input: MergeInput): Promise<MergeResult> => {
   const candidates = newCandidates(input.candidates, input.notes);
@@ -314,11 +366,12 @@ export const mergeNotes = async (input: MergeInput): Promise<MergeResult> => {
   const state: State = {
     adds: [],
     consumed: new Set(),
+    drops: [],
     merges: folded.merges,
     notes: folded.notes,
     skippedGroups: 0,
   };
-  const groups = scopeGroups(items).filter(needsJudge);
+  const groups = userScopeGroups(items).filter(needsJudge);
   const judged = await Promise.all(
     groups.map(async (group) => ({
       group,
@@ -332,7 +385,7 @@ export const mergeNotes = async (input: MergeInput): Promise<MergeResult> => {
     .filter((item) => !state.consumed.has(item.label))
     .map((item) => addOf(item, item.text));
   return {
-    changes: [...state.merges, ...state.adds, ...leftover],
+    changes: [...state.merges, ...state.drops, ...state.adds, ...leftover],
     notes: state.notes,
     skippedGroups: state.skippedGroups,
   };
