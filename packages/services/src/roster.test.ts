@@ -467,6 +467,31 @@ test("a run done minutes ago shows its finish time and title, as idle", async ()
   });
 });
 
+test("a done run whose title ends in punctuation gets no second full stop before Next run", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", {
+    finishedAt: FINISHED_RECENTLY,
+    inputText: "Is the report ready?",
+    status: "done",
+  });
+  db.insert(triggers)
+    .values({
+      agentId: "a1",
+      createdAt: NOW,
+      createdBy: "u1",
+      cron: "0 12 * * *",
+      id: "t1",
+      kind: "routine",
+      name: "t1",
+      timezone: null,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await service.list(user))[0]?.statusLine).toBe(
+    "Done 11:56 pm: Is the report ready? Next run 1 Jan, 12:00 pm"
+  );
+});
+
 test("a run done minutes ago names the next routine run after its finish time", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "done" });

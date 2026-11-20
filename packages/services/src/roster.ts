@@ -67,6 +67,7 @@ const avatarFor = (row: AgentRow): AgentAvatar => {
 // within it. Clip by Unicode code points so a glyph is never cut in half.
 const SENTENCE_END = /(?<=[.!?])(?:\s|$)/u;
 const WHITESPACE = /\s+/g;
+const ENDS_IN_PUNCTUATION = /[.!?]$/u;
 const DAY_MS = 24 * 60 * 60_000;
 const WEEK_MS = 7 * DAY_MS;
 export const jobLineFor = (instructions: string): string =>
@@ -246,8 +247,10 @@ const activityFor = (input: {
   }
   const finishedAt = recentlyFinishedAt(last, now);
   if (finishedAt) {
+    // A title that already ends in punctuation, such as a clipped "...", needs no second full stop.
+    const joiner = ENDS_IN_PUNCTUATION.test(lastTitle) ? " " : ". ";
     const nextRun =
-      fire === undefined ? "" : `. Next run ${timeFormat.format(fire)}`;
+      fire === undefined ? "" : `${joiner}Next run ${timeFormat.format(fire)}`;
     return {
       state: "idle",
       statusLine: `Done ${clockFormat.format(finishedAt)}: ${lastTitle}${nextRun}`,
