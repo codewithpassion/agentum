@@ -1,5 +1,5 @@
 // The one Slack workspace that `fake-slack.ts` plays and `seed-slack-room.ts`
-// seeds: three agents with their own Slack apps, one channel, and two people.
+// seeds: three agents with their own Slack apps, three channels (the room, one Dev Person is not in, one private), and two people.
 // The seed stores each app's token and signing secret, and the fake answers to
 // the same ones, so the app and the fake agree without a config file.
 import type {
@@ -60,6 +60,25 @@ export const fakeSlackConfig = (): FakeSlackConfig => ({
         ...SEEDED_AGENTS.slice(0, 2).map((agent) => agent.app.botUserId),
       ],
       name: CHANNEL_NAME,
+    },
+    // Both have the lead's and Cy's apps. Dev Person is not in the first, and the second is private.
+    {
+      id: "C0SL5OUTSIDE",
+      isPrivate: false,
+      members: [
+        GUEST_SLACK_USER,
+        ...SEEDED_AGENTS.slice(0, 2).map((agent) => agent.app.botUserId),
+      ],
+      name: "sl5-outside",
+    },
+    {
+      id: "G0SL5SECRET",
+      isPrivate: true,
+      members: [
+        DEV_SLACK_USER,
+        ...SEEDED_AGENTS.slice(0, 2).map((agent) => agent.app.botUserId),
+      ],
+      name: "sl5-secret",
     },
   ],
   slackTeamId: SLACK_TEAM_ID,

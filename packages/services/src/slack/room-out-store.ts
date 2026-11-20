@@ -80,11 +80,17 @@ export const roomMessageOfPost = async (
 
 /**
  * The Slack ts a topic's Slack thread is rooted at: the thread_ts of its
- * earliest room message, or that message's own ts when it opened the thread.
+ * earliest room message in the given Slack channel, or that message's own ts
+ * when it opened the thread. Messages from a channel the team was linked to
+ * before are ignored, so a relink opens a new thread.
  */
 export const topicRootTs = async (
   db: Database,
-  { threadId }: { threadId: string }
+  {
+    channelId,
+    slackTeamId,
+    threadId,
+  }: { channelId: string; slackTeamId: string; threadId: string }
 ): Promise<string | null> => {
   const row = await db
     .select({
@@ -93,7 +99,13 @@ export const topicRootTs = async (
     })
     .from(slackRoomMessages)
     .innerJoin(inboxPosts, eq(inboxPosts.id, slackRoomMessages.postId))
-    .where(eq(inboxPosts.threadId, threadId))
+    .where(
+      and(
+        eq(inboxPosts.threadId, threadId),
+        eq(slackRoomMessages.slackTeamId, slackTeamId),
+        eq(slackRoomMessages.channelId, channelId)
+      )
+    )
     .orderBy(asc(slackRoomMessages.createdAt), asc(slackRoomMessages.id))
     .limit(1)
     .get();
