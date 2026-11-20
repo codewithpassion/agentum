@@ -3,7 +3,7 @@ id: FR.2
 title: "Team starter: a lead and three specialists"
 milestone: FR
 size: S
-status: in_progress
+status: done
 depends_on: [FR.1, TM.4]
 branch: task/FR.2-team-starter
 lane: builder
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone FR. From the 18 Nov analysis, item 8.
 - 2026-11-20: dispatched on task/FR.2-team-starter (v4 controller session).
 - 2026-11-21: merge check failed typecheck (team-starters.ts calls the teams service with deps that no longer match TeamsDeps on main); merge undone and sent back.
 - 2026-11-21: merge conflicted in apps/web/src/server/compose.ts after SL.4 landed; aborted and sent back.
+- 2026-11-21: merged ffdc54f2, merge check passed. Done.
