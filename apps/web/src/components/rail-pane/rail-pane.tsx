@@ -326,6 +326,12 @@ export function RailPane({
   const dismiss = useCallback(async (runId: string) => {
     await getTrpc().desk.clearAttention.mutate({ runId });
   }, []);
+  const answerDream = useCallback(
+    async (questionId: string, noteId: string) => {
+      await getTrpc().dream.answer.mutate({ noteId, questionId });
+    },
+    []
+  );
 
   // After any action: tell the rail, and open what comes next.
   const done = useCallback(
@@ -352,8 +358,13 @@ export function RailPane({
     [onOpen]
   );
   const actions = useMemo(
-    () => ({ onAnswer: answer, onDismiss: dismiss, onDone: done }),
-    [answer, dismiss, done]
+    () => ({
+      onAnswer: answer,
+      onDismiss: dismiss,
+      onDone: done,
+      onDreamAnswer: answerDream,
+    }),
+    [answer, answerDream, dismiss, done]
   );
 
   if (data === null || nowMs === null) {
