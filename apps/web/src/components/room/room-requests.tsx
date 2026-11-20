@@ -21,6 +21,11 @@ interface WaitingRequest {
   view: RequestView;
 }
 
+interface AnsweredRequest extends WaitingRequest {
+  /** The topic's post count when it was answered. */
+  postCount: number;
+}
+
 /**
  * The requests a topic's tasks are waiting on. A run that waits has not posted
  * yet, so they are found through the topic's inbox sessions, not its posts.
@@ -44,22 +49,22 @@ const loadWaiting = async (threadId: string): Promise<WaitingRequest[]> => {
 
 interface RoomRequestsProps {
   directory: RoomDirectory;
-  /** Run ids that have a post. Their answered cards are not repeated. */
-  postedRunIds: ReadonlySet<string>;
+  /** How many posts the topic has. An answered card goes once a newer post lands. */
+  postCount: number;
   threadId: string;
 }
 
 /** Requests raised in the topic's tasks, with their buttons. Answered ones stay until the run posts. */
 export function RoomRequests({
   directory,
-  postedRunIds,
+  postCount,
   threadId,
 }: RoomRequestsProps) {
   const nowMs = useNowMs();
   const waiting = usePolledQuery(() => loadWaiting(threadId), null);
   const { refresh } = waiting;
   const [answered, setAnswered] = useState<
-    Readonly<Record<string, WaitingRequest>>
+    Readonly<Record<string, AnsweredRequest>>
   >({});
 
   const answer = useCallback(
@@ -87,19 +92,19 @@ export function RoomRequests({
       }
       setAnswered((current) => ({
         ...current,
-        [view.id]: { agentId, view: { ...view, settled } },
+        [view.id]: { agentId, postCount, view: { ...view, settled } },
       }));
       window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
       refresh();
     },
-    [refresh, waiting.data]
+    [postCount, refresh, waiting.data]
   );
 
   const open = (waiting.data ?? []).filter(
     (entry) => answered[entry.view.id] === undefined
   );
   const done = Object.values(answered).filter(
-    (entry) => !postedRunIds.has(entry.view.runId)
+    (entry) => entry.postCount >= postCount
   );
   const shown = [...open, ...done];
   if (nowMs === null || shown.length === 0) {

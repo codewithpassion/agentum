@@ -64,6 +64,14 @@ export function RoomPage({
     [directory, team]
   );
   const canPost = canPostInRoom(team, userId);
+  // The topic always includes its creator, so the dialog does not offer them.
+  const otherMembers = useMemo(
+    () =>
+      members.filter(
+        (member) => !(member.kind === "user" && member.id === userId)
+      ),
+    [members, userId]
+  );
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const closeSheet = useCallback(() => setSheetOpen(false), []);
@@ -77,7 +85,11 @@ export function RoomPage({
   );
 
   const newTopic = canPost ? (
-    <NewTopicDialog members={members} onCreated={created} teamId={team.id} />
+    <NewTopicDialog
+      members={otherMembers}
+      onCreated={created}
+      teamId={team.id}
+    />
   ) : null;
   const topicList = (
     <TopicList
@@ -125,7 +137,9 @@ export function RoomPage({
         <div className="min-w-0">
           {topicId === undefined ? (
             <p className="text-muted-foreground text-sm">
-              Pick a topic, or start a new one.
+              {canPost
+                ? "Pick a topic, or start a new one."
+                : "Pick a topic to read."}
             </p>
           ) : (
             <RoomThread

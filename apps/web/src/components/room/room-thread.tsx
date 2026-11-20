@@ -54,16 +54,6 @@ export function RoomThread({
     [posts]
   );
   const { files } = useFileInfos(fileIds);
-  const postedRunIds = useMemo(
-    () =>
-      new Set(
-        (posts ?? []).flatMap((post) =>
-          post.runId === null ? [] : [post.runId]
-        )
-      ),
-    [posts]
-  );
-
   const handleSent = useCallback(() => {
     refreshView();
     onPosted();
@@ -142,7 +132,7 @@ export function RoomThread({
       )}
       <RoomRequests
         directory={directory}
-        postedRunIds={postedRunIds}
+        postCount={view.data.posts.length}
         threadId={threadId}
       />
       {canPost ? (
