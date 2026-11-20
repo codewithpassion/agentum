@@ -4,6 +4,8 @@
  * Per thread: once the most recent posts are all agent-authored, nobody is
  * woken there again until a human posts.
  *
+ * Lead-run discussions allocate a separate bounded member-wake budget.
+ *
  * Per agent: a sliding-window wake budget, so one busy thread cannot burn an
  * agent's whole rate limit.
  */
@@ -46,3 +48,11 @@ export const checkWakeRate = (
   }
   return { allowed: true, timestamps: [...recent, now] };
 };
+
+/** Member wakes have their own budget; hourly checkWakeRate still applies. */
+export const discussionBudgetAllows = (
+  round: number,
+  rounds: number,
+  members: number,
+  wakes: number
+): boolean => round >= 1 && round <= rounds && wakes < rounds * members;

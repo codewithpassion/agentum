@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   isMemoryPath,
+  isPrivateMemoryPath,
   mayReadMemoryPath,
   memoryFolderOf,
   privateMemoryOwner,
@@ -57,4 +58,19 @@ test("a team's memory folder is a memory folder, and its private path still belo
   expect(mayReadMemoryPath("teams/sales/memory/private/user_1.md", null)).toBe(
     false
   );
+});
+
+test("isPrivateMemoryPath takes the private folder and everything in it", () => {
+  expect(isPrivateMemoryPath("agents/scout/memory/private")).toBe(true);
+  expect(isPrivateMemoryPath("agents/scout/memory/private/user_1.md")).toBe(
+    true
+  );
+  expect(isPrivateMemoryPath("agents/scout/memory/private/x/stray.md")).toBe(
+    true
+  );
+  expect(isPrivateMemoryPath("teams/ops/memory/private/user_1.md")).toBe(true);
+  expect(isPrivateMemoryPath("agents/scout/memory")).toBe(false);
+  expect(isPrivateMemoryPath("agents/scout/memory/people.md")).toBe(false);
+  expect(isPrivateMemoryPath("agents/scout/memory/privately.md")).toBe(false);
+  expect(isPrivateMemoryPath("agents/scout/private/user_1.md")).toBe(false);
 });
