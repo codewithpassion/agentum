@@ -67,7 +67,8 @@ const avatarFor = (row: AgentRow): AgentAvatar => {
 // within it. Clip by Unicode code points so a glyph is never cut in half.
 const SENTENCE_END = /(?<=[.!?])(?:\s|$)/u;
 const WHITESPACE = /\s+/g;
-const WEEK_MS = 7 * 24 * 60 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+const WEEK_MS = 7 * DAY_MS;
 export const jobLineFor = (instructions: string): string =>
   Array.from(
     instructions.trim().split(SENTENCE_END)[0]?.replace(WHITESPACE, " ") ?? ""
@@ -77,7 +78,13 @@ export const jobLineFor = (instructions: string): string =>
 
 type RunFact = Pick<
   typeof runs.$inferSelect,
-  "agentId" | "createdAt" | "id" | "inputText" | "status" | "usage"
+  | "agentId"
+  | "createdAt"
+  | "finishedAt"
+  | "id"
+  | "inputText"
+  | "status"
+  | "usage"
 >;
 interface Wait {
   count: number;
@@ -184,6 +191,18 @@ const nextRuns = (
   return next;
 };
 
+// The finish time of the latest run, while it is done and under a day old.
+const recentlyFinishedAt = (
+  last: RunFact | undefined,
+  now: Date
+): Date | undefined => {
+  if (last?.status !== "done" || !last.finishedAt) {
+    return;
+  }
+  const finishedAt = new Date(last.finishedAt);
+  return now.getTime() - finishedAt.getTime() < DAY_MS ? finishedAt : undefined;
+};
+
 const activityFor = (input: {
   wait: Wait | undefined;
   last: RunFact | undefined;
@@ -191,10 +210,23 @@ const activityFor = (input: {
   machineStatus: string | null;
   fire: number | undefined;
   runTitle: string;
+  lastTitle: string;
+  now: Date;
   timeFormat: Intl.DateTimeFormat;
+  clockFormat: Intl.DateTimeFormat;
 }): Pick<AgentCard, "state" | "statusLine"> => {
-  const { wait, last, active, machineStatus, fire, runTitle, timeFormat } =
-    input;
+  const {
+    wait,
+    last,
+    active,
+    machineStatus,
+    fire,
+    runTitle,
+    lastTitle,
+    now,
+    timeFormat,
+    clockFormat,
+  } = input;
   if (wait) {
     return { state: "needs_you", statusLine: wait.title };
   }
@@ -211,6 +243,15 @@ const activityFor = (input: {
   }
   if (active) {
     return { state: "working", statusLine: runTitle };
+  }
+  const finishedAt = recentlyFinishedAt(last, now);
+  if (finishedAt) {
+    const nextRun =
+      fire === undefined ? "" : `. Next run ${timeFormat.format(fire)}`;
+    return {
+      state: "idle",
+      statusLine: `Done ${clockFormat.format(finishedAt)}: ${lastTitle}${nextRun}`,
+    };
   }
   return {
     state: "idle",
@@ -244,6 +285,7 @@ export const createRosterService = ({
       .select({
         agentId: runs.agentId,
         createdAt: runs.createdAt,
+        finishedAt: runs.finishedAt,
         id: runs.id,
         inputText: runs.inputText,
         rank: sql<number>`row_number() over (partition by ${runs.agentId} order by ${runs.createdAt} desc, ${runs.id} desc)`.as(
@@ -365,10 +407,14 @@ export const createRosterService = ({
     );
     const { latest, running, costs } = runFacts(runList, weekStart);
     // A run started by mail is titled by its mail's subject, as on the desk.
+    // A latest run that is still shown as done is titled the same way.
+    const doneRecently = [...latest.values()].filter(
+      (run) => recentlyFinishedAt(run, now) !== undefined
+    );
     const subjectOf = await mailSubjectsOf(
       db,
       workspaceId,
-      [...running.values()].map((run) => run.id)
+      [...running.values(), ...doneRecently].map((run) => run.id)
     );
     const waiting = waitingFacts(view);
     const timezone = workspace[0]?.timezone ?? "UTC";
@@ -379,6 +425,11 @@ export const createRosterService = ({
       hour: "numeric",
       minute: "2-digit",
       month: "short",
+      timeZone: timezone,
+    });
+    const clockFormat = new Intl.DateTimeFormat("en-AU", {
+      hour: "numeric",
+      minute: "2-digit",
       timeZone: timezone,
     });
     return rows.map(({ agent: row, machineStatus }): AgentCard => {
@@ -399,9 +450,14 @@ export const createRosterService = ({
         slug: row.slug,
         ...activityFor({
           active,
+          clockFormat,
           fire: next.get(row.id),
           last,
+          lastTitle: last
+            ? runTitleText(last.inputText, subjectOf.get(last.id))
+            : "",
           machineStatus,
+          now,
           runTitle: active
             ? runTitleText(active.inputText, subjectOf.get(active.id))
             : "",
