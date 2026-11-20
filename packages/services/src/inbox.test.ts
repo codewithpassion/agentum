@@ -1327,7 +1327,7 @@ test("overlapping timeout sweeps wake the lead once and silent members do not bl
   expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(6);
 });
 
-test("a lead that never answers its checkpoint ends the discussion after a second window", async () => {
+test("a lead that ends its checkpoint without posting closes the discussion after a second window", async () => {
   const { threadId, principal } = await discussionFixture();
   await inbox.startDiscussion(principal, {
     question: "Discuss",
@@ -1336,18 +1336,42 @@ test("a lead that never answers its checkpoint ends the discussion after a secon
   });
   nowMs += 10 * 60 * 1000;
   await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+  const checkpoint = runsOf("lead").at(-1);
   expect(runsOf("lead")).toHaveLength(2);
+  if (!checkpoint) {
+    throw new Error("Missing checkpoint");
+  }
+
+  // The checkpoint run is still live, so it may yet reply: the discussion stays.
+  nowMs += 10 * 60 * 1000;
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
   expect(
     (await inbox.readThread(user, { threadId })).discussion
   ).not.toBeNull();
 
-  nowMs += 10 * 60 * 1000;
+  // Once the run has ended without a post, the next sweep closes it.
+  db.update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, checkpoint.id))
+    .run();
   await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
-
   expect((await inbox.readThread(user, { threadId })).discussion).toBeNull();
   const wakes = allRuns().length;
   await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
   expect(allRuns()).toHaveLength(wakes);
+});
+
+test("a discussion whose lead was never woken closes after a second window", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  nowMs += 20 * 60 * 1000;
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+
+  expect((await inbox.readThread(user, { threadId })).discussion).toBeNull();
 });
 
 test("a person's mention inside a running discussion still wakes the agent", async () => {

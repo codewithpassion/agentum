@@ -6,7 +6,7 @@ import { discussions } from "@repo/db/schema/discussions";
 import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { teamMembers } from "@repo/db/schema/teams";
-import { DISCUSSION_ROUNDS_MAX } from "@repo/db/shared";
+import { DISCUSSION_ROUNDS_MAX, LIVE_RUN_STATUSES } from "@repo/db/shared";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { ForbiddenError } from "../authz.ts";
@@ -33,7 +33,10 @@ interface PostOrigin {
   sessionId: string;
 }
 const POST_ACTION = "inbox.post";
-/** Members get this long to answer a round, and the lead gets the same again. */
+/**
+ * Members get this long to answer a round. A lead that has not replied by
+ * twice this, measured from the round's opening, ends the discussion.
+ */
 const ROUND_WINDOW_MS = 10 * 60 * 1000;
 
 export const discussionInputSchema = z.strictObject({
@@ -377,7 +380,10 @@ export const createDiscussionRounds = ({
       );
     if (checkpoint) {
       const advanced = await advanceDiscussion(discussion, checkpoint.id);
-      if (!advanced && expired) {
+      // A checkpoint run that is still queued, running or waiting may yet
+      // reply, so only one that has ended without posting expires.
+      const live = LIVE_RUN_STATUSES.includes(checkpoint.status);
+      if (!advanced && expired && !live) {
         await endDiscussion(discussion);
       }
       return;
