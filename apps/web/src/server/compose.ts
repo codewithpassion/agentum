@@ -16,6 +16,7 @@ import {
   createDictationService,
   type DictationService,
 } from "@repo/services/dictation";
+import { createDreamService, type DreamService } from "@repo/services/dream";
 import {
   type AppWorkerExports,
   appReplyInvoker,
@@ -505,6 +506,7 @@ export interface Services {
   deskApi: DeskApiService;
   dictation: DictationService;
   dictationLimits?: DictationLimits;
+  dream: DreamService;
   events: EventsService;
   files: FilesService;
   inbox: InboxService;
@@ -1390,6 +1392,11 @@ export const composeWith = ({
       deskApi,
       dictation: createDictationService({ fetch: infra.fetch, modelKeys }),
       dictationLimits: infra.dictationLimits,
+      dream: createDreamService({
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+      }),
       events,
       files,
       inbox,

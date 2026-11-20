@@ -311,3 +311,19 @@ test("setEnabled true on a proposal approves it and returns the secret", async (
   expect(resumed.trigger.approvedAt).not.toBeNull();
   expect(resumed.trigger.disabledAt).toBeNull();
 });
+
+test("a person cannot create a dream trigger", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  await expect(
+    caller.triggers.create({
+      agentId: agent.id,
+      kind: "dream",
+      name: "d",
+    } as never)
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+  const triggers = await caller.triggers.list({});
+  expect(triggers.some((row) => row.kind === "dream")).toBe(false);
+});
