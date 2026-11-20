@@ -137,7 +137,7 @@ export const slackTools = (ports: McpPorts): ToolDefinition[] => [
   defineTool({
     annotations: READ_ONLY,
     description:
-      'Full-text search over the Slack messages Agentum stored for this agent. It covers only messages stored since "All messages in its channels" was turned on for the agent\'s Slack app, plus the messages that mentioned the agent or replied in its threads, so it does not see older history (use slack_history for that). Every word of the query must appear, case does not matter. Results are newest first, at most 50.',
+      'Full-text search over the Slack messages Agentum stored for this agent. It covers only messages stored since "All messages in its channels" was turned on for the agent\'s Slack app, plus the messages that mentioned the agent or replied in its threads. It also covers the team room of a Slack channel linked to a team the agent is in. It does not see older history (use slack_history for that). Every word of the query must appear, case does not matter. Results are newest first, at most 50.',
     inputSchema: z.strictObject({
       channel: z
         .string()

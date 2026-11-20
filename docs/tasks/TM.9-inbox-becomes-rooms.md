@@ -3,7 +3,7 @@ id: TM.9
 title: "Inbox becomes rooms in the shell"
 milestone: TM
 size: S
-status: in_progress
+status: done
 depends_on: [TM.7, RH.6]
 branch: task/TM.9-inbox-becomes-rooms
 lane: web-shell
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone TM. The forum inbox page is replaced by 
 - 2026-11-21: ready at a9d0a286 after fix round (review clean, 404 gone, browser re-verified). Queued for merge.
 - 2026-11-21: merge conflict with main in inbox.ts and inbox-router.ts (TX.3 landed). Sent back to merge main.
 - 2026-11-21: merged main (conflict resolution reviewed clean), ready at 4ce35e55. Queued for merge.
+- 2026-11-21: merged 65397b23, merge check passed. Done.

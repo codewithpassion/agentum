@@ -46,10 +46,12 @@ import { createRunsService, type RunsService } from "../runs.ts";
 import { RELAY_TOKEN_ENV } from "../secrets/relay.ts";
 import { createSecretsService, type SecretsService } from "../secrets.ts";
 import { SLACK_GUIDANCE } from "../slack/guidance.ts";
+import { createSpendService } from "../spend.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { advanceCursor, eventsAfter, type SessionEvent } from "./events.ts";
 import type {
   ManagedGateway,
+  SessionUsage,
   SkillRef,
   SkillUploadFile,
   ToolResultImage,
@@ -315,6 +317,13 @@ class FakeGateway implements ManagedGateway {
 
   ensureEnvironment() {
     return Promise.resolve("env_1");
+  }
+
+  /** What the session reports having used in all, or null for no report. */
+  usage: SessionUsage | null = null;
+
+  getUsage() {
+    return Promise.resolve(this.usage);
   }
 
   getSession() {
@@ -703,6 +712,7 @@ beforeEach(async () => {
     db,
     devFakeRuntime: false,
     gateways: [],
+    spend: createSpendService({ atomic, clock, db }),
   });
   requests = createRequestsService({
     atomic,
@@ -2917,5 +2927,152 @@ describe("thinking level", () => {
     expect(gateway.sessions.get("sesn_1")?.effort).toBe("high");
     expect(gateway.sessions.get("sesn_2")?.effort).toBeUndefined();
     expect(gateway.synced).toEqual([]);
+  });
+});
+
+describe("a run's usage", () => {
+  const SESSION_USAGE: SessionUsage = {
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: 0.5,
+    inputTokens: 1000,
+    outputTokens: 200,
+  };
+
+  const usageOfRun = (runId: string) =>
+    JSON.parse(runRow(runId)?.usage ?? "null") as Record<
+      string,
+      unknown
+    > | null;
+
+  test("a finished run records the tokens and cost its session reports", async () => {
+    const { runId } = await start(dom);
+    gateway.usage = SESSION_USAGE;
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("done");
+    expect(usageOfRun(runId)).toMatchObject({
+      costUsd: 0.5,
+      inputTokens: 1000,
+      outputTokens: 200,
+    });
+  });
+
+  test("tokens without a cost are priced from the model's rates", async () => {
+    const { runId } = await start(dom);
+    gateway.usage = {
+      ...SESSION_USAGE,
+      costUsd: null,
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    };
+
+    await drive(runId);
+
+    // The agent runs on sonnet: $2 in and $10 out per million tokens.
+    expect(usageOfRun(runId)?.costUsd).toBe(12);
+  });
+
+  test("a run that fails still records what it used", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.event("session.status_terminated")]];
+    gateway.usage = SESSION_USAGE;
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(usageOfRun(runId)?.costUsd).toBe(0.5);
+  });
+
+  test("a run whose polls keep failing records what its session used", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+    gateway.usage = SESSION_USAGE;
+    gateway.pollFailure = new Error("down");
+
+    let answer = await managed.step(runId);
+    for (let count = 1; answer.next !== null && count < 10; count += 1) {
+      nowMs += 10 * SECOND;
+      // biome-ignore lint/performance/noAwaitInLoops: each failure builds on the last
+      answer = await managed.step(runId);
+    }
+
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(usageOfRun(runId)?.costUsd).toBe(0.5);
+  });
+
+  test("a new Anthropic session is not measured against the closed one's totals", async () => {
+    const first = await start(dom);
+    gateway.turns = [[gateway.event("session.status_terminated")]];
+    gateway.usage = SESSION_USAGE;
+    await drive(first.runId);
+    const second = await start(dom);
+    gateway.usage = { ...SESSION_USAGE, costUsd: 0.1 };
+
+    await drive(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(usageOfRun(second.runId)?.costUsd).toBe(0.1);
+  });
+
+  test("a run in a session that reports no usage records none", async () => {
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(runRow(runId)?.status).toBe("done");
+    expect(runRow(runId)?.usage).toBeNull();
+  });
+
+  test("a later run in the same session records only what it used itself", async () => {
+    const first = await start(dom);
+    gateway.usage = SESSION_USAGE;
+    await drive(first.runId);
+    const second = await start(dom);
+    gateway.usage = {
+      ...SESSION_USAGE,
+      costUsd: 0.75,
+      inputTokens: 1500,
+      outputTokens: 300,
+    };
+
+    await drive(second.runId);
+
+    expect(usageOfRun(second.runId)).toMatchObject({
+      costUsd: 0.25,
+      inputTokens: 500,
+      outputTokens: 100,
+    });
+  });
+
+  test("an agent at $0.99 of a $1 cap is paused when a run costs $0.02", async () => {
+    db.update(agentRows)
+      .set({ weeklyCapCents: 100 })
+      .where(eq(agentRows.id, agentId))
+      .run();
+    const first = await start(dom);
+    gateway.usage = { ...SESSION_USAGE, costUsd: 0.99 };
+    await drive(first.runId);
+    const [before] = db
+      .select()
+      .from(agentRows)
+      .where(eq(agentRows.id, agentId))
+      .all();
+    expect(before?.pausedAt).toBeNull();
+    const second = await start(dom);
+    gateway.usage = { ...SESSION_USAGE, costUsd: 1.01 };
+
+    await drive(second.runId);
+
+    expect(usageOfRun(second.runId)?.costUsd).toBeCloseTo(0.02);
+    const [after] = db
+      .select()
+      .from(agentRows)
+      .where(eq(agentRows.id, agentId))
+      .all();
+    expect(after).toMatchObject({ pausedReason: "spend_cap" });
+    expect(after?.pausedAt).not.toBeNull();
   });
 });
