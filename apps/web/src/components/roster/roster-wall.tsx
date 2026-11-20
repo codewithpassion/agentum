@@ -112,6 +112,7 @@ export const RosterWall = ({
   onAddMember,
   teams,
   userId,
+  weekCents,
 }: {
   cards: readonly AgentCard[];
   chips: readonly NeedsYouChip[];
@@ -120,6 +121,8 @@ export const RosterWall = ({
   onAddMember: (teamId: string, agentId: string) => Promise<void>;
   teams: readonly Team[];
   userId: string;
+  /** This week's spend per agent id, from the Spend page's rows. An agent with no entry spent nothing. */
+  weekCents: ReadonlyMap<string, number>;
 }) => {
   const isEmpty = cards.length === 0;
   const showEmptyState = isEmpty && emptyState !== undefined;
@@ -142,7 +145,10 @@ export const RosterWall = ({
         <ul className={GRID_CLASS}>
           {sortCards(cards).map((card) => (
             <li key={card.id}>
-              <AgentCardView card={card} />
+              <AgentCardView
+                card={card}
+                weekCents={weekCents.get(card.id) ?? 0}
+              />
             </li>
           ))}
           <AddCards />
@@ -159,7 +165,10 @@ export const RosterWall = ({
               <ul className={GRID_CLASS}>
                 {group.cards.map((card) => (
                   <li key={card.id}>
-                    <AgentCardView card={card} />
+                    <AgentCardView
+                      card={card}
+                      weekCents={weekCents.get(card.id) ?? 0}
+                    />
                   </li>
                 ))}
                 {group.team === null ? null : (

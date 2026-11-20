@@ -4,7 +4,6 @@ import {
   type AgentAskRef,
   askedName,
   doingNow,
-  formatCost,
   rowsOf,
 } from "./agents-table-logic.ts";
 
@@ -100,13 +99,14 @@ describe("rowsOf", () => {
       [
         overview({
           agentId: "agt_2",
-          costUsdThisWeek: 1.234,
+          costUsdThisWeek: 9.99,
           tasksThisWeek: 7,
           waiting: 1,
         }),
         overview({ agentId: "agt_1", tasksThisWeek: 2, working: 1 }),
       ],
-      members
+      members,
+      new Map([["agt_2", 55]])
     );
 
     expect(rows.map((row) => row.agent.id)).toEqual(["agt_1", "agt_2"]);
@@ -117,16 +117,16 @@ describe("rowsOf", () => {
     });
     expect(rows[1]).toMatchObject({
       asked: "Priya Shah",
-      cost: "$1.23",
+      cost: "$0.55",
       doing: [{ strong: true, text: "1 waiting" }],
       tasksThisWeek: 7,
     });
   });
 
-  test("gives an agent with no overview row zero counts and no cost", () => {
-    const [row] = rowsOf([agent({ id: "agt_9" })], [], members);
+  test("gives an agent with no overview row zero counts and $0", () => {
+    const [row] = rowsOf([agent({ id: "agt_9" })], [], members, new Map());
     expect(row).toMatchObject({
-      cost: "Not reported",
+      cost: "$0",
       doing: [{ strong: false, text: "Quiet" }],
       tasksThisWeek: 0,
     });
@@ -134,28 +134,16 @@ describe("rowsOf", () => {
 
   test("keeps the agent object itself, so callers keep its fields", () => {
     const withName = { ...agent({ id: "agt_3" }), name: "Mail bot" };
-    const [row] = rowsOf([withName], [], members);
+    const [row] = rowsOf([withName], [], members, new Map());
     expect(row?.agent.name).toBe("Mail bot");
   });
 
   test("passes Unknown through when members failed", () => {
-    const [row] = rowsOf([agent()], [], null);
+    const [row] = rowsOf([agent()], [], null, new Map());
     expect(row?.asked).toBe("Unknown");
   });
 
   test("returns no rows for no agents", () => {
-    expect(rowsOf([], [overview()], members)).toEqual([]);
-  });
-});
-
-describe("formatCost", () => {
-  test.each([
-    [null, "Not reported"],
-    [0, "$0"],
-    [0.004, "<$0.01"],
-    [0.5, "$0.50"],
-    [12.345, "$12.35"],
-  ])("%p reads %p", (value, text) => {
-    expect(formatCost(value)).toBe(text);
+    expect(rowsOf([], [overview()], members, new Map())).toEqual([]);
   });
 });
