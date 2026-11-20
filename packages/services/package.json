@@ -83,6 +83,8 @@
     "./library/audience": "./src/library/audience.ts",
     "./library/home": "./src/library/home.ts",
     "./library/memory": "./src/library/memory.ts",
+    "./library/memory-paths": "./src/library/memory-paths.ts",
+    "./library/path": "./src/library/path.ts",
     "./library/skill-file": "./src/library/skill-file.ts",
     "./library/sync-paths": "./src/library/sync-paths.ts",
     "./library/task-files": "./src/library/task-files.ts",

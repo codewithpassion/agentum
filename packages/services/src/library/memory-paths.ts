@@ -4,7 +4,8 @@
 // the agent's runs for that person. A team has no private files, and the rule
 // treats a stray one as private all the same.
 const MEMORY_FOLDER = /^(?:agents|teams)\/[^/]+\/memory(?:\/(.*))?$/;
-const PRIVATE_PREFIX = "private/";
+const PRIVATE_FOLDER = "private";
+const PRIVATE_PREFIX = `${PRIVATE_FOLDER}/`;
 const MARKDOWN = ".md";
 
 /** The folder `agents/<slug>/memory` or `teams/<slug>/memory`, or any path under it. Paths are normalised, with no slash at either end. */
@@ -33,6 +34,15 @@ export const privateMemoryOwner = (path: string): string | null => {
   return name.endsWith(MARKDOWN) && !name.includes("/") && name.length > 3
     ? name.slice(0, -MARKDOWN.length)
     : "";
+};
+
+/** The `private` folder of a memory folder, or any path under it. Paths are normalised. Unlike `privateMemoryOwner`, it takes the folder itself, and any file or subfolder in it. */
+export const isPrivateMemoryPath = (path: string): boolean => {
+  const rest = MEMORY_FOLDER.exec(path)?.[1];
+  return (
+    rest !== undefined &&
+    (rest === PRIVATE_FOLDER || rest.startsWith(PRIVATE_PREFIX))
+  );
 };
 
 /** Whether `userId` may read `path`: true unless it is another person's private memory file. */
