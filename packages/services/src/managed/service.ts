@@ -249,7 +249,11 @@ const hasDesktop = (computer: AgentComputer | null) =>
 const computerFingerprint = (computer: AgentComputer | null) =>
   computer ? { computer } : {};
 
-/** The thinking level a run uses. A subagent keeps its own settings, so it gets none from the agent. */
+/**
+ * The thinking level a run uses. A subagent keeps its own settings, so it gets
+ * none from the agent. Managed Agents has no context-size setting (Anthropic
+ * compacts a session itself), so the agent's `contextBudget` is not used here.
+ */
 const effortOfRun = (agent: AgentRecord, run: RunRecord) =>
   effortOf(runtimeConfigForRun(agent.runtimeConfig, run.subagentLevel));
 
