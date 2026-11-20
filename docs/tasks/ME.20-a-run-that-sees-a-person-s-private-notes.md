@@ -3,9 +3,9 @@ id: ME.20
 title: "A run that sees a person's private notes writes to their private file"
 milestone: ME
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/ME.20-a-run-that-sees-a-person-s-private-notes
 lane: services-memory
 executor: claude
 ---
@@ -24,3 +24,4 @@ Service tests: a `remember` from a run in A's non-private `ui` session lands in 
 
 ## Log
 - 2026-11-21: added from the ME gate review, round 2.
+- 2026-11-21: dispatched on task/ME.20-a-run-that-sees-a-person-s-private-notes (v4 controller session).

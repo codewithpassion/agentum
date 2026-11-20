@@ -26,3 +26,4 @@ From the DR gate review, round 1 (`docs/reviews/DR-1.md`, nits 1 and 10). The ga
 ## Log
 - 2026-11-21: added from the DR gate review, round 1.
 - 2026-11-21: dispatched on task/DR.15-undo-safe-order-and-open-questions (v4 controller session).
+- 2026-11-21: controller decision: rejecting a held batch closes questions about notes that still exist, and the next dream may ask them again. That's acceptable.
