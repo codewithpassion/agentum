@@ -3644,6 +3644,7 @@ describe("guest artifact starts", () => {
   });
   test("a guest start is refused while the workspace is at its weekly cap", async () => {
     await setupArtifact();
+    db.update(workspaceRows).set({ weeklyCapCents: 100 }).run();
     const overCap = {
       enforceCap: () => Promise.resolve(),
       workspaceOver: () => Promise.resolve(true),

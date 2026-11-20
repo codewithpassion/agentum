@@ -540,6 +540,47 @@ test("no start is refused with no workspace cap, or a cap above the week", async
   await start(await makeAgent("Cy"));
 });
 
+test("a start looks at the workspace's week only when the workspace has a cap", async () => {
+  let checks = 0;
+  const counted = createRunsService({
+    adapters: [spyAdapter()],
+    atomic: sqliteAtomic(db),
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    clock: { now: () => new Date(START), sleep: () => Promise.resolve() },
+    db,
+    devFakeRuntime: false,
+    gateways: [],
+    spend: {
+      enforceCap: () => Promise.resolve(),
+      workspaceOver: () => {
+        checks += 1;
+        return Promise.resolve(false);
+      },
+    },
+  });
+  const startCounted = () =>
+    counted.startRun(owner, {
+      agentId: aId,
+      input: { text: "hello" },
+      session: { origin: "ui" },
+    });
+
+  await startCounted();
+  expect(checks).toBe(0);
+
+  setWorkspaceCap(10_000);
+  await startCounted();
+  expect(checks).toBe(1);
+});
+
+test("a team dream that takes the workspace over its cap holds new starts", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  teamDream("td1", WEEK_OVER_CAP_USD);
+  await expect(start(aId)).rejects.toMatchObject(
+    refusedByWorkspaceLimit("Ada")
+  );
+});
+
 test("a resumed agent starts once an admin raises the workspace cap above the week", async () => {
   setWorkspaceCap(CAP_CENTS);
   await spendOn(aId, WEEK_OVER_CAP_USD);

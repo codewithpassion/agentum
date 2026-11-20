@@ -49,7 +49,11 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { monotonicFactory, ulid } from "ulidx";
 import { z } from "zod";
-import { assertModelForRuntime, findAgent } from "./agents.ts";
+import {
+  assertModelForRuntime,
+  findAgent,
+  findAgentWithWorkspaceCap,
+} from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { cloudEnvironmentOf } from "./cloud/environment.ts";
 import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
@@ -817,14 +821,19 @@ export const createRunsService = ({
   /**
    * A workspace at its weekly limit starts nothing new, for every agent in it,
    * paused or not: a resume, a new agent or a restored one would otherwise get
-   * past the pause. The same follow-ups as `refuseIfPaused` go on. With no
-   * workspace cap it reads one row and sums nothing.
+   * past the pause. The same follow-ups as `refuseIfPaused` go on. The agent
+   * read carries the cap, so with no workspace cap this runs no query.
    */
   const refuseIfWorkspaceOver = async (
-    agent: { name: string; workspaceId: string },
+    agent: {
+      name: string;
+      workspaceCapCents: number | null;
+      workspaceId: string;
+    },
     options: StartRunOptions
   ) => {
     if (
+      agent.workspaceCapCents !== null &&
       !startsWorkUnderWay(options) &&
       (await spend?.workspaceOver(agent.workspaceId))
     ) {
@@ -848,7 +857,7 @@ export const createRunsService = ({
     input: ParsedInput,
     options: StartRunOptions
   ) => {
-    const agent = await findAgent(db, {
+    const agent = await findAgentWithWorkspaceCap(db, {
       id: input.agentId,
       workspaceId:
         principal.kind === "system" ? undefined : principal.workspaceId,
@@ -1359,7 +1368,7 @@ export const createRunsService = ({
     ) {
       throw guestUnavailable();
     }
-    const agent = await findAgent(db, {
+    const agent = await findAgentWithWorkspaceCap(db, {
       id: agentId,
       workspaceId: grant.workspaceId,
     });
