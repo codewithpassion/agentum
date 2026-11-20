@@ -26,6 +26,13 @@ const run = (overrides: Partial<DreamRun> = {}): DreamRun => ({
   ...overrides,
 });
 
+const QUIET = {
+  canChange: true,
+  disabled: false,
+  onDecide: () => undefined,
+  pending: null,
+} as const;
+
 const render = (element: ReactElement) => {
   const { document } = new Window();
   document.body.innerHTML = renderInRoom(element);
@@ -33,7 +40,9 @@ const render = (element: ReactElement) => {
 };
 
 test("with only one dream there are no earlier dreams to show", () => {
-  expect(renderInRoom(<EarlierDreams nowMs={NOW} runs={[run()]} />)).toBe("");
+  expect(
+    renderInRoom(<EarlierDreams {...QUIET} nowMs={NOW} runs={[run()]} />)
+  ).toBe("");
 });
 
 test("three dreams show every run except the newest, with its when and status", () => {
@@ -55,7 +64,11 @@ test("three dreams show every run except the newest, with its when and status", 
     status: "failed",
   });
   const document = render(
-    <EarlierDreams nowMs={NOW} runs={[threeDaysAgo, newest, yesterday]} />
+    <EarlierDreams
+      {...QUIET}
+      nowMs={NOW}
+      runs={[threeDaysAgo, newest, yesterday]}
+    />
   );
 
   const rows = Array.from(
@@ -73,6 +86,7 @@ test("three dreams show every run except the newest, with its when and status", 
 test("each earlier dream shows its status as a badge", () => {
   const document = render(
     <EarlierDreams
+      {...QUIET}
       nowMs={NOW}
       runs={[
         run({ id: "run_new" }),
@@ -100,4 +114,44 @@ test("each earlier dream shows its status as a badge", () => {
     )
   ).map((badge) => badge.textContent);
   expect(badges).toEqual(["Skipped", "Failed", "Undone"]);
+});
+
+test("an earlier dream that is still held shows its batch with Approve and Reject, and no applied counts", () => {
+  const held = run({
+    counts: { added: 2, dropped: 0, merged: 0, questions: 0 },
+    diary: "Wants to add 2 notes.",
+    heldChanges: 2,
+    id: "run_held",
+    startedAt: new Date(NOW - 2 * DAY_MS).toISOString(),
+  });
+  const newest = run({ id: "run_new" });
+  const document = render(
+    <EarlierDreams {...QUIET} nowMs={NOW} runs={[newest, held]} />
+  );
+  const item = document.querySelector('[data-testid="earlier-dream"]');
+  const text = item?.textContent ?? "";
+  expect(text).toContain("Held");
+  expect(text).toContain("Wants to add 2 notes.");
+  expect(text).not.toContain("Added 2 notes");
+  expect(text).toContain("Approve");
+  expect(text).toContain("Reject");
+});
+
+test("someone who cannot change the agent sees an earlier held batch without buttons", () => {
+  const held = run({ heldChanges: 1, id: "run_held" });
+  const newest = run({
+    id: "run_new",
+    startedAt: new Date(NOW).toISOString(),
+  });
+  const document = render(
+    <EarlierDreams
+      {...QUIET}
+      canChange={false}
+      nowMs={NOW}
+      runs={[newest, held]}
+    />
+  );
+  const text = document.body.textContent ?? "";
+  expect(text).toContain("Held");
+  expect(text).not.toContain("Approve");
 });

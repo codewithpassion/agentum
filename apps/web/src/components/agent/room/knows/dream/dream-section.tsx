@@ -1,6 +1,7 @@
 import type { DreamSchedule, RememberRules } from "@repo/db/shared";
 import { useCallback } from "react";
 import { DreamCard } from "./dream-card.tsx";
+import { decisionPending } from "./dream-logic.ts";
 import { EarlierDreams } from "./earlier-dreams.tsx";
 import type { DreamApi } from "./use-dream.ts";
 
@@ -57,7 +58,17 @@ export function DreamSection({
             runs={runs}
             schedule={rules.dreamSchedule}
           />
-          <EarlierDreams nowMs={nowMs} runs={runs} />
+          <EarlierDreams
+            canChange={canChange}
+            disabled={
+              disabled ||
+              (pending !== null && decisionPending(pending) === null)
+            }
+            nowMs={nowMs}
+            onDecide={decide}
+            pending={decisionPending(pending)}
+            runs={runs}
+          />
         </>
       )}
     </div>

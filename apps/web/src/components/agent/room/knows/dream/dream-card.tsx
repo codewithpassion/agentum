@@ -7,6 +7,7 @@ import {
   canUndoRun,
   countsSentence,
   type DreamCardState,
+  decisionPending,
   dreamCardState,
   dreamTitle,
   questionsSentence,
@@ -52,13 +53,6 @@ function UndoNight({
       {pending === "undo" ? "Undoing…" : "Undo this night"}
     </Button>
   );
-}
-
-/** The decision being sent for a held batch, or null when the card waits for something else. */
-function decisionPending(
-  pending: DreamCardProps["pending"]
-): DreamDecision | null {
-  return pending === "approve" || pending === "reject" ? pending : null;
 }
 
 function DreamBody({
@@ -117,7 +111,9 @@ function DreamBody({
         </p>
         <HeldBatch
           canDecide={canChange}
-          disabled={disabled}
+          disabled={
+            disabled || (pending !== null && decisionPending(pending) === null)
+          }
           dreamRunId={state.run.id}
           onDecide={onDecide}
           pending={decisionPending(pending)}

@@ -1,9 +1,13 @@
-import type { DreamDecision, DreamRun } from "@repo/db/shared";
+import {
+  type DreamDecision,
+  type DreamRun,
+  RAIL_REFRESH_EVENT,
+} from "@repo/db/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
 
-/** What the dream card waits for: a dream started here, or a night being undone. */
+/** What the dream card waits for: a dream started here, a night being undone, or a held batch being approved or rejected. */
 export type DreamPending = "run" | "undo" | DreamDecision;
 
 /** One agent's dreams and the actions on them. */
@@ -93,9 +97,14 @@ export function useDream(
 
   const decide = useCallback(
     (dreamRunId: string, decision: DreamDecision) => {
-      act(decision, () =>
-        getTrpc().dream.decide.mutate({ decision, dreamRunId })
-      );
+      act(decision, async () => {
+        try {
+          await getTrpc().dream.decide.mutate({ decision, dreamRunId });
+        } finally {
+          // The Needs you card of this batch is gone or stale either way.
+          window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
+        }
+      });
     },
     [act]
   );

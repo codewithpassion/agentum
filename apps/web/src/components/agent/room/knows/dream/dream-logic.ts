@@ -1,5 +1,6 @@
 import type {
   DreamCounts,
+  DreamDecision,
   DreamRun,
   DreamRunStatus,
   DreamSchedule,
@@ -149,3 +150,8 @@ export const SCHEDULE_OPTIONS: readonly {
     value: "off",
   },
 ];
+
+/** The decision being sent for a held batch, or null when the card waits for something else. */
+export function decisionPending(pending: string | null): DreamDecision | null {
+  return pending === "approve" || pending === "reject" ? pending : null;
+}

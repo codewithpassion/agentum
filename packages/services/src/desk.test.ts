@@ -1724,3 +1724,27 @@ test("a decided dream batch leaves Needs you", async () => {
 
   expect((await get()).needsYou).toEqual([]);
 });
+
+test("a held dream batch of an agent with no owner shows to its creator only", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(heldRow());
+  await db
+    .update(agentRows)
+    .set({ ownerUserId: null })
+    .where(eq(agentRows.id, a1));
+
+  expect(ids((await get()).needsYou)).toEqual([DREAM_RUN]);
+  expect((await get({}, user("u2"))).needsYou).toEqual([]);
+});
+
+test("a held dream batch of an archived agent, or of another workspace's agent, is not in Needs you", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(heldRow());
+  await db
+    .update(agentRows)
+    .set({ status: "archived" })
+    .where(eq(agentRows.id, a1));
+
+  expect((await get()).needsYou).toEqual([]);
+  expect((await get({}, user("u1", "w2"))).needsYou).toEqual([]);
+});
