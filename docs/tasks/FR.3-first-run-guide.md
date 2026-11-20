@@ -3,9 +3,9 @@ id: FR.3
 title: "First run: add your AI account on the home page"
 milestone: FR
 size: S
-status: todo
+status: in_progress
 depends_on: [RH.3]
-branch: null
+branch: task/FR.3-first-run-guide
 lane: web-home
 executor: claude
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone FR. A new workspace needs a model key be
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/FR.3-first-run-guide (v4 controller session).
