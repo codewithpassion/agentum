@@ -135,7 +135,7 @@ test("an agent with a limit shows before it spends, a removed one is flagged", (
   expect(table.rows[1]?.capCents).toBe(500);
 });
 
-test("a team row is not in the table and leaves the agent rows as they were", () => {
+test("a team dream is its own line: no agent row, but in the weekly totals the cap counts", () => {
   const weeks = spendWeeks(NOW, "Australia/Sydney");
   const input = {
     agents: [{ id: "a", name: "Ada" }],
@@ -147,12 +147,14 @@ test("a team row is not in the table and leaves the agent rows as they were", ()
     ...agentOnly,
     { agentId: null, cents: 500, day: "2026-11-18", tasks: 0, teamId: "t1" },
   ];
-  expect(buildSpendTable({ ...input, rows: withTeam })).toEqual(
-    buildSpendTable({ ...input, rows: agentOnly })
-  );
-  expect(
-    buildSpendTable({ ...input, rows: withTeam }).rows.map((row) => row.name)
-  ).toEqual(["Ada"]);
+  const plain = buildSpendTable({ ...input, rows: agentOnly });
+  const table = buildSpendTable({ ...input, rows: withTeam });
+  expect(table.rows).toEqual(plain.rows);
+  expect(table.rows.map((row) => row.name)).toEqual(["Ada"]);
+  const current = weeks.length - 1;
+  expect(table.teamCentsByWeek[current]).toBe(500);
+  expect(plain.teamCentsByWeek[current]).toBe(0);
+  expect(table.totals[current]).toBe((plain.totals[current] ?? 0) + 500);
 });
 
 test("a card with a limit takes the Monday week's spend, one without keeps its own", () => {

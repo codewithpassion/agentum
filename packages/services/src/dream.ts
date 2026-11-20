@@ -128,6 +128,8 @@ export interface DreamDeps {
 export interface TeamDreamFireResult {
   failed: { message: string; teamId: string }[];
   fired: string[];
+  /** Teams that could not start now (a dream already running, the workspace at its limit). They do not use the tick's budget. */
+  skipped: { message: string; teamId: string }[];
 }
 
 /** What one `fireDue` call did. Run ids, and the agents whose dream could not start. */
@@ -603,6 +605,21 @@ export const createDreamService = (deps: DreamDeps) => {
     return memberAt !== null && (ownAt === null || memberAt > ownAt);
   };
 
+  /** Starts one due team's dream and files what came of it. */
+  const startTeam = async (
+    teamId: string,
+    result: TeamDreamFireResult
+  ): Promise<void> => {
+    try {
+      result.fired.push((await teamRunner.run(teamId)).id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // A refusal to start is the state of things, not a failure, and must not use up the tick's turns.
+      const refused = isServiceError(error) && error.code === "conflict";
+      (refused ? result.skipped : result.failed).push({ message, teamId });
+    }
+  };
+
   /**
    * The minute tick's team dream job. A team dreams after its members' dreams
    * of the night have finished or skipped, a few teams at a time.
@@ -619,7 +636,7 @@ export const createDreamService = (deps: DreamDeps) => {
       .from(teams)
       .where(and(isNull(teams.archivedAt), isNotNull(teams.folderPath)))
       .orderBy(asc(teams.id));
-    const result: TeamDreamFireResult = { failed: [], fired: [] };
+    const result: TeamDreamFireResult = { failed: [], fired: [], skipped: [] };
     for (const { id } of candidates) {
       if (result.fired.length + result.failed.length >= TEAM_DREAMS_PER_TICK) {
         break;
@@ -628,14 +645,7 @@ export const createDreamService = (deps: DreamDeps) => {
       if (!(await teamDue(id, now))) {
         continue;
       }
-      try {
-        result.fired.push((await teamRunner.run(id)).id);
-      } catch (error) {
-        result.failed.push({
-          message: error instanceof Error ? error.message : String(error),
-          teamId: id,
-        });
-      }
+      await startTeam(id, result);
     }
     return result;
   };

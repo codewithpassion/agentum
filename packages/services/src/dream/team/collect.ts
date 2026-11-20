@@ -163,6 +163,7 @@ export const collectRoomPosts = async (
     .where(
       and(
         eq(inboxThreads.teamId, team.id),
+        eq(inboxThreads.workspaceId, team.workspaceId),
         eq(inboxThreads.title, TEAM_DIARY_TOPIC)
       )
     );

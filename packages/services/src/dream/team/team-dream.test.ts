@@ -941,3 +941,32 @@ test("a fact on the workspace's never list is not lifted into team memory", asyn
   expect(await teamNotes(w)).toEqual([]);
   expect(await w.service.list(w.owner, { agentId: SCOUT })).toHaveLength(1);
 });
+
+test("a team that cannot start now is skipped by the tick and does not use up its turns", async () => {
+  const w = makeTeamWorld();
+  const system = { kind: "system" } as const;
+  w.db
+    .insert(dreamRuns)
+    .values({
+      agentId: SCOUT,
+      id: "member_dream",
+      startedAt: "2026-11-20T09:00:00.000Z",
+      status: "done",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  w.db
+    .insert(dreamRuns)
+    .values({
+      id: "live",
+      startedAt: "2026-11-20T09:59:00.000Z",
+      status: "running",
+      teamId: TEAM,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const result = await w.dream.fireDueTeams(system);
+  expect(result.fired).toEqual([]);
+  expect(result.failed).toEqual([]);
+  expect(result.skipped.map((item) => item.teamId)).toEqual([TEAM]);
+});

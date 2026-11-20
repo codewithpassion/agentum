@@ -4,7 +4,6 @@
 // every `private/` file at its own door (`library/memory-paths.ts`).
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
-import { dreamRuns } from "@repo/db/schema/dreams";
 import { teamMembers, teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
@@ -12,7 +11,7 @@ import {
   DEFAULT_REMEMBER_RULES,
   type MemoryNote,
 } from "@repo/db/shared";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { notFound, ServiceError } from "../../errors.ts";
 import { effectiveOwner } from "../../guards.ts";
@@ -194,26 +193,6 @@ export const teamDreamPrincipal = (team: {
   via: "session",
   workspaceId: team.workspaceId,
 });
-
-/** The run ids of the live agent dreams of these agents. */
-export const runningDreamsOf = async (
-  db: Database,
-  agentIds: readonly string[]
-): Promise<string[]> => {
-  if (agentIds.length === 0) {
-    return [];
-  }
-  const rows = await db
-    .select({ id: dreamRuns.id })
-    .from(dreamRuns)
-    .where(
-      and(
-        inArray(dreamRuns.agentId, [...agentIds]),
-        eq(dreamRuns.status, "running")
-      )
-    );
-  return rows.map((row) => row.id);
-};
 
 /** A team as a person who answers for it sees it, archived or not, with or without a folder. */
 export interface TeamRecord {
