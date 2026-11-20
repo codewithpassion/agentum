@@ -13,6 +13,7 @@ import { mailMessages } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
+  type DeskCard,
   MAIL_SEND_TOOL,
   type RailCard,
   type RailItem,
@@ -153,6 +154,15 @@ const expiryOf = (
   }
   return record.expiresAt;
 };
+
+/** The optional fields a desk card passes on to its rail card, when it has them. */
+const optionalCardFields = (
+  deskCard: DeskCard
+): Pick<RailCard, "a2a" | "artifactId" | "dream"> => ({
+  ...(deskCard.a2a ? { a2a: deskCard.a2a } : {}),
+  ...(deskCard.artifactId ? { artifactId: deskCard.artifactId } : {}),
+  ...(deskCard.dream ? { dream: deskCard.dream } : {}),
+});
 
 const byCardAge = (a: RailCard, b: RailCard): number =>
   a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at);
@@ -507,8 +517,7 @@ export const createRailService = ({
         };
         return candidate(
           {
-            ...(deskCard.a2a ? { a2a: deskCard.a2a } : {}),
-            ...(deskCard.artifactId ? { artifactId: deskCard.artifactId } : {}),
+            ...optionalCardFields(deskCard),
             agentId: deskCard.agentId,
             agentName,
             at: deskCard.at,
