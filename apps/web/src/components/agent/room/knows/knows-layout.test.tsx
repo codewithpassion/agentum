@@ -147,7 +147,7 @@ test("the dream card shows the latest dream and Dream now for the owner", () => 
     finishedAt: "2026-11-20T02:05:00.000Z",
     heldChanges: 0,
     id: "dream_1",
-    resultVersion: null,
+    resultVersion: "version_1",
     since: null,
     startedAt: "2026-11-20T02:00:00.000Z",
     status: "done",

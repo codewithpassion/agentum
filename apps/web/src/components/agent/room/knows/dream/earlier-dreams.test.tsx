@@ -155,3 +155,24 @@ test("someone who cannot change the agent sees an earlier held batch without but
   expect(text).toContain("Held");
   expect(text).not.toContain("Approve");
 });
+
+test("an earlier rejected dream says rejected and shows its diary, not applied counts", () => {
+  const rejected = run({
+    counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+    diary:
+      "Wants to add 1 note.\nYou rejected these changes. Nothing was changed.",
+    id: "run_rejected",
+    startedAt: new Date(NOW - 2 * DAY_MS).toISOString(),
+  });
+  const document = render(
+    <EarlierDreams
+      {...QUIET}
+      nowMs={NOW}
+      runs={[run({ id: "run_new" }), rejected]}
+    />
+  );
+  const text = document.body.textContent ?? "";
+  expect(text).toContain("Rejected");
+  expect(text).toContain("You rejected these changes.");
+  expect(text).not.toContain("Added 1 note");
+});

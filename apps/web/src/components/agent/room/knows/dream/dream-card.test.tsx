@@ -423,3 +423,19 @@ test("clicking Approve and Reject on a held dream calls onDecide with the run id
     await unmount();
   }
 });
+
+test("a rejected dream shows its diary and no applied counts, Undo or buttons", () => {
+  const document = render({
+    runs: [
+      run({
+        counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+        diary: "You rejected these changes. Nothing was changed.",
+      }),
+    ],
+  });
+  const text = card(document)?.textContent ?? "";
+  expect(card(document)?.getAttribute("data-state")).toBe("rejected");
+  expect(text).toContain("You rejected these changes.");
+  expect(text).not.toContain("Added 1 note");
+  expect(buttonNamed(document, "Undo this night")).toBeUndefined();
+});

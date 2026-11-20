@@ -121,6 +121,16 @@ function DreamBody({
       </>
     );
   }
+  if (state.kind === "rejected") {
+    return (
+      <>
+        <p className="whitespace-pre-line [overflow-wrap:anywhere]">
+          {state.run.diary}
+        </p>
+        <SeeChanges runId={state.run.id} />
+      </>
+    );
+  }
   if (state.kind === "undone") {
     return (
       <>

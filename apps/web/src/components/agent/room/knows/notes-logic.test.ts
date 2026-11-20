@@ -222,3 +222,16 @@ test("groupNotes leaves out held merge rows, which are decided with their dream"
     "plain",
   ]);
 });
+
+test("groupNotes leaves out the held rows of a dream, which are decided in the diary", () => {
+  const groups = groupNotes(
+    [],
+    [
+      change({ id: "agent-held" }),
+      change({ dreamRunId: "dream-1", id: "dream-held" }),
+    ]
+  );
+  expect(groups.flatMap((group) => group.held.map((row) => row.id))).toEqual([
+    "agent-held",
+  ]);
+});

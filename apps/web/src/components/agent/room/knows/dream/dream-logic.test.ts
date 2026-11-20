@@ -10,6 +10,7 @@ import {
   RUN_STATUS_LABELS,
   SCHEDULE_OPTIONS,
   sortRuns,
+  wasRejected,
 } from "./dream-logic.ts";
 
 // Built from local parts, because "today", "yesterday" and the 6 o'clock cut-off are local.
@@ -108,6 +109,7 @@ test("dreamCardState maps running, skipped, failed and undone to their own kind"
 test("dreamCardState of a done run carries its question count", () => {
   const run = makeRun({
     counts: { added: 1, dropped: 0, merged: 0, questions: 3 },
+    resultVersion: "v1",
     status: "done",
   });
   expect(dreamCardState([run])).toEqual({
@@ -130,6 +132,7 @@ test("dreamCardState of a done run with no held changes is done", () => {
   const run = makeRun({
     counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
     heldChanges: 0,
+    resultVersion: "v1",
     status: "done",
   });
   expect(dreamCardState([run])).toEqual({
@@ -352,4 +355,25 @@ test("SCHEDULE_OPTIONS lists nightly, weekly and off in that order", () => {
       value: "off",
     },
   ]);
+});
+
+test("a dream that proposed changes, holds none and wrote nothing was rejected", () => {
+  const rejected = makeRun({
+    counts: { ...ZERO_COUNTS, added: 1 },
+    status: "done",
+  });
+  expect(wasRejected(rejected)).toBe(true);
+  expect(dreamCardState([rejected]).kind).toBe("rejected");
+  expect(canUndoRun(rejected)).toBe(false);
+});
+
+test("an applied, held or empty dream was not rejected", () => {
+  const added = { ...ZERO_COUNTS, added: 1 };
+  expect(
+    wasRejected(makeRun({ counts: added, resultVersion: "v1", status: "done" }))
+  ).toBe(false);
+  expect(
+    wasRejected(makeRun({ counts: added, heldChanges: 1, status: "done" }))
+  ).toBe(false);
+  expect(wasRejected(makeRun({ status: "done" }))).toBe(false);
 });

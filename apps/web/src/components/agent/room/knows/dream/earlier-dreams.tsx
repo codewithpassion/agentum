@@ -6,13 +6,14 @@ import {
   countsSentence,
   earlierRuns,
   RUN_STATUS_LABELS,
+  wasRejected,
 } from "./dream-logic.ts";
 import { HeldBatch } from "./held-batch.tsx";
 import { SeeChanges } from "./see-changes.tsx";
 
 /** The line under an earlier dream's badge, or null when it has none. */
 function detailOf(run: DreamRun): string | null {
-  if (run.status === "done" && run.heldChanges > 0) {
+  if ((run.status === "done" && run.heldChanges > 0) || wasRejected(run)) {
     return run.diary === "" ? null : run.diary;
   }
   if (run.status === "done") {
@@ -25,6 +26,13 @@ function detailOf(run: DreamRun): string | null {
     return run.error;
   }
   return null;
+}
+
+function badgeOf(run: DreamRun, held: boolean): string {
+  if (held) {
+    return "Held";
+  }
+  return wasRejected(run) ? "Rejected" : RUN_STATUS_LABELS[run.status];
 }
 
 function capitalised(text: string): string {
@@ -55,9 +63,7 @@ function EarlierDream({
         <span className="font-medium text-sm">
           {capitalised(changeWhen(run.startedAt, nowMs))}
         </span>
-        <Badge variant="secondary">
-          {held ? "Held" : RUN_STATUS_LABELS[run.status]}
-        </Badge>
+        <Badge variant="secondary">{badgeOf(run, held)}</Badge>
       </div>
       {detail === null ? null : (
         <p className="whitespace-pre-line text-muted-foreground text-sm [overflow-wrap:anywhere]">
