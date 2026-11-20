@@ -100,6 +100,7 @@
     "./managed/types": "./src/managed/types.ts",
     "./members": "./src/members.ts",
     "./memory": "./src/memory/service.ts",
+    "./memory/codec": "./src/memory/codec.ts",
     "./model-keys": "./src/model-keys.ts",
     "./network": "./src/network.ts",
     "./oauth-clients": "./src/oauth-clients.ts",
