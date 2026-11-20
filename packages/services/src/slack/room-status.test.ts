@@ -22,7 +22,10 @@ const GONE_TOKEN = "xoxb-gone";
 
 /** What Slack says about the channel for each bot token. Other tokens are rejected. */
 const membershipAnswers = new Map<string, Record<string, unknown>>([
-  [IN_CHANNEL_TOKEN, { channel: { is_member: true }, ok: true }],
+  [
+    IN_CHANNEL_TOKEN,
+    { channel: { is_member: true, name: "crew-room" }, ok: true },
+  ],
   [OUT_OF_CHANNEL_TOKEN, { channel: { is_member: false }, ok: true }],
   [GONE_TOKEN, { error: "channel_not_found", ok: false }],
 ]);
@@ -164,7 +167,11 @@ test("a team with no Slack link reads as unlinked, with no apps", async () => {
   addAgent("a-1");
   await installApp("a-1", IN_CHANNEL_TOKEN);
 
-  expect(await readStatus()).toEqual({ apps: [], link: null });
+  expect(await readStatus()).toEqual({
+    apps: [],
+    channelName: null,
+    link: null,
+  });
   expect(calls).toEqual([]);
 });
 
@@ -182,6 +189,7 @@ test("reports each agent member's app and whether its bot is in the linked chann
       { agentId: "a-noapp", botUserId: null, inChannel: false },
       { agentId: "a-out", botUserId: "B-a-out", inChannel: false },
     ],
+    channelName: "crew-room",
     link: {
       channelId: CHANNEL,
       createdAt: START,
@@ -202,13 +210,26 @@ test("asks Slack about each app's own bot token and the linked channel", async (
 
   await readStatus();
 
-  expect(calls).toHaveLength(2);
   expect(calls).toEqual(
     expect.arrayContaining([
       { channel: CHANNEL, token: IN_CHANNEL_TOKEN },
       { channel: CHANNEL, token: OUT_OF_CHANNEL_TOKEN },
     ])
   );
+  expect(calls.every(({ channel }) => channel === CHANNEL)).toBe(true);
+});
+
+test("the channel name comes from a member app that can read it, and is null when none can", async () => {
+  linkRoom();
+  addAgent("a-gone");
+  await installApp("a-gone", GONE_TOKEN);
+
+  expect((await readStatus()).channelName).toBeNull();
+
+  addAgent("a-in");
+  await installApp("a-in", IN_CHANNEL_TOKEN);
+
+  expect((await readStatus()).channelName).toBe("crew-room");
 });
 
 test("an app whose Slack answers channel_not_found is not in the channel", async () => {

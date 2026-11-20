@@ -3,7 +3,7 @@ id: SL.3
 title: "Room to Slack: posts, cards, retries"
 milestone: SL
 size: M
-status: in_progress
+status: done
 depends_on: [SL.2]
 branch: task/SL.3-room-to-slack
 lane: slack
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone SL. Posts made in Agentum appear in the 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/SL.3-room-to-slack (v4 controller session).
+- 2026-11-21: merged as 90014ead, review clean after 0 fix rounds. Tested against stubbed Slack only. check, test and build passed on main. Dom: live steps in docs/reviews/tasks/SL.3.md.

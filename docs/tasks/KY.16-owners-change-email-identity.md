@@ -3,7 +3,7 @@ id: KY.16
 title: "Only owners and admins change an agent's email identity"
 milestone: KY
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/KY.16-owners-change-email-identity
 lane: services-mail
@@ -32,3 +32,4 @@ Controller decision (Dom's "don't wait for me", 20 Nov 2026): the email address 
 ## Log
 - 2026-11-20: added from the KY gate review, round 2.
 - 2026-11-20: dispatched on task/KY.16-owners-change-email-identity (v4 controller session).
+- 2026-11-21: merged as 465d4993, review clean after 1 fix round. Browser proof passed: docs/reviews/tasks/KY.16/browser.md. check, test and build passed on main. KY closes: two gate rounds done.

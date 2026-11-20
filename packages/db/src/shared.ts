@@ -1867,8 +1867,24 @@ export interface TeamSlackMemberApp {
 export interface TeamSlackStatus {
   /** The agent members of the team, each with its Slack app state. Empty while the team has no link. */
   apps: TeamSlackMemberApp[];
+  /** The linked channel's name, or null while the team has no link or Slack gave no name. */
+  channelName: string | null;
   /** The link, or null while the team's room is not linked to a channel. */
   link: TeamSlackLink | null;
+}
+
+/** One Slack channel a team's lead app can post in. */
+export interface TeamSlackChannel {
+  id: string;
+  isPrivate: boolean;
+  name: string;
+}
+
+/** The channels a team's lead app can see, for the link picker. */
+export interface TeamSlackChannels {
+  channels: TeamSlackChannel[];
+  /** Slack's id for the workspace the channels are in, or null when no member agent has an installed Slack app. */
+  slackTeamId: string | null;
 }
 
 /** How a person is named and mentioned in team rooms. */

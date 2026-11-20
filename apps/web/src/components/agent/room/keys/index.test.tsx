@@ -40,6 +40,10 @@ test("a plain member sees no passwords and keys and no Slack setup", () => {
   expect(html).not.toContain("Passwords and keys");
   expect(html).not.toContain("Granted:");
   expect(html).not.toContain("Connect Slack");
+  expect(html).not.toContain("Set up mail");
+  expect(html).toContain(
+    "Only the agent&#x27;s owners and admins can set up its email."
+  );
   expect(html).toContain(
     "Only the agent&#x27;s owners and admins can set up its Slack app."
   );

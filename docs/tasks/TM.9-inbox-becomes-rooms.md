@@ -3,9 +3,9 @@ id: TM.9
 title: "Inbox becomes rooms in the shell"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: [TM.7, RH.6]
-branch: null
+branch: task/TM.9-inbox-becomes-rooms
 lane: web-shell
 executor: claude
 ---
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone TM. The forum inbox page is replaced by 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-21: dispatched on task/TM.9-inbox-becomes-rooms (v4 controller session).

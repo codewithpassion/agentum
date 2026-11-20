@@ -938,6 +938,26 @@ export interface MemoryChangeInfo {
   status: "applied" | "held" | "rejected" | "undone";
 }
 
+/** One decision an agent raises: two to four options, and optionally a typed answer. */
+export interface DecisionInput {
+  freeText?: boolean;
+  options: string[];
+  text: string;
+}
+
+/**
+ * Bound to one run. It raises the questions as one card for the run's
+ * session and returns at once: the answers come back later as a message
+ * in that session, so the run is never held.
+ */
+export interface DecisionsPort {
+  ask: (input: { questions: DecisionInput[] }) => Promise<{
+    count: number;
+    expiresAt: string;
+    requestId: string;
+  }>;
+}
+
 export interface McpPorts {
   /** Set for user principals; the server offers only the tools their access allows. */
   admin?: AdminPort;
@@ -978,6 +998,8 @@ export interface McpPorts {
     agentId: string;
     name: string;
   }) => Promise<TriggerChange>;
+  /** Offered only for runs, once the app supplies the bound decisions port. */
+  decisions?: DecisionsPort;
   deck?: DeckPort;
   deckCreation?: DeckCreationPort;
   deleteRoutine: (input: { routineId: string }) => Promise<void>;

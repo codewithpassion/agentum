@@ -21,6 +21,7 @@ import {
   topicsOfTeam,
   withoutPerson,
 } from "./room-logic.ts";
+import { SlackLinkBadge, useSlackLinkLabel } from "./room-slack-link.tsx";
 import { RoomThread } from "./room-thread.tsx";
 import { TopicList } from "./topic-list.tsx";
 
@@ -82,6 +83,10 @@ export function RoomPage({
     [refreshThreads, onOpenTopic]
   );
 
+  const slackLabel = useSlackLinkLabel(team.id);
+  const slackBadge =
+    slackLabel === null ? null : <SlackLinkBadge label={slackLabel} />;
+
   const newTopic = canPost ? (
     <NewTopicDialog
       members={otherMembers}
@@ -103,6 +108,7 @@ export function RoomPage({
       <aside className="flex flex-col gap-4 max-md:hidden">
         <h1 className="font-heading text-3xl text-foreground">{team.name}</h1>
         <p className="text-muted-foreground text-sm">Team room</p>
+        {slackBadge}
         {newTopic}
         {list.error === null ? null : (
           <p className="text-destructive text-sm">{list.error}</p>
@@ -132,6 +138,7 @@ export function RoomPage({
             </SheetContent>
           </Sheet>
         </div>
+        <div className="md:hidden">{slackBadge}</div>
         <div className="min-w-0">
           {topicId === undefined ? (
             <p className="text-muted-foreground text-sm">
