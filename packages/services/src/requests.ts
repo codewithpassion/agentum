@@ -30,6 +30,7 @@ import {
   and,
   eq,
   getTableColumns,
+  gt,
   inArray,
   isNull,
   lte,
@@ -946,7 +947,8 @@ export const createRequestsService = ({
       return;
     }
     const run = await loadRun(db, row.runId, row.workspaceId);
-    if (!run) {
+    // A cancelled run's work is over, so its answers start nothing.
+    if (!run || run.status === "cancelled") {
       return;
     }
     const masker = await secrets.maskerFor(row.workspaceId, row.agentId);
@@ -1017,6 +1019,7 @@ export const createRequestsService = ({
           eq(runRequests.agentId, run.agentId),
           eq(runRequests.kind, "decisions"),
           eq(runRequests.status, "pending"),
+          gt(runRequests.expiresAt, clock.now().toISOString()),
           eq(runRequests.display, JSON.stringify(display))
         )
       )
@@ -1631,11 +1634,33 @@ export const createRequestsService = ({
       await announce(row, "request.cancelled");
     }
   };
+  /** A decision queue outlives a run that finished, but not one a person cancelled: nothing may start work from it again. */
+  const cancelDecisionsForRun = async (run: RunRecord) => {
+    const closed = await db
+      .update(runRequests)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(runRequests.runId, run.id),
+          eq(runRequests.workspaceId, run.workspaceId),
+          eq(runRequests.kind, "decisions"),
+          eq(runRequests.status, "pending")
+        )
+      )
+      .returning();
+    for (const row of closed) {
+      // biome-ignore lint/performance/noAwaitInLoops: ordered cancellation events
+      await announce(row, "request.cancelled");
+    }
+  };
   runs.onEvent(async (event) => {
     if (ended.includes(event.type) && event.runId) {
       const run = await loadRun(db, event.runId, event.workspaceId);
       if (run) {
         await cancelForRun(run);
+        if (run.status === "cancelled") {
+          await cancelDecisionsForRun(run);
+        }
       }
     }
   });
@@ -1669,8 +1694,17 @@ export const createRequestsService = ({
         )
       )
       .orderBy(runRequests.createdAt, runRequests.id);
-    // A pending request has no answer yet, so there is nothing to mask.
-    return rows.map((row) => scrubbedRecord(row, null));
+    // Only a decision queue holds an answer while it is pending, the ones given so far.
+    return await Promise.all(
+      rows.map(async (row) =>
+        scrubbedRecord(
+          row,
+          row.answer
+            ? await secrets.maskerFor(row.workspaceId, row.agentId)
+            : null
+        )
+      )
+    );
   };
   const consumeApprovedEffect = async (
     run: RunRecord,

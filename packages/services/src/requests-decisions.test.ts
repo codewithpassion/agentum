@@ -5,6 +5,7 @@ import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "./agents.ts";
 import { createEventsService } from "./events.ts";
@@ -38,6 +39,7 @@ let runs: RunsService;
 let requests: RequestsService;
 let agentId: string;
 let delivered: string[];
+let masker: ReturnType<typeof createMasker> | null;
 
 const clock: Clock = {
   now: () => new Date(nowMs),
@@ -66,6 +68,7 @@ const claim = (runId: string) =>
 beforeEach(async () => {
   db = migrated();
   delivered = [];
+  masker = null;
   nowMs = Date.parse(START);
   db.insert(workspaces)
     .values({
@@ -132,7 +135,7 @@ beforeEach(async () => {
     db,
     events,
     runs,
-    secrets: { maskerFor: () => Promise.resolve(null) },
+    secrets: { maskerFor: () => Promise.resolve(masker) },
   });
 });
 
@@ -371,4 +374,26 @@ test("an open decision queue does not hold a run that parked on a question", asy
   expect(run(started.runId)?.status).toBe("done");
   expect(followUps(started.sessionId, started.runId)).toHaveLength(1);
   expect(row(decisions.id)?.status).toBe("pending");
+});
+
+test("cancelling the run withdraws its decisions, and nothing starts from them", async () => {
+  const started = await startRun();
+  await claim(started.runId);
+  const opened = await raise(started.runId);
+  await runs.cancelRun(user, started.runId);
+  expect(row(opened.id)?.status).toBe("cancelled");
+  await expect(answerSome(opened.id, { q1: "Red" })).rejects.toThrow(
+    "already closed"
+  );
+  expect(followUps(started.sessionId, started.runId)).toHaveLength(0);
+});
+
+test("the pending list masks the answers given so far", async () => {
+  const { opened } = await raisedAndDone();
+  await answerSome(opened.id, { q2: "hunter2" });
+  masker = createMasker({ PASSWORD: "hunter2" });
+  const [pending] = await requests.listPending(user);
+  expect(JSON.stringify(pending?.answer)).not.toContain("hunter2");
+  // The row keeps what the person typed, for the agent.
+  expect(row(opened.id)?.answer).toContain("hunter2");
 });
