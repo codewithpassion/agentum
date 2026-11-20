@@ -9,7 +9,7 @@ export interface ToolsCellWords {
 
 interface ToolsCellInput {
   catalog: CatalogEntry[] | null;
-  connector: Pick<ConnectorRecord, "catalogKey" | "tools">;
+  connector: Pick<ConnectorRecord, "catalogKey" | "tools" | "toolsFetchedAt">;
 }
 
 const NOT_FETCHED = "Not fetched yet";
@@ -18,14 +18,13 @@ const NOT_FETCHED_NOTE = "Tool list not fetched yet";
 /**
  * What the Tools column shows. A connector with a cached tool list, or one
  * added by hand, shows that list. A catalogue connector that has not
- * connected yet shows the catalogue's default tools, since the agent may call
- * those.
+ * connected yet shows how many tools the catalogue allows by default.
  */
 export function toolsCellWords({
   catalog,
   connector,
 }: ToolsCellInput): ToolsCellWords {
-  if (connector.catalogKey === null || connector.tools.length > 0) {
+  if (connector.catalogKey === null || connector.toolsFetchedAt !== null) {
     const names = connector.tools.map((tool) => tool.name);
     return {
       count: String(connector.tools.length),
@@ -39,7 +38,7 @@ export function toolsCellWords({
     return { count: NOT_FETCHED, names: "", note: null };
   }
   return {
-    count: `${defaults.length} allowed`,
+    count: `${defaults.length} by default`,
     names: defaults.join(", "),
     note: NOT_FETCHED_NOTE,
   };

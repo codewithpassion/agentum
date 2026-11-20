@@ -168,6 +168,7 @@ export function AllowedToolsDialog({
   );
 
   const saveNames = useCallback(() => save(names), [save, names]);
+  const namesUnchanged = names.length === (allowedTools ?? []).length;
 
   const clearList = useCallback(() => save([]), [save]);
 
@@ -274,8 +275,8 @@ export function AllowedToolsDialog({
             </Button>
           ) : null}
           {showSavedNames ? (
-            <Button disabled={pending} onClick={saveNames}>
-              Save
+            <Button disabled={pending || namesUnchanged} onClick={saveNames}>
+              {names.length === 0 ? "Allow every tool" : "Save"}
             </Button>
           ) : null}
           {showNoCacheNotice ? (
