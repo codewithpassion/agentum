@@ -3,7 +3,7 @@ id: ME.18
 title: "The backup owner decides held notes and dream questions"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: [ME.17]
 branch: task/ME.18-backup-decides-notes
 lane: services-rail
@@ -30,3 +30,4 @@ Controller decision (20 Nov 2026): an agent's backup owner counts as an owner fo
 ## Log
 - 2026-11-20: added from the ME.17 review.
 - 2026-11-20: dispatched on task/ME.18-backup-decides-notes (v4 controller session).
+- 2026-11-21: merged as ed36c81f, review clean after 0 fix rounds. check, test and build passed on main. The held dream batch rule became DR.14.
