@@ -3,9 +3,9 @@ id: JB.2
 title: "Jobs read model: every start as a sentence"
 milestone: JB
 size: M
-status: todo
+status: in_progress
 depends_on: [JB.1]
-branch: null
+branch: task/JB.2-jobs-read-model
 lane: services-jobs
 executor: codex
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone JB. Starting work is split over Routines
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/JB.2-jobs-read-model (v4 controller session).

@@ -140,7 +140,6 @@ function Description() {
         onDescription={setDescription}
         onDictationBusyChange={setDictating}
         onDraft={noop}
-        onTemplate={noop}
         onVoice={noop}
         steps={[]}
         voice={undefined}

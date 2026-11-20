@@ -282,10 +282,13 @@ export const plainTitle = (card: CardFacts): string => {
   return `${card.agentName} asks before ${label}`;
 };
 
+/** The status of a problem card for mail that bounced. */
+export const MAIL_BOUNCED_STATUS = "Mail bounced";
+
 const problemStatus = (problem: CardFacts["problem"]): string => {
   switch (problem) {
     case "bounced":
-      return "Mail bounced";
+      return MAIL_BOUNCED_STATUS;
     case "interrupted":
       return "Stopped part way";
     default:

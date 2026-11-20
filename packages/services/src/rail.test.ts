@@ -22,6 +22,7 @@ import {
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { WaitingMessage } from "./a2a/needs-you.ts";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
@@ -33,6 +34,7 @@ import { createLibraryService } from "./library.ts";
 import { createMembersService } from "./members.ts";
 import { createRailService } from "./rail.ts";
 import { createRequestsService } from "./requests.ts";
+import { createRosterService } from "./roster.ts";
 import { createRoutinesService } from "./routines.ts";
 import type { RuntimeAdapter } from "./runs/types.ts";
 import { createRunsService } from "./runs.ts";
@@ -55,6 +57,7 @@ const ANN: WorkspaceMember = { name: "Ann", userId: "u1" };
 const BOB: WorkspaceMember = { name: "Bob", userId: "u2" };
 const CY: WorkspaceMember = { name: "Cy", userId: "u3" };
 
+let rosterQueries = 0;
 let db: ReturnType<typeof migrated>;
 let now: number;
 let counter: number;
@@ -88,7 +91,17 @@ afterEach(() => {
 beforeEach(async () => {
   // The member lookup failure tests log on purpose.
   errors = spyOn(console, "error").mockImplementation(() => undefined);
-  db = migrated();
+  const migratedDb = migrated();
+  db = Object.assign(
+    drizzle(migratedDb.client, {
+      logger: {
+        logQuery: () => {
+          rosterQueries += 1;
+        },
+      },
+    }),
+    { client: migratedDb.client }
+  );
   now = NOW;
   counter = 0;
   memberList = [ANN, BOB, CY];
@@ -1282,4 +1295,54 @@ test("an A2A message on the rail carries its A2A detail and never expires", asyn
     status: "Waiting for approval",
     title: "Bob's agent sent a message",
   });
+});
+
+const rosterList = (principal = user()) =>
+  createRosterService({ clock: { now: () => new Date(now) }, db, rail }).list(
+    principal
+  );
+
+test("roster reuses real requests, owner fallback, backup escalation and rail headings", async () => {
+  await setOwners(a1, "u1", "u2");
+  await waitingOnApproval(a1);
+  await waitingOnApproval(a2, "write");
+  expect(
+    (await rosterList()).map((card) => [
+      card.state,
+      card.statusLine,
+      card.needsYouCount,
+    ])
+  ).toEqual([
+    ["needs_you", "Alpha asks before bash", 1],
+    ["needs_you", "Beta asks before write", 1],
+  ]);
+  expect((await rosterList(user("u2")))[0]?.state).toBe("idle");
+  await heldMail({ to: ["priya@acme.com"] });
+  now += RAIL_ESCALATE_AFTER_MS;
+  expect((await rosterList(user("u2")))[0]?.state).toBe("needs_you");
+});
+
+test("roster cannot expose another member's private requests or runs", async () => {
+  await waitingOnApproval(a1, "bash", { private: true, userId: "u2" });
+  await seed({ agentId: a2, private: true, status: "running", userId: "u2" });
+  expect((await rosterList()).map((card) => card.state)).toEqual([
+    "idle",
+    "idle",
+  ]);
+});
+
+test("roster with the real rail keeps 50 agents within a fixed query budget", async () => {
+  await Promise.all(
+    Array.from({ length: 48 }, async (_, index) => {
+      const agent = await agents.create(user(), {
+        model: "m",
+        name: `Agent ${index}`,
+        runtime: "cloud",
+      });
+      await waitingOnApproval(agent.id);
+    })
+  );
+  rosterQueries = 0;
+  expect(await rosterList()).toHaveLength(50);
+  expect(rosterQueries).toBeLessThanOrEqual(45);
 });

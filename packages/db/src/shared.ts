@@ -1272,7 +1272,15 @@ export interface AgentKeyApp {
   connectorId: string;
   connectorName: string;
   credentialMode: CredentialMode;
-  /** Whose sign-in the agent uses now. Null when no one has signed in yet. */
+  credentials: {
+    /** The agent's unattended sign-in, when this mode permits one. */
+    agentSignIn: { ownerName: string; status: CredentialStatus } | null;
+    /** Whether the caller has a stored sign-in, including one needing attention. */
+    hasOwnSignIn: boolean;
+    /** Other people's sign-ins; null unless the caller is an admin or effective owner. */
+    otherSignIns: { ownerName: string; status: CredentialStatus }[] | null;
+  };
+  /** The sign-in for work on the caller's behalf. Null when it is missing. */
   signIn: {
     ownerKind: CredentialOwnerKind;
     ownerName: string;
