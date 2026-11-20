@@ -202,3 +202,30 @@ test("setTimezone answers 401 when signed out", async () => {
     caller.workspaces.setTimezone({ timezone: "UTC" })
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("timezone reads the workspace zone for an admin and a member, and answers 401 when signed out", async () => {
+  const admin = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
+  expect(await admin.workspaces.timezone()).toEqual({ timezone: "UTC" });
+  await admin.workspaces.setTimezone({ timezone: "Australia/Sydney" });
+
+  const member = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:member",
+    userId: "user_2",
+  });
+  expect(await member.workspaces.timezone()).toEqual({
+    timezone: "Australia/Sydney",
+  });
+  expect(await admin.workspaces.timezone()).toEqual({
+    timezone: "Australia/Sydney",
+  });
+
+  const signedOut = await callerFor({ userId: null });
+  await expect(signedOut.workspaces.timezone()).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+});

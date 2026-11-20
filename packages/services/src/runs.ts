@@ -2430,16 +2430,6 @@ export const createRunsService = ({
     return toSummary(run);
   };
 
-  /** Trusted provenance for the caller's own run, including peer-origin handoffs. */
-  const isPeerRun = async (
-    principal: Extract<Principal, { kind: "run" }>
-  ): Promise<boolean> => {
-    // getRun checks the principal's agent, workspace and current session access.
-    await getRun(principal, principal.runId);
-    const run = await requireRun(principal, principal.runId);
-    return (await peerRootOf(db, run)) !== null;
-  };
-
   /**
    * Polls until the run is finished or `waitMs` has passed, then returns its
    * summary either way. A caller checks `status` to tell done from pending.
@@ -3404,7 +3394,6 @@ export const createRunsService = ({
     },
     heartbeatRun,
     ingestRunEvents,
-    isPeerRun,
     listSubagents,
     markRunning,
     markWaiting,

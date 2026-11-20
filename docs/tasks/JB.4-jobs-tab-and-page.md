@@ -3,7 +3,7 @@ id: JB.4
 title: "Jobs tab and the workspace Jobs page"
 milestone: JB
 size: M
-status: in_progress
+status: done
 depends_on: [JB.1, RH.4]
 branch: task/JB.4-jobs-tab-and-page
 lane: web-jobs
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone JB. Mockup: Proposal C in the report, us
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: from JB.3: once this tab shows drafts, Dom tries "Every Friday, summarise support tickets for me" against the live Anthropic key. The drafter has only run against a fake model so far.
 - 2026-11-20: dispatched on task/JB.4-jobs-tab-and-page (v4 controller session).
+- 2026-11-20: merged as 2f6306c8, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/JB.4/browser.md (jobs.draft was mocked; no local Anthropic key). check, test and build passed on main. Edit opens the existing Routines or Triggers panel in a dialog; an edit-in-place form needs routines.update and triggers.update first.

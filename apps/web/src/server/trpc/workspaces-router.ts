@@ -36,4 +36,8 @@ export const workspacesRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.services.workspaces.setTimezone(ctx.principal, input.timezone)
     ),
+  /** The timezone the workspace's routines read their schedules in. Any member may read it. */
+  timezone: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.workspaces.timezoneOf(ctx.principal)
+  ),
 });
