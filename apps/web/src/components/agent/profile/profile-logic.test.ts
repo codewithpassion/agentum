@@ -70,7 +70,7 @@ describe("currentRuntime", () => {
   test("describes the runtime the agent has, in plain words", () => {
     expect(currentRuntime("managed", null)).toEqual({
       machineState: null,
-      text: "Managed Agents. Simplest. Has its own sandbox.",
+      text: "Runs in Anthropic's cloud. Simplest. Has its own sandbox.",
       title: "Anthropic cloud",
     });
     expect(currentRuntime("cloud", null)).toEqual({

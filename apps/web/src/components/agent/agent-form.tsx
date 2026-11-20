@@ -310,7 +310,7 @@ export function AgentForm({
           </Field>
         )}
         <Field>
-          <FieldLabel>Runtime</FieldLabel>
+          <FieldLabel>Runs on</FieldLabel>
           <p className="text-sm">{runtimeWords(values.runtime, runningOn)}</p>
           {values.runtime === "managed" && (
             <FieldDescription>
@@ -320,7 +320,7 @@ export function AgentForm({
               with all their files, and TypeScript scripts in a skill run with
               bun in its sandbox. [ATTACHMENT:path] in its answers stays plain
               text. Images returned by connector tools never reach the model. A
-              session stops at $10 of spend.
+              conversation stops at $10 of spend.
             </FieldDescription>
           )}
           {values.runtime === "cloud" && (
@@ -434,7 +434,7 @@ export function AgentForm({
                 value={values.maxTurns}
               />
               <FieldDescription>
-                The most model turns one run may take before it is stopped as
+                The most model turns one task may take before it is stopped as
                 failed. Leave it empty for the default of {MAX_TURNS_DEFAULT},
                 or set a number from {MAX_TURNS_MIN} to {MAX_TURNS_MAX}.
               </FieldDescription>

@@ -118,7 +118,7 @@ test("status text uses the singular for one run and the pause text when waiting"
   });
   const [one, paused] = nodes;
   expect(one?.type === "agent" && one.data.statusText).toBe(
-    "1 task · Our machine"
+    "1 task · My computer"
   );
   expect(paused?.type === "agent" && paused.data.statusText).toBe(
     "Paused, needs you"
@@ -137,14 +137,14 @@ test("a running agent shows the same run text as an idle one", () => {
     selectedKey: null,
   });
   expect(node?.type === "agent" && node.data.statusText).toBe(
-    "2 tasks · Cloudflare"
+    "2 tasks · Cloud"
   );
 });
 
 test("runtimeShort names each runtime", () => {
-  expect(runtimeShort("machine")).toBe("Our machine");
+  expect(runtimeShort("machine")).toBe("My computer");
   expect(runtimeShort("managed")).toBe("Anthropic cloud");
-  expect(runtimeShort("cloud")).toBe("Cloudflare");
+  expect(runtimeShort("cloud")).toBe("Cloud");
   expect(runtimeShort("fake")).toBe("Test runner");
 });
 

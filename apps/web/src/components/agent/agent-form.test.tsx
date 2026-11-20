@@ -82,3 +82,10 @@ test("keeps the labelled model select visible for the cloud runtime", () => {
   expect(html).toContain('id="agent-model"');
   expect(html).toContain("Name");
 });
+
+test("labels the runtime field 'Runs on' and speaks of conversations in the managed spend note", () => {
+  const html = render("managed");
+  expect(html).toContain(">Runs on<");
+  expect(html).toContain("A conversation stops at $10 of spend");
+  expect(html).not.toContain("session stops");
+});

@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import type { MachineRecord } from "#/integrations/trpc/types";
 import {
   hostMachines,
+  MOVE_COST,
   MOVE_TARGETS,
   moveBlocker,
+  moveNote,
   needsAnthropicModel,
 } from "./move-agent-logic.ts";
 
@@ -21,6 +23,16 @@ test("MOVE_TARGETS are named with the plain runtime names, in order", () => {
     "Anthropic cloud",
     "My computer",
   ]);
+});
+
+test("MOVE_COST and the Cloud note avoid the word runtime", () => {
+  expect(MOVE_COST).not.toContain("runtime");
+  expect(MOVE_COST).toBe(
+    "Open conversations start fresh, because the agent will run somewhere that does not have their context. Files in the agent's sandbox do not move."
+  );
+  expect(
+    moveNote("cloud")?.startsWith("A conversation that ran on Cloud before")
+  ).toBe(true);
 });
 
 test("hostMachines keeps agent_host machines that are not revoked", () => {

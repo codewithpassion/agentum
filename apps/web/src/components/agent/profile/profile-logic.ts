@@ -90,7 +90,7 @@ export const currentRuntime = (
     case "managed":
       return {
         machineState: null,
-        text: "Managed Agents. Simplest. Has its own sandbox.",
+        text: "Runs in Anthropic's cloud. Simplest. Has its own sandbox.",
         title: RUNTIME_NAMES.managed,
       };
     case "cloud":

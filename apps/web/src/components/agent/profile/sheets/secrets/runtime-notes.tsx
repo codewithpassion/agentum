@@ -18,13 +18,13 @@ export function RuntimeNotes() {
         Code.
       </li>
       <li>
-        Managed agents receive env secrets as placeholders that Anthropic swaps
-        for the real value in outgoing requests.
+        Anthropic cloud agents receive env secrets as placeholders that
+        Anthropic swaps for the real value in outgoing requests.
       </li>
       <li>
-        Proxy secrets reach machine and managed agents through the relay at
-        /api/egress/&lt;host&gt;/&lt;path&gt;. The agent&apos;s instructions
-        give the exact address.
+        Proxy secrets reach My computer agents and Anthropic cloud agents
+        through the relay at /api/egress/&lt;host&gt;/&lt;path&gt;. The
+        agent&apos;s instructions give the exact address.
       </li>
     </ul>
   );
