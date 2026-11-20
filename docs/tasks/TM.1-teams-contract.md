@@ -3,9 +3,9 @@ id: TM.1
 title: "Teams contract: teams, members, topics, profiles, router"
 milestone: TM
 size: M
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/TM.1-teams-contract
 lane: contract
 executor: claude
 ---
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone TM. Contract task for TM. It alone chang
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TM.1-teams-contract (v4 controller session).

@@ -45,6 +45,7 @@ const infra = (): Infra => {
 
 const callerFor = async (session: {
   orgId?: string | null;
+  orgRole?: string | null;
   userId: string | null;
 }) =>
   appRouter.createCaller(
@@ -206,12 +207,26 @@ test("keys.forAgent is 401 without a workspace", async () => {
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
 
-test("catalog.list is empty and catalog.add refuses an unknown key", async () => {
-  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+test("catalog lists apps, adds idempotently and refuses unknown keys", async () => {
+  const caller = await callerFor({
+    orgId: "org_a",
+    orgRole: "org:admin",
+    userId: "user_1",
+  });
 
-  expect(await caller.catalog.list()).toEqual([]);
+  const entries = await caller.catalog.list();
+  expect(entries.length).toBeGreaterThan(0);
+  const first = await caller.catalog.add({ key: "gmail" });
+  expect(await caller.catalog.add({ key: "gmail" })).toEqual(first);
   await expect(caller.catalog.add({ key: "nope" })).rejects.toMatchObject({
     code: "NOT_FOUND",
+  });
+});
+
+test("catalog.add refuses a non-admin session", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  await expect(caller.catalog.add({ key: "gmail" })).rejects.toMatchObject({
+    code: "FORBIDDEN",
   });
 });
 
