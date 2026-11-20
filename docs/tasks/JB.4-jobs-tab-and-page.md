@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone JB. Mockup: Proposal C in the report, us
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: from JB.3: once this tab shows drafts, Dom tries "Every Friday, summarise support tickets for me" against the live Anthropic key. The drafter has only run against a fake model so far.

@@ -154,6 +154,7 @@ import {
   createReportedReader,
   createRunRequestReader,
 } from "@repo/services/investigator-report";
+import { createJobsService, type JobsService } from "@repo/services/jobs";
 import { createKeysService, type KeysService } from "@repo/services/keys";
 import {
   createLibraryService,
@@ -218,6 +219,7 @@ import {
   type MemberLister,
   type MembersService,
 } from "@repo/services/members";
+import { createMemoryService, type MemoryService } from "@repo/services/memory";
 import {
   createModelKeysService,
   type ModelKeysService,
@@ -503,6 +505,7 @@ export interface Services {
   events: EventsService;
   files: FilesService;
   inbox: InboxService;
+  jobs: JobsService;
   keys: KeysService;
   library: LibraryService;
   libraryAccess: LibraryAccessService;
@@ -519,6 +522,7 @@ export interface Services {
   managedKeys: ManagedKeysService;
   map: MapService;
   members: MembersService;
+  memory: MemoryService;
   modelKeys: ModelKeysService;
   network: NetworkService;
   oauthClients: OAuthClientsService;
@@ -1383,7 +1387,14 @@ export const composeWith = ({
       events,
       files,
       inbox,
-      keys: createKeysService(),
+      jobs: createJobsService({
+        clock: infra.clock,
+        db,
+        events,
+        mailDomain: infra.mailDomain,
+        runs,
+      }),
+      keys: createKeysService({ db, people: infra.people }),
       library,
       libraryAccess,
       libraryLinks,
@@ -1411,6 +1422,7 @@ export const composeWith = ({
       managedKeys,
       map,
       members,
+      memory: createMemoryService(),
       modelKeys,
       network,
       oauthClients,
@@ -1423,7 +1435,7 @@ export const composeWith = ({
       }),
       rail,
       requests,
-      roster: createRosterService({ db }),
+      roster: createRosterService({ clock: infra.clock, db, members, rail }),
       routines,
       runSkills,
       runs,

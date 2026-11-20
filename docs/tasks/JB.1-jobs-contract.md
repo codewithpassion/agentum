@@ -3,7 +3,7 @@ id: JB.1
 title: "Jobs contract: sentence types and router"
 milestone: JB
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/JB.1-jobs-contract
 lane: contract
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone JB. Contract task for JB. It alone chang
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/JB.1-jobs-contract (v4 controller session).
+- 2026-11-20: merged as 743d07c6, review clean after 0 fix rounds. check and build passed on main. bun run test passed except guest-execution.test.ts, which timed out in three full runs under load and then passed when run alone on the merged tree (it also passed alone on origin/main).

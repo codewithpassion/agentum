@@ -1,10 +1,4 @@
-import {
-  AGENT_TEMPLATE_IDS,
-  type AgentTemplateId,
-  VOICE_PRESETS,
-  type VoicePreset,
-} from "@repo/db/shared";
-import { templates } from "@repo/services/agent-builder/templates";
+import { VOICE_PRESETS, type VoicePreset } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import {
   type ChangeEvent,
@@ -90,8 +84,6 @@ export interface DescribePanelProps {
   onDescription: (text: string) => void;
   onDictationBusyChange?: (busy: boolean) => void;
   onDraft: () => void;
-  /** The page fills the box and the voice. */
-  onTemplate: (id: AgentTemplateId) => void;
   onVoice: (voice: VoicePreset) => void;
   /** Empty before the first draft. */
   steps: BuilderStep[];
@@ -107,7 +99,6 @@ export function DescribePanel({
   onDescription,
   onDictationBusyChange,
   onDraft,
-  onTemplate,
   onVoice,
   steps,
   voice,
@@ -193,18 +184,9 @@ export function DescribePanel({
 
         <div className="flex flex-col gap-2">
           <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-            Or start from
+            Or import
           </Label>
           <div className="flex flex-wrap items-center gap-1.5">
-            {AGENT_TEMPLATE_IDS.map((id) => (
-              <ChipButton<AgentTemplateId>
-                className={CHIP_DEFAULT}
-                key={id}
-                label={templates[id].title}
-                onPick={onTemplate}
-                value={id}
-              />
-            ))}
             <ChipButton<string>
               className={CHIP_ADD}
               label="Import from a file"

@@ -24,6 +24,7 @@ import { z } from "zod";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
+import { isValidTimeZone } from "./routines/cron.ts";
 import { verifyAgentToken } from "./run-tokens.ts";
 
 /** Who is calling. `system` is the minute tick, in-process only. */
@@ -458,6 +459,32 @@ export const createWorkspacesService = ({
   const hasWorkspace = async (clerkOrgId: string): Promise<boolean> =>
     (await selectRow(clerkOrgId)) !== undefined;
 
+  /**
+   * Sets the zone the workspace's routines read their schedules in, from a
+   * browser session of an org admin. The workspace comes from the principal.
+   */
+  const setTimezone = async (
+    principal: Principal,
+    timezone: string
+  ): Promise<{ timezone: string }> => {
+    if (
+      principal.kind !== "user" ||
+      principal.via !== "session" ||
+      principal.isAdmin !== true
+    ) {
+      throw new ForbiddenError("set the timezone");
+    }
+    const zone = timezone.trim();
+    if (!isValidTimeZone(zone)) {
+      throw new ServiceError("invalid", "Choose a valid timezone.");
+    }
+    await db
+      .update(workspaces)
+      .set({ timezone: zone })
+      .where(eq(workspaces.id, principal.workspaceId));
+    return { timezone: zone };
+  };
+
   return {
     byId,
     create,
@@ -468,6 +495,7 @@ export const createWorkspacesService = ({
     inviteFromSession,
     mine,
     sessionPrincipal,
+    setTimezone,
   };
 };
 

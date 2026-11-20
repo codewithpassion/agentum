@@ -3,7 +3,7 @@ id: RH.2
 title: "Roster service: one status line per agent"
 milestone: RH
 size: M
-status: in_progress
+status: done
 depends_on: [RH.1]
 branch: task/RH.2-roster-service
 lane: services-roster
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone RH. The home page shows what each agent 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/RH.2-roster-service (v4 controller session).
+- 2026-11-20: merged as 306a6511, review clean after 1 fix round. check, test and build passed on main.

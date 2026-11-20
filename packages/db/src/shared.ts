@@ -725,6 +725,7 @@ export const NEEDS_YOU_KINDS = [
   "a2a_message",
   "a2a_connection",
   "connector_secret",
+  "memory_note",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -740,6 +741,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   connector_secret: (name) => `${name} needs a connector secret`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
+  memory_note: (name) => `${name} wants to remember something`,
   question: (name) => `${name} asks`,
   routine_proposal: (name) => `${name} proposed a routine`,
   skill_proposal: (name) => `${name} proposed a skill change`,
@@ -1270,7 +1272,15 @@ export interface AgentKeyApp {
   connectorId: string;
   connectorName: string;
   credentialMode: CredentialMode;
-  /** Whose sign-in the agent uses now. Null when no one has signed in yet. */
+  credentials: {
+    /** The agent's unattended sign-in, when this mode permits one. */
+    agentSignIn: { ownerName: string; status: CredentialStatus } | null;
+    /** Whether the caller has a stored sign-in, including one needing attention. */
+    hasOwnSignIn: boolean;
+    /** Other people's sign-ins; null unless the caller is an admin or effective owner. */
+    otherSignIns: { ownerName: string; status: CredentialStatus }[] | null;
+  };
+  /** The sign-in for work on the caller's behalf. Null when it is missing. */
   signIn: {
     ownerKind: CredentialOwnerKind;
     ownerName: string;
@@ -1335,4 +1345,176 @@ export interface CatalogEntry {
   key: string;
   name: string;
   url: string;
+}
+
+/** What starts a job. The first four are trigger kinds; `slack` is a message to the agent's Slack app. */
+export const JOB_SOURCES = ["routine", "http", "mail", "app", "slack"] as const;
+export type JobSource = (typeof JOB_SOURCES)[number];
+
+/** One way an agent starts, read as a sentence: when, what it does, who it asks first and where the result goes. */
+export interface JobSentence {
+  agent: { id: string; name: string };
+  /** Who the agent asks before it acts, in words. Null when it asks no one. */
+  asksBefore: string | null;
+  /** Where the result goes, in words. Null when nowhere in particular. */
+  deliversTo: string | null;
+  /** What the agent does, in words. */
+  does: string;
+  enabled: boolean;
+  /** The trigger or routine row this sentence reads, or the Slack app id for `slack`. */
+  id: string;
+  /** When the last run started, as an ISO time. Null when it has not run. */
+  lastRunAt: string | null;
+  /** Whether the last run ended well. Null when it has not run. */
+  lastRunOk: boolean | null;
+  /** When a routine fires next, as an ISO time. Null for a start that has no schedule. */
+  nextRunAt: string | null;
+  source: JobSource;
+  /** What starts it, in words: "Every weekday at 9:00", "When mail arrives". */
+  when: string;
+}
+
+/** A job the model proposes from a person's text, for the person to review before it is saved. */
+export interface ProposedTrigger {
+  asksBefore: string | null;
+  /** Five-field cron for a routine, read in `timezone`. Null for every other source. */
+  cron: string | null;
+  deliversTo: string | null;
+  does: string;
+  source: JobSource;
+  /** An IANA zone for a routine. Null for every other source. */
+  timezone: string | null;
+  when: string;
+}
+
+/** The longest a note's text may be, in characters. It is one line. */
+export const MEMORY_NOTE_MAX_CHARS = 500;
+
+/** What a memory note is about. Each kind has its own file under `agents/<slug>/memory/`. */
+export const MEMORY_NOTE_KINDS = [
+  "people",
+  "corrections",
+  "work",
+  "places",
+] as const;
+export type MemoryNoteKind = (typeof MEMORY_NOTE_KINDS)[number];
+
+/** Who wrote a note: a person, the agent during work, or a dream. */
+export const MEMORY_WRITERS = ["person", "agent", "dream"] as const;
+export type MemoryWriter = (typeof MEMORY_WRITERS)[number];
+
+/** What a note came from. A note a person typed on the Knows tab has no source. */
+export const MEMORY_SOURCE_KINDS = ["session", "run", "request"] as const;
+export type MemorySourceKind = (typeof MEMORY_SOURCE_KINDS)[number];
+
+export const MEMORY_CHANGE_ACTIONS = [
+  "add",
+  "edit",
+  "forget",
+  "merge",
+] as const;
+export type MemoryChangeAction = (typeof MEMORY_CHANGE_ACTIONS)[number];
+
+/** `held` waits for a person, `undone` was applied and then reverted. */
+export const MEMORY_CHANGE_STATUSES = [
+  "applied",
+  "held",
+  "rejected",
+  "undone",
+] as const;
+export type MemoryChangeStatus = (typeof MEMORY_CHANGE_STATUSES)[number];
+
+/** How an agent learns: hold every note, apply and tell the owner, or apply quietly. */
+export const LEARN_LEVELS = ["ask_first", "tell_after", "quiet"] as const;
+export type LearnLevel = (typeof LEARN_LEVELS)[number];
+
+export const DREAM_SCHEDULES = ["nightly", "weekly", "off"] as const;
+export type DreamSchedule = (typeof DREAM_SCHEDULES)[number];
+
+/** The session, run or request a note came from. */
+export interface MemorySource {
+  id: string;
+  kind: MemorySourceKind;
+}
+
+/** One note in an agent's memory, as the note block in `docs/v4/memory-format.md` holds it. */
+export interface MemoryNote {
+  /** The day it was written, `YYYY-MM-DD` in UTC. */
+  date: string;
+  id: string;
+  kind: MemoryNoteKind;
+  source: MemorySource | null;
+  text: string;
+  /** The person a private note belongs to (a Clerk user id), or null for a note everyone the agent works for can read. */
+  userScope: string | null;
+  writtenBy: MemoryWriter;
+}
+
+/** One row of the memory log: a change made, held for a person, rejected or undone. */
+export interface MemoryChange {
+  action: MemoryChangeAction;
+  agentId: string;
+  createdAt: string;
+  /** When a person approved or rejected a held change, or undid an applied one. */
+  decidedAt: string | null;
+  /** Clerk user id of that person. */
+  decidedBy: string | null;
+  /** The dream that made the change, or null. */
+  dreamRunId: string | null;
+  /** Set on the rows of one merge: the id of its `merge` row. Null for every other change. */
+  groupId: string | null;
+  id: string;
+  kind: MemoryNoteKind;
+  /** The library version the change wrote. Null while held and when rejected. */
+  libraryVersionId: string | null;
+  noteId: string;
+  source: MemorySource | null;
+  status: MemoryChangeStatus;
+  /** The note's text after the change. For `forget`, the text that was forgotten. */
+  text: string;
+  userScope: string | null;
+  writtenBy: MemoryWriter;
+}
+
+/** What the owner tells one agent to keep and how it learns. The `agents.remember` column holds this as JSON. */
+export interface RememberRules {
+  dreamSchedule: DreamSchedule;
+  learnLevel: LearnLevel;
+  /** Topics this agent never keeps, added to the workspace's. */
+  never: string[];
+  /** What this agent should keep, in the owner's words. */
+  remember: string[];
+  /** Whether the team dream may lift this agent's notes into team memory. */
+  shareWithTeam: boolean;
+}
+
+export const DEFAULT_REMEMBER_RULES: RememberRules = {
+  dreamSchedule: "nightly",
+  learnLevel: "tell_after",
+  never: [],
+  remember: [],
+  shareWithTeam: true,
+};
+
+/** The `agents.remember` column's database default. */
+export const DEFAULT_REMEMBER_RULES_JSON = JSON.stringify(
+  DEFAULT_REMEMBER_RULES
+);
+
+/** What no agent in a workspace keeps, until the workspace changes the list. */
+export const DEFAULT_NEVER_REMEMBER = [
+  "Passwords and keys",
+  "Card and bank numbers",
+  "Health details",
+] as const;
+
+/** The `workspaces.never_remember` column's database default. */
+export const DEFAULT_NEVER_REMEMBER_JSON = JSON.stringify(
+  DEFAULT_NEVER_REMEMBER
+);
+
+/** The rules that govern one agent's memory: its own, and the workspace's never list that every agent inherits. */
+export interface MemoryRules {
+  agent: RememberRules;
+  workspaceNever: string[];
 }

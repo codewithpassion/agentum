@@ -3,7 +3,7 @@ id: FR.4
 title: "Templates gallery"
 milestone: FR
 size: S
-status: in_progress
+status: done
 depends_on: [FR.1]
 branch: task/FR.4-templates-gallery
 lane: web-builder
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone FR. Show the templates where a person cr
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/FR.4-templates-gallery (v4 controller session).
+- 2026-11-20: merged as 14a38701, review clean after 1 fix round (plus a clean review of the no-key Create fix). Browser proof passed at both sizes: docs/reviews/tasks/FR.4/browser.md. check, test and build passed on main. The home card already links to /agents/new; team starters wait for FR.2.

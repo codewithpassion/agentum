@@ -9,6 +9,7 @@ import { createdAt, id, workspaceId } from "../columns.ts";
 import {
   AGENT_RUNTIMES,
   ASK_LEVELS,
+  DEFAULT_REMEMBER_RULES_JSON,
   NEUTRAL_AGENT_AVATAR_JSON,
 } from "../shared.ts";
 import { machines } from "./machines.ts";
@@ -48,6 +49,8 @@ export const agents = sqliteTable(
     // Clerk user id of the person who answers this agent's requests. NULL
     // means `created_by`.
     ownerUserId: text("owner_user_id"),
+    // JSON `RememberRules`: what the agent keeps, what it never keeps, how it learns, its dream schedule.
+    remember: text("remember").notNull().default(DEFAULT_REMEMBER_RULES_JSON),
     runtime: text("runtime", { enum: AGENT_RUNTIMES }).notNull(),
     // JSON, validated by a zod schema in the owning module.
     runtimeConfig: text("runtime_config").notNull(),

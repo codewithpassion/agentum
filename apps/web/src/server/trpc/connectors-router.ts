@@ -10,6 +10,7 @@ import {
   connectorCallTimeoutSchema,
   connectorCreateSchema,
   credentialSetSchema,
+  removeCredentialInputSchema,
   removeInputSchema,
   unassignInputSchema,
 } from "@repo/services/connectors";
@@ -34,10 +35,18 @@ export const connectorsRouter = router({
   list: workspaceProcedure.query(({ ctx }) =>
     ctx.services.connectors.list(ctx.principal)
   ),
+  mine: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.connectors.mine(ctx.principal)
+  ),
   remove: workspaceProcedure
     .input(removeInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.services.connectors.remove(ctx.principal, input)
+    ),
+  removeCredential: workspaceProcedure
+    .input(removeCredentialInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.connectors.removeCredential(ctx.principal, input)
     ),
   setAuthMode: workspaceProcedure
     .input(connectorAuthModeSchema)

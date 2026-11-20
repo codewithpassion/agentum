@@ -118,7 +118,8 @@ export function DryRunPanel({
     [onSample, sample]
   );
   const busy = pending !== null;
-  const blockedBy = createBlocker ?? runBlocker;
+  // A missing key stops the dry run only, so Create stays open without one.
+  const why = createBlocker ?? runBlocker;
 
   return (
     <section
@@ -173,7 +174,7 @@ export function DryRunPanel({
           {runLabel(pending === "run", runId !== null)}
         </Button>
         <Button
-          disabled={busy || blockedBy !== null}
+          disabled={busy || createBlocker !== null}
           onClick={onCreate}
           type="button"
         >
@@ -188,9 +189,9 @@ export function DryRunPanel({
           Discard
         </Button>
       </div>
-      {blockedBy === null ? null : (
+      {why === null ? null : (
         <p className="text-muted-foreground text-xs" data-testid="create-why">
-          {blockedBy}
+          {why}
         </p>
       )}
     </section>

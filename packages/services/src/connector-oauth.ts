@@ -55,7 +55,7 @@ import { loadActiveAgent, loadConnector } from "./connectors.ts";
 import { decryptSecret, encryptSecret, importSecretsKey } from "./crypto.ts";
 import { invalid, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireSession } from "./guards.ts";
+import { requireAdminSession, requireSession } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
@@ -612,7 +612,7 @@ export const createConnectorOAuthService = ({
     principal: Principal,
     input: OAuthClientInput
   ): Promise<void> => {
-    const user = requireSession(principal, SET_CLIENT_ACTION);
+    const user = requireAdminSession(principal, SET_CLIENT_ACTION);
     const parsed = oauthClientSchema.parse(input);
     authorize(user, SET_CLIENT_ACTION, {
       id: parsed.connectorId,

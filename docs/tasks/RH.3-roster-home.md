@@ -3,7 +3,7 @@ id: RH.3
 title: "Home page: the agent card wall"
 milestone: RH
 size: M
-status: in_progress
+status: done
 depends_on: [RH.1, NV.1]
 branch: task/RH.3-roster-home
 lane: web-home
@@ -30,3 +30,4 @@ From `docs/v4/build-plan.md`, milestone RH. Home becomes a wall of agent cards. 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/RH.3-roster-home (v4 controller session).
+- 2026-11-20: merged as 81af5eda, review clean after 0 fix rounds. Browser proof passed at both sizes: docs/reviews/tasks/RH.3/browser.md. check, test and build passed on main. The state sort was proved on a mocked roster.list; re-check it on real data in the RH e2e task.
