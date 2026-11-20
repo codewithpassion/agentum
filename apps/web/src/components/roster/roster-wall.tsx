@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { LayoutTemplate, type LucideIcon, Plus } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { RailLink } from "#/components/rail/rail-link.tsx";
-import { AddToTeamDialog } from "./add-to-team-dialog.tsx";
+import { AddAgentDialog } from "#/components/team/add-agent-dialog.tsx";
 import { AgentCardView } from "./agent-card.tsx";
 import {
   groupCards,
@@ -11,6 +11,7 @@ import {
   readCollapsed,
   sortCards,
   toggleKey,
+  wallIsFlat,
   writeCollapsed,
 } from "./roster-logic.ts";
 import { TeamGroup } from "./team-group.tsx";
@@ -98,9 +99,11 @@ const useCollapsedGroups = (userId: string) => {
 
 /**
  * The Roster home: agents grouped by home team, with agents in no team last.
- * Without any team the cards stay in one flat wall. A group collapses, and
- * the person's choice is kept in local storage. With no agents, `emptyState`
- * replaces the "No agents yet" line and the add cards.
+ * A team with no agents has no group. When no team exists, or every agent is
+ * in "Everyone" or in no team, the cards stay in one flat wall with no
+ * headings. A group collapses, and the person's choice is kept in local
+ * storage. With no agents, `emptyState` replaces the "No agents yet" line and
+ * the add cards.
  */
 export const RosterWall = ({
   cards,
@@ -120,7 +123,8 @@ export const RosterWall = ({
 }) => {
   const isEmpty = cards.length === 0;
   const showEmptyState = isEmpty && emptyState !== undefined;
-  const showGroups = !isEmpty && teams.length > 0;
+  const groups = isEmpty || teams.length === 0 ? [] : groupCards(cards, teams);
+  const showGroups = !wallIsFlat(groups);
   const { collapsed, toggle } = useCollapsedGroups(userId);
   const [pickingTeamId, setPickingTeamId] = useState<string | null>(null);
   const closePicker = useCallback(() => setPickingTeamId(null), []);
@@ -145,7 +149,7 @@ export const RosterWall = ({
         </ul>
       )}
       {showGroups
-        ? groupCards(cards, teams).map((group) => (
+        ? groups.map((group) => (
             <TeamGroup
               collapsed={collapsed.has(group.key)}
               group={group}
@@ -171,12 +175,11 @@ export const RosterWall = ({
         </ul>
       ) : null}
       {pickingTeam === undefined ? null : (
-        <AddToTeamDialog
-          cards={cards}
+        <AddAgentDialog
+          agents={cards}
           onAdd={onAddMember}
           onClose={closePicker}
           team={pickingTeam}
-          teams={teams}
         />
       )}
     </div>

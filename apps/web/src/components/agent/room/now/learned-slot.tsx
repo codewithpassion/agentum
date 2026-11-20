@@ -1,17 +1,23 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import type { MemoryChange } from "@repo/db/shared";
 import { learnedThisWeek } from "../knows/learned-logic.ts";
 import { LearnedList } from "../knows/learned-this-week.tsx";
+import { canChangeRules } from "../knows/rules-logic.ts";
 import { useMemory } from "../knows/use-memory.ts";
+import type { RoomData } from "../room-data.ts";
 
 /** The card around the Knows tab's list of what the agent learned this week. Nothing renders for an empty list. */
 export function LearnedCard({
   busyId,
+  canChange,
   changes,
   disabled,
   nowMs,
   onUndo,
 }: {
   busyId: string | null;
+  /** Whether this person may undo changes to shared notes: the owner or an admin. */
+  canChange: boolean;
   changes: readonly MemoryChange[];
   disabled: boolean;
   nowMs: number;
@@ -30,6 +36,7 @@ export function LearnedCard({
       <div className="px-4 pb-3 text-sm">
         <LearnedList
           busyId={busyId}
+          canChange={canChange}
           changes={changes}
           disabled={disabled}
           nowMs={nowMs}
@@ -44,8 +51,9 @@ export function LearnedCard({
  * Learned this week, from the same memory reads as the Knows tab. It renders
  * nothing until the memory has loaded, and nothing when the week has no changes.
  */
-export function LearnedSlot({ agentId }: { agentId: string }) {
-  const memory = useMemory(agentId);
+export function LearnedSlot({ agent }: { agent: RoomData["agent"] }) {
+  const { orgRole, userId } = useAuth();
+  const memory = useMemory(agent.id);
   const { data } = memory;
   if (data === undefined) {
     return null;
@@ -53,6 +61,11 @@ export function LearnedSlot({ agentId }: { agentId: string }) {
   return (
     <LearnedCard
       busyId={memory.busyId}
+      canChange={canChangeRules({
+        isAdmin: orgRole === "org:admin",
+        ownerUserId: agent.ownerUserId ?? agent.createdBy,
+        userId: userId ?? null,
+      })}
       changes={learnedThisWeek(
         data.changes,
         data.nowMs,

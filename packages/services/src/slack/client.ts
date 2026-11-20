@@ -39,6 +39,10 @@ export interface SlackClient {
   >;
   /** Gives the app id of a bot. Needs the users:read scope. */
   botInfo: (botId: string) => Promise<SlackCallResult<{ appId: string }>>;
+  /** Tells whether this bot is a member of the channel, through conversations.info. A private channel the bot is not in answers `channel_not_found`. */
+  channelMembership: (
+    channelId: string
+  ) => Promise<SlackCallResult<{ isMember: boolean }>>;
   /** Gives the name of a channel. Needs the channels:read and groups:read scopes. */
   channelName: (
     channelId: string
@@ -436,6 +440,16 @@ export const createSlackClient = (deps: {
           const { app_id: appId } = asBody(body.bot);
           return typeof appId === "string" && appId !== "" ? { appId } : null;
         }
+      );
+    },
+
+    channelMembership(channelId) {
+      return callSlack(
+        {
+          method: "GET",
+          url: apiUrl("conversations.info", { channel: channelId }),
+        },
+        (body) => ({ isMember: asBody(body.channel).is_member === true })
       );
     },
 

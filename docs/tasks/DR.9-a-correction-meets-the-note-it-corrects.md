@@ -1,0 +1,25 @@
+---
+id: DR.9
+title: "A correction meets the note it corrects"
+milestone: DR
+size: S
+status: todo
+depends_on: [DR.7]
+branch: null
+lane: services-dream
+executor: claude
+---
+
+From the dream walkthrough (`docs/reviews/DR-e2e.md`).
+
+## Scope
+
+when a candidate is a correction, or when the merge step looks for duplicates, compare it with every note of the same scope, not only the same kind. A same-scope note that the judge says the candidate replaces is dropped or merged, with the kind of the newer note kept.
+
+## Check
+
+a service test with a fake model where an `people` note says 1pm and a conversation says it moved to 1:30pm: the plan has one note left. `bun run check && bun run test && bun run build` pass. Then repeat the walkthrough's flow 1 and read the notes list.
+- `bun run check && bun run test && bun run build` pass.
+
+## Log
+- 2026-11-20: added from the dream walkthrough.

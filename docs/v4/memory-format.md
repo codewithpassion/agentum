@@ -67,6 +67,26 @@ The memory service checks every add and edit against the workspace's never list 
 
 A note that matches is refused with an `invalid` error naming the entry and the list, which the `remember` tool hands back to the agent. The service writes one `memory_changes` row with status `rejected` and `decided_at` set, no `decided_by` and no library version. The row's text names the entry and does not repeat the note, because the topic is one the owner does not want kept.
 
+## Notes that outside text could have written
+
+A note an agent writes is held at every learn level when its source is outside text. Outside text means mail, an A2A peer, or a run that used the web. The code is `usedWeb` in `packages/services/src/memory/provenance.ts` and `outsideSourceOf` in `guards.ts`. A person's own note is never held for this.
+
+A run counts as having used the web when its event log has any `network.request`, whatever its `via` (`curl`, `run_script` or `web_fetch`). It also counts when it has any `browser.action`, or a `tool.call` of a web tool. The web tools are `WebFetch` and `WebSearch` on a machine (Claude Code), `web_fetch` and `web_search` on Managed Agents, and `web_fetch` in cloud runs (Pi). Tool names match without regard to case. A run is also counted as having used the web when any run in its chain did: the runs it descends from and every run below the top of that chain (a subagent or a hand-off, and so its siblings too), because text passes up and down the chain.
+
+The log has a blind spot. A real shell can fetch a page and leave nothing in the log. Claude Code's `Bash` on a machine, the `bash` tool of Managed Agents, the `bash` tool of a cloud Linux VM, and the computer shell (`computer_exec`, named `mcp__<server>__computer_exec` on a machine) can all run `curl`, and no event records the request. The same goes for a skill's script (`run_skill_script`), which runs with network access and writes no `network.request`, and for the computer's desktop tools (`desktop_snapshot`, `desktop_act`, `desktop_act_headed`, `desktop_input`, `desktop_screenshot`), which can drive a browser. The cloud isolate has no shell. Its library `curl` and `run_script` write `network.request` events, so the service sees them.
+
+Because a fetch through these tools cannot be seen, the service holds every agent note from a run that called one of them, as if the run had used the web. A run that never called one cannot have fetched through it. The controller decided this for shells on 20 Nov 2026, and the same rule covers the other tools above because the blind spot is the same. It is deliberate: holding a note is safer than applying text from outside that nobody saw. The cost is that the notes of a shell-using agent wait for approval.
+
+A `tool.call` whose payload is over 64 KB goes to the blob store, and its row keeps no tool name. The service counts such a call as a web use, whatever it was.
+
+Limits that remain:
+
+- Tool calls of machine and Managed Agents runs reach the event log after the call, in batches. A `remember` made within seconds of a web tool call can be written before that call shows, and then applies. `network.request` events from cloud runs are written at the call, so they have no such delay.
+- Only the run's own chain is checked. A later run in the same session, for example a follow-up on Managed Agents or a continuation of a top-level parked run, still has an earlier run's web text in its context, and the guard does not look at the earlier run. Holding every note of a session after one web fetch is a separate decision.
+- A connector (MCP) tool, such as Gmail, Slack or a documentation search, can also return text from outside. This guard does not treat connector calls as web use. Which connectors count is a separate decision.
+- Claude Code tools that run a command other than `Bash`, such as `Monitor` or `PowerShell` on Windows, are not in the list.
+- Pi shortens long tool names and may add a suffix. A suffixed name of a tool in the list is missed.
+
 ## Examples
 
 `agents/scout/memory/people.md`

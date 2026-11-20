@@ -581,6 +581,46 @@ test("channelName classifies missing_scope as config", async () => {
   expect(result).toEqual({ error: "missing_scope", kind: "config" });
 });
 
+test("channelMembership reads is_member from conversations.info", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({ channel: { id: "C1", is_member: true }, ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  const result = await client.channelMembership("C1");
+
+  expect(result).toEqual({ isMember: true, kind: "ok" });
+  const url = new URL(firstCall(calls).url);
+  expect(url.origin + url.pathname).toBe(
+    "https://slack.com/api/conversations.info"
+  );
+  expect(url.searchParams.get("channel")).toBe("C1");
+});
+
+test("channelMembership is false when the bot is not in the channel", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ channel: { id: "C1", is_member: false }, ok: true })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  expect(await client.channelMembership("C1")).toEqual({
+    isMember: false,
+    kind: "ok",
+  });
+});
+
+test("channelMembership classifies channel_not_found as config", async () => {
+  const { fetch } = fakeFetch(() =>
+    jsonResponse({ error: "channel_not_found", ok: false })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  expect(await client.channelMembership("C1")).toEqual({
+    error: "channel_not_found",
+    kind: "config",
+  });
+});
+
 test("downloadFile returns the bytes with the bearer token and no redirects", async () => {
   const { calls, fetch } = fakeFetch(
     () =>

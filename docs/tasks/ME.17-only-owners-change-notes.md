@@ -3,7 +3,7 @@ id: ME.17
 title: "Only an agent's owners or an admin change its notes"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/ME.17-only-owners-change-notes
 lane: web-knows
@@ -26,3 +26,4 @@ From the DR.8 browser proof (`docs/reviews/tasks/DR.8/browser.md`). A plain memb
 ## Log
 - 2026-11-20: added from the DR.8 browser proof. Rule follows Dom's KY decision.
 - 2026-11-20: dispatched on task/ME.17-only-owners-change-notes (v4 controller session).
+- 2026-11-20: merged as f99c0d61, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/ME.17/browser.md. check, test and build passed on main. The dead-end Needs you cards became ME.18.

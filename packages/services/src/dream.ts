@@ -396,7 +396,7 @@ export const createDreamService = (deps: DreamDeps) => {
     return await reread(row);
   };
 
-  /** Keeps the chosen note, forgets the others as the person who answered, and closes the question. */
+  /** Keeps the chosen note, forgets the others as the person who answered, and closes the question. A person who is not the owner or an admin is refused for shared notes by `memory.forget`. */
   const answer = async (
     principal: Principal,
     input: DreamAnswerInput
