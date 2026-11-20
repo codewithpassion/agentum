@@ -128,8 +128,8 @@ function Empty({ rail }: { rail: RailView }) {
       </h1>
       <p className="text-muted-foreground">
         {inHand === 0
-          ? "Anything new will show up on the left."
-          : `${inHand} ${inHand === 1 ? "thing is" : "things are"} in hand. Anything new will show up on the left.`}
+          ? "Anything new will show up under Needs you."
+          : `${inHand} ${inHand === 1 ? "thing is" : "things are"} in hand. Anything new will show up under Needs you.`}
       </p>
       <p>
         <Link
