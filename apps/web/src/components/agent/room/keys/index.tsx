@@ -12,7 +12,7 @@ import { SlackPanel } from "#/components/agent/profile/sheets/slack.tsx";
 import { SubagentsSwitch } from "#/components/agent/profile/subagents-switch.tsx";
 import { WorksWith } from "#/components/agent/profile/works-with.tsx";
 import type { RoomTabProps } from "../room-data.ts";
-import { Manage, RoomSection, TabBody } from "../section.tsx";
+import { ArchivedNote, RoomSection, TabBody } from "../section.tsx";
 
 /** The room's Keys tab: the agent's tools, channels, the agents it works with, and what needs asking first. */
 export function KeysTab({ onOpenTab, room }: RoomTabProps) {
@@ -26,29 +26,37 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
           null
         )
       : null;
+  if (archived) {
+    // One note, not one per panel: nothing here can change an archived agent.
+    return (
+      <TabBody>
+        <ArchivedNote />
+        <AskBeforeCard
+          actions={room.askBefore}
+          agentId={room.agent.id}
+          archived={archived}
+          level={room.askLevel}
+          mailAllowed={allowedMailAddresses(room.rules)}
+          onEditSettings={openSettings}
+        />
+      </TabBody>
+    );
+  }
   return (
     <TabBody>
       <RoomSection title="Tools">
         <BrowserSwitch agent={room.agent} />
-        <Manage archived={archived}>
-          <ConnectorsPanel agent={room.agent} />
-          <SecretsPanel agent={room.agent} />
-        </Manage>
+        <ConnectorsPanel agent={room.agent} />
+        <SecretsPanel agent={room.agent} />
       </RoomSection>
       <RoomSection title="Channels">
-        <Manage archived={archived}>
-          <SlackPanel agent={room.agent} />
-        </Manage>
+        <SlackPanel agent={room.agent} />
         {provisionLabel === null ? null : (
           <MailProvisionButton agentId={room.agent.id} label={provisionLabel} />
         )}
       </RoomSection>
       <WorksWith
-        handsTo={
-          <Manage archived={archived}>
-            <HandsToPanel agent={room.agent} />
-          </Manage>
-        }
+        handsTo={<HandsToPanel agent={room.agent} />}
         peers={
           <div className="[&>section]:border-0 [&>section]:bg-transparent [&_h2]:sr-only">
             <ConnectionsCard

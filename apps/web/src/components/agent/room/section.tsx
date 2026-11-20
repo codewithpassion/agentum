@@ -36,9 +36,9 @@ export function Manage({
   archived: boolean;
   children: ReactNode;
 }) {
-  return archived ? (
-    <p className="text-muted-foreground text-sm">{ARCHIVED_NOTE}</p>
-  ) : (
-    children
-  );
+  return archived ? <ArchivedNote /> : children;
+}
+
+export function ArchivedNote() {
+  return <p className="text-muted-foreground text-sm">{ARCHIVED_NOTE}</p>;
 }

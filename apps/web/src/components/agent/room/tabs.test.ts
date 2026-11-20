@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import {
   DEFAULT_TAB,
   type LegacySheet,
-  legacySheetSearch,
+  legacyRedirectSearch,
+  mailParam,
   ROOM_TABS,
   type RoomTab,
   resolveTab,
@@ -61,16 +62,27 @@ test("?tab= wins over the old params", () => {
   expect(resolveTab({ mail: "1", sheet: "skills" })).toBe("knows");
 });
 
-test("an old ?sheet= link redirects to ?tab=, and other URLs stay put", () => {
-  expect(legacySheetSearch({ sheet: "skills" })).toEqual({ tab: "knows" });
-  expect(legacySheetSearch({ mail: "1", sheet: "tools" })).toEqual({
-    mail: "1",
+test("an old ?sheet= or ?mail= link redirects to ?tab=, and other URLs stay put", () => {
+  expect(legacyRedirectSearch({ sheet: "skills" })).toEqual({ tab: "knows" });
+  expect(legacyRedirectSearch({ mail: "1", sheet: "tools" })).toEqual({
+    mail: 1,
     tab: "keys",
   });
-  expect(legacySheetSearch({ sheet: "tools", tab: "work" })).toEqual({
+  expect(legacyRedirectSearch({ sheet: "tools", tab: "work" })).toEqual({
     tab: "work",
   });
-  expect(legacySheetSearch({})).toBeNull();
-  expect(legacySheetSearch({ mail: "1" })).toBeNull();
-  expect(legacySheetSearch({ tab: "files" })).toBeNull();
+  expect(legacyRedirectSearch({ mail: "1" })).toEqual({ mail: 1, tab: "keys" });
+  expect(legacyRedirectSearch({ mail: "thread_1" })).toEqual({
+    mail: "thread_1",
+    tab: "keys",
+  });
+  expect(legacyRedirectSearch({})).toBeNull();
+  expect(legacyRedirectSearch({ tab: "files" })).toBeNull();
+  expect(legacyRedirectSearch({ mail: "1", tab: "chat" })).toBeNull();
+});
+
+test("the mail list marker goes in the URL as a plain number", () => {
+  expect(mailParam("1")).toBe(1);
+  expect(mailParam("thread_1")).toBe("thread_1");
+  expect(mailParam(undefined)).toBeUndefined();
 });

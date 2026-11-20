@@ -76,15 +76,66 @@ const renderTab = (tab: RoomTab, archived: boolean) => {
   return document;
 };
 
+/** happy-dom's `:disabled` ignores fieldsets, so apply the HTML rule here: its own attribute, or a disabled fieldset around it. */
+const isDisabled = (control: {
+  closest: (selector: string) => unknown;
+  hasAttribute: (name: string) => boolean;
+}): boolean =>
+  control.hasAttribute("disabled") ||
+  control.closest("fieldset[disabled]") !== null;
+
 const TABS_WITH_PANELS = ["keys", "knows", "jobs", "settings"] as const;
 
-test("every control in an archived agent's tabs sits in the disabled fieldset", () => {
+test("every control in an archived agent's tabs is disabled", () => {
   for (const tab of ROOM_TABS) {
     const panel = renderTab(tab, true).querySelector('[role="tabpanel"]');
     for (const control of panel?.querySelectorAll(CONTROLS) ?? []) {
-      expect(control.closest("fieldset[disabled]")).not.toBeNull();
+      expect(isDisabled(control)).toBe(true);
     }
   }
+  // The same selector finds enabled controls on an active agent, so the loop above is not empty.
+  for (const tab of ["files", "knows"] as const) {
+    const panel = renderTab(tab, false).querySelector('[role="tabpanel"]');
+    const enabled = [...(panel?.querySelectorAll(CONTROLS) ?? [])].filter(
+      (control) => !isDisabled(control)
+    );
+    expect(enabled.length).toBeGreaterThan(0);
+  }
+});
+
+test("an archived agent has no way into its home folder, no connect link and no instruction toggle", () => {
+  const files = renderTab("files", true);
+  expect(files.body.textContent).not.toContain("Open home folder");
+  expect(renderTab("files", false).body.textContent).toContain(
+    "Open home folder"
+  );
+  expect(
+    renderTab("keys", true).querySelectorAll('a[href^="/connect"]')
+  ).toHaveLength(0);
+  const long = fixtureRoom();
+  long.agent.status = "archived";
+  long.profile.does = "x".repeat(400);
+  const knows = new Window().document;
+  knows.body.innerHTML = renderInRoom(
+    <RoomFrame
+      nowMs={null}
+      onEdit={noop}
+      onOpenMail={noop}
+      onOpenTab={noop}
+      onStarted={noop}
+      room={long}
+      tab="knows"
+    />
+  );
+  expect(knows.body.textContent).not.toContain("Show more");
+  expect(
+    knows.querySelector('[data-testid="profile-does"]')?.className
+  ).not.toContain("line-clamp");
+});
+
+test("an archived agent's Keys tab shows one note", () => {
+  const text = renderTab("keys", true).body.textContent ?? "";
+  expect(text.split(ARCHIVED_NOTE)).toHaveLength(2);
 });
 
 test("an archived agent's tabs show a note, not the panels that change it", () => {

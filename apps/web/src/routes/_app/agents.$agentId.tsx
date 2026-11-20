@@ -6,7 +6,8 @@ import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
 import { RoomFrame } from "#/components/agent/room/room-frame";
 import {
   DEFAULT_TAB,
-  legacySheetSearch,
+  legacyRedirectSearch,
+  mailParam,
   ROOM_TABS,
   type RoomTab,
   resolveTab,
@@ -19,13 +20,11 @@ const RECENT_TASKS = 5;
 const RECENT_THREADS = 8;
 
 const searchSchema = z.object({
-  // "1" opens the mail list, any other value opens that mail thread. The router
-  // parses ?mail=1 as a number, so turn it back into text before checking it.
+  // 1 opens the mail list, any other value opens that mail thread. The router
+  // parses ?mail=1 as a number, so the page turns it back into text.
   mail: z
-    .preprocess(
-      (value) => (value === undefined ? undefined : String(value)),
-      z.string().min(1).max(200).optional()
-    )
+    .union([z.string().min(1).max(200), z.number()])
+    .optional()
     .catch(undefined),
   // Old links: each sheet is now a section of a tab, see resolveTab.
   sheet: z.enum(SHEET_IDS).optional().catch(undefined),
@@ -34,9 +33,9 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
   validateSearch: (search) => searchSchema.parse(search),
-  // An old ?sheet= link lands on the tab that holds it, with ?tab= in the address bar.
+  // An old ?sheet= or ?mail= link lands on the tab that holds it, with ?tab= in the address bar.
   beforeLoad: ({ params, search }) => {
-    const next = legacySheetSearch(search);
+    const next = legacyRedirectSearch(search);
     if (next !== null) {
       throw redirect({
         params,
@@ -114,6 +113,7 @@ function AgentPage() {
   const nowMs = useNowMs();
   const search = Route.useSearch();
   const tab = resolveTab(search);
+  const mail = search.mail === undefined ? undefined : String(search.mail);
   const navigate = Route.useNavigate();
   const router = useRouter();
 
@@ -131,7 +131,10 @@ function AgentPage() {
   const openMail = useCallback(
     (next: string | undefined) =>
       navigate({
-        search: { mail: next, tab: next === undefined ? searchTab : tab },
+        search: {
+          mail: mailParam(next),
+          tab: next === undefined ? searchTab : tab,
+        },
         replace: true,
       }),
     [navigate, searchTab, tab]
@@ -162,7 +165,7 @@ function AgentPage() {
       {archived ? null : (
         <MailSheet
           agent={agent}
-          mail={search.mail}
+          mail={mail}
           onChange={openMail}
           onClose={closeMail}
         />

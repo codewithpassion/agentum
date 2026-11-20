@@ -1,14 +1,18 @@
-Verdict: pass
+Verdict: fail
 
-All seven flows work at 1280x800 and 390x844. Headless Chromium 156 (agent-browser session rh4-verify2), vite dev on port 3131, commit dff21ef0, local D1 only. Agent used: a fresh "Sorter" (renamed "Sorter Pro" on desktop, "Sorter Phone" on phone). The earlier "Cloud" runtime option was already selectable, so no key row was inserted.
+F4 fails on one point: `?mail=1` lands on Keys with the Mail sheet open, but the address bar does not get `?tab=keys`. Every other flow passes at both sizes.
+
+Run: headless Chromium (agent-browser session rh4-verify3), vite dev on port 3141, commit 79b7e995, local D1 only. Fresh agent "Sorter" (Cloud runtime, selectable), renamed "Sorter Pro" on desktop and "Sorter Mobile" on phone. Owner and Backup selects show: the workspace has Dev User, Admin HM and Member2 HM (Backup options: No backup, Admin HM, Member2 HM). Desktop 1280x800, phone 390x844.
+
+## Failure
+
+F4, `?mail=1` (both sizes). Steps: open /agents/<id>?mail=1. Expected (brief): Keys tab, Mail sheet open, address bar `?tab=keys&mail=...`. Actual: Keys tab selected and the Mail dialog open ("Mail / Sorter Pro / No mail yet."), but the URL becomes `?mail=%221%22` (the value is JSON-quoted) and has no `tab=keys`. Closing the dialog rewrites the URL to `?tab=keys`. `legacySheetSearch` only redirects URLs that carry `sheet=`, and `tabs.test.ts` asserts `legacySheetSearch({ mail: "1" })` is null, so this is the coded behaviour. If the brief is the intent, add the redirect; if not, relax the brief. All six `?sheet=` links redirect correctly.
 
 ## Console and network
 
-- Failed requests (status 400 or above) in resource timing after each flow: none on any agent, map or library page, at either size. Only one console line "Failed to load resource: 400" appeared, once, right after the sign-in redirect pages (/login, /api/dev-login, /dev-login) before any agent page was opened. It did not recur in the phone phase (console cleared first) or in any later page load. I read it as part of the Clerk dev sign-in, not RH.4, but I did not capture its URL.
-- Aborted requests: a few tRPC polls (desk.rail, artifacts.pins, qa.openCount, dictation.status) log "Failed to fetch" when I did a full page load while they were in flight. These come from my own `open` navigations, not from tab switching.
-- Uncaught page errors: none.
-- Known noise: dev server relays `[Server] LOG ... pi-run-start.ts:170` (PiRun ... Network connection lost) as console errors, about 25 lines over both phases, and as warnings "PiRun: MCP server harbourmaster did not list its tools Network connection lost". Both come from the runs started in F2.
-- Other warnings: Clerk development keys, Vite and React DevTools info.
+- Console errors other than known noise: none, either size. Uncaught page errors: none.
+- Failed requests (HTTP 400 or above) and aborted requests: none. No "Failed to load resource" or "Failed to fetch" console line appeared in either phase (console cleared before F1 on desktop and before the phone phase). The agent-browser network log stayed empty, so this rests on the console and page-error output.
+- Known noise, listed separately: 13 `[Server] LOG ... pi-run-start.ts:170` error lines per phase ("PiRun: starting run ...: Network connection lost") and 13 warnings "PiRun: MCP server harbourmaster did not list its tools Network connection lost", from the runs started in F2. Other warnings: Clerk development keys, Vite and React DevTools info.
 
 ## Flows
 
@@ -17,51 +21,46 @@ All seven flows work at 1280x800 and 390x844. Headless Chromium 156 (agent-brows
 | F1 | pass | pass |
 | F2 | pass | pass |
 | F3 | pass | pass |
-| F4 | pass | pass |
+| F4 | fail (`?mail=1` URL) | fail (same) |
 | F5 | pass | pass |
 | F6 | pass | pass |
 | F7 | pass | pass |
 
-### F1 header and default tab
-Open /agents/<id>. Header shows avatar, name, "job line · Owner: Dev User", address chip, "Runs on Cloud" chip, Edit and Run now. Chat is selected. Tabs in order: Chat, Work, Files, Knows, Keys, Jobs, Settings. Page scrollWidth equals viewport (1280 and 390). On phone the tab list scrolls inside itself (474 inside 390) with Settings off-screen. Shots: desktop-1.png, phone-1.png.
+### F1
+Open /agents/<id>. Header: avatar, "Sorter", "Sorts notes into folders · Owner: Dev User", address chip sorter-3@agents.rockyshoreslabs.io, "Runs on Cloud" chip, Edit, Run now. Tabs in order Chat (selected), Work, Files, Knows, Keys, Jobs, Settings. scrollWidth equals viewport at both sizes. On phone the tab list scrolls inside itself (474 inside 390, Settings off-screen). Shots: desktop-1.png, phone-1.png.
 
-### F2 chat
-Desktop: main conversation with composer (Message box, Send). The list has "Open main conversation", "New conversation", the conversation, "All conversations". Card width 318, buttons end at 538 and 497, card ends at 663 (inside). Sent a message: URL stayed /agents/<id>. Work then listed "Hello Sorter, sort these notes" at once, no reload. Shots: desktop-2a-sent.png, desktop-2b-work.png.
-Phone: list stacked above the thread, card 356 wide, buttons end at 210 and 354, card ends at 373 (inside), page scrollWidth 390. Sent "Phone hello again": URL stayed /agents/<id>, Work listed it as "Phone hello again" without reload. Shots: phone-2a-chat.png, phone-2b-sent.png, phone-2c-work.png.
+### F2
+Chat opens the main conversation with a composer. "Open main conversation" and "New conversation" end inside the conversation card (desktop buttons end at 538 and 497, card 344 to 664; phone 210 and 354, card 16 to 374). Phone stacks the list above the thread. Sent "Hello Sorter desktop" / "Hello Sorter phone": URL stayed /agents/<id>; Work then listed the new task as the top entry with no reload. Shots: desktop-2a.png, desktop-2b.png, phone-2a.png, phone-2b.png.
 
-### F3 tabs
-Each click set ?tab=<name> and showed its panel, no horizontal overflow on phone.
-- Files: folders agents/sorter-2 (home, read and write) and wiki (read, suggestions), "+ Add folder", "Open home folder" opens /library?dir=agents%2Fsorter-2.
-- Knows: Instructions, Voice, Skills. Voice typed, Save clicked, reloaded: value persisted ("Friendly and terse" desktop, "Calm on phone" phone).
-- Keys: Tools (Browser switch, connectors, secrets), Channels (Slack form), Works with (Hands to, Subagents, Peers), "Ask me before it..." card. Ask level changed ("Ask before it acts outside" on desktop, "Ask before everything" on phone), reloaded: persisted.
-- Jobs: Triggers and Routines. Create trigger dialog (Name) and Create routine dialog (Name, Schedule, Hour, Minute, Timezone, Prompt) open.
-- Settings: Runs on Cloud with Move agent, Computer, Owner and Backup, Edit agent form, Save changes, Archive agent. Renamed and saved: h1 updated at once.
-Shots: desktop-3b-files, 3c-library, 3d-knows-voice-saved, 3e-keys, 3f-jobs-trigger, 3g-jobs-routine, 3h-settings, 3i-settings-renamed; phone- has the same names.
+### F3
+Each tab click sets ?tab=<name>.
+- Files: folders agents/sorter-3 (home, read and write) and wiki (read, suggestions); "+ Add folder" opens the Add folder dialog; "Open home folder" goes to /library?dir=agents%2Fsorter-3. Shots: desktop-3a-files, 3b-library, 3c-addfolder; phone-3a-files, 3b-library, 3c-addfolder.
+- Knows: Instructions, Voice, Skills (assign select). Voice typed, Save clicked (button appears after typing), reloaded: persisted ("Friendly and terse" desktop, "Calm on phone" phone). Shots: desktop-3d-knows, phone-3d-knows.
+- Keys: Tools (Browser switch, connectors, secrets), Channels (Slack form), Works with (Hands to, Subagents, Peers), "Ask me before it..." radios. Changed to "Ask before it acts outside" (desktop) and "Ask before everything" (phone); reload: persisted. Shots: desktop-3e-keys, 3f-keys-ask; phone-3e-keys.
+- Jobs: Create trigger dialog (Name) and Create routine dialog (Name, Schedule, Hour, Minute, Timezone, Prompt) open. Shots: desktop-3g-trigger, 3h-routine; phone-3f-trigger, 3g-routine.
+- Settings: Runs on Cloud with Move agent, Advanced, Computer ("Add a computer"), Owner and Backup selects (two comboboxes), Edit agent form (Name, Instructions, Model), Save changes, Archive agent. Renamed and saved: h1 updated at once. Shots: desktop-3i-settings, 3j-renamed; phone-3h-settings, 3i-renamed.
+No horizontal page overflow on any tab on phone.
 
-### F4 old links
-?sheet=tools Keys, skills Knows, handsTo Keys, startsOn Jobs, channels Keys, edit Settings, ?mail=1 Keys with the Mail dialog open ("Mail / Sorter ... / No mail yet"). Same at both sizes. Clicking Work afterwards gave ?tab=work (sheet dropped). The old ?sheet= param stays in the URL on arrival. Shots: desktop-4a-tools, desktop-4b-mail, phone-4a-skills, phone-4b-mail.
+### F4
+`?sheet=tools` Keys, `skills` Knows, `handsTo` Keys, `startsOn` Jobs, `channels` Keys, `edit` Settings: each lands on the tab and the address bar shows `?tab=<name>` (both sizes). `?mail=1`: see Failure. Clicking Work after any of these gives `?tab=work`, the old param is gone. Shots: desktop-4a-mail, 4b-tools; phone-4a-mail, 4b-skills.
 
-### F5 archive
-Settings, Archive agent, Archive in the confirm dialog, then redirect to /agents. Reopened: banner "This agent is archived" with Restore, "Archived" chip, tabs still switch. Counts of panel controls (buttons, inputs, selects, textareas, switches, radios, excluding tab buttons, links and the banner), identical at both sizes:
+### F5
+Settings, Archive agent, confirm: redirects to /agents. Reopened: banner "This agent is archived. It doesn't run and isn't offered anywhere." with Restore, "Archived" chip, tabs still switch. Inventory per tab (every button, input, select, switch, radio, textarea and link inside the tab panel; "disabled" judged with :disabled, all those controls sit in a disabled fieldset). Identical at both sizes:
+- Chat: links only (conversation row, "All conversations"). No composer. No controls.
+- Work: links only (task row, "All tasks").
+- Files: "+ Add folder" disabled; "Open home folder" link (/library?dir=...), enabled, navigation only.
+- Knows: note shown; the Voice textarea, Start dictation and Choose microphone are disabled. No skill assign form.
+- Keys: note shown in place of connectors/secrets, Channels and Hands to. Remaining: Browser switch, Subagents switch, three ask-level radios, Advanced, Built-in tools toggles, all disabled; link "Agent connections" (/settings/agent-connections), enabled, navigation to a workspace settings page.
+- Jobs: note shown; remaining control is the "Mail to ... starts tasks" switch, disabled. No Create trigger or Create routine.
+- Settings: note shown; no Owner or Backup selects, no agent form. Remaining: Move agent and Advanced disabled; link "Add a computer" (/settings/machines), enabled, navigation.
+No `/connect` link exists on any tab, no dialog is open or reachable. Real clicks on the Browser switch (Keys) and "+ Add folder" (Files) timed out (not enabled), no dialog opened. Restore removes the banner and notes; Keys shows Add a connector, Connect Slack and the rest again. Shots: desktop-5a-confirm, 5b-archived, 5-chat, 5-work, 5-files, 5-knows, 5-keys, 5-jobs, 5-settings, 5c-restored; phone-5a-confirm, 5b-archived, 5-chat ... 5-settings, 5c-restored.
 
-| Tab | matches :disabled | not disabled |
-|---|---|---|
-| Chat | 0 | 0 (composer replaced by an archived notice) |
-| Work | 0 | 0 (links only) |
-| Files | 1 | 0 |
-| Knows | 5 | 0 |
-| Keys | 16 | 0 |
-| Jobs | 3 | 0 |
-| Settings | 13 | 0 |
+### F6
+Focus on Chat: ArrowRight goes Work then Files, ArrowLeft back to Work, End to Settings, Home to Chat, ArrowLeft from Chat wraps to Settings. Focus moves without selecting (manual activation). Same at both sizes. Shots: desktop-6-keyboard, phone-6-keyboard.
 
-Real click on the Browser switch in Keys and on "Create trigger" in Jobs: both timed out after 25 s with "element is not enabled" (both sizes). Restore removed the banner. Shots: desktop-5a-confirm, 5b-archived, 5c-archived-keys, 5d-restored; phone-5a-confirm, 5b-archived, 5c-archived-keys, 5d-archived-chat, 5e-restored.
+### F7
+/map, Editor, select the agent node: inspector links Knows, Keys, Jobs, Settings go to ?tab=knows, keys, jobs, settings and land on the matching selected tab; "Open agent room" goes to /agents/<id> with Chat selected. The extra "Profile" link (to /agents/<id>) is next to Close inspector. Phone node selected by mouse click at its coordinates; the phone inspector links were activated with a scripted click. Shots: desktop-7a-map, 7b-inspector, 7c-settings-landing; phone-7a-map, 7b-inspector, 7c-settings-landing.
 
-### F6 keyboard
-Focus on Chat: ArrowRight goes Work then Files, ArrowLeft back to Work, End to Settings, Home to Chat, ArrowLeft from Chat wraps to Settings. Focus moves without changing the selected tab. Same at both sizes. Shots: desktop-6-keyboard, phone-6-keyboard.
-
-### F7 map
-/map, Editor, select the agent node: inspector links Knows, Keys, Jobs, Settings go to ?tab=knows, keys, jobs, settings and land on the matching selected tab; "Open agent room" goes to /agents/<id> with Chat selected. There is also an extra "Profile" link to /agents/<id>. Same at both sizes (phone node had to be selected by a mouse click at its coordinates). Shots: desktop-7a-map, 7b-inspector, 7c-settings-landing; phone-7a-map, 7b-inspector, 7c-settings-landing.
-
-## Observations (not failures)
-- Archived Chat and Work show no controls to disable, so those rows are 0 and 0.
-- Opening ?mail=1 rewrites the URL to ?mail=%221%22.
+## Observations
+- The Chat thread's inner tab bar also uses role=tab with names like "Files 0", so a role-based locator for the "Files" tab matches two elements. Not a user-facing failure.
+- Archived Keys still renders Browser, Subagents and the ask-level controls (disabled) next to the note.

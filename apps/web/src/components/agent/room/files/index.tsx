@@ -13,7 +13,7 @@ export function FilesTab({ room }: RoomTabProps) {
     <TabBody>
       <RoomSection title="Library">
         <LibraryRow agent={room.agent} folders={folders} />
-        {home ? (
+        {home && room.agent.status !== "archived" ? (
           <Link
             className={buttonVariants({ variant: "outline" })}
             search={{ dir: home.path }}

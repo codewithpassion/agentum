@@ -49,7 +49,7 @@ const SHEET_TABS: Record<LegacySheet, RoomTab> = {
  * maps through SHEET_TABS and `?mail=` opens Keys, where mail is set up.
  */
 export const resolveTab = (search: {
-  mail?: string | undefined;
+  mail?: number | string | undefined;
   sheet?: LegacySheet | undefined;
   tab?: RoomTab | undefined;
 }): RoomTab => {
@@ -65,18 +65,36 @@ export const resolveTab = (search: {
   return DEFAULT_TAB;
 };
 
+/** The `mail` value that shows the mailbox thread list. */
+export const MAIL_LIST = "1";
+
 /**
- * The search an old `?sheet=` link becomes, or null when the URL has no
- * `sheet`. The route redirects to it, so the address bar shows `?tab=`.
+ * The value to put in the URL for `?mail=`. The router writes a string that
+ * looks like a number as JSON (`%221%22`), so the list marker goes in as the
+ * number 1 and reads `mail=1`. The route turns it back into text.
  */
-export const legacySheetSearch = (search: {
-  mail?: string | undefined;
+export const mailParam = (
+  mail: number | string | undefined
+): number | string | undefined =>
+  mail === MAIL_LIST ? Number(MAIL_LIST) : mail;
+
+/**
+ * The search an old link becomes, or null when the URL is already in the new
+ * form. A `?sheet=` or a `?mail=` with no `?tab=` redirects to it, so the
+ * address bar shows `?tab=`.
+ */
+export const legacyRedirectSearch = (search: {
+  mail?: number | string | undefined;
   sheet?: LegacySheet | undefined;
   tab?: RoomTab | undefined;
-}): { mail?: string; tab: RoomTab } | null => {
-  if (search.sheet === undefined) {
+}): { mail?: number | string; tab: RoomTab } | null => {
+  if (
+    search.sheet === undefined &&
+    (search.mail === undefined || search.tab !== undefined)
+  ) {
     return null;
   }
   const tab = resolveTab(search);
-  return search.mail === undefined ? { tab } : { mail: search.mail, tab };
+  const mail = mailParam(search.mail);
+  return mail === undefined ? { tab } : { mail, tab };
 };

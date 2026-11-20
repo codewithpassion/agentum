@@ -18,11 +18,13 @@ export function SettingsTab({ room }: RoomTabProps) {
     <TabBody>
       <div className="grid gap-4 md:grid-cols-2">
         <RunsOnCard header={room.profile.header} onAdvanced={scrollToForm} />
-        <ComputerCard
-          agent={room.agent}
-          header={room.profile.header}
-          machines={room.machines}
-        />
+        <Manage archived={archived}>
+          <ComputerCard
+            agent={room.agent}
+            header={room.profile.header}
+            machines={room.machines}
+          />
+        </Manage>
       </div>
       {room.members === null ? null : (
         <RoomSection title="Owner">
