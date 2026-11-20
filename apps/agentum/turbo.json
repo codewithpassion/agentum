@@ -1,0 +1,13 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/packages/protocol/fixtures/**",
+        "$TURBO_ROOT$/packages/library-sync/src/**"
+      ]
+    }
+  }
+}

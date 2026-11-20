@@ -84,8 +84,15 @@ try {
     )
     .bind(now)
     .run();
-  const request = (path, init = {}) =>
+  const open = (path, init = {}) =>
     runtime.dispatchFetch(`http://localhost${path}`, init);
+  // Read every body to its end. undici cancels the body of a Response nobody
+  // read once it is garbage collected, and that destroys the pooled socket,
+  // which by then may carry the next request ("other side closed").
+  const request = async (path, init = {}) => {
+    const response = await open(path, init);
+    return new Response(await response.arrayBuffer(), response);
+  };
   let cookie;
   const post = (path, body, withCookie = true) =>
     request(path, {
@@ -251,7 +258,7 @@ try {
       "no private instructions or credentials in captured inference"
     );
   }
-  const stream = await request(
+  const stream = await open(
     `/api/guest/artifacts/${artifactId}/session/stream?after=${encodeURIComponent(events.events[0].id)}`,
     { headers: { Cookie: cookie }, signal: AbortSignal.timeout(5000) }
   );

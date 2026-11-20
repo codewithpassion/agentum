@@ -1,6 +1,7 @@
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
+import { memoryChanges } from "@repo/db/schema/memory";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { teamMembers, teams } from "@repo/db/schema/teams";
@@ -13,7 +14,18 @@ import {
   defaultAgentAvatar,
   type RailView,
 } from "@repo/db/shared";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { readableWorkspace } from "./guards.ts";
@@ -252,79 +264,102 @@ export const createRosterService = ({
         )
       )
       .as("ranked");
-    const [rows, runList, routines, workspace, view, directory, homeRows] =
-      await Promise.all([
-        // Keep the same active-only visibility and ordering as agents.list.
-        db
-          .select({ agent: agents, machineStatus: machines.status })
-          .from(agents)
-          .leftJoin(
-            machines,
-            and(
-              eq(machines.id, agents.machineId),
-              eq(machines.workspaceId, workspaceId)
-            )
+    const [
+      rows,
+      runList,
+      routines,
+      workspace,
+      view,
+      directory,
+      homeRows,
+      learnedRows,
+    ] = await Promise.all([
+      // Keep the same active-only visibility and ordering as agents.list.
+      db
+        .select({ agent: agents, machineStatus: machines.status })
+        .from(agents)
+        .leftJoin(
+          machines,
+          and(
+            eq(machines.id, agents.machineId),
+            eq(machines.workspaceId, workspaceId)
           )
-          .where(
-            and(
-              eq(agents.workspaceId, workspaceId),
-              eq(agents.status, "active")
-            )
+        )
+        .where(
+          and(eq(agents.workspaceId, workspaceId), eq(agents.status, "active"))
+        )
+        .orderBy(asc(agents.name), asc(agents.id)),
+      db
+        .select()
+        .from(ranked)
+        .where(
+          or(
+            eq(ranked.rank, 1),
+            eq(ranked.status, "running"),
+            sql`${ranked.createdAt} >= ${weekStart}`
           )
-          .orderBy(asc(agents.name), asc(agents.id)),
-        db
-          .select()
-          .from(ranked)
-          .where(
+        )
+        .orderBy(desc(ranked.createdAt), desc(ranked.id)),
+      db
+        .select({
+          agentId: triggers.agentId,
+          cron: triggers.cron,
+          timezone: triggers.timezone,
+        })
+        .from(triggers)
+        .where(
+          and(
+            eq(triggers.workspaceId, workspaceId),
+            eq(triggers.kind, "routine"),
+            isNull(triggers.disabledAt),
+            isNull(triggers.revokedAt)
+          )
+        ),
+      db
+        .select({ timezone: workspaces.timezone })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId)),
+      // Use the rail's owner/creator, backup escalation, private-session rules,
+      // grouping and plainTitle logic. Problems are stopped, not open waits.
+      rail.get(principal, { dayStart: weekStart, scope: "mine" }),
+      members ? members.list(principal).catch(() => null) : null,
+      db
+        .select({
+          agentId: teamMembers.memberId,
+          leadAgentId: teams.leadAgentId,
+          teamId: teams.id,
+        })
+        .from(teamMembers)
+        .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+        .where(
+          and(
+            eq(teams.workspaceId, workspaceId),
+            eq(teamMembers.memberKind, "agent"),
+            eq(teamMembers.isHome, true),
+            isNull(teams.archivedAt)
+          )
+        )
+        .orderBy(asc(teams.id)),
+      // Count change rows by creation time, as memory history does, including
+      // all applied actions/writers; private changes stay with their person.
+      db
+        .select({ agentId: memoryChanges.agentId, count: count() })
+        .from(memoryChanges)
+        .where(
+          and(
+            eq(memoryChanges.workspaceId, workspaceId),
+            eq(memoryChanges.status, "applied"),
+            gte(memoryChanges.createdAt, weekStart),
             or(
-              eq(ranked.rank, 1),
-              eq(ranked.status, "running"),
-              sql`${ranked.createdAt} >= ${weekStart}`
+              isNull(memoryChanges.userScope),
+              eq(memoryChanges.userScope, principal.userId)
             )
           )
-          .orderBy(desc(ranked.createdAt), desc(ranked.id)),
-        db
-          .select({
-            agentId: triggers.agentId,
-            cron: triggers.cron,
-            timezone: triggers.timezone,
-          })
-          .from(triggers)
-          .where(
-            and(
-              eq(triggers.workspaceId, workspaceId),
-              eq(triggers.kind, "routine"),
-              isNull(triggers.disabledAt),
-              isNull(triggers.revokedAt)
-            )
-          ),
-        db
-          .select({ timezone: workspaces.timezone })
-          .from(workspaces)
-          .where(eq(workspaces.id, workspaceId)),
-        // Use the rail's owner/creator, backup escalation, private-session rules,
-        // grouping and plainTitle logic. Problems are stopped, not open waits.
-        rail.get(principal, { dayStart: weekStart, scope: "mine" }),
-        members ? members.list(principal).catch(() => null) : null,
-        db
-          .select({
-            agentId: teamMembers.memberId,
-            leadAgentId: teams.leadAgentId,
-            teamId: teams.id,
-          })
-          .from(teamMembers)
-          .innerJoin(teams, eq(teams.id, teamMembers.teamId))
-          .where(
-            and(
-              eq(teams.workspaceId, workspaceId),
-              eq(teamMembers.memberKind, "agent"),
-              eq(teamMembers.isHome, true),
-              isNull(teams.archivedAt)
-            )
-          )
-          .orderBy(asc(teams.id)),
-      ]);
+        )
+        .groupBy(memoryChanges.agentId),
+    ]);
     const homeTeams = homeTeamsFor(homeRows);
+    const learned = new Map(learnedRows.map((row) => [row.agentId, row.count]));
     const names = new Map(
       directory?.map((entry) => [entry.userId, entry.name])
     );
@@ -357,7 +392,7 @@ export const createRosterService = ({
         id: row.id,
         isLead: home?.isLead ?? false,
         jobLine: jobLineFor(row.instructions),
-        learnedCount: 0,
+        learnedCount: learned.get(row.id) ?? 0,
         name: row.name,
         needsYouCount: wait?.count ?? 0,
         ownerName: names.get(assigneeOf(row, null) ?? "") ?? wait?.owner ?? "",

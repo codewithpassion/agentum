@@ -1,4 +1,5 @@
 import type { JobSentence, ProposedTrigger } from "@repo/db/shared";
+import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CreateRoutineDialog } from "#/components/routines/create-routine-dialog.tsx";
@@ -45,6 +46,7 @@ export function JobsPanel({
   onOpenKeys: (agentId: string) => void;
   readOnly?: boolean;
 }) {
+  const router = useRouter();
   const [jobs, setJobs] = useState<JobSentence[] | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [nowMs, setNowMs] = useState<number | null>(null);
@@ -122,13 +124,15 @@ export function JobsPanel({
       try {
         await getTrpc().jobs.runNow.mutate({ jobId: job.id });
         toast.success("Started. Its run shows under Work in the agent's room.");
+        // The room's Work tab and the roster read route data, not this list.
+        await router.invalidate();
       } catch (cause) {
         setError(errorMessage(cause));
       }
       setBusyId(null);
       await load();
     },
-    [load]
+    [load, router]
   );
 
   const edit = useCallback(

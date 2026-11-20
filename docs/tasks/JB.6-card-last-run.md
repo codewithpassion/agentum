@@ -3,9 +3,9 @@ id: JB.6
 title: "The card says how the last run went"
 milestone: JB
 size: S
-status: todo
+status: in_progress
 depends_on: [JB.5]
-branch: null
+branch: task/JB.6-card-last-run
 lane: services-roster
 executor: claude
 ---
@@ -26,3 +26,4 @@ From the JB walkthrough (`docs/reviews/JB-e2e.md`). After a successful run the a
 
 ## Log
 - 2026-11-20: added from the JB walkthrough. Wording decided by the controller under Dom's "don't wait for me".
+- 2026-11-20: dispatched on task/JB.6-card-last-run (v4 controller session).
