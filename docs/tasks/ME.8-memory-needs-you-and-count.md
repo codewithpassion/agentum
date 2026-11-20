@@ -3,7 +3,7 @@ id: ME.8
 title: "Held notes in Needs you, learned count on the card"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: [ME.1, RH.2]
 branch: task/ME.8-memory-needs-you-and-count
 lane: services-rail
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone ME. Held notes must reach the person, an
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/ME.8-memory-needs-you-and-count (v4 controller session).
+- 2026-11-20: merged as e7b4bb48, review clean after 1 fix round. check and build passed on main; tests passed except the two known flakes in FX.1.

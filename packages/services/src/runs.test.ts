@@ -995,7 +995,9 @@ test("an hour of never-claimed runs stays bounded and the sweep still reaches a 
   expect(long.peak).toBeLessThan(100);
   expect(short.passes).toBeLessThanOrEqual(3);
   expect(long.passes).toBe(short.passes);
-}, 60_000);
+  // About 3200 start-and-sweep rounds: roughly 50 s of CPU on an idle core, so
+  // 60 s failed whenever the host was busy.
+}, 240_000);
 
 test("the sweep fetches pending files first", async () => {
   const downloads: unknown[] = [];
