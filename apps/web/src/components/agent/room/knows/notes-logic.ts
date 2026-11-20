@@ -8,6 +8,10 @@ import {
   type MemoryWriter,
 } from "@repo/db/shared";
 
+/** Shown where a person who is not the agent's owner or an admin cannot change its notes. The Keys tab says the same of its apps. */
+export const NOTES_OWNER_ONLY =
+  "Only the agent's owners and admins can change its notes.";
+
 export const KIND_LABELS: Record<MemoryNoteKind, string> = {
   corrections: "Corrections",
   people: "About people",

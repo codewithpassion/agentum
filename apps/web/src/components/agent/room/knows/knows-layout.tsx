@@ -14,10 +14,12 @@ import type { MemoryApi, MemoryData } from "./use-memory.ts";
 
 function Notes({
   archived,
+  canChange,
   data,
   memory,
 }: {
   archived: boolean;
+  canChange: boolean;
   data: MemoryData | undefined;
   memory: MemoryApi;
 }) {
@@ -30,6 +32,7 @@ function Notes({
     <NotesSection
       adding={memory.adding}
       busyId={memory.busyId}
+      canChange={canChange}
       disabled={archived}
       groups={groupNotes(data.notes, data.held)}
       onAdd={memory.add}
@@ -51,7 +54,7 @@ export function KnowsLayout({
   memory,
   room,
 }: {
-  /** Whether this person may change the rules: the owner or an admin. */
+  /** Whether this person may change the rules and the agent's shared notes: the owner or an admin. */
   canChange: boolean;
   dream: DreamApi;
   memory: MemoryApi;
@@ -91,7 +94,12 @@ export function KnowsLayout({
                 {memory.error}
               </p>
             )}
-            <Notes archived={archived} data={data} memory={memory} />
+            <Notes
+              archived={archived}
+              canChange={canChange}
+              data={data}
+              memory={memory}
+            />
           </RoomSection>
         </div>
         <div className="max-lg:order-4">
@@ -130,6 +138,7 @@ export function KnowsLayout({
             <RoomSection title="Learned this week">
               <LearnedList
                 busyId={memory.busyId}
+                canChange={canChange}
                 changes={learned}
                 disabled={archived}
                 nowMs={data.nowMs}

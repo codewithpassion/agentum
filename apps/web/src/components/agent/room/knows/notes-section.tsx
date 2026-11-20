@@ -13,10 +13,15 @@ import {
   NativeSelectOption,
 } from "#/components/ui/native-select";
 import { HeldRow, NoteRow } from "./note-row.tsx";
-import { KIND_LABELS, type NoteGroup } from "./notes-logic.ts";
+import {
+  KIND_LABELS,
+  NOTES_OWNER_ONLY,
+  type NoteGroup,
+} from "./notes-logic.ts";
 
 function NoteGroupBlock({
   busyId,
+  canChange,
   disabled,
   group,
   onDecide,
@@ -24,6 +29,7 @@ function NoteGroupBlock({
   onForget,
 }: {
   busyId: string | null;
+  canChange: boolean;
   disabled: boolean;
   group: NoteGroup;
   onDecide: (changeId: string, decision: "approve" | "reject") => void;
@@ -36,6 +42,7 @@ function NoteGroupBlock({
       {group.held.map((change) => (
         <HeldRow
           busy={busyId === change.id}
+          canChange={canChange}
           change={change}
           disabled={disabled}
           key={change.id}
@@ -45,6 +52,7 @@ function NoteGroupBlock({
       {group.notes.map((note) => (
         <NoteRow
           busy={busyId === note.id}
+          canChange={canChange}
           disabled={disabled}
           key={note.id}
           note={note}
@@ -59,6 +67,7 @@ function NoteGroupBlock({
 export function NotesSection({
   adding,
   busyId,
+  canChange,
   disabled,
   groups,
   onAdd,
@@ -67,6 +76,7 @@ export function NotesSection({
   onForget,
 }: {
   busyId: string | null;
+  canChange: boolean;
   disabled: boolean;
   groups: readonly NoteGroup[];
   onAdd: (kind: MemoryNoteKind, text: string) => void;
@@ -113,6 +123,7 @@ export function NotesSection({
         groups.map((group) => (
           <NoteGroupBlock
             busyId={busyId}
+            canChange={canChange}
             disabled={disabled}
             group={group}
             key={group.kind}
@@ -121,6 +132,9 @@ export function NotesSection({
             onForget={onForget}
           />
         ))
+      )}
+      {canChange ? null : (
+        <p className="text-muted-foreground text-xs">{NOTES_OWNER_ONLY}</p>
       )}
       <form className="flex flex-col gap-3" onSubmit={submit}>
         <p className="font-medium text-sm">Add a note</p>
