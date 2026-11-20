@@ -8,7 +8,7 @@ import type { FileInfo, InboxPost } from "#/integrations/trpc/types.ts";
 import { MemberAvatar } from "./member-avatar.tsx";
 import { memberKey, type RoomMember } from "./room-types.ts";
 
-const PILL_CLASS = buttonVariants({ size: "sm", variant: "outline" });
+const PILL_CLASS = `${buttonVariants({ size: "sm", variant: "outline" })} max-md:min-h-10`;
 
 function AssignedLine({ assigned }: { assigned: readonly RoomMember[] }) {
   return (

@@ -12,6 +12,7 @@ import {
   roomMembers,
   topicSessionIds,
   topicsOfTeam,
+  withoutPerson,
 } from "./room-logic.ts";
 import { memberKey, type RoomMember } from "./room-types.ts";
 
@@ -349,4 +350,23 @@ test("requestsOfTopic keeps the records of the given sessions in order", () => {
   const picked = requestsOfTopic(records, new Set(["s1", "s2"]));
   expect(picked.map((record) => record.id)).toEqual(["r1", "r2", "r4"]);
   expect(requestsOfTopic(records, new Set())).toEqual([]);
+});
+
+test("withoutPerson drops the person, not an agent with the same id", () => {
+  const person: RoomMember = {
+    avatar: null,
+    handle: "dom",
+    id: "x1",
+    kind: "user",
+    name: "Dom",
+  };
+  const agent: RoomMember = {
+    avatar,
+    handle: "fake-echo",
+    id: "x1",
+    kind: "agent",
+    name: "Fake echo",
+  };
+  expect(withoutPerson([agent, person], "x1")).toEqual([agent]);
+  expect(withoutPerson([agent, person], "other")).toEqual([agent, person]);
 });

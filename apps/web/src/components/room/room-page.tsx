@@ -19,6 +19,7 @@ import {
   roomDirectory,
   roomMembers,
   topicsOfTeam,
+  withoutPerson,
 } from "./room-logic.ts";
 import { RoomThread } from "./room-thread.tsx";
 import { TopicList } from "./topic-list.tsx";
@@ -66,10 +67,7 @@ export function RoomPage({
   const canPost = canPostInRoom(team, userId);
   // The topic always includes its creator, so the dialog does not offer them.
   const otherMembers = useMemo(
-    () =>
-      members.filter(
-        (member) => !(member.kind === "user" && member.id === userId)
-      ),
+    () => withoutPerson(members, userId),
     [members, userId]
   );
 
@@ -102,7 +100,7 @@ export function RoomPage({
 
   return (
     <section className="mx-auto grid max-w-5xl gap-8 md:grid-cols-[16rem_1fr]">
-      <aside className="flex flex-col gap-4 max-md:hidden">
+      <aside className="flex flex-col gap-4 max-md:hidden md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:self-start md:overflow-y-auto">
         <h1 className="font-heading text-3xl text-foreground">{team.name}</h1>
         <p className="text-muted-foreground text-sm">Team room</p>
         {newTopic}

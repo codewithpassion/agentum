@@ -171,3 +171,10 @@ export const requestsOfTopic = <T extends { sessionId: string }>(
   records: readonly T[],
   sessionIds: ReadonlySet<string>
 ): T[] => records.filter((record) => sessionIds.has(record.sessionId));
+
+/** The members without this person. A topic always has its creator, and nobody needs to mention themselves. */
+export const withoutPerson = (
+  members: readonly RoomMember[],
+  userId: string
+): RoomMember[] =>
+  members.filter((member) => !(member.kind === "user" && member.id === userId));

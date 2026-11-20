@@ -22,8 +22,8 @@ interface WaitingRequest {
 }
 
 interface AnsweredRequest extends WaitingRequest {
-  /** The topic's post count when it was answered. */
-  postCount: number;
+  /** The newest post's id when it was answered. */
+  newestPostId: string | null;
 }
 
 /**
@@ -49,15 +49,15 @@ const loadWaiting = async (threadId: string): Promise<WaitingRequest[]> => {
 
 interface RoomRequestsProps {
   directory: RoomDirectory;
-  /** How many posts the topic has. An answered card goes once a newer post lands. */
-  postCount: number;
+  /** The newest post's id, or null. An answered card goes once a newer post lands. */
+  newestPostId: string | null;
   threadId: string;
 }
 
-/** Requests raised in the topic's tasks, with their buttons. Answered ones stay until the run posts. */
+/** Requests raised in the topic's tasks, with their buttons. Answered ones stay, as a local confirmation, until a newer post lands or the topic is left. */
 export function RoomRequests({
   directory,
-  postCount,
+  newestPostId,
   threadId,
 }: RoomRequestsProps) {
   const nowMs = useNowMs();
@@ -92,19 +92,19 @@ export function RoomRequests({
       }
       setAnswered((current) => ({
         ...current,
-        [view.id]: { agentId, postCount, view: { ...view, settled } },
+        [view.id]: { agentId, newestPostId, view: { ...view, settled } },
       }));
       window.dispatchEvent(new Event(RAIL_REFRESH_EVENT));
       refresh();
     },
-    [postCount, refresh, waiting.data]
+    [newestPostId, refresh, waiting.data]
   );
 
   const open = (waiting.data ?? []).filter(
     (entry) => answered[entry.view.id] === undefined
   );
   const done = Object.values(answered).filter(
-    (entry) => entry.postCount >= postCount
+    (entry) => entry.newestPostId === newestPostId
   );
   const shown = [...open, ...done];
   if (nowMs === null || shown.length === 0) {

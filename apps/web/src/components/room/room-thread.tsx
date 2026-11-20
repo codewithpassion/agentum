@@ -7,7 +7,12 @@ import { Button } from "#/components/ui/button.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
 import { MentionComposer } from "./mention-composer.tsx";
-import { assignedTo, authorName, memberOfPost } from "./room-logic.ts";
+import {
+  assignedTo,
+  authorName,
+  memberOfPost,
+  withoutPerson,
+} from "./room-logic.ts";
 import { RoomPost } from "./room-post.tsx";
 import { RoomRequests } from "./room-requests.tsx";
 import type { RoomDirectory, RoomMember } from "./room-types.ts";
@@ -54,6 +59,11 @@ export function RoomThread({
     [posts]
   );
   const { files } = useFileInfos(fileIds);
+  const mentionable = useMemo(
+    () => withoutPerson(members, userId),
+    [members, userId]
+  );
+
   const handleSent = useCallback(() => {
     refreshView();
     onPosted();
@@ -132,12 +142,12 @@ export function RoomThread({
       )}
       <RoomRequests
         directory={directory}
-        postCount={view.data.posts.length}
+        newestPostId={view.data.posts.at(-1)?.id ?? null}
         threadId={threadId}
       />
       {canPost ? (
         <MentionComposer
-          members={members}
+          members={mentionable}
           onSent={handleSent}
           threadId={threadId}
         />
