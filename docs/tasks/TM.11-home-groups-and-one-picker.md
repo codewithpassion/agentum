@@ -3,7 +3,7 @@ id: TM.11
 title: "Home hides empty team groups; one member picker"
 milestone: TM
 size: S
-status: in_progress
+status: done
 depends_on: [TM.6, TM.8]
 branch: task/TM.11-home-groups-and-one-picker
 lane: web-home
@@ -29,3 +29,4 @@ From the TM.8 review (`docs/reviews/tasks/TM.8.md`). Every workspace has an "Eve
 - 2026-11-20: scope adds the team page's Room link, from TM.7.
 - 2026-11-20: dispatched on task/TM.11-home-groups-and-one-picker (v4 controller session).
 - 2026-11-20: the flat-wall rule became "every group is Everyone or No team", because new agents don't join a team when created. Home no longer offers Add to team for a team with no agents; the team page does.
+- 2026-11-20: merged as 56e143be, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/TM.11/browser.md. check, test and build passed on main.
