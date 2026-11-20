@@ -7,13 +7,19 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import {
   isPendingProposal,
   type JobSentence,
+  LIVE_RUN_STATUSES,
   type ProposedTrigger,
+  type RunStatus,
 } from "@repo/db/shared";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize } from "./authz.ts";
-import { requireReader, requireWriter } from "./automation-access.ts";
+import {
+  requireOwnAgent,
+  requireReader,
+  requireWriter,
+} from "./automation-access.ts";
 import { invalid, notFound, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { readableWorkspace } from "./guards.ts";
@@ -71,6 +77,14 @@ const compareJobs = (a: JobSentence, b: JobSentence): number => {
 };
 
 type TriggerRow = typeof triggers.$inferSelect;
+
+/** True for a finished good run, false for a finished bad one, null while the run is still live. */
+const runEndedWell = (status: RunStatus): boolean | null => {
+  if (LIVE_RUN_STATUSES.includes(status)) {
+    return null;
+  }
+  return status === "done";
+};
 
 const nextRunFor = (
   trigger: TriggerRow,
@@ -196,7 +210,7 @@ export const createJobsService = ({
             id: trigger.id,
             // Queued runs have no startedAt yet; show when the start was requested.
             lastRunAt: last ? (last.startedAt ?? last.createdAt) : null,
-            lastRunOk: last ? last.status === "done" : null,
+            lastRunOk: last ? runEndedWell(last.status) : null,
             nextRunAt,
             source: trigger.kind,
             when,
@@ -252,7 +266,8 @@ export const createJobsService = ({
     principal: Principal,
     agentId: string
   ): Promise<JobSentence[]> => {
-    requireReader(principal, JOBS_READ);
+    const reader = requireReader(principal, JOBS_READ);
+    requireOwnAgent(reader, agentId, JOBS_READ);
     const workspaceId = readableWorkspace(principal, JOBS_READ);
     authorize(principal, JOBS_READ, {
       id: agentId,
@@ -263,10 +278,14 @@ export const createJobsService = ({
   };
 
   const list = async (principal: Principal): Promise<JobSentence[]> => {
-    requireReader(principal, JOBS_READ);
+    const reader = requireReader(principal, JOBS_READ);
     const workspaceId = readableWorkspace(principal, JOBS_READ);
     authorize(principal, JOBS_READ, { kind: JOBS_KIND, workspaceId });
-    return await read(workspaceId);
+    // A run sees only its own agent's jobs.
+    return await read(
+      workspaceId,
+      reader.kind === "run" ? reader.agentId : undefined
+    );
   };
 
   const draft = (
@@ -297,7 +316,7 @@ export const createJobsService = ({
     jobId: string
   ): Promise<{ runId: string }> => {
     const workspaceId = readableWorkspace(principal, JOBS_WRITE);
-    requireWriter(principal, JOBS_WRITE);
+    const writer = requireWriter(principal, JOBS_WRITE);
     authorize(principal, JOBS_WRITE, {
       id: jobId,
       kind: JOBS_KIND,
@@ -311,6 +330,7 @@ export const createJobsService = ({
     if (!row) {
       throw notFound("Job not found");
     }
+    requireOwnAgent(writer, row.agentId, JOBS_WRITE);
     if (row.kind !== "routine") {
       throw invalid("Only routines can run now");
     }

@@ -334,7 +334,30 @@ test("runNow starts one run per press and preserves the schedule", async () => {
   expect(fired.map((row) => row.runId).sort()).toEqual(
     [first.runId, second.runId].sort()
   );
+  // Both runs are still queued, so neither has ended well or badly.
+  expect((await service.list(user))[0]?.lastRunOk).toBeNull();
+  db.update(runRows).set({ status: "done" }).run();
+  expect((await service.list(user))[0]?.lastRunOk).toBe(true);
+  db.update(runRows).set({ status: "failed" }).run();
   expect((await service.list(user))[0]?.lastRunOk).toBe(false);
+});
+test("a run reads and starts only its own agent's jobs", async () => {
+  insert("routine");
+  const own: Principal = {
+    agentId: "a1",
+    kind: "run",
+    runId: "r1",
+    workspaceId: "w1",
+  };
+  const other: Principal = { ...own, agentId: "a2" };
+  expect(await service.list(own)).toHaveLength(1);
+  expect(await service.list(other)).toHaveLength(0);
+  expect(await service.forAgent(own, "a1")).toHaveLength(1);
+  await expect(service.forAgent(other, "a1")).rejects.toThrow(ForbiddenError);
+  await expect(service.runNow(other, "routine")).rejects.toThrow(
+    ForbiddenError
+  );
+  expect((await service.runNow(own, "routine")).runId).toBeTruthy();
 });
 test("runNow refuses missing, foreign, non-routine, revoked and pending jobs", async () => {
   insert("http");
