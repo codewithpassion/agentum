@@ -1,7 +1,10 @@
 /**
- * The inbox: threads anyone in the workspace can read and post to. A post
- * that mentions `@slug` wakes that agent with a run whose reply lands back in
- * the thread. A person's post wakes agents as that person. An agent's reply
+ * The inbox: team rooms made of topics (threads). The Everyone team is open to
+ * the whole workspace. Posting in another team's room needs team membership,
+ * and a topic with member rows (`inbox_thread_members`) is visible to those
+ * members only. A post that mentions `@slug` wakes that agent with a run whose
+ * reply lands back in the thread. A person's post that mentions no agent wakes
+ * the team's lead when the team's `lead_listens` is on. A person's post wakes agents as that person. An agent's reply
  * wakes agents with a run principal for the replying run, so the person the
  * chain is for comes from the run table and never from the post's text. The
  * loop guard (`inbox/loop-guard.ts`) keeps two agents from talking forever.
@@ -11,11 +14,19 @@
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
-import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
+import {
+  inboxPosts,
+  inboxThreadMembers,
+  inboxThreads,
+} from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { teams } from "@repo/db/schema/teams";
-import { EVERYONE_TEAM_SLUG, type InboxAuthorKind } from "@repo/db/shared";
+import {
+  EVERYONE_TEAM_SLUG,
+  type InboxAuthorKind,
+  TEAM_MEMBER_KINDS,
+} from "@repo/db/shared";
 import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { monotonicFactory } from "ulidx";
 import { z } from "zod";
@@ -29,7 +40,19 @@ import {
   WAKE_LIMIT_WINDOW_MS,
 } from "./inbox/loop-guard.ts";
 import { parseMentions } from "./inbox/mentions.ts";
-import { buildWakeInput, WAKE_CONTEXT_POSTS } from "./inbox/wake-input.ts";
+import {
+  type ArtifactLink,
+  type PostLinks,
+  postLinks,
+} from "./inbox/post-links.ts";
+import {
+  canPostInTopic,
+  canReadTopic,
+  isInTeam,
+  type Roomer,
+  topicVisibleTo,
+} from "./inbox/room-access.ts";
+import { buildWakeInput } from "./inbox/wake-input.ts";
 import { loadRun } from "./runs/queries.ts";
 import {
   type Clock,
@@ -46,6 +69,9 @@ const READ_ACTION = "inbox.read";
 const POST_ACTION = "inbox.post";
 const INBOX_KIND = "inbox";
 const TITLE_MAX = 120;
+const MEMBERS_MAX = 50;
+/** Rows one catch-up reads. The wake input's character budget keeps far fewer. */
+const WAKE_CATCH_UP_READ_LIMIT = 200;
 /** Threads one list call returns, most recently posted to first. */
 export const THREAD_LIST_LIMIT = 50;
 /** Posts one read returns: the newest ones, oldest first. */
@@ -55,6 +81,18 @@ export const THREAD_READ_LIMIT = 500;
 const nextId = monotonicFactory();
 
 export const threadCreateInputSchema = z.strictObject({
+  /** Limits the topic to these members. The person who opens it is always in. */
+  members: z
+    .array(
+      z.strictObject({
+        id: idString,
+        kind: z.enum(TEAM_MEMBER_KINDS),
+      })
+    )
+    .max(MEMBERS_MAX)
+    .optional(),
+  /** The team room to open the topic in. Defaults to the workspace's Everyone team. */
+  teamId: idString.optional(),
   title: z.string().trim().min(1).max(TITLE_MAX),
 });
 export type ThreadCreateInput = z.input<typeof threadCreateInputSchema>;
@@ -79,17 +117,22 @@ export interface ThreadRecord {
   createdBy: string;
   id: string;
   lastPostAt: string;
+  /** The team room the topic belongs to, or null for a topic from before teams. */
+  teamId: string | null;
   title: string;
 }
 
 export interface PostRecord {
+  /** Artifacts the post's run wrote, when the reader may see that run. */
+  artifacts: ArtifactLink[];
   /** The user id, or the agent id. */
   authorId: string;
   authorKind: InboxAuthorKind;
   createdAt: string;
+  /** Empty when the post's run is hidden from the reader. */
   fileIds: string[];
   id: string;
-  /** Set on an agent's post: the run that wrote it. */
+  /** Set on an agent's post: the run that wrote it. Null when the reader may not see that run. */
   runId: string | null;
   text: string;
   threadId: string;
@@ -120,6 +163,13 @@ type Member = UserPrincipal | RunPrincipal;
 type ThreadRow = typeof inboxThreads.$inferSelect;
 type PostRow = typeof inboxPosts.$inferSelect;
 
+/** What a wake needs from the topic's team. */
+interface Room {
+  leadAgentId: string | null;
+  leadListens: boolean;
+  rules: string;
+}
+
 interface Author {
   id: string;
   kind: InboxAuthorKind;
@@ -137,19 +187,29 @@ const toThread = (row: ThreadRow): ThreadRecord => ({
   createdBy: row.createdBy,
   id: row.id,
   lastPostAt: row.lastPostAt,
+  teamId: row.teamId,
   title: row.title,
 });
 
-const toPost = (row: PostRow): PostRecord => ({
+const storedFileIds = (row: PostRow): string[] =>
+  z.array(z.string()).parse(JSON.parse(row.fileIds));
+
+const toPost = (row: PostRow, links: PostLinks): PostRecord => ({
+  artifacts: links.artifacts,
   authorId: row.authorId,
   authorKind: row.authorKind,
   createdAt: row.createdAt,
-  fileIds: z.array(z.string()).parse(JSON.parse(row.fileIds)),
+  fileIds: links.fileIds,
   id: row.id,
-  runId: row.runId,
+  runId: links.runId,
   text: row.text,
   threadId: row.threadId,
 });
+
+const roomerOf = (member: Member): Roomer =>
+  member.kind === "user"
+    ? { id: member.userId, kind: "user" }
+    : { id: member.agentId, kind: "agent" };
 
 const requireMember = (principal: Principal, action: string): Member => {
   if (principal.kind !== "user" && principal.kind !== "run") {
@@ -203,10 +263,16 @@ export const createInboxService = ({
     return row ?? null;
   };
 
+  /**
+   * The thread when `member` may use it. A limited topic the member is not in
+   * answers not found, so its existence stays hidden. Posting also needs
+   * membership in the topic's team.
+   */
   const requireThread = async (
     member: Member,
     threadId: string,
-    action: string
+    action: string,
+    access: "post" | "read"
   ): Promise<ThreadRow> => {
     authorize(member, action, {
       id: threadId,
@@ -214,10 +280,138 @@ export const createInboxService = ({
       workspaceId: member.workspaceId,
     });
     const thread = await findThread(threadId, member.workspaceId);
-    if (!thread) {
+    const roomer = roomerOf(member);
+    if (!(thread && (await canReadTopic(db, thread, roomer)))) {
       throw new ServiceError("not_found", "Thread not found");
     }
+    if (access === "post" && !(await canPostInTopic(db, thread, roomer))) {
+      throw new ForbiddenError(action);
+    }
     return thread;
+  };
+
+  /** The post's run, files and artifacts as `member` may see them. */
+  const linksFor = async (
+    member: Member,
+    threadId: string,
+    rows: readonly PostRow[]
+  ): Promise<Map<string, PostLinks>> => {
+    if (rows.every((row) => row.runId === null)) {
+      return new Map(
+        rows.map((row) => [
+          row.id,
+          { artifacts: [], fileIds: storedFileIds(row), runId: null },
+        ])
+      );
+    }
+    return await postLinks(
+      db,
+      member,
+      threadId,
+      rows.map((row) => ({
+        fileIds: storedFileIds(row),
+        id: row.id,
+        runId: row.runId,
+      }))
+    );
+  };
+
+  const toPostRecord = async (
+    member: Member,
+    thread: ThreadRow,
+    row: PostRow
+  ): Promise<PostRecord> => {
+    const [record] = await toPosts(member, thread.id, [row]);
+    if (!record) {
+      throw new ServiceError("not_found", "Post not found");
+    }
+    return record;
+  };
+
+  const toPosts = async (
+    member: Member,
+    threadId: string,
+    rows: readonly PostRow[]
+  ): Promise<PostRecord[]> => {
+    const links = await linksFor(member, threadId, rows);
+    return rows.map((row) =>
+      toPost(
+        row,
+        links.get(row.id) ?? { artifacts: [], fileIds: [], runId: null }
+      )
+    );
+  };
+
+  /** The team the topic opens in, checked in the workspace, with the writer in it. */
+  const teamForNewTopic = async (
+    writer: UserPrincipal,
+    teamId: string | undefined
+  ): Promise<string | null> => {
+    if (teamId === undefined) {
+      // A new topic starts in the workspace's Everyone team until it names one.
+      const [everyone] = await db
+        .select({ id: teams.id })
+        .from(teams)
+        .where(
+          and(
+            eq(teams.workspaceId, writer.workspaceId),
+            eq(teams.slug, EVERYONE_TEAM_SLUG)
+          )
+        );
+      return everyone?.id ?? null;
+    }
+    const [team] = await db
+      .select({ archivedAt: teams.archivedAt, id: teams.id })
+      .from(teams)
+      .where(
+        and(eq(teams.workspaceId, writer.workspaceId), eq(teams.id, teamId))
+      );
+    if (!team || team.archivedAt !== null) {
+      throw new ServiceError("not_found", "Team not found");
+    }
+    if (!(await isInTeam(db, team.id, roomerOf(writer)))) {
+      throw new ForbiddenError("inbox.create");
+    }
+    return team.id;
+  };
+
+  /** The topic's member subset: the writer plus the named members, each one in the team. */
+  const limitedMembers = async (
+    writer: UserPrincipal,
+    teamId: string | null,
+    named: readonly Roomer[] | undefined
+  ): Promise<Roomer[]> => {
+    if (named === undefined || named.length === 0) {
+      return [];
+    }
+    const all = new Map<string, Roomer>();
+    for (const roomer of [roomerOf(writer), ...named]) {
+      all.set(`${roomer.kind}:${roomer.id}`, roomer);
+    }
+    const agentIds = [...all.values()]
+      .filter((roomer) => roomer.kind === "agent")
+      .map((roomer) => roomer.id);
+    if (agentIds.length > 0) {
+      const found = await db
+        .select({ id: agents.id })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, writer.workspaceId),
+            inArray(agents.id, agentIds)
+          )
+        );
+      if (found.length !== agentIds.length) {
+        throw new ServiceError("not_found", "Agent not found");
+      }
+    }
+    for (const roomer of all.values()) {
+      // biome-ignore lint/performance/noAwaitInLoops: at most MEMBERS_MAX short lookups
+      if (!(await isInTeam(db, teamId, roomer))) {
+        throw new ServiceError("invalid", "Every member must be in the team");
+      }
+    }
+    return [...all.values()];
   };
 
   const createThread = async (
@@ -234,16 +428,8 @@ export const createInboxService = ({
       workspaceId: writer.workspaceId,
     });
     const created = clock.now().toISOString();
-    // A new topic starts in the workspace's Everyone team until it names one.
-    const [everyone] = await db
-      .select({ id: teams.id })
-      .from(teams)
-      .where(
-        and(
-          eq(teams.workspaceId, writer.workspaceId),
-          eq(teams.slug, EVERYONE_TEAM_SLUG)
-        )
-      );
+    const teamId = await teamForNewTopic(writer, input.teamId);
+    const members = await limitedMembers(writer, teamId, input.members);
     const row: ThreadRow = {
       attentionClearedAt: null,
       attentionClearedBy: null,
@@ -252,11 +438,25 @@ export const createInboxService = ({
       id: nextId(clock.now().getTime()),
       lastPostAt: created,
       openedByAgentId: null,
-      teamId: everyone?.id ?? null,
+      teamId,
       title: input.title,
       workspaceId: writer.workspaceId,
     };
-    await db.insert(inboxThreads).values(row);
+    await atomic([
+      db.insert(inboxThreads).values(row),
+      ...(members.length === 0
+        ? []
+        : [
+            db.insert(inboxThreadMembers).values(
+              members.map((roomer) => ({
+                memberId: roomer.id,
+                memberKind: roomer.kind,
+                threadId: row.id,
+                workspaceId: row.workspaceId,
+              }))
+            ),
+          ]),
+    ]);
     return toThread(row);
   };
 
@@ -269,7 +469,12 @@ export const createInboxService = ({
     const rows = await db
       .select()
       .from(inboxThreads)
-      .where(eq(inboxThreads.workspaceId, member.workspaceId))
+      .where(
+        and(
+          eq(inboxThreads.workspaceId, member.workspaceId),
+          topicVisibleTo(roomerOf(member))
+        )
+      )
       .orderBy(desc(inboxThreads.lastPostAt), desc(inboxThreads.id))
       .limit(THREAD_LIST_LIMIT);
     return rows.map(toThread);
@@ -281,14 +486,17 @@ export const createInboxService = ({
   ): Promise<ThreadView> => {
     const { threadId } = threadReadInputSchema.parse(rawInput);
     const member = requireMember(principal, READ_ACTION);
-    const thread = await requireThread(member, threadId, READ_ACTION);
+    const thread = await requireThread(member, threadId, READ_ACTION, "read");
     const rows = await db
       .select()
       .from(inboxPosts)
       .where(eq(inboxPosts.threadId, thread.id))
       .orderBy(desc(inboxPosts.id))
       .limit(THREAD_READ_LIMIT);
-    return { posts: rows.reverse().map(toPost), thread: toThread(thread) };
+    return {
+      posts: await toPosts(member, thread.id, rows.reverse()),
+      thread: toThread(thread),
+    };
   };
 
   /**
@@ -304,7 +512,7 @@ export const createInboxService = ({
     if (writer.kind !== "user") {
       throw new ForbiddenError(POST_ACTION);
     }
-    const thread = await requireThread(writer, threadId, POST_ACTION);
+    const thread = await requireThread(writer, threadId, POST_ACTION, "read");
     const cleared: Pick<
       ThreadRow,
       "attentionClearedAt" | "attentionClearedBy"
@@ -325,7 +533,7 @@ export const createInboxService = ({
     author: Author,
     body: { fileIds: readonly string[]; text: string },
     origin: PostOrigin | null
-  ): Promise<PostRecord> => {
+  ): Promise<PostRow> => {
     const now = clock.now();
     const created = now.toISOString();
     const row: PostRow = {
@@ -355,11 +563,11 @@ export const createInboxService = ({
       type: "inbox.posted",
       workspaceId: thread.workspaceId,
     });
-    return toPost(row);
+    return row;
   };
 
   /** The active agents the post names, in mention order. An agent does not wake itself. */
-  const mentionedAgents = async (entry: PostRecord, workspaceId: string) => {
+  const mentionedAgents = async (entry: PostRow, workspaceId: string) => {
     const slugs = parseMentions(entry.text);
     if (slugs.length === 0) {
       return [];
@@ -420,8 +628,29 @@ export const createInboxService = ({
     ).allowed;
   };
 
-  /** The posts before `entry`, oldest first, as many as a wake input can show. */
-  const earlierPosts = async (thread: ThreadRow, entry: PostRecord) => {
+  /**
+   * Catch-up for `agentId`: every post before `entry` since the agent last
+   * posted in this topic, oldest first. The wake input's character budget drops
+   * the oldest of them. The read is bounded, newest first.
+   */
+  const earlierPosts = async (
+    thread: ThreadRow,
+    entry: PostRow,
+    agentId: string
+  ) => {
+    const [own] = await db
+      .select({ id: inboxPosts.id })
+      .from(inboxPosts)
+      .where(
+        and(
+          eq(inboxPosts.threadId, thread.id),
+          eq(inboxPosts.authorKind, "agent"),
+          eq(inboxPosts.authorId, agentId),
+          lt(inboxPosts.id, entry.id)
+        )
+      )
+      .orderBy(desc(inboxPosts.id))
+      .limit(1);
     const rows = await db
       .select({
         authorId: inboxPosts.authorId,
@@ -430,17 +659,21 @@ export const createInboxService = ({
       })
       .from(inboxPosts)
       .where(
-        and(eq(inboxPosts.threadId, thread.id), lt(inboxPosts.id, entry.id))
+        and(
+          eq(inboxPosts.threadId, thread.id),
+          lt(inboxPosts.id, entry.id),
+          own ? gt(inboxPosts.id, own.id) : undefined
+        )
       )
       .orderBy(desc(inboxPosts.id))
-      .limit(WAKE_CONTEXT_POSTS);
+      .limit(WAKE_CATCH_UP_READ_LIMIT);
     return rows.reverse();
   };
 
   const recordStop = (
     waker: Member,
     thread: ThreadRow,
-    entry: PostRecord,
+    entry: PostRow,
     agentId: string,
     reason: StopReason,
     message?: string
@@ -461,12 +694,74 @@ export const createInboxService = ({
       workspaceId: thread.workspaceId,
     });
 
+  /** The thread's team: its rules, its lead and whether the lead listens. */
+  const roomOf = async (thread: ThreadRow): Promise<Room> => {
+    if (thread.teamId === null) {
+      return { leadAgentId: null, leadListens: false, rules: "" };
+    }
+    const [team] = await db
+      .select({
+        archivedAt: teams.archivedAt,
+        leadAgentId: teams.leadAgentId,
+        leadListens: teams.leadListens,
+        rules: teams.rules,
+      })
+      .from(teams)
+      .where(
+        and(
+          eq(teams.id, thread.teamId),
+          eq(teams.workspaceId, thread.workspaceId)
+        )
+      );
+    if (!team) {
+      return { leadAgentId: null, leadListens: false, rules: "" };
+    }
+    return {
+      leadAgentId: team.archivedAt === null ? team.leadAgentId : null,
+      leadListens: team.leadListens,
+      rules: team.rules,
+    };
+  };
+
+  /**
+   * The lead that hears a person's post naming no agent: the team's lead when
+   * the team listens, the lead is active, and the lead may post in the topic
+   * (a limited topic without the lead stays unheard).
+   */
+  const listeningLead = async (
+    thread: ThreadRow,
+    room: Room
+  ): Promise<{ id: string } | null> => {
+    if (!(room.leadListens && room.leadAgentId)) {
+      return null;
+    }
+    const [lead] = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.id, room.leadAgentId),
+          eq(agents.workspaceId, thread.workspaceId),
+          eq(agents.status, "active")
+        )
+      );
+    if (!lead) {
+      return null;
+    }
+    const reachable = await canPostInTopic(db, thread, {
+      id: lead.id,
+      kind: "agent",
+    });
+    return reachable ? lead : null;
+  };
+
   /** One mentioned agent: the guard first, then the run. Null when the wake was stopped. */
   const wakeOne = async (
     waker: Member,
     thread: ThreadRow,
-    entry: PostRecord,
+    entry: PostRow,
     target: { id: string },
+    room: Room,
     streak: boolean
   ): Promise<WokenRun | null> => {
     let stop: StopReason | null = null;
@@ -484,7 +779,8 @@ export const createInboxService = ({
         agentId: target.id,
         input: {
           text: buildWakeInput({
-            earlier: await earlierPosts(thread, entry),
+            earlier: await earlierPosts(thread, entry, target.id),
+            rules: room.rules,
             text: entry.text,
             threadId: thread.id,
           }),
@@ -519,9 +815,15 @@ export const createInboxService = ({
   const wake = async (
     waker: Member,
     thread: ThreadRow,
-    entry: PostRecord
+    entry: PostRow
   ): Promise<WokenRun[]> => {
-    const targets = await mentionedAgents(entry, thread.workspaceId);
+    const room = await roomOf(thread);
+    const mentioned = await mentionedAgents(entry, thread.workspaceId);
+    const listening =
+      mentioned.length === 0 && entry.authorKind === "user"
+        ? await listeningLead(thread, room)
+        : null;
+    const targets = listening ? [listening] : mentioned;
     if (targets.length === 0) {
       return [];
     }
@@ -529,7 +831,22 @@ export const createInboxService = ({
     const started: WokenRun[] = [];
     for (const target of targets) {
       // biome-ignore lint/performance/noAwaitInLoops: a wake can post and wake again, so they stay in order
-      const woken = await wakeOne(waker, thread, entry, target, streak);
+      const unreachable = !(await canPostInTopic(db, thread, {
+        id: target.id,
+        kind: "agent",
+      }));
+      if (unreachable) {
+        await recordStop(
+          waker,
+          thread,
+          entry,
+          target.id,
+          "refused",
+          "The agent is not in this room or topic"
+        );
+        continue;
+      }
+      const woken = await wakeOne(waker, thread, entry, target, room, streak);
       if (woken) {
         started.push(woken);
       }
@@ -547,7 +864,12 @@ export const createInboxService = ({
   ): Promise<PostResult> => {
     const input = postInputSchema.parse(rawInput);
     const writer = requireWriter(principal);
-    const thread = await requireThread(writer, input.threadId, POST_ACTION);
+    const thread = await requireThread(
+      writer,
+      input.threadId,
+      POST_ACTION,
+      "post"
+    );
     if (writer.kind === "user") {
       const written = await writePost(
         thread,
@@ -555,7 +877,10 @@ export const createInboxService = ({
         { fileIds: [], text: input.text },
         null
       );
-      return { post: written, runs: await wake(writer, thread, written) };
+      return {
+        post: await toPostRecord(writer, thread, written),
+        runs: await wake(writer, thread, written),
+      };
     }
     const run = await loadRun(db, writer.runId, writer.workspaceId);
     if (!run) {
@@ -567,7 +892,10 @@ export const createInboxService = ({
       { fileIds: [], text: input.text },
       { runId: run.id, sessionId: run.sessionId }
     );
-    return { post: written, runs: await wake(writer, thread, written) };
+    return {
+      post: await toPostRecord(writer, thread, written),
+      runs: await wake(writer, thread, written),
+    };
   };
 
   const deliver = async (

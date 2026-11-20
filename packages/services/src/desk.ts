@@ -543,8 +543,26 @@ export const createDeskService = ({
           )
         )
     );
+    // A shared post can outlive access to a private run, so its run id goes
+    // out only when this member may see the run.
+    const shownRuns = new Set(
+      (
+        await inBatches(
+          latest.flatMap((entry) => (entry.runId ? [entry.runId] : [])),
+          async (batch) =>
+            db
+              .select({ id: runRows.id })
+              .from(runRows)
+              .where(and(await visibleRuns(member), inArray(runRows.id, batch)))
+        )
+      ).map((run) => run.id)
+    );
     const answered = threads.flatMap((thread) => {
-      const post = latest.find((entry) => entry.threadId === thread.id);
+      const found = latest.find((entry) => entry.threadId === thread.id);
+      const post = found && {
+        ...found,
+        runId: found.runId && shownRuns.has(found.runId) ? found.runId : null,
+      };
       // A dismissal holds until a post newer than it lands.
       const dismissed =
         post !== undefined &&

@@ -714,6 +714,43 @@ test("an inbox thread waits in Needs you while an agent's post is the newest, an
   expect(await desk.needsYouCount(user())).toBe(0);
 });
 
+test("an inbox reply card links a run only to a member who may see it", async () => {
+  const inbox = createInboxService({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    events,
+    runs: { startRun: (principal, input) => runs.startRun(principal, input) },
+  });
+  const thread = await inbox.createThread(user(), { title: "Plans" });
+  await inbox.post(user(), { text: "Hello", threadId: thread.id });
+  const hidden = await seed({
+    actorId: "u2",
+    agentId: a2,
+    origin: "ui",
+    status: "done",
+  });
+  await db.insert(inboxPosts).values({
+    authorId: a2,
+    authorKind: "agent",
+    createdAt: new Date(now + 1).toISOString(),
+    id: `zz-post-${thread.id}-1`,
+    runId: hidden,
+    text: "Done",
+    threadId: thread.id,
+    workspaceId: "w1",
+  });
+
+  const mine = (await get()).needsYou.find((card) => card.id === thread.id);
+  const theirs = (await get({}, user("u2"))).needsYou.find(
+    (card) => card.id === thread.id
+  );
+
+  expect(mine).toBeDefined();
+  expect(mine?.runId).toBeUndefined();
+  expect(theirs?.runId).toBe(hidden);
+});
+
 test("a dismissed inbox thread leaves Needs you until an agent posts again, and a person's post keeps it out", async () => {
   const inbox = createInboxService({
     atomic: sqliteAtomic(db),
