@@ -13,6 +13,7 @@ import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
+import { createJobDrafter } from "./job-drafting/draft.ts";
 import { createJobsService } from "./jobs.ts";
 import { createRunsService } from "./runs.ts";
 import type { Principal } from "./workspaces.ts";
@@ -99,6 +100,11 @@ beforeEach(() => {
   service = createJobsService({
     clock,
     db,
+    drafter: createJobDrafter({
+      db,
+      fetch: () => Promise.reject(new Error("no model call in this test")),
+      managedKeys: { resolve: () => Promise.resolve(null) },
+    }),
     events,
     mailDomain: "mail.example",
     runs,

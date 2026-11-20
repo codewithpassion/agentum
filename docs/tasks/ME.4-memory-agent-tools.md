@@ -3,9 +3,9 @@ id: ME.4
 title: "Agent tools: remember and search_history"
 milestone: ME
 size: M
-status: todo
+status: in_progress
 depends_on: [ME.1]
-branch: null
+branch: task/ME.4-memory-agent-tools
 lane: mcp
 executor: codex
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone ME. Two tools for agents in `packages/mc
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/ME.4-memory-agent-tools (v4 controller session).

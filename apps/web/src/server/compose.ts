@@ -154,6 +154,7 @@ import {
   createReportedReader,
   createRunRequestReader,
 } from "@repo/services/investigator-report";
+import { createJobDrafter } from "@repo/services/job-drafting/draft";
 import { createJobsService, type JobsService } from "@repo/services/jobs";
 import { createKeysService, type KeysService } from "@repo/services/keys";
 import {
@@ -1390,6 +1391,7 @@ export const composeWith = ({
       jobs: createJobsService({
         clock: infra.clock,
         db,
+        drafter: createJobDrafter({ db, fetch: connectorFetch, managedKeys }),
         events,
         mailDomain: infra.mailDomain,
         runs,
