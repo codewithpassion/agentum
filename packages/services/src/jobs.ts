@@ -363,6 +363,15 @@ export const createJobsService = ({
         input: { text: row.prompt ?? "" },
         requestId,
         session: { origin: "trigger" },
+      },
+      {
+        // A manual run counts as the job firing. The schedule stays as it is.
+        alongside: () => [
+          db
+            .update(triggers)
+            .set({ lastFiredAt: clock.now().toISOString() })
+            .where(eq(triggers.id, row.id)),
+        ],
       }
     );
     await events.append({
