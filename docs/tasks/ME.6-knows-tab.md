@@ -3,7 +3,7 @@ id: ME.6
 title: "Knows tab: notes, rules, learned this week"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: [ME.1, RH.4]
 branch: task/ME.6-knows-tab
 lane: web-knows
@@ -30,3 +30,4 @@ From `docs/v4/build-plan.md`, milestone ME. Mockup: section "Memory and dreaming
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/ME.6-knows-tab (v4 controller session).
 - 2026-11-20: from ME.7: after this and ME.7 merge, remember a message in a conversation and find it on Knows with its source link (check in the ME e2e).
+- 2026-11-20: merged as bb8c45c3, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/ME.6/browser.md. check and build passed on main; tests passed except the known flakes: the services never-claimed-runs timing test (passed alone) and guest-execution.test.ts (FX.1). The browser verifier added dev+member@harbouredgeintelligence.ai to the Clerk dev instance.

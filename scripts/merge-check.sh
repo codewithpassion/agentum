@@ -14,7 +14,7 @@ if git diff --quiet "$base" HEAD -- apps/agentum; then
 fi
 bun install || exit 1
 bun run check || exit 1
-bunx turbo run test "${filter[@]}"; test_code=$?
+bunx turbo run test --continue "${filter[@]}"; test_code=$?
 echo "TEST $test_code"
 bun run build; build_code=$?
 echo "BUILD $build_code"
