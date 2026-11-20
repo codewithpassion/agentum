@@ -58,9 +58,13 @@ export const topicsOfTeam = (
 };
 
 export const canPostInRoom = (
-  team: Pick<Team, "members" | "slug">,
+  team: Pick<Team, "archivedAt" | "members" | "slug">,
   userId: string
 ): boolean => {
+  // An archived team's room is read-only.
+  if (team.archivedAt !== null) {
+    return false;
+  }
   if (isEveryone(team)) {
     return true;
   }

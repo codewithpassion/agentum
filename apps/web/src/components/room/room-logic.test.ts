@@ -71,12 +71,14 @@ const directory = roomDirectory({
   ],
 });
 
-const everyoneTeam: Pick<Team, "members" | "slug"> = {
+const everyoneTeam: Pick<Team, "archivedAt" | "members" | "slug"> = {
+  archivedAt: null,
   members: [],
   slug: "everyone",
 };
 
-const ownTeam: Pick<Team, "members" | "slug"> = {
+const ownTeam: Pick<Team, "archivedAt" | "members" | "slug"> = {
+  archivedAt: null,
   members: [
     {
       isHome: true,
@@ -128,8 +130,15 @@ test("canPostInRoom allows a team's person and refuses a non-member", () => {
   expect(canPostInRoom(ownTeam, "u_zoe")).toBe(false);
 });
 
+test("canPostInRoom refuses everyone in an archived team", () => {
+  const archived = { ...ownTeam, archivedAt: "2026-11-01T00:00:00.000Z" };
+  expect(canPostInRoom(archived, "u_amir")).toBe(false);
+  expect(canPostInRoom({ ...everyoneTeam, ...archived }, "u_amir")).toBe(false);
+});
+
 test("canPostInRoom ignores an agent row that shares the user id", () => {
-  const team: Pick<Team, "members" | "slug"> = {
+  const team: Pick<Team, "archivedAt" | "members" | "slug"> = {
+    archivedAt: null,
     members: [
       { isHome: true, memberId: "u_zoe", memberKind: "agent", teamId: "team1" },
     ],
