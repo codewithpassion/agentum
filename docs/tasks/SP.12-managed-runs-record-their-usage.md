@@ -23,3 +23,4 @@ a managed service test where the fake session reports usage, and the finished ru
 ## Log
 - 2026-11-21: added from the SP gate review, round 1.
 - 2026-11-21: dispatched.
+- 2026-11-21: review clean after one fix round. Controller decision: opus and sonnet fallback rates set to Opus 5.5 ($4/$20) and Sonnet 5.5 ($2/$10) from Anthropic's model docs, replacing unchecked estimates. Small fix commit before merge.
