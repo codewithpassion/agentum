@@ -11,6 +11,7 @@ import {
   AGENT_AVATAR_COLORS,
   type AgentAvatar,
   type AgentCard,
+  DONE_STATUS_PREFIX,
   defaultAgentAvatar,
   LIVE_RUN_STATUSES,
   type RailView,
@@ -231,8 +232,7 @@ const activityFor = (input: {
   lastTitle: string;
   now: Date;
   timeFormat: Intl.DateTimeFormat;
-  clockFormat: Intl.DateTimeFormat;
-}): Pick<AgentCard, "state" | "statusLine"> => {
+}): Pick<AgentCard, "state" | "statusLine"> & { doneAt?: string } => {
   const {
     paused,
     wait,
@@ -245,7 +245,6 @@ const activityFor = (input: {
     lastTitle,
     now,
     timeFormat,
-    clockFormat,
   } = input;
   // A pause is itself a Needs you wait for the owner, so it is checked first.
   if (paused) {
@@ -282,9 +281,11 @@ const activityFor = (input: {
     const joiner = ENDS_IN_PUNCTUATION.test(lastTitle) ? " " : ". ";
     const nextRun =
       fire === undefined ? "" : `${joiner}Next run ${timeFormat.format(fire)}`;
+    // The finish time is left out of the line: the browser prints it in the viewer's own zone.
     return {
+      doneAt: finishedAt.toISOString(),
       state: "idle",
-      statusLine: `Done ${clockFormat.format(finishedAt)}: ${lastTitle}${nextRun}`,
+      statusLine: `${DONE_STATUS_PREFIX}${lastTitle}${nextRun}`,
     };
   }
   return {
@@ -459,6 +460,7 @@ export const createRosterService = ({
     const waiting = waitingFacts(view);
     const timezone = workspace[0]?.timezone ?? "UTC";
     const next = nextRuns(routines, timezone, now);
+    // A schedule prints in the workspace zone, named, because that is the zone it runs in.
     // Include a date so tomorrow's slot cannot be mistaken for today's.
     const timeFormat = new Intl.DateTimeFormat("en-AU", {
       day: "numeric",
@@ -466,11 +468,7 @@ export const createRosterService = ({
       minute: "2-digit",
       month: "short",
       timeZone: timezone,
-    });
-    const clockFormat = new Intl.DateTimeFormat("en-AU", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: timezone,
+      timeZoneName: "short",
     });
     return rows.map(({ agent: row, machineStatus }): AgentCard => {
       const wait = waiting.get(row.id);
@@ -479,9 +477,28 @@ export const createRosterService = ({
       const ownerName =
         names.get(assigneeOf(row, null) ?? "") ?? wait?.owner ?? "";
       const home = homeTeams.get(row.id);
+      const { doneAt, state, statusLine } = activityFor({
+        active,
+        fire: next.get(row.id),
+        last,
+        lastTitle: last
+          ? runTitleText(last.inputText, subjectOf.get(last.id))
+          : "",
+        machineStatus,
+        now,
+        paused: row.pausedAt !== null,
+        runTitle:
+          active?.status === "running"
+            ? runTitleText(active.inputText, subjectOf.get(active.id))
+            : "",
+        timeFormat,
+        wait,
+        waitingOn: waitingRuns.has(row.id) ? ownerName : undefined,
+      });
       return {
         avatar: avatarFor(row),
         costThisWeekCents: Math.round((costs.get(row.id) ?? 0) * 100),
+        doneAt: doneAt ?? null,
         id: row.id,
         isLead: home?.isLead ?? false,
         jobLine: jobLineFor(row.instructions),
@@ -490,25 +507,8 @@ export const createRosterService = ({
         needsYouCount: wait?.count ?? 0,
         ownerName,
         slug: row.slug,
-        ...activityFor({
-          active,
-          clockFormat,
-          fire: next.get(row.id),
-          last,
-          lastTitle: last
-            ? runTitleText(last.inputText, subjectOf.get(last.id))
-            : "",
-          machineStatus,
-          now,
-          paused: row.pausedAt !== null,
-          runTitle:
-            active?.status === "running"
-              ? runTitleText(active.inputText, subjectOf.get(active.id))
-              : "",
-          timeFormat,
-          wait,
-          waitingOn: waitingRuns.has(row.id) ? ownerName : undefined,
-        }),
+        state,
+        statusLine,
         teamId: home?.teamId ?? null,
         weeklyCapCents: row.weeklyCapCents,
       };

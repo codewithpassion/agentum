@@ -7,6 +7,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
+import { useViewer } from "#/hooks/use-viewer.ts";
+import { clockTime } from "#/lib/time.ts";
 import { statusPill } from "./task-logic.ts";
 
 export interface ThreadRun {
@@ -51,6 +53,7 @@ export function RunPicker({
   runId: string;
   sessionId: string;
 }) {
+  const viewer = useViewer();
   if (runs.length < 2) {
     return null;
   }
@@ -88,7 +91,7 @@ export function RunPicker({
             >
               <span>
                 Task {index + 1} · {runPickerStatus(run.status)} ·{" "}
-                {run.createdAt.slice(11, 16)}
+                {clockTime(run.createdAt, viewer)}
               </span>
               <span className="w-full truncate text-muted-foreground">
                 {run.title}

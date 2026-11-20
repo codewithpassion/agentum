@@ -5,6 +5,7 @@ import {
   formatSize,
   parentDir,
 } from "#/components/library/library-logic.ts";
+import { useViewer } from "#/hooks/use-viewer.ts";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import {
   fileEntries,
@@ -45,6 +46,7 @@ export function TaskFilesList({
   files: TaskFilesView;
   number?: number;
 }) {
+  const viewer = useViewer();
   const entries = fileEntries(files.entries);
   const { conflicts, folder, outside } = files;
   const empty =
@@ -78,7 +80,7 @@ export function TaskFilesList({
                   </LibraryLink>
                 </b>
                 <span className="text-muted-foreground text-xs">
-                  {formatSize(entry.size)} · {fileTime(entry.mtime)}
+                  {formatSize(entry.size)} · {fileTime(entry.mtime, viewer)}
                 </span>
                 <a
                   className={`${LINK} text-xs`}
@@ -113,7 +115,7 @@ export function TaskFilesList({
                   )}
                 </b>
                 <span className="text-muted-foreground text-xs">
-                  outside the task folder · {fileTime(edit.createdAt)}
+                  outside the task folder · {fileTime(edit.createdAt, viewer)}
                 </span>
               </span>
             </li>

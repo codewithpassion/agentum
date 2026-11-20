@@ -149,6 +149,7 @@ test("lists active agents only, ordered by name, each as an idle card", async ()
     {
       avatar: { color: "slate", glyph: "?" },
       costThisWeekCents: 0,
+      doneAt: null,
       id: "a-alpha",
       isLead: false,
       jobLine: `${"x".repeat(79)}…`,
@@ -165,6 +166,7 @@ test("lists active agents only, ordered by name, each as an idle card", async ()
     {
       avatar: { color: "blue", glyph: "Z" },
       costThisWeekCents: 0,
+      doneAt: null,
       id: "a-zeta",
       isLead: false,
       jobLine: "Line one.",
@@ -439,8 +441,8 @@ test("idle uses the earliest enabled routine, each cron read in its own zone", a
       .run();
   }
   expect((await service.list(user))[0]?.statusLine).toBe(
-    // 12:00 UTC is 11:00 pm in Sydney.
-    "Idle. Next run 1 Jan, 11:00 pm"
+    // 12:00 UTC is 11:00 pm in Sydney, and a schedule names its zone.
+    "Idle. Next run 1 Jan, 11:00 pm AEDT"
   );
 });
 
@@ -464,7 +466,7 @@ test("a routine with no zone of its own is read in the workspace timezone", asyn
     })
     .run();
   expect((await service.list(user))[0]?.statusLine).toBe(
-    "Idle. Next run 1 Jan, 12:00 pm"
+    "Idle. Next run 1 Jan, 12:00 pm AEDT"
   );
 });
 
@@ -525,8 +527,9 @@ test("a run done minutes ago shows its finish time and title, as idle", async ()
   insertAgent({ id: "a1", name: "Alpha" });
   seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "done" });
   expect((await service.list(user))[0]).toMatchObject({
+    doneAt: FINISHED_RECENTLY,
     state: "idle",
-    statusLine: "Done 11:56 pm: Prepare the report",
+    statusLine: "Done: Prepare the report",
   });
 });
 
@@ -554,7 +557,7 @@ test.each([
       })
       .run();
     expect((await service.list(user))[0]?.statusLine).toBe(
-      `Done 11:56 pm: ${title} Next run 1 Jan, 12:00 pm`
+      `Done: ${title} Next run 1 Jan, 12:00 pm UTC`
     );
   }
 );
@@ -576,21 +579,22 @@ test("a run done minutes ago names the next routine run after its finish time", 
     })
     .run();
   expect((await service.list(user))[0]?.statusLine).toBe(
-    "Done 11:56 pm: Prepare the report. Next run 1 Jan, 12:00 pm"
+    "Done: Prepare the report. Next run 1 Jan, 12:00 pm UTC"
   );
 });
 
-test("a run done minutes ago shows its finish time in the workspace timezone", async () => {
+test("a run done minutes ago leaves its finish time to the browser, whatever the workspace timezone", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   db.update(workspaces)
     .set({ timezone: "Australia/Sydney" })
     .where(eq(workspaces.id, WORKSPACE))
     .run();
   seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "done" });
-  expect((await service.list(user))[0]?.statusLine).toBe(
-    // 23:56 UTC on 31 Dec is 10:56 am on 1 Jan in Sydney.
-    "Done 10:56 am: Prepare the report"
-  );
+  // The line holds no clock, so the viewer's own zone can print the instant.
+  expect((await service.list(user))[0]).toMatchObject({
+    doneAt: FINISHED_RECENTLY,
+    statusLine: "Done: Prepare the report",
+  });
 });
 
 test("a run done more than a day ago is idle again", async () => {
@@ -616,7 +620,7 @@ test("a run done more than a day ago keeps the next routine run in idle", async 
     })
     .run();
   expect((await service.list(user))[0]?.statusLine).toBe(
-    "Idle. Next run 1 Jan, 12:00 pm"
+    "Idle. Next run 1 Jan, 12:00 pm UTC"
   );
 });
 
@@ -664,9 +668,7 @@ test("a run done minutes ago started by mail is titled by its mail subject", asy
       workspaceId: WORKSPACE,
     })
     .run();
-  expect((await service.list(user))[0]?.statusLine).toBe(
-    "Done 11:56 pm: Invoice 42"
-  );
+  expect((await service.list(user))[0]?.statusLine).toBe("Done: Invoice 42");
 });
 
 test("a failed run finished minutes ago is still stopped", async () => {

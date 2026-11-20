@@ -164,6 +164,7 @@ test("roster.list returns one idle card per active agent, with an avatar from th
     {
       avatar: defaultAgentAvatar(agentInput.name),
       costThisWeekCents: 0,
+      doneAt: null,
       id: agent.id,
       isLead: false,
       jobLine: "",
