@@ -54,13 +54,20 @@ export const isServiceError = (error: unknown): error is ServiceError =>
 export const pausedMessage = (agentName: string): string =>
   `${agentName} is paused. Its weekly limit was reached.`;
 
+/** What a start answers while the workspace's week is at its limit, whether or not the agent is paused. */
+export const workspaceLimitMessage = (agentName: string): string =>
+  `${agentName} cannot start new work. The workspace's weekly limit was reached.`;
+
 /** A start refused because the agent is paused. Not a failure: the agent is waiting for its owner. */
-export const agentPaused = (agentName: string): ServiceError =>
-  new ServiceError(
-    "conflict",
-    pausedMessage(agentName),
-    ERROR_REASON.agentPaused
-  );
+export const agentPaused = (
+  agentName: string,
+  message = pausedMessage(agentName)
+): ServiceError =>
+  new ServiceError("conflict", message, ERROR_REASON.agentPaused);
+
+/** A start refused because the workspace is at its weekly limit. Same reason as a pause, so every origin handles it alike. */
+export const workspaceLimitReached = (agentName: string): ServiceError =>
+  agentPaused(agentName, workspaceLimitMessage(agentName));
 
 export const isAgentPaused = (error: unknown): error is ServiceError =>
   isServiceError(error) && error.reason === ERROR_REASON.agentPaused;
