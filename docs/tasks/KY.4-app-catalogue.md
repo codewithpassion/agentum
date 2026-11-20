@@ -3,9 +3,9 @@ id: KY.4
 title: "App catalogue: connect an app without a URL"
 milestone: KY
 size: M
-status: todo
+status: in_progress
 depends_on: [KY.1]
-branch: null
+branch: task/KY.4-app-catalogue
 lane: services-catalog
 executor: codex
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone KY. A connector is a name, a URL and an 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/KY.4-app-catalogue (v4 controller session).
