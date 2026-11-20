@@ -21,6 +21,7 @@ import type {
 import type { EventInput, EventsService } from "@repo/services/events";
 import type { RunTokenClaims } from "@repo/services/run-tokens";
 import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
+import { SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import type { Context } from "hono";
 import { runTokenKeySpec } from "../run-token-key.ts";
 import { type AppEnv, bearerGroup } from "./groups.ts";
@@ -354,6 +355,7 @@ const outcomeOf = (status: number): "ok" | "redirect" | "refused" => {
 const answer = async ({
   allowedTools,
   call,
+  holdNotes,
   note,
   ownerKind,
   record,
@@ -362,6 +364,7 @@ const answer = async ({
 }: {
   allowedTools: readonly string[] | null;
   call: RpcCall;
+  holdNotes: () => Promise<void>;
   note: string | null;
   ownerKind: string | null;
   record: Recorder;
@@ -370,15 +373,19 @@ const answer = async ({
 }): Promise<Response> => {
   const { bytes, response } = sent;
   const { status } = response;
+  const outcome = outcomeOf(status);
   await record("connector.call", {
     httpStatus: status,
     method: call.method,
     ms: Date.now() - started,
     note,
-    outcome: outcomeOf(status),
+    outcome,
     ownerKind,
     tool: call.tool,
   });
+  if (outcome === "ok") {
+    await holdNotes();
+  }
   if (status === UNAUTHORIZED || status === FORBIDDEN) {
     // Never hand the client a 401: it would start an OAuth flow of its own.
     return rpcError(call, `The connector answered ${status} for this call.`, {
@@ -653,7 +660,7 @@ export const proxyRoutes = ({
     claims: RunTokenClaims,
     connectorId: string
   ): Promise<Response> => {
-    const { credentials, events } = c.get("composed").services;
+    const { credentials, events, memory } = c.get("composed").services;
     const context = await credentials.runContext(claims);
     if (!context) {
       return bearerUnauthorized();
@@ -694,6 +701,20 @@ export const proxyRoutes = ({
       origin: new URL(c.req.url).origin,
       record,
     });
+    // A connector's text can carry outside text into the run, so notes applied
+    // earlier are held before the agent reads it. A hold that fails must not
+    // undo the call.
+    const holdNotes = async (): Promise<void> => {
+      try {
+        await memory.holdAfterOutsideText(SYSTEM_PRINCIPAL, claims.runId);
+      } catch (error: unknown) {
+        log({
+          event: "proxy.hold_failed",
+          message: error instanceof Error ? error.message : String(error),
+          runId: claims.runId,
+        });
+      }
+    };
 
     if (!resolution.ok) {
       return await declined(resolution);
@@ -746,6 +767,7 @@ export const proxyRoutes = ({
     return await answer({
       allowedTools: resolution.allowedTools,
       call,
+      holdNotes,
       note: resolution.note,
       ownerKind,
       record,

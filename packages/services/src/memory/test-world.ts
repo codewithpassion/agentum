@@ -39,6 +39,9 @@ export const RUN = {
   bigCall: "r_big_call",
   browser: "r_browser",
   computerShell: "r_computer_shell",
+  connector: "r_connector",
+  connectorIdle: "r_connector_idle",
+  connectorResource: "r_connector_resource",
   curl: "r_curl",
   desktop: "r_desktop",
   familyChild: "r_family_child",
@@ -114,7 +117,27 @@ interface EventSeed {
   type: string;
 }
 /** A `tool.call` payload, as every runtime stores one. */
-const toolCall = (name: string) => ({ input: {}, name, toolUseId: "t1" });
+export const toolCall = (name: string) => ({
+  input: {},
+  name,
+  toolUseId: "t1",
+});
+/** A `connector.call` payload, as the connector proxy stores one. */
+export const connectorCall = (method: string, outcome: string) => ({
+  connectorId: "c1",
+  method,
+  outcome,
+  tool: method === "tools/call" ? "search" : null,
+});
+
+const IDLE_CONNECTOR_CALLS: readonly (readonly [string, string])[] = [
+  ["initialize", "ok"],
+  ["tools/list", "ok"],
+  ["tools/call", "denied"],
+  ["tools/call", "refused"],
+  ["tools/call", "timeout"],
+  ["tools/call", "unreachable"],
+];
 
 export const makeWorld = (
   options: {
@@ -245,6 +268,9 @@ export const makeWorld = (
     RUN.skillScript,
     RUN.tools,
     RUN.familyParent,
+    RUN.connector,
+    RUN.connectorResource,
+    RUN.connectorIdle,
   ]) {
     seedRun({ id, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
   }
@@ -380,6 +406,28 @@ export const makeWorld = (
     runId: RUN.bigCall,
     type: "tool.call",
   });
+  // A connector call that got an answer, once through `tools/call` and once through `resources/read`.
+  seedEvent({
+    id: "ev_connector_1",
+    payload: connectorCall("tools/call", "ok"),
+    runId: RUN.connector,
+    type: "connector.call",
+  });
+  seedEvent({
+    id: "ev_connector_resource_1",
+    payload: connectorCall("resources/read", "ok"),
+    runId: RUN.connectorResource,
+    type: "connector.call",
+  });
+  // What every run with a connector does, and calls that returned no text of the connector's.
+  for (const [index, [method, outcome]] of IDLE_CONNECTOR_CALLS.entries()) {
+    seedEvent({
+      id: `ev_connector_idle_${index}`,
+      payload: connectorCall(method, outcome),
+      runId: RUN.connectorIdle,
+      type: "connector.call",
+    });
+  }
   seedEvent({
     id: "ev_tools_read_1",
     payload: toolCall("Read"),
@@ -393,7 +441,16 @@ export const makeWorld = (
     type: "tool.call",
   });
 
-  return { atomic, baseBlobs, clock, db, library, service };
+  return {
+    atomic,
+    baseBlobs,
+    clock,
+    db,
+    library,
+    seedEvent,
+    seedRun,
+    service,
+  };
 };
 
 export type World = ReturnType<typeof makeWorld>;
