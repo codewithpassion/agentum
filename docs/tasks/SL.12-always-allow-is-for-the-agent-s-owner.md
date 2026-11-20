@@ -3,9 +3,9 @@ id: SL.12
 title: "Always allow is for the agent's owner"
 milestone: SL
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SL.12-always-allow-is-for-the-agent-s-owner
 lane: services-requests
 executor: claude
 ---
@@ -31,3 +31,4 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 3).
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
