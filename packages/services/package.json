@@ -140,6 +140,7 @@
     "./slack/signature": "./src/slack/signature.ts",
     "./slack/status": "./src/slack/status.ts",
     "./slack/threads": "./src/slack/threads.ts",
+    "./spend": "./src/spend.ts",
     "./takeover": "./src/takeover.ts",
     "./triggers": "./src/triggers.ts",
     "./wiki/links": "./src/wiki/links.ts",

@@ -726,6 +726,7 @@ export const NEEDS_YOU_KINDS = [
   "a2a_connection",
   "connector_secret",
   "memory_note",
+  "spend_pause",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -745,6 +746,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   question: (name) => `${name} asks`,
   routine_proposal: (name) => `${name} proposed a routine`,
   skill_proposal: (name) => `${name} proposed a skill change`,
+  spend_pause: (name) => `${name} paused at its weekly cap`,
   takeover: (name) => `${name} needs you to take over a computer`,
   trigger_proposal: (name) => `${name} proposed a trigger`,
   wiki_suggestion: (name) => `${name} suggested a wiki edit`,
@@ -1517,4 +1519,37 @@ export const DEFAULT_NEVER_REMEMBER_JSON = JSON.stringify(
 export interface MemoryRules {
   agent: RememberRules;
   workspaceNever: string[];
+}
+
+/** Why an agent is paused: it reached its weekly cap, or a person paused it. */
+export const SPEND_PAUSE_REASONS = ["spend_cap", "manual"] as const;
+export type SpendPauseReason = (typeof SPEND_PAUSE_REASONS)[number];
+
+/** What one agent spent on one day, from its runs' usage. */
+export interface SpendRow {
+  agentId: string;
+  /** Cents spent on the day. */
+  cents: number;
+  /** The day as `YYYY-MM-DD`. */
+  day: string;
+  /** How many runs that day counts. */
+  tasks: number;
+}
+
+/** The days a spend read covers, as `YYYY-MM-DD`, both ends included. */
+export interface SpendRange {
+  from: string;
+  to: string;
+}
+
+/** An agent's pause state. Both fields are null while it runs. */
+export interface SpendPause {
+  pausedAt: string | null;
+  pausedReason: SpendPauseReason | null;
+}
+
+/** A weekly cap after `setCap`. `agentId` is null for the workspace cap, `weeklyCapCents` null for none. */
+export interface SpendCap {
+  agentId: string | null;
+  weeklyCapCents: number | null;
 }

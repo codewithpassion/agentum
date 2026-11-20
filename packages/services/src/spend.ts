@@ -1,0 +1,112 @@
+import type { Database } from "@repo/db";
+import type { Atomic } from "@repo/db/atomic";
+import type { SpendCap, SpendPause, SpendRow } from "@repo/db/shared";
+import { z } from "zod";
+import { authorize } from "./authz.ts";
+import { ServiceError } from "./errors.ts";
+import { readableWorkspace } from "./guards.ts";
+import type { Clock } from "./runs/types.ts";
+import type { Principal } from "./workspaces.ts";
+
+const SPEND_READ = "spend.read";
+const SPEND_WRITE = "spend.write";
+const SPEND_KIND = "spend";
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const daySchema = z.string().regex(DAY);
+const agentIdSchema = z.string().min(1);
+
+/** The days a read covers as `YYYY-MM-DD`, both ends included. */
+export const spendRangeSchema = z.strictObject({
+  from: daySchema,
+  to: daySchema,
+});
+
+export const byAgentInputSchema = z.strictObject({
+  agentId: agentIdSchema,
+  from: daySchema,
+  to: daySchema,
+});
+
+/** `agentId: null` sets the workspace cap. `weeklyCapCents: null` removes the cap. */
+export const setCapInputSchema = z.strictObject({
+  agentId: agentIdSchema.nullable(),
+  weeklyCapCents: z.number().int().positive().nullable(),
+});
+
+export const resumeInputSchema = z.strictObject({ agentId: agentIdSchema });
+
+export type SpendRangeInput = z.infer<typeof spendRangeSchema>;
+export type SetCapInput = z.infer<typeof setCapInputSchema>;
+
+export interface SpendDeps {
+  atomic: Atomic;
+  clock: Clock;
+  db: Database;
+}
+
+const spendResource = (workspaceId: string, id?: string) => ({
+  id,
+  kind: SPEND_KIND,
+  workspaceId,
+});
+
+/**
+ * Stub: nothing is spent, and a cap or a resume finds nothing to change. The
+ * spend service task fills these from run usage and the cap and pause columns.
+ * It takes the dependencies it will need, so wiring it in `compose.ts` is
+ * already final.
+ */
+export const createSpendService = (_deps: SpendDeps) => {
+  const workspace = (
+    principal: Principal,
+    _range: SpendRangeInput
+  ): Promise<SpendRow[]> => {
+    const workspaceId = readableWorkspace(principal, SPEND_READ);
+    authorize(principal, SPEND_READ, spendResource(workspaceId));
+    return Promise.resolve([]);
+  };
+
+  const byAgent = (
+    principal: Principal,
+    agentId: string,
+    _range: SpendRangeInput
+  ): Promise<SpendRow[]> => {
+    const workspaceId = readableWorkspace(principal, SPEND_READ);
+    authorize(principal, SPEND_READ, spendResource(workspaceId, agentId));
+    return Promise.resolve([]);
+  };
+
+  const setCap = (
+    principal: Principal,
+    input: SetCapInput
+  ): Promise<SpendCap> => {
+    const workspaceId = readableWorkspace(principal, SPEND_WRITE);
+    authorize(
+      principal,
+      SPEND_WRITE,
+      spendResource(workspaceId, input.agentId ?? undefined)
+    );
+    return Promise.reject(
+      new ServiceError(
+        "not_found",
+        input.agentId ? `No agent "${input.agentId}"` : "No workspace"
+      )
+    );
+  };
+
+  const resume = (
+    principal: Principal,
+    agentId: string
+  ): Promise<SpendPause> => {
+    const workspaceId = readableWorkspace(principal, SPEND_WRITE);
+    authorize(principal, SPEND_WRITE, spendResource(workspaceId, agentId));
+    return Promise.reject(
+      new ServiceError("not_found", `No agent "${agentId}"`)
+    );
+  };
+
+  return { byAgent, resume, setCap, workspace };
+};
+
+export type SpendService = ReturnType<typeof createSpendService>;
