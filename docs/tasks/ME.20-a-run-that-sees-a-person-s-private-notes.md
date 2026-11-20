@@ -25,3 +25,4 @@ Service tests: a `remember` from a run in A's non-private `ui` session lands in 
 ## Log
 - 2026-11-21: added from the ME gate review, round 2.
 - 2026-11-21: dispatched on task/ME.20-a-run-that-sees-a-person-s-private-notes (v4 controller session).
+- 2026-11-21: ready at e628d543 after one fix round, review clean. Queued for merge.
