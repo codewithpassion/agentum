@@ -3,9 +3,9 @@ id: ME.21
 title: "The server never hands a private memory file to a working copy"
 milestone: ME
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/ME.21-the-server-never-hands-a-private-memory
 lane: services-library
 executor: claude
 ---
@@ -22,3 +22,4 @@ Route tests: a run that passes the private-notes rule for A gets no `private/<A>
 
 ## Log
 - 2026-11-21: added from the ME gate review, round 2.
+- 2026-11-21: dispatched on task/ME.21-the-server-never-hands-a-private-memory (v4 controller session).
