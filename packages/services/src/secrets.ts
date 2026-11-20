@@ -37,7 +37,7 @@ import {
 } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireSessionAgentManager, requireUser } from "./guards.ts";
+import { requireAgentOwnerOrAdmin, requireUser } from "./guards.ts";
 import { effectiveRunScope, scopeAllows } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 import type { ProxyGrant } from "./secrets/placeholders.ts";
@@ -565,7 +565,7 @@ export const createSecretsService = ({
     authorize(user, WRITE_ACTION, { kind: SECRET_KIND, workspaceId });
     const ids = [...new Set(grantIdsSchema.parse(secretIds))];
     const agent = await requireAgent(workspaceId, agentId);
-    requireSessionAgentManager(user, agent, WRITE_ACTION);
+    requireAgentOwnerOrAdmin(user, agent, WRITE_ACTION);
     if (ids.length > 0) {
       const found = await db
         .select({ id: secrets.id })
@@ -617,7 +617,7 @@ export const createSecretsService = ({
       workspaceId,
     });
     const agent = await requireAgent(workspaceId, agentId);
-    requireSessionAgentManager(user, agent, WRITE_ACTION);
+    requireAgentOwnerOrAdmin(user, agent, WRITE_ACTION);
     await requireSecret(workspaceId, secretId);
     await db
       .insert(agentSecrets)
@@ -644,7 +644,7 @@ export const createSecretsService = ({
       workspaceId,
     });
     const agent = await requireAgent(workspaceId, agentId);
-    requireSessionAgentManager(user, agent, WRITE_ACTION);
+    requireAgentOwnerOrAdmin(user, agent, WRITE_ACTION);
     await requireSecret(workspaceId, secretId);
     await db
       .delete(agentSecrets)

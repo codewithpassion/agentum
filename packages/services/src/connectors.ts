@@ -83,7 +83,6 @@ import {
   requireAdminSession,
   requireAgentOwnerOrAdmin,
   requireSession,
-  requireSessionAgentManager,
 } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { ruleSchema } from "./secrets/rules.ts";
@@ -1078,7 +1077,7 @@ export const createConnectorsService = ({
       workspaceId,
     });
     const agent = await loadActiveAgent(db, parsed.agentId, workspaceId);
-    requireSessionAgentManager(user, agent, ASSIGN_ACTION);
+    requireAgentOwnerOrAdmin(user, agent, ASSIGN_ACTION);
     const createdAt = clock.now().toISOString();
     await db
       .insert(agentConnectors)
@@ -1141,7 +1140,7 @@ export const createConnectorsService = ({
     if (!agent) {
       throw new ServiceError("not_found", "Agent not found");
     }
-    requireSessionAgentManager(user, agent, UNASSIGN_ACTION);
+    requireAgentOwnerOrAdmin(user, agent, UNASSIGN_ACTION);
     const removed = await db
       .delete(agentConnectors)
       .where(

@@ -677,6 +677,44 @@ test("only the agent's owner or an admin assigns a connector to it", async () =>
   ).toMatchObject({ agentId: other.id, credentialMode: "user_or_agent" });
 });
 
+test("a write key or a connected app assigns only as the agent's owner, and an admin key assigns to any agent", async () => {
+  const connector = await addHeaderConnector();
+  const { mine } = await samsAgents();
+  const input = { agentId: mine.id, connectorId: connector.id };
+  const writeKey = (userId: string): Principal => ({
+    apiKey: { access: "write", id: "k1" },
+    kind: "user",
+    userId,
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  });
+  const oauthWrite = (userId: string): Principal => ({
+    kind: "user",
+    oauthClient: { access: "write", clientId: "claude" },
+    userId,
+    via: "oauth",
+    workspaceId: WORKSPACE,
+  });
+  const adminKey: Principal = {
+    ...writeKey("user_lee"),
+    apiKey: { access: "admin", id: "k2" },
+  };
+
+  await expect(
+    service.assign(writeKey("user_lee"), input)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.assign(oauthWrite("user_lee"), input)
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await service.assignments(dom, { agentId: mine.id })).toEqual([]);
+
+  await service.assign(writeKey("user_sam"), input);
+  await service.assign(oauthWrite("user_sam"), input);
+  expect(
+    await service.assign(adminKey, { ...input, credentialMode: "agent" })
+  ).toMatchObject({ credentialMode: "agent" });
+});
+
 test("only the agent's owner or an admin changes a credential mode", async () => {
   const connector = await addHeaderConnector();
   const { mine, other } = await samsAgents();
