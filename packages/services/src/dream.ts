@@ -20,6 +20,8 @@ const DREAM_KIND = "dream";
 
 export const dreamAgentInputSchema = z.strictObject({ agentId: idString });
 
+export const dreamTeamInputSchema = z.strictObject({ teamId: idString });
+
 export const dreamRunIdInputSchema = z.strictObject({ dreamRunId: idString });
 
 /** The option kept: one of the question's `options`, by note id. */
@@ -35,6 +37,7 @@ export const dreamDecideInputSchema = z.strictObject({
 });
 
 export type DreamAgentInput = z.input<typeof dreamAgentInputSchema>;
+export type DreamTeamInput = z.input<typeof dreamTeamInputSchema>;
 export type DreamRunIdInput = z.input<typeof dreamRunIdInputSchema>;
 export type DreamAnswerInput = z.input<typeof dreamAnswerInputSchema>;
 export type DreamDecideInput = z.input<typeof dreamDecideInputSchema>;
@@ -79,6 +82,16 @@ export const createDreamService = (_deps: DreamDeps) => {
     const workspaceId = readableWorkspace(principal, DREAM_WRITE);
     authorize(principal, DREAM_WRITE, dreamResource(workspaceId, agentId));
     return Promise.reject(new ServiceError("not_found", "No dream ran"));
+  };
+
+  /** Stub: the team dream task (TX.2) fills this in. */
+  const runTeamNow = (
+    principal: Principal,
+    teamId: string
+  ): Promise<DreamRun> => {
+    const workspaceId = readableWorkspace(principal, DREAM_WRITE);
+    authorize(principal, DREAM_WRITE, dreamResource(workspaceId, teamId));
+    return Promise.reject(new ServiceError("not_found", "No team dream ran"));
   };
 
   const undo = (
@@ -128,7 +141,7 @@ export const createDreamService = (_deps: DreamDeps) => {
     return noQuestion(input.questionId);
   };
 
-  return { answer, changes, decide, get, list, runNow, undo };
+  return { answer, changes, decide, get, list, runNow, runTeamNow, undo };
 };
 
 export type DreamService = ReturnType<typeof createDreamService>;

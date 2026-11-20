@@ -3,6 +3,7 @@ import {
   dreamAnswerInputSchema,
   dreamDecideInputSchema,
   dreamRunIdInputSchema,
+  dreamTeamInputSchema,
 } from "@repo/services/dream";
 import { router, workspaceProcedure } from "./init.ts";
 
@@ -36,6 +37,11 @@ export const dreamRouter = router({
     .input(dreamAgentInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.services.dream.runNow(ctx.principal, input.agentId)
+    ),
+  runTeamNow: workspaceProcedure
+    .input(dreamTeamInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.dream.runTeamNow(ctx.principal, input.teamId)
     ),
   undo: workspaceProcedure
     .input(dreamRunIdInputSchema)

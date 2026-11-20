@@ -19,6 +19,8 @@ test("each requests procedure makes one service call with validated input", asyn
     services: {
       requests: {
         answer: record,
+        answerDecisions: record,
+        dismissDecisions: record,
         listPending: record,
         listRules: record,
         removeRule: record,
@@ -32,6 +34,8 @@ test("each requests procedure makes one service call with validated input", asyn
   await caller.rules.list({ agentId: "a" });
   await caller.rules.set({ agentId: "a", mode: "ask", toolKey: "bash" });
   await caller.rules.remove({ agentId: "a", toolKey: "bash" });
+  await caller.answerDecisions({ decisions: { q1: "Yes" }, requestId: "d" });
+  await caller.dismissDecisions({ requestId: "d" });
   expect(calls).toEqual([
     [principal, {}],
     [
@@ -45,6 +49,8 @@ test("each requests procedure makes one service call with validated input", asyn
     [principal, { agentId: "a" }],
     [principal, { agentId: "a", mode: "ask", toolKey: "bash" }],
     [principal, { agentId: "a", toolKey: "bash" }],
+    [principal, { decisions: { q1: "Yes" }, requestId: "d" }],
+    [principal, { requestId: "d" }],
   ]);
   await expect(
     caller.answer({ requestId: "r" } as never)
@@ -55,5 +61,5 @@ test("each requests procedure makes one service call with validated input", asyn
   await expect(
     caller.rules.set({ agentId: "a", mode: "ask", toolKey: "" })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  expect(calls).toHaveLength(6);
+  expect(calls).toHaveLength(8);
 });

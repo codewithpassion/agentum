@@ -34,6 +34,7 @@ const held = (overrides: Partial<MemoryChange> = {}): MemoryChange => ({
   noteId: "note_1",
   source: null,
   status: "held",
+  teamId: null,
   text: "Prefers short replies",
   userScope: null,
   writtenBy: "agent",
