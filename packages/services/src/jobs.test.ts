@@ -17,7 +17,7 @@ import { createJobsService } from "./jobs.ts";
 import { createRunsService } from "./runs.ts";
 import type { Principal } from "./workspaces.ts";
 
-const JOB_LINE_MAX_CHARS = 140;
+const JOB_LINE_MAX_CHARS = 80;
 const NOW = "2026-11-20T00:00:00.000Z";
 const NEXT = "2026-11-20T00:05:00.000Z";
 const user: Principal = {
