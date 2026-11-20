@@ -27,6 +27,7 @@ import type { EventsService } from "../events.ts";
 import {
   effectiveOwner,
   readableWorkspace,
+  requireAgentOwnerOrAdmin,
   requireSession,
 } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
@@ -352,6 +353,26 @@ export const createMemoryService = ({
     };
   };
 
+  /**
+   * Shared notes are the agent's, so a person changes them only as its owner or
+   * an org admin, the rule the Keys tab follows. A run is the agent itself and
+   * keeps to the learn level. A person's private note is theirs to change.
+   */
+  const requireMayChangeShared = (
+    actor: MemoryActor,
+    agent: AgentInfo,
+    userScope: string | null
+  ): void => {
+    if (userScope !== null || actor.principal.kind !== "user") {
+      return;
+    }
+    requireAgentOwnerOrAdmin(
+      actor.principal,
+      { createdBy: agent.ownerUserId, ownerUserId: agent.ownerUserId },
+      MEMORY_WRITE
+    );
+  };
+
   /** The private file the caller sees, when its owner has a Clerk user id. */
   const visibleScope = (actor: MemoryActor): string | null =>
     isUserId(actor.userId) ? actor.userId : null;
@@ -627,6 +648,7 @@ export const createMemoryService = ({
       if (!note) {
         throw missingNote(loaded, input.noteId);
       }
+      requireMayChangeShared(actor, agent, note.userScope);
       return {
         action: "edit",
         change: {
@@ -658,6 +680,7 @@ export const createMemoryService = ({
       if (!note) {
         throw missingNote(loaded, input.noteId);
       }
+      requireMayChangeShared(actor, agent, note.userScope);
       return {
         action: "forget",
         change: { action: "forget", noteId: note.id },
@@ -730,10 +753,12 @@ export const createMemoryService = ({
       input.changeId,
       person.userId
     );
+    const agent = await loadAgent(person.workspaceId, agentOf(row));
+    const decider = deciderOf(principal, person);
+    requireMayChangeShared(decider, agent, row.userScope);
     if (row.status !== "held") {
       throw new ServiceError("conflict", "That change is already decided");
     }
-    agentOf(row);
     if (input.decision === "reject") {
       await atomic([
         db
@@ -752,8 +777,7 @@ export const createMemoryService = ({
           ),
       ]);
     } else {
-      const agent = await loadAgent(person.workspaceId, agentOf(row));
-      await approve(deciderOf(principal, person), agent, row);
+      await approve(decider, agent, row);
     }
     return await reread(person.workspaceId, row.id);
   };
@@ -832,14 +856,15 @@ export const createMemoryService = ({
   ): Promise<MemoryChange> => {
     const person = actors.personFor(principal, MEMORY_WRITE);
     const row = await findChange(person.workspaceId, changeId, person.userId);
+    const actor = deciderOf(principal, person);
+    const agent = await loadAgent(person.workspaceId, agentOf(row));
+    requireMayChangeShared(actor, agent, row.userScope);
     if (row.status !== "applied") {
       throw new ServiceError(
         "conflict",
         "Only an applied change can be undone"
       );
     }
-    const actor = deciderOf(principal, person);
-    const agent = await loadAgent(person.workspaceId, agentOf(row));
     const prior =
       row.action === "add" ? null : await priorNote(actor, agent, row);
     await writeWithRetry(actor, agent, (loaded) => ({
