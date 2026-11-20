@@ -31,9 +31,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
+import { Switch } from "#/components/ui/switch.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
+import { startTaskBody } from "./new-task-logic.ts";
 
 /** Starts a task for an agent, in a new session, and reports the new run's and session's ids. */
 export function NewTaskDialog({
@@ -51,10 +53,12 @@ export function NewTaskDialog({
   const [open, setOpen] = useState(false);
   const [agentChoice, setAgentChoice] = useState("");
   const [text, setText] = useState("");
+  const [isPrivate, setIsPrivate] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const agentSelectId = useId();
   const textId = useId();
+  const privateId = useId();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const dictation = useDictation({
     adapter: dictationAdapter,
@@ -99,13 +103,16 @@ export function NewTaskDialog({
       setPending(true);
       setError(null);
       try {
-        const result = await getTrpc().runs.start.mutate({
-          agentId,
-          input: { fileIds: [], text: text.trim() },
-          requestId: crypto.randomUUID(),
-          session: { origin: "ui" },
-        });
+        const result = await getTrpc().runs.start.mutate(
+          startTaskBody({
+            agentId,
+            isPrivate,
+            requestId: crypto.randomUUID(),
+            text,
+          })
+        );
         setText("");
+        setIsPrivate(false);
         setAgentChoice("");
         setOpen(false);
         onStarted(result.runId, result.sessionId);
@@ -115,7 +122,7 @@ export function NewTaskDialog({
         setPending(false);
       }
     },
-    [agentId, canStart, onStarted, text]
+    [agentId, canStart, isPrivate, onStarted, text]
   );
 
   return (
@@ -170,6 +177,21 @@ export function NewTaskDialog({
                   {error}
                 </p>
               )}
+            </div>
+            <div className="grid gap-2">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={isPrivate}
+                  disabled={pending}
+                  id={privateId}
+                  onCheckedChange={setIsPrivate}
+                />
+                <Label htmlFor={privateId}>Private</Label>
+              </div>
+              <p className="text-muted-foreground text-sm">
+                Notes remembered from this conversation stay with you. Other
+                members never see them.
+              </p>
             </div>
             <DialogFooter>
               <Button disabled={!canStart} type="submit">

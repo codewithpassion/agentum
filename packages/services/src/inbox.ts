@@ -12,7 +12,7 @@
  */
 
 import type { Database } from "@repo/db";
-import type { Atomic } from "@repo/db/atomic";
+import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import {
   inboxPosts,
@@ -152,6 +152,36 @@ export interface WokenRun {
 export interface PostResult {
   post: PostRecord;
   runs: WokenRun[];
+}
+
+/**
+ * A message that arrives from outside the app and lands in a team room, such as
+ * one from the Slack channel linked to it. The room's rules still apply: the
+ * post wakes agents only as `waker`.
+ */
+export interface ExternalPostInput {
+  /**
+   * Statements that join the post's atomic write. A key that conflicts there
+   * (a message another delivery already recorded) rejects the whole write, so
+   * no post and no topic are left behind.
+   */
+  alongside: (ids: { postId: string; threadId: string }) => Statement[];
+  /** Who wrote it. Stored as a person, so the id must never be a Clerk user id the sender does not hold. */
+  authorId: string;
+  teamId: string;
+  text: string;
+  /** An existing topic of the team, or the title of a new one. */
+  thread: { id: string; kind: "existing" } | { kind: "new"; title: string };
+  /** Wakes agents as this person. Null wakes nobody. */
+  waker: UserPrincipal | null;
+  workspaceId: string;
+}
+
+export interface ExternalPostResult {
+  postId: string;
+  threadId: string;
+  /** Wakes the agents the post names (or the listening lead). Call it after the answer to the sender. */
+  wake: () => Promise<WokenRun[]>;
 }
 
 /** Why a wake did not happen, as `inbox.loop_stopped` records it. */
@@ -538,19 +568,17 @@ export const createInboxService = ({
     return toThread({ ...thread, ...cleared });
   };
 
-  /** The post and the thread's `lastPostAt` in one atomic write, then `inbox.posted`. */
-  const writePost = async (
+  const postRow = (
     thread: ThreadRow,
     author: Author,
     body: { fileIds: readonly string[]; text: string },
     origin: PostOrigin | null
-  ): Promise<PostRow> => {
+  ): PostRow => {
     const now = clock.now();
-    const created = now.toISOString();
-    const row: PostRow = {
+    return {
       authorId: author.id,
       authorKind: author.kind,
-      createdAt: created,
+      createdAt: now.toISOString(),
       fileIds: JSON.stringify(body.fileIds),
       id: nextId(now.getTime()),
       runId: origin ? origin.runId : null,
@@ -558,22 +586,39 @@ export const createInboxService = ({
       threadId: thread.id,
       workspaceId: thread.workspaceId,
     };
-    await atomic([
-      db.insert(inboxPosts).values(row),
-      db
-        .update(inboxThreads)
-        .set({ lastPostAt: created })
-        .where(eq(inboxThreads.id, thread.id)),
-    ]);
-    await events.append({
-      actor: { id: author.id, kind: author.kind },
-      agentId: author.kind === "agent" ? author.id : null,
+  };
+
+  const announcePost = (
+    thread: ThreadRow,
+    row: PostRow,
+    origin: PostOrigin | null
+  ) =>
+    events.append({
+      actor: { id: row.authorId, kind: row.authorKind },
+      agentId: row.authorKind === "agent" ? row.authorId : null,
       payload: { postId: row.id, threadId: thread.id },
       runId: origin ? origin.runId : null,
       sessionId: origin ? origin.sessionId : null,
       type: "inbox.posted",
       workspaceId: thread.workspaceId,
     });
+
+  /** The post and the thread's `lastPostAt` in one atomic write, then `inbox.posted`. */
+  const writePost = async (
+    thread: ThreadRow,
+    author: Author,
+    body: { fileIds: readonly string[]; text: string },
+    origin: PostOrigin | null
+  ): Promise<PostRow> => {
+    const row = postRow(thread, author, body, origin);
+    await atomic([
+      db.insert(inboxPosts).values(row),
+      db
+        .update(inboxThreads)
+        .set({ lastPostAt: row.createdAt })
+        .where(eq(inboxThreads.id, thread.id)),
+    ]);
+    await announcePost(thread, row, origin);
     return row;
   };
 
@@ -909,6 +954,63 @@ export const createInboxService = ({
     };
   };
 
+  /**
+   * Records a message from outside in a team room: in an existing topic of the
+   * team, or in a new one the message opens. Nothing is checked about the
+   * author, the caller has decided who they are and whether they may wake agents.
+   */
+  const postExternal = async (
+    input: ExternalPostInput
+  ): Promise<ExternalPostResult> => {
+    const created = clock.now().toISOString();
+    const statements: Statement[] = [];
+    let thread: ThreadRow;
+    if (input.thread.kind === "new") {
+      thread = {
+        attentionClearedAt: null,
+        attentionClearedBy: null,
+        createdAt: created,
+        createdBy: input.authorId,
+        id: nextId(clock.now().getTime()),
+        lastPostAt: created,
+        openedByAgentId: null,
+        teamId: input.teamId,
+        title: input.thread.title.slice(0, TITLE_MAX),
+        workspaceId: input.workspaceId,
+      };
+      statements.push(db.insert(inboxThreads).values(thread));
+    } else {
+      const found = await findThread(input.thread.id, input.workspaceId);
+      if (found?.teamId !== input.teamId) {
+        throw new ServiceError("not_found", "Thread not found");
+      }
+      thread = found;
+    }
+    const row = postRow(
+      thread,
+      { id: input.authorId, kind: "user" },
+      { fileIds: [], text: input.text },
+      null
+    );
+    statements.push(
+      db.insert(inboxPosts).values(row),
+      db
+        .update(inboxThreads)
+        .set({ lastPostAt: row.createdAt })
+        .where(eq(inboxThreads.id, thread.id)),
+      ...input.alongside({ postId: row.id, threadId: thread.id })
+    );
+    await atomic(statements);
+    await announcePost(thread, row, null);
+    const { waker } = input;
+    const opened = thread;
+    return {
+      postId: row.id,
+      threadId: opened.id,
+      wake: async () => (waker ? await wake(waker, opened, row) : []),
+    };
+  };
+
   const deliver = async (
     target: ReplyTarget,
     message: { fileIds: string[]; text: string },
@@ -952,6 +1054,7 @@ export const createInboxService = ({
     gateway,
     listThreads,
     post,
+    postExternal,
     readThread,
   };
 };

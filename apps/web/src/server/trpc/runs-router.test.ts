@@ -111,14 +111,42 @@ test("a browser caller cannot pick a non-ui origin", async () => {
   expect(await caller.sessions.list({ agentId: agent.id })).toEqual([]);
 });
 
-test("a browser caller cannot make a session private", async () => {
+test("a ui start can make its session private, and a plain one is not", async () => {
+  const { agent, caller } = await setup();
+
+  const privateStart = await caller.runs.start({
+    agentId: agent.id,
+    input: { text: "hello" },
+    session: { origin: "ui", private: true },
+  });
+  const plainStart = await caller.runs.start({
+    agentId: agent.id,
+    input: { text: "hello again" },
+    session: { origin: "ui" },
+  });
+
+  const privateTranscript = await caller.sessions.transcript({
+    sessionId: privateStart.sessionId,
+  });
+  const plainTranscript = await caller.sessions.transcript({
+    sessionId: plainStart.sessionId,
+  });
+  expect(privateTranscript.session.private).toBe(true);
+  expect(plainTranscript.session.private).toBe(false);
+});
+
+test("a browser caller cannot make a non-ui session private", async () => {
   const { agent, caller } = await setup();
 
   await expect(
     caller.runs.start({
       agentId: agent.id,
       input: { text: "hello" },
-      session: { origin: "ui", private: true } as never,
+      session: {
+        externalKey: "T1:C1:123.456",
+        origin: "slack",
+        private: true,
+      } as never,
     })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(await caller.sessions.list({ agentId: agent.id })).toEqual([]);
