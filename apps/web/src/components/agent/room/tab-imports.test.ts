@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -21,6 +21,20 @@ const folderOf = (path: string): string | null => {
   return parts.length > 1 ? (parts[0] ?? null) : null;
 };
 
+/** The folder an import lands in. A bare `../settings` names a tab folder itself. */
+const targetFolderOf = (target: string): string | null => {
+  const folder = folderOf(target);
+  if (folder !== null) {
+    return folder;
+  }
+  const [first, ...rest] = relative(ROOM_DIR, target).split(sep);
+  const isTabFolder =
+    first !== undefined &&
+    rest.length === 0 &&
+    statSync(target, { throwIfNoEntry: false })?.isDirectory() === true;
+  return isTabFolder ? first : null;
+};
+
 const sourceFiles = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(dir, entry.name);
@@ -40,8 +54,8 @@ const targetOf = (from: string, specifier: string): string | null => {
   return null;
 };
 
-const crossTabImports = (): string[] => {
-  const found: string[] = [];
+const crossFolderImports = (): { edge: string; label: string }[] => {
+  const found: { edge: string; label: string }[] = [];
   for (const path of sourceFiles(ROOM_DIR)) {
     const from = folderOf(path);
     if (from === null) {
@@ -54,9 +68,12 @@ const crossTabImports = (): string[] => {
     );
     for (const { fileName } of importedFiles) {
       const target = targetOf(path, fileName);
-      const to = target === null ? null : folderOf(target);
-      if (to !== null && to !== from && !ALLOWED.has(`${from}>${to}`)) {
-        found.push(`${relative(ROOM_DIR, path)} imports ${fileName}`);
+      const to = target === null ? null : targetFolderOf(target);
+      if (to !== null && to !== from) {
+        found.push({
+          edge: `${from}>${to}`,
+          label: `${relative(ROOM_DIR, path)} imports ${fileName}`,
+        });
       }
     }
   }
@@ -64,8 +81,10 @@ const crossTabImports = (): string[] => {
 };
 
 test("no room tab imports from another tab's folder", () => {
-  expect(sourceFiles(ROOM_DIR).filter((p) => folderOf(p) !== null)).not.toEqual(
-    []
-  );
-  expect(crossTabImports()).toEqual([]);
+  const imports = crossFolderImports();
+  // The scan sees the imports it is meant to allow, so an empty result is not a parse failure.
+  expect(new Set(imports.map(({ edge }) => edge))).toEqual(ALLOWED);
+  expect(
+    imports.filter(({ edge }) => !ALLOWED.has(edge)).map(({ label }) => label)
+  ).toEqual([]);
 });
