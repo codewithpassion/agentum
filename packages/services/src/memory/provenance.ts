@@ -60,7 +60,8 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
   ): Promise<MemoryActor> => {
     const action = mode === "read" ? MEMORY_READ : MEMORY_WRITE;
     const run = await loadRun(db, principal.runId, workspaceId);
-    if (!run) {
+    // The stored run is the truth: a principal that names another agent is refused.
+    if (!run || run.agentId !== principal.agentId) {
       throw new ForbiddenError(action);
     }
     if (mode === "write") {

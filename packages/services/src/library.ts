@@ -724,6 +724,13 @@ export const createLibraryService = ({
       if (!mayReadMemoryPath(target.path, member.privateUserId)) {
         throw new ForbiddenError("library.write");
       }
+      // A run writes only where it holds write access, which is its own home by default.
+      const covered = (member.scope ?? []).some(
+        (root) => root.mode === "write" && within(target.path, root.path)
+      );
+      if (member.kind === "run" && !covered) {
+        throw new ForbiddenError("library.write");
+      }
     }
     return targets;
   };

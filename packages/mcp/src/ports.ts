@@ -863,7 +863,7 @@ export interface SubagentsPort {
   stop: (input: { id: string }) => Promise<RunInfo>;
 }
 
-/** Bound to one run's agent. The app enforces peer provenance and session visibility. */
+/** Bound to one run's agent. The memory service refuses peer-origin runs, and the app limits history to sessions the run may read. */
 export interface MemoryPort {
   forget: (input: { id: string }) => Promise<MemoryChangeInfo>;
   remember: (input: {

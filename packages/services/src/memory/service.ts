@@ -356,15 +356,17 @@ export const createMemoryService = ({
     }
   ): Promise<void> => {
     for (let attempt = 1; ; attempt += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: each attempt must read the files the last one lost to
+      const loaded = await load(actor, agent);
+      // A refusal from the plan is final. Only the write can lose a race.
+      const planned = plan(loaded);
       try {
-        // biome-ignore lint/performance/noAwaitInLoops: each attempt must read the files the last one lost to
-        const loaded = await load(actor, agent);
         await commitChange({
           library,
           loaded,
           principal: actor.principal,
           slug: agent.slug,
-          ...plan(loaded),
+          ...planned,
         });
         return;
       } catch (error) {

@@ -328,6 +328,19 @@ test("writeMemoryFiles writes two memory files for a run in one call and returns
   ]);
 });
 
+test("writeMemoryFiles refuses a run writing another agent's memory folder", async () => {
+  expect(
+    await errorOf(
+      service.writeMemoryFiles(
+        runAs(RUN),
+        [{ bytes: bytes("x"), path: "agents/other/memory/people.md" }],
+        () => []
+      )
+    )
+  ).toBeInstanceOf(ForbiddenError);
+  expect(entryPaths()).not.toContain("agents/other/memory/people.md");
+});
+
 test("writeMemoryFiles refuses a path outside memory and the memory folder itself", async () => {
   expect(
     await errorOf(

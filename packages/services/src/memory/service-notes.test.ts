@@ -706,6 +706,39 @@ test("a person may fix a file by hand, and a file that does not parse is reporte
   ).toEqual(["work", "places"]);
 });
 
+test("approving a held add or undoing a forget never overwrites a file that does not parse", async () => {
+  const world = makeWorld();
+  const added = await world.service.add(person(USER_A), note());
+  const forgotten = await world.service.forget(person(USER_A), {
+    agentId: AGENT,
+    noteId: added.noteId,
+  });
+  await setLevel(world, "ask_first");
+  const held = await world.service.add(run(RUN.ui), note());
+  const broken = "# People\n\n- id: not-a-ulid\n";
+  await world.library.write(
+    person(USER_A),
+    `${MEMORY}/people.md`,
+    new TextEncoder().encode(broken)
+  );
+
+  const approve = await errorOf(
+    world.service.decide(person(USER_A), {
+      changeId: held.id,
+      decision: "approve",
+    })
+  );
+  const undo = await errorOf(world.service.undo(person(USER_A), forgotten.id));
+
+  expect(approve).toMatchObject({ code: "invalid" });
+  expect(String(approve)).toContain("people.md");
+  expect(undo).toMatchObject({ code: "invalid" });
+  expect(await readFile(world)).toBe(broken);
+  const rows = changeRows(world);
+  expect(rows.find((row) => row.id === held.id)?.status).toBe("held");
+  expect(rows.find((row) => row.id === forgotten.id)?.status).toBe("applied");
+});
+
 // Atomic.
 
 test("a failed library write leaves no change row, no entry and no version", async () => {

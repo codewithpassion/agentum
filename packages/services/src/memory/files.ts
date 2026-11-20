@@ -146,6 +146,11 @@ export const commitChange = async ({
   slug: string;
   statements: (libraryVersionId: string) => Statement[];
 }): Promise<void> => {
+  // A file that does not parse is never overwritten, so nothing goes into it.
+  const problem = loaded.problems[notePath];
+  if (problem) {
+    throw invalid(describeProblem(notePath, problem));
+  }
   let next: MemoryFiles;
   try {
     next = apply(loaded.files, change);

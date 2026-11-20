@@ -98,6 +98,15 @@ test("a run reaches only its own agent's memory", async () => {
   );
 });
 
+test("a run principal that names another agent than its stored run is refused", async () => {
+  const { service } = makeWorld();
+  const forged = run(RUN.ui, OTHER_AGENT);
+
+  expect(
+    await errorOf(service.add(forged, { ...addInput, agentId: OTHER_AGENT }))
+  ).toBeInstanceOf(ForbiddenError);
+});
+
 test("a read-only key reads memory and cannot write it", async () => {
   const { service } = makeWorld();
   const reader = person(USER_A, {

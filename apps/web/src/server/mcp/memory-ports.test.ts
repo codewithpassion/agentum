@@ -157,12 +157,6 @@ test("peer-origin runs and their handoffs cannot remember or forget", async () =
   };
   const parent = await start(peer);
   const child = await start(asRun(parent.runId));
-  composed.services.memory.add = () => {
-    throw new Error("Peer reached memory.add");
-  };
-  composed.services.memory.forget = () => {
-    throw new Error("Peer reached memory.forget");
-  };
   for (const runId of [parent.runId, child.runId]) {
     // biome-ignore lint/performance/noAwaitInLoops: each run gets an independent MCP connection.
     const { client, close } = await connect(asRun(runId));
@@ -175,12 +169,13 @@ test("peer-origin runs and their handoffs cannot remember or forget", async () =
         const result = await client.callTool({ arguments: args, name });
         expect(result.isError).toBe(true);
         expect(result.structuredContent).toMatchObject({ code: "forbidden" });
-        expect(textOf(result)).toContain("peer");
       }
     } finally {
       await close();
     }
   }
+  // The memory service refuses it, so nothing was recorded.
+  expect(await composed.services.memory.changes(user, { agentId })).toEqual([]);
 });
 
 test("history searches only this agent's visible sessions and applies the limit", async () => {
@@ -250,30 +245,23 @@ test("non-run callers have no memory port; service errors are readable", async (
 test("trusted runs without user delegation may remember; forged run agents cannot", async () => {
   const started = await start({ kind: "system" });
   const principal = asRun(started.runId);
-  let writes = 0;
-  composed.services.memory.add = () => {
-    writes += 1;
-    return Promise.reject(
-      new ServiceError("not_found", "Memory service reached")
-    );
-  };
   const port = createMcpPorts({
     principal,
     services: composed.services,
   }).memory;
-  await expect(
-    port?.remember({ kind: "work", text: "Trusted fact" })
-  ).rejects.toMatchObject({
-    code: "not_found",
-    message: "Memory service reached",
+  expect(
+    await port?.remember({ kind: "work", text: "Trusted fact" })
+  ).toMatchObject({
+    status: "applied",
   });
-  expect(writes).toBe(1);
   const forged = createMcpPorts({
     principal: { ...principal, agentId: "another-agent" },
     services: composed.services,
   }).memory;
   await expect(
     forged?.remember({ kind: "work", text: "Forbidden fact" })
-  ).rejects.toMatchObject({ code: "not_found" });
-  expect(writes).toBe(1);
+  ).rejects.toMatchObject({ code: "forbidden" });
+  expect(
+    await composed.services.memory.changes(user, { agentId })
+  ).toHaveLength(1);
 });
