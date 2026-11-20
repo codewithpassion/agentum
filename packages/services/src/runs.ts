@@ -196,6 +196,9 @@ const parentSessionOf = (parentRunId: string | null) =>
 /** The session origin of a hand-off: the `send_message` tool starts it. */
 const HANDOFF_ORIGIN = "mcp";
 
+/** Origins whose sessions are shared: a new one never inherits privacy from a parent run. */
+const SHARED_ORIGINS: ReadonlySet<string> = new Set(["inbox", "qa", "slack"]);
+
 /** A subagent or a parent's wake queues and nobody waits on it, so it skips the busy-ancestor refusal. */
 const startsUnawaited = (options: StartRunOptions): boolean =>
   options.subagent !== undefined || options.wakesParent === true;
@@ -1272,16 +1275,18 @@ export const createRunsService = ({
   /**
    * Who a new session belongs to and whether it is private. A subagent's keeps
    * the delegated person. A hand-off from a private or `ui` session stays
-   * private to that session's own actor. Anything else belongs to the run's actor.
+   * private to that session's own actor, unless the new session is shared
+   * (`inbox`, `qa`, `slack`). Anything else belongs to the run's actor.
    */
   const newSessionOwner = async (
     { agent, subject }: Prepared,
     input: ParsedInput,
     options: StartRunOptions
   ): Promise<SessionOwner> => {
-    const inherited = options.subagent
-      ? null
-      : await privateParentActor(subject.parentRunId, agent.workspaceId);
+    const inherited =
+      options.subagent || SHARED_ORIGINS.has(input.session.origin)
+        ? null
+        : await privateParentActor(subject.parentRunId, agent.workspaceId);
     if (inherited) {
       return {
         actor: { id: inherited.actorId, kind: inherited.actorKind },
