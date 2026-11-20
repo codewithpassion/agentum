@@ -309,8 +309,8 @@ test("caps lists each agent's cap and pause", async () => {
 
 test("a run queued before the pause waits for the resume, unless it is a follow-up of work under way", async () => {
   setCap(aId, CAP_CENTS);
-  const followUp = await start(aId, "mcp");
   const waiting = await start(aId);
+  const followUp = await start(aId, "mcp");
   db.update(runRows)
     .set({ requestId: "question-answer:parked" })
     .where(eq(runRows.id, followUp.runId))
@@ -333,4 +333,18 @@ test("a run queued before the pause waits for the resume, unless it is a follow-
   expect((await runs.claimRun(SYSTEM_PRINCIPAL, waiting.runId)).status).toBe(
     "running"
   );
+});
+
+test("a caller cannot pick a request id that looks like a follow-up", async () => {
+  for (const requestId of ["question-answer:x", "handoff-wake:x"]) {
+    // biome-ignore lint/performance/noAwaitInLoops: two calls
+    await expect(
+      runs.startRun(owner, {
+        agentId: aId,
+        input: { text: "hi" },
+        requestId,
+        session: { origin: "ui" },
+      })
+    ).rejects.toMatchObject({ code: "invalid" });
+  }
 });

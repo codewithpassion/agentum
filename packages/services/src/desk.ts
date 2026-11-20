@@ -510,7 +510,7 @@ export const createDeskService = ({
             eq(agentRows.workspaceId, member.workspaceId),
             eq(agentRows.status, "active"),
             eq(agentRows.pausedReason, "spend_cap"),
-            // Only the owner or an org admin can resume, so only they get the card.
+            // Only the owner or an org admin can resume, so only they get the card (the owner is `effectiveOwner` in guards.ts).
             member.isAdmin === true
               ? undefined
               : or(

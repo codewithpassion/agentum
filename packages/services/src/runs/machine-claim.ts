@@ -209,7 +209,7 @@ export const claimForMachine = async (
         eq(runs.workspaceId, run.workspaceId),
         inArray(runs.status, STARTING),
         isNull(runs.pendingFiles),
-        notHeldByPause(deps.db),
+        notHeldByPause(db),
         exists(
           db
             .select({ id: agents.id })
@@ -261,6 +261,7 @@ export const claimForMachine = async (
                   eq(older.sessionId, runs.sessionId)
                 ),
                 inArray(older.status, STARTING),
+                notHeldByPause(db, older),
                 or(
                   lt(older.createdAt, runs.createdAt),
                   and(

@@ -82,7 +82,11 @@ import {
 } from "./runs/guest-scope.ts";
 import { type ChildOutcome, handoffWakeText } from "./runs/handoff-wake.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
-import { HANDOFF_WAKE_PREFIX, notHeldByPause } from "./runs/pause-hold.ts";
+import {
+  HANDOFF_WAKE_PREFIX,
+  isReservedRequestId,
+  notHeldByPause,
+} from "./runs/pause-hold.ts";
 import { peerRootOf } from "./runs/peer-root.ts";
 import {
   findSession,
@@ -1292,6 +1296,13 @@ export const createRunsService = ({
     options: StartRunOptions = {}
   ): Promise<StartResult> => {
     const input = startRunInputSchema.parse(rawInput);
+    if (
+      input.requestId &&
+      isReservedRequestId(input.requestId) &&
+      !(options.continuationOf || options.wakesParent)
+    ) {
+      throw new ServiceError("invalid", "That requestId is reserved");
+    }
     const prepared = await prepareStart(principal, input, options);
     return finishStart(prepared, input, options);
   };
@@ -1563,6 +1574,7 @@ export const createRunsService = ({
                     eq(older.sessionId, runs.sessionId)
                   ),
                   inArray(older.status, STARTING),
+                  notHeldByPause(db, older),
                   or(
                     lt(older.createdAt, runs.createdAt),
                     and(
