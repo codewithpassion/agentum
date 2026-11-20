@@ -30,6 +30,7 @@ export const makeListItem = (
   agentId: "agent_1",
   createdAt: TODAY_ISO,
   finishedAt: null,
+  helper: false,
   id: "run_1",
   sessionId: "ses_1",
   status: "running",

@@ -26,8 +26,10 @@ import { type MadeTodayData, useLiveWork, useMadeToday } from "./use-now.ts";
 /** Everything the panel draws, already read. The cards render nothing for what the agent does not have. */
 export interface NowPanelViewProps {
   agentName: string;
-  /** The id of the helper being stopped, or null. */
-  busyHelperId: string | null;
+  /** The helpers being stopped. */
+  busyHelperIds: readonly string[];
+  /** Why the last read failed, or null. The panel keeps showing the last good read. */
+  error: string | null;
   helpers: readonly Helper[];
   /** Learned this week, filled by the Knows tab's list. */
   learned: ReactNode;
@@ -42,7 +44,8 @@ export interface NowPanelViewProps {
 /** The right side of the agent room: live work, the screen, helpers, what it made today and what it learned. */
 export function NowPanelView({
   agentName,
-  busyHelperId,
+  busyHelperIds,
+  error,
   helpers,
   learned,
   machineId,
@@ -58,6 +61,11 @@ export function NowPanelView({
       className="flex min-w-0 flex-col gap-3"
       data-testid="now-panel"
     >
+      {error === null ? null : (
+        <p className="text-destructive text-xs" role="alert">
+          {error}
+        </p>
+      )}
       <StepCard run={run} step={step} />
       <ScreenCard
         agentName={agentName}
@@ -65,7 +73,7 @@ export function NowPanelView({
         takeover={takeover}
       />
       <HelpersCard
-        busyId={busyHelperId}
+        busyIds={busyHelperIds}
         helpers={helpers}
         onStop={onStopHelper}
       />
@@ -84,24 +92,24 @@ function LivePanel({
   initialTasks: RoomTabProps["room"]["tasks"];
   nowMs: number | null;
 }) {
-  const { refresh, task, tasks } = useLiveWork({
+  const { error, refresh, task, tasks } = useLiveWork({
     agentId: agent.id,
     initialTasks,
   });
   const run = activeRun(tasks);
   const madeToday = useMadeToday({ nowMs, running: run !== null, tasks });
-  const [busyHelperId, setBusyHelperId] = useState<string | null>(null);
+  const [busyHelperIds, setBusyHelperIds] = useState<string[]>([]);
 
   const stopHelper = useCallback(
     async (runId: string) => {
-      setBusyHelperId(runId);
+      setBusyHelperIds((ids) => [...ids, runId]);
       try {
         await getTrpc().runs.cancel.mutate({ runId });
       } catch (cause) {
         toast.error(errorMessage(cause, "Could not stop the helper."));
       }
       await refresh();
-      setBusyHelperId(null);
+      setBusyHelperIds((ids) => ids.filter((id) => id !== runId));
     },
     [refresh]
   );
@@ -114,7 +122,8 @@ function LivePanel({
   return (
     <NowPanelView
       agentName={agent.name}
-      busyHelperId={busyHelperId}
+      busyHelperIds={busyHelperIds}
+      error={error}
       helpers={task === null ? [] : liveHelpers(task)}
       learned={<LearnedSlot agentId={agent.id} />}
       machineId={agent.computerMachineId}

@@ -12,7 +12,8 @@ const viewProps = (
   const task = makeTask();
   return {
     agentName: "Sorter",
-    busyHelperId: null,
+    busyHelperIds: [],
+    error: null,
     helpers: liveHelpers(task),
     learned: null,
     machineId: null,

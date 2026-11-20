@@ -25,11 +25,7 @@ const chipsOf = (markup: string): string[] =>
 
 test("each live helper is a chip with its link, model and Stop button", () => {
   const markup = renderInRoom(
-    <HelpersCard
-      busyId={null}
-      helpers={liveHelpers(makeTask())}
-      onStop={noop}
-    />
+    <HelpersCard busyIds={[]} helpers={liveHelpers(makeTask())} onStop={noop} />
   );
   const chips = chipsOf(markup);
   expect(chips).toHaveLength(2);
@@ -44,14 +40,14 @@ test("each live helper is a chip with its link, model and Stop button", () => {
 
 test("an empty helper list renders nothing", () => {
   expect(
-    renderInRoom(<HelpersCard busyId={null} helpers={[]} onStop={noop} />)
+    renderInRoom(<HelpersCard busyIds={[]} helpers={[]} onStop={noop} />)
   ).toBe("");
 });
 
 test("only the chip whose Stop is in flight is disabled and reads Stopping", () => {
   const markup = renderInRoom(
     <HelpersCard
-      busyId="run_3"
+      busyIds={["run_3"]}
       helpers={liveHelpers(makeTask())}
       onStop={noop}
     />
@@ -136,7 +132,7 @@ test("clicking Stop calls onStop with that helper's run id", async () => {
   const onStop = mock((_runId: string) => undefined);
   const { container, unmount } = await mountInRouter(
     <HelpersCard
-      busyId={null}
+      busyIds={[]}
       helpers={liveHelpers(makeTask())}
       onStop={onStop}
     />

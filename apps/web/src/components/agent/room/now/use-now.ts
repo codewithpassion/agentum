@@ -16,7 +16,7 @@ import {
 
 export const LIVE_POLL_MS = 3000;
 export const MADE_TODAY_POLL_MS = 15_000;
-export const TASK_LIST_LIMIT = 30;
+export const TASK_LIST_LIMIT = 50;
 
 export interface LiveWork {
   error: string | null;
@@ -113,17 +113,19 @@ const loadMadeToday = async (
 ): Promise<MadeTodayData> => {
   const settled = await Promise.allSettled(runIds.map(loadRunMade));
   const artifacts = new Map<string, ArtifactCard>();
-  const files: MadeFile[] = [];
+  const files = new Map<string, MadeFile>();
   for (const result of settled) {
     if (result.status === "rejected") {
       continue;
     }
-    files.push(...result.value.files);
+    for (const file of result.value.files) {
+      files.set(file.path, file);
+    }
     for (const card of result.value.artifacts) {
       artifacts.set(card.artifactId, card);
     }
   }
-  return { artifacts: [...artifacts.values()], files };
+  return { artifacts: [...artifacts.values()], files: [...files.values()] };
 };
 
 /**
@@ -140,7 +142,8 @@ export function useMadeToday({
   tasks: readonly TaskListItem[];
 }): MadeTodayData {
   const [made, setMade] = useState<MadeTodayData>(EMPTY_MADE_TODAY);
-  const runs = nowMs === null ? [] : todaysRuns(tasks, nowMs);
+  // The time is read here and not taken from `nowMs`, so a page left open past midnight moves on to the new day.
+  const runs = nowMs === null ? [] : todaysRuns(tasks, Date.now());
   // Every poll returns new task objects, so the runs are kept until their
   // signature changes. The effect then restarts only when a run starts or changes.
   const [readRuns, setReadRuns] = useState<readonly TaskListItem[]>(runs);
@@ -150,9 +153,13 @@ export function useMadeToday({
 
   useEffect(() => {
     let current = true;
+    let started = 0;
     const load = async () => {
+      // A slow read must not land over a newer one.
+      started += 1;
+      const mine = started;
       const next = await loadMadeToday(readRuns.map((run) => run.id));
-      if (current) {
+      if (current && mine === started) {
         setMade(next);
       }
     };

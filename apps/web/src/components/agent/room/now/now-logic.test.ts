@@ -27,6 +27,15 @@ test("the active run is the newest one that can still change", () => {
   expect(activeRun([])).toBeNull();
 });
 
+test("a helper that started after its parent is not the active run", () => {
+  const tasks = [
+    makeListItem({ helper: true, id: "run_2", status: "running" }),
+    makeListItem({ id: "run_1", status: "running" }),
+  ];
+  expect(activeRun(tasks)?.id).toBe("run_1");
+  expect(activeRun([tasks[0] as (typeof tasks)[number]])).toBeNull();
+});
+
 test("today's runs leave out yesterday's and stop at the cap", () => {
   const many = Array.from({ length: MADE_TODAY_RUNS + 3 }, (_, index) =>
     makeListItem({ id: `run_${String(index)}` })

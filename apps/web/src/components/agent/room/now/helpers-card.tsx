@@ -48,11 +48,12 @@ function HelperChip({
 
 /** The helpers still working for a run, each with a Stop button. Renders nothing when none is working. */
 export function HelpersCard({
-  busyId,
+  busyIds,
   helpers,
   onStop,
 }: {
-  busyId: string | null;
+  /** The helpers whose Stop is in flight. */
+  busyIds: readonly string[];
   helpers: readonly Helper[];
   onStop: (runId: string) => void;
 }) {
@@ -69,7 +70,7 @@ export function HelpersCard({
       <ul className="flex flex-wrap gap-2 px-4 pb-3">
         {helpers.map((helper) => (
           <HelperChip
-            busy={busyId === helper.id}
+            busy={busyIds.includes(helper.id)}
             helper={helper}
             key={helper.id}
             onStop={onStop}

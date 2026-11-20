@@ -99,25 +99,22 @@ function MainThread({
 
 export function ChatTab({ nowMs, room }: RoomTabProps) {
   const { agent, threads } = room;
+  const archived = agent.status === "archived";
   return (
-    <div className="grid min-w-0 gap-4 md:grid-cols-[20rem_minmax(0,1fr)] md:items-start lg:grid-cols-[20rem_minmax(0,1fr)_18rem]">
+    <div
+      className={`grid min-w-0 gap-4 md:grid-cols-[20rem_minmax(0,1fr)] md:items-start ${archived ? "" : "xl:grid-cols-[20rem_minmax(0,1fr)_18rem]"}`}
+    >
       <div className="min-w-0">
-        <ThreadsCard
-          agent={agent}
-          archived={agent.status === "archived"}
-          threads={threads}
-        />
+        <ThreadsCard agent={agent} archived={archived} threads={threads} />
       </div>
       <div className="flex h-[70vh] min-h-96 min-w-0 flex-col overflow-hidden rounded-lg border border-border">
-        <MainThread
-          agentId={agent.id}
-          archived={agent.status === "archived"}
-          key={agent.id}
-        />
+        <MainThread agentId={agent.id} archived={archived} key={agent.id} />
       </div>
-      <div className="order-first min-w-0 empty:hidden md:col-span-2 lg:order-none lg:col-span-1">
-        <NowPanel nowMs={nowMs} room={room} />
-      </div>
+      {archived ? null : (
+        <div className="order-first min-w-0 md:col-span-2 xl:order-none xl:col-span-1">
+          <NowPanel nowMs={nowMs} room={room} />
+        </div>
+      )}
     </div>
   );
 }

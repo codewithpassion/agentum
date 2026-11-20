@@ -20,9 +20,12 @@ export function ScreenCard({
 }) {
   const [watching, setWatching] = useState(false);
   const [taking, setTaking] = useState(false);
+  // Every poll returns a new request object, so the controls follow its values.
+  const requestId = takeover === null ? null : takeover.requestId;
+  const reason = takeover === null ? "" : takeover.reason;
   const controls = useMemo(
-    () => (takeover === null ? null : takeoverControls(takeover)),
-    [takeover]
+    () => (requestId === null ? null : takeoverControls({ reason, requestId })),
+    [reason, requestId]
   );
 
   const toggleWatch = useCallback(() => setWatching((value) => !value), []);
@@ -71,17 +74,21 @@ export function ScreenCard({
           >
             {watching ? "Stop watching" : "Watch"}
           </Button>
-          <Button
-            className="pointer-coarse:min-h-10"
-            disabled={takeDisabled}
-            onClick={takeOver}
-            size="sm"
-            type="button"
-          >
-            Take over
-          </Button>
+          {watching ? null : (
+            <Button
+              className="pointer-coarse:min-h-10"
+              disabled={takeDisabled}
+              onClick={takeOver}
+              size="sm"
+              type="button"
+            >
+              Take over
+            </Button>
+          )}
         </div>
-        <p className="text-muted-foreground text-xs">{hint}</p>
+        {watching ? null : (
+          <p className="text-muted-foreground text-xs">{hint}</p>
+        )}
         {watching ? (
           <DesktopScreen
             key={machineId}

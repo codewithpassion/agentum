@@ -11,7 +11,7 @@ export type TaskListItem = RouterOutputs["tasks"]["list"][number];
 export type Helper = NonNullable<TaskView["subagents"]>[number];
 
 /** How many of today's runs the Made today card reads files and artifacts for. */
-export const MADE_TODAY_RUNS = 10;
+export const MADE_TODAY_RUNS = 20;
 
 /** The latest step of a run, in the words of its receipt. */
 export interface StepLine {
@@ -21,10 +21,11 @@ export interface StepLine {
   title: string;
 }
 
-/** The newest run that can still change, or null. `tasks.list` returns newest first. */
+/** The newest task that can still change, or null. A helper is part of its parent's task, so it never counts. `tasks.list` returns newest first. */
 export const activeRun = (
   tasks: readonly TaskListItem[]
-): TaskListItem | null => tasks.find((task) => isActive(task.status)) ?? null;
+): TaskListItem | null =>
+  tasks.find((task) => !task.helper && isActive(task.status)) ?? null;
 
 const startOfLocalDay = (ms: number): number => {
   const date = new Date(ms);
