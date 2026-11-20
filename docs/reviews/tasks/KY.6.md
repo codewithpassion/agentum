@@ -17,6 +17,7 @@ The page is the first group ("You") of the settings nav and so appears in Find. 
 - The settings layout lists every nav item to a non-admin, including admin pages (`settings.tsx`). This predates KY.6.
 - On desktop `/settings` redirects everyone to `/settings/model-providers`, an admin page (`settings.index.tsx`).
 - Find has two entries called "Apps": the artifacts filter under "What agents use" and the connectors page under "Settings". The test that expected one was narrowed to the "What agents use" group.
+- The verifier saw: the Connect link on a connector whose provider is unreachable ends on a bare 500 from `/connect` (not touched here); the Connect link has no per-app accessible name, unlike Disconnect; on a phone the app name wraps beside a long URL.
 - Old names remain in agent-facing messages: "Settings, Secrets" in `packages/services` (connectors.ts, secrets/placeholders.ts, connectors/secret.ts) and `apps/web/src/server/web-fetch/*`, with tests that pin them.
 - `sign-in-logic.ts` declares its own credential status union. The page picks the badge colour by comparing the label "Signed in".
 - The "Connected." notice from the URL and the "Disconnected from X." notice stay until the page reloads. Saving a pasted credential shows no confirmation.
