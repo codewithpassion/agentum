@@ -151,7 +151,7 @@ test("lists active agents only, ordered by name, each as an idle card", async ()
       costThisWeekCents: 0,
       id: "a-alpha",
       isLead: false,
-      jobLine: "x".repeat(80),
+      jobLine: `${"x".repeat(79)}…`,
       learnedCount: 0,
       name: "Alpha",
       needsYouCount: 0,
@@ -753,7 +753,7 @@ test("50 agents use a constant number of database queries", async () => {
   expect(queries).toBeLessThanOrEqual(8);
 });
 
-test("job line keeps the first sentence and clips Unicode instructions to 80 characters", async () => {
+test("job line keeps the first sentence and clips Unicode instructions to 80 characters with an ellipsis", async () => {
   insertAgent({
     id: "a1",
     instructions: "  Keep\naccounts tidy! Send a report.",
@@ -765,9 +765,15 @@ test("job line keeps the first sentence and clips Unicode instructions to 80 cha
     instructions: `${"★".repeat(79)}😀😀`,
     name: "Beta",
   });
+  insertAgent({
+    id: "a3",
+    instructions: 'Ask one question: "What did you finish?" Then wait.',
+    name: "Gamma",
+  });
   expect((await service.list(user)).map((card) => card.jobLine)).toEqual([
     "Keep accounts tidy!",
-    `${"★".repeat(79)}😀`,
+    `${"★".repeat(79)}…`,
+    'Ask one question: "What did you finish?"',
   ]);
 });
 
