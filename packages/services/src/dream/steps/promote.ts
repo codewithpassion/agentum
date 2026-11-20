@@ -24,11 +24,14 @@ export const promoteProcedures = async (input: {
   rejected: readonly string[];
   existingNames: readonly string[];
 }): Promise<ProcedureDraft[]> => {
+  // A skill is shared with whoever approves it, so a person's private evidence
+  // never reaches the judge and cannot become a proposal.
+  const items = input.items.filter((item) => item.scope !== "private");
   const answer = await askJudge(
     input.judge,
     JSON.stringify({
       existingNames: input.existingNames,
-      items: input.items,
+      items,
       rejected: input.rejected,
     }),
     PROMOTE_SYSTEM
@@ -37,7 +40,7 @@ export const promoteProcedures = async (input: {
     return [];
   }
   const valid = new Set(
-    input.items
+    items
       .filter((item) => item.kind !== "skill_proposal")
       .map((item) => item.id)
   );

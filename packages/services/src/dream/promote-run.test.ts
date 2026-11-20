@@ -78,15 +78,14 @@ test("a dream files once, lists it in the diary, and never refiles after rejecti
   ).toContain(title);
 });
 
-test("private procedure evidence supplies only a generic diary line", async () => {
+test("a procedure run in a private session is never proposed", async () => {
   const w = makeDreamWorld();
   w.setRules({ learnLevel: "quiet" });
   seedRuns(w, "private", SESSION.privateA);
   const run = await w.dream.runNow(w.owner, AGENT);
   expect(run.status).toBe("done");
-  expect(await w.skillsStore.proposals(w.owner)).toHaveLength(1);
-  expect(run.diary).toContain("Proposed a skill.");
-  expect(run.diary).not.toContain(title);
+  expect(await w.skillsStore.proposals(w.owner)).toHaveLength(0);
+  expect(run.diary).not.toContain("Proposed a skill");
 });
 
 test("failure to file a skill leaves a successful memory plan stored", async () => {
