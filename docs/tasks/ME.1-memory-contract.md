@@ -3,7 +3,7 @@ id: ME.1
 title: "Memory contract: tables, file format, router"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/ME.1-memory-contract
 lane: contract
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone ME. Contract task for ME. It alone chang
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/ME.1-memory-contract (v4 controller session).
+- 2026-11-20: merged as 8f41ae8c, review clean after 2 fix rounds. check, test and build passed on main. Dom: apply migration 0055 to staging (`bunx wrangler d1 migrations apply DB --remote --env staging` in apps/web) or to a staging export, to check it on real data.
