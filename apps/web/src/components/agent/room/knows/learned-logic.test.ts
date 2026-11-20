@@ -147,22 +147,23 @@ test("changeSentence words each of the four actions", () => {
   );
 });
 
-test("changeWhen says today, yesterday, then the day count in UTC", () => {
-  const todayIso = new Date(Date.UTC(2026, 10, 20, 0, 0, 0)).toISOString();
-  expect(changeWhen(todayIso, NOW_MS)).toBe("today");
-  expect(
-    changeWhen(
-      new Date(Date.UTC(2026, 10, 19, 23, 59, 59)).toISOString(),
-      NOW_MS
-    )
-  ).toBe("yesterday");
-  expect(
-    changeWhen(new Date(Date.UTC(2026, 10, 18, 12, 0, 0)).toISOString(), NOW_MS)
-  ).toBe("2 days ago");
-  expect(
-    changeWhen(
-      new Date(Date.UTC(2026, 10, 14, 23, 59, 59)).toISOString(),
-      NOW_MS
-    )
-  ).toBe("6 days ago");
+test("changeWhen says today, yesterday, then the day count by local day", () => {
+  const now = new Date(2026, 10, 20, 12, 0, 0).getTime();
+  const at = (day: number, hour: number, minute = 0, second = 0) =>
+    new Date(2026, 10, day, hour, minute, second).toISOString();
+  expect(changeWhen(at(20, 0), now)).toBe("today");
+  expect(changeWhen(at(19, 23, 59, 59), now)).toBe("yesterday");
+  expect(changeWhen(at(18, 12), now)).toBe("2 days ago");
+  expect(changeWhen(at(14, 23, 59, 59), now)).toBe("6 days ago");
+});
+
+test("learnedThisWeek leaves out merge rows and the rows a merge wrote", () => {
+  const rows = [
+    change({ action: "merge", id: "m1" }),
+    change({ action: "forget", groupId: "m1", id: "f1" }),
+    change({ id: "a1" }),
+  ];
+  expect(learnedThisWeek(rows, NOW_MS, "tell_after").map((c) => c.id)).toEqual([
+    "a1",
+  ]);
 });

@@ -67,46 +67,63 @@ export function KnowsLayout({
   return (
     <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <DreamSlot />
-      <RoomSection title={`What ${room.agent.name} remembers`}>
-        {memory.error === undefined ? null : (
-          <p className="text-destructive text-sm" role="alert">
-            {memory.error}
-          </p>
+      {/* On a desktop each column is a stack. On a phone the columns dissolve and `order` interleaves the sections. */}
+      <div className="flex min-w-0 flex-col gap-8 max-lg:contents">
+        <div className="max-lg:order-1">
+          <RoomSection title={`What ${room.agent.name} remembers`}>
+            {memory.error === undefined ? null : (
+              <p className="text-destructive text-sm" role="alert">
+                {memory.error}
+              </p>
+            )}
+            <Notes archived={archived} data={data} memory={memory} />
+          </RoomSection>
+        </div>
+        <div className="max-lg:order-4">
+          <RoomSection title="Skills">
+            <Manage archived={archived}>
+              <SkillsPanel agent={room.agent} />
+            </Manage>
+          </RoomSection>
+        </div>
+        <div className="max-lg:order-5">
+          <RoomSection title="Instructions">
+            <DoesText does={room.profile.does} full={archived} />
+          </RoomSection>
+        </div>
+        <div className="max-lg:order-6">
+          <RoomSection title="Voice">
+            <VoiceField agentId={room.agent.id} voice={room.profile.voice} />
+          </RoomSection>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-col gap-8 max-lg:contents">
+        {data === undefined ? null : (
+          <div className="max-lg:order-2">
+            <RoomSection title="Remember rules">
+              <RulesPanel
+                canChange={canChange && !archived}
+                onChange={memory.setRules}
+                rules={data.rules}
+                saving={memory.saving}
+              />
+            </RoomSection>
+          </div>
         )}
-        <Notes archived={archived} data={data} memory={memory} />
-      </RoomSection>
-      {data === undefined ? null : (
-        <RoomSection title="Remember rules">
-          <RulesPanel
-            canChange={canChange && !archived}
-            onChange={memory.setRules}
-            rules={data.rules}
-            saving={memory.saving}
-          />
-        </RoomSection>
-      )}
-      {learned.length === 0 || data === undefined ? null : (
-        <RoomSection title="Learned this week">
-          <LearnedList
-            busyId={memory.busyId}
-            changes={learned}
-            disabled={archived}
-            nowMs={data.nowMs}
-            onUndo={memory.undo}
-          />
-        </RoomSection>
-      )}
-      <RoomSection title="Skills">
-        <Manage archived={archived}>
-          <SkillsPanel agent={room.agent} />
-        </Manage>
-      </RoomSection>
-      <RoomSection title="Instructions">
-        <DoesText does={room.profile.does} full={archived} />
-      </RoomSection>
-      <RoomSection title="Voice">
-        <VoiceField agentId={room.agent.id} voice={room.profile.voice} />
-      </RoomSection>
+        {learned.length === 0 || data === undefined ? null : (
+          <div className="max-lg:order-3">
+            <RoomSection title="Learned this week">
+              <LearnedList
+                busyId={memory.busyId}
+                changes={learned}
+                disabled={archived}
+                nowMs={data.nowMs}
+                onUndo={memory.undo}
+              />
+            </RoomSection>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

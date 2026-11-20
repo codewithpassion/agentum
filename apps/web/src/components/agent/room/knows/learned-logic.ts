@@ -4,6 +4,8 @@ import type {
   MemoryChangeAction,
 } from "@repo/db/shared";
 
+import { isMergeRow } from "./notes-logic.ts";
+
 export const LEARNED_DAYS = 7;
 
 const DAY_MS = 86_400_000;
@@ -34,7 +36,8 @@ export function learnedThisWeek(
   const hideAutomatic = learnLevel === "quiet";
   return changes
     .filter((change) => {
-      if (change.status !== "applied") {
+      // A merge is undone with its dream, so these rows have no Undo here.
+      if (change.status !== "applied" || isMergeRow(change)) {
         return false;
       }
       if (createdMs(change) < windowStartMs) {
@@ -61,10 +64,15 @@ export function changeSentence(
   return `${ACTION_SENTENCES[change.action]}: ${change.text}`;
 }
 
-/** "today" when createdAt is on the same UTC day as nowMs, "yesterday" for the day before, otherwise "N days ago". */
+/** The calendar day of a moment in the viewer's time zone, as a day count. */
+function localDay(ms: number): number {
+  const date = new Date(ms);
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS;
+}
+
+/** "today" when createdAt is on the same local day as nowMs, "yesterday" for the day before, otherwise "N days ago". */
 export function changeWhen(createdAt: string, nowMs: number): string {
-  const days =
-    Math.floor(nowMs / DAY_MS) - Math.floor(Date.parse(createdAt) / DAY_MS);
+  const days = localDay(nowMs) - localDay(Date.parse(createdAt));
   if (days === 0) {
     return "today";
   }

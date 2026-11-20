@@ -38,6 +38,13 @@ const MONTH_NAMES = [
   "Dec",
 ] as const;
 
+/** A merge row, or a row a merge wrote. The service decides and undoes those with their dream, so the Knows tab shows no Approve, Reject or Undo for them. */
+export function isMergeRow(
+  change: Pick<MemoryChange, "action" | "groupId">
+): boolean {
+  return change.action === "merge" || change.groupId !== null;
+}
+
 function byNoteDateDesc(
   a: { note: MemoryNote; index: number },
   b: { note: MemoryNote; index: number }
@@ -68,7 +75,10 @@ function heldOfKind(
   kind: MemoryNoteKind
 ): MemoryChange[] {
   return changes
-    .filter((change) => change.status === "held" && change.kind === kind)
+    .filter(
+      (change) =>
+        change.status === "held" && change.kind === kind && !isMergeRow(change)
+    )
     .sort(byCreatedAtDesc);
 }
 

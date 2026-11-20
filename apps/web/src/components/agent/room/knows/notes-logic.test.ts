@@ -207,3 +207,17 @@ test("KIND_LABELS names each note kind", () => {
     work: "Work in progress",
   });
 });
+
+test("groupNotes leaves out held merge rows, which are decided with their dream", () => {
+  const groups = groupNotes(
+    [],
+    [
+      change({ action: "merge", id: "m1" }),
+      change({ action: "forget", groupId: "m1", id: "f1" }),
+      change({ id: "plain" }),
+    ]
+  );
+  expect(groups.flatMap((group) => group.held.map((row) => row.id))).toEqual([
+    "plain",
+  ]);
+});
