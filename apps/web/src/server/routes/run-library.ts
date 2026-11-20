@@ -17,7 +17,10 @@ import {
   libraryStatResponseSchema,
   libraryWriteResponseSchema,
 } from "@repo/protocol/library";
+import { notFound } from "@repo/services/errors";
 import type { LibraryEntry } from "@repo/services/library";
+import { isPrivateMemoryPath } from "@repo/services/library/memory-paths";
+import { normalizePath } from "@repo/services/library/path";
 import { importRunTokenKey, verifyAgentToken } from "@repo/services/run-tokens";
 import { bearerToken, type Principal } from "@repo/services/workspaces";
 import type { Context } from "hono";
@@ -120,6 +123,18 @@ const etagOf = (entry: LibraryEntry): string => {
   return entry.etag;
 };
 
+/**
+ * Answers not found for any private memory file, folder or path under it. A
+ * private note reaches a run through its prompt and never through a working
+ * copy, so a daemon of any version gets none from list, stat or read. The check
+ * runs on the path the library would use, so `memory/./private` is no way round.
+ */
+const refusePrivateMemory = (rawPath: string): void => {
+  if (isPrivateMemoryPath(normalizePath(rawPath))) {
+    throw notFound();
+  }
+};
+
 const wireEntry = ({
   etag,
   kind,
@@ -127,7 +142,7 @@ const wireEntry = ({
   size,
 }: LibraryEntry): LibraryEntryWire => ({ etag, kind, path, size });
 
-/** The six library routes under `base`, each behind `guard`. */
+/** The six library routes under `base`, each behind `guard`. List, stat and read never show a private memory file. */
 const registerLibraryRoutes = (
   routes: Hono<AppEnv>,
   base: string,
@@ -140,11 +155,16 @@ const registerLibraryRoutes = (
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
       }
+      refusePrivateMemory(path);
       const entries = await c
         .get("composed")
         .services.library.list(principal, path);
       return c.json(
-        libraryListResponseSchema.parse({ entries: entries.map(wireEntry) })
+        libraryListResponseSchema.parse({
+          entries: entries
+            .filter((entry) => !isPrivateMemoryPath(entry.path))
+            .map(wireEntry),
+        })
       );
     })
   );
@@ -156,6 +176,7 @@ const registerLibraryRoutes = (
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
       }
+      refusePrivateMemory(path);
       const entry = await c
         .get("composed")
         .services.library.stat(principal, path);
@@ -172,6 +193,7 @@ const registerLibraryRoutes = (
       if (path === null) {
         return jsonError(c, BAD_REQUEST, PATH_REQUIRED);
       }
+      refusePrivateMemory(path);
       const { bytes, entry } = await c
         .get("composed")
         .services.library.read(principal, path);
