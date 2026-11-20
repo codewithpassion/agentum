@@ -13,5 +13,9 @@ Round 2 (40157096): clean. The prompt now leaves only disagreements with no sign
 ## Beyond scope
 - Reconcile still groups by kind and scope, so a cross-kind disagreement with no correction word is not compared (DR.10 covers the extract side).
 
+## Real-model check
+
+Flow 1 ran against `claude-haiku-5-5` with the dev key, held in a shell variable and never written to a file or the database. It ran the dream's own steps (extract, merge, reconcile) on a person-written `people` note ("Client lunches with Northwind are on Fridays at 1pm.") and one conversation saying the lunch moved to 1:30pm. Extract wrote a `work` candidate. Merge dropped the `people` note and added the `work` note "Northwind client lunches are on Fridays at 1:30pm (moved from 1pm as of 2026-11-20)." Reconcile found nothing. One note is left, with the newer kind, and no model call failed. Cost: $0.00018 (766 in, 211 out). Not run through the browser or the dream tables; the steps are the dream's whole model work.
+
 ## Steps for Dom
-- Repeat the walkthrough's flow 1 with a real model (a people note says 1pm, a conversation says it moved to 1:30pm), then read the notes list. This needs the live API key and a browser; the fake-model service test passes.
+None.
