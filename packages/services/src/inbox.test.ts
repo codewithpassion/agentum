@@ -1241,35 +1241,38 @@ test("discussion starts require a lead room run and serialize concurrent starts"
   expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(3);
 });
 
-test("discussion wakes still obey the hourly agent limit", async () => {
-  const { threadId, principal } = await discussionFixture();
-  await runs.startRun(user, {
-    agentId: agentId("one"),
-    input: { text: "Earlier wake" },
-    session: { externalKey: "earlier", origin: "inbox" },
-  });
-  const [original] = runsOf("one");
-  if (!original) {
-    throw new Error("No earlier wake");
+test.each(["inbox", "qa"] as const)(
+  "discussion wakes still obey the hourly agent limit including %s",
+  async (origin) => {
+    const { threadId, principal } = await discussionFixture();
+    await runs.startRun(user, {
+      agentId: agentId("one"),
+      input: { text: "Earlier wake" },
+      session: { externalKey: "earlier", origin },
+    });
+    const [original] = runsOf("one");
+    if (!original) {
+      throw new Error("No earlier wake");
+    }
+    for (let index = 1; index < 10; index += 1) {
+      db.insert(runRows)
+        .values({ ...original, id: `earlier-${index}` })
+        .run();
+    }
+    await inbox.startDiscussion(principal, {
+      question: "Discuss",
+      rounds: 3,
+      topic: threadId,
+    });
+    expect(runsOf("one")).toHaveLength(10);
+    expect(
+      stops().some(
+        (stop) =>
+          stop.agentId === agentId("one") && stop.payload.reason === "budget"
+      )
+    ).toBe(true);
   }
-  for (let index = 1; index < 10; index += 1) {
-    db.insert(runRows)
-      .values({ ...original, id: `earlier-${index}` })
-      .run();
-  }
-  await inbox.startDiscussion(principal, {
-    question: "Discuss",
-    rounds: 3,
-    topic: threadId,
-  });
-  expect(runsOf("one")).toHaveLength(10);
-  expect(
-    stops().some(
-      (stop) =>
-        stop.agentId === agentId("one") && stop.payload.reason === "budget"
-    )
-  ).toBe(true);
-});
+);
 
 test("the lead checkpoint includes every member's round reply", async () => {
   const { threadId, principal } = await discussionFixture();

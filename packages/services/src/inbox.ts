@@ -723,10 +723,12 @@ export const createInboxService = ({
   /** True when the agent has used its wake budget for the past hour. */
   const budgetSpent = async (
     agentId: string,
-    workspaceId: string
+    workspaceId: string,
+    discussion = false
   ): Promise<boolean> => {
     const now = clock.now().getTime();
-    // A wake is a run in an inbox session, so the run table is the ledger.
+    // The run table is the ledger. Discussions share Q&A's cross-surface
+    // hourly window; ordinary inbox wakes keep their existing guard.
     const woken = await db
       .select({ createdAt: runRows.createdAt })
       .from(runRows)
@@ -735,7 +737,9 @@ export const createInboxService = ({
         and(
           eq(runRows.workspaceId, workspaceId),
           eq(runRows.agentId, agentId),
-          eq(sessions.origin, "inbox"),
+          discussion
+            ? inArray(sessions.origin, ["inbox", "qa"])
+            : eq(sessions.origin, "inbox"),
           gt(
             runRows.createdAt,
             new Date(now - WAKE_LIMIT_WINDOW_MS).toISOString()
@@ -888,7 +892,9 @@ export const createInboxService = ({
     let stop: StopReason | null = null;
     if (streak) {
       stop = "streak";
-    } else if (await budgetSpent(target.id, thread.workspaceId)) {
+    } else if (
+      await budgetSpent(target.id, thread.workspaceId, requestId !== undefined)
+    ) {
       stop = "budget";
     }
     if (stop) {
