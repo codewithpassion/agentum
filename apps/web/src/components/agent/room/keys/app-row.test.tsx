@@ -160,6 +160,19 @@ test("An app that needs no sign-in says so and offers no connect action", () => 
   expect(html).not.toContain("no sign-in yet");
 });
 
+test("An app that needs no sign-in has no whose-sign-in select", () => {
+  const html = renderRow(appNamed("conn_docs"), mineWith({ authKind: "none" }));
+  expect(html).not.toContain("Whose sign-in it uses");
+});
+
+test("An app on the agent's own sign-in offers the member no connect action", () => {
+  const html = renderRow(
+    { ...appNamed("conn_gmail"), credentialMode: "agent" },
+    mineWith({})
+  );
+  expect(html).not.toContain("Connect my account");
+});
+
 test("Without the member's connector loaded, no sign-in status or connect action shows", () => {
   const html = renderRow(appNamed("conn_gmail"), undefined);
   expect(html).not.toContain("You are signed in.");

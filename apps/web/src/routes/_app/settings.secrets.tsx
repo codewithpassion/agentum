@@ -78,7 +78,7 @@ function SecretsPage() {
         </p>
         <p>
           An agent gets a secret only when you grant it on the agent's own page,
-          in its Secrets tab.
+          in its Keys tab.
         </p>
       </div>
       <SecretsTable

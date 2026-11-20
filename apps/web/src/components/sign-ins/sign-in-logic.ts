@@ -30,11 +30,14 @@ function oauthView(input: SignInInput): SignInView {
     input.oauth !== null &&
     (input.oauth.clientConfigured || input.oauth.canRegister);
   if (input.myCredential === null) {
+    // An app nobody has connected yet has no OAuth settings on record. Connect
+    // finds the server's settings and registers a client itself, as on the Keys tab.
+    const canStart = input.oauth === null || canConnect;
     return {
-      action: canConnect ? "connect" : null,
-      actionLabel: canConnect ? "Connect" : null,
+      action: canStart ? "connect" : null,
+      actionLabel: canStart ? "Connect" : null,
       canDisconnect: false,
-      note: canConnect ? null : NO_ADMIN_SETUP_NOTE,
+      note: canStart ? null : NO_ADMIN_SETUP_NOTE,
       status: NOT_SIGNED_IN,
     };
   }

@@ -93,7 +93,9 @@ function ConnectControls({
     () => onPaste(connectorId, "agent"),
     [connectorId, onPaste]
   );
-  const connect: ConnectOption = connectOption(mine);
+  // An app on the agent's own sign-in never uses the person's, so no connect for them.
+  const connect: ConnectOption =
+    app.credentialMode === "agent" ? null : connectOption(mine);
   let connectMine: ReactNode = null;
   if (connect?.kind === "needs-client") {
     connectMine = (
@@ -286,18 +288,20 @@ export function AppRow({
         />
       </div>
       <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-        <NativeSelect
-          aria-label="Whose sign-in it uses"
-          disabled={!canEdit}
-          onChange={handleModeChange}
-          value={app.credentialMode}
-        >
-          {CREDENTIAL_MODES.map((mode) => (
-            <NativeSelectOption key={mode} value={mode}>
-              {CREDENTIAL_MODE_LABELS[mode]}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        {mine?.authKind === "none" ? null : (
+          <NativeSelect
+            aria-label="Whose sign-in it uses"
+            disabled={!canEdit}
+            onChange={handleModeChange}
+            value={app.credentialMode}
+          >
+            {CREDENTIAL_MODES.map((mode) => (
+              <NativeSelectOption key={mode} value={mode}>
+                {CREDENTIAL_MODE_LABELS[mode]}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        )}
         <ConfirmButton
           description={`Remove ${app.connectorName} from this agent? It can be added again later.`}
           disabled={!canEdit}
