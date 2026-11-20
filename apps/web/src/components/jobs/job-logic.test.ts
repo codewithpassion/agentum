@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { JobSentence, ProposedTrigger } from "@repo/db/shared";
 import {
+  approvalTarget,
   canPause,
   canRunNow,
   draftChips,
   draftName,
+  draftPrompt,
   draftRoutineInput,
   draftSaveKind,
   jobChips,
@@ -17,10 +19,11 @@ const TWO_HOURS_AGO = "2026-11-20T10:00:00Z";
 
 const job: Pick<
   JobSentence,
-  "agent" | "asksBefore" | "deliversTo" | "does" | "when"
+  "agent" | "asksBefore" | "awaitingApproval" | "deliversTo" | "does" | "when"
 > = {
   agent: { id: "agt_1", name: "Digest" },
   asksBefore: "Dom",
+  awaitingApproval: false,
   deliversTo: "#news",
   does: "Summarise the week",
   when: "Every Friday at 9:00",
@@ -85,6 +88,25 @@ describe("draftChips", () => {
     const chips = draftChips(draft({ does: "", when: "  " }));
     expect(chips).toEqual([]);
   });
+
+  test("shows asks and delivers for a routine draft", () => {
+    const kinds = draftChips(
+      draft({ asksBefore: "Dom", deliversTo: "#news" })
+    ).map((chip) => chip.kind);
+    expect(kinds).toEqual(["when", "does", "asks", "delivers"]);
+  });
+
+  test("hides asks and delivers for a web-trigger draft, which saves neither", () => {
+    const kinds = draftChips(
+      draft({
+        asksBefore: "Dom",
+        cron: null,
+        deliversTo: "#news",
+        source: "http",
+      })
+    ).map((chip) => chip.kind);
+    expect(kinds).toEqual(["when", "does"]);
+  });
 });
 
 describe("lastResultText", () => {
@@ -124,19 +146,39 @@ describe("lastResultText", () => {
 
 describe("canRunNow and canPause", () => {
   test("only routines run now", () => {
-    expect(canRunNow({ source: "routine" })).toBe(true);
-    expect(canRunNow({ source: "http" })).toBe(false);
-    expect(canRunNow({ source: "mail" })).toBe(false);
-    expect(canRunNow({ source: "app" })).toBe(false);
-    expect(canRunNow({ source: "slack" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "routine" })).toBe(
+      true
+    );
+    expect(canRunNow({ awaitingApproval: false, source: "http" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "mail" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "app" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "slack" })).toBe(false);
   });
 
   test("every source but slack can pause", () => {
-    expect(canPause({ source: "routine" })).toBe(true);
-    expect(canPause({ source: "http" })).toBe(true);
-    expect(canPause({ source: "mail" })).toBe(true);
-    expect(canPause({ source: "app" })).toBe(true);
-    expect(canPause({ source: "slack" })).toBe(false);
+    expect(canPause({ awaitingApproval: false, source: "routine" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "http" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "mail" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "app" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "slack" })).toBe(false);
+  });
+
+  test("a job awaiting approval can neither run now nor pause", () => {
+    expect(canRunNow({ awaitingApproval: true, source: "routine" })).toBe(
+      false
+    );
+    expect(canPause({ awaitingApproval: true, source: "routine" })).toBe(false);
+    expect(canPause({ awaitingApproval: true, source: "http" })).toBe(false);
+  });
+});
+
+describe("approvalTarget", () => {
+  test("a routine is approved as a routine, every other source as a trigger", () => {
+    expect(approvalTarget({ source: "routine" })).toBe("routine");
+    expect(approvalTarget({ source: "http" })).toBe("trigger");
+    expect(approvalTarget({ source: "mail" })).toBe("trigger");
+    expect(approvalTarget({ source: "app" })).toBe("trigger");
+    expect(approvalTarget({ source: "slack" })).toBe("trigger");
   });
 });
 
@@ -227,6 +269,30 @@ describe("draftRoutineInput", () => {
     expect(input.name).toBe("New job");
   });
 
+  test("adds the ask-first and delivery lines to the prompt", () => {
+    const input = draftRoutineInput(
+      "agt_1",
+      draft({ asksBefore: "Dom", deliversTo: "#news" })
+    );
+    expect(input.prompt).toBe(
+      "Send the report\nAsk first: Dom\nSend the result to #news"
+    );
+  });
+
+  test("adds only the delivery line when there is no ask", () => {
+    const input = draftRoutineInput("agt_1", draft({ deliversTo: "#support" }));
+    expect(input.prompt).toContain("#support");
+    expect(input.prompt).toBe("Send the report\nSend the result to #support");
+  });
+
+  test("blank ask and delivery add no lines", () => {
+    const input = draftRoutineInput(
+      "agt_1",
+      draft({ asksBefore: "   ", deliversTo: "" })
+    );
+    expect(input.prompt).toBe("Send the report");
+  });
+
   test("throws when the cron is null", () => {
     expect(() => draftRoutineInput("agt_1", draft({ cron: null }))).toThrow(
       "A routine needs a cron schedule to be saved."
@@ -236,6 +302,27 @@ describe("draftRoutineInput", () => {
   test("throws when the cron is empty", () => {
     expect(() => draftRoutineInput("agt_1", draft({ cron: "" }))).toThrow(
       "A routine needs a cron schedule to be saved."
+    );
+  });
+});
+
+describe("draftPrompt", () => {
+  test("uses the when text, then the extra lines, when does is empty", () => {
+    expect(
+      draftPrompt(
+        draft({
+          asksBefore: "Dom",
+          deliversTo: "#news",
+          does: " ",
+          when: "Every Monday",
+        })
+      )
+    ).toBe("Every Monday\nAsk first: Dom\nSend the result to #news");
+  });
+
+  test("is the does text alone when neither extra is set", () => {
+    expect(draftPrompt(draft({ does: "  Send the report  " }))).toBe(
+      "Send the report"
     );
   });
 });

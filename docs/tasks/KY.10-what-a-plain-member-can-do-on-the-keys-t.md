@@ -3,9 +3,9 @@ id: KY.10
 title: "What a plain member can do on the Keys tab"
 milestone: KY
 size: S
-status: todo
+status: in_progress
 depends_on: [KY.7]
-branch: null
+branch: task/KY.10-what-a-plain-member-can-do-on-the-keys-t
 lane: web-keys
 executor: claude
 ---
@@ -30,3 +30,4 @@ Service tests for owner, admin and member on assign, mode, allowed tools, remove
 
 ## Log
 - 2026-11-20: added from the KY walkthrough.
+- 2026-11-20: dispatched on task/KY.10-what-a-plain-member-can-do-on-the-keys-t (v4 controller session).

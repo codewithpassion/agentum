@@ -3,7 +3,6 @@ import {
   Outlet,
   retainSearchParams,
 } from "@tanstack/react-router";
-import type { CSSProperties } from "react";
 import { z } from "zod";
 import { AssistantPanel } from "#/components/assistant/assistant-panel";
 import Footer from "#/components/footer";
@@ -11,25 +10,18 @@ import {
   DESK_POLL_INTERVAL_MS,
   usePolledQuery,
 } from "#/components/inbox/use-polled-query";
-import { Rail } from "#/components/rail/rail";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "#/components/ui/sidebar";
+import { AppTopBar } from "#/components/shell/app-top-bar";
 import { useTaskLayout } from "#/hooks/use-task-layout";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
-
-/** The rail is wider than the old sidebar: it holds sentences. */
-const RAIL_WIDTH = { "--sidebar-width": "20rem" } as CSSProperties;
+import { cn } from "#/lib/utils";
 
 export const Route = createFileRoute("/_app")({
   validateSearch: z.object({
     assistant: z.string().min(1).max(200).optional().catch(undefined),
   }),
   search: { middlewares: [retainSearchParams(["assistant"])] },
-  // The rail's New conversation and Find list the active agents. `agents.list` skips archived ones.
+  // Find lists the active agents. `agents.list` skips archived ones.
   loader: async () =>
     loadOrLogin(async () => await getTrpc().agents.list.query({})),
   component: AppLayout,
@@ -45,31 +37,24 @@ function AppLayout() {
   );
 
   return (
-    <SidebarProvider
-      className={taskLayout ? "min-h-0 flex-1 overflow-hidden" : undefined}
-      style={RAIL_WIDTH}
+    <div
+      className={cn(
+        "flex min-w-0 flex-col",
+        taskLayout ? "min-h-0 flex-1 overflow-hidden" : "min-h-svh"
+      )}
     >
       <AssistantPanel />
-      <Rail agents={agents} pinned={pinned ?? []} />
-      <SidebarInset className="min-h-0 min-w-0">
-        {/* Desktop keeps this bar. On phones the menu button lives in the
-            site header instead, so there is one bar. */}
-        {taskLayout ? null : (
-          <div className="hidden h-12 items-center border-border border-b px-4 md:flex">
-            <SidebarTrigger />
-          </div>
-        )}
-        <div
-          className={
-            taskLayout
-              ? "flex min-h-0 flex-1 flex-col"
-              : "flex-1 px-4 py-6 sm:px-6"
-          }
-        >
-          <Outlet />
-        </div>
-        {taskLayout ? null : <Footer shell />}
-      </SidebarInset>
-    </SidebarProvider>
+      <AppTopBar agents={agents} pinned={pinned ?? []} />
+      <main
+        className={
+          taskLayout
+            ? "flex min-h-0 flex-1 flex-col"
+            : "min-w-0 flex-1 px-4 py-6 sm:px-6"
+        }
+      >
+        <Outlet />
+      </main>
+      {taskLayout ? null : <Footer shell />}
+    </div>
   );
 }

@@ -72,7 +72,7 @@ export interface McpProbeResult {
   tools: CachedTool[];
 }
 
-interface JsonRpcResponse {
+export interface JsonRpcResponse {
   error?: { code?: number; message?: string };
   id?: number | string;
   result?: Record<string, unknown>;
@@ -82,7 +82,7 @@ interface JsonRpcResponse {
  * A Streamable HTTP server may answer a POST with either JSON or an SSE stream
  * carrying the same envelope; both are legal, so both are read.
  */
-const readEnvelope = async (
+export const readEnvelope = async (
   response: Response
 ): Promise<JsonRpcResponse | null> => {
   const body = await response.text();

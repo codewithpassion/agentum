@@ -3,7 +3,7 @@ id: KY.9
 title: "A fake runtime that calls a connector tool"
 milestone: KY
 size: S
-status: in_progress
+status: done
 depends_on: [KY.7]
 branch: task/KY.9-a-fake-runtime-that-calls-a-connector-to
 lane: services-runs
@@ -26,3 +26,4 @@ A `runs` test with a stubbed proxy fetch: a run with a signed-in person calls th
 ## Log
 - 2026-11-20: added from the KY walkthrough.
 - 2026-11-20: dispatched on task/KY.9-a-fake-runtime-that-calls-a-connector-to (v4 controller session).
+- 2026-11-20: merged as 98caee44, review clean after 0 fix rounds. Browser check passed at desktop size. check, test and build passed on main. Use model fake-tool or tool:<name> in the task text.

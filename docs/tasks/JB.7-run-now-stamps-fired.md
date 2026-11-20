@@ -3,7 +3,7 @@ id: JB.7
 title: "Run now counts as the job firing"
 milestone: JB
 size: S
-status: in_progress
+status: done
 depends_on: [JB.5]
 branch: task/JB.7-run-now-stamps-fired
 lane: services-jobs
@@ -25,3 +25,4 @@ From the JB walkthrough (`docs/reviews/JB-e2e.md`). After Run now, the routines 
 ## Log
 - 2026-11-20: added from the JB walkthrough. Rule decided by the controller under Dom's "don't wait for me".
 - 2026-11-20: dispatched on task/JB.7-run-now-stamps-fired (v4 controller session).
+- 2026-11-20: merged as 417aec5a, review clean after 0 fix rounds. check, test and build passed on main.

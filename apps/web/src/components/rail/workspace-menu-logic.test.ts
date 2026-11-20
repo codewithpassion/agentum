@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   canCreateWorkspace,
   canInvitePeople,
+  settingsHref,
   switchErrorMessage,
   workspaceChoices,
 } from "./workspace-menu-logic.ts";
@@ -171,4 +172,9 @@ test("only an admin of the active workspace sees Invite people", () => {
   expect(canInvitePeople({ activeOrgId: "org_b", mine })).toBe(false);
   expect(canInvitePeople({ activeOrgId: "org_x", mine })).toBe(false);
   expect(canInvitePeople({ activeOrgId: null, mine })).toBe(false);
+});
+
+test("Settings destination follows the viewport", () => {
+  expect(settingsHref(false)).toBe("/settings/model-providers");
+  expect(settingsHref(true)).toBe("/settings");
 });
