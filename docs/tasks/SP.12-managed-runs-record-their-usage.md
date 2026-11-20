@@ -3,9 +3,9 @@ id: SP.12
 title: "Managed runs record their usage"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SP.12-managed-runs-record-their-usage
 lane: runtimes
 executor: claude
 ---
@@ -22,3 +22,4 @@ a managed service test where the fake session reports usage, and the finished ru
 
 ## Log
 - 2026-11-21: added from the SP gate review, round 1.
+- 2026-11-21: dispatched.
