@@ -1,0 +1,15 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/.github/workflows/agentum-images.yml",
+        "$TURBO_ROOT$/apps/agentum/README.md",
+        "$TURBO_ROOT$/apps/agentum/packaging/**",
+        "$TURBO_ROOT$/scripts/dev/**"
+      ]
+    }
+  }
+}

@@ -15,6 +15,8 @@ fi
 bun install || exit 1
 bun run check || exit 1
 bunx turbo run test --continue "${filter[@]}"; test_code=$?
+# The scripts tests run outside turbo, never cached. `bun run test` runs them too.
+bun test ./scripts || test_code=1
 echo "TEST $test_code"
 bun run build; build_code=$?
 echo "BUILD $build_code"
