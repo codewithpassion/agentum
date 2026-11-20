@@ -1,15 +1,16 @@
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { createdAt, id, workspaceId } from "../columns.ts";
+import { check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createdAt, id, ownerCheck, workspaceId } from "../columns.ts";
 import {
   DEFAULT_DREAM_COUNTS_JSON,
   DREAM_QUESTION_STATUSES,
   DREAM_RUN_STATUSES,
 } from "../shared.ts";
 import { agents } from "./agents.ts";
+import { teams } from "./teams.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
- * One row per dream of one agent: the scheduled pass that reads what happened
+ * One row per dream of one agent or one team: the scheduled pass that reads what happened
  * since the last dream and rewrites the agent's memory (`docs/v4/build-plan.md`,
  * milestone DR). The note changes it made are the `memory_changes` rows that
  * name it in `dream_run_id`. A row stays after an undo, with status `undone`.
@@ -17,9 +18,8 @@ import { workspaces } from "./workspaces.ts";
 export const dreamRuns = sqliteTable(
   "dream_runs",
   {
-    agentId: text("agent_id")
-      .notNull()
-      .references(() => agents.id),
+    // The agent that dreamed. Null on a team dream (`team_id`). A row has an agent or a team.
+    agentId: text("agent_id").references(() => agents.id),
     // JSON array of library version ids: the latest version of each memory file before the dream wrote. Undo restores them.
     baseVersion: text("base_version").notNull().default("[]"),
     // JSON `DreamCounts`: added, merged, dropped, questions.
@@ -36,12 +36,16 @@ export const dreamRuns = sqliteTable(
     since: text("since"),
     startedAt: text("started_at").notNull(),
     status: text("status", { enum: DREAM_RUN_STATUSES }).notNull(),
+    // The team that dreamed. Null on an agent's dream.
+    teamId: text("team_id").references(() => teams.id),
     // JSON `DreamUsage`. Null until a model call has been made.
     usage: text("usage"),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [
     index("dream_runs_agent_idx").on(t.workspaceId, t.agentId, t.startedAt),
+    index("dream_runs_team_idx").on(t.workspaceId, t.teamId, t.startedAt),
+    check("dream_runs_owner", ownerCheck(t.agentId, t.teamId)),
   ]
 );
 
@@ -53,9 +57,8 @@ export const dreamRuns = sqliteTable(
 export const dreamQuestions = sqliteTable(
   "dream_questions",
   {
-    agentId: text("agent_id")
-      .notNull()
-      .references(() => agents.id),
+    // The agent the question is about. Null on a team dream's question (`team_id`). A row has an agent or a team.
+    agentId: text("agent_id").references(() => agents.id),
     // ISO 8601 UTC. Set with `answered_by` and `answered_note_id` when a person answers.
     answeredAt: text("answered_at"),
     // Clerk user id.
@@ -71,10 +74,13 @@ export const dreamQuestions = sqliteTable(
     options: text("options").notNull(),
     question: text("question").notNull(),
     status: text("status", { enum: DREAM_QUESTION_STATUSES }).notNull(),
+    // The team the question is about, asked of its owner. Null on an agent's question.
+    teamId: text("team_id").references(() => teams.id),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [
     index("dream_questions_status_idx").on(t.workspaceId, t.status),
     index("dream_questions_run_idx").on(t.dreamRunId),
+    check("dream_questions_owner", ownerCheck(t.agentId, t.teamId)),
   ]
 );

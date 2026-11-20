@@ -24,6 +24,7 @@ interface Column {
 }
 
 const MEMORY_CHANGES_NULLABLE = [
+  "agent_id",
   "decided_at",
   "decided_by",
   "dream_run_id",
@@ -31,12 +32,12 @@ const MEMORY_CHANGES_NULLABLE = [
   "library_version_id",
   "source_id",
   "source_kind",
+  "team_id",
   "user_scope",
 ];
 
 const MEMORY_CHANGES_COLUMNS = [
   "action",
-  "agent_id",
   "created_at",
   ...MEMORY_CHANGES_NULLABLE,
   "id",

@@ -8,6 +8,7 @@ import {
   dreamAnswerInputSchema,
   dreamDecideInputSchema,
   dreamRunIdInputSchema,
+  dreamTeamInputSchema,
 } from "./dream.ts";
 import { ServiceError } from "./errors.ts";
 import { systemClock } from "./runs/types.ts";
@@ -48,6 +49,14 @@ test("run id input accepts a valid id and rejects an empty id and an unknown key
   );
   expect(
     dreamRunIdInputSchema.safeParse({ dreamRunId: "d1", extra: true }).success
+  ).toBe(false);
+});
+
+test("team input accepts a valid id and rejects an empty id and an unknown key", () => {
+  expect(dreamTeamInputSchema.safeParse({ teamId: "t1" }).success).toBe(true);
+  expect(dreamTeamInputSchema.safeParse({ teamId: "" }).success).toBe(false);
+  expect(
+    dreamTeamInputSchema.safeParse({ extra: true, teamId: "t1" }).success
   ).toBe(false);
 });
 
@@ -103,6 +112,12 @@ test("stub runNow rejects with not_found for a user", async () => {
   });
 });
 
+test("stub runTeamNow rejects with not_found for a user", async () => {
+  await expect(makeService().runTeamNow(user, "t1")).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+
 test("stub undo rejects with not_found for a user", async () => {
   await expect(makeService().undo(user, "d1")).rejects.toMatchObject({
     code: "not_found",
@@ -120,6 +135,7 @@ test("every method throws ForbiddenError for the system principal", () => {
   expect(() => service.list(system, "a1")).toThrow(ForbiddenError);
   expect(() => service.get(system, "d1")).toThrow(ForbiddenError);
   expect(() => service.runNow(system, "a1")).toThrow(ForbiddenError);
+  expect(() => service.runTeamNow(system, "t1")).toThrow(ForbiddenError);
   expect(() => service.undo(system, "d1")).toThrow(ForbiddenError);
   expect(() => service.changes(system, "d1")).toThrow(ForbiddenError);
   expect(() =>

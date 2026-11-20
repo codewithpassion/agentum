@@ -3,7 +3,7 @@ id: JB.8
 title: "A proposed job reads as waiting for approval, not paused"
 milestone: JB
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/JB.8-proposed-job-awaits-approval
 lane: services-jobs
@@ -31,3 +31,4 @@ Controller decision, 20 Nov 2026: this task may add the one `awaitingApproval` f
 ## Log
 - 2026-11-20: added from the JB gate review, round 1.
 - 2026-11-20: dispatched on task/JB.8-proposed-job-awaits-approval (v4 controller session).
+- 2026-11-20: merged as 2a84d4fc, review clean after 0 fix rounds. Browser proof passed at both sizes: docs/reviews/tasks/JB.8/browser.md. check, test and build passed on main. The job row doesn't show nextRunAt; confirmed in D1 only.

@@ -6,7 +6,11 @@ import {
   type AgentRuntime,
   APPROVAL_DECISIONS,
   CHOICES_MAX,
+  DECISION_OPTIONS_MAX,
+  DECISION_OPTIONS_MIN,
+  DECISIONS_MAX,
   QUESTIONS_MAX,
+  type RequestKind,
 } from "@repo/db/shared";
 import { z } from "zod";
 import { PLATFORM_KEY } from "./server-keys.ts";
@@ -74,12 +78,57 @@ export const takeoverAnswerSchema = z.strictObject({
 });
 export type TakeoverAnswer = z.infer<typeof takeoverAnswerSchema>;
 
+/**
+ * A decisions row (`kind` "decisions", toolName "ask_decisions"): several
+ * questions raised as one card. `display` = decisionsDisplaySchema, `answer` =
+ * decisionsAnswerSchema. An answer may cover only some of the questions while
+ * the row is pending; the row closes when every question has an answer.
+ */
+export const decisionSchema = z.strictObject({
+  /** True when a person may type their own answer instead of an option. */
+  freeText: z.boolean().optional(),
+  /** Unique within the request. The answer keys on it. */
+  id: z.string().min(1),
+  options: z
+    .array(z.string().min(1))
+    .min(DECISION_OPTIONS_MIN)
+    .max(DECISION_OPTIONS_MAX),
+  text: z.string().min(1),
+});
+export type Decision = z.infer<typeof decisionSchema>;
+
+export const decisionsDisplaySchema = z.strictObject({
+  questions: z
+    .array(decisionSchema)
+    .min(1)
+    .max(DECISIONS_MAX)
+    .refine(
+      (questions) =>
+        new Set(questions.map(({ id }) => id)).size === questions.length,
+      { message: "question ids must be unique" }
+    ),
+});
+export type DecisionsDisplay = z.infer<typeof decisionsDisplaySchema>;
+
+/** Maps a question id to the option chosen, or to the text a person typed where the question allows it. */
+export const decisionsAnswerSchema = z.strictObject({
+  decisions: z.record(z.string().min(1), z.string().min(1)),
+});
+export type DecisionsAnswer = z.infer<typeof decisionsAnswerSchema>;
+
+/** Tells a decisions display from a question display: both hold `questions`, and only a decision has `text`. */
+export const isDecisionsDisplay = (
+  display: QuestionDisplay | DecisionsDisplay
+): display is DecisionsDisplay =>
+  display.questions.some((question) => "text" in question);
+
 export const requestOutcomeSchema = z.discriminatedUnion("status", [
   z.strictObject({
     answer: z.union([
       approvalAnswerSchema,
       questionAnswerSchema,
       takeoverAnswerSchema,
+      decisionsAnswerSchema,
     ]),
     status: z.literal("answered"),
   }),
@@ -236,7 +285,7 @@ const takeoverText = (outcome: RequestOutcome): string => {
     return "The person cancelled the takeover request. Go on without the computer or stop and say what you need.";
   }
   const { answer } = outcome;
-  if ("decision" in answer || "answers" in answer) {
+  if ("decision" in answer || "answers" in answer || "decisions" in answer) {
     throw new TypeError("Answer does not match request kind: takeover");
   }
   return `A person took over the computer and handed it back.${answer.note ? ` Note: ${answer.note}` : ""}`;
@@ -244,7 +293,7 @@ const takeoverText = (outcome: RequestOutcome): string => {
 
 /** The model sees text only when the approval does not permit the tool to run. */
 export const outcomeText = (
-  kind: "approval" | "question" | "takeover",
+  kind: RequestKind,
   outcome: RequestOutcome
 ): string | null => {
   if (kind === "takeover") {
@@ -262,6 +311,11 @@ export const outcomeText = (
       : "The question was withdrawn because the run is ending.";
   }
   const { answer } = outcome;
+  if (kind === "decisions" && "decisions" in answer) {
+    return Object.entries(answer.decisions)
+      .map(([questionId, text]) => `${questionId}: ${text}`)
+      .join("\n");
+  }
   if (kind === "approval" && "decision" in answer) {
     if (answer.decision === "deny") {
       return `A person denied this call.${answer.note ? ` ${answer.note}` : ""}`;

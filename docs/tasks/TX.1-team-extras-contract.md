@@ -3,7 +3,7 @@ id: TX.1
 title: "Team extras contract: team memory, discussions, decision queue"
 milestone: TX
 size: S
-status: in_progress
+status: done
 depends_on: [TM.1, DR.1]
 branch: task/TX.1-team-extras-contract
 lane: contract
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone TX. Contract task for TX. It alone chang
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/TX.1-team-extras-contract (v4 controller session).
+- 2026-11-20: merged as 68364476, review clean after 1 fix round. check, test and build passed on main. Migration 0060 is hand-edited; team-dream spend decision recorded in TX.2.

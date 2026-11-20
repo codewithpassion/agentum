@@ -421,6 +421,13 @@
       "when": 1795150178591,
       "tag": "0059_cooing_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1795157187581,
+      "tag": "0060_solid_black_widow",
+      "breakpoints": true
     }
   ]
 }

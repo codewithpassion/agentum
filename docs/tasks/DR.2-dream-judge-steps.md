@@ -3,7 +3,7 @@ id: DR.2
 title: "Dream steps: merge, reconcile, prune"
 milestone: DR
 size: L
-status: in_progress
+status: done
 depends_on: [DR.1, ME.2]
 branch: task/DR.2-dream-judge-steps
 lane: services-dream
@@ -30,3 +30,4 @@ From `docs/v4/build-plan.md`, milestone DR. Port the judging steps from The Brai
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/DR.2-dream-judge-steps (v4 controller session).
 - 2026-11-20: controller decision on prune by age (Dom's "don't wait for me"): there is no last-used date, so the note's date stands in for use, but notes written by a person are never pruned by age. Only agent-written notes older than 60 days go. A fourth round is allowed for this and the groups.ts fix.
+- 2026-11-20: merged as 9f865f20, review clean after 3 fix rounds (round 4 clean). check, test and build passed on main. Prune by age skips person-written notes.
