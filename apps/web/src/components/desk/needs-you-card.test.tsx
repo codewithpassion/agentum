@@ -110,6 +110,7 @@ const KEYS = [
 ];
 const decisions: unknown[] = [];
 const grantQueries: unknown[] = [];
+const memoryDecisions: unknown[] = [];
 beforeAll(() => {
   for (const key of KEYS) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
@@ -168,6 +169,14 @@ beforeAll(() => {
             ]),
         },
       },
+      memory: {
+        decide: {
+          mutate: (input: unknown) => {
+            memoryDecisions.push(input);
+            return Promise.resolve({});
+          },
+        },
+      },
     }),
   }));
 });
@@ -223,4 +232,69 @@ test("person grant card reviews its own version, links the app and decides pendi
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+/** Renders a held memory note's body, clicks the button with `label`, and returns what the page did. */
+const decideHeldNote = async (label: "Approve" | "Reject") => {
+  const container = document.createElement("div");
+  const root = createRoot(container as unknown as Element);
+  let changed = 0;
+  const onChanged = () => {
+    changed += 1;
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <NeedsYouBody
+          agentName="Builder"
+          card={{
+            ...thread,
+            band: { text: "The office is in Fremantle", tone: "waiting" },
+            id: "change_1",
+            kind: "proposal",
+            needsYouKind: "memory_note",
+            title: "Builder wants to remember something",
+          }}
+          nowMs={0}
+          onAnswer={answer}
+          onChanged={onChanged}
+          request={null}
+          version={null}
+        />
+      )
+    );
+    const buttons = [...container.querySelectorAll("button")];
+    await act(async () =>
+      buttons.find((button) => button.textContent === label)?.click()
+    );
+    return {
+      buttons: buttons.map((button) => button.textContent),
+      changed,
+      text: container.textContent,
+    };
+  } finally {
+    await act(async () => root.unmount());
+  }
+};
+
+test("a held memory note shows its text, and Approve decides that change", async () => {
+  memoryDecisions.length = 0;
+  const page = await decideHeldNote("Approve");
+
+  expect(page.text).toContain("The office is in Fremantle");
+  expect(page.buttons).toEqual(["Approve", "Reject"]);
+  expect(memoryDecisions).toEqual([
+    { changeId: "change_1", decision: "approve" },
+  ]);
+  expect(page.changed).toBe(1);
+});
+
+test("Reject on a held memory note rejects that change", async () => {
+  memoryDecisions.length = 0;
+  const page = await decideHeldNote("Reject");
+
+  expect(memoryDecisions).toEqual([
+    { changeId: "change_1", decision: "reject" },
+  ]);
+  expect(page.changed).toBe(1);
 });
