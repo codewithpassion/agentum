@@ -13,11 +13,9 @@
 // get a question: a dream reconciles notes, and the model settles a conflict
 // between two conversations by itself. Set 3 is two new facts and the procedure three more times (a
 // batch to hold, and a skill that must not be filed again). Set 4 is two other
-// new facts. Sets 2 to 4 are stamped just before now, so the next dream reads
-// them. Round 2 swaps every name and time, so a second walkthrough (the phone
-// one) meets fresh facts and a fresh procedure on the same agent, and stamps
-// set 1 just before now too, because a dream reads only what is newer than the
-// last one.
+// new facts. Everything except set 1 of round 1 is stamped at now, so the next
+// dream reads it. Round 2 swaps every name and time, so a second walkthrough
+// (the phone one) meets fresh facts and a fresh procedure on the same agent.
 import { parseArgs } from "node:util";
 import {
   D1_DIR,
@@ -32,9 +30,6 @@ const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const TIME_CHARS = 10;
 const RANDOM_CHARS = 16;
 const BASE = 32;
-const NEW_SET_GAP_DAYS = 0.0001;
-/** Round 2 squeezes set 1's days into a few seconds before now. */
-const COMPRESS = 0.000_01;
 
 /** A ULID at the given time. ulidx is not a dependency of the repo root. */
 const ulid = (time: number): string => {
@@ -193,21 +188,21 @@ const setsOf = (v: Vocab): Record<string, Chat[]> => {
   if (!(first && second && third)) {
     throw new LocalError("A procedure needs three entities");
   }
-  const gap = NEW_SET_GAP_DAYS;
+  const gap = 0;
   return {
     "1": setOne(v),
     "2": [
-      fact(gap * 2, "U_JO", v.eventFact),
+      fact(gap, "U_JO", v.eventFact),
       chat(gap, "U_JO", "Thanks, that is all for now.", "You are welcome."),
     ],
     "3": [
-      fact(gap * 5, "U_JO", v.factA),
-      fact(gap * 4, "U_SAM", v.factB),
-      chat(gap * 3, "U_PRIYA", first.user, first.assistant),
-      chat(gap * 2, "U_PRIYA", second.user, second.assistant),
+      fact(gap, "U_JO", v.factA),
+      fact(gap, "U_SAM", v.factB),
+      chat(gap, "U_PRIYA", first.user, first.assistant),
+      chat(gap, "U_PRIYA", second.user, second.assistant),
       chat(gap, "U_PRIYA", third.user, third.assistant),
     ],
-    "4": [fact(gap * 2, "U_JO", v.spare[0]), fact(gap, "U_SAM", v.spare[1])],
+    "4": [fact(gap, "U_JO", v.spare[0]), fact(gap, "U_SAM", v.spare[1])],
   };
 };
 
@@ -253,13 +248,19 @@ export const main = async (): Promise<void> => {
         .run(values.owner, agentId);
     }
     const now = Date.now();
+    const fresh = !(values.round === "1" && values.set === "1");
+    // Set 1 of round 1 is history, so its runs take seconds. Fresh ones take a millisecond.
+    const step = fresh ? 1 : 1000;
     client.run("BEGIN");
     began = true;
     for (const [index, item] of chats.entries()) {
-      const ago = values.round === "1" ? item.ago : item.ago * COMPRESS;
-      const at = new Date(now - ago * DAY_MS);
+      // A dream reads only what is newer than the last one began, so fresh
+      // conversations end at now, a millisecond apart and in order.
+      const at = new Date(
+        fresh ? now - (chats.length - index) : now - item.ago * DAY_MS
+      );
       const iso = at.toISOString();
-      const key = `dr7-r${values.round}-s${values.set}-${index + 1}`;
+      const key = `dr7-r${values.round}-s${values.set}-${index + 1}-${now}`;
       const sessionId = ulid(at.getTime());
       const runId = ulid(at.getTime() + 1);
       client
@@ -283,7 +284,7 @@ export const main = async (): Promise<void> => {
           item.assistant,
           iso,
           iso,
-          new Date(at.getTime() + 2000).toISOString()
+          new Date(at.getTime() + step * 2).toISOString()
         );
       const messages: [string, string, string, string][] = [
         ["message.user", "user", item.person, item.user],
@@ -293,7 +294,7 @@ export const main = async (): Promise<void> => {
         offset,
         [type, actorKind, actorId, text],
       ] of messages.entries()) {
-        const when = new Date(at.getTime() + 1000 * (offset + 1));
+        const when = new Date(at.getTime() + step * (offset + 1));
         client
           .query(
             `INSERT INTO events (id, workspace_id, agent_id, session_id, run_id, type, actor_kind, actor_id, payload, created_at)
