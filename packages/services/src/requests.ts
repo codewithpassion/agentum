@@ -9,6 +9,7 @@ import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
   APPROVAL_TTL_MS,
   type ComputerTakeoverRequestedPayload,
+  DECISIONS_MAX,
   DECISIONS_TTL_MS,
   PEER_QUESTION_TTL_MS,
   QUESTION_TTL_MS,
@@ -19,11 +20,21 @@ import {
   approvalAnswerSchema,
   approvalSummary,
   toolKey as canonicalToolKey,
+  decisionSchema,
   decisionsAnswerSchema,
+  decisionsDisplaySchema,
   questionAnswerSchema,
   questionDisplaySchema,
 } from "@repo/protocol/requests";
-import { and, eq, getTableColumns, inArray, lte, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
@@ -39,6 +50,12 @@ import {
   notDetachedApproval,
 } from "./mail/approval.ts";
 import { askKeysOf } from "./requests/ask-keys.ts";
+import {
+  DECISIONS_TOOL,
+  DECISIONS_TOOL_USE_PREFIX,
+  decisionsWakeText,
+  isDecisionsRequest,
+} from "./requests/decisions.ts";
 import {
   approvedDecision,
   canonicalEffect,
@@ -60,7 +77,7 @@ import {
   scrubText,
 } from "./requests/records.ts";
 import { importRunTokenKey } from "./run-tokens.ts";
-import { runDefersQuestions } from "./runs/deferral.ts";
+import { runDefersQuestions, runTakesFollowUp } from "./runs/deferral.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
 import { QUESTION_ANSWER_PREFIX } from "./runs/pause-hold.ts";
 import { peerRootOf, peerRootsOf } from "./runs/peer-root.ts";
@@ -112,6 +129,20 @@ export const answerDecisionsInputSchema = decisionsAnswerSchema.extend({
   requestId: id,
 });
 export const dismissDecisionsInputSchema = z.strictObject({ requestId: id });
+
+/** What an agent raises. The service gives each question its id, `q1` to `q8`. */
+export const openDecisionsInputSchema = z.strictObject({
+  questions: z
+    .array(decisionSchema.omit({ id: true }))
+    .min(1)
+    .max(DECISIONS_MAX),
+  runId: id,
+});
+
+/** Longest answer a person may type to a question that allows free text. */
+const DECISION_TEXT_MAX = 4000;
+/** Tries to add an answer when another member's answer lands between our read and write. */
+const ANSWER_ATTEMPTS = 3;
 
 /** A decision queue takes partial answers, so it has its own procedure. */
 const refuseDecisions = (row: RequestRow) => {
@@ -817,6 +848,46 @@ export const createRequestsService = ({
     );
   };
   /**
+   * Starts the run that carries answers back to an agent whose run has ended: a
+   * follow-up in the same session, with the run's actor, delegation and place
+   * in the tree. `key` makes the start once-only, and the pause hold lets it
+   * through, since the cap never kills a task. A refused start is logged and
+   * the answers stay on their requests, so it never fails a person's answer.
+   */
+  const startFollowUp = async (run: RunRecord, key: string, text: string) => {
+    const [session] = await db
+      .select({ origin: sessions.origin })
+      .from(sessions)
+      .where(eq(sessions.id, run.sessionId))
+      .limit(1);
+    if (!session) {
+      console.error(
+        "The session of a run with answers waiting is gone",
+        run.id
+      );
+      return;
+    }
+    try {
+      await runs.startRun(
+        SYSTEM_PRINCIPAL,
+        {
+          agentId: run.agentId,
+          input: { text },
+          reply: run.reply,
+          requestId: `${QUESTION_ANSWER_PREFIX}${key}`,
+          session: {
+            origin: session.origin as Parameters<
+              RunsService["startRun"]
+            >[1]["session"]["origin"],
+          },
+        },
+        { continuationOf: run, sessionId: run.sessionId }
+      );
+    } catch (error) {
+      console.error("Starting the follow-up of a run failed", run.id, error);
+    }
+  };
+  /**
    * A parked run's questions have all closed: it ends, and a follow-up run in
    * the same session carries the answers. The run's end is decided by one
    * conditional write, so a second caller, such as a second answer or the
@@ -841,15 +912,6 @@ export const createRequestsService = ({
     if (!settled) {
       return;
     }
-    const [session] = await db
-      .select({ origin: sessions.origin })
-      .from(sessions)
-      .where(eq(sessions.id, settled.sessionId))
-      .limit(1);
-    if (!session) {
-      console.error("A parked run's session is gone", settled.id);
-      return;
-    }
     const asked = await db
       .select()
       .from(runRequests)
@@ -867,34 +929,38 @@ export const createRequestsService = ({
       settled.workspaceId,
       settled.agentId
     );
-    const wake = questionWakeText(asked, (line) => masker?.mask(line) ?? line);
-    try {
-      await runs.startRun(
-        SYSTEM_PRINCIPAL,
-        {
-          agentId: settled.agentId,
-          input: { text: wake },
-          reply: settled.reply,
-          requestId: `${QUESTION_ANSWER_PREFIX}${settled.id}`,
-          session: {
-            origin: session.origin as Parameters<
-              RunsService["startRun"]
-            >[1]["session"]["origin"],
-          },
-        },
-        { continuationOf: settled, sessionId: settled.sessionId }
-      );
-    } catch (error) {
-      // The parked run has ended and the answers stay on their requests. Log it so one refused start does not fail the person's answer.
-      console.error(
-        "Starting the follow-up of a parked run failed",
-        settled.id,
-        error
-      );
-    }
+    await startFollowUp(
+      settled,
+      settled.id,
+      questionWakeText(asked, (line) => masker?.mask(line) ?? line)
+    );
   };
   runs.onParked(continueParked);
+  /**
+   * A closed decision queue goes back to its agent as a follow-up run, so the
+   * agent is never parked on it. A dismissed queue says nothing: the agent may
+   * raise its questions again when it needs the answers.
+   */
+  const wakeAfterDecisions = async (row: RequestRow) => {
+    if (row.status !== "answered" && row.status !== "expired") {
+      return;
+    }
+    const run = await loadRun(db, row.runId, row.workspaceId);
+    if (!run) {
+      return;
+    }
+    const masker = await secrets.maskerFor(row.workspaceId, row.agentId);
+    await startFollowUp(
+      run,
+      row.id,
+      decisionsWakeText(row, (line) => masker?.mask(line) ?? line)
+    );
+  };
   const resume = async (row: RequestRow) => {
+    if (isDecisionsRequest(row)) {
+      await wakeAfterDecisions(row);
+      return;
+    }
     if (isDetachedApproval(row)) {
       return;
     }
@@ -911,35 +977,296 @@ export const createRequestsService = ({
     await runs.resumeRequest(SYSTEM_PRINCIPAL, row.runId, requestRecord(row));
   };
   /**
-   * Stub: finds the request and refuses, so the decision queue task (TX.4)
-   * fills in the rest. A person answers some questions and leaves others; the
-   * request closes when every question has an answer.
+   * An agent raises several decisions as one card. It returns at once and the
+   * run is never held: the request is detached (see `isDecisionsRequest`), and
+   * its answers come back as a follow-up run when it closes. The same questions
+   * raised again while the card is open give the card back, so a retried call
+   * adds no second one; once it is dismissed or closed, they raise a new card.
+   */
+  const openDecisions = async (
+    principal: Principal,
+    raw: z.input<typeof openDecisionsInputSchema>
+  ): Promise<RequestRecord> => {
+    const input = openDecisionsInputSchema.parse(raw);
+    const run = await requireRun(principal, input.runId);
+    writer(principal, run);
+    if (!["running", "waiting"].includes(run.status)) {
+      throw new ServiceError("conflict", "Run is not running");
+    }
+    if (!(await runTakesFollowUp(db, run))) {
+      throw new ServiceError(
+        "conflict",
+        "This run can't raise decisions, because nothing could carry the answers back to it. Ask in the conversation instead."
+      );
+    }
+    const masker = await secrets.maskerFor(run.workspaceId, run.agentId);
+    const display = decisionsDisplaySchema.parse({
+      questions: input.questions.map((question, index) => ({
+        ...question,
+        id: `q${index + 1}`,
+        options: question.options.map((option) => scrubText(masker, option)),
+        text: scrubText(masker, question.text),
+      })),
+    });
+    const [raised] = await db
+      .select()
+      .from(runRequests)
+      .where(
+        and(
+          eq(runRequests.sessionId, run.sessionId),
+          eq(runRequests.agentId, run.agentId),
+          eq(runRequests.kind, "decisions"),
+          eq(runRequests.status, "pending"),
+          eq(runRequests.display, JSON.stringify(display))
+        )
+      )
+      .limit(1);
+    if (raised) {
+      return requestRecord(raised);
+    }
+    const now = clock.now();
+    const [row] = await insertPending(
+      {
+        agentId: run.agentId,
+        answer: null,
+        answeredAt: null,
+        answeredBy: null,
+        answeredVia: null,
+        createdAt: now.toISOString(),
+        deliveredAt: null,
+        display: JSON.stringify(display),
+        expiresAt: new Date(
+          now.getTime() + (await ttlOf(run, "decisions"))
+        ).toISOString(),
+        id: ulid(),
+        kind: "decisions",
+        questionKeys: null,
+        runId: run.id,
+        sessionId: run.sessionId,
+        slackMessage: null,
+        status: "pending",
+        toolKey: null,
+        toolName: DECISIONS_TOOL,
+        toolUseId: `${DECISIONS_TOOL_USE_PREFIX}${ulid()}`,
+        workspaceId: run.workspaceId,
+      },
+      run
+    );
+    if (!row) {
+      throw new ServiceError("conflict", "The decisions could not be raised");
+    }
+    await announce(row, "request.opened", {
+      display,
+      expiresAt: row.expiresAt,
+      kind: row.kind,
+      toolKey: row.toolKey,
+      toolName: row.toolName,
+      toolUseId: row.toolUseId,
+    });
+    return requestRecord(row);
+  };
+  /** The same two checks `answer` makes in its write, so a member who lost sight of the session in the meantime changes nothing. */
+  const answerableBy = async (
+    principal: Extract<Principal, { kind: "user" }>
+  ) =>
+    and(
+      inArray(
+        runRequests.runId,
+        db
+          .select({ id: runRows.id })
+          .from(runRows)
+          .where(currentGuestRun(clock.now().toISOString()))
+      ),
+      inArray(
+        runRequests.sessionId,
+        db
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(
+            await visibleSessions(db, principal, clock.now().toISOString())
+          )
+      )
+    );
+  /** A decision queue a member may still change: pending, not past its time, and of the kind. */
+  const openQueueOf = (row: RequestRow) => {
+    if (row.kind !== "decisions") {
+      throw new ServiceError("invalid", "This request is not a decision queue");
+    }
+    if (
+      row.status !== "pending" ||
+      row.expiresAt <= clock.now().toISOString()
+    ) {
+      throw new ServiceError("conflict", "These decisions are already closed");
+    }
+    return decisionsDisplaySchema.parse(JSON.parse(row.display));
+  };
+  /** The answers a person sent, each an option of its question or, where the question allows it, typed text. */
+  const checkedDecisions = (
+    display: z.infer<typeof decisionsDisplaySchema>,
+    sent: z.infer<typeof decisionsAnswerSchema>["decisions"]
+  ): Record<string, string> => {
+    const entries = Object.entries(sent);
+    if (entries.length === 0) {
+      throw new ServiceError("invalid", "Answer at least one question");
+    }
+    return Object.fromEntries(
+      entries.map(([questionId, value]) => {
+        const question = display.questions.find(
+          ({ id: qid }) => qid === questionId
+        );
+        if (!question) {
+          throw new ServiceError("invalid", `No question ${questionId}`);
+        }
+        const text = value.trim();
+        const typed = question.freeText && !question.options.includes(text);
+        if (!(question.options.includes(text) || typed)) {
+          throw new ServiceError(
+            "invalid",
+            `${text} is not an option for question ${questionId}`
+          );
+        }
+        if (text.length === 0 || text.length > DECISION_TEXT_MAX) {
+          throw new ServiceError(
+            "invalid",
+            `An answer is one to ${DECISION_TEXT_MAX} characters`
+          );
+        }
+        return [questionId, text];
+      })
+    );
+  };
+  /**
+   * One write of a person's answers onto the queue's answers so far (a later
+   * answer to a question replaces the earlier one). It closes the request when
+   * every question has an answer. It is conditional on the answers it read, so
+   * it returns null when another write got there first.
+   */
+  const writeDecisions = async (
+    principal: Extract<Principal, { kind: "user" }>,
+    row: RequestRow,
+    display: z.infer<typeof decisionsDisplaySchema>,
+    sent: Record<string, string>
+  ) => {
+    const given = row.answer
+      ? decisionsAnswerSchema.parse(JSON.parse(row.answer)).decisions
+      : {};
+    const all = { ...given, ...sent };
+    const complete = display.questions.every(({ id: qid }) => qid in all);
+    const [saved] = await db
+      .update(runRequests)
+      .set({
+        answer: JSON.stringify({ decisions: all }),
+        answeredBy: principal.userId,
+        answeredVia: "web",
+        ...(complete
+          ? { answeredAt: clock.now().toISOString(), status: "answered" }
+          : {}),
+      })
+      .where(
+        and(
+          eq(runRequests.id, row.id),
+          eq(runRequests.status, "pending"),
+          row.answer === null
+            ? isNull(runRequests.answer)
+            : eq(runRequests.answer, row.answer),
+          await answerableBy(principal)
+        )
+      )
+      .returning();
+    return saved ? { all, complete, saved } : null;
+  };
+  /**
+   * A person answers some of a queue's questions and leaves the others. The
+   * request closes with the last answer, and then the agent's follow-up
+   * starts. Two members answering at once both land, and only one write
+   * closes the request.
    */
   const answerDecisions = async (
     principal: Principal,
     raw: z.input<typeof answerDecisionsInputSchema>
   ): Promise<RequestRecord> => {
     const input = answerDecisionsInputSchema.parse(raw);
-    await requireRequest(principal, input.requestId);
+    const { row: first } = await requireRequest(principal, input.requestId);
     if (principal.kind !== "user") {
       throw new ForbiddenError("requests.answer");
     }
-    throw new ServiceError("not_found", "No decision queue is open");
+    const display = openQueueOf(first);
+    const sent = checkedDecisions(display, input.decisions);
+    let row = first;
+    for (let attempt = 1; attempt <= ANSWER_ATTEMPTS; attempt += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: a retry follows the write it lost to
+      const written = await writeDecisions(principal, row, display, sent);
+      if (written) {
+        const masker = await secrets.maskerFor(
+          written.saved.workspaceId,
+          written.saved.agentId
+        );
+        if (written.complete) {
+          await announce(
+            written.saved,
+            "request.answered",
+            {
+              ...scrubAnswer({ decisions: written.all }, masker),
+              answeredBy: principal.userId,
+              kind: written.saved.kind,
+              via: "web",
+            },
+            principal.userId
+          );
+          await resume(written.saved);
+        }
+        return scrubbedRecord(written.saved, masker);
+      }
+      // Lost to another answer or to a close: read what is there now.
+      const [latest] = await db
+        .select()
+        .from(runRequests)
+        .where(eq(runRequests.id, row.id));
+      if (!latest) {
+        throw new ServiceError("not_found", "Request not found");
+      }
+      openQueueOf(latest);
+      row = latest;
+    }
+    throw new ServiceError(
+      "conflict",
+      "Someone else answered at the same time. Try again."
+    );
   };
   /**
-   * Stub, as above. Dismissing hides the card and cancels the request; the
-   * agent can raise the questions again.
+   * Dismissing hides the card: the request is cancelled, the answers given so
+   * far stay on its row, and the agent hears nothing. It may raise the
+   * questions again when it needs them, which opens a new card.
    */
   const dismissDecisions = async (
     principal: Principal,
     raw: z.input<typeof dismissDecisionsInputSchema>
   ): Promise<RequestRecord> => {
     const input = dismissDecisionsInputSchema.parse(raw);
-    await requireRequest(principal, input.requestId);
+    const { row } = await requireRequest(principal, input.requestId);
     if (principal.kind !== "user") {
       throw new ForbiddenError("requests.answer");
     }
-    throw new ServiceError("not_found", "No decision queue is open");
+    openQueueOf(row);
+    const [closed] = await db
+      .update(runRequests)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(runRequests.id, row.id),
+          eq(runRequests.status, "pending"),
+          await answerableBy(principal)
+        )
+      )
+      .returning();
+    if (!closed) {
+      throw new ServiceError("conflict", "These decisions are already closed");
+    }
+    await announce(closed, "request.cancelled", {}, principal.userId);
+    return scrubbedRecord(
+      closed,
+      await secrets.maskerFor(closed.workspaceId, closed.agentId)
+    );
   };
   /**
    * A lead's proposal is decided by the member's owner or an admin, not by
@@ -1462,6 +1789,7 @@ export const createRequestsService = ({
     listRules,
     needsApproval,
     open,
+    openDecisions,
     outcome,
     recordAlwaysAllow,
     removeRule,
