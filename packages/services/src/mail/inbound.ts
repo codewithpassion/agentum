@@ -32,6 +32,8 @@ type Mailbox = typeof agentMailboxes.$inferSelect;
 type Conversation = typeof mailThreads.$inferSelect;
 const DELIVERY_STATUS_REPORT = /report-type\s*=\s*"?delivery-status/i;
 const LIST_PRECEDENCE = /^(bulk|list|junk)$/i;
+/** The paused mail is stored but never run, so the sender has to send it again. */
+const RESEND_HINT = "Send it again once the agent is resumed.";
 const RE_PREFIX = /^re:/i;
 const normalize = (address: string) => address.trim().toLowerCase();
 // Only a delivery status report is a bounce. A read receipt or abuse report is also multipart/report.
@@ -450,7 +452,7 @@ export const createInboundMail = ({
           cc: [],
           from: box.address,
           subject,
-          text: error.message,
+          text: `${error.message} ${RESEND_HINT}`,
           to: [message.from.address],
         }
       );
