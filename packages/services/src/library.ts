@@ -135,10 +135,14 @@ const requireWriter = (principal: Principal, action: string): Member => {
 };
 
 type AccessMember = Member & {
+  /** Set for the dream: it may touch every person's private memory file. */
+  anyPrivate?: boolean;
   /** The person whose private memory files this member may touch, or null. */
   privateUserId: string | null;
   scope?: LibraryAccessGrant[];
 };
+const mayReadMemory = (member: AccessMember, path: string): boolean =>
+  member.anyPrivate === true || mayReadMemoryPath(path, member.privateUserId);
 /** The memory folder `agents/<slug>/memory` has three segments. A path below it has more. */
 const MEMORY_FOLDER_SEGMENTS = 3;
 const isMemoryFile = (path: string): boolean =>
@@ -148,14 +152,14 @@ const within = (path: string, root: string) =>
 // A run never writes under a memory folder. Only the memory service does, through writeMemoryFiles.
 const canWriteAt = (member: AccessMember, path: string): boolean =>
   !(member.kind === "run" && isMemoryPath(path)) &&
-  mayReadMemoryPath(path, member.privateUserId) &&
+  mayReadMemory(member, path) &&
   (member.kind === "user" ||
     (member.scope ?? []).some(
       (root) => root.mode === "write" && within(path, root.path)
     ));
 // Contents, history and conflict names need a root that covers the path.
 const canReadAt = (member: AccessMember, path: string): boolean =>
-  mayReadMemoryPath(path, member.privateUserId) &&
+  mayReadMemory(member, path) &&
   (member.kind === "user" ||
     path === "" ||
     (member.scope ?? []).some((root) => within(path, root.path)));
@@ -226,7 +230,11 @@ export const createLibraryService = ({
   const history = createVersionStore({ atomic, blobs, db });
   const resolveMember = async (member: Member): Promise<AccessMember> => {
     if (member.kind === "user") {
-      return { ...member, privateUserId: member.userId };
+      return {
+        ...member,
+        ...(member.dream ? { anyPrivate: true } : {}),
+        privateUserId: member.userId,
+      };
     }
     const [[agent], [run], grants] = await Promise.all([
       db
@@ -721,7 +729,7 @@ export const createLibraryService = ({
       if (!isMemoryFile(target.path)) {
         throw invalid("Not a memory file");
       }
-      if (!mayReadMemoryPath(target.path, member.privateUserId)) {
+      if (!mayReadMemory(member, target.path)) {
         throw new ForbiddenError("library.write");
       }
       // A run writes only where it holds write access, which is its own home by default.

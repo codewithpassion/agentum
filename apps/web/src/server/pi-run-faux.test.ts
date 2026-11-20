@@ -107,4 +107,55 @@ describe("fauxScript", () => {
       { text: "tool said: gated ran 1 times", type: "text" },
     ]);
   });
+
+  // Pi appends a system message after the user's message when a prompt section
+  // changes, and a cloud run's task folder differs per run, so the second
+  // message of a conversation ends with one.
+  const sectionUpdate: Message = {
+    content: "",
+    role: "system",
+    sections: { "library-files": "<library-files>new task</library-files>" },
+    timestamp: 0,
+  };
+
+  test("a system update after the user's message does not hide the prompt", () => {
+    const reply = fauxScript(
+      normalizeContext({
+        messages: [
+          userPrompt("hello"),
+          fauxAssistantMessage([fauxText("echo: hello")]),
+          userPrompt("second message"),
+          sectionUpdate,
+        ],
+      })
+    );
+
+    expect(reply.content).toEqual([
+      { text: "echo: second message", type: "text" },
+    ]);
+  });
+
+  test("a system update after a tool result does not hide the result", () => {
+    const reply = fauxScript(
+      normalizeContext({
+        messages: [
+          userPrompt("gated"),
+          fauxAssistantMessage([fauxText("calling")]),
+          {
+            content: [{ text: "gated ran 1 times", type: "text" }],
+            isError: false,
+            role: "toolResult",
+            timestamp: 0,
+            toolCallId: "call-1",
+            toolName: "dev_gated",
+          },
+          sectionUpdate,
+        ],
+      })
+    );
+
+    expect(reply.content).toEqual([
+      { text: "tool said: gated ran 1 times", type: "text" },
+    ]);
+  });
 });

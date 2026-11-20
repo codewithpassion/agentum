@@ -41,6 +41,12 @@ export type Principal =
       apiKey?: { access: ApiKeyAccess; id: string; name?: string };
       /** Set on a session: the person is an admin of the Clerk organisation. Only an admin mints an admin key. */
       isAdmin?: boolean;
+      /**
+       * Set only in-process, by the dream service: the dream reads and writes
+       * every person's private memory file, which a person's principal cannot.
+       * Nothing that resolves a request sets it.
+       */
+      dream?: true;
       kind: "user";
       /** Set when `via` is `oauth`: which client, and what it may do. */
       oauthClient?: { access: OAuthClientAccess; clientId: string };

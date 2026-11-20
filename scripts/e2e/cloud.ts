@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 import type { Database } from "@repo/db";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { createAgentsService } from "@repo/services/agents";
+import { createLibraryAccessService } from "@repo/services/library/access";
 import { createRunsService } from "@repo/services/runs";
 import type { RunSummary, RuntimeAdapter } from "@repo/services/runs/types";
 import { systemClock } from "@repo/services/runs/types";
@@ -33,7 +34,8 @@ const RUN_TIMEOUT_MS = 120_000;
 const POLL_MS = 1000;
 const BUSY_MS = 1500;
 const AGENT_MODEL = "faux";
-const NOTES_PATH = "/library/e2e-env/notes.md";
+const NOTES_FOLDER = "e2e-env";
+const NOTES_PATH = `/library/${NOTES_FOLDER}/notes.md`;
 const NOTES_BEFORE = "alpha beta";
 const NOTES_EDIT = { newText: "gamma", oldText: "alpha" };
 const NOTES_AFTER = "gamma beta";
@@ -298,6 +300,13 @@ export const main = async (argv: string[]): Promise<void> => {
       runtime: "cloud",
       slug: `cloud-faux-${Date.now()}`,
     });
+    // A run writes only to its agent's home and the folders it has a write grant on.
+    await createLibraryAccessService({
+      atomic: sqliteAtomic(db as Database),
+      clock: systemClock,
+      db,
+      events: localEvents(db),
+    }).setGrant(principal, agent.id, NOTES_FOLDER, "write");
     process.stdout.write(`agent ${agent.id}\n`);
     const sessionKey = `e2e-cloud-${Date.now()}`;
     await runCloud({
