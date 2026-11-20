@@ -19,6 +19,7 @@ const EXCLUDED: Readonly<Record<string, string>> = {
   "/skills/$skillId": "needs a skill id, reached from the skills list",
   "/tasks/$runId": "redirects to its thread",
   "/teams/$teamId": "needs a team id, reached from the Teams list and Find",
+  "/teams/$teamId_/room": "needs a team id, reached from the team page",
   "/threads/$sessionId": "needs a session id, reached from the thread lists",
   "/triggers": "redirects to Jobs",
 };
