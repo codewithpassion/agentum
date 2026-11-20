@@ -1084,6 +1084,21 @@ test("listChannels requests users.conversations and parses public and private ch
   );
 });
 
+test("listChannels asks for one user's channels when given a Slack user id", async () => {
+  const { calls, fetch } = fakeFetch(() =>
+    jsonResponse({
+      channels: [],
+      ok: true,
+      response_metadata: { next_cursor: "" },
+    })
+  );
+  const client = createSlackClient({ fetch, token: TOKEN });
+
+  await client.listChannels("U1");
+
+  expect(new URL(firstCall(calls).url).searchParams.get("user")).toBe("U1");
+});
+
 test("listChannels follows next_cursor across two pages", async () => {
   const { calls, fetch } = fakeFetch((url) => {
     if (new URL(url).searchParams.get("cursor") === "page2") {

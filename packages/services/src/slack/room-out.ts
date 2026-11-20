@@ -200,7 +200,11 @@ export const createRoomOutbound = ({
       return;
     }
     const name = await authorName(post);
-    const root = await topicRootTs(db, { threadId: post.threadId });
+    const root = await topicRootTs(db, {
+      channelId: room.channelId,
+      slackTeamId: room.slackTeamId,
+      threadId: post.threadId,
+    });
     let error = NO_APP;
     for (const sender of await sendersFor(post, room)) {
       // biome-ignore lint/performance/noAwaitInLoops: the next app is tried only when this one could not post

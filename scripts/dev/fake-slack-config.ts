@@ -61,6 +61,25 @@ export const fakeSlackConfig = (): FakeSlackConfig => ({
       ],
       name: CHANNEL_NAME,
     },
+    // Both have the lead's and Cy's apps. Dev Person is not in the first, and the second is private.
+    {
+      id: "C0SL5OUTSIDE",
+      isPrivate: false,
+      members: [
+        GUEST_SLACK_USER,
+        ...SEEDED_AGENTS.slice(0, 2).map((agent) => agent.app.botUserId),
+      ],
+      name: "sl5-outside",
+    },
+    {
+      id: "G0SL5SECRET",
+      isPrivate: true,
+      members: [
+        DEV_SLACK_USER,
+        ...SEEDED_AGENTS.slice(0, 2).map((agent) => agent.app.botUserId),
+      ],
+      name: "sl5-secret",
+    },
   ],
   slackTeamId: SLACK_TEAM_ID,
   users: [

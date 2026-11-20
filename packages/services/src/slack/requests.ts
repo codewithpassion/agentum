@@ -221,7 +221,13 @@ export const createSlackRequests = ({
       threadId,
       workspaceId: run.workspaceId,
     });
-    const threadTs = room ? await topicRootTs(db, { threadId }) : null;
+    const threadTs = room
+      ? await topicRootTs(db, {
+          channelId: room.channelId,
+          slackTeamId: room.slackTeamId,
+          threadId,
+        })
+      : null;
     const app = room
       ? await findInstalledApp(db, {
           agentId: run.agentId,
