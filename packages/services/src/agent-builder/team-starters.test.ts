@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { sqliteAtomic } from "@repo/db/atomic";
+import { type Atomic, sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { events } from "@repo/db/schema/events";
 import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
@@ -9,6 +9,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { ForbiddenError } from "../authz.ts";
 import { askKeysOf } from "../requests/ask-keys.ts";
+import { createTeamsService } from "../teams.ts";
 import type { Principal } from "../workspaces.ts";
 import type { BuilderCatalog } from "./draft.ts";
 import { createTeamStarterLifecycle } from "./team-starters.ts";
@@ -43,18 +44,26 @@ beforeEach(() => {
     .run();
   calls = 0;
   beforeWrite = undefined;
+  const atomic: Atomic = async (statements) => {
+    calls += 1;
+    beforeWrite?.();
+    await sqliteAtomic(db)(statements);
+  };
+  const clock = {
+    now: () => new Date("2026-11-20T00:00:00Z"),
+    sleep: async () => undefined,
+  };
   builder = createTeamStarterLifecycle({
-    atomic: async (statements) => {
-      calls += 1;
-      beforeWrite?.();
-      await sqliteAtomic(db)(statements);
-    },
+    atomic,
     catalog: async () => catalog,
-    clock: {
-      now: () => new Date("2026-11-20T00:00:00Z"),
-      sleep: async () => undefined,
-    },
+    clock,
     db,
+    teams: createTeamsService({
+      atomic,
+      clock,
+      db,
+      slackStatus: async () => ({ apps: [], link: null }),
+    }),
   });
 });
 

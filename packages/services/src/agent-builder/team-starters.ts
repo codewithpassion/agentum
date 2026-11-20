@@ -21,7 +21,7 @@ import {
 import { isUniqueViolation, ServiceError } from "../errors.ts";
 import { requireAdminSession } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
-import { createTeamsService, teamCreateInputSchema } from "../teams.ts";
+import { type TeamsService, teamCreateInputSchema } from "../teams.ts";
 import type { Principal } from "../workspaces.ts";
 import {
   agentDraftSchema,
@@ -52,6 +52,8 @@ export interface TeamStarterDeps {
   atomic: Atomic;
   clock: Clock;
   db: Database;
+  /** Reads the created team back; its slack status comes from the app's own wiring. */
+  teams: Pick<TeamsService, "get">;
 }
 
 export const createTeamStarterLifecycle = ({
@@ -59,6 +61,7 @@ export const createTeamStarterLifecycle = ({
   atomic,
   clock,
   catalog,
+  teams: teamsService,
 }: TeamStarterDeps & {
   catalog: (principal: Principal) => Promise<BuilderCatalog>;
 }) => {
@@ -359,7 +362,7 @@ export const createTeamStarterLifecycle = ({
       );
     }
     await writeUnique(statements);
-    return createTeamsService({ atomic, clock, db }).get(user, teamId);
+    return teamsService.get(user, teamId);
   };
   return { createTeam, teamFromStarter };
 };

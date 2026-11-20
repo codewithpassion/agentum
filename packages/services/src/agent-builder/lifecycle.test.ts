@@ -252,6 +252,7 @@ const makeWorld = (options: WorldOptions = {}) => {
     routines,
     runs,
     skillsStore,
+    teams: { get: () => Promise.reject(new Error("unused")) },
   };
 
   return {
@@ -703,6 +704,7 @@ describe("dry run on the real services", () => {
       routines,
       runs,
       skillsStore,
+      teams: { get: () => Promise.reject(new Error("unused")) },
     });
 
     const owner: Principal = {
@@ -867,6 +869,7 @@ describe("create on the real services", () => {
       routines,
       runs,
       skillsStore,
+      teams: { get: () => Promise.reject(new Error("unused")) },
     });
     const profiles = createAgentProfileService({
       agents,

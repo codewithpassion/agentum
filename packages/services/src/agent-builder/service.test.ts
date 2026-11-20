@@ -12,6 +12,7 @@ import { ServiceError } from "../errors.ts";
 import type { MachineRecord } from "../machines.ts";
 import { type ManagedKeyResolution, NO_KEY_MESSAGE } from "../managed/keys.ts";
 import type { SkillRecord } from "../skills-store/records.ts";
+import { createTeamsService } from "../teams.ts";
 import type { Principal } from "../workspaces.ts";
 import { type AgentDraft, agentDraftSchema } from "./draft.ts";
 import { type AgentBuilderDeps, createAgentBuilderService } from "./service.ts";
@@ -177,10 +178,12 @@ const buildDeps = (
   const key =
     overrides.key === undefined ? keyed("sk-ant-test-key") : overrides.key;
   const db = migrated();
+  const atomic = sqliteAtomic(db);
+  const clock = { now: () => new Date(), sleep: async () => undefined };
   return {
     agents: base.agents,
-    atomic: sqliteAtomic(db),
-    clock: { now: () => new Date(), sleep: async () => undefined },
+    atomic,
+    clock,
     connectors: base.connectors,
     db,
     fetch: overrides.fetch ?? scriptedFetch([]).fetcher,
@@ -206,6 +209,12 @@ const buildDeps = (
     routines: { create: unused },
     runs: { startRun: unused },
     skillsStore: base.skillsStore,
+    teams: createTeamsService({
+      atomic,
+      clock,
+      db,
+      slackStatus: async () => ({ apps: [], link: null }),
+    }),
   };
 };
 

@@ -159,6 +159,7 @@ export const createAgentBuilderService = ({
   routines,
   runs,
   skillsStore,
+  teams,
 }: AgentBuilderDeps) => {
   const catalog = async (principal: Principal): Promise<BuilderCatalog> => {
     workspaceOf(principal);
@@ -310,7 +311,7 @@ export const createAgentBuilderService = ({
     draft,
     fromTemplate,
     ...lifecycle,
-    ...createTeamStarterLifecycle({ atomic, catalog, clock, db }),
+    ...createTeamStarterLifecycle({ atomic, catalog, clock, db, teams }),
   };
 };
 
