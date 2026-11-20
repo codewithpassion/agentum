@@ -505,3 +505,29 @@ test("a proposal needs a member agent, a valid value and a card that fits", asyn
   ).rejects.toMatchObject({ code: "invalid" });
   expect(pendingRequests()).toEqual([]);
 });
+
+test("a proposal from a limited topic is refused when the member's owner is not in it", async () => {
+  const limited = await inbox.createThread(creator, {
+    members: [{ id: id("maya"), kind: "agent" }],
+    teamId,
+    title: "Private",
+  });
+  const posted = await inbox.post(creator, {
+    text: "@maya hi",
+    threadId: limited.id,
+  });
+  const [woken] = posted.runs;
+  if (!woken) {
+    throw new Error("Maya was not woken");
+  }
+  const principal = runPrincipal(id("maya"), woken.runId);
+  await expect(
+    lead.proposeChange(principal, {
+      agentId: id("scout"),
+      field: "model",
+      reason: "r",
+      value: "fake-2",
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  expect(pendingRequests()).toEqual([]);
+});

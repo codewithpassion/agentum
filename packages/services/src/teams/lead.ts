@@ -23,6 +23,8 @@ import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import { redactToolPayload } from "../events/scrub.ts";
 import type { EventsService } from "../events.ts";
+import { effectiveOwner } from "../guards.ts";
+import { canReadTopic } from "../inbox/room-access.ts";
 import type { InboxService, PostResult, ThreadRecord } from "../inbox.ts";
 import type { RequestsService } from "../requests.ts";
 import { loadRun } from "../runs/queries.ts";
@@ -296,6 +298,19 @@ export const createLeadService = ({
     const { room, run } = await requireLead(principal);
     const agent = await memberAgent(run, room, input.agentId);
     const value = checkedValue(agent, input.field, input.value);
+    // The card sits in this topic's session, and a limited topic's session is
+    // hidden from anyone who is not in it. An owner outside it could never answer.
+    const ownerSeesTopic = await canReadTopic(
+      db,
+      { id: room.threadId, teamId: room.teamId },
+      { id: effectiveOwner(agent), kind: "user" }
+    );
+    if (!ownerSeesTopic) {
+      throw new ServiceError(
+        "invalid",
+        "The member's owner is not in this limited topic and could not see the proposal. Propose from a topic they are in."
+      );
+    }
     const lead = await findAgent(db, {
       id: run.agentId,
       workspaceId: run.workspaceId,

@@ -7,6 +7,7 @@
  */
 import { CONTEXT_BUDGETS, EFFORT_LEVELS } from "@repo/db/shared";
 import { z } from "zod";
+import { idString } from "../shared.ts";
 
 export const TEAM_PROPOSE_TOOL = "team_propose_change";
 export const TEAM_PROPOSAL_PREFIX = "team:";
@@ -26,8 +27,6 @@ export type ProposalField = (typeof PROPOSAL_FIELDS)[number];
 export const PROPOSAL_REASON_MAX = 1000;
 /** The approval display holds 8192 bytes of input. Staying under it keeps the value whole. */
 export const PROPOSAL_INPUT_MAX_BYTES = 7000;
-
-const idString = z.string().min(1).max(200);
 
 /** The proposed value as text, by field. `effort` and `contextBudget` take their enum's words. */
 export const proposalValueSchemas = {
