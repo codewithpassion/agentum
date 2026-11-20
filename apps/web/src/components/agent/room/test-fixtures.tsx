@@ -60,6 +60,7 @@ export const fixtureKeys = (): AgentKeys => ({
 /** An active cloud agent with no connections, tasks or conversations. */
 export const fixtureRoom = (): RoomData => ({
   agent: {
+    avatar: { color: "blue", glyph: "S" },
     backupUserId: null,
     computerMachineId: null,
     createdAt: "2026-11-01T00:00:00.000Z",
@@ -93,6 +94,7 @@ export const fixtureRoom = (): RoomData => ({
     does: "Sort the inbox every morning.",
     handsTo: [],
     header: {
+      avatar: { color: "blue", glyph: "S" },
       emailLocal: null,
       id: "agent_1",
       machine: null,

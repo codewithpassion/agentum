@@ -12,12 +12,14 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { getTrpc as realGetTrpc } from "#/integrations/trpc/client";
-import {
-  NeedsYouBody,
-  NeedsYouCard,
-  PersonAppGrants,
-  ThreadBody,
-} from "./needs-you-card.tsx";
+
+// The spend pause card reads Clerk's auth state to decide whether Resume shows.
+mock.module("@clerk/tanstack-react-start", () => ({
+  useAuth: () => ({ orgRole: "org:admin", userId: "user_1" }),
+}));
+
+const { NeedsYouBody, NeedsYouCard, PersonAppGrants, ThreadBody } =
+  await import("./needs-you-card.tsx");
 
 const router = createRouter({
   history: createMemoryHistory({ initialEntries: ["/"] }),
@@ -57,6 +59,7 @@ test("a spend pause card names the agent and offers Resume", () => {
   const html = renderToStaticMarkup(
     <NeedsYouCard
       agentName="Builder"
+      avatar={{ color: "blue", glyph: "B" }}
       card={{ ...thread, kind: "request", needsYouKind: "spend_pause" }}
       nowMs={0}
       onAnswer={answer}

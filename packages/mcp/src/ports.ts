@@ -885,6 +885,11 @@ export interface TeamProposalInfo {
  * so a port for a non-lead throws `ToolError` on every call.
  */
 export interface TeamPort {
+  discussion: (input: {
+    topic: string;
+    question: string;
+    rounds: number;
+  }) => Promise<{ id: string; round: number; rounds: number }>;
   members: () => Promise<TeamMemberInfo[]>;
   openTopic: (input: {
     members?: { id: string; kind: "agent" | "user" }[];

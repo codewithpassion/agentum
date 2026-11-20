@@ -5,10 +5,10 @@
 // refused instead of throwing their notes away.
 import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
-import { dreamRuns } from "@repo/db/schema/dreams";
+import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
 import { memoryChanges } from "@repo/db/schema/memory";
 import type { DreamDecision } from "@repo/db/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { ServiceError } from "../errors.ts";
 import { memoryFolderOf } from "../library/memory-paths.ts";
 import {
@@ -28,7 +28,7 @@ import {
 } from "../memory/files.ts";
 import type { Clock } from "../runs/types.ts";
 import { applyRows, pathOfRow } from "./changeset.ts";
-
+import { readOptions } from "./question-options.ts";
 import { type DreamAgent, dreamPrincipal, type RunRow, toRun } from "./rows.ts";
 
 const DATE_LENGTH = 10;
@@ -71,6 +71,51 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
 
   const appendDiary = (run: RunRow, line: string): string =>
     run.diary === "" ? line : `${run.diary}\n${line}`;
+
+  /**
+   * Closes questions of this run without an answer, because the change they
+   * belong to was undone or rejected. `noteIds` limits it to the questions that
+   * name one of those notes. A statement only when something is open.
+   */
+  const closeQuestions = async (
+    runId: string,
+    userId: string,
+    now: string,
+    noteIds?: ReadonlySet<string>
+  ): Promise<Statement[]> => {
+    const open = await db
+      .select({ id: dreamQuestions.id, options: dreamQuestions.options })
+      .from(dreamQuestions)
+      .where(
+        and(
+          eq(dreamQuestions.dreamRunId, runId),
+          eq(dreamQuestions.status, "open")
+        )
+      );
+    const ids = open
+      .filter(
+        (question) =>
+          noteIds === undefined ||
+          readOptions(question.options).options.some((option) =>
+            noteIds.has(option.noteId)
+          )
+      )
+      .map((question) => question.id);
+    if (ids.length === 0) {
+      return [];
+    }
+    return [
+      db
+        .update(dreamQuestions)
+        .set({ answeredAt: now, answeredBy: userId, status: "answered" })
+        .where(
+          and(
+            inArray(dreamQuestions.id, ids),
+            eq(dreamQuestions.status, "open")
+          )
+        ),
+    ];
+  };
 
   /** The bytes a file had before the dream, or its empty form when the dream made it. */
   const restoredFiles = async (
@@ -138,9 +183,12 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     if (rows.length === 0) {
       throw new ServiceError("conflict", "This dream has nothing to undo");
     }
-    await ensureUntouched(agent, rows);
     const principal = dreamPrincipal(agent);
     const loaded = await loadEveryMemoryFile(library, principal, agent.slug);
+    // The files and their etags are read first and the versions after, so a
+    // write that lands in between shows up as a newer version and is refused,
+    // never restored over. A write after both reads fails the etag instead.
+    await ensureUntouched(agent, rows);
     const [problem] = Object.entries(loaded.problems);
     if (problem) {
       throw new ServiceError("invalid", describeProblem(...problem));
@@ -158,7 +206,9 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     };
     next[INDEX] = buildIndex(notesIn(next));
     const now = clock.now().toISOString();
+    const closing = await closeQuestions(run.id, userId, now);
     const statements = (): Statement[] => [
+      ...closing,
       db
         .update(memoryChanges)
         .set({ decidedAt: now, decidedBy: userId, status: "undone" })
@@ -203,7 +253,15 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     const now = clock.now().toISOString();
     const decided = { decidedAt: now, decidedBy: userId };
     if (decision === "reject") {
+      // A question that names a held note asks about a change that will not happen.
+      const closing = await closeQuestions(
+        run.id,
+        userId,
+        now,
+        new Set(rows.map((row) => row.noteId))
+      );
       await atomic([
+        ...closing,
         db
           .update(memoryChanges)
           .set({ ...decided, status: "rejected" })

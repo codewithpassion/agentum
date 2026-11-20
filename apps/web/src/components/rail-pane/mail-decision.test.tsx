@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MailDecision } from "./mail-decision.tsx";
 
 const card: RailCard = {
+  agentAvatar: { color: "slate", glyph: "?" },
   agentId: "agent_1",
   agentName: "Sam",
   at: "2026-10-31T01:00:00.000Z",

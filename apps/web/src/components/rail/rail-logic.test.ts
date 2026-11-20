@@ -106,6 +106,7 @@ test("needs you label shows zero and positive counts", () => {
 });
 
 const railCard = (overrides: Partial<RailCard>): RailCard => ({
+  agentAvatar: { color: "slate", glyph: "?" },
   agentId: "a1",
   agentName: "mem-cloud",
   at: "2026-11-20T09:00:00.000Z",

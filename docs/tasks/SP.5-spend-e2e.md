@@ -3,7 +3,7 @@ id: SP.5
 title: "Spend walkthrough"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: [SP.3, SP.4]
 branch: task/SP.5-spend-e2e
 lane: e2e
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone SP. End-to-end check for SP.
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-21: dispatched on task/SP.5-spend-e2e (v4 controller session).
+- 2026-11-21: merged as 941d7339, review clean after 1 fix round. Walkthrough passed at both sizes: docs/reviews/SP-e2e.md, docs/reviews/tasks/SP.5/browser.md. check, test and build passed on main. Follow-ups SP.6 to SP.10.
