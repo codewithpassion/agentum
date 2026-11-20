@@ -3,7 +3,7 @@ id: SP.13
 title: "A cancelled run keeps its cost"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/SP.13-a-cancelled-run-keeps-its-cost
 lane: services-spend
@@ -24,3 +24,4 @@ a runs service test where a run is cancelled and then gets `completeRun` with `{
 - 2026-11-21: added from the SP gate review, round 1.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at f1e64fb8 after one fix round, review clean. Scope note: a machine cancel stays uncounted. A machine whose lease expired and then sends done with usage now gets a 200, and its usage counts. Queued for merge.
+- 2026-11-21: merged 0ac9763e, batch merge check with SL.5, SP.13 and SP.12 passed. Done.

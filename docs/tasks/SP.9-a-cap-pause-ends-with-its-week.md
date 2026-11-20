@@ -28,3 +28,5 @@ A service test with the clock set across Monday 00:00 in the workspace timezone:
 ## Log
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: review clean with no fix rounds. The last commit (wording) wasn't reviewed, so it goes back for a fresh review of that commit.
+- 2026-11-21: wording commit reviewed clean (two nits left: stale pausedAt comment in the schema, and help text that doesn't say raising a cap lifts the pause). Ready at 9038a8f8. Queued for merge.

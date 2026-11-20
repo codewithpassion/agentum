@@ -15,15 +15,18 @@ import { errorMessage } from "#/lib/error-message";
 import {
   capInputValue,
   capLabel,
+  capLine,
   parseCapInput,
   spendWeeks,
 } from "./spend-logic.ts";
 
 export interface SpendPauseViewProps {
+  /** The agent's own week-to-date is at or over its limit, so Resume would run once and pause again. */
+  atLimit: boolean;
   busy: boolean;
   error: string | null;
   isAdmin: boolean;
-  /** "The limit is $20 a week.", or null when it is not known. */
+  /** "$1.05 of $1 this week", "The limit is $20 a week.", or null when it is not known. */
   limitText: string | null;
   onRaiseChange: (value: string) => void;
   onRaiseOpen: () => void;
@@ -37,6 +40,7 @@ export interface SpendPauseViewProps {
 
 /** An agent paused at its weekly limit: resume it, or raise the limit and resume. */
 export function SpendPauseView({
+  atLimit,
   busy,
   error,
   isAdmin,
@@ -95,7 +99,8 @@ export function SpendPauseView({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            {workspaceLimitText !== null && !isAdmin ? null : (
+            {(workspaceLimitText !== null && !isAdmin) ||
+            (atLimit && workspaceLimitText === null) ? null : (
               <Button
                 disabled={busy}
                 onClick={onResume}
@@ -148,6 +153,35 @@ const workspaceLimitMessage = (
   return `The workspace limit of ${limit} a week is reached. Raising this agent's limit will not restart it.`;
 };
 
+const pauseLimitText = (
+  limitCents: number | null,
+  spentCents: number | null
+): string | null => {
+  if (limitCents === null) {
+    return null;
+  }
+  return (
+    (spentCents === null ? null : capLine(spentCents, limitCents)) ??
+    `The limit is ${capLabel(limitCents)} a week.`
+  );
+};
+
+/** The workspace total, and what counts against the agent: its own spend under its own limit, else the workspace total it runs under. */
+const weekSpend = (
+  rows: readonly { agentId: string | null; cents: number }[],
+  agentId: string,
+  hasOwnCap: boolean
+): { spentCents: number; totalCents: number } => {
+  const totalCents = rows.reduce((sum, row) => sum + row.cents, 0);
+  if (!hasOwnCap) {
+    return { spentCents: totalCents, totalCents };
+  }
+  const spentCents = rows
+    .filter((row) => row.agentId === agentId)
+    .reduce((sum, row) => sum + row.cents, 0);
+  return { spentCents, totalCents };
+};
+
 /** Loads the agent's limit, then resumes the agent, optionally with a new limit. */
 export function SpendPause({
   agentId,
@@ -157,6 +191,7 @@ export function SpendPause({
   onChanged: () => void;
 }) {
   const [limitCents, setLimitCents] = useState<number | null>(null);
+  const [spentCents, setSpentCents] = useState<number | null>(null);
   const [workspaceHeld, setWorkspaceHeld] = useState<number | null>(null);
   const [raising, setRaising] = useState(false);
   const [raiseValue, setRaiseValue] = useState("");
@@ -171,12 +206,9 @@ export function SpendPause({
       try {
         const caps = await getTrpc().spend.caps.query();
         const agent = caps.agents.find((item) => item.agentId === agentId);
+        const ownCap = agent?.weeklyCapCents ?? null;
         if (active) {
           setLimitCents(agent?.weeklyCapCents ?? caps.workspaceCapCents);
-        }
-        const workspaceCap = caps.workspaceCapCents;
-        if (workspaceCap === null) {
-          return;
         }
         const trpc = getTrpc();
         const { timezone } = await trpc.workspaces.timezone.query();
@@ -188,8 +220,13 @@ export function SpendPause({
           from: week.start,
           to: week.end,
         });
-        const total = rows.reduce((sum, row) => sum + row.cents, 0);
-        if (active && total >= workspaceCap) {
+        const spend = weekSpend(rows, agentId, ownCap !== null);
+        if (!active) {
+          return;
+        }
+        setSpentCents(spend.spentCents);
+        const workspaceCap = caps.workspaceCapCents;
+        if (workspaceCap !== null && spend.totalCents >= workspaceCap) {
           setWorkspaceHeld(workspaceCap);
         }
       } catch {
@@ -245,14 +282,13 @@ export function SpendPause({
 
   return (
     <SpendPauseView
+      atLimit={
+        limitCents !== null && spentCents !== null && spentCents >= limitCents
+      }
       busy={busy}
       error={error}
       isAdmin={isAdmin}
-      limitText={
-        limitCents === null
-          ? null
-          : `The limit is ${capLabel(limitCents)} a week.`
-      }
+      limitText={pauseLimitText(limitCents, spentCents)}
       onRaiseChange={setRaiseValue}
       onRaiseOpen={openRaise}
       onRaiseSubmit={submitRaise}

@@ -24,3 +24,4 @@ a service test with a fake model where an `people` note says 1pm and a conversat
 ## Log
 - 2026-11-20: added from the dream walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 39225a7a after one fix round, review clean. Real-model check (claude-haiku-5-5, $0.00018): the 1pm note was replaced by one 1:30pm note. Queued for merge.

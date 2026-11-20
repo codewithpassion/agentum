@@ -6,23 +6,13 @@
 // never writes a plan that part of the model's work is missing from.
 import { DREAM_MODEL, type DreamUsage } from "@repo/db/shared";
 import type { Fetcher } from "../connectors/mcp.ts";
+import { priceTokens } from "../model-pricing.ts";
 import type { Judge } from "./steps/judge.ts";
 
 const MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const MAX_TOKENS = 4096;
 const CALL_TIMEOUT_MS = 90_000;
-const MILLION = 1_000_000;
-
-/**
- * USD per million tokens of `DREAM_MODEL` (claude-haiku-5-5), for the cost a
- * dream reports to the spend rollups. These are the rates for a prompt of up
- * to 100K tokens. Above 100K tokens Anthropic charges $0.50 in and $2.50 out
- * (first-party rates as of 3 Nov 2026). A dream's evidence is capped at 100K
- * characters, so a prompt is normally well under that. Dense non-English text
- * could pass it, and such a call would be undercounted.
- */
-export const DREAM_PRICE_PER_MILLION = { input: 0.1, output: 0.5 } as const;
 
 interface MessagesResponse {
   content?: { text?: string; type: string }[];
@@ -95,9 +85,12 @@ export const createDreamModel = ({
     judge,
     usage: () => ({
       costUsd:
-        (inputTokens * DREAM_PRICE_PER_MILLION.input +
-          outputTokens * DREAM_PRICE_PER_MILLION.output) /
-        MILLION,
+        priceTokens(DREAM_MODEL, {
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          inputTokens,
+          outputTokens,
+        }) ?? 0,
       inputTokens,
       outputTokens,
     }),

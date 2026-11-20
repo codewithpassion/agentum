@@ -25,3 +25,4 @@ component tests for both card states. A mail service test that the notice carrie
 ## Log
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 67a68b43, review clean with no fix rounds, browser pass at both sizes. Queued for merge.
