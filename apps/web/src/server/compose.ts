@@ -1295,7 +1295,10 @@ export const composeWith = ({
   });
   const agentBuilder = createAgentBuilderService({
     agents,
+    atomic: infra.atomic,
+    clock: infra.clock,
     connectors,
+    db,
     fetch: connectorFetch,
     libraryAccess,
     machines,

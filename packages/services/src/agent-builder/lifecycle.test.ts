@@ -224,9 +224,13 @@ const makeWorld = (options: WorldOptions = {}) => {
     },
   };
 
+  const persistenceDb = migrated();
   const deps: AgentBuilderDeps = {
     agents,
+    atomic: sqliteAtomic(persistenceDb),
+    clock: { now: () => new Date(), sleep: async () => undefined },
     connectors,
+    db: persistenceDb,
     fetch: () => Promise.reject(new Error("unused")),
     libraryAccess,
     machines: { list: async () => [] },
@@ -687,7 +691,10 @@ describe("dry run on the real services", () => {
     const agents = createAgentsService({ db, events });
     const builder = createAgentBuilderService({
       agents,
+      atomic,
+      clock,
       connectors: { assign: unused, list: unused },
+      db,
       fetch: unused,
       libraryAccess: { setGrant: unused },
       machines: { list: unused },
@@ -841,7 +848,10 @@ describe("create on the real services", () => {
     });
     const builder = createAgentBuilderService({
       agents,
+      atomic,
+      clock,
       connectors,
+      db,
       fetch: unused,
       libraryAccess,
       machines,

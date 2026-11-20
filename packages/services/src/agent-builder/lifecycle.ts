@@ -64,7 +64,7 @@ const VOICE_SOUL: Record<VoicePreset, string> = {
 };
 
 /** The fields of the agent row a draft fills in. Rules join the instructions. */
-const rowValues = (
+export const rowValues = (
   draft: AgentDraft
 ): {
   handsTo: string[];

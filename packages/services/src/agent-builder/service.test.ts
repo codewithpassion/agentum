@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { workspaces } from "@repo/db/schema/workspaces";
 import { AGENT_TEMPLATE_IDS } from "@repo/db/shared";
+import { migrated } from "@repo/db/test-db";
 import type { AgentRecord } from "../agents.ts";
 import { ForbiddenError } from "../authz.ts";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models.ts";
@@ -173,9 +176,13 @@ const buildDeps = (
   const base = catalogFixtures();
   const key =
     overrides.key === undefined ? keyed("sk-ant-test-key") : overrides.key;
+  const db = migrated();
   return {
     agents: base.agents,
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(), sleep: async () => undefined },
     connectors: base.connectors,
+    db,
     fetch: overrides.fetch ?? scriptedFetch([]).fetcher,
     libraryAccess: { setGrant: async () => undefined },
     machines: overrides.machines
@@ -454,3 +461,24 @@ describe("fromTemplate", () => {
     ).rejects.toThrow();
   });
 });
+
+for (const key of ["sales", "back_office"] as const) {
+  test(`builder exposes ${key} review and confirmation`, async () => {
+    const deps = buildDeps();
+    await deps.db.insert(workspaces).values({
+      clerkOrgId: "org_1",
+      createdAt: new Date().toISOString(),
+      id: "ws_1",
+      name: "Test",
+      timezone: "UTC",
+    });
+    const builder = createAgentBuilderService(deps);
+    const { draft } = await builder.teamFromStarter(user, key);
+    for (const member of draft.members) {
+      member.runsOn = { runtime: "cloud" };
+    }
+    const team = await builder.createTeam(user, { draft });
+    expect(team.members).toHaveLength(4);
+    expect(team.leadAgentId).toBeTruthy();
+  });
+}

@@ -35,6 +35,11 @@ import {
   reconcileDraft,
 } from "./draft.ts";
 import { createDraftLifecycle, type LifecycleDeps } from "./lifecycle.ts";
+import {
+  createTeamStarterLifecycle,
+  type TeamStarterDeps,
+} from "./team-starters.ts";
+
 import { templateDraft, templates } from "./templates.ts";
 
 const ACTION = "agent_builder.draft";
@@ -67,7 +72,7 @@ export interface DraftResult {
 
 type Resolvable = Pick<ManagedKeysService, "resolve" | "status">;
 
-export interface AgentBuilderDeps {
+export interface AgentBuilderDeps extends TeamStarterDeps {
   agents: Pick<AgentsService, "list"> & LifecycleDeps["agents"];
   connectors: Pick<ConnectorsService, "list"> & LifecycleDeps["connectors"];
   fetch: Fetcher;
@@ -142,6 +147,9 @@ const reconcileReply = (
 };
 
 export const createAgentBuilderService = ({
+  atomic,
+  clock,
+  db,
   agents,
   connectors,
   fetch: fetcher,
@@ -298,7 +306,13 @@ export const createAgentBuilderService = ({
     workspaceOf,
   });
 
-  return { catalog, draft, fromTemplate, ...lifecycle };
+  return {
+    catalog,
+    draft,
+    fromTemplate,
+    ...lifecycle,
+    ...createTeamStarterLifecycle({ atomic, catalog, clock, db }),
+  };
 };
 
 export type AgentBuilderService = ReturnType<typeof createAgentBuilderService>;
