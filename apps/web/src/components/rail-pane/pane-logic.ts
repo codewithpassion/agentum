@@ -7,32 +7,20 @@ import type {
   RailCard,
   RailItem,
   RailMail,
-  RailSetupStep,
   RailView,
 } from "@repo/db/shared";
 import { RAIL_ESCALATE_AFTER_MS } from "@repo/db/shared";
 import { expiryText } from "#/components/requests/request-card-logic.ts";
 
-type Listed = Pick<RailView, "needsYou" | "setup">;
+type Listed = Pick<RailView, "needsYou">;
 
-/** The id of a setup step in the rail list. */
-export const setupItemId = (step: RailSetupStep): string => `setup:${step}`;
-
-/** What the pane shows: a setup step, or a needs-you item. */
-export type Selection =
-  | { kind: "item"; item: RailItem }
-  | { kind: "setup"; step: RailSetupStep };
-
-const listIds = (view: Listed): string[] => [
-  ...view.setup.map(setupItemId),
-  ...view.needsYou.map((item) => item.id),
-];
+/** What the pane shows: a needs-you item. */
+export interface Selection {
+  item: RailItem;
+  kind: "item";
+}
 
 const defaultSelection = (view: Listed): Selection | null => {
-  const [firstStep] = view.setup;
-  if (firstStep !== undefined) {
-    return { kind: "setup", step: firstStep };
-  }
   const [firstItem] = view.needsYou;
   return firstItem === undefined ? null : { item: firstItem, kind: "item" };
 };
@@ -42,8 +30,8 @@ const holdsId = (item: RailItem, id: string): boolean =>
 
 /**
  * The selection for an id from the URL or the last view. An id that no longer
- * exists (or none at all) falls back to the first setup step, then the first item.
- * An id may also name a card inside an item.
+ * exists (or none at all) falls back to the first item. An id may also name a
+ * card inside an item.
  */
 export const selectItem = (
   view: Listed,
@@ -52,19 +40,12 @@ export const selectItem = (
   if (itemId === undefined) {
     return defaultSelection(view);
   }
-  const step = view.setup.find(
-    (candidate) => setupItemId(candidate) === itemId
-  );
-  if (step !== undefined) {
-    return { kind: "setup", step };
-  }
   const item = view.needsYou.find((candidate) => holdsId(candidate, itemId));
   return item === undefined ? defaultSelection(view) : { item, kind: "item" };
 };
 
-/** Whether an id names a setup step, an item, or a card inside an item in the view. */
+/** Whether an id names an item, or a card inside an item in the view. */
 export const isListed = (view: Listed, id: string): boolean =>
-  view.setup.some((step) => setupItemId(step) === id) ||
   view.needsYou.some((item) => holdsId(item, id));
 
 /**
@@ -147,19 +128,18 @@ export const pruneAnswered = (
       );
     }
   }
-  return { needsYou, setup: view.setup };
+  return { needsYou };
 };
 
 /** The id the pane stores for a selection. */
-export const selectionId = (selection: Selection): string =>
-  selection.kind === "setup" ? setupItemId(selection.step) : selection.item.id;
+export const selectionId = (selection: Selection): string => selection.item.id;
 
 /**
- * The entry after `currentId` in the list (setup steps first, then items). The
- * last entry gives the one before it. Null when there is no other entry.
+ * The entry after `currentId` in the list. The last entry gives the one before
+ * it. Null when there is no other entry.
  */
 export const nextItemId = (view: Listed, currentId: string): string | null => {
-  const ids = listIds(view);
+  const ids = view.needsYou.map((item) => item.id);
   const index = ids.indexOf(currentId);
   if (index === -1) {
     return ids[0] ?? null;

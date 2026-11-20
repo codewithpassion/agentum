@@ -110,7 +110,7 @@ test("desk.rail rejects a scope that is neither mine nor everyone", async () => 
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
-test("desk.rail on an empty workspace shows the setup steps and nothing else", async () => {
+test("desk.rail on an empty workspace shows nothing", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
 
   expect(
@@ -119,7 +119,6 @@ test("desk.rail on an empty workspace shows the setup steps and nothing else", a
     counts: { everyone: 0, mine: 0 },
     doneToday: 0,
     needsYou: [],
-    setup: ["ai_account", "first_agent"],
     working: [],
   });
 });

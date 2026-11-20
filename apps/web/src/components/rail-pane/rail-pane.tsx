@@ -30,7 +30,6 @@ import {
   sendFailureText,
 } from "./pane-logic.ts";
 import { railScope } from "./scope-storage.ts";
-import { SetupPane } from "./setup-pane.tsx";
 import { type Elsewhere, useElsewhere } from "./use-elsewhere.ts";
 import { useNowMs } from "./use-now-ms.ts";
 
@@ -385,15 +384,7 @@ export function RailPane({
         <Empty rail={data.rail} />
       ) : null}
       {inline && list !== null && selection !== null ? (
-        <InlineList
-          items={list.needsYou}
-          nowMs={nowMs}
-          scope={data.scope}
-          setup={list.setup}
-        />
-      ) : null}
-      {!inline && missing === null && selection?.kind === "setup" ? (
-        <SetupPane step={selection.step} />
+        <InlineList items={list.needsYou} nowMs={nowMs} scope={data.scope} />
       ) : null}
       {!inline && missing === null && selection?.kind === "item" ? (
         <ItemCards

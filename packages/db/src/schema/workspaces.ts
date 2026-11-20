@@ -26,6 +26,8 @@ export const workspaces = sqliteTable("workspaces", {
     .default(DEFAULT_NEVER_REMEMBER_JSON),
   // The default timezone for routines.
   timezone: text("timezone").notNull(),
+  // The most all agents together may spend in a week, in cents. NULL means no cap.
+  weeklyCapCents: integer("weekly_cap_cents"),
 });
 
 /** Maps an external (Slack) identity to a Clerk user; matched by email on first contact. */

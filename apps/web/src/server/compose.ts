@@ -298,6 +298,7 @@ import {
   createSlackSendService,
   type SlackSendService,
 } from "@repo/services/slack-send";
+import { createSpendService, type SpendService } from "@repo/services/spend";
 import {
   createTakeoverService,
   type TakeoverService,
@@ -543,6 +544,7 @@ export interface Services {
   slackHistory: SlackHistoryService;
   slackRequests: SlackRequests;
   slackSend: SlackSendService;
+  spend: SpendService;
   takeover: TakeoverService;
   tasks: TasksService;
   triggers: TriggersService;
@@ -1254,9 +1256,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     desk,
-    managedKeys,
     members,
-    modelKeys,
     people: infra.people,
   });
   const agentBuilder = createAgentBuilderService({
@@ -1450,6 +1450,11 @@ export const composeWith = ({
       slackHistory,
       slackRequests,
       slackSend,
+      spend: createSpendService({
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+      }),
       takeover,
       tasks,
       triggers,

@@ -48,7 +48,6 @@ const view = (ids: string[]): RailView => ({
   counts: { everyone: 2, mine: 1 },
   doneToday: 0,
   needsYou: ids.map(item),
-  setup: [],
   working: [],
 });
 const VIEWS = { everyone: view(["m", "x"]), mine: view(["m"]) };

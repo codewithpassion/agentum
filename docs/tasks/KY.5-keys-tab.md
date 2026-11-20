@@ -3,9 +3,9 @@ id: KY.5
 title: "Keys tab on the agent room"
 milestone: KY
 size: M
-status: todo
+status: in_progress
 depends_on: [KY.1, RH.4]
-branch: null
+branch: task/KY.5-keys-tab
 lane: web-keys
 executor: claude
 ---
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone KY. The Keys tab replaces the tools shee
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: note from KY.2 review: an app with `authKind: "none"` returns `signIn: null`. Do not read that as "sign in needed".
+- 2026-11-20: dispatched on task/KY.5-keys-tab (v4 controller session).
