@@ -10,6 +10,7 @@ import { getTrpc } from "#/integrations/trpc/client";
 import { canManageAgentKeys } from "../keys/keys-logic.ts";
 import type { RoomTabProps } from "../room-data.ts";
 import { Manage, RoomSection, TabBody } from "../section.tsx";
+import { PlainChoices } from "./plain-choices.tsx";
 
 const FORM_ID = "room-settings-form";
 
@@ -50,6 +51,15 @@ export function SettingsTab({ room }: RoomTabProps) {
           />
         </Manage>
       </div>
+      <RoomSection title="How it works">
+        <Manage archived={archived}>
+          <PlainChoices
+            agentId={agentId}
+            model={room.agent.model}
+            runtimeConfig={room.agent.runtimeConfig}
+          />
+        </Manage>
+      </RoomSection>
       {room.members === null ? null : (
         <RoomSection title="Owner">
           <Manage archived={archived}>
