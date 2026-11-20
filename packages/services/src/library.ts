@@ -23,6 +23,7 @@ import {
   libraryEntries,
   libraryVersions,
 } from "@repo/db/schema/library";
+import { runs } from "@repo/db/schema/runs";
 import type { LibraryAccessGrant } from "@repo/db/shared";
 import {
   LIBRARY_FILE_MAX_BYTES,
@@ -37,6 +38,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { invalid, notFound, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { agentGrants } from "./library/access.ts";
+import { isMemoryPath, mayReadMemoryPath } from "./library/memory-paths.ts";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
 import { librarySyncScope } from "./library/sync-paths.ts";
 import {
@@ -88,6 +90,17 @@ export interface LibraryEntry {
 
 type EntryRow = typeof libraryEntries.$inferSelect;
 type Member = Extract<Principal, { kind: "run" | "user" }>;
+/** An object's bytes before a failed commit overwrote it. A null `previous` means the key had none. */
+interface Overwritten {
+  key: string;
+  previous: { bytes: Uint8Array; etag: string } | null;
+}
+/** One memory file to write: its bytes, the etag it must still have, and its path. */
+interface MemoryTarget {
+  bytes: Uint8Array;
+  ifEtag?: string;
+  path: string;
+}
 
 export const toEntry = (row: EntryRow): LibraryEntry => ({
   etag: row.etag,
@@ -121,19 +134,31 @@ const requireWriter = (principal: Principal, action: string): Member => {
   return member;
 };
 
-type AccessMember = Member & { scope?: LibraryAccessGrant[] };
+type AccessMember = Member & {
+  /** The person whose private memory files this member may touch, or null. */
+  privateUserId: string | null;
+  scope?: LibraryAccessGrant[];
+};
+/** The memory folder `agents/<slug>/memory` has three segments. A path below it has more. */
+const MEMORY_FOLDER_SEGMENTS = 3;
+const isMemoryFile = (path: string): boolean =>
+  isMemoryPath(path) && path.split("/").length > MEMORY_FOLDER_SEGMENTS;
 const within = (path: string, root: string) =>
   path === root || path.startsWith(`${root}/`);
+// A run never writes under a memory folder. Only the memory service does, through writeMemoryFiles.
 const canWriteAt = (member: AccessMember, path: string): boolean =>
-  member.kind === "user" ||
-  (member.scope ?? []).some(
-    (root) => root.mode === "write" && within(path, root.path)
-  );
+  !(member.kind === "run" && isMemoryPath(path)) &&
+  mayReadMemoryPath(path, member.privateUserId) &&
+  (member.kind === "user" ||
+    (member.scope ?? []).some(
+      (root) => root.mode === "write" && within(path, root.path)
+    ));
 // Contents, history and conflict names need a root that covers the path.
 const canReadAt = (member: AccessMember, path: string): boolean =>
-  member.kind === "user" ||
-  path === "" ||
-  (member.scope ?? []).some((root) => within(path, root.path));
+  mayReadMemoryPath(path, member.privateUserId) &&
+  (member.kind === "user" ||
+    path === "" ||
+    (member.scope ?? []).some((root) => within(path, root.path)));
 // A folder above a root is traversable so the root can be found. A file there is not.
 const canTraverse = (member: AccessMember, path: string): boolean =>
   canReadAt(member, path) ||
@@ -201,9 +226,9 @@ export const createLibraryService = ({
   const history = createVersionStore({ atomic, blobs, db });
   const resolveMember = async (member: Member): Promise<AccessMember> => {
     if (member.kind === "user") {
-      return member;
+      return { ...member, privateUserId: member.userId };
     }
-    const [[agent], grants] = await Promise.all([
+    const [[agent], [run], grants] = await Promise.all([
       db
         .select({ slug: agents.slug })
         .from(agents)
@@ -214,10 +239,21 @@ export const createLibraryService = ({
           )
         )
         .limit(1),
+      db
+        .select({ onBehalfOfUserId: runs.onBehalfOfUserId })
+        .from(runs)
+        .where(
+          and(
+            eq(runs.id, member.runId),
+            eq(runs.workspaceId, member.workspaceId)
+          )
+        )
+        .limit(1),
       agentGrants(db, member.workspaceId, member.agentId),
     ]);
     return {
       ...member,
+      privateUserId: run?.onBehalfOfUserId ?? null,
       scope: agent ? librarySyncScope(agent.slug, grants) : [],
     };
   };
@@ -312,6 +348,20 @@ export const createLibraryService = ({
       .where(underFolder(workspaceId, path))
       .orderBy(asc(libraryEntries.path));
 
+  /** The rows under a folder. Refuses, as `action`, when the member may not write one of them. */
+  const writableBelow = async (
+    member: AccessMember,
+    row: EntryRow,
+    action: string
+  ): Promise<EntryRow[]> => {
+    const below =
+      row.kind === "dir" ? await subtree(row.workspaceId, row.path) : [];
+    if (below.some((entry) => !canWriteAt(member, entry.path))) {
+      throw new ForbiddenError(action);
+    }
+    return below;
+  };
+
   const libraryBytes = async (workspaceId: string): Promise<number> => {
     const [row] = await db
       .select({
@@ -378,6 +428,21 @@ export const createLibraryService = ({
     ).map((rows) =>
       db.insert(libraryEntries).values(rows).onConflictDoNothing()
     );
+
+  const entryUpsert = (row: EntryRow): Statement =>
+    db
+      .insert(libraryEntries)
+      .values(row)
+      .onConflictDoUpdate({
+        set: {
+          etag: row.etag,
+          mtime: row.mtime,
+          size: row.size,
+          updatedById: row.updatedById,
+          updatedByKind: row.updatedByKind,
+        },
+        target: [libraryEntries.workspaceId, libraryEntries.path],
+      });
 
   const eventStatement = (
     member: Member,
@@ -574,19 +639,7 @@ export const createLibraryService = ({
       history.insertNext(version),
       ...approvalStatements(approval, version),
       ...folderStatements(member, folders),
-      db
-        .insert(libraryEntries)
-        .values(row)
-        .onConflictDoUpdate({
-          set: {
-            etag: row.etag,
-            mtime: row.mtime,
-            size: row.size,
-            updatedById: row.updatedById,
-            updatedByKind: row.updatedByKind,
-          },
-          target: [libraryEntries.workspaceId, libraryEntries.path],
-        }),
+      entryUpsert(row),
       eventStatement(
         member,
         op === "restore" ? "library.restore" : "library.write",
@@ -630,6 +683,215 @@ export const createLibraryService = ({
       approval
     );
   };
+  /** Puts each overwritten object back. Best effort, so the error that caused the rollback is the one the caller sees. */
+  const restoreObjects = async (
+    overwritten: readonly Overwritten[]
+  ): Promise<void> => {
+    for (const { key, previous } of overwritten) {
+      try {
+        if (previous) {
+          // biome-ignore lint/performance/noAwaitInLoops: restore one object at a time
+          await blobs.put(key, previous.bytes);
+        } else {
+          await blobs.delete([key]);
+        }
+      } catch {
+        // Keep going: each object is restored on its own.
+      }
+    }
+  };
+
+  /** Normalises the files and refuses what the memory service may not write. */
+  const memoryTargets = (
+    member: AccessMember,
+    files: readonly MemoryTarget[]
+  ): MemoryTarget[] => {
+    if (files.length === 0) {
+      throw invalid("No memory files to write");
+    }
+    const targets = files.map((file) => ({
+      bytes: file.bytes,
+      ifEtag: file.ifEtag,
+      path: normalizePath(file.path),
+    }));
+    if (new Set(targets.map((target) => target.path)).size !== targets.length) {
+      throw invalid("A memory file is listed twice");
+    }
+    for (const target of targets) {
+      if (!isMemoryFile(target.path)) {
+        throw invalid("Not a memory file");
+      }
+      if (!mayReadMemoryPath(target.path, member.privateUserId)) {
+        throw new ForbiddenError("library.write");
+      }
+    }
+    return targets;
+  };
+
+  /** The checks writeFile makes, for all files at once. Returns each file's current entry. */
+  const checkMemoryLimits = async (
+    workspaceId: string,
+    targets: readonly MemoryTarget[]
+  ): Promise<(EntryRow | null)[]> => {
+    const existing = await Promise.all(
+      targets.map((target) => entryAt(workspaceId, target.path))
+    );
+    let growth = 0;
+    for (const [index, target] of targets.entries()) {
+      if (target.bytes.byteLength > LIBRARY_FILE_MAX_BYTES) {
+        throw invalid("Library files are limited to 10 MB");
+      }
+      if (existing[index]?.kind === "dir") {
+        throw invalid("Path is a folder");
+      }
+      growth += target.bytes.byteLength - (existing[index]?.size ?? 0);
+    }
+    if ((await libraryBytes(workspaceId)) + growth > LIBRARY_MAX_BYTES) {
+      throw invalid("The library is limited to 1 GB");
+    }
+    return existing;
+  };
+
+  /** Each file's history seeds and its next version number, read before any write. */
+  const snapshotMemoryFiles = async (
+    workspaceId: string,
+    targets: readonly MemoryTarget[],
+    existing: readonly (EntryRow | null)[]
+  ): Promise<{ nextNumbers: number[]; seedRows: VersionRow[] }> => {
+    const seedRows: VersionRow[] = [];
+    const nextNumbers: number[] = [];
+    for (const [index, target] of targets.entries()) {
+      // biome-ignore lint/performance/noAwaitInLoops: snapshot one file at a time
+      const seeds = await history.seed(existing[index] ?? null);
+      const previous = await history.list(workspaceId, target.path);
+      seedRows.push(...seeds);
+      nextNumbers.push((previous[0]?.version ?? seeds[0]?.version ?? 0) + 1);
+    }
+    return { nextNumbers, seedRows };
+  };
+
+  /** Puts each file in order. Each old object is recorded first, so a failed commit can undo it. */
+  const storeMemoryFiles = async (
+    member: Member,
+    targets: readonly MemoryTarget[],
+    olds: readonly Overwritten["previous"][],
+    nextNumbers: readonly number[],
+    overwritten: Overwritten[]
+  ): Promise<{ rows: EntryRow[]; versionRows: VersionRow[] }> => {
+    const rows: EntryRow[] = [];
+    const versionRows: VersionRow[] = [];
+    for (const [index, target] of targets.entries()) {
+      const key = objectKey(member.workspaceId, target.path);
+      overwritten.push({ key, previous: olds[index] ?? null });
+      // biome-ignore lint/performance/noAwaitInLoops: one object at a time, so a failure can roll back
+      const stored = await blobs.put(
+        key,
+        target.bytes,
+        target.ifEtag === undefined ? undefined : { ifEtag: target.ifEtag }
+      );
+      if (!stored) {
+        // Nothing was written for this key, so it needs no rollback.
+        overwritten.pop();
+        throw new ServiceError(
+          "conflict",
+          "The file changed since it was read"
+        );
+      }
+      const row = rowOf(member, target.path, {
+        etag: stored.etag,
+        kind: "file",
+        size: target.bytes.byteLength,
+      });
+      rows.push(row);
+      versionRows.push(
+        await versionOf(
+          member,
+          row,
+          nextNumbers[index] ?? 1,
+          "write",
+          target.bytes
+        )
+      );
+    }
+    return { rows, versionRows };
+  };
+
+  /**
+   * The memory service's way in. Writes several memory files and the caller's
+   * statements in one commit, and returns one version per file, in order. A
+   * run may write here, and only here, under a memory folder.
+   */
+  const writeMemoryFiles = async (
+    principal: Principal,
+    files: readonly MemoryTarget[],
+    statements: (versions: VersionRow[]) => Statement[]
+  ): Promise<VersionRow[]> => {
+    const member = await resolveMember(
+      requireWriter(principal, "library.write")
+    );
+    authorize(member, "library.write", {
+      kind: LIBRARY_KIND,
+      workspaceId: member.workspaceId,
+    });
+    const { workspaceId } = member;
+    const targets = memoryTargets(member, files);
+    const existing = await checkMemoryLimits(workspaceId, targets);
+    const folderLists = await Promise.all(
+      targets.map((target) => missingFolders(workspaceId, target.path))
+    );
+    const folders = [...new Set(folderLists.flat())];
+    const { nextNumbers, seedRows } = await snapshotMemoryFiles(
+      workspaceId,
+      targets,
+      existing
+    );
+    // Every precondition is checked before the first put, so a stale etag writes nothing.
+    const olds = await Promise.all(
+      targets.map((target) => blobs.get(objectKey(workspaceId, target.path)))
+    );
+    for (const [index, target] of targets.entries()) {
+      if (target.ifEtag !== undefined && olds[index]?.etag !== target.ifEtag) {
+        throw new ServiceError(
+          "conflict",
+          "The file changed since it was read"
+        );
+      }
+    }
+
+    const overwritten: Overwritten[] = [];
+    try {
+      const { rows, versionRows } = await storeMemoryFiles(
+        member,
+        targets,
+        olds,
+        nextNumbers,
+        overwritten
+      );
+      await atomic([
+        ...(linkIndex?.(
+          workspaceId,
+          targets.map((target) => ({ bytes: target.bytes, path: target.path }))
+        ) ?? []),
+        ...seedRows.map(history.insertSeed),
+        ...versionRows.map(history.insertNext),
+        ...statements(versionRows),
+        ...folderStatements(member, folders),
+        ...rows.map(entryUpsert),
+        ...rows.map((row) =>
+          eventStatement(member, "library.write", row.path, row.size)
+        ),
+      ]);
+      await changed(
+        member,
+        targets.map((target) => target.path)
+      );
+      return versionRows;
+    } catch (error) {
+      await restoreObjects(overwritten);
+      throw error;
+    }
+  };
+
   const restore = async (
     principal: Principal,
     versionId: string,
@@ -750,8 +1012,7 @@ export const createLibraryService = ({
     if (!row) {
       throw notFound();
     }
-    const below =
-      row.kind === "dir" ? await subtree(row.workspaceId, path) : [];
+    const below = await writableBelow(member, row, "library.delete");
     if (below.length > 0 && options.recursive !== true) {
       throw new ServiceError("conflict", "The folder is not empty");
     }
@@ -956,9 +1217,9 @@ export const createLibraryService = ({
     if (target && !(source.kind === "file" && target.kind === "file")) {
       throw new ServiceError("conflict", "The destination exists");
     }
+    // A folder moves only if the member may write every path under it, so a move cannot carry a file out.
+    const below = await writableBelow(member, source, "library.move");
     const folders = await missingFolders(member.workspaceId, to);
-    const below =
-      source.kind === "dir" ? await subtree(member.workspaceId, from) : [];
     const moved = [source, ...below];
     const { versionStatements, moveVersions } = await prepareMoveVersions(
       member,
@@ -1288,6 +1549,7 @@ export const createLibraryService = ({
     versions,
     write,
     writeApproved,
+    writeMemoryFiles,
   };
 };
 
