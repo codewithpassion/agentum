@@ -1364,17 +1364,26 @@ test("held memory uses creator fallback and excludes decided, rejected, foreign,
   await heldNote("foreign", { workspaceId: "w3" });
   await heldNote("private", { userScope: "u2" });
   const draft = await agents.create(user(), {
-    model: "m", name: "Draft", runtime: "cloud",
+    model: "m",
+    name: "Draft",
+    runtime: "cloud",
   });
-  await db.update(agentRows).set({ status: "draft" }).where(eq(agentRows.id, draft.id));
+  await db
+    .update(agentRows)
+    .set({ status: "draft" })
+    .where(eq(agentRows.id, draft.id));
   await heldNote("draft", { agentId: draft.id });
 
   const sources = await desk.railSources(user(), { dayStart: DAY_START });
   expect(sources.needsYou.map((card) => card.id)).toEqual(["held"]);
   expect(await desk.needsYouCount(user())).toBe(1);
   expect((await view("mine")).needsYou[0]?.assigneeUserId).toBe("u1");
-  expect((await view("everyone", user("u2"))).needsYou.map((item) => item.id).sort())
-    .toEqual(["held", "private"]);
-  await db.update(memoryChanges).set({ status: "rejected" }).where(eq(memoryChanges.id, "held"));
+  expect(
+    (await view("everyone", user("u2"))).needsYou.map((item) => item.id).sort()
+  ).toEqual(["held", "private"]);
+  await db
+    .update(memoryChanges)
+    .set({ status: "rejected" })
+    .where(eq(memoryChanges.id, "held"));
   expect((await view("everyone")).needsYou).toHaveLength(0);
 });

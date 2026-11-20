@@ -269,6 +269,9 @@ const recipientWho = (mail: NonNullable<CardFacts["mail"]>): string => {
 
 /** The card's heading in plain words. */
 export const plainTitle = (card: CardFacts): string => {
+  if (card.kind === "memory_note") {
+    return NEEDS_YOU_HEADINGS.memory_note(card.agentName);
+  }
   if (card.kind !== "approval") {
     return card.title;
   }
