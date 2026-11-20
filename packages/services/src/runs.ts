@@ -2017,6 +2017,9 @@ export const createRunsService = ({
       throw new ServiceError("conflict", "Run is no longer running");
     }
     await appendRunEvent(run, "run.interrupted", eventActor(principal));
+    if (usage) {
+      await enforceCap(run.agentId);
+    }
     await wakeEnded(run);
   };
 

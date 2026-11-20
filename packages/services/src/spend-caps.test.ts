@@ -204,6 +204,7 @@ test("a cancelled run keeps the usage its runtime reports afterwards", async () 
 });
 
 test("an aborted completion stores the usage it carries", async () => {
+  setCap(aId, CAP_CENTS);
   const started = await start(aId, "mcp");
   db.update(runRows)
     .set({ status: "running" })
@@ -220,6 +221,7 @@ test("an aborted completion stores the usage it carries", async () => {
     .get();
   expect(row?.status).toBe("interrupted");
   expect(JSON.parse(row?.usage ?? "{}")).toEqual({ costUsd: 3 });
+  expect(agentRow(aId)?.pausedAt).not.toBeNull();
 });
 
 test("an agent with no cap is never paused", async () => {
