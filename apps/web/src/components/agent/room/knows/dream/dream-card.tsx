@@ -77,7 +77,7 @@ function DreamBody({
   }
   if (state.kind === "skipped") {
     return (
-      <p className="whitespace-pre-line">
+      <p className="whitespace-pre-line break-words">
         {state.run.diary === ""
           ? "Nothing new happened since the last dream, so nothing changed."
           : state.run.diary}
@@ -89,7 +89,9 @@ function DreamBody({
       <>
         <p>The dream failed and changed nothing.</p>
         {state.run.error === null ? null : (
-          <p className="text-muted-foreground text-sm">{state.run.error}</p>
+          <p className="break-words text-muted-foreground text-sm">
+            {state.run.error}
+          </p>
         )}
       </>
     );
@@ -98,7 +100,7 @@ function DreamBody({
     return (
       <>
         <p>You undid this night. The notes are back as they were.</p>
-        <p className="whitespace-pre-line text-muted-foreground">
+        <p className="whitespace-pre-line break-words text-muted-foreground">
           {state.run.diary}
         </p>
         <SeeChanges runId={state.run.id} />
@@ -108,7 +110,7 @@ function DreamBody({
   const questionLine = questionsSentence(state.questions);
   return (
     <>
-      <p className="whitespace-pre-line">{state.run.diary}</p>
+      <p className="whitespace-pre-line break-words">{state.run.diary}</p>
       <p className="text-muted-foreground text-sm">
         {countsSentence(state.run.counts)}
       </p>
@@ -120,8 +122,7 @@ function DreamBody({
           </Link>
         </p>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <SeeChanges runId={state.run.id} />
+      <div className="flex flex-col items-start gap-2">
         {canUndoRun(state.run) && !disabled ? (
           <UndoNight
             dreamRunId={state.run.id}
@@ -129,6 +130,7 @@ function DreamBody({
             pending={pending}
           />
         ) : null}
+        <SeeChanges runId={state.run.id} />
       </div>
     </>
   );
@@ -149,7 +151,7 @@ export function DreamCard({
   const state = dreamCardState(runs);
   const heading =
     state.kind === "none" ? "Dreaming" : dreamTitle(state.run.startedAt, nowMs);
-  const busy = pending !== null || disabled;
+  const busy = pending !== null || disabled || state.kind === "running";
 
   return (
     <section
@@ -167,7 +169,13 @@ export function DreamCard({
       />
       <div className="flex flex-col gap-3 border-t pt-3">
         {canChange ? (
-          <Button disabled={busy} onClick={onRunNow} size="sm" type="button">
+          <Button
+            className="self-start"
+            disabled={busy}
+            onClick={onRunNow}
+            size="sm"
+            type="button"
+          >
             {pending === "run" ? "Dreaming…" : "Dream now"}
           </Button>
         ) : null}

@@ -36,13 +36,13 @@ function ChangeRow({ view }: { view: DreamChangeView }): ReactElement {
       {before === null ? null : (
         <div className="flex flex-col">
           <p className="text-muted-foreground text-xs">Before</p>
-          <p className="text-muted-foreground">{before}</p>
+          <p className="break-words text-muted-foreground">{before}</p>
         </div>
       )}
       {after === null ? null : (
         <div className="flex flex-col">
           <p className="text-xs">After</p>
-          <p>{after}</p>
+          <p className="break-words">{after}</p>
         </div>
       )}
     </li>

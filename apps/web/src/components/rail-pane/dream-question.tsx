@@ -26,8 +26,9 @@ function DreamOption({
       className="flex flex-col items-start gap-2 rounded-lg border p-3"
       data-testid="dream-option"
     >
-      <p>{text}</p>
+      <p className="break-words">{text}</p>
       <Button
+        aria-label={`Keep this one: ${text}`}
         disabled={disabled}
         onClick={keep}
         type="button"

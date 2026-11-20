@@ -49,7 +49,7 @@ export function SeeChanges({ runId }: { runId: string }): ReactElement {
   const toggle = useCallback(() => setOpen((current) => !current), []);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col items-start gap-2">
       <Button
         aria-expanded={open}
         onClick={toggle}

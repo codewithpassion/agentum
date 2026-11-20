@@ -149,6 +149,11 @@ test("a running dream says it is dreaming and has no diary yet", () => {
   );
 });
 
+test("Dream now is disabled while the latest dream is still running", () => {
+  const document = render({ runs: [run({ status: "running" })] });
+  expect(buttonNamed(document, "Dream now")?.disabled).toBe(true);
+});
+
 test("a skipped dream with no diary says nothing changed", () => {
   const document = render({ runs: [run({ status: "skipped" })] });
   expect(card(document)?.getAttribute("data-state")).toBe("skipped");
