@@ -1,0 +1,173 @@
+import {
+  type AgentAvatar,
+  EVERYONE_TEAM_SLUG,
+  type Team,
+} from "@repo/db/shared";
+import type { InboxPost, InboxThread } from "#/integrations/trpc/types.ts";
+import { mentionedMembers } from "./mention-logic.ts";
+import {
+  memberKey,
+  type RoomDirectory,
+  type RoomMember,
+} from "./room-types.ts";
+
+export interface RoomAgentInput {
+  avatar: AgentAvatar;
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface RoomPersonInput {
+  name: string;
+  userId: string;
+}
+
+const UNKNOWN_TEAMMATE_NAME = "Teammate";
+const UNKNOWN_AGENT_NAME = "Agent";
+const KIND_ORDER: Readonly<Record<RoomMember["kind"], number>> = {
+  agent: 0,
+  user: 1,
+};
+
+export const isEveryone = (team: Pick<Team, "slug">): boolean =>
+  team.slug === EVERYONE_TEAM_SLUG;
+
+export const topicsOfTeam = (
+  threads: readonly InboxThread[],
+  team: Pick<Team, "id" | "slug">
+): InboxThread[] => {
+  const everyone = isEveryone(team);
+  return threads.filter(
+    (thread) =>
+      thread.teamId === team.id || (everyone && thread.teamId === null)
+  );
+};
+
+export const canPostInRoom = (
+  team: Pick<Team, "members" | "slug">,
+  userId: string
+): boolean => {
+  if (isEveryone(team)) {
+    return true;
+  }
+  return team.members.some(
+    (row) => row.memberKind === "user" && row.memberId === userId
+  );
+};
+
+export const roomDirectory = (input: {
+  agents: readonly RoomAgentInput[];
+  handles: ReadonlyMap<string, string>;
+  people: readonly RoomPersonInput[];
+}): RoomDirectory => {
+  const directory = new Map<string, RoomMember>();
+  for (const agent of input.agents) {
+    directory.set(memberKey("agent", agent.id), {
+      avatar: agent.avatar,
+      handle: agent.slug,
+      id: agent.id,
+      kind: "agent",
+      name: agent.name,
+    });
+  }
+  for (const person of input.people) {
+    directory.set(memberKey("user", person.userId), {
+      avatar: null,
+      handle: input.handles.get(person.userId) ?? null,
+      id: person.userId,
+      kind: "user",
+      name: person.name,
+    });
+  }
+  return directory;
+};
+
+const compareMembers = (a: RoomMember, b: RoomMember): number =>
+  KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+  a.name.localeCompare(b.name) ||
+  a.id.localeCompare(b.id);
+
+export const roomMembers = (input: {
+  directory: RoomDirectory;
+  team: Pick<Team, "members" | "slug">;
+}): RoomMember[] => {
+  const { directory, team } = input;
+  const members = new Map<string, RoomMember>();
+  if (isEveryone(team)) {
+    for (const [key, member] of directory) {
+      members.set(key, member);
+    }
+  } else {
+    for (const row of team.members) {
+      const key = memberKey(row.memberKind, row.memberId);
+      const known = directory.get(key);
+      if (known) {
+        members.set(key, known);
+      } else if (row.memberKind === "user") {
+        members.set(key, {
+          avatar: null,
+          handle: null,
+          id: row.memberId,
+          kind: "user",
+          name: UNKNOWN_TEAMMATE_NAME,
+        });
+      }
+    }
+  }
+  return [...members.values()].sort(compareMembers);
+};
+
+export const memberOfPost = (
+  post: Pick<InboxPost, "authorId" | "authorKind">,
+  directory: RoomDirectory
+): RoomMember => {
+  const known = directory.get(memberKey(post.authorKind, post.authorId));
+  if (known) {
+    return known;
+  }
+  return {
+    avatar: null,
+    handle: null,
+    id: post.authorId,
+    kind: post.authorKind,
+    name:
+      post.authorKind === "agent" ? UNKNOWN_AGENT_NAME : UNKNOWN_TEAMMATE_NAME,
+  };
+};
+
+export const authorName = (member: RoomMember, userId: string): string =>
+  member.kind === "user" && member.id === userId ? "You" : member.name;
+
+export const assignedTo = (
+  post: Pick<InboxPost, "authorId" | "authorKind" | "text">,
+  leadAgentId: string | null,
+  members: readonly RoomMember[]
+): RoomMember[] => {
+  const fromLeadAgent =
+    post.authorKind === "agent" && post.authorId === leadAgentId;
+  if (!fromLeadAgent) {
+    return [];
+  }
+  return mentionedMembers(post.text, members).filter(
+    (member) => !(member.kind === "agent" && member.id === post.authorId)
+  );
+};
+
+export const topicSessionIds = (
+  sessions: readonly { externalKey: string | null; id: string }[],
+  threadId: string
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const session of sessions) {
+    if (session.externalKey === threadId) {
+      ids.add(session.id);
+    }
+  }
+  return ids;
+};
+
+export const requestsOfTopic = <T extends { sessionId: string }>(
+  records: readonly T[],
+  sessionIds: ReadonlySet<string>
+): T[] => records.filter((record) => sessionIds.has(record.sessionId));

@@ -55,6 +55,7 @@ import { Route as AppTasksRunIdRouteImport } from './routes/_app/tasks.$runId'
 import { Route as AppThreadsSessionIdRouteImport } from './routes/_app/threads.$sessionId'
 import { Route as AppSettingsAgentConnectionsIndexRouteImport } from './routes/_app/settings.agent-connections.index'
 import { Route as AppSettingsAgentConnectionsConnectionIdRouteImport } from './routes/_app/settings.agent-connections.$connectionId'
+import { Route as AppTeamsTeamIdRoomRouteImport } from './routes/_app/teams.$teamId_.room'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -289,6 +290,11 @@ const AppSettingsAgentConnectionsConnectionIdRoute =
     path: '/agent-connections/$connectionId',
     getParentRoute: () => AppSettingsRoute,
   } as any)
+const AppTeamsTeamIdRoomRoute = AppTeamsTeamIdRoomRouteImport.update({
+  id: '/teams/$teamId_/room',
+  path: '/teams/$teamId/room',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -335,6 +341,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/skills/': typeof AppSkillsIndexRoute
   '/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
+  '/teams/$teamId/room': typeof AppTeamsTeamIdRoomRoute
   '/settings/agent-connections/': typeof AppSettingsAgentConnectionsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -381,6 +388,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsIndexRoute
   '/skills': typeof AppSkillsIndexRoute
   '/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
+  '/teams/$teamId/room': typeof AppTeamsTeamIdRoomRoute
   '/settings/agent-connections': typeof AppSettingsAgentConnectionsIndexRoute
 }
 export interface FileRoutesById {
@@ -430,6 +438,7 @@ export interface FileRoutesById {
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/skills/': typeof AppSkillsIndexRoute
   '/_app/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
+  '/_app/teams/$teamId_/room': typeof AppTeamsTeamIdRoomRoute
   '/_app/settings/agent-connections/': typeof AppSettingsAgentConnectionsIndexRoute
 }
 export interface FileRouteTypes {
@@ -479,6 +488,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/skills/'
     | '/settings/agent-connections/$connectionId'
+    | '/teams/$teamId/room'
     | '/settings/agent-connections/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -525,6 +535,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/skills'
     | '/settings/agent-connections/$connectionId'
+    | '/teams/$teamId/room'
     | '/settings/agent-connections'
   id:
     | '__root__'
@@ -573,6 +584,7 @@ export interface FileRouteTypes {
     | '/_app/settings/'
     | '/_app/skills/'
     | '/_app/settings/agent-connections/$connectionId'
+    | '/_app/teams/$teamId_/room'
     | '/_app/settings/agent-connections/'
   fileRoutesById: FileRoutesById
 }
@@ -913,6 +925,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAgentConnectionsConnectionIdRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/teams/$teamId_/room': {
+      id: '/_app/teams/$teamId_/room'
+      path: '/teams/$teamId/room'
+      fullPath: '/teams/$teamId/room'
+      preLoaderRoute: typeof AppTeamsTeamIdRoomRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -977,6 +996,7 @@ interface AppRouteChildren {
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppQaIndexRoute: typeof AppQaIndexRoute
   AppSkillsIndexRoute: typeof AppSkillsIndexRoute
+  AppTeamsTeamIdRoomRoute: typeof AppTeamsTeamIdRoomRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1003,6 +1023,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppQaIndexRoute: AppQaIndexRoute,
   AppSkillsIndexRoute: AppSkillsIndexRoute,
+  AppTeamsTeamIdRoomRoute: AppTeamsTeamIdRoomRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
