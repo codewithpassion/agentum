@@ -3,9 +3,9 @@ id: KY.6
 title: "Settings: your sign-ins for everyone"
 milestone: KY
 size: S
-status: todo
+status: in_progress
 depends_on: [KY.3]
-branch: null
+branch: task/KY.6-settings-sign-ins
 lane: web-settings
 executor: claude
 ---
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone KY. The workspace registry stays for adm
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/KY.6-settings-sign-ins (v4 controller session).

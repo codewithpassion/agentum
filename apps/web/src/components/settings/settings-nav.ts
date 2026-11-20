@@ -32,4 +32,8 @@ export const settingsNav: readonly SettingsNavGroup[] = [
     ],
     label: "Access to Agentum",
   },
+  {
+    items: [{ label: "Timezone", to: "/settings/timezone" }],
+    label: "Jobs",
+  },
 ];
