@@ -2,7 +2,7 @@
 // verdict, and the confidence floor below which a merge is not made) and from
 // dedup.ts (confirm a near duplicate with the model, then fold it into one
 // row). The Brain folds entities. Here one judge call reads one group of notes
-// of one kind and one userScope, and each verdict folds notes into a keeper.
+// of one userScope (any kinds, so a correction meets the note it corrects), and each verdict folds notes into a keeper.
 // The prompt is adapted from the Brain's DREAM_JUDGE_SYSTEM.
 import type {
   DreamPlanChange,
@@ -48,7 +48,7 @@ export interface MergeResult extends StepResult {
   skippedGroups: number;
 }
 
-const MERGE_SYSTEM = `You are a memory-consolidation judge. You get the notes an agent keeps, all for one owner, and each line names the note's kind. Find the notes that say the same thing, or nearly the same thing, and should become one clean note. A newer note that corrects or replaces an older one, even of another kind, goes in a group with the older note, and its text is the corrected one. Reply with ONE JSON object and no prose, shaped like {"groups":[{"ids":[string],"text":string,"confidence":number,"rationale":string}]}. Each group has at least two ids and a confidence from 0 to 1. Its text is the single merged note, on one line, under 500 characters. Notes that are distinct, or that disagree, go in no group. Use the exact ids you are given.`;
+const MERGE_SYSTEM = `You are a memory-consolidation judge. You get the notes an agent keeps, all for one owner, and each line names the note's kind. Find the notes that say the same thing, or nearly the same thing, and should become one clean note. A newer note that corrects or replaces an older one, even of another kind, goes in a group with the older note, and its text is the corrected one. Reply with ONE JSON object and no prose, shaped like {"groups":[{"ids":[string],"text":string,"confidence":number,"rationale":string}]}. Each group has at least two ids and a confidence from 0 to 1. Its text is the single merged note, on one line, under 500 characters. Notes that are distinct go in no group, and so do notes that disagree with no sign that one corrects the other. Use the exact ids you are given.`;
 
 /** One note the judge may see: an existing note, or a candidate not yet kept. */
 interface Item {

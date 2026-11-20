@@ -1,5 +1,5 @@
 // Ports the Brain's canary cases (g), a low-confidence merge is not made, and
-// (h), a cluster is one kind and one scope, and the degrade path of judge.ts (a
+// (h), a cluster is one scope (the merge step now lets kinds mix), and the degrade path of judge.ts (a
 // null or unparseable answer changes nothing and never throws). The other
 // cases are written here for notes.
 import { expect, test } from "bun:test";
