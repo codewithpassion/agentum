@@ -87,7 +87,7 @@ const isDisabled = (control: {
   control.closest("fieldset[disabled]") !== null;
 
 /** Links a fieldset cannot disable. On an archived agent they may only open read-only pages. */
-const READ_ONLY_HREFS = ["/sessions", "/tasks/", "/threads/", "/settings"];
+const READ_ONLY_HREFS = ["/sessions?agent=agent_1"];
 
 const TABS_WITH_PANELS = ["keys", "knows", "jobs", "settings"] as const;
 
@@ -109,15 +109,17 @@ test("every form control in an archived agent's tabs is disabled", () => {
 });
 
 test("an archived agent's tabs link only to read-only pages", () => {
+  const seen: string[] = [];
   for (const tab of ROOM_TABS) {
     const panel = renderTab(tab, true).querySelector('[role="tabpanel"]');
     for (const link of panel?.querySelectorAll("a[href]") ?? []) {
       const href = link.getAttribute("href") ?? "";
-      expect(READ_ONLY_HREFS.some((prefix) => href.startsWith(prefix))).toBe(
-        true
-      );
+      expect(READ_ONLY_HREFS).toContain(href);
+      seen.push(href);
     }
   }
+  // The loop is not empty: the conversation list links to the agent's conversations.
+  expect(seen.length).toBeGreaterThan(0);
 });
 
 test("an archived agent has no way into its home folder, no connect link and no instruction toggle", () => {
