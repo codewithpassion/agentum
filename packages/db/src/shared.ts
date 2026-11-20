@@ -1305,7 +1305,6 @@ export const DONE_STATUS_PREFIX = "Done: ";
 /** One agent on the Roster home. */
 export interface AgentCard {
   avatar: AgentAvatar;
-  costThisWeekCents: number;
   /**
    * When the agent's last run finished, while the status line reads "Done: ...".
    * The browser prints the time in the viewer's own zone, so the line holds none.
@@ -1736,15 +1735,27 @@ export type SpendPauseReason = (typeof SPEND_PAUSE_REASONS)[number];
 export interface SpendRow {
   /** The agent that spent. Null on a team's row, which has no agent. */
   agentId: string | null;
-  /** Cents spent on the day. */
+  /** Cents spent on the day, rounded. Sum `micros` for a week, never this. */
   cents: number;
   /** The day as `YYYY-MM-DD`. */
   day: string;
+  /** Millionths of a dollar spent on the day, unrounded. */
+  micros: number;
   /** How many runs that day counts. */
   tasks: number;
   /** The team whose dreams spent it. Set only on a team's row, where `agentId` is null. */
   teamId?: string;
 }
+
+const MICROS_PER_CENT = 10_000;
+
+/** Cents for an amount in millionths of a dollar, rounded once. */
+export const microsToCents = (micros: number): number =>
+  Math.round(micros / MICROS_PER_CENT);
+
+/** A week's cents: the rows' unrounded amounts summed, then rounded once. */
+export const sumSpendCents = (rows: readonly SpendRow[]): number =>
+  microsToCents(rows.reduce((total, row) => total + row.micros, 0));
 
 /** An agent's pause state. Both fields are null while it runs. */
 export interface SpendPause {

@@ -480,6 +480,42 @@ describe("dispatch", () => {
   });
 });
 
+describe("a platform URL on another dev port", () => {
+  test("fails the run at once with a message that names both ports, and never starts the runner", async () => {
+    const store = new Map<string, string>();
+    runs = createRunsService({
+      adapters: [
+        createCloudRuntime({
+          platformUrl: "http://localhost:3917",
+          requestOrigin: "http://localhost:4100",
+          runner,
+          runTokenKey: RUN_TOKEN_KEY,
+        }),
+      ],
+      atomic: sqliteAtomic(db),
+      blobs: {
+        get: (name: string) => Promise.resolve(store.get(name) ?? null),
+        put: (name: string, body: string) => {
+          store.set(name, body);
+          return Promise.resolve();
+        },
+      },
+      clock,
+      db,
+      devFakeRuntime: false,
+      gateways: [],
+    });
+
+    const { runId } = await start();
+
+    const row = runRow(runId);
+    expect(row?.status).toBe("failed");
+    expect(row?.error).toContain("http://localhost:3917");
+    expect(row?.error).toContain("http://localhost:4100");
+    expect(runner.startCalls).toEqual([]);
+  });
+});
+
 describe("a start that fails", () => {
   test("logs without the token, leaves the run queued, and a later sweep wakes it again", async () => {
     runner.startFailure = new Error("runner unavailable");

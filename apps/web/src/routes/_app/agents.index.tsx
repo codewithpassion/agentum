@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AgentsTable } from "#/components/agent/agents-table";
 import { rowsOf } from "#/components/agent/agents-table-logic";
 import { ArchivedAgents } from "#/components/agent/archived-agents";
+import { loadWeekSpend } from "#/components/spend/load-week-spend";
 import { buttonVariants } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
@@ -11,19 +12,21 @@ export const PAGE_HEADING = "Agents";
 export const Route = createFileRoute("/_app/agents/")({
   loader: async () =>
     loadOrLogin(async () => {
-      const [agents, overview, members] = await Promise.all([
+      const [agents, overview, members, weekCents] = await Promise.all([
         getTrpc().agents.list.query({ includeArchived: true }),
         getTrpc().agents.overview.query(),
         getTrpc()
           .members.list.query()
           .catch(() => null),
+        loadWeekSpend(),
       ]);
       return {
         archived: agents.filter((agent) => agent.status === "archived"),
         rows: rowsOf(
           agents.filter((agent) => agent.status !== "archived"),
           overview,
-          members
+          members,
+          weekCents
         ),
       };
     }),

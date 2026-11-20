@@ -631,3 +631,88 @@ test("a resumed agent starts once an admin raises the workspace cap above the we
   await spend.setCap(admin, { agentId: null, weeklyCapCents: 10_000 });
   await start(aId);
 });
+
+test("agent dreams too small to show as a cent alone pause the agent once they add up", async () => {
+  setCap(aId, 1);
+  // Three different days, so rounding each day would give 0 cents.
+  for (const [id, startedAt] of [
+    ["d1", "2026-10-13T10:00:00.000Z"],
+    ["d2", "2026-10-14T10:00:00.000Z"],
+    ["d3", "2026-10-15T10:00:00.000Z"],
+  ] as const) {
+    db.insert(dreamRuns)
+      .values({
+        agentId: aId,
+        id,
+        startedAt,
+        status: "done",
+        usage: JSON.stringify({ costUsd: 0.004 }),
+        workspaceId: WORKSPACE,
+      })
+      .run();
+  }
+  expect(await spend.weekToDate(aId)).toBe(1);
+  expect(await spend.wouldExceed(aId)).toBe(true);
+  await spend.enforceCap(aId);
+  expect(agentRow(aId)).toMatchObject({
+    pausedAt: START,
+    pausedReason: "spend_cap",
+  });
+});
+
+// Sunday 21:00 and Monday 01:00 in Sydney (UTC+11), the workspace timezone below.
+const SUNDAY = "2026-10-18T10:00:00.000Z";
+const MONDAY = "2026-10-18T14:00:00.000Z";
+
+const liftAt = (at: string) =>
+  createSpendService({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(at), sleep: () => Promise.resolve() },
+    db,
+  }).liftCapPauses();
+
+const pause = (agentId: string, pausedReason: "manual" | "spend_cap") =>
+  db
+    .update(agentRows)
+    .set({ pausedAt: SUNDAY, pausedReason })
+    .where(eq(agentRows.id, agentId))
+    .run();
+
+test("the tick lifts a cap pause when the new week starts, and leaves a manual pause", async () => {
+  db.update(workspaceRows)
+    .set({ timezone: "Australia/Sydney" })
+    .where(eq(workspaceRows.id, WORKSPACE))
+    .run();
+  setCap(aId, CAP_CENTS);
+  setCap(bId, CAP_CENTS);
+  await spendOn(aId, 1.5);
+  db.update(runRows)
+    .set({ createdAt: SUNDAY })
+    .where(eq(runRows.agentId, aId))
+    .run();
+  pause(aId, "spend_cap");
+  pause(bId, "manual");
+
+  await liftAt(SUNDAY);
+  expect(agentRow(aId)?.pausedReason).toBe("spend_cap");
+
+  await liftAt(MONDAY);
+  expect(agentRow(aId)).toMatchObject({ pausedAt: null, pausedReason: null });
+  expect(agentRow(bId)).toMatchObject({
+    pausedAt: SUNDAY,
+    pausedReason: "manual",
+  });
+});
+
+test("the tick keeps a cap pause while the agent is still over its cap", async () => {
+  setCap(aId, CAP_CENTS);
+  await spendOn(aId, 1.5);
+  expect(agentRow(aId)?.pausedReason).toBe("spend_cap");
+
+  await liftAt(START);
+  expect(agentRow(aId)?.pausedReason).toBe("spend_cap");
+
+  setCap(aId, CAP_CENTS * 10);
+  await liftAt(START);
+  expect(agentRow(aId)?.pausedAt).toBeNull();
+});

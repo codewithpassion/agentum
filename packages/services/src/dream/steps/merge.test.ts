@@ -1,5 +1,5 @@
 // Ports the Brain's canary cases (g), a low-confidence merge is not made, and
-// (h), a cluster is one kind and one scope, and the degrade path of judge.ts (a
+// (h), a cluster is one scope (the merge step now lets kinds mix), and the degrade path of judge.ts (a
 // null or unparseable answer changes nothing and never throws). The other
 // cases are written here for notes.
 import { expect, test } from "bun:test";
@@ -115,7 +115,7 @@ test("near duplicate: an existing note and a candidate the judge groups become o
   ]);
   expect(calls).toHaveLength(1);
   expect(calls[0]?.prompt).toContain(
-    "- id=new-1 (by new): Dom likes brief emails."
+    "- id=new-1 (kind people, by new): Dom likes brief emails."
   );
 });
 
@@ -201,32 +201,29 @@ test("a low-confidence merge is not made: the candidate is added as it is", asyn
   expect(result.notes).toEqual([existing]);
 });
 
-test("never mixes kinds or scopes: one judge call per group, and no prompt holds another group's note", async () => {
+test("never mixes scopes: one judge call per scope, and no prompt holds another scope's note", async () => {
   const { calls, judge } = fakeJudge((prompt) =>
     prompt.includes("id=n1")
       ? oneGroup(["n1", "new-1"], "Dom prefers brief emails.")
-      : oneGroup(["n2", "new-2"], "Dom prefers brief emails at work.")
+      : oneGroup(["n3", "new-2"], "Dom prefers brief emails privately.")
   );
   const result = await mergeNotes({
     candidates: [
       candidate("Dom likes brief emails."),
-      candidate("Dom likes brief emails.", { kind: "work" }),
+      candidate("Dom likes brief emails.", { userScope: "user_1" }),
     ],
     judge,
     notes: [
       note("n1", { text: "Dom prefers short emails." }),
-      note("n2", { kind: "work", text: "Dom prefers short emails at work." }),
       note("n3", { text: "Dom prefers short emails.", userScope: "user_1" }),
     ],
     today: TODAY,
   });
   expect(calls).toHaveLength(2);
   expect(calls[0]?.prompt).toContain("id=n1");
-  expect(calls[0]?.prompt).not.toContain("id=n2");
   expect(calls[0]?.prompt).not.toContain("id=n3");
-  expect(calls[1]?.prompt).toContain("id=n2");
+  expect(calls[1]?.prompt).toContain("id=n3");
   expect(calls[1]?.prompt).not.toContain("id=n1");
-  expect(calls[1]?.prompt).not.toContain("id=n3");
   expect(result.changes).toEqual([
     {
       absorbedNoteIds: [],
@@ -237,10 +234,69 @@ test("never mixes kinds or scopes: one judge call per group, and no prompt holds
     {
       absorbedNoteIds: [],
       action: "merge",
-      keepNoteId: "n2",
-      text: "Dom prefers brief emails at work.",
+      keepNoteId: "n3",
+      text: "Dom prefers brief emails privately.",
     },
   ]);
+});
+
+test("a correction of another kind meets the note it corrects: one note is left, of the newer kind", async () => {
+  const { calls, judge } = fakeJudge(() =>
+    oneGroup(["n1", "new-1"], "The Northwind client lunch is at 1:30pm.")
+  );
+  const result = await mergeNotes({
+    candidates: [
+      candidate("The Northwind client lunch moved to 1:30pm.", {
+        kind: "corrections",
+      }),
+    ],
+    judge,
+    notes: [
+      note("n1", {
+        text: "Client lunches with Northwind are on Fridays at 1pm.",
+        writtenBy: "person",
+      }),
+    ],
+    today: TODAY,
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.prompt).toContain("kind people");
+  expect(calls[0]?.prompt).toContain("kind corrections");
+  expect(result.changes).toEqual([
+    {
+      action: "drop",
+      noteId: "n1",
+      reason: "A newer note of another kind replaces it",
+    },
+    candidate("The Northwind client lunch is at 1:30pm.", {
+      kind: "corrections",
+    }),
+  ]);
+  expect(result.notes).toEqual([]);
+});
+
+test("a correction merges into an existing note of its own kind and absorbs the older note of another kind", async () => {
+  const { judge } = fakeJudge(() =>
+    oneGroup(["n1", "n2", "new-1"], "Lunch is at 1:30pm.")
+  );
+  const result = await mergeNotes({
+    candidates: [candidate("Lunch moved to 1:30pm.", { kind: "work" })],
+    judge,
+    notes: [
+      note("n1", { text: "Lunch is at 1pm." }),
+      note("n2", { kind: "work", text: "Lunch is at 1pm on Fridays." }),
+    ],
+    today: TODAY,
+  });
+  expect(result.changes).toEqual([
+    {
+      absorbedNoteIds: ["n1"],
+      action: "merge",
+      keepNoteId: "n2",
+      text: "Lunch is at 1:30pm.",
+    },
+  ]);
+  expect(result.notes.map((n) => n.id)).toEqual(["n2"]);
 });
 
 test("a null, garbage or thrown judge answer adds the candidates and counts the group as skipped", async () => {

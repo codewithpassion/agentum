@@ -105,7 +105,6 @@ const card = (
   id = name.toLowerCase()
 ): AgentCard => ({
   avatar: { color: "slate", glyph: name.charAt(0) },
-  costThisWeekCents: 0,
   doneAt: null,
   id,
   isLead: false,
@@ -160,6 +159,7 @@ const mount = async (
           onAddMember={onAddMember}
           teams={TEAMS}
           userId={userId}
+          weekCents={new Map()}
         />
       </RouterContextProvider>
     )

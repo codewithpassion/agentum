@@ -676,7 +676,7 @@ test("a paused agent starts no run, and the sender gets the pause reason", async
   expect(replies[0]?.[1]).toBe("t");
   expect(replies[0]?.[2]).toMatchObject({
     subject: "Re: Help",
-    text: "A is paused. Its weekly limit was reached.",
+    text: "A is paused. Its weekly limit was reached. Send it again once the agent is resumed.",
     to: ["sender@example.net"],
   });
 });
