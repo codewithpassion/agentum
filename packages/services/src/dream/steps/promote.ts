@@ -25,8 +25,14 @@ export const promoteProcedures = async (input: {
   existingNames: readonly string[];
 }): Promise<ProcedureDraft[]> => {
   // A skill is shared with whoever approves it, so a person's private evidence
-  // never reaches the judge and cannot become a proposal.
-  const items = input.items.filter((item) => item.scope !== "private");
+  // never reaches the judge and cannot become a proposal. Outside text keeps
+  // its userId when it came through a private session, so both marks count.
+  const items = input.items.filter(
+    (item) => item.scope !== "private" && item.userId === undefined
+  );
+  if (items.length === 0) {
+    return [];
+  }
   const answer = await askJudge(
     input.judge,
     JSON.stringify({

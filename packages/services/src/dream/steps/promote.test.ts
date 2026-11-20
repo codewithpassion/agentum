@@ -80,17 +80,21 @@ test("invalid names and single-step procedures are skipped", async () => {
   expect(await promote({ ...procedure, name: "Bad Name" })).toEqual([]);
   expect(await promote({ ...procedure, steps: ["Just do it"] })).toEqual([]);
 });
-test("private evidence is never sent to the judge or cited", async () => {
-  const prompts: string[] = [];
-  const drafts = await promoteProcedures({
-    existingNames: [],
-    items: items.map((item) => ({ ...item, scope: "private", userId: "u1" })),
-    judge: (prompt) => {
-      prompts.push(prompt);
-      return Promise.resolve(JSON.stringify({ procedures: [procedure] }));
-    },
-    rejected: [],
-  });
-  expect(drafts).toEqual([]);
-  expect(prompts[0]).not.toContain("Read the report");
+
+test("private evidence, even marked outside, never reaches the judge", async () => {
+  for (const scope of ["private", "outside"] as const) {
+    const prompts: string[] = [];
+    // biome-ignore lint/performance/noAwaitInLoops: each scope is checked on its own
+    const drafts = await promoteProcedures({
+      existingNames: [],
+      items: items.map((item) => ({ ...item, scope, userId: "u1" })),
+      judge: (prompt) => {
+        prompts.push(prompt);
+        return Promise.resolve(JSON.stringify({ procedures: [procedure] }));
+      },
+      rejected: [],
+    });
+    expect(drafts).toEqual([]);
+    expect(prompts).toEqual([]);
+  }
 });
