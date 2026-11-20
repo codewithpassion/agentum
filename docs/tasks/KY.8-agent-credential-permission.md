@@ -3,7 +3,7 @@ id: KY.8
 title: "Only an agent's owner or an admin sets the agent's credential"
 milestone: KY
 size: S
-status: blocked
+status: todo
 depends_on: [KY.3]
 branch: null
 lane: services-connectors
@@ -14,7 +14,7 @@ From the KY.3 review (`docs/reviews/tasks/KY.3.md`). Any workspace member can st
 
 ## Scope
 
-- Decide who may set an agent's credential: the agent's owners, admins, or both.
+- An agent's owners and workspace admins may set or replace the agent's credential. Plain members may not (Dom, 20 Nov 2026).
 - Enforce that rule in the connectors service and the OAuth start route, with tests for owner, admin and plain member.
 - The Keys tab hides the agent-credential actions from people the rule refuses.
 
@@ -25,3 +25,4 @@ From the KY.3 review (`docs/reviews/tasks/KY.3.md`). Any workspace member can st
 
 ## Log
 - 2026-11-20: added from the KY.3 review. Blocked: needs Dom to decide who may set an agent's credential (its owners, admins, or both).
+- 2026-11-20: Dom decided: both the agent's owners and admins may set it. Unblocked.
