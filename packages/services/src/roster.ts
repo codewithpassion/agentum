@@ -65,19 +65,22 @@ const avatarFor = (row: AgentRow): AgentAvatar => {
   return parsed.success ? parsed.data : defaultAgentAvatar(row.name);
 };
 
-// A sentence ends at punctuation followed by whitespace/end; collapse line breaks
-// within it. Clip by Unicode code points so a glyph is never cut in half.
-const SENTENCE_END = /(?<=[.!?])(?:\s|$)/u;
+// A sentence ends at punctuation (and a closing quote or bracket) followed by
+// whitespace/end; collapse line breaks within it. Clip by Unicode code points so
+// a glyph is never cut in half, and end a clipped line with an ellipsis.
+const SENTENCE_END = /(?<=[.!?]["'”’)]?)(?:\s|$)/u;
 const WHITESPACE = /\s+/g;
 const ENDS_IN_PUNCTUATION = /[.!?…]$/u;
 const DAY_MS = 24 * 60 * 60_000;
 const WEEK_MS = 7 * DAY_MS;
-export const jobLineFor = (instructions: string): string =>
-  Array.from(
+export const jobLineFor = (instructions: string): string => {
+  const chars = Array.from(
     instructions.trim().split(SENTENCE_END)[0]?.replace(WHITESPACE, " ") ?? ""
-  )
-    .slice(0, JOB_LINE_MAX_CHARS)
-    .join("");
+  );
+  return chars.length > JOB_LINE_MAX_CHARS
+    ? `${chars.slice(0, JOB_LINE_MAX_CHARS - 1).join("")}…`
+    : chars.join("");
+};
 
 type RunFact = Pick<
   typeof runs.$inferSelect,
