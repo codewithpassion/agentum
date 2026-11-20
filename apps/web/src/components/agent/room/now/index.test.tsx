@@ -1,8 +1,15 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { fixtureTabProps, renderInRoom } from "../test-fixtures.tsx";
-import { NowPanel, NowPanelView, type NowPanelViewProps } from "./index.tsx";
+import type { NowPanelViewProps } from "./index.tsx";
 import { makeListItem, makeTask } from "./now-fixtures.ts";
 import { latestStep, liveHelpers } from "./now-logic.ts";
+
+// Learned this week reads Clerk's auth state, which needs a provider.
+mock.module("@clerk/tanstack-react-start", () => ({
+  useAuth: () => ({ orgRole: "org:admin", userId: "user_1" }),
+}));
+
+const { NowPanel, NowPanelView } = await import("./index.tsx");
 
 const noop = (): void => undefined;
 
