@@ -25,3 +25,4 @@ a component test where the roster says $0 and the spend rows say $0.55, and the 
 ## Log
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at e6df0220, review clean with no fix rounds, browser pass at both sizes. Queued for merge.
