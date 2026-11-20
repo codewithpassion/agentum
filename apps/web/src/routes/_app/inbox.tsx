@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { roomForInboxLink } from "#/components/room/room-logic.ts";
 import { getTrpc } from "#/integrations/trpc/client";
-import { hasTrpcCode, loadOrLogin } from "#/integrations/trpc/load-or-login";
+import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 const searchSchema = z.object({
   thread: z.string().min(1).optional().catch(undefined),
@@ -13,14 +13,8 @@ const teamOfThread = async (threadId: string | undefined) => {
   if (threadId === undefined) {
     return;
   }
-  try {
-    const view = await getTrpc().inbox.readThread.query({ threadId });
-    return view.thread.teamId;
-  } catch (error) {
-    if (hasTrpcCode(error, "UNAUTHORIZED")) {
-      throw error;
-    }
-  }
+  const found = await getTrpc().inbox.topicTeam.query({ threadId });
+  return found?.teamId;
 };
 
 /** The inbox became team rooms: this sends the old URL to the topic's room, or to Everyone's. A topic that can't be read goes to Everyone with no topic open. */

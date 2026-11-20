@@ -31,4 +31,9 @@ export const inboxRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.inbox.readThread(ctx.principal, input)
     ),
+  topicTeam: workspaceProcedure
+    .input(threadReadInputSchema)
+    .query(({ ctx, input }) =>
+      ctx.services.inbox.topicTeam(ctx.principal, input)
+    ),
 });

@@ -566,6 +566,28 @@ export const createInboxService = ({
   };
 
   /**
+   * Which team room a topic is in, for sending an old link there. Answers null
+   * for a topic the reader may not see or that does not exist, where
+   * `readThread` throws, so a caller can ask without an error.
+   */
+  const topicTeam = async (
+    principal: Principal,
+    rawInput: z.input<typeof threadReadInputSchema>
+  ): Promise<{ teamId: string | null } | null> => {
+    const { threadId } = threadReadInputSchema.parse(rawInput);
+    const member = requireMember(principal, READ_ACTION);
+    try {
+      const thread = await requireThread(member, threadId, READ_ACTION, "read");
+      return { teamId: thread.teamId };
+    } catch (error) {
+      if (isServiceError(error) && error.code === "not_found") {
+        return null;
+      }
+      throw error;
+    }
+  };
+
+  /**
    * A person dismisses a thread from Needs you. It stays out until an agent
    * posts again. Dismissing twice moves the time forward.
    */
@@ -1232,6 +1254,7 @@ export const createInboxService = ({
     postExternal,
     postNotice,
     readThread,
+    topicTeam,
   };
 };
 
