@@ -30,6 +30,8 @@ export interface ThreadEnv {
   nowMs: number | null;
   onComputer?: () => void;
   outsideLabels?: ReadonlyMap<string, string>;
+  /** Set when the thread can save notes to the agent's memory. */
+  remember?: { agentId: string; sessionId: string };
   requests: ReadonlyMap<string, RequestView>;
   requestTimes?: ReadonlyMap<string, string>;
   runMarkers?: ReadonlyMap<string, { runId: string; label: string }>;
