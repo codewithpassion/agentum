@@ -71,6 +71,7 @@ import { validateSubagentAccess } from "./runs/access-scope.ts";
 import { authorizeArtifactRun } from "./runs/artifact-access.ts";
 import { runDefersQuestions } from "./runs/deferral.ts";
 import { createFakeRuntime } from "./runs/fake-runtime.ts";
+import type { ProxyAccess } from "./runs/fake-tool.ts";
 import { noneGateway } from "./runs/gateways.ts";
 import {
   authenticateGuestRun,
@@ -378,6 +379,13 @@ export interface RunsServiceOptions {
     Partial<Pick<LibraryService, "read">>;
   people?: PeopleLookup;
   /**
+   * Where the app's connector proxy is, for the fake runtime's tool mode: the
+   * deployment's origin and a fetch that reaches it (a Worker cannot fetch its
+   * own hostname). Only read when `devFakeRuntime` is true. Without it, a fake
+   * run that asks for a tool fails.
+   */
+  proxy?: ProxyAccess;
+  /**
    * `RUN_TOKEN_KEY` (base64, 32 bytes). Only the machine claim needs it, which
    * mints the run token; leave it out where no machine claims runs.
    */
@@ -485,6 +493,7 @@ export const createRunsService = ({
   guestRuntimeReady,
   guestsOff,
   people,
+  proxy,
   atomic,
   blobs,
   clock,
@@ -500,7 +509,10 @@ export const createRunsService = ({
     adapters.map((adapter) => [adapter.kind, adapter])
   );
   if (devFakeRuntime) {
-    adapterByKind.set("fake", createFakeRuntime());
+    adapterByKind.set(
+      "fake",
+      createFakeRuntime({ proxy, signToken: (claims) => signToken(claims) })
+    );
   }
   const gatewayByKind = new Map<string, Gateway>([
     [noneGateway.kind, noneGateway],
