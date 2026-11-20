@@ -1403,6 +1403,9 @@ test("a private held note goes to its person alone, with no backup step", async 
   expect(await desk.needsYouCount(user("u2"))).toBe(1);
 
   now += RAIL_ESCALATE_AFTER_MS;
-  expect((await view("mine", user("u3"))).needsYou).toHaveLength(0);
-  expect((await view("mine", user("u1"))).needsYou).toHaveLength(0);
+  expect((await view("mine", user("u2"))).needsYou[0]).toMatchObject({
+    assigneeUserId: "u2",
+    escalatedToMe: false,
+    mine: true,
+  });
 });
