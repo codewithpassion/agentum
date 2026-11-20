@@ -46,6 +46,13 @@ const user = (userId = "u1", workspaceId = "w1"): Principal => ({
   via: "session",
   workspaceId,
 });
+const dreamUser: Principal = {
+  dream: true,
+  kind: "user",
+  userId: "dream:a1",
+  via: "session",
+  workspaceId: "w1",
+};
 const DAY_START = "2026-10-26T00:00:00.000Z";
 const NOW = Date.parse("2026-10-26T09:00:00Z");
 
@@ -1665,7 +1672,7 @@ test("a held memory change from a dream waits as the dream's question, not as a 
 });
 
 test("a dream skill proposal without a run reaches Needs you and can be rejected", async () => {
-  const { skill, version } = await skillsStore.proposeForAgent(user(), {
+  const { skill, version } = await skillsStore.proposeForAgent(dreamUser, {
     agentId: a1,
     files: [
       {

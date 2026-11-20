@@ -1243,6 +1243,10 @@ export const createSkillsStoreService = ({
     input: CreateInput & { agentId: string }
   ): Promise<{ skill: SkillRecord; version: VersionRecord }> => {
     const c = peopleOf(principal, "skills.create");
+    // Only the in-process dream principal may author as an agent; a person or a key may not.
+    if (principal.kind !== "user" || principal.dream !== true) {
+      throw new ForbiddenError("skills.create");
+    }
     if (
       !(await findAgent(db, { id: input.agentId, workspaceId: c.workspaceId }))
     ) {
