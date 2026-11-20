@@ -3,9 +3,9 @@ id: TM.7
 title: "Team room UI: topics and posts"
 milestone: TM
 size: L
-status: todo
+status: in_progress
 depends_on: [TM.1]
-branch: null
+branch: task/TM.7-team-room-ui
 lane: web-room
 executor: claude
 ---
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone TM. Mockup: the centre column of Proposa
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TM.7-team-room-ui (v4 controller session).
