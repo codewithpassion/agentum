@@ -119,7 +119,7 @@ const fakeInbox = (
           authorKind: input.authorAgentId === null ? "user" : "agent",
           createdAt: clock.now().toISOString(),
           id: `post_${notices.length}`,
-          text: input.text,
+          text: input.text.trim(),
           threadId,
           workspaceId: WORKSPACE,
         })
@@ -170,6 +170,18 @@ test("a second postDue right after posts nothing", async () => {
   const { at, clock, w } = makeDiaryWorld();
   const { inbox, notices } = fakeInbox(w, clock);
   finishDream(w, "run_sales", TEAM, "Diary one");
+  const poster = createTeamDiaryPoster({ clock, db: w.db, inbox });
+  at(SLOT);
+  await poster.postDue();
+  at(LATER_SAME_DAY);
+  expect(await poster.postDue()).toEqual({ posted: [] });
+  expect(notices).toHaveLength(1);
+});
+
+test("a diary that ends in whitespace posts once, as the room stores it trimmed", async () => {
+  const { at, clock, w } = makeDiaryWorld();
+  const { inbox, notices } = fakeInbox(w, clock);
+  finishDream(w, "run_sales", TEAM, "Diary one \n");
   const poster = createTeamDiaryPoster({ clock, db: w.db, inbox });
   at(SLOT);
   await poster.postDue();

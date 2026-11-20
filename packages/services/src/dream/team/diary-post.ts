@@ -17,7 +17,6 @@ const DIARY_CRON = "0 8 * * *";
 const HOUR_MS = 60 * 60_000;
 const LOOKBACK_MS = 48 * HOUR_MS;
 const DUE_WINDOW_MS = 12 * HOUR_MS;
-const CANDIDATE_LIMIT = 50;
 
 export interface TeamDiaryPosterDeps {
   clock: Clock;
@@ -67,8 +66,7 @@ const readCandidates = async (
         gte(dreamRuns.finishedAt, since)
       )
     )
-    .orderBy(asc(dreamRuns.finishedAt))
-    .limit(CANDIDATE_LIMIT);
+    .orderBy(asc(dreamRuns.finishedAt));
   return rows.flatMap((row) =>
     row.teamId && row.finishedAt
       ? [
@@ -138,7 +136,7 @@ const postedRunIds = async (
         posts.some(
           (post) =>
             post.teamId === run.teamId &&
-            post.text === run.diary &&
+            post.text === run.diary.trim() &&
             post.createdAt >= run.finishedAt
         )
       )
@@ -155,8 +153,11 @@ export const createTeamDiaryPoster = (deps: TeamDiaryPosterDeps) => {
     const due = dueRuns(await readCandidates(db, now), now.getTime());
     const done = await postedRunIds(db, due);
     const posted: string[] = [];
+    // The posted text is trimmed, like the check above; one team never gets the same text twice in a tick.
+    const sent = new Set<string>();
     for (const run of due) {
-      if (done.has(run.id)) {
+      const key = `${run.teamId}\n${run.diary.trim()}`;
+      if (done.has(run.id) || sent.has(key)) {
         continue;
       }
       try {
@@ -171,6 +172,7 @@ export const createTeamDiaryPoster = (deps: TeamDiaryPosterDeps) => {
           }
         );
         posted.push(run.id);
+        sent.add(key);
       } catch {
         // The diary stays due until its window closes, so the next tick tries again.
       }
