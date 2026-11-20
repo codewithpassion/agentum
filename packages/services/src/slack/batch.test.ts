@@ -10,6 +10,7 @@ import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { encryptSecret, importSecretsKey } from "../crypto.ts";
+import { agentPaused } from "../errors.ts";
 import { createEventsService } from "../events.ts";
 import type { StartRunInput, StartRunOptions } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
@@ -63,6 +64,7 @@ let nowMs: number;
 let startCalls: StartRunInput[];
 let offered: string[];
 let failFor: string | null;
+let pausedFor: string | null;
 
 const setNow = (minutes: number) => {
   nowMs = Date.parse(at(minutes));
@@ -87,6 +89,9 @@ const fakeRuns = {
     const externalKey = input.session.externalKey ?? null;
     if (failFor !== null && externalKey?.includes(failFor)) {
       throw new Error("start refused");
+    }
+    if (pausedFor === input.agentId) {
+      throw agentPaused(input.agentId);
     }
     startCalls.push(input);
     const [existing] = db
@@ -244,6 +249,7 @@ beforeEach(async () => {
   startCalls = [];
   offered = [];
   failFor = null;
+  pausedFor = null;
   errorSpy = spyOn(console, "error").mockImplementation(() => undefined);
   db.insert(workspaceRows)
     .values({
@@ -589,6 +595,19 @@ test("a failing start for one channel does not stop the other, and its messages 
     "Slack batch failed",
     expect.any(Error)
   );
+});
+
+test("a due batch for a paused agent starts no run, logs nothing, and leaves its messages unbatched", async () => {
+  await store([{ createdAt: at(0), ts: "1.000001" }]);
+  pausedFor = "a_main";
+  setNow(5);
+
+  await makeRunner().runDue();
+
+  expect(startCalls).toHaveLength(0);
+  expect(db.select().from(runRows).all()).toHaveLength(0);
+  expect(batchedAtByTs("1.000001")).toBeNull();
+  expect(errorSpy).not.toHaveBeenCalled();
 });
 
 test("apps in mentions mode get no batch", async () => {

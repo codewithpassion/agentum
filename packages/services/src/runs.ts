@@ -53,7 +53,7 @@ import { assertModelForRuntime, findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { cloudEnvironmentOf } from "./cloud/environment.ts";
 import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
-import { isUniqueViolation, ServiceError } from "./errors.ts";
+import { agentPaused, isUniqueViolation, ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import {
   type Blobs,
@@ -82,6 +82,11 @@ import {
 } from "./runs/guest-scope.ts";
 import { type ChildOutcome, handoffWakeText } from "./runs/handoff-wake.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
+import {
+  HANDOFF_WAKE_PREFIX,
+  isReservedRequestId,
+  notHeldByPause,
+} from "./runs/pause-hold.ts";
 import { peerRootOf } from "./runs/peer-root.ts";
 import {
   findSession,
@@ -120,6 +125,7 @@ import {
 } from "./runs/types.ts";
 import type { SecretsService } from "./secrets.ts";
 import { visibleSessions } from "./sessions.ts";
+import type { SpendService } from "./spend.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 /** A claimed run is `running` until this long after the last heartbeat. */
@@ -400,6 +406,11 @@ export interface RunsServiceOptions {
     SecretsService,
     "announceDelivery" | "maskerFor" | "resolveForAgent"
   >;
+  /**
+   * Checks the weekly caps when a run finishes. Without it, nothing pauses.
+   * A failure is logged and never changes how the run ended.
+   */
+  spend?: Pick<SpendService, "enforceCap">;
 }
 
 type ParsedInput = ReturnType<typeof startRunInputSchema.parse>;
@@ -503,6 +514,7 @@ export const createRunsService = ({
   library,
   runTokenKey,
   secrets,
+  spend,
 }: RunsServiceOptions) => {
   const eventsService = createEventsService({ blobs, db, people });
   const adapterByKind = new Map<string, RuntimeAdapter>(
@@ -761,6 +773,36 @@ export const createRunsService = ({
 
   type Prepared = Awaited<ReturnType<typeof prepareStart>>;
 
+  /** Only a follow-up of work under way may carry a request id that the pause hold lets through. */
+  const refuseReservedRequestId = (
+    input: ParsedInput,
+    options: Pick<StartRunOptions, "continuationOf" | "wakesParent">
+  ) => {
+    if (
+      input.requestId &&
+      isReservedRequestId(input.requestId) &&
+      !(options.continuationOf || options.wakesParent)
+    ) {
+      throw new ServiceError("invalid", "That requestId is reserved");
+    }
+  };
+
+  /**
+   * A paused agent starts nothing new, from any origin. The follow-ups of work
+   * already under way go on: the cap never kills a task, so a parked run's
+   * continuation, a parent's wake and a subagent still start.
+   */
+  const refuseIfPaused = (
+    agent: { name: string; pausedAt: string | null },
+    options: StartRunOptions
+  ) => {
+    const underWay =
+      options.continuationOf || options.wakesParent || options.subagent;
+    if (agent.pausedAt !== null && !underWay) {
+      throw agentPaused(agent.name);
+    }
+  };
+
   const refuseScopedHandoff = async (principal: Principal) => {
     if (principal.kind !== "run") {
       return;
@@ -790,6 +832,7 @@ export const createRunsService = ({
       kind: RUN_KIND,
       workspaceId: agent.workspaceId,
     });
+    refuseIfPaused(agent, options);
     const adapter = adapterByKind.get(options.dryRun ? "cloud" : agent.runtime);
     if (!adapter) {
       throw new ServiceError(
@@ -1271,6 +1314,7 @@ export const createRunsService = ({
     options: StartRunOptions = {}
   ): Promise<StartResult> => {
     const input = startRunInputSchema.parse(rawInput);
+    refuseReservedRequestId(input, options);
     const prepared = await prepareStart(principal, input, options);
     return finishStart(prepared, input, options);
   };
@@ -1297,6 +1341,7 @@ export const createRunsService = ({
     ) {
       throw guestUnavailable();
     }
+    refuseIfPaused(agent, {});
     try {
       await authorizeGuestGrant(grant, {
         agentId: agent.id,
@@ -1321,6 +1366,7 @@ export const createRunsService = ({
   ): Promise<StartResult> => {
     const grant = guestGrantSchema.parse(rawGrant);
     const input = startRunInputSchema.parse(rawInput);
+    refuseReservedRequestId(input, {});
     if (
       !(authorizeGuestGrant && guestRuntimeReady) ||
       (guestsOff?.() ?? true) ||
@@ -1494,6 +1540,7 @@ export const createRunsService = ({
           inArray(runs.status, STARTING),
           // A run with pending Slack files is not claimable.
           isNull(runs.pendingFiles),
+          notHeldByPause(db),
           // One running run per agent; a waiting run still holds its agent.
           notExists(
             db
@@ -1540,6 +1587,7 @@ export const createRunsService = ({
                     eq(older.sessionId, runs.sessionId)
                   ),
                   inArray(older.status, STARTING),
+                  notHeldByPause(db, older),
                   or(
                     lt(older.createdAt, runs.createdAt),
                     and(
@@ -2113,6 +2161,7 @@ export const createRunsService = ({
     if (run.status !== "waiting") {
       await appendRunEvent(run, "run.waiting", agentActor(run));
     }
+    await enforceCap(run.agentId);
     // The turn's own words (what it asked) reach the requester now, as a finished turn's would.
     try {
       await deliverReply(run, { fileIds, text: result.text ?? "" });
@@ -2186,6 +2235,15 @@ export const createRunsService = ({
     return await loadRun(db, run.id);
   };
 
+  /** The run is over. Pause the agent, or the workspace, if its week has passed a cap. */
+  const enforceCap = async (agentId: string): Promise<void> => {
+    try {
+      await spend?.enforceCap(agentId);
+    } catch (error) {
+      console.error("Spend cap check failed", agentId, error);
+    }
+  };
+
   const completeRun = async (
     principal: Principal,
     runId: string,
@@ -2242,6 +2300,7 @@ export const createRunsService = ({
     if (after?.status !== result.status || after.finishedAt !== finishedAt) {
       throw new ServiceError("conflict", "Run is no longer running");
     }
+    await enforceCap(run.agentId);
     if (failed) {
       await recordFailure(run, result);
       await offerNextWaiting(run);
@@ -2331,7 +2390,7 @@ export const createRunsService = ({
             }),
           },
           reply: parent.reply.kind === "a2a" ? { kind: "none" } : parent.reply,
-          requestId: `handoff-wake:${child.id}`,
+          requestId: `${HANDOFF_WAKE_PREFIX}${child.id}`,
           session: {
             origin: parentSession.origin as StartRunInput["session"]["origin"],
           },

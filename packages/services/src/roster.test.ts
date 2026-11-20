@@ -21,7 +21,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
-import { createRosterService } from "./roster.ts";
+import { createRosterService, PAUSED_STATUS_LINE } from "./roster.ts";
 import type { Principal } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
@@ -908,4 +908,95 @@ test("learnedCount counts applied changes per agent in the rolling seven days, r
       (card) => card.learnedCount
     )
   ).toEqual([3, 1, 0]);
+});
+
+test("a paused agent with a finished run is stopped with the paused line", async () => {
+  insertAgent({
+    id: "a1",
+    name: "Alpha",
+    pausedAt: NOW,
+    pausedReason: "spend_cap",
+  });
+  seedRun("r1", { finishedAt: NOW, status: "done" });
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "stopped",
+    statusLine: PAUSED_STATUS_LINE,
+  });
+});
+
+test("a paused agent mid-run is still stopped, not working", async () => {
+  insertAgent({
+    id: "a1",
+    name: "Alpha",
+    pausedAt: NOW,
+    pausedReason: "spend_cap",
+  });
+  seedRun("r1");
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "stopped",
+    statusLine: PAUSED_STATUS_LINE,
+  });
+});
+
+test("a paused agent with a pending approval is stopped, and still counts it", async () => {
+  insertAgent({
+    id: "a1",
+    name: "Alpha",
+    pausedAt: NOW,
+    pausedReason: "spend_cap",
+  });
+  seedRun("r1");
+  railView.needsYou = [
+    {
+      assigneeName: "Ann",
+      assigneeUserId: "u1",
+      cards: [
+        {
+          agentId: "a1",
+          agentName: "Alpha",
+          at: NOW,
+          detail: "",
+          expiresAt: null,
+          id: "q1",
+          kind: "question" as const,
+          mail: null,
+          passedOnBy: null,
+          runId: "r1",
+          status: "Waiting",
+          threadId: null,
+          title: "Approve the spend?",
+        },
+      ],
+      dueAt: null,
+      escalatedToMe: false,
+      id: "q1",
+      mine: true,
+    },
+  ];
+  expect((await service.list(user))[0]).toMatchObject({
+    needsYouCount: 1,
+    ownerName: "Ann",
+    state: "stopped",
+    statusLine: PAUSED_STATUS_LINE,
+  });
+});
+
+test("an unpaused agent with a running run is still working", async () => {
+  insertAgent({ id: "a1", name: "Alpha", pausedAt: null });
+  seedRun("r1");
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "working",
+    statusLine: "Prepare the report",
+  });
+});
+
+test("weeklyCapCents carries the agent's cap, and null when unset", async () => {
+  insertAgent({ id: "a1", name: "Alpha", weeklyCapCents: 5000 });
+  insertAgent({ id: "a2", name: "Beta" });
+  expect(
+    (await service.list(user)).map((card) => [card.id, card.weeklyCapCents])
+  ).toEqual([
+    ["a1", 5000],
+    ["a2", null],
+  ]);
 });

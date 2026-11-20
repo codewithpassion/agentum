@@ -7,6 +7,7 @@
 import type { Database } from "@repo/db";
 import { slackApps } from "@repo/db/schema/slack";
 import { eq } from "drizzle-orm";
+import { isAgentPaused } from "../errors.ts";
 import type { EventsService } from "../events.ts";
 import type { Clock, StartRunInput } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
@@ -197,25 +198,36 @@ export const createBatchRunner = ({
         origin: "slack",
       },
     };
-    const started = await runs.startRun(SYSTEM_PRINCIPAL, input, {
-      alongside: ({ runId, sessionId }) => [
-        // Marking the messages lands with the run, so a failed start leaves them for the next batch.
-        ...markBatchedStatements(db, {
-          batchedAt,
-          ids: messages.map((message) => message.id),
-        }),
-        events.insertStatement({
-          actor: { id: "slack", kind: "system" },
-          agentId,
-          payload: { channel: channelId, messageCount: messages.length },
-          runId,
-          sessionId,
-          type: "slack.batch_started",
-          workspaceId,
-        }),
-      ],
-      offerLater: true,
-    });
+    const started = await runs
+      .startRun(SYSTEM_PRINCIPAL, input, {
+        alongside: ({ runId, sessionId }) => [
+          // Marking the messages lands with the run, so a failed start leaves them for the next batch.
+          ...markBatchedStatements(db, {
+            batchedAt,
+            ids: messages.map((message) => message.id),
+          }),
+          events.insertStatement({
+            actor: { id: "slack", kind: "system" },
+            agentId,
+            payload: { channel: channelId, messageCount: messages.length },
+            runId,
+            sessionId,
+            type: "slack.batch_started",
+            workspaceId,
+          }),
+        ],
+        offerLater: true,
+      })
+      .catch((error: unknown) => {
+        // A paused agent keeps the messages unbatched until it is resumed.
+        if (isAgentPaused(error)) {
+          return null;
+        }
+        throw error;
+      });
+    if (!started) {
+      return;
+    }
     // The minute sweep offers a run nobody offered, so a failed offer is only logged.
     try {
       await runs.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId);

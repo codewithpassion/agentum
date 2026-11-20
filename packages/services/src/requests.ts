@@ -61,6 +61,7 @@ import {
 import { importRunTokenKey } from "./run-tokens.ts";
 import { runDefersQuestions } from "./runs/deferral.ts";
 import { currentGuestRun, guestUnavailable } from "./runs/guest-scope.ts";
+import { QUESTION_ANSWER_PREFIX } from "./runs/pause-hold.ts";
 import { peerRootOf, peerRootsOf } from "./runs/peer-root.ts";
 import { loadRun } from "./runs/queries.ts";
 import { type Clock, isParked, type RunRecord } from "./runs/types.ts";
@@ -850,7 +851,7 @@ export const createRequestsService = ({
           agentId: settled.agentId,
           input: { text: wake },
           reply: settled.reply,
-          requestId: `question-answer:${settled.id}`,
+          requestId: `${QUESTION_ANSWER_PREFIX}${settled.id}`,
           session: {
             origin: session.origin as Parameters<
               RunsService["startRun"]
