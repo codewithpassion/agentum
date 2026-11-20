@@ -456,6 +456,215 @@ test("a run started by mail is titled by its mail subject", async () => {
   expect((await service.list(user))[0]?.statusLine).toBe("Invoice 42");
 });
 
+const FINISHED_RECENTLY = "2025-12-31T23:56:00.000Z";
+
+test("a run done minutes ago shows its finish time and title, as idle", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "done" });
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "idle",
+    statusLine: "Done 11:56 pm: Prepare the report",
+  });
+});
+
+test.each([
+  ["Is the report ready?", "Is the report ready?"],
+  ["Prepare the report.", "Prepare the report."],
+  ["Prepare the report...", "Prepare the report..."],
+  ["Prepare the report\u2026", "Prepare the report\u2026"],
+])(
+  "a done run titled %j gets no second full stop before Next run",
+  async (inputText, title) => {
+    insertAgent({ id: "a1", name: "Alpha" });
+    seedRun("r1", { finishedAt: FINISHED_RECENTLY, inputText, status: "done" });
+    db.insert(triggers)
+      .values({
+        agentId: "a1",
+        createdAt: NOW,
+        createdBy: "u1",
+        cron: "0 12 * * *",
+        id: "t1",
+        kind: "routine",
+        name: "t1",
+        timezone: null,
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    expect((await service.list(user))[0]?.statusLine).toBe(
+      `Done 11:56 pm: ${title} Next run 1 Jan, 12:00 pm`
+    );
+  }
+);
+
+test("a run done minutes ago names the next routine run after its finish time", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "done" });
+  db.insert(triggers)
+    .values({
+      agentId: "a1",
+      createdAt: NOW,
+      createdBy: "u1",
+      cron: "0 12 * * *",
+      id: "t1",
+      kind: "routine",
+      name: "t1",
+      timezone: null,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await service.list(user))[0]?.statusLine).toBe(
+    "Done 11:56 pm: Prepare the report. Next run 1 Jan, 12:00 pm"
+  );
+});
+
+test("a run done minutes ago shows its finish time in the workspace timezone", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  db.update(workspaces)
+    .set({ timezone: "Australia/Sydney" })
+    .where(eq(workspaces.id, WORKSPACE))
+    .run();
+  seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "done" });
+  expect((await service.list(user))[0]?.statusLine).toBe(
+    // 23:56 UTC on 31 Dec is 10:56 am on 1 Jan in Sydney.
+    "Done 10:56 am: Prepare the report"
+  );
+});
+
+test("a run done more than a day ago is idle again", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { finishedAt: "2025-12-30T23:00:00.000Z", status: "done" });
+  expect((await service.list(user))[0]?.statusLine).toBe("Idle");
+});
+
+test("a run done more than a day ago keeps the next routine run in idle", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { finishedAt: "2025-12-30T23:00:00.000Z", status: "done" });
+  db.insert(triggers)
+    .values({
+      agentId: "a1",
+      createdAt: NOW,
+      createdBy: "u1",
+      cron: "0 12 * * *",
+      id: "t1",
+      kind: "routine",
+      name: "t1",
+      timezone: null,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await service.list(user))[0]?.statusLine).toBe(
+    "Idle. Next run 1 Jan, 12:00 pm"
+  );
+});
+
+test("a run done minutes ago started by mail is titled by its mail subject", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", {
+    finishedAt: FINISHED_RECENTLY,
+    inputText: "x".repeat(300),
+    status: "done",
+  });
+  db.insert(agentMailboxes)
+    .values({
+      address: "alpha@example.test",
+      agentId: "a1",
+      createdAt: NOW,
+      id: "mb1",
+      status: "active",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(mailThreads)
+    .values({
+      externalThreadId: "ext1",
+      id: "th1",
+      lastMessageAt: NOW,
+      mailboxId: "mb1",
+      subject: "Invoice 42",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(mailMessages)
+    .values({
+      ccAddresses: "[]",
+      createdAt: NOW,
+      direction: "in",
+      externalMessageId: "m1",
+      fromAddress: "bo@example.test",
+      id: "msg1",
+      runId: "r1",
+      snippet: "",
+      status: "received",
+      subject: "Invoice 42",
+      threadId: "th1",
+      toAddresses: "[]",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  expect((await service.list(user))[0]?.statusLine).toBe(
+    "Done 11:56 pm: Invoice 42"
+  );
+});
+
+test("a failed run finished minutes ago is still stopped", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "failed" });
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "stopped",
+    statusLine: "Failed",
+  });
+});
+
+test("a waiting run finished minutes ago still shows as needing you", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { finishedAt: FINISHED_RECENTLY, status: "done" });
+  railView.needsYou = [
+    {
+      assigneeName: "Ann",
+      assigneeUserId: "u1",
+      cards: [
+        {
+          agentId: "a1",
+          agentName: "Alpha",
+          at: NOW,
+          detail: "",
+          expiresAt: null,
+          id: "q1",
+          kind: "question",
+          mail: null,
+          passedOnBy: null,
+          runId: "r1",
+          status: "Waiting",
+          threadId: null,
+          title: "Which report?",
+        },
+      ],
+      dueAt: null,
+      escalatedToMe: false,
+      id: "q1",
+      mine: true,
+    },
+  ];
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "needs_you",
+    statusLine: "Which report?",
+  });
+});
+
+test("a running run newer than a done run is still working", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", {
+    createdAt: "2025-12-31T23:00:00.000Z",
+    finishedAt: "2025-12-31T23:30:00.000Z",
+    status: "done",
+  });
+  seedRun("r2");
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "working",
+    statusLine: "Prepare the report",
+  });
+});
+
 test("a bounced-mail problem is a Needs you item", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   railView.needsYou = [

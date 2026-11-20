@@ -3,9 +3,9 @@ id: KY.9
 title: "A fake runtime that calls a connector tool"
 milestone: KY
 size: S
-status: todo
+status: in_progress
 depends_on: [KY.7]
-branch: null
+branch: task/KY.9-a-fake-runtime-that-calls-a-connector-to
 lane: services-runs
 executor: claude
 ---
@@ -25,3 +25,4 @@ A `runs` test with a stubbed proxy fetch: a run with a signed-in person calls th
 
 ## Log
 - 2026-11-20: added from the KY walkthrough.
+- 2026-11-20: dispatched on task/KY.9-a-fake-runtime-that-calls-a-connector-to (v4 controller session).

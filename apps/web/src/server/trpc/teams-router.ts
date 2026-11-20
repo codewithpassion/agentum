@@ -3,6 +3,7 @@ import {
   profileSetInputSchema,
   setLeadInputSchema,
   setRulesInputSchema,
+  slackLinkInputSchema,
   teamCreateInputSchema,
   teamIdInputSchema,
   teamMemberInputSchema,
@@ -62,6 +63,23 @@ export const teamsRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.services.teams.setRules(ctx.principal, input)
     ),
+  slack: router({
+    link: workspaceProcedure
+      .input(slackLinkInputSchema)
+      .mutation(({ ctx, input }) =>
+        ctx.services.teams.slack.link(ctx.principal, input)
+      ),
+    status: workspaceProcedure
+      .input(teamIdInputSchema)
+      .query(({ ctx, input }) =>
+        ctx.services.teams.slack.status(ctx.principal, input.teamId)
+      ),
+    unlink: workspaceProcedure
+      .input(teamIdInputSchema)
+      .mutation(({ ctx, input }) =>
+        ctx.services.teams.slack.unlink(ctx.principal, input.teamId)
+      ),
+  }),
   update: workspaceProcedure
     .input(teamUpdateInputSchema)
     .mutation(({ ctx, input }) =>

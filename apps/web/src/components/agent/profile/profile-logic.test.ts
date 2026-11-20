@@ -14,6 +14,7 @@ import {
   machineAgentWords,
   mailProvisionLabel,
   receivesFromText,
+  runtimeName,
   runtimeWords,
   skillChips,
   startChips,
@@ -46,12 +47,21 @@ const noStarts: Starts = { routines: [], slackMention: null, triggers: [] };
 describe("runtimeWords", () => {
   test("names the machine it runs on", () => {
     expect(runtimeWords("machine", { name: "laptop" })).toBe(
-      "Runs on My computer: laptop"
+      "Runs on my computer: laptop"
     );
   });
 
   test("falls back when a machine agent has no machine", () => {
-    expect(runtimeWords("machine", null)).toBe("Runs on My computer");
+    expect(runtimeWords("machine", null)).toBe("Runs on my computer");
+  });
+
+  test("names where it runs as a value", () => {
+    expect(runtimeName("machine", { name: "laptop" })).toBe(
+      "My computer: laptop"
+    );
+    expect(runtimeName("machine", null)).toBe("My computer");
+    expect(runtimeName("cloud", null)).toBe("Cloud");
+    expect(runtimeName("managed", null)).toBe("Anthropic cloud");
   });
 
   test("names the other runtimes", () => {
@@ -70,7 +80,7 @@ describe("currentRuntime", () => {
   test("describes the runtime the agent has, in plain words", () => {
     expect(currentRuntime("managed", null)).toEqual({
       machineState: null,
-      text: "Managed Agents. Simplest. Has its own sandbox.",
+      text: "Simplest. Has its own sandbox.",
       title: "Anthropic cloud",
     });
     expect(currentRuntime("cloud", null)).toEqual({
