@@ -274,6 +274,7 @@ describe("an admin key", () => {
     await admin.updateAgent(writeKey, {
       agentId: agent.id,
       connectors: ["c1"],
+      name: "Help",
     });
     expect(
       await connectorsService.assignments(session, { agentId: agent.id })
