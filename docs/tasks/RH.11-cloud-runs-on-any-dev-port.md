@@ -26,3 +26,4 @@ A test with a mismatched localhost URL. Browser: a Cloud agent on a non-default 
 ## Log
 - 2026-11-20: added from the RH walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at abf100f0, review clean with no fix rounds. Queued for merge.

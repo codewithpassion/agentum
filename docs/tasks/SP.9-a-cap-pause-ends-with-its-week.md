@@ -3,9 +3,9 @@ id: SP.9
 title: "A cap pause ends with its week"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: [SP.5]
-branch: null
+branch: task/SP.9-a-cap-pause-ends-with-its-week
 lane: worker
 executor: claude
 ---
@@ -27,3 +27,4 @@ A service test with the clock set across Monday 00:00 in the workspace timezone:
 
 ## Log
 - 2026-11-21: added from the spend walkthrough.
+- 2026-11-21: dispatched.
