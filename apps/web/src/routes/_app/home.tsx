@@ -9,10 +9,41 @@ import { useRail, useRailScope } from "#/components/rail/use-rail";
 import { FirstRunGuide } from "#/components/roster/first-run-guide";
 import { chipsOf } from "#/components/roster/roster-logic";
 import { RosterWall } from "#/components/roster/roster-wall";
+import { spendWeeks, withLimitWeekSpend } from "#/components/spend/spend-logic";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
 export const PAGE_HEADING = "Home";
+
+/** Cards with a weekly limit show this week's spend as the limit counts it. A failed read keeps the roster's figure. */
+const withLimitSpend = async <
+  Card extends {
+    costThisWeekCents: number;
+    id: string;
+    weeklyCapCents: number | null;
+  },
+>(
+  cards: Card[]
+): Promise<Card[]> => {
+  if (!cards.some((card) => card.weeklyCapCents !== null)) {
+    return cards;
+  }
+  try {
+    const trpc = getTrpc();
+    const { timezone } = await trpc.workspaces.timezone.query();
+    const week = spendWeeks(new Date(), timezone).at(-1);
+    if (!week) {
+      return cards;
+    }
+    const rows = await trpc.spend.workspace.query({
+      from: week.start,
+      to: week.end,
+    });
+    return withLimitWeekSpend(cards, rows);
+  } catch {
+    return cards;
+  }
+};
 
 /** The roster, and whether the workspace has an AI account yet (an Anthropic or an OpenRouter key). */
 const loadHome = async () => {
@@ -24,7 +55,7 @@ const loadHome = async () => {
   ]);
   return {
     anthropic,
-    cards,
+    cards: await withLimitSpend(cards),
     hasKey: anthropic.configured || openrouter.configured,
   };
 };

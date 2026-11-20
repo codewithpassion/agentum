@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { ArchivedAgentBanner } from "#/components/agent/archived-agents";
 import { MailSheet } from "#/components/agent/profile/sheets/mail-sheet";
+import type { RoomSpend } from "#/components/agent/room/room-data";
 import { RoomFrame } from "#/components/agent/room/room-frame";
 import {
   DEFAULT_TAB,
@@ -14,8 +15,36 @@ import {
   resolveTab,
   SHEET_IDS,
 } from "#/components/agent/room/tabs";
+import { spendWeeks } from "#/components/spend/spend-logic";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
+
+/** This week's spend and the weekly limit of one agent. A failed read leaves the spend out. */
+const loadRoomSpend = async (agentId: string): Promise<RoomSpend> => {
+  const trpc = getTrpc();
+  try {
+    const [{ timezone }, caps] = await Promise.all([
+      trpc.workspaces.timezone.query(),
+      trpc.spend.caps.query(),
+    ]);
+    const thisWeek = spendWeeks(new Date(), timezone).at(-1);
+    const cap = caps.agents.find((entry) => entry.agentId === agentId);
+    const rows = thisWeek
+      ? await trpc.spend.byAgent.query({
+          agentId,
+          from: thisWeek.start,
+          to: thisWeek.end,
+        })
+      : [];
+    return {
+      capCents: cap?.weeklyCapCents ?? null,
+      paused: (cap?.pausedAt ?? null) !== null,
+      weekCents: rows.reduce((total, row) => total + row.cents, 0),
+    };
+  } catch {
+    return { capCents: null, paused: false, weekCents: null };
+  }
+};
 
 const RECENT_TASKS = 5;
 const RECENT_THREADS = 8;
@@ -63,6 +92,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         connections,
         published,
         keys,
+        spend,
       ] = await Promise.all([
         trpc.agents.get.query({ id: params.agentId }),
         trpc.agentProfile.profile.query({ agentId: params.agentId }),
@@ -83,6 +113,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         trpc.a2a.list.query({ agentId: params.agentId }).catch(() => []),
         trpc.a2a.published.query({ agentId: params.agentId }).catch(() => null),
         trpc.keys.forAgent.query({ agentId: params.agentId }).catch(() => null),
+        loadRoomSpend(params.agentId),
       ]);
       return {
         agent,
@@ -96,6 +127,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
         profile,
         published,
         rules,
+        spend,
         tasks,
         threads,
       };

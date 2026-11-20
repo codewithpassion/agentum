@@ -3,7 +3,7 @@ id: SP.3
 title: "Caps pause an agent and ask its owner"
 milestone: SP
 size: M
-status: in_progress
+status: done
 depends_on: [SP.2]
 branch: task/SP.3-spend-cap-enforcement
 lane: services-runs
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone SP. A cap that only shows a number is no
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/SP.3-spend-cap-enforcement (v4 controller session).
 - 2026-11-20: blocked after two fix rounds on two small holes in the queued-run hold (case-insensitive prefix, guest start path); a third round allowed.
+- 2026-11-20: merged as 04182dcf, review clean after 3 fix rounds. check, test and build passed on main. The dream run must skip paused agents (noted in DR.4).
