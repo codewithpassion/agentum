@@ -1952,11 +1952,14 @@ const maskingRuns = async (agentIds: string[], value = GRANTED_VALUE) => {
     events,
     secretsKey: Buffer.from(new Uint8Array(32).fill(5)).toString("base64"),
   });
-  const secret = await secrets.create(user, {
-    mode: "env",
-    name: "OPENAI_API_KEY",
-    value,
-  });
+  const secret = await secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "env",
+      name: "OPENAI_API_KEY",
+      value,
+    }
+  );
   for (const agentId of agentIds) {
     // biome-ignore lint/performance/noAwaitInLoops: two agents, one after the other
     await secrets.setGrants(user, agentId, [secret.id]);
