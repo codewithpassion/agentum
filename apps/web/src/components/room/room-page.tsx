@@ -100,7 +100,7 @@ export function RoomPage({
 
   return (
     <section className="mx-auto grid max-w-5xl gap-8 md:grid-cols-[16rem_1fr]">
-      <aside className="flex flex-col gap-4 max-md:hidden md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:self-start md:overflow-y-auto">
+      <aside className="flex flex-col gap-4 max-md:hidden">
         <h1 className="font-heading text-3xl text-foreground">{team.name}</h1>
         <p className="text-muted-foreground text-sm">Team room</p>
         {newTopic}

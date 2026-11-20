@@ -118,9 +118,11 @@ export function RoomRequests({
           className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm"
           key={entry.view.id}
         >
-          <p className="font-semibold">
-            {`${directory.get(memberKey("agent", entry.agentId))?.name ?? "An agent"} needs you`}
-          </p>
+          {entry.view.settled === null ? (
+            <p className="font-semibold">
+              {`${directory.get(memberKey("agent", entry.agentId))?.name ?? "An agent"} needs you`}
+            </p>
+          ) : null}
           <RequestCard nowMs={nowMs} onAnswer={answer} view={entry.view} />
         </li>
       ))}
