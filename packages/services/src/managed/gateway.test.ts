@@ -272,7 +272,42 @@ describe("syncAgent", () => {
       system: "be helpful",
     });
 
-    expect(lastUpdate().model).toBe("claude-opus-5-5");
+    expect(lastUpdate().model).toMatchObject({ id: "claude-opus-5-5" });
+  });
+
+  test("sends the effort it was handed inside the model", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      askKeys: [],
+      effort: "high",
+      mcpServers: [],
+      model: "claude-opus-5-5",
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    expect(lastUpdate().model).toEqual({
+      effort: "high",
+      id: "claude-opus-5-5",
+    });
+  });
+
+  test("sends a null effort when there is none, so a removed level is cleared", async () => {
+    await gateway.syncAgent({
+      anthropicAgentId: "agt_1",
+      askKeys: [],
+      mcpServers: [],
+      model: "claude-opus-5-5",
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    expect(lastUpdate().model).toEqual({
+      effort: null,
+      id: "claude-opus-5-5",
+    });
   });
 
   test("sends only the agent toolset and no mcp_servers when the array is empty", async () => {
@@ -327,6 +362,24 @@ describe("registerAgent", () => {
 
     expect(result).toEqual({ anthropicAgentId: "agt_1" });
     expect(created.at(-1)?.model).toBe("claude-haiku-5-5");
+  });
+
+  test("registers the agent with its effort inside the model", async () => {
+    await gateway.registerAgent({
+      askKeys: [],
+      effort: "high",
+      instructions: "be helpful",
+      mcpServers: [],
+      model: "claude-haiku-5-5",
+      name: "Ada",
+      skills: [],
+      system: "be helpful",
+    });
+
+    expect(created.at(-1)?.model).toEqual({
+      effort: "high",
+      id: "claude-haiku-5-5",
+    });
   });
 
   test("declares each MCP server and one always-allow toolset per server", async () => {
@@ -485,6 +538,20 @@ describe("createSession", () => {
     expect(created.at(-1)?.agent).toEqual({
       id: "agt_1",
       model: "claude-opus-5-5",
+      type: "agent_with_overrides",
+    });
+  });
+
+  test("runs the session on the model with its effort inside", async () => {
+    await gateway.createSession({
+      ...session,
+      effort: "high",
+      vaultIds: [],
+    });
+
+    expect(created.at(-1)?.agent).toEqual({
+      id: "agt_1",
+      model: { effort: "high", id: AGENT_MODEL },
       type: "agent_with_overrides",
     });
   });

@@ -69,8 +69,24 @@ test("the glyph and the colour class appear", () => {
   expect(html).toContain("bg-blue-600");
 });
 
+test("a team lead card shows a Lead badge", () => {
+  const html = render({ ...baseCard, isLead: true });
+  expect(html).toContain("Lead");
+  expect(html).toContain(">Lead<");
+});
+
+test("a card that is not a lead shows no Lead badge", () => {
+  const html = render(baseCard);
+  expect(html).not.toContain(">Lead<");
+});
+
 test("an empty job line renders no job paragraph", () => {
   const html = render({ ...baseCard, jobLine: "" });
   expect(html).not.toContain("text-muted-foreground text-sm");
   expect(html).toContain("Matching invoice 88 to a purchase order");
+});
+
+test("a card with no owner name prints no owner label", () => {
+  const html = render({ ...baseCard, ownerName: "" });
+  expect(html).not.toContain("Owner");
 });

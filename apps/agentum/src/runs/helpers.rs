@@ -11,6 +11,14 @@ pub fn max_turns(config: &Value) -> u64 {
         .filter(|n| (10..=500).contains(n))
         .unwrap_or(100)
 }
+pub fn effort(config: &Value) -> Option<&'static str> {
+    match config["effort"].as_str()? {
+        "low" => Some("low"),
+        "medium" => Some("medium"),
+        "high" => Some("high"),
+        _ => None,
+    }
+}
 pub fn stop_message(stop: &Value) -> String {
     if stop["kind"] == "turn_limit" {
         format!("Stopped after {} turns, the agent's limit", stop["limit"])

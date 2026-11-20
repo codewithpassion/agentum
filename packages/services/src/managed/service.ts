@@ -29,7 +29,13 @@ import {
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
 import { sessions as artifactSessions } from "@repo/db/schema/sessions";
-import { CHOICES_MAX, taskFolderPath } from "@repo/db/shared";
+import {
+  CHOICES_MAX,
+  type EffortLevel,
+  effortOf,
+  runtimeConfigForRun,
+  taskFolderPath,
+} from "@repo/db/shared";
 import {
   computerInstructions,
   workspaceInstructions,
@@ -242,6 +248,18 @@ const hasDesktop = (computer: AgentComputer | null) =>
  */
 const computerFingerprint = (computer: AgentComputer | null) =>
   computer ? { computer } : {};
+
+/**
+ * The thinking level a run uses. A subagent keeps its own settings, so it gets
+ * none from the agent. Managed Agents has no context-size setting (Anthropic
+ * compacts a session itself), so the agent's `contextBudget` is not used here.
+ */
+const effortOfRun = (agent: AgentRecord, run: RunRecord) =>
+  effortOf(runtimeConfigForRun(agent.runtimeConfig, run.subagentLevel));
+
+/** The thinking level's part of the fingerprint: none when there is none, so an agent without one keeps its fingerprint. */
+const effortFingerprint = (effort: EffortLevel | undefined) =>
+  effort === undefined ? {} : { effort };
 
 /** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack, secrets and moving files. */
 /** A new session's first message, led by the agent's notes when it has any. */
@@ -460,6 +478,7 @@ export const createManagedService = ({
     agent,
     askKeys,
     desktop,
+    effort,
     fingerprint,
     isolated,
     gateway,
@@ -471,6 +490,7 @@ export const createManagedService = ({
     agent: AgentRecord;
     askKeys: string[];
     desktop: boolean;
+    effort: EffortLevel | undefined;
     fingerprint: string;
     isolated: boolean;
     gateway: ManagedGateway;
@@ -482,6 +502,7 @@ export const createManagedService = ({
     const input = {
       askKeys,
       desktop,
+      effort,
       mcpServers: servers,
       model,
       name: agent.name,
@@ -654,6 +675,7 @@ export const createManagedService = ({
   const createSession = async ({
     agent,
     anthropicAgentId,
+    effort,
     env,
     fingerprint,
     gateway,
@@ -667,6 +689,7 @@ export const createManagedService = ({
   }: {
     agent: AgentRecord;
     anthropicAgentId: string;
+    effort: EffortLevel | undefined;
     env: Record<string, string>;
     fingerprint: string;
     gateway: ManagedGateway;
@@ -747,6 +770,7 @@ export const createManagedService = ({
         .onConflictDoUpdate({ set: values, target: managedSessions.sessionId });
       const created = await gateway.createSession({
         anthropicAgentId,
+        effort,
         model,
         overrides: run.subagentLevel > 0 ? overrides : undefined,
         text,
@@ -932,6 +956,7 @@ export const createManagedService = ({
     }
     const gateway = gatewayOf(run.workspaceId, key);
     const model = modelFor(context.model);
+    const effort = effortOfRun(agent, run);
     const { refs, stale } = await skillsSync.sync({
       agent,
       gateway,
@@ -955,6 +980,7 @@ export const createManagedService = ({
         // The rules and the ask_user tool are part of the registered agent.
         askKeys,
         askUser: ASK_USER_TOOL,
+        ...effortFingerprint(effort),
         model,
         name: agent.name,
         servers,
@@ -987,6 +1013,7 @@ export const createManagedService = ({
         agent,
         askKeys,
         desktop: hasDesktop(computer),
+        effort,
         fingerprint,
         gateway,
         isolated: run.subagentLevel > 0,
@@ -998,6 +1025,7 @@ export const createManagedService = ({
       await createSession({
         agent,
         anthropicAgentId,
+        effort,
         env: grants.env,
         fingerprint,
         gateway,
