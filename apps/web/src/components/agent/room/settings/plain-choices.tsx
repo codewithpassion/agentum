@@ -142,11 +142,22 @@ export function PlainChoices({
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
+  // The config just saved, with the props it was built on. The props lag a
+  // render behind the reload, and a second pick in that gap must build on the
+  // saved config. Once the props change, they are fresh again.
+  const [saved, setSaved] = useState<{
+    base: RuntimeConfig;
+    next: RuntimeConfig;
+  } | null>(null);
+  const current = saved?.base === runtimeConfig ? saved.next : runtimeConfig;
   const save = useCallback(
     async (patch: { model: string } | { runtimeConfig: RuntimeConfig }) => {
       setSaving(true);
       try {
         await getTrpc().agents.update.mutate({ id: agentId, patch });
+        if ("runtimeConfig" in patch) {
+          setSaved({ base: runtimeConfig, next: patch.runtimeConfig });
+        }
         await router.invalidate();
         toast.success("Saved");
       } catch (caught) {
@@ -155,7 +166,7 @@ export function PlainChoices({
         setSaving(false);
       }
     },
-    [agentId, router]
+    [agentId, router, runtimeConfig]
   );
   const onModel = useCallback(
     (value: string) => save({ model: value }),
@@ -163,14 +174,15 @@ export function PlainChoices({
   );
   // The patch carries the whole config, because an update replaces it.
   const onThinking = useCallback(
-    (value: string) =>
-      save({ runtimeConfig: withEffort(runtimeConfig, value) }),
-    [runtimeConfig, save]
+    (value: string) => save({ runtimeConfig: withEffort(current, value) }),
+    [current, save]
   );
   const onContext = useCallback(
     (value: string) =>
-      save({ runtimeConfig: withContextBudget(runtimeConfig, value) }),
-    [runtimeConfig, save]
+      save({
+        runtimeConfig: withContextBudget(current, value),
+      }),
+    [current, save]
   );
   return (
     <PlainChoicesView
@@ -179,7 +191,7 @@ export function PlainChoices({
       onContext={onContext}
       onModel={onModel}
       onThinking={onThinking}
-      runtimeConfig={runtimeConfig}
+      runtimeConfig={current}
     />
   );
 }
