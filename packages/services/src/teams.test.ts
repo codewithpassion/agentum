@@ -2,9 +2,10 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
+import { teamSlackLinks } from "@repo/db/schema/slack";
 import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type { TeamSlackStatus } from "@repo/db/shared";
+import type { TeamSlackChannels, TeamSlackStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { ForbiddenError } from "./authz.ts";
 
@@ -34,13 +35,17 @@ let db: ReturnType<typeof migrated>;
 let service: ReturnType<typeof createTeamsService>;
 let statusCalls: { teamId: string; workspaceId: string }[];
 let statusAnswer: TeamSlackStatus;
+let channelAnswer: TeamSlackChannels;
+let postableChannels: string[];
 const admin: Principal = { ...user, isAdmin: true };
 const other: Principal = { ...user, userId: "u2" };
 
 beforeEach(() => {
   db = migrated();
   statusCalls = [];
-  statusAnswer = { apps: [], link: null };
+  statusAnswer = { apps: [], channelName: null, link: null };
+  channelAnswer = { channels: [], slackTeamId: null };
+  postableChannels = ["C1", "C2"];
   for (const id of [WORKSPACE, "w2"]) {
     db.insert(workspaces)
       .values({
@@ -78,6 +83,11 @@ beforeEach(() => {
     atomic: sqliteAtomic(db),
     clock: { now: () => new Date(NOW), sleep: () => Promise.resolve() },
     db,
+    slackChannels: {
+      canPost: (_workspaceId, _teamId, _slackTeamId, channelId) =>
+        Promise.resolve(postableChannels.includes(channelId)),
+      list: () => Promise.resolve(channelAnswer),
+    },
     slackStatus: (workspaceId, teamId) => {
       statusCalls.push({ teamId, workspaceId });
       return Promise.resolve(statusAnswer);
@@ -574,15 +584,164 @@ test("slack link parses a team, a Slack workspace and a channel", () => {
   );
 });
 
-test("stub slack.link and slack.unlink reject with not_found for a user", async () => {
+const linkInput = (teamId: string, channelId = "C1") => ({
+  channelId,
+  slackTeamId: "T1",
+  teamId,
+});
+const linkRows = () => db.select().from(teamSlackLinks).all();
+
+test("slack.link stores the channel for the owner, who is recorded as the linker", async () => {
+  seedTeam("t1");
+
+  const link = await service.slack.link(user, linkInput("t1"));
+
+  expect(link).toEqual({
+    channelId: "C1",
+    createdAt: NOW,
+    linkedBy: "u1",
+    slackTeamId: "T1",
+    teamId: "t1",
+  });
+  expect(linkRows()).toMatchObject([
+    { channelId: "C1", teamId: "t1", workspaceId: WORKSPACE },
+  ]);
+});
+
+test("slack.link refuses a person who does not own the team, and an api key that only reads", async () => {
+  seedTeam("t1");
+
   await expect(
-    service.slack.link(user, {
-      channelId: "C1",
-      slackTeamId: "T1",
-      teamId: "t1",
-    })
+    service.slack.link(other, linkInput("t1"))
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.slack.link(
+      { ...user, apiKey: { access: "read" } } as Principal,
+      linkInput("t1")
+    )
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(linkRows()).toEqual([]);
+  expect(await service.slack.link(admin, linkInput("t1"))).toMatchObject({
+    teamId: "t1",
+  });
+});
+
+test("slack.link refuses a team in another workspace, an archived team and a missing team", async () => {
+  seedTeam("t-other", { workspaceId: "w2" });
+  seedTeam("t-old", { archivedAt: NOW });
+
+  await expect(
+    service.slack.link(user, linkInput("t-other"))
   ).rejects.toMatchObject({ code: "not_found" });
-  await expect(service.slack.unlink(user, "t1")).rejects.toMatchObject({
+  await expect(
+    service.slack.link(user, linkInput("t-old"))
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    service.slack.link(user, linkInput("nope"))
+  ).rejects.toMatchObject({ code: "not_found" });
+  expect(linkRows()).toEqual([]);
+});
+
+test("slack.link refuses a channel no member agent's app is in", async () => {
+  seedTeam("t1");
+
+  await expect(
+    service.slack.link(user, linkInput("t1", "C-OTHER"))
+  ).rejects.toMatchObject({
+    code: "invalid",
+    message: "No agent of this team has its Slack app in that channel.",
+  });
+  expect(linkRows()).toEqual([]);
+});
+
+test("a team cannot link two channels and a channel cannot link two teams", async () => {
+  seedTeam("t1");
+  seedTeam("t2");
+  await service.slack.link(user, linkInput("t1"));
+
+  await expect(
+    service.slack.link(user, linkInput("t1", "C2"))
+  ).rejects.toMatchObject({
+    code: "conflict",
+    message: "This team is already linked to a Slack channel. Unlink it first.",
+  });
+  await expect(service.slack.link(user, linkInput("t2"))).rejects.toMatchObject(
+    {
+      code: "conflict",
+      message: "That Slack channel is linked to another team.",
+    }
+  );
+  expect(linkRows()).toHaveLength(1);
+});
+
+test("the same channel id in another Slack workspace is a different channel", async () => {
+  seedTeam("t1");
+  seedTeam("t2");
+  await service.slack.link(user, linkInput("t1"));
+
+  await service.slack.link(user, { ...linkInput("t2"), slackTeamId: "T2" });
+
+  expect(linkRows()).toHaveLength(2);
+});
+
+test("slack.unlink removes the link, then the team can link again, and unlinking twice is fine", async () => {
+  seedTeam("t1");
+  await service.slack.link(user, linkInput("t1"));
+
+  await service.slack.unlink(user, "t1");
+  await service.slack.unlink(user, "t1");
+
+  expect(linkRows()).toEqual([]);
+  await service.slack.link(user, linkInput("t1", "C2"));
+  expect(linkRows()).toMatchObject([{ channelId: "C2" }]);
+});
+
+test("slack.unlink works on an archived team but not for another person, and keeps other teams' links", async () => {
+  seedTeam("t1", { archivedAt: NOW });
+  seedTeam("t2");
+  db.insert(teamSlackLinks)
+    .values([
+      {
+        channelId: "C1",
+        createdAt: NOW,
+        id: "l1",
+        linkedBy: "u1",
+        slackTeamId: "T1",
+        teamId: "t1",
+        workspaceId: WORKSPACE,
+      },
+      {
+        channelId: "C2",
+        createdAt: NOW,
+        id: "l2",
+        linkedBy: "u1",
+        slackTeamId: "T1",
+        teamId: "t2",
+        workspaceId: WORKSPACE,
+      },
+    ])
+    .run();
+
+  await expect(service.slack.unlink(other, "t1")).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await service.slack.unlink(user, "t1");
+
+  expect(linkRows()).toMatchObject([{ teamId: "t2" }]);
+});
+
+test("slack.channels gives the channels the lead's app sees, to the owner only", async () => {
+  seedTeam("t1");
+  channelAnswer = {
+    channels: [{ id: "C1", isPrivate: false, name: "ops" }],
+    slackTeamId: "T1",
+  };
+
+  expect(await service.slack.channels(user, "t1")).toEqual(channelAnswer);
+  await expect(service.slack.channels(other, "t1")).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await expect(service.slack.channels(user, "nope")).rejects.toMatchObject({
     code: "not_found",
   });
 });
@@ -607,6 +766,7 @@ test("slack.status gives what the status read says for a team of the workspace",
   seedTeam("t1");
   statusAnswer = {
     apps: [{ agentId: "a1", botUserId: "U0BOT", inChannel: false }],
+    channelName: "ops",
     link: {
       channelId: "C1",
       createdAt: NOW,
@@ -620,7 +780,15 @@ test("slack.status gives what the status read says for a team of the workspace",
   expect(statusCalls).toEqual([{ teamId: "t1", workspaceId: WORKSPACE }]);
 });
 
-test("slack calls throw ForbiddenError for the system principal", () => {
+test("slack calls refuse the system principal", async () => {
   expect(() => service.slack.status(system, "t1")).toThrow(ForbiddenError);
-  expect(() => service.slack.unlink(system, "t1")).toThrow(ForbiddenError);
+  await expect(service.slack.unlink(system, "t1")).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await expect(service.slack.channels(system, "t1")).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  await expect(
+    service.slack.link(system, linkInput("t1"))
+  ).rejects.toBeInstanceOf(ForbiddenError);
 });

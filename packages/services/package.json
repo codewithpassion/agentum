@@ -141,6 +141,7 @@
     "./slack/request-cards": "./src/slack/request-cards.ts",
     "./slack/requests": "./src/slack/requests.ts",
     "./slack/room-out": "./src/slack/room-out.ts",
+    "./slack/room-channels": "./src/slack/room-channels.ts",
     "./slack/room-status": "./src/slack/room-status.ts",
     "./slack/signature": "./src/slack/signature.ts",
     "./slack/status": "./src/slack/status.ts",

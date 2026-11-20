@@ -19,6 +19,7 @@ import {
   type SlackAppRow,
 } from "./apps.ts";
 import { createSlackClient, type SlackFetch } from "./client.ts";
+import { createRoomChannels } from "./room-channels.ts";
 
 export interface RoomStatusDeps {
   db: Database;
@@ -28,6 +29,7 @@ export interface RoomStatusDeps {
 
 export const createRoomStatus = ({ db, fetch, secretsKey }: RoomStatusDeps) => {
   const secrets = createSecretReader(secretsKey);
+  const channels = createRoomChannels({ db, fetch, secretsKey });
 
   const readLink = async (
     workspaceId: string,
@@ -120,12 +122,15 @@ export const createRoomStatus = ({ db, fetch, secretsKey }: RoomStatusDeps) => {
   ): Promise<TeamSlackStatus> => {
     const link = await readLink(workspaceId, teamId);
     if (link === null) {
-      return { apps: [], link: null };
+      return { apps: [], channelName: null, link: null };
     }
     const agentIds = await activeAgentIds(workspaceId, teamId);
-    const apps = await Promise.all(
-      agentIds.map((agentId) => memberApp(workspaceId, link, agentId))
-    );
-    return { apps, link };
+    const [apps, channelName] = await Promise.all([
+      Promise.all(
+        agentIds.map((agentId) => memberApp(workspaceId, link, agentId))
+      ),
+      channels.nameOf(workspaceId, teamId, link.slackTeamId, link.channelId),
+    ]);
+    return { apps, channelName, link };
   };
 };
