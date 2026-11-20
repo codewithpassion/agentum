@@ -1,4 +1,6 @@
-Verdict: FAIL
+Verdict: FAIL on the final code (HEAD 991dc7d5), for two reasons only: (1) step 5, the agent using a tool in a task, cannot be walked because the fake runtime only echoes; (2) the phone task page `/threads/<id>` still scrolls sideways (424 against 390, admin and member). Every other flow in items a to d works at 1280x800 and 390x844 with no console error and no failed request from Agentum. Details in "Round 2" at the end.
+
+Round 1: FAIL
 
 # KY.7 Keys walkthrough: browser verification
 
@@ -96,3 +98,53 @@ Evidence: desktop-1 to desktop-12 and phone-1 to phone-12 in this folder.
 ## Cleanup
 
 The dev server (PIDs above) was stopped by PID. Browser sessions were closed. The local D1 keeps the rows made here (agent, four connectors, assignments, the member's sign-in, four runs and their events).
+
+## Round 2
+
+Final code: HEAD 991dc7d5 on `task/KY.7-keys-e2e`. Dev server on port 5241 (`bunx` PID 4004462, `vite dev` PID 4004554, both stopped by PID at the end), log `tmp/KY.7/dev3.log`. Four fresh sessions with their own profiles (r2-admin-desktop, r2-member-desktop, r2-admin-phone, r2-member-phone). Admin signed in with "Dev login (local only)", the member with `agent-login` for `dev+member@harbouredgeintelligence.ai` in a fresh profile (no Clerk user created, URLs not kept here). Screenshots are desktop-13 to desktop-30 and phone-13 to phone-27.
+
+Setup: the local D1 held round 1's data. I wrote no rows by SQL (only read-only selects). To get "an OAuth catalogue app that nobody has connected yet" I used the UI: removed Linear and Notion from Fake echo, deleted Gmail, Linear and Notion under Settings, Apps (Delete), and added Linear, Notion and Gmail again from "From the catalogue" on the Keys tab. The database then showed `oauth` null for all three until someone pressed Connect. On the phone I did the same for Notion (delete, re-add from the catalogue) so Notion was fresh again for the phone member. The local D1 now holds these new connector ids, four new runs and their events.
+
+### a. Stale copy
+
+Desktop: Settings, Apps footer reads "Paste a credential as an agent from the agent's Keys tab." (desktop-13). Passwords and keys reads "An agent gets a secret only when you grant it on the agent's own page, in its Keys tab." and the empty state "No secrets yet. Add one, then grant it on an agent's Keys tab." (desktop-14). Phone: same three strings (phone-13, phone-14). Result: desktop PASS, phone PASS.
+
+### b. Your sign-ins, plain member, OAuth apps nobody connected
+
+Desktop (desktop-20): Linear, Notion and Gmail, freshly added, each read "Not signed in" with a "Connect" button and no "An admin has to set this app up first." Connect on Linear went to `mcp.linear.app/authorize` ("Agentum is requesting access", desktop-21). Connect on Notion went to `app.notion.com/login` (desktop-22). Connect on Gmail went to `accounts.google.com/signin/oauth/error` (redirect_uri_mismatch for localhost, expected, desktop-23). I stopped at each vendor page. Phone: Notion was fresh again and showed Connect (phone-21), and Connect reached `app.notion.com/login` (phone-22). After a first Connect the connector keeps its OAuth settings, so Linear and Gmail showed Connect on the phone for that reason too; the fresh-app proof for them is the desktop run. Result: desktop PASS, phone PASS.
+
+### c. Keys tab on Fake echo
+
+Admin desktop: Linear set to "Its own" shows only "Connect as this agent" and no "Connect my account" (desktop-17); "The person asking" brings "Connect my account" back and drops "Connect as this agent" (desktop-18); "The person asking, or its own" shows both again. The header app (Docs Header) in "Its own" shows only "Paste as this agent" (desktop-19), "The person asking" shows "Connect my account", and "The person asking, or its own" shows both. Cloudflare Docs has no "Whose sign-in it uses" select, still reads "No sign-in needed.", and keeps Allowed tools and Remove (desktop-16).
+Member desktop: Linear in "Its own" shows no "Connect my account" and no agent action (desktop-25); back to "The person asking" and to "The person asking, or its own" brings it back. Docs Header in "Its own" shows no connect action. A signed-in member sees "Reconnect my account" with no "Paste as this agent" (desktop-24).
+Phone: admin Notion and Docs Header, member Notion, all the same (phone-15 to phone-18, phone-23); Cloudflare Docs has no select (phone-15, phone-17).
+Result: desktop PASS (admin and member), phone PASS.
+
+### d. Regress
+
+Admin adds from the catalogue (desktop-16, phone-15): Gmail "5 tools", Linear "4 tools", Notion "2 tools", and the table confirms the counts come from the catalogue entries (`allowed_tools` lists of 5, 4 and 2 names). Cloudflare Docs shows 1 tool. Member header connector (public Cloudflare docs MCP server): sign-in removed on Your sign-ins ("Disconnected from Docs Header."), then "Connect my account" on the Keys tab, pasted a test value, saved, and the row reads "Ready" and "You are signed in." (desktop-26, phone-25). Your sign-ins opens from the user menu ("Your sign-ins") and from Find ("your sign", first result) for the member and the admin at both sizes (desktop-27, desktop-30, phone-20, phone-26). A fake-runtime task started with "Run now" on Fake echo ends "Done" with "Echo: ..." for the admin (desktop-29, phone-19) and for the member (desktop-28, phone-27). Each shows "Started by <person>" and "Fake runtime". Result: desktop PASS, phone PASS.
+
+### e. Step 5 (the agent uses the tool in a task)
+
+Still not exercisable in the browser. The fake runtime replies "Echo: <input>" and never calls a connector tool, so no task shows a tool call, a "needs your sign-in" prompt or the person's sign-in being used. What can be seen: a task starts, finishes "Done" with the echo, and records who started it. Round 1's curl proof through the proxy (run token, `needs_auth` for a person with no sign-in, `tool_not_allowed` for a tool off the list) is not repeated and was not re-run. The missing piece is the fake runtime mode proposed in `docs/reviews/KY-e2e.md` (finding 12 below). Result: FAIL at both sizes for this reason only.
+
+### f. Phone task page overflow
+
+`document.documentElement.scrollWidth` at 390: admin `/threads/<id>` 424, member `/threads/<id>` 424. It still overflows, as expected (known, proposed as a separate task). At 1280 the same pages measure 1280 for both. All other pages checked at 390 measure 390: Settings (Apps, Passwords and keys, Your sign-ins), the Keys tab, the vendor-free pages above. Result: phone FAIL (known).
+
+### Console and network
+
+Every Agentum page at both sizes for both people: no console error and no response with status >= 400 in `performance.getEntriesByType("resource")`. The dev log has no error, SQLITE_BUSY or 4xx/5xx line (181 lines). The earlier SQLITE_BUSY 500 did not return (no seed script ran). Errors only on vendor pages after leaving Agentum, not Agentum's: Linear/Google/Notion sign-in pages (a 403 resource, `GSI_LOGGER` FedCM, "Provider's accounts list is empty", `clientCookieHelpers`, and Notion's Splunk CORS block). The dev-login 400 and favicon 404 did not show up. Warnings only: Clerk development keys.
+
+### New findings in round 2
+
+1. Round 1 finding 9 is partly confirmed: the plain member changed the "Whose sign-in it uses" select on Fake echo (Linear and Docs Header) and the row updated at once, so the server accepted it. This is the agent-wide setting. Still needs Dom's decision. Not a defect of the four fixes.
+2. Finding 5 still shows: Docs Header reads "Ready" next to "You have not signed in yet." on the admin's row while "Other people: Member Tester: signed in". Small, unchanged.
+3. Finding 13 still shows: the unlabeled "Browser" switch under "Apps it can use". Small, unchanged.
+4. Finding 12 stands: no way to watch an agent call a tool. The only blocker for step 5.
+5. The working tree has an uncommitted change to `docs/reviews/KY-e2e.md` that I did not make (git status shows it as modified).
+6. Setup note, not a product defect: agent-browser refs shift when a row loses a button after a mode change (for example "Connect my account" disappearing), so a select on an old ref can hit the wrong element or time out; take a fresh snapshot before each select.
+
+### Cleanup
+
+Dev server (PIDs 4004462 and 4004554) stopped by PID, port 5241 free. The four browser sessions are closed. No source file changed, no git action.
