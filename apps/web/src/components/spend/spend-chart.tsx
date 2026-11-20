@@ -103,6 +103,7 @@ export function SpendChart({
           </Bar>
           {capCents === null ? null : (
             <ReferenceLine
+              ifOverflow="extendDomain"
               label={{
                 className: "fill-muted-foreground",
                 position: "insideTopRight",

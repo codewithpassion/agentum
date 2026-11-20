@@ -1,3 +1,4 @@
+import { useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { AsksRow } from "#/components/agent/profile/asks-row.tsx";
 import { ComputerCard } from "#/components/agent/profile/computer-card.tsx";
@@ -14,6 +15,7 @@ const FORM_ID = "room-settings-form";
 export function SettingsTab({ room }: RoomTabProps) {
   const archived = room.agent.status === "archived";
   const agentId = room.agent.id;
+  const router = useRouter();
   const scrollToForm = useCallback(() => {
     document.getElementById(FORM_ID)?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -23,8 +25,10 @@ export function SettingsTab({ room }: RoomTabProps) {
         agentId,
         weeklyCapCents: cents,
       });
+      // The header's spend line reads the same limit.
+      await router.invalidate();
     },
-    [agentId]
+    [agentId, router]
   );
   return (
     <TabBody>

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -5,12 +6,17 @@ import {
   useEffect,
   useState,
 } from "react";
-import { Button } from "#/components/ui/button.tsx";
+import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
-import { capInputValue, capLabel, parseCapInput } from "./spend-logic.ts";
+import {
+  capInputValue,
+  capLabel,
+  parseCapInput,
+  spendWeeks,
+} from "./spend-logic.ts";
 
 export interface SpendPauseViewProps {
   busy: boolean;
@@ -23,6 +29,8 @@ export interface SpendPauseViewProps {
   onResume: () => void;
   raiseValue: string;
   raising: boolean;
+  /** Set when the workspace limit, not the agent's own, is what stopped it. Raising the agent's limit would not help. */
+  workspaceLimitText: string | null;
 }
 
 /** An agent paused at its weekly limit: resume it, or raise the limit and resume. */
@@ -36,6 +44,7 @@ export function SpendPauseView({
   onResume,
   raiseValue,
   raising,
+  workspaceLimitText,
 }: SpendPauseViewProps) {
   const change = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => onRaiseChange(event.target.value),
@@ -77,22 +86,33 @@ export function SpendPauseView({
         </form>
       ) : (
         <>
-          {limitText === null ? null : (
-            <p className="text-muted-foreground">{limitText}</p>
+          {(workspaceLimitText ?? limitText) === null ? null : (
+            <p className="text-muted-foreground">
+              {workspaceLimitText ?? limitText}
+            </p>
           )}
           <div className="flex flex-wrap gap-2">
             <Button disabled={busy} onClick={onResume} size="sm" type="button">
               Resume
             </Button>
-            <Button
-              disabled={busy}
-              onClick={onRaiseOpen}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Raise the limit
-            </Button>
+            {workspaceLimitText === null ? (
+              <Button
+                disabled={busy}
+                onClick={onRaiseOpen}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Raise the limit
+              </Button>
+            ) : (
+              <Link
+                className={buttonVariants({ size: "sm", variant: "outline" })}
+                to="/settings/spend"
+              >
+                Raise the workspace limit
+              </Link>
+            )}
           </div>
         </>
       )}
@@ -116,6 +136,7 @@ export function SpendPause({
   onChanged: () => void;
 }) {
   const [limitCents, setLimitCents] = useState<number | null>(null);
+  const [workspaceHeld, setWorkspaceHeld] = useState<number | null>(null);
   const [raising, setRaising] = useState(false);
   const [raiseValue, setRaiseValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -129,6 +150,24 @@ export function SpendPause({
         const agent = caps.agents.find((item) => item.agentId === agentId);
         if (active) {
           setLimitCents(agent?.weeklyCapCents ?? caps.workspaceCapCents);
+        }
+        const workspaceCap = caps.workspaceCapCents;
+        if (workspaceCap === null) {
+          return;
+        }
+        const trpc = getTrpc();
+        const { timezone } = await trpc.workspaces.timezone.query();
+        const week = spendWeeks(new Date(), timezone).at(-1);
+        if (!week) {
+          return;
+        }
+        const rows = await trpc.spend.workspace.query({
+          from: week.start,
+          to: week.end,
+        });
+        const total = rows.reduce((sum, row) => sum + row.cents, 0);
+        if (active && total >= workspaceCap) {
+          setWorkspaceHeld(workspaceCap);
         }
       } catch {
         // Without the limit line the card still offers Resume and Raise.
@@ -196,6 +235,11 @@ export function SpendPause({
       onResume={onResume}
       raiseValue={raiseValue}
       raising={raising}
+      workspaceLimitText={
+        workspaceHeld === null
+          ? null
+          : `The workspace limit of ${capLabel(workspaceHeld)} a week is reached. Raising this agent's limit will not restart it.`
+      }
     />
   );
 }

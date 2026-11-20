@@ -8,6 +8,7 @@ import {
   parseCapInput,
   spendRange,
   spendWeeks,
+  withLimitWeekSpend,
 } from "./spend-logic.ts";
 
 // Friday 20 November 2026, 09:00 in Sydney, which is Thursday 22:00 UTC.
@@ -107,7 +108,44 @@ test("the table sums agent days into weeks and sorts this week first", () => {
   ]);
   expect(table.rows[0]?.centsByWeek).toEqual([0, 0, 0, 0, 240]);
   expect(table.rows[0]?.paused).toBe(true);
-  expect(table.rows[0]?.tasksThisWeek).toBe(4);
   expect(table.rows[1]?.capCents).toBe(2000);
   expect(table.totals).toEqual([0, 0, 100, 9, 290]);
+});
+
+test("an agent with a limit shows before it spends, a removed one is flagged", () => {
+  const weeks = spendWeeks(NOW, "Australia/Sydney");
+  const table = buildSpendTable({
+    agents: [{ id: "a", name: "Ada" }],
+    caps: [
+      { agentId: "a", pausedAt: null, pausedReason: null, weeklyCapCents: 500 },
+      {
+        agentId: "none",
+        pausedAt: null,
+        pausedReason: null,
+        weeklyCapCents: null,
+      },
+    ],
+    rows: [{ agentId: "gone", cents: 9, day: "2026-11-17", tasks: 1 }],
+    weeks,
+  });
+  expect(table.rows.map((row) => [row.name, row.removed])).toEqual([
+    ["Removed agent", true],
+    ["Ada", false],
+  ]);
+  expect(table.rows[1]?.capCents).toBe(500);
+});
+
+test("a card with a limit takes the Monday week's spend, one without keeps its own", () => {
+  const cards = [
+    { costThisWeekCents: 900, id: "a", weeklyCapCents: 2000 },
+    { costThisWeekCents: 900, id: "b", weeklyCapCents: null },
+  ];
+  const rows = [
+    { agentId: "a", cents: 100, day: "2026-11-16", tasks: 1 },
+    { agentId: "a", cents: 50, day: "2026-11-18", tasks: 1 },
+    { agentId: "b", cents: 7, day: "2026-11-18", tasks: 1 },
+  ];
+  expect(
+    withLimitWeekSpend(cards, rows).map((card) => card.costThisWeekCents)
+  ).toEqual([150, 900]);
 });

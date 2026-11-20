@@ -126,8 +126,8 @@ export interface SpendTableRow {
   centsByWeek: number[];
   name: string;
   paused: boolean;
-  /** Runs counted this week. */
-  tasksThisWeek: number;
+  /** True when the agent is no longer in the workspace's list. */
+  removed: boolean;
 }
 
 export interface SpendTable {
@@ -138,7 +138,7 @@ export interface SpendTable {
 
 const REMOVED_AGENT = "Removed agent";
 
-/** One row per agent that spent in the five weeks, this week's spend first. */
+/** One row per agent that spent in the five weeks or has a limit, this week's spend first. */
 export const buildSpendTable = (input: {
   agents: readonly { id: string; name: string }[];
   caps: readonly AgentSpendCap[];
@@ -150,6 +150,32 @@ export const buildSpendTable = (input: {
   const capOf = new Map(caps.map((cap) => [cap.agentId, cap]));
   const byAgent = new Map<string, SpendTableRow>();
   const current = weeks.length - 1;
+  const entryFor = (agentId: string): SpendTableRow => {
+    const existing = byAgent.get(agentId);
+    if (existing) {
+      return existing;
+    }
+    const name = names.get(agentId);
+    const entry: SpendTableRow = {
+      agentId,
+      capCents: capOf.get(agentId)?.weeklyCapCents ?? null,
+      centsByWeek: weeks.map(() => 0),
+      name: name ?? REMOVED_AGENT,
+      paused: (capOf.get(agentId)?.pausedAt ?? null) !== null,
+      removed: name === undefined,
+    };
+    byAgent.set(agentId, entry);
+    return entry;
+  };
+  // An agent with a limit shows even before it spends, so the limit is visible.
+  for (const cap of caps) {
+    if (
+      names.has(cap.agentId) &&
+      (cap.weeklyCapCents !== null || cap.pausedAt !== null)
+    ) {
+      entryFor(cap.agentId);
+    }
+  }
   for (const row of rows) {
     const index = weeks.findIndex(
       (week) => row.day >= week.start && row.day <= week.end
@@ -157,19 +183,8 @@ export const buildSpendTable = (input: {
     if (index === -1) {
       continue;
     }
-    const entry = byAgent.get(row.agentId) ?? {
-      agentId: row.agentId,
-      capCents: capOf.get(row.agentId)?.weeklyCapCents ?? null,
-      centsByWeek: weeks.map(() => 0),
-      name: names.get(row.agentId) ?? REMOVED_AGENT,
-      paused: (capOf.get(row.agentId)?.pausedAt ?? null) !== null,
-      tasksThisWeek: 0,
-    };
+    const entry = entryFor(row.agentId);
     entry.centsByWeek[index] = (entry.centsByWeek[index] ?? 0) + row.cents;
-    if (index === current) {
-      entry.tasksThisWeek += row.tasks;
-    }
-    byAgent.set(row.agentId, entry);
   }
   const table = [...byAgent.values()].sort(
     (a, b) =>
@@ -183,3 +198,29 @@ export const buildSpendTable = (input: {
     ),
   };
 };
+
+/**
+ * Gives each card that has a limit this week's spend counted from Monday in the
+ * workspace timezone, the way the limit is counted. The roster's own figure
+ * covers the last seven days, so the two could disagree about a limit.
+ */
+export const withLimitWeekSpend = <
+  Card extends {
+    costThisWeekCents: number;
+    id: string;
+    weeklyCapCents: number | null;
+  },
+>(
+  cards: readonly Card[],
+  weekRows: readonly SpendRow[]
+): Card[] =>
+  cards.map((card) =>
+    card.weeklyCapCents === null
+      ? card
+      : {
+          ...card,
+          costThisWeekCents: weekRows
+            .filter((row) => row.agentId === card.id)
+            .reduce((total, row) => total + row.cents, 0),
+        }
+  );

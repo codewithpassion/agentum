@@ -1,9 +1,20 @@
 import { expect, test } from "bun:test";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterContextProvider,
+} from "@tanstack/react-router";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   SpendPauseView,
   type SpendPauseViewProps,
 } from "./spend-pause-card.tsx";
+
+const router = createRouter({
+  history: createMemoryHistory({ initialEntries: ["/"] }),
+  routeTree: createRootRoute(),
+});
 
 const noop = () => undefined;
 const DISABLED_RESUME = /<button[^>]*disabled[^>]*>Resume<\/button>/;
@@ -19,10 +30,15 @@ const baseProps: SpendPauseViewProps = {
   onResume: noop,
   raiseValue: "",
   raising: false,
+  workspaceLimitText: null,
 };
 
 const render = (props: Partial<SpendPauseViewProps>) =>
-  renderToStaticMarkup(<SpendPauseView {...baseProps} {...props} />);
+  renderToStaticMarkup(
+    <RouterContextProvider router={router}>
+      <SpendPauseView {...baseProps} {...props} />
+    </RouterContextProvider>
+  );
 
 test("a paused agent shows its limit, Resume and Raise the limit", () => {
   const html = render({});
@@ -50,4 +66,15 @@ test("busy disables the buttons", () => {
 test("an error reads as an alert", () => {
   expect(render({ error: "Nope" })).toContain('role="alert"');
   expect(render({})).not.toContain('role="alert"');
+});
+
+test("a pause from the workspace limit sends Raise to the workspace setting", () => {
+  const html = render({
+    workspaceLimitText: "The workspace limit of $50 a week is reached.",
+  });
+  expect(html).toContain("The workspace limit of $50 a week is reached.");
+  expect(html).toContain(">Resume</button>");
+  expect(html).toContain("Raise the workspace limit");
+  expect(html).toContain('href="/settings/spend"');
+  expect(html).not.toContain(">Raise the limit</button>");
 });

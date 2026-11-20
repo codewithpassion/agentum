@@ -30,7 +30,7 @@ const table: SpendTable = {
       centsByWeek: [0, 0, 0, 0, 410],
       name: "Ruby",
       paused: false,
-      tasksThisWeek: 3,
+      removed: false,
     },
     {
       agentId: "agent_456",
@@ -38,7 +38,7 @@ const table: SpendTable = {
       centsByWeek: [100, 0, 0, 250, 0],
       name: "Opal",
       paused: true,
-      tasksThisWeek: 0,
+      removed: false,
     },
   ],
   totals: [100, 0, 0, 250, 410],

@@ -46,13 +46,19 @@ export function SpendTableView({
         {table.rows.map((row) => (
           <TableRow key={row.agentId}>
             <TableCell>
-              <Link
-                className="font-medium text-foreground no-underline hover:text-primary"
-                params={{ agentId: row.agentId }}
-                to="/agents/$agentId"
-              >
-                {row.name}
-              </Link>
+              {row.removed ? (
+                <span className="font-medium text-muted-foreground">
+                  {row.name}
+                </span>
+              ) : (
+                <Link
+                  className="font-medium text-foreground no-underline hover:text-primary"
+                  params={{ agentId: row.agentId }}
+                  to="/agents/$agentId"
+                >
+                  {row.name}
+                </Link>
+              )}
               {row.paused ? (
                 <span className="ml-2 rounded border px-1.5 py-0.5 text-muted-foreground text-xs">
                   Paused
