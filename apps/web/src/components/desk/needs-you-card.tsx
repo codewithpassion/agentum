@@ -22,6 +22,7 @@ import {
   agentInitials,
   agentTileColour,
 } from "#/components/shell/agent-tile.ts";
+import { SpendPause } from "#/components/spend/spend-pause-card.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { SuggestionReview } from "#/components/wiki-suggestions/suggestion-review.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -293,6 +294,8 @@ export function NeedsYouBody({
     case "a2a_message":
     case "a2a_connection":
       return <A2aDecision card={card} onChanged={onChanged} />;
+    case "spend_pause":
+      return <SpendPause agentId={card.agentId} onChanged={onChanged} />;
     default:
       return <CardSummary card={card} />;
   }

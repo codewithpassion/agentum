@@ -72,6 +72,7 @@ export const fixtureRoom = (): RoomData => ({
     model: "sonnet",
     name: "Sorter",
     ownerUserId: "user_1",
+    pausedAt: null,
     runtime: "cloud",
     runtimeConfig: {},
     slug: "sorter",
@@ -114,6 +115,7 @@ export const fixtureRoom = (): RoomData => ({
   },
   published: null,
   rules: [],
+  spend: { capCents: null, paused: false, weekCents: 0 },
   tasks: [],
   threads: [],
 });

@@ -34,3 +34,5 @@ From `docs/v4/build-plan.md`, milestone DR. Tie the dream together and run it on
 - 2026-11-20: from the DR.1 review: also create the dream trigger from `dreamSchedule`, pass `DeskCard.dream` through `rail.ts`, and refuse dream rows in `memory.decide`. Details in docs/reviews/tasks/DR.1.md.
 - 2026-11-20: notes from DR.2 for the dream run: an empty-absorbed merge is an edit in place; a merge whose text matches the keeper's leaves the keeper's writer and date alone; a question's scope comes from its noteIds; prune's maxChars is the budget less the text of the adds; pass the reconcile held ids to prune.
 - 2026-11-20: dispatched on task/DR.4-dream-run (v4 controller session).
+- 2026-11-20: from SP.3: the dream run skips an agent whose pausedAt is set.
+- 2026-11-20: Haiku price: claude-haiku-5-5 is $0.10 in and $0.50 out per million tokens up to 100K prompt tokens ($0.50 / $2.50 above). DR.4 had set Haiku 4.5's $1 / $5; corrected in its review round.

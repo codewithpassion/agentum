@@ -58,7 +58,7 @@ import {
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "../authz.ts";
-import { isUniqueViolation, ServiceError } from "../errors.ts";
+import { isAgentPaused, isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventRecord, EventsService } from "../events.ts";
 import { requireSession } from "../guards.ts";
 import type { RequestsService } from "../requests.ts";
@@ -583,9 +583,13 @@ export const createA2aTasksService = ({
         }
       );
     } catch (error) {
-      console.error("A2A run not started", task.id, error);
+      // A paused agent is expected, not a fault, so it is not logged.
+      const paused = isAgentPaused(error);
+      if (!paused) {
+        console.error("A2A run not started", task.id, error);
+      }
       await move(task.id, ["TASK_STATE_SUBMITTED"], "TASK_STATE_FAILED", {
-        statusText: STATUS_TEXT.notStarted,
+        statusText: paused ? STATUS_TEXT.paused : STATUS_TEXT.notStarted,
       });
       // The run may have been written before the offer to its runtime failed.
       const linked = await taskById(task.id);

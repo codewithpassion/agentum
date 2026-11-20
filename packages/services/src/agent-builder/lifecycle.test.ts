@@ -93,6 +93,7 @@ const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
   model: CLOUD_DEFAULT_MODEL,
   name: "Inbox helper",
   ownerUserId: null,
+  pausedAt: null,
   runtime: "cloud",
   runtimeConfig: {},
   slug: "inbox-helper",

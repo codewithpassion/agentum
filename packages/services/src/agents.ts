@@ -137,6 +137,8 @@ export interface AgentRecord {
   name: string;
   /** Who the agent asks, a Clerk user id. Null means `createdBy`. */
   ownerUserId: string | null;
+  /** When the weekly cap paused the agent, ISO. Null while it runs. A paused agent starts no new run. */
+  pausedAt: string | null;
   runtime: AgentRuntime;
   runtimeConfig: RuntimeConfig;
   slug: string;
@@ -339,6 +341,7 @@ const toRecord = (row: AgentRow): AgentRecord => ({
   model: row.model,
   name: row.name,
   ownerUserId: row.ownerUserId,
+  pausedAt: row.pausedAt,
   runtime: row.runtime,
   runtimeConfig: runtimeConfigSchema.parse(JSON.parse(row.runtimeConfig)),
   slug: row.slug,

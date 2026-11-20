@@ -51,6 +51,12 @@ test("the card shows name, job line, status line, owner and week cost", () => {
   expect(html).toContain("$4.10 this week");
 });
 
+test("a card with a weekly limit reads spend against it", () => {
+  const html = render({ ...baseCard, weeklyCapCents: 2000 });
+  expect(html).toContain("$4.10 of $20 this week");
+  expect(html).not.toContain("$4.10 this week");
+});
+
 test("a needs_you card says so in text and takes the amber accent", () => {
   const html = render({ ...baseCard, state: "needs_you" });
   expect(html).toContain("Needs you");

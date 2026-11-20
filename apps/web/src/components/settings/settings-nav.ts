@@ -40,4 +40,8 @@ export const settingsNav: readonly SettingsNavGroup[] = [
     items: [{ label: "Timezone", to: "/settings/timezone" }],
     label: "Jobs",
   },
+  {
+    items: [{ label: "Spend limit", to: "/settings/spend" }],
+    label: "Spend",
+  },
 ];

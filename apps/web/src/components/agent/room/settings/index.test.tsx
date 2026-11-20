@@ -50,6 +50,8 @@ const triggerFor = (html: string, label: string): string => {
 
 const isDisabled = (tag: string): boolean => DISABLED_ATTR.test(tag);
 
+const AGENT_CAP_INPUT = /id="agent-cap"[^>]*value="20"/;
+
 test("Settings shows where the agent runs, the move action and the agent form", () => {
   signedIn = { orgRole: "org:member", userId: "user_1" };
   const html = renderInRoom(<SettingsTab {...fixtureTabProps()} />);
@@ -102,4 +104,18 @@ test("a member who is neither the owner nor an admin sees the Owner and Backup s
   const html = renderSettings();
   expect(isDisabled(triggerFor(html, "Owner"))).toBe(true);
   expect(isDisabled(triggerFor(html, "Backup"))).toBe(true);
+});
+
+test("Settings has a weekly spend limit that shows the saved cap", () => {
+  const props = fixtureTabProps();
+  const base = props.room;
+  const html = renderInRoom(
+    <SettingsTab
+      {...props}
+      room={{ ...base, spend: { ...base.spend, capCents: 2000 } }}
+    />
+  );
+  expect(html).toContain("Weekly spend limit");
+  expect(html).toContain("Weekly limit");
+  expect(html).toMatch(AGENT_CAP_INPUT);
 });

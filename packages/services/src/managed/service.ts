@@ -72,6 +72,7 @@ import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
 import { importRunTokenKey, signSessionToken } from "../run-tokens.ts";
 import { buildLaunchContext } from "../runs/launch-context.ts";
+import { notHeldByPause } from "../runs/pause-hold.ts";
 import { loadRun } from "../runs/queries.ts";
 import type { Clock, RunRecord } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
@@ -349,6 +350,7 @@ export const createManagedService = ({
           eq(runs.workspaceId, run.workspaceId),
           inArray(runs.status, STARTING),
           isNull(runs.pendingFiles),
+          notHeldByPause(db),
           notExists(
             db
               .select({ id: sibling.id })
@@ -368,6 +370,7 @@ export const createManagedService = ({
                 and(
                   eq(older.sessionId, runs.sessionId),
                   inArray(older.status, STARTING),
+                  notHeldByPause(db, older),
                   or(
                     lt(older.createdAt, runs.createdAt),
                     and(
