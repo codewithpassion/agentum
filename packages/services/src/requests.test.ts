@@ -4,12 +4,14 @@ import { artifacts } from "@repo/db/schema/artifacts";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { agentToolRules } from "@repo/db/schema/tool-rules";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { askUserQuestionAnswers, outcomeText } from "@repo/protocol/requests";
 import { eq } from "drizzle-orm";
 import { createAgentsService } from "./agents.ts";
+import { ForbiddenError } from "./authz.ts";
 import { createCloudRuntime } from "./cloud/runtime.ts";
 import { createEventsService } from "./events.ts";
 import { createManagedRuntime } from "./managed/runtime.ts";
@@ -376,6 +378,87 @@ test("pending and rules lists respect visibility and rule removal defaults to al
     false
   );
   expect(opened.filter((type) => type === "tool_rule.changed")).toHaveLength(3);
+});
+
+const admin = {
+  isAdmin: true,
+  kind: "user",
+  userId: "admin1",
+  via: "session",
+  workspaceId: "w1",
+} as const;
+const member = {
+  kind: "user",
+  userId: "u2",
+  via: "session",
+  workspaceId: "w1",
+} as const;
+const ruleEvents = () =>
+  opened.filter((type) => type === "tool_rule.changed").length;
+const ruleRows = () =>
+  db.select().from(agentToolRules).where(eq(agentToolRules.agentId, agentId));
+
+test("only the owner or an admin sets the ask level, a member is refused and nothing changes", async () => {
+  await requests.setAskLevel(user, { agentId, level: "rarely" });
+  expect(await requests.askLevel(user, { agentId })).toBe("rarely");
+  await requests.setAskLevel(admin, { agentId, level: "everything" });
+  expect(await requests.askLevel(user, { agentId })).toBe("everything");
+  const changes = ruleEvents();
+  await expect(
+    requests.setAskLevel(member, { agentId, level: "outside" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await requests.askLevel(user, { agentId })).toBe("everything");
+  expect(ruleEvents()).toBe(changes);
+});
+
+test("only the owner or an admin sets a rule, a member is refused and no row is written", async () => {
+  await requests.setRule(user, { agentId, mode: "ask", toolKey: "bash" });
+  await requests.setRule(admin, { agentId, mode: "allow", toolKey: "curl" });
+  expect(await requests.listRules(member, { agentId })).toMatchObject([
+    { mode: "ask", toolKey: "bash" },
+    { mode: "allow", toolKey: "curl" },
+  ]);
+  const before = await ruleRows();
+  const changes = ruleEvents();
+  await expect(
+    requests.setRule(member, { agentId, mode: "allow", toolKey: "bash" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await ruleRows()).toEqual(before);
+  expect(ruleEvents()).toBe(changes);
+});
+
+test("only the owner or an admin removes a rule, a member is refused and the rule stays", async () => {
+  await requests.setRule(user, { agentId, mode: "ask", toolKey: "bash" });
+  const before = await ruleRows();
+  const changes = ruleEvents();
+  await expect(
+    requests.removeRule(member, { agentId, toolKey: "bash" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await ruleRows()).toEqual(before);
+  expect(ruleEvents()).toBe(changes);
+  await requests.removeRule(admin, { agentId, toolKey: "bash" });
+  expect(await ruleRows()).toEqual([]);
+});
+
+test("a member who is not the owner answers always allow and the allow rule is written", async () => {
+  // A UI session belongs to its opener, so the member answers a shared (MCP) session.
+  const { runId } = await runs.startRun(user, {
+    agentId,
+    input: { text: "go" },
+    session: { origin: "mcp" },
+  });
+  await runs.claimRun(system, runId);
+  await requests.setRule(user, { agentId, mode: "ask", toolKey: "bash" });
+  const request = await open(runId);
+  await requests.answer(member, {
+    answer: { decision: "always_allow" },
+    requestId: request.id,
+    via: "web",
+  });
+  expect(await requests.listRules(user, { agentId })).toMatchObject([
+    { mode: "allow", toolKey: "bash" },
+  ]);
+  expect(resumed).toEqual([request.id]);
 });
 
 test("oversized approval input is capped after scrubbing", async () => {
