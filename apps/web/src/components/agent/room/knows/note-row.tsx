@@ -46,12 +46,14 @@ function SourceLink({ source }: { source: MemorySource }): ReactElement {
 
 export function NoteRow({
   busy,
+  canChange,
   disabled,
   note,
   onEdit,
   onForget,
 }: {
   busy: boolean;
+  canChange: boolean;
   disabled: boolean;
   note: MemoryNote;
   onEdit: (noteId: string, text: string) => void;
@@ -60,6 +62,7 @@ export function NoteRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.text);
   const locked = disabled || busy;
+  const showControls = canChange || note.userScope !== null;
   const trimmed = draft.trim();
   const saveDisabled =
     locked ||
@@ -130,7 +133,7 @@ export function NoteRow({
           </Badge>
         )}
       </div>
-      {editing ? null : (
+      {editing || !showControls ? null : (
         <div className="flex gap-2">
           <Button
             disabled={locked}
@@ -161,16 +164,19 @@ export function NoteRow({
 
 export function HeldRow({
   busy,
+  canChange,
   change,
   disabled,
   onDecide,
 }: {
   busy: boolean;
+  canChange: boolean;
   change: MemoryChange;
   disabled: boolean;
   onDecide: (changeId: string, decision: "approve" | "reject") => void;
 }): ReactElement {
   const locked = disabled || busy;
+  const showDecisions = canChange || change.userScope !== null;
   const approve = useCallback(
     () => onDecide(change.id, "approve"),
     [change.id, onDecide]
@@ -193,20 +199,22 @@ export function HeldRow({
         )}
         <span>{WRITER_LABELS[change.writtenBy]}</span>
       </div>
-      <div className="flex gap-2">
-        <Button disabled={locked} onClick={approve} size="sm" type="button">
-          Approve
-        </Button>
-        <Button
-          disabled={locked}
-          onClick={reject}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          Reject
-        </Button>
-      </div>
+      {showDecisions ? (
+        <div className="flex gap-2">
+          <Button disabled={locked} onClick={approve} size="sm" type="button">
+            Approve
+          </Button>
+          <Button
+            disabled={locked}
+            onClick={reject}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Reject
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

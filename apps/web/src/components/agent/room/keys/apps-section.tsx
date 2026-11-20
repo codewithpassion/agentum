@@ -6,6 +6,7 @@ import type {
 } from "@repo/db/shared";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { canManageAgentKeys } from "#/components/agent/agent-rights.ts";
 import { AllowedToolsDialog } from "#/components/connectors/allowed-tools-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -17,7 +18,7 @@ import type {
 import { errorMessage } from "#/lib/error-message";
 import { AddApp } from "./add-app.tsx";
 import { AppRow } from "./app-row.tsx";
-import { canManageAgentKeys, isSecretBacked } from "./keys-logic.ts";
+import { isSecretBacked } from "./keys-logic.ts";
 
 type MySignIn = RouterOutputs["connectors"]["mine"][number];
 

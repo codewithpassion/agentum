@@ -247,6 +247,66 @@ test("an archived agent's memory controls are disabled and its rules cannot chan
   }
 });
 
+const OWNER_ONLY = "Only the agent's owners and admins can change its notes.";
+const CONTROLS = ["Edit", "Forget", "Approve", "Reject", "Undo"];
+
+const noteControls = (document: ReturnType<typeof render>): string[] =>
+  texts(
+    document,
+    '[data-testid="note-row"] button, [data-testid="held-row"] button, [data-testid="learned-row"] button'
+  ).filter((label) => CONTROLS.includes(label));
+
+test("a member sees no way to change the agent's shared notes, and the reason", () => {
+  const document = render(
+    api({ held: [change({ id: "h1", status: "held", text: "Held note" })] }),
+    false
+  );
+  expect(noteControls(document)).toEqual([]);
+  expect(document.body.textContent).toContain(OWNER_ONLY);
+});
+
+test("a member can still change their own private note and change", () => {
+  const document = render(
+    api({
+      changes: [change({ userScope: "user_me" })],
+      held: [
+        change({
+          id: "h1",
+          status: "held",
+          text: "Held private",
+          userScope: "user_me",
+        }),
+      ],
+      notes: [note({ userScope: "user_me" })],
+    }),
+    false
+  );
+  expect(noteControls(document)).toEqual([
+    "Approve",
+    "Reject",
+    "Edit",
+    "Forget",
+    "Undo",
+  ]);
+});
+
+test("the owner or an admin sees every control and no reason", () => {
+  const document = render(
+    api({ held: [change({ id: "h1", status: "held", text: "Held note" })] }),
+    true
+  );
+  expect(noteControls(document)).toEqual([
+    "Approve",
+    "Reject",
+    "Edit",
+    "Forget",
+    "Edit",
+    "Forget",
+    "Undo",
+  ]);
+  expect(document.body.textContent).not.toContain(OWNER_ONLY);
+});
+
 test("an error from an action shows as an alert", () => {
   const memory = { ...api(), error: "This note looks like it holds a secret" };
   const document = render(memory, true);

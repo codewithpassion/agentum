@@ -32,9 +32,9 @@ describe("pickerTarget", () => {
     expect(pickerTarget("/agents")).toBe("/agents");
   });
 
-  test("falls back to /desk", () => {
-    expect(pickerTarget(undefined)).toBe("/desk");
-    expect(pickerTarget("//evil.example")).toBe("/desk");
+  test("falls back to /home", () => {
+    expect(pickerTarget(undefined)).toBe("/home");
+    expect(pickerTarget("//evil.example")).toBe("/home");
   });
 });
 

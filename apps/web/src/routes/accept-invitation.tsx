@@ -38,8 +38,8 @@ function AcceptInvitationPage() {
   switch (step.kind) {
     case "activate":
       return <ActivateOrganization org={step.org} />;
-    case "desk":
-      return <GoToDesk />;
+    case "home":
+      return <GoToHome />;
     case "sign-up":
       return (
         <Centered>
@@ -71,9 +71,9 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
-function GoToDesk() {
+function GoToHome() {
   useEffect(() => {
-    window.location.assign("/desk");
+    window.location.assign("/home");
   }, []);
   return <Centered>Opening your workspace</Centered>;
 }
@@ -149,7 +149,7 @@ function ActivateOrganization({ org }: { org: string }) {
     started.current = true;
     Promise.resolve(plan.kind === "accept" ? invitation?.accept() : undefined)
       .then(() => setActive({ organization: org }))
-      .then(() => window.location.assign("/desk"))
+      .then(() => window.location.assign("/home"))
       .catch(() =>
         setError("Could not open the workspace you were invited to.")
       );

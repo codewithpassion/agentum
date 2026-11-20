@@ -1,13 +1,13 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { canManageAgentKeys } from "#/components/agent/agent-rights.ts";
 import { AsksRow } from "#/components/agent/profile/asks-row.tsx";
 import { ComputerCard } from "#/components/agent/profile/computer-card.tsx";
 import { RunsOnCard } from "#/components/agent/profile/runs-on-card.tsx";
 import { AdvancedPanel } from "#/components/agent/profile/sheets/advanced.tsx";
 import { CapField } from "#/components/spend/cap-field.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
-import { canManageAgentKeys } from "../keys/keys-logic.ts";
 import type { RoomTabProps } from "../room-data.ts";
 import { Manage, RoomSection, TabBody } from "../section.tsx";
 import { PlainChoices } from "./plain-choices.tsx";

@@ -3,7 +3,7 @@ id: RH.12
 title: "A live run never reads Idle on a card"
 milestone: RH
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/RH.12-a-live-run-never-reads-idle-on-a-card
 lane: services-roster
@@ -30,3 +30,4 @@ Controller decision (20 Nov 2026): follow the RH.2 task file. `needs_you` means 
 ## Log
 - 2026-11-20: added from the RH gate review, round 1.
 - 2026-11-20: dispatched on task/RH.12-a-live-run-never-reads-idle-on-a-card (v4 controller session).
+- 2026-11-20: merged as 66a4e9f9, review clean after 0 fix rounds. check, test and build passed on main.
