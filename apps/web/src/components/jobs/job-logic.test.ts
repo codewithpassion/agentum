@@ -5,6 +5,7 @@ import {
   canRunNow,
   draftChips,
   draftName,
+  draftPrompt,
   draftRoutineInput,
   draftSaveKind,
   jobChips,
@@ -84,6 +85,25 @@ describe("draftChips", () => {
   test("skips the empty parts of a draft", () => {
     const chips = draftChips(draft({ does: "", when: "  " }));
     expect(chips).toEqual([]);
+  });
+
+  test("shows asks and delivers for a routine draft", () => {
+    const kinds = draftChips(
+      draft({ asksBefore: "Dom", deliversTo: "#news" })
+    ).map((chip) => chip.kind);
+    expect(kinds).toEqual(["when", "does", "asks", "delivers"]);
+  });
+
+  test("hides asks and delivers for a web-trigger draft, which saves neither", () => {
+    const kinds = draftChips(
+      draft({
+        asksBefore: "Dom",
+        cron: null,
+        deliversTo: "#news",
+        source: "http",
+      })
+    ).map((chip) => chip.kind);
+    expect(kinds).toEqual(["when", "does"]);
   });
 });
 
@@ -227,6 +247,30 @@ describe("draftRoutineInput", () => {
     expect(input.name).toBe("New job");
   });
 
+  test("adds the ask-first and delivery lines to the prompt", () => {
+    const input = draftRoutineInput(
+      "agt_1",
+      draft({ asksBefore: "Dom", deliversTo: "#news" })
+    );
+    expect(input.prompt).toBe(
+      "Send the report\nAsk first: Dom\nSend the result to #news"
+    );
+  });
+
+  test("adds only the delivery line when there is no ask", () => {
+    const input = draftRoutineInput("agt_1", draft({ deliversTo: "#support" }));
+    expect(input.prompt).toContain("#support");
+    expect(input.prompt).toBe("Send the report\nSend the result to #support");
+  });
+
+  test("blank ask and delivery add no lines", () => {
+    const input = draftRoutineInput(
+      "agt_1",
+      draft({ asksBefore: "   ", deliversTo: "" })
+    );
+    expect(input.prompt).toBe("Send the report");
+  });
+
   test("throws when the cron is null", () => {
     expect(() => draftRoutineInput("agt_1", draft({ cron: null }))).toThrow(
       "A routine needs a cron schedule to be saved."
@@ -236,6 +280,27 @@ describe("draftRoutineInput", () => {
   test("throws when the cron is empty", () => {
     expect(() => draftRoutineInput("agt_1", draft({ cron: "" }))).toThrow(
       "A routine needs a cron schedule to be saved."
+    );
+  });
+});
+
+describe("draftPrompt", () => {
+  test("uses the when text, then the extra lines, when does is empty", () => {
+    expect(
+      draftPrompt(
+        draft({
+          asksBefore: "Dom",
+          deliversTo: "#news",
+          does: " ",
+          when: "Every Monday",
+        })
+      )
+    ).toBe("Every Monday\nAsk first: Dom\nSend the result to #news");
+  });
+
+  test("is the does text alone when neither extra is set", () => {
+    expect(draftPrompt(draft({ does: "  Send the report  " }))).toBe(
+      "Send the report"
     );
   });
 });

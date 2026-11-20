@@ -129,6 +129,68 @@ test("an error renders as an alert", () => {
   expect(html).toContain("The job could not be saved.");
 });
 
+test("a routine draft shows its ask-first and delivery chips", () => {
+  const html = render({
+    draft: {
+      ...routineDraft,
+      asksBefore: "Dom",
+      deliversTo: "#support",
+    },
+  });
+  expect(html).toContain('data-chip="asks"');
+  expect(html).toContain("Asks first: Dom");
+  expect(html).toContain('data-chip="delivers"');
+  expect(html).toContain("Sends to #support");
+});
+
+test("an http draft shows no ask-first or delivery chips", () => {
+  const html = render({
+    draft: {
+      ...routineDraft,
+      asksBefore: "Dom",
+      cron: null,
+      deliversTo: "#support",
+      source: "http",
+      timezone: null,
+    },
+  });
+  expect(html).not.toContain('data-chip="asks"');
+  expect(html).not.toContain('data-chip="delivers"');
+  expect(html).not.toContain("#support");
+});
+
+test("a mail draft shows no ask-first or delivery chips", () => {
+  const html = render({
+    draft: {
+      ...routineDraft,
+      asksBefore: "Dom",
+      cron: null,
+      deliversTo: "#support",
+      source: "mail",
+      timezone: null,
+    },
+  });
+  expect(html).not.toContain('data-chip="asks"');
+  expect(html).not.toContain('data-chip="delivers"');
+  expect(html).not.toContain("#support");
+});
+
+test("an app-source draft shows no ask-first or delivery chips", () => {
+  const html = render({
+    draft: {
+      ...routineDraft,
+      asksBefore: "Dom",
+      cron: null,
+      deliversTo: "#support",
+      source: "app",
+      timezone: null,
+    },
+  });
+  expect(html).not.toContain('data-chip="asks"');
+  expect(html).not.toContain('data-chip="delivers"');
+  expect(html).not.toContain("#support");
+});
+
 test("agentName renders after the heading", () => {
   const html = render({ agentName: "Sorter", draft: routineDraft });
   expect(html).toContain(" for Sorter");
