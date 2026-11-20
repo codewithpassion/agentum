@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { agents } from "@repo/db/schema/agents";
 import { dreamQuestions } from "@repo/db/schema/dreams";
 import { memoryChanges } from "@repo/db/schema/memory";
 import { eq } from "drizzle-orm";
@@ -463,6 +464,45 @@ test("a member cannot answer a question about shared notes: nothing is forgotten
   expect(ids).toEqual(expect.arrayContaining([first, second]));
   const [stored] = await w.db.select().from(dreamQuestions);
   expect(stored?.status).toBe("open");
+});
+
+test("the backup owner answers a question about shared notes", async () => {
+  const { first, question, second, w } = await askedWorld();
+  await w.db
+    .update(agents)
+    .set({ backupUserId: USER_A })
+    .where(eq(agents.id, AGENT))
+    .run();
+
+  const answered = await w.dream.answer(person(USER_A), {
+    noteId: second,
+    questionId: question.id,
+  });
+
+  expect(answered.status).toBe("answered");
+  expect(answered.answeredNoteId).toBe(second);
+  const ids = (await w.service.list(w.owner, { agentId: AGENT })).map(
+    (item) => item.id
+  );
+  expect(ids).toContain(second);
+  expect(ids).not.toContain(first);
+});
+
+test("an org admin answers a question about shared notes", async () => {
+  const { first, question, second, w } = await askedWorld();
+
+  const answered = await w.dream.answer(person(USER_B, { isAdmin: true }), {
+    noteId: first,
+    questionId: question.id,
+  });
+
+  expect(answered.status).toBe("answered");
+  expect(answered.answeredNoteId).toBe(first);
+  const ids = (await w.service.list(w.owner, { agentId: AGENT })).map(
+    (item) => item.id
+  );
+  expect(ids).toContain(first);
+  expect(ids).not.toContain(second);
 });
 
 test("a question names one of its notes, and the same pair is not asked twice", async () => {

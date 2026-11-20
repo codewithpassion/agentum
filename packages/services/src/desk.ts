@@ -40,6 +40,7 @@ import {
 import { isDecisionsDisplay } from "@repo/protocol/requests";
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -291,6 +292,37 @@ const byAge = (a: DeskCard, b: DeskCard): number =>
 const titleOf = (inputText: string, mailSubject?: string): string =>
   clip(runTitleText(text(inputText), mailSubject), TITLE_MAX);
 
+/**
+ * The agents whose shared held notes and dream questions a member may decide: the owner
+ * (the creator when no owner is set) and the backup, or every agent for an org admin
+ * (`null`). Services refuse anyone else, so their Needs you cards would lead nowhere.
+ */
+const decidableAgentIds = async (
+  db: Database,
+  member: UserPrincipal
+): Promise<Set<string> | null> => {
+  if (member.isAdmin === true) {
+    return null;
+  }
+  const rows = await db
+    .select({ id: agentRows.id })
+    .from(agentRows)
+    .where(
+      and(
+        eq(agentRows.workspaceId, member.workspaceId),
+        or(
+          eq(agentRows.ownerUserId, member.userId),
+          and(
+            isNull(agentRows.ownerUserId),
+            eq(agentRows.createdBy, member.userId)
+          ),
+          eq(agentRows.backupUserId, member.userId)
+        )
+      )
+    );
+  return new Set(rows.map((row) => row.id));
+};
+
 export const createDeskService = ({
   a2a,
   clock,
@@ -512,6 +544,84 @@ export const createDeskService = ({
     };
   };
 
+  /**
+   * The agent each team question is asked through, keyed by team id: the
+   * team's lead when it is active, else its active agent member with the
+   * lowest id. Only the team's owner and an org admin get its card, so a team
+   * they cannot see has no entry, and a team with no active agent has none either.
+   */
+  const teamQuestionAgents = async (
+    member: UserPrincipal,
+    questions: readonly { teamId: string | null }[]
+  ): Promise<Map<string, string>> => {
+    const teamIds = questions.flatMap(({ teamId }) =>
+      teamId === null ? [] : [teamId]
+    );
+    const ownedTeams = await inBatches(teamIds, (batch) =>
+      db
+        .select({ id: teams.id, leadAgentId: teams.leadAgentId })
+        .from(teams)
+        .where(
+          and(
+            eq(teams.workspaceId, member.workspaceId),
+            isNull(teams.archivedAt),
+            inArray(teams.id, batch),
+            member.isAdmin === true
+              ? undefined
+              : eq(teams.ownerUserId, member.userId)
+          )
+        )
+    );
+    const ownedIds = ownedTeams.map((team) => team.id);
+    const agentMembers = await inBatches(ownedIds, (batch) =>
+      db
+        .select({ memberId: teamMembers.memberId, teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .innerJoin(agentRows, eq(agentRows.id, teamMembers.memberId))
+        .where(
+          and(
+            eq(teamMembers.memberKind, "agent"),
+            inArray(teamMembers.teamId, batch),
+            eq(agentRows.workspaceId, member.workspaceId),
+            eq(agentRows.status, "active")
+          )
+        )
+        .orderBy(asc(teamMembers.memberId))
+    );
+    const leadIds = ownedTeams.flatMap((team) =>
+      team.leadAgentId === null ? [] : [team.leadAgentId]
+    );
+    const activeLeads = new Set(
+      (
+        await inBatches(leadIds, (batch) =>
+          db
+            .select({ id: agentRows.id })
+            .from(agentRows)
+            .where(
+              and(
+                eq(agentRows.workspaceId, member.workspaceId),
+                eq(agentRows.status, "active"),
+                inArray(agentRows.id, batch)
+              )
+            )
+        )
+      ).map((agent) => agent.id)
+    );
+    const chosen = new Map<string, string>();
+    for (const team of ownedTeams) {
+      const lead = team.leadAgentId;
+      if (lead !== null && activeLeads.has(lead)) {
+        chosen.set(team.id, lead);
+      }
+    }
+    for (const { memberId, teamId } of agentMembers) {
+      if (!chosen.has(teamId)) {
+        chosen.set(teamId, memberId);
+      }
+    }
+    return chosen;
+  };
+
   /** Everything in Needs you, before it becomes cards. */
   const needsYouSources = async (member: UserPrincipal) => {
     const [
@@ -529,6 +639,7 @@ export const createDeskService = ({
       heldDreams,
       a2aList,
       spendPauses,
+      decidable,
     ] = await Promise.all([
       pendingRecords(member),
       skillsStore.proposals(member),
@@ -567,21 +678,23 @@ export const createDeskService = ({
             // A dream's held batch is decided as a whole in `dream.decide`, not note by note.
             isNull(memoryChanges.dreamRunId),
             // Private memory keeps its person's visibility, including on the rail.
+            // A shared note reaches only the agent's owner, backup and org admins
+            // (`decidable`, filtered below), and a private one only its person.
             or(
               isNull(memoryChanges.userScope),
               eq(memoryChanges.userScope, member.userId)
             )
           )
         ),
+      // A shared question reaches only the agent's owner, backup and org admins
+      // (`decidable`, filtered below). A private one goes to its person alone.
       db
         .select()
         .from(dreamQuestions)
         .where(
           and(
             eq(dreamQuestions.workspaceId, member.workspaceId),
-            eq(dreamQuestions.status, "open"),
-            // A team's question has no agent. The team dream shows it later.
-            isNotNull(dreamQuestions.agentId)
+            eq(dreamQuestions.status, "open")
           )
         ),
       heldBatchesFor(db, member),
@@ -610,7 +723,11 @@ export const createDeskService = ({
                 )
           )
         ),
+      decidableAgentIds(db, member),
     ]);
+    /** Whether the member may decide a shared note or question of this agent. */
+    const mayDecide = (agentId: string): boolean =>
+      decidable === null || decidable.has(agentId);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
       (trigger) =>
@@ -709,6 +826,7 @@ export const createDeskService = ({
         ? [{ post, thread }]
         : [];
     });
+    const teamAgents = await teamQuestionAgents(member, dreamRows);
     return {
       a2aConnections: a2aList.connections.filter(
         (connection) => !drafts.has(connection.agentId)
@@ -757,7 +875,11 @@ export const createDeskService = ({
         .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       dreamQuestions: dreamRows.flatMap((row) => {
-        if (row.agentId === null || drafts.has(row.agentId)) {
+        // A team's question is asked through the team's agent; see `teamQuestionAgents`.
+        const agentId =
+          row.agentId ??
+          (row.teamId === null ? null : (teamAgents.get(row.teamId) ?? null));
+        if (agentId === null || drafts.has(agentId)) {
           return [];
         }
         const { options, userScope } = readOptions(row.options);
@@ -765,9 +887,17 @@ export const createDeskService = ({
         if (userScope !== null && userScope !== member.userId) {
           return [];
         }
+        // A team's question was limited to its owner and org admins by `teamQuestionAgents`.
+        if (
+          userScope === null &&
+          row.agentId !== null &&
+          !mayDecide(row.agentId)
+        ) {
+          return [];
+        }
         return [
           {
-            agentId: row.agentId,
+            agentId,
             createdAt: row.createdAt,
             id: row.id,
             options,
@@ -778,7 +908,9 @@ export const createDeskService = ({
       }),
       heldDreams: heldDreams.filter((batch) => !drafts.has(batch.agentId)),
       heldNotes: heldNotes.flatMap((row) =>
-        row.agentId === null || drafts.has(row.agentId)
+        row.agentId === null ||
+        drafts.has(row.agentId) ||
+        (row.userScope === null && !mayDecide(row.agentId))
           ? []
           : [{ ...row, agentId: row.agentId }]
       ),

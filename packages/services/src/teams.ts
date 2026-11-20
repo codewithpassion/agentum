@@ -2,6 +2,7 @@ import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
+import { teamSlackLinks } from "@repo/db/schema/slack";
 import { memberProfiles, teamMembers, teams } from "@repo/db/schema/teams";
 import {
   EVERYONE_TEAM_SLUG,
@@ -9,10 +10,11 @@ import {
   TEAM_MEMBER_KINDS,
   type Team,
   type TeamMember,
+  type TeamSlackChannels,
   type TeamSlackLink,
   type TeamSlackStatus,
 } from "@repo/db/shared";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { slugify, slugSchema } from "./agents.ts";
@@ -121,6 +123,16 @@ export interface TeamsDeps {
   atomic: Atomic;
   clock: Clock;
   db: Database;
+  /** The Slack side of linking: the channels the lead's app can see, and whether a member app may post in one (`slack/room-channels.ts`). */
+  slackChannels: {
+    canPost: (
+      workspaceId: string,
+      teamId: string,
+      slackTeamId: string,
+      channelId: string
+    ) => Promise<boolean>;
+    list: (workspaceId: string, teamId: string) => Promise<TeamSlackChannels>;
+  };
   /** Which member agents have their Slack app in the team's linked channel (`slack/room-status.ts`). */
   slackStatus: (
     workspaceId: string,
@@ -133,10 +145,6 @@ const teamResource = (workspaceId: string, id?: string) => ({
   kind: TEAMS_KIND,
   workspaceId,
 });
-
-// `slack.link` and `slack.unlink` below are stubs; no task fills them yet.
-const noTeam = (teamId: string) =>
-  Promise.reject(new ServiceError("not_found", `No team "${teamId}"`));
 
 type TeamRow = typeof teams.$inferSelect;
 
@@ -189,6 +197,7 @@ export const createTeamsService = ({
   db,
   atomic,
   clock,
+  slackChannels,
   slackStatus: readSlackStatus,
 }: TeamsDeps) => {
   const teamRow = async (workspaceId: string, teamId: string) => {
@@ -608,19 +617,81 @@ export const createTeamsService = ({
     return get(principal, input.teamId);
   };
 
-  const linkSlack = (
+  const slackChannelList = async (
     principal: Principal,
-    input: SlackLinkInput
-  ): Promise<TeamSlackLink> => {
-    const workspaceId = readableWorkspace(principal, TEAMS_WRITE);
-    authorize(principal, TEAMS_WRITE, teamResource(workspaceId, input.teamId));
-    return noTeam(input.teamId);
+    teamId: string
+  ): Promise<TeamSlackChannels> => {
+    const row = await writableTeam(principal, teamId);
+    return slackChannels.list(row.workspaceId, teamId);
   };
 
-  const unlinkSlack = (principal: Principal, teamId: string): Promise<void> => {
-    const workspaceId = readableWorkspace(principal, TEAMS_WRITE);
-    authorize(principal, TEAMS_WRITE, teamResource(workspaceId, teamId));
-    return noTeam(teamId);
+  const linkSlack = async (
+    principal: Principal,
+    raw: SlackLinkInput
+  ): Promise<TeamSlackLink> => {
+    const input = slackLinkInputSchema.parse(raw);
+    const row = await writableTeam(principal, input.teamId);
+    const user = person(principal, true);
+    const [taken] = await db
+      .select({ teamId: teamSlackLinks.teamId })
+      .from(teamSlackLinks)
+      .where(
+        or(
+          eq(teamSlackLinks.teamId, input.teamId),
+          and(
+            eq(teamSlackLinks.slackTeamId, input.slackTeamId),
+            eq(teamSlackLinks.channelId, input.channelId)
+          )
+        )
+      );
+    if (taken) {
+      throw new ServiceError(
+        "conflict",
+        taken.teamId === input.teamId
+          ? "This team is already linked to a Slack channel. Unlink it first."
+          : "That Slack channel is linked to another team."
+      );
+    }
+    const canPost = await slackChannels.canPost(
+      row.workspaceId,
+      input.teamId,
+      input.slackTeamId,
+      input.channelId
+    );
+    if (!canPost) {
+      throw new ServiceError(
+        "invalid",
+        "No agent of this team has its Slack app in that channel."
+      );
+    }
+    const link: TeamSlackLink = {
+      channelId: input.channelId,
+      createdAt: clock.now().toISOString(),
+      linkedBy: user.userId,
+      slackTeamId: input.slackTeamId,
+      teamId: input.teamId,
+    };
+    await uniqueWrite(
+      () =>
+        atomic([
+          db
+            .insert(teamSlackLinks)
+            .values({ ...link, id: ulid(), workspaceId: row.workspaceId }),
+        ]),
+      "That Slack channel is linked to another team."
+    );
+    return link;
+  };
+
+  const unlinkSlack = async (
+    principal: Principal,
+    teamId: string
+  ): Promise<void> => {
+    // An archived team can still be unlinked.
+    await writableTeam(principal, teamId, true);
+    await atomic([
+      db.delete(teamSlackLinks).where(eq(teamSlackLinks.teamId, teamId)),
+    ]);
   };
 
   const slackStatus = (
@@ -701,7 +772,12 @@ export const createTeamsService = ({
     removeMember,
     setLead,
     setRules,
-    slack: { link: linkSlack, status: slackStatus, unlink: unlinkSlack },
+    slack: {
+      channels: slackChannelList,
+      link: linkSlack,
+      status: slackStatus,
+      unlink: unlinkSlack,
+    },
     update,
   };
 };

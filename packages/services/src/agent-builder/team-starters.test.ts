@@ -62,7 +62,11 @@ beforeEach(() => {
       atomic,
       clock,
       db,
-      slackStatus: async () => ({ apps: [], link: null }),
+      slackChannels: {
+        canPost: async () => false,
+        list: async () => ({ channels: [], slackTeamId: null }),
+      },
+      slackStatus: async () => ({ apps: [], channelName: null, link: null }),
     }),
   });
 });

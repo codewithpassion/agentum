@@ -140,7 +140,7 @@ export const slackInteractionsUrl = (origin: string): string =>
  * A bot user name from a display name: lowercase, every run of characters
  * Slack does not allow replaced by one hyphen, no leading or trailing hyphen.
  */
-const botNameFrom = (name: string): string => {
+export const botNameFrom = (name: string): string => {
   const slug = name
     .toLowerCase()
     .replace(DISALLOWED_BOT_NAME_RUN, "-")

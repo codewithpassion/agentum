@@ -1783,6 +1783,91 @@ test("a dream skill proposal without a run reaches Needs you and can be rejected
   expect(await desk.needsYouCount(user())).toBe(0);
 });
 
+/** A shared held note and a shared dream question, both about agent a1. */
+const seedSharedNeedsYou = async () => {
+  await insertDreamRun();
+  await db
+    .insert(memoryChanges)
+    .values(
+      heldRow({ dreamRunId: null, id: "shared-note", writtenBy: "agent" })
+    );
+  await db.insert(dreamQuestions).values(questionRow({ id: "shared-q" }));
+};
+
+const setOwnerAndBackup = (
+  ownerUserId: string | null,
+  backupUserId: string | null
+) =>
+  db
+    .update(agentRows)
+    .set({ backupUserId, ownerUserId })
+    .where(eq(agentRows.id, a1));
+
+test("a plain member gets no held note or dream question, and no count", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u3", null);
+
+  expect((await get({}, user("u2"))).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(0);
+});
+
+test("the backup gets a held note and a dream question at once", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u3", "u2");
+
+  const sources = await desk.railSources(user("u2"), { dayStart: DAY_START });
+  expect(ids(sources.needsYou).sort()).toEqual(["shared-note", "shared-q"]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(2);
+});
+
+test("an org admin gets a held note and a dream question of any agent", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u3", null);
+  const admin = { ...user("u2"), isAdmin: true };
+
+  expect(ids((await get({}, admin)).needsYou).sort()).toEqual([
+    "shared-note",
+    "shared-q",
+  ]);
+  expect(await desk.needsYouCount(admin)).toBe(2);
+});
+
+test("the owner gets a held note and a dream question", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u1", null);
+
+  expect(ids((await get()).needsYou).sort()).toEqual([
+    "shared-note",
+    "shared-q",
+  ]);
+  expect(await desk.needsYouCount(user())).toBe(2);
+});
+
+test("a plain member still sees their own private held note and private question", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(
+    heldRow({
+      dreamRunId: null,
+      id: "private-note",
+      userScope: "u2",
+      writtenBy: "agent",
+    })
+  );
+  await db.insert(dreamQuestions).values(
+    questionRow({
+      id: "private-q",
+      options: storeOptions(DREAM_OPTIONS, "u2"),
+    })
+  );
+  await setOwnerAndBackup("u3", null);
+
+  expect(ids((await get({}, user("u2"))).needsYou).sort()).toEqual([
+    "private-note",
+    "private-q",
+  ]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(2);
+});
+
 const minutesAgo = (minutes: number) =>
   new Date(NOW - minutes * 60_000).toISOString();
 
