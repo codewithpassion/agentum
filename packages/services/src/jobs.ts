@@ -205,7 +205,7 @@ export const createJobsService = ({
                     .split("\n")
                     .map((line) => line.trim())
                     .find(Boolean) ?? "")
-                : jobLineFor(agent.soul),
+                : jobLineFor(agent.instructions),
             enabled,
             id: trigger.id,
             // Queued runs have no startedAt yet; show when the start was requested.
@@ -246,7 +246,7 @@ export const createJobsService = ({
         agent: { id: row.agent.id, name: row.agent.name },
         asksBefore: ASK_WORDS[row.agent.askLevel],
         deliversTo: null,
-        does: jobLineFor(row.agent.soul),
+        does: jobLineFor(row.agent.instructions),
         enabled: row.status === "installed",
         id: row.id,
         lastRunAt: null,

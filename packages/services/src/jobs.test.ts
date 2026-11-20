@@ -63,14 +63,13 @@ beforeEach(() => {
         createdBy: "u1",
         emailLocal: id,
         id,
-        instructions: "",
+        instructions: "\n  Keep the harbour tidy.\nMore detail.",
         machineId: "m1",
         model: "m",
         name: id === "a1" ? "Alpha" : "Beta",
         runtime: "machine" as const,
         runtimeConfig: "{}",
         slug: id,
-        soul: "\n  Keep the harbour tidy\nMore detail",
         status: "active",
         workspaceId: "w1",
       }))
@@ -141,7 +140,7 @@ const sentence = (
   agent: { id: "a1", name: "Alpha" },
   asksBefore: "Acting outside its workspace",
   deliversTo: null,
-  does: "Keep the harbour tidy",
+  does: "Keep the harbour tidy.",
   enabled: true,
   id,
   lastRunAt: null,
@@ -265,7 +264,7 @@ test("job line cap, ask levels and mail address fallback", async () => {
     .set({
       askLevel: "rarely",
       emailLocal: null,
-      soul: `\n${"x".repeat(JOB_LINE_MAX_CHARS + 10)}`,
+      instructions: `\n${"x".repeat(JOB_LINE_MAX_CHARS + 10)}`,
     })
     .where(eq(agents.id, "a1"))
     .run();

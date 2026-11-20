@@ -3,9 +3,9 @@ id: KY.3
 title: "Members manage their own sign-ins"
 milestone: KY
 size: S
-status: todo
+status: in_progress
 depends_on: [KY.1]
-branch: null
+branch: task/KY.3-own-sign-ins
 lane: services-connectors
 executor: codex
 ---
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone KY. "Your credential" lives in Settings,
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/KY.3-own-sign-ins (v4 controller session).
