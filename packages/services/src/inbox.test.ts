@@ -1327,6 +1327,43 @@ test("overlapping timeout sweeps wake the lead once and silent members do not bl
   expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(6);
 });
 
+test("a lead that never answers its checkpoint ends the discussion after a second window", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  nowMs += 10 * 60 * 1000;
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+  expect(runsOf("lead")).toHaveLength(2);
+  expect(
+    (await inbox.readThread(user, { threadId })).discussion
+  ).not.toBeNull();
+
+  nowMs += 10 * 60 * 1000;
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+
+  expect((await inbox.readThread(user, { threadId })).discussion).toBeNull();
+  const wakes = allRuns().length;
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+  expect(allRuns()).toHaveLength(wakes);
+});
+
+test("a person's mention inside a running discussion still wakes the agent", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 2,
+    topic: threadId,
+  });
+  const before = runsOf("one").length;
+
+  await say(threadId, "@one a question from me");
+
+  expect(runsOf("one")).toHaveLength(before + 1);
+});
+
 test("discussion reply deduplication is scoped to its own topic", async () => {
   const { threadId, principal } = await discussionFixture();
   await inbox.startDiscussion(principal, {

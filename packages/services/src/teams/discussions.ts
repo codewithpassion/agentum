@@ -33,6 +33,8 @@ interface PostOrigin {
   sessionId: string;
 }
 const POST_ACTION = "inbox.post";
+/** Members get this long to answer a round, and the lead gets the same again. */
+const ROUND_WINDOW_MS = 10 * 60 * 1000;
 
 export const discussionInputSchema = z.strictObject({
   question: z.string().trim().min(1).max(80_000),
@@ -143,10 +145,25 @@ export const createDiscussionRounds = ({
     return opening;
   };
 
+  /** Closes a discussion whose lead never answered. Only a running one changes. */
+  const endDiscussion = async (discussion: typeof discussions.$inferSelect) => {
+    await db
+      .update(discussions)
+      .set({ status: "done" })
+      .where(
+        and(
+          eq(discussions.id, discussion.id),
+          eq(discussions.status, "running"),
+          eq(discussions.round, discussion.round)
+        )
+      );
+  };
+
+  /** True when the lead's reply was there and the round moved on or closed. */
   const advanceDiscussion = async (
     discussion: typeof discussions.$inferSelect,
     checkpointId: string
-  ) => {
+  ): Promise<boolean> => {
     const [reply] = await db
       .select()
       .from(inboxPosts)
@@ -176,6 +193,7 @@ export const createDiscussionRounds = ({
         await driveDiscussion(changed[0]);
       }
     }
+    return Boolean(reply);
   };
 
   const wakeDiscussionMember = async (
@@ -296,7 +314,12 @@ export const createDiscussionRounds = ({
       return null;
     }
     const timedOut =
-      clock.now().getTime() - Date.parse(opening.createdAt) >= 10 * 60 * 1000;
+      clock.now().getTime() - Date.parse(opening.createdAt) >= ROUND_WINDOW_MS;
+    // A lead that never replies to its checkpoint would hold the discussion
+    // open for good, so the round ends for everyone after a second window.
+    const expired =
+      clock.now().getTime() - Date.parse(opening.createdAt) >=
+      2 * ROUND_WINDOW_MS;
     const participants = memberIds.length
       ? await db
           .select({ id: agents.id })
@@ -309,6 +332,7 @@ export const createDiscussionRounds = ({
           )
       : [];
     return {
+      expired,
       memberIds,
       opening,
       participants,
@@ -327,8 +351,16 @@ export const createDiscussionRounds = ({
     if (!context) {
       return;
     }
-    const { thread, opening, memberIds, room, waker, timedOut, participants } =
-      context;
+    const {
+      thread,
+      opening,
+      memberIds,
+      room,
+      waker,
+      timedOut,
+      expired,
+      participants,
+    } = context;
     const checkpointKey = discussionKey(
       discussion.id,
       discussion.round,
@@ -344,7 +376,14 @@ export const createDiscussionRounds = ({
         )
       );
     if (checkpoint) {
-      await advanceDiscussion(discussion, checkpoint.id);
+      const advanced = await advanceDiscussion(discussion, checkpoint.id);
+      if (!advanced && expired) {
+        await endDiscussion(discussion);
+      }
+      return;
+    }
+    if (expired) {
+      await endDiscussion(discussion);
       return;
     }
     const ledger = await db

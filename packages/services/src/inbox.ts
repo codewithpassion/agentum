@@ -950,7 +950,11 @@ export const createInboxService = ({
     const discussion = await runningDiscussion(thread.id);
     if (discussion) {
       await driveDiscussion(discussion);
-      return [];
+      // A person's post still wakes whoever it mentions, as it does outside a
+      // discussion. Agent posts only drive the rounds, so they cannot chain.
+      if (entry.authorKind === "agent") {
+        return [];
+      }
     }
     const room = await roomOf(thread);
     const mentioned = await mentionedAgents(entry, thread.workspaceId);
