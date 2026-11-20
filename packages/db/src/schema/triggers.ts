@@ -62,7 +62,7 @@ export const triggers = sqliteTable(
     settledRunId: text("settled_run_id"),
     // Routine and dream. IANA zone, copied from the workspace when not given.
     timezone: text("timezone"),
-    // Null for app and routine triggers, and for an unapproved `http` proposal.
+    // Null for app, routine and dream triggers, and for an unapproved `http` proposal.
     tokenHash: text("token_hash"),
     // The start of the token, so triggers can be told apart in a list.
     tokenPrefix: text("token_prefix"),

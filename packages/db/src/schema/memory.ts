@@ -29,7 +29,7 @@ export const memoryChanges = sqliteTable(
     decidedAt: text("decided_at"),
     // Clerk user id.
     decidedBy: text("decided_by"),
-    // The `dream_runs` row that made the change. Not a foreign key, so adding one never rebuilds this table.
+    // The `dream_runs` row that made the change. Left without a foreign key, because adding one would rebuild this table.
     dreamRunId: text("dream_run_id"),
     // The id of the `merge` row when this row belongs to a merge: set on that row itself and on the `forget` row of each note it absorbed. Null for every other change.
     groupId: text("group_id"),

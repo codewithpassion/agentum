@@ -100,7 +100,7 @@ export const createDreamService = (_deps: DreamDeps) => {
     return noDreamRun(dreamRunId);
   };
 
-  /** Approves or rejects the changes a dream held. `memory.decide` refuses these rows: a dream's changes are decided together. */
+  /** Approves or rejects every change a dream held, together. `memory.decide` refuses merge rows already; DR.4 makes it refuse any row with a `dreamRunId` too, so a dream's changes are never decided one by one. */
   const decide = (
     principal: Principal,
     input: DreamDecideInput
