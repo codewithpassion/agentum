@@ -3,7 +3,7 @@ id: NV.5
 title: "Finish the runtime and task words in the agent flows"
 milestone: NV
 size: S
-status: in_progress
+status: done
 depends_on: [RH.4, FR.4]
 branch: task/NV.5-finish-agent-flow-words
 lane: web-agent
@@ -31,3 +31,4 @@ From the NV gate review, round 1 (`docs/reviews/NV-1.md`, finding 1). The files 
 ## Log
 - 2026-11-20: added from the NV gate review, round 1 (one must-fix).
 - 2026-11-20: dispatched on task/NV.5-finish-agent-flow-words (v4 controller session).
+- 2026-11-20: merged as 311c1b3d, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/NV.5/browser.md. check, test and build passed on main. Correction to the check: the dry run note shows in the builder's draft review (Describe it or a template), not on Start blank; it says Cloud there.

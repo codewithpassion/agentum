@@ -3,9 +3,9 @@ id: DR.2
 title: "Dream steps: merge, reconcile, prune"
 milestone: DR
 size: L
-status: todo
+status: in_progress
 depends_on: [DR.1, ME.2]
-branch: null
+branch: task/DR.2-dream-judge-steps
 lane: services-dream
 executor: claude
 ---
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone DR. Port the judging steps from The Brai
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/DR.2-dream-judge-steps (v4 controller session).
