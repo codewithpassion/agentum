@@ -1048,6 +1048,8 @@ export interface MapPort {
  * `subkind` names the trigger or output type and is null for an agent.
  */
 export interface MapNode<TRequest = unknown> {
+  /** The agent's stored avatar. Set on agent nodes only. */
+  avatar?: AgentAvatar;
   key: string;
   kind: MapNodeKind;
   label: string;
