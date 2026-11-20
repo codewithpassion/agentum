@@ -100,6 +100,8 @@ export interface TaskListItem {
   agentId: string;
   createdAt: string;
   finishedAt: string | null;
+  /** True for a subagent run: a helper another run of the agent started, not a task of its own. */
+  helper: boolean;
   id: string;
   sessionId: string;
   status: RunStatus;
@@ -783,6 +785,7 @@ export const createTasksService = ({
         agentId: run.agentId,
         createdAt: run.createdAt,
         finishedAt: run.finishedAt,
+        helper: run.subagentLevel > 0,
         id: run.id,
         sessionId: run.sessionId,
         status: run.status,

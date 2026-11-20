@@ -100,6 +100,7 @@ for (const status of ["applied", "held"] as const) {
       noteId: "note",
       source: { id: run.runId, kind: "run" },
       status,
+      teamId: null,
       text: "A fact",
       userScope: null,
       writtenBy: "agent",

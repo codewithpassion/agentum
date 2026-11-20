@@ -12,6 +12,7 @@ import type { Database } from "@repo/db";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs } from "@repo/db/schema/runs";
 import { identityLinks } from "@repo/db/schema/workspaces";
+import { isDecisionsDisplay } from "@repo/protocol/requests";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { findAgent } from "../agents.ts";
@@ -167,14 +168,19 @@ export const createSlackRequests = ({
         runId: row.runId,
       };
     }
-    return "questions" in display
-      ? { ...base, questions: display.questions }
-      : {
-          ...base,
-          input: display.input,
-          summary: display.summary,
-          ...(display.peerRun ? { peerRun: true } : {}),
-        };
+    if ("questions" in display) {
+      // A decision queue has no Slack card until TX.6 adds one.
+      if (isDecisionsDisplay(display)) {
+        throw new Error("Slack does not show decision queues yet");
+      }
+      return { ...base, questions: display.questions };
+    }
+    return {
+      ...base,
+      input: display.input,
+      summary: display.summary,
+      ...(display.peerRun ? { peerRun: true } : {}),
+    };
   };
 
   /** The thread the run was started in, through the agent's app in that team. */
@@ -604,7 +610,9 @@ export const createSlackRequests = ({
     const { display } = requestRecord(row);
     const parsed = parseInteraction(
       payload,
-      "questions" in display ? display.questions : undefined
+      "questions" in display && !isDecisionsDisplay(display)
+        ? display.questions
+        : undefined
     );
     // Takeover control and hand-back require the browser; Slack only cancels.
     if (!canInteract(row, parsed)) {

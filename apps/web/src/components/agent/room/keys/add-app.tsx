@@ -17,6 +17,8 @@ import {
 
 type AddAppProps = Parameters<typeof addChoices>[0] & {
   agentId: string;
+  /** Turns the picker and the add button off for a member who cannot change the agent. */
+  disabled: boolean;
   /** Called after the app is added, so the page can reload. */
   onAdded: () => void;
 };
@@ -30,6 +32,7 @@ export function AddApp({
   assignedIds,
   catalog,
   connectors,
+  disabled,
   isAdmin,
   onAdded,
 }: AddAppProps) {
@@ -99,6 +102,7 @@ export function AddApp({
       <div className="flex flex-wrap items-center gap-2">
         <NativeSelect
           aria-label="App to add"
+          disabled={disabled}
           onChange={handleChange}
           value={value}
         >
@@ -109,10 +113,15 @@ export function AddApp({
             label="Already in this workspace"
           />
         </NativeSelect>
-        <Button disabled={value === "" || pending} onClick={add}>
+        <Button disabled={disabled || value === "" || pending} onClick={add}>
           Add app
         </Button>
       </div>
+      {disabled ? (
+        <p className="text-muted-foreground text-xs">
+          Only the agent's owners and admins can change its apps.
+        </p>
+      ) : null}
       {connectorsLink === null ? null : (
         <p className="text-muted-foreground text-xs">{connectorsLink}</p>
       )}

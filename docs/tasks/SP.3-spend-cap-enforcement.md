@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone SP. A cap that only shows a number is no
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/SP.3-spend-cap-enforcement (v4 controller session).
+- 2026-11-20: blocked after two fix rounds on two small holes in the queued-run hold (case-insensitive prefix, guest start path); a third round allowed.

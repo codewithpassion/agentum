@@ -153,11 +153,19 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
           costUsd: costOf(row.usage),
           tasks: 1,
         })),
-        ...dreams.map((row) => ({
-          ...row,
-          costUsd: costOf(row.usage),
-          tasks: 0,
-        })),
+        // The join leaves out a team dream, which has no agent to charge.
+        ...dreams.flatMap(({ agentId: dreamAgentId, ...row }) =>
+          dreamAgentId === null
+            ? []
+            : [
+                {
+                  ...row,
+                  agentId: dreamAgentId,
+                  costUsd: costOf(row.usage),
+                  tasks: 0,
+                },
+              ]
+        ),
       ],
       workspaceRow.timezone,
       range

@@ -91,13 +91,18 @@ test("a cost reads in dollars, with a floor and a gap", () => {
   expect(costText(null)).toBe("not reported");
 });
 
-test("an agent runs on its machine, else its runtime", () => {
-  const agent = (machine: { id: string; name: string } | null) =>
-    ({ id: "a", machine, name: "A", runtime: "cloud" }) as TaskView["agent"];
-  expect(runsOnText(agent({ id: "m", name: "Dom's laptop" }))).toBe(
+test("an agent runs on its machine, else its runtime's name", () => {
+  const agent = (
+    machine: { id: string; name: string } | null,
+    runtime: TaskView["agent"]["runtime"] = "cloud"
+  ) => ({ id: "a", machine, name: "A", runtime }) as TaskView["agent"];
+  expect(runsOnText(agent({ id: "m", name: "Dom's laptop" }, "machine"))).toBe(
     "Dom's laptop"
   );
   expect(runsOnText(agent(null))).toBe("Cloud");
+  expect(runsOnText(agent(null, "managed"))).toBe("Anthropic cloud");
+  expect(runsOnText(agent(null, "machine"))).toBe("My computer");
+  expect(runsOnText(agent(null, "fake"))).toBe("Test runner");
 });
 
 test("the receipt's run carries the handoff parent and the live status", () => {

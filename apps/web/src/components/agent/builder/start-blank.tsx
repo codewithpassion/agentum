@@ -75,7 +75,7 @@ export function StartBlank({
         <div className="flex flex-wrap gap-1.5">
           {options.length === 0 ? (
             <span className="text-muted-foreground text-xs">
-              No runtime is available. Add a provider key or a machine in
+              Nowhere to run it yet. Add an Anthropic API key or a machine in
               Settings.
             </span>
           ) : null}

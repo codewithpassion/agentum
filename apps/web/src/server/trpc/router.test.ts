@@ -635,6 +635,36 @@ test("dream changes are NOT_FOUND while the stub changes nothing", async () => {
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
+test("team extras procedures are stubs: no team notes, no team dream, no decision queue", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  expect(await caller.memory.listTeam({ teamId: "t1" })).toEqual([]);
+  await expect(caller.dream.runTeamNow({ teamId: "t1" })).rejects.toMatchObject(
+    { code: "NOT_FOUND" }
+  );
+  await expect(
+    caller.requests.answerDecisions({
+      decisions: { q1: "Yes" },
+      requestId: "r1",
+    })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.requests.dismissDecisions({ requestId: "r1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(caller.memory.listTeam({ teamId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(caller.dream.runTeamNow({ teamId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(
+    caller.requests.answerDecisions({ requestId: "r1" } as never)
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    caller.requests.dismissDecisions({ requestId: "" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
 test("dream inputs that are not valid are BAD_REQUEST", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
 
