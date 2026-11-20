@@ -19,7 +19,8 @@ export function SpendTableView({
   table: SpendTable;
   weeks: readonly SpendWeek[];
 }) {
-  if (table.rows.length === 0) {
+  const hasTeamSpend = table.teamCentsByWeek.some((cents) => cents > 0);
+  if (table.rows.length === 0 && !hasTeamSpend) {
     return (
       <p className="text-muted-foreground text-sm">
         No spend in the last five weeks.
@@ -79,6 +80,19 @@ export function SpendTableView({
             </TableCell>
           </TableRow>
         ))}
+        {hasTeamSpend ? (
+          <TableRow>
+            <TableCell className="font-medium text-muted-foreground">
+              Team dreams
+            </TableCell>
+            {weeks.map((week, index) => (
+              <TableCell className="text-right tabular-nums" key={week.start}>
+                {weekCostLabel(table.teamCentsByWeek[index] ?? 0)}
+              </TableCell>
+            ))}
+            <TableCell />
+          </TableRow>
+        ) : null}
       </TableBody>
       <TableFooter>
         <TableRow>

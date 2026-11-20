@@ -73,6 +73,7 @@ import {
   memorySection,
   type PromptMemory,
 } from "../memory/prompt.ts";
+import { libraryTeamMemoryReader } from "../memory/team.ts";
 import { askKeysOf as askKeysOfAgent } from "../requests/ask-keys.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
@@ -891,6 +892,17 @@ export const createManagedService = ({
       ? libraryTransferGuidance({ base, slug: agent.slug })
       : "";
 
+  /** Reads the team memory files of the run's teams as the run, when the library can read files. */
+  const teamMemoryReaderOf = (run: RunRecord) => {
+    const readLibrary = library.read;
+    return readLibrary
+      ? libraryTeamMemoryReader(
+          { read: (principal, path) => readLibrary(principal, path) },
+          run
+        )
+      : undefined;
+  };
+
   /** Reads the agent's memory files as the run, when the library can read files. */
   const memoryReaderOf = (run: RunRecord, agent: AgentRecord) => {
     const readLibrary = library.read;
@@ -936,6 +948,7 @@ export const createManagedService = ({
     );
     const context = await buildLaunchContext(db, run, agent, {
       readMemoryFile: memoryReaderOf(run, agent),
+      readTeamMemoryFile: teamMemoryReaderOf(run),
     });
     const servers = mcpServerUrls({
       connectors: context.connectors,

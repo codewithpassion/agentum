@@ -635,10 +635,12 @@ test("dream changes are NOT_FOUND while the stub changes nothing", async () => {
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("team extras procedures are stubs: no team notes, no team dream, no decision queue", async () => {
+test("team extras procedures: an unknown team is not found, and the decision queue is still a stub", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
 
-  expect(await caller.memory.listTeam({ teamId: "t1" })).toEqual([]);
+  await expect(caller.memory.listTeam({ teamId: "t1" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
   await expect(caller.dream.runTeamNow({ teamId: "t1" })).rejects.toMatchObject(
     { code: "NOT_FOUND" }
   );
