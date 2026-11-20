@@ -471,7 +471,7 @@ export function ConnectorsPanel({ agent }: AgentPanelProps) {
         {available.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No other connectors. Add one on the{" "}
-            <Link to="/settings/connectors">Connectors page</Link>.
+            <Link to="/settings/connectors">Apps page</Link>.
           </p>
         ) : (
           <div className="flex items-center gap-2">
