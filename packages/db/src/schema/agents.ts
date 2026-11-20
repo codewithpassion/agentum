@@ -11,6 +11,7 @@ import {
   ASK_LEVELS,
   DEFAULT_REMEMBER_RULES_JSON,
   NEUTRAL_AGENT_AVATAR_JSON,
+  SPEND_PAUSE_REASONS,
 } from "../shared.ts";
 import { machines } from "./machines.ts";
 import { workspaces } from "./workspaces.ts";
@@ -49,6 +50,11 @@ export const agents = sqliteTable(
     // Clerk user id of the person who answers this agent's requests. NULL
     // means `created_by`.
     ownerUserId: text("owner_user_id"),
+    // When the agent was paused, ISO. NULL while it runs. A paused agent
+    // starts no run until someone resumes it.
+    pausedAt: text("paused_at"),
+    // Why it was paused (`SPEND_PAUSE_REASONS`). NULL while `paused_at` is NULL.
+    pausedReason: text("paused_reason", { enum: SPEND_PAUSE_REASONS }),
     // JSON `RememberRules`: what the agent keeps, what it never keeps, how it learns, its dream schedule.
     remember: text("remember").notNull().default(DEFAULT_REMEMBER_RULES_JSON),
     runtime: text("runtime", { enum: AGENT_RUNTIMES }).notNull(),
@@ -61,6 +67,8 @@ export const agents = sqliteTable(
     subagents: integer("subagents", { mode: "boolean" })
       .notNull()
       .default(false),
+    // The most the agent may spend in a week, in cents. NULL means no cap.
+    weeklyCapCents: integer("weekly_cap_cents"),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [
