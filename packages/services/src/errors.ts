@@ -16,6 +16,7 @@ const STATUS: Record<ServiceErrorCode, number> = {
  */
 export const ERROR_REASON = {
   agentPaused: "agent_paused",
+  alwaysAllowOwnerOnly: "always_allow_owner_only",
   keyInMessage: "key_in_message",
 } as const;
 

@@ -438,7 +438,8 @@ test("room to Slack: a person's post goes out through the lead's app with their 
   expect(fake.deliveryErrors).toEqual([]);
 });
 
-test("a request card of a room run goes into the Slack thread, and a click on it answers the request", async () => {
+/** Links the room, runs Ada from it, and opens an approval whose card lands in the Slack thread. */
+const openRoomApproval = async () => {
   await link();
   const first = fake.say({
     channel: CHANNEL,
@@ -480,9 +481,15 @@ test("a request card of a room run goes into the Slack thread, and a click on it
   await settle();
 
   const card = slackPostsBy(ADA).find((message) => message.blocks !== null);
+  return { adaId, card, first, request };
+};
+
+test("a request card of a room run goes into the Slack thread, and a click on it answers the request", async () => {
+  const { card, first, request } = await openRoomApproval();
   expect(card).toMatchObject({ channel: CHANNEL, threadTs: first.ts });
-  const actionIds = JSON.stringify(card?.blocks);
-  expect(actionIds).toContain(`ag_req:${request.id}:allow_once`);
+  expect(JSON.stringify(card?.blocks)).toContain(
+    `ag_req:${request.id}:allow_once`
+  );
 
   fake.click({
     actionId: `ag_req:${request.id}:allow_once`,
@@ -500,6 +507,37 @@ test("a request card of a room run goes into the Slack thread, and a click on it
   expect(row).toMatchObject({ answeredVia: "slack", status: "answered" });
   // The card settled in Slack.
   expect(JSON.stringify(card?.blocks)).not.toContain('"type":"actions"');
+  expect(fake.deliveryErrors).toEqual([]);
+});
+
+test("a linked member who does not own the agent presses Always allow on a room card: a private refusal, no rule, and the card stays open", async () => {
+  const { adaId, card, request } = await openRoomApproval();
+
+  fake.click({
+    actionId: `ag_req:${request.id}:always_allow`,
+    channel: CHANNEL,
+    ts: card?.ts ?? "",
+    user: DOM_SLACK,
+  });
+  await settle();
+
+  expect(fake.ephemerals).toMatchObject([
+    {
+      channel: CHANNEL,
+      text: "Only the agent's owner can always allow this. Allow it once instead.",
+      user: DOM_SLACK,
+    },
+  ]);
+  const [row] = db
+    .select()
+    .from(runRequests)
+    .where(eq(runRequests.id, request.id))
+    .all();
+  expect(row?.status).toBe("pending");
+  expect(
+    await composed.services.requests.listRules(owner, { agentId: adaId })
+  ).toEqual([]);
+  expect(JSON.stringify(card?.blocks)).toContain('"type":"actions"');
   expect(fake.deliveryErrors).toEqual([]);
 });
 

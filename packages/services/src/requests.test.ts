@@ -440,7 +440,7 @@ test("only the owner or an admin removes a rule, a member is refused and the rul
   expect(await ruleRows()).toEqual([]);
 });
 
-test("a member who is not the owner answers always allow and the allow rule is written", async () => {
+test("a member who is not the owner can't always allow: the request stays open and no rule is written, an admin can", async () => {
   // A UI session belongs to its opener, so the member answers a shared (MCP) session.
   const { runId } = await runs.startRun(user, {
     agentId,
@@ -450,14 +450,41 @@ test("a member who is not the owner answers always allow and the allow rule is w
   await runs.claimRun(system, runId);
   await requests.setRule(user, { agentId, mode: "ask", toolKey: "bash" });
   const request = await open(runId);
-  await requests.answer(member, {
+  const alwaysAllow = {
     answer: { decision: "always_allow" },
     requestId: request.id,
     via: "web",
-  });
+  } as const;
+  await expect(requests.answer(member, alwaysAllow)).rejects.toThrow(
+    "Only the agent's owner can always allow this. Allow it once instead."
+  );
+  expect(resumed).toEqual([]);
+  expect(await requests.listRules(user, { agentId })).toMatchObject([
+    { mode: "ask", toolKey: "bash" },
+  ]);
+  expect((await requests.listPending(user)).map((row) => row.id)).toContain(
+    request.id
+  );
+  await requests.answer(admin, alwaysAllow);
   expect(await requests.listRules(user, { agentId })).toMatchObject([
     { mode: "allow", toolKey: "bash" },
   ]);
+  expect(resumed).toEqual([request.id]);
+});
+
+test("a member who is not the owner still allows once", async () => {
+  const { runId } = await runs.startRun(user, {
+    agentId,
+    input: { text: "go" },
+    session: { origin: "mcp" },
+  });
+  await runs.claimRun(system, runId);
+  const request = await open(runId);
+  await requests.answer(member, {
+    answer: { decision: "allow_once" },
+    requestId: request.id,
+    via: "web",
+  });
   expect(resumed).toEqual([request.id]);
 });
 

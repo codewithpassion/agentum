@@ -41,10 +41,10 @@ import { ulid } from "ulidx";
 import { z } from "zod";
 import { findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
-import { ServiceError } from "./errors.ts";
+import { ERROR_REASON, ServiceError } from "./errors.ts";
 import { redactToolPayload } from "./events/scrub.ts";
 import type { EventInput, EventsService } from "./events.ts";
-import { requireAgentOwnerOrAdmin } from "./guards.ts";
+import { isAgentOwnerOrAdmin, requireAgentOwnerOrAdmin } from "./guards.ts";
 import {
   isDetachedApproval,
   isPromoteApproval,
@@ -107,6 +107,8 @@ export const askLevelSetInputSchema = rulesListInputSchema.extend({
 });
 /** As long as a message a peer may send, so an answer is never refused for its length alone. */
 const PEER_ANSWER_MAX = 30_000;
+const ALWAYS_ALLOW_OWNER_ONLY =
+  "Only the agent's owner can always allow this. Allow it once instead.";
 const UNKNOWN_PEER_HOST = "unknown host";
 
 export const peerAnswerInputSchema = z.strictObject({
@@ -419,7 +421,25 @@ export const createRequestsService = ({
     requireAgentOwnerOrAdmin(user, agent, "requests.set_rule");
     await putRule(principal, input);
   };
-  /** For the answer path only, because any member may answer a request. */
+  /** Allow once and deny are for any member, but a standing rule is the owner's call. */
+  const requireAlwaysAllowRight = async (
+    principal: Principal,
+    agentId: string
+  ) => {
+    const { agent, user } = await ruleAgent(principal, agentId);
+    if (!isAgentOwnerOrAdmin(user, agent)) {
+      throw new ServiceError(
+        "invalid",
+        ALWAYS_ALLOW_OWNER_ONLY,
+        ERROR_REASON.alwaysAllowOwnerOnly
+      );
+    }
+  };
+  /**
+   * For callers that run after `answer` closed a request. `answer` has already
+   * refused anyone but the owner or an admin, so this checks nothing; the mail
+   * release has no admin flag to check with.
+   */
   const recordAlwaysAllow = (
     principal: Principal,
     input: { agentId: string; toolKey: string }
@@ -1327,6 +1347,7 @@ export const createRequestsService = ({
     const parsed = answerSchemas[row.kind].parse(input.answer);
     await checkProposalAnswer(principal, row, parsed);
     if ("decision" in parsed && parsed.decision === "always_allow") {
+      await requireAlwaysAllowRight(principal, row.agentId);
       const run = await loadRun(db, row.runId, row.workspaceId);
       if (run && (await peerRootsOf(db, run)).length > 0) {
         throw new ServiceError(
