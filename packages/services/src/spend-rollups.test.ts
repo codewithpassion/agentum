@@ -4,12 +4,17 @@ import { agents } from "@repo/db/schema/agents";
 import { dreamRuns } from "@repo/db/schema/dreams";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "./authz.ts";
 import { createSpendService } from "./spend.ts";
-import { dayInTimezone, mondayWeekStart } from "./spend-rollups.ts";
+import {
+  dayInTimezone,
+  mondayWeekStart,
+  rollupSpend,
+} from "./spend-rollups.ts";
 import { costOf } from "./usage-cost.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
@@ -71,6 +76,15 @@ beforeEach(() => {
       })
       .run();
   }
+  db.insert(teams)
+    .values({
+      createdAt: monday,
+      id: "team-a",
+      name: "Team A",
+      slug: "team-a",
+      workspaceId: "w",
+    })
+    .run();
   spend = createSpendService({
     atomic: sqliteAtomic(db),
     clock: { now: () => now, sleep: () => Promise.resolve() },
@@ -130,6 +144,22 @@ test("pure cost reader preserves missing and malformed usage behavior", () => {
   expect(costOf('{"costUsd":0.004}')).toBe(0.004);
   expect(costOf('{"costUsd":-1}')).toBe(-1);
 });
+const teamDream = async (
+  id: string,
+  teamId: string,
+  startedAt: string,
+  costUsd: number
+) => {
+  await db.insert(dreamRuns).values({
+    agentId: null,
+    id,
+    startedAt,
+    status: "done",
+    teamId,
+    usage: JSON.stringify({ costUsd }),
+    workspaceId: "w",
+  });
+};
 test("pure timezone bucketing and Monday start follow local calendar across DST", () => {
   expect(dayInTimezone(monday, "Australia/Sydney")).toBe("2026-11-16");
   expect(mondayWeekStart(new Date(monday), "Australia/Sydney")).toBe(
@@ -239,4 +269,33 @@ test("unknown internal agents throw not_found and system reads remain refused", 
   expect(() => spend.byAgent(SYSTEM_PRINCIPAL, "a", range)).toThrow(
     ForbiddenError
   );
+});
+
+test("a team row has no agent, keeps its teamId, and sorts by team id among agents", () => {
+  const rows = rollupSpend(
+    [
+      { agentId: "b", at: monday, costUsd: 0.1, tasks: 1 },
+      { agentId: null, at: monday, costUsd: 0.2, tasks: 0, teamId: "a" },
+      { agentId: null, at: monday, costUsd: 0.2, tasks: 0, teamId: "a" },
+      { agentId: null, at: monday, costUsd: 0.3, tasks: 0, teamId: "c" },
+    ],
+    "Australia/Sydney",
+    range
+  );
+  expect(rows).toEqual([
+    { agentId: null, cents: 40, day: "2026-11-16", tasks: 0, teamId: "a" },
+    { agentId: "b", cents: 10, day: "2026-11-16", tasks: 1 },
+    { agentId: null, cents: 30, day: "2026-11-16", tasks: 0, teamId: "c" },
+  ]);
+  expect(rows.map((row) => "teamId" in row)).toEqual([true, false, true]);
+});
+
+test("a team dream is its own workspace row and counts toward no agent", async () => {
+  await teamDream("td", "team-a", monday, 0.25);
+  expect(await spend.workspace(user, range)).toEqual([
+    { agentId: null, cents: 25, day: "2026-11-16", tasks: 0, teamId: "team-a" },
+  ]);
+  expect(await spend.byAgent(user, "a", range)).toEqual([]);
+  await teamDream("td-future", "team-a", "2026-11-17T02:00:00.001Z", 99);
+  expect(await spend.weekToDate("a")).toBe(0);
 });

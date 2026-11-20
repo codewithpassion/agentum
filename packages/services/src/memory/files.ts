@@ -74,10 +74,9 @@ const readText = async (
 const loadPaths = async (
   library: MemoryLibrary,
   principal: Principal,
-  slug: string,
+  folder: string,
   paths: readonly string[]
 ): Promise<LoadedMemory> => {
-  const folder = memoryFolderOf(slug);
   const found = await Promise.all(
     paths.map((path) => readText(library, principal, folder, path))
   );
@@ -120,9 +119,24 @@ export const loadMemory = (
   slug: string,
   userScope: string | null
 ): Promise<LoadedMemory> =>
-  loadPaths(library, principal, slug, [
+  loadPaths(library, principal, memoryFolderOf(slug), [
     ...MEMORY_NOTE_KINDS.map((kind) => `${kind}.md`),
     ...(userScope === null ? [] : [`private/${userScope}.md`]),
+    INDEX,
+  ]);
+
+/**
+ * The shared files of a memory folder that is not an agent's, such as a team's
+ * `teams/<slug>/memory`: the four kinds and the index. There is no private
+ * file to read, so none is asked for.
+ */
+export const loadFolderMemory = (
+  library: MemoryLibrary,
+  principal: Principal,
+  folder: string
+): Promise<LoadedMemory> =>
+  loadPaths(library, principal, folder, [
+    ...MEMORY_NOTE_KINDS.map((kind) => `${kind}.md`),
     INDEX,
   ]);
 
@@ -166,7 +180,7 @@ export const loadEveryMemoryFile = async (
         (await library.versions(principal, `${folder}/${path}`))[0]?.id
     )
   );
-  const loaded = await loadPaths(library, principal, slug, [
+  const loaded = await loadPaths(library, principal, folder, [
     ...noteFiles,
     INDEX,
   ]);
@@ -348,4 +362,71 @@ export const latestVersionIds = async (
     )
   );
   return latest.flatMap((id) => id ?? []);
+};
+
+/** One file of a write that may span several memory folders: its whole library path and its new text. */
+export interface FolderWrite {
+  /** The etag the file had when it was loaded. Leave it out for a file that does not exist yet. */
+  ifEtag?: string;
+  /** The library path, such as `teams/sales/memory/work.md`. */
+  path: string;
+  text: string;
+}
+
+/**
+ * Writes files of any memory folders, an agent's and a team's together, in one
+ * library call: they all land with the caller's `statements`, or none does.
+ * `baseVersion` holds the latest version of each file that existed before (the
+ * files with an etag), and `versionByPath` the version each file got. Throws
+ * `invalid` when there is nothing to write and the library's `conflict` when a
+ * file changed since it was loaded.
+ */
+export const commitFolderFiles = async ({
+  library,
+  principal,
+  statements,
+  writes,
+}: {
+  library: Pick<MemoryLibrary, "versions" | "writeMemoryFiles">;
+  principal: Principal;
+  statements: (written: Written) => Statement[];
+  writes: readonly FolderWrite[];
+}): Promise<Written> => {
+  if (writes.length === 0) {
+    throw invalid("The dream changed nothing");
+  }
+  const base = await Promise.all(
+    writes.map(async (write) =>
+      write.ifEtag === undefined
+        ? null
+        : ((await library.versions(principal, write.path))[0]?.id ?? null)
+    )
+  );
+  const baseVersion = base.flatMap((id) => id ?? []);
+  let written: Written | null = null;
+  await library.writeMemoryFiles(
+    principal,
+    writes.map((write) => ({
+      bytes: encoder.encode(write.text),
+      ifEtag: write.ifEtag,
+      path: write.path,
+    })),
+    (versions) => {
+      const versionByPath = new Map(
+        writes.map(
+          (write, index) => [write.path, versions[index]?.id ?? ""] as const
+        )
+      );
+      written = {
+        baseVersion,
+        resultVersion: versions.at(-1)?.id ?? "",
+        versionByPath,
+      };
+      return statements(written);
+    }
+  );
+  if (!written) {
+    throw invalid("The dream's files were not written");
+  }
+  return written;
 };

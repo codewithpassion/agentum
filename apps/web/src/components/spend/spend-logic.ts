@@ -132,7 +132,9 @@ export interface SpendTableRow {
 
 export interface SpendTable {
   rows: SpendTableRow[];
-  /** Cents per week across every agent shown. */
+  /** Cents per week that team dreams cost, charged to the workspace and to no agent. */
+  teamCentsByWeek: number[];
+  /** Cents per week across every agent shown and the team dreams, the way the workspace limit counts. */
   totals: number[];
 }
 
@@ -149,6 +151,7 @@ export const buildSpendTable = (input: {
   const names = new Map(agents.map((agent) => [agent.id, agent.name]));
   const capOf = new Map(caps.map((cap) => [cap.agentId, cap]));
   const byAgent = new Map<string, SpendTableRow>();
+  const teamCentsByWeek = weeks.map(() => 0);
   const current = weeks.length - 1;
   const entryFor = (agentId: string): SpendTableRow => {
     const existing = byAgent.get(agentId);
@@ -183,6 +186,11 @@ export const buildSpendTable = (input: {
     if (index === -1) {
       continue;
     }
+    // A team dream has no agent to show: it is its own line.
+    if (row.agentId === null) {
+      teamCentsByWeek[index] = (teamCentsByWeek[index] ?? 0) + row.cents;
+      continue;
+    }
     const entry = entryFor(row.agentId);
     entry.centsByWeek[index] = (entry.centsByWeek[index] ?? 0) + row.cents;
   }
@@ -193,8 +201,11 @@ export const buildSpendTable = (input: {
   );
   return {
     rows: table,
-    totals: weeks.map((_, index) =>
-      table.reduce((sum, row) => sum + (row.centsByWeek[index] ?? 0), 0)
+    teamCentsByWeek,
+    totals: weeks.map(
+      (_, index) =>
+        (teamCentsByWeek[index] ?? 0) +
+        table.reduce((sum, row) => sum + (row.centsByWeek[index] ?? 0), 0)
     ),
   };
 };
