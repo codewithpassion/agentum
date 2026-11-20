@@ -7,6 +7,7 @@ import { EmptyThread } from "#/components/thread/empty-thread.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { EmptyTaskView, TaskView } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
+import { NowPanel } from "../now/index.tsx";
 import type { RoomTabProps } from "../room-data.ts";
 
 type Main =
@@ -96,23 +97,26 @@ function MainThread({
   );
 }
 
-export function ChatTab({ room }: RoomTabProps) {
+export function ChatTab({ nowMs, room }: RoomTabProps) {
   const { agent, threads } = room;
   return (
-    <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-start">
-      <div className="min-w-0 md:w-80 md:shrink-0">
+    <div className="grid min-w-0 gap-4 md:grid-cols-[20rem_minmax(0,1fr)] md:items-start lg:grid-cols-[20rem_minmax(0,1fr)_18rem]">
+      <div className="min-w-0">
         <ThreadsCard
           agent={agent}
           archived={agent.status === "archived"}
           threads={threads}
         />
       </div>
-      <div className="flex h-[70vh] min-h-96 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
+      <div className="flex h-[70vh] min-h-96 min-w-0 flex-col overflow-hidden rounded-lg border border-border">
         <MainThread
           agentId={agent.id}
           archived={agent.status === "archived"}
           key={agent.id}
         />
+      </div>
+      <div className="order-first min-w-0 empty:hidden md:col-span-2 lg:order-none lg:col-span-1">
+        <NowPanel nowMs={nowMs} room={room} />
       </div>
     </div>
   );
