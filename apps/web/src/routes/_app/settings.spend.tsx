@@ -35,7 +35,7 @@ function SpendPage() {
       </h1>
       {isAdmin ? (
         <CapField
-          help="When every agent's spend this week adds up to this amount, all agents stop until an owner resumes them. Leave empty for no limit."
+          help="When every agent's spend this week adds up to this amount, all agents stop until the new week starts or an owner resumes them. Leave empty for no limit."
           id="workspace-cap"
           label="Weekly limit for the whole workspace"
           onSave={save}
