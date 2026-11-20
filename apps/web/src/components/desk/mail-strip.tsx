@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { MAIL_LIST, mailParam } from "#/components/agent/room/tabs.ts";
 import type { MailCount } from "./mail-strip-logic.ts";
 import { heldCountText, inCountText, mailRowsFor } from "./mail-strip-logic.ts";
 
@@ -29,7 +30,7 @@ export function MailStrip({
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted"
               data-testid="mail-strip-row"
               params={{ agentId: row.agentId }}
-              search={{ mail: "1" }}
+              search={{ mail: mailParam(MAIL_LIST), tab: "keys" }}
               to="/agents/$agentId"
             >
               <span className="min-w-0 truncate">{row.address}</span>

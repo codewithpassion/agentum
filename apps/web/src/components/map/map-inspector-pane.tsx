@@ -8,43 +8,27 @@ import type {
   RequestView,
 } from "#/components/requests/request-card-logic.ts";
 import { getTrpc } from "#/integrations/trpc/client";
-import type {
-  AgentRecord,
-  MailboxRecord,
-  RouterOutputs,
-} from "#/integrations/trpc/types";
+import type { AgentRecord, RouterOutputs } from "#/integrations/trpc/types";
 import { agentIdForProfile } from "./inspector-logic.ts";
 import { MapInspector } from "./map-inspector.tsx";
 import type { TouchActions } from "./map-inspector-touch.tsx";
 
 type MapGraphView = RouterOutputs["map"]["graph"];
 
-interface EditorRecords {
-  agent: AgentRecord;
-  mailbox: MailboxRecord | null;
-}
-
-/** The agent and its mailbox the editor edits. Without an agent, nothing is fetched. */
-const loadEditorRecords = async (
+/** The agent the editor links from. Without an agent, nothing is fetched. */
+const loadEditorAgent = (
   agentId: string | null
-): Promise<EditorRecords | null> => {
-  if (agentId === null) {
-    return null;
-  }
-  const trpc = getTrpc();
-  const [agent, mailbox] = await Promise.all([
-    trpc.agents.get.query({ id: agentId }),
-    trpc.mailbox.get.query({ agentId }),
-  ]);
-  return { agent, mailbox };
-};
+): Promise<AgentRecord | null> =>
+  agentId === null
+    ? Promise.resolve(null)
+    : getTrpc().agents.get.query({ id: agentId });
 
 /**
  * The inspector with the profile of the node's agent, fetched on selection and
  * on the same interval as the graph. Key it by node, so a new selection starts
  * from an empty profile. An agent node uses its own profile, a trigger the
  * profile of the agent it starts, and an output none. In editor mode the agent
- * and its mailbox are fetched too, for the editable rows.
+ * is fetched too, for the links into its room.
  */
 export function MapInspectorPane({
   editor,
@@ -52,7 +36,6 @@ export function MapInspectorPane({
   node,
   nowMs,
   onAnswer,
-  onChanged,
   onClose,
   touch,
 }: {
@@ -61,7 +44,6 @@ export function MapInspectorPane({
   node: MapGraphView["nodes"][number];
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
-  onChanged: () => void;
   onClose: () => void;
   touch?: TouchActions;
 }) {
@@ -79,8 +61,8 @@ export function MapInspectorPane({
     DESK_POLL_INTERVAL_MS
   );
   const editorAgentId = editor ? agentId : null;
-  const { data: editorData, refresh: refreshEditor } = usePolledQuery(
-    () => loadEditorRecords(editorAgentId),
+  const { data: editorAgent } = usePolledQuery(
+    () => loadEditorAgent(editorAgentId),
     null,
     DESK_POLL_INTERVAL_MS
   );
@@ -91,21 +73,14 @@ export function MapInspectorPane({
     },
     [onAnswer, refreshProfile]
   );
-  // The panels change what the rows show, so reload the profile and the agent first.
-  const changed = useCallback(async () => {
-    await Promise.all([refreshProfile(), refreshEditor()]);
-    onChanged();
-  }, [onChanged, refreshEditor, refreshProfile]);
   return (
     <MapInspector
       editor={editor}
-      editorAgent={editorData?.agent ?? null}
-      editorMailbox={editorData?.mailbox ?? null}
+      editorAgent={editorAgent}
       graph={graph}
       node={node}
       nowMs={nowMs}
       onAnswer={answer}
-      onChanged={changed}
       onClose={onClose}
       profile={data}
       profileAgentId={agentId}

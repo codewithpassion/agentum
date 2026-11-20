@@ -1,38 +1,38 @@
 import { Link } from "@tanstack/react-router";
+import { AddressChip } from "#/components/agent/profile/address-chip.tsx";
+import { MailProvisionButton } from "#/components/agent/profile/mail-provision-button.tsx";
+import { MailStatus } from "#/components/agent/profile/mail-status.tsx";
+import {
+  mailProvisionLabel,
+  runtimeWords,
+  statusText,
+} from "#/components/agent/profile/profile-logic.ts";
 import { NewTaskDialog } from "#/components/desk/new-task-dialog.tsx";
 import {
   agentInitials,
   agentTileColour,
 } from "#/components/shell/agent-tile.ts";
 import { Button } from "#/components/ui/button.tsx";
-import type {
-  AgentProfileView,
-  MailboxRecord,
-} from "#/integrations/trpc/types";
-import { AddressChip } from "./address-chip.tsx";
-import { MailProvisionButton } from "./mail-provision-button.tsx";
-import { MailStatus } from "./mail-status.tsx";
-import {
-  mailProvisionLabel,
-  runtimeWords,
-  statusText,
-} from "./profile-logic.ts";
+import { jobLine, ownerName } from "./header-logic.ts";
+import type { RoomData } from "./room-data.ts";
 
-/** Tile, name, address, runtime and status, with Edit and Run now. */
-export function ProfileHeader({
-  header,
-  mailbox,
+/** Avatar, name, job line, owner, address, where it runs, and Run now. */
+export function RoomHeader({
   onEdit,
   onOpenMail,
   onStarted,
+  room,
 }: {
-  header: AgentProfileView["header"];
-  mailbox: MailboxRecord | null;
   onEdit: () => void;
   onOpenMail: () => void;
   onStarted: (runId: string) => void;
+  room: Pick<RoomData, "agent" | "mailbox" | "members" | "profile">;
 }) {
+  const { agent, mailbox, members, profile } = room;
+  const { header } = profile;
   const status = statusText(header);
+  const job = jobLine(profile.does);
+  const owner = ownerName(agent, members);
   const setUpLabel = mailProvisionLabel(
     header.status,
     header.emailLocal,
@@ -42,12 +42,20 @@ export function ProfileHeader({
   return (
     <header className="flex flex-wrap items-center gap-3.5">
       <span
+        aria-hidden="true"
         className={`grid size-[52px] shrink-0 place-items-center rounded-xl font-bold text-lg text-white ${agentTileColour(header.name)}`}
       >
         {agentInitials(header.name)}
       </span>
       <div className="min-w-0 flex-[1_1_300px]">
         <h1 className="font-heading text-2xl text-foreground">{header.name}</h1>
+        <p
+          className="max-w-prose truncate text-muted-foreground text-sm"
+          data-testid="room-job-line"
+        >
+          {job ?? "No instructions yet."}
+          {owner === null ? null : ` · Owner: ${owner}`}
+        </p>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {mailbox === null ? (
             <>
