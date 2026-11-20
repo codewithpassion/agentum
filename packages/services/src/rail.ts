@@ -451,16 +451,23 @@ export const createRailService = ({
       ),
     ]);
 
-    const candidate = (card: RailCard, mail: HeldMail | null): Candidate => {
+    const candidate = (
+      card: RailCard,
+      mail: HeldMail | null,
+      forUserId?: string
+    ): Candidate => {
       const agent = agentOf.get(card.agentId);
-      const assigneeUserId = assigneeFor(agent);
-      const target = escalationTarget({
-        assigneeUserId,
-        at: card.at,
-        backupUserId: agent?.backupUserId ?? null,
-        memberIds,
-        now,
-      });
+      // A private note goes to its person alone: nobody else can decide it, so no backup is asked.
+      const assigneeUserId = forUserId ?? assigneeFor(agent);
+      const target = forUserId
+        ? null
+        : escalationTarget({
+            assigneeUserId,
+            at: card.at,
+            backupUserId: agent?.backupUserId ?? null,
+            memberIds,
+            now,
+          });
       return {
         assigneeUserId,
         card,
@@ -515,7 +522,8 @@ export const createRailService = ({
             threadId: mail?.threadId ?? deskCard.threadId ?? null,
             title: plainTitle(facts),
           },
-          mail
+          mail,
+          deskCard.forUserId
         );
       }),
       ...sources.stuck.map(({ card, problem }) => {

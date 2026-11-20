@@ -31,3 +31,4 @@ From `docs/v4/build-plan.md`, milestone DR. Tie the dream together and run it on
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: from the DR.1 review: also create the dream trigger from `dreamSchedule`, pass `DeskCard.dream` through `rail.ts`, and refuse dream rows in `memory.decide`. Details in docs/reviews/tasks/DR.1.md.

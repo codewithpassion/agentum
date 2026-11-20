@@ -281,6 +281,32 @@ test("mail, routines and Slack trigger nodes use their own event sources", async
   }
 });
 
+test("the system's dream trigger has no node", async () => {
+  await db.insert(triggers).values([
+    {
+      agentId: "a",
+      createdAt: now,
+      createdBy: "system",
+      id: "dream",
+      kind: "dream",
+      name: "dream",
+      workspaceId: "w",
+    },
+    {
+      agentId: "a",
+      createdAt: now,
+      createdBy: "u",
+      id: "web",
+      kind: "http",
+      name: "web",
+      workspaceId: "w",
+    },
+  ]);
+  const keys = (await graph()).nodes.map((n) => n.key);
+  expect(keys).toContain("trigger:web");
+  expect(keys).not.toContain("trigger:dream");
+});
+
 test("a revoked Slack app has no node and no wire, an installed one keeps both", async () => {
   const { slackApps } = await import("@repo/db/schema/slack");
   await db.insert(slackApps).values(
