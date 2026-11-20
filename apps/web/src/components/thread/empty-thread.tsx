@@ -22,7 +22,14 @@ const refuseEdit = (): Promise<void> => Promise.resolve();
  * and a composer. The first message starts the first run in this session, and
  * the route reloads into the full thread page.
  */
-export function EmptyThread({ task }: { task: EmptyTaskView }) {
+export function EmptyThread({
+  onSent,
+  task,
+}: {
+  /** Called after the first send in place of opening the thread's own URL, for a host that shows the thread itself. */
+  onSent?: () => Promise<void>;
+  task: EmptyTaskView;
+}) {
   const navigate = useNavigate();
   const router = useRouter();
   const starting = useRef<Promise<void> | null>(null);
@@ -43,6 +50,10 @@ export function EmptyThread({ task }: { task: EmptyTaskView }) {
             text,
           })
         );
+        if (onSent !== undefined) {
+          await onSent();
+          return;
+        }
         await navigate({
           params: { sessionId: task.session.id },
           search: {},
@@ -57,7 +68,7 @@ export function EmptyThread({ task }: { task: EmptyTaskView }) {
         starting.current = null;
       }
     },
-    [navigate, router, task.agent.id, task.session]
+    [navigate, onSent, router, task.agent.id, task.session]
   );
   const onError = useCallback(
     (cause: unknown) => toast.error(errorMessage(cause)),

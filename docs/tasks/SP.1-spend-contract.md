@@ -3,9 +3,9 @@ id: SP.1
 title: "Spend contract: caps, pause, router"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SP.1-spend-contract
 lane: contract
 executor: claude
 ---
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone SP. Contract task for SP. It alone chang
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/SP.1-spend-contract (v4 controller session).

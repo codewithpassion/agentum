@@ -475,9 +475,6 @@ export function MapPage() {
     [clearPick]
   );
   const closeInspector = useCallback(() => setSelectedKey(null), []);
-  const reload = useCallback(() => {
-    refresh();
-  }, [refresh]);
   const selected =
     data?.graph.nodes.find((node) => node.key === selectedKey) ?? null;
 
@@ -490,7 +487,6 @@ export function MapPage() {
         node={selected}
         nowMs={nowMs}
         onAnswer={answer}
-        onChanged={reload}
         onClose={closeInspector}
         touch={isMobile ? touch : undefined}
       />

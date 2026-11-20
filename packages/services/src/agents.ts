@@ -13,6 +13,7 @@ import {
   AGENT_STATUSES,
   type AgentRuntime,
   type AgentStatus,
+  DEFAULT_REMEMBER_RULES_JSON,
   defaultAgentAvatar,
   LIVE_RUN_STATUSES,
 } from "@repo/db/shared";
@@ -556,6 +557,7 @@ export const createAgentsService = ({
       model: parsed.model,
       name: parsed.name,
       ownerUserId: null,
+      remember: DEFAULT_REMEMBER_RULES_JSON,
       runtime: parsed.runtime,
       runtimeConfig: JSON.stringify(parsed.runtimeConfig),
       slug,

@@ -2,10 +2,15 @@ import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runs } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
-import { defaultAgentAvatar } from "@repo/db/shared";
+import {
+  DEFAULT_NEVER_REMEMBER,
+  DEFAULT_REMEMBER_RULES,
+  defaultAgentAvatar,
+} from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { memoryFileBlobs } from "@repo/services/files/memory";
 import { noopRelay } from "@repo/services/machines/types";
+import { NO_KEY_MESSAGE } from "@repo/services/managed/keys";
 import { systemClock } from "@repo/services/runs/types";
 import { eq } from "drizzle-orm";
 import { composeWith, type Infra } from "../compose.ts";
@@ -224,21 +229,16 @@ test("jobs.list and jobs.forAgent are empty for a workspace with no jobs", async
   expect(await caller.jobs.forAgent({ agentId: agent.id })).toEqual([]);
 });
 
-test("jobs.draft proposes a trigger from the text and jobs.runNow finds no job", async () => {
+test("jobs.draft needs a workspace key and jobs.runNow finds no job", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
   const agent = await caller.agents.create(agentInput);
 
-  expect(
-    await caller.jobs.draft({ agentId: agent.id, text: " Send the digest " })
-  ).toEqual({
-    asksBefore: null,
-    cron: null,
-    deliversTo: null,
-    does: "Send the digest",
-    source: "app",
-    timezone: null,
-    when: "",
-  });
+  await expect(
+    caller.jobs.draft({
+      agentId: agent.id,
+      text: "Every Friday send the digest",
+    })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: NO_KEY_MESSAGE });
   await expect(caller.jobs.runNow({ jobId: "nope" })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
@@ -259,4 +259,90 @@ test("jobs procedures are 401 without a workspace", async () => {
   await expect(caller.jobs.runNow({ jobId: "any" })).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
+});
+
+test("memory.list and memory.changes are empty for a new agent", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  expect(await caller.memory.list({ agentId: agent.id })).toEqual([]);
+  expect(await caller.memory.changes({ agentId: agent.id })).toEqual([]);
+});
+
+test("memory.rules.get returns the default rules", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  expect(await caller.memory.rules.get({ agentId: agent.id })).toEqual({
+    agent: DEFAULT_REMEMBER_RULES,
+    workspaceNever: [...DEFAULT_NEVER_REMEMBER],
+  });
+});
+
+test("memory writes are NOT_FOUND while nothing is stored", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  await expect(
+    caller.memory.add({ agentId: agent.id, kind: "people", text: "Tea" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.memory.edit({ agentId: agent.id, noteId: "note_1", text: "Tea" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.memory.forget({ agentId: agent.id, noteId: "note_1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.memory.decide({ changeId: "change_1", decision: "approve" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.memory.undo({ changeId: "change_1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.memory.rules.set({
+      agentId: agent.id,
+      rules: DEFAULT_REMEMBER_RULES,
+    })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("memory.add with empty text is BAD_REQUEST", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(
+    caller.memory.add({ agentId: "any", kind: "people", text: "" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
+test("memory procedures are 401 without a workspace", async () => {
+  const caller = await callerFor({ orgId: null, userId: "user_1" });
+  const agentId = "any";
+
+  await expect(caller.memory.list({ agentId })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.memory.changes({ agentId })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    caller.memory.add({ agentId, kind: "people", text: "Tea" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.memory.edit({ agentId, noteId: "note_1", text: "Tea" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.memory.forget({ agentId, noteId: "note_1" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.memory.decide({ changeId: "change_1", decision: "approve" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.memory.undo({ changeId: "change_1" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(caller.memory.rules.get({ agentId })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    caller.memory.rules.set({ agentId, rules: DEFAULT_REMEMBER_RULES })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

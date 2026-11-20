@@ -63,6 +63,7 @@ const CONNECTOR_NOT_FOUND_PATTERN = /Connector not found/;
 const W_43_PATTERN = /^[\w-]{43}$/;
 
 const principalOf = (userId: string, workspaceId = WORKSPACE): Principal => ({
+  isAdmin: userId !== "user_sam",
   kind: "user",
   userId,
   via: "session",
@@ -840,4 +841,20 @@ test("a stored shared client is refused at store once the connector is off Googl
   expect(result.error).toMatch(NO_OAUTH_CLIENT_PATTERN);
   expect(tokenCalls).toBe(callsBefore);
   expect(credentialRows(connector.id)).toHaveLength(0);
+});
+
+test("a member can complete their own OAuth flow but cannot configure its client", async () => {
+  const connector = await addConnector();
+  await expect(
+    oauth.setClient(sam, { clientId: "denied", connectorId: connector.id })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  const callback = await connect(sam, connector.id);
+  await oauth.complete(sam, callback);
+  expect((await connectorsService.mine(sam))[0]?.myCredential).toMatchObject({
+    ownerId: "user_sam",
+    ownerKind: "user",
+  });
+  expect(
+    await connectorsService.removeCredential(sam, { connectorId: connector.id })
+  ).toEqual({ removed: true });
 });
