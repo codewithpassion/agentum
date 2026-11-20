@@ -3,9 +3,9 @@ id: DR.9
 title: "A correction meets the note it corrects"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [DR.7]
-branch: null
+branch: task/DR.9-a-correction-meets-the-note-it-corrects
 lane: services-dream
 executor: claude
 ---
@@ -23,3 +23,4 @@ a service test with a fake model where an `people` note says 1pm and a conversat
 
 ## Log
 - 2026-11-20: added from the dream walkthrough.
+- 2026-11-21: dispatched.
