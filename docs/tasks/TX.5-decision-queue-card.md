@@ -3,7 +3,7 @@ id: TX.5
 title: "Decision queue card in the web app"
 milestone: TX
 size: S
-status: in_progress
+status: done
 depends_on: [TX.4]
 branch: task/TX.5-decision-queue-card
 lane: web-requests
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone TX. Render the `decisions` request.
 - 2026-11-21: blocked after two fix rounds on two stale-answer state bugs in decisions-card.tsx; a third round allowed.
 - 2026-11-21: review clean after three fix rounds, browser pass. A post-proof UI fix (ea82a6fa) goes back for a browser re-run of the reload flow before merge.
 - 2026-11-21: browser re-run of the reload fix passed at both sizes. Ready at ff89b939. Queued for merge.
+- 2026-11-21: merged 0926b4b7, merge check passed. Done.
