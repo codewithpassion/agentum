@@ -6,6 +6,7 @@ import {
 } from "@repo/db/schema/connectors";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
@@ -216,6 +217,32 @@ test("with a memory reader the context holds the agent's notes and the run perso
       .map((item) => item.id)
       .sort()
   ).toEqual(["01HZ7KQ3M8V2X4R6T9B1C50001", "01HZ7KQ3M8V2X4R6T9B1C50003"]);
+});
+
+test("a session with several speakers sees no private notes", async () => {
+  db.update(runRows)
+    .set({ onBehalfOfUserId: "user_a1" })
+    .where(eq(runRows.id, runId))
+    .run();
+  const run = db.select().from(runRows).where(eq(runRows.id, runId)).get();
+  db.update(sessionRows)
+    .set({ origin: "slack" })
+    .where(eq(sessionRows.id, run?.sessionId ?? ""))
+    .run();
+  const read = memoryFiles({
+    "private/user_a1.md": serializeMemoryFile("private/user_a1.md", [
+      memoryNote(3, "Ana's private brief", "user_a1"),
+    ]),
+    "work.md": serializeMemoryFile("work.md", [
+      memoryNote(1, "Trade show list waits on Tally", null),
+    ]),
+  });
+
+  const context = await build({ readMemoryFile: read });
+
+  expect(notesOf(context).map((item) => item.id)).toEqual([
+    "01HZ7KQ3M8V2X4R6T9B1C50001",
+  ]);
 });
 
 test("a run with no person behind it sees no private notes", async () => {

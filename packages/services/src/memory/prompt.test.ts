@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
   DEFAULT_NEVER_REMEMBER,
   DEFAULT_REMEMBER_RULES,
@@ -228,11 +228,16 @@ test("the library reader returns null for a file that does not exist", async () 
   ).toBeNull();
 });
 
-test("the library reader rethrows other errors", async () => {
-  const conflict = new ServiceError("conflict", "busy");
-  const library = libraryWith(() => Promise.reject(conflict));
+test("the library reader treats other errors as a missing file and logs the error name only", async () => {
+  const library = libraryWith(() =>
+    Promise.reject(new ServiceError("conflict", "secret detail"))
+  );
+  const log = spyOn(console, "error").mockImplementation(() => undefined);
 
-  await expect(
-    libraryMemoryReader(library, RUN, "scout")("work.md")
-  ).rejects.toBe(conflict);
+  expect(
+    await libraryMemoryReader(library, RUN, "scout")("work.md")
+  ).toBeNull();
+  expect(log).toHaveBeenCalledTimes(1);
+  expect(String(log.mock.calls[0]?.[0])).not.toContain("secret detail");
+  log.mockRestore();
 });

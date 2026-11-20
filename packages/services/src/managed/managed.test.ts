@@ -528,7 +528,11 @@ const buildManaged = (
         return hasKey ? keys.resolve(workspaceId) : Promise.resolve(null);
       },
     },
-    library,
+    // No `read`: a run's first message carries no memory section unless a test asks for one.
+    library: {
+      mkdir: (principal, path) => library.mkdir(principal, path),
+      stat: (principal, path) => library.stat(principal, path),
+    },
     poller,
     publicBaseUrl,
     requests,
@@ -1404,6 +1408,8 @@ describe("memory", () => {
     stat: (principal, path) => library.stat(principal, path),
   });
 
+  const firstMessage = () => gateway.sessions.get("sesn_1")?.messages[0] ?? "";
+
   const peopleFile = serializeMemoryFile("people.md", [
     note("Ana prefers short emails"),
   ]);
@@ -1411,17 +1417,30 @@ describe("memory", () => {
     note(DOM_NOTE, { kind: "people", userScope: "user_dom" }),
   ]);
 
-  test("the system text carries the memory section and the people note", async () => {
+  test("the first message carries the memory section and the people note", async () => {
     managed = buildManaged(BASE, {
       library: memoryLibrary({ [`${MEMORY}/people.md`]: peopleFile }),
     });
 
     await finishRun();
 
-    const system = gateway.registered[0]?.system;
+    const system = firstMessage();
     expect(system).toContain("## Memory");
     expect(system).toContain("Ana prefers short emails");
   });
+
+  test("the registered agent and its fingerprint leave the notes out", async () => {
+    managed = buildManaged(BASE, {
+      library: memoryLibrary({ [`${MEMORY}/people.md`]: peopleFile }),
+    });
+
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).not.toContain("## Memory");
+    expect(gateway.registered[0]?.system).not.toContain("Ana prefers");
+  });
+
+  const PERSONAL = { session: { origin: "ui" } } as const;
 
   test("a private note shows for the person the run acts for", async () => {
     managed = buildManaged(BASE, {
@@ -1430,9 +1449,10 @@ describe("memory", () => {
       }),
     });
 
-    await finishRun();
+    const { runId } = await start(dom, "go", PERSONAL);
+    await drive(runId);
 
-    expect(gateway.registered[0]?.system).toContain(DOM_NOTE);
+    expect(firstMessage()).toContain(DOM_NOTE);
   });
 
   test("a private note stays out of a run for another person", async () => {
@@ -1442,13 +1462,25 @@ describe("memory", () => {
       }),
     });
 
-    const { runId } = await start(sam, "go");
+    const { runId } = await start(sam, "go", PERSONAL);
     await drive(runId);
 
-    expect(gateway.registered[0]?.system).not.toContain(DOM_NOTE);
+    expect(firstMessage()).not.toContain(DOM_NOTE);
   });
 
-  test("without a read on the library, the system text has no memory section", async () => {
+  test("a private note stays out of a Slack thread, which several people read", async () => {
+    managed = buildManaged(BASE, {
+      library: memoryLibrary({
+        [`${MEMORY}/private/user_dom.md`]: privateFile,
+      }),
+    });
+
+    await finishRun();
+
+    expect(firstMessage()).not.toContain(DOM_NOTE);
+  });
+
+  test("without a read on the library, no message has a memory section", async () => {
     managed = buildManaged(BASE, {
       library: {
         mkdir: (principal, path) => library.mkdir(principal, path),
@@ -1458,7 +1490,7 @@ describe("memory", () => {
 
     await finishRun();
 
-    expect(gateway.registered[0]?.system).not.toContain("## Memory");
+    expect(firstMessage()).not.toContain("## Memory");
   });
 });
 

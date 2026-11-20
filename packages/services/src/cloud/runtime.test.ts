@@ -806,7 +806,8 @@ describe("memory in the run's instructions", () => {
   const startWith = async (
     library: Pick<LibraryService, "read"> | undefined,
     principal: Principal,
-    externalKey: string
+    externalKey: string,
+    origin: "slack" | "ui" = "slack"
   ): Promise<string> => {
     const runsService: RunsService = createRunsService({
       adapters: [
@@ -831,7 +832,7 @@ describe("memory in the run's instructions", () => {
     await runsService.startRun(principal, {
       agentId,
       input: { text: "Summarise the inbox" },
-      session: { externalKey, origin: "slack" },
+      session: { externalKey, origin },
     });
     const input = runner.startCalls.at(-1);
     if (!input) {
@@ -872,11 +873,14 @@ describe("memory in the run's instructions", () => {
     });
     const other: Principal = { ...dom, userId: "user_other" };
 
-    const forDom = await startWith(library, dom, "thread-dom");
-    const forOther = await startWith(library, other, "thread-other");
+    const forDom = await startWith(library, dom, "chat-dom", "ui");
+    const forOther = await startWith(library, other, "chat-other", "ui");
+    const inSlack = await startWith(library, dom, "thread-dom");
 
     expect(forDom).toContain("Owes Dana a reply");
     expect(forOther).not.toContain("Owes Dana a reply");
+    // A Slack thread shows the reply to everyone in it.
+    expect(inSlack).not.toContain("Owes Dana a reply");
   });
 
   test("without a library there is no memory section", async () => {

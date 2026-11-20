@@ -36,11 +36,12 @@ export interface LaunchContext {
   slack: string;
 }
 
-/** The run's notes and rules, read once. Private notes load only for the person it acts for. */
+/** The run's notes and rules, read once. Private notes load only for the person it acts for, and never in a session with several speakers. */
 const memoryFor = async (
   db: Database,
   run: RunRecord,
-  read: MemoryFileReader
+  read: MemoryFileReader,
+  multiPerson: boolean
 ): Promise<PromptMemory> => {
   const [agentRow] = await db
     .select({ remember: agents.remember })
@@ -56,7 +57,8 @@ const memoryFor = async (
     .limit(1);
   return await loadPromptMemory(read, {
     agentRemember: agentRow?.remember ?? "",
-    onBehalfOfUserId: run.onBehalfOfUserId,
+    // A thread with several people shows its reply to all of them.
+    onBehalfOfUserId: multiPerson ? null : run.onBehalfOfUserId,
     workspaceNever: workspaceRow?.never ?? "",
   });
 };
@@ -79,16 +81,17 @@ export const buildLaunchContext = async (
     )
     .orderBy(asc(agentConnectors.createdAt), asc(agentConnectors.connectorId));
   const scope = await effectiveRunScope(db, run.workspaceId, run.id);
+  const multiPerson = await sessionSupportsSpeakers(db, run);
   return {
     connectors: assigned.filter((connector) =>
       scopeAllows(scope, "connectors", connector.id)
     ),
     handoffNames: await handsToNames(db, agent),
     memory: options.readMemoryFile
-      ? await memoryFor(db, run, options.readMemoryFile)
+      ? await memoryFor(db, run, options.readMemoryFile, multiPerson)
       : null,
     model: modelOfRun(run, agent),
-    multiPerson: await sessionSupportsSpeakers(db, run),
+    multiPerson,
     scope,
     slack: await slackGuidanceFor(db, {
       agentId: run.agentId,

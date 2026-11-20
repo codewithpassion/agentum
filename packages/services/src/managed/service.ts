@@ -62,7 +62,11 @@ import type { EventsService } from "../events.ts";
 import { agentHomePath, ensureAgentHome } from "../library/home.ts";
 import type { LibraryService } from "../library.ts";
 import { notDetachedApproval } from "../mail/approval.ts";
-import { libraryMemoryReader, type PromptMemory } from "../memory/prompt.ts";
+import {
+  libraryMemoryReader,
+  memorySection,
+  type PromptMemory,
+} from "../memory/prompt.ts";
 import { askKeysOf as askKeysOfAgent } from "../requests/ask-keys.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
@@ -239,6 +243,12 @@ const computerFingerprint = (computer: AgentComputer | null) =>
   computer ? { computer } : {};
 
 /** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack, secrets and moving files. */
+/** A new session's first message, led by the agent's notes when it has any. */
+const withMemory = (text: string, memory: PromptMemory | null): string =>
+  [memory ? memorySection(memory) : "", text]
+    .filter((part) => part !== "")
+    .join("\n\n");
+
 const systemOf = (
   agent: AgentRecord,
   handoffNames: string[],
@@ -247,8 +257,7 @@ const systemOf = (
   secretsText: string,
   libraryText: string,
   computer: AgentComputer | null,
-  multiPerson: boolean,
-  memory: PromptMemory | null
+  multiPerson: boolean
 ): string =>
   [
     // Preserve the managed runtime's default identity when instructions are blank.
@@ -258,7 +267,7 @@ const systemOf = (
         instructions: agent.instructions.trim() || `You are ${agent.name}.`,
       },
       handoffNames,
-      { memory, multiPerson }
+      { multiPerson }
     ),
     workspaceInstructions({
       // A managed run's reply is shown as it is: nothing reads the markers.
@@ -935,8 +944,7 @@ export const createManagedService = ({
       grants.guidance,
       libraryGuidanceOf(agent, publicBaseUrl, resolved),
       computer,
-      context.multiPerson,
-      context.memory
+      context.multiPerson
     );
     const askKeys = await runAskKeys(agent, run);
     const fingerprint = await hashToken(
@@ -1002,7 +1010,11 @@ export const createManagedService = ({
         relayHost: grants.relayHost,
         run,
         servers,
-        text,
+        // The notes ride in a new session's first message. In the registered
+        // agent's system text they would enter the fingerprint, dropping a live
+        // session whenever a note changes or another person speaks, and they
+        // would be stored in the agent's shared configuration.
+        text: withMemory(text, context.memory),
       });
     }
     await db
