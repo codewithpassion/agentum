@@ -92,12 +92,42 @@ test("the table sums agent days into weeks and sorts this week first", () => {
       },
     ],
     rows: [
-      { agentId: "a", cents: 100, day: "2026-11-03", tasks: 1 },
-      { agentId: "a", cents: 50, day: "2026-11-17", tasks: 2 },
-      { agentId: "b", cents: 120, day: "2026-11-18", tasks: 3 },
-      { agentId: "b", cents: 120, day: "2026-11-19", tasks: 1 },
-      { agentId: "gone", cents: 9, day: "2026-11-10", tasks: 1 },
-      { agentId: "a", cents: 999, day: "2026-10-01", tasks: 1 },
+      {
+        agentId: "a",
+        cents: 100,
+        day: "2026-11-03",
+        micros: 1_000_000,
+        tasks: 1,
+      },
+      { agentId: "a", cents: 50, day: "2026-11-17", micros: 500_000, tasks: 2 },
+      {
+        agentId: "b",
+        cents: 120,
+        day: "2026-11-18",
+        micros: 1_200_000,
+        tasks: 3,
+      },
+      {
+        agentId: "b",
+        cents: 120,
+        day: "2026-11-19",
+        micros: 1_200_000,
+        tasks: 1,
+      },
+      {
+        agentId: "gone",
+        cents: 9,
+        day: "2026-11-10",
+        micros: 90_000,
+        tasks: 1,
+      },
+      {
+        agentId: "a",
+        cents: 999,
+        day: "2026-10-01",
+        micros: 9_990_000,
+        tasks: 1,
+      },
     ],
     weeks,
   });
@@ -125,7 +155,15 @@ test("an agent with a limit shows before it spends, a removed one is flagged", (
         weeklyCapCents: null,
       },
     ],
-    rows: [{ agentId: "gone", cents: 9, day: "2026-11-17", tasks: 1 }],
+    rows: [
+      {
+        agentId: "gone",
+        cents: 9,
+        day: "2026-11-17",
+        micros: 90_000,
+        tasks: 1,
+      },
+    ],
     weeks,
   });
   expect(table.rows.map((row) => [row.name, row.removed])).toEqual([
@@ -142,10 +180,25 @@ test("a team dream is its own line: no agent row, but in the weekly totals the c
     caps: [],
     weeks,
   };
-  const agentOnly = [{ agentId: "a", cents: 100, day: "2026-11-17", tasks: 1 }];
+  const agentOnly = [
+    {
+      agentId: "a",
+      cents: 100,
+      day: "2026-11-17",
+      micros: 1_000_000,
+      tasks: 1,
+    },
+  ];
   const withTeam = [
     ...agentOnly,
-    { agentId: null, cents: 500, day: "2026-11-18", tasks: 0, teamId: "t1" },
+    {
+      agentId: null,
+      cents: 500,
+      day: "2026-11-18",
+      micros: 5_000_000,
+      tasks: 0,
+      teamId: "t1",
+    },
   ];
   const plain = buildSpendTable({ ...input, rows: agentOnly });
   const table = buildSpendTable({ ...input, rows: withTeam });
@@ -159,13 +212,45 @@ test("a team dream is its own line: no agent row, but in the weekly totals the c
 
 test("week cents add up each agent's rows and skip a team's", () => {
   const rows = [
-    { agentId: "a", cents: 100, day: "2026-11-16", tasks: 1 },
-    { agentId: "a", cents: 50, day: "2026-11-18", tasks: 1 },
-    { agentId: "b", cents: 7, day: "2026-11-18", tasks: 1 },
-    { agentId: null, cents: 40, day: "2026-11-18", tasks: 0, teamId: "t" },
+    {
+      agentId: "a",
+      cents: 100,
+      day: "2026-11-16",
+      micros: 1_000_000,
+      tasks: 1,
+    },
+    { agentId: "a", cents: 50, day: "2026-11-18", micros: 500_000, tasks: 1 },
+    { agentId: "b", cents: 7, day: "2026-11-18", micros: 70_000, tasks: 1 },
+    {
+      agentId: null,
+      cents: 40,
+      day: "2026-11-18",
+      micros: 400_000,
+      tasks: 0,
+      teamId: "t",
+    },
   ];
   expect([...weekCentsByAgent(rows)]).toEqual([
     ["a", 150],
     ["b", 7],
   ]);
+});
+
+test("a week is rounded once from the unrounded day amounts", () => {
+  const weeks = spendWeeks(NOW, "Australia/Sydney");
+  const day = (d: string) => ({
+    agentId: "a",
+    cents: 0,
+    day: d,
+    micros: 4000,
+    tasks: 1,
+  });
+  const table = buildSpendTable({
+    agents: [{ id: "a", name: "Ada" }],
+    caps: [],
+    rows: [day("2026-11-17"), day("2026-11-18"), day("2026-11-19")],
+    weeks,
+  });
+  expect(table.rows[0]?.centsByWeek[weeks.length - 1]).toBe(1);
+  expect(table.totals[weeks.length - 1]).toBe(1);
 });

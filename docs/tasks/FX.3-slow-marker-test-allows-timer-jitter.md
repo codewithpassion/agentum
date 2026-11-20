@@ -3,7 +3,7 @@ id: FX.3
 title: "The SLOW marker test allows timer jitter"
 milestone: FX
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/FX.3-slow-marker-test-allows-timer-jitter
 lane: e2e-scripts
@@ -24,3 +24,4 @@ Make the assertion allow a few milliseconds of timer jitter, for example `toBeGr
 ## Log
 - 2026-11-21: added by controller from the SP.8 report. Dispatched.
 - 2026-11-21: ready at 296074e1, review clean with no fix rounds. Queued for merge.
+- 2026-11-21: merged 01385eca, batch merge check with FX.3, SP.10 and SP.9 passed. Done.

@@ -3,9 +3,9 @@ id: SL.11
 title: "Linking needs a person who is in the channel"
 milestone: SL
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SL.11-linking-needs-a-person-who-is-in-the-cha
 lane: services-teams
 executor: claude
 ---
@@ -33,3 +33,4 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 2).
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
