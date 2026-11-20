@@ -24,6 +24,7 @@ import { sessionTools } from "./tools/sessions";
 import { skillReadTools } from "./tools/skills-read";
 import { skillWriteTools } from "./tools/skills-write";
 import { slackTools } from "./tools/slack";
+import { teamTools } from "./tools/team";
 import { triggerTools } from "./tools/triggers";
 import { wikiTools } from "./tools/wiki";
 
@@ -47,7 +48,21 @@ export interface ServerOptions {
    */
   readOnly?: boolean;
   subagents?: { start: boolean; message?: boolean };
+  /** The run was woken by its team room and its agent leads that team: it gets the team tools and only read tools and send_message besides. */
+  teamRoom?: boolean;
 }
+
+/** The tools a team lead keeps in its team room: reads and send_message. */
+const isRoomTool = (tool: ToolDefinition): boolean =>
+  tool.annotations.readOnlyHint === true || tool.name === "send_message";
+
+/** A room run gets the team tools and only the reads and send_message of the rest. */
+const scopeToTeamRoom = (
+  ports: McpPorts,
+  tools: ToolDefinition[],
+  teamRoom: boolean
+): ToolDefinition[] =>
+  teamRoom ? [...teamTools(ports), ...tools.filter(isRoomTool)] : tools;
 
 /** The tools that manage routines and triggers; a read-only caller gets the read ones. */
 const automationTools = (
@@ -77,69 +92,74 @@ export const agentumTools = (
     computer,
     browser = false,
     admin,
+    teamRoom = false,
   }: ServerOptions = {}
-): readonly ToolDefinition[] => [
-  ...(computer && !readOnly && ports.computer
-    ? computerTools(ports, computer)
-    : []),
-  ...(browser && !readOnly && ports.browser ? browserTools(ports) : []),
-  ...agentTools(ports),
-  ...(subagents && !readOnly
-    ? subagentTools(ports, subagents.start, subagents.message)
-    : []),
-  ...(readOnly ? [] : agentWriteTools(ports)),
-  ...sessionTools(ports),
-  ...memoryTools(ports).filter(
-    (tool) => !readOnly || tool.annotations.readOnlyHint === true
-  ),
-  ...inboxTools(ports),
-  // Offered once the app wires the port; a read-only caller keeps the read tools.
-  ...(ports.artifacts
-    ? artifactTools(ports.artifacts, ports.live, ports.deckCreation).filter(
-        (tool) => !readOnly || tool.annotations.readOnlyHint === true
-      )
-    : []),
-  ...(ports.deck
-    ? deckTools(ports.deck).filter(
-        (tool) => !readOnly || tool.annotations.readOnlyHint === true
-      )
-    : []),
-  ...(ports.live
-    ? liveTools(ports.live).filter(
-        (tool) => !readOnly || tool.annotations.readOnlyHint === true
-      )
-    : []),
-  // V4.13 leaves read-only callers unspecified: new writes follow the skills convention.
-  // Keep the existing bash availability unchanged.
-  ...[...libraryTools(ports), ...wikiTools(ports)].filter(
-    (tool) =>
-      !readOnly ||
-      tool.name === "bash" ||
-      tool.annotations.readOnlyHint === true
-  ),
-  ...automationTools(ports, readOnly),
-  ...skillTools(ports, readOnly),
-  ...(readOnly ? [] : slackTools(ports)),
-  ...(mail && !readOnly && ports.mail ? mailTools(ports) : []),
-  ...(qa && ports.qa
-    ? qaTools(ports).filter(
-        (tool) => !readOnly || tool.annotations.readOnlyHint === true
-      )
-    : []),
-  ...(ports.admin ? agentManagementReadTools(ports.admin) : []),
-  ...(admin && !readOnly && ports.admin
-    ? [
-        ...adminWriteTools(ports.admin).filter(
-          (tool) =>
-            admin !== "oauth-write" || tool.name !== "create_inbox_thread"
-        ),
-        ...agentManagementWriteTools(ports.admin),
-      ]
-    : []),
-  ...(admin === "admin" && !readOnly && ports.admin
-    ? adminSetupTools(ports.admin)
-    : []),
-];
+): readonly ToolDefinition[] => {
+  const tools = [
+    ...(computer && !readOnly && ports.computer
+      ? computerTools(ports, computer)
+      : []),
+    ...(browser && !readOnly && ports.browser ? browserTools(ports) : []),
+    ...agentTools(ports),
+    ...(subagents && !readOnly
+      ? subagentTools(ports, subagents.start, subagents.message)
+      : []),
+    ...(readOnly ? [] : agentWriteTools(ports)),
+    ...sessionTools(ports),
+    ...memoryTools(ports).filter(
+      (tool) => !readOnly || tool.annotations.readOnlyHint === true
+    ),
+    ...inboxTools(ports),
+    // Offered once the app wires the port; a read-only caller keeps the read tools.
+    ...(ports.artifacts
+      ? artifactTools(ports.artifacts, ports.live, ports.deckCreation).filter(
+          (tool) => !readOnly || tool.annotations.readOnlyHint === true
+        )
+      : []),
+    ...(ports.deck
+      ? deckTools(ports.deck).filter(
+          (tool) => !readOnly || tool.annotations.readOnlyHint === true
+        )
+      : []),
+    ...(ports.live
+      ? liveTools(ports.live).filter(
+          (tool) => !readOnly || tool.annotations.readOnlyHint === true
+        )
+      : []),
+    // V4.13 leaves read-only callers unspecified: new writes follow the skills convention.
+    // Keep the existing bash availability unchanged.
+    ...[...libraryTools(ports), ...wikiTools(ports)].filter(
+      (tool) =>
+        !readOnly ||
+        tool.name === "bash" ||
+        tool.annotations.readOnlyHint === true
+    ),
+    ...automationTools(ports, readOnly),
+    ...skillTools(ports, readOnly),
+    ...(readOnly ? [] : slackTools(ports)),
+    ...(mail && !readOnly && ports.mail ? mailTools(ports) : []),
+    ...(qa && ports.qa
+      ? qaTools(ports).filter(
+          (tool) => !readOnly || tool.annotations.readOnlyHint === true
+        )
+      : []),
+    ...(ports.admin ? agentManagementReadTools(ports.admin) : []),
+    ...(admin && !readOnly && ports.admin
+      ? [
+          ...adminWriteTools(ports.admin).filter(
+            (tool) =>
+              admin !== "oauth-write" || tool.name !== "create_inbox_thread"
+          ),
+          ...agentManagementWriteTools(ports.admin),
+        ]
+      : []),
+    ...(admin === "admin" && !readOnly && ports.admin
+      ? adminSetupTools(ports.admin)
+      : []),
+  ];
+  // A lead woken in its team room gets the team tools and only the reads and send_message of the rest.
+  return scopeToTeamRoom(ports, tools, teamRoom);
+};
 
 /** Ports for reading tool names: the names do not depend on them, so none is ever called. */
 const unusedPort = (): Promise<never> =>

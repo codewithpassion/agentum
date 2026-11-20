@@ -1,10 +1,19 @@
-import type { AgentCard } from "@repo/db/shared";
+import type { AgentCard, Team } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import { LayoutTemplate, type LucideIcon, Plus } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { RailLink } from "#/components/rail/rail-link.tsx";
+import { AddToTeamDialog } from "./add-to-team-dialog.tsx";
 import { AgentCardView } from "./agent-card.tsx";
-import { type NeedsYouChip, sortCards } from "./roster-logic.ts";
+import {
+  groupCards,
+  type NeedsYouChip,
+  readCollapsed,
+  sortCards,
+  toggleKey,
+  writeCollapsed,
+} from "./roster-logic.ts";
+import { TeamGroup } from "./team-group.tsx";
 
 const CHIP_CLASS =
   "max-w-full truncate rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-sm";
@@ -17,6 +26,30 @@ const ADD_CARDS: readonly { icon: LucideIcon; label: string }[] = [
   { icon: Plus, label: "New agent" },
   { icon: LayoutTemplate, label: "Start from a template" },
 ];
+
+/** The dashed card at the end of a team group. It opens the member picker. */
+const AddToTeamCard = ({
+  onPick,
+  team,
+}: {
+  onPick: (teamId: string) => void;
+  team: Team;
+}) => {
+  const open = useCallback(() => onPick(team.id), [onPick, team.id]);
+  return (
+    <li>
+      <button
+        aria-label={`Add to team ${team.name}`}
+        className={`${ADD_CARD_CLASS} w-full`}
+        onClick={open}
+        type="button"
+      >
+        <Plus aria-hidden="true" className="size-4 shrink-0" />
+        Add to team
+      </button>
+    </li>
+  );
+};
 
 const NeedsYouStrip = ({ chips }: { chips: readonly NeedsYouChip[] }) => (
   <section aria-label="Needs you" className="mb-6 flex flex-col gap-2">
@@ -31,21 +64,67 @@ const NeedsYouStrip = ({ chips }: { chips: readonly NeedsYouChip[] }) => (
   </section>
 );
 
+const GRID_CLASS = "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
+
+/** The browser's storage, read lazily because blocked storage throws on access. */
+const browserStorage = () => window.localStorage;
+
+const AddCards = () =>
+  ADD_CARDS.map(({ icon: Icon, label }) => (
+    <li key={label}>
+      <Link className={ADD_CARD_CLASS} to="/agents/new">
+        <Icon aria-hidden="true" className="size-4 shrink-0" />
+        {label}
+      </Link>
+    </li>
+  ));
+
+/** Which groups are collapsed for this person. It reads storage after mount, so the server and the first client render agree. */
+const useCollapsedGroups = (userId: string) => {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    setCollapsed(readCollapsed(browserStorage, userId));
+  }, [userId]);
+  const toggle = useCallback(
+    (key: string) => {
+      const next = toggleKey(collapsed, key);
+      setCollapsed(next);
+      writeCollapsed(browserStorage, userId, next);
+    },
+    [collapsed, userId]
+  );
+  return { collapsed, toggle };
+};
+
 /**
- * The Roster home: agents sorted by state, then the add-agent cards.
- * With no agents, `emptyState` replaces the "No agents yet" line and the add cards.
+ * The Roster home: agents grouped by home team, with agents in no team last.
+ * Without any team the cards stay in one flat wall. A group collapses, and
+ * the person's choice is kept in local storage. With no agents, `emptyState`
+ * replaces the "No agents yet" line and the add cards.
  */
 export const RosterWall = ({
   cards,
   chips,
   emptyState,
+  onAddMember,
+  teams,
+  userId,
 }: {
   cards: readonly AgentCard[];
   chips: readonly NeedsYouChip[];
   emptyState?: ReactNode;
+  /** Adds an agent to a team. A rejected promise shows its message in the picker. */
+  onAddMember: (teamId: string, agentId: string) => Promise<void>;
+  teams: readonly Team[];
+  userId: string;
 }) => {
   const isEmpty = cards.length === 0;
   const showEmptyState = isEmpty && emptyState !== undefined;
+  const showGroups = !isEmpty && teams.length > 0;
+  const { collapsed, toggle } = useCollapsedGroups(userId);
+  const [pickingTeamId, setPickingTeamId] = useState<string | null>(null);
+  const closePicker = useCallback(() => setPickingTeamId(null), []);
+  const pickingTeam = teams.find((team) => team.id === pickingTeamId);
   return (
     <div>
       {chips.length > 0 ? <NeedsYouStrip chips={chips} /> : null}
@@ -55,22 +134,50 @@ export const RosterWall = ({
           No agents yet. Describe your first job and an agent will do it.
         </p>
       ) : null}
-      {showEmptyState ? null : (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {showEmptyState || showGroups ? null : (
+        <ul className={GRID_CLASS}>
           {sortCards(cards).map((card) => (
             <li key={card.id}>
               <AgentCardView card={card} />
             </li>
           ))}
-          {ADD_CARDS.map(({ icon: Icon, label }) => (
-            <li key={label}>
-              <Link className={ADD_CARD_CLASS} to="/agents/new">
-                <Icon aria-hidden="true" className="size-4 shrink-0" />
-                {label}
-              </Link>
-            </li>
-          ))}
+          <AddCards />
         </ul>
+      )}
+      {showGroups
+        ? groupCards(cards, teams).map((group) => (
+            <TeamGroup
+              collapsed={collapsed.has(group.key)}
+              group={group}
+              key={group.key}
+              onToggle={toggle}
+            >
+              <ul className={GRID_CLASS}>
+                {group.cards.map((card) => (
+                  <li key={card.id}>
+                    <AgentCardView card={card} />
+                  </li>
+                ))}
+                {group.team === null ? null : (
+                  <AddToTeamCard onPick={setPickingTeamId} team={group.team} />
+                )}
+              </ul>
+            </TeamGroup>
+          ))
+        : null}
+      {showGroups ? (
+        <ul className={GRID_CLASS}>
+          <AddCards />
+        </ul>
+      ) : null}
+      {pickingTeam === undefined ? null : (
+        <AddToTeamDialog
+          cards={cards}
+          onAdd={onAddMember}
+          onClose={closePicker}
+          team={pickingTeam}
+          teams={teams}
+        />
       )}
     </div>
   );

@@ -291,7 +291,7 @@ test("job line cap, ask levels and mail address fallback", async () => {
     {
       ...sentence("mail", "mail", "When mail arrives"),
       asksBefore: null,
-      does: "x".repeat(JOB_LINE_MAX_CHARS),
+      does: `${"x".repeat(JOB_LINE_MAX_CHARS - 1)}…`,
     },
   ]);
   db.update(agents).set({ askLevel: "everything" }).run();

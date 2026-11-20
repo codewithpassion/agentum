@@ -3,18 +3,20 @@ import { z } from "zod";
 import { router, workspaceProcedure } from "./init.ts";
 
 /**
- * What a browser may send: a `ui` session and nothing else. Other origins,
- * `private` and `reply` belong to in-process callers (Slack, inbox, triggers,
- * routines). Letting a member pick an origin or `private` would let one create
- * a future Slack or inbox session first, as a private one, and the real wake
- * would answer not_found. A `reply` target would post the answer into any
- * inbox thread or Slack thread of the workspace.
+ * What a browser may send: a `ui` session and nothing else. Other origins and
+ * `reply` belong to in-process callers (Slack, inbox, triggers, routines).
+ * Letting a member pick an origin would let one create a future Slack or inbox
+ * session first, and the real wake would answer not_found. A `reply` target
+ * would post the answer into any inbox thread or Slack thread of the workspace.
+ * `private` is allowed because the origin is forced to `ui`: a ui session is
+ * already visible only to the person who opened it, so a private ui session
+ * cannot pre-empt a future Slack or inbox session.
  */
 const browserStartRunInputSchema = startRunInputSchema
   .omit({ reply: true })
   .extend({
     session: startRunInputSchema.shape.session
-      .pick({ externalKey: true })
+      .pick({ externalKey: true, private: true })
       .extend({ origin: z.literal("ui") }),
   });
 

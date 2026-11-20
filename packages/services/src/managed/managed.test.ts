@@ -15,6 +15,7 @@ import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   APPROVAL_TTL_MS,
+  type EffortLevel,
   type MemoryNote,
   QUESTION_TTL_MS,
 } from "@repo/db/shared";
@@ -87,10 +88,18 @@ const person = (userId: string): Principal => ({
 });
 const dom = person("user_dom");
 const sam = person("user_sam");
+const domAdmin: Principal = {
+  isAdmin: true,
+  kind: "user",
+  userId: "user_dom",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
 
 /** One Anthropic session as the fake keeps it. */
 interface FakeSession {
   agentId: string;
+  effort: EffortLevel | undefined;
   events: SessionEvent[];
   id: string;
   messages: string[];
@@ -138,6 +147,7 @@ class FakeGateway implements ManagedGateway {
   onGetSession: (() => void) | null = null;
   pollFailure: Error | null = null;
   registered: {
+    effort?: EffortLevel;
     model: string;
     instructions: string;
     name: string;
@@ -154,7 +164,11 @@ class FakeGateway implements ManagedGateway {
   readonly sessions = new Map<string, FakeSession>();
   sessionStatus: "idle" | "running" = "idle";
   synced: string[] = [];
-  syncedAgents: { skills: readonly SkillRef[]; system: string }[] = [];
+  syncedAgents: {
+    effort?: EffortLevel;
+    skills: readonly SkillRef[];
+    system: string;
+  }[] = [];
   turns: SessionEvent[][] = [];
   vaults: string[] = [];
   private eventSeq = 0;
@@ -266,12 +280,14 @@ class FakeGateway implements ManagedGateway {
 
   createSession(input: {
     anthropicAgentId: string;
+    effort?: EffortLevel;
     model: string;
     text: string;
     vaultIds: readonly string[];
   }) {
     const session: FakeSession = {
       agentId: input.anthropicAgentId,
+      effort: input.effort,
       events: [],
       id: `sesn_${this.sessions.size + 1}`,
       messages: [input.text],
@@ -393,6 +409,7 @@ class FakeGateway implements ManagedGateway {
   registerAgent(input: {
     askKeys: readonly string[];
     desktop?: boolean;
+    effort?: EffortLevel;
     instructions: string;
     mcpServers: readonly { name: string; url: string }[];
     model: string;
@@ -404,6 +421,7 @@ class FakeGateway implements ManagedGateway {
     this.askKeysSent.push(input.askKeys);
     this.desktopsSent.push(input.desktop === true);
     this.registered.push({
+      effort: input.effort,
       instructions: input.instructions,
       model: input.model,
       name: input.name,
@@ -427,13 +445,18 @@ class FakeGateway implements ManagedGateway {
     anthropicAgentId: string;
     askKeys: readonly string[];
     desktop?: boolean;
+    effort?: EffortLevel;
     skills: readonly SkillRef[];
     system: string;
   }) {
     this.synced.push(input.anthropicAgentId);
     this.askKeysSent.push(input.askKeys);
     this.desktopsSent.push(input.desktop === true);
-    this.syncedAgents.push({ skills: input.skills, system: input.system });
+    this.syncedAgents.push({
+      effort: input.effort,
+      skills: input.skills,
+      system: input.system,
+    });
     return Promise.resolve();
   }
 }
@@ -2234,10 +2257,10 @@ describe("secrets", () => {
   const PROXY_VALUE = "proxy-secret-value-0123";
 
   const envSecret = (name: string, value = ENV_VALUE) =>
-    secrets.create(dom, { mode: "env", name, value });
+    secrets.create(domAdmin, { mode: "env", name, value });
 
   const proxySecret = () =>
-    secrets.create(dom, {
+    secrets.create(domAdmin, {
       mode: "proxy",
       name: "OPENAI_API_KEY",
       rules: [
@@ -2299,7 +2322,7 @@ describe("secrets", () => {
     await secrets.setGrants(dom, agentId, [env.id]);
     const first = await start(dom, "one");
     await drive(first.runId);
-    await secrets.update(dom, env.id, { value: "env-secret-value-4567" });
+    await secrets.update(domAdmin, env.id, { value: "env-secret-value-4567" });
     const second = await start(dom, "two");
 
     await managed.step(second.runId);
@@ -2805,4 +2828,94 @@ test("managed subagents reuse the provider agent with a per-session model while 
     gateway.sessions.get("sesn_2")?.agentId
   );
   expect(gateway.synced).toEqual([]);
+});
+
+describe("thinking level", () => {
+  test("an agent's effort reaches the registration and the session", async () => {
+    await agents.update(dom, agentId, { runtimeConfig: { effort: "high" } });
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(gateway.registered[0]?.effort).toBe("high");
+    expect(gateway.sessions.get("sesn_1")?.effort).toBe("high");
+  });
+
+  test("an agent with no thinking level sends no effort and a plain model", async () => {
+    const { runId } = await start(dom);
+
+    await drive(runId);
+
+    expect(gateway.registered[0]?.effort).toBeUndefined();
+    expect(gateway.sessions.get("sesn_1")?.effort).toBeUndefined();
+    expect(gateway.sessions.get("sesn_1")?.model).toBe("claude-sonnet-5-5");
+  });
+
+  test("clearing the level restores the fingerprint an agent without one has", async () => {
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    const withoutLevel = db.select().from(managedAgents).get()?.fingerprint;
+    await agents.update(dom, agentId, { runtimeConfig: { effort: "high" } });
+    const second = await start(dom, "two");
+    await managed.step(second.runId);
+    expect(db.select().from(managedAgents).get()?.fingerprint).not.toBe(
+      withoutLevel
+    );
+    await agents.update(dom, agentId, { runtimeConfig: {} });
+
+    const third = await start(dom, "three");
+    await managed.step(third.runId);
+
+    expect(gateway.synced).toEqual(["agent_1", "agent_1"]);
+    expect(db.select().from(managedAgents).get()?.fingerprint).toBe(
+      withoutLevel
+    );
+  });
+
+  test("changing the level re-syncs the registered agent and starts a fresh session", async () => {
+    await agents.update(dom, agentId, { runtimeConfig: { effort: "high" } });
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await agents.update(dom, agentId, { runtimeConfig: { effort: "low" } });
+
+    const second = await start(dom, "two");
+    await managed.step(second.runId);
+
+    expect(gateway.synced).toEqual(["agent_1"]);
+    expect(gateway.syncedAgents.at(-1)?.effort).toBe("low");
+    expect(gateway.sessions.size).toBe(2);
+    expect(gateway.sessions.get("sesn_2")?.effort).toBe("low");
+  });
+
+  test("removing the level re-syncs the agent without one", async () => {
+    await agents.update(dom, agentId, { runtimeConfig: { effort: "high" } });
+    const first = await start(dom, "one");
+    await drive(first.runId);
+    await agents.update(dom, agentId, { runtimeConfig: {} });
+
+    const second = await start(dom, "two");
+    await managed.step(second.runId);
+
+    expect(gateway.synced).toEqual(["agent_1"]);
+    expect(gateway.syncedAgents.at(-1)?.effort).toBeUndefined();
+  });
+
+  test("a subagent run gets no thinking level, and the parent keeps its own", async () => {
+    await agents.update(dom, agentId, { runtimeConfig: { effort: "high" } });
+    const parent = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(parent.runId);
+    const child = await start(dom, "child", { session: { origin: "mcp" } });
+    db.update(runRows)
+      .set({ model: "haiku", parentRunId: parent.runId, subagentLevel: 1 })
+      .where(eq(runRows.id, child.runId))
+      .run();
+    gateway.turns = [[gateway.running()]];
+
+    await managed.step(child.runId);
+
+    expect(gateway.sessions.get("sesn_1")?.effort).toBe("high");
+    expect(gateway.sessions.get("sesn_2")?.effort).toBeUndefined();
+    expect(gateway.synced).toEqual([]);
+  });
 });

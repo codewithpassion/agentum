@@ -3,7 +3,7 @@ id: RH.7
 title: "Roster walkthrough on local and staging"
 milestone: RH
 size: S
-status: in_progress
+status: done
 depends_on: [RH.2, RH.5, RH.6]
 branch: task/RH.7-roster-e2e
 lane: e2e
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone RH. End-to-end check for RH against real
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/RH.7-roster-e2e (v4 controller session).
+- 2026-11-20: merged as cf543d05, review clean after 0 fix rounds. Walkthrough passed at both sizes: docs/reviews/RH-e2e.md, docs/reviews/tasks/RH.7/browser.md. The card wall sort matches the rule on real data. check, test and build passed on main. Follow-ups RH.8 to RH.11. Dom: run it on staging with an Anthropic cloud agent after deploy.

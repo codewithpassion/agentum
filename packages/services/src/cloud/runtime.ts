@@ -1,7 +1,7 @@
 import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { machines } from "@repo/db/schema/machines";
-import { taskFolderPath } from "@repo/db/shared";
+import { runtimeConfigForRun, taskFolderPath } from "@repo/db/shared";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { agentPrompt } from "../agent-prompt.ts";
@@ -139,7 +139,10 @@ export const createCloudRuntime = ({
         model:
           run.dryRun && !findCloudModel(model) ? CLOUD_DEFAULT_MODEL : model,
         name: agent.name,
-        runtimeConfig: agent.runtimeConfig,
+        runtimeConfig: runtimeConfigForRun(
+          agent.runtimeConfig,
+          run.subagentLevel
+        ),
         slug: agent.slug,
       },
       ...(computer ? { computer } : {}),

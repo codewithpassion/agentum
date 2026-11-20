@@ -113,16 +113,23 @@ export function NoteRow({
       ) : (
         <p>{note.text}</p>
       )}
-      <p className="text-muted-foreground text-xs">
-        {noteLead(note)}
-        {note.source === null ? null : (
-          <>
-            {" "}
-            <SourceLink source={note.source} />
-          </>
+      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+        <p>
+          {noteLead(note)}
+          {note.source === null ? null : (
+            <>
+              {" "}
+              <SourceLink source={note.source} />
+            </>
+          )}
+          {`, ${formatNoteDate(note.date)}`}
+        </p>
+        {note.userScope === null ? null : (
+          <Badge data-testid="private-marker" variant="secondary">
+            Private
+          </Badge>
         )}
-        {`, ${formatNoteDate(note.date)}`}
-      </p>
+      </div>
       {editing ? null : (
         <div className="flex gap-2">
           <Button
@@ -179,6 +186,11 @@ export function HeldRow({
       <p>{change.text}</p>
       <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
         <Badge variant="secondary">Waiting for you</Badge>
+        {change.userScope === null ? null : (
+          <Badge data-testid="private-marker" variant="secondary">
+            Private
+          </Badge>
+        )}
         <span>{WRITER_LABELS[change.writtenBy]}</span>
       </div>
       <div className="flex gap-2">

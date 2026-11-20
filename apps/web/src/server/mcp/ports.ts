@@ -55,6 +55,7 @@ import { createMemoryPorts } from "./memory-ports.ts";
 import { createPeerPorts } from "./peer-ports.ts";
 import { createQaPorts } from "./qa-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
+import { createTeamPorts } from "./team-ports.ts";
 
 const TITLE_MAX = 80;
 /** What the Log keeps of a script that started `curl`. Each request has its own `network.request` event. */
@@ -367,6 +368,12 @@ export const createMcpPorts = ({
                 }),
               }
             : {}),
+        }
+      : {}),
+
+    ...(principal.kind === "run"
+      ? {
+          team: createTeamPorts({ principal, services }),
         }
       : {}),
 

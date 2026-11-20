@@ -122,6 +122,59 @@ test("a request source links to the desk", () => {
   expect(document.querySelector("a")?.getAttribute("href")).toContain("/desk");
 });
 
+test("a private note shows the Private marker", () => {
+  const document = render(
+    <NoteRow
+      busy={false}
+      disabled={false}
+      note={note({ userScope: "user_1" })}
+      onEdit={noop}
+      onForget={noop}
+    />
+  );
+  const marker = document.querySelector('[data-testid="private-marker"]');
+  expect(marker?.textContent).toBe("Private");
+});
+
+test("a shared note shows no Private marker", () => {
+  const document = render(
+    <NoteRow
+      busy={false}
+      disabled={false}
+      note={note({ userScope: null })}
+      onEdit={noop}
+      onForget={noop}
+    />
+  );
+  expect(document.querySelector('[data-testid="private-marker"]')).toBeNull();
+});
+
+test("a held private change shows the Private marker", () => {
+  const document = render(
+    <HeldRow
+      busy={false}
+      change={held({ userScope: "user_1" })}
+      disabled={false}
+      onDecide={noop}
+    />
+  );
+  expect(
+    document.querySelector('[data-testid="private-marker"]')?.textContent
+  ).toBe("Private");
+});
+
+test("a held shared change shows no Private marker", () => {
+  const document = render(
+    <HeldRow
+      busy={false}
+      change={held({ userScope: null })}
+      disabled={false}
+      onDecide={noop}
+    />
+  );
+  expect(document.querySelector('[data-testid="private-marker"]')).toBeNull();
+});
+
 test("a disabled note row disables Edit and Forget", () => {
   const document = render(
     <NoteRow
