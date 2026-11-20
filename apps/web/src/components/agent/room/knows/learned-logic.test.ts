@@ -26,6 +26,7 @@ function change(overrides: Partial<MemoryChange>): MemoryChange {
     noteId: "n-1",
     source: null,
     status: "applied",
+    teamId: null,
     text: "Sort the inbox first.",
     userScope: null,
     writtenBy: "person",

@@ -9,6 +9,7 @@ import { agentToolRules } from "@repo/db/schema/tool-rules";
 import {
   APPROVAL_TTL_MS,
   type ComputerTakeoverRequestedPayload,
+  DECISIONS_TTL_MS,
   PEER_QUESTION_TTL_MS,
   QUESTION_TTL_MS,
   TAKEOVER_TTL_MS,
@@ -18,6 +19,7 @@ import {
   approvalAnswerSchema,
   approvalSummary,
   toolKey as canonicalToolKey,
+  decisionsAnswerSchema,
   questionAnswerSchema,
   questionDisplaySchema,
 } from "@repo/protocol/requests";
@@ -102,8 +104,25 @@ export const webAnswerInputSchema = z.union([
   questionAnswerSchema.extend({ requestId: id }),
 ]);
 
+/** The answers so far to a decision queue. They may cover only some of its questions. */
+export const answerDecisionsInputSchema = decisionsAnswerSchema.extend({
+  requestId: id,
+});
+export const dismissDecisionsInputSchema = z.strictObject({ requestId: id });
+
+/** A decision queue takes partial answers, so it has its own procedure. */
+const refuseDecisions = (row: RequestRow) => {
+  if (row.kind === "decisions") {
+    throw new ServiceError(
+      "invalid",
+      "A decision queue is answered with answerDecisions"
+    );
+  }
+};
+
 const TTL = {
   approval: APPROVAL_TTL_MS,
+  decisions: DECISIONS_TTL_MS,
   question: QUESTION_TTL_MS,
   takeover: TAKEOVER_TTL_MS,
 };
@@ -866,6 +885,37 @@ export const createRequestsService = ({
     // Each closed request needs delivery even while another keeps the run waiting.
     await runs.resumeRequest(SYSTEM_PRINCIPAL, row.runId, requestRecord(row));
   };
+  /**
+   * Stub: finds the request and refuses, so the decision queue task (TX.4)
+   * fills in the rest. A person answers some questions and leaves others; the
+   * request closes when every question has an answer.
+   */
+  const answerDecisions = async (
+    principal: Principal,
+    raw: z.input<typeof answerDecisionsInputSchema>
+  ): Promise<RequestRecord> => {
+    const input = answerDecisionsInputSchema.parse(raw);
+    await requireRequest(principal, input.requestId);
+    if (principal.kind !== "user") {
+      throw new ForbiddenError("requests.answer");
+    }
+    throw new ServiceError("not_found", "No decision queue is open");
+  };
+  /**
+   * Stub, as above. Dismissing hides the card and cancels the request; the
+   * agent can raise the questions again.
+   */
+  const dismissDecisions = async (
+    principal: Principal,
+    raw: z.input<typeof dismissDecisionsInputSchema>
+  ): Promise<RequestRecord> => {
+    const input = dismissDecisionsInputSchema.parse(raw);
+    await requireRequest(principal, input.requestId);
+    if (principal.kind !== "user") {
+      throw new ForbiddenError("requests.answer");
+    }
+    throw new ServiceError("not_found", "No decision queue is open");
+  };
   const answer = async (
     principal: Principal,
     raw: z.input<typeof answerInputSchema>
@@ -880,6 +930,7 @@ export const createRequestsService = ({
     if (isPromoteApproval(row) && principal.via !== "session") {
       throw new ForbiddenError("artifacts.decide_grant");
     }
+    refuseDecisions(row);
     const parsed = answerSchemas[row.kind].parse(input.answer);
     if ("decision" in parsed && parsed.decision === "always_allow") {
       const run = await loadRun(db, row.runId, row.workspaceId);
@@ -1339,10 +1390,12 @@ export const createRequestsService = ({
   return {
     answer,
     answerAsPeer,
+    answerDecisions,
     askLevel,
     cancel,
     cancelForRun,
     defersQuestion,
+    dismissDecisions,
     expireDue,
     listPending,
     listRules,

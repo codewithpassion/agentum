@@ -46,6 +46,22 @@ const outsider: Principal = {
   workspaceId: OTHER_WORKSPACE,
 };
 const fromSlack: Principal = { ...user, via: "slack" };
+/** A signed-in member who owns no agent in the workspace. */
+const member: Principal = {
+  isAdmin: false,
+  kind: "user",
+  userId: "u2",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
+/** An org admin, who may manage any agent's Slack app. */
+const admin: Principal = {
+  isAdmin: true,
+  kind: "user",
+  userId: "u3",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
 
 /** What the fake Slack knows about a token. */
 interface Identity {
@@ -624,4 +640,63 @@ test("the schema rejects a mode that is not in the list", () => {
   expect(
     slackAppSetListenModeInputSchema.parse({ id: "x", listenMode: "all" })
   ).toEqual({ id: "x", listenMode: "all" });
+});
+
+test("paste: the owner and an admin connect the app, a member is refused before Slack is called", async () => {
+  await expect(
+    service.paste(member, {
+      agentId,
+      botToken: TOKEN,
+      signingSecret: SIGNING_SECRET,
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(slackCalls).toHaveLength(0);
+  expect(appRows()).toHaveLength(0);
+
+  const summary = await service.paste(admin, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+  expect(summary.appId).toBe("A0APP");
+});
+
+test("revoke: a member is refused and the app keeps its token, an admin revokes", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+
+  await expect(service.revoke(member, { id })).rejects.toBeInstanceOf(
+    ForbiddenError
+  );
+  const [kept] = appRows();
+  expect(kept?.status).toBe("installed");
+  expect(kept?.botToken).not.toBeNull();
+  expect(eventTypes("slack.app_revoked")).toHaveLength(0);
+
+  expect((await service.revoke(admin, { id })).status).toBe("revoked");
+});
+
+test("setListenMode: a member is refused and the mode stays, an admin changes it", async () => {
+  const { id } = await service.paste(user, {
+    agentId,
+    botToken: TOKEN,
+    signingSecret: SIGNING_SECRET,
+  });
+
+  await expect(
+    service.setListenMode(member, { id, listenMode: "all" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect((await service.list(user, { agentId }))[0]?.listenMode).toBe(
+    "mentions"
+  );
+  expect(eventTypes("slack.listen_mode_changed")).toHaveLength(0);
+
+  const changed = await service.setListenMode(admin, {
+    id,
+    listenMode: "all",
+  });
+  expect(changed.listenMode).toBe("all");
 });

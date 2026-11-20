@@ -5,6 +5,9 @@ import {
   type ApprovalAnswer,
   approvalAnswerSchema,
   approvalDisplaySchema,
+  type DecisionsAnswer,
+  decisionsAnswerSchema,
+  decisionsDisplaySchema,
   type QuestionAnswer,
   questionAnswerSchema,
   questionDisplaySchema,
@@ -43,6 +46,7 @@ export const answerInputSchema = z.strictObject({
     approvalAnswerSchema,
     questionAnswerSchema,
     takeoverAnswerSchema,
+    decisionsAnswerSchema,
   ]),
   requestId: id,
   via: z.enum(ANSWER_SURFACES),
@@ -57,11 +61,13 @@ export const outcomeOf = (row: RequestRow) =>
       });
 export const answerSchemas = {
   approval: approvalAnswerSchema,
+  decisions: decisionsAnswerSchema,
   question: questionAnswerSchema,
   takeover: takeoverAnswerSchema,
 };
 const displaySchemas = {
   approval: approvalDisplaySchema,
+  decisions: decisionsDisplaySchema,
   question: questionDisplaySchema,
   takeover: takeoverDisplaySchema,
 };
@@ -86,11 +92,21 @@ export const scrubText = (masker: MaskText | null, text: string) =>
 
 /** The answer with granted secrets masked and token shapes redacted, for events and for people. */
 export const scrubAnswer = <
-  T extends ApprovalAnswer | QuestionAnswer | TakeoverAnswer,
+  T extends ApprovalAnswer | QuestionAnswer | TakeoverAnswer | DecisionsAnswer,
 >(
   answer: T,
   masker: MaskText | null
 ): T => {
+  if ("decisions" in answer) {
+    return {
+      decisions: Object.fromEntries(
+        Object.entries(answer.decisions).map(([questionId, text]) => [
+          questionId,
+          scrubText(masker, text),
+        ])
+      ),
+    } as T;
+  }
   if ("decision" in answer || !("answers" in answer)) {
     return {
       ...answer,

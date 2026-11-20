@@ -3,7 +3,7 @@ id: DR.6
 title: "Dream diary on the Knows tab"
 milestone: DR
 size: M
-status: in_progress
+status: done
 depends_on: [DR.1, ME.6]
 branch: task/DR.6-dream-diary-ui
 lane: web-knows
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone DR. Mockup: the "Last night's dream" car
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/DR.6-dream-diary-ui (v4 controller session).
+- 2026-11-20: merged as dd2909a6, review clean after 0 fix rounds (plus a clean review of the later commits). Browser proof passed at both sizes against a local fixture dream service: docs/reviews/tasks/DR.6/browser.md. check, test and build passed on main.

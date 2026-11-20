@@ -29,8 +29,10 @@ import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import {
   type DeskCard,
   isPendingProposal,
+  type RequestKind,
   type RunStatus,
 } from "@repo/db/shared";
+import { isDecisionsDisplay } from "@repo/protocol/requests";
 import {
   and,
   count,
@@ -38,6 +40,7 @@ import {
   eq,
   gte,
   inArray,
+  isNotNull,
   isNull,
   max,
   ne,
@@ -146,7 +149,7 @@ export interface NeedsYouItem {
   createdAt: string;
   detail: string;
   expiresAt: string;
-  kind: "approval" | "question" | "takeover";
+  kind: RequestKind;
   requestId: string;
   runId: string;
   title: string;
@@ -160,6 +163,12 @@ const describe = (record: RequestRecord): { detail: string; title: string } => {
   const { display } = record;
   if ("machineId" in display) {
     return { detail: display.reason, title: "Take over the computer" };
+  }
+  if ("questions" in display && isDecisionsDisplay(display)) {
+    return {
+      detail: clip(display.questions.map((item) => item.text).join("\n")),
+      title: `${display.questions.length} decisions`,
+    };
   }
   if ("questions" in display) {
     const [first] = display.questions;
@@ -486,6 +495,8 @@ export const createDeskService = ({
             eq(memoryChanges.workspaceId, member.workspaceId),
             eq(memoryChanges.status, "held"),
             isNull(memoryChanges.decidedAt),
+            // A team's held notes have no agent. The team dream (TX.2) shows them.
+            isNotNull(memoryChanges.agentId),
             // Private memory keeps its person's visibility, including on the rail.
             or(
               isNull(memoryChanges.userScope),
@@ -592,7 +603,11 @@ export const createDeskService = ({
         )
         .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
-      heldNotes: heldNotes.filter((row) => !drafts.has(row.agentId)),
+      heldNotes: heldNotes.flatMap((row) =>
+        row.agentId === null || drafts.has(row.agentId)
+          ? []
+          : [{ ...row, agentId: row.agentId }]
+      ),
       missingSecrets: await db
         .select({
           agentId: agentConnectors.agentId,

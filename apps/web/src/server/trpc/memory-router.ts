@@ -5,6 +5,7 @@ import {
   editInputSchema,
   forgetInputSchema,
   listInputSchema,
+  listTeamInputSchema,
   rulesGetInputSchema,
   rulesSetInputSchema,
   undoInputSchema,
@@ -40,6 +41,11 @@ export const memoryRouter = router({
   list: workspaceProcedure
     .input(listInputSchema)
     .query(({ ctx, input }) => ctx.services.memory.list(ctx.principal, input)),
+  listTeam: workspaceProcedure
+    .input(listTeamInputSchema)
+    .query(({ ctx, input }) =>
+      ctx.services.memory.listTeam(ctx.principal, input)
+    ),
   rules: router({
     get: workspaceProcedure
       .input(rulesGetInputSchema)

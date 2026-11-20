@@ -24,6 +24,7 @@ import { CLOUD_NETWORK_KEY } from "./cloud/network.ts";
 import type { ConnectorsService } from "./connectors.ts";
 import { ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
+import { requireAgentOwnerOrAdmin } from "./guards.ts";
 import type { InboxService, ThreadRecord } from "./inbox.ts";
 import type { MachinesService } from "./machines.ts";
 import type {
@@ -237,8 +238,13 @@ export const createAdminService = ({
     } = input;
     const settings = runtimeSettings({ environment, maxTurns, networkAccess });
     // Refused before anything is saved, so no field changes and no event is written.
-    if ((await agents.get(principal, agentId)).status === "archived") {
+    const existing = await agents.get(principal, agentId);
+    if (existing.status === "archived") {
       throw new ServiceError("invalid", "That agent is archived");
+    }
+    // Assigning runs last, so check the right to it first or the fields would save and the call still fail.
+    if (connectorIds?.length) {
+      requireAgentOwnerOrAdmin(key, existing, "admin.update_agent");
     }
     const agent = await agents.update(
       principal,

@@ -135,7 +135,7 @@ export const INBOUND_WORDS: Record<A2aInboundPolicy, string> = {
 
 export const TOOL_WORDS: Record<A2aToolPolicy, string> = {
   agent_rules:
-    "In a task this peer starts, the agent follows its usual rules for tools and may use them without asking. A machine agent can run shell commands on its computer.",
+    "In a task this peer starts, the agent follows its usual rules for tools and may use them without asking. An agent on My computer can run shell commands on it.",
   ask: "Every tool call in a task this peer starts asks a person first.",
 };
 

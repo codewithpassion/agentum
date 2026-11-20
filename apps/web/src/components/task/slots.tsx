@@ -94,7 +94,7 @@ export function FilesSlot({
 export const COMPUTER_ANCHOR = "computer";
 
 /** Take over, hand back and cancel for one open request, through the takeover router. */
-const takeoverControls = ({
+export const takeoverControls = ({
   reason,
   requestId,
 }: TakeoverRequest): TakeoverControls => ({

@@ -33,6 +33,8 @@ export interface MemoryApi {
   edit: (noteId: string, text: string) => void;
   error: string | undefined;
   forget: (noteId: string) => void;
+  /** Reads the notes, changes and rules again, for a change made elsewhere on the tab. */
+  reload: () => Promise<void>;
   saving: boolean;
   setRules: (rules: RememberRules) => void;
   undo: (changeId: string) => void;
@@ -156,6 +158,7 @@ export function useMemory(agentId: string): MemoryApi {
     edit,
     error,
     forget,
+    reload,
     saving,
     setRules,
     undo,

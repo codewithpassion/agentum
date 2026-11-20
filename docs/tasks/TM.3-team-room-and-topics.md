@@ -3,9 +3,9 @@ id: TM.3
 title: "Team room: topics, catch-up, team rules, lead listening"
 milestone: TM
 size: L
-status: todo
+status: in_progress
 depends_on: [TM.2]
-branch: null
+branch: task/TM.3-team-room-and-topics
 lane: services-inbox
 executor: claude
 ---
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone TM. Turn the forum inbox into team rooms
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TM.3-team-room-and-topics (v4 controller session).

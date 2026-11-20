@@ -837,3 +837,49 @@ test("question_keys stays while a question is open and clears once it settles", 
   await runs.cancelRun(user, runId);
   expect(await keyOf(withRun.id)).toBeNull();
 });
+
+test("a decisions request is listed as pending and the answer stubs refuse it", async () => {
+  const [row] = await db
+    .select()
+    .from(runRequests)
+    .where(eq(runRequests.id, (await open(await start())).id));
+  if (!row) {
+    throw new Error("no request row");
+  }
+  const display = {
+    questions: [
+      { id: "q1", options: ["Yes", "No"], text: "Ship it?" },
+      { freeText: true, id: "q2", options: ["Now", "Later"], text: "When?" },
+    ],
+  };
+  const id = "decisions1";
+  await db.insert(runRequests).values({
+    ...row,
+    display: JSON.stringify(display),
+    id,
+    kind: "decisions",
+    toolKey: null,
+    toolName: "ask_decisions",
+    toolUseId: "decisions-call",
+  });
+  const listed = await requests.listPending(user, {});
+  const decisions = listed.find((record) => record.id === id);
+  expect(decisions?.kind).toBe("decisions");
+  expect(decisions?.display).toEqual(display);
+  await expect(
+    requests.answerDecisions(user, { decisions: { q1: "Yes" }, requestId: id })
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    requests.answer(user, {
+      answer: { decisions: { q1: "Yes" } },
+      requestId: id,
+      via: "web",
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
+    requests.dismissDecisions(user, { requestId: id })
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    requests.dismissDecisions(user, { requestId: "missing" })
+  ).rejects.toMatchObject({ code: "not_found" });
+});

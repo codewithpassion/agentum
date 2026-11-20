@@ -1076,7 +1076,8 @@ export const createConnectorsService = ({
       kind: CONNECTOR_KIND,
       workspaceId,
     });
-    await loadActiveAgent(db, parsed.agentId, workspaceId);
+    const agent = await loadActiveAgent(db, parsed.agentId, workspaceId);
+    requireAgentOwnerOrAdmin(user, agent, ASSIGN_ACTION);
     const createdAt = clock.now().toISOString();
     await db
       .insert(agentConnectors)
@@ -1131,6 +1132,15 @@ export const createConnectorsService = ({
       kind: CONNECTOR_KIND,
       workspaceId: user.workspaceId,
     });
+    // Not loadActiveAgent: an archived agent can still lose its connectors.
+    const agent = await findAgent(db, {
+      id: parsed.agentId,
+      workspaceId: user.workspaceId,
+    });
+    if (!agent) {
+      throw new ServiceError("not_found", "Agent not found");
+    }
+    requireAgentOwnerOrAdmin(user, agent, UNASSIGN_ACTION);
     const removed = await db
       .delete(agentConnectors)
       .where(
