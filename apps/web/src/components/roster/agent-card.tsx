@@ -52,7 +52,9 @@ export const AgentCardView = ({ card }: { card: AgentCard }) => (
       )}
       <span className="line-clamp-2 block text-sm">{card.statusLine}</span>
       <span className="flex min-w-0 flex-wrap justify-between gap-x-3 text-muted-foreground text-xs">
-        <span className="truncate">{`Owner ${card.ownerName}`}</span>
+        <span className="truncate">
+          {card.ownerName === "" ? null : `Owner ${card.ownerName}`}
+        </span>
         <span className="shrink-0">
           {capLine(card.costThisWeekCents, card.weeklyCapCents) ??
             `${weekCostLabel(card.costThisWeekCents)} this week`}

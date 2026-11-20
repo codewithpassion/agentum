@@ -74,3 +74,8 @@ test("an empty job line renders no job paragraph", () => {
   expect(html).not.toContain("text-muted-foreground text-sm");
   expect(html).toContain("Matching invoice 88 to a purchase order");
 });
+
+test("a card with no owner name prints no owner label", () => {
+  const html = render({ ...baseCard, ownerName: "" });
+  expect(html).not.toContain("Owner");
+});
