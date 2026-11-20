@@ -1,0 +1,22 @@
+---
+id: TM.16
+title: "Phone room layout"
+milestone: TM
+size: S
+status: todo
+depends_on: [TM.15]
+branch: null
+lane: web-room
+executor: claude
+---
+
+From the teams walkthrough (`docs/reviews/TM-e2e.md`).
+
+Finding. At 390x844 the sticky composer takes about 200px of the height and hides the last task chip. The topics sheet stays open after New topic creates a topic and closes only when a topic is tapped.
+
+Scope. Shrink the composer on phone (one line until focused) and close the sheet when a topic is created.
+
+Check. Browser at 390x844.
+
+## Log
+- 2026-11-21: added by controller.
