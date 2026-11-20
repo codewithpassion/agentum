@@ -1,100 +1,251 @@
 import { expect, test } from "bun:test";
+import { memoryChanges } from "@repo/db/schema/memory";
+import { workspaces } from "@repo/db/schema/workspaces";
 import {
   DEFAULT_NEVER_REMEMBER,
   DEFAULT_REMEMBER_RULES,
   MEMORY_NOTE_MAX_CHARS,
+  type RememberRules,
 } from "@repo/db/shared";
+import { eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
 import type { Principal } from "../workspaces.ts";
 import {
   addInputSchema,
-  createMemoryService,
   decideInputSchema,
   rulesSetInputSchema,
 } from "./service.ts";
+import {
+  AGENT,
+  errorOf,
+  makeWorld,
+  OTHER_AGENT,
+  OWNER,
+  person,
+  RUN,
+  run,
+  USER_A,
+  WORKSPACE,
+} from "./test-world.ts";
 
-const WORKSPACE = "w1";
-const user: Principal = {
-  kind: "user",
-  userId: "u1",
-  via: "session",
-  workspaceId: WORKSPACE,
-};
 const system: Principal = { kind: "system" };
-
-const agentId = "agent_1";
 const addInput = {
-  agentId,
+  agentId: AGENT,
   kind: "people",
   text: "Prefers short replies",
 } as const;
 
-test("list and changes return nothing for a workspace with no memory", async () => {
-  const service = createMemoryService();
-
-  expect(await service.list(user, { agentId })).toEqual([]);
-  expect(await service.changes(user, { agentId })).toEqual([]);
+test("every method refuses the system principal", async () => {
+  const { service } = makeWorld();
+  const calls = [
+    () => service.list(system, { agentId: AGENT }),
+    () => service.changes(system, { agentId: AGENT }),
+    () => service.add(system, addInput),
+    () => service.edit(system, { agentId: AGENT, noteId: "n", text: "x" }),
+    () => service.forget(system, { agentId: AGENT, noteId: "n" }),
+    () => service.decide(system, { changeId: "c", decision: "approve" }),
+    () => service.undo(system, "c"),
+    () => service.rules.get(system, { agentId: AGENT }),
+    () =>
+      service.rules.set(system, {
+        agentId: AGENT,
+        rules: DEFAULT_REMEMBER_RULES,
+      }),
+  ];
+  const errors = await Promise.all(calls.map((call) => errorOf(call())));
+  for (const error of errors) {
+    expect(error).toBeInstanceOf(ForbiddenError);
+  }
 });
 
-test("rules.get returns the default rules, and each call gets its own copy", async () => {
-  const service = createMemoryService();
+test("machines, triggers and peers never touch memory", async () => {
+  const { service } = makeWorld();
+  const others: Principal[] = [
+    { kind: "machine", machineId: "m1", workspaceId: WORKSPACE },
+    {
+      agentId: AGENT,
+      kind: "trigger",
+      triggerId: "t1",
+      workspaceId: WORKSPACE,
+    },
+    {
+      agentId: AGENT,
+      connectionId: "c1",
+      kind: "peer",
+      workspaceId: WORKSPACE,
+    },
+  ];
+  const errors = await Promise.all(
+    others.flatMap((principal) => [
+      errorOf(service.list(principal, { agentId: AGENT })),
+      errorOf(service.add(principal, addInput)),
+    ])
+  );
+  for (const error of errors) {
+    expect(error).toBeInstanceOf(ForbiddenError);
+  }
+});
 
-  const first = await service.rules.get(user, { agentId });
+test("a run reaches only its own agent's memory", async () => {
+  const { service } = makeWorld();
+  const stranger = run(RUN.ui, OTHER_AGENT);
+
+  expect(
+    await errorOf(service.list(stranger, { agentId: AGENT }))
+  ).toBeInstanceOf(ForbiddenError);
+  expect(await errorOf(service.add(stranger, addInput))).toBeInstanceOf(
+    ForbiddenError
+  );
+});
+
+test("a run principal that names another agent than its stored run is refused", async () => {
+  const { service } = makeWorld();
+  const forged = run(RUN.ui, OTHER_AGENT);
+
+  expect(
+    await errorOf(service.add(forged, { ...addInput, agentId: OTHER_AGENT }))
+  ).toBeInstanceOf(ForbiddenError);
+});
+
+test("a read-only key reads memory and cannot write it", async () => {
+  const { service } = makeWorld();
+  const reader = person(USER_A, {
+    apiKey: { access: "read", id: "k1" },
+    via: "api_key",
+  });
+
+  expect(await service.list(reader, { agentId: AGENT })).toEqual([]);
+  expect(await errorOf(service.add(reader, addInput))).toBeInstanceOf(
+    ForbiddenError
+  );
+});
+
+test("an unknown agent is not found", async () => {
+  const { service } = makeWorld();
+
+  expect(
+    await errorOf(service.list(person(USER_A), { agentId: "nope" }))
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await errorOf(service.add(person(USER_A), { ...addInput, agentId: "nope" }))
+  ).toMatchObject({ code: "not_found" });
+});
+
+test("a dry run writes nothing", async () => {
+  const { db, service } = makeWorld();
+
+  expect(
+    await errorOf(service.add(run(RUN.ui, AGENT, { dryRun: true }), addInput))
+  ).toBeInstanceOf(ForbiddenError);
+  expect(db.select().from(memoryChanges).all()).toEqual([]);
+});
+
+test("rules.get returns the defaults, and each call gets its own copy", async () => {
+  const { service } = makeWorld();
+
+  const first = await service.rules.get(person(USER_A), { agentId: AGENT });
   expect(first).toEqual({
     agent: DEFAULT_REMEMBER_RULES,
     workspaceNever: [...DEFAULT_NEVER_REMEMBER],
   });
-
   first.agent.remember.push("mutated");
   first.workspaceNever.push("mutated");
-  const second = await service.rules.get(user, { agentId });
-  expect(second).toEqual({
+  expect(await service.rules.get(person(USER_A), { agentId: AGENT })).toEqual({
     agent: DEFAULT_REMEMBER_RULES,
     workspaceNever: [...DEFAULT_NEVER_REMEMBER],
   });
 });
 
-test("writes find no note, change or agent to act on", async () => {
-  const service = createMemoryService();
+test("rules.get reads the workspace never list", async () => {
+  const { db, service } = makeWorld();
+  db.update(workspaces)
+    .set({ neverRemember: JSON.stringify(["Salaries"]) })
+    .where(eq(workspaces.id, WORKSPACE))
+    .run();
 
-  await expect(service.add(user, addInput)).rejects.toMatchObject({
-    code: "not_found",
-  });
-  await expect(
-    service.edit(user, { agentId, noteId: "note_1", text: "Changed" })
-  ).rejects.toMatchObject({ code: "not_found" });
-  await expect(
-    service.forget(user, { agentId, noteId: "note_1" })
-  ).rejects.toMatchObject({ code: "not_found" });
-  await expect(
-    service.decide(user, { changeId: "change_1", decision: "approve" })
-  ).rejects.toMatchObject({ code: "not_found" });
-  await expect(service.undo(user, "change_1")).rejects.toMatchObject({
-    code: "not_found",
-  });
-  await expect(
-    service.rules.set(user, { agentId, rules: DEFAULT_REMEMBER_RULES })
-  ).rejects.toMatchObject({ code: "not_found" });
+  const rules = await service.rules.get(person(USER_A), { agentId: AGENT });
+  expect(rules.workspaceNever).toEqual(["Salaries"]);
 });
 
-test("every method throws ForbiddenError for the system principal", () => {
-  const service = createMemoryService();
-  const rules = { agentId, rules: DEFAULT_REMEMBER_RULES };
-  const calls = [
-    () => service.list(system, { agentId }),
-    () => service.changes(system, { agentId }),
-    () => service.add(system, addInput),
-    () => service.edit(system, { agentId, noteId: "note_1", text: "x" }),
-    () => service.forget(system, { agentId, noteId: "note_1" }),
-    () => service.decide(system, { changeId: "c", decision: "approve" }),
-    () => service.undo(system, "c"),
-    () => service.rules.get(system, { agentId }),
-    () => service.rules.set(system, rules),
-  ];
+const stricter: RememberRules = {
+  dreamSchedule: "weekly",
+  learnLevel: "ask_first",
+  never: ["Salaries"],
+  remember: ["Who prefers which channel"],
+  shareWithTeam: false,
+};
 
-  for (const call of calls) {
-    expect(call).toThrow(ForbiddenError);
+test("rules.set works for an org admin and for the agent's owner, on a browser session", async () => {
+  const { service } = makeWorld();
+
+  await service.rules.set(person("user_admin", { isAdmin: true }), {
+    agentId: AGENT,
+    rules: stricter,
+  });
+  expect(
+    (await service.rules.get(person(USER_A), { agentId: AGENT })).agent
+  ).toEqual(stricter);
+
+  await service.rules.set(person(OWNER), {
+    agentId: AGENT,
+    rules: DEFAULT_REMEMBER_RULES,
+  });
+  expect(
+    (await service.rules.get(person(USER_A), { agentId: AGENT })).agent
+  ).toEqual(DEFAULT_REMEMBER_RULES);
+});
+
+test("rules.set refuses a member who is neither owner nor admin", async () => {
+  const { service } = makeWorld();
+
+  expect(
+    await errorOf(
+      service.rules.set(person(USER_A), { agentId: AGENT, rules: stricter })
+    )
+  ).toBeInstanceOf(ForbiddenError);
+});
+
+test("rules.set refuses an API key, an app, a run and a peer, even for the owner", async () => {
+  const { service } = makeWorld();
+  const callers: Principal[] = [
+    person(OWNER, { apiKey: { access: "write", id: "k1" }, via: "api_key" }),
+    person(OWNER, {
+      oauthClient: { access: "write", clientId: "c1" },
+      via: "oauth",
+    }),
+    person(OWNER, { isAdmin: true, via: "slack" }),
+    run(RUN.ui),
+    {
+      agentId: AGENT,
+      connectionId: "c1",
+      kind: "peer",
+      workspaceId: WORKSPACE,
+    },
+  ];
+  const errors = await Promise.all(
+    callers.map((caller) =>
+      errorOf(service.rules.set(caller, { agentId: AGENT, rules: stricter }))
+    )
+  );
+  for (const error of errors) {
+    expect(error).toBeInstanceOf(ForbiddenError);
   }
+  expect(
+    (await service.rules.get(person(USER_A), { agentId: AGENT })).agent
+  ).toEqual(DEFAULT_REMEMBER_RULES);
+});
+
+test("rules.set on another workspace's agent finds nothing", async () => {
+  const { service } = makeWorld();
+
+  expect(
+    await errorOf(
+      service.rules.set(person(OWNER, { isAdmin: true, workspaceId: "w2" }), {
+        agentId: AGENT,
+        rules: stricter,
+      })
+    )
+  ).toMatchObject({ code: "not_found" });
 });
 
 test("addInputSchema accepts a valid note and refuses bad ones", () => {
@@ -126,13 +277,15 @@ test("addInputSchema accepts a valid note and refuses bad ones", () => {
 
 test("rulesSetInputSchema accepts the defaults and refuses unknown values", () => {
   expect(
-    rulesSetInputSchema.safeParse({ agentId, rules: DEFAULT_REMEMBER_RULES })
-      .success
+    rulesSetInputSchema.safeParse({
+      agentId: AGENT,
+      rules: DEFAULT_REMEMBER_RULES,
+    }).success
   ).toBe(true);
 
   const rules = (overrides: Record<string, unknown>) =>
     rulesSetInputSchema.safeParse({
-      agentId,
+      agentId: AGENT,
       rules: { ...DEFAULT_REMEMBER_RULES, ...overrides },
     }).success;
 

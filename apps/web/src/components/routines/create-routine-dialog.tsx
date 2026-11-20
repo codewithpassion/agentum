@@ -27,6 +27,10 @@ import { getTrpc } from "#/integrations/trpc/client";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
 import {
+  initialRoutineState,
+  type RoutineInitial,
+} from "./create-routine-initial.ts";
+import {
   compilePreset,
   PRESET_KINDS,
   PRESET_LABELS,
@@ -251,22 +255,26 @@ function ScheduleFields({
 export function CreateRoutineDialog({
   agentId,
   agents = [],
+  initial,
   onClose,
   onCreated,
 }: {
   /** Fixes the agent. When undefined, the dialog asks for one from `agents`. */
   agentId?: string;
   agents?: readonly { id: string; name: string }[];
+  /** Prefills the form, with the schedule as a custom cron, for a drafted job. */
+  initial?: RoutineInitial;
   onClose: () => void;
   onCreated: (created: CreatedRoutine) => void;
 }) {
-  const [name, setName] = useState("");
+  const initialState = initialRoutineState(initial);
+  const [name, setName] = useState(initialState.name);
   const [chosenAgentId, setChosenAgentId] = useState("");
-  const [kind, setKind] = useState<ScheduleKind>("daily");
+  const [kind, setKind] = useState<ScheduleKind>(initialState.kind);
   const [fields, setFields] = useState<FieldValues>(DEFAULT_FIELDS);
-  const [customCron, setCustomCron] = useState("");
-  const [timezone, setTimezone] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [customCron, setCustomCron] = useState(initialState.customCron);
+  const [timezone, setTimezone] = useState(initialState.timezone);
+  const [prompt, setPrompt] = useState(initialState.prompt);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -3,7 +3,7 @@ id: ME.4
 title: "Agent tools: remember and search_history"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: [ME.1]
 branch: task/ME.4-memory-agent-tools
 lane: mcp
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone ME. Two tools for agents in `packages/mc
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/ME.4-memory-agent-tools (v4 controller session).
+- 2026-11-20: merged as 4a7ea17e, review clean after 0 fix rounds. check and build passed on main. bun run test passed except guest-execution.test.ts, which passed when run alone on the merged tree.

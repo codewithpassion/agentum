@@ -19,6 +19,8 @@ From `docs/v4/build-plan.md`, milestone KY. The Keys tab replaces the tools shee
 - "Connect my account" on a row for the signed-in person, using `connectors.mine`.
 - Asks before: `ask-before-card.tsx` moves here unchanged.
 
+- When the tab assigns a catalogue connector to the agent, it sets `allowed_tools` from the catalogue entry's `defaultAllowedTools`, looked up by `catalog_key` (from KY.4). Otherwise a catalogue app like Gmail gets every tool.
+
 ## Check
 
 - Component tests for each section with a fixture.
@@ -29,3 +31,4 @@ From `docs/v4/build-plan.md`, milestone KY. The Keys tab replaces the tools shee
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: note from KY.2 review: an app with `authKind: "none"` returns `signIn: null`. Do not read that as "sign in needed".
 - 2026-11-20: dispatched on task/KY.5-keys-tab (v4 controller session).
+- 2026-11-20: scope adds the catalogue default allowed tools, from the KY.4 review. A catalogue connector without them would get every tool.

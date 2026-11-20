@@ -1,32 +1,22 @@
-import { MailStartChip } from "#/components/agent/profile/mail-start-chip.tsx";
-import { RoutinesPanel } from "#/components/agent/profile/sheets/routines.tsx";
-import { TriggersPanel } from "#/components/agent/profile/sheets/triggers.tsx";
+import { useCallback } from "react";
+import { JobsPanel } from "#/components/jobs/jobs-panel.tsx";
 import type { RoomTabProps } from "../room-data.ts";
-import { Manage, RoomSection, TabBody } from "../section.tsx";
+import { ArchivedNote, RoomSection, TabBody } from "../section.tsx";
 
-/** The room's Jobs tab: what starts the agent, and the routines it runs. */
-export function JobsTab({ room }: RoomTabProps) {
-  const { mailbox } = room;
+/** The room's Jobs tab: this agent's starts as sentences, and a box to describe a new one. */
+export function JobsTab({ onOpenTab, room }: RoomTabProps) {
   const archived = room.agent.status === "archived";
+  const openKeys = useCallback(() => onOpenTab("keys"), [onOpenTab]);
   return (
     <TabBody>
-      <RoomSection title="Triggers">
-        <Manage archived={archived}>
-          <TriggersPanel agent={room.agent} />
-        </Manage>
-        {mailbox === null || mailbox.status === "disabled" ? null : (
-          <MailStartChip
-            address={mailbox.address}
-            agentId={room.agent.id}
-            key={mailbox.triggerDisabledAt === null ? "running" : "paused"}
-            paused={mailbox.triggerDisabledAt !== null}
-          />
-        )}
-      </RoomSection>
-      <RoomSection title="Routines">
-        <Manage archived={archived}>
-          <RoutinesPanel agent={room.agent} />
-        </Manage>
+      <RoomSection title="Jobs">
+        {archived ? <ArchivedNote /> : null}
+        <JobsPanel
+          agents={[room.agent]}
+          fixedAgentId={room.agent.id}
+          onOpenKeys={openKeys}
+          readOnly={archived}
+        />
       </RoomSection>
     </TabBody>
   );

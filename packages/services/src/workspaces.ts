@@ -27,9 +27,10 @@ import {
 import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
-import { ForbiddenError } from "./authz.ts";
+import { authorize, ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { ServiceError } from "./errors.ts";
+import { readableWorkspace } from "./guards.ts";
 import { isValidTimeZone } from "./routines/cron.ts";
 import { verifyAgentToken } from "./run-tokens.ts";
 
@@ -503,6 +504,22 @@ export const createWorkspacesService = ({
     return { timezone: zone };
   };
 
+  /** The zone the workspace's routines read their schedules in. Any member may read it. */
+  const timezoneOf = async (
+    principal: Principal
+  ): Promise<{ timezone: string }> => {
+    const workspaceId = readableWorkspace(principal, "workspaces.timezone");
+    authorize(principal, "workspaces.timezone", {
+      kind: "workspace",
+      workspaceId,
+    });
+    const workspace = await byId(workspaceId);
+    if (!workspace) {
+      throw new ServiceError("not_found", "Workspace not found");
+    }
+    return { timezone: workspace.timezone };
+  };
+
   return {
     byId,
     create,
@@ -514,6 +531,7 @@ export const createWorkspacesService = ({
     mine,
     sessionPrincipal,
     setTimezone,
+    timezoneOf,
   };
 };
 

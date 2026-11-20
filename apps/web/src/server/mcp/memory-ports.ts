@@ -1,6 +1,5 @@
 import type { MemoryChange } from "@repo/db/shared";
 import type { MemoryChangeInfo, MemoryPort } from "@repo/mcp/ports";
-import { ToolError } from "@repo/mcp/result";
 import type { Principal } from "@repo/services/workspaces";
 import type { Services } from "../compose.ts";
 import { guarded } from "./guarded.ts";
@@ -16,58 +15,43 @@ export const createMemoryPorts = ({
   services,
 }: {
   principal: Extract<Principal, { kind: "run" }>;
-  services: Pick<Services, "memory" | "sessions" | "runs">;
-}): MemoryPort => {
-  const requireWriter = async () => {
-    // from.kind: peer is represented by the stored actor, also inherited through
-    // the parent chain. A null onBehalfOfUserId alone also occurs on trusted triggers.
-    // Both remember and forget are refused so forgetting cannot bypass this guard.
-    if (await services.runs.isPeerRun(principal)) {
-      throw new ToolError(
-        "forbidden",
-        "A peer-origin run cannot remember or forget notes. Ask a workspace member to make the change."
-      );
-    }
-  };
-  return {
-    forget: ({ id }) =>
-      guarded(async () => {
-        await requireWriter();
-        return toChangeInfo(
-          await services.memory.forget(principal, {
-            agentId: principal.agentId,
-            noteId: id,
-          })
-        );
-      }),
-    remember: (input) =>
-      guarded(async () => {
-        await requireWriter();
-        return toChangeInfo(
-          await services.memory.add(principal, {
-            ...input,
-            agentId: principal.agentId,
-            source: { id: principal.runId, kind: "run" },
-          })
-        );
-      }),
-    searchHistory: ({ query, limit }) =>
-      guarded(async () => {
-        const hits = await services.sessions.search(principal, {
+  services: Pick<Services, "memory" | "sessions">;
+}): MemoryPort => ({
+  forget: ({ id }) =>
+    guarded(async () =>
+      toChangeInfo(
+        await services.memory.forget(principal, {
           agentId: principal.agentId,
-          query,
-        });
-        return hits.slice(0, limit).map(({ passages, session }) => ({
-          passages,
-          session: {
-            createdAt: session.createdAt,
-            id: session.id,
-            lastRunAt: session.lastRunAt,
-            origin: session.origin,
-            status: session.status,
-            title: session.title,
-          },
-        }));
-      }),
-  };
-};
+          noteId: id,
+        })
+      )
+    ),
+  remember: (input) =>
+    guarded(async () =>
+      toChangeInfo(
+        await services.memory.add(principal, {
+          ...input,
+          agentId: principal.agentId,
+          source: { id: principal.runId, kind: "run" },
+        })
+      )
+    ),
+  searchHistory: ({ query, limit }) =>
+    guarded(async () => {
+      const hits = await services.sessions.search(principal, {
+        agentId: principal.agentId,
+        query,
+      });
+      return hits.slice(0, limit).map(({ passages, session }) => ({
+        passages,
+        session: {
+          createdAt: session.createdAt,
+          id: session.id,
+          lastRunAt: session.lastRunAt,
+          origin: session.origin,
+          status: session.status,
+          title: session.title,
+        },
+      }));
+    }),
+});

@@ -7,6 +7,7 @@ import type { LibraryChange } from "@repo/db/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { cloudEnvironmentOf } from "../cloud/environment.ts";
 import { agentGrants } from "./access.ts";
+import { mayReadMemoryPath } from "./memory-paths.ts";
 import { librarySyncScope } from "./sync-paths.ts";
 
 /** The runs that take the change, with the changed paths each one covers. */
@@ -34,6 +35,7 @@ interface RunRow {
   claimedBy: string | null;
   dryRun: boolean;
   id: string;
+  onBehalfOfUserId: string | null;
   runtime: string;
   runtimeConfig: string;
   sessionId: string;
@@ -63,7 +65,9 @@ const isCovered = (root: string, path: string): boolean =>
  * The live (running or waiting) runs of the change's workspace whose agent syncs one of the
  * changed paths, leaving out the run that made the change. A machine run goes
  * by the machine that claimed it. A cloud run counts only in a Linux VM,
- * because an isolate reads the library directly.
+ * because an isolate reads the library directly. A private memory file reaches
+ * only the run for the person it belongs to, so a run with no on-behalf user
+ * hears about none.
  */
 export const createLibraryAudience =
   ({ db }: { db: Database }) =>
@@ -74,6 +78,7 @@ export const createLibraryAudience =
         claimedBy: runs.claimedBy,
         dryRun: runs.dryRun,
         id: runs.id,
+        onBehalfOfUserId: runs.onBehalfOfUserId,
         runtime: agents.runtime,
         runtimeConfig: agents.runtimeConfig,
         sessionId: runs.sessionId,
@@ -114,8 +119,10 @@ export const createLibraryAudience =
         roots = librarySyncScope(row.slug, grants).map((grant) => grant.path);
         scopes.set(row.agentId, roots);
       }
-      const covered = change.paths.filter((path) =>
-        roots.some((root) => isCovered(root, path))
+      const covered = change.paths.filter(
+        (path) =>
+          mayReadMemoryPath(path, row.onBehalfOfUserId) &&
+          roots.some((root) => isCovered(root, path))
       );
       if (covered.length > 0) {
         add(target.kind === "machine" ? machines : cloud, target.key, covered);
