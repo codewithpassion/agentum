@@ -15,7 +15,6 @@ import {
   Server,
   Settings,
   Sparkles,
-  Webhook,
 } from "lucide-react";
 import { ENROLL_BUTTON_LABEL } from "#/components/machines/machine-logic.ts";
 import { settingsNav } from "#/components/settings/settings-nav.ts";
@@ -84,17 +83,10 @@ export const findEntries: readonly FindEntry[] = [
   { group: "How things start", icon: MapIcon, label: "Map", to: "/map" },
   {
     group: "How things start",
-    hint: "Schedules",
+    hint: "Schedules and triggers",
     icon: CalendarClock,
-    label: "Routines",
-    to: "/routines",
-  },
-  {
-    group: "How things start",
-    hint: "Web triggers",
-    icon: Webhook,
-    label: "Triggers",
-    to: "/triggers",
+    label: "Jobs",
+    to: "/jobs",
   },
   { group: "What agents use", icon: Sparkles, label: "Skills", to: "/skills" },
   {
