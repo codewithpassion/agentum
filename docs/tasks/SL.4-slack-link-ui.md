@@ -3,7 +3,7 @@ id: SL.4
 title: "Link a Slack channel on the team page"
 milestone: SL
 size: S
-status: in_progress
+status: done
 depends_on: [SL.1, TM.6]
 branch: task/SL.4-slack-link-ui
 lane: web-team
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone SL. The owner links one channel to the t
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-21: dispatched on task/SL.4-slack-link-ui (v4 controller session).
+- 2026-11-21: merged as 812f68b3, review clean after 0 fix rounds. Browser proof passed at both sizes against stubbed Slack: docs/reviews/tasks/SL.4/browser.md. check, test and build passed on main. Dom: live steps in docs/reviews/tasks/SL.4.md.

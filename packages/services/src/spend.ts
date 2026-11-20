@@ -10,7 +10,7 @@ import type {
   SpendResume,
   SpendRow,
 } from "@repo/db/shared";
-import { and, asc, eq, gte, isNull, lt, lte } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, isNull, lt, lte } from "drizzle-orm";
 import { z } from "zod";
 import { authorize } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
@@ -146,6 +146,28 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
           )
         ),
     ]);
+    // A team dream has no agent, so it appears only in the workspace-wide read.
+    const teamDreams =
+      agentId === undefined
+        ? await db
+            .select({
+              at: dreamRuns.startedAt,
+              teamId: dreamRuns.teamId,
+              usage: dreamRuns.usage,
+            })
+            .from(dreamRuns)
+            .where(
+              and(
+                eq(dreamRuns.workspaceId, workspaceId),
+                isNotNull(dreamRuns.teamId),
+                gte(dreamRuns.startedAt, start),
+                lt(dreamRuns.startedAt, end),
+                through
+                  ? lte(dreamRuns.startedAt, through.toISOString())
+                  : undefined
+              )
+            )
+        : [];
     return rollupSpend(
       [
         ...runRows.map((row) => ({
@@ -153,7 +175,6 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
           costUsd: costOf(row.usage),
           tasks: 1,
         })),
-        // The join leaves out a team dream, which has no agent to charge.
         ...dreams.flatMap(({ agentId: dreamAgentId, ...row }) =>
           dreamAgentId === null
             ? []
@@ -163,6 +184,19 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
                   agentId: dreamAgentId,
                   costUsd: costOf(row.usage),
                   tasks: 0,
+                },
+              ]
+        ),
+        ...teamDreams.flatMap(({ teamId, at, usage }) =>
+          teamId === null
+            ? []
+            : [
+                {
+                  agentId: null,
+                  at,
+                  costUsd: costOf(usage),
+                  tasks: 0,
+                  teamId,
                 },
               ]
         ),
@@ -235,6 +269,23 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     return agentOver || workspaceOver;
   };
 
+  /** Pauses the workspace's active agents, or only `agentId`, that are not paused yet. */
+  const pauseActive = (workspaceId: string, agentId?: string) =>
+    db
+      .update(agents)
+      .set({
+        pausedAt: clock.now().toISOString(),
+        pausedReason: "spend_cap",
+      })
+      .where(
+        and(
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.status, "active"),
+          isNull(agents.pausedAt),
+          agentId === undefined ? undefined : eq(agents.id, agentId)
+        )
+      );
+
   /**
    * Called when a run finishes. An agent over its own cap is paused, and a
    * workspace over its cap pauses every agent in it. A run in flight is never
@@ -246,20 +297,30 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     if (!(agentOver || workspaceOver)) {
       return;
     }
-    await db
-      .update(agents)
-      .set({
-        pausedAt: clock.now().toISOString(),
-        pausedReason: "spend_cap",
-      })
-      .where(
-        and(
-          eq(agents.workspaceId, context.workspace.id),
-          eq(agents.status, "active"),
-          isNull(agents.pausedAt),
-          workspaceOver ? undefined : eq(agents.id, agentId)
-        )
-      );
+    await pauseActive(
+      context.workspace.id,
+      workspaceOver ? undefined : agentId
+    );
+  };
+
+  /** Whether the workspace's week, team dreams included, has reached its cap. False with no cap. */
+  const workspaceOver = async (workspaceId: string): Promise<boolean> => {
+    const [workspace] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId));
+    if (!workspace) {
+      throw new ServiceError("not_found", `No workspace "${workspaceId}"`);
+    }
+    const cap = workspace.weeklyCapCents;
+    return cap !== null && totalCents(await weekRows(workspace)) >= cap;
+  };
+
+  /** Pauses every active agent in the workspace once it is over its cap. Same pause as `enforceCap`. */
+  const enforceWorkspaceCap = async (workspaceId: string): Promise<void> => {
+    if (await workspaceOver(workspaceId)) {
+      await pauseActive(workspaceId);
+    }
   };
 
   const workspace = (
@@ -387,10 +448,12 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     byAgent,
     caps,
     enforceCap,
+    enforceWorkspaceCap,
     resume,
     setCap,
     weekToDate,
     workspace,
+    workspaceOver,
     wouldExceed,
   };
 };

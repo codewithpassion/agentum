@@ -1,8 +1,10 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
+import { dreamRuns } from "@repo/db/schema/dreams";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { teams } from "@repo/db/schema/teams";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { SESSION_ORIGINS } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
@@ -17,7 +19,9 @@ import { createSpendService, type SpendService } from "./spend.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const WORKSPACE = "w1";
+const TEAM = "t1";
 const START = "2026-10-16T10:00:00.000Z";
+const EARLIER = "2026-10-01T00:00:00.000Z";
 const CAP_CENTS = 100;
 
 const owner: Principal = {
@@ -73,6 +77,28 @@ const setCap = (agentId: string, weeklyCapCents: number) =>
     .where(eq(agentRows.id, agentId))
     .run();
 
+const setWorkspaceCap = (weeklyCapCents: number) =>
+  db
+    .update(workspaceRows)
+    .set({ weeklyCapCents })
+    .where(eq(workspaceRows.id, WORKSPACE))
+    .run();
+
+/** A team dream with no agent, which costs `costUsd` and started at `startedAt`. */
+const teamDream = (id: string, costUsd: number, startedAt = START) =>
+  db
+    .insert(dreamRuns)
+    .values({
+      agentId: null,
+      id,
+      startedAt,
+      status: "done",
+      teamId: TEAM,
+      usage: JSON.stringify({ costUsd }),
+      workspaceId: WORKSPACE,
+    })
+    .run();
+
 beforeEach(async () => {
   db = migrated();
   const clock: Clock = {
@@ -94,6 +120,15 @@ beforeEach(async () => {
       id: WORKSPACE,
       name: WORKSPACE,
       timezone: "UTC",
+    })
+    .run();
+  db.insert(teams)
+    .values({
+      createdAt: START,
+      id: TEAM,
+      name: "Team",
+      slug: "team",
+      workspaceId: WORKSPACE,
     })
     .run();
   db.insert(machines)
@@ -351,4 +386,62 @@ test("a caller cannot pick a request id that looks like a follow-up", async () =
       })
     ).rejects.toMatchObject({ code: "invalid" });
   }
+});
+
+test("a team dream counts toward the workspace cap and toward no agent's own cap", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  teamDream("td1", 0.5);
+  expect(await spend.wouldExceed(aId)).toBe(false);
+
+  teamDream("td2", 0.5);
+  expect(await spend.wouldExceed(aId)).toBe(true);
+  expect(await spend.wouldExceed(bId)).toBe(true);
+});
+
+test("with only an agent cap, a team dream does not move that agent's total", async () => {
+  setCap(aId, CAP_CENTS);
+  teamDream("td1", 5);
+  expect(await spend.weekToDate(aId)).toBe(0);
+  expect(await spend.wouldExceed(aId)).toBe(false);
+  expect(await spend.workspaceOver(WORKSPACE)).toBe(false);
+});
+
+test("workspaceOver sums agent and team spend to the cap, and is false with no cap", async () => {
+  await spendOn(aId, 0.3);
+  teamDream("td1", 0.2);
+  teamDream("td-future", 99, "2026-10-16T10:00:00.001Z");
+  expect(await spend.workspaceOver(WORKSPACE)).toBe(false);
+
+  setWorkspaceCap(CAP_CENTS + 1);
+  expect(await spend.workspaceOver(WORKSPACE)).toBe(false);
+  setWorkspaceCap(CAP_CENTS / 2);
+  expect(await spend.workspaceOver(WORKSPACE)).toBe(true);
+});
+
+test("enforceWorkspaceCap pauses every active agent once the workspace is over, and keeps a first pause", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  db.update(agentRows)
+    .set({ pausedAt: EARLIER, pausedReason: "manual" })
+    .where(eq(agentRows.id, aId))
+    .run();
+  teamDream("td1", 1);
+
+  await spend.enforceWorkspaceCap(WORKSPACE);
+  expect(agentRow(aId)).toMatchObject({
+    pausedAt: EARLIER,
+    pausedReason: "manual",
+  });
+  expect(agentRow(bId)).toMatchObject({
+    pausedAt: START,
+    pausedReason: "spend_cap",
+  });
+});
+
+test("enforceWorkspaceCap does nothing while the workspace is under its cap", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  teamDream("td1", 0.5);
+
+  await spend.enforceWorkspaceCap(WORKSPACE);
+  expect(agentRow(aId)?.pausedAt).toBeNull();
+  expect(agentRow(bId)?.pausedAt).toBeNull();
 });

@@ -11,6 +11,7 @@ import { agentGrants } from "../library/access.ts";
 import { librarySyncScope } from "../library/sync-paths.ts";
 import type { LibraryService } from "../library.ts";
 import { libraryMemoryReader } from "../memory/prompt.ts";
+import { libraryTeamMemoryReader } from "../memory/team.ts";
 import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import { requireOrdinaryMachineRun } from "../runs/guest-scope.ts";
 import { buildLaunchContext } from "../runs/launch-context.ts";
@@ -115,6 +116,9 @@ export const createCloudRuntime = ({
     const context = await buildLaunchContext(db, run, agent, {
       readMemoryFile: library
         ? libraryMemoryReader(library, run, agent.slug)
+        : undefined,
+      readTeamMemoryFile: library
+        ? libraryTeamMemoryReader(library, run)
         : undefined,
     });
     const runToken = await signRunToken(await hmacKey(), {

@@ -1,15 +1,21 @@
-// Where an agent's memory files sit in the library, `agents/<slug>/memory/`.
-// Only the memory service writes there (`docs/v4/memory-format.md`), and a
-// private file is for one person and the agent's runs for that person.
-const MEMORY_FOLDER = /^agents\/[^/]+\/memory(?:\/(.*))?$/;
+// Where memory files sit in the library: an agent's, `agents/<slug>/memory/`,
+// and a team's, `teams/<slug>/memory/` (TX.2). Only the memory service writes
+// there (`docs/v4/memory-format.md`), and a private file is for one person and
+// the agent's runs for that person. A team has no private files, and the rule
+// treats a stray one as private all the same.
+const MEMORY_FOLDER = /^(?:agents|teams)\/[^/]+\/memory(?:\/(.*))?$/;
 const PRIVATE_PREFIX = "private/";
 const MARKDOWN = ".md";
 
-/** The folder `agents/<slug>/memory`, or any path under it. Paths are normalised, with no slash at either end. */
+/** The folder `agents/<slug>/memory` or `teams/<slug>/memory`, or any path under it. Paths are normalised, with no slash at either end. */
 export const isMemoryPath = (path: string): boolean => MEMORY_FOLDER.test(path);
 
 /** The path of an agent's memory folder, without a trailing slash. */
 export const memoryFolderOf = (slug: string): string => `agents/${slug}/memory`;
+
+/** The memory folder of a team, from the team's `folder_path` (`teams/<slug>`). */
+export const teamMemoryFolderOf = (folderPath: string): string =>
+  `${folderPath}/memory`;
 
 /**
  * The person a path under `agents/<slug>/memory/private/` belongs to, which is

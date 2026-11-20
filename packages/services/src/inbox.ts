@@ -27,7 +27,17 @@ import {
   type InboxAuthorKind,
   TEAM_MEMBER_KINDS,
 } from "@repo/db/shared";
-import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  lt,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { monotonicFactory } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -68,6 +78,10 @@ import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const READ_ACTION = "inbox.read";
 const POST_ACTION = "inbox.post";
+const NOTICE_ACTION = "inbox.notice";
+/** The author id of a notice no agent wrote. */
+const SYSTEM_AUTHOR_ID = "system";
+const NOTICE_TEXT_MAX = 20_000;
 const INBOX_KIND = "inbox";
 const TITLE_MAX = 120;
 const MEMBERS_MAX = 50;
@@ -110,6 +124,18 @@ export const postInputSchema = z.strictObject({
   threadId: idString,
 });
 export type PostInput = z.input<typeof postInputSchema>;
+
+/** A notice the system posts into a team room. */
+export const noticeInputSchema = z.strictObject({
+  /** The agent that wrote it, or null for a notice no agent wrote. */
+  authorAgentId: idString.nullable(),
+  teamId: idString,
+  text: z.string().trim().min(1).max(NOTICE_TEXT_MAX),
+  title: z.string().trim().min(1).max(TITLE_MAX),
+  /** Wakes one agent, as this person, after the notice is posted. */
+  wake: z.strictObject({ agentId: idString, asUserId: idString }).optional(),
+});
+export type NoticeInput = z.input<typeof noticeInputSchema>;
 
 export interface ThreadRecord {
   /** When a person last dismissed the thread from Needs you, or null. */
@@ -184,6 +210,12 @@ export interface ExternalPostResult {
   threadId: string;
   /** Wakes the agents the post names (or the listening lead). Call it after the answer to the sender. */
   wake: () => Promise<WokenRun[]>;
+}
+
+export interface NoticeResult {
+  postId: string;
+  runs: WokenRun[];
+  threadId: string;
 }
 
 /** Why a wake did not happen, as `inbox.loop_stopped` records it. */
@@ -267,6 +299,8 @@ export interface InboxServiceOptions {
   clock: Clock;
   db: Database;
   events: EventsService;
+  /** The digest of a team's room that an agent's wake input carries. Null, or a failure, means no digest. */
+  roomDigest?: (teamId: string) => Promise<string | null>;
   /** Only `startRun` is used. The composition root passes it lazily, because the runs service is built with this service's gateway. */
   runs: Pick<RunsService, "startRun">;
 }
@@ -276,6 +310,7 @@ export const createInboxService = ({
   clock,
   db,
   events,
+  roomDigest,
   runs,
 }: InboxServiceOptions) => {
   const findThread = async (
@@ -879,6 +914,18 @@ export const createInboxService = ({
     return reachable ? lead : null;
   };
 
+  /** The team room's digest for the thread, or null. A failing digest never stops a wake. */
+  const digestFor = async (thread: ThreadRow): Promise<string | null> => {
+    if (thread.teamId === null || roomDigest === undefined) {
+      return null;
+    }
+    try {
+      return await roomDigest(thread.teamId);
+    } catch {
+      return null;
+    }
+  };
+
   /** One mentioned agent: the guard first, then the run. Null when the wake was stopped. */
   const wakeOne = async (
     waker: Member,
@@ -901,6 +948,7 @@ export const createInboxService = ({
       await recordStop(waker, thread, entry, target.id, stop);
       return null;
     }
+    const digest = await digestFor(thread);
     try {
       // Discussion wakes are independent room runs. Persisted retry keys bound
       // them without growing an ancestry chain across rounds.
@@ -909,6 +957,7 @@ export const createInboxService = ({
         agentId: target.id,
         input: {
           text: buildWakeInput({
+            digest,
             earlier: await earlierPosts(thread, entry, target.id),
             rules: room.rules,
             text: entry.text,
@@ -991,6 +1040,142 @@ export const createInboxService = ({
       }
     }
     return started;
+  };
+
+  /**
+   * The team's topic with exactly `title` that has no member rows, the oldest
+   * one. A limited topic never counts. Opens the topic when there is none.
+   */
+  const noticeTopic = async (
+    team: { id: string; workspaceId: string },
+    title: string,
+    authorAgentId: string | null
+  ): Promise<ThreadRow> => {
+    const [existing] = await db
+      .select()
+      .from(inboxThreads)
+      .where(
+        and(
+          eq(inboxThreads.workspaceId, team.workspaceId),
+          eq(inboxThreads.teamId, team.id),
+          eq(inboxThreads.title, title),
+          notExists(
+            db
+              .select({ threadId: inboxThreadMembers.threadId })
+              .from(inboxThreadMembers)
+              .where(eq(inboxThreadMembers.threadId, inboxThreads.id))
+          )
+        )
+      )
+      // Ids sort in creation order, so the first one is the oldest.
+      .orderBy(asc(inboxThreads.id))
+      .limit(1);
+    if (existing) {
+      return existing;
+    }
+    const created = clock.now().toISOString();
+    const row: ThreadRow = {
+      attentionClearedAt: null,
+      attentionClearedBy: null,
+      createdAt: created,
+      createdBy: "system",
+      id: nextId(clock.now().getTime()),
+      lastPostAt: created,
+      openedByAgentId: authorAgentId,
+      teamId: team.id,
+      title,
+      workspaceId: team.workspaceId,
+    };
+    await atomic([db.insert(inboxThreads).values(row)]);
+    return row;
+  };
+
+  /**
+   * The notice's one wake: the named agent, when it is active in the workspace
+   * and may post in the topic. Otherwise nothing is recorded and nothing starts.
+   */
+  const wakeNoticeAgent = async (
+    thread: ThreadRow,
+    entry: PostRow,
+    wakeTarget: { agentId: string; asUserId: string }
+  ): Promise<WokenRun[]> => {
+    const [agent] = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.id, wakeTarget.agentId),
+          eq(agents.workspaceId, thread.workspaceId),
+          eq(agents.status, "active")
+        )
+      );
+    if (!agent) {
+      return [];
+    }
+    const mayPost = await canPostInTopic(db, thread, {
+      id: agent.id,
+      kind: "agent",
+    });
+    if (!mayPost) {
+      return [];
+    }
+    const waker: UserPrincipal = {
+      kind: "user",
+      userId: wakeTarget.asUserId,
+      via: "session",
+      workspaceId: thread.workspaceId,
+    };
+    const woken = await wakeOne(
+      waker,
+      thread,
+      entry,
+      { id: agent.id },
+      await roomOf(thread),
+      false
+    );
+    return woken ? [woken] : [];
+  };
+
+  /**
+   * The system posts a notice into a team room, in the topic with its title
+   * (opened on first use). The author is the agent given, or "system". A
+   * notice never wakes agents from the mentions in its text. Only `wake` does,
+   * and it wakes one agent.
+   */
+  const postNotice = async (
+    principal: Principal,
+    rawInput: NoticeInput
+  ): Promise<NoticeResult> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError(NOTICE_ACTION);
+    }
+    const input = noticeInputSchema.parse(rawInput);
+    const [team] = await db
+      .select({
+        archivedAt: teams.archivedAt,
+        id: teams.id,
+        workspaceId: teams.workspaceId,
+      })
+      .from(teams)
+      .where(eq(teams.id, input.teamId));
+    if (!team || team.archivedAt !== null) {
+      throw new ServiceError("not_found", `No team ${input.teamId}`);
+    }
+    const thread = await noticeTopic(team, input.title, input.authorAgentId);
+    const author: Author =
+      input.authorAgentId === null
+        ? { id: SYSTEM_AUTHOR_ID, kind: "user" }
+        : { id: input.authorAgentId, kind: "agent" };
+    const written = await writePost(
+      thread,
+      author,
+      { fileIds: [], text: input.text },
+      null
+    );
+    const woken = input.wake
+      ? await wakeNoticeAgent(thread, written, input.wake)
+      : [];
+    return { postId: written.id, runs: woken, threadId: thread.id };
   };
 
   /**
@@ -1157,6 +1342,7 @@ export const createInboxService = ({
     listThreads,
     post,
     postExternal,
+    postNotice,
     readThread,
     startDiscussion,
     stopDiscussion,

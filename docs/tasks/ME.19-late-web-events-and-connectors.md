@@ -3,7 +3,7 @@ id: ME.19
 title: "The outside-text guard catches late tool events and connector text"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: [ME.16]
 branch: task/ME.19-late-web-events-and-connectors
 lane: services-memory
@@ -33,3 +33,4 @@ Controller decisions (Dom's "don't wait for me", 20 Nov 2026):
 ## Log
 - 2026-11-20: added from the ME.16 review.
 - 2026-11-21: dispatched on task/ME.19-late-web-events-and-connectors (v4 controller session).
+- 2026-11-21: merged as cac6130c, review clean after 1 fix round. check, test and build passed on main.
