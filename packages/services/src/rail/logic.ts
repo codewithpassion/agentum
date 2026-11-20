@@ -272,6 +272,9 @@ export const plainTitle = (card: CardFacts): string => {
   if (card.kind === "memory_note") {
     return NEEDS_YOU_HEADINGS.memory_note(card.agentName);
   }
+  if (card.kind === "dream_question") {
+    return NEEDS_YOU_HEADINGS.dream_question(card.agentName);
+  }
   if (card.kind !== "approval") {
     return card.title;
   }
@@ -323,6 +326,9 @@ export const plainStatus = (card: CardFacts): string => {
   }
   if (card.kind === "a2a_message" || card.kind === "a2a_connection") {
     return "Waiting for approval";
+  }
+  if (card.kind === "dream_question") {
+    return "Question from its dream";
   }
   return NEEDS_YOU_HEADINGS[card.kind](card.agentName);
 };

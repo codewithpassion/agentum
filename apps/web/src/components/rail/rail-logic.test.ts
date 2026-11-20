@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
+import type { RailCard } from "@repo/db/shared";
 import {
   actionableNeedsYou,
   dueLabel,
   extraCardsLabel,
   needsYouLabel,
   openQuestionsLabel,
+  rowDetail,
 } from "./rail-logic.ts";
 
 const now = new Date(2026, 9, 31, 10, 0);
@@ -101,4 +103,44 @@ test("needs you label is empty before the first answer", () => {
 test("needs you label shows zero and positive counts", () => {
   expect(needsYouLabel(0)).toBe("0");
   expect(needsYouLabel(3)).toBe("3");
+});
+
+const railCard = (overrides: Partial<RailCard>): RailCard => ({
+  agentId: "a1",
+  agentName: "mem-cloud",
+  at: "2026-11-20T09:00:00.000Z",
+  detail: "",
+  expiresAt: null,
+  id: "c1",
+  kind: "question",
+  mail: null,
+  passedOnBy: null,
+  runId: null,
+  status: "mem-cloud asks",
+  threadId: null,
+  title: "mem-cloud: which date?",
+  ...overrides,
+});
+
+test("a held note's row shows the note, not the heading again", () => {
+  const note = railCard({
+    detail: "Send the weekly report\non Mondays",
+    kind: "memory_note",
+    status: "mem-cloud wants to remember something",
+    title: "mem-cloud wants to remember something",
+  });
+  expect(rowDetail(note)).toBe("Send the weekly report on Mondays");
+});
+
+test("a long held note is clipped", () => {
+  const note = railCard({ detail: "x".repeat(500), kind: "memory_note" });
+  expect(rowDetail(note)).toBe(`${"x".repeat(119)}…`);
+});
+
+test("a held note with no text and other cards keep their status", () => {
+  expect(rowDetail(railCard({ kind: "memory_note" }))).toBe("mem-cloud asks");
+  expect(rowDetail(railCard({ detail: " \n ", kind: "memory_note" }))).toBe(
+    "mem-cloud asks"
+  );
+  expect(rowDetail(railCard({ detail: "Which date?" }))).toBe("mem-cloud asks");
 });

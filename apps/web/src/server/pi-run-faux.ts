@@ -87,7 +87,12 @@ const textOf = (content: Message["content"] | undefined): string => {
  * `harbourmaster_turn` envelope, so they work for a message another agent sent.
  */
 export const fauxScript = (context: TranscriptContext): AssistantMessage => {
-  const last = context.messages.at(-1);
+  // Pi appends a system message when a prompt section changes (a cloud run's
+  // task folder differs per run), so the transcript can end with one after the
+  // message the model answers.
+  const last = context.messages.findLast(
+    (message) => message.role !== "system"
+  );
   if (last?.role === "toolResult") {
     return fauxAssistantMessage([
       fauxText(

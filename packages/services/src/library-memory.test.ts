@@ -525,3 +525,41 @@ test("a run for another person cannot list a private file through the agent home
     code: "not_found",
   });
 });
+
+test("the dream principal reads and writes every person's private memory file, and a person's own principal still cannot", async () => {
+  const dream: Principal = {
+    dream: true,
+    kind: "user",
+    userId: "dream:agent",
+    via: "session",
+    workspaceId: A,
+  };
+  await service.writeMemoryFiles(
+    user("user_a"),
+    [{ bytes: bytes("a notes"), path: PRIVATE_A }],
+    () => []
+  );
+
+  expect(await contentOf(dream, PRIVATE_A)).toBe("a notes");
+  expect(
+    (await service.list(dream, `${MEMORY}/private`)).map((entry) => entry.path)
+  ).toEqual([PRIVATE_A]);
+  await service.writeMemoryFiles(
+    dream,
+    [
+      { bytes: bytes("a more"), path: PRIVATE_A },
+      { bytes: bytes("b notes"), path: `${MEMORY}/private/user_b.md` },
+    ],
+    () => []
+  );
+  expect(await contentOf(user("user_a"), PRIVATE_A)).toBe("a more");
+  expect(
+    await errorOf(
+      service.writeMemoryFiles(
+        user("user_a"),
+        [{ bytes: bytes("x"), path: `${MEMORY}/private/user_b.md` }],
+        () => []
+      )
+    )
+  ).toBeInstanceOf(ForbiddenError);
+});

@@ -3,7 +3,7 @@ id: ME.12
 title: "The Needs you row for a held note"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: [ME.9]
 branch: task/ME.12-the-needs-you-row-for-a-held-note
 lane: services-rail
@@ -26,3 +26,4 @@ A rail test for the card fields, and a browser look at the drawer at both sizes.
 ## Log
 - 2026-11-20: added from the ME walkthrough.
 - 2026-11-20: dispatched on task/ME.12-the-needs-you-row-for-a-held-note (v4 controller session).
+- 2026-11-20: merged as e50aafe9, review clean after 0 fix rounds. Browser proof passed at both sizes: docs/reviews/tasks/ME.12/browser.md. check, test and build passed on main.

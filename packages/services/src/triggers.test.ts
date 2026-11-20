@@ -1283,3 +1283,32 @@ test("the sweep offers an app run after its deferred offer fails and is logged",
     logged.mockRestore();
   }
 });
+
+test("a dream trigger is the system's: reassign, pause and revoke refuse it and leave the row unchanged", async () => {
+  db.insert(triggerRows)
+    .values({
+      agentId: fakeAgentId,
+      createdAt: START,
+      createdBy: "u1",
+      id: "dream-trigger",
+      kind: "dream",
+      name: "Dream",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const before = triggerRow("dream-trigger");
+  const attempts = [
+    () => service.reassign(user, "dream-trigger", spyAgentId),
+    () =>
+      service.setEnabled(user, { enabled: false, triggerId: "dream-trigger" }),
+    () => service.revoke(user, "dream-trigger"),
+  ];
+  const errors = await Promise.all(
+    attempts.map((attempt) => attempt().catch((caught: unknown) => caught))
+  );
+  for (const error of errors) {
+    expect(error).toBeInstanceOf(ServiceError);
+    expect(error).toMatchObject({ code: "invalid" });
+  }
+  expect(triggerRow("dream-trigger")).toEqual(before);
+});
