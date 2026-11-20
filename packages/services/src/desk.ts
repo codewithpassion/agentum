@@ -887,7 +887,12 @@ export const createDeskService = ({
         if (userScope !== null && userScope !== member.userId) {
           return [];
         }
-        if (userScope === null && !mayDecide(row.agentId)) {
+        // A team's question was limited to its owner and org admins by `teamQuestionAgents`.
+        if (
+          userScope === null &&
+          row.agentId !== null &&
+          !mayDecide(row.agentId)
+        ) {
           return [];
         }
         return [
