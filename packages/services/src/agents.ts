@@ -690,6 +690,7 @@ export const createAgentsService = ({
       kind: AGENT_KIND,
       workspaceId: user.workspaceId,
     });
+    requireAgentOwnerOrAdmin(user, current, AGENT_UPDATE);
     assertAddress(local);
     // Retrying the same reservation on its owner is idempotent.
     if (current.emailLocal === local) {

@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { Link } from "@tanstack/react-router";
 import { AddressChip } from "#/components/agent/profile/address-chip.tsx";
 import { MailProvisionButton } from "#/components/agent/profile/mail-provision-button.tsx";
@@ -15,6 +16,7 @@ import {
 import { capLine } from "#/components/spend/spend-logic.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { jobLine, ownerName } from "./header-logic.ts";
+import { canManageAgentKeys } from "./keys/keys-logic.ts";
 import type { RoomData } from "./room-data.ts";
 
 /** Avatar, name, job line, owner, address, where it runs, and Run now. */
@@ -30,6 +32,12 @@ export function RoomHeader({
   room: Pick<RoomData, "agent" | "mailbox" | "members" | "profile" | "spend">;
 }) {
   const { agent, mailbox, members, profile, spend } = room;
+  const { orgRole, userId } = useAuth();
+  const canManage = canManageAgentKeys({
+    agent,
+    isAdmin: orgRole === "org:admin",
+    userId,
+  });
   const spendLine =
     spend.weekCents === null ? null : capLine(spend.weekCents, spend.capCents);
   const { header } = profile;
@@ -64,17 +72,19 @@ export function RoomHeader({
             <>
               <AddressChip
                 agentId={header.id}
+                canReserve={canManage}
                 emailLocal={header.emailLocal}
                 suggestion={header.slug}
               />
-              {setUpLabel === null ? null : (
+              {canManage && setUpLabel !== null ? (
                 <MailProvisionButton agentId={header.id} label={setUpLabel} />
-              )}
+              ) : null}
             </>
           ) : (
             <MailStatus
               agentId={header.id}
               agentStatus={header.status}
+              canManage={canManage}
               emailLocal={header.emailLocal}
               mailbox={mailbox}
               onOpenMail={onOpenMail}

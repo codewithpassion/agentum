@@ -5,7 +5,10 @@ import type { AgentRecord } from "#/integrations/trpc/types";
 import { RoomSection } from "../section.tsx";
 import { emailWords, slackWords } from "./keys-logic.ts";
 
-/** The agent's own email address and Slack app, with the controls to set them up. */
+/**
+ * The agent's own email address and Slack app. The controls to set them up
+ * (the mail button and the Slack panel) show only to those who may manage the agent.
+ */
 export function IdentitySection({
   agent,
   canManage,
@@ -13,7 +16,7 @@ export function IdentitySection({
   provisionLabel,
 }: {
   agent: AgentRecord;
-  /** Whether the person may set up the Slack app: an org admin or the agent's owner. */
+  /** Whether the person may set up the email address and the Slack app: an org admin or the agent's owner. */
   canManage: boolean;
   /** Null when the read model did not load: the lines are left out, the controls stay. */
   identity: AgentKeys["identity"] | null;
@@ -27,8 +30,13 @@ export function IdentitySection({
           {identity === null ? null : (
             <p className="text-sm">{emailWords(identity.emailAddress)}</p>
           )}
-          {provisionLabel === null ? null : (
+          {canManage && provisionLabel !== null ? (
             <MailProvisionButton agentId={agent.id} label={provisionLabel} />
+          ) : null}
+          {canManage ? null : (
+            <p className="text-muted-foreground text-xs">
+              Only the agent&apos;s owners and admins can set up its email.
+            </p>
           )}
         </div>
         <div className="flex flex-col gap-2">
