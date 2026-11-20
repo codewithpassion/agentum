@@ -94,14 +94,14 @@ export const dryRunRuntime = (
       note:
         runsOn === null
           ? `The dry run runs on ${RUNTIME_NAMES.cloud}.`
-          : `The dry run runs on ${RUNTIME_NAMES.cloud}, the runtime you chose.`,
+          : `The dry run runs on ${RUNTIME_NAMES.cloud}, where you chose to run it.`,
     };
   }
   const label =
     runsOn.runtime === "machine"
       ? (catalog.machines.find((machine) => machine.id === runsOn.machineId)
           ?.name ?? "That machine")
-      : "Anthropic cloud";
+      : RUNTIME_NAMES.managed;
   return {
     blocker: null,
     note: `The dry run runs on ${RUNTIME_NAMES.cloud}. ${label} cannot run a dry run yet, so the real agent runs there.`,

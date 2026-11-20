@@ -214,7 +214,7 @@ describe("dryRunRuntime", () => {
       dryRunRuntime(catalog(["managed", "cloud"]), { runtime: "cloud" })
     ).toEqual({
       blocker: null,
-      note: "The dry run runs on Cloud, the runtime you chose.",
+      note: "The dry run runs on Cloud, where you chose to run it.",
     });
   });
 

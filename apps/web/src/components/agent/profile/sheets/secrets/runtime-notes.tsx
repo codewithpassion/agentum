@@ -22,8 +22,8 @@ export function RuntimeNotes() {
         Anthropic swaps for the real value in outgoing requests.
       </li>
       <li>
-        Proxy secrets reach My computer agents and Anthropic cloud agents
-        through the relay at /api/egress/&lt;host&gt;/&lt;path&gt;. The
+        Proxy secrets reach agents on your computer and in Anthropic&apos;s
+        cloud through the relay at /api/egress/&lt;host&gt;/&lt;path&gt;. The
         agent&apos;s instructions give the exact address.
       </li>
     </ul>

@@ -48,15 +48,26 @@ export const RUNTIME_NAMES = {
   managed: "Anthropic cloud",
 } as const satisfies Record<AgentRuntime, string>;
 
+/** Where the agent runs, as a name: "Cloud", or "My computer: laptop". */
+export const runtimeName = (
+  runtime: AgentRuntime,
+  machine: { name: string } | null
+): string =>
+  runtime === "machine" && machine
+    ? `${RUNTIME_NAMES.machine}: ${machine.name}`
+    : RUNTIME_NAMES[runtime];
+
 export const runtimeWords = (
   runtime: AgentRuntime,
   machine: { name: string } | null
 ): string => {
   switch (runtime) {
-    case "machine":
+    case "machine": {
+      const computer = RUNTIME_NAMES.machine.toLowerCase();
       return machine
-        ? `Runs on ${RUNTIME_NAMES.machine}: ${machine.name}`
-        : `Runs on ${RUNTIME_NAMES.machine}`;
+        ? `Runs on ${computer}: ${machine.name}`
+        : `Runs on ${computer}`;
+    }
     case "cloud":
       return `Runs on ${RUNTIME_NAMES.cloud}`;
     case "managed":
@@ -90,7 +101,7 @@ export const currentRuntime = (
     case "managed":
       return {
         machineState: null,
-        text: "Runs in Anthropic's cloud. Simplest. Has its own sandbox.",
+        text: "Simplest. Has its own sandbox.",
         title: RUNTIME_NAMES.managed,
       };
     case "cloud":
@@ -103,9 +114,7 @@ export const currentRuntime = (
       return {
         machineState: machine ? MACHINE_STATE_WORDS[machine.status] : null,
         text: "Claude Code on that machine. Sees local files.",
-        title: machine
-          ? `${RUNTIME_NAMES.machine}: ${machine.name}`
-          : RUNTIME_NAMES.machine,
+        title: runtimeName("machine", machine),
       };
     default:
       return {
