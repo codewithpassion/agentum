@@ -1,4 +1,4 @@
-import { TEAM_MEMBER_KINDS } from "@repo/db/shared";
+import { DISCUSSION_ROUNDS_MAX, TEAM_MEMBER_KINDS } from "@repo/db/shared";
 import { z } from "zod";
 import {
   type McpPorts,
@@ -51,6 +51,25 @@ export const teamTools = (ports: McpPorts): ToolDefinition[] => {
     return [];
   }
   return [
+    defineTool({
+      annotations: WRITE_CREATE,
+      description:
+        "Starts a bounded discussion in a team topic. Each other agent member gets one wake per round. After replies or ten minutes you are woken: use team_post to open the next round, or start your post with /close to close early. Your final round reply closes the discussion. People can stop it from the room.",
+      inputSchema: z.strictObject({
+        question: z.string().trim().min(1).max(80_000),
+        rounds: z.number().int().min(1).max(DISCUSSION_ROUNDS_MAX),
+        topic: z.string().min(1).max(TOPIC_MAX),
+      }),
+      name: "team_discussion",
+      run: async (input) => {
+        const discussion = await team.discussion(input);
+        return {
+          data: discussion,
+          text: `Started discussion ${discussion.id}, ${discussion.rounds} rounds.`,
+        };
+      },
+      title: "Start team discussion",
+    }),
     defineTool({
       annotations: READ_ONLY,
       description:

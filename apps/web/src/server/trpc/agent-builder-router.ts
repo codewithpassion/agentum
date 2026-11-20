@@ -8,6 +8,10 @@ import {
   draftInputSchema,
   fromTemplateInputSchema,
 } from "@repo/services/agent-builder/service";
+import {
+  createTeamInputSchema,
+  teamFromStarterInputSchema,
+} from "@repo/services/agent-builder/team-starters";
 import { router, workspaceProcedure } from "./init.ts";
 
 export const agentBuilderRouter = router({
@@ -18,6 +22,11 @@ export const agentBuilderRouter = router({
     .input(createInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.services.agentBuilder.create(ctx.principal, input)
+    ),
+  createTeam: workspaceProcedure
+    .input(createTeamInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.agentBuilder.createTeam(ctx.principal, input)
     ),
   discard: workspaceProcedure
     .input(discardInputSchema)
@@ -43,5 +52,10 @@ export const agentBuilderRouter = router({
     .input(saveDraftInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.services.agentBuilder.saveDraft(ctx.principal, input)
+    ),
+  teamFromStarter: workspaceProcedure
+    .input(teamFromStarterInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.agentBuilder.teamFromStarter(ctx.principal, input)
     ),
 });

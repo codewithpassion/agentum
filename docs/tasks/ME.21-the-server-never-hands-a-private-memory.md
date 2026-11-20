@@ -23,3 +23,4 @@ Route tests: a run that passes the private-notes rule for A gets no `private/<A>
 ## Log
 - 2026-11-21: added from the ME gate review, round 2.
 - 2026-11-21: dispatched on task/ME.21-the-server-never-hands-a-private-memory (v4 controller session).
+- 2026-11-21: ready at 628410ed, review clean with no fix rounds. Queued for merge.

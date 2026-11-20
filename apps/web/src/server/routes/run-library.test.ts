@@ -10,6 +10,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
 import { runTransfer } from "@repo/library-sync/transfer";
 import { noopRelay } from "@repo/services/machines/types";
+import { serializeMemoryFile } from "@repo/services/memory/codec";
 import {
   importRunTokenKey,
   signRunToken,
@@ -128,7 +129,11 @@ const claimedRun = async (owner: User, agentId: string) => {
     runId,
     { platformUrl: "http://localhost" }
   );
-  return { runId, runToken: claim.runToken };
+  return {
+    instructions: claim.instructions,
+    runId,
+    runToken: claim.runToken,
+  };
 };
 
 /** A run in workspace A, for most tests. */
@@ -716,88 +721,171 @@ const runActingFor = async (
   return run;
 };
 
-/** What a run sees with its own token: the private folder, the private file, and people.md. */
-const memoryViewOf = (
-  run: { runId: string; runToken: string },
-  privateFolder: string,
-  privateFile: string,
-  peopleFile: string
-) =>
-  Promise.all([
-    listOf(run.runId, run.runToken, privateFolder),
-    statOf(run.runId, run.runToken, privateFile),
-    readOf(run.runId, run.runToken, privateFile),
-    readOf(run.runId, run.runToken, peopleFile),
+/** A memory file as the library holds it: one note, for one person or for everybody. */
+const memoryFile = (
+  path: string,
+  text: string,
+  userScope: string | null
+): string =>
+  serializeMemoryFile(path, [
+    {
+      date: "2026-11-02",
+      id: "01HZ7KQ3M8V2X4R6T9B1C50001",
+      kind: "people",
+      source: null,
+      text,
+      userScope,
+      writtenBy: "person",
+    },
   ]);
 
-test("the daemon's library routes show a run only the private notes of the person it acts for", async () => {
+/** What a run sees of memory with its own token, through the run prefix and the session prefix: the paths in the memory folder, then the status of the private folder, of stat and read of the private file, and people.md's text. */
+const memoryViewOf = (
+  run: { runId: string; runToken: string },
+  memoryFolder: string,
+  privateFile: string,
+  peopleFile: string
+) => {
+  const privateFolder = dirname(privateFile);
+  const viaSession = (route: string, path: string) =>
+    app.request(
+      sessionUrl(route, path),
+      { headers: bearer(run.runToken) },
+      WORKER_ENV
+    );
+  const viewThrough = async (
+    list: (path: string) => Response | Promise<Response>,
+    stat: (path: string) => Response | Promise<Response>,
+    read: (path: string) => Response | Promise<Response>
+  ) => {
+    const [folder, privateList, privateStat, privateRead, people] =
+      await Promise.all([
+        list(memoryFolder),
+        list(privateFolder),
+        stat(privateFile),
+        read(privateFile),
+        read(peopleFile),
+      ]);
+    return {
+      folder: folder.status === 200 ? await folderPaths(folder) : folder.status,
+      people: DECODE.decode(await people.arrayBuffer()),
+      privateFolder: privateList.status,
+      read: privateRead.status,
+      stat: privateStat.status,
+    };
+  };
+  const views: ReturnType<typeof viewThrough>[] = [
+    viewThrough(
+      (path) => listOf(run.runId, run.runToken, path),
+      (path) => statOf(run.runId, run.runToken, path),
+      (path) => readOf(run.runId, run.runToken, path)
+    ),
+    viewThrough(
+      (path) => viaSession("list", path),
+      (path) => viaSession("stat", path),
+      (path) => viaSession("file", path)
+    ),
+  ];
+  return Promise.all(views);
+};
+
+const folderPaths = async (response: Response): Promise<string[]> => {
+  const { entries } = (await response.json()) as {
+    entries: { path: string }[];
+  };
+  return entries.map((entry) => entry.path);
+};
+
+/** The view of a run that gets no private file: people.md in the memory folder, not found for the rest, on both prefixes. */
+const withoutPrivateFile = (peopleFile: string) => {
+  const view = {
+    folder: [peopleFile],
+    people: "shared",
+    privateFolder: 404,
+    read: 404,
+    stat: 404,
+  };
+  return [view, view];
+};
+
+test("the daemon's library routes never hand over a private memory file, and the run keeps its notes in its launch context", async () => {
   const agentId = await newAgent(userA, "Scout");
   const { slug } = await composed.services.agents.get(userA, agentId);
-  const privateFolder = `agents/${slug}/memory/private`;
-  const privateFile = `${privateFolder}/user_a.md`;
-  const peopleFile = `agents/${slug}/memory/people.md`;
+  const memoryFolder = `agents/${slug}/memory`;
+  const privateFile = `${memoryFolder}/private/user_a.md`;
+  const peopleFile = `${memoryFolder}/people.md`;
   await composed.services.library.writeMemoryFiles(
     userA,
     [
-      { bytes: TEXT.encode("a notes"), path: privateFile },
+      {
+        bytes: TEXT.encode(
+          memoryFile("private/user_a.md", "a notes", "user_a")
+        ),
+        path: privateFile,
+      },
       { bytes: TEXT.encode("shared"), path: peopleFile },
     ],
     () => []
   );
-  const privateEntry = await composed.services.library.stat(userA, privateFile);
 
   const runForA = await runActingFor(userA, agentId, "user_a");
-  const [listedA, statedA, readA, peopleA] = await memoryViewOf(
-    runForA,
-    privateFolder,
-    privateFile,
-    peopleFile
-  );
-  expect(listedA.status).toBe(200);
-  expect(await listedA.json()).toEqual({
-    entries: [
-      { etag: privateEntry.etag, kind: "file", path: privateFile, size: 7 },
-    ],
-  });
-  expect(statedA.status).toBe(200);
-  expect(readA.status).toBe(200);
-  expect(DECODE.decode(await readA.arrayBuffer())).toBe("a notes");
-  expect(peopleA.status).toBe(200);
-  expect(DECODE.decode(await peopleA.arrayBuffer())).toBe("shared");
+  expect(runForA.instructions).toContain("a notes");
+  expect(
+    await memoryViewOf(runForA, memoryFolder, privateFile, peopleFile)
+  ).toEqual(withoutPrivateFile(peopleFile));
   db.update(runs)
     .set({ status: "done" })
     .where(eq(runs.id, runForA.runId))
     .run();
 
   const runForB = await runActingFor(userA, agentId, "user_b");
-  const [listedB, statedB, readB, peopleB] = await memoryViewOf(
-    runForB,
-    privateFolder,
-    privateFile,
-    peopleFile
-  );
-  expect(listedB.status).toBe(200);
-  expect(await listedB.json()).toEqual({ entries: [] });
-  expect(statedB.status).toBe(404);
-  expect(readB.status).toBe(404);
-  expect(peopleB.status).toBe(200);
-  expect(DECODE.decode(await peopleB.arrayBuffer())).toBe("shared");
+  expect(
+    await memoryViewOf(runForB, memoryFolder, privateFile, peopleFile)
+  ).toEqual(withoutPrivateFile(peopleFile));
   db.update(runs)
     .set({ status: "done" })
     .where(eq(runs.id, runForB.runId))
     .run();
 
   const runForNobody = await runActingFor(userA, agentId, null);
-  const [listedN, statedN, readN, peopleN] = await memoryViewOf(
-    runForNobody,
-    privateFolder,
-    privateFile,
-    peopleFile
+  expect(
+    await memoryViewOf(runForNobody, memoryFolder, privateFile, peopleFile)
+  ).toEqual(withoutPrivateFile(peopleFile));
+});
+
+test("a path that spells the private folder another way is refused all the same", async () => {
+  const agentId = await newAgent(userA, "Scout");
+  const { slug } = await composed.services.agents.get(userA, agentId);
+  const memoryFolder = `agents/${slug}/memory`;
+  const privateFile = `${memoryFolder}/private/user_a.md`;
+  await composed.services.library.writeMemoryFiles(
+    userA,
+    [
+      {
+        bytes: TEXT.encode(
+          memoryFile("private/user_a.md", "a notes", "user_a")
+        ),
+        path: privateFile,
+      },
+    ],
+    () => []
   );
-  expect(listedN.status).toBe(200);
-  expect(await listedN.json()).toEqual({ entries: [] });
-  expect(statedN.status).toBe(404);
-  expect(readN.status).toBe(404);
-  expect(peopleN.status).toBe(200);
-  expect(DECODE.decode(await peopleN.arrayBuffer())).toBe("shared");
+  const run = await runActingFor(userA, agentId, "user_a");
+
+  const spellings = [
+    `${memoryFolder}/./private/user_a.md`,
+    `/${memoryFolder}//private/user_a.md`,
+    `${memoryFolder}/people/../private/user_a.md`,
+    `agents/${slug}/memory/private/../private/user_a.md`,
+  ];
+  const statuses = await Promise.all(
+    spellings.flatMap((spelled) => [
+      statOf(run.runId, run.runToken, spelled),
+      readOf(run.runId, run.runToken, spelled),
+      listOf(run.runId, run.runToken, `${spelled}/..`),
+    ])
+  );
+  expect(statuses.map((response) => response.status)).toEqual(
+    spellings.flatMap(() => [404, 404, 404])
+  );
 });

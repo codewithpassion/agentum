@@ -3,9 +3,9 @@ id: SP.13
 title: "A cancelled run keeps its cost"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SP.13-a-cancelled-run-keeps-its-cost
 lane: services-spend
 executor: claude
 ---
@@ -22,3 +22,4 @@ a runs service test where a run is cancelled and then gets `completeRun` with `{
 
 ## Log
 - 2026-11-21: added from the SP gate review, round 1.
+- 2026-11-21: dispatched.
