@@ -1,5 +1,16 @@
 import { ChevronRight } from "lucide-react";
 import { useCallback, useState } from "react";
+import {
+  ASK_LEVEL_OPTIONS,
+  type AskBeforeAction,
+  type AskGroup,
+  type AskLevelValue,
+  askSummary,
+  groupActions,
+  isPresetLevel,
+} from "#/components/agent/profile/ask-groups.ts";
+import { Disclosure } from "#/components/agent/profile/disclosure.tsx";
+import { MailAllowedList } from "#/components/agent/profile/mail-allowed-list.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Collapsible,
@@ -10,17 +21,6 @@ import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
-import {
-  ASK_LEVEL_OPTIONS,
-  type AskBeforeAction,
-  type AskGroup,
-  type AskLevelValue,
-  askSummary,
-  groupActions,
-  isPresetLevel,
-} from "./ask-groups.ts";
-import { Disclosure } from "./disclosure.tsx";
-import { MailAllowedList } from "./mail-allowed-list.tsx";
 
 function AskBeforeRow({
   disabled,

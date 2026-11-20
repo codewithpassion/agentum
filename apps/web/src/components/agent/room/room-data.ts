@@ -1,4 +1,4 @@
-import type { WorkspaceMember } from "@repo/db/shared";
+import type { AgentKeys, WorkspaceMember } from "@repo/db/shared";
 import type {
   AgentProfileView,
   AgentRecord,
@@ -16,6 +16,8 @@ export interface RoomData {
   askBefore: RouterOutputs["agentProfile"]["askBefore"];
   askLevel: RouterOutputs["agentProfile"]["askLevel"];
   connections: RouterOutputs["a2a"]["list"];
+  /** What the Keys tab shows. Null when the read failed, for instance on a draft. */
+  keys: AgentKeys | null;
   machines: MachineRecord[];
   mailbox: MailboxRecord | null;
   /** Null when the member lookup failed. */
