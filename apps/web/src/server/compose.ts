@@ -1046,6 +1046,8 @@ export const composeWith = ({
   });
   const runs = createRunsService({
     adapters,
+    afterToolEvents: (runId) =>
+      memory.holdAfterOutsideText(SYSTEM_PRINCIPAL, runId),
     atomic: infra.atomic,
     blobs: infra.blobs,
     clock: infra.clock,

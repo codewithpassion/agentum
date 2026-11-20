@@ -290,7 +290,7 @@ test("a note from mail, a web page or an A2A peer is held at every level", async
   expect(await readError(world, "people.md")).toMatchObject(NOT_FOUND);
 });
 
-// Each of these runs used the web once, through one tool, shell or browser.
+// Each of these runs used the web once, through one tool, shell or browser, or got an answer from a connector.
 const WEB_RUNS = [
   RUN.curl,
   RUN.script,
@@ -303,6 +303,8 @@ const WEB_RUNS = [
   RUN.bigCall,
   RUN.desktop,
   RUN.skillScript,
+  RUN.connector,
+  RUN.connectorResource,
   // A subagent of a run that used the web, and the parent of a subagent that did.
   RUN.webChild,
   RUN.familyParent,
@@ -366,18 +368,21 @@ test("a family of more than 100 runs is still checked, and the web use of its la
   expect(held.status).toBe("held");
 });
 
-test("a note from a ui run or a run with only ordinary tools applies at tell_after and quiet", async () => {
+test("a note from a ui run, a run with only ordinary tools, or a run whose connector calls returned no text applies at tell_after and quiet", async () => {
   const world = makeWorld();
+  const quietRuns = [RUN.ui, RUN.tools, RUN.connectorIdle];
   const statuses: string[] = [];
   for (const level of ["tell_after", "quiet"] as const) {
     // biome-ignore lint/performance/noAwaitInLoops: each level is set before its notes are written
     await setLevel(world, level);
-    const changes = await Promise.all(
-      [RUN.ui, RUN.tools].map((runId) => world.service.add(run(runId), note()))
-    );
-    statuses.push(...changes.map((change) => change.status));
+    for (const runId of quietRuns) {
+      // biome-ignore lint/performance/noAwaitInLoops: three writes to one file at once can lose the file race three times
+      const change = await world.service.add(run(runId), note());
+      statuses.push(change.status);
+    }
   }
-  expect(statuses).toEqual(["applied", "applied", "applied", "applied"]);
+  expect(new Set(statuses)).toEqual(new Set(["applied"]));
+  expect(statuses).toHaveLength(quietRuns.length * 2);
 });
 
 test("a note a person writes from a mail conversation still applies", async () => {

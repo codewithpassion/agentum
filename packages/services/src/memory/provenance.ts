@@ -49,6 +49,18 @@ const UNSEEN_NETWORK_TOOLS = [
   "run_skill_script",
 ];
 const toolName = sql`lower(json_extract(${events.payload}, '$.name'))`;
+// The connector proxy writes one `connector.call` event for every call a run
+// makes to a connector (MCP server), on every runtime, because every runtime
+// reaches connectors through `/api/proxy/<connectorId>` with the run's token.
+// The tool call rows cannot say this: Managed Agents keep only the bare tool
+// name, Pi renames and cuts it, and a machine's `mcp__harbourmaster__` prefix
+// is the platform's own server. `outcome` is `ok` when the connector answered,
+// and `method` names what was asked. These methods return text the connector
+// chose, so they count. `initialize`, `tools/list` and the notifications,
+// which every run with a connector sends, do not.
+const CONNECTOR_TEXT_METHODS = ["tools/call", "resources/read", "prompts/get"];
+const callOutcome = sql`json_extract(${events.payload}, '$.outcome')`;
+const callMethod = sql`json_extract(${events.payload}, '$.method')`;
 
 export const isUserId = (value: string | null): value is string =>
   value !== null && USER_ID.test(value);
@@ -234,7 +246,8 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
    * Any `network.request` counts, whatever its `via` (`curl`, `run_script` or
    * `web_fetch`), and so does a `browser.action`, a web tool call, and a call to
    * a tool that can reach the network unseen. A tool call whose payload went to
-   * the blob store keeps no name in the row, so it counts too.
+   * the blob store keeps no name in the row, so it counts too. So does a
+   * connector call that got an answer (`connector.call`, see above).
    */
   const usedWeb = async (
     run: { id: string; parentRunId: string | null },
@@ -250,6 +263,11 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
             inArray(events.runId, batch),
             or(
               inArray(events.type, ["browser.action", "network.request"]),
+              and(
+                eq(events.type, "connector.call"),
+                eq(callOutcome, "ok"),
+                inArray(callMethod, CONNECTOR_TEXT_METHODS)
+              ),
               and(
                 eq(events.type, "tool.call"),
                 or(
@@ -383,5 +401,5 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
     return provenance;
   };
 
-  return { actorFor, personFor, provenanceOf };
+  return { actorFor, personFor, provenanceOf, runFamily, usedWeb };
 };
