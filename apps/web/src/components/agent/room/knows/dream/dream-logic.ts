@@ -73,15 +73,15 @@ export function countsSentence(counts: DreamCounts): string {
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
 }
 
-/** The line that asks the owner for their answers, or null when there are no questions. */
+/** The line that says the dream asked the owner something, or null when it asked nothing. The count is what the dream asked, so the line stays true after the owner answers. */
 export function questionsSentence(questions: number): string | null {
   if (questions === 0) {
     return null;
   }
   if (questions === 1) {
-    return "One question for you.";
+    return "It asked you one question.";
   }
-  return `${questions} questions for you.`;
+  return `It asked you ${questions} questions.`;
 }
 
 /** The calendar day of a moment in the viewer's time zone, as a day count. */
@@ -105,9 +105,10 @@ export function dreamTitle(startedAt: string, nowMs: number): string {
   return `Dream from ${days} days ago`;
 }
 
-/** Only a finished dream can be undone. */
+/** Only a finished dream that changed notes can be undone. */
 export function canUndoRun(run: DreamRun): boolean {
-  return run.status === "done";
+  const { added, dropped, merged } = run.counts;
+  return run.status === "done" && added + dropped + merged > 0;
 }
 
 export const RUN_STATUS_LABELS: Record<DreamRunStatus, string> = {

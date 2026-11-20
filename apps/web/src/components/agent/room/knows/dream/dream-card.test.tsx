@@ -208,9 +208,9 @@ test("a done dream with a question shows the question and links to Needs you", (
       }),
     ],
   });
-  expect(card(document)?.textContent).toContain("2 questions for you.");
+  expect(card(document)?.textContent).toContain("It asked you 2 questions.");
   const link = card(document)?.querySelector("a");
-  expect(link?.textContent).toBe("Answer in Needs you");
+  expect(link?.textContent).toBe("Open Needs you");
   expect(link?.getAttribute("href")).toBe("/desk");
 });
 
@@ -234,6 +234,18 @@ test("Dream now and the schedule picker are absent without canChange, and the sc
   expect(card(document)?.textContent).toContain("Dreams weekly.");
 });
 
+test("a member cannot undo a night, and a night that changed nothing has no Undo", () => {
+  const changed = run({
+    counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+    status: "done",
+  });
+  const asMember = render({ canChange: false, runs: [changed] });
+  expect(buttonNamed(asMember, "Undo this night")).toBeUndefined();
+  expect(buttonNamed(asMember, "See changes")).toBeDefined();
+  const nothing = render({ runs: [run({ status: "done" })] });
+  expect(buttonNamed(nothing, "Undo this night")).toBeUndefined();
+});
+
 test("an archived agent gets no buttons that act", () => {
   const document = render({
     disabled: true,
@@ -255,7 +267,12 @@ test("Dream now shows Dreaming and Undo shows Undoing while those actions are pe
 
   const undoing = render({
     pending: "undo",
-    runs: [run({ status: "done" })],
+    runs: [
+      run({
+        counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+        status: "done",
+      }),
+    ],
   });
   expect(buttonNamed(undoing, "Undoing…")?.disabled).toBe(true);
   expect(buttonNamed(undoing, "Dream now")?.disabled).toBe(true);
@@ -296,7 +313,13 @@ test("clicking Undo this night calls onUndo with the run id", async () => {
     <DreamCard
       {...props({
         onUndo: (id) => undone.push(id),
-        runs: [run({ id: "run_7", status: "done" })],
+        runs: [
+          run({
+            counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+            id: "run_7",
+            status: "done",
+          }),
+        ],
       })}
     />
   );

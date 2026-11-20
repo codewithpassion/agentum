@@ -26,7 +26,7 @@ function DreamOption({
       className="flex flex-col items-start gap-2 rounded-lg border p-3"
       data-testid="dream-option"
     >
-      <p className="break-words">{text}</p>
+      <p className="[overflow-wrap:anywhere]">{text}</p>
       <Button
         aria-label={`Keep this one: ${text}`}
         disabled={disabled}

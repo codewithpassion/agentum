@@ -14,13 +14,19 @@ interface VersionRead {
   version: { id: string; path: string };
 }
 
-/** The text of the note with this id in a memory file, or null when the file is malformed or has no such note. */
+/** The folder a library path of a memory file starts with. The codec wants the path inside it. */
+const MEMORY_FOLDER_PREFIX = /^agents\/[^/]+\/memory\//;
+
+/** The text of the note with this id in a memory file, or null when the file is malformed or has no such note. `path` is the library path, such as `agents/scout/memory/people.md`. */
 export function noteTextIn(
   path: string,
   fileText: string,
   noteId: string
 ): string | null {
-  const parsed = parseMemoryFile(path, fileText);
+  const parsed = parseMemoryFile(
+    path.replace(MEMORY_FOLDER_PREFIX, ""),
+    fileText
+  );
   if (!parsed.ok) {
     return null;
   }

@@ -54,12 +54,14 @@ function UndoNight({
 
 function DreamBody({
   agentName,
+  canChange,
   disabled,
   onUndo,
   pending,
   state,
 }: {
   agentName: string;
+  canChange: boolean;
   disabled: boolean;
   onUndo: (dreamRunId: string) => void;
   pending: DreamCardProps["pending"];
@@ -77,7 +79,7 @@ function DreamBody({
   }
   if (state.kind === "skipped") {
     return (
-      <p className="whitespace-pre-line break-words">
+      <p className="whitespace-pre-line [overflow-wrap:anywhere]">
         {state.run.diary === ""
           ? "Nothing new happened since the last dream, so nothing changed."
           : state.run.diary}
@@ -89,7 +91,7 @@ function DreamBody({
       <>
         <p>The dream failed and changed nothing.</p>
         {state.run.error === null ? null : (
-          <p className="break-words text-muted-foreground text-sm">
+          <p className="text-muted-foreground text-sm [overflow-wrap:anywhere]">
             {state.run.error}
           </p>
         )}
@@ -100,7 +102,7 @@ function DreamBody({
     return (
       <>
         <p>You undid this night. The notes are back as they were.</p>
-        <p className="whitespace-pre-line break-words text-muted-foreground">
+        <p className="whitespace-pre-line text-muted-foreground [overflow-wrap:anywhere]">
           {state.run.diary}
         </p>
         <SeeChanges runId={state.run.id} />
@@ -110,7 +112,9 @@ function DreamBody({
   const questionLine = questionsSentence(state.questions);
   return (
     <>
-      <p className="whitespace-pre-line break-words">{state.run.diary}</p>
+      <p className="whitespace-pre-line [overflow-wrap:anywhere]">
+        {state.run.diary}
+      </p>
       <p className="text-muted-foreground text-sm">
         {countsSentence(state.run.counts)}
       </p>
@@ -118,12 +122,12 @@ function DreamBody({
         <p className="text-sm">
           {questionLine}{" "}
           <Link className="underline underline-offset-4" to="/desk">
-            Answer in Needs you
+            Open Needs you
           </Link>
         </p>
       )}
       <div className="flex flex-col items-start gap-2">
-        {canUndoRun(state.run) && !disabled ? (
+        {canChange && canUndoRun(state.run) && !disabled ? (
           <UndoNight
             dreamRunId={state.run.id}
             onUndo={onUndo}
@@ -162,6 +166,7 @@ export function DreamCard({
       <h2 className="font-heading text-foreground text-lg">{heading}</h2>
       <DreamBody
         agentName={agentName}
+        canChange={canChange}
         disabled={disabled}
         onUndo={onUndo}
         pending={pending}

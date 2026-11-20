@@ -65,7 +65,10 @@ export function KnowsLayout({
       : learnedThisWeek(data.changes, data.nowMs, data.rules.agent.learnLevel);
   return (
     <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="col-span-full empty:hidden" data-slot="dream-card">
+      <div
+        className="col-span-full min-w-0 empty:hidden"
+        data-slot="dream-card"
+      >
         {data === undefined ? null : (
           <DreamSection
             agentName={room.agent.name}

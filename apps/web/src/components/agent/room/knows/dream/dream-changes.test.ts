@@ -48,7 +48,8 @@ afterAll(() => {
 
 const NOTE_ID = "01HZ7KQ3M8V2X4R6T9B1C5D0EF";
 const OTHER_ID = "01HZ8A2N7PW5G3J6D9K4QS1YXM";
-const PATH = "people.md";
+const FILE = "people.md";
+const PATH = `agents/scout/memory/${FILE}`;
 
 function fileWith(text: string, id = NOTE_ID): string {
   const note: MemoryNote = {
@@ -60,7 +61,7 @@ function fileWith(text: string, id = NOTE_ID): string {
     userScope: null,
     writtenBy: "agent",
   };
-  return serializeMemoryFile(PATH, [note]);
+  return serializeMemoryFile(FILE, [note]);
 }
 
 function makeChange(overrides: Partial<MemoryChange>): MemoryChange {

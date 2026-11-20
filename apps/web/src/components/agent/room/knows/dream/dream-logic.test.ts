@@ -201,12 +201,12 @@ test("questionsSentence is null for no questions", () => {
 });
 
 test("questionsSentence says One question for one", () => {
-  expect(questionsSentence(1)).toBe("One question for you.");
+  expect(questionsSentence(1)).toBe("It asked you one question.");
 });
 
 test("questionsSentence counts more than one", () => {
-  expect(questionsSentence(2)).toBe("2 questions for you.");
-  expect(questionsSentence(10)).toBe("10 questions for you.");
+  expect(questionsSentence(2)).toBe("It asked you 2 questions.");
+  expect(questionsSentence(10)).toBe("It asked you 10 questions.");
 });
 
 test("dreamTitle is Last night's dream for a start before 6 on the same day", () => {
@@ -255,10 +255,22 @@ test("dreamTitle gives the day count for older dreams", () => {
   );
 });
 
-test("canUndoRun is true only for a done run", () => {
+test("canUndoRun is true only for a done run that changed notes", () => {
+  const changed = { added: 1, dropped: 0, merged: 0, questions: 0 };
   for (const status of ALL_STATUSES) {
-    expect(canUndoRun(makeRun({ status }))).toBe(status === "done");
+    expect(canUndoRun(makeRun({ counts: changed, status }))).toBe(
+      status === "done"
+    );
   }
+  expect(canUndoRun(makeRun({ status: "done" }))).toBe(false);
+  expect(
+    canUndoRun(
+      makeRun({
+        counts: { added: 0, dropped: 0, merged: 0, questions: 3 },
+        status: "done",
+      })
+    )
+  ).toBe(false);
 });
 
 test("RUN_STATUS_LABELS names every status in plain words", () => {
