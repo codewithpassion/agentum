@@ -1,3 +1,7 @@
+import type { Database } from "@repo/db";
+import type { AgentRecord } from "../agents.ts";
+import type { LibraryService } from "../library.ts";
+import { libraryMemoryReader } from "../memory/prompt.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelOfRun } from "./access-scope.ts";
@@ -8,14 +12,51 @@ import {
   wantsTool,
 } from "./fake-tool.ts";
 import { buildLaunchContext } from "./launch-context.ts";
-import type { RunEventInput, RuntimeAdapter } from "./types.ts";
+import type { RunEventInput, RunRecord, RuntimeAdapter } from "./types.ts";
 
 export interface FakeRuntimeOptions {
+  /** Where the run's memory notes are read from. Without it, the reply carries no notes. */
+  library?: Partial<Pick<LibraryService, "read">>;
   /** How the tool mode reaches the connector proxy. Without it, a tool run fails. */
   proxy?: ProxyAccess;
   /** Mints the run token the tool mode sends to the proxy. Without it, a tool run fails. */
   signToken?: (claims: RunTokenClaims) => Promise<string>;
 }
+
+/**
+ * The notes the run's prompt carries, as a reply suffix, or an empty string
+ * when there are none. This is how a person sees that memory reached the run
+ * input, since the fake runtime has no model to use it.
+ */
+const memoryNotesOf = async (
+  db: Database,
+  run: RunRecord,
+  agent: AgentRecord,
+  library: FakeRuntimeOptions["library"]
+): Promise<string> => {
+  try {
+    if (!library?.read) {
+      return "";
+    }
+    const { memory } = await buildLaunchContext(db, run, agent, {
+      readMemoryFile: libraryMemoryReader(
+        { read: library.read },
+        run,
+        agent.slug
+      ),
+    });
+    const notes = memory ? memory.notes : [];
+    return notes.length === 0
+      ? ""
+      : `\n\nI remember:\n${notes.map((note) => `- ${note.text}`).join("\n")}`;
+  } catch (error) {
+    // Memory is a nicety here: a run that cannot read it still echoes.
+    console.error(
+      `Loading memory for fake run ${run.id} failed: ${error instanceof Error ? error.name : "unknown error"}`
+    );
+    return "";
+  }
+};
 
 const NEEDS_PROXY =
   "The fake tool mode needs the proxy's base URL (PUBLIC_BASE_URL) and RUN_TOKEN_KEY.";
@@ -32,6 +73,7 @@ const NEEDS_PROXY =
  * agent use an app without a machine.
  */
 export const createFakeRuntime = ({
+  library,
   proxy,
   signToken,
 }: FakeRuntimeOptions = {}): RuntimeAdapter => ({
@@ -39,11 +81,16 @@ export const createFakeRuntime = ({
   dispatch: async (db, run, agent, deps) => {
     const claimed = await deps.claimRun(SYSTEM_PRINCIPAL, run.id);
     const input = claimed.inputText;
+    const toolMode = wantsTool(modelOfRun(claimed, agent), input);
+    // A tool run answers with the tool's result, so it does not list notes.
+    const notes = toolMode
+      ? ""
+      : await memoryNotesOf(db, claimed, agent, library);
     let result: ToolRunResult = {
       events: [],
-      text: `Echo: ${input}`,
+      text: `Echo: ${input}${notes}`,
     };
-    if (wantsTool(modelOfRun(claimed, agent), input)) {
+    if (toolMode) {
       try {
         if (!(proxy && signToken)) {
           throw new Error(NEEDS_PROXY);

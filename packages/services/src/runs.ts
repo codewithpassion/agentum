@@ -511,7 +511,11 @@ export const createRunsService = ({
   if (devFakeRuntime) {
     adapterByKind.set(
       "fake",
-      createFakeRuntime({ proxy, signToken: (claims) => signToken(claims) })
+      createFakeRuntime({
+        library,
+        proxy,
+        signToken: (claims) => signToken(claims),
+      })
     );
   }
   const gatewayByKind = new Map<string, Gateway>([

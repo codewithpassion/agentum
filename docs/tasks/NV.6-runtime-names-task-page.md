@@ -3,7 +3,7 @@ id: NV.6
 title: "Runtime names on the task page and in the builder"
 milestone: NV
 size: S
-status: in_progress
+status: done
 depends_on: [RH.5]
 branch: task/NV.6-runtime-names-task-page
 lane: web-thread
@@ -32,3 +32,4 @@ From the NV gate review, round 2 (`docs/reviews/NV-2.md`, finding 1 with finding
 - 2026-11-20: added from the NV gate review, round 2 (one must-fix).
 - 2026-11-20: waits for RH.5, which holds the web-agent lane these notes live in.
 - 2026-11-20: dispatched on task/NV.6-runtime-names-task-page (v4 controller session).
+- 2026-11-20: merged as 3967b9d2, review clean after 0 fix rounds. Browser proof: docs/reviews/tasks/NV.6/browser.md (the task page Runs on line is hidden on phones by design, so that label was checked at desktop, as the task's check asks). check, test and build passed on main. NV closes: two gate rounds done.
