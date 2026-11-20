@@ -5,19 +5,16 @@ import { peerRootsOf } from "./peer-root.ts";
 import type { RunRecord } from "./types.ts";
 
 /**
- * Whether a machine run may end its turn on a question and get the answer as a
- * follow-up run. Only a plain run: work a peer set going, a hand-off child, a
- * subagent, a dry run, an app's or a peer task's run and an artifact-scoped (guest) run keep waiting, since
- * something is waiting on each. The request opens and the run parks under the
- * same rule, so a daemon that asks for more is refused.
+ * Whether the answer to something a run asked can come back as a follow-up run
+ * in its session. Only a plain run: work a peer set going, a hand-off child, a
+ * subagent, a dry run, an app's or a peer task's run and an artifact-scoped
+ * (guest) run cannot, since something is waiting on each.
  */
-export const runDefersQuestions = async (
+export const runTakesFollowUp = async (
   db: Database,
   run: RunRecord
 ): Promise<boolean> => {
   if (
-    run.claimedBy === null ||
-    run.claimedBy === "system" ||
     run.dryRun ||
     // An app and a peer's task each take one reply per run, and it ends them, so these runs cannot reply twice.
     run.reply.kind === "app" ||
@@ -36,3 +33,17 @@ export const runDefersQuestions = async (
     .limit(1);
   return session !== undefined && session.origin !== "artifact";
 };
+
+/**
+ * Whether a machine run may end its turn on a question and get the answer as a
+ * follow-up run. A plain run on a machine (see `runTakesFollowUp`). The request
+ * opens and the run parks under the same rule, so a daemon that asks for more
+ * is refused.
+ */
+export const runDefersQuestions = async (
+  db: Database,
+  run: RunRecord
+): Promise<boolean> =>
+  run.claimedBy !== null &&
+  run.claimedBy !== "system" &&
+  (await runTakesFollowUp(db, run));

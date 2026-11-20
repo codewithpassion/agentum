@@ -8,6 +8,11 @@ import { runRequests } from "@repo/db/schema/requests";
 import { A2A_SEND_TOOL, MAIL_SEND_TOOL } from "@repo/db/shared";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  DECISIONS_TOOL,
+  DECISIONS_TOOL_USE_PREFIX,
+  isDecisionsRequest,
+} from "../requests/decisions.ts";
+import {
   isTeamProposal,
   TEAM_PROPOSAL_PREFIX,
   TEAM_PROPOSE_TOOL,
@@ -53,8 +58,8 @@ export const isA2aApproval = (row: {
   row.toolUseId.startsWith(A2A_TOOL_USE_PREFIX);
 
 /**
- * A mail, promote, A2A send or team proposal approval: the request and
- * managed-run code skip all four.
+ * A mail, promote, A2A send or team proposal approval, or a decision queue: the
+ * request and managed-run code skip all five.
  */
 export const isDetachedApproval = (row: {
   toolName: string;
@@ -63,10 +68,11 @@ export const isDetachedApproval = (row: {
   isMailApproval(row) ||
   isPromoteApproval(row) ||
   isA2aApproval(row) ||
-  isTeamProposal(row);
+  isTeamProposal(row) ||
+  isDecisionsRequest(row);
 
-/** The SQL twin of `isDetachedApproval` that keeps mail, promote, A2A send and team proposal approvals out. `substr` compares case-sensitively, unlike `LIKE`. */
-export const notDetachedApproval = sql`NOT ((${runRequests.toolName} = ${MAIL_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${MAIL_TOOL_USE_PREFIX.length}) = ${MAIL_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${PROMOTE_TOOL_NAME} AND substr(${runRequests.toolUseId}, 1, ${PROMOTE_TOOL_USE_PREFIX.length}) = ${PROMOTE_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${A2A_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${A2A_TOOL_USE_PREFIX.length}) = ${A2A_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${TEAM_PROPOSE_TOOL} AND substr(${runRequests.toolUseId}, 1, ${TEAM_PROPOSAL_PREFIX.length}) = ${TEAM_PROPOSAL_PREFIX}))`;
+/** The SQL twin of `isDetachedApproval` that keeps mail, promote, A2A send and team proposal approvals and decision queues out. `substr` compares case-sensitively, unlike `LIKE`. */
+export const notDetachedApproval = sql`NOT ((${runRequests.toolName} = ${MAIL_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${MAIL_TOOL_USE_PREFIX.length}) = ${MAIL_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${PROMOTE_TOOL_NAME} AND substr(${runRequests.toolUseId}, 1, ${PROMOTE_TOOL_USE_PREFIX.length}) = ${PROMOTE_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${A2A_SEND_TOOL} AND substr(${runRequests.toolUseId}, 1, ${A2A_TOOL_USE_PREFIX.length}) = ${A2A_TOOL_USE_PREFIX}) OR (${runRequests.toolName} = ${TEAM_PROPOSE_TOOL} AND substr(${runRequests.toolUseId}, 1, ${TEAM_PROPOSAL_PREFIX.length}) = ${TEAM_PROPOSAL_PREFIX}) OR (${runRequests.toolName} = ${DECISIONS_TOOL} AND substr(${runRequests.toolUseId}, 1, ${DECISIONS_TOOL_USE_PREFIX.length}) = ${DECISIONS_TOOL_USE_PREFIX}))`;
 
 /**
  * Why the mail behind an answered approval never left, or null when it did, is

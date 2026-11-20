@@ -8,6 +8,7 @@ import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
+import { requireAgentOwnerOrAdmin } from "../guards.ts";
 import type { LibraryService } from "../library.ts";
 import type { Clock } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
@@ -92,6 +93,18 @@ export const createMailService = ({
       kind: "mailbox",
       workspaceId: agent.workspaceId,
     });
+    return agent;
+  };
+  /** Changing an agent's mail needs its owner or an org admin. A system call passes only when `internal`. */
+  const findManagedAgent = async (
+    principal: Principal,
+    agentId: string,
+    internal = false
+  ) => {
+    const agent = await findAgent(principal, agentId, internal);
+    if (principal.kind === "user") {
+      requireAgentOwnerOrAdmin(principal, agent, "mail.manage");
+    }
     return agent;
   };
   const read = async (agentId: string): Promise<Mailbox | null> => {
@@ -263,7 +276,7 @@ export const createMailService = ({
     principal: Principal,
     agentId: string
   ): Promise<Mailbox> => {
-    const agent = await findAgent(principal, agentId, true);
+    const agent = await findManagedAgent(principal, agentId, true);
     if (!(mailbox && routing && domain)) {
       throw new ServiceError("invalid", "Mail is not set up here");
     }
@@ -301,7 +314,7 @@ export const createMailService = ({
     );
   };
   const disable = async (principal: Principal, agentId: string) => {
-    await findAgent(principal, agentId);
+    await findManagedAgent(principal, agentId);
     const row = await read(agentId);
     if (!row) {
       throw new ServiceError("not_found", "Mailbox not found");

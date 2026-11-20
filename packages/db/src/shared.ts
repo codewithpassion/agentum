@@ -1722,15 +1722,18 @@ export type DreamDecision = (typeof DREAM_DECISIONS)[number];
 export const SPEND_PAUSE_REASONS = ["spend_cap", "manual"] as const;
 export type SpendPauseReason = (typeof SPEND_PAUSE_REASONS)[number];
 
-/** What one agent spent on one day, from its runs' usage. */
+/** What one agent, or one team's dreams, spent on one day, from usage. */
 export interface SpendRow {
-  agentId: string;
+  /** The agent that spent. Null on a team's row, which has no agent. */
+  agentId: string | null;
   /** Cents spent on the day. */
   cents: number;
   /** The day as `YYYY-MM-DD`. */
   day: string;
   /** How many runs that day counts. */
   tasks: number;
+  /** The team whose dreams spent it. Set only on a team's row, where `agentId` is null. */
+  teamId?: string;
 }
 
 /** An agent's pause state. Both fields are null while it runs. */
@@ -1869,8 +1872,24 @@ export interface TeamSlackMemberApp {
 export interface TeamSlackStatus {
   /** The agent members of the team, each with its Slack app state. Empty while the team has no link. */
   apps: TeamSlackMemberApp[];
+  /** The linked channel's name, or null while the team has no link or Slack gave no name. */
+  channelName: string | null;
   /** The link, or null while the team's room is not linked to a channel. */
   link: TeamSlackLink | null;
+}
+
+/** One Slack channel a team's lead app can post in. */
+export interface TeamSlackChannel {
+  id: string;
+  isPrivate: boolean;
+  name: string;
+}
+
+/** The channels a team's lead app can see, for the link picker. */
+export interface TeamSlackChannels {
+  channels: TeamSlackChannel[];
+  /** Slack's id for the workspace the channels are in, or null when no member agent has an installed Slack app. */
+  slackTeamId: string | null;
 }
 
 /** How a person is named and mentioned in team rooms. */

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { agents } from "@repo/db/schema/agents";
 import { memoryChanges } from "@repo/db/schema/memory";
+import { eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
 import {
   AGENT,
@@ -192,6 +194,65 @@ test("only the owner or an admin can approve or reject a held shared change", as
   expect(statusOf(world, rejectedByAdmin.id)).toBe("rejected");
   expect((await sharedNotes(world)).map((item) => item.id)).not.toContain(
     rejectedByAdmin.noteId
+  );
+});
+
+test("the backup owner decides a held shared change but still cannot edit, forget or undo it", async () => {
+  const world = makeWorld();
+  await world.db
+    .update(agents)
+    .set({ backupUserId: USER_A })
+    .where(eq(agents.id, AGENT))
+    .run();
+  await setLevel(world, "ask_first");
+  const approved = await world.service.add(run(RUN.ui), note());
+  const rejected = await world.service.add(run(RUN.ui), note());
+  const refused = await world.service.add(run(RUN.ui), note());
+
+  expect(
+    await errorOf(
+      world.service.decide(person(USER_B), {
+        changeId: refused.id,
+        decision: "approve",
+      })
+    )
+  ).toBeInstanceOf(ForbiddenError);
+  expect(statusOf(world, refused.id)).toBe("held");
+
+  await world.service.decide(person(USER_A), {
+    changeId: approved.id,
+    decision: "approve",
+  });
+  expect(statusOf(world, approved.id)).toBe("applied");
+
+  await world.service.decide(person(USER_A), {
+    changeId: rejected.id,
+    decision: "reject",
+  });
+  expect(statusOf(world, rejected.id)).toBe("rejected");
+
+  expect(
+    await errorOf(
+      world.service.edit(person(USER_A), {
+        agentId: AGENT,
+        noteId: approved.noteId,
+        text: "Changed by the backup",
+      })
+    )
+  ).toBeInstanceOf(ForbiddenError);
+  expect(
+    await errorOf(
+      world.service.forget(person(USER_A), {
+        agentId: AGENT,
+        noteId: approved.noteId,
+      })
+    )
+  ).toBeInstanceOf(ForbiddenError);
+  expect(
+    await errorOf(world.service.undo(person(USER_A), approved.id))
+  ).toBeInstanceOf(ForbiddenError);
+  expect((await sharedNotes(world)).map((item) => item.id)).toContain(
+    approved.noteId
   );
 });
 

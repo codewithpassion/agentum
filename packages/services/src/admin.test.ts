@@ -571,6 +571,46 @@ test("set owners: the agent's owner and an admin may change them, another member
   ).resolves.toMatchObject({ backupUserId: "u1", ownerUserId: "u2" });
 });
 
+test("reserving an agent's address needs its owner or an admin, not only a manager", async () => {
+  const agent = await admin.createAgent(writeKey, agentInput);
+  const strangerSession: Principal = {
+    kind: "user",
+    userId: "u2",
+    via: "session",
+    workspaceId: WORKSPACE,
+  };
+  const strangerWriteKey: Principal = {
+    apiKey: { access: "write", id: "k-stranger" },
+    kind: "user",
+    userId: "u2",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  await expect(
+    admin.reserveAgentAddress(strangerSession, agent.id, "mail")
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    admin.reserveAgentAddress(strangerWriteKey, agent.id, "mail")
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(agentsService.get(session, agent.id)).resolves.toMatchObject({
+    emailLocal: null,
+  });
+
+  await expect(
+    admin.reserveAgentAddress(writeKey, agent.id, "mail")
+  ).resolves.toMatchObject({ emailLocal: "mail" });
+  const otherAdminKey: Principal = {
+    apiKey: { access: "admin", id: "k-admin-u2" },
+    kind: "user",
+    userId: "u2",
+    via: "api_key",
+    workspaceId: WORKSPACE,
+  };
+  await expect(
+    admin.reserveAgentAddress(otherAdminKey, agent.id, "post")
+  ).resolves.toMatchObject({ emailLocal: "post" });
+});
+
 test("browser members manage agents; only browser admins grant and revoke secrets", async () => {
   const member = { ...session, isAdmin: false } as Principal;
   const agent = await admin.createAgent(member, agentInput);

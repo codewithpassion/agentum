@@ -34,11 +34,25 @@ export const paddedWindow = (from: string, to: string) => ({
 });
 
 export interface SpendFact {
-  agentId: string;
+  /** The agent that spent. Null for a team dream. */
+  agentId: string | null;
   at: string;
   costUsd: number;
   tasks: number;
+  /** The team whose dream spent it. Set with `agentId` null. */
+  teamId?: string;
 }
+
+const newRow = (fact: SpendFact, day: string): SpendRow => ({
+  agentId: fact.agentId,
+  cents: 0,
+  day,
+  tasks: 0,
+  ...(fact.teamId === undefined ? {} : { teamId: fact.teamId }),
+});
+
+/** The agent's id, or the team's for a team row. Sorts agents and teams together. */
+const sortName = (row: SpendRow): string => row.agentId ?? row.teamId ?? "";
 
 export const rollupSpend = (
   facts: readonly SpendFact[],
@@ -52,13 +66,8 @@ export const rollupSpend = (
     if (day < range.from || day > range.to) {
       continue;
     }
-    const key = JSON.stringify([day, fact.agentId]);
-    const row = buckets.get(key) ?? {
-      agentId: fact.agentId,
-      cents: 0,
-      day,
-      tasks: 0,
-    };
+    const key = JSON.stringify([day, fact.agentId, fact.teamId ?? null]);
+    const row = buckets.get(key) ?? newRow(fact, day);
     // Keep USD in the accumulator, then convert and round once per agent-day.
     row.cents += fact.costUsd;
     row.tasks += fact.tasks;
@@ -68,6 +77,9 @@ export const rollupSpend = (
     ...row,
     cents: Math.round(row.cents * 100),
   })).sort(
-    (a, b) => a.day.localeCompare(b.day) || a.agentId.localeCompare(b.agentId)
+    (a, b) =>
+      a.day.localeCompare(b.day) ||
+      sortName(a).localeCompare(sortName(b)) ||
+      (a.teamId ?? "").localeCompare(b.teamId ?? "")
   );
 };
