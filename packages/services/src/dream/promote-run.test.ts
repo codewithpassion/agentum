@@ -6,6 +6,7 @@ import {
   defined,
   makeDreamWorld,
   quiet,
+  RUN,
   SESSION,
 } from "./test-dream.ts";
 
@@ -258,4 +259,29 @@ test("undoing a dream keeps a skill proposal a person already approved", async (
 
   expect((await w.skillsStore.list(w.owner))[0]?.latestApprovedVersion).toBe(1);
   expect(await w.skillsStore.assignments(w.owner)).toHaveLength(1);
+});
+
+test("undoing a dream keeps a skill the agent proposed from an ordinary run", async () => {
+  const w = makeDreamWorld();
+  seedRuns(w, "only");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  const { skill } = await w.skillsStore.create(
+    { agentId: AGENT, kind: "run", runId: RUN.shared, workspaceId: WORKSPACE },
+    {
+      files: [
+        {
+          content:
+            "---\nname: from-chat\ndescription: Made in chat.\n---\n\nDo it.\n",
+          path: "SKILL.md",
+        },
+      ],
+      message: "From chat",
+      name: "from-chat",
+    }
+  );
+
+  await w.dream.undo(w.owner, run.id);
+
+  const left = await w.skillsStore.proposals(w.owner);
+  expect(left.map((version) => version.skillId)).toEqual([skill.id]);
 });

@@ -9,7 +9,7 @@ import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
 import { memoryChanges } from "@repo/db/schema/memory";
 import { skills, skillVersions } from "@repo/db/schema/skills";
 import type { DreamDecision } from "@repo/db/shared";
-import { and, asc, eq, gt, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt } from "drizzle-orm";
 import { ServiceError } from "../errors.ts";
 import { memoryFolderOf } from "../library/memory-paths.ts";
 import {
@@ -210,6 +210,8 @@ export const createDreamUndo = ({
           eq(skillVersions.authorKind, "agent"),
           eq(skillVersions.authorId, agent.id),
           eq(skillVersions.status, "proposed"),
+          // A dream writes with no run; a run's own proposal is not this dream's.
+          isNull(skillVersions.authorRunId),
           eq(skillVersions.number, 1),
           gte(skillVersions.createdAt, run.startedAt),
           next ? lt(skillVersions.createdAt, next.startedAt) : undefined

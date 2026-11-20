@@ -1395,21 +1395,26 @@ export const createSkillsStoreService = ({
 
   // --- approving ---
 
-  /** Settles a proposed version. Approving needs its base to be the latest approved version. */
   /**
    * A skill with no approved version has nothing to give, so rejecting its
-   * only proposal takes it back from the agents it was handed to. Empty when
-   * an approved version exists.
+   * last live proposal takes it back from the agents it was handed to. Empty
+   * when an approved version, or a proposal this rejection leaves, remains.
    */
   const takeBack = async (
     c: Caller,
     skill: SkillRow,
     versions: readonly VersionRow[],
+    settled: readonly VersionRow[],
     outcome: "approved" | "rejected"
   ): Promise<Statement[]> => {
+    const settledNumbers = new Set(settled.map((version) => version.number));
     if (
       outcome === "approved" ||
-      versions.some((version) => version.status === "approved")
+      versions.some(
+        (version) =>
+          version.status === "approved" ||
+          (version.status === "proposed" && !settledNumbers.has(version.number))
+      )
     ) {
       return [];
     }
@@ -1446,6 +1451,7 @@ export const createSkillsStoreService = ({
     ];
   };
 
+  /** Settles a proposed version. Approving needs its base to be the latest approved version. */
   const decide = async (
     principal: Principal,
     input: DecideInput,
@@ -1487,7 +1493,7 @@ export const createSkillsStoreService = ({
     const now = clock.now().toISOString();
     const settled =
       outcome === "approved" ? [target] : proposalsBuiltOn(versions, target);
-    const unassigning = await takeBack(c, skill, versions, outcome);
+    const unassigning = await takeBack(c, skill, versions, settled, outcome);
     await atomic([
       db
         .update(skillVersions)

@@ -176,3 +176,22 @@ test("rejecting a later proposal leaves a skill with an approved version assigne
 
   expect(await service.assignments(user())).toHaveLength(1);
 });
+
+test("rejecting a proposal built on a pending first version leaves the skill assigned", async () => {
+  const { service } = env;
+  const { skill } = await service.create(run(A1, R1), {
+    files: [write("pending", "one")],
+    message: "v1",
+    name: "pending",
+  });
+  await service.commit(run(A1, R1), {
+    baseVersion: 1,
+    message: "v2",
+    skillId: skill.id,
+    writes: [write("pending", "two")],
+  });
+
+  await service.reject(user(), { skillId: skill.id, version: 2 });
+
+  expect(await service.assignments(user())).toHaveLength(1);
+});
