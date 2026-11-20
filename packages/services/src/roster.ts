@@ -37,6 +37,7 @@ import type { RailService } from "./rail.ts";
 import { nextFireTime } from "./routines/cron.ts";
 import type { Clock } from "./runs/types.ts";
 import { visibleSessions } from "./sessions.ts";
+import { costOf } from "./usage-cost.ts";
 import type { Principal } from "./workspaces.ts";
 
 const ROSTER_READ = "roster.read";
@@ -84,20 +85,6 @@ interface Wait {
   owner: string;
   title: string;
 }
-
-const costOf = (raw: string | null): number => {
-  const usage = raw ? parseJson(raw) : null;
-  if (
-    usage &&
-    typeof usage === "object" &&
-    "costUsd" in usage &&
-    typeof usage.costUsd === "number" &&
-    Number.isFinite(usage.costUsd)
-  ) {
-    return usage.costUsd;
-  }
-  return 0;
-};
 
 const runFacts = (runList: RunFact[], weekStart: string) => {
   const latest = new Map<string, RunFact>();

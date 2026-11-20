@@ -1,16 +1,27 @@
 import type { Database } from "@repo/db";
 import type { Atomic } from "@repo/db/atomic";
+import { agents } from "@repo/db/schema/agents";
+import { dreamRuns } from "@repo/db/schema/dreams";
+import { runs } from "@repo/db/schema/runs";
+import { workspaces } from "@repo/db/schema/workspaces";
 import type {
   SpendCap,
   SpendCaps,
   SpendResume,
   SpendRow,
 } from "@repo/db/shared";
+import { and, eq, gte, lt, lte } from "drizzle-orm";
 import { z } from "zod";
 import { authorize } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { readableWorkspace } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
+import {
+  dayInTimezone,
+  mondayWeekStart,
+  paddedWindow,
+  rollupSpend,
+} from "./spend-rollups.ts";
 import type { Principal } from "./workspaces.ts";
 
 const SPEND_READ = "spend.read";
@@ -72,31 +83,146 @@ const spendResource = (workspaceId: string, id?: string) => ({
   workspaceId,
 });
 
-/**
- * Stub: nothing is spent, no cap is set, and a cap or a resume finds nothing
- * to change. The spend service task fills the reads from run usage and the cap
- * and pause columns, and the enforcement task decides who may set a cap or
- * resume an agent. It takes the dependencies it will need, so wiring it in
- * `compose.ts` is already final.
- */
-export const createSpendService = (_deps: SpendDeps) => {
+/** Workspace reads and internal cap accounting share the same daily rollups. */
+export const createSpendService = ({ db, clock }: SpendDeps) => {
+  const read = async (
+    workspaceId: string,
+    range: SpendRangeInput,
+    agentId?: string,
+    through?: Date
+  ): Promise<SpendRow[]> => {
+    const [workspaceRow] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId));
+    if (!workspaceRow) {
+      return [];
+    }
+    const { start, end } = paddedWindow(range.from, range.to);
+    const [runRows, dreams] = await Promise.all([
+      db
+        .select({
+          agentId: runs.agentId,
+          at: runs.createdAt,
+          usage: runs.usage,
+        })
+        .from(runs)
+        .innerJoin(agents, eq(agents.id, runs.agentId))
+        .where(
+          and(
+            eq(runs.workspaceId, workspaceId),
+            eq(agents.workspaceId, workspaceId),
+            eq(runs.dryRun, false),
+            gte(runs.createdAt, start),
+            lt(runs.createdAt, end),
+            agentId === undefined ? undefined : eq(runs.agentId, agentId),
+            through ? lte(runs.createdAt, through.toISOString()) : undefined
+          )
+        ),
+      db
+        .select({
+          agentId: dreamRuns.agentId,
+          at: dreamRuns.startedAt,
+          usage: dreamRuns.usage,
+        })
+        .from(dreamRuns)
+        .innerJoin(agents, eq(agents.id, dreamRuns.agentId))
+        .where(
+          and(
+            eq(dreamRuns.workspaceId, workspaceId),
+            eq(agents.workspaceId, workspaceId),
+            gte(dreamRuns.startedAt, start),
+            lt(dreamRuns.startedAt, end),
+            agentId === undefined ? undefined : eq(dreamRuns.agentId, agentId),
+            through
+              ? lte(dreamRuns.startedAt, through.toISOString())
+              : undefined
+          )
+        ),
+    ]);
+    return rollupSpend(
+      [
+        ...runRows.map((row) => ({ ...row, tasks: 1 })),
+        ...dreams.map((row) => ({ ...row, tasks: 0 })),
+      ],
+      workspaceRow.timezone,
+      range
+    );
+  };
+
+  const agentContext = async (agentId: string) => {
+    const [context] = await db
+      .select({ agent: agents, workspace: workspaces })
+      .from(agents)
+      .innerJoin(workspaces, eq(workspaces.id, agents.workspaceId))
+      .where(eq(agents.id, agentId));
+    if (!context) {
+      throw new ServiceError("not_found", `No agent "${agentId}"`);
+    }
+    return context;
+  };
+
+  const weekRows = (
+    workspaceRow: typeof workspaces.$inferSelect,
+    agentId?: string
+  ) => {
+    const now = clock.now();
+    return read(
+      workspaceRow.id,
+      {
+        from: mondayWeekStart(now, workspaceRow.timezone),
+        to: dayInTimezone(now, workspaceRow.timezone),
+      },
+      agentId,
+      now
+    );
+  };
+
+  // Weekly cents sum rounded agent-days so cap enforcement agrees with the spend page.
+  const totalCents = (rows: SpendRow[]) =>
+    rows.reduce((total, row) => total + row.cents, 0);
+
+  const weekToDate = async (agentId: string): Promise<number> => {
+    const context = await agentContext(agentId);
+    return totalCents(await weekRows(context.workspace, agentId));
+  };
+
+  const wouldExceed = async (agentId: string): Promise<boolean> => {
+    const context = await agentContext(agentId);
+    const agentCap = context.agent.weeklyCapCents;
+    const workspaceCap = context.workspace.weeklyCapCents;
+    if (agentCap === null && workspaceCap === null) {
+      return false;
+    }
+    const rows = await weekRows(
+      context.workspace,
+      workspaceCap === null ? agentId : undefined
+    );
+    return (
+      (agentCap !== null &&
+        totalCents(rows.filter((row) => row.agentId === agentId)) >=
+          agentCap) ||
+      (workspaceCap !== null && totalCents(rows) >= workspaceCap)
+    );
+  };
+
   const workspace = (
     principal: Principal,
-    _range: SpendRangeInput
+    range: SpendRangeInput
   ): Promise<SpendRow[]> => {
     const workspaceId = readableWorkspace(principal, SPEND_READ);
     authorize(principal, SPEND_READ, spendResource(workspaceId));
-    return Promise.resolve([]);
+    return read(workspaceId, spendRangeSchema.parse(range));
   };
 
   const byAgent = (
     principal: Principal,
     agentId: string,
-    _range: SpendRangeInput
+    range: SpendRangeInput
   ): Promise<SpendRow[]> => {
     const workspaceId = readableWorkspace(principal, SPEND_READ);
     authorize(principal, SPEND_READ, spendResource(workspaceId, agentId));
-    return Promise.resolve([]);
+    return read(workspaceId, spendRangeSchema.parse(range), agentId);
   };
 
   const setCap = (
@@ -138,7 +264,7 @@ export const createSpendService = (_deps: SpendDeps) => {
     return Promise.resolve({ agents: [], workspaceCapCents: null });
   };
 
-  return { byAgent, caps, resume, setCap, workspace };
+  return { byAgent, caps, resume, setCap, weekToDate, workspace, wouldExceed };
 };
 
 export type SpendService = ReturnType<typeof createSpendService>;
