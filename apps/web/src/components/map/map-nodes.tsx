@@ -1,6 +1,7 @@
 import type { MapOutputKind, MapTriggerKind } from "@repo/db/shared";
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { type DragEvent, type MouseEvent, useCallback, useState } from "react";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import {
   decodeTool,
   isMovableTrigger,
@@ -200,7 +201,7 @@ export function AgentNode({ id, data, selected }: NodeProps<AgentFlowNode>) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <Tile tone={data.tone}>{data.initials}</Tile>
+      <AgentTile avatar={data.avatar} />
       <div className="min-w-0 flex-1">
         <div className="truncate font-semibold text-[13px] text-foreground leading-tight">
           {data.label}

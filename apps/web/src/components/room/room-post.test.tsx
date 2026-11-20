@@ -141,7 +141,8 @@ test("an agent's avatar shows its glyph", () => {
   expect(html).toContain("bg-blue-600");
 });
 
-test("a person without an avatar shows initials", () => {
+test("a person without an avatar shows one letter of their name", () => {
   const html = render({ author: person, authorLabel: "You" });
-  expect(html).toContain(">DF</span>");
+  expect(html).toContain(">D</span>");
+  expect(html).not.toContain(">DF</span>");
 });

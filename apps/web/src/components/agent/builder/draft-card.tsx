@@ -1,5 +1,5 @@
 import type { ProfileGap } from "@repo/db/shared";
-import { VOICE_PRESETS } from "@repo/db/shared";
+import { defaultAgentAvatar, VOICE_PRESETS } from "@repo/db/shared";
 import type {
   AgentDraft,
   BuilderCatalog,
@@ -17,10 +17,7 @@ import {
   DictationPreview,
   useDictation,
 } from "#/components/dictation/index.ts";
-import {
-  agentInitials,
-  agentTileColour,
-} from "#/components/shell/agent-tile.ts";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
@@ -231,11 +228,7 @@ export function DraftCard({
       className="rounded-lg border-2 border-primary border-dashed bg-card p-4"
     >
       <header className="flex flex-wrap items-center gap-3.5">
-        <span
-          className={`grid size-[52px] shrink-0 place-items-center rounded-xl font-bold text-lg text-white ${agentTileColour(draft.name)}`}
-        >
-          {agentInitials(draft.name)}
-        </span>
+        <AgentTile avatar={defaultAgentAvatar(draft.name)} size="xl" />
         <div className="min-w-0 flex-[1_1_220px]">
           <Input
             aria-label="Agent name"

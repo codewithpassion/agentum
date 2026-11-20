@@ -15,6 +15,7 @@ import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import type {
+  AgentAvatar,
   AgentRuntime,
   EventType,
   RunStatus,
@@ -22,6 +23,7 @@ import type {
 } from "@repo/db/shared";
 import { and, asc, desc, eq, inArray, lt, ne, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import { avatarOf } from "../agents.ts";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { ServiceError } from "../errors.ts";
 import { personLabel } from "../events/summary.ts";
@@ -111,6 +113,7 @@ export interface TaskListItem {
 
 export interface TaskView {
   agent: {
+    avatar: AgentAvatar;
     /** The computer the agent is attached to, or null. Not the machine the session runs on. */
     computerMachineId: string | null;
     id: string;
@@ -441,6 +444,7 @@ export const createTasksService = ({
   ): Promise<EmptyTaskView> => {
     const [row] = await db
       .select({
+        agentAvatar: agents.avatar,
         agentModel: agents.model,
         agentName: agents.name,
         computerMachineId: agents.computerMachineId,
@@ -471,6 +475,7 @@ export const createTasksService = ({
       storedTitle(row.session.title) ?? titleFor(sources, row.session, "");
     return {
       agent: {
+        avatar: avatarOf({ avatar: row.agentAvatar, name: row.agentName }),
         computerMachineId: row.computerMachineId,
         id: row.session.agentId,
         machine:
@@ -580,6 +585,7 @@ export const createTasksService = ({
   ): Promise<TaskView> => {
     const [row] = await db
       .select({
+        agentAvatar: agents.avatar,
         agentModel: agents.model,
         agentName: agents.name,
         computerMachineId: agents.computerMachineId,
@@ -644,6 +650,7 @@ export const createTasksService = ({
     );
     return {
       agent: {
+        avatar: avatarOf({ avatar: row.agentAvatar, name: row.agentName }),
         computerMachineId: row.computerMachineId,
         id: run.agentId,
         machine:

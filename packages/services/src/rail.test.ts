@@ -15,6 +15,7 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import {
   APPROVAL_TTL_MS,
   type DeskCard,
+  defaultAgentAvatar,
   MAIL_APPROVAL_TTL_MS,
   MAIL_SEND_TOOL,
   RAIL_ESCALATE_AFTER_MS,
@@ -1619,4 +1620,55 @@ test("a linked Slack room that gets no messages is a problem on its owner's Need
     title: roomProblemTitle("Alpha"),
   });
   expect(mine.counts).toEqual({ everyone: 1, mine: 1 });
+});
+
+test("a Needs you card carries its agent's stored avatar", async () => {
+  await db
+    .update(agentRows)
+    .set({ avatar: JSON.stringify({ color: "violet", glyph: "Z" }) })
+    .where(eq(agentRows.id, a1));
+  await waitingOnApproval(a1);
+
+  const [item] = (await view("everyone")).needsYou;
+
+  expect(item?.cards[0]?.agentAvatar).toEqual({ color: "violet", glyph: "Z" });
+});
+
+test("a card whose agent is not in the list carries the default avatar of its name", async () => {
+  const roomProblem: RoomProblem = {
+    at: new Date(now).toISOString(),
+    error: "not_in_channel",
+    id: "room-gamma",
+    teamId: "t2",
+    teamName: "Gamma",
+    threadId: "thread-2",
+  };
+  const withRoom: typeof desk = {
+    ...desk,
+    railSources: async (principal, input) => ({
+      ...(await desk.railSources(principal, input)),
+      roomProblems: [roomProblem],
+    }),
+  };
+  const roomRail = createRailService({
+    agents,
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    desk: withRoom,
+    members: createMembersService({
+      db,
+      lister: () => Promise.resolve(memberList ?? []),
+    }),
+    people: (ids) => (people ? people(ids) : Promise.resolve(new Map())),
+  });
+
+  const mine = await roomRail.get(user("u1"), {
+    dayStart: DAY_START,
+    scope: "mine",
+  });
+
+  expect(mine.needsYou[0]?.cards[0]?.agentAvatar).toEqual(
+    defaultAgentAvatar("Gamma")
+  );
 });

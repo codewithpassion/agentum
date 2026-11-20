@@ -6,6 +6,8 @@ import { triggers as triggerRows } from "./schema/triggers.ts";
 import type { MapTriggerKind, MapWireKind } from "./shared.ts";
 
 export interface GraphAgent {
+  /** The agent's stored avatar JSON, as in `agents.avatar`. */
+  avatar: string;
   computerId: string | null;
   computerStatus: string | null;
   handsTo: string;
@@ -18,7 +20,7 @@ export interface GraphAgent {
 /** Workspace-wide reads, independent of the number of agents or wires. */
 export const graphNodes = async (db: Database, workspaceId: string) => {
   const [agents, triggers, ports, positions] = await Promise.all([
-    db.all<GraphAgent>(sql`select a.id, a.name, a.hands_to as handsTo,
+    db.all<GraphAgent>(sql`select a.id, a.name, a.avatar as avatar, a.hands_to as handsTo,
       a.runtime_config as runtimeConfig, a.computer_machine_id as computerId,
       m.computer_status as computerStatus,
       (select json_group_array(r.id) from runs r where r.agent_id = a.id and r.workspace_id = ${workspaceId}

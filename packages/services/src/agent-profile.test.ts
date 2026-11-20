@@ -355,6 +355,7 @@ test("profile fills every row from seeded data", async () => {
   const profile = await service.profile(user(), { agentId: a1 });
 
   expect(profile.header).toMatchObject({
+    avatar: { color: "red", glyph: "A" },
     emailLocal: "alpha",
     id: a1,
     machine: { id: "m1", name: "Studio Mac", status: "online" },

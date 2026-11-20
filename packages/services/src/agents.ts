@@ -9,8 +9,10 @@ import {
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
+  AGENT_AVATAR_COLORS,
   AGENT_RUNTIMES,
   AGENT_STATUSES,
+  type AgentAvatar,
   type AgentRuntime,
   type AgentStatus,
   CONTEXT_BUDGETS,
@@ -122,6 +124,8 @@ export const assertModelForRuntime = (
 };
 
 export interface AgentRecord {
+  /** The colour and glyph the agent shows everywhere. The default for its name when the stored one is unreadable. */
+  avatar: AgentAvatar;
   /** Who is asked when the owner does not answer in time, a Clerk user id. Null means no backup. */
   backupUserId: string | null;
   /** The computer this agent drives, or null. Only cloud and managed agents have one. */
@@ -342,7 +346,29 @@ const unsavedAgent = (patch: object | undefined): ServiceError =>
     ? new ServiceError("conflict", "The agent changed, try again")
     : new ServiceError("not_found", "Agent not found");
 
+const storedAvatarSchema = z.object({
+  color: z.enum(AGENT_AVATAR_COLORS),
+  glyph: z.string().min(1),
+});
+
+const parseJson = (raw: string): unknown => {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+/** The avatar an agent row stores, or the default for its name when the column is not a valid avatar. */
+export const avatarOf = (
+  row: Pick<AgentRow, "avatar" | "name">
+): AgentAvatar => {
+  const parsed = storedAvatarSchema.safeParse(parseJson(row.avatar));
+  return parsed.success ? parsed.data : defaultAgentAvatar(row.name);
+};
+
 const toRecord = (row: AgentRow): AgentRecord => ({
+  avatar: avatarOf(row),
   backupUserId: row.backupUserId,
   computerMachineId: row.computerMachineId,
   createdAt: row.createdAt,

@@ -13,7 +13,9 @@ import { mailMessages } from "@repo/db/schema/mail";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
+  type AgentAvatar,
   type DeskCard,
+  defaultAgentAvatar,
   MAIL_SEND_TOOL,
   type RailCard,
   type RailItem,
@@ -436,6 +438,11 @@ export const createRailService = ({
     const agentNames = new Map(
       agentList.map((agent) => [agent.id, agent.name])
     );
+    const agentAvatars = new Map(
+      agentList.map((agent) => [agent.id, agent.avatar])
+    );
+    const avatarFor = (agentId: string, agentName: string): AgentAvatar =>
+      agentAvatars.get(agentId) ?? defaultAgentAvatar(agentName);
     const assigneeFor = (agent: AgentRecord | undefined): string | null =>
       agent ? assigneeOf(agent, memberIds) : null;
     const ownRuns = new Set(sources.ownRunIds);
@@ -526,6 +533,7 @@ export const createRailService = ({
         return candidate(
           {
             ...optionalCardFields(deskCard),
+            agentAvatar: avatarFor(deskCard.agentId, agentName),
             agentId: deskCard.agentId,
             agentName,
             at: deskCard.at,
@@ -557,6 +565,7 @@ export const createRailService = ({
         };
         return candidate(
           {
+            agentAvatar: avatarFor(card.agentId, agentName),
             agentId: card.agentId,
             agentName,
             at: card.at,
@@ -582,6 +591,7 @@ export const createRailService = ({
       ...sources.roomProblems.map((problem) =>
         candidate(
           {
+            agentAvatar: avatarFor("", problem.teamName),
             agentId: "",
             agentName: problem.teamName,
             at: problem.at,

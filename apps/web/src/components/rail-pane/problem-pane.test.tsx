@@ -15,6 +15,7 @@ const router = createRouter({
 });
 
 const problem = (overrides: Partial<RailCard>): RailCard => ({
+  agentAvatar: { color: "slate", glyph: "?" },
   agentId: "agent_1",
   agentName: "Alpha",
   at: "2026-10-31T01:00:00.000Z",
