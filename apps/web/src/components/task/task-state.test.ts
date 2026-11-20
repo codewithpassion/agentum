@@ -195,6 +195,40 @@ describe("the requests of a task", () => {
     expect(view?.settled).toBeNull();
   });
 
+  test("a decisions queue keeps its saved answers when its opened event replays", () => {
+    const display = {
+      questions: [
+        { id: "q1", options: ["Red", "Blue"], text: "Which colour?" },
+        { id: "q2", options: ["Now", "Later"], text: "When?" },
+      ],
+    };
+    const record = {
+      answer: { decisions: { q1: "Red" } },
+      display,
+      expiresAt: "2030-01-01T00:00:00Z",
+      id: "dec-1",
+      kind: "decisions",
+      runId: "run-1",
+    } as unknown as NonNullable<TaskView["request"]>;
+    const live = applyFrame(
+      initialLive(makeTask({ request: record })),
+      eventFrame({
+        id: "e02",
+        payload: {
+          display,
+          expiresAt: "2030-01-01T00:00:00Z",
+          kind: "decisions",
+          requestId: "dec-1",
+        } as never,
+        type: "request.opened",
+      })
+    );
+    const view = requestViews(live).get("dec-1");
+    expect(view?.kind === "decisions" ? view.given : null).toEqual({
+      q1: "Red",
+    });
+  });
+
   test("a request.answered event settles it", () => {
     let live = applyFrame(initialLive(makeTask({})), opened());
     live = applyFrame(

@@ -91,6 +91,8 @@ export const main = async (): Promise<void> => {
     }
     const now = Date.now();
     const requestId = ulid(now);
+    const toolUseId = `decisions:${ulid(now)}`;
+    const expiresAt = new Date(now + DAY_MS).toISOString();
     client
       .query(
         `INSERT INTO run_requests (id, workspace_id, agent_id, run_id, session_id, kind, status, tool_name, tool_use_id, display, answer, expires_at, created_at)
@@ -102,12 +104,43 @@ export const main = async (): Promise<void> => {
         run.agent_id,
         run.id,
         run.session_id,
-        `decisions:${ulid(now)}`,
+        toolUseId,
         JSON.stringify(DISPLAY),
         values.partial
           ? JSON.stringify({ decisions: { q1: "Ship it" } })
           : null,
-        new Date(now + DAY_MS).toISOString(),
+        expiresAt,
+        new Date(now).toISOString()
+      );
+    // The conversation finds its card through the run's `request.opened` event.
+    const seq =
+      client
+        .query<{ next: number }, [string]>(
+          "SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM events WHERE run_id = ?"
+        )
+        .get(run.id)?.next ?? 1;
+    client
+      .query(
+        `INSERT INTO events (id, workspace_id, agent_id, session_id, run_id, seq, type, actor_kind, actor_id, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'request.opened', 'agent', ?, ?, ?)`
+      )
+      .run(
+        ulid(now),
+        run.workspace_id,
+        run.agent_id,
+        run.session_id,
+        run.id,
+        seq,
+        run.agent_id,
+        JSON.stringify({
+          display: DISPLAY,
+          expiresAt,
+          kind: "decisions",
+          requestId,
+          toolKey: null,
+          toolName: "ask_decisions",
+          toolUseId,
+        }),
         new Date(now).toISOString()
       );
     process.stderr.write(
