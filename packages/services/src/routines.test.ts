@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { type Atomic, sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { machines } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -459,6 +460,42 @@ test("pausing stops the routine and removing hides it", async () => {
   await expect(service.remove(user, routine.id)).rejects.toThrow(
     "Routine not found"
   );
+});
+
+test("a due slot of a paused agent passes with no run and no failure, and the next slot fires once it is unpaused", async () => {
+  const routine = await makeRoutine("* * * * *");
+  advance(MINUTE_MS);
+  db.update(agentRows)
+    .set({ pausedAt: "2026-10-16T10:01:00.000Z", pausedReason: "spend_cap" })
+    .where(eq(agentRows.id, agentId))
+    .run();
+
+  const skipped = await tick();
+
+  expect(skipped.fired).toEqual([]);
+  expect(skipped.skipped).toEqual([routine.id]);
+  expect(skipped.failed).toEqual([]);
+  expect(allRuns()).toEqual([]);
+  expect(dispatched).toEqual([]);
+  expect(routineRow(routine.id)?.consecutiveErrors).toBe(0);
+  expect(routineRow(routine.id)?.lastFiredAt).toBeNull();
+  expect(rowNext(routine.id)).toBe("2026-10-16T10:02:00.000Z");
+
+  db.update(agentRows)
+    .set({ pausedAt: null, pausedReason: null })
+    .where(eq(agentRows.id, agentId))
+    .run();
+  advance(MINUTE_MS);
+  const resumed = await tick();
+
+  expect(resumed.skipped).toEqual([]);
+  expect(resumed.fired).toHaveLength(1);
+  expect(
+    slotOf(
+      allRuns().find((run) => run.id === resumed.fired[0])?.requestId ?? null
+    )
+  ).toBe("2026-10-16T10:02:00.000Z");
+  expect(rowNext(routine.id)).toBe("2026-10-16T10:03:00.000Z");
 });
 
 test("failed and interrupted runs count, done clears, cancelled counts for nothing", async () => {

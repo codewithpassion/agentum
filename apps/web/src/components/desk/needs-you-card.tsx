@@ -27,6 +27,7 @@ import { SuggestionReview } from "#/components/wiki-suggestions/suggestion-revie
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
 import { ConflictResolver } from "./conflict-resolver.tsx";
+import { MemoryNoteActions } from "./memory-note-actions.tsx";
 import { ProposalActions } from "./proposal-actions.tsx";
 
 const BOX_CLASS =
@@ -287,6 +288,8 @@ export function NeedsYouBody({
       );
     case "library_conflict":
       return <ConflictResolver card={card} onChanged={onChanged} />;
+    case "memory_note":
+      return <MemoryNoteActions card={card} onChanged={onChanged} />;
     case "a2a_message":
     case "a2a_connection":
       return <A2aDecision card={card} onChanged={onChanged} />;

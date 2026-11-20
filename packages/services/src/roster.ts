@@ -43,6 +43,7 @@ import type { Principal } from "./workspaces.ts";
 const ROSTER_READ = "roster.read";
 const ROSTER_KIND = "roster";
 const JOB_LINE_MAX_CHARS = 80;
+export const PAUSED_STATUS_LINE = "Paused. Weekly limit reached";
 
 type AgentRow = typeof agents.$inferSelect;
 
@@ -192,6 +193,7 @@ const recentlyFinishedAt = (
 };
 
 const activityFor = (input: {
+  paused: boolean;
   wait: Wait | undefined;
   last: RunFact | undefined;
   active: RunFact | undefined;
@@ -204,6 +206,7 @@ const activityFor = (input: {
   clockFormat: Intl.DateTimeFormat;
 }): Pick<AgentCard, "state" | "statusLine"> => {
   const {
+    paused,
     wait,
     last,
     active,
@@ -215,6 +218,10 @@ const activityFor = (input: {
     timeFormat,
     clockFormat,
   } = input;
+  // A pause is itself a Needs you wait for the owner, so it is checked first.
+  if (paused) {
+    return { state: "stopped", statusLine: PAUSED_STATUS_LINE };
+  }
   if (wait) {
     return { state: "needs_you", statusLine: wait.title };
   }
@@ -448,6 +455,7 @@ export const createRosterService = ({
             : "",
           machineStatus,
           now,
+          paused: row.pausedAt !== null,
           runTitle: active
             ? runTitleText(active.inputText, subjectOf.get(active.id))
             : "",
@@ -455,7 +463,7 @@ export const createRosterService = ({
           wait,
         }),
         teamId: home?.teamId ?? null,
-        weeklyCapCents: null,
+        weeklyCapCents: row.weeklyCapCents,
       };
     });
   };

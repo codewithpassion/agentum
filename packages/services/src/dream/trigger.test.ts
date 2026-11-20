@@ -168,3 +168,33 @@ test("syncDreamTriggers for one agent leaves the others alone", async () => {
   ).toBe(1);
   expect(liveTrigger(w, OTHER)).toHaveLength(0);
 });
+
+test("a paused agent does not dream: the tick leaves its slot due, and Dream now is refused", async () => {
+  const time = movableClock("2026-11-20T12:00:00.000Z");
+  const w = makeDreamWorld(undefined, time.clock);
+  setTimezone(w, "UTC");
+  await w.dream.syncTriggers(SYSTEM_PRINCIPAL);
+  w.db
+    .update(agents)
+    .set({ pausedAt: "2026-11-20T11:00:00.000Z", pausedReason: "spend_cap" })
+    .where(eq(agents.id, AGENT))
+    .run();
+  const runsOf = () =>
+    w.db.select().from(dreamRuns).where(eq(dreamRuns.agentId, AGENT)).all();
+  time.set("2026-11-21T02:00:30.000Z");
+  await w.dream.fireDue(SYSTEM_PRINCIPAL);
+  expect(runsOf()).toHaveLength(0);
+  expect(liveTrigger(w, AGENT)[0]?.nextRunAt).toBe("2026-11-21T02:00:00.000Z");
+  await expect(w.dream.runNow(w.owner, AGENT)).rejects.toMatchObject({
+    code: "conflict",
+  });
+  expect(runsOf()).toHaveLength(0);
+  // Resumed, it dreams on the next tick.
+  w.db
+    .update(agents)
+    .set({ pausedAt: null, pausedReason: null })
+    .where(eq(agents.id, AGENT))
+    .run();
+  await w.dream.fireDue(SYSTEM_PRINCIPAL);
+  expect(runsOf()).toHaveLength(1);
+});

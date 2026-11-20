@@ -1018,6 +1018,11 @@ export const composeWith = ({
     a2aTasks.gateway,
     appReplies.gateway,
   ];
+  const spend = createSpendService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+  });
   const runs = createRunsService({
     adapters,
     atomic: infra.atomic,
@@ -1038,6 +1043,7 @@ export const composeWith = ({
     proxy: proxyAccessOf(infra),
     runTokenKey: infra.runTokenKey,
     secrets,
+    spend,
   });
   const mail = createMailService({
     atomic: infra.atomic,
@@ -1492,11 +1498,7 @@ export const composeWith = ({
       slackHistory,
       slackRequests,
       slackSend,
-      spend: createSpendService({
-        atomic: infra.atomic,
-        clock: infra.clock,
-        db,
-      }),
+      spend,
       takeover,
       tasks,
       teams: createTeamsService({

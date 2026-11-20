@@ -419,7 +419,9 @@ export const createDreamService = (deps: DreamDeps) => {
           isNull(triggers.disabledAt),
           isNotNull(triggers.nextRunAt),
           lte(triggers.nextRunAt, clock.now().toISOString()),
-          eq(agents.status, "active")
+          eq(agents.status, "active"),
+          // A paused agent does not dream. Its slot stays due, so it dreams as soon as it resumes.
+          isNull(agents.pausedAt)
         )
       )
       .orderBy(asc(triggers.nextRunAt))

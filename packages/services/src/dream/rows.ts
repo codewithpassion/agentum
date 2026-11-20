@@ -89,6 +89,8 @@ export interface DreamAgent {
   id: string;
   name: string;
   ownerUserId: string;
+  /** Set while the agent is paused: a paused agent does not dream. */
+  pausedAt: string | null;
   rules: RememberRules;
   slug: string;
   status: string;
@@ -120,6 +122,7 @@ export const loadDreamAgent = async (
       name: agents.name,
       neverRemember: workspaces.neverRemember,
       ownerUserId: agents.ownerUserId,
+      pausedAt: agents.pausedAt,
       remember: agents.remember,
       slug: agents.slug,
       status: agents.status,
@@ -144,6 +147,7 @@ export const loadDreamAgent = async (
     id: row.id,
     name: row.name,
     ownerUserId: effectiveOwner(row),
+    pausedAt: row.pausedAt,
     rules: rulesFrom(row.remember),
     slug: row.slug,
     status: row.status,

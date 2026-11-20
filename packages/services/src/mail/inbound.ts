@@ -10,23 +10,29 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { triggers } from "@repo/db/schema/triggers";
 import { LIBRARY_FILE_MAX_BYTES, taskFolderPath } from "@repo/db/shared";
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { authorize, ForbiddenError } from "../authz.ts";
 import { isReadOnly } from "../automation-access.ts";
-import { isUniqueViolation, ServiceError } from "../errors.ts";
+import { isAgentPaused, isUniqueViolation, ServiceError } from "../errors.ts";
 import type { EventsService } from "../events.ts";
 import type { LibraryService } from "../library.ts";
 import { type Clock, INPUT_TEXT_MAX } from "../runs/types.ts";
 import type { RunsService } from "../runs.ts";
 import { inBatches } from "../tasks/reads.ts";
 import { type Principal, SYSTEM_PRINCIPAL } from "../workspaces.ts";
-import type { InboundMessage, MailboxPort, StoredInbound } from "./types.ts";
+import type {
+  InboundMessage,
+  MailboxPort,
+  SentMail,
+  StoredInbound,
+} from "./types.ts";
 
 type Mailbox = typeof agentMailboxes.$inferSelect;
 type Conversation = typeof mailThreads.$inferSelect;
 const DELIVERY_STATUS_REPORT = /report-type\s*=\s*"?delivery-status/i;
 const LIST_PRECEDENCE = /^(bulk|list|junk)$/i;
+const RE_PREFIX = /^re:/i;
 const normalize = (address: string) => address.trim().toLowerCase();
 // Only a delivery status report is a bounce. A read receipt or abuse report is also multipart/report.
 const isBounce = (message: InboundMessage) =>
@@ -401,6 +407,75 @@ export const createInboundMail = ({
     }
     return conversation;
   };
+  // A paused agent starts no run, so the sender gets the reason once per pause instead of silence.
+  const replyPaused = async (
+    message: InboundMessage,
+    box: Mailbox,
+    stored: StoredInbound,
+    conversation: Conversation,
+    error: ServiceError
+  ) => {
+    if (!mailbox || stored.duplicate) {
+      return;
+    }
+    const [agent] = await db
+      .select({ pausedAt: agents.pausedAt })
+      .from(agents)
+      .where(eq(agents.id, box.agentId));
+    const [notice] = await db
+      .select({ id: mailMessages.id })
+      .from(mailMessages)
+      .where(
+        and(
+          eq(mailMessages.threadId, conversation.id),
+          eq(mailMessages.direction, "out"),
+          gte(
+            mailMessages.createdAt,
+            agent?.pausedAt ?? clock.now().toISOString()
+          )
+        )
+      );
+    if (notice) {
+      return;
+    }
+    const subject = RE_PREFIX.test(message.subject)
+      ? message.subject
+      : `Re: ${message.subject}`;
+    let sent: SentMail;
+    try {
+      sent = await mailbox.reply(
+        { mailboxId: box.id, workspaceId: box.workspaceId },
+        stored.threadId,
+        {
+          cc: [],
+          from: box.address,
+          subject,
+          text: error.message,
+          to: [message.from.address],
+        }
+      );
+    } catch (sendError) {
+      console.error("Paused agent notice failed to send", box.id, sendError);
+      return;
+    }
+    await db.insert(mailMessages).values({
+      ccAddresses: "[]",
+      createdAt: clock.now().toISOString(),
+      direction: "out",
+      externalMessageId: sent.messageId,
+      fromAddress: JSON.stringify({ address: box.address }),
+      id: ulid(),
+      requestId: null,
+      rfcMessageId: sent.rfcMessageId,
+      runId: null,
+      snippet: error.message,
+      status: "sent",
+      subject,
+      threadId: conversation.id,
+      toAddresses: JSON.stringify([message.from.address]),
+      workspaceId: box.workspaceId,
+    });
+  };
   const receive = async (message: InboundMessage) => {
     const [box] = await db
       .select()
@@ -577,6 +652,10 @@ export const createInboundMail = ({
     } catch (error) {
       // prepareStart uses not_found for draft/archived agents. Their mail stays visible.
       if (error instanceof ServiceError && error.code === "not_found") {
+        return;
+      }
+      if (isAgentPaused(error)) {
+        await replyPaused(message, box, stored, conversation, error);
         return;
       }
       throw error;

@@ -493,6 +493,14 @@ export const createDreamRunner = (deps: RunDeps) => {
    */
   const run = async (agentId: string): Promise<DreamRun> => {
     const agent = await loadDreamAgent(db, agentId);
+    // A paused agent starts nothing, a dream included. No run is recorded, so
+    // the next dream still reads everything since the last one.
+    if (agent.pausedAt !== null) {
+      throw new ServiceError(
+        "conflict",
+        `${agent.name} is paused, so it does not dream`
+      );
+    }
     const now = clock.now();
     await claim(agent.id, now);
     const runId = ulid();

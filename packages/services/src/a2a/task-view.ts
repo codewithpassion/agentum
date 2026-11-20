@@ -38,6 +38,7 @@ export const STATUS_TEXT = {
   finishedEmpty: "The agent finished and had no text to send back.",
   interrupted: "The run was interrupted before it finished.",
   notStarted: "The message could not be started.",
+  paused: "This agent is paused.",
   queued: "The agent has this message and will start shortly.",
   unanswered:
     "Nobody answered the agent's question in time, so the task was ended. Send a new message to start another.",
