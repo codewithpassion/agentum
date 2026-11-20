@@ -18,7 +18,11 @@ const procedure = {
   steps: ["Read the report.", "Send its summary."],
   title: "Summarize reports",
 };
-const promote = (draft = procedure, rejected: string[] = [], existingNames: string[] = []) =>
+const promote = (
+  draft = procedure,
+  rejected: string[] = [],
+  existingNames: string[] = []
+) =>
   promoteProcedures({
     existingNames,
     items,
@@ -33,18 +37,27 @@ test("three distinct cited runs draft a valid skill", async () => {
   expect(drafts[0]?.content).toContain("1. Read the report.");
 });
 test("two runs and repeated evidence do not qualify", async () => {
-  expect(await promote({ ...procedure, evidence: ["r1", "r2", "r2"] })).toEqual([]);
+  expect(await promote({ ...procedure, evidence: ["r1", "r2", "r2"] })).toEqual(
+    []
+  );
 });
 test("invented ids do not count", async () => {
-  expect(await promote({ ...procedure, evidence: ["r1", "r2", "invented"] })).toEqual([]);
+  expect(
+    await promote({ ...procedure, evidence: ["r1", "r2", "invented"] })
+  ).toEqual([]);
 });
 test("a normalized rejected title is skipped and supplied to the model", async () => {
   expect(await promote(procedure, ["  SUMMARIZE reports. "])).toEqual([]);
   let prompt = "";
-  await promoteProcedures({ existingNames: [], items, rejected: ["Summarize reports"], judge: (input) => {
-    prompt = input;
-    return Promise.resolve(null);
-  } });
+  await promoteProcedures({
+    existingNames: [],
+    items,
+    judge: (input) => {
+      prompt = input;
+      return Promise.resolve(null);
+    },
+    rejected: ["Summarize reports"],
+  });
   expect(prompt).toContain("Summarize reports");
 });
 test("an already owned name is skipped", async () => {
@@ -52,7 +65,15 @@ test("an already owned name is skipped", async () => {
 });
 test("null and unparseable judge answers draft nothing", async () => {
   for (const answer of [null, "not json"]) {
-    expect(await promoteProcedures({ existingNames: [], items, rejected: [], judge: () => Promise.resolve(answer) })).toEqual([]);
+    expect(
+      // biome-ignore lint/performance/noAwaitInLoops: exercise each failure answer independently
+      await promoteProcedures({
+        existingNames: [],
+        items,
+        judge: () => Promise.resolve(answer),
+        rejected: [],
+      })
+    ).toEqual([]);
   }
 });
 test("invalid names and single-step procedures are skipped", async () => {

@@ -1,7 +1,20 @@
 import { expect, test } from "bun:test";
-import { A1, B1, readOnlyUser, run, setup, skillMd, user } from "./test-support.ts";
+import {
+  A1,
+  B1,
+  readOnlyUser,
+  run,
+  setup,
+  skillMd,
+  user,
+} from "./test-support.ts";
 
-const input = { agentId: A1, files: [{ content: skillMd("report-summary"), path: "SKILL.md" }], message: "Summarize reports", name: "report-summary" };
+const input = {
+  agentId: A1,
+  files: [{ content: skillMd("report-summary"), path: "SKILL.md" }],
+  message: "Summarize reports",
+  name: "report-summary",
+};
 
 test("a dream proposes as its agent without a run and uses the existing approval flow", async () => {
   const { service } = setup();
@@ -17,7 +30,11 @@ test("a dream proposes as its agent without a run and uses the existing approval
 });
 test("dream proposal creation refuses other workspaces, runs and read-only callers", async () => {
   const { service } = setup();
-  await expect(service.proposeForAgent(user(), { ...input, agentId: B1 })).rejects.toThrow();
+  await expect(
+    service.proposeForAgent(user(), { ...input, agentId: B1 })
+  ).rejects.toThrow();
   await expect(service.proposeForAgent(run(), input)).rejects.toThrow();
-  await expect(service.proposeForAgent(readOnlyUser(), input)).rejects.toThrow();
+  await expect(
+    service.proposeForAgent(readOnlyUser(), input)
+  ).rejects.toThrow();
 });

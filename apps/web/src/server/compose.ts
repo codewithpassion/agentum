@@ -1432,6 +1432,7 @@ export const composeWith = ({
         library,
         managedKeys,
         memory,
+        skillsStore,
       }),
       events,
       files,

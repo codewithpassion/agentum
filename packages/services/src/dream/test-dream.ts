@@ -18,9 +18,9 @@ import {
   WORKSPACE,
   type World,
 } from "../memory/test-world.ts";
-import { createSkillsStoreService } from "../skills-store.ts";
-import { memorySkillBlobs } from "../skills-store/memory.ts";
 import type { Clock } from "../runs/types.ts";
+import { memorySkillBlobs } from "../skills-store/memory.ts";
+import { createSkillsStoreService } from "../skills-store.ts";
 
 export const SESSION = { ...BASE_SESSION, shared: "s_shared" } as const;
 export const RUN = { ...BASE_RUN, shared: "r_shared" } as const;
@@ -122,7 +122,14 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
           })
     );
   };
-  const skillsStore = createSkillsStoreService({ atomic: world.atomic, blobs: memorySkillBlobs(), clock: world.clock, db: world.db, events: eventsService, library: world.library });
+  const skillsStore = createSkillsStoreService({
+    atomic: world.atomic,
+    blobs: memorySkillBlobs(),
+    clock: world.clock,
+    db: world.db,
+    events: eventsService,
+    library: world.library,
+  });
   let key: string | null = "sk-ant-test";
   const dream = createDreamService({
     atomic: world.atomic,
@@ -248,7 +255,6 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
     files,
     owner,
     say,
-    skillsStore,
     setKey: (next: string | null) => {
       key = next;
     },
@@ -256,6 +262,7 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
     setScript: (next: Script) => {
       script = next;
     },
+    skillsStore,
   };
 };
 

@@ -44,6 +44,7 @@ import type { MemoryService } from "./memory/service.ts";
 import { toChange } from "./memory/service.ts";
 import type { Clock } from "./runs/types.ts";
 import { idString } from "./shared.ts";
+import type { SkillsStoreService } from "./skills-store.ts";
 import type { Principal } from "./workspaces.ts";
 
 const DREAM_READ = "dream.read";
@@ -92,6 +93,7 @@ export interface DreamDeps {
   managedKeys: Pick<ManagedKeysService, "resolve">;
   /** A person's answer to a question forgets the notes it did not keep, as that person. */
   memory: Pick<MemoryService, "forget">;
+  skillsStore: Pick<SkillsStoreService, "list" | "proposeForAgent">;
 }
 
 /** What one `fireDue` call did. Run ids, and the agents whose dream could not start. */
