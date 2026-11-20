@@ -39,7 +39,7 @@ The fixes: `dream_questions` table (migration 0058 regenerated, so there is one 
 ## Test notes
 
 - `bun run check` and `bun run build` pass, and the migration applies on a fresh local database with `wrangler d1 migrations apply DB --local`.
-- `bun run test` under load fails two timing tests and nothing else: `guest-execution.test.ts` in apps/web (known flake, fails alone about half the time here) and "an hour of never-claimed runs stays bounded" in `packages/services/src/runs.test.ts` (passes alone, 174 tests in 67 s). Both fail on a clean base the same way.
+- `bun run test` under load fails two timing tests and nothing else: `guest-execution.test.ts` in apps/web (known flake, fails alone about half the time here) and "an hour of never-claimed runs stays bounded" in `packages/services/src/runs.test.ts` (passes alone, 174 tests in 67 s). The reviewer reproduced the first on the base commit. After `git merge main` a full run also failed one `agentum-rs` test (`prerequisites_probe_only_fake_binary_and_check_only_version`, claude missing from PATH) once and passed on the next run.
 
 ## Steps for Dom
 
