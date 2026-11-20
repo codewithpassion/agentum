@@ -25,3 +25,4 @@ extract tests with a fake model for both shapes. A real-model run of two disagre
 - 2026-11-20: added from the dream walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: scope fixed by controller. The dispatcher found reconcile only questions notes that already exist and skips groups written only by a dream, so a prompt change alone can't raise a question. DR.10 keeps the prompt change. The Needs you question moves to DR.16 (services-dream lane, after DR.9).
+- 2026-11-21: ready at d76544bc, review clean with no fix rounds. Queued for merge.

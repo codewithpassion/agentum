@@ -123,7 +123,12 @@ export function RoomRequests({
               {`${directory.get(memberKey("agent", entry.agentId))?.name ?? "An agent"} needs you`}
             </p>
           ) : null}
-          <RequestCard nowMs={nowMs} onAnswer={answer} view={entry.view} />
+          <RequestCard
+            nowMs={nowMs}
+            onAnswer={answer}
+            onClosed={refresh}
+            view={entry.view}
+          />
         </li>
       ))}
     </ul>

@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/suspicious/useAwait: Async act flushes effects and promises. */
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
+import { useUser as realUseUser } from "@clerk/tanstack-react-start";
 import type { DeskCard } from "@repo/db/shared";
 import {
   createMemoryHistory,
@@ -118,6 +119,38 @@ test("Needs you renders grant approval for endpoint and agent requests", () => {
   expect(html).toContain(">Reject</button>");
 });
 
+test("Needs you renders a decision queue as a card with its progress and Dismiss", () => {
+  const html = renderToStaticMarkup(
+    <NeedsYouBody
+      agentName="Builder"
+      card={{ ...thread, kind: "request", needsYouKind: "decisions" }}
+      nowMs={Date.parse("2026-11-04T00:00:00Z")}
+      onAnswer={answer}
+      onChanged={noop}
+      request={{
+        anchorId: null,
+        display: {
+          questions: [
+            { id: "q1", options: ["Red", "Blue"], text: "Which colour?" },
+            { id: "q2", options: ["Now", "Later"], text: "When?" },
+          ],
+        },
+        expiresAt: "2026-11-04T01:00:00Z",
+        given: { q1: "Red" },
+        id: "request_1",
+        kind: "decisions",
+        runId: "run_1",
+        settled: null,
+      }}
+      version={null}
+    />
+  );
+  expect(html).toContain("1 of 2 answered");
+  expect(html).toContain("Which colour?");
+  expect(html).toContain(">Send answers</button>");
+  expect(html).toContain(">Dismiss</button>");
+});
+
 const dom = new Window({ url: "http://localhost/" });
 const previous = new Map<string, PropertyDescriptor | undefined>();
 const KEYS = [
@@ -139,6 +172,9 @@ beforeAll(() => {
       value: key === "IS_REACT_ACT_ENVIRONMENT" ? true : Reflect.get(dom, key),
     });
   }
+  mock.module("@clerk/tanstack-react-start", () => ({
+    useUser: () => ({ user: null }),
+  }));
   mock.module("#/integrations/trpc/client", () => ({
     getTrpc: () => ({
       agents: {
@@ -201,6 +237,7 @@ beforeAll(() => {
   }));
 });
 afterAll(() => {
+  mock.module("@clerk/tanstack-react-start", () => ({ useUser: realUseUser }));
   mock.module("#/integrations/trpc/client", () => ({ getTrpc: realGetTrpc }));
   for (const [key, descriptor] of previous) {
     if (descriptor) {
