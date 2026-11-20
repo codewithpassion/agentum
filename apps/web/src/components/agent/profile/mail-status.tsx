@@ -12,16 +12,19 @@ const TONE_CLASS = {
   warn: "border-warning/40 bg-warning/15 text-warning",
 } as const;
 
-/** The agent's mail address, its status, and a retry when provisioning failed or is still pending. */
+/** The agent's mail address, its status, and a retry when the viewer may and provisioning failed or is still pending. */
 export function MailStatus({
   agentId,
   agentStatus,
+  canManage,
   emailLocal,
   mailbox,
   onOpenMail,
 }: {
   agentId: string;
   agentStatus: AgentStatus;
+  /** Whether the viewer may change the mail setup (an owner or an org admin). */
+  canManage: boolean;
   emailLocal: string | null;
   mailbox: MailboxRecord;
   onOpenMail: () => void;
@@ -55,9 +58,9 @@ export function MailStatus({
           {mailbox.lastError}
         </span>
       ) : null}
-      {provisionLabel === null ? null : (
+      {canManage && provisionLabel !== null ? (
         <MailProvisionButton agentId={agentId} label={provisionLabel} />
-      )}
+      ) : null}
     </>
   );
 }
