@@ -3,7 +3,7 @@ id: KY.11
 title: "Allowed tools for a catalogue app that has not been connected"
 milestone: KY
 size: S
-status: in_progress
+status: done
 depends_on: [KY.7]
 branch: task/KY.11-allowed-tools-for-a-catalogue-app-that-h
 lane: web-settings
@@ -26,3 +26,4 @@ Component tests for the dialog with an empty cache and the table row. Browser: a
 ## Log
 - 2026-11-20: added from the KY walkthrough.
 - 2026-11-20: dispatched on task/KY.11-allowed-tools-for-a-catalogue-app-that-h (v4 controller session).
+- 2026-11-20: merged as 35969699, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/KY.11/browser.md. check, test and build passed on main.

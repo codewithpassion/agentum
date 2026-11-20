@@ -10,11 +10,16 @@ import type {
   SpendResume,
   SpendRow,
 } from "@repo/db/shared";
-import { and, eq, gte, lt, lte } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lt, lte } from "drizzle-orm";
 import { z } from "zod";
 import { authorize } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
-import { readableWorkspace } from "./guards.ts";
+import {
+  readableWorkspace,
+  requireAdminSession,
+  requireAgentOwnerOrAdmin,
+  requireSession,
+} from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import {
   dayInTimezone,
@@ -204,23 +209,57 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     return totalCents(await weekRows(context.workspace, agentId));
   };
 
-  const wouldExceed = async (agentId: string): Promise<boolean> => {
+  /** Whether the agent's week has reached its own cap, and the workspace's week its cap. */
+  const capStatus = async (agentId: string) => {
     const context = await agentContext(agentId);
     const agentCap = context.agent.weeklyCapCents;
     const workspaceCap = context.workspace.weeklyCapCents;
     if (agentCap === null && workspaceCap === null) {
-      return false;
+      return { agentOver: false, context, workspaceOver: false };
     }
     const rows = await weekRows(
       context.workspace,
       workspaceCap === null ? agentId : undefined
     );
-    return (
-      (agentCap !== null &&
-        totalCents(rows.filter((row) => row.agentId === agentId)) >=
-          agentCap) ||
-      (workspaceCap !== null && totalCents(rows) >= workspaceCap)
-    );
+    return {
+      agentOver:
+        agentCap !== null &&
+        totalCents(rows.filter((row) => row.agentId === agentId)) >= agentCap,
+      context,
+      workspaceOver: workspaceCap !== null && totalCents(rows) >= workspaceCap,
+    };
+  };
+
+  const wouldExceed = async (agentId: string): Promise<boolean> => {
+    const { agentOver, workspaceOver } = await capStatus(agentId);
+    return agentOver || workspaceOver;
+  };
+
+  /**
+   * Called when a run finishes. An agent over its own cap is paused, and a
+   * workspace over its cap pauses every agent in it. A run in flight is never
+   * touched: a pause only stops what starts next. An agent that is already
+   * paused keeps its first pause.
+   */
+  const enforceCap = async (agentId: string): Promise<void> => {
+    const { agentOver, context, workspaceOver } = await capStatus(agentId);
+    if (!(agentOver || workspaceOver)) {
+      return;
+    }
+    await db
+      .update(agents)
+      .set({
+        pausedAt: clock.now().toISOString(),
+        pausedReason: "spend_cap",
+      })
+      .where(
+        and(
+          eq(agents.workspaceId, context.workspace.id),
+          eq(agents.status, "active"),
+          isNull(agents.pausedAt),
+          workspaceOver ? undefined : eq(agents.id, agentId)
+        )
+      );
   };
 
   const workspace = (
@@ -242,46 +281,118 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     return read(workspaceId, spendRangeSchema.parse(range), agentId);
   };
 
-  const setCap = (
+  /** The agent in the caller's workspace, or not found. */
+  const ownAgent = async (workspaceId: string, agentId: string) => {
+    const [agent] = await db
+      .select()
+      .from(agents)
+      .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)));
+    if (!agent) {
+      throw new ServiceError("not_found", `No agent "${agentId}"`);
+    }
+    return agent;
+  };
+
+  /**
+   * Who may raise or remove a limit: a person on a browser session, never an
+   * agent, a key or an app, so an agent cannot lift its own cap. An agent's
+   * cap is its owner's or an org admin's to change, the workspace cap an org
+   * admin's.
+   */
+  const requireCapWriter = async (
     principal: Principal,
-    input: SetCapInput
+    agentId: string | null
+  ) => {
+    const workspaceId = readableWorkspace(principal, SPEND_WRITE);
+    authorize(
+      principal,
+      SPEND_WRITE,
+      spendResource(workspaceId, agentId ?? undefined)
+    );
+    if (agentId === null) {
+      requireAdminSession(principal, SPEND_WRITE);
+      return { agent: null, workspaceId };
+    }
+    const user = requireSession(principal, SPEND_WRITE);
+    const agent = await ownAgent(workspaceId, agentId);
+    requireAgentOwnerOrAdmin(user, agent, SPEND_WRITE);
+    return { agent, workspaceId };
+  };
+
+  const setCap = async (
+    principal: Principal,
+    rawInput: SetCapInput
   ): Promise<SpendCap> => {
-    const workspaceId = readableWorkspace(principal, SPEND_WRITE);
-    authorize(
+    const input = setCapInputSchema.parse(rawInput);
+    const { agent, workspaceId } = await requireCapWriter(
       principal,
-      SPEND_WRITE,
-      spendResource(workspaceId, input.agentId ?? undefined)
+      input.agentId
     );
-    return Promise.reject(
-      new ServiceError(
-        "not_found",
-        input.agentId ? `No agent "${input.agentId}"` : "No workspace"
-      )
-    );
+    await (agent
+      ? db
+          .update(agents)
+          .set({ weeklyCapCents: input.weeklyCapCents })
+          .where(eq(agents.id, agent.id))
+      : db
+          .update(workspaces)
+          .set({ weeklyCapCents: input.weeklyCapCents })
+          .where(eq(workspaces.id, workspaceId)));
+    return { agentId: input.agentId, weeklyCapCents: input.weeklyCapCents };
   };
 
-  const resume = (
+  /** Clears the pause, and sets, removes or keeps the agent's cap (`undefined` keeps it). */
+  const resume = async (
     principal: Principal,
-    input: ResumeInput
+    rawInput: ResumeInput
   ): Promise<SpendResume> => {
-    const workspaceId = readableWorkspace(principal, SPEND_WRITE);
-    authorize(
-      principal,
-      SPEND_WRITE,
-      spendResource(workspaceId, input.agentId)
-    );
-    return Promise.reject(
-      new ServiceError("not_found", `No agent "${input.agentId}"`)
-    );
+    const input = resumeInputSchema.parse(rawInput);
+    const { agent } = await requireCapWriter(principal, input.agentId);
+    const weeklyCapCents =
+      input.weeklyCapCents === undefined
+        ? (agent?.weeklyCapCents ?? null)
+        : input.weeklyCapCents;
+    await db
+      .update(agents)
+      .set({ pausedAt: null, pausedReason: null, weeklyCapCents })
+      .where(eq(agents.id, input.agentId));
+    return { pausedAt: null, pausedReason: null, weeklyCapCents };
   };
 
-  const caps = (principal: Principal): Promise<SpendCaps> => {
+  const caps = async (principal: Principal): Promise<SpendCaps> => {
     const workspaceId = readableWorkspace(principal, SPEND_READ);
     authorize(principal, SPEND_READ, spendResource(workspaceId));
-    return Promise.resolve({ agents: [], workspaceCapCents: null });
+    const [workspaceRow] = await db
+      .select({ weeklyCapCents: workspaces.weeklyCapCents })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId));
+    const rows = await db
+      .select({
+        agentId: agents.id,
+        pausedAt: agents.pausedAt,
+        pausedReason: agents.pausedReason,
+        weeklyCapCents: agents.weeklyCapCents,
+      })
+      .from(agents)
+      .where(
+        and(eq(agents.workspaceId, workspaceId), eq(agents.status, "active"))
+      )
+      .orderBy(asc(agents.name), asc(agents.id));
+    return {
+      agents: rows,
+      workspaceCapCents: workspaceRow?.weeklyCapCents ?? null,
+    };
   };
 
-  return { byAgent, caps, resume, setCap, weekToDate, workspace, wouldExceed };
+  return {
+    byAgent,
+    caps,
+    enforceCap,
+    resume,
+    setCap,
+    weekToDate,
+    workspace,
+    wouldExceed,
+  };
 };
 
 export type SpendService = ReturnType<typeof createSpendService>;

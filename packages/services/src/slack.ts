@@ -23,7 +23,7 @@ import { and, eq, gte, lt } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
-import { isServiceError, isUniqueViolation } from "./errors.ts";
+import { isAgentPaused, isServiceError, isUniqueViolation } from "./errors.ts";
 import type { EventsService, PeopleLookup } from "./events.ts";
 import type { Clock, StartRunInput } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
@@ -557,6 +557,61 @@ export const createSlackService = ({
     return { after: afterAnswer, kind: "accepted", runId: started.runId };
   };
 
+  /**
+   * The agent is paused, so no run starts. The sender is told why in the
+   * thread. The dedupe row is written first, so a second delivery of the same
+   * event stays silent.
+   */
+  const admitPaused = async (
+    app: SlackAppRow,
+    event: Mention,
+    eventHash: string,
+    text: string
+  ): Promise<ReceiveResult> => {
+    try {
+      await atomic([seenRow(app.workspaceId, eventHash, null)]);
+    } catch (error) {
+      // Another delivery of this event won the row and is answering.
+      if (isUniqueViolation(error)) {
+        return accepted;
+      }
+      throw error;
+    }
+    return {
+      after: async () => {
+        try {
+          await replyInThread(app, event, text);
+        } catch (replyError) {
+          console.error("Slack paused reply failed", replyError);
+        }
+      },
+      kind: "accepted",
+    };
+  };
+
+  /** Decides what a failed admission answers Slack with. */
+  const admitFailed = async (
+    app: SlackAppRow,
+    event: Mention,
+    eventHash: string,
+    error: unknown
+  ): Promise<ReceiveResult> => {
+    // Two deliveries of one event at the same moment: the other one won.
+    if (isUniqueViolation(error) && (await alreadySeen(eventHash))) {
+      return accepted;
+    }
+    if (isAgentPaused(error)) {
+      return await admitPaused(app, event, eventHash, error.message);
+    }
+    // An archived agent or a refused principal will not get better on a
+    // retry, so Slack is told 200. Anything else is ours and Slack retries.
+    if (isServiceError(error) || error instanceof ForbiddenError) {
+      console.warn("Slack message not admitted:", error.message);
+      return accepted;
+    }
+    throw error;
+  };
+
   /** A message that passed the signature check and is for the app to answer. */
   const admit = async (
     app: SlackAppRow,
@@ -586,17 +641,7 @@ export const createSlackService = ({
           )
         : await admitUnlinked(app, event, eventHash);
     } catch (error) {
-      // Two deliveries of one event at the same moment: the other one won.
-      if (isUniqueViolation(error) && (await alreadySeen(eventHash))) {
-        return accepted;
-      }
-      // An archived agent or a refused principal will not get better on a
-      // retry, so Slack is told 200. Anything else is ours and Slack retries.
-      if (isServiceError(error) || error instanceof ForbiddenError) {
-        console.warn("Slack message not admitted:", error.message);
-        return accepted;
-      }
-      throw error;
+      return await admitFailed(app, event, eventHash, error);
     }
   };
 

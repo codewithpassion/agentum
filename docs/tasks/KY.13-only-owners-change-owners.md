@@ -3,9 +3,9 @@ id: KY.13
 title: "Only an agent's owners or an admin change its owners"
 milestone: KY
 size: S
-status: todo
+status: in_progress
 depends_on: [KY.10]
-branch: null
+branch: task/KY.13-only-owners-change-owners
 lane: services-agents
 executor: claude
 ---
@@ -24,3 +24,4 @@ From the KY.10 review (`docs/reviews/tasks/KY.10.md`). `agents.setOwners` lets a
 
 ## Log
 - 2026-11-20: added from the KY.10 review. Rule follows Dom's KY.8 decision (owners and admins).
+- 2026-11-20: dispatched on task/KY.13-only-owners-change-owners (v4 controller session).

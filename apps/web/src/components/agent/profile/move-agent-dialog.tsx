@@ -56,7 +56,7 @@ export function MoveAgentDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
-  // A machine agent may still move to another machine.
+  // An agent on My computer may still move to another machine.
   const targets = MOVE_TARGETS.filter(
     (entry) => entry.id !== header.runtime || entry.id === "machine"
   );

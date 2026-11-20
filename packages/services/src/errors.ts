@@ -15,6 +15,7 @@ const STATUS: Record<ServiceErrorCode, number> = {
  * and never match the wording of the message.
  */
 export const ERROR_REASON = {
+  agentPaused: "agent_paused",
   keyInMessage: "key_in_message",
 } as const;
 
@@ -48,6 +49,21 @@ export const notFound = (message = "Not found"): ServiceError =>
 
 export const isServiceError = (error: unknown): error is ServiceError =>
   error instanceof ServiceError;
+
+/** What a paused agent answers to a start, in words a sender can read. */
+export const pausedMessage = (agentName: string): string =>
+  `${agentName} is paused. Its weekly limit was reached.`;
+
+/** A start refused because the agent is paused. Not a failure: the agent is waiting for its owner. */
+export const agentPaused = (agentName: string): ServiceError =>
+  new ServiceError(
+    "conflict",
+    pausedMessage(agentName),
+    ERROR_REASON.agentPaused
+  );
+
+export const isAgentPaused = (error: unknown): error is ServiceError =>
+  isServiceError(error) && error.reason === ERROR_REASON.agentPaused;
 
 const UNIQUE_MESSAGE = "UNIQUE constraint failed";
 const MAX_CAUSE_DEPTH = 5;

@@ -1,5 +1,6 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts } from "@repo/db/schema/library";
@@ -1128,6 +1129,51 @@ test("Needs you includes only open library conflicts in the workspace and agent 
   });
   expect(await desk.needsYouCount(user())).toBe(1);
   expect((await get({ agentId: a2 })).needsYou).toEqual([]);
+});
+
+test("an agent paused by its weekly cap is one spend_pause card until it is resumed", async () => {
+  const pausedAt = new Date(NOW).toISOString();
+  const pause = (id: string, reason: "manual" | "spend_cap" | null) =>
+    db
+      .update(agentRows)
+      .set({ pausedAt: reason ? pausedAt : null, pausedReason: reason })
+      .where(eq(agentRows.id, id))
+      .run();
+  pause(a2, "manual");
+  expect((await get()).needsYou).toEqual([]);
+
+  pause(a1, "spend_cap");
+  const cards = (await get()).needsYou;
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toMatchObject({
+    agentId: a1,
+    at: pausedAt,
+    id: a1,
+    needsYouKind: "spend_pause",
+  });
+  expect(await desk.needsYouCount(user())).toBe(1);
+  expect((await get({ agentId: a2 })).needsYou).toEqual([]);
+
+  // Only the owner, or an org admin, can resume, so only they get the card.
+  const otherMember: Extract<Principal, { kind: "user" }> = {
+    kind: "user",
+    userId: "u9",
+    via: "session",
+    workspaceId: "w1",
+  };
+  const dayStart = DAY_START;
+  expect((await desk.railSources(otherMember, { dayStart })).needsYou).toEqual(
+    []
+  );
+  expect(await desk.needsYouCount(otherMember)).toBe(0);
+  expect(
+    (await desk.railSources({ ...otherMember, isAdmin: true }, { dayStart }))
+      .needsYou
+  ).toHaveLength(1);
+
+  pause(a1, null);
+  expect((await get()).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user())).toBe(0);
 });
 
 const bobMessage = (

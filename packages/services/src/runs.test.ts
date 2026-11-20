@@ -2947,6 +2947,18 @@ describe("guest artifact starts", () => {
     expect(runRowCount()).toBe(1);
   });
 
+  test("a guest cannot choose a request id reserved for follow-ups", async () => {
+    await setupArtifact();
+    const service = guestRuns();
+    for (const requestId of ["question-answer:x", "Handoff-Wake:x"]) {
+      // biome-ignore lint/performance/noAwaitInLoops: two calls
+      await expect(queuedGuest(service, requestId)).rejects.toMatchObject({
+        code: "invalid",
+      });
+    }
+    expect(runRowCount()).toBe(0);
+  });
+
   test("daily cap serializes competing service instances and retries charge once", async () => {
     await setupArtifact();
     db.update(artifactMembers).set({ agentRunsPerDay: 3 }).run();
