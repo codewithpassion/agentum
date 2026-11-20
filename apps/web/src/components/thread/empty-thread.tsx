@@ -2,7 +2,6 @@ import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
-import { SidebarTrigger } from "#/components/ui/sidebar.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { EmptyTaskView } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
@@ -93,7 +92,6 @@ export function EmptyThread({
           aria-label="Breadcrumb"
           className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
         >
-          <SidebarTrigger className="hidden size-6 md:inline-flex" />
           <Link to="/desk">Desk</Link> › Conversation
         </nav>
         <h1 className="font-heading text-foreground text-xl">{task.title}</h1>

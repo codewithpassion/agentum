@@ -1,40 +1,18 @@
 import { Link } from "@tanstack/react-router";
-import {
-  APP_HEADER_MENU_SLOT,
-  HeaderActionsSlot,
-} from "#/components/shell/header-menu-slot";
 import { useIsAppShell } from "#/hooks/use-app-shell";
-import { useTaskLayout } from "#/hooks/use-task-layout";
-import { cn } from "#/lib/utils";
 import ClerkHeader from "../integrations/clerk/header-user.tsx";
 import ThemeToggle from "./theme-toggle";
 
+/** The bar of pages outside the app. Signed-in pages have the top bar of `_app` instead. */
 export default function Header() {
   const inAppShell = useIsAppShell();
-  const taskLayout = useTaskLayout();
+  if (inAppShell) {
+    return null;
+  }
 
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-50 border-border border-b bg-background/90 px-4 backdrop-blur-lg md:h-(--app-header-h)",
-        // Signed-in pages: the header spans the shell, so the right items
-        // meet the page content's right padding.
-        inAppShell && "sm:pr-6",
-        taskLayout && "h-[52px] shrink-0 md:h-(--app-header-h)"
-      )}
-    >
-      <nav
-        className={cn(
-          "flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4 md:h-full md:py-0",
-          !inAppShell && "page-wrap",
-          taskLayout && "h-full flex-nowrap py-0 sm:py-0"
-        )}
-      >
-        {/* The app shell portals its menu button in here on phones, so the
-            header is the only bar. Empty (and hidden) elsewhere. */}
-        {inAppShell ? (
-          <div className="empty:hidden md:hidden" id={APP_HEADER_MENU_SLOT} />
-        ) : null}
+    <header className="sticky top-0 z-50 border-border border-b bg-background/90 px-4 backdrop-blur-lg md:h-(--app-header-h)">
+      <nav className="page-wrap flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4 md:h-full md:py-0">
         <h2 className="m-0 flex-shrink-0 text-base">
           <Link
             className="inline-flex items-center gap-2.5 font-display text-foreground text-xl no-underline"
@@ -46,12 +24,8 @@ export default function Header() {
         </h2>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-          <HeaderActionsSlot inAppShell={inAppShell} />
           <ClerkHeader />
-
-          <div className={taskLayout ? "hidden md:block" : undefined}>
-            <ThemeToggle />
-          </div>
+          <ThemeToggle />
         </div>
       </nav>
     </header>

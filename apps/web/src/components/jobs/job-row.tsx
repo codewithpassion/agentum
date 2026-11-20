@@ -35,10 +35,16 @@ export interface JobRowProps {
   busy: boolean;
   job: JobSentence;
   nowMs: number | null;
+  /** Approves a proposed job that is awaiting approval. */
+  onApprove: (job: JobSentence) => void;
   onEdit: (job: JobSentence) => void;
   /** Pauses when the job is enabled, resumes when it is paused. */
   onPause: (job: JobSentence) => void;
+  /** Rejects a proposed job that is awaiting approval. */
+  onReject: (job: JobSentence) => void;
   onRunNow: (job: JobSentence) => void;
+  /** The full routine prompt, loaded by the parent. Null when there is none. */
+  prompt: string | null;
   /** Hides the buttons. */
   readOnly: boolean;
   showAgent: boolean;
@@ -51,21 +57,94 @@ export function JobRow({
   showAgent,
   busy,
   readOnly,
+  onApprove,
   onPause,
+  onReject,
   onRunNow,
   onEdit,
+  prompt,
 }: JobRowProps): ReactElement {
   const chips = jobChips(job, { showAgent });
   const jobName = job.does || job.when;
   const failed = job.lastRunOk === false && job.lastRunAt !== null;
+  const awaiting = job.awaitingApproval;
   const pauseVerb = job.enabled ? "Pause" : "Resume";
+  const promptText =
+    awaiting && prompt !== null && prompt.trim() !== "" ? prompt : null;
 
+  const handleApprove = useCallback(() => onApprove(job), [job, onApprove]);
+  const handleReject = useCallback(() => onReject(job), [job, onReject]);
   const handlePause = useCallback(() => onPause(job), [job, onPause]);
   const handleRunNow = useCallback(() => onRunNow(job), [job, onRunNow]);
   const handleEdit = useCallback(() => onEdit(job), [job, onEdit]);
 
+  const approvalButtons = (
+    <div className="flex flex-wrap gap-2">
+      <Button
+        aria-label={`Approve job: ${jobName}`}
+        disabled={busy}
+        onClick={handleApprove}
+        size="sm"
+        type="button"
+      >
+        Approve
+      </Button>
+      <Button
+        aria-label={`Reject job: ${jobName}`}
+        disabled={busy}
+        onClick={handleReject}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Reject
+      </Button>
+    </div>
+  );
+
+  const actionButtons = (
+    <div className="flex flex-wrap gap-2">
+      {canPause(job) ? (
+        <Button
+          aria-label={`${pauseVerb} job: ${jobName}`}
+          disabled={busy}
+          onClick={handlePause}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {pauseVerb}
+        </Button>
+      ) : null}
+      <Button
+        aria-label={`Edit job: ${jobName}`}
+        disabled={busy}
+        onClick={handleEdit}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Edit
+      </Button>
+      {canRunNow(job) ? (
+        <Button
+          aria-label={`Run job now: ${jobName}`}
+          disabled={busy}
+          onClick={handleRunNow}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Run now
+        </Button>
+      ) : null}
+    </div>
+  );
+
+  const buttons = awaiting ? approvalButtons : actionButtons;
+
   return (
-    <li className={job.enabled ? ROW_CLASS : DIMMED_ROW_CLASS}>
+    <li className={job.enabled || awaiting ? ROW_CLASS : DIMMED_ROW_CLASS}>
       <div className="flex flex-wrap items-center gap-1.5">
         {chips.map((chip) => (
           <span
@@ -76,7 +155,15 @@ export function JobRow({
             {chip.text}
           </span>
         ))}
-        {job.enabled ? null : (
+        {awaiting ? (
+          <span
+            className={`${CHIP_CLASS} ${TONE_CLASS.warn}`}
+            data-chip="awaiting"
+          >
+            Waiting for approval
+          </span>
+        ) : null}
+        {job.enabled || awaiting ? null : (
           <span
             className={`${CHIP_CLASS} ${TONE_CLASS.warn}`}
             data-chip="paused"
@@ -85,49 +172,22 @@ export function JobRow({
           </span>
         )}
       </div>
+      {promptText === null ? null : (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted-foreground">
+            See the full prompt
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">
+            {promptText}
+          </pre>
+        </details>
+      )}
       <p
         className={`text-xs ${failed ? "text-destructive" : "text-muted-foreground"}`}
       >
         {lastResultText(job, nowMs)}
       </p>
-      {readOnly ? null : (
-        <div className="flex flex-wrap gap-2">
-          {canPause(job) ? (
-            <Button
-              aria-label={`${pauseVerb} job: ${jobName}`}
-              disabled={busy}
-              onClick={handlePause}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              {pauseVerb}
-            </Button>
-          ) : null}
-          <Button
-            aria-label={`Edit job: ${jobName}`}
-            disabled={busy}
-            onClick={handleEdit}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Edit
-          </Button>
-          {canRunNow(job) ? (
-            <Button
-              aria-label={`Run job now: ${jobName}`}
-              disabled={busy}
-              onClick={handleRunNow}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Run now
-            </Button>
-          ) : null}
-        </div>
-      )}
+      {!readOnly && buttons}
     </li>
   );
 }

@@ -3,9 +3,9 @@ id: DR.3
 title: "Dream inputs: what happened since the last dream"
 milestone: DR
 size: M
-status: todo
+status: done
 depends_on: [DR.1]
-branch: null
+branch: task/DR.3-dream-inputs
 lane: services-dream-inputs
 executor: codex
 ---
@@ -26,3 +26,5 @@ From `docs/v4/build-plan.md`, milestone DR. Collect the evidence a dream reads. 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/DR.3-dream-inputs (v4 controller session).
+- 2026-11-20: merged as 7f50c0e7, review clean after 2 fix rounds. check, test and build passed on main.

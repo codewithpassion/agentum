@@ -1,9 +1,15 @@
 import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { SLACK_APP_STATUSES, SLACK_LISTEN_MODES } from "../shared.ts";
+import {
+  SLACK_APP_STATUSES,
+  SLACK_LISTEN_MODES,
+  SLACK_ROOM_DIRECTIONS,
+} from "../shared.ts";
 import { agents } from "./agents.ts";
+import { inboxPosts } from "./inbox.ts";
 import { runs } from "./runs.ts";
 import { sessions } from "./sessions.ts";
+import { teams } from "./teams.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
@@ -119,5 +125,63 @@ export const slackMessages = sqliteTable(
     uniqueIndex("slack_messages_message_unique").on(t.appId, t.channelId, t.ts),
     index("slack_messages_created_idx").on(t.createdAt),
     index("slack_messages_batch_idx").on(t.batchedAt, t.createdAt),
+  ]
+);
+
+/**
+ * The one Slack channel a team room is linked to. A team has at most one
+ * channel, and a channel belongs to at most one team, so both sides are
+ * unique (a channel id is unique only within its Slack workspace). `linked_by`
+ * is the Clerk user id of the person who linked it. Unlinking deletes the row.
+ */
+export const teamSlackLinks = sqliteTable(
+  "team_slack_links",
+  {
+    channelId: text("channel_id").notNull(),
+    createdAt: createdAt(),
+    id: id(),
+    linkedBy: text("linked_by").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("team_slack_links_team_unique").on(t.teamId),
+    uniqueIndex("team_slack_links_channel_unique").on(
+      t.slackTeamId,
+      t.channelId
+    ),
+  ]
+);
+
+/**
+ * Pairs a Slack message with the team room post it became (`in`) or came from
+ * (`out`). The unique key is the Slack message, so a retry or an echo of a
+ * message the room already holds is a no-op.
+ */
+export const slackRoomMessages = sqliteTable(
+  "slack_room_messages",
+  {
+    channelId: text("channel_id").notNull(),
+    createdAt: createdAt(),
+    direction: text("direction", { enum: SLACK_ROOM_DIRECTIONS }).notNull(),
+    id: id(),
+    postId: text("post_id")
+      .notNull()
+      .references(() => inboxPosts.id, { onDelete: "cascade" }),
+    slackTeamId: text("slack_team_id").notNull(),
+    threadTs: text("thread_ts"),
+    ts: text("ts").notNull(),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [
+    uniqueIndex("slack_room_messages_message_unique").on(
+      t.slackTeamId,
+      t.channelId,
+      t.ts
+    ),
+    index("slack_room_messages_post_idx").on(t.postId),
   ]
 );

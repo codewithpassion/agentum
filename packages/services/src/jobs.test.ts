@@ -145,6 +145,7 @@ const sentence = (
 ): JobSentence => ({
   agent: { id: "a1", name: "Alpha" },
   asksBefore: "Acting outside its workspace",
+  awaitingApproval: false,
   deliversTo: null,
   does: "Keep the harbour tidy.",
   enabled: true,
@@ -261,6 +262,7 @@ test("revoked, pending and paused starts; missing slot and timezone labels", asy
   expect(await service.list(user)).toEqual([
     {
       ...sentence("routine", "routine", "Every Tuesday at 9:00 (Sydney time)"),
+      awaitingApproval: true,
       does: "Send the digest",
       enabled: false,
     },
@@ -269,6 +271,10 @@ test("revoked, pending and paused starts; missing slot and timezone labels", asy
     .set({ approvedAt: NOW, disabledAt: NOW })
     .where(eq(triggers.id, "routine"))
     .run();
+  expect((await service.list(user))[0]).toMatchObject({
+    awaitingApproval: false,
+    enabled: false,
+  });
   expect((await service.list(user))[0]?.nextRunAt).toBeNull();
 });
 test("job line cap, ask levels and mail address fallback", async () => {
@@ -319,9 +325,12 @@ test("read-only principals can read but cannot run; refused principals cannot re
     );
   }
 });
-test("runNow starts one run per press and preserves the schedule", async () => {
+test("runNow starts one run per press, stamps lastFiredAt and keeps the schedule", async () => {
   insert("routine");
   const before = db.select().from(triggers).get();
+  if (!before) {
+    throw new Error("trigger missing");
+  }
   const first = await service.runNow(user, "routine");
   expect(db.select().from(runRows).all()).toHaveLength(1);
   const second = await service.runNow(user, "routine");
@@ -337,7 +346,12 @@ test("runNow starts one run per press and preserves the schedule", async () => {
     )
   ).toBe(true);
   expect(new Set(rows.map((row) => row.requestId)).size).toBe(2);
-  expect(db.select().from(triggers).get()).toEqual(before);
+  // A manual run counts as the job firing, so only `lastFiredAt` moves.
+  expect(before.lastFiredAt).toBeNull();
+  expect(db.select().from(triggers).get()).toEqual({
+    ...before,
+    lastFiredAt: NOW,
+  });
   const fired = db
     .select()
     .from(eventRows)
@@ -441,9 +455,15 @@ test("runNow can run an approved paused routine without resuming it", async () =
   insert("routine");
   db.update(triggers).set({ disabledAt: NOW }).run();
   const before = db.select().from(triggers).get();
+  if (!before) {
+    throw new Error("trigger missing");
+  }
   await service.runNow(user, "routine");
   expect(db.select().from(runRows).all()).toHaveLength(1);
-  expect(db.select().from(triggers).get()).toEqual(before);
+  expect(db.select().from(triggers).get()).toEqual({
+    ...before,
+    lastFiredAt: NOW,
+  });
   expect((await service.list(user))[0]).toMatchObject({
     enabled: false,
     nextRunAt: null,

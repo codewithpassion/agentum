@@ -3,7 +3,7 @@ id: RH.6
 title: "Shell: home first, one top bar"
 milestone: RH
 size: M
-status: in_progress
+status: done
 depends_on: [RH.3, NV.1]
 branch: task/RH.6-shell-top-bar
 lane: web-shell
@@ -30,3 +30,4 @@ From `docs/v4/build-plan.md`, milestone RH. Global actions sit in a top bar and 
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/RH.6-shell-top-bar (v4 controller session).
 - 2026-11-20: from the KY walkthrough: after this merges, open /threads/<id> at 390x844; it measured 424 px wide (header right group in the task layout). Fix it here if it still overflows.
+- 2026-11-20: merged as e150c344, review clean after 2 fix rounds. Browser proof passed at both sizes (task page scrollWidth 390 on a phone): docs/reviews/tasks/RH.6/browser.md. check, test and build passed on main. Desktop /desk no longer shows the permanent list (now only in the Needs you drawer); Board and New conversation left the top bar.

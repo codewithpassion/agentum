@@ -70,7 +70,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <TooltipProvider>
             {fullBleed ? null : <Header />}
             {/* flex-1 pushes the footer to the bottom on short pages. The app
-                shell carries its own footer inside the sidebar inset. */}
+                shell carries its own footer under the page content. */}
             <div
               className={cn(
                 "flex-1",
