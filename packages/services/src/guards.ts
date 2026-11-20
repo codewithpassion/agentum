@@ -65,3 +65,19 @@ export const requireAgentOwnerOrAdmin = (
     throw new ForbiddenError(action);
   }
 };
+
+/**
+ * Who may change an agent's apps, allowed tools, sign-in mode, Slack app and
+ * secret grants. A browser session must be an org admin or the agent's owner.
+ * A write key or a connected app keeps the scope check its own path made, so
+ * the agent builder and the admin tools still work.
+ */
+export const requireSessionAgentManager = (
+  principal: Principal,
+  agent: { createdBy: string; ownerUserId: string | null },
+  action: string
+): void => {
+  if (principal.kind === "user" && principal.via === "session") {
+    requireAgentOwnerOrAdmin(principal, agent, action);
+  }
+};

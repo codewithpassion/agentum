@@ -144,11 +144,11 @@ export const handsToWords = (handsTo: AgentKeyHandsTo[]): string =>
     : `Hands work to ${handsTo.map((agent) => agent.name).join(", ")}.`;
 
 /**
- * Whether the person may set or replace the agent's own credential: an org
- * admin, or the agent's owner. The owner is `ownerUserId`, or `createdBy` when
- * no owner is set.
+ * Whether the person may change the agent's apps, allowed tools, sign-in mode,
+ * own credential, Slack app and secret grants: an org admin, or the agent's
+ * owner. The owner is `ownerUserId`, or `createdBy` when no owner is set.
  */
-export const canSetAgentCredential = ({
+export const canManageAgentKeys = ({
   agent,
   isAdmin,
   userId,

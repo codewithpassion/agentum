@@ -448,6 +448,64 @@ describe("grants", () => {
     expect(db.select().from(secretRows).all()).toHaveLength(0);
     await service.remove(user, created.id);
   });
+
+  test("only the agent's owner or an org admin changes its grants, and a write key still does", async () => {
+    const orgAdmin: Principal = {
+      isAdmin: true,
+      kind: "user",
+      userId: "u9",
+      via: "session",
+      workspaceId: WORKSPACE,
+    };
+    const member: Principal = {
+      isAdmin: false,
+      kind: "user",
+      userId: "u3",
+      via: "session",
+      workspaceId: WORKSPACE,
+    };
+    const writeKey: Principal = {
+      apiKey: { access: "write", id: "k-write", name: "write key" },
+      kind: "user",
+      userId: "u3",
+      via: "api_key",
+      workspaceId: WORKSPACE,
+    };
+    const one = await proxySecret();
+    const two = await service.create(user, {
+      mode: "env",
+      name: "SECOND_KEY",
+      value: ECHO,
+    });
+    await service.setGrants(user, agentA, [one.id]);
+
+    expect(
+      await failure(service.setGrants(member, agentA, [two.id]))
+    ).toBeInstanceOf(ForbiddenError);
+    expect(await failure(service.grant(member, agentA, two.id))).toBeInstanceOf(
+      ForbiddenError
+    );
+    expect(
+      await failure(service.revoke(member, agentA, one.id))
+    ).toBeInstanceOf(ForbiddenError);
+    expect(await service.grantsOf(user, agentA)).toEqual([one.id]);
+
+    await service.grant(orgAdmin, agentA, two.id);
+    expect(await service.grantsOf(user, agentA)).toEqual(
+      [one.id, two.id].sort()
+    );
+    await service.revoke(orgAdmin, agentA, one.id);
+    await service.setGrants(orgAdmin, agentA, [one.id, two.id]);
+    expect(await service.grantsOf(user, agentA)).toEqual(
+      [one.id, two.id].sort()
+    );
+
+    await service.setGrants(writeKey, agentA, [two.id]);
+    expect(await service.grantsOf(user, agentA)).toEqual([two.id]);
+    await service.grant(writeKey, agentA, one.id);
+    await service.revoke(writeKey, agentA, two.id);
+    expect(await service.grantsOf(user, agentA)).toEqual([one.id]);
+  });
 });
 
 describe("allowed hosts", () => {

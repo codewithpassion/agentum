@@ -22,7 +22,7 @@ import { authorize } from "./authz.ts";
 import { encryptSecret, importSecretsKey } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireSession } from "./guards.ts";
+import { requireSession, requireSessionAgentManager } from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { idString } from "./shared.ts";
 import { slackSecretBinding } from "./slack/apps.ts";
@@ -246,6 +246,7 @@ export const createSlackAppsService = ({
       workspaceId: user.workspaceId,
     });
     const agent = await requireAgent(user, parsed.agentId);
+    requireSessionAgentManager(user, agent, PASTE_ACTION);
     const aesKey = await key();
 
     const client = createSlackClient({
@@ -353,6 +354,8 @@ export const createSlackAppsService = ({
       workspaceId: user.workspaceId,
     });
     const current = await summaryOf(user.workspaceId, parsed.id);
+    const agent = await requireAgent(user, current.agentId);
+    requireSessionAgentManager(user, agent, REVOKE_ACTION);
     if (current.status === "revoked") {
       return current;
     }
@@ -398,6 +401,8 @@ export const createSlackAppsService = ({
       workspaceId: user.workspaceId,
     });
     const current = await summaryOf(user.workspaceId, parsed.id);
+    const agent = await requireAgent(user, current.agentId);
+    requireSessionAgentManager(user, agent, SET_LISTEN_MODE_ACTION);
     if (current.status === "revoked") {
       throw new ServiceError(
         "conflict",

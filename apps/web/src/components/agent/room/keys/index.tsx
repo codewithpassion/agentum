@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { useCallback } from "react";
 import { BrowserSwitch } from "#/components/agent/profile/browser-switch.tsx";
 import { mailProvisionLabel } from "#/components/agent/profile/profile-logic.ts";
@@ -7,16 +8,25 @@ import { ArchivedNote, RoomSection, TabBody } from "../section.tsx";
 import { AppsSection } from "./apps-section.tsx";
 import { AskBeforeCard } from "./ask-before-card.tsx";
 import { IdentitySection } from "./identity-section.tsx";
+import { canManageAgentKeys } from "./keys-logic.ts";
 import { OtherAgentsSection } from "./other-agents-section.tsx";
 import { SecretsSection } from "./secrets-section.tsx";
 
 /**
  * The room's Keys tab: the apps the agent can use and whose sign-in each
  * uses, its own identity, passwords and keys, the other agents it works with,
- * and what it asks first.
+ * and what it asks first. Only an org admin or the agent's owner can change
+ * the apps, the Slack app and the secret grants, so the passwords and keys
+ * show to them alone.
  */
 export function KeysTab({ onOpenTab, room }: RoomTabProps) {
   const { agent, keys } = room;
+  const { orgRole, userId } = useAuth();
+  const canManage = canManageAgentKeys({
+    agent,
+    isAdmin: orgRole === "org:admin",
+    userId,
+  });
   const archived = agent.status === "archived";
   const openSettings = useCallback(() => onOpenTab("settings"), [onOpenTab]);
   const asksBefore = (
@@ -59,13 +69,16 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       </RoomSection>
       <IdentitySection
         agent={agent}
+        canManage={canManage}
         identity={keys === null ? null : keys.identity}
         provisionLabel={provisionLabel}
       />
-      <SecretsSection
-        agent={agent}
-        secrets={keys === null ? null : keys.secrets}
-      />
+      {canManage ? (
+        <SecretsSection
+          agent={agent}
+          secrets={keys === null ? null : keys.secrets}
+        />
+      ) : null}
       <OtherAgentsSection
         agent={agent}
         connections={room.connections}
