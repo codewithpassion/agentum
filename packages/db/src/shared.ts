@@ -823,8 +823,6 @@ export interface RailWorking {
   title: string;
 }
 
-export type RailSetupStep = "ai_account" | "first_agent";
-
 export interface RailView {
   /** Needs you, for the badge and the toggle. */
   counts: { everyone: number; mine: number };
@@ -832,7 +830,6 @@ export interface RailView {
   doneToday: number;
   /** Already filtered to the scope and sorted. */
   needsYou: RailItem[];
-  setup: RailSetupStep[];
   /** Already filtered to the scope, newest first. */
   working: RailWorking[];
 }

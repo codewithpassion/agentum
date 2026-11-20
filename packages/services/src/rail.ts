@@ -18,7 +18,6 @@ import {
   type RailItem,
   type RailItemKind,
   type RailMail,
-  type RailSetupStep,
   type RailView,
   type RailWorking,
 } from "@repo/db/shared";
@@ -30,9 +29,7 @@ import type { DeskService } from "./desk.ts";
 import { ServiceError } from "./errors.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
-import type { ManagedKeysService } from "./managed/keys.ts";
 import type { MembersService } from "./members.ts";
-import type { ModelKeysService } from "./model-keys.ts";
 import {
   assigneeOf,
   dueFrom,
@@ -216,9 +213,7 @@ export const createRailService = ({
   clock,
   db,
   desk,
-  managedKeys,
   members,
-  modelKeys,
   people,
 }: {
   agents: Pick<AgentsService, "list">;
@@ -226,9 +221,7 @@ export const createRailService = ({
   clock: Clock;
   db: Database;
   desk: Pick<DeskService, "railSources">;
-  managedKeys: Pick<ManagedKeysService, "status">;
   members: Pick<MembersService, "list">;
-  modelKeys: Pick<ModelKeysService, "configuredProviders">;
   people?: PeopleLookup;
 }) => {
   const requireMember = (principal: Principal, action: string) => {
@@ -413,14 +406,11 @@ export const createRailService = ({
   ): Promise<RailView> => {
     const member = requireMember(principal, READ_ACTION);
     const { dayStart, scope } = railInputSchema.parse(rawInput);
-    const [sources, agentList, directory, providers, anthropic] =
-      await Promise.all([
-        desk.railSources(member, { dayStart }),
-        agents.list(member, { includeArchived: true }),
-        directoryOf(member),
-        modelKeys.configuredProviders(member),
-        managedKeys.status(member),
-      ]);
+    const [sources, agentList, directory] = await Promise.all([
+      desk.railSources(member, { dayStart }),
+      agents.list(member, { includeArchived: true }),
+      directoryOf(member),
+    ]);
     const now = clock.now();
     const memberIds = directory?.ids ?? null;
     const agentOf = new Map(agentList.map((agent) => [agent.id, agent]));
@@ -641,15 +631,6 @@ export const createRailService = ({
       inScope(mineFor(assigneeFor(agentOf.get(agentId)), false, ownedBy(runId)))
     ).length;
 
-    const setup: RailSetupStep[] = [
-      ...(anthropic.configured || Object.values(providers).some(Boolean)
-        ? []
-        : ["ai_account" as const]),
-      ...(agentList.some((agent) => agent.status === "active")
-        ? []
-        : ["first_agent" as const]),
-    ];
-
     return {
       counts: {
         everyone: items.length,
@@ -657,7 +638,6 @@ export const createRailService = ({
       },
       doneToday,
       needsYou: sortNeedsYou(items.filter(({ mine }) => inScope(mine))),
-      setup,
       working,
     };
   };

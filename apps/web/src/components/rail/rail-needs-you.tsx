@@ -1,4 +1,4 @@
-import type { RailItem, RailScope, RailSetupStep } from "@repo/db/shared";
+import type { RailItem, RailScope } from "@repo/db/shared";
 import {
   agentInitials,
   agentTileColour,
@@ -6,21 +6,6 @@ import {
 import { cn } from "#/lib/utils";
 import { RailLink } from "./rail-link.tsx";
 import { dueLabel, extraCardsLabel } from "./rail-logic.ts";
-
-const SETUP_ROWS: Readonly<
-  Record<RailSetupStep, { href: string; status: string; title: string }>
-> = {
-  ai_account: {
-    href: "/settings/model-providers",
-    status: "Agents need it to run",
-    title: "Add your AI account",
-  },
-  first_agent: {
-    href: "/agents/new",
-    status: "Takes a minute",
-    title: "Describe your first job",
-  },
-};
 
 const ROW_CLASS =
   "block min-h-10 rounded-lg border border-border border-l-[3px] bg-card px-2.5 py-2 text-sm no-underline hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-foreground focus-visible:outline-offset-2";
@@ -36,30 +21,6 @@ function AgentTile({ name }: { name: string }) {
     >
       {agentInitials(name)}
     </span>
-  );
-}
-
-export function SetupRow({
-  onNavigate,
-  step,
-}: {
-  onNavigate: () => void;
-  step: RailSetupStep;
-}) {
-  const row = SETUP_ROWS[step];
-  return (
-    <RailLink
-      className={cn(ROW_CLASS, "border-l-primary")}
-      href={row.href}
-      onNavigate={onNavigate}
-    >
-      <span className="block font-medium text-foreground leading-snug">
-        {row.title}
-      </span>
-      <span className="mt-0.5 block text-muted-foreground text-xs">
-        {row.status}
-      </span>
-    </RailLink>
   );
 }
 
