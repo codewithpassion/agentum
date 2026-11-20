@@ -16,6 +16,17 @@ import {
   oneLine,
 } from "./judge.ts";
 
+export interface ReconcileResult extends StepResult {
+  /**
+   * The ids of the notes in a question. They stay in `notes`, but they wait for
+   * a person's answer, so a later step (prune) must neither drop nor merge them.
+   * A question names notes of one kind and one userScope, so DR.4 takes the
+   * question's scope from them: the question text and its options carry note
+   * text, and a private note's question belongs to that person alone.
+   */
+  held: string[];
+}
+
 export interface ReconcileInput {
   judge: Judge;
   notes: readonly MemoryNote[];
@@ -169,7 +180,7 @@ const reconcileGroup = async (
 export const reconcileNotes = async ({
   judge,
   notes,
-}: ReconcileInput): Promise<StepResult> => {
+}: ReconcileInput): Promise<ReconcileResult> => {
   const groups = scopeGroups(notes).filter(
     (group) => group.length >= 2 && hasFreshEvidence(group)
   );
@@ -181,8 +192,12 @@ export const reconcileNotes = async ({
       change.action === "drop" ? [change.noteId] : []
     )
   );
+  const held = changes.flatMap((change) =>
+    change.action === "question" ? change.noteIds : []
+  );
   return {
     changes,
+    held,
     notes: notes.filter((note) => !dropped.has(note.id)),
   };
 };

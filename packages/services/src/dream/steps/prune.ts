@@ -1,7 +1,9 @@
-// Ported from the-brain/packages/db/src/dream/hygiene.ts: a fact the agent has
-// not used for a while decays, and a fact must be old enough first, so a new
-// one has time to be used. The Brain's pass is LLM free and its `valid_until`
-// soft expiry becomes a `drop` here. The merge verdict and its floor come from
+// Ported from the-brain/packages/db/src/dream/hygiene.ts, in shape only: a fact
+// must be old enough before it can lapse. The Brain decays confidence from real
+// recall traces and soft-expires a fact so it can come back. A note has no use
+// signal, only the day it was written, and a `drop` is undone through the
+// dream's undo, so the age rule here is blunter than the Brain's. The task asks
+// for it as written: notes older than 60 days go. The merge verdict and its floor come from
 // judge.ts and apply.ts (AUTO_APPLY_FLOOR), and the size budget reuses them.
 // The finished-work pass and the size budget are new for notes.
 import type { DreamPlanChange, MemoryNote } from "@repo/db/shared";
@@ -26,8 +28,17 @@ import {
 export const STALE_DAYS = 60;
 
 export interface PruneInput {
+  /**
+   * Notes the pass must neither drop nor merge, such as the ones a question
+   * waits on (`ReconcileResult.held`). They still count toward the size.
+   */
+  held?: readonly string[];
   judge: Judge;
-  /** The most note text (sum of text lengths, as codec.budget counts) the notes may hold after the dream. */
+  /**
+   * The most note text (sum of text lengths, as codec.budget counts) the notes
+   * given may hold. A plan's `add` changes have no note here, so the caller
+   * passes the budget less the text it adds.
+   */
   maxChars: number;
   notes: readonly MemoryNote[];
   /** Today as `YYYY-MM-DD`. */
@@ -221,11 +232,14 @@ const fitBudget = async (
   judge: Judge,
   maxChars: number,
   notes: readonly MemoryNote[],
+  held: ReadonlySet<string>,
   today: string
 ): Promise<{ changes: DreamPlanChange[]; notes: MemoryNote[] }> => {
   const changes: DreamPlanChange[] = [];
   let current: MemoryNote[] = [...notes];
-  for (const group of budgetGroups(notes)) {
+  for (const group of budgetGroups(
+    notes.filter((note) => !held.has(note.id))
+  )) {
     if (textLength(current) <= maxChars) {
       break;
     }
@@ -258,14 +272,20 @@ const fitBudget = async (
  * text fits the budget. A null or unparseable judge answer changes nothing.
  */
 export const pruneNotes = async (input: PruneInput): Promise<PruneResult> => {
-  const stale = staleNoteIds(input.notes, input.today);
+  const held = new Set(input.held ?? []);
+  const free = input.notes.filter((note) => !held.has(note.id));
+  const stale = staleNoteIds(free, input.today);
   const afterAge = input.notes.filter((note) => !stale.has(note.id));
-  const finished = await finishedNoteIds(input.judge, afterAge);
+  const finished = await finishedNoteIds(
+    input.judge,
+    afterAge.filter((note) => !held.has(note.id))
+  );
   const afterWork = afterAge.filter((note) => !finished.has(note.id));
   const budget = await fitBudget(
     input.judge,
     input.maxChars,
     afterWork,
+    held,
     input.today
   );
   const changes = [

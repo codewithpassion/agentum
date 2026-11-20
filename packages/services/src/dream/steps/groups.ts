@@ -9,13 +9,15 @@ import type {
   MemoryNote,
   MemoryNoteKind,
 } from "@repo/db/shared";
-import { isFreshEvidence } from "./evidence.ts";
 import { clampConfidence, idsFrom, oneLine } from "./judge.ts";
 
 /** What a step returns: the changes it proposes, and the notes as they stand once they apply. */
 export interface StepResult {
   changes: DreamPlan;
-  /** The input notes after the changes. A step run next never names a note twice. */
+  /**
+   * The input notes after the changes, so the next step works on what is left.
+   * A note a plan adds has no id yet, so it is not in here.
+   */
   notes: MemoryNote[];
 }
 
@@ -39,10 +41,16 @@ export const scopeGroups = <T extends Scoped>(items: readonly T[]): T[][] => {
   return [...groups.values()];
 };
 
+const WRITER_RANK: Record<MemoryNote["writtenBy"], number> = {
+  agent: 1,
+  dream: 2,
+  person: 0,
+};
+
 const byKeeperOrder = (a: MemoryNote, b: MemoryNote): number => {
-  const evidence = Number(isFreshEvidence(b)) - Number(isFreshEvidence(a));
-  if (evidence !== 0) {
-    return evidence;
+  const writer = WRITER_RANK[a.writtenBy] - WRITER_RANK[b.writtenBy];
+  if (writer !== 0) {
+    return writer;
   }
   if (a.date !== b.date) {
     return a.date < b.date ? -1 : 1;
@@ -50,7 +58,7 @@ const byKeeperOrder = (a: MemoryNote, b: MemoryNote): number => {
   return a.id < b.id ? -1 : 1;
 };
 
-/** The note that stays when notes merge: a note a person or the agent wrote first, then the oldest, then the smaller id. */
+/** The note that stays when notes merge: a person's first, then the agent's, then a dream's, then the oldest, then the smaller id. */
 export const pickKeeper = (notes: readonly MemoryNote[]): MemoryNote | null =>
   [...notes].sort(byKeeperOrder)[0] ?? null;
 
@@ -93,7 +101,12 @@ export const parseMergeGroups = (
   return groups;
 };
 
-/** The `merge` change for a keeper that takes `text` and absorbs `absorbed`. */
+/**
+ * The `merge` change for a keeper that takes `text` and absorbs `absorbed`.
+ * `absorbed` may be empty: the keeper then only takes new text, an edit in
+ * place. `DreamPlan` has no edit action and `codec.apply` rejects a merge with
+ * nothing absorbed, so DR.4 applies an empty-absorbed merge as an `edit`.
+ */
 export const mergeChange = (
   keeper: MemoryNote,
   absorbed: readonly MemoryNote[],
@@ -106,9 +119,11 @@ export const mergeChange = (
 });
 
 /**
- * The notes after a merge. The keeper takes the text and, as the memory service
- * writes an edit, the day and the writer `dream`, so a later step sees it as
- * dream-written. The absorbed notes are gone.
+ * The notes after a merge. The keeper that takes new text also takes, as the
+ * memory service writes an edit, the day and the writer `dream`, so a later
+ * step sees it as dream-written. A keeper whose text does not change is left
+ * as it was, so folding an exact duplicate does not turn a person's note into
+ * dream output. The absorbed notes are gone.
  */
 export const notesAfterMerge = (
   notes: readonly MemoryNote[],
@@ -119,7 +134,7 @@ export const notesAfterMerge = (
   return notes
     .filter((note) => !gone.has(note.id))
     .map((note) =>
-      note.id === merge.keepNoteId
+      note.id === merge.keepNoteId && note.text !== merge.text
         ? { ...note, date: today, text: merge.text, writtenBy: "dream" }
         : note
     );

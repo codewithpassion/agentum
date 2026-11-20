@@ -90,3 +90,17 @@ test("notesAfterMerge drops the absorbed notes and rewrites the keeper as dream-
     other,
   ]);
 });
+
+test("pickKeeper puts a person's note before an agent's, even when the agent's is older", () => {
+  const person = note("p", { date: "2026-11-01", writtenBy: "person" });
+  const agent = note("a", { date: "2026-01-01" });
+  expect(pickKeeper([agent, person])?.id).toBe("p");
+});
+
+test("notesAfterMerge leaves a keeper whose text does not change as it was", () => {
+  const keeper = note("a", { writtenBy: "person" });
+  const change = mergeChange(keeper, [note("b")], keeper.text);
+  expect(notesAfterMerge([keeper, note("b")], change, "2026-11-20")).toEqual([
+    keeper,
+  ]);
+});

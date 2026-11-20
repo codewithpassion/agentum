@@ -161,6 +161,7 @@ test("the steps run in turn never name a note twice", async () => {
     notes: merged.notes,
   });
   const pruned = await pruneNotes({
+    held: reconciled.held,
     judge: fakeJudge([]).judge,
     maxChars: 6000,
     notes: reconciled.notes,
@@ -181,4 +182,58 @@ test("the steps run in turn never name a note twice", async () => {
   expect(named.toSorted()).toEqual(["a", "b", "c", "e"]);
   expect(new Set(named).size).toBe(named.length);
   expect(pruned.notes.map((n) => n.id)).toEqual(["a", "d"]);
+});
+
+test("a person's note is not folded into an agent's note after an exact duplicate fold", async () => {
+  const result = await mergeNotes({
+    candidates: [],
+    judge: fakeJudge([
+      {
+        groups: [{ confidence: 0.9, ids: ["a", "c"], text: "Mia wants docs" }],
+      },
+    ]).judge,
+    notes: [
+      note("a", {
+        date: "2026-10-05",
+        text: "Mia wants docs",
+        writtenBy: "person",
+      }),
+      note("b", { date: "2026-10-01", text: "Mia wants docs" }),
+      note("c", { date: "2026-10-02", text: "Mia likes docs" }),
+    ],
+    today: "2026-11-20",
+  });
+  expect(
+    result.changes.map((c) => c.action === "merge" && c.keepNoteId)
+  ).toEqual(["a", "a"]);
+});
+
+test("a note a question waits on is never dropped or merged by prune", async () => {
+  const stale = note("old", { date: "2026-01-01", writtenBy: "person" });
+  const fresh = note("new", { date: "2026-11-15", writtenBy: "agent" });
+  const { calls, judge } = fakeJudge([]);
+  const result = await pruneNotes({
+    held: ["old", "new"],
+    judge,
+    maxChars: 1,
+    notes: [stale, fresh],
+    today: "2026-11-20",
+  });
+  expect(calls).toHaveLength(0);
+  expect(result.changes).toEqual([]);
+  expect(result.notes).toEqual([stale, fresh]);
+});
+
+test("reconcile reports the notes a question holds", async () => {
+  const { judge } = fakeJudge([
+    { conflicts: [{ confidence: 0.9, ids: ["a", "b"], question: "Which?" }] },
+  ]);
+  const result = await reconcileNotes({
+    judge,
+    notes: [
+      note("a", { date: "2026-11-02" }),
+      note("b", { date: "2026-11-03" }),
+    ],
+  });
+  expect(result.held).toEqual(["a", "b"]);
 });

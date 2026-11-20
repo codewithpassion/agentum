@@ -137,7 +137,7 @@ test("two dream-written notes in conflict give no judge call at all", async () =
   );
   const result = await reconcileNotes({ judge, notes: [a, b] });
   expect(calls).toHaveLength(0);
-  expect(result).toEqual({ changes: [], notes: [a, b] });
+  expect(result).toEqual({ changes: [], held: [], notes: [a, b] });
 });
 
 test("a lone note is never sent to the judge", async () => {
@@ -207,7 +207,7 @@ test("a null, garbage or thrown answer changes nothing", async () => {
     answers.map((judge) => reconcileNotes({ judge, notes }))
   );
   for (const result of results) {
-    expect(result).toEqual({ changes: [], notes });
+    expect(result).toEqual({ changes: [], held: [], notes });
   }
 });
 
