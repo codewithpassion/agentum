@@ -16,7 +16,9 @@ import { importRunTokenKey, signRunToken } from "../run-tokens.ts";
 import { requireOrdinaryMachineRun } from "../runs/guest-scope.ts";
 import { buildLaunchContext } from "../runs/launch-context.ts";
 import type { AdapterDeps, RunRecord, RuntimeAdapter } from "../runs/types.ts";
+import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { CLOUD_DEFAULT_MODEL, findCloudModel } from "./models.ts";
+import { platformUrlMismatch } from "./port-mismatch.ts";
 import type { CloudRunnerPort } from "./types.ts";
 
 const describeError = (error: unknown): string =>
@@ -53,11 +55,14 @@ const desktopOf = (json: string | null): boolean => {
 export const createCloudRuntime = ({
   library,
   platformUrl,
+  requestOrigin,
   runner,
   runTokenKey,
 }: {
   library?: Pick<LibraryService, "read">;
   platformUrl: string;
+  /** Dev only: the origin of the request that dispatches, to catch a `platformUrl` on another port. */
+  requestOrigin?: string;
   runner: CloudRunnerPort;
   runTokenKey: string;
 }): RuntimeAdapter => {
@@ -189,6 +194,15 @@ export const createCloudRuntime = ({
     },
     dispatch: async (db, run, agent, deps) => {
       requireOrdinaryMachineRun(run);
+      const mismatch = platformUrlMismatch(platformUrl, requestOrigin);
+      if (mismatch) {
+        await deps.claimRun(SYSTEM_PRINCIPAL, run.id);
+        await deps.completeRun(SYSTEM_PRINCIPAL, run.id, {
+          error: mismatch,
+          status: "failed",
+        });
+        return;
+      }
       try {
         await startRunner(db, run, agent, deps);
       } catch (error) {
