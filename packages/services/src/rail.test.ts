@@ -1281,10 +1281,37 @@ test("roster reuses real requests, owner fallback, backup escalation and rail he
     ["needs_you", "Alpha asks before bash", 1],
     ["needs_you", "Beta asks before write", 1],
   ]);
-  expect((await rosterList(user("u2")))[0]?.state).toBe("idle");
+  // The card is the same for everyone: the backup and a member the request
+  // does not name both see it, before and after escalation.
+  expect((await rosterList(user("u2")))[0]).toMatchObject({
+    needsYouCount: 1,
+    state: "needs_you",
+    statusLine: "Alpha asks before bash",
+  });
+  expect((await rosterList(user("u3")))[0]?.state).toBe("needs_you");
   await heldMail({ to: ["priya@acme.com"] });
   now += RAIL_ESCALATE_AFTER_MS;
   expect((await rosterList(user("u2")))[0]?.state).toBe("needs_you");
+});
+
+test("a member the request does not name sees the agent as needing you, not Idle", async () => {
+  // Alpha belongs to Ann (u1), with a question open on its run. Bob is not
+  // its owner, backup or the run's starter.
+  await setOwners(a1, "u1");
+  const runId = await seed({ agentId: a1, status: "waiting", userId: "u1" });
+  await requests.open(system, {
+    kind: "question",
+    questions: [{ header: "Report", question: "Which report?" }],
+    runId,
+    toolName: "ask_user",
+    toolUseId: "call-q",
+  });
+  expect((await view("mine", user("u2"))).needsYou).toHaveLength(0);
+  const [card] = await rosterList(user("u2"));
+  const [owners] = await rosterList(user("u1"));
+  expect(card).toMatchObject({ needsYouCount: 1, state: "needs_you" });
+  expect(card?.statusLine).not.toBe("Idle");
+  expect(card?.state).toBe(owners?.state);
 });
 
 test("roster cannot expose another member's private requests or runs", async () => {

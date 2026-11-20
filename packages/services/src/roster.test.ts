@@ -266,6 +266,69 @@ test("a running run supplies its task title", async () => {
   });
 });
 
+test.each([
+  ["queued", "Queued"],
+  ["offered", "Starting"],
+] as const)("a %s run is working, never idle", async (status, statusLine) => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { status });
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "working",
+    statusLine,
+  });
+});
+
+test("a running run beats a queued one for the status line", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { createdAt: "2025-12-31T23:00:00.000Z" });
+  seedRun("r2", { status: "queued" });
+  expect((await service.list(user))[0]).toMatchObject({
+    state: "working",
+    statusLine: "Prepare the report",
+  });
+});
+
+test("a waiting run with no visible wait needs the owner, never idle", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", { status: "waiting" });
+  expect((await service.list(user))[0]).toMatchObject({
+    needsYouCount: 0,
+    state: "needs_you",
+    statusLine: "Waiting on a person",
+  });
+});
+
+test("a waiting run names the agent's owner", async () => {
+  insertAgent({ id: "a1", name: "Alpha", ownerUserId: "u2" });
+  seedRun("r1", { status: "waiting" });
+  const named = createRosterService({
+    clock,
+    db,
+    members: {
+      list: () =>
+        Promise.resolve([
+          { name: "Ann", userId: "u1" },
+          { name: "Bob", userId: "u2" },
+        ]),
+    },
+    rail: { get: () => Promise.resolve(railView) },
+  });
+  expect((await named.list(user))[0]).toMatchObject({
+    state: "needs_you",
+    statusLine: "Waiting on Bob",
+  });
+});
+
+test("an older waiting run still shows when newer runs have finished", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  seedRun("r1", {
+    createdAt: "2025-11-01T00:00:00.000Z",
+    status: "waiting",
+  });
+  seedRun("r2", { finishedAt: "2025-12-31T23:00:00.000Z", status: "done" });
+  expect((await service.list(user))[0]?.state).toBe("needs_you");
+});
+
 test.each(["failed", "interrupted"] as const)(
   "a %s last run is stopped, ahead of a running run",
   async (status) => {
