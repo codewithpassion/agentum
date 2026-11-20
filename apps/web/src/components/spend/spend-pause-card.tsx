@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/tanstack-react-start";
+import { sumSpendCents } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import {
   type ChangeEvent,
@@ -188,7 +189,7 @@ export function SpendPause({
           from: week.start,
           to: week.end,
         });
-        const total = rows.reduce((sum, row) => sum + row.cents, 0);
+        const total = sumSpendCents(rows);
         if (active && total >= workspaceCap) {
           setWorkspaceHeld(workspaceCap);
         }

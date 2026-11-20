@@ -592,3 +592,26 @@ test("a resumed agent starts once an admin raises the workspace cap above the we
   await spend.setCap(admin, { agentId: null, weeklyCapCents: 10_000 });
   await start(aId);
 });
+
+test("agent dreams too small to show as a cent alone pause the agent once they add up", async () => {
+  setCap(aId, 1);
+  for (const id of ["d1", "d2", "d3"]) {
+    db.insert(dreamRuns)
+      .values({
+        agentId: aId,
+        id,
+        startedAt: START,
+        status: "done",
+        usage: JSON.stringify({ costUsd: 0.004 }),
+        workspaceId: WORKSPACE,
+      })
+      .run();
+  }
+  expect(await spend.weekToDate(aId)).toBe(1);
+  expect(await spend.wouldExceed(aId)).toBe(true);
+  await spend.enforceCap(aId);
+  expect(agentRow(aId)).toMatchObject({
+    pausedAt: START,
+    pausedReason: "spend_cap",
+  });
+});

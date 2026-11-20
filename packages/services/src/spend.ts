@@ -4,11 +4,12 @@ import { agents } from "@repo/db/schema/agents";
 import { dreamRuns } from "@repo/db/schema/dreams";
 import { runs } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type {
-  SpendCap,
-  SpendCaps,
-  SpendResume,
-  SpendRow,
+import {
+  type SpendCap,
+  type SpendCaps,
+  type SpendResume,
+  type SpendRow,
+  sumSpendCents,
 } from "@repo/db/shared";
 import { and, asc, eq, gte, isNotNull, isNull, lt, lte } from "drizzle-orm";
 import { z } from "zod";
@@ -234,9 +235,8 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     );
   };
 
-  // Weekly cents sum rounded agent-days so cap enforcement agrees with the spend page.
-  const totalCents = (rows: SpendRow[]) =>
-    rows.reduce((total, row) => total + row.cents, 0);
+  // The week's unrounded spend, rounded once, so cap enforcement agrees with the spend page.
+  const totalCents = sumSpendCents;
 
   const weekToDate = async (agentId: string): Promise<number> => {
     const context = await agentContext(agentId);
