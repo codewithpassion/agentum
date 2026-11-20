@@ -11,8 +11,13 @@ import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
-import { ERROR_REASON, pausedMessage } from "./errors.ts";
+import {
+  ERROR_REASON,
+  pausedMessage,
+  workspaceLimitMessage,
+} from "./errors.ts";
 import { createEventsService } from "./events.ts";
+import { loadRun } from "./runs/queries.ts";
 import type { Clock, RuntimeAdapter } from "./runs/types.ts";
 import { createRunsService, type RunsService } from "./runs.ts";
 import { createSpendService, type SpendService } from "./spend.ts";
@@ -99,6 +104,16 @@ const teamDream = (id: string, costUsd: number, startedAt = START) =>
     })
     .run();
 
+const makeAgent = async (name: string) =>
+  (
+    await agents.create(owner, {
+      machineId: "m1",
+      model: "m",
+      name,
+      runtime: "machine",
+    })
+  ).id;
+
 beforeEach(async () => {
   db = migrated();
   const clock: Clock = {
@@ -148,17 +163,8 @@ beforeEach(async () => {
     db,
     events: createEventsService({ blobs, db }),
   });
-  const make = async (name: string) =>
-    (
-      await agents.create(owner, {
-        machineId: "m1",
-        model: "m",
-        name,
-        runtime: "machine",
-      })
-    ).id;
-  aId = await make("Ada");
-  bId = await make("Bo");
+  aId = await makeAgent("Ada");
+  bId = await makeAgent("Bo");
   spend = createSpendService({ atomic: sqliteAtomic(db), clock, db });
   runs = createRunsService({
     adapters: [spyAdapter()],
@@ -444,4 +450,145 @@ test("enforceWorkspaceCap does nothing while the workspace is under its cap", as
   await spend.enforceWorkspaceCap(WORKSPACE);
   expect(agentRow(aId)?.pausedAt).toBeNull();
   expect(agentRow(bId)?.pausedAt).toBeNull();
+});
+
+const WEEK_OVER_CAP_USD = 1.5;
+const RESUME_ROUNDS = 3;
+
+const refusedByWorkspaceLimit = (agentName: string) => ({
+  code: "conflict",
+  message: workspaceLimitMessage(agentName),
+  reason: ERROR_REASON.agentPaused,
+});
+
+test("a member's resume does not restart an agent while the workspace is over its cap", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  await spendOn(aId, WEEK_OVER_CAP_USD);
+  expect(agentRow(aId)?.pausedAt).toBe(START);
+  const before = db.select().from(runRows).all().length;
+
+  for (let round = 0; round < RESUME_ROUNDS; round += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: each resume must follow the refused start
+    await spend.resume(owner, { agentId: aId });
+    expect(agentRow(aId)?.pausedAt).toBeNull();
+    await expect(start(aId)).rejects.toMatchObject(
+      refusedByWorkspaceLimit("Ada")
+    );
+  }
+  expect(db.select().from(runRows).all()).toHaveLength(before);
+});
+
+test("an agent made while the workspace is over its cap cannot start", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  await spendOn(aId, WEEK_OVER_CAP_USD);
+  const created = await makeAgent("Cy");
+  expect(agentRow(created)?.pausedAt).toBeNull();
+
+  await expect(start(created)).rejects.toMatchObject(
+    refusedByWorkspaceLimit("Cy")
+  );
+});
+
+test("a parked run's answer and a subagent still start while the workspace is over its cap", async () => {
+  const parked = await start(bId, "mcp");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, parked.runId))
+    .run();
+  db.update(agentRows)
+    .set({ subagents: true })
+    .where(eq(agentRows.id, bId))
+    .run();
+  setWorkspaceCap(CAP_CENTS);
+  await spendOn(aId, WEEK_OVER_CAP_USD);
+  await spend.resume(owner, { agentId: bId });
+  await expect(start(bId)).rejects.toMatchObject(refusedByWorkspaceLimit("Bo"));
+
+  const record = await loadRun(db, parked.runId);
+  expect(record).not.toBeNull();
+  const answer = await runs.startRun(
+    SYSTEM_PRINCIPAL,
+    {
+      agentId: bId,
+      input: { text: "the answer" },
+      requestId: "question-answer:k",
+      session: { origin: "mcp" },
+    },
+    { continuationOf: record ?? undefined, sessionId: record?.sessionId }
+  );
+  expect(answer.runId).toBeTruthy();
+
+  const child = await runs.startRun(
+    {
+      agentId: bId,
+      kind: "run",
+      runId: parked.runId,
+      workspaceId: WORKSPACE,
+    },
+    { agentId: bId, input: { text: "dig" }, session: { origin: "mcp" } },
+    { subagent: { accessScope: {}, level: 1, model: "m" } }
+  );
+  expect(child.runId).toBeTruthy();
+});
+
+test("no start is refused with no workspace cap, or a cap above the week", async () => {
+  await spendOn(aId, 50);
+  await start(bId);
+
+  setWorkspaceCap(10_000);
+  await start(bId);
+  await start(await makeAgent("Cy"));
+});
+
+test("a start looks at the workspace's week only when the workspace has a cap", async () => {
+  let checks = 0;
+  const counted = createRunsService({
+    adapters: [spyAdapter()],
+    atomic: sqliteAtomic(db),
+    blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+    clock: { now: () => new Date(START), sleep: () => Promise.resolve() },
+    db,
+    devFakeRuntime: false,
+    gateways: [],
+    spend: {
+      enforceCap: () => Promise.resolve(),
+      workspaceOver: () => {
+        checks += 1;
+        return Promise.resolve(false);
+      },
+    },
+  });
+  const startCounted = () =>
+    counted.startRun(owner, {
+      agentId: aId,
+      input: { text: "hello" },
+      session: { origin: "ui" },
+    });
+
+  await startCounted();
+  expect(checks).toBe(0);
+
+  setWorkspaceCap(10_000);
+  await startCounted();
+  expect(checks).toBe(1);
+});
+
+test("a team dream that takes the workspace over its cap holds new starts", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  teamDream("td1", WEEK_OVER_CAP_USD);
+  await expect(start(aId)).rejects.toMatchObject(
+    refusedByWorkspaceLimit("Ada")
+  );
+});
+
+test("a resumed agent starts once an admin raises the workspace cap above the week", async () => {
+  setWorkspaceCap(CAP_CENTS);
+  await spendOn(aId, WEEK_OVER_CAP_USD);
+  await spend.resume(owner, { agentId: aId });
+  await expect(start(aId)).rejects.toMatchObject(
+    refusedByWorkspaceLimit("Ada")
+  );
+
+  await spend.setCap(admin, { agentId: null, weeklyCapCents: 10_000 });
+  await start(aId);
 });

@@ -8,6 +8,7 @@ import {
 } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { workspaces } from "@repo/db/schema/workspaces";
 import {
   AGENT_AVATAR_COLORS,
   AGENT_RUNTIMES,
@@ -409,6 +410,32 @@ export const findAgent = async (
     )
     .limit(1);
   return row ? toRecord(row) : null;
+};
+
+/**
+ * An agent as `findAgent` reads it, with its workspace's weekly cap from the
+ * same read, so a start that has no cap to check costs no extra query.
+ */
+export const findAgentWithWorkspaceCap = async (
+  db: Database,
+  query: { id: string; workspaceId?: string }
+): Promise<(AgentRecord & { workspaceCapCents: number | null }) | null> => {
+  const [row] = await db
+    .select({ agent: agents, workspaceCapCents: workspaces.weeklyCapCents })
+    .from(agents)
+    .innerJoin(workspaces, eq(workspaces.id, agents.workspaceId))
+    .where(
+      and(
+        eq(agents.id, query.id),
+        query.workspaceId === undefined
+          ? undefined
+          : eq(agents.workspaceId, query.workspaceId)
+      )
+    )
+    .limit(1);
+  return row
+    ? { ...toRecord(row.agent), workspaceCapCents: row.workspaceCapCents }
+    : null;
 };
 
 /** Active handoff names in this workspace, resolved once when a run starts. */
