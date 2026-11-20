@@ -15,6 +15,7 @@ import { readableWorkspace } from "../guards.ts";
 import { peerRootOf } from "../runs/peer-root.ts";
 import { loadRun } from "../runs/queries.ts";
 import { MAX_RUN_DEPTH } from "../runs/subject.ts";
+import { inBatches } from "../tasks/reads.ts";
 import type { Principal } from "../workspaces.ts";
 import { type OutsideSource, outsideSourceOf } from "./guards.ts";
 
@@ -179,7 +180,8 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
   /**
    * Every run that could have handed outside text to this one: the run, the runs
    * it descends from (a subagent's prompt may hold what its parent fetched), and
-   * everything below them (a parent may remember what its subagent fetched).
+   * everything below the root of that chain (a parent may remember what its
+   * subagent fetched), so a sibling counts too.
    */
   const runFamily = async (
     run: { id: string; parentRunId: string | null },
@@ -206,15 +208,17 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
       depth += 1
     ) {
       // biome-ignore lint/performance/noAwaitInLoops: each level needs the ids of the one above
-      const children = await db
-        .select({ id: runs.id })
-        .from(runs)
-        .where(
-          and(
-            eq(runs.workspaceId, workspaceId),
-            inArray(runs.parentRunId, frontier)
+      const children = await inBatches(frontier, (batch) =>
+        db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(
+            and(
+              eq(runs.workspaceId, workspaceId),
+              inArray(runs.parentRunId, batch)
+            )
           )
-        );
+      );
       frontier = children
         .map((child) => child.id)
         .filter((id) => !family.has(id));
@@ -236,29 +240,32 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
     run: { id: string; parentRunId: string | null },
     workspaceId: string
   ): Promise<boolean> => {
-    const [row] = await db
-      .select({ id: events.id })
-      .from(events)
-      .where(
-        and(
-          inArray(events.runId, await runFamily(run, workspaceId)),
-          or(
-            inArray(events.type, ["browser.action", "network.request"]),
-            and(
-              eq(events.type, "tool.call"),
-              or(
-                inArray(toolName, [...WEB_TOOLS, ...SHELL_TOOLS]),
-                ...UNSEEN_NETWORK_TOOLS.map((name) =>
-                  like(toolName, `%${name}`)
-                ),
-                isNotNull(events.payloadRef)
+    // A family can pass D1's 100 bound parameters, so the run ids go in batches.
+    const rows = await inBatches(await runFamily(run, workspaceId), (batch) =>
+      db
+        .select({ id: events.id })
+        .from(events)
+        .where(
+          and(
+            inArray(events.runId, batch),
+            or(
+              inArray(events.type, ["browser.action", "network.request"]),
+              and(
+                eq(events.type, "tool.call"),
+                or(
+                  inArray(toolName, [...WEB_TOOLS, ...SHELL_TOOLS]),
+                  ...UNSEEN_NETWORK_TOOLS.map((name) =>
+                    like(toolName, `%${name}`)
+                  ),
+                  isNotNull(events.payloadRef)
+                )
               )
             )
           )
         )
-      )
-      .limit(1);
-    return row !== undefined;
+        .limit(1)
+    );
+    return rows.length > 0;
   };
 
   /** A private conversation keeps its notes in the file of the person it belongs to. */
