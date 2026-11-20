@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/tanstack-react-start";
+import type { CatalogEntry } from "@repo/db/shared";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { AddConnectorDialog } from "#/components/connectors/add-connector-dialog";
@@ -10,6 +11,7 @@ import { DeleteConnectorDialog } from "#/components/connectors/delete-connector-
 import { OAuthClientDialog } from "#/components/connectors/oauth-client-dialog";
 import { PasteCredentialDialog } from "#/components/connectors/paste-credential-dialog";
 import { SecretNotice } from "#/components/connectors/secret-notice";
+import { ToolsCell } from "#/components/connectors/tools-cell";
 import {
   ResponsiveActions,
   ResponsiveCell,
@@ -35,7 +37,16 @@ export const PAGE_HEADING = "Apps";
 export const Route = createFileRoute("/_app/settings/connectors")({
   validateSearch: (search) => connectSearchSchema.parse(search),
   loader: async () =>
-    loadOrLogin(async () => await getTrpc().connectors.list.query()),
+    loadOrLogin(async () => {
+      const [catalog, connectors] = await Promise.all([
+        // A failed catalogue read hides the default tools, but not the rows.
+        getTrpc()
+          .catalog.list.query()
+          .catch((): CatalogEntry[] | null => null),
+        getTrpc().connectors.list.query(),
+      ]);
+      return { catalog, connectors };
+    }),
   component: ConnectorsPage,
 });
 
@@ -143,6 +154,7 @@ function OAuthActions({
 }
 
 function ConnectorRow({
+  catalog,
   connector,
   onDelete,
   onEditAuth,
@@ -150,6 +162,7 @@ function ConnectorRow({
   onPaste,
   onSetClient,
 }: {
+  catalog: CatalogEntry[] | null;
   connector: ConnectorRecord;
   onDelete: (connector: ConnectorRecord) => void;
   onEditAuth: (connector: ConnectorRecord) => void;
@@ -168,7 +181,6 @@ function ConnectorRow({
     [connector, onEditTimeout]
   );
   const remove = useCallback(() => onDelete(connector), [connector, onDelete]);
-  const toolNames = connector.tools.map((tool) => tool.name).join(", ");
 
   return (
     <TableRow>
@@ -204,17 +216,7 @@ function ConnectorRow({
         </Badge>
       </ResponsiveCell>
       <ResponsiveCell label="Tools">
-        <div className="flex flex-col gap-1">
-          <span>{connector.tools.length}</span>
-          {toolNames.length > 0 && (
-            <span
-              className="max-w-64 truncate text-muted-foreground text-xs"
-              title={toolNames}
-            >
-              {toolNames}
-            </span>
-          )}
-        </div>
+        <ToolsCell catalog={catalog} connector={connector} />
       </ResponsiveCell>
       <ResponsiveCell label="Time limit">
         {connector.callTimeoutSeconds} s
@@ -262,7 +264,7 @@ function ConnectorRow({
 }
 
 function ConnectorsPage() {
-  const connectors = Route.useLoaderData();
+  const { catalog, connectors } = Route.useLoaderData();
   const search = Route.useSearch();
   const router = useRouter();
   const [adding, setAdding] = useState(false);
@@ -419,6 +421,7 @@ function ConnectorsPage() {
           <TableBody>
             {connectors.map((connector) => (
               <ConnectorRow
+                catalog={catalog}
                 connector={connector}
                 key={connector.id}
                 onDelete={openDelete}
