@@ -18,12 +18,12 @@ import { getTrpc } from "#/integrations/trpc/client";
 import { InviteDialog } from "./invite-dialog.tsx";
 import { MEMBER_PROFILE_APPEARANCE } from "./invite-logic.ts";
 import { NewWorkspaceDialog } from "./new-workspace-dialog.tsx";
-import { settingsHref } from "./rail-footer.tsx";
 import { useGo } from "./rail-link.tsx";
 import { useSwitchWorkspace } from "./use-switch-workspace.ts";
 import {
   canCreateWorkspace,
   canInvitePeople,
+  settingsHref,
   type WorkspaceChoice,
   workspaceChoices,
 } from "./workspace-menu-logic.ts";
@@ -72,7 +72,7 @@ function ChoiceItem({
 }
 
 /**
- * The workspace name in the rail header, as a menu: the person's workspaces
+ * The workspace name in the top bar, as a menu: the person's workspaces
  * with the current one marked, then Manage members, Invite people (admins)
  * and New workspace. Only
  * organisations that have a workspace row are listed, which is why this is
@@ -115,8 +115,8 @@ export function WorkspaceMenu({ onNavigate }: { onNavigate: () => void }) {
   const canCreate = canCreateWorkspace({ activeOrgId, mine: mine ?? [] });
   const canInvite = canInvitePeople({ activeOrgId, mine: mine ?? [] });
 
-  // Below md the rail is a modal sheet, and its focus trap would block
-  // Clerk's modal, so the sheet closes first.
+  // Below md this menu sits in the phone menu sheet, and its focus trap would
+  // block Clerk's modal, so the sheet closes first.
   const openMembers = useCallback(() => {
     onNavigate();
     clerk.openOrganizationProfile({ appearance: MEMBER_PROFILE_APPEARANCE });

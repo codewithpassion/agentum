@@ -9,8 +9,38 @@ import {
 import { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { RailFooter } from "./rail-footer.tsx";
+import { renderToStaticMarkup } from "react-dom/server";
 import { WorkingList } from "./rail-working.tsx";
+
+const noop = () => undefined;
+const router = createRouter({
+  history: createMemoryHistory({ initialEntries: ["/"] }),
+  routeTree: createRootRoute(),
+});
+const render = (node: React.ReactNode) =>
+  renderToStaticMarkup(
+    <RouterContextProvider router={router}>{node}</RouterContextProvider>
+  );
+
+const someRuns = (count: number) =>
+  Array.from({ length: count }, (_, i) => ({
+    agentId: "a",
+    agentName: "Agent",
+    id: String(i),
+    mine: true,
+    passedOnBy: null,
+    status: "Running",
+    title: `Task ${i}`,
+  }));
+
+test("Working caps at three and links to the conversation list filtered to running", () => {
+  const html = render(<WorkingList onNavigate={noop} runs={someRuns(5)} />);
+  expect(html).toContain("Task 2");
+  expect(html).not.toContain("Task 3");
+  expect(html).toContain("View all 5 running");
+  expect(html).toContain('href="/sessions?working=true"');
+  expect(render(<WorkingList onNavigate={noop} runs={[]} />)).toBe("");
+});
 
 const dom = new Window({ url: "http://localhost/" });
 const previous = new Map<string, PropertyDescriptor | undefined>();
@@ -40,41 +70,18 @@ afterAll(() => {
   }
 });
 
-test("phone Find invokes the shell action, and Working expands only three runs", async () => {
+test("Working expands to show only three runs", async () => {
   const container = document.createElement("div");
   const root = createRoot(container as unknown as Element);
-  const router = createRouter({
-    history: createMemoryHistory({ initialEntries: ["/"] }),
-    routeTree: createRootRoute(),
-  });
-  let finds = 0;
-  const noop = () => undefined;
-  const openFind = () => {
-    finds += 1;
-  };
-  const runs = Array.from({ length: 5 }, (_, i) => ({
-    agentId: "a",
-    agentName: "Agent",
-    id: String(i),
-    mine: true,
-    passedOnBy: null,
-    status: "Running",
-    title: `Run ${i}`,
-  }));
+  const runs = someRuns(5);
   try {
     await act(async () =>
       root.render(
         <RouterContextProvider router={router}>
           <WorkingList onNavigate={noop} runs={runs} />
-          <RailFooter admin isMobile onNavigate={noop} onOpenFind={openFind} />
         </RouterContextProvider>
       )
     );
-    const find = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Find"
-    );
-    await act(async () => find?.click());
-    expect(finds).toBe(1);
     const working = container.querySelector("button[aria-expanded]");
     expect(working?.getAttribute("aria-expanded")).toBe("false");
     await act(async () => (working as unknown as HTMLButtonElement).click());
