@@ -6,6 +6,7 @@ import type {
   Team,
 } from "@repo/db/shared";
 import {
+  cardStatusLine,
   chipsOf,
   collapsedKey,
   groupCards,
@@ -21,6 +22,7 @@ import {
 const card = (name: string, state: AgentCardState, id = name): AgentCard => ({
   avatar: { color: "slate", glyph: name.charAt(0) },
   costThisWeekCents: 0,
+  doneAt: null,
   id,
   isLead: false,
   jobLine: "",
@@ -317,4 +319,27 @@ test("toggleKey adds, removes and never changes the input", () => {
   const removed = toggleKey(input, "a");
   expect([...removed]).toEqual([]);
   expect([...input]).toEqual(["a"]);
+});
+
+const SYDNEY = { locale: "en-AU", timeZone: "Australia/Sydney" };
+const DONE_CARD: AgentCard = {
+  ...card("Ada", "idle"),
+  doneAt: "2026-11-20T09:13:00.000Z",
+  statusLine: "Done: Prepare the report. Next run 21 Nov, 8:00 am AEDT",
+};
+
+test("a finished card prints its time in the viewer's zone, and leaves the schedule as the server wrote it", () => {
+  expect(cardStatusLine(DONE_CARD, SYDNEY)).toBe(
+    "Done 8:13 pm: Prepare the report. Next run 21 Nov, 8:00 am AEDT"
+  );
+  expect(cardStatusLine(DONE_CARD, { ...SYDNEY, timeZone: "UTC" })).toBe(
+    "Done 9:13 am: Prepare the report. Next run 21 Nov, 8:00 am AEDT"
+  );
+});
+
+test("a card with no finish time shows its status line as it is", () => {
+  expect(cardStatusLine({ ...DONE_CARD, doneAt: null }, SYDNEY)).toBe(
+    DONE_CARD.statusLine
+  );
+  expect(cardStatusLine(card("Ada", "idle"), SYDNEY)).toBe("Idle");
 });

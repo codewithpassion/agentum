@@ -2,10 +2,12 @@ import {
   AGENT_CARD_STATES,
   type AgentCard,
   type AgentCardState,
+  DONE_STATUS_PREFIX,
   EVERYONE_TEAM_SLUG,
   type RailItem,
   type Team,
 } from "@repo/db/shared";
+import { clockTime, type Viewer } from "#/lib/time.ts";
 
 /** Cards with a request waiting come first, then stopped, working and idle. Ties read by name. */
 export const sortCards = (cards: readonly AgentCard[]): AgentCard[] =>
@@ -15,6 +17,12 @@ export const sortCards = (cards: readonly AgentCard[]): AgentCard[] =>
       a.name.localeCompare(b.name) ||
       a.id.localeCompare(b.id)
   );
+
+/** The card's status line, with a finished agent's time printed in the viewer's own zone, such as "Done 8:13 pm: Prepare the report". */
+export const cardStatusLine = (card: AgentCard, viewer: Viewer): string =>
+  card.doneAt !== null && card.statusLine.startsWith(DONE_STATUS_PREFIX)
+    ? `Done ${clockTime(card.doneAt, viewer)}: ${card.statusLine.slice(DONE_STATUS_PREFIX.length)}`
+    : card.statusLine;
 
 /** What the state dot means, for people who cannot see its colour. */
 export const STATE_LABELS: Readonly<Record<AgentCardState, string>> = {

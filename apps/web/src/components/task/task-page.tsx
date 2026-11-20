@@ -17,9 +17,11 @@ import {
   type ThreadState,
 } from "#/components/thread/thread-state.ts";
 import { Button } from "#/components/ui/button.tsx";
+import { useViewer } from "#/hooks/use-viewer.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import type { TaskView } from "#/integrations/trpc/types";
 import { errorMessage } from "#/lib/error-message";
+import { clockTime } from "#/lib/time.ts";
 import { ActionLog } from "./action-log.tsx";
 import { withRun } from "./load-task.ts";
 import { MailSlot } from "./mail-slot.tsx";
@@ -491,6 +493,7 @@ function TaskHeader({
   error: string | null;
 }) {
   const runId = task.run.id;
+  const viewer = useViewer();
   const pill = taskStatus(runStatus, pending, inControl);
   return (
     <header className="shrink-0 border-b px-4 py-2.5 md:px-6 md:py-3">
@@ -526,7 +529,7 @@ function TaskHeader({
               <span className="truncate">{task.agent.name} ·</span>
             )}
             <span className="shrink-0">
-              {(task.run.startedAt ?? task.run.createdAt).slice(11, 16)}
+              {clockTime(task.run.startedAt ?? task.run.createdAt, viewer)}
               {task.run.costUsd === null
                 ? ""
                 : ` · ${costText(task.run.costUsd)}`}
@@ -574,7 +577,7 @@ function TaskHeader({
           {inControl ? " · paused, you have control" : ""}
         </span>
         <span>
-          · {(task.run.startedAt ?? task.run.createdAt).slice(11, 16)}
+          · {clockTime(task.run.startedAt ?? task.run.createdAt, viewer)}
           {task.run.finishedAt && task.run.startedAt
             ? `, took ${Math.max(0, Math.round((Date.parse(task.run.finishedAt) - Date.parse(task.run.startedAt)) / 1000))}s`
             : ""}

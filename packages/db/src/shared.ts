@@ -1299,10 +1299,18 @@ export const AGENT_CARD_STATES = [
 ] as const;
 export type AgentCardState = (typeof AGENT_CARD_STATES)[number];
 
+/** How a finished agent's status line starts. The browser puts the finish time between "Done" and the colon. */
+export const DONE_STATUS_PREFIX = "Done: ";
+
 /** One agent on the Roster home. */
 export interface AgentCard {
   avatar: AgentAvatar;
   costThisWeekCents: number;
+  /**
+   * When the agent's last run finished, while the status line reads "Done: ...".
+   * The browser prints the time in the viewer's own zone, so the line holds none.
+   */
+  doneAt: string | null;
   id: string;
   isLead: boolean;
   /** What the agent is for, one line. */
