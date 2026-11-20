@@ -51,6 +51,7 @@ import { guarded } from "./guarded.ts";
 import { createLibraryPorts } from "./library-ports.ts";
 import { createLivePorts } from "./live-ports";
 import { createMailPorts } from "./mail-ports.ts";
+import { createMemoryPorts } from "./memory-ports.ts";
 import { createPeerPorts } from "./peer-ports.ts";
 import { createQaPorts } from "./qa-ports.ts";
 import { createSkillPorts } from "./skill-ports.ts";
@@ -335,9 +336,12 @@ export const createMcpPorts = ({
     ...createSkillPorts({ findAgent, principal, services }),
     // The Q&A board is shared: any principal reads it, the service decides who writes.
     qa: createQaPorts({ principal, services }),
-    // Only a run has a mailbox of its own. The route turns the tools on when it is active.
+    // Memory belongs to the run's agent. The route enables its mailbox tools when active.
     ...(principal.kind === "run"
-      ? { mail: createMailPorts({ principal, services }) }
+      ? {
+          mail: createMailPorts({ principal, services }),
+          memory: createMemoryPorts({ principal, services }),
+        }
       : {}),
     ...(principal.kind === "run" || principal.kind === "user"
       ? {
