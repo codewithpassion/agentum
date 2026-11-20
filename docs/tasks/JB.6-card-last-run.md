@@ -3,7 +3,7 @@ id: JB.6
 title: "The card says how the last run went"
 milestone: JB
 size: S
-status: in_progress
+status: done
 depends_on: [JB.5]
 branch: task/JB.6-card-last-run
 lane: services-roster
@@ -27,3 +27,4 @@ From the JB walkthrough (`docs/reviews/JB-e2e.md`). After a successful run the a
 ## Log
 - 2026-11-20: added from the JB walkthrough. Wording decided by the controller under Dom's "don't wait for me".
 - 2026-11-20: dispatched on task/JB.6-card-last-run (v4 controller session).
+- 2026-11-20: merged as 29f3b115, review clean after 0 fix rounds plus a clean review of the punctuation change. Browser proof: docs/reviews/tasks/JB.6/browser.md. check, test and build passed on main.
