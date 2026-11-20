@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone FR. From the 18 Nov analysis, item 8.
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/FR.2-team-starter (v4 controller session).
+- 2026-11-21: merge check failed typecheck (team-starters.ts calls the teams service with deps that no longer match TeamsDeps on main); merge undone and sent back.

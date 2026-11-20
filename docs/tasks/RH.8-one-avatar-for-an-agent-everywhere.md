@@ -3,9 +3,9 @@ id: RH.8
 title: "One avatar for an agent everywhere"
 milestone: RH
 size: S
-status: todo
+status: in_progress
 depends_on: [RH.7]
-branch: null
+branch: task/RH.8-one-avatar-for-an-agent-everywhere
 lane: web-agent
 executor: claude
 ---
@@ -25,3 +25,4 @@ Component tests for the shared tile. Browser: create an agent, compare its card,
 
 ## Log
 - 2026-11-20: added from the RH walkthrough.
+- 2026-11-21: dispatched on task/RH.8-one-avatar-for-an-agent-everywhere (v4 controller session).
