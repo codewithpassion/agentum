@@ -1,6 +1,6 @@
 # SP end-to-end: the spend walkthrough
 
-Task SP.5, branch `task/SP.5-spend-e2e`. The walkthrough ran on local against the dev server of this worktree, with the fake runtime and seeded usage rows. It walked the pause and resume flow from mail and from the UI, and compared the Spend page with a hand sum of `runs.usage` and `dream_runs.usage`. A fresh verifier repeated it in the browser at 1280x800 and 390x844 (`docs/reviews/tasks/SP.5/browser.md`). The pause, the refusals, the mail notice and Resume all work. The page matches the hand sum to the cent except where it rounds (finding 3), and it leaves out a team dream (finding 1). Four gaps are proposed as tasks below. No product code changed on this branch. The only additions are the seed script and its test.
+Task SP.5, branch `task/SP.5-spend-e2e`. The walkthrough ran on local against the dev server of this worktree, with the fake runtime and seeded usage rows. It walked the pause and resume flow from mail and from the UI, and compared the Spend page with a hand sum of `runs.usage` and `dream_runs.usage`. A fresh verifier repeated it in the browser at 1280x800 and 390x844 (`docs/reviews/tasks/SP.5/browser.md`). The pause, the refusals, the mail notice and Resume all work. The page matches the hand sum to the cent except where it rounds (finding 3), and it leaves out a team dream (finding 1). Five gaps are proposed as tasks below. No product code changed on this branch. The only additions are the seed script and its test.
 
 ## What ran
 
@@ -95,9 +95,22 @@ Scope if Dom agrees: the minute tick clears `spend_cap` pauses when the agent's 
 
 Check: a service test with the clock set across Monday 00:00 in the workspace timezone: paused on Sunday, resumed by the tick on Monday. A `manual` pause is untouched. An agent whose cap is still below its week-to-date is not resumed.
 
+### 6. The Home card and the Spend page count differently
+
+Proposed task SP.10, "The Home card shows the Spend page's week".
+
+Without a limit, an agent's Home card shows the roster's figure, `costThisWeekCents`. The roster adds up the last seven days of runs in sessions the viewer can see (`runFacts` in `roster.ts`), and the Spend page adds up the calendar week of every run in the workspace. With a limit set the card switches to the Spend page's figure (`withLimitWeekSpend`, SP.4). In the seeded data the runs sit in another user's private sessions, so Fake second's card read "$0 this week" next to "$0.55" on the Spend page. Two members with their own private threads would see the same split. The label says "this week" in both places.
+
+Scope: the Home card, and the Cost this week column of the agents table, read this week's cents from the same `spend.workspace` rows the page uses, for every agent, with or without a limit. The roster drops `costThisWeekCents` if nothing else reads it.
+
+Check: a component test where the roster says $0 and the spend rows say $0.55, and the card reads $0.55. A browser pass: seeded Fake second shows "$0.55 this week" on Home with no limit set, at both sizes.
+
 ### Smaller things
 
 - Setting a cap below the week-to-date pauses nothing at once. The pause lands when the next run ends, and that run still starts. SP.3's spec says so, and the Settings field text does not.
+- Dream now on a paused agent answers 409, so the browser console logs a second "Failed to load resource ... 409" next to the one from Run now. It is the same designed refusal, but a person with the console open sees two errors.
+- The mail sheet says "1 messages" for a one-message thread, and the reply in a thread shows "Sent" twice (the direction and the status). Neither is spend code.
+- On the Spend page the dashed "Workspace limit" label sits on top of the This week bar and its value label, clearly at phone width, and the bar tooltip covers the value label on desktop.
 - Both browser passes saw the `400` console error in the dev-login hop (known noise).
 
 ## Steps for Dom
