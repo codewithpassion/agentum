@@ -3,7 +3,7 @@ id: DR.9
 title: "A correction meets the note it corrects"
 milestone: DR
 size: S
-status: in_progress
+status: done
 depends_on: [DR.7]
 branch: task/DR.9-a-correction-meets-the-note-it-corrects
 lane: services-dream
@@ -25,3 +25,4 @@ a service test with a fake model where an `people` note says 1pm and a conversat
 - 2026-11-20: added from the dream walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 39225a7a after one fix round, review clean. Real-model check (claude-haiku-5-5, $0.00018): the 1pm note was replaced by one 1:30pm note. Queued for merge.
+- 2026-11-21: merged 0bfc4107, batch merge check with RH.11, DR.10, DR.9 and SP.8 passed. Done.

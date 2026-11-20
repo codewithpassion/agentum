@@ -1,3 +1,4 @@
+import { weekCostLabel } from "#/components/roster/roster-logic.ts";
 import type { RouterOutputs } from "#/integrations/trpc/types";
 import { ownerIdOf } from "./profile/asks-logic.ts";
 
@@ -56,22 +57,12 @@ export const doingNow = (
   return segments.length > 0 ? segments : [{ strong: false, text: "Quiet" }];
 };
 
-/** What a week of runs cost, in dollars. Null means no run reported a cost. Under a cent reads as "<$0.01". */
-export const formatCost = (costUsd: number | null): string => {
-  if (costUsd === null) {
-    return "Not reported";
-  }
-  if (costUsd <= 0) {
-    return "$0";
-  }
-  return costUsd < 0.01 ? "<$0.01" : `$${costUsd.toFixed(2)}`;
-};
-
-/** One row per agent, in the order of `agents`. No overview row means zero counts and no reported cost. */
+/** One row per agent, in the order of `agents`. No overview row means zero counts. `weekCents` is each agent's spend this week as the Spend page counts it, and no entry means $0. */
 export const rowsOf = <T extends AgentAskRef>(
   agents: readonly T[],
   overview: readonly OverviewRow[],
-  members: Members | null
+  members: Members | null,
+  weekCents: ReadonlyMap<string, number>
 ): AgentTableRow<T>[] => {
   const byAgent = new Map(overview.map((row) => [row.agentId, row]));
   return agents.map((agent) => {
@@ -79,7 +70,7 @@ export const rowsOf = <T extends AgentAskRef>(
     return {
       agent,
       asked: askedName(agent, members),
-      cost: formatCost(row?.costUsdThisWeek ?? null),
+      cost: weekCostLabel(weekCents.get(agent.id) ?? 0),
       doing: doingNow(row),
       tasksThisWeek: row?.tasksThisWeek ?? 0,
     };
