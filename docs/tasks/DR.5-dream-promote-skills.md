@@ -3,9 +3,9 @@ id: DR.5
 title: "Dream promotes repeated procedures to skill proposals"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [DR.4]
-branch: null
+branch: task/DR.5-dream-promote-skills
 lane: services-dream
 executor: codex
 ---
@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone DR. A procedure the agent repeated shoul
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/DR.5-dream-promote-skills (v4 controller session).
