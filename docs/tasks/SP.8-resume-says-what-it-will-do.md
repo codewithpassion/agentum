@@ -3,7 +3,7 @@ id: SP.8
 title: "Resume says what it will do"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: [SP.5]
 branch: task/SP.8-resume-says-what-it-will-do
 lane: web-spend
@@ -26,3 +26,4 @@ component tests for both card states. A mail service test that the notice carrie
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 67a68b43, review clean with no fix rounds, browser pass at both sizes. Queued for merge.
+- 2026-11-21: merged e207c419, batch merge check with RH.11, DR.10, DR.9 and SP.8 passed. Done.
