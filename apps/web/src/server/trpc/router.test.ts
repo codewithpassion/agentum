@@ -294,13 +294,10 @@ test("memory.rules.get returns the default rules", async () => {
   });
 });
 
-test("memory writes are NOT_FOUND while nothing is stored", async () => {
+test("memory edit, forget, decide and undo are NOT_FOUND for ids that do not exist", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
   const agent = await caller.agents.create(agentInput);
 
-  await expect(
-    caller.memory.add({ agentId: agent.id, kind: "people", text: "Tea" })
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(
     caller.memory.edit({ agentId: agent.id, noteId: "note_1", text: "Tea" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -314,11 +311,39 @@ test("memory writes are NOT_FOUND while nothing is stored", async () => {
     caller.memory.undo({ changeId: "change_1" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(
-    caller.memory.rules.set({
-      agentId: agent.id,
-      rules: DEFAULT_REMEMBER_RULES,
-    })
+    caller.memory.add({ agentId: "missing", kind: "people", text: "Tea" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("a person adds a note, sees it, and undoes it through the router", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+
+  const change = await caller.memory.add({
+    agentId: agent.id,
+    kind: "people",
+    text: "Tea",
+  });
+
+  expect(change).toMatchObject({ status: "applied", writtenBy: "person" });
+  expect(await caller.memory.list({ agentId: agent.id })).toEqual([
+    expect.objectContaining({ id: change.noteId, text: "Tea" }),
+  ]);
+  expect(await caller.memory.changes({ agentId: agent.id })).toEqual([change]);
+  await caller.memory.undo({ changeId: change.id });
+  expect(await caller.memory.list({ agentId: agent.id })).toEqual([]);
+});
+
+test("the agent's creator sets its remember rules through the router", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  const agent = await caller.agents.create(agentInput);
+  const rules = { ...DEFAULT_REMEMBER_RULES, learnLevel: "ask_first" } as const;
+
+  await caller.memory.rules.set({ agentId: agent.id, rules });
+
+  expect((await caller.memory.rules.get({ agentId: agent.id })).agent).toEqual(
+    rules
+  );
 });
 
 test("memory.add with empty text is BAD_REQUEST", async () => {

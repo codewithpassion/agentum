@@ -28,7 +28,10 @@ interface SecretsState {
   secrets: SecretRecord[];
 }
 
-export function SecretsPanel({ agent }: AgentPanelProps) {
+export function SecretsPanel({
+  agent,
+  onChanged,
+}: AgentPanelProps & { onChanged?: () => void }) {
   const agentId = agent.id;
   const [state, setState] = useState<SecretsState | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -69,13 +72,14 @@ export function SecretsPanel({ agent }: AgentPanelProps) {
         });
         setState({ grantedIds, secrets: state.secrets });
         setError(undefined);
+        onChanged?.();
       } catch (cause) {
         setError(errorMessage(cause));
       } finally {
         setSaving(false);
       }
     },
-    [agentId, state]
+    [agentId, onChanged, state]
   );
 
   if (state === undefined) {

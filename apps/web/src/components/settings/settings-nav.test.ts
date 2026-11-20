@@ -9,6 +9,7 @@ test("groups appear in order", () => {
     "Agents run on",
     "Agents can use",
     "Access to Agentum",
+    "Jobs",
   ]);
 });
 
@@ -23,6 +24,7 @@ test("paths appear in order", () => {
     "/settings/api-keys",
     "/settings/connected-apps",
     "/settings/agent-connections",
+    "/settings/timezone",
   ]);
 });
 

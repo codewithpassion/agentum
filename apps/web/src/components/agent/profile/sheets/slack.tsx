@@ -1,4 +1,5 @@
 import { DISPLAY_NAME_LIMIT } from "@repo/services/slack/manifest";
+import { useRouter } from "@tanstack/react-router";
 import {
   type ChangeEvent,
   type ReactNode,
@@ -61,6 +62,7 @@ function SlackAppRow({
 
 export function SlackPanel({ agent }: AgentPanelProps) {
   const agentId = agent.id;
+  const router = useRouter();
   const [apps, setApps] = useState<SlackAppRecord[] | undefined>();
   const [listError, setListError] = useState<string | undefined>();
   const [manifestError, setManifestError] = useState<string | undefined>();
@@ -96,9 +98,10 @@ export function SlackPanel({ agent }: AgentPanelProps) {
       .then((items) => {
         setApps(items);
         setListError(undefined);
+        return router.invalidate();
       })
       .catch((cause: unknown) => setListError(errorMessage(cause)));
-  }, [fetchApps]);
+  }, [fetchApps, router]);
 
   const handleNameChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),

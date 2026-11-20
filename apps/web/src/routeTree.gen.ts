@@ -21,6 +21,7 @@ import { Route as AppAssistantRouteImport } from './routes/_app/assistant'
 import { Route as AppDeskRouteImport } from './routes/_app/desk'
 import { Route as AppHomeRouteImport } from './routes/_app/home'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
+import { Route as AppJobsRouteImport } from './routes/_app/jobs'
 import { Route as AppLibraryRouteImport } from './routes/_app/library'
 import { Route as AppLogRouteImport } from './routes/_app/log'
 import { Route as AppMapRouteImport } from './routes/_app/map'
@@ -45,6 +46,7 @@ import { Route as AppSettingsMachinesRouteImport } from './routes/_app/settings.
 import { Route as AppSettingsModelProvidersRouteImport } from './routes/_app/settings.model-providers'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
 import { Route as AppSettingsSignInsRouteImport } from './routes/_app/settings.sign-ins'
+import { Route as AppSettingsTimezoneRouteImport } from './routes/_app/settings.timezone'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
 import { Route as AppTasksRunIdRouteImport } from './routes/_app/tasks.$runId'
@@ -109,6 +111,11 @@ const AppHomeRoute = AppHomeRouteImport.update({
 const AppInboxRoute = AppInboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppJobsRoute = AppJobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
   getParentRoute: () => AppRoute,
 } as any)
 const AppLibraryRoute = AppLibraryRouteImport.update({
@@ -233,6 +240,11 @@ const AppSettingsSignInsRoute = AppSettingsSignInsRouteImport.update({
   path: '/sign-ins',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsTimezoneRoute = AppSettingsTimezoneRouteImport.update({
+  id: '/timezone',
+  path: '/timezone',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSkillsIndexRoute = AppSkillsIndexRouteImport.update({
   id: '/skills/',
   path: '/skills/',
@@ -278,6 +290,7 @@ export interface FileRoutesByFullPath {
   '/desk': typeof AppDeskRoute
   '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
+  '/jobs': typeof AppJobsRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
   '/map': typeof AppMapRoute
@@ -299,6 +312,7 @@ export interface FileRoutesByFullPath {
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/settings/sign-ins': typeof AppSettingsSignInsRoute
+  '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
   '/threads/$sessionId': typeof AppThreadsSessionIdRoute
@@ -321,6 +335,7 @@ export interface FileRoutesByTo {
   '/desk': typeof AppDeskRoute
   '/home': typeof AppHomeRoute
   '/inbox': typeof AppInboxRoute
+  '/jobs': typeof AppJobsRoute
   '/library': typeof AppLibraryRoute
   '/log': typeof AppLogRoute
   '/map': typeof AppMapRoute
@@ -341,6 +356,7 @@ export interface FileRoutesByTo {
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/settings/sign-ins': typeof AppSettingsSignInsRoute
+  '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
   '/threads/$sessionId': typeof AppThreadsSessionIdRoute
@@ -365,6 +381,7 @@ export interface FileRoutesById {
   '/_app/desk': typeof AppDeskRoute
   '/_app/home': typeof AppHomeRoute
   '/_app/inbox': typeof AppInboxRoute
+  '/_app/jobs': typeof AppJobsRoute
   '/_app/library': typeof AppLibraryRoute
   '/_app/log': typeof AppLogRoute
   '/_app/map': typeof AppMapRoute
@@ -386,6 +403,7 @@ export interface FileRoutesById {
   '/_app/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
   '/_app/settings/sign-ins': typeof AppSettingsSignInsRoute
+  '/_app/settings/timezone': typeof AppSettingsTimezoneRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/tasks/$runId': typeof AppTasksRunIdRoute
   '/_app/threads/$sessionId': typeof AppThreadsSessionIdRoute
@@ -410,6 +428,7 @@ export interface FileRouteTypes {
     | '/desk'
     | '/home'
     | '/inbox'
+    | '/jobs'
     | '/library'
     | '/log'
     | '/map'
@@ -431,6 +450,7 @@ export interface FileRouteTypes {
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/settings/sign-ins'
+    | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
     | '/threads/$sessionId'
@@ -453,6 +473,7 @@ export interface FileRouteTypes {
     | '/desk'
     | '/home'
     | '/inbox'
+    | '/jobs'
     | '/library'
     | '/log'
     | '/map'
@@ -473,6 +494,7 @@ export interface FileRouteTypes {
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/settings/sign-ins'
+    | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
     | '/threads/$sessionId'
@@ -496,6 +518,7 @@ export interface FileRouteTypes {
     | '/_app/desk'
     | '/_app/home'
     | '/_app/inbox'
+    | '/_app/jobs'
     | '/_app/library'
     | '/_app/log'
     | '/_app/map'
@@ -517,6 +540,7 @@ export interface FileRouteTypes {
     | '/_app/settings/model-providers'
     | '/_app/settings/secrets'
     | '/_app/settings/sign-ins'
+    | '/_app/settings/timezone'
     | '/_app/skills/$skillId'
     | '/_app/tasks/$runId'
     | '/_app/threads/$sessionId'
@@ -625,6 +649,13 @@ declare module '@tanstack/react-router' {
       path: '/inbox'
       fullPath: '/inbox'
       preLoaderRoute: typeof AppInboxRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/jobs': {
+      id: '/_app/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof AppJobsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/library': {
@@ -795,6 +826,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsSignInsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/timezone': {
+      id: '/_app/settings/timezone'
+      path: '/timezone'
+      fullPath: '/settings/timezone'
+      preLoaderRoute: typeof AppSettingsTimezoneRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/skills/': {
       id: '/_app/skills/'
       path: '/skills'
@@ -849,6 +887,7 @@ interface AppSettingsRouteChildren {
   AppSettingsModelProvidersRoute: typeof AppSettingsModelProvidersRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
   AppSettingsSignInsRoute: typeof AppSettingsSignInsRoute
+  AppSettingsTimezoneRoute: typeof AppSettingsTimezoneRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSettingsAgentConnectionsConnectionIdRoute: typeof AppSettingsAgentConnectionsConnectionIdRoute
   AppSettingsAgentConnectionsIndexRoute: typeof AppSettingsAgentConnectionsIndexRoute
@@ -863,6 +902,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsModelProvidersRoute: AppSettingsModelProvidersRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
   AppSettingsSignInsRoute: AppSettingsSignInsRoute,
+  AppSettingsTimezoneRoute: AppSettingsTimezoneRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSettingsAgentConnectionsConnectionIdRoute:
     AppSettingsAgentConnectionsConnectionIdRoute,
@@ -879,6 +919,7 @@ interface AppRouteChildren {
   AppDeskRoute: typeof AppDeskRoute
   AppHomeRoute: typeof AppHomeRoute
   AppInboxRoute: typeof AppInboxRoute
+  AppJobsRoute: typeof AppJobsRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppLogRoute: typeof AppLogRoute
   AppMapRoute: typeof AppMapRoute
@@ -903,6 +944,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDeskRoute: AppDeskRoute,
   AppHomeRoute: AppHomeRoute,
   AppInboxRoute: AppInboxRoute,
+  AppJobsRoute: AppJobsRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppLogRoute: AppLogRoute,
   AppMapRoute: AppMapRoute,

@@ -1,3 +1,4 @@
+import type { AgentKeys } from "@repo/db/shared";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -8,6 +9,53 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TooltipProvider } from "#/components/ui/tooltip";
 import type { RoomData, RoomTabProps } from "./room-data.ts";
+
+/**
+ * What the Keys tab reads: Gmail the person asking signs in to, Linear with no
+ * sign-in at all, one secret, one hands-to agent, one peer and the ask level.
+ */
+export const fixtureKeys = (): AgentKeys => ({
+  apps: [
+    {
+      allowedTools: ["search_threads"],
+      connectorId: "conn_gmail",
+      connectorName: "Gmail",
+      credentialMode: "user_or_agent",
+      credentials: {
+        agentSignIn: null,
+        hasOwnSignIn: true,
+        otherSignIns: null,
+      },
+      signIn: { ownerKind: "user", ownerName: "You", status: "ok" },
+    },
+    {
+      allowedTools: null,
+      connectorId: "conn_docs",
+      connectorName: "Docs",
+      credentialMode: "agent",
+      credentials: {
+        agentSignIn: null,
+        hasOwnSignIn: false,
+        otherSignIns: null,
+      },
+      signIn: null,
+    },
+  ],
+  asksBefore: { level: "outside", overrides: [] },
+  identity: { emailAddress: "sorter@example.com", slackApp: "installed" },
+  otherAgents: {
+    connections: [
+      {
+        connectionId: "conn_peer",
+        peerKind: "a2a_outbound",
+        peerName: "Harbour Edge",
+        status: "active",
+      },
+    ],
+    handsTo: [{ agentId: "agent_2", name: "Scout" }],
+  },
+  secrets: [{ id: "secret_1", kind: "proxy", name: "Stripe key" }],
+});
 
 /** An active cloud agent with no connections, tasks or conversations. */
 export const fixtureRoom = (): RoomData => ({
@@ -35,6 +83,7 @@ export const fixtureRoom = (): RoomData => ({
   askBefore: [],
   askLevel: "outside",
   connections: [],
+  keys: fixtureKeys(),
   machines: [],
   mailbox: null,
   members: [{ name: "Dev User", userId: "user_1" }] as RoomData["members"],
