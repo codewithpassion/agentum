@@ -21,7 +21,8 @@ Services backlog test (`runs.test.ts`, "an hour of never-claimed runs"). It is n
 
 - Each test passes 10 times in a row alone: `guest-execution.test.ts` 10 of 10 (122 to 140 s on this busy host), `room.test.ts` 10 of 10 (57 to 72 s).
 - Twelve room runners at once all pass (123 checks each).
-- Three full `bun run test` runs with `vite build` looping alongside: see the log in the commit that closes the task.
+- Three full `bun run test` runs in a row (447 to 477 s each) with `vite build` looping alongside all pass. An earlier set failed once on `agentum-rs` `desktop::apps` `an_answer_for_another_app_is_refused_and_not_remembered` (`op_failed` instead of `denied` at `apps.rs:772`, a fake-script test, not live-artifacts) and passed on the rerun. It is a fourth flaky test under load, outside this task.
+- `bun run check && bun run test && bun run build` pass after the final `git merge main`.
 
 ## Nits left
 
