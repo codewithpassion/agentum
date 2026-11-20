@@ -13,6 +13,7 @@ import {
   readCollapsed,
   sortCards,
   toggleKey,
+  wallIsFlat,
   weekCostLabel,
   writeCollapsed,
 } from "./roster-logic.ts";
@@ -121,23 +122,77 @@ test("cards group under their home team", () => {
 });
 
 test("team groups are ordered by team name, then id", () => {
+  const teams = [
+    team("z", "Zulu"),
+    team("b", "Same"),
+    team("a", "Same"),
+    team("m", "Alpha"),
+  ];
   const groups = groupCards(
-    [],
-    [
-      team("z", "Zulu"),
-      team("b", "Same"),
-      team("a", "Same"),
-      team("m", "Alpha"),
-    ]
+    teams.map((t) => onTeam(card(t.id, "idle"), t.id)),
+    teams
   );
   expect(groups.map((g) => g.key)).toEqual(["m", "a", "b", "z"]);
 });
 
-test("an empty team still gets a group with no cards", () => {
-  const groups = groupCards([], [team("a", "Alpha")]);
-  expect(groups).toHaveLength(1);
-  expect(groups.at(0)?.cards).toEqual([]);
-  expect(groups.at(0)?.needsYouCount).toBe(0);
+test("empty team groups are left out", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "b")],
+    [team("a", "Alpha"), team("b", "Beta"), team("c", "Gamma")]
+  );
+  expect(groups.map((g) => g.key)).toEqual(["b"]);
+});
+
+test("wallIsFlat is true when there are no groups", () => {
+  expect(wallIsFlat([])).toBe(true);
+});
+
+test("wallIsFlat is true when the only group is Everyone", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "everyone")],
+    [team("everyone", "Everyone")]
+  );
+  expect(wallIsFlat(groups)).toBe(true);
+});
+
+test("wallIsFlat is false when the only group is another team", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "a")],
+    [team("a", "Alpha")]
+  );
+  expect(wallIsFlat(groups)).toBe(false);
+});
+
+test("wallIsFlat is false when Everyone sits beside another team", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "everyone"), onTeam(card("Bo", "idle"), "a")],
+    [team("everyone", "Everyone"), team("a", "Alpha")]
+  );
+  expect(groups.map((g) => g.key)).toEqual(["a", "everyone"]);
+  expect(wallIsFlat(groups)).toBe(false);
+});
+
+test("wallIsFlat is true for a lone No team group", () => {
+  const groups = groupCards([onTeam(card("Ann", "idle"), null)], []);
+  expect(groups.map((g) => g.key)).toEqual([NO_TEAM_KEY]);
+  expect(wallIsFlat(groups)).toBe(true);
+});
+
+test("wallIsFlat is true for Everyone beside No team", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "everyone"), onTeam(card("Bo", "idle"), null)],
+    [team("everyone", "Everyone")]
+  );
+  expect(groups.map((g) => g.key)).toEqual(["everyone", NO_TEAM_KEY]);
+  expect(wallIsFlat(groups)).toBe(true);
+});
+
+test("wallIsFlat is false for another team beside No team", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "a"), onTeam(card("Bo", "idle"), null)],
+    [team("a", "Alpha")]
+  );
+  expect(wallIsFlat(groups)).toBe(false);
 });
 
 test("the No team group comes last and only when it has cards", () => {
@@ -155,7 +210,7 @@ test("the No team group comes last and only when it has cards", () => {
 
 test("a card naming a team that is not listed lands in No team", () => {
   const groups = groupCards(
-    [onTeam(card("Ghost", "idle"), "gone")],
+    [onTeam(card("Ann", "idle"), "a"), onTeam(card("Ghost", "idle"), "gone")],
     [team("a", "Alpha")]
   );
   expect(groups.map((g) => g.key)).toEqual(["a", NO_TEAM_KEY]);
@@ -172,6 +227,8 @@ test("the lead name is found in any group, and null without a lead", () => {
     [
       onTeam(card("Ruby", "working", "lead_1"), null),
       onTeam(card("Bo", "idle"), "a"),
+      onTeam(card("Cy", "idle"), "b"),
+      onTeam(card("Di", "idle"), "c"),
     ],
     teams
   );

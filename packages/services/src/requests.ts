@@ -322,6 +322,7 @@ export const createRequestsService = ({
   ) => {
     const input = askLevelSetInputSchema.parse(raw);
     const { agent, user } = await ruleAgent(principal, input.agentId);
+    requireAgentOwnerOrAdmin(user, agent, "requests.set_ask_level");
     await atomic([
       db
         .update(agents)
@@ -341,7 +342,8 @@ export const createRequestsService = ({
       workspaceId: agent.workspaceId,
     });
   };
-  const setRule = async (
+  /** Unchecked: callers must check who may change rules first. */
+  const putRule = async (
     principal: Principal,
     raw: z.input<typeof ruleSetInputSchema>
   ) => {
@@ -375,12 +377,27 @@ export const createRequestsService = ({
       workspaceId: agent.workspaceId,
     });
   };
+  const setRule = async (
+    principal: Principal,
+    raw: z.input<typeof ruleSetInputSchema>
+  ) => {
+    const input = ruleSetInputSchema.parse(raw);
+    const { agent, user } = await ruleAgent(principal, input.agentId);
+    requireAgentOwnerOrAdmin(user, agent, "requests.set_rule");
+    await putRule(principal, input);
+  };
+  /** For the answer path only, because any member may answer a request. */
+  const recordAlwaysAllow = (
+    principal: Principal,
+    input: { agentId: string; toolKey: string }
+  ) => putRule(principal, { ...input, mode: "allow" });
   const removeRule = async (
     principal: Principal,
     raw: z.input<typeof ruleKeyInputSchema>
   ) => {
     const input = ruleKeyInputSchema.parse(raw);
     const { agent, user } = await ruleAgent(principal, input.agentId);
+    requireAgentOwnerOrAdmin(user, agent, "requests.remove_rule");
     await db
       .delete(agentToolRules)
       .where(
@@ -1032,9 +1049,8 @@ export const createRequestsService = ({
       parsed.decision === "always_allow" &&
       row.toolKey
     ) {
-      await setRule(principal, {
+      await recordAlwaysAllow(principal, {
         agentId: row.agentId,
-        mode: "allow",
         toolKey: row.toolKey,
       });
     }
@@ -1447,6 +1463,7 @@ export const createRequestsService = ({
     needsApproval,
     open,
     outcome,
+    recordAlwaysAllow,
     removeRule,
     requireOutbound,
     requiresGuestApproval: async (principal: Principal, runId: string) => {

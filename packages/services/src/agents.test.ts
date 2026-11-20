@@ -1361,6 +1361,33 @@ test("subagents default off and only an owner or admin session may change them",
   ).toBe(false);
 });
 
+test("hands to changes only by the owner or an admin, and a member's refused write changes nothing", async () => {
+  const target = await createFake("Target");
+  const agent = await createFake("Gatekeeper");
+  const admin: Principal = { ...user, isAdmin: true, userId: "u-admin" };
+  const member: Principal = { ...user, userId: "u-member" };
+
+  await expect(
+    service.update(member, agent.id, { handsTo: [target.id] })
+  ).rejects.toThrow(ForbiddenError);
+  expect((await service.get(user, agent.id)).handsTo).toEqual([]);
+
+  expect(
+    (await service.update(member, agent.id, { name: "Renamed" })).name
+  ).toBe("Renamed");
+
+  expect(
+    (await service.update(admin, agent.id, { handsTo: [target.id] })).handsTo
+  ).toEqual([target.id]);
+  await expect(
+    service.update(member, agent.id, { handsTo: [] })
+  ).rejects.toThrow(ForbiddenError);
+  expect((await service.get(user, agent.id)).handsTo).toEqual([target.id]);
+  expect(
+    (await service.update(user, agent.id, { handsTo: [] })).handsTo
+  ).toEqual([]);
+});
+
 test("create keeps the effort and context budget and reads them back", async () => {
   const agent = await service.create(user, {
     model: "sonnet",

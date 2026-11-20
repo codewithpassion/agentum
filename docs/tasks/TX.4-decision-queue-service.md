@@ -3,9 +3,9 @@ id: TX.4
 title: "Decision queue: several questions in one request"
 milestone: TX
 size: M
-status: todo
+status: in_progress
 depends_on: [TX.1]
-branch: null
+branch: task/TX.4-decision-queue-service
 lane: services-requests
 executor: claude
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone TX. From the transcript: the lead queues
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TX.4-decision-queue-service (v4 controller session).

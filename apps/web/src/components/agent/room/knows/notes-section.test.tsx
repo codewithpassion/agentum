@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderInRoom } from "../test-fixtures.tsx";
-import { groupNotes } from "./notes-logic.ts";
+import { groupNotes, NOTES_OWNER_ONLY } from "./notes-logic.ts";
 import { NotesSection } from "./notes-section.tsx";
 
 const noop = (): void => undefined;
@@ -45,6 +45,7 @@ const held = (overrides: Partial<MemoryChange> = {}): MemoryChange => ({
 const sectionProps = {
   adding: false,
   busyId: null,
+  canChange: true,
   disabled: false,
   groups: [],
   onAdd: noop,
@@ -71,6 +72,36 @@ const buttonNamed = (
   );
 
 const addButton = (document: TestDocument) => buttonNamed(document, "Add note");
+
+const rowWith = (
+  document: TestDocument,
+  testId: "held-row" | "note-row",
+  text: string
+) =>
+  Array.from(document.querySelectorAll(`[data-testid="${testId}"]`)).find(
+    (row) => (row.textContent ?? "").includes(text)
+  );
+
+const ownerScopeGroups = groupNotes(
+  [
+    note({ id: "note_shared", text: "Shared fact", userScope: null }),
+    note({ id: "note_private", text: "Private fact", userScope: "user_1" }),
+  ],
+  [
+    held({
+      id: "change_shared",
+      kind: "people",
+      text: "Shared change",
+      userScope: null,
+    }),
+    held({
+      id: "change_private",
+      kind: "people",
+      text: "Private change",
+      userScope: "user_1",
+    }),
+  ]
+);
 
 test("no groups says nothing is remembered and still shows the Add form", () => {
   const document = render(<NotesSection {...sectionProps} />);
@@ -208,4 +239,55 @@ test("typing a note and submitting calls onAdd with the kind and trimmed text, t
     await act(async () => root.unmount());
     Object.assign(globalThis, previous);
   }
+});
+
+test("a non-owner sees no Edit, Forget, Approve or Reject on shared rows, but keeps them on their own private rows", () => {
+  const document = render(
+    <NotesSection
+      {...sectionProps}
+      canChange={false}
+      groups={ownerScopeGroups}
+    />
+  );
+  const sharedNote = rowWith(document, "note-row", "Shared fact");
+  const privateNote = rowWith(document, "note-row", "Private fact");
+  const sharedChange = rowWith(document, "held-row", "Shared change");
+  const privateChange = rowWith(document, "held-row", "Private change");
+
+  expect(sharedNote?.querySelectorAll("button").length).toBe(0);
+  expect(sharedChange?.querySelectorAll("button").length).toBe(0);
+  expect(buttonNamed(privateNote, "Edit")?.disabled).toBe(false);
+  expect(buttonNamed(privateNote, "Forget")?.disabled).toBe(false);
+  expect(buttonNamed(privateChange, "Approve")?.disabled).toBe(false);
+  expect(buttonNamed(privateChange, "Reject")?.disabled).toBe(false);
+});
+
+test("an owner sees Edit, Forget, Approve and Reject on shared and private rows", () => {
+  const document = render(
+    <NotesSection {...sectionProps} groups={ownerScopeGroups} />
+  );
+  const sharedNote = rowWith(document, "note-row", "Shared fact");
+  const privateNote = rowWith(document, "note-row", "Private fact");
+  const sharedChange = rowWith(document, "held-row", "Shared change");
+  const privateChange = rowWith(document, "held-row", "Private change");
+
+  for (const row of [sharedNote, privateNote]) {
+    expect(buttonNamed(row, "Edit")).toBeDefined();
+    expect(buttonNamed(row, "Forget")).toBeDefined();
+  }
+  for (const row of [sharedChange, privateChange]) {
+    expect(buttonNamed(row, "Approve")).toBeDefined();
+    expect(buttonNamed(row, "Reject")).toBeDefined();
+  }
+});
+
+test("the owners-only line shows only when canChange is false, and adding a note stays open", () => {
+  const nonOwner = render(<NotesSection {...sectionProps} canChange={false} />);
+  const owner = render(<NotesSection {...sectionProps} canChange={true} />);
+
+  expect(nonOwner.body.textContent).toContain(NOTES_OWNER_ONLY);
+  expect(owner.body.textContent).not.toContain(NOTES_OWNER_ONLY);
+  expect(nonOwner.querySelector("form")).not.toBeNull();
+  expect(nonOwner.querySelector("select")?.disabled).toBe(false);
+  expect(nonOwner.querySelector("input")?.disabled).toBe(false);
 });

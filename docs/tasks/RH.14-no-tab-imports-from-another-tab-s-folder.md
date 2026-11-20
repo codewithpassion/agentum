@@ -3,7 +3,7 @@ id: RH.14
 title: "No tab imports from another tab's folder"
 milestone: RH
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/RH.14-no-tab-imports-from-another-tab-s-folder
 lane: web-agent
@@ -23,3 +23,4 @@ From the RH gate review, round 1 (`docs/reviews/RH-1.md`, must-fix 3).
 ## Log
 - 2026-11-20: added from the RH gate review, round 1.
 - 2026-11-20: dispatched on task/RH.14-no-tab-imports-from-another-tab-s-folder (v4 controller session).
+- 2026-11-20: merged as 2f5f8e9a, review clean after 1 fix round. check, test and build passed on main.

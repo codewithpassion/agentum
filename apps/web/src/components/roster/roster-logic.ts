@@ -3,6 +3,7 @@ import {
   type AgentAvatarColor,
   type AgentCard,
   type AgentCardState,
+  EVERYONE_TEAM_SLUG,
   type RailItem,
   type Team,
 } from "@repo/db/shared";
@@ -110,22 +111,26 @@ const buildGroup = (
 };
 
 /**
- * One group per team, by team name, then one "No team" group for cards whose
- * home team is missing or unknown. The "No team" group is left out when empty.
+ * One group per team that has cards, by team name, then one "No team" group
+ * for cards whose home team is missing or unknown. Empty groups, including
+ * "No team", are left out.
  */
 export const groupCards = (
   cards: readonly AgentCard[],
   teams: readonly Team[]
 ): RosterGroup[] => {
   const teamIds = new Set(teams.map((team) => team.id));
-  const groups = [...teams].sort(byTeamName).map((team) =>
-    buildGroup(
-      team.id,
-      team,
-      cards.filter((c) => c.teamId === team.id),
-      cards
+  const groups = [...teams]
+    .sort(byTeamName)
+    .map((team) =>
+      buildGroup(
+        team.id,
+        team,
+        cards.filter((c) => c.teamId === team.id),
+        cards
+      )
     )
-  );
+    .filter((group) => group.cards.length > 0);
   const homeless = cards.filter(
     (c) => c.teamId === null || !teamIds.has(c.teamId)
   );
@@ -134,6 +139,17 @@ export const groupCards = (
   }
   return groups;
 };
+
+/**
+ * True when every group is the workspace's Everyone team or "No team": the
+ * groups carry no information, so the wall shows its cards without headings.
+ * Agents do not join a team when they are created, so on a fresh workspace
+ * all cards sit in "No team".
+ */
+export const wallIsFlat = (groups: readonly RosterGroup[]): boolean =>
+  groups.every(
+    (group) => group.team === null || group.team.slug === EVERYONE_TEAM_SLUG
+  );
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 

@@ -1,5 +1,6 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { useCallback } from "react";
+import { canManageAgentKeys } from "#/components/agent/agent-rights.ts";
 import { BrowserSwitch } from "#/components/agent/profile/browser-switch.tsx";
 import { mailProvisionLabel } from "#/components/agent/profile/profile-logic.ts";
 import { allowedMailAddresses } from "#/components/agent/profile/sheets/mail-logic.ts";
@@ -8,7 +9,6 @@ import { ArchivedNote, RoomSection, TabBody } from "../section.tsx";
 import { AppsSection } from "./apps-section.tsx";
 import { AskBeforeCard } from "./ask-before-card.tsx";
 import { IdentitySection } from "./identity-section.tsx";
-import { canManageAgentKeys } from "./keys-logic.ts";
 import { OtherAgentsSection } from "./other-agents-section.tsx";
 import { SecretsSection } from "./secrets-section.tsx";
 
@@ -34,6 +34,7 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       actions={room.askBefore}
       agentId={agent.id}
       archived={archived}
+      canManage={canManage}
       level={room.askLevel}
       mailAllowed={allowedMailAddresses(room.rules)}
       onEditSettings={openSettings}
@@ -81,6 +82,7 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       ) : null}
       <OtherAgentsSection
         agent={agent}
+        canManage={canManage}
         connections={room.connections}
         otherAgents={keys === null ? null : keys.otherAgents}
         published={room.published}

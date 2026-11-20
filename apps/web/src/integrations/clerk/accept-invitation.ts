@@ -7,14 +7,14 @@ export interface InvitationSearch {
 
 /** What `/accept-invitation` shows or does. */
 export type InvitationStep =
-  /** A signed-in session: check the organisation has a workspace, ask the person to join if they must, make it active, then open `/desk`. */
+  /** A signed-in session: check the organisation has a workspace, ask the person to join if they must, make it active, then open `/home`. */
   | { kind: "activate"; org: string }
   /** A new person: the sign-up form takes the ticket. */
   | { kind: "sign-up" }
   /** A person with an account, or a link whose ticket is spent: the sign-in form, which takes a ticket if there is one. */
   | { kind: "sign-in" }
   /** A signed-in session on a link with no organisation: nothing to activate. */
-  | { kind: "desk" };
+  | { kind: "home" };
 
 /**
  * Reads the link Clerk sends the invitee to. `__clerk_status` is `sign_up` for
@@ -33,7 +33,7 @@ export function invitationStep({
   if (signedIn) {
     return search.org
       ? { kind: "activate", org: search.org }
-      : { kind: "desk" };
+      : { kind: "home" };
   }
   return search.ticket && search.status !== "sign_in"
     ? { kind: "sign-up" }
