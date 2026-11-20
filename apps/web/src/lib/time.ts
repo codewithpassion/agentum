@@ -2,7 +2,8 @@
  * The one time rule for what the app prints. A thing that happened (a message,
  * a task, a log line, a card's "Done") shows in the viewer's own time zone. A
  * schedule (a job's next run) shows in the workspace time zone with the zone
- * named, because that is the zone it runs in.
+ * named, because that is the zone it runs in. The roster service prints the
+ * schedule, on the server (`packages/services/src/roster.ts`).
  */
 
 /** Whose clock and language to print in. The browser's own, unless a test says otherwise. */
@@ -43,16 +44,4 @@ export const dayClockTime = (
   new Intl.DateTimeFormat(viewer.locale, {
     ...DAY_CLOCK_OPTIONS,
     timeZone: viewer.timeZone,
-  }).format(toMs(at));
-
-/** When a schedule fires, in the workspace zone with the zone named, such as "21 Nov, 8:00 am AEDT". */
-export const scheduledTime = (
-  at: string | number | Date,
-  workspaceZone: string,
-  locale: string | undefined
-): string =>
-  new Intl.DateTimeFormat(locale, {
-    ...DAY_CLOCK_OPTIONS,
-    timeZone: workspaceZone,
-    timeZoneName: "short",
   }).format(toMs(at));

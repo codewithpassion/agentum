@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { clockTime, dayClockTime, scheduledTime, type Viewer } from "./time.ts";
+import { clockTime, dayClockTime, type Viewer } from "./time.ts";
 
 const SYDNEY: Viewer = { locale: "en-AU", timeZone: "Australia/Sydney" };
 const UTC: Viewer = { locale: "en-AU", timeZone: "UTC" };
@@ -23,13 +23,4 @@ test("dayClockTime moves to the next day when the viewer's zone is ahead", () =>
   expect(dayClockTime("2026-11-20T23:30:00.000Z", UTC)).toBe(
     "20 Nov, 11:30 pm"
   );
-});
-
-test("scheduledTime prints the workspace zone and names it, whatever the viewer's", () => {
-  expect(scheduledTime("2026-11-20T21:00:00.000Z", "UTC", "en-AU")).toBe(
-    "20 Nov, 9:00 pm UTC"
-  );
-  expect(
-    scheduledTime("2026-11-20T21:00:00.000Z", "Australia/Sydney", "en-AU")
-  ).toBe("21 Nov, 8:00 am AEDT");
 });
