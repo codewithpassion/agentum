@@ -19,8 +19,9 @@ import { workspaces } from "./workspaces.ts";
  * and the next slot to fire (`next_run_at`, an ISO instant). The tick fires it
  * and moves `next_run_at` in one atomic write with the run. A routine switches
  * itself off (`disabled_at`) after 5 errors in a row. An `app` trigger belongs
- * to an artifact and has no token or schedule. A revoked row stays, so
- * the log can still name it.
+ * to an artifact and has no token or schedule. A `dream` trigger has none
+ * either: the system makes it from the agent's dream schedule, one per agent.
+ * A revoked row stays, so the log can still name it.
  */
 export const triggers = sqliteTable(
   "triggers",
@@ -75,5 +76,9 @@ export const triggers = sqliteTable(
       .on(t.artifactId, t.agentId)
       .where(sql`${t.artifactId} is not null`),
     index("triggers_due_idx").on(t.nextRunAt),
+    // One dream trigger per agent, not counting a revoked one.
+    uniqueIndex("triggers_dream_agent_unique")
+      .on(t.agentId)
+      .where(sql`${t.kind} = 'dream' and ${t.revokedAt} is null`),
   ]
 );

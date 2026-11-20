@@ -128,7 +128,18 @@ export const INPUT_FILES_MAX = 20;
 /** Largest file the upload route and the files service accept: 50 MB. */
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-export const TRIGGER_KINDS = ["http", "routine", "mail", "app"] as const;
+/**
+ * `dream` is made and removed by the system from `agents.remember.dreamSchedule`,
+ * one per agent. No person creates one by hand: `triggers.create` makes `http`
+ * triggers only.
+ */
+export const TRIGGER_KINDS = [
+  "http",
+  "routine",
+  "mail",
+  "app",
+  "dream",
+] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 /** A proposal from an agent's run that no person has approved yet. */
@@ -727,6 +738,7 @@ export const NEEDS_YOU_KINDS = [
   "connector_secret",
   "memory_note",
   "spend_pause",
+  "dream_question",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -740,6 +752,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   approval: (name) => `${name} asks for approval`,
   artifact_grant: (name) => `${name} asks for app permissions`,
   connector_secret: (name) => `${name} needs a connector secret`,
+  dream_question: (name) => `${name} has a question from its dream`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
   memory_note: (name) => `${name} wants to remember something`,
@@ -1516,6 +1529,90 @@ export const DEFAULT_NEVER_REMEMBER_JSON = JSON.stringify(
 export interface MemoryRules {
   agent: RememberRules;
   workspaceNever: string[];
+}
+
+/** The model a dream runs on: cheap, because a dream reads a lot and writes a little. */
+export const DREAM_MODEL = "claude-haiku-5-5";
+
+/** `running` until it ends. `skipped` found nothing new, `failed` left memory unchanged, `undone` was rolled back by a person. */
+export const DREAM_RUN_STATUSES = [
+  "running",
+  "done",
+  "skipped",
+  "failed",
+  "undone",
+] as const;
+export type DreamRunStatus = (typeof DREAM_RUN_STATUSES)[number];
+
+/** What a dream changed, counted for the diary line. `questions` are contradictions it could not settle. */
+export interface DreamCounts {
+  added: number;
+  dropped: number;
+  merged: number;
+  questions: number;
+}
+
+/** The `dream_runs.counts` column's database default. */
+export const DEFAULT_DREAM_COUNTS_JSON = JSON.stringify({
+  added: 0,
+  dropped: 0,
+  merged: 0,
+  questions: 0,
+} satisfies DreamCounts);
+
+/** What the dream's model calls used. The same fields as a run's usage. */
+export interface DreamUsage {
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+/** One proposed change to an agent's notes. A note is named by its id in `agents/<slug>/memory/`. */
+export type DreamPlanChange =
+  | {
+      action: "add";
+      kind: MemoryNoteKind;
+      source: MemorySource | null;
+      text: string;
+      userScope: string | null;
+    }
+  | {
+      action: "merge";
+      /** The notes folded into `keepNoteId`, which keeps its id and takes `text`. */
+      absorbedNoteIds: string[];
+      keepNoteId: string;
+      text: string;
+    }
+  | { action: "drop"; noteId: string; reason: string }
+  | {
+      action: "question";
+      /** The notes that disagree. */
+      noteIds: string[];
+      question: string;
+    };
+
+/** What a dream proposes before anything is written, in the order it applies. */
+export type DreamPlan = DreamPlanChange[];
+
+/** One dream of one agent. Its note changes are the `memory_changes` rows that name it in `dreamRunId`. */
+export interface DreamRun {
+  agentId: string;
+  /** The latest library version id of each memory file before the dream wrote anything. Undo restores them. */
+  baseVersion: string[];
+  counts: DreamCounts;
+  /** The plain-words entry the owner reads. Empty until the run ends. */
+  diary: string;
+  /** Why the run `failed`. Null otherwise. */
+  error: string | null;
+  finishedAt: string | null;
+  id: string;
+  /** The library version id the dream wrote last. Null when it wrote nothing. */
+  resultVersion: string | null;
+  /** The start of the window the dream read: when the agent's previous dream began, or null for its first. */
+  since: string | null;
+  startedAt: string;
+  status: DreamRunStatus;
+  usage: DreamUsage | null;
 }
 
 /** Why an agent is paused: it reached its weekly cap, or a person paused it. */

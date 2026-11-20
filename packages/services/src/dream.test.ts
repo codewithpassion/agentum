@@ -1,0 +1,86 @@
+import { expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
+import { migrated } from "@repo/db/test-db";
+import { ForbiddenError } from "./authz.ts";
+import {
+  createDreamService,
+  dreamAgentInputSchema,
+  dreamRunIdInputSchema,
+} from "./dream.ts";
+import { ServiceError } from "./errors.ts";
+import { systemClock } from "./runs/types.ts";
+import type { Principal } from "./workspaces.ts";
+
+const WORKSPACE = "w1";
+const user: Principal = {
+  kind: "user",
+  userId: "u1",
+  via: "session",
+  workspaceId: WORKSPACE,
+};
+const system: Principal = { kind: "system" };
+
+const makeService = () => {
+  const db = migrated();
+  return createDreamService({
+    atomic: sqliteAtomic(db),
+    clock: systemClock,
+    db,
+  });
+};
+
+test("agent input accepts a valid id and rejects an empty id and an unknown key", () => {
+  expect(dreamAgentInputSchema.safeParse({ agentId: "a1" }).success).toBe(true);
+  expect(dreamAgentInputSchema.safeParse({ agentId: "" }).success).toBe(false);
+  expect(
+    dreamAgentInputSchema.safeParse({ agentId: "a1", extra: true }).success
+  ).toBe(false);
+});
+
+test("run id input accepts a valid id and rejects an empty id and an unknown key", () => {
+  expect(dreamRunIdInputSchema.safeParse({ dreamRunId: "d1" }).success).toBe(
+    true
+  );
+  expect(dreamRunIdInputSchema.safeParse({ dreamRunId: "" }).success).toBe(
+    false
+  );
+  expect(
+    dreamRunIdInputSchema.safeParse({ dreamRunId: "d1", extra: true }).success
+  ).toBe(false);
+});
+
+test("stub list resolves to no dream runs for a user", async () => {
+  expect(await makeService().list(user, "a1")).toEqual([]);
+});
+
+test("stub get rejects with not_found for a user", async () => {
+  await expect(makeService().get(user, "d1")).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+
+test("stub runNow rejects with not_found for a user", async () => {
+  await expect(makeService().runNow(user, "a1")).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+
+test("stub undo rejects with not_found for a user", async () => {
+  await expect(makeService().undo(user, "d1")).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+
+test("stub errors are ServiceError instances", async () => {
+  await expect(makeService().get(user, "d1")).rejects.toBeInstanceOf(
+    ServiceError
+  );
+});
+
+test("every method throws ForbiddenError for the system principal", () => {
+  const service = makeService();
+  expect(() => service.list(system, "a1")).toThrow(ForbiddenError);
+  expect(() => service.get(system, "d1")).toThrow(ForbiddenError);
+  expect(() => service.runNow(system, "a1")).toThrow(ForbiddenError);
+  expect(() => service.undo(system, "d1")).toThrow(ForbiddenError);
+});

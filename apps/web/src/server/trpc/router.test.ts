@@ -577,3 +577,59 @@ test("teams procedures are 401 without a workspace", async () => {
     caller.teams.profiles.set({ handle: "dom", name: "Dom" })
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });
+
+test("dream.list is empty while the stub lists no runs", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+  expect(await caller.dream.list({ agentId: "a1" })).toEqual([]);
+});
+
+test("dream changes are NOT_FOUND while the stub changes nothing", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(caller.dream.get({ dreamRunId: "d1" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(caller.dream.runNow({ agentId: "a1" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(caller.dream.undo({ dreamRunId: "d1" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+});
+
+test("dream inputs that are not valid are BAD_REQUEST", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(caller.dream.list({ agentId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(caller.dream.runNow({ agentId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(caller.dream.get({ dreamRunId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(caller.dream.undo({ dreamRunId: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(
+    caller.dream.list({ agentId: "a1", extra: true } as never)
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
+test("dream procedures are 401 without a workspace", async () => {
+  const caller = await callerFor({ orgId: null, userId: "user_1" });
+
+  await expect(caller.dream.list({ agentId: "a1" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.dream.get({ dreamRunId: "d1" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.dream.runNow({ agentId: "a1" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.dream.undo({ dreamRunId: "d1" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+});

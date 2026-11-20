@@ -62,6 +62,7 @@
     "./dictation": "./src/dictation.ts",
     "./desk": "./src/desk.ts",
     "./desk-api": "./src/desk-api.ts",
+    "./dream": "./src/dream.ts",
     "./errors": "./src/errors.ts",
     "./events": "./src/events.ts",
     "./events/scrub": "./src/events/scrub.ts",

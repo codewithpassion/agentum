@@ -64,6 +64,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "browser_sessions",
     "connectors",
     "credentials",
+    "dream_runs",
     "events",
     "files",
     "guest_auth_rate_buckets",
@@ -132,7 +133,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(91);
+  expect(tables.length).toBe(92);
 
   for (const table of tables) {
     const column = client
@@ -407,6 +408,7 @@ test("endpoint rows have a partial unique name index and triggers have a nullabl
 test("app triggers have an artifact index and a partial unique artifact-agent key", () => {
   const { client } = migrated();
   expect(TRIGGER_KINDS).toContain("app");
+  expect(TRIGGER_KINDS).toContain("dream");
   expect(indexColumns(client, "triggers_artifact_idx")).toEqual([
     "artifact_id",
   ]);

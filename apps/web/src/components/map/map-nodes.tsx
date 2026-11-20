@@ -30,6 +30,7 @@ const TILE_TONE: Record<TileTone, string> = {
 
 const TRIGGER_GLYPH: Record<MapTriggerKind, string> = {
   app: "A",
+  dream: "☾",
   http: "↯",
   mail: "@",
   routine: "⏱",
