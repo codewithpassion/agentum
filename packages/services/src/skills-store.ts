@@ -1396,6 +1396,56 @@ export const createSkillsStoreService = ({
   // --- approving ---
 
   /** Settles a proposed version. Approving needs its base to be the latest approved version. */
+  /**
+   * A skill with no approved version has nothing to give, so rejecting its
+   * only proposal takes it back from the agents it was handed to. Empty when
+   * an approved version exists.
+   */
+  const takeBack = async (
+    c: Caller,
+    skill: SkillRow,
+    versions: readonly VersionRow[],
+    outcome: "approved" | "rejected"
+  ): Promise<Statement[]> => {
+    if (
+      outcome === "approved" ||
+      versions.some((version) => version.status === "approved")
+    ) {
+      return [];
+    }
+    const carriers = await db
+      .select({ agentId: skillAssignments.agentId })
+      .from(skillAssignments)
+      .where(eq(skillAssignments.skillId, skill.id));
+    if (carriers.length === 0) {
+      return [];
+    }
+    const approved = db
+      .select({ id: skillVersions.id })
+      .from(skillVersions)
+      .where(
+        and(
+          eq(skillVersions.skillId, skill.id),
+          eq(skillVersions.status, "approved")
+        )
+      );
+    return [
+      db
+        .delete(skillAssignments)
+        .where(
+          and(eq(skillAssignments.skillId, skill.id), notExists(approved))
+        ),
+      ...carriers.map(({ agentId }) =>
+        eventStatement(
+          c,
+          "skill.unassigned",
+          { agentId, name: skill.name, skillId: skill.id },
+          agentId
+        )
+      ),
+    ];
+  };
+
   const decide = async (
     principal: Principal,
     input: DecideInput,
@@ -1437,6 +1487,7 @@ export const createSkillsStoreService = ({
     const now = clock.now().toISOString();
     const settled =
       outcome === "approved" ? [target] : proposalsBuiltOn(versions, target);
+    const unassigning = await takeBack(c, skill, versions, outcome);
     await atomic([
       db
         .update(skillVersions)
@@ -1463,6 +1514,7 @@ export const createSkillsStoreService = ({
               .where(eq(skillSources.skillId, skill.id)),
           ]
         : []),
+      ...unassigning,
       ...settled.map((version) =>
         eventStatement(
           c,

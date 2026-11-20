@@ -142,3 +142,37 @@ test("a commit that deletes the same path twice is invalid", async () => {
     'Skill path "notes.md" appears twice'
   );
 });
+
+test("rejecting the only version of a skill takes it back from the agent that carried it", async () => {
+  const { service } = env;
+  const { skill } = await service.create(run(A1, R1), {
+    files: [write("baz", "one")],
+    message: "Propose",
+    name: "baz",
+  });
+  expect(await service.assignments(user())).toHaveLength(1);
+
+  await service.reject(user(), { skillId: skill.id, version: 1 });
+
+  expect(await service.assignments(user())).toEqual([]);
+});
+
+test("rejecting a later proposal leaves a skill with an approved version assigned", async () => {
+  const { service } = env;
+  const { skill } = await service.create(run(A1, R1), {
+    files: [write("qux", "one")],
+    message: "v1",
+    name: "qux",
+  });
+  await service.approve(user(), { skillId: skill.id, version: 1 });
+  await service.commit(run(A1, R1), {
+    baseVersion: 1,
+    message: "v2",
+    skillId: skill.id,
+    writes: [write("qux", "two")],
+  });
+
+  await service.reject(user(), { skillId: skill.id, version: 2 });
+
+  expect(await service.assignments(user())).toHaveLength(1);
+});
