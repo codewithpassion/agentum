@@ -3,9 +3,9 @@ id: TM.6
 title: "Team page: members, lead, rules, folder"
 milestone: TM
 size: M
-status: todo
+status: in_progress
 depends_on: [TM.1, RH.4]
-branch: null
+branch: task/TM.6-team-page
 lane: web-team
 executor: claude
 ---
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone TM. Mockup: the right column of Proposal
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TM.6-team-page (v4 controller session).

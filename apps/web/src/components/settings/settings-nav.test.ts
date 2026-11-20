@@ -10,6 +10,7 @@ test("groups appear in order", () => {
     "Agents can use",
     "Access to Agentum",
     "Jobs",
+    "Spend",
   ]);
 });
 
@@ -25,6 +26,7 @@ test("paths appear in order", () => {
     "/settings/connected-apps",
     "/settings/agent-connections",
     "/settings/timezone",
+    "/settings/spend",
   ]);
 });
 

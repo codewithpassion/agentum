@@ -13,6 +13,7 @@ import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skillVersions } from "@repo/db/schema/skills";
+import { teamMembers, teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { type RunStatus, SKILL_CHANGE_TTL_MS } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
@@ -713,6 +714,82 @@ test("an inbox thread waits in Needs you while an agent's post is the newest, an
 
   expect((await get()).needsYou).toEqual([]);
   expect(await desk.needsYouCount(user())).toBe(0);
+});
+
+test("an inbox reply card links a run only to a member who may see it", async () => {
+  const inbox = createInboxService({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    events,
+    runs: { startRun: (principal, input) => runs.startRun(principal, input) },
+  });
+  const thread = await inbox.createThread(user(), { title: "Plans" });
+  await inbox.post(user(), { text: "Hello", threadId: thread.id });
+  const hidden = await seed({
+    actorId: "u2",
+    agentId: a2,
+    origin: "ui",
+    status: "done",
+  });
+  await db.insert(inboxPosts).values({
+    authorId: a2,
+    authorKind: "agent",
+    createdAt: new Date(now + 1).toISOString(),
+    id: `zz-post-${thread.id}-1`,
+    runId: hidden,
+    text: "Done",
+    threadId: thread.id,
+    workspaceId: "w1",
+  });
+
+  const mine = (await get()).needsYou.find((card) => card.id === thread.id);
+  const theirs = (await get({}, user("u2"))).needsYou.find(
+    (card) => card.id === thread.id
+  );
+
+  expect(mine).toBeDefined();
+  expect(mine?.runId).toBeUndefined();
+  expect(theirs?.runId).toBe(hidden);
+});
+
+test("a team room's reply waits in Needs you only for the team's members", async () => {
+  const inbox = createInboxService({
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    events,
+    runs: { startRun: (principal, input) => runs.startRun(principal, input) },
+  });
+  await db.insert(teams).values({
+    createdAt: new Date(now).toISOString(),
+    id: "team-1",
+    name: "Crew",
+    slug: "crew",
+    workspaceId: "w1",
+  });
+  await db.insert(teamMembers).values({
+    memberId: "u1",
+    memberKind: "user",
+    teamId: "team-1",
+    workspaceId: "w1",
+  });
+  const thread = await inbox.createThread(user(), {
+    teamId: "team-1",
+    title: "Crew plans",
+  });
+  await db.insert(inboxPosts).values({
+    authorId: a2,
+    authorKind: "agent",
+    createdAt: new Date(now + 1).toISOString(),
+    id: `zz-post-${thread.id}-1`,
+    text: "Done",
+    threadId: thread.id,
+    workspaceId: "w1",
+  });
+
+  expect(ids((await get()).needsYou)).toEqual([thread.id]);
+  expect((await get({}, user("u2"))).needsYou).toEqual([]);
 });
 
 test("a dismissed inbox thread leaves Needs you until an agent posts again, and a person's post keeps it out", async () => {

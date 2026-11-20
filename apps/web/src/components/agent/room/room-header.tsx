@@ -12,6 +12,7 @@ import {
   agentInitials,
   agentTileColour,
 } from "#/components/shell/agent-tile.ts";
+import { capLine } from "#/components/spend/spend-logic.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { jobLine, ownerName } from "./header-logic.ts";
 import type { RoomData } from "./room-data.ts";
@@ -26,9 +27,11 @@ export function RoomHeader({
   onEdit: () => void;
   onOpenMail: () => void;
   onStarted: (runId: string) => void;
-  room: Pick<RoomData, "agent" | "mailbox" | "members" | "profile">;
+  room: Pick<RoomData, "agent" | "mailbox" | "members" | "profile" | "spend">;
 }) {
-  const { agent, mailbox, members, profile } = room;
+  const { agent, mailbox, members, profile, spend } = room;
+  const spendLine =
+    spend.weekCents === null ? null : capLine(spend.weekCents, spend.capCents);
   const { header } = profile;
   const status = statusText(header);
   const job = jobLine(profile.does);
@@ -80,6 +83,19 @@ export function RoomHeader({
           <span className="rounded-full border border-border px-2.5 py-0.5 text-xs">
             {runtimeWords(header.runtime, header.machine)}
           </span>
+          {spendLine === null ? null : (
+            <span
+              className="rounded-full border border-border px-2.5 py-0.5 text-xs"
+              data-testid="room-spend-line"
+            >
+              {spendLine}
+            </span>
+          )}
+          {spend.paused ? (
+            <span className="rounded-full bg-destructive/15 px-2 py-0.5 font-semibold text-destructive text-xs">
+              Paused. Weekly limit reached
+            </span>
+          ) : null}
           {status === null ? null : (
             <span className="rounded-full bg-warning/15 px-2 py-0.5 font-semibold text-warning text-xs">
               {status.runId === null ? (
