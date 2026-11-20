@@ -3,9 +3,9 @@ id: KY.12
 title: "The catalogue on Settings, Apps"
 milestone: KY
 size: S
-status: todo
+status: in_progress
 depends_on: [KY.11]
-branch: null
+branch: task/KY.12-the-catalogue-on-settings-apps
 lane: web-settings
 executor: claude
 ---
@@ -30,3 +30,4 @@ Browser as admin: add Linear from Settings, Apps, then see it in the Keys tab's 
 
 ## Log
 - 2026-11-20: added from the KY walkthrough.
+- 2026-11-20: dispatched on task/KY.12-the-catalogue-on-settings-apps (v4 controller session).
