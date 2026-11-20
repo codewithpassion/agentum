@@ -3,9 +3,9 @@ id: SP.3
 title: "Caps pause an agent and ask its owner"
 milestone: SP
 size: M
-status: todo
+status: in_progress
 depends_on: [SP.2]
-branch: null
+branch: task/SP.3-spend-cap-enforcement
 lane: services-runs
 executor: claude
 ---
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone SP. A cap that only shows a number is no
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/SP.3-spend-cap-enforcement (v4 controller session).
