@@ -4,7 +4,7 @@ use crate::{
     files::Disk,
     runs::{
         api::{Failure, Result},
-        helpers::{Masker, agent_env, max_turns, stop_message, text},
+        helpers::{Masker, agent_env, effort, max_turns, stop_message, text},
     },
 };
 use serde_json::{Value, json};
@@ -322,6 +322,12 @@ pub async fn drive(options: Driver<'_>) -> Result<Value> {
         .filter(|n| n.is_finite() && *n > 0.0)
     {
         command.arg("--max-budget-usd").arg(budget.to_string());
+    }
+    // `contextBudget` rides in the same claim but is not passed on: Claude Code's
+    // `--autocompact` is not known to exist in every version this client accepts
+    // (2.1.300 and up), and a flag it rejects would fail the run.
+    if let Some(level) = effort(&claim["agent"]["runtimeConfig"]) {
+        command.args(["--effort", level]);
     }
     if claim["session"]["runtimeMachineId"] == machine
         && let Some(session) = claim["session"]["runtimeRef"].as_str()

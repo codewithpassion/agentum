@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentCard, AgentCardState } from "@repo/db/shared";
+import type { AgentCard, AgentCardState, Team } from "@repo/db/shared";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -33,14 +33,38 @@ const card = (name: string, state: AgentCardState, id = name): AgentCard => ({
   weeklyCapCents: null,
 });
 
+const team = (id: string, name: string, leadAgentId: string | null): Team => ({
+  archivedAt: null,
+  createdAt: "2026-11-01T00:00:00.000Z",
+  folderPath: null,
+  id,
+  leadAgentId,
+  leadListens: true,
+  members: [],
+  name,
+  ownerUserId: null,
+  rules: "",
+  slug: name.toLowerCase(),
+});
+
+const addMember = () => Promise.resolve();
+
 const render = (
   cards: readonly AgentCard[],
   chips: readonly NeedsYouChip[] = [],
-  emptyState?: ReactNode
+  emptyState?: ReactNode,
+  teams: readonly Team[] = []
 ) =>
   renderToStaticMarkup(
     <RouterContextProvider router={router}>
-      <RosterWall cards={cards} chips={chips} emptyState={emptyState} />
+      <RosterWall
+        cards={cards}
+        chips={chips}
+        emptyState={emptyState}
+        onAddMember={addMember}
+        teams={teams}
+        userId="user_1"
+      />
     </RouterContextProvider>
   );
 
@@ -115,4 +139,55 @@ test("with agents, the empty state is ignored", () => {
   );
   expect(html).not.toContain('data-testid="guide"');
   expect(html.split('href="/agents/new"').length - 1).toBe(2);
+});
+
+const inTeam = (c: AgentCard, teamId: string, isLead = false): AgentCard => ({
+  ...c,
+  isLead,
+  teamId,
+});
+
+test("with teams, cards group under their team heading and agents in no team come last", () => {
+  const html = render(
+    [
+      card("Loner", "idle"),
+      inTeam(card("Ruby", "idle", "a_ruby"), "t_ops", true),
+      inTeam(card("Sam", "working", "a_sam"), "t_ops"),
+      inTeam(card("Tess", "idle", "a_tess"), "t_dev"),
+    ],
+    [],
+    undefined,
+    [team("t_ops", "Ops", "a_ruby"), team("t_dev", "Dev", null)]
+  );
+  const order = ["Dev</span>", "Tess", "Ops</span>", "Ruby", "Sam", "No team"];
+  const positions = order.map((text) => html.indexOf(text));
+  for (const position of positions) {
+    expect(position).toBeGreaterThan(-1);
+  }
+  expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  expect(html).toContain("Lead Ruby");
+  expect(html).toContain("No lead");
+  expect(html).toContain("2 agents");
+  expect(html).toContain('href="/teams/t_ops/room"');
+  expect(html).toContain('href="/teams/t_dev/room"');
+  expect(html).toContain("Lead</span>");
+  expect(html.split("Add to team</button>").length - 1).toBe(2);
+  // Both add cards still link to the builder, once, after the groups.
+  expect(html.split('href="/agents/new"').length - 1).toBe(2);
+});
+
+test("a team with no cards still gets a group with its add card", () => {
+  const html = render([card("Loner", "idle")], [], undefined, [
+    team("t_ops", "Ops", null),
+  ]);
+  expect(html).toContain("Ops</span>");
+  expect(html).toContain("0 agents");
+  expect(html).toContain("Add to team</button>");
+});
+
+test("with no teams the wall stays flat, with no headings or Add to team", () => {
+  const html = render([card("Ruby", "idle")]);
+  expect(html).not.toContain("<h2");
+  expect(html).not.toContain("Add to team");
+  expect(html).not.toContain("No team");
 });

@@ -4,11 +4,11 @@ import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
+import { eq } from "drizzle-orm";
 import { createLibraryAudience, type LibraryAudience } from "./audience.ts";
 
 const WORKSPACE = "w1";
 const AGENT = "agent_scout";
-const SESSION = "s1";
 const START = "2026-10-16T10:00:00.000Z";
 const SHARED = "agents/scout/memory/people.md";
 const PRIVATE_A = "agents/scout/memory/private/user_a.md";
@@ -55,23 +55,66 @@ beforeEach(() => {
       workspaceId: WORKSPACE,
     })
     .run();
-  db.insert(sessionRows)
-    .values({
-      actorId: "u1",
-      actorKind: "user",
-      agentId: AGENT,
-      createdAt: START,
-      id: SESSION,
-      origin: "ui",
-      workspaceId: WORKSPACE,
-    })
-    .run();
+  // Each run has a session of its own, started by the person it runs for.
   const machineRuns = [
-    { claimedBy: "machine_a", id: "run_a", onBehalfOfUserId: "user_a" },
-    { claimedBy: "machine_b", id: "run_b", onBehalfOfUserId: "user_b" },
-    { claimedBy: "machine_none", id: "run_none", onBehalfOfUserId: null },
+    {
+      claimedBy: "machine_a",
+      id: "run_a",
+      onBehalfOfUserId: "user_a",
+      origin: "ui",
+      private: false,
+    },
+    {
+      claimedBy: "machine_b",
+      id: "run_b",
+      onBehalfOfUserId: "user_b",
+      origin: "ui",
+      private: false,
+    },
+    {
+      claimedBy: "machine_none",
+      id: "run_none",
+      onBehalfOfUserId: null,
+      origin: "ui",
+      private: false,
+    },
+    // user_a started a Slack channel thread and a team room post. Both are shared.
+    {
+      claimedBy: "machine_slack",
+      id: "run_slack",
+      onBehalfOfUserId: "user_a",
+      origin: "slack",
+      private: false,
+    },
+    {
+      claimedBy: "machine_room",
+      id: "run_room",
+      onBehalfOfUserId: "user_a",
+      origin: "inbox",
+      private: false,
+    },
+    // user_a's Slack DM is private to her.
+    {
+      claimedBy: "machine_dm",
+      id: "run_dm",
+      onBehalfOfUserId: "user_a",
+      origin: "slack",
+      private: true,
+    },
   ];
   for (const run of machineRuns) {
+    db.insert(sessionRows)
+      .values({
+        actorId: run.onBehalfOfUserId ?? "u1",
+        actorKind: "user",
+        agentId: AGENT,
+        createdAt: START,
+        id: `s_${run.id}`,
+        origin: run.origin,
+        private: run.private,
+        workspaceId: WORKSPACE,
+      })
+      .run();
     db.insert(runRows)
       .values({
         actorId: "u1",
@@ -82,7 +125,7 @@ beforeEach(() => {
         id: run.id,
         inputText: "hi",
         onBehalfOfUserId: run.onBehalfOfUserId,
-        sessionId: SESSION,
+        sessionId: `s_${run.id}`,
         status: "running",
         workspaceId: WORKSPACE,
       })
@@ -96,11 +139,27 @@ test("a shared memory file reaches every running machine run of the agent", asyn
   expect(byMachine(result)).toEqual({
     machine_a: [SHARED],
     machine_b: [SHARED],
+    machine_dm: [SHARED],
     machine_none: [SHARED],
+    machine_room: [SHARED],
+    machine_slack: [SHARED],
   });
 });
 
-test("a private memory file reaches only the run for its person", async () => {
+test("a private memory file reaches only a run for its person whose session is private or ui", async () => {
+  const result = await audience(change([PRIVATE_A]));
+  // Not machine_slack or machine_room: user_a started them, but they are shared sessions.
+  expect(byMachine(result)).toEqual({
+    machine_a: [PRIVATE_A],
+    machine_dm: [PRIVATE_A],
+  });
+});
+
+test("a private memory file skips a run in a session whose actor is another person", async () => {
+  db.update(sessionRows)
+    .set({ actorId: "user_b" })
+    .where(eq(sessionRows.id, "s_run_dm"))
+    .run();
   const result = await audience(change([PRIVATE_A]));
   expect(byMachine(result)).toEqual({ machine_a: [PRIVATE_A] });
 });
@@ -110,6 +169,9 @@ test("a change with a shared and a private file gives user_b only the shared fil
   expect(byMachine(result)).toEqual({
     machine_a: [SHARED, PRIVATE_A],
     machine_b: [SHARED],
+    machine_dm: [SHARED, PRIVATE_A],
     machine_none: [SHARED],
+    machine_room: [SHARED],
+    machine_slack: [SHARED],
   });
 });

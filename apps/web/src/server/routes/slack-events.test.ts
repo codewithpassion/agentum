@@ -3,13 +3,17 @@ import { type Atomic, sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import { files as fileRows } from "@repo/db/schema/files";
+import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import {
   slackApps,
   slackEventsSeen,
+  slackRoomMessages,
   slackThreads,
+  teamSlackLinks,
 } from "@repo/db/schema/slack";
+import { teams as teamRows } from "@repo/db/schema/teams";
 import { identityLinks } from "@repo/db/schema/workspaces";
 import { taskFolderPath } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
@@ -73,6 +77,7 @@ let app: Hono<AppEnv>;
 let nowMs: number;
 let workspaceId: string;
 let agentId: string;
+let machineId: string;
 let deferred: (() => Promise<void>)[];
 let dropDeferred: boolean;
 let failAtomic: boolean;
@@ -224,6 +229,7 @@ beforeEach(async () => {
   if (!machine) {
     throw new Error("enrol failed");
   }
+  ({ machineId } = machine);
   agentId = (
     await composed.services.agents.create(owner, {
       machineId: machine.machineId,
@@ -1465,4 +1471,435 @@ test("the Slack run row keeps the label and the clock time of the status it sent
     slackStatusAt: new Date(nowMs).toISOString(),
     slackStatusLabel: "is thinking…",
   });
+});
+
+// ---- Slack channel linked to a team room ----
+
+const ROOM_CHANNEL = "C0ROOM";
+const ROOM_OWNER = {
+  kind: "user",
+  userId: "user_owner",
+  via: "session",
+  workspaceId: "",
+} as const;
+const STRANGER = "U0STRANGER";
+const ROOM_FIRST_TS = "1789172000.000100";
+
+interface RoomApp {
+  agentId: string;
+  apiAppId: string;
+  botUserId: string;
+  slug: string;
+}
+
+let roomApps: RoomApp[];
+let roomTeamId: string;
+
+/** A Slack app row for an agent, signed with the same secret as the first app. */
+const addApp = async (input: {
+  agentId: string;
+  apiAppId: string;
+  botUserId: string;
+}) => {
+  const key = await importSecretsKey(SECRETS_KEY);
+  const row = { id: `row_${input.apiAppId}`, workspaceId };
+  await db.insert(slackApps).values({
+    agentId: input.agentId,
+    appId: input.apiAppId,
+    botToken: await encryptSecret(
+      key,
+      slackSecretBinding(row, "bot_token"),
+      BOT_TOKEN
+    ),
+    botUserId: input.botUserId,
+    createdAt: new Date(nowMs).toISOString(),
+    id: row.id,
+    signingSecret: await encryptSecret(
+      key,
+      slackSecretBinding(row, "signing_secret"),
+      SECRET
+    ),
+    status: "installed",
+    teamId: "T0TEAM",
+    workspaceId,
+  });
+};
+
+/**
+ * Four member apps (Bruce, the lead, and three more) in the team "Ops", with
+ * Dom in the team and the channel linked to its room.
+ */
+const setupRoom = async (options: { leadListens?: boolean } = {}) => {
+  const owner = { ...ROOM_OWNER, workspaceId };
+  roomApps = [
+    { agentId, apiAppId: "A0APP", botUserId: "U0BOT", slug: "bruce" },
+  ];
+  for (const [index, name] of ["Ada", "Cy", "Di"].entries()) {
+    // biome-ignore lint/performance/noAwaitInLoops: three short setup steps, in order
+    const agent = await composed.services.agents.create(owner, {
+      machineId,
+      model: "m",
+      name,
+      runtime: "machine",
+    });
+    roomApps.push({
+      agentId: agent.id,
+      apiAppId: `A0APP${index + 2}`,
+      botUserId: `U0BOT${index + 2}`,
+      slug: agent.slug,
+    });
+    await addApp({
+      agentId: agent.id,
+      apiAppId: `A0APP${index + 2}`,
+      botUserId: `U0BOT${index + 2}`,
+    });
+  }
+  const team = await composed.services.teams.create(owner, {
+    leadAgentId: agentId,
+    leadListens: options.leadListens ?? true,
+    name: "Ops",
+  });
+  roomTeamId = team.id;
+  for (const roomApp of roomApps) {
+    // biome-ignore lint/performance/noAwaitInLoops: a few short setup steps, in order
+    await composed.services.teams.addMember(owner, {
+      memberId: roomApp.agentId,
+      memberKind: "agent",
+      teamId: team.id,
+    });
+  }
+  await composed.services.teams.addMember(owner, {
+    memberId: DOM,
+    memberKind: "user",
+    teamId: team.id,
+  });
+  await db.insert(teamSlackLinks).values({
+    channelId: ROOM_CHANNEL,
+    createdAt: new Date(nowMs).toISOString(),
+    id: "link_room",
+    linkedBy: "user_owner",
+    slackTeamId: "T0TEAM",
+    teamId: team.id,
+    workspaceId,
+  });
+};
+
+/** The event one app hears for a channel message. */
+const roomEvent = (
+  roomApp: Pick<RoomApp, "apiAppId">,
+  message: {
+    channel?: string;
+    text: string;
+    threadTs?: string;
+    ts: string;
+    user?: string;
+  }
+): Fixture => ({
+  api_app_id: roomApp.apiAppId,
+  event: {
+    channel: message.channel ?? ROOM_CHANNEL,
+    channel_type: "channel",
+    text: message.text,
+    thread_ts: message.threadTs,
+    ts: message.ts,
+    type: "message",
+    user: message.user ?? "U0DOM",
+  },
+  event_id: `Ev-${roomApp.apiAppId}-${message.ts}`,
+  team_id: "T0TEAM",
+  type: "event_callback",
+});
+
+/** Every member app hears the message, as Slack delivers it. */
+const sendToAllApps = async (message: Parameters<typeof roomEvent>[1]) => {
+  for (const roomApp of roomApps) {
+    // biome-ignore lint/performance/noAwaitInLoops: deliveries arrive one after another
+    await send(roomEvent(roomApp, message));
+  }
+};
+
+const roomPosts = () =>
+  db.select().from(inboxPosts).orderBy(asc(inboxPosts.id)).all();
+const roomTopics = () => db.select().from(inboxThreads).all();
+const roomRows = () => db.select().from(slackRoomMessages).all();
+const roomRunsBy = (slug: string) =>
+  allRuns().filter(
+    (run) => run.agentId === roomApps.find((a) => a.slug === slug)?.agentId
+  );
+
+test("four apps hear a message and the room records one post", async () => {
+  await setupRoom();
+
+  await sendToAllApps({ text: "Launch is on Friday.", ts: ROOM_FIRST_TS });
+  // A retry of one app's delivery is dropped as well.
+  await send(
+    roomEvent(roomApps[1] as RoomApp, {
+      text: "Launch is on Friday.",
+      ts: ROOM_FIRST_TS,
+    })
+  );
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([
+    { authorId: DOM, authorKind: "user", text: "Launch is on Friday." },
+  ]);
+  expect(roomTopics()).toMatchObject([
+    { teamId: roomTeamId, title: "Launch is on Friday." },
+  ]);
+  expect(roomRows()).toMatchObject([
+    {
+      channelId: ROOM_CHANNEL,
+      direction: "in",
+      postId: roomPosts()[0]?.id,
+      threadTs: null,
+      ts: ROOM_FIRST_TS,
+    },
+  ]);
+  // Dom named nobody, so the lead hears it once.
+  expect(allRuns()).toHaveLength(1);
+});
+
+test("a thread reply joins the topic of its thread and a top-level message opens a topic from its first line", async () => {
+  await setupRoom({ leadListens: false });
+
+  await sendToAllApps({
+    text: "Budget review\nWe need the numbers by Monday.",
+    ts: ROOM_FIRST_TS,
+  });
+  await sendToAllApps({
+    text: "I will send them.",
+    threadTs: ROOM_FIRST_TS,
+    ts: "1789172001.000200",
+  });
+  await sendToAllApps({
+    text: "Something else entirely",
+    ts: "1789172002.000300",
+  });
+  // The parent of this thread is older than the link, so the reply opens a topic.
+  await sendToAllApps({
+    text: "Late reply",
+    threadTs: "1789100000.000100",
+    ts: "1789172003.000400",
+  });
+
+  const topics = roomTopics();
+  expect(topics.map((t) => t.title).sort()).toEqual([
+    "Budget review",
+    "Late reply",
+    "Something else entirely",
+  ]);
+  const budget = topics.find((t) => t.title === "Budget review");
+  expect(
+    roomPosts()
+      .filter((p) => p.threadId === budget?.id)
+      .map((p) => p.text)
+  ).toEqual([
+    "Budget review\nWe need the numbers by Monday.",
+    "I will send them.",
+  ]);
+  expect(roomRows().find((r) => r.ts === "1789172001.000200")).toMatchObject({
+    direction: "in",
+    threadTs: ROOM_FIRST_TS,
+  });
+  expect(roomPosts()).toHaveLength(4);
+});
+
+test("an unknown Slack user posts as a named guest and wakes nobody", async () => {
+  await setupRoom();
+
+  await sendToAllApps({
+    text: "<@U0BOT2> please help",
+    ts: ROOM_FIRST_TS,
+    user: STRANGER,
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([
+    {
+      authorId: `slack:T0TEAM:${STRANGER}`,
+      authorKind: "user",
+      text: "Newcomer (Slack guest): @ada please help",
+    },
+  ]);
+  expect(allRuns()).toEqual([]);
+});
+
+test("a linked person who is not in the team posts as a guest", async () => {
+  await setupRoom();
+  await db.insert(identityLinks).values({
+    clerkUserId: "user_outsider",
+    createdAt: new Date(nowMs).toISOString(),
+    email: "out@example.com",
+    externalUserId: "U0OUT",
+    id: "link_out",
+    provider: "slack",
+    teamId: "T0TEAM",
+    workspaceId,
+  });
+
+  await sendToAllApps({ text: "hello", ts: ROOM_FIRST_TS, user: "U0OUT" });
+  await runAfterJobs();
+
+  expect(roomPosts()).toMatchObject([
+    { authorId: "slack:T0TEAM:U0OUT", text: "Newcomer (Slack guest): hello" },
+  ]);
+  expect(allRuns()).toEqual([]);
+});
+
+test("a mention of a member app wakes that agent through the room, not a Slack session", async () => {
+  await setupRoom();
+
+  await sendToAllApps({
+    text: "<@U0BOT2> what is the status?",
+    ts: ROOM_FIRST_TS,
+  });
+  // The mentioned app also hears it as an app mention.
+  const mention = roomEvent(roomApps[1] as RoomApp, {
+    text: "<@U0BOT2> what is the status?",
+    ts: ROOM_FIRST_TS,
+  });
+  mention.event.type = "app_mention";
+  await send(mention);
+  await runAfterJobs();
+
+  expect(roomPosts().map((p) => p.text)).toEqual(["@ada what is the status?"]);
+  const [run, ...others] = allRuns();
+  expect(others).toEqual([]);
+  expect(run).toMatchObject({
+    agentId: roomApps[1]?.agentId,
+    onBehalfOfUserId: DOM,
+  });
+  expect(JSON.parse(run?.reply ?? "null")).toEqual({
+    kind: "inbox",
+    threadId: roomPosts()[0]?.threadId,
+  });
+  expect(db.select().from(sessionRows).all()).toMatchObject([
+    { externalKey: roomPosts()[0]?.threadId, origin: "inbox" },
+  ]);
+  expect(allSeen()).toEqual([]);
+  expect(roomRunsBy("bruce")).toEqual([]);
+});
+
+test("a message with no mention goes to the lead when lead_listens is on, and to nobody when it is off", async () => {
+  await setupRoom();
+  await sendToAllApps({ text: "anyone around?", ts: ROOM_FIRST_TS });
+  await runAfterJobs();
+  expect(roomRunsBy("bruce")).toHaveLength(1);
+  expect(allRuns()).toHaveLength(1);
+
+  await db
+    .update(teamRows)
+    .set({ leadListens: false })
+    .where(eq(teamRows.id, roomTeamId));
+  await sendToAllApps({ text: "hello again", ts: "1789172005.000500" });
+  await runAfterJobs();
+
+  expect(roomPosts()).toHaveLength(2);
+  expect(allRuns()).toHaveLength(1);
+});
+
+test("a message from a member app is ignored, whichever way Slack labels it", async () => {
+  await setupRoom();
+  // SL.3 recorded this one when it sent it.
+  await db.insert(inboxThreads).values({
+    createdAt: new Date(nowMs).toISOString(),
+    createdBy: "x",
+    id: "th_out",
+    lastPostAt: new Date(nowMs).toISOString(),
+    teamId: roomTeamId,
+    title: "sent",
+    workspaceId,
+  });
+  await db.insert(inboxPosts).values({
+    authorId: agentId,
+    authorKind: "agent",
+    createdAt: new Date(nowMs).toISOString(),
+    id: "post_out",
+    text: "sent from the room",
+    threadId: "th_out",
+    workspaceId,
+  });
+  await db.insert(slackRoomMessages).values({
+    channelId: ROOM_CHANNEL,
+    createdAt: new Date(nowMs).toISOString(),
+    direction: "out",
+    id: "row_out",
+    postId: "post_out",
+    slackTeamId: "T0TEAM",
+    ts: "1789172100.000100",
+    workspaceId,
+  });
+
+  // The echo of the recorded message, as a person's message would arrive.
+  await sendToAllApps({
+    text: "sent from the room",
+    ts: "1789172100.000100",
+    user: "U0BOT3",
+  });
+  // The echo as a bot message, and another member app's message with no bot fields.
+  const echo = roomEvent(roomApps[1] as RoomApp, {
+    text: "from a bot",
+    ts: "1789172101.000100",
+  });
+  echo.event.bot_id = "B0OTHER";
+  await send(echo);
+  await sendToAllApps({
+    text: "no bot fields",
+    ts: "1789172102.000100",
+    user: "U0BOT4",
+  });
+  await runAfterJobs();
+
+  expect(roomPosts()).toHaveLength(1);
+  expect(roomRows()).toHaveLength(1);
+  expect(allRuns()).toEqual([]);
+});
+
+test("a channel with no link behaves as before", async () => {
+  await setupRoom();
+
+  const response = await send(await fixture("mention"));
+
+  expect(response.status).toBe(OK);
+  const [run, ...others] = allRuns();
+  expect(others).toEqual([]);
+  expect(run).toMatchObject({ agentId, onBehalfOfUserId: DOM });
+  expect(db.select().from(sessionRows).all()).toMatchObject([
+    { origin: "slack" },
+  ]);
+  expect(roomPosts()).toEqual([]);
+  expect(roomRows()).toEqual([]);
+  expect(roomTopics()).toEqual([]);
+});
+
+test("a write that loses the Slack message key leaves no post and no topic", async () => {
+  await setupRoom();
+  const write = () =>
+    composed.services.inbox.postExternal({
+      alongside: ({ postId }) => [
+        db.insert(slackRoomMessages).values({
+          channelId: ROOM_CHANNEL,
+          createdAt: new Date(nowMs).toISOString(),
+          direction: "in",
+          id: `row_${postId}`,
+          postId,
+          slackTeamId: "T0TEAM",
+          ts: ROOM_FIRST_TS,
+          workspaceId,
+        }),
+      ],
+      authorId: DOM,
+      teamId: roomTeamId,
+      text: "once",
+      thread: { kind: "new", title: "once" },
+      waker: null,
+      workspaceId,
+    });
+  await write();
+
+  await expect(write()).rejects.toThrow("UNIQUE");
+
+  expect(roomPosts()).toHaveLength(1);
+  expect(roomTopics()).toHaveLength(1);
+  expect(roomRows()).toHaveLength(1);
 });

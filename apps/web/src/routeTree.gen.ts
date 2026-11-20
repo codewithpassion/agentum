@@ -52,6 +52,8 @@ import { Route as AppSettingsTimezoneRouteImport } from './routes/_app/settings.
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
 import { Route as AppTasksRunIdRouteImport } from './routes/_app/tasks.$runId'
+import { Route as AppTeamsIndexRouteImport } from './routes/_app/teams.index'
+import { Route as AppTeamsTeamIdRouteImport } from './routes/_app/teams.$teamId'
 import { Route as AppThreadsSessionIdRouteImport } from './routes/_app/threads.$sessionId'
 import { Route as AppSettingsAgentConnectionsIndexRouteImport } from './routes/_app/settings.agent-connections.index'
 import { Route as AppSettingsAgentConnectionsConnectionIdRouteImport } from './routes/_app/settings.agent-connections.$connectionId'
@@ -273,6 +275,16 @@ const AppTasksRunIdRoute = AppTasksRunIdRouteImport.update({
   path: '/tasks/$runId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTeamsIndexRoute = AppTeamsIndexRouteImport.update({
+  id: '/teams/',
+  path: '/teams/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTeamsTeamIdRoute = AppTeamsTeamIdRouteImport.update({
+  id: '/teams/$teamId',
+  path: '/teams/$teamId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppThreadsSessionIdRoute = AppThreadsSessionIdRouteImport.update({
   id: '/threads/$sessionId',
   path: '/threads/$sessionId',
@@ -335,11 +347,13 @@ export interface FileRoutesByFullPath {
   '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
+  '/teams/$teamId': typeof AppTeamsTeamIdRoute
   '/threads/$sessionId': typeof AppThreadsSessionIdRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/qa/': typeof AppQaIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/skills/': typeof AppSkillsIndexRoute
+  '/teams/': typeof AppTeamsIndexRoute
   '/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
   '/teams/$teamId/room': typeof AppTeamsTeamIdRoomRoute
   '/settings/agent-connections/': typeof AppSettingsAgentConnectionsIndexRoute
@@ -382,11 +396,13 @@ export interface FileRoutesByTo {
   '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
+  '/teams/$teamId': typeof AppTeamsTeamIdRoute
   '/threads/$sessionId': typeof AppThreadsSessionIdRoute
   '/agents': typeof AppAgentsIndexRoute
   '/qa': typeof AppQaIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/skills': typeof AppSkillsIndexRoute
+  '/teams': typeof AppTeamsIndexRoute
   '/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
   '/teams/$teamId/room': typeof AppTeamsTeamIdRoomRoute
   '/settings/agent-connections': typeof AppSettingsAgentConnectionsIndexRoute
@@ -432,11 +448,13 @@ export interface FileRoutesById {
   '/_app/settings/timezone': typeof AppSettingsTimezoneRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/tasks/$runId': typeof AppTasksRunIdRoute
+  '/_app/teams/$teamId': typeof AppTeamsTeamIdRoute
   '/_app/threads/$sessionId': typeof AppThreadsSessionIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/qa/': typeof AppQaIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/skills/': typeof AppSkillsIndexRoute
+  '/_app/teams/': typeof AppTeamsIndexRoute
   '/_app/settings/agent-connections/$connectionId': typeof AppSettingsAgentConnectionsConnectionIdRoute
   '/_app/teams/$teamId_/room': typeof AppTeamsTeamIdRoomRoute
   '/_app/settings/agent-connections/': typeof AppSettingsAgentConnectionsIndexRoute
@@ -482,11 +500,13 @@ export interface FileRouteTypes {
     | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
+    | '/teams/$teamId'
     | '/threads/$sessionId'
     | '/agents/'
     | '/qa/'
     | '/settings/'
     | '/skills/'
+    | '/teams/'
     | '/settings/agent-connections/$connectionId'
     | '/teams/$teamId/room'
     | '/settings/agent-connections/'
@@ -529,11 +549,13 @@ export interface FileRouteTypes {
     | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
+    | '/teams/$teamId'
     | '/threads/$sessionId'
     | '/agents'
     | '/qa'
     | '/settings'
     | '/skills'
+    | '/teams'
     | '/settings/agent-connections/$connectionId'
     | '/teams/$teamId/room'
     | '/settings/agent-connections'
@@ -578,11 +600,13 @@ export interface FileRouteTypes {
     | '/_app/settings/timezone'
     | '/_app/skills/$skillId'
     | '/_app/tasks/$runId'
+    | '/_app/teams/$teamId'
     | '/_app/threads/$sessionId'
     | '/_app/agents/'
     | '/_app/qa/'
     | '/_app/settings/'
     | '/_app/skills/'
+    | '/_app/teams/'
     | '/_app/settings/agent-connections/$connectionId'
     | '/_app/teams/$teamId_/room'
     | '/_app/settings/agent-connections/'
@@ -904,6 +928,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTasksRunIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/teams/': {
+      id: '/_app/teams/'
+      path: '/teams'
+      fullPath: '/teams/'
+      preLoaderRoute: typeof AppTeamsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/teams/$teamId': {
+      id: '/_app/teams/$teamId'
+      path: '/teams/$teamId'
+      fullPath: '/teams/$teamId'
+      preLoaderRoute: typeof AppTeamsTeamIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/threads/$sessionId': {
       id: '/_app/threads/$sessionId'
       path: '/threads/$sessionId'
@@ -992,10 +1030,12 @@ interface AppRouteChildren {
   AppQaQuestionIdRoute: typeof AppQaQuestionIdRoute
   AppSkillsSkillIdRoute: typeof AppSkillsSkillIdRoute
   AppTasksRunIdRoute: typeof AppTasksRunIdRoute
+  AppTeamsTeamIdRoute: typeof AppTeamsTeamIdRoute
   AppThreadsSessionIdRoute: typeof AppThreadsSessionIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppQaIndexRoute: typeof AppQaIndexRoute
   AppSkillsIndexRoute: typeof AppSkillsIndexRoute
+  AppTeamsIndexRoute: typeof AppTeamsIndexRoute
   AppTeamsTeamIdRoomRoute: typeof AppTeamsTeamIdRoomRoute
 }
 
@@ -1019,10 +1059,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppQaQuestionIdRoute: AppQaQuestionIdRoute,
   AppSkillsSkillIdRoute: AppSkillsSkillIdRoute,
   AppTasksRunIdRoute: AppTasksRunIdRoute,
+  AppTeamsTeamIdRoute: AppTeamsTeamIdRoute,
   AppThreadsSessionIdRoute: AppThreadsSessionIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppQaIndexRoute: AppQaIndexRoute,
   AppSkillsIndexRoute: AppSkillsIndexRoute,
+  AppTeamsIndexRoute: AppTeamsIndexRoute,
   AppTeamsTeamIdRoomRoute: AppTeamsTeamIdRoomRoute,
 }
 
@@ -1043,13 +1085,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

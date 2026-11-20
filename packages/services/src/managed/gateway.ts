@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsSessionEvent } from "@anthropic-ai/sdk/resources/beta/sessions/events";
+import type { EffortLevel } from "@repo/db/shared";
 import { ASK_USER_TOOL, REQUEST_TAKEOVER_TOOL } from "@repo/protocol/requests";
 import {
   AGENT_TOOL_NAMES,
@@ -106,6 +107,8 @@ export interface ManagedGateway {
   /** Sends `text` as the first message, under the budget. `vaultIds` hold the MCP credentials. */
   createSession: (input: {
     anthropicAgentId: string;
+    /** The agent's thinking level for this session, when it has one. */
+    effort?: EffortLevel;
     model: string;
     overrides?: {
       askKeys: readonly string[];
@@ -146,6 +149,8 @@ export interface ManagedGateway {
     askKeys: readonly string[];
     /** The agent's computer reports a desktop, so it gets the screenshot and takeover tools. */
     desktop?: boolean;
+    /** The agent's thinking level, when it has one. */
+    effort?: EffortLevel;
     instructions: string;
     mcpServers: readonly McpServerRef[];
     model: string;
@@ -173,6 +178,8 @@ export interface ManagedGateway {
     askKeys: readonly string[];
     /** The agent's computer reports a desktop, so it gets the screenshot and takeover tools. */
     desktop?: boolean;
+    /** The agent's thinking level. Omitted means none, which clears a stored one. */
+    effort?: EffortLevel;
     mcpServers: readonly McpServerRef[];
     model: string;
     name: string;
@@ -332,6 +339,19 @@ const skillFilesFor = (
           : "application/octet-stream",
       })
   );
+
+/** A `model` for a create or a session: the bare id, or the id with its thinking level when it has one. */
+const modelParamOf = (model: string, effort: EffortLevel | undefined) =>
+  effort === undefined ? model : { effort, id: model };
+
+/**
+ * A `model` for an update. `effort: null` clears a stored level, so an agent
+ * that drops its setting goes back to the model's default at Anthropic.
+ */
+const syncedModelOf = (model: string, effort: EffortLevel | undefined) => ({
+  effort: effort ?? null,
+  id: model,
+});
 
 const skillsFor = (skills: readonly SkillRef[]) =>
   skills.map((skill) => ({
@@ -587,7 +607,7 @@ export const createManagedGateway = (
         // depend on a best-effort sync having landed.
         agent: {
           id: input.anthropicAgentId,
-          model: input.model,
+          model: modelParamOf(input.model, input.effort),
           type: "agent_with_overrides",
           ...(input.overrides
             ? {
@@ -708,7 +728,7 @@ export const createManagedGateway = (
         ...(input.mcpServers.length > 0
           ? { mcp_servers: mcpServersFor(input.mcpServers) }
           : {}),
-        model: input.model,
+        model: modelParamOf(input.model, input.effort),
         name: input.name,
         ...(input.skills.length > 0 ? { skills: skillsFor(input.skills) } : {}),
         system: input.system,
@@ -770,7 +790,7 @@ export const createManagedGateway = (
       // `tools` and `skills` replace their whole arrays, so both are always
       // sent, even empty: an empty `skills` detaches every skill.
       await client.beta.agents.update(input.anthropicAgentId, {
-        model: input.model,
+        model: syncedModelOf(input.model, input.effort),
         name: input.name,
         skills: skillsFor(input.skills),
         system: input.system,

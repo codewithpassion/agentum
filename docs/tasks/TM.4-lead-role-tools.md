@@ -3,9 +3,9 @@ id: TM.4
 title: "Lead role: team tools and proposals"
 milestone: TM
 size: M
-status: todo
+status: done
 depends_on: [TM.3]
-branch: null
+branch: task/TM.4-lead-role-tools
 lane: mcp
 executor: claude
 ---
@@ -26,3 +26,5 @@ From `docs/v4/build-plan.md`, milestone TM. A lead coordinates. It may propose c
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TM.4-lead-role-tools (v4 controller session).
+- 2026-11-20: merged as 99d909ff, review clean after 1 fix round. check, test and build passed on main.

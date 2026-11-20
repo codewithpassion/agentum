@@ -47,7 +47,7 @@ const fakeFiles = (files: Record<string, string>) => {
 
 const rulesOnly = {
   agentRemember: JSON_RULES({}),
-  onBehalfOfUserId: null,
+  privateNotesUserId: null,
   workspaceNever: JSON.stringify([]),
 };
 
@@ -63,14 +63,14 @@ test("the private file loads only for the person the run acts for", async () => 
 
   const forOwner = await loadPromptMemory(fakeFiles(files).read, {
     ...rulesOnly,
-    onBehalfOfUserId: "user_a1",
+    privateNotesUserId: "user_a1",
   });
   expect(forOwner.notes.map((item) => item.id)).toEqual([ulid(1)]);
 
   const other = fakeFiles(files);
   const forOther = await loadPromptMemory(other.read, {
     ...rulesOnly,
-    onBehalfOfUserId: "user_b2",
+    privateNotesUserId: "user_b2",
   });
   expect(forOther.notes).toEqual([]);
   expect(other.calls).not.toContain("private/user_a1.md");
@@ -119,7 +119,7 @@ test("notes stop at the budget and corrections are kept first", async () => {
 test("the workspace never list comes before the agent's own", async () => {
   const memory = await loadPromptMemory(fakeFiles({}).read, {
     agentRemember: JSON_RULES({ never: ["Tax file numbers"] }),
-    onBehalfOfUserId: null,
+    privateNotesUserId: null,
     workspaceNever: JSON.stringify(["Salaries"]),
   });
 
@@ -129,7 +129,7 @@ test("the workspace never list comes before the agent's own", async () => {
 test("the agent's remember list is read from its rules", async () => {
   const memory = await loadPromptMemory(fakeFiles({}).read, {
     agentRemember: JSON_RULES({ remember: ["Tables stay short"] }),
-    onBehalfOfUserId: null,
+    privateNotesUserId: null,
     workspaceNever: JSON.stringify([]),
   });
 
@@ -139,7 +139,7 @@ test("the agent's remember list is read from its rules", async () => {
 test("invalid rules JSON falls back to the defaults", async () => {
   const memory = await loadPromptMemory(fakeFiles({}).read, {
     agentRemember: "{not json",
-    onBehalfOfUserId: null,
+    privateNotesUserId: null,
     workspaceNever: "not json",
   });
 
@@ -150,7 +150,7 @@ test("invalid rules JSON falls back to the defaults", async () => {
 test("JSON of the wrong shape falls back to the defaults", async () => {
   const memory = await loadPromptMemory(fakeFiles({}).read, {
     agentRemember: JSON.stringify({ remember: "not a list" }),
-    onBehalfOfUserId: null,
+    privateNotesUserId: null,
     workspaceNever: JSON.stringify({ never: "not a list" }),
   });
 
@@ -163,7 +163,7 @@ test("each memory file is read once", async () => {
 
   await loadPromptMemory(reader.read, {
     agentRemember: JSON_RULES({}),
-    onBehalfOfUserId: "user_a1",
+    privateNotesUserId: "user_a1",
     workspaceNever: JSON.stringify([]),
   });
 

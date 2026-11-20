@@ -3,7 +3,7 @@ id: ME.11
 title: "Fix the cloud follow-up message for the scripted model"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: [ME.9]
 branch: task/ME.11-fix-the-cloud-follow-up-message-for-the
 lane: runtimes
@@ -26,3 +26,4 @@ Find the cause and fix it, or fix the faux model if it is only there. Check the 
 ## Log
 - 2026-11-20: added from the ME walkthrough.
 - 2026-11-20: dispatched on task/ME.11-fix-the-cloud-follow-up-message-for-the (v4 controller session).
+- 2026-11-20: merged as 83ada8c7, review clean after 0 fix rounds. scripts/e2e/cloud.ts passes all nine steps. check, test and build passed on main.

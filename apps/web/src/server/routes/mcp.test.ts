@@ -10,6 +10,7 @@ import { noopRelay } from "@repo/services/machines/types";
 import { importRunTokenKey, signRunToken } from "@repo/services/run-tokens";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { type Composed, composeWith } from "../compose.ts";
 import {
@@ -614,7 +615,17 @@ describe("tools with a run token", () => {
       })
       .run();
     addRun({ agentId: agentA, id: "run_u1", onBehalfOfUserId: "u1" });
-    addRun({ agentId: agentA, id: "run_u2", onBehalfOfUserId: "u2" });
+    // A run sees a person's private session only from a ui or private session of that person.
+    addRun({
+      agentId: agentA,
+      id: "run_u2",
+      onBehalfOfUserId: "u2",
+      origin: "ui",
+    });
+    db.update(sessions)
+      .set({ actorId: "u2" })
+      .where(eq(sessions.id, "session_run_u2"))
+      .run();
 
     const foreign = await callTool(
       await runToken("run_u1", agentA),

@@ -32,7 +32,12 @@ import { CLOUD_DEFAULT_MODEL, isAnthropicModel } from "./cloud/models.ts";
 import { CLOUD_NETWORK_KEY, networkAccessError } from "./cloud/network.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { effectiveOwner, readableWorkspace, requireUser } from "./guards.ts";
+import {
+  effectiveOwner,
+  readableWorkspace,
+  requireAgentOwnerOrAdmin,
+  requireUser,
+} from "./guards.ts";
 import { hasAgentHostRole } from "./machines.ts";
 import { NO_KEY_MESSAGE } from "./managed/keys.ts";
 import type { MembersService } from "./members.ts";
@@ -947,7 +952,8 @@ export const createAgentsService = ({
   /**
    * Sets who the agent asks and who backs them up. Both must be current
    * members of the organisation, and they must be different people. A null
-   * owner means the agent's creator, a null backup means no backup.
+   * owner means the agent's creator, a null backup means no backup. Only the
+   * agent's owner or an admin may change them.
    */
   const setOwners = async (
     principal: Principal,
@@ -962,6 +968,7 @@ export const createAgentsService = ({
     if (!current) {
       throw new ServiceError("not_found", "Agent not found");
     }
+    requireAgentOwnerOrAdmin(user, current, AGENT_UPDATE);
     if (!members) {
       throw new ServiceError("invalid", "Members are not available here");
     }

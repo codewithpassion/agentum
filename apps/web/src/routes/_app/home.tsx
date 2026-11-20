@@ -45,18 +45,22 @@ const withLimitSpend = async <
   }
 };
 
-/** The roster, and whether the workspace has an AI account yet (an Anthropic or an OpenRouter key). */
+/** The roster, the teams, who is looking, and whether the workspace has an AI account yet (an Anthropic or an OpenRouter key). */
 const loadHome = async () => {
   const trpc = getTrpc();
-  const [cards, anthropic, openrouter] = await Promise.all([
+  const [cards, anthropic, openrouter, teams, me] = await Promise.all([
     trpc.roster.list.query(),
     trpc.managedKeys.status.query(),
     trpc.modelKeys.status.query({ provider: "openrouter" }),
+    trpc.teams.list.query(),
+    trpc.me.query(),
   ]);
   return {
     anthropic,
     cards: await withLimitSpend(cards),
     hasKey: anthropic.configured || openrouter.configured,
+    teams,
+    userId: me.userId,
   };
 };
 
@@ -75,11 +79,22 @@ function Home() {
   const { scope } = useRailScope();
   const { needsYou } = useRail(scope, null);
   const navigate = useNavigate();
-  const { anthropic, cards, hasKey } = data ?? loaded;
+  const { anthropic, cards, hasKey, teams, userId } = data ?? loaded;
 
   const saveKey = useCallback(
     async (apiKey: string) => {
       await getTrpc().managedKeys.set.mutate({ apiKey });
+      await refresh();
+    },
+    [refresh]
+  );
+  const addMember = useCallback(
+    async (teamId: string, agentId: string) => {
+      await getTrpc().teams.addMember.mutate({
+        memberId: agentId,
+        memberKind: "agent",
+        teamId,
+      });
       await refresh();
     },
     [refresh]
@@ -112,6 +127,9 @@ function Home() {
             onSaveKey={saveKey}
           />
         }
+        onAddMember={addMember}
+        teams={teams}
+        userId={userId}
       />
     </section>
   );

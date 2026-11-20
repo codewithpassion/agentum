@@ -2,7 +2,12 @@ import { expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ENROLL_BUTTON_LABEL } from "#/components/machines/machine-logic.ts";
-import { agentFindEntries, findEntries, pathOf } from "./find-registry.ts";
+import {
+  agentFindEntries,
+  findEntries,
+  pathOf,
+  teamFindEntries,
+} from "./find-registry.ts";
 
 const EXCLUDED: Readonly<Record<string, string>> = {
   "/agents/$agentId": "needs an agent id, reached from the agent list",
@@ -13,6 +18,7 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "needs a connection id, reached from the connections list",
   "/skills/$skillId": "needs a skill id, reached from the skills list",
   "/tasks/$runId": "redirects to its thread",
+  "/teams/$teamId": "needs a team id, reached from the Teams list and Find",
   "/teams/$teamId_/room": "needs a team id, reached from the team page",
   "/threads/$sessionId": "needs a session id, reached from the thread lists",
   "/triggers": "redirects to Jobs",
@@ -125,6 +131,18 @@ test("agentFindEntries links each agent by id", () => {
   ).toEqual([
     { id: "a1", label: "Triage", to: "/agents/a1" },
     { id: "a2", label: "Reviewer", to: "/agents/a2" },
+  ]);
+});
+
+test("teamFindEntries links each team by id", () => {
+  expect(
+    teamFindEntries([
+      { id: "t1", name: "Sales" },
+      { id: "t2", name: "Back office" },
+    ])
+  ).toEqual([
+    { id: "t1", label: "Sales", to: "/teams/t1" },
+    { id: "t2", label: "Back office", to: "/teams/t2" },
   ]);
 });
 

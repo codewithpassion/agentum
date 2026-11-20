@@ -313,6 +313,7 @@ import {
   type TasksService,
 } from "@repo/services/tasks/service";
 import { createTeamsService, type TeamsService } from "@repo/services/teams";
+import { createLeadService, type LeadService } from "@repo/services/teams/lead";
 import {
   createTriggersService,
   type TriggersService,
@@ -559,6 +560,7 @@ export interface Services {
   spend: SpendService;
   takeover: TakeoverService;
   tasks: TasksService;
+  teamLead: LeadService;
   teams: TeamsService;
   triggers: TriggersService;
   wiki: WikiService;
@@ -1213,6 +1215,7 @@ export const composeWith = ({
     directory: infra.slackDirectory ?? unlinkedDirectory,
     events,
     fetch: connectorFetch,
+    inbox,
     people: infra.people,
     runs,
     secretsKey: infra.secretsKey,
@@ -1380,6 +1383,13 @@ export const composeWith = ({
         principal.kind === "user" && principal.isAdmin === true
       ),
   });
+  const memory = createMemoryService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    events,
+    library,
+  });
   const composed: Composed = {
     atomic: infra.atomic,
     clock: infra.clock,
@@ -1420,6 +1430,11 @@ export const composeWith = ({
         atomic: infra.atomic,
         clock: infra.clock,
         db,
+        events,
+        fetch: connectorFetch,
+        library,
+        managedKeys,
+        memory,
       }),
       events,
       files,
@@ -1460,13 +1475,7 @@ export const composeWith = ({
       managedKeys,
       map,
       members,
-      memory: createMemoryService({
-        atomic: infra.atomic,
-        clock: infra.clock,
-        db,
-        events,
-        library,
-      }),
+      memory,
       modelKeys,
       network,
       oauthClients,
@@ -1495,6 +1504,7 @@ export const composeWith = ({
       spend,
       takeover,
       tasks,
+      teamLead: createLeadService({ agents, db, events, inbox, requests }),
       teams: createTeamsService({
         atomic: infra.atomic,
         clock: infra.clock,

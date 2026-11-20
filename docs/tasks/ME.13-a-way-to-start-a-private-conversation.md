@@ -3,7 +3,7 @@ id: ME.13
 title: "A way to start a private conversation"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: [ME.9]
 branch: task/ME.13-a-way-to-start-a-private-conversation
 lane: web-thread
@@ -30,3 +30,4 @@ If built: browser, start a private conversation, remember a message, see the mar
 ## Log
 - 2026-11-20: added from the ME walkthrough.
 - 2026-11-20: dispatched on task/ME.13-a-way-to-start-a-private-conversation (v4 controller session).
+- 2026-11-20: merged as 7ca2be9e, review clean after 0 fix rounds. Browser proof passed at both sizes: docs/reviews/tasks/ME.13/browser.md. check, test and build passed on main. ME complete.

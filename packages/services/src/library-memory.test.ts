@@ -29,6 +29,21 @@ const SESSION = "s1";
 const RUN = "r1";
 const RUN_FOR_A = "r2";
 const RUN_FOR_B = "r3";
+/** Sessions Ana (user_a) started, one run each for her, keyed by what the session is. */
+const ANA_SESSIONS = [
+  { name: "team room", origin: "inbox", private: false },
+  { name: "Slack channel", origin: "slack", private: false },
+  { name: "artifact", origin: "artifact", private: false },
+  { name: "Q&A", origin: "qa", private: false },
+  { name: "mail", origin: "mail", private: false },
+  { name: "A2A", origin: "a2a", private: false },
+  { name: "routine", origin: "routine", private: false },
+  { name: "trigger", origin: "trigger", private: false },
+  { name: "Slack DM", origin: "slack", private: true },
+  { name: "private ui", origin: "ui", private: true },
+] as const;
+const sessionIdOf = (name: string) => `s_${name}`;
+const runIdOf = (name: string) => `r_${name}`;
 const MEMORY = "agents/scout/memory";
 const PEOPLE = `${MEMORY}/people.md`;
 const INDEX = `${MEMORY}/index.md`;
@@ -161,6 +176,36 @@ beforeEach(() => {
       workspaceId: A,
     })
     .run();
+  for (const { name, origin, private: isPrivate } of ANA_SESSIONS) {
+    db.insert(sessionRows)
+      .values({
+        actorId: "user_a",
+        actorKind: "user",
+        agentId: AGENT,
+        createdAt: START,
+        id: sessionIdOf(name),
+        origin,
+        private: isPrivate,
+        workspaceId: A,
+      })
+      .run();
+    db.insert(runRows)
+      .values({
+        actorId: "user_a",
+        actorKind: "user",
+        agentId: AGENT,
+        createdAt: START,
+        id: runIdOf(name),
+        inputFileIds: "[]",
+        inputText: "hi",
+        onBehalfOfUserId: "user_a",
+        outputFileIds: "[]",
+        sessionId: sessionIdOf(name),
+        status: "running",
+        workspaceId: A,
+      })
+      .run();
+  }
   const runFixtures = [
     { id: RUN, onBehalfOfUserId: null },
     { id: RUN_FOR_A, onBehalfOfUserId: "user_a" },
@@ -284,6 +329,51 @@ test("a run reads the private memory file of the person it runs for and no one e
   expect(await errorOf(service.read(runAs(RUN), PRIVATE_A))).toMatchObject({
     code: "not_found",
   });
+});
+
+// Ana started these runs, so each one acts for her, but only a private session
+// of hers may see her private file. A plain ui session is the RUN_FOR_A case above.
+for (const { name, private: mayRead } of ANA_SESSIONS) {
+  test(`a run in Ana's ${name} session ${mayRead ? "reads" : "cannot read, list or stat"} her private memory file`, async () => {
+    await service.writeMemoryFiles(
+      user("user_a"),
+      [{ bytes: bytes("a notes"), path: PRIVATE_A }],
+      () => []
+    );
+    const principal = runAs(runIdOf(name));
+    const listed = (await service.list(principal, `${MEMORY}/private`)).map(
+      (entry) => entry.path
+    );
+    if (mayRead) {
+      expect(await contentOf(principal, PRIVATE_A)).toBe("a notes");
+      expect((await service.stat(principal, PRIVATE_A)).path).toBe(PRIVATE_A);
+      expect(listed).toEqual([PRIVATE_A]);
+      return;
+    }
+    expect(await errorOf(service.read(principal, PRIVATE_A))).toMatchObject({
+      code: "not_found",
+    });
+    expect(await errorOf(service.stat(principal, PRIVATE_A))).toMatchObject({
+      code: "not_found",
+    });
+    expect(listed).toEqual([]);
+  });
+}
+
+test("a run in a session whose actor is another person cannot read the private file of the person it runs for", async () => {
+  await service.writeMemoryFiles(
+    user("user_a"),
+    [{ bytes: bytes("a notes"), path: PRIVATE_A }],
+    () => []
+  );
+  db.update(sessionRows)
+    .set({ actorId: "user_b" })
+    .where(eq(sessionRows.id, sessionIdOf("Slack DM")))
+    .run();
+
+  expect(
+    await errorOf(service.read(runAs(runIdOf("Slack DM")), PRIVATE_A))
+  ).toMatchObject({ code: "not_found" });
 });
 
 test("a user moves a folder that holds only their own private memory file", async () => {
@@ -524,4 +614,42 @@ test("a run for another person cannot list a private file through the agent home
   ).toMatchObject({
     code: "not_found",
   });
+});
+
+test("the dream principal reads and writes every person's private memory file, and a person's own principal still cannot", async () => {
+  const dream: Principal = {
+    dream: true,
+    kind: "user",
+    userId: "dream:agent",
+    via: "session",
+    workspaceId: A,
+  };
+  await service.writeMemoryFiles(
+    user("user_a"),
+    [{ bytes: bytes("a notes"), path: PRIVATE_A }],
+    () => []
+  );
+
+  expect(await contentOf(dream, PRIVATE_A)).toBe("a notes");
+  expect(
+    (await service.list(dream, `${MEMORY}/private`)).map((entry) => entry.path)
+  ).toEqual([PRIVATE_A]);
+  await service.writeMemoryFiles(
+    dream,
+    [
+      { bytes: bytes("a more"), path: PRIVATE_A },
+      { bytes: bytes("b notes"), path: `${MEMORY}/private/user_b.md` },
+    ],
+    () => []
+  );
+  expect(await contentOf(user("user_a"), PRIVATE_A)).toBe("a more");
+  expect(
+    await errorOf(
+      service.writeMemoryFiles(
+        user("user_a"),
+        [{ bytes: bytes("x"), path: `${MEMORY}/private/user_b.md` }],
+        () => []
+      )
+    )
+  ).toBeInstanceOf(ForbiddenError);
 });

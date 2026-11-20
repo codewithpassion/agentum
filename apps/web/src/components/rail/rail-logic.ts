@@ -1,3 +1,5 @@
+import type { RailCard } from "@repo/db/shared";
+
 const MS_PER_DAY = 86_400_000;
 const WEEK_AHEAD_DAYS = 6;
 
@@ -53,6 +55,27 @@ export function dueLabel(dueAt: string | null, now: Date): string | null {
   const year =
     due.getFullYear() === now.getFullYear() ? "" : ` ${due.getFullYear()}`;
   return `Due ${day} ${month}${year}`;
+}
+
+const NOTE_PREVIEW_MAX = 120;
+const WHITESPACE_RUN_RE = /\s+/g;
+
+/**
+ * The second line of a Needs you row. A held note's status repeats its
+ * heading, so the row shows the note itself, clipped. Other cards keep their
+ * status.
+ */
+export function rowDetail(card: RailCard): string {
+  if (card.kind !== "memory_note") {
+    return card.status;
+  }
+  const note = card.detail.replace(WHITESPACE_RUN_RE, " ").trim();
+  if (note === "") {
+    return card.status;
+  }
+  return note.length > NOTE_PREVIEW_MAX
+    ? `${note.slice(0, NOTE_PREVIEW_MAX - 1)}…`
+    : note;
 }
 
 /** Count of cards hidden behind the first one, or null when none are hidden. */
