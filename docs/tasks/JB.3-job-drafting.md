@@ -3,7 +3,7 @@ id: JB.3
 title: "Describe a job, get a draft"
 milestone: JB
 size: M
-status: in_progress
+status: done
 depends_on: [JB.1]
 branch: task/JB.3-job-drafting
 lane: builder
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone JB. A person types "Every Friday, summar
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/JB.3-job-drafting (v4 controller session).
 - 2026-11-20: merge into main conflicted in compose.ts and packages/services/src/jobs.ts (after JB.2 and KY.3 landed); aborted and sent back to the dispatcher.
+- 2026-11-20: merged as 99b06a19, review clean after 1 fix round. check, test and build passed on main.
