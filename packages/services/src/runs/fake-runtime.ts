@@ -2,6 +2,7 @@ import type { Database } from "@repo/db";
 import type { AgentRecord } from "../agents.ts";
 import type { LibraryService } from "../library.ts";
 import { libraryMemoryReader } from "../memory/prompt.ts";
+import { libraryTeamMemoryReader } from "../memory/team.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { SYSTEM_PRINCIPAL } from "../workspaces.ts";
 import { modelOfRun } from "./access-scope.ts";
@@ -44,6 +45,7 @@ const memoryNotesOf = async (
         run,
         agent.slug
       ),
+      readTeamMemoryFile: libraryTeamMemoryReader({ read: library.read }, run),
     });
     const notes = memory ? memory.notes : [];
     return notes.length === 0

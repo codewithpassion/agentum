@@ -3,9 +3,9 @@ id: DR.15
 title: "Undo reads in the safe order and closes the run's questions"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/DR.15-undo-safe-order-and-open-questions
 lane: services-dream
 executor: claude
 ---
@@ -25,3 +25,4 @@ From the DR gate review, round 1 (`docs/reviews/DR-1.md`, nits 1 and 10). The ga
 
 ## Log
 - 2026-11-21: added from the DR gate review, round 1.
+- 2026-11-21: dispatched on task/DR.15-undo-safe-order-and-open-questions (v4 controller session).

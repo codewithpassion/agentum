@@ -46,6 +46,7 @@ import { createAdminPorts } from "./admin-ports.ts";
 import { createArtifactPorts } from "./artifact-ports.ts";
 import { createBrowserPorts } from "./browser-ports.ts";
 import { createComputerPorts } from "./computer-ports.ts";
+import { createDecisionsPorts } from "./decisions-ports.ts";
 import { createDeckPorts } from "./deck-ports";
 import { guarded } from "./guarded.ts";
 import { createLibraryPorts } from "./library-ports.ts";
@@ -340,6 +341,7 @@ export const createMcpPorts = ({
     // Memory belongs to the run's agent. The route enables its mailbox tools when active.
     ...(principal.kind === "run"
       ? {
+          decisions: createDecisionsPorts({ principal, services }),
           mail: createMailPorts({ principal, services }),
           memory: createMemoryPorts({ principal, services }),
         }

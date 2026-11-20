@@ -17,6 +17,7 @@ import {
   type DictationService,
 } from "@repo/services/dictation";
 import { createDreamService, type DreamService } from "@repo/services/dream";
+import { roomDigestOf } from "@repo/services/dream/team/digest";
 import {
   type AppWorkerExports,
   appReplyInvoker,
@@ -287,6 +288,7 @@ import {
   createSlackRequests,
   type SlackRequests,
 } from "@repo/services/slack/requests";
+import { createRoomChannels } from "@repo/services/slack/room-channels";
 import { createRoomOutbound } from "@repo/services/slack/room-out";
 import { createRoomStatus } from "@repo/services/slack/room-status";
 import {
@@ -858,6 +860,8 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    // The catch-up slot's digest is the team's last dream's, read from the library, which is built below.
+    roomDigest: (teamId) => roomDigestOf(db, library, teamId),
     runs: { startRun: (principal, input) => runs.startRun(principal, input) },
   });
   const libraryBlobs = infra.libraryBlobs ?? memoryLibraryBlobs();
@@ -1447,10 +1451,12 @@ export const composeWith = ({
         db,
         events,
         fetch: connectorFetch,
+        inbox,
         library,
         managedKeys,
         memory,
         skillsStore,
+        spend,
       }),
       events,
       files,
@@ -1525,6 +1531,11 @@ export const composeWith = ({
         atomic: infra.atomic,
         clock: infra.clock,
         db,
+        slackChannels: createRoomChannels({
+          db,
+          fetch: connectorFetch,
+          secretsKey: infra.secretsKey,
+        }),
         slackStatus: createRoomStatus({
           db,
           fetch: connectorFetch,

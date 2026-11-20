@@ -30,3 +30,4 @@ From `docs/v4/build-plan.md`, milestone TX. After the members' dreams, the lead'
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: controller decision (from the TX.1 review): a team dream's usage counts toward the workspace's weekly spend and cap, not any one agent's. Record it in the spend rollup as team spend. Migration 0060 is hand-edited; a later migration that rebuilds dream_runs, dream_questions or memory_changes must keep that edit.
 - 2026-11-20: dispatched on task/TX.2-team-memory-and-team-dream (v4 controller session).
+- 2026-11-21: merge into main conflicted in packages/services/src/dream.ts (after ME.18 landed); aborted and sent back.
