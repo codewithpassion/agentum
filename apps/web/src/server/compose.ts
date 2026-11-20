@@ -1389,7 +1389,12 @@ export const composeWith = ({
       files,
       inbox,
       jobs: createJobsService({
+        clock: infra.clock,
+        db,
         drafter: createJobDrafter({ db, fetch: connectorFetch, managedKeys }),
+        events,
+        mailDomain: infra.mailDomain,
+        runs,
       }),
       keys: createKeysService({ db, people: infra.people }),
       library,

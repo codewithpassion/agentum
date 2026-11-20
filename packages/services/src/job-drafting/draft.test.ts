@@ -1,4 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
+import { sqliteAtomic } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { ProposedTrigger } from "@repo/db/shared";
@@ -6,8 +7,10 @@ import { migrated } from "@repo/db/test-db";
 import { sql } from "drizzle-orm";
 import { CLOUD_DEFAULT_MODEL } from "../cloud/models.ts";
 import type { Fetcher } from "../connectors/mcp.ts";
+import { createEventsService } from "../events.ts";
 import { createJobsService } from "../jobs.ts";
 import { NO_KEY_MESSAGE } from "../managed/keys.ts";
+import { createRunsService } from "../runs.ts";
 import type { Principal } from "../workspaces.ts";
 import { createJobDrafter } from "./draft.ts";
 
@@ -90,7 +93,34 @@ const setup = (replies: unknown[], hasKey = true) => {
       },
     },
   });
-  return { calls, resolved, service: createJobsService({ drafter }) };
+  const blobs = {
+    get: () => Promise.resolve(null),
+    put: () => Promise.resolve(),
+  };
+  const clock = {
+    now: () => new Date("2026-11-20T00:00:00.000Z"),
+    sleep: () => Promise.resolve(),
+  };
+  const runs = createRunsService({
+    adapters: [],
+    atomic: sqliteAtomic(db),
+    blobs,
+    clock,
+    db,
+    devFakeRuntime: false,
+    gateways: [],
+  });
+  return {
+    calls,
+    resolved,
+    service: createJobsService({
+      clock,
+      db,
+      drafter,
+      events: createEventsService({ blobs, db }),
+      runs,
+    }),
+  };
 };
 const draft = (
   service: ReturnType<typeof createJobsService>,
