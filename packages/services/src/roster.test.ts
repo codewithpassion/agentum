@@ -93,7 +93,6 @@ beforeEach(() => {
     counts: { everyone: 0, mine: 0 },
     doneToday: 0,
     needsYou: [],
-    setup: [],
     working: [],
   };
   service = createRosterService({

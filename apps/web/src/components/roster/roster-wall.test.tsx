@@ -6,6 +6,7 @@ import {
   createRouter,
   RouterContextProvider,
 } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { NeedsYouChip } from "./roster-logic.ts";
 import { RosterWall } from "./roster-wall.tsx";
@@ -34,11 +35,12 @@ const card = (name: string, state: AgentCardState, id = name): AgentCard => ({
 
 const render = (
   cards: readonly AgentCard[],
-  chips: readonly NeedsYouChip[] = []
+  chips: readonly NeedsYouChip[] = [],
+  emptyState?: ReactNode
 ) =>
   renderToStaticMarkup(
     <RouterContextProvider router={router}>
-      <RosterWall cards={cards} chips={chips} />
+      <RosterWall cards={cards} chips={chips} emptyState={emptyState} />
     </RouterContextProvider>
   );
 
@@ -95,4 +97,22 @@ test("chips render as links to their item with a Needs you heading", () => {
 test("no chips means no Needs you strip", () => {
   const html = render([card("Ruby", "idle")]);
   expect(html).not.toContain("Needs you");
+});
+
+test("with no agents, the empty state replaces the line and the add cards", () => {
+  const html = render([], [], <p data-testid="guide">Guide</p>);
+  expect(html).toContain('data-testid="guide"');
+  expect(html).not.toContain(EMPTY_TEXT);
+  expect(html).not.toContain('href="/agents/new"');
+  expect(html).not.toContain("<ul");
+});
+
+test("with agents, the empty state is ignored", () => {
+  const html = render(
+    [card("Ruby", "idle")],
+    [],
+    <p data-testid="guide">Guide</p>
+  );
+  expect(html).not.toContain('data-testid="guide"');
+  expect(html.split('href="/agents/new"').length - 1).toBe(2);
 });

@@ -557,6 +557,8 @@ export const createAgentsService = ({
       model: parsed.model,
       name: parsed.name,
       ownerUserId: null,
+      pausedAt: null,
+      pausedReason: null,
       remember: DEFAULT_REMEMBER_RULES_JSON,
       runtime: parsed.runtime,
       runtimeConfig: JSON.stringify(parsed.runtimeConfig),
@@ -564,6 +566,7 @@ export const createAgentsService = ({
       soul: parsed.soul,
       status,
       subagents: false,
+      weeklyCapCents: null,
       workspaceId,
     };
     try {

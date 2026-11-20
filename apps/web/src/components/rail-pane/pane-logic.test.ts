@@ -4,7 +4,6 @@ import type {
   RailCard,
   RailItem,
   RailMail,
-  RailSetupStep,
   RailView,
 } from "@repo/db/shared";
 import {
@@ -63,10 +62,9 @@ const item = (...cards: [RailCard, ...RailCard[]]): RailItem => ({
   mine: true,
 });
 
-const view = (
-  needsYou: RailItem[],
-  setup: RailSetupStep[] = []
-): Pick<RailView, "needsYou" | "setup"> => ({ needsYou, setup });
+const view = (needsYou: RailItem[]): Pick<RailView, "needsYou"> => ({
+  needsYou,
+});
 
 describe("cardView", () => {
   test("a held mail approval gets the mail view", () => {
@@ -99,21 +97,7 @@ describe("cardView", () => {
 describe("selectItem", () => {
   const first = item(card({ id: "a1" }));
   const grouped = item(card({ id: "b1" }), card({ id: "b2" }));
-  const listed = view([first, grouped], ["ai_account", "first_agent"]);
-
-  test("a setup id opens that setup step", () => {
-    expect(selectItem(listed, "setup:first_agent")).toEqual({
-      kind: "setup",
-      step: "first_agent",
-    });
-  });
-
-  test("a setup id that is not in the view falls back to the default", () => {
-    expect(selectItem(view([first]), "setup:ai_account")).toEqual({
-      item: first,
-      kind: "item",
-    });
-  });
+  const listed = view([first, grouped]);
 
   test("an item id opens that item", () => {
     expect(selectItem(listed, "b1")).toEqual({ item: grouped, kind: "item" });
@@ -123,24 +107,17 @@ describe("selectItem", () => {
     expect(selectItem(listed, "b2")).toEqual({ item: grouped, kind: "item" });
   });
 
-  test("no id falls back to the first setup step when there is setup", () => {
+  test("no id falls back to the first item", () => {
     expect(selectItem(listed, undefined)).toEqual({
-      kind: "setup",
-      step: "ai_account",
-    });
-  });
-
-  test("no id falls back to the first item when there is no setup", () => {
-    expect(selectItem(view([first, grouped]), undefined)).toEqual({
       item: first,
       kind: "item",
     });
   });
 
-  test("an unknown or finished id falls back to the default", () => {
+  test("an unknown or finished id falls back to the first item", () => {
     expect(selectItem(listed, "gone")).toEqual({
-      kind: "setup",
-      step: "ai_account",
+      item: first,
+      kind: "item",
     });
     expect(selectItem(view([first]), "gone")).toEqual({
       item: first,
@@ -153,10 +130,7 @@ describe("selectItem", () => {
     expect(selectItem(view([]), "gone")).toBeNull();
   });
 
-  test("selectionId gives the id a setup step or an item is stored under", () => {
-    expect(selectionId({ kind: "setup", step: "ai_account" })).toBe(
-      "setup:ai_account"
-    );
+  test("selectionId gives the id an item is stored under", () => {
     expect(selectionId({ item: grouped, kind: "item" })).toBe("b1");
   });
 });
@@ -164,18 +138,16 @@ describe("selectItem", () => {
 describe("isListed", () => {
   const first = item(card({ id: "a1" }));
   const grouped = item(card({ id: "b1" }), card({ id: "b2" }));
-  const listed = view([first, grouped], ["first_agent"]);
+  const listed = view([first, grouped]);
 
-  test("an item id, a card id inside an item and a setup id are listed", () => {
+  test("an item id and a card id inside an item are listed", () => {
     expect(isListed(listed, "a1")).toBe(true);
     expect(isListed(listed, "b1")).toBe(true);
     expect(isListed(listed, "b2")).toBe(true);
-    expect(isListed(listed, "setup:first_agent")).toBe(true);
   });
 
-  test("an id from another item or a setup step not shown is not listed", () => {
+  test("an id that is not in the view is not listed", () => {
     expect(isListed(listed, "gone")).toBe(false);
-    expect(isListed(listed, "setup:ai_account")).toBe(false);
     expect(isListed(view([]), "a1")).toBe(false);
   });
 });
@@ -259,13 +231,8 @@ describe("nextItemId", () => {
   const c = item(card({ id: "c1" }));
 
   test("gives the entry after a middle entry", () => {
-    expect(
-      nextItemId(
-        view([a, b, c], ["ai_account", "first_agent"]),
-        "setup:first_agent"
-      )
-    ).toBe("a1");
     expect(nextItemId(view([a, b, c]), "a1")).toBe("b1");
+    expect(nextItemId(view([a, b, c]), "b1")).toBe("c1");
   });
 
   test("gives the entry before the last entry", () => {
@@ -274,7 +241,6 @@ describe("nextItemId", () => {
 
   test("gives null when there is no other entry", () => {
     expect(nextItemId(view([a]), "a1")).toBeNull();
-    expect(nextItemId(view([], ["ai_account"]), "setup:ai_account")).toBeNull();
   });
 
   test("gives the first entry for an unknown id", () => {
@@ -283,12 +249,6 @@ describe("nextItemId", () => {
 
   test("gives null for an unknown id when the list is empty", () => {
     expect(nextItemId(view([]), "zzz")).toBeNull();
-  });
-
-  test("walks setup steps first, then items", () => {
-    expect(
-      nextItemId(view([a], ["ai_account", "first_agent"]), "setup:ai_account")
-    ).toBe("setup:first_agent");
   });
 });
 
@@ -471,11 +431,5 @@ describe("pruneAnswered", () => {
       "b",
       "c",
     ]);
-  });
-
-  test("setup steps stay", () => {
-    expect(
-      pruneAnswered(view([item(a)], ["ai_account"]), new Set(["a"])).setup
-    ).toEqual(["ai_account"]);
   });
 });

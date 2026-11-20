@@ -3,7 +3,7 @@ id: ME.2
 title: "Memory files: parse, write, budget"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: [ME.1]
 branch: task/ME.2-memory-files-codec
 lane: services-memory
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone ME. Pure functions that read and write t
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/ME.2-memory-files-codec (v4 controller session).
+- 2026-11-20: merged as 70720829, review clean after 1 fix round. check, test and build passed on main.

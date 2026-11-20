@@ -17,6 +17,7 @@ import { inboxTools } from "./tools/inbox";
 import { libraryTools } from "./tools/library";
 import { liveTools } from "./tools/live";
 import { mailTools } from "./tools/mail";
+import { memoryTools } from "./tools/memory";
 import { qaTools } from "./tools/qa";
 import { routineTools } from "./tools/routines";
 import { sessionTools } from "./tools/sessions";
@@ -88,6 +89,9 @@ export const agentumTools = (
     : []),
   ...(readOnly ? [] : agentWriteTools(ports)),
   ...sessionTools(ports),
+  ...memoryTools(ports).filter(
+    (tool) => !readOnly || tool.annotations.readOnlyHint === true
+  ),
   ...inboxTools(ports),
   // Offered once the app wires the port; a read-only caller keeps the read tools.
   ...(ports.artifacts
