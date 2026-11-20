@@ -1410,9 +1410,10 @@ test("held memory uses creator fallback and excludes decided, rejected, foreign,
   expect(sources.needsYou.map((card) => card.id)).toEqual(["held"]);
   expect(await desk.needsYouCount(user())).toBe(1);
   expect((await view("mine")).needsYou[0]?.assigneeUserId).toBe("u1");
+  // u2 is a plain member here (no owner, backup or admin), so the shared held note stays hidden.
   expect(
     (await view("everyone", user("u2"))).needsYou.map((item) => item.id).sort()
-  ).toEqual(["held", "private"]);
+  ).toEqual(["private"]);
   await db
     .update(memoryChanges)
     .set({ status: "rejected" })
@@ -1547,4 +1548,18 @@ test("a held dream card keeps its dream run on the rail card", async () => {
     status: "Waiting for your approval",
     title: "Alpha has dream changes waiting for your approval",
   });
+});
+
+test("a plain member's rail has no held note in either scope", async () => {
+  await setOwners(a1, "u1");
+  await heldNote("held");
+
+  expect((await view("mine", user("u2"))).needsYou).toEqual([]);
+  expect((await view("everyone", user("u2"))).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(0);
+  expect(
+    (await view("mine")).needsYou.flatMap((item) =>
+      item.cards.map((card) => card.id)
+    )
+  ).toEqual(["held"]);
 });

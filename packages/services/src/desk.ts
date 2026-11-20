@@ -238,6 +238,37 @@ const byAge = (a: DeskCard, b: DeskCard): number =>
 const titleOf = (inputText: string, mailSubject?: string): string =>
   clip(runTitleText(text(inputText), mailSubject), TITLE_MAX);
 
+/**
+ * The agents whose shared held notes and dream questions a member may decide: the owner
+ * (the creator when no owner is set) and the backup, or every agent for an org admin
+ * (`null`). Services refuse anyone else, so their Needs you cards would lead nowhere.
+ */
+const decidableAgentIds = async (
+  db: Database,
+  member: UserPrincipal
+): Promise<Set<string> | null> => {
+  if (member.isAdmin === true) {
+    return null;
+  }
+  const rows = await db
+    .select({ id: agentRows.id })
+    .from(agentRows)
+    .where(
+      and(
+        eq(agentRows.workspaceId, member.workspaceId),
+        or(
+          eq(agentRows.ownerUserId, member.userId),
+          and(
+            isNull(agentRows.ownerUserId),
+            eq(agentRows.createdBy, member.userId)
+          ),
+          eq(agentRows.backupUserId, member.userId)
+        )
+      )
+    );
+  return new Set(rows.map((row) => row.id));
+};
+
 export const createDeskService = ({
   a2a,
   clock,
@@ -476,6 +507,7 @@ export const createDeskService = ({
       heldDreams,
       a2aList,
       spendPauses,
+      decidable,
     ] = await Promise.all([
       pendingRecords(member),
       skillsStore.proposals(member),
@@ -514,12 +546,16 @@ export const createDeskService = ({
             // A dream's held batch is decided as a whole in `dream.decide`, not note by note.
             isNull(memoryChanges.dreamRunId),
             // Private memory keeps its person's visibility, including on the rail.
+            // A shared note reaches only the agent's owner, backup and org admins
+            // (`decidable`, filtered below), and a private one only its person.
             or(
               isNull(memoryChanges.userScope),
               eq(memoryChanges.userScope, member.userId)
             )
           )
         ),
+      // A shared question reaches only the agent's owner, backup and org admins
+      // (`decidable`, filtered below). A private one goes to its person alone.
       db
         .select()
         .from(dreamQuestions)
@@ -557,7 +593,11 @@ export const createDeskService = ({
                 )
           )
         ),
+      decidableAgentIds(db, member),
     ]);
+    /** Whether the member may decide a shared note or question of this agent. */
+    const mayDecide = (agentId: string): boolean =>
+      decidable === null || decidable.has(agentId);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
       (trigger) =>
@@ -712,6 +752,9 @@ export const createDeskService = ({
         if (userScope !== null && userScope !== member.userId) {
           return [];
         }
+        if (userScope === null && !mayDecide(row.agentId)) {
+          return [];
+        }
         return [
           {
             agentId: row.agentId,
@@ -725,7 +768,9 @@ export const createDeskService = ({
       }),
       heldDreams: heldDreams.filter((batch) => !drafts.has(batch.agentId)),
       heldNotes: heldNotes.flatMap((row) =>
-        row.agentId === null || drafts.has(row.agentId)
+        row.agentId === null ||
+        drafts.has(row.agentId) ||
+        (row.userScope === null && !mayDecide(row.agentId))
           ? []
           : [{ ...row, agentId: row.agentId }]
       ),
