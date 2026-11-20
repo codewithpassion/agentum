@@ -1,5 +1,6 @@
 import type { AgentCard } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
+import { capLine } from "#/components/spend/spend-logic.ts";
 import { cn } from "#/lib/utils";
 import {
   AVATAR_CLASSES,
@@ -53,7 +54,8 @@ export const AgentCardView = ({ card }: { card: AgentCard }) => (
       <span className="flex min-w-0 flex-wrap justify-between gap-x-3 text-muted-foreground text-xs">
         <span className="truncate">{`Owner ${card.ownerName}`}</span>
         <span className="shrink-0">
-          {`${weekCostLabel(card.costThisWeekCents)} this week`}
+          {capLine(card.costThisWeekCents, card.weeklyCapCents) ??
+            `${weekCostLabel(card.costThisWeekCents)} this week`}
         </span>
       </span>
     </span>

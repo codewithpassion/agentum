@@ -28,6 +28,7 @@ import { Route as AppMapRouteImport } from './routes/_app/map'
 import { Route as AppRoutinesRouteImport } from './routes/_app/routines'
 import { Route as AppSessionsRouteImport } from './routes/_app/sessions'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppSpendRouteImport } from './routes/_app/spend'
 import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
 import { Route as AArtifactIdRouteImport } from './routes/a.$artifactId'
 import { Route as ConnectTokenRouteImport } from './routes/connect.$token'
@@ -46,6 +47,7 @@ import { Route as AppSettingsMachinesRouteImport } from './routes/_app/settings.
 import { Route as AppSettingsModelProvidersRouteImport } from './routes/_app/settings.model-providers'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
 import { Route as AppSettingsSignInsRouteImport } from './routes/_app/settings.sign-ins'
+import { Route as AppSettingsSpendRouteImport } from './routes/_app/settings.spend'
 import { Route as AppSettingsTimezoneRouteImport } from './routes/_app/settings.timezone'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
@@ -148,6 +150,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSpendRoute = AppSpendRouteImport.update({
+  id: '/spend',
+  path: '/spend',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTriggersRoute = AppTriggersRouteImport.update({
   id: '/triggers',
   path: '/triggers',
@@ -240,6 +247,11 @@ const AppSettingsSignInsRoute = AppSettingsSignInsRouteImport.update({
   path: '/sign-ins',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsSpendRoute = AppSettingsSpendRouteImport.update({
+  id: '/spend',
+  path: '/spend',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsTimezoneRoute = AppSettingsTimezoneRouteImport.update({
   id: '/timezone',
   path: '/timezone',
@@ -297,6 +309,7 @@ export interface FileRoutesByFullPath {
   '/routines': typeof AppRoutinesRoute
   '/sessions': typeof AppSessionsRoute
   '/settings': typeof AppSettingsRouteWithChildren
+  '/spend': typeof AppSpendRoute
   '/triggers': typeof AppTriggersRoute
   '/a/$artifactId': typeof AArtifactIdRoute
   '/connect/$token': typeof ConnectTokenRoute
@@ -312,6 +325,7 @@ export interface FileRoutesByFullPath {
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/settings/sign-ins': typeof AppSettingsSignInsRoute
+  '/settings/spend': typeof AppSettingsSpendRoute
   '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
@@ -341,6 +355,7 @@ export interface FileRoutesByTo {
   '/map': typeof AppMapRoute
   '/routines': typeof AppRoutinesRoute
   '/sessions': typeof AppSessionsRoute
+  '/spend': typeof AppSpendRoute
   '/triggers': typeof AppTriggersRoute
   '/a/$artifactId': typeof AArtifactIdRoute
   '/connect/$token': typeof ConnectTokenRoute
@@ -356,6 +371,7 @@ export interface FileRoutesByTo {
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
   '/settings/sign-ins': typeof AppSettingsSignInsRoute
+  '/settings/spend': typeof AppSettingsSpendRoute
   '/settings/timezone': typeof AppSettingsTimezoneRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
@@ -388,6 +404,7 @@ export interface FileRoutesById {
   '/_app/routines': typeof AppRoutinesRoute
   '/_app/sessions': typeof AppSessionsRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
+  '/_app/spend': typeof AppSpendRoute
   '/_app/triggers': typeof AppTriggersRoute
   '/a/$artifactId': typeof AArtifactIdRoute
   '/connect/$token': typeof ConnectTokenRoute
@@ -403,6 +420,7 @@ export interface FileRoutesById {
   '/_app/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
   '/_app/settings/sign-ins': typeof AppSettingsSignInsRoute
+  '/_app/settings/spend': typeof AppSettingsSpendRoute
   '/_app/settings/timezone': typeof AppSettingsTimezoneRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/tasks/$runId': typeof AppTasksRunIdRoute
@@ -435,6 +453,7 @@ export interface FileRouteTypes {
     | '/routines'
     | '/sessions'
     | '/settings'
+    | '/spend'
     | '/triggers'
     | '/a/$artifactId'
     | '/connect/$token'
@@ -450,6 +469,7 @@ export interface FileRouteTypes {
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/settings/sign-ins'
+    | '/settings/spend'
     | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
@@ -479,6 +499,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/routines'
     | '/sessions'
+    | '/spend'
     | '/triggers'
     | '/a/$artifactId'
     | '/connect/$token'
@@ -494,6 +515,7 @@ export interface FileRouteTypes {
     | '/settings/model-providers'
     | '/settings/secrets'
     | '/settings/sign-ins'
+    | '/settings/spend'
     | '/settings/timezone'
     | '/skills/$skillId'
     | '/tasks/$runId'
@@ -525,6 +547,7 @@ export interface FileRouteTypes {
     | '/_app/routines'
     | '/_app/sessions'
     | '/_app/settings'
+    | '/_app/spend'
     | '/_app/triggers'
     | '/a/$artifactId'
     | '/connect/$token'
@@ -540,6 +563,7 @@ export interface FileRouteTypes {
     | '/_app/settings/model-providers'
     | '/_app/settings/secrets'
     | '/_app/settings/sign-ins'
+    | '/_app/settings/spend'
     | '/_app/settings/timezone'
     | '/_app/skills/$skillId'
     | '/_app/tasks/$runId'
@@ -700,6 +724,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/spend': {
+      id: '/_app/spend'
+      path: '/spend'
+      fullPath: '/spend'
+      preLoaderRoute: typeof AppSpendRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/triggers': {
       id: '/_app/triggers'
       path: '/triggers'
@@ -826,6 +857,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsSignInsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/spend': {
+      id: '/_app/settings/spend'
+      path: '/spend'
+      fullPath: '/settings/spend'
+      preLoaderRoute: typeof AppSettingsSpendRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/timezone': {
       id: '/_app/settings/timezone'
       path: '/timezone'
@@ -887,6 +925,7 @@ interface AppSettingsRouteChildren {
   AppSettingsModelProvidersRoute: typeof AppSettingsModelProvidersRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
   AppSettingsSignInsRoute: typeof AppSettingsSignInsRoute
+  AppSettingsSpendRoute: typeof AppSettingsSpendRoute
   AppSettingsTimezoneRoute: typeof AppSettingsTimezoneRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSettingsAgentConnectionsConnectionIdRoute: typeof AppSettingsAgentConnectionsConnectionIdRoute
@@ -902,6 +941,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsModelProvidersRoute: AppSettingsModelProvidersRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
   AppSettingsSignInsRoute: AppSettingsSignInsRoute,
+  AppSettingsSpendRoute: AppSettingsSpendRoute,
   AppSettingsTimezoneRoute: AppSettingsTimezoneRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSettingsAgentConnectionsConnectionIdRoute:
@@ -926,6 +966,7 @@ interface AppRouteChildren {
   AppRoutinesRoute: typeof AppRoutinesRoute
   AppSessionsRoute: typeof AppSessionsRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
+  AppSpendRoute: typeof AppSpendRoute
   AppTriggersRoute: typeof AppTriggersRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsNewRoute: typeof AppAgentsNewRoute
@@ -951,6 +992,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppRoutinesRoute: AppRoutinesRoute,
   AppSessionsRoute: AppSessionsRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
+  AppSpendRoute: AppSpendRoute,
   AppTriggersRoute: AppTriggersRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsNewRoute: AppAgentsNewRoute,

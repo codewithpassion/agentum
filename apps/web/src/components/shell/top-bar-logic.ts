@@ -35,14 +35,11 @@ export function topBarCurrent(pathname: string): TopBarLabel | null {
 /** Where New agent goes. It is also a Find entry. */
 export const NEW_AGENT_HREF = "/agents/new";
 
-/** Pages the top bar reaches that Find does not list, because they do not exist yet. */
-const NOT_IN_FIND = new Set(["/spend"]);
-
 /** Every top bar destination that Find must also reach. */
 export function topBarTargetsMissingFromFind(): string[] {
   const inFind = new Set(findEntries.map((entry) => pathOf(entry.to)));
   return [...topBarLinks(true).map((link) => link.href), NEW_AGENT_HREF].filter(
-    (href) => !(inFind.has(href) || NOT_IN_FIND.has(href))
+    (href) => !inFind.has(href)
   );
 }
 

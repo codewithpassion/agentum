@@ -114,6 +114,7 @@ export const fixtureRoom = (): RoomData => ({
   },
   published: null,
   rules: [],
+  spend: { capCents: null, paused: false, weekCents: 0 },
   tasks: [],
   threads: [],
 });
