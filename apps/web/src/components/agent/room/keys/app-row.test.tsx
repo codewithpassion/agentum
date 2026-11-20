@@ -16,6 +16,9 @@ const REMOVE_DISABLED_PATTERN =
   /<button\b[^>]*disabled=""[^>]*>Remove<\/button>/;
 const SELECT_DISABLED_PATTERN = /<select\b[^>]*disabled=""/;
 const CONNECT_BUTTON_PATTERN = /<button\b[^>]*>Connect my account<\/button>/;
+const PASTE_AS_AGENT_PATTERN = /<button\b[^>]*>Paste as this agent<\/button>/;
+const CONNECT_AS_AGENT_PATTERN =
+  /<a\b[^>]*href="\/connect\/conn_gmail\?[^"]*agent%3Aagent_1[^"]*"[^>]*>Connect as this agent<\/a>/;
 
 const appNamed = (connectorId: string): AgentKeyApp => {
   const app = fixtureKeys().apps.find(
@@ -29,6 +32,7 @@ const appNamed = (connectorId: string): AgentKeyApp => {
 
 const mineWith = (overrides: Partial<MySignIn>): MySignIn => ({
   authKind: "oauth",
+  headerName: null,
   id: "conn_gmail",
   myCredential: null,
   name: "Gmail",
@@ -56,7 +60,8 @@ const renderRow = (
   mine: MySignIn | undefined,
   canEdit = true,
   connector?: ConnectorRecord,
-  isAdmin = true
+  isAdmin = true,
+  canSetCredential = true
 ): string =>
   renderInRoom(
     <ul>
@@ -64,6 +69,7 @@ const renderRow = (
         agentId="agent_1"
         app={app}
         canEdit={canEdit}
+        canSetCredential={canSetCredential}
         connector={connector}
         isAdmin={isAdmin}
         mine={mine}
@@ -184,4 +190,54 @@ test("the connector status reads in plain words", () => {
   } as ConnectorRecord);
   expect(html).toContain("Needs sign-in");
   expect(html).not.toContain("needs_auth");
+});
+
+test("a member who cannot set the agent's credential sees no Paste as this agent button", () => {
+  const html = renderRow(
+    appNamed("conn_gmail"),
+    mineWith({ authKind: "header" }),
+    true,
+    undefined,
+    false,
+    false
+  );
+  expect(html).not.toContain("Paste as this agent");
+  expect(html).toMatch(CONNECT_BUTTON_PATTERN);
+});
+
+test("a member who cannot set the agent's credential sees no Connect as this agent link", () => {
+  const html = renderRow(
+    appNamed("conn_gmail"),
+    mineWith({}),
+    true,
+    undefined,
+    false,
+    false
+  );
+  expect(html).not.toContain("Connect as this agent");
+  expect(html).toMatch(CONNECT_LINK_PATTERN);
+});
+
+test("the owner or an admin sees Paste as this agent on a header app", () => {
+  const html = renderRow(
+    appNamed("conn_gmail"),
+    mineWith({ authKind: "header" }),
+    true,
+    undefined,
+    true,
+    true
+  );
+  expect(html).toMatch(PASTE_AS_AGENT_PATTERN);
+});
+
+test("the owner or an admin sees Connect as this agent on an OAuth app", () => {
+  const html = renderRow(
+    appNamed("conn_gmail"),
+    mineWith({}),
+    true,
+    undefined,
+    true,
+    true
+  );
+  expect(html).toMatch(CONNECT_AS_AGENT_PATTERN);
 });

@@ -690,6 +690,9 @@ export const composeWith = ({
     ...(infra.cloudRunner && infra.runTokenKey && infra.publicBaseUrl
       ? [
           createCloudRuntime({
+            library: {
+              read: (principal, path) => library.read(principal, path),
+            },
             platformUrl: infra.publicBaseUrl,
             runner: infra.cloudRunner,
             runTokenKey: infra.runTokenKey,

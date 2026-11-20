@@ -55,7 +55,11 @@ import { loadActiveAgent, loadConnector } from "./connectors.ts";
 import { decryptSecret, encryptSecret, importSecretsKey } from "./crypto.ts";
 import { invalid, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireAdminSession, requireSession } from "./guards.ts";
+import {
+  requireAdminSession,
+  requireAgentOwnerOrAdmin,
+  requireSession,
+} from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
@@ -382,7 +386,11 @@ export const createConnectorOAuthService = ({
     }
     const connector = await loadConnector(db, parsed.connectorId, workspaceId);
     if (owner.kind === "agent") {
-      await loadActiveAgent(db, owner.id, workspaceId);
+      requireAgentOwnerOrAdmin(
+        user,
+        await loadActiveAgent(db, owner.id, workspaceId),
+        START_ACTION
+      );
     }
     if (connector.authKind !== "oauth") {
       throw invalid("That connector does not use OAuth.");
@@ -454,7 +462,12 @@ export const createConnectorOAuthService = ({
     const connector = await loadConnector(db, row.connectorId, row.workspaceId);
     const owner: Owner = { id: row.ownerId, kind: row.ownerKind };
     if (owner.kind === "agent") {
-      await loadActiveAgent(db, owner.id, row.workspaceId);
+      // Owners and admins change, so the rule holds again at the write.
+      requireAgentOwnerOrAdmin(
+        user,
+        await loadActiveAgent(db, owner.id, row.workspaceId),
+        COMPLETE_ACTION
+      );
     }
     const config = parseOAuthConfig(connector.oauth);
     if (!config?.client) {

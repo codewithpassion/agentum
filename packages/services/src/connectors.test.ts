@@ -495,7 +495,7 @@ test("two pastes at once never report a value that was not stored", async () => 
   });
 
   const results = await Promise.allSettled(
-    [dom, sam, dom].map((caller) =>
+    [dom, { ...sam, isAdmin: true }, dom].map((caller) =>
       service.setCredential(caller, {
         agentId: agent.id,
         connectorId: connector.id,
@@ -549,6 +549,64 @@ test("an agent-owned credential needs an active agent of the same workspace", as
       value,
     })
   ).rejects.toMatchObject({ code: "invalid" });
+});
+
+test("only the agent's owner or an admin sets its credential", async () => {
+  const connector = await addHeaderConnector();
+  const value = `Bearer ${TOKEN}`;
+  const lee = principalOf("user_lee");
+  const samsAgent = await agents.create(sam, {
+    model: "claude-sonnet",
+    name: "Sammy",
+    runtime: "fake",
+  });
+
+  // The owner, though no admin.
+  expect(
+    await service.setCredential(sam, {
+      agentId: samsAgent.id,
+      connectorId: connector.id,
+      value,
+    })
+  ).toMatchObject({ ownerId: samsAgent.id, ownerKind: "agent" });
+  // An admin who does not own it.
+  expect(
+    await service.setCredential(dom, {
+      agentId: samsAgent.id,
+      connectorId: connector.id,
+      value,
+    })
+  ).toMatchObject({ ownerId: samsAgent.id, version: 2 });
+  // A plain member, for the agent Sam owns and for the one Dom made.
+  await expect(
+    service.setCredential(lee, {
+      agentId: samsAgent.id,
+      connectorId: connector.id,
+      value,
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.setCredential(lee, {
+      agentId: agent.id,
+      connectorId: connector.id,
+      value,
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    service.setCredential(sam, {
+      agentId: agent.id,
+      connectorId: connector.id,
+      value,
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  // A member still sets their own credential.
+  expect(
+    await service.setCredential(lee, { connectorId: connector.id, value })
+  ).toMatchObject({ ownerId: "user_lee", ownerKind: "user" });
+  const agentRows = (await db.select().from(credentials)).filter(
+    (row) => row.ownerKind === "agent"
+  );
+  expect(agentRows.map((row) => row.ownerId)).toEqual([samsAgent.id]);
 });
 
 test("assign defaults to user_or_agent, changes the mode, and unassign removes it", async () => {
@@ -1011,6 +1069,7 @@ test("members manage only their own sign-in and receive only member fields", asy
   expect(await service.list(sam)).toHaveLength(1);
   expect(only(await service.mine(sam))).toEqual({
     authKind: "header",
+    headerName: "Authorization",
     id: connector.id,
     myCredential: null,
     name: connector.name,
@@ -1115,6 +1174,7 @@ test("mine marks workspace-secret connectors without exposing their configuratio
   expect(summary.shared).toBe(true);
   expect(Object.keys(summary).sort()).toEqual([
     "authKind",
+    "headerName",
     "id",
     "myCredential",
     "name",

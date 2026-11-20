@@ -3,9 +3,9 @@ id: NV.5
 title: "Finish the runtime and task words in the agent flows"
 milestone: NV
 size: S
-status: todo
+status: in_progress
 depends_on: [RH.4, FR.4]
-branch: null
+branch: task/NV.5-finish-agent-flow-words
 lane: web-agent
 executor: claude
 ---
@@ -30,3 +30,4 @@ From the NV gate review, round 1 (`docs/reviews/NV-1.md`, finding 1). The files 
 
 ## Log
 - 2026-11-20: added from the NV gate review, round 1 (one must-fix).
+- 2026-11-20: dispatched on task/NV.5-finish-agent-flow-words (v4 controller session).

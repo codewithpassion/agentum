@@ -3,9 +3,9 @@ id: KY.8
 title: "Only an agent's owner or an admin sets the agent's credential"
 milestone: KY
 size: S
-status: todo
+status: done
 depends_on: [KY.3, KY.5]
-branch: null
+branch: task/KY.8-agent-credential-permission
 lane: services-connectors
 executor: claude
 ---
@@ -29,3 +29,5 @@ From the KY.3 review (`docs/reviews/tasks/KY.3.md`). Any workspace member can st
 - 2026-11-20: depends on KY.5 too, because its last scope line changes the Keys tab KY.5 is building.
 - 2026-11-20: dispatched on task/KY.8-agent-credential-permission (v4 controller session).
 - 2026-11-20: dispatch stopped at once; it would have been a seventh builder. Back to todo.
+- 2026-11-20: dispatched on task/KY.8-agent-credential-permission (v4 controller session).
+- 2026-11-20: merged as 1ae5ad4f, review clean after 0 fix rounds. check, build and web tests passed on main; services failed only the never-claimed-runs timing test, which passed alone.

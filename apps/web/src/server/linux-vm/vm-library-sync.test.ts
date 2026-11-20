@@ -52,6 +52,18 @@ const user: Principal = {
   workspaceId: WORKSPACE,
 };
 
+/** The runs of the tests: r1 and r2 act for no person, r-a and r-b act for one each. */
+const RUNS: { id: string; onBehalfOfUserId: string | null }[] = [
+  { id: "r1", onBehalfOfUserId: null },
+  { id: "r2", onBehalfOfUserId: null },
+  { id: "r-a", onBehalfOfUserId: "user_a" },
+  { id: "r-b", onBehalfOfUserId: "user_b" },
+];
+
+const PEOPLE_FILE = "agents/ada/memory/people.md";
+const PRIVATE_A = "agents/ada/memory/private/user_a.md";
+const PRIVATE_B = "agents/ada/memory/private/user_b.md";
+
 const runAs = (runId: string): Principal => ({
   agentId: AGENT,
   kind: "run",
@@ -162,16 +174,17 @@ beforeEach(() => {
       workspaceId: WORKSPACE,
     })
     .run();
-  for (const runId of ["r1", "r2"]) {
+  for (const run of RUNS) {
     db.insert(runRows)
       .values({
         actorId: "u1",
         actorKind: "user",
         agentId: AGENT,
         createdAt: START,
-        id: runId,
+        id: run.id,
         inputFileIds: "[]",
         inputText: "hi",
+        onBehalfOfUserId: run.onBehalfOfUserId,
         outputFileIds: "[]",
         sessionId: SESSION,
         status: "running",
@@ -921,4 +934,76 @@ test("a push with no wait does nothing and says nothing while another sync holds
     waitMs: 0,
   });
   expect(await readText("agents/ada/notes.md")).toBe("edit");
+});
+
+/** Writes one memory file as a person, through the memory service. */
+const writeMemoryAs = (userId: string, path: string, text: string) =>
+  service.writeMemoryFiles(
+    { kind: "user", userId, via: "session", workspaceId: WORKSPACE },
+    [{ bytes: bytes(text), path }],
+    () => []
+  );
+
+/** A shared people file and one private file for each of two people. */
+const writeMemory = async () => {
+  await writeMemoryAs("user_a", PEOPLE_FILE, "people notes");
+  await writeMemoryAs("user_a", PRIVATE_A, "a notes");
+  await writeMemoryAs("user_b", PRIVATE_B, "b notes");
+};
+
+test("sync in copies only the private memory file of the person the run acts for", async () => {
+  await writeMemory();
+  const cases = [
+    { absent: [PRIVATE_B], present: [PRIVATE_A], runId: "r-a" },
+    { absent: [PRIVATE_A], present: [PRIVATE_B], runId: "r-b" },
+    { absent: [PRIVATE_A, PRIVATE_B], present: [], runId: "r1" },
+  ];
+
+  await Promise.all(
+    cases.map(async ({ absent, present, runId }) => {
+      const vm = createFakeVm();
+      await syncLibraryIn({
+        ops: opsFor(runAs(runId)),
+        roots: scope(),
+        slug: "ada",
+        storage: memoryStorage(),
+        vm,
+      });
+
+      expect(textOf(vm.files.get(`${LIBRARY_VM}/${PEOPLE_FILE}`))).toBe(
+        "people notes"
+      );
+      for (const path of present) {
+        expect(vm.files.has(`${LIBRARY_VM}/${path}`)).toBe(true);
+      }
+      for (const path of absent) {
+        expect(vm.files.has(`${LIBRARY_VM}/${path}`)).toBe(false);
+      }
+    })
+  );
+});
+
+test("a pull of announced paths never copies another person's private file", async () => {
+  await writeMemory();
+  const vm = createFakeVm();
+  const storage = memoryStorage();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-a")),
+    roots: scope(),
+    slug: "ada",
+    storage,
+    vm,
+  });
+  await writeMemoryAs("user_a", PRIVATE_A, "a notes v2");
+  await writeMemoryAs("user_b", PRIVATE_B, "b notes v2");
+
+  await syncLibraryPaths({
+    ops: opsFor(runAs("r-a")),
+    paths: [PRIVATE_A, PRIVATE_B],
+    storage,
+    vm,
+  });
+
+  expect(textOf(vm.files.get(`${LIBRARY_VM}/${PRIVATE_A}`))).toBe("a notes v2");
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_B}`)).toBe(false);
 });

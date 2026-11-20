@@ -56,6 +56,12 @@ A row links to the library version it wrote through `library_version_id`. That c
 
 The rules are not in these files. What to remember, never remember, learn level, share with team and dream schedule are JSON in `agents.remember`. The workspace's never list is `workspaces.never_remember`.
 
+## The never list on write
+
+The memory service checks every add and edit against the workspace's never list and then the agent's own, before the learn level. An entry matches when its words appear in the note as a run of whole words, ignoring case and punctuation and a trailing `s`. An entry that lists alternatives with commas, semicolons or slashes (`Salary, bonus`) matches any of them. The words `and` and `or` do not split an entry, so a default such as `Health details` matches only a note that says those two words in a row. The prompt still tells the agent the whole topic. A person's note is checked too, and a forget never is.
+
+A note that matches is refused with an `invalid` error naming the entry and the list, which the `remember` tool hands back to the agent. The service writes one `memory_changes` row with status `rejected` and `decided_at` set, no `decided_by` and no library version. The row's text names the entry and does not repeat the note, because the topic is one the owner does not want kept.
+
 ## Examples
 
 `agents/scout/memory/people.md`

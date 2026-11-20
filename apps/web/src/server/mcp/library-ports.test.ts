@@ -1,5 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { runs as runRows } from "@repo/db/schema/runs";
+import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { migrated } from "@repo/db/test-db";
 import { createAgentumMcpServer } from "@repo/mcp/server";
 import { connectClient } from "@repo/mcp/testing";
@@ -11,14 +13,17 @@ import type { Principal } from "@repo/services/workspaces";
 import { type Composed, composeWith } from "../compose.ts";
 import { createMcpPorts } from "./ports.ts";
 
+let db: ReturnType<typeof migrated>;
 let composed: Composed;
 let workspaceId: string;
+let agentId: string;
 let person: Principal;
 let slug: string;
 let run: Principal;
+const SESSION_ID = "sess_memory_tools";
 
 beforeEach(async () => {
-  const db = migrated(["org_a"]);
+  db = migrated(["org_a"]);
   composed = composeWith({
     db,
     infra: {
@@ -45,12 +50,24 @@ beforeEach(async () => {
     runtime: "fake",
   });
   ({ slug } = agent);
+  agentId = agent.id;
   const started = await composed.services.runs.startRun(person, {
     agentId: agent.id,
     input: { text: "x" },
     session: { origin: "mcp" },
   });
   run = { agentId: agent.id, kind: "run", runId: started.runId, workspaceId };
+  db.insert(sessionRows)
+    .values({
+      actorId: "user_1",
+      actorKind: "user",
+      agentId,
+      createdAt: new Date().toISOString(),
+      id: SESSION_ID,
+      origin: "mcp",
+      workspaceId,
+    })
+    .run();
 });
 
 const connect = async (principal: Principal) => {
@@ -58,6 +75,27 @@ const connect = async (principal: Principal) => {
   const { client } = await connectClient(createAgentumMcpServer(ports));
   return (name: string, args: Record<string, unknown>) =>
     client.callTool({ arguments: args, name });
+};
+
+const insertRun = (runId: string, onBehalfOfUserId: string | null) => {
+  db.insert(runRows)
+    .values({
+      actorId: "user_1",
+      actorKind: "user",
+      agentId,
+      createdAt: new Date().toISOString(),
+      id: runId,
+      inputFileIds: "[]",
+      inputText: "hi",
+      onBehalfOfUserId,
+      outputFileIds: "[]",
+      sessionId: SESSION_ID,
+      status: "running",
+      workspaceId,
+    })
+    .run();
+  const principal: Principal = { agentId, kind: "run", runId, workspaceId };
+  return principal;
 };
 
 const dataOf = (result: { structuredContent?: unknown }) =>
@@ -134,5 +172,89 @@ test("wiki_read returns the page with its links, and an agent's suggestion waits
   const after = await composed.services.library.read(person, "wiki/home.md");
   expect(new TextDecoder().decode(after.bytes)).toBe(
     "# Home\nSee [[Missing]]\n"
+  );
+});
+
+test("an agent's library tools show only the private notes of the person its run acts for", async () => {
+  const memory = `agents/${slug}/memory`;
+  const privateDir = `${memory}/private`;
+  const privateFile = `${privateDir}/user_a.md`;
+  const shared = `${memory}/people.md`;
+  const userA: Principal = {
+    kind: "user",
+    userId: "user_a",
+    via: "session",
+    workspaceId,
+  };
+  await composed.services.library.writeMemoryFiles(
+    userA,
+    [{ bytes: new TextEncoder().encode("a notes"), path: privateFile }],
+    () => []
+  );
+  await composed.services.library.write(
+    person,
+    shared,
+    new TextEncoder().encode("shared")
+  );
+
+  const cases = [
+    {
+      name: "for user_a",
+      principal: insertRun("run_for_a", "user_a"),
+      sees: true,
+    },
+    {
+      name: "for user_b",
+      principal: insertRun("run_for_b", "user_b"),
+      sees: false,
+    },
+    {
+      name: "with no person",
+      principal: insertRun("run_no_person", null),
+      sees: false,
+    },
+  ];
+  const checks = await Promise.all(
+    cases.map(async (item) => ({
+      ...item,
+      call: await connect(item.principal),
+    }))
+  );
+  await Promise.all(
+    checks.map(async ({ call, name, sees }) => {
+      const listedMemory = dataOf(await call("library_list", { dir: memory }));
+      expect(
+        (listedMemory.entries as { path: string }[]).map((entry) => entry.path),
+        name
+      ).toEqual([shared, privateDir]);
+
+      const listedPrivate = dataOf(
+        await call("library_list", { dir: privateDir })
+      );
+      expect(
+        (listedPrivate.entries as { path: string }[]).map(
+          (entry) => entry.path
+        ),
+        name
+      ).toEqual(sees ? [privateFile] : []);
+
+      const readShared = await call("library_read", { path: shared });
+      expect(readShared.isError, name).toBeFalsy();
+      expect(dataOf(readShared), name).toMatchObject({
+        content: "shared",
+        encoding: "text",
+      });
+
+      const readPrivate = await call("library_read", { path: privateFile });
+      if (sees) {
+        expect(readPrivate.isError, name).toBeFalsy();
+        expect(dataOf(readPrivate), name).toMatchObject({
+          content: "a notes",
+          encoding: "text",
+        });
+      } else {
+        expect(readPrivate.isError, name).toBe(true);
+      }
+    })
   );
 });

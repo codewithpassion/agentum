@@ -54,3 +54,14 @@ export const effectiveOwner = (agent: {
   createdBy: string;
   ownerUserId: string | null;
 }): string => agent.ownerUserId ?? agent.createdBy;
+
+/** An org admin or the agent's owner may act on the agent's own credentials. */
+export const requireAgentOwnerOrAdmin = (
+  user: UserPrincipal,
+  agent: { createdBy: string; ownerUserId: string | null },
+  action: string
+): void => {
+  if (user.isAdmin !== true && user.userId !== effectiveOwner(agent)) {
+    throw new ForbiddenError(action);
+  }
+};

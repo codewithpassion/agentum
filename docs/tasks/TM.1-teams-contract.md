@@ -3,7 +3,7 @@ id: TM.1
 title: "Teams contract: teams, members, topics, profiles, router"
 milestone: TM
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/TM.1-teams-contract
 lane: contract
@@ -30,3 +30,4 @@ From `docs/v4/build-plan.md`, milestone TM. Contract task for TM. It alone chang
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/TM.1-teams-contract (v4 controller session).
+- 2026-11-20: merged as 29e2f89f, review clean after 1 fix round. check and build passed on main; tests passed except guest-execution.test.ts, which fails the same way on main before this merge (FX.1). Still open: apply 0057 to a copy of staging D1 and confirm no thread has a NULL team_id and each workspace has one Everyone team, before the next remote migration.
