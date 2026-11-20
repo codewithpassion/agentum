@@ -81,6 +81,7 @@ const draft: AgentDraft = {
 };
 
 const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
+  avatar: { color: "slate", glyph: "A" },
   backupUserId: null,
   computerMachineId: null,
   createdAt: "2026-10-27T09:00:00.000Z",
@@ -224,9 +225,13 @@ const makeWorld = (options: WorldOptions = {}) => {
     },
   };
 
+  const persistenceDb = migrated();
   const deps: AgentBuilderDeps = {
     agents,
+    atomic: sqliteAtomic(persistenceDb),
+    clock: { now: () => new Date(), sleep: async () => undefined },
     connectors,
+    db: persistenceDb,
     fetch: () => Promise.reject(new Error("unused")),
     libraryAccess,
     machines: { list: async () => [] },
@@ -248,6 +253,7 @@ const makeWorld = (options: WorldOptions = {}) => {
     routines,
     runs,
     skillsStore,
+    teams: { get: () => Promise.reject(new Error("unused")) },
   };
 
   return {
@@ -687,7 +693,10 @@ describe("dry run on the real services", () => {
     const agents = createAgentsService({ db, events });
     const builder = createAgentBuilderService({
       agents,
+      atomic,
+      clock,
       connectors: { assign: unused, list: unused },
+      db,
       fetch: unused,
       libraryAccess: { setGrant: unused },
       machines: { list: unused },
@@ -696,6 +705,7 @@ describe("dry run on the real services", () => {
       routines,
       runs,
       skillsStore,
+      teams: { get: () => Promise.reject(new Error("unused")) },
     });
 
     const owner: Principal = {
@@ -841,7 +851,10 @@ describe("create on the real services", () => {
     });
     const builder = createAgentBuilderService({
       agents,
+      atomic,
+      clock,
       connectors,
+      db,
       fetch: unused,
       libraryAccess,
       machines,
@@ -857,6 +870,7 @@ describe("create on the real services", () => {
       routines,
       runs,
       skillsStore,
+      teams: { get: () => Promise.reject(new Error("unused")) },
     });
     const profiles = createAgentProfileService({
       agents,

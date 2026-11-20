@@ -49,11 +49,20 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { monotonicFactory, ulid } from "ulidx";
 import { z } from "zod";
-import { assertModelForRuntime, findAgent } from "./agents.ts";
+import {
+  assertModelForRuntime,
+  findAgent,
+  findAgentWithWorkspaceCap,
+} from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { cloudEnvironmentOf } from "./cloud/environment.ts";
 import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
-import { agentPaused, isUniqueViolation, ServiceError } from "./errors.ts";
+import {
+  agentPaused,
+  isUniqueViolation,
+  ServiceError,
+  workspaceLimitReached,
+} from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import {
   type Blobs,
@@ -189,6 +198,10 @@ const HANDOFF_ORIGIN = "mcp";
 /** A subagent or a parent's wake queues and nobody waits on it, so it skips the busy-ancestor refusal. */
 const startsUnawaited = (options: StartRunOptions): boolean =>
   options.subagent !== undefined || options.wakesParent === true;
+
+/** A parked run's continuation, a parent's wake or a subagent: the follow-up of work already under way, which a spend limit lets through. */
+const startsWorkUnderWay = (options: StartRunOptions): boolean =>
+  Boolean(options.continuationOf || options.wakesParent || options.subagent);
 
 /** How a child run that ended reads in the wake its parent gets. */
 const childOutcome = (child: RunRecord): ChildOutcome => {
@@ -356,6 +369,8 @@ const assertArtifactReply = (input: z.output<typeof startRunInputSchema>) => {
 
 export interface RunsServiceOptions {
   adapters: readonly RuntimeAdapter[];
+  /** Called after a batch holding a `tool.call` or `tool.result` is stored (a tool result follows the `network.request` and `browser.action` events the tool wrote while it ran), with the run's id. The memory service uses it to hold notes the run applied before the outside text showed up. A throw is logged and never fails the ingest. */
+  afterToolEvents?: (runId: string) => Promise<unknown>;
   atomic: Atomic;
   /** Trusted selected-agent policy. Session/grant checks and atomic cap are enforced internally.
    * Must not charge: retries call this policy again. */
@@ -407,10 +422,11 @@ export interface RunsServiceOptions {
     "announceDelivery" | "maskerFor" | "resolveForAgent"
   >;
   /**
-   * Checks the weekly caps when a run finishes. Without it, nothing pauses.
-   * A failure is logged and never changes how the run ended.
+   * Checks the weekly caps when a run finishes, and holds a start while the
+   * workspace is over its cap. Without it, nothing pauses and nothing is held.
+   * A failure at a run's end is logged and never changes how the run ended.
    */
-  spend?: Pick<SpendService, "enforceCap">;
+  spend?: Pick<SpendService, "enforceCap" | "workspaceOver">;
 }
 
 type ParsedInput = ReturnType<typeof startRunInputSchema.parse>;
@@ -499,6 +515,7 @@ const continuationSubjectOf = (
 
 export const createRunsService = ({
   adapters,
+  afterToolEvents,
   authorizeGuestGrant,
   guestAdapter,
   guestRuntimeReady,
@@ -796,10 +813,31 @@ export const createRunsService = ({
     agent: { name: string; pausedAt: string | null },
     options: StartRunOptions
   ) => {
-    const underWay =
-      options.continuationOf || options.wakesParent || options.subagent;
-    if (agent.pausedAt !== null && !underWay) {
+    if (agent.pausedAt !== null && !startsWorkUnderWay(options)) {
       throw agentPaused(agent.name);
+    }
+  };
+
+  /**
+   * A workspace at its weekly limit starts nothing new, for every agent in it,
+   * paused or not: a resume, a new agent or a restored one would otherwise get
+   * past the pause. The same follow-ups as `refuseIfPaused` go on. The agent
+   * read carries the cap, so with no workspace cap this runs no query.
+   */
+  const refuseIfWorkspaceOver = async (
+    agent: {
+      name: string;
+      workspaceCapCents: number | null;
+      workspaceId: string;
+    },
+    options: StartRunOptions
+  ) => {
+    if (
+      agent.workspaceCapCents !== null &&
+      !startsWorkUnderWay(options) &&
+      (await spend?.workspaceOver(agent.workspaceId))
+    ) {
+      throw workspaceLimitReached(agent.name);
     }
   };
 
@@ -819,7 +857,7 @@ export const createRunsService = ({
     input: ParsedInput,
     options: StartRunOptions
   ) => {
-    const agent = await findAgent(db, {
+    const agent = await findAgentWithWorkspaceCap(db, {
       id: input.agentId,
       workspaceId:
         principal.kind === "system" ? undefined : principal.workspaceId,
@@ -833,6 +871,7 @@ export const createRunsService = ({
       workspaceId: agent.workspaceId,
     });
     refuseIfPaused(agent, options);
+    await refuseIfWorkspaceOver(agent, options);
     const adapter = adapterByKind.get(options.dryRun ? "cloud" : agent.runtime);
     if (!adapter) {
       throw new ServiceError(
@@ -1329,7 +1368,7 @@ export const createRunsService = ({
     ) {
       throw guestUnavailable();
     }
-    const agent = await findAgent(db, {
+    const agent = await findAgentWithWorkspaceCap(db, {
       id: agentId,
       workspaceId: grant.workspaceId,
     });
@@ -1342,6 +1381,7 @@ export const createRunsService = ({
       throw guestUnavailable();
     }
     refuseIfPaused(agent, {});
+    await refuseIfWorkspaceOver(agent, {});
     try {
       await authorizeGuestGrant(grant, {
         agentId: agent.id,
@@ -1732,6 +1772,29 @@ export const createRunsService = ({
     await adapter?.resume?.(run, request);
   };
 
+  const holdAfterToolCall = async (
+    runId: string,
+    batch: readonly { type: string }[]
+  ): Promise<void> => {
+    if (
+      !(
+        afterToolEvents &&
+        batch.some(
+          (event) => event.type === "tool.call" || event.type === "tool.result"
+        )
+      )
+    ) {
+      return;
+    }
+    try {
+      await afterToolEvents(runId);
+    } catch (error) {
+      console.error(
+        `Holding notes after tool events of run ${runId} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
+
   const ingestRunEvents = async (
     principal: Principal,
     runId: string,
@@ -1778,6 +1841,7 @@ export const createRunsService = ({
       );
       lastSeq = event.seq;
     }
+    await holdAfterToolCall(run.id, fresh);
     if (
       fresh.some(
         (event) => event.type === "tool.result" && event.payload.ok === false

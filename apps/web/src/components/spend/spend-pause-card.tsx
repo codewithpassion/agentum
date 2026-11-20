@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/tanstack-react-start";
 import { Link } from "@tanstack/react-router";
 import {
   type ChangeEvent,
@@ -21,6 +22,7 @@ import {
 export interface SpendPauseViewProps {
   busy: boolean;
   error: string | null;
+  isAdmin: boolean;
   /** "The limit is $20 a week.", or null when it is not known. */
   limitText: string | null;
   onRaiseChange: (value: string) => void;
@@ -37,6 +39,7 @@ export interface SpendPauseViewProps {
 export function SpendPauseView({
   busy,
   error,
+  isAdmin,
   limitText,
   onRaiseChange,
   onRaiseOpen,
@@ -92,9 +95,16 @@ export function SpendPauseView({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button disabled={busy} onClick={onResume} size="sm" type="button">
-              Resume
-            </Button>
+            {workspaceLimitText !== null && !isAdmin ? null : (
+              <Button
+                disabled={busy}
+                onClick={onResume}
+                size="sm"
+                type="button"
+              >
+                Resume
+              </Button>
+            )}
             {workspaceLimitText === null ? (
               <Button
                 disabled={busy}
@@ -127,6 +137,17 @@ export function SpendPauseView({
 
 const PAUSE_NEEDS_LIMIT = "Enter the new limit in dollars.";
 
+const workspaceLimitMessage = (
+  workspaceCents: number,
+  isAdmin: boolean
+): string => {
+  const limit = capLabel(workspaceCents);
+  if (!isAdmin) {
+    return `The workspace limit of ${limit} a week is reached. Only raising the workspace limit lets this agent run, and an admin sets it.`;
+  }
+  return `The workspace limit of ${limit} a week is reached. Raising this agent's limit will not restart it.`;
+};
+
 /** Loads the agent's limit, then resumes the agent, optionally with a new limit. */
 export function SpendPause({
   agentId,
@@ -141,6 +162,8 @@ export function SpendPause({
   const [raiseValue, setRaiseValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { orgRole } = useAuth();
+  const isAdmin = orgRole === "org:admin";
 
   useEffect(() => {
     let active = true;
@@ -224,6 +247,7 @@ export function SpendPause({
     <SpendPauseView
       busy={busy}
       error={error}
+      isAdmin={isAdmin}
       limitText={
         limitCents === null
           ? null
@@ -238,7 +262,7 @@ export function SpendPause({
       workspaceLimitText={
         workspaceHeld === null
           ? null
-          : `The workspace limit of ${capLabel(workspaceHeld)} a week is reached. Raising this agent's limit will not restart it.`
+          : workspaceLimitMessage(workspaceHeld, isAdmin)
       }
     />
   );

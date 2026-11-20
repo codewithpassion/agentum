@@ -31,4 +31,9 @@ export const inboxRouter = router({
     .query(({ ctx, input }) =>
       ctx.services.inbox.readThread(ctx.principal, input)
     ),
+  stopDiscussion: workspaceProcedure
+    .input(threadReadInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.inbox.stopDiscussion(ctx.principal, input)
+    ),
 });

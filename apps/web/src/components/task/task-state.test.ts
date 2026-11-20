@@ -43,6 +43,7 @@ const makeTask = (overrides: {
 }): TaskView =>
   ({
     agent: {
+      avatar: { color: "slate", glyph: "B" },
       computerMachineId: null,
       id: "agent-1",
       machine: null,

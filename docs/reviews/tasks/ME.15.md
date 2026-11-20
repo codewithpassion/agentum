@@ -31,5 +31,5 @@ Private memory files (`agents/*/memory/private/**`) never enter a working copy t
 
 ## Steps for Dom
 
-- Installed daemons keep syncing private files into their working copies until they are upgraded. After the release, upgrade each machine. The purge then removes what is already there on the first run.
+- The server no longer lists, stats or reads a private memory file for any daemon (ME.21), so a machine that is not upgraded gets no new private file. Copies that already hold one keep it until the machine is upgraded. After the release, upgrade each machine that has run before. The purge then removes what is already there on the first run.
 - Cloud VMs need nothing: the first run after deploy purges the shared copy.

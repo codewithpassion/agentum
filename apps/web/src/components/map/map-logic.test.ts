@@ -1,8 +1,14 @@
 import { expect, test } from "bun:test";
-import type { AgentRuntime, MapGraph, MapNode, MapWire } from "@repo/db/shared";
+import {
+  type AgentRuntime,
+  defaultAgentAvatar,
+  type MapGraph,
+  type MapNode,
+  type MapWire,
+} from "@repo/db/shared";
 import {
   agentIdOf,
-  initialsOf,
+  avatarOfNode,
   NODE_SIZE,
   runCountsByAgent,
   runtimeShort,
@@ -204,7 +210,9 @@ test("agent ports map to kind and label", () => {
   expect(node?.type === "agent" && node.data.ports).toEqual([
     { id: "c1", kind: "connector", label: "Gmail" },
   ]);
-  expect(node?.type === "agent" && node.data.initials).toBe("TB");
+  expect(node?.type === "agent" && node.data.avatar).toEqual(
+    defaultAgentAvatar("Triage Bot")
+  );
 });
 
 test("a trigger is active only while a wire out of it is active", () => {
@@ -480,14 +488,22 @@ test("runCountsByAgent honours a custom window length", () => {
   expect(runCountsByAgent(tasks, NOW, 2).get("a1")).toBe(1);
 });
 
-test("initialsOf takes two words' first letters, or a single word's first two", () => {
-  expect(initialsOf("Triage Bot")).toBe("TB");
-  expect(initialsOf("gmail sorter helper")).toBe("GS");
-  expect(initialsOf("research")).toBe("RE");
-  expect(initialsOf("  spaced   out  ")).toBe("SO");
-  expect(initialsOf("x")).toBe("X");
-  expect(initialsOf("")).toBe("?");
-  expect(initialsOf("   ")).toBe("?");
+test("avatarOfNode uses the stored avatar, and the default for the name without one", () => {
+  const stored = { color: "violet", glyph: "Z" } as const;
+  expect(avatarOfNode({ avatar: stored, label: "Lunch Planner" })).toEqual(
+    stored
+  );
+  expect(avatarOfNode({ label: "Lunch Planner" })).toEqual({
+    color: "green",
+    glyph: "L",
+  });
+});
+
+test("an agent node's flow data carries the stored avatar", () => {
+  const stored = { color: "teal", glyph: "Q" } as const;
+  const graph = graphOf([agentNode("a1", { avatar: stored })]);
+  const [node] = toFlowNodes(graph, EMPTY_CTX);
+  expect(node?.type === "agent" && node.data.avatar).toEqual(stored);
 });
 
 test("agentIdOf returns the id for agent keys and null otherwise", () => {

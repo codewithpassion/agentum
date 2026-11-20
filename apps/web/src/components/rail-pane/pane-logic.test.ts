@@ -36,6 +36,7 @@ const mail: RailMail = {
 };
 
 const card = (overrides: Partial<RailCard> = {}): RailCard => ({
+  agentAvatar: { color: "slate", glyph: "?" },
   agentId: "agent-1",
   agentName: "Ada",
   at: "2026-10-31T09:00:00.000Z",

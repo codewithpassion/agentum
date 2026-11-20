@@ -8,9 +8,12 @@ import {
 } from "@repo/db/schema/managed";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { workspaces } from "@repo/db/schema/workspaces";
 import {
+  AGENT_AVATAR_COLORS,
   AGENT_RUNTIMES,
   AGENT_STATUSES,
+  type AgentAvatar,
   type AgentRuntime,
   type AgentStatus,
   CONTEXT_BUDGETS,
@@ -122,6 +125,8 @@ export const assertModelForRuntime = (
 };
 
 export interface AgentRecord {
+  /** The colour and glyph the agent shows everywhere. The default for its name when the stored one is unreadable. */
+  avatar: AgentAvatar;
   /** Who is asked when the owner does not answer in time, a Clerk user id. Null means no backup. */
   backupUserId: string | null;
   /** The computer this agent drives, or null. Only cloud and managed agents have one. */
@@ -342,7 +347,29 @@ const unsavedAgent = (patch: object | undefined): ServiceError =>
     ? new ServiceError("conflict", "The agent changed, try again")
     : new ServiceError("not_found", "Agent not found");
 
+const storedAvatarSchema = z.object({
+  color: z.enum(AGENT_AVATAR_COLORS),
+  glyph: z.string().min(1),
+});
+
+const parseJson = (raw: string): unknown => {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+/** The avatar an agent row stores, or the default for its name when the column is not a valid avatar. */
+export const avatarOf = (
+  row: Pick<AgentRow, "avatar" | "name">
+): AgentAvatar => {
+  const parsed = storedAvatarSchema.safeParse(parseJson(row.avatar));
+  return parsed.success ? parsed.data : defaultAgentAvatar(row.name);
+};
+
 const toRecord = (row: AgentRow): AgentRecord => ({
+  avatar: avatarOf(row),
   backupUserId: row.backupUserId,
   computerMachineId: row.computerMachineId,
   createdAt: row.createdAt,
@@ -383,6 +410,32 @@ export const findAgent = async (
     )
     .limit(1);
   return row ? toRecord(row) : null;
+};
+
+/**
+ * An agent as `findAgent` reads it, with its workspace's weekly cap from the
+ * same read, so a start that has no cap to check costs no extra query.
+ */
+export const findAgentWithWorkspaceCap = async (
+  db: Database,
+  query: { id: string; workspaceId?: string }
+): Promise<(AgentRecord & { workspaceCapCents: number | null }) | null> => {
+  const [row] = await db
+    .select({ agent: agents, workspaceCapCents: workspaces.weeklyCapCents })
+    .from(agents)
+    .innerJoin(workspaces, eq(workspaces.id, agents.workspaceId))
+    .where(
+      and(
+        eq(agents.id, query.id),
+        query.workspaceId === undefined
+          ? undefined
+          : eq(agents.workspaceId, query.workspaceId)
+      )
+    )
+    .limit(1);
+  return row
+    ? { ...toRecord(row.agent), workspaceCapCents: row.workspaceCapCents }
+    : null;
 };
 
 /** Active handoff names in this workspace, resolved once when a run starts. */

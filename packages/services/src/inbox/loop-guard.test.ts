@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   AGENT_STREAK_LIMIT,
   checkWakeRate,
+  discussionBudgetAllows,
   streakSuppressed,
   WAKE_LIMIT,
   WAKE_LIMIT_WINDOW_MS,
@@ -88,4 +89,12 @@ test("wake rate defaults to WAKE_LIMIT within WAKE_LIMIT_WINDOW_MS", () => {
 
   expect(checkWakeRate(full, WAKE_LIMIT_WINDOW_MS - 1).allowed).toBe(false);
   expect(checkWakeRate(full, WAKE_LIMIT_WINDOW_MS).allowed).toBe(true);
+});
+
+test("a discussion has a separate bounded member-wake budget", () => {
+  expect(discussionBudgetAllows(1, 3, 3, 0)).toBe(true);
+  expect(discussionBudgetAllows(3, 3, 3, 8)).toBe(true);
+  expect(discussionBudgetAllows(3, 3, 3, 9)).toBe(false);
+  expect(discussionBudgetAllows(4, 3, 3, 8)).toBe(false);
+  expect(discussionBudgetAllows(0, 3, 3, 0)).toBe(false);
 });

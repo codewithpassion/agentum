@@ -3,7 +3,7 @@ id: TX.3
 title: "Lead-run discussion rounds"
 milestone: TX
 size: M
-status: in_progress
+status: done
 depends_on: [TX.1, TM.4]
 branch: task/TX.3-lead-run-discussion
 lane: services-inbox
@@ -27,3 +27,5 @@ From `docs/v4/build-plan.md`, milestone TX. From the transcript: "drive a three 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-21: dispatched on task/TX.3-lead-run-discussion (v4 controller session).
+- 2026-11-21: merge conflicted in packages/services/src/inbox.ts (after TX.2 landed); aborted and sent back.
+- 2026-11-21: merged b384f710, merge check passed. Done.

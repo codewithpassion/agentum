@@ -1,4 +1,5 @@
 import type {
+  AgentAvatar,
   MapOutputKind,
   MapPortKind,
   MapTriggerKind,
@@ -30,13 +31,13 @@ export interface TriggerNodeData extends Record<string, unknown> {
 }
 
 export interface AgentNodeData extends Record<string, unknown> {
-  initials: string;
+  /** The agent's stored avatar. */
+  avatar: AgentAvatar;
   label: string;
   ports: MapPortData[];
   status: TileStatus;
   /** "31 runs · Anthropic cloud", or "Paused, needs you" when waiting. */
   statusText: string;
-  tone: TileTone;
 }
 
 export interface OutputNodeData extends Record<string, unknown> {
