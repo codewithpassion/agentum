@@ -31,3 +31,4 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 1).
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 5148f3e1, review clean with no fix rounds.
