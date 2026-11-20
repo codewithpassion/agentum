@@ -55,6 +55,10 @@ export const effectiveOwner = (agent: {
   ownerUserId: string | null;
 }): string => agent.ownerUserId ?? agent.createdBy;
 
+/** An org admin: a session of an org admin, or an admin key. */
+const isOrgAdmin = (user: UserPrincipal): boolean =>
+  user.isAdmin === true || user.apiKey?.access === "admin";
+
 /**
  * An org admin or the agent's owner may change the agent's credentials, apps,
  * allowed tools, sign-in mode, Slack app and secret grants. An admin is a
@@ -66,8 +70,29 @@ export const requireAgentOwnerOrAdmin = (
   agent: { createdBy: string; ownerUserId: string | null },
   action: string
 ): void => {
-  const isAdmin = user.isAdmin === true || user.apiKey?.access === "admin";
-  if (!isAdmin && user.userId !== effectiveOwner(agent)) {
+  if (!isOrgAdmin(user) && user.userId !== effectiveOwner(agent)) {
+    throw new ForbiddenError(action);
+  }
+};
+
+/**
+ * Who may decide a held shared change or answer a dream question: an org
+ * admin, the agent's owner, or its backup owner. Anyone else is refused.
+ */
+export const requireAgentDecider = (
+  user: UserPrincipal,
+  agent: {
+    backupUserId: string | null;
+    createdBy: string;
+    ownerUserId: string | null;
+  },
+  action: string
+): void => {
+  const isBackup =
+    agent.backupUserId !== null && user.userId === agent.backupUserId;
+  if (
+    !(isOrgAdmin(user) || isBackup || user.userId === effectiveOwner(agent))
+  ) {
     throw new ForbiddenError(action);
   }
 };

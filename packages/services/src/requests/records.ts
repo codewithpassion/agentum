@@ -52,12 +52,15 @@ export const answerInputSchema = z.strictObject({
   via: z.enum(ANSWER_SURFACES),
 });
 export type RequestRow = typeof runRequests.$inferSelect;
+/** Only an answered request has an answer in its outcome: a decision queue that expired or was dismissed keeps the answers given so far on its row. */
 export const outcomeOf = (row: RequestRow) =>
   row.status === "pending"
     ? null
     : requestOutcomeSchema.parse({
         status: row.status,
-        ...(row.answer ? { answer: JSON.parse(row.answer) } : {}),
+        ...(row.answer && row.status === "answered"
+          ? { answer: JSON.parse(row.answer) }
+          : {}),
       });
 export const answerSchemas = {
   approval: approvalAnswerSchema,

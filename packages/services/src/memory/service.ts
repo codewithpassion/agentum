@@ -36,6 +36,7 @@ import type { EventsService } from "../events.ts";
 import {
   effectiveOwner,
   readableWorkspace,
+  requireAgentDecider,
   requireAgentOwnerOrAdmin,
   requireSession,
 } from "../guards.ts";
@@ -163,6 +164,7 @@ export type SetRulesInput = z.infer<typeof rulesSetInputSchema>;
 
 export type ChangeRow = typeof memoryChanges.$inferSelect;
 interface AgentInfo {
+  backupUserId: string | null;
   id: string;
   ownerUserId: string;
   rules: RememberRules;
@@ -336,6 +338,7 @@ export const createMemoryService = ({
   ): Promise<AgentInfo> => {
     const [row] = await db
       .select({
+        backupUserId: agents.backupUserId,
         createdBy: agents.createdBy,
         id: agents.id,
         ownerUserId: agents.ownerUserId,
@@ -354,6 +357,7 @@ export const createMemoryService = ({
       .where(eq(workspaces.id, workspaceId))
       .limit(1);
     return {
+      backupUserId: row.backupUserId,
       id: row.id,
       ownerUserId: effectiveOwner(row),
       rules: rulesFrom(row.remember),
@@ -380,6 +384,29 @@ export const createMemoryService = ({
     requireAgentOwnerOrAdmin(
       actor.principal,
       { createdBy: agent.ownerUserId, ownerUserId: agent.ownerUserId },
+      MEMORY_WRITE
+    );
+  };
+
+  /**
+   * Deciding a held shared change is open to the backup owner too. Editing,
+   * forgetting and undoing a shared note stay with the owner and admins.
+   */
+  const requireMayDecideShared = (
+    actor: MemoryActor,
+    agent: AgentInfo,
+    userScope: string | null
+  ): void => {
+    if (userScope !== null || actor.principal.kind !== "user") {
+      return;
+    }
+    requireAgentDecider(
+      actor.principal,
+      {
+        backupUserId: agent.backupUserId,
+        createdBy: agent.ownerUserId,
+        ownerUserId: agent.ownerUserId,
+      },
       MEMORY_WRITE
     );
   };
@@ -679,9 +706,11 @@ export const createMemoryService = ({
     });
   };
 
+  /** `asDecision` is set when a person's answer to a dream question forgets the notes it did not keep. */
   const forget = async (
     principal: Principal,
-    input: ForgetNoteInput
+    input: ForgetNoteInput,
+    options: { asDecision?: boolean } = {}
   ): Promise<MemoryChange> => {
     const actor = await actors.actorFor(principal, "write", input.agentId);
     const agent = await loadAgent(actor.workspaceId, input.agentId);
@@ -691,7 +720,11 @@ export const createMemoryService = ({
       if (!note) {
         throw missingNote(loaded, input.noteId);
       }
-      requireMayChangeShared(actor, agent, note.userScope);
+      if (options.asDecision) {
+        requireMayDecideShared(actor, agent, note.userScope);
+      } else {
+        requireMayChangeShared(actor, agent, note.userScope);
+      }
       return {
         action: "forget",
         change: { action: "forget", noteId: note.id },
@@ -766,7 +799,7 @@ export const createMemoryService = ({
     );
     const agent = await loadAgent(person.workspaceId, agentOf(row));
     const decider = deciderOf(principal, person);
-    requireMayChangeShared(decider, agent, row.userScope);
+    requireMayDecideShared(decider, agent, row.userScope);
     if (row.status !== "held") {
       throw new ServiceError("conflict", "That change is already decided");
     }
