@@ -3,9 +3,9 @@ id: SP.10
 title: "The Home card shows the Spend page's week"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: [SP.5]
-branch: null
+branch: task/SP.10-the-home-card-shows-the-spend-page-s-wee
 lane: web-home
 executor: claude
 ---
@@ -24,3 +24,4 @@ a component test where the roster says $0 and the spend rows say $0.55, and the 
 
 ## Log
 - 2026-11-21: added from the spend walkthrough.
+- 2026-11-21: dispatched.

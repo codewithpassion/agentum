@@ -3,7 +3,7 @@ id: ME.20
 title: "A run that sees a person's private notes writes to their private file"
 milestone: ME
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/ME.20-a-run-that-sees-a-person-s-private-notes
 lane: services-memory
@@ -26,3 +26,4 @@ Service tests: a `remember` from a run in A's non-private `ui` session lands in 
 - 2026-11-21: added from the ME gate review, round 2.
 - 2026-11-21: dispatched on task/ME.20-a-run-that-sees-a-person-s-private-notes (v4 controller session).
 - 2026-11-21: ready at e628d543 after one fix round, review clean. Queued for merge.
+- 2026-11-21: merged 13bc42c4, merge check passed. Done.
