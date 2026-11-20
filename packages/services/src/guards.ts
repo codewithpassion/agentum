@@ -55,13 +55,19 @@ export const effectiveOwner = (agent: {
   ownerUserId: string | null;
 }): string => agent.ownerUserId ?? agent.createdBy;
 
-/** An org admin or the agent's owner may act on the agent's own credentials. */
+/**
+ * An org admin or the agent's owner may change the agent's credentials, apps,
+ * allowed tools, sign-in mode, Slack app and secret grants. An admin is a
+ * session of an org admin or an admin key. A write key or a connected app
+ * counts only as the person who owns the agent, since any member can mint one.
+ */
 export const requireAgentOwnerOrAdmin = (
   user: UserPrincipal,
   agent: { createdBy: string; ownerUserId: string | null },
   action: string
 ): void => {
-  if (user.isAdmin !== true && user.userId !== effectiveOwner(agent)) {
+  const isAdmin = user.isAdmin === true || user.apiKey?.access === "admin";
+  if (!isAdmin && user.userId !== effectiveOwner(agent)) {
     throw new ForbiddenError(action);
   }
 };

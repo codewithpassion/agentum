@@ -92,6 +92,22 @@ describe("cardView", () => {
   test("a problem gets the problem view", () => {
     expect(cardView(card({ kind: "problem" }))).toBe("problem");
   });
+
+  test("a dream question with its dream gets the dream view", () => {
+    const dream = {
+      options: [
+        { noteId: "n1", text: "Works Mondays" },
+        { noteId: "n2", text: "Works Tuesdays" },
+      ],
+      question: "Which day does Ada work?",
+      questionId: "q1",
+    };
+    expect(cardView(card({ dream, kind: "dream_question" }))).toBe("dream");
+  });
+
+  test("a dream question without its dream falls back to the body view", () => {
+    expect(cardView(card({ kind: "dream_question" }))).toBe("body");
+  });
 });
 
 describe("selectItem", () => {

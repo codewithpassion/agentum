@@ -3,9 +3,9 @@ id: SP.4
 title: "Spend page, cap field and card line"
 milestone: SP
 size: M
-status: todo
+status: in_progress
 depends_on: [SP.1, RH.4, RH.6]
-branch: null
+branch: task/SP.4-spend-page
 lane: web-spend
 executor: claude
 ---
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone SP. Give the workspace one place to see 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/SP.4-spend-page (v4 controller session).

@@ -3,17 +3,14 @@ import { VoiceField } from "#/components/agent/profile/voice-field.tsx";
 import type { RoomData } from "../room-data.ts";
 import { Manage, RoomSection } from "../section.tsx";
 import { DoesText } from "./does-text.tsx";
+import { DreamSection } from "./dream/dream-section.tsx";
+import type { DreamApi } from "./dream/use-dream.ts";
 import { learnedThisWeek } from "./learned-logic.ts";
 import { LearnedList } from "./learned-this-week.tsx";
 import { groupNotes } from "./notes-logic.ts";
 import { NotesSection } from "./notes-section.tsx";
 import { RulesPanel } from "./rules-panel.tsx";
 import type { MemoryApi, MemoryData } from "./use-memory.ts";
-
-/** Marks where the dream card goes. DR.6 fills it. */
-function DreamSlot() {
-  return <div className="col-span-full empty:hidden" data-slot="dream-card" />;
-}
 
 function Notes({
   archived,
@@ -44,17 +41,19 @@ function Notes({
 }
 
 /**
- * The Knows tab's page, from data that is already loaded. Left: what the
- * agent remembers, then its skills and instructions. Right: the rules the
- * owner sets and what it learned this week.
+ * The Knows tab's page, from data that is already loaded. On top, the dream
+ * diary. Left: what the agent remembers, then its skills and instructions.
+ * Right: the rules the owner sets and what it learned this week.
  */
 export function KnowsLayout({
   canChange,
+  dream,
   memory,
   room,
 }: {
   /** Whether this person may change the rules: the owner or an admin. */
   canChange: boolean;
+  dream: DreamApi;
   memory: MemoryApi;
   room: RoomData;
 }) {
@@ -66,7 +65,23 @@ export function KnowsLayout({
       : learnedThisWeek(data.changes, data.nowMs, data.rules.agent.learnLevel);
   return (
     <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <DreamSlot />
+      <div
+        className="col-span-full min-w-0 empty:hidden"
+        data-slot="dream-card"
+      >
+        {data === undefined ? null : (
+          <DreamSection
+            agentName={room.agent.name}
+            canChange={canChange}
+            disabled={archived}
+            dream={dream}
+            nowMs={data.nowMs}
+            rules={data.rules.agent}
+            saving={memory.saving}
+            setRules={memory.setRules}
+          />
+        )}
+      </div>
       {/* On a desktop each column is a stack. On a phone the columns dissolve and `order` interleaves the sections. */}
       <div className="flex min-w-0 flex-col gap-8 max-lg:contents">
         <div className="max-lg:order-1">
