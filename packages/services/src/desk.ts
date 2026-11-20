@@ -25,9 +25,11 @@ import { memoryChanges } from "@repo/db/schema/memory";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skills } from "@repo/db/schema/skills";
+import { teamMembers, teams } from "@repo/db/schema/teams";
 import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import {
   type DeskCard,
+  EVERYONE_TEAM_SLUG,
   isPendingProposal,
   type RequestKind,
   type RunStatus,
@@ -545,19 +547,49 @@ export const createDeskService = ({
     );
     // A shared post can outlive access to a private run, so its run id goes
     // out only when this member may see the run.
+    const visibleRunFilter = await visibleRuns(member);
     const shownRuns = new Set(
       (
         await inBatches(
           latest.flatMap((entry) => (entry.runId ? [entry.runId] : [])),
-          async (batch) =>
+          (batch) =>
             db
               .select({ id: runRows.id })
               .from(runRows)
-              .where(and(await visibleRuns(member), inArray(runRows.id, batch)))
+              .where(and(visibleRunFilter, inArray(runRows.id, batch)))
         )
       ).map((run) => run.id)
     );
+    // A team room's replies wait only for the team's members, who can dismiss
+    // them. The Everyone team and a topic with no team are the whole workspace's.
+    const memberTeams = new Set(
+      (
+        await db
+          .select({ id: teams.id })
+          .from(teams)
+          .leftJoin(
+            teamMembers,
+            and(
+              eq(teamMembers.teamId, teams.id),
+              eq(teamMembers.memberKind, "user"),
+              eq(teamMembers.memberId, member.userId)
+            )
+          )
+          .where(
+            and(
+              eq(teams.workspaceId, member.workspaceId),
+              or(
+                eq(teams.slug, EVERYONE_TEAM_SLUG),
+                isNotNull(teamMembers.teamId)
+              )
+            )
+          )
+      ).map((team) => team.id)
+    );
     const answered = threads.flatMap((thread) => {
+      if (thread.teamId !== null && !memberTeams.has(thread.teamId)) {
+        return [];
+      }
       const found = latest.find((entry) => entry.threadId === thread.id);
       const post = found && {
         ...found,

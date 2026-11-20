@@ -755,6 +755,9 @@ test("posting in a team room needs team membership, and reading does not", async
   await expect(say(threadId, "hello", colleague)).rejects.toBeInstanceOf(
     ForbiddenError
   );
+  await expect(
+    inbox.clearAttention(colleague, { threadId })
+  ).rejects.toBeInstanceOf(ForbiddenError);
   expect((await inbox.readThread(colleague, { threadId })).posts).toEqual([]);
   expect((await say(threadId, "hello")).post.text).toBe("hello");
 });

@@ -512,7 +512,7 @@ export const createInboxService = ({
     if (writer.kind !== "user") {
       throw new ForbiddenError(POST_ACTION);
     }
-    const thread = await requireThread(writer, threadId, POST_ACTION, "read");
+    const thread = await requireThread(writer, threadId, POST_ACTION, "post");
     const cleared: Pick<
       ThreadRow,
       "attentionClearedAt" | "attentionClearedBy"
