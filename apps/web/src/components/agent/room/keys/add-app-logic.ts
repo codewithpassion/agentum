@@ -5,6 +5,8 @@ import type { ConnectorRecord } from "#/integrations/trpc/types";
 export type AddChoice =
   | { disabled: boolean; entry: CatalogEntry; kind: "catalog"; label: string }
   | {
+      /** The catalogue entry's default tools when the connector came from the catalogue, else undefined (every tool). */
+      allowedTools: string[] | undefined;
       connector: ConnectorRecord;
       disabled: boolean;
       kind: "connector";
@@ -19,6 +21,12 @@ export const choiceValue = (choice: AddChoice): string =>
   choice.kind === "catalog"
     ? `catalog:${choice.entry.key}`
     : `connector:${choice.connector.id}`;
+
+/** The tools a new agent may call from a catalogue entry, or undefined for every tool when the entry lists none. */
+export const catalogAllowedTools = (
+  entry: CatalogEntry
+): string[] | undefined =>
+  entry.defaultAllowedTools.length > 0 ? entry.defaultAllowedTools : undefined;
 
 const isSecretBacked = (connector: ConnectorRecord): boolean =>
   Boolean(connector.secretId || connector.headerTemplate);
@@ -44,7 +52,11 @@ export const addChoices = ({
   const fromCatalog: AddChoice[] = catalog
     .filter(
       (entry) =>
-        !connectors.some((connector) => sameName(connector.name, entry.name))
+        !connectors.some(
+          (connector) =>
+            connector.catalogKey === entry.key ||
+            sameName(connector.name, entry.name)
+        )
     )
     .map((entry) => ({
       disabled: !isAdmin,
@@ -54,7 +66,10 @@ export const addChoices = ({
     }));
   const fromWorkspace: AddChoice[] = free.map((connector) => {
     const blocked = isSecretBacked(connector) && !isAdmin;
+    const source = catalog.find((item) => item.key === connector.catalogKey);
     return {
+      allowedTools:
+        source === undefined ? undefined : catalogAllowedTools(source),
       connector,
       disabled: blocked,
       kind: "connector",
@@ -63,9 +78,3 @@ export const addChoices = ({
   });
   return [...fromCatalog, ...fromWorkspace];
 };
-
-/** The tools a new agent may call from a catalogue entry, or undefined for every tool when the entry lists none. */
-export const catalogAllowedTools = (
-  entry: CatalogEntry
-): string[] | undefined =>
-  entry.defaultAllowedTools.length > 0 ? entry.defaultAllowedTools : undefined;

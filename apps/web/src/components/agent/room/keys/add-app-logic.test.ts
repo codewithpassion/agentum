@@ -20,9 +20,10 @@ const entry = (name: string, tools: string[] = ["a"]): CatalogEntry => ({
 const connector = (
   id: string,
   name: string,
-  secretId: string | null = null
+  secretId: string | null = null,
+  catalogKey: string | null = null
 ): ConnectorRecord =>
-  ({ headerTemplate: null, id, name, secretId }) as ConnectorRecord;
+  ({ catalogKey, headerTemplate: null, id, name, secretId }) as ConnectorRecord;
 
 const none = new Set<string>();
 
@@ -60,4 +61,29 @@ test("a member cannot add from the catalogue or add an app on a workspace secret
 test("an entry with no default tools gives every tool", () => {
   expect(catalogAllowedTools(entry("Gmail", []))).toBeUndefined();
   expect(catalogAllowedTools(entry("Gmail", ["a", "b"]))).toEqual(["a", "b"]);
+});
+
+test("a catalogue connector the workspace already has is added with the entry's default tools", () => {
+  const [choice] = addChoices({
+    assignedIds: none,
+    catalog: [entry("Gmail", ["search_threads"])],
+    connectors: [connector("c1", "Mail", null, "gmail")],
+    isAdmin: false,
+  });
+  expect(choice?.kind).toBe("connector");
+  expect(choice?.kind === "connector" ? choice.allowedTools : null).toEqual([
+    "search_threads",
+  ]);
+});
+
+test("a custom connector is added with every tool", () => {
+  const [choice] = addChoices({
+    assignedIds: none,
+    catalog: [],
+    connectors: [connector("c1", "Docs")],
+    isAdmin: true,
+  });
+  expect(
+    choice?.kind === "connector" ? choice.allowedTools : null
+  ).toBeUndefined();
 });

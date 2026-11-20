@@ -158,6 +158,7 @@ test("a server that wants a bearer is a header connector, waiting for a credenti
 
   expect(connector).toMatchObject({
     authKind: "header",
+    catalogKey: null,
     headerName: "Authorization",
     myCredential: null,
     name: "Stub",

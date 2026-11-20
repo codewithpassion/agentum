@@ -213,6 +213,8 @@ export interface ConnectorSummary {
   authMode: ConnectorAuthMode;
   /** Seconds a tool call may take before it is stopped. */
   callTimeoutSeconds: number;
+  /** The catalogue entry this connector was added from, or null for a custom one. */
+  catalogKey: string | null;
   createdAt: string;
   headerName: string | null;
   headerTemplate: string | null;
@@ -309,6 +311,7 @@ const toSummary = (
     authKind: row.authKind,
     authMode: row.authMode,
     callTimeoutSeconds: row.callTimeoutSeconds,
+    catalogKey: row.catalogKey,
     createdAt: row.createdAt,
     headerName: row.headerName,
     headerTemplate: row.headerTemplate,

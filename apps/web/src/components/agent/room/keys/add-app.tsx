@@ -63,6 +63,7 @@ export function AddApp({
       } else {
         await getTrpc().connectors.assign.mutate({
           agentId,
+          allowedTools: choice.allowedTools,
           connectorId: choice.connector.id,
         });
       }
