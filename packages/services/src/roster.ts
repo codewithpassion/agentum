@@ -12,6 +12,7 @@ import {
   type AgentAvatar,
   type AgentCard,
   defaultAgentAvatar,
+  LIVE_RUN_STATUSES,
   type RailView,
 } from "@repo/db/shared";
 import {
@@ -101,9 +102,14 @@ interface Wait {
   title: string;
 }
 
+// Which map a live run goes in: one per kind of live state, newest first.
+const STARTING_STATUSES: readonly RunFact["status"][] = ["queued", "offered"];
+
 const runFacts = (runList: RunFact[], weekStart: string) => {
   const latest = new Map<string, RunFact>();
   const running = new Map<string, RunFact>();
+  const waitingRuns = new Map<string, RunFact>();
+  const starting = new Map<string, RunFact>();
   const costs = new Map<string, number>();
   for (const run of runList) {
     if (!latest.has(run.agentId)) {
@@ -112,11 +118,17 @@ const runFacts = (runList: RunFact[], weekStart: string) => {
     if (run.status === "running" && !running.has(run.agentId)) {
       running.set(run.agentId, run);
     }
+    if (run.status === "waiting" && !waitingRuns.has(run.agentId)) {
+      waitingRuns.set(run.agentId, run);
+    }
+    if (STARTING_STATUSES.includes(run.status) && !starting.has(run.agentId)) {
+      starting.set(run.agentId, run);
+    }
     if (run.createdAt >= weekStart) {
       costs.set(run.agentId, (costs.get(run.agentId) ?? 0) + costOf(run.usage));
     }
   }
-  return { costs, latest, running };
+  return { costs, latest, running, starting, waitingRuns };
 };
 
 interface HomeTeam {
@@ -198,9 +210,19 @@ const recentlyFinishedAt = (
   return now.getTime() - finishedAt.getTime() < DAY_MS ? finishedAt : undefined;
 };
 
+// A run that is not running yet is working too: queued waits for a slot, an
+// offered run waits for its machine to take it.
+const activeLine = (active: RunFact, runTitle: string): string => {
+  if (active.status === "queued") {
+    return "Queued";
+  }
+  return active.status === "offered" ? "Starting" : runTitle;
+};
+
 const activityFor = (input: {
   paused: boolean;
   wait: Wait | undefined;
+  waitingOn: string | undefined;
   last: RunFact | undefined;
   active: RunFact | undefined;
   machineStatus: string | null;
@@ -214,6 +236,7 @@ const activityFor = (input: {
   const {
     paused,
     wait,
+    waitingOn,
     last,
     active,
     machineStatus,
@@ -231,6 +254,14 @@ const activityFor = (input: {
   if (wait) {
     return { state: "needs_you", statusLine: wait.title };
   }
+  // A run that waits on a person, with no request the rail lists for this
+  // viewer, is still waiting. Never read it as idle.
+  if (waitingOn !== undefined) {
+    return {
+      state: "needs_you",
+      statusLine: waitingOn ? `Waiting on ${waitingOn}` : "Waiting on a person",
+    };
+  }
   // No stopped wording is specified; name the reason in plain words.
   // Machines call their archived state "revoked" in the existing schema.
   if (machineStatus === "revoked") {
@@ -243,7 +274,7 @@ const activityFor = (input: {
     return { state: "stopped", statusLine: "Stopped part way" };
   }
   if (active) {
-    return { state: "working", statusLine: runTitle };
+    return { state: "working", statusLine: activeLine(active, runTitle) };
   }
   const finishedAt = recentlyFinishedAt(last, now);
   if (finishedAt) {
@@ -340,7 +371,7 @@ export const createRosterService = ({
         .where(
           or(
             eq(ranked.rank, 1),
-            eq(ranked.status, "running"),
+            inArray(ranked.status, [...LIVE_RUN_STATUSES]),
             sql`${ranked.createdAt} >= ${weekStart}`
           )
         )
@@ -366,7 +397,10 @@ export const createRosterService = ({
         .where(eq(workspaces.id, workspaceId)),
       // Use the rail's owner/creator, backup escalation, private-session rules,
       // grouping and plainTitle logic. Problems are stopped, not open waits.
-      rail.get(principal, { dayStart: weekStart, scope: "mine" }),
+      // "everyone" lists every item this viewer may see, not only the viewer's
+      // own, so an agent's card reads the same on every member's roster (RH.2:
+      // needs_you means an open request that names the agent's owner or backup).
+      rail.get(principal, { dayStart: weekStart, scope: "everyone" }),
       members ? members.list(principal).catch(() => null) : null,
       db
         .select({
@@ -408,7 +442,10 @@ export const createRosterService = ({
     const names = new Map(
       directory?.map((entry) => [entry.userId, entry.name])
     );
-    const { latest, running, costs } = runFacts(runList, weekStart);
+    const { latest, running, starting, waitingRuns, costs } = runFacts(
+      runList,
+      weekStart
+    );
     // A run started by mail is titled by its mail's subject, as on the desk.
     // A latest run that is still shown as done is titled the same way.
     const doneRecently = [...latest.values()].filter(
@@ -438,7 +475,9 @@ export const createRosterService = ({
     return rows.map(({ agent: row, machineStatus }): AgentCard => {
       const wait = waiting.get(row.id);
       const last = latest.get(row.id);
-      const active = running.get(row.id);
+      const active = running.get(row.id) ?? starting.get(row.id);
+      const ownerName =
+        names.get(assigneeOf(row, null) ?? "") ?? wait?.owner ?? "";
       const home = homeTeams.get(row.id);
       return {
         avatar: avatarFor(row),
@@ -449,7 +488,7 @@ export const createRosterService = ({
         learnedCount: learned.get(row.id) ?? 0,
         name: row.name,
         needsYouCount: wait?.count ?? 0,
-        ownerName: names.get(assigneeOf(row, null) ?? "") ?? wait?.owner ?? "",
+        ownerName,
         slug: row.slug,
         ...activityFor({
           active,
@@ -462,11 +501,13 @@ export const createRosterService = ({
           machineStatus,
           now,
           paused: row.pausedAt !== null,
-          runTitle: active
-            ? runTitleText(active.inputText, subjectOf.get(active.id))
-            : "",
+          runTitle:
+            active?.status === "running"
+              ? runTitleText(active.inputText, subjectOf.get(active.id))
+              : "",
           timeFormat,
           wait,
+          waitingOn: waitingRuns.has(row.id) ? ownerName : undefined,
         }),
         teamId: home?.teamId ?? null,
         weeklyCapCents: row.weeklyCapCents,

@@ -3,7 +3,7 @@ id: RH.13
 title: "Every signed-in entry lands on home"
 milestone: RH
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/RH.13-every-signed-in-entry-lands-on-home
 lane: web-shell
@@ -25,3 +25,4 @@ From the RH gate review, round 1 (`docs/reviews/RH-1.md`, must-fix 2).
 ## Log
 - 2026-11-20: added from the RH gate review, round 1.
 - 2026-11-20: dispatched on task/RH.13-every-signed-in-entry-lands-on-home (v4 controller session).
+- 2026-11-20: merged as d432071f, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/RH.13/browser.md (invitation tested via the app redirect only). check, test and build passed on main.

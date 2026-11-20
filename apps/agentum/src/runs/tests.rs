@@ -1423,3 +1423,312 @@ async fn subagent_runs_while_parent_is_live_in_its_own_directory() {
     host.abort_all(false).await;
     task.abort();
 }
+
+fn files_under(root: &std::path::Path) -> Vec<String> {
+    let mut files = vec![];
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push(path.strip_prefix(root).unwrap().display().to_string());
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+#[test]
+fn is_private_memory_matches_only_the_private_folder_and_its_files() {
+    for path in [
+        "agents/ada/memory/private",
+        "agents/ada/memory/private/user_a.md",
+        "agents/ada/memory/private/x/y.md",
+        "agents/bob/memory/private/user_a.md",
+    ] {
+        assert!(crate::library::is_private_memory(path), "{path}");
+    }
+    for path in [
+        "agents/ada/memory/people.md",
+        "agents/ada/memory/privatex.md",
+        "agents/ada/private/user_a.md",
+        "wiki/memory/private/a.md",
+        "agents/ada/memory",
+    ] {
+        assert!(!crate::library::is_private_memory(path), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn without_private_hides_private_memory_from_every_remote_call() {
+    use crate::library::{Remote, WithoutPrivate};
+    let inner = MemoryRemote::default();
+    inner.put("agents/ada/memory/people.md", "shared");
+    inner.put("agents/ada/memory/private/user_a.md", "a");
+    inner.put("agents/ada/memory/private/user_b.md", "b");
+    let remote = WithoutPrivate(inner.clone());
+    let listed = remote.list("agents/ada/memory").await.unwrap();
+    assert_eq!(
+        listed.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
+        vec!["agents/ada/memory/people.md"]
+    );
+    assert!(
+        remote
+            .stat("agents/ada/memory/private")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        remote
+            .stat("agents/ada/memory/private/user_a.md")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        remote
+            .list("agents/ada/memory/private")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        remote
+            .read("agents/ada/memory/private/user_a.md")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        remote
+            .write("agents/ada/memory/private/new.md", b"x".to_vec(), None)
+            .await
+            .is_err()
+    );
+    remote
+        .remove("agents/ada/memory/private/user_a.md")
+        .await
+        .unwrap();
+    assert_eq!(
+        inner
+            .files
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![
+            "agents/ada/memory/people.md",
+            "agents/ada/memory/private/user_a.md",
+            "agents/ada/memory/private/user_b.md",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn sync_keeps_private_memory_out_of_the_copy_and_memory_read_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let disk = crate::files::Disk::new(temp.path().into(), None);
+    let remote = MemoryRemote::default();
+    let roots =
+        crate::library::with_memory_root(json!([{"path":"agents/ada","mode":"write"}]), "ada");
+    remote.put("agents/ada/memory/people.md", "initial");
+    remote.put("agents/ada/memory/private/user_a.md", "secret");
+    remote.put("agents/ada/memory/private/user_b.md", "secret b");
+    let mut sync = crate::library::Sync::new(
+        crate::library::WithoutPrivate(remote.clone()),
+        disk.clone(),
+        roots,
+        "r".into(),
+    )
+    .await;
+    assert_eq!(
+        sync.sync_in(None).await.unwrap()["pulled"],
+        json!(["agents/ada/memory/people.md"])
+    );
+    assert_eq!(
+        disk.read("library/agents/ada/memory/people.md")
+            .await
+            .unwrap(),
+        b"initial"
+    );
+    assert!(
+        disk.stat("library/agents/ada/memory/private")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    disk.write("library/agents/ada/memory/people.md", b"local edit")
+        .await
+        .unwrap();
+    assert_eq!(
+        sync.sync_in(None).await.unwrap()["pulled"],
+        json!(["agents/ada/memory/people.md"])
+    );
+    assert_eq!(
+        disk.read("library/agents/ada/memory/people.md")
+            .await
+            .unwrap(),
+        b"initial"
+    );
+    let out = sync.sync_out().await.unwrap();
+    assert_eq!(out["written"], json!([]));
+    assert_eq!(out["refused"], json!([]));
+    assert_eq!(
+        remote.files.lock().unwrap()["agents/ada/memory/people.md"].0,
+        b"initial"
+    );
+}
+
+#[tokio::test]
+async fn private_manifest_entry_from_an_older_daemon_never_deletes_the_remote_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let disk = crate::files::Disk::new(temp.path().into(), None);
+    let remote = MemoryRemote::default();
+    let roots =
+        crate::library::with_memory_root(json!([{"path":"agents/ada","mode":"write"}]), "ada");
+    let private = "agents/ada/memory/private/user_a.md";
+    remote.put(private, "secret");
+    let etag = remote.entry(private).unwrap().etag.unwrap();
+    disk.write(&format!("library/{private}"), b"secret")
+        .await
+        .unwrap();
+    let manifest = json!([{"path":private,"etag":etag,"sha256":crate::library::hash(b"secret")}]);
+    disk.write("library.manifest.json", manifest.to_string().as_bytes())
+        .await
+        .unwrap();
+    let mut sync = crate::library::Sync::new(
+        crate::library::WithoutPrivate(remote.clone()),
+        disk.clone(),
+        roots,
+        "r".into(),
+    )
+    .await;
+    assert_eq!(sync.sync_out().await.unwrap()["deleted"], json!([]));
+    disk.remove(&format!("library/{private}"), false)
+        .await
+        .unwrap();
+    assert_eq!(sync.sync_out().await.unwrap()["deleted"], json!([]));
+    assert_eq!(sync.sync_in(None).await.unwrap()["pulled"], json!([]));
+    assert_eq!(remote.files.lock().unwrap()[private].0, b"secret");
+}
+
+#[tokio::test]
+async fn purge_private_removes_every_agents_private_folder_from_the_copy() {
+    let temp = tempfile::tempdir().unwrap();
+    let disk = crate::files::Disk::new(temp.path().into(), None);
+    disk.write("library/agents/ada/memory/private/user_a.md", b"edited")
+        .await
+        .unwrap();
+    disk.write("library/agents/other/memory/private/user_b.md", b"other")
+        .await
+        .unwrap();
+    disk.write("library/agents/ada/memory/people.md", b"shared")
+        .await
+        .unwrap();
+    crate::library::purge_private(&disk).await.unwrap();
+    assert_eq!(
+        files_under(&temp.path().join("library")),
+        vec!["agents/ada/memory/people.md"]
+    );
+    let empty = tempfile::tempdir().unwrap();
+    crate::library::purge_private(&crate::files::Disk::new(empty.path().into(), None))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn purge_private_resets_a_copy_it_cannot_walk() {
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(outside.path().join("private")).unwrap();
+    std::fs::write(outside.path().join("private/user_a.md"), b"secret").unwrap();
+    // An agent made `memory` a link, so the folder cannot be walked.
+    let linked = tempfile::tempdir().unwrap();
+    let disk = crate::files::Disk::new(linked.path().into(), None);
+    disk.write("library/agents/ada/people.md", b"x")
+        .await
+        .unwrap();
+    disk.write("library.manifest.json", b"[]").await.unwrap();
+    std::os::unix::fs::symlink(
+        outside.path(),
+        linked.path().join("library/agents/ada/memory"),
+    )
+    .unwrap();
+    crate::library::purge_private(&disk).await.unwrap();
+    assert!(!linked.path().join("library").exists());
+    assert!(!linked.path().join("library.manifest.json").exists());
+    assert!(outside.path().join("private/user_a.md").exists());
+    // An agent replaced `library` with a file.
+    let plain = tempfile::tempdir().unwrap();
+    std::fs::write(plain.path().join("library"), b"not a folder").unwrap();
+    let disk = crate::files::Disk::new(plain.path().into(), None);
+    crate::library::purge_private(&disk).await.unwrap();
+    assert!(!plain.path().join("library").exists());
+    // `library` itself is a link.
+    let root = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.path().join("library")).unwrap();
+    let disk = crate::files::Disk::new(root.path().into(), None);
+    crate::library::purge_private(&disk).await.unwrap();
+    assert!(root.path().join("library").symlink_metadata().is_err());
+    assert!(outside.path().join("private/user_a.md").exists());
+}
+
+#[tokio::test]
+async fn private_memory_never_survives_a_run_in_the_working_copy() {
+    let (url, server, task) = server().await;
+    let temp = tempfile::tempdir().unwrap();
+    let host = host(&url, temp.path());
+    server.library.put("agents/ada/memory/people.md", "shared");
+    server
+        .library
+        .put("agents/ada/memory/private/user_a.md", "private");
+    let library_claim = |run: &str| {
+        let mut offered = claim(run);
+        offered["library"] = json!({"paths":["agents/ada"],"roots":[{"path":"agents/ada","mode":"write"}],"conflicts":[]});
+        offered
+    };
+    let work = temp.path().join("work/WS/A/work");
+    let private = work.join("library/agents/ada/memory/private/user_a.md");
+    let seed = || {
+        std::fs::create_dir_all(private.parent().unwrap()).unwrap();
+        std::fs::write(&private, b"edited").unwrap();
+    };
+
+    seed();
+    *server.claim_override.lock().unwrap() = Some(library_claim("go"));
+    host.offer("A".into(), "go".into());
+    wait_calls(&server, "complete", 1).await;
+    assert!(!private.exists());
+    assert!(work.join("library/agents/ada/memory/people.md").exists());
+
+    seed();
+    server
+        .faults
+        .lock()
+        .unwrap()
+        .insert("/library/stat".into(), 500);
+    *server.claim_override.lock().unwrap() = Some(library_claim("go2"));
+    host.offer("A".into(), "go2".into());
+    wait_calls(&server, "complete", 2).await;
+    server.faults.lock().unwrap().clear();
+    assert!(
+        server
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(p, _)| p.starts_with("/api/runs/go2/library/stat"))
+    );
+    assert!(!private.exists());
+
+    seed();
+    *server.claim_override.lock().unwrap() = None;
+    host.offer("A".into(), "go3".into());
+    wait_calls(&server, "complete", 3).await;
+    assert!(!private.exists());
+    task.abort();
+}

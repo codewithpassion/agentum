@@ -106,7 +106,7 @@ describe("tool gate for a peer's run", () => {
     const runId = await peerRun();
     expect(await needs(runId, "bash")).toBe(false);
 
-    await f.requests.setRule(member(), {
+    await f.requests.setRule(member("u-owner"), {
       agentId: AGENT,
       mode: "ask",
       toolKey: "bash",
@@ -114,7 +114,7 @@ describe("tool gate for a peer's run", () => {
     expect(await needs(runId, "bash")).toBe(true);
     expect(await needs(runId, "read")).toBe(false);
 
-    await f.requests.setRule(member(), {
+    await f.requests.setRule(member("u-owner"), {
       agentId: AGENT,
       mode: "allow",
       toolKey: "bash",
@@ -426,7 +426,7 @@ describe("tool gate for a wake", () => {
     const wake = await wakeAfter(await o.callingRun({}));
     expect(await wakeNeeds(wake.id, "bash")).toBe(false);
 
-    await o.requests.setRule(member(), {
+    await o.requests.setRule(member("u-owner"), {
       agentId: AGENT,
       mode: "ask",
       toolKey: "bash",

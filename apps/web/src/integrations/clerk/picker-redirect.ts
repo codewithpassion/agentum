@@ -1,5 +1,5 @@
 export const CHOOSE_ORGANIZATION_PATH = "/choose-organization";
-const DEFAULT_TARGET = "/desk";
+const DEFAULT_TARGET = "/home";
 // Browsers drop tab, CR and LF while parsing a URL, so `/<tab>/host` would
 // become `//host`. A backslash reads as a slash.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: the control characters are the point
@@ -23,7 +23,7 @@ export function safeRedirectPath(
   return value;
 }
 
-/** Where a person who picked a workspace goes: the page they asked for, or `/desk`. */
+/** Where a person who picked a workspace goes: the page they asked for, or `/home`. */
 export function pickerTarget(redirect: string | undefined): string {
   return safeRedirectPath(redirect) ?? DEFAULT_TARGET;
 }

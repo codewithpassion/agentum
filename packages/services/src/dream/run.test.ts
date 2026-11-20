@@ -447,6 +447,24 @@ test("answering a question keeps the chosen note and forgets the other, either w
   }
 });
 
+test("a member cannot answer a question about shared notes: nothing is forgotten and the question stays open", async () => {
+  const { first, question, second, w } = await askedWorld();
+
+  await expect(
+    w.dream.answer(person(USER_B), {
+      noteId: first,
+      questionId: question.id,
+    })
+  ).rejects.toMatchObject({ code: "forbidden" });
+
+  const ids = (await w.service.list(w.owner, { agentId: AGENT })).map(
+    (item) => item.id
+  );
+  expect(ids).toEqual(expect.arrayContaining([first, second]));
+  const [stored] = await w.db.select().from(dreamQuestions);
+  expect(stored?.status).toBe("open");
+});
+
 test("a question names one of its notes, and the same pair is not asked twice", async () => {
   const { first, question, run, w } = await askedWorld();
   await expect(

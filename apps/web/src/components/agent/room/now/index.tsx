@@ -125,7 +125,7 @@ function LivePanel({
       busyHelperIds={busyHelperIds}
       error={error}
       helpers={task === null ? [] : liveHelpers(task)}
-      learned={<LearnedSlot agentId={agent.id} />}
+      learned={<LearnedSlot agent={agent} />}
       machineId={agent.computerMachineId}
       madeToday={madeToday}
       onStopHelper={stopHelper}

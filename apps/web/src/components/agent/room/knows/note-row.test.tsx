@@ -58,6 +58,7 @@ test("a person note with no source says it was added by hand, with its date and 
   const document = render(
     <NoteRow
       busy={false}
+      canChange={true}
       disabled={false}
       note={note()}
       onEdit={noop}
@@ -77,6 +78,7 @@ test("a session source links to its conversation", () => {
   const document = render(
     <NoteRow
       busy={false}
+      canChange={true}
       disabled={false}
       note={note({
         source: { id: "sess_9", kind: "session" },
@@ -98,6 +100,7 @@ test("a run source links to its task", () => {
   const document = render(
     <NoteRow
       busy={false}
+      canChange={true}
       disabled={false}
       note={note({ source: { id: "run_4", kind: "run" } })}
       onEdit={noop}
@@ -113,6 +116,7 @@ test("a request source links to the desk", () => {
   const document = render(
     <NoteRow
       busy={false}
+      canChange={true}
       disabled={false}
       note={note({ source: { id: "req_2", kind: "request" } })}
       onEdit={noop}
@@ -126,6 +130,7 @@ test("a private note shows the Private marker", () => {
   const document = render(
     <NoteRow
       busy={false}
+      canChange={true}
       disabled={false}
       note={note({ userScope: "user_1" })}
       onEdit={noop}
@@ -140,6 +145,7 @@ test("a shared note shows no Private marker", () => {
   const document = render(
     <NoteRow
       busy={false}
+      canChange={true}
       disabled={false}
       note={note({ userScope: null })}
       onEdit={noop}
@@ -153,6 +159,7 @@ test("a held private change shows the Private marker", () => {
   const document = render(
     <HeldRow
       busy={false}
+      canChange={true}
       change={held({ userScope: "user_1" })}
       disabled={false}
       onDecide={noop}
@@ -167,6 +174,7 @@ test("a held shared change shows no Private marker", () => {
   const document = render(
     <HeldRow
       busy={false}
+      canChange={true}
       change={held({ userScope: null })}
       disabled={false}
       onDecide={noop}
@@ -179,6 +187,7 @@ test("a disabled note row disables Edit and Forget", () => {
   const document = render(
     <NoteRow
       busy={false}
+      canChange={true}
       disabled={true}
       note={note()}
       onEdit={noop}
@@ -193,6 +202,7 @@ test("a busy note row disables Edit and Forget", () => {
   const document = render(
     <NoteRow
       busy={true}
+      canChange={true}
       disabled={false}
       note={note()}
       onEdit={noop}
@@ -203,9 +213,63 @@ test("a busy note row disables Edit and Forget", () => {
   expect(buttonNamed(document, "Forget")?.disabled).toBe(true);
 });
 
+test("a non-owner sees no Edit or Forget on a shared note, and no empty button row", () => {
+  const document = render(
+    <NoteRow
+      busy={false}
+      canChange={false}
+      disabled={false}
+      note={note({ userScope: null })}
+      onEdit={noop}
+      onForget={noop}
+    />
+  );
+  const row = document.querySelector('[data-testid="note-row"]');
+  expect(row?.textContent).toContain("Prefers short replies");
+  expect(buttonNamed(document, "Edit")).toBeUndefined();
+  expect(buttonNamed(document, "Forget")).toBeUndefined();
+  expect(row?.querySelectorAll("button").length).toBe(0);
+});
+
+test("a non-owner keeps Edit and Forget on their own private note", () => {
+  const document = render(
+    <NoteRow
+      busy={false}
+      canChange={false}
+      disabled={false}
+      note={note({ userScope: "user_1" })}
+      onEdit={noop}
+      onForget={noop}
+    />
+  );
+  expect(buttonNamed(document, "Edit")?.disabled).toBe(false);
+  expect(buttonNamed(document, "Forget")?.disabled).toBe(false);
+});
+
+test("an owner sees Edit and Forget on a shared note", () => {
+  const document = render(
+    <NoteRow
+      busy={false}
+      canChange={true}
+      disabled={false}
+      note={note({ userScope: null })}
+      onEdit={noop}
+      onForget={noop}
+    />
+  );
+  expect(buttonNamed(document, "Edit")).toBeDefined();
+  expect(buttonNamed(document, "Forget")).toBeDefined();
+});
+
 test("a held add says it wants to remember, shows the text, and offers Approve and Reject", () => {
   const document = render(
-    <HeldRow busy={false} change={held()} disabled={false} onDecide={noop} />
+    <HeldRow
+      busy={false}
+      canChange={true}
+      change={held()}
+      disabled={false}
+      onDecide={noop}
+    />
   );
   const row = document.querySelector('[data-testid="held-row"]');
   expect(row?.textContent).toContain("Wants to remember");
@@ -218,10 +282,22 @@ test("a held add says it wants to remember, shows the text, and offers Approve a
 
 test("Approve and Reject are disabled when the held row is disabled or busy", () => {
   const disabled = render(
-    <HeldRow busy={false} change={held()} disabled={true} onDecide={noop} />
+    <HeldRow
+      busy={false}
+      canChange={true}
+      change={held()}
+      disabled={true}
+      onDecide={noop}
+    />
   );
   const busy = render(
-    <HeldRow busy={true} change={held()} disabled={false} onDecide={noop} />
+    <HeldRow
+      busy={true}
+      canChange={true}
+      change={held()}
+      disabled={false}
+      onDecide={noop}
+    />
   );
   expect(buttonNamed(disabled, "Approve")?.disabled).toBe(true);
   expect(buttonNamed(disabled, "Reject")?.disabled).toBe(true);
@@ -229,10 +305,58 @@ test("Approve and Reject are disabled when the held row is disabled or busy", ()
   expect(buttonNamed(busy, "Reject")?.disabled).toBe(true);
 });
 
+test("a non-owner sees no Approve or Reject on a shared held change, and keeps the rest of the row", () => {
+  const document = render(
+    <HeldRow
+      busy={false}
+      canChange={false}
+      change={held({ userScope: null })}
+      disabled={false}
+      onDecide={noop}
+    />
+  );
+  const row = document.querySelector('[data-testid="held-row"]');
+  expect(row?.textContent).toContain("Wants to remember");
+  expect(row?.textContent).toContain("Prefers short replies");
+  expect(row?.textContent).toContain("Waiting for you");
+  expect(buttonNamed(document, "Approve")).toBeUndefined();
+  expect(buttonNamed(document, "Reject")).toBeUndefined();
+  expect(row?.querySelectorAll("button").length).toBe(0);
+});
+
+test("a non-owner keeps Approve and Reject on their own private held change", () => {
+  const document = render(
+    <HeldRow
+      busy={false}
+      canChange={false}
+      change={held({ userScope: "user_1" })}
+      disabled={false}
+      onDecide={noop}
+    />
+  );
+  expect(buttonNamed(document, "Approve")?.disabled).toBe(false);
+  expect(buttonNamed(document, "Reject")?.disabled).toBe(false);
+});
+
+test("an owner sees Approve and Reject on a shared held change", () => {
+  const document = render(
+    <HeldRow
+      busy={false}
+      canChange={true}
+      change={held({ userScope: null })}
+      disabled={false}
+      onDecide={noop}
+    />
+  );
+  expect(buttonNamed(document, "Approve")).toBeDefined();
+  expect(buttonNamed(document, "Reject")).toBeDefined();
+});
+
 test("a held edit and a held forget name their own heading", () => {
   const edit = render(
     <HeldRow
       busy={false}
+      canChange={true}
       change={held({ action: "edit" })}
       disabled={false}
       onDecide={noop}
@@ -241,6 +365,7 @@ test("a held edit and a held forget name their own heading", () => {
   const forget = render(
     <HeldRow
       busy={false}
+      canChange={true}
       change={held({ action: "forget", writtenBy: "dream" })}
       disabled={false}
       onDecide={noop}
@@ -286,6 +411,7 @@ test("Edit opens the text, and Save sends the trimmed text to onEdit", async () 
       root.render(
         <NoteRow
           busy={false}
+          canChange={true}
           disabled={false}
           note={note()}
           onEdit={onEdit}
