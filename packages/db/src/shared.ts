@@ -953,6 +953,8 @@ export interface DeskCard {
   band: StatusBand;
   /** Set on a `dream_question` card. */
   dream?: DreamNeedsYou;
+  /** Set on a `memory_note` card of a private note: the person it belongs to, who alone can decide it. */
+  forUserId?: string;
   id: string;
   kind: DeskCardKind;
   lane: DeskLane;

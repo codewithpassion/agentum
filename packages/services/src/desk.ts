@@ -21,6 +21,7 @@ import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
+import { memoryChanges } from "@repo/db/schema/memory";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skills } from "@repo/db/schema/skills";
@@ -450,6 +451,7 @@ export const createDeskService = ({
       conflicts,
 
       suggestions,
+      heldNotes,
       a2aList,
     ] = await Promise.all([
       pendingRecords(member),
@@ -474,6 +476,21 @@ export const createDeskService = ({
           and(
             eq(wikiSuggestions.workspaceId, member.workspaceId),
             inArray(wikiSuggestions.status, ["pending", "stale"])
+          )
+        ),
+      db
+        .select()
+        .from(memoryChanges)
+        .where(
+          and(
+            eq(memoryChanges.workspaceId, member.workspaceId),
+            eq(memoryChanges.status, "held"),
+            isNull(memoryChanges.decidedAt),
+            // Private memory keeps its person's visibility, including on the rail.
+            or(
+              isNull(memoryChanges.userScope),
+              eq(memoryChanges.userScope, member.userId)
+            )
           )
         ),
       a2aWaiting(member),
@@ -575,6 +592,7 @@ export const createDeskService = ({
         )
         .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
+      heldNotes: heldNotes.filter((row) => !drafts.has(row.agentId)),
       missingSecrets: await db
         .select({
           agentId: agentConnectors.agentId,
@@ -722,6 +740,20 @@ export const createDeskService = ({
           ...(conflict.runId ? { runId: conflict.runId } : {}),
           starter: { id: conflict.agentId, kind: "agent" },
           title: conflict.path,
+        })
+      ),
+      ...sources.heldNotes.map(
+        (note): Draft => ({
+          agentId: note.agentId,
+          at: note.createdAt,
+          band: { text: clip(note.text), tone: "waiting" },
+          ...(note.userScope ? { forUserId: note.userScope } : {}),
+          id: note.id,
+          kind: "proposal",
+          lane: "needs_you",
+          needsYouKind: "memory_note",
+          starter: { id: note.agentId, kind: "agent" },
+          title: clip(note.text, TITLE_MAX),
         })
       ),
       ...sources.suggestions.map(
@@ -1209,6 +1241,7 @@ export const createDeskService = ({
       sources.appGrants.length +
       sources.conflicts.length +
       sources.suggestions.length +
+      sources.heldNotes.length +
       sources.pending.length +
       sources.versions.length +
       sources.proposedTriggers.length +
