@@ -1,6 +1,6 @@
 # SP end-to-end: the spend walkthrough
 
-Task SP.5, branch `task/SP.5-spend-e2e`. The walkthrough ran on local against the dev server of this worktree, with the fake runtime and seeded usage rows. It walked the pause and resume flow from mail and from the UI, and compared the Spend page with a hand sum of `runs.usage` and `dream_runs.usage`. A fresh verifier repeated it in the browser at 1280x800 and 390x844 (`docs/reviews/tasks/SP.5/browser.md`). The pause, the refusals, the mail notice and Resume all work. The page matches the hand sum to the cent except where it rounds (finding 3), and it leaves out a team dream (finding 1). Five gaps are proposed as tasks below. No product code changed on this branch. The only additions are the seed script and its test.
+Task SP.5, branch `task/SP.5-spend-e2e`. The walkthrough ran on local against the dev server of this worktree, with the fake runtime and seeded usage rows. It walked the pause and resume flow from mail and from the UI, and compared the Spend page with a hand sum of `runs.usage` and `dream_runs.usage`. A fresh verifier repeated it in the browser at 1280x800 and 390x844 and passed it (`docs/reviews/tasks/SP.5/browser.md`). A first verifier failed on two points that were mistakes in its brief (the Home card figure and a second 409 from Dream now), and its report is kept as `browser-round1.md`. The pause, the refusals, the mail notice and Resume all work. The page matches the hand sum to the cent except where it rounds (finding 3), and it leaves out a team dream (finding 1). Five gaps are proposed as tasks below. No product code changed on this branch. The only additions are the seed script and its test.
 
 ## What ran
 
@@ -111,6 +111,7 @@ Check: a component test where the roster says $0 and the spend rows say $0.55, a
 - Dream now on a paused agent answers 409, so the browser console logs a second "Failed to load resource ... 409" next to the one from Run now. It is the same designed refusal, but a person with the console open sees two errors.
 - The mail sheet says "1 messages" for a one-message thread, and the reply in a thread shows "Sent" twice (the direction and the status). Neither is spend code.
 - On the Spend page the dashed "Workspace limit" label sits on top of the This week bar and its value label, clearly at phone width, and the bar tooltip covers the value label on desktop.
+- The pause card of an agent that the workspace cap paused offers Resume with no warning that the agent pauses again at once. Once the workspace cap is cleared, the card shows only a title, the name and two buttons, with no sentence about why it paused.
 - Both browser passes saw the `400` console error in the dev-login hop (known noise).
 
 ## Steps for Dom
