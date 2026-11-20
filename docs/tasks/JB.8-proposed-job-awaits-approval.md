@@ -3,9 +3,9 @@ id: JB.8
 title: "A proposed job reads as waiting for approval, not paused"
 milestone: JB
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/JB.8-proposed-job-awaits-approval
 lane: services-jobs
 executor: claude
 ---
@@ -30,3 +30,4 @@ Controller decision, 20 Nov 2026: this task may add the one `awaitingApproval` f
 
 ## Log
 - 2026-11-20: added from the JB gate review, round 1.
+- 2026-11-20: dispatched on task/JB.8-proposed-job-awaits-approval (v4 controller session).
