@@ -171,9 +171,51 @@ test("a database failure rolls back agents as well as the team", async () => {
       workspaceId: "w1",
     })
     .run();
-  await expect(builder.createTeam(user, { draft })).rejects.toThrow();
+  await expect(builder.createTeam(user, { draft })).rejects.toMatchObject({
+    code: "conflict",
+    message: "Team slug is already used",
+  });
   expect(db.select().from(agents).all()).toEqual([]);
   expect(db.select().from(teams).all()).toHaveLength(1);
+});
+
+test("a taken agent slug is a conflict and creates nothing", async () => {
+  const { draft } = await builder.teamFromStarter(user, "sales");
+  for (const member of draft.members) {
+    member.runsOn = { runtime: "cloud" };
+  }
+  db.insert(agents)
+    .values({
+      createdAt: "2026-11-20T00:00:00Z",
+      createdBy: "u1",
+      id: "existing",
+      instructions: "",
+      model: "m",
+      name: "Lead research",
+      runtime: "cloud",
+      runtimeConfig: "{}",
+      slug: "lead-research",
+      status: "active",
+      workspaceId: "w1",
+    })
+    .run();
+  await expect(builder.createTeam(user, { draft })).rejects.toMatchObject({
+    code: "conflict",
+  });
+  expect(db.select().from(agents).all()).toHaveLength(1);
+  expect(db.select().from(teams).all()).toEqual([]);
+});
+
+test("two members with the same name are a conflict", async () => {
+  const { draft } = await builder.teamFromStarter(user, "sales");
+  for (const member of draft.members) {
+    member.runsOn = { runtime: "cloud" };
+  }
+  draft.members[3].name = draft.members[2].name;
+  await expect(builder.createTeam(user, { draft })).rejects.toMatchObject({
+    code: "conflict",
+  });
+  expectEmpty();
 });
 
 test("unknown starters and non-user or read-only callers are refused", async () => {

@@ -39,7 +39,6 @@ import {
   createTeamStarterLifecycle,
   type TeamStarterDeps,
 } from "./team-starters.ts";
-
 import { templateDraft, templates } from "./templates.ts";
 
 const ACTION = "agent_builder.draft";

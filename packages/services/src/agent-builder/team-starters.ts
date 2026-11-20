@@ -18,7 +18,7 @@ import {
   CLOUD_DEFAULT_MODEL,
   CLOUD_OPENROUTER_DEFAULT_MODEL,
 } from "../cloud/models.ts";
-import { ServiceError } from "../errors.ts";
+import { isUniqueViolation, ServiceError } from "../errors.ts";
 import { requireAdminSession } from "../guards.ts";
 import type { Clock } from "../runs/types.ts";
 import { createTeamsService, teamCreateInputSchema } from "../teams.ts";
@@ -114,6 +114,56 @@ export const createTeamStarterLifecycle = ({
     };
   };
 
+  const assertSlugsFree = async (
+    workspaceId: string,
+    agentSlugs: string[],
+    teamSlug: string
+  ) => {
+    const repeated = agentSlugs.find(
+      (agentSlug, index) => agentSlugs.indexOf(agentSlug) !== index
+    );
+    if (repeated) {
+      throw new ServiceError(
+        "conflict",
+        `Two members would share the slug "${repeated}", rename one`
+      );
+    }
+    const [usedAgent] = await db
+      .select({ slug: agents.slug })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.workspaceId, workspaceId),
+          inArray(agents.slug, agentSlugs)
+        )
+      );
+    if (usedAgent) {
+      throw new ServiceError("conflict", `Slug "${usedAgent.slug}" is taken`);
+    }
+    const [usedTeam] = await db
+      .select({ id: teams.id })
+      .from(teams)
+      .where(and(eq(teams.workspaceId, workspaceId), eq(teams.slug, teamSlug)));
+    if (usedTeam) {
+      throw new ServiceError("conflict", "Team slug is already used");
+    }
+  };
+
+  const writeUnique = async (statements: Statement[]) => {
+    try {
+      await atomic(statements);
+    } catch (error) {
+      // Another write may take a slug between the checks above and the insert.
+      if (isUniqueViolation(error)) {
+        throw Object.assign(
+          new ServiceError("conflict", "A team or agent slug is already used"),
+          { cause: error }
+        );
+      }
+      throw error;
+    }
+  };
+
   const createTeam = async (
     principal: Principal,
     raw: z.input<typeof createTeamInputSchema>
@@ -165,6 +215,11 @@ export const createTeamStarterLifecycle = ({
         slug: slugSchema.parse(slugify(member.name)),
       };
     });
+    await assertSlugsFree(
+      user.workspaceId,
+      prepared.map((member) => member.slug),
+      slug
+    );
     const selectedTools = prepared.flatMap((member) => member.draft.tools);
     if (selectedTools.length) {
       const linked = await db
@@ -303,7 +358,7 @@ export const createTeamStarterLifecycle = ({
         )
       );
     }
-    await atomic(statements);
+    await writeUnique(statements);
     return createTeamsService({ atomic, clock, db }).get(user, teamId);
   };
   return { createTeam, teamFromStarter };
