@@ -464,13 +464,14 @@ test("update preserves absent fields; rules replace; archive is idempotent and b
     [
       () => service.update(user, { name: "No", teamId: team.id }),
       () => service.addMember(user, member(team.id, "a2")),
-      () => service.removeMember(user, memberRef(team.id)),
       () => service.setLead(user, { agentId: null, teamId: team.id }),
       () => service.setRules(user, { rules: "", teamId: team.id }),
     ].map((change) =>
       expect(change()).rejects.toMatchObject({ code: "invalid" })
     )
   );
+  await service.removeMember(user, memberRef(team.id));
+  expect(grants()).toHaveLength(0);
   seedTeam("everyone");
   await expect(service.archive(admin, "everyone")).rejects.toMatchObject({
     code: "invalid",

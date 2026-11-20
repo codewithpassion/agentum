@@ -4,6 +4,7 @@ import { agents } from "@repo/db/schema/agents";
 import { agentLibraryAccess, libraryEntries } from "@repo/db/schema/library";
 import { memberProfiles, teamMembers, teams } from "@repo/db/schema/teams";
 import {
+  EVERYONE_TEAM_SLUG,
   type MemberProfile,
   TEAM_MEMBER_KINDS,
   type Team,
@@ -400,7 +401,7 @@ export const createTeamsService = ({ db, atomic, clock }: TeamsDeps) => {
       ...input,
       archivedAt: null,
       createdAt: clock.now().toISOString(),
-      folderPath: slug === "everyone" ? null : `teams/${slug}`,
+      folderPath: slug === EVERYONE_TEAM_SLUG ? null : `teams/${slug}`,
       id: ulid(),
       ownerUserId,
       slug,
@@ -441,7 +442,7 @@ export const createTeamsService = ({ db, atomic, clock }: TeamsDeps) => {
     teamId: string
   ): Promise<Team> => {
     const row = await writableTeam(principal, teamId, true);
-    if (row.slug === "everyone") {
+    if (row.slug === EVERYONE_TEAM_SLUG) {
       throw new ServiceError("invalid", "Everyone cannot be archived");
     }
     await atomic([
@@ -498,7 +499,8 @@ export const createTeamsService = ({ db, atomic, clock }: TeamsDeps) => {
     raw: TeamMemberRefInput
   ): Promise<Team> => {
     const input = teamMemberRefInputSchema.parse(raw);
-    const row = await writableTeam(principal, input.teamId);
+    // An archived team still lets its members go, so their folder grants can be revoked.
+    const row = await writableTeam(principal, input.teamId, true);
     const [member] = await db
       .select()
       .from(teamMembers)
