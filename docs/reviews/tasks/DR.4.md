@@ -8,7 +8,7 @@ Task: schedule, model, write, diary, undo (`packages/services/src/dream.ts` and 
 - Fix round 1 at `381a4956`: not clean, two must-fix. The held batch recorded its file versions after the model calls, and the person budget in prune left out the shared notes the plan adds.
 - Fix round 2 at `86ee56d9`: clean.
 - Round 3 at `515bb9fd` (merge of main with SP.3, and the paused-agent skip): clean. Nits: a pause that lands between `fireDue` reading the due slots and `run()` loading the agent still costs that night's dream, because `fireOne` has moved the slot; a finished dream never calls `spend.enforceCap`, so a dream that crosses the weekly cap pauses the agent only after its next ordinary run.
-- Round 4 (the claude-haiku-5-5 price correction): see below.
+- Round 4 at `b32f7c6a` (the claude-haiku-5-5 price correction, see the cost line under Decisions): clean. Nit left: the price tier is chosen by the 100K character evidence cap, which is not a token count, so a prompt of dense non-English text could pass 100K tokens and be undercounted.
 
 ## Decisions made
 

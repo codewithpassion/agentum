@@ -18,8 +18,9 @@ const MILLION = 1_000_000;
  * USD per million tokens of `DREAM_MODEL` (claude-haiku-5-5), for the cost a
  * dream reports to the spend rollups. These are the rates for a prompt of up
  * to 100K tokens. Above 100K tokens Anthropic charges $0.50 in and $2.50 out
- * (first-party rates as of 3 Nov 2026). A dream's prompt is capped at about
- * 100K characters of evidence, far under that, so the lower rates apply.
+ * (first-party rates as of 3 Nov 2026). A dream's evidence is capped at 100K
+ * characters, so a prompt is normally well under that. Dense non-English text
+ * could pass it, and such a call would be undercounted.
  */
 export const DREAM_PRICE_PER_MILLION = { input: 0.1, output: 0.5 } as const;
 
