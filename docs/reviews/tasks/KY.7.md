@@ -22,7 +22,7 @@ Proposed tasks in KY-e2e.md: a fake runtime that calls a connector tool (KY.9), 
 
 ## Test run on the branch
 
-`bun run check` and `bun run build` pass. `bun run test` fails only in `@repo/services` "an hour of never-claimed runs stays bounded..." (passes alone, 52 s) and `web` guest-execution.test.ts (fails alone too, the known FX.1 flake).
+Before the merge, `bun run test` failed only in `@repo/services` "an hour of never-claimed runs stays bounded..." (passes alone, 52 s) and web guest-execution.test.ts (failed alone too, the known FX.1 flake). After `git merge main`, `bun run check`, `bun run test` and `bun run build` all passed.
 
 ## Steps for Dom
 
