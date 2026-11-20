@@ -28,7 +28,7 @@ import {
   useState,
 } from "react";
 import { Disclosure } from "#/components/agent/profile/disclosure.tsx";
-import { runtimeWords } from "#/components/agent/profile/profile-logic.ts";
+import { runtimeName } from "#/components/agent/profile/profile-logic.ts";
 import { dictationAdapter } from "#/components/composer/dictation-adapter.ts";
 import { submitOnSendShortcut } from "#/components/composer/send-shortcut";
 import { SubmitKeys } from "#/components/composer/submit-keys";
@@ -310,17 +310,17 @@ export function AgentForm({
           </Field>
         )}
         <Field>
-          <FieldLabel>Runtime</FieldLabel>
-          <p className="text-sm">{runtimeWords(values.runtime, runningOn)}</p>
+          <FieldLabel>Runs on</FieldLabel>
+          <p className="text-sm">{runtimeName(values.runtime, runningOn)}</p>
           {values.runtime === "managed" && (
             <FieldDescription>
-              Runs on Anthropic's cloud, not on one of your machines. It needs
-              the workspace's Anthropic API key (Settings, Anthropic API key).
-              It cannot read attached files. It gets this workspace's skills
-              with all their files, and TypeScript scripts in a skill run with
-              bun in its sandbox. [ATTACHMENT:path] in its answers stays plain
-              text. Images returned by connector tools never reach the model. A
-              session stops at $10 of spend.
+              In Anthropic's cloud, not on one of your machines. It needs the
+              workspace's Anthropic API key (Settings, Anthropic API key). It
+              cannot read attached files. It gets this workspace's skills with
+              all their files, and TypeScript scripts in a skill run with bun in
+              its sandbox. [ATTACHMENT:path] in its answers stays plain text.
+              Images returned by connector tools never reach the model. A
+              conversation stops at $10 of spend.
             </FieldDescription>
           )}
           {values.runtime === "cloud" && (
@@ -434,7 +434,7 @@ export function AgentForm({
                 value={values.maxTurns}
               />
               <FieldDescription>
-                The most model turns one run may take before it is stopped as
+                The most model turns one task may take before it is stopped as
                 failed. Leave it empty for the default of {MAX_TURNS_DEFAULT},
                 or set a number from {MAX_TURNS_MIN} to {MAX_TURNS_MAX}.
               </FieldDescription>
