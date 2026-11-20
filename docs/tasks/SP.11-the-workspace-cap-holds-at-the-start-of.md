@@ -3,7 +3,7 @@ id: SP.11
 title: "The workspace cap holds at the start of a run"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/SP.11-the-workspace-cap-holds-at-the-start-of
 lane: services-runs
@@ -32,3 +32,4 @@ A component test shows the pause card without Resume for a non-admin while the w
 - 2026-11-21: added from the SP gate review, round 1.
 - 2026-11-21: dispatched on task/SP.11-the-workspace-cap-holds-at-the-start-of (v4 controller session).
 - 2026-11-21: ready at 41aa469a after one fix round, review clean. Queued for merge.
+- 2026-11-21: merged aaf45195, merge check passed. Done.
