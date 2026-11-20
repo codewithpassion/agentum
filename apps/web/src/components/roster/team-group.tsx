@@ -53,12 +53,12 @@ export const TeamGroup = ({
   return (
     <section aria-labelledby={headingId} className="mb-8">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-full">
           <h2 className="min-w-0" id={headingId}>
             <button
               aria-controls={collapsed ? undefined : regionId}
               aria-expanded={!collapsed}
-              className="flex min-w-0 items-center gap-2 text-left font-semibold text-lg"
+              className="flex pointer-coarse:min-h-10 min-w-0 max-w-full items-center gap-2 text-left font-semibold text-lg"
               onClick={handleToggle}
               type="button"
             >
