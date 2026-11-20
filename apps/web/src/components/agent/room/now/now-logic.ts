@@ -21,11 +21,19 @@ export interface StepLine {
   title: string;
 }
 
-/** The newest task that can still change, or null. A helper is part of its parent's task, so it never counts. `tasks.list` returns newest first. */
+const WORKING: readonly TaskListItem["status"][] = ["running", "waiting"];
+
+/**
+ * The task the agent is on: the newest one that is running or waiting, else
+ * the newest that is queued. A helper is part of its parent's task, so it
+ * never counts. `tasks.list` returns newest first.
+ */
 export const activeRun = (
   tasks: readonly TaskListItem[]
-): TaskListItem | null =>
-  tasks.find((task) => !task.helper && isActive(task.status)) ?? null;
+): TaskListItem | null => {
+  const open = tasks.filter((task) => !task.helper && isActive(task.status));
+  return open.find((task) => WORKING.includes(task.status)) ?? open[0] ?? null;
+};
 
 const startOfLocalDay = (ms: number): number => {
   const date = new Date(ms);

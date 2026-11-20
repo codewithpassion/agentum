@@ -97,24 +97,31 @@ function MainThread({
   );
 }
 
+/**
+ * Columns follow the space beside the rail, not the window: a container query
+ * puts the list beside the thread from 48rem, and the Right now panel in a
+ * third column from 72rem. Narrower, the panel sits above the thread.
+ */
 export function ChatTab({ nowMs, room }: RoomTabProps) {
   const { agent, threads } = room;
   const archived = agent.status === "archived";
   return (
-    <div
-      className={`grid min-w-0 gap-4 md:grid-cols-[20rem_minmax(0,1fr)] md:items-start ${archived ? "" : "xl:grid-cols-[20rem_minmax(0,1fr)_18rem]"}`}
-    >
-      <div className="min-w-0">
-        <ThreadsCard agent={agent} archived={archived} threads={threads} />
-      </div>
-      <div className="flex h-[70vh] min-h-96 min-w-0 flex-col overflow-hidden rounded-lg border border-border">
-        <MainThread agentId={agent.id} archived={archived} key={agent.id} />
-      </div>
-      {archived ? null : (
-        <div className="order-first min-w-0 md:col-span-2 xl:order-none xl:col-span-1">
-          <NowPanel nowMs={nowMs} room={room} />
+    <div className="@container min-w-0">
+      <div
+        className={`grid min-w-0 @3xl:grid-cols-[20rem_minmax(0,1fr)] @3xl:items-start gap-4 ${archived ? "" : "@6xl:grid-cols-[20rem_minmax(0,1fr)_18rem]"}`}
+      >
+        <div className="min-w-0">
+          <ThreadsCard agent={agent} archived={archived} threads={threads} />
         </div>
-      )}
+        <div className="flex h-[70vh] min-h-96 min-w-0 flex-col overflow-hidden rounded-lg border border-border">
+          <MainThread agentId={agent.id} archived={archived} key={agent.id} />
+        </div>
+        {archived ? null : (
+          <div className="@6xl:order-none order-first @3xl:col-span-2 @6xl:col-span-1 min-w-0">
+            <NowPanel nowMs={nowMs} room={room} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

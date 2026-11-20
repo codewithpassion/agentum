@@ -27,6 +27,15 @@ test("the active run is the newest one that can still change", () => {
   expect(activeRun([])).toBeNull();
 });
 
+test("a queued task behind a running one does not take the panel", () => {
+  const tasks = [
+    makeListItem({ id: "run_2", status: "queued" }),
+    makeListItem({ id: "run_1", status: "running" }),
+  ];
+  expect(activeRun(tasks)?.id).toBe("run_1");
+  expect(activeRun([tasks[0] as (typeof tasks)[number]])?.id).toBe("run_2");
+});
+
 test("a helper that started after its parent is not the active run", () => {
   const tasks = [
     makeListItem({ helper: true, id: "run_2", status: "running" }),
