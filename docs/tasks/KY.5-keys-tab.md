@@ -3,7 +3,7 @@ id: KY.5
 title: "Keys tab on the agent room"
 milestone: KY
 size: M
-status: in_progress
+status: done
 depends_on: [KY.1, RH.4]
 branch: task/KY.5-keys-tab
 lane: web-keys
@@ -32,3 +32,4 @@ From `docs/v4/build-plan.md`, milestone KY. The Keys tab replaces the tools shee
 - 2026-11-20: note from KY.2 review: an app with `authKind: "none"` returns `signIn: null`. Do not read that as "sign in needed".
 - 2026-11-20: dispatched on task/KY.5-keys-tab (v4 controller session).
 - 2026-11-20: scope adds the catalogue default allowed tools, from the KY.4 review. A catalogue connector without them would get every tool.
+- 2026-11-20: merged as 7c4a7bb9, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/KY.5/browser.md. check and build passed on main; tests passed except guest-execution.test.ts, which failed the same way on main before this merge (FX.1). Dom: after deploy, connect one catalogue app on staging as a member from the Keys tab (needs a real vendor account).

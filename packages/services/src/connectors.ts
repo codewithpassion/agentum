@@ -213,6 +213,8 @@ export interface ConnectorSummary {
   authMode: ConnectorAuthMode;
   /** Seconds a tool call may take before it is stopped. */
   callTimeoutSeconds: number;
+  /** The catalogue entry this connector was added from, or null for a custom one. */
+  catalogKey: string | null;
   createdAt: string;
   headerName: string | null;
   headerTemplate: string | null;
@@ -233,7 +235,14 @@ export interface ConnectorSummary {
 /** The connector fields a member needs to manage their own sign-in. */
 export type MySignIn = Pick<
   ConnectorSummary,
-  "id" | "name" | "url" | "authKind" | "status" | "oauth" | "myCredential"
+  | "id"
+  | "name"
+  | "url"
+  | "authKind"
+  | "headerName"
+  | "status"
+  | "oauth"
+  | "myCredential"
 > & { shared: boolean };
 
 export interface AssignmentSummary {
@@ -309,6 +318,7 @@ const toSummary = (
     authKind: row.authKind,
     authMode: row.authMode,
     callTimeoutSeconds: row.callTimeoutSeconds,
+    catalogKey: row.catalogKey,
     createdAt: row.createdAt,
     headerName: row.headerName,
     headerTemplate: row.headerTemplate,
@@ -758,6 +768,7 @@ export const createConnectorsService = ({
       );
       return {
         authKind: row.authKind,
+        headerName: row.headerName,
         id: row.id,
         myCredential: credential ? toCredentialSummary(credential) : null,
         name: row.name,

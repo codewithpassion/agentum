@@ -10,6 +10,10 @@ export interface SettingsNavGroup {
 
 export const settingsNav: readonly SettingsNavGroup[] = [
   {
+    items: [{ label: "Your sign-ins", to: "/settings/sign-ins" }],
+    label: "You",
+  },
+  {
     items: [
       { label: "Model providers", to: "/settings/model-providers" },
       { label: "Machines", to: "/settings/machines" },
@@ -18,8 +22,8 @@ export const settingsNav: readonly SettingsNavGroup[] = [
   },
   {
     items: [
-      { label: "Connectors", to: "/settings/connectors" },
-      { label: "Secrets", to: "/settings/secrets" },
+      { label: "Apps", to: "/settings/connectors" },
+      { label: "Passwords and keys", to: "/settings/secrets" },
       { label: "Artifacts", to: "/settings/artifacts" },
     ],
     label: "Agents can use",

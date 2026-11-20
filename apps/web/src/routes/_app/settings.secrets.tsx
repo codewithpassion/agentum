@@ -16,7 +16,7 @@ import { Button } from "#/components/ui/button";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
 
-export const PAGE_HEADING = "Secrets";
+export const PAGE_HEADING = "Passwords and keys";
 
 export const Route = createFileRoute("/_app/settings/secrets")({
   loader: async () =>

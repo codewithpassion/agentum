@@ -6,12 +6,17 @@ import { machines as machineRows } from "@repo/db/schema/machines";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
+import type { MemoryNote } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
 import { SPEAKER_INSTRUCTIONS } from "../agent-prompt.ts";
 import { type AgentsService, createAgentsService } from "../agents.ts";
 import { seedAssignment, seedConnector } from "../connectors/test-seed.ts";
+import { ServiceError } from "../errors.ts";
 import { createEventsService } from "../events.ts";
+import { agentHomePath } from "../library/home.ts";
+import type { LibraryService } from "../library.ts";
+import { serializeMemoryFile } from "../memory/codec.ts";
 import { importRunTokenKey, verifyRunToken } from "../run-tokens.ts";
 import type { Clock, StartRunInput } from "../runs/types.ts";
 import {
@@ -741,4 +746,146 @@ test("the cloud runner starts with the run's model override", async () => {
     .run();
   await runs.offerQueuedRun(SYSTEM_PRINCIPAL, started.runId);
   expect(runner.startCalls.at(-1)?.agent.model).toBe("claude-haiku-5-5");
+});
+
+describe("memory in the run's instructions", () => {
+  const PEOPLE_NOTE = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const PRIVATE_NOTE = "01BX5ZZKBKACTAV9WEVGEMMVRZ";
+
+  const memoryNote = (overrides: Partial<MemoryNote>): MemoryNote => ({
+    date: "2026-10-01",
+    id: PEOPLE_NOTE,
+    kind: "people",
+    source: null,
+    text: "Dana prefers morning calls",
+    userScope: null,
+    writtenBy: "person",
+    ...overrides,
+  });
+
+  const slugOf = (id: string): string => {
+    const row = db
+      .select({ slug: agentRows.slug })
+      .from(agentRows)
+      .where(eq(agentRows.id, id))
+      .get();
+    if (!row) {
+      throw new Error("The agent was not found");
+    }
+    return row.slug;
+  };
+
+  /** A library that holds only the given files, keyed by their full library path. */
+  const libraryWith = (
+    files: Record<string, string>
+  ): Pick<LibraryService, "read"> => ({
+    read: (_principal, path) => {
+      const text = files[path];
+      if (text === undefined) {
+        return Promise.reject(new ServiceError("not_found", "x"));
+      }
+      const bytes = new TextEncoder().encode(text);
+      return Promise.resolve({
+        bytes,
+        entry: {
+          etag: null,
+          kind: "file",
+          mtime: START,
+          path,
+          size: bytes.byteLength,
+          updatedBy: { id: agentId, kind: "agent" },
+        },
+      });
+    },
+  });
+
+  const memoryPath = (file: string): string =>
+    `${agentHomePath(slugOf(agentId))}/memory/${file}`;
+
+  /** Runs the agent, with the cloud runtime reading memory from `library` when given. */
+  const startWith = async (
+    library: Pick<LibraryService, "read"> | undefined,
+    principal: Principal,
+    externalKey: string,
+    origin: "slack" | "ui" = "slack"
+  ): Promise<string> => {
+    const runsService: RunsService = createRunsService({
+      adapters: [
+        createCloudRuntime({
+          library,
+          platformUrl: BASE,
+          runner,
+          runTokenKey: RUN_TOKEN_KEY,
+        }),
+      ],
+      atomic: sqliteAtomic(db),
+      blobs: {
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+      },
+      clock,
+      db,
+      devFakeRuntime: false,
+      gateways: [],
+    });
+    nowMs += SECOND;
+    await runsService.startRun(principal, {
+      agentId,
+      input: { text: "Summarise the inbox" },
+      session: { externalKey, origin },
+    });
+    const input = runner.startCalls.at(-1);
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    return input.agent.instructions;
+  };
+
+  test("the people note follows the agent's own instructions", async () => {
+    const library = libraryWith({
+      [memoryPath("people.md")]: serializeMemoryFile("people.md", [
+        memoryNote({}),
+      ]),
+    });
+
+    const instructions = await startWith(library, dom, "thread-1");
+
+    expect(instructions).toContain("## Memory");
+    expect(instructions).toContain("Dana prefers morning calls");
+    expect(instructions.indexOf("Be brief.")).toBeLessThan(
+      instructions.indexOf("Dana prefers morning calls")
+    );
+  });
+
+  test("a private note shows only to the person the run acts for", async () => {
+    const library = libraryWith({
+      [memoryPath("private/user_dom.md")]: serializeMemoryFile(
+        "private/user_dom.md",
+        [
+          memoryNote({
+            id: PRIVATE_NOTE,
+            kind: "work",
+            text: "Owes Dana a reply",
+            userScope: "user_dom",
+          }),
+        ]
+      ),
+    });
+    const other: Principal = { ...dom, userId: "user_other" };
+
+    const forDom = await startWith(library, dom, "chat-dom", "ui");
+    const forOther = await startWith(library, other, "chat-other", "ui");
+    const inSlack = await startWith(library, dom, "thread-dom");
+
+    expect(forDom).toContain("Owes Dana a reply");
+    expect(forOther).not.toContain("Owes Dana a reply");
+    // A Slack thread shows the reply to everyone in it.
+    expect(inSlack).not.toContain("Owes Dana a reply");
+  });
+
+  test("without a library there is no memory section", async () => {
+    const instructions = await startWith(undefined, dom, "thread-1");
+
+    expect(instructions).not.toContain("## Memory");
+  });
 });

@@ -1,7 +1,9 @@
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createdAt, id, workspaceId } from "../columns.ts";
-import { INBOX_AUTHOR_KINDS } from "../shared.ts";
+import { INBOX_AUTHOR_KINDS, TEAM_MEMBER_KINDS } from "../shared.ts";
+import { agents } from "./agents.ts";
 import { runs } from "./runs.ts";
+import { teams } from "./teams.ts";
 import { workspaces } from "./workspaces.ts";
 
 /** A conversation anyone in the workspace can read and post to. */
@@ -19,12 +21,37 @@ export const inboxThreads = sqliteTable(
     id: id(),
     // Orders the thread list: the creation time until the first post.
     lastPostAt: text("last_post_at").notNull(),
+    // The agent that opened the topic, or NULL when a person did.
+    openedByAgentId: text("opened_by_agent_id").references(() => agents.id),
+    // The team room the topic belongs to. A new topic starts in the workspace's "Everyone" team.
+    teamId: text("team_id").references(() => teams.id),
     title: text("title").notNull(),
     workspaceId: workspaceId().references(() => workspaces.id, {
       onDelete: "cascade",
     }),
   },
-  (t) => [index("inbox_threads_recent_idx").on(t.workspaceId, t.lastPostAt)]
+  (t) => [
+    index("inbox_threads_recent_idx").on(t.workspaceId, t.lastPostAt),
+    index("inbox_threads_team_idx").on(t.teamId, t.lastPostAt),
+  ]
+);
+
+/**
+ * The members a topic is limited to. A topic with no rows here is open to its
+ * whole team.
+ */
+export const inboxThreadMembers = sqliteTable(
+  "inbox_thread_members",
+  {
+    // The agent id or the Clerk user id, by `member_kind`.
+    memberId: text("member_id").notNull(),
+    memberKind: text("member_kind", { enum: TEAM_MEMBER_KINDS }).notNull(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => inboxThreads.id, { onDelete: "cascade" }),
+    workspaceId: workspaceId().references(() => workspaces.id),
+  },
+  (t) => [primaryKey({ columns: [t.threadId, t.memberKind, t.memberId] })]
 );
 
 /**

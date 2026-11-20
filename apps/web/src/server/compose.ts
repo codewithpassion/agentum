@@ -307,6 +307,7 @@ import {
   createTasksService,
   type TasksService,
 } from "@repo/services/tasks/service";
+import { createTeamsService, type TeamsService } from "@repo/services/teams";
 import {
   createTriggersService,
   type TriggersService,
@@ -547,6 +548,7 @@ export interface Services {
   spend: SpendService;
   takeover: TakeoverService;
   tasks: TasksService;
+  teams: TeamsService;
   triggers: TriggersService;
   wiki: WikiService;
   wikiSuggestions: WikiSuggestionsService;
@@ -688,6 +690,9 @@ export const composeWith = ({
     ...(infra.cloudRunner && infra.runTokenKey && infra.publicBaseUrl
       ? [
           createCloudRuntime({
+            library: {
+              read: (principal, path) => library.read(principal, path),
+            },
             platformUrl: infra.publicBaseUrl,
             runner: infra.cloudRunner,
             runTokenKey: infra.runTokenKey,
@@ -1463,6 +1468,11 @@ export const composeWith = ({
       }),
       takeover,
       tasks,
+      teams: createTeamsService({
+        atomic: infra.atomic,
+        clock: infra.clock,
+        db,
+      }),
       triggers,
       wiki,
       wikiSuggestions,

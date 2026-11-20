@@ -13,7 +13,11 @@ import {
 import { runs as runRows } from "@repo/db/schema/runs";
 import { slackApps } from "@repo/db/schema/slack";
 import { workspaces } from "@repo/db/schema/workspaces";
-import { APPROVAL_TTL_MS, QUESTION_TTL_MS } from "@repo/db/shared";
+import {
+  APPROVAL_TTL_MS,
+  type MemoryNote,
+  QUESTION_TTL_MS,
+} from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
 import { SPEAKER_INSTRUCTIONS } from "../agent-prompt.ts";
@@ -25,9 +29,11 @@ import {
 } from "../connectors/test-seed.ts";
 import { createCredentialsService } from "../credentials.ts";
 import { importSecretsKey } from "../crypto.ts";
+import { ServiceError } from "../errors.ts";
 import { createEventsService } from "../events.ts";
 import { memoryLibraryBlobs } from "../library/memory.ts";
 import { createLibraryService, type LibraryService } from "../library.ts";
+import { serializeMemoryFile } from "../memory/codec.ts";
 import { createRequestsService, type RequestsService } from "../requests.ts";
 import {
   importRunTokenKey,
@@ -522,7 +528,11 @@ const buildManaged = (
         return hasKey ? keys.resolve(workspaceId) : Promise.resolve(null);
       },
     },
-    library,
+    // No `read`: a run's first message carries no memory section unless a test asks for one.
+    library: {
+      mkdir: (principal, path) => library.mkdir(principal, path),
+      stat: (principal, path) => library.stat(principal, path),
+    },
     poller,
     publicBaseUrl,
     requests,
@@ -1353,6 +1363,136 @@ const installSlackApp = (agent: string) => {
     })
     .run();
 };
+
+describe("memory", () => {
+  const MEMORY = "agents/pelican/memory";
+  const DOM_NOTE = "Dom likes tea";
+
+  const note = (
+    text: string,
+    overrides: Partial<MemoryNote> = {}
+  ): MemoryNote => ({
+    date: "2026-11-02",
+    id: "01HZ7KQ3M8V2X4R6T9B1C50001",
+    kind: "people",
+    source: null,
+    text,
+    userScope: null,
+    writtenBy: "person",
+    ...overrides,
+  });
+
+  /** A library that reads the given memory files, and throws not_found for any other path. */
+  const memoryLibrary = (
+    files: Record<string, string>
+  ): ManagedServiceOptions["library"] => ({
+    mkdir: (principal, path) => library.mkdir(principal, path),
+    read: (_principal, path) => {
+      const text = files[path];
+      if (text === undefined) {
+        return Promise.reject(new ServiceError("not_found", "x"));
+      }
+      const bytes = new TextEncoder().encode(text);
+      return Promise.resolve({
+        bytes,
+        entry: {
+          etag: null,
+          kind: "file",
+          mtime: START,
+          path,
+          size: bytes.byteLength,
+          updatedBy: { id: "user_dom", kind: "user" },
+        },
+      });
+    },
+    stat: (principal, path) => library.stat(principal, path),
+  });
+
+  const firstMessage = () => gateway.sessions.get("sesn_1")?.messages[0] ?? "";
+
+  const peopleFile = serializeMemoryFile("people.md", [
+    note("Ana prefers short emails"),
+  ]);
+  const privateFile = serializeMemoryFile("private/user_dom.md", [
+    note(DOM_NOTE, { kind: "people", userScope: "user_dom" }),
+  ]);
+
+  test("the first message carries the memory section and the people note", async () => {
+    managed = buildManaged(BASE, {
+      library: memoryLibrary({ [`${MEMORY}/people.md`]: peopleFile }),
+    });
+
+    await finishRun();
+
+    const system = firstMessage();
+    expect(system).toContain("## Memory");
+    expect(system).toContain("Ana prefers short emails");
+  });
+
+  test("the registered agent and its fingerprint leave the notes out", async () => {
+    managed = buildManaged(BASE, {
+      library: memoryLibrary({ [`${MEMORY}/people.md`]: peopleFile }),
+    });
+
+    await finishRun();
+
+    expect(gateway.registered[0]?.system).not.toContain("## Memory");
+    expect(gateway.registered[0]?.system).not.toContain("Ana prefers");
+  });
+
+  const PERSONAL = { session: { origin: "ui" } } as const;
+
+  test("a private note shows for the person the run acts for", async () => {
+    managed = buildManaged(BASE, {
+      library: memoryLibrary({
+        [`${MEMORY}/private/user_dom.md`]: privateFile,
+      }),
+    });
+
+    const { runId } = await start(dom, "go", PERSONAL);
+    await drive(runId);
+
+    expect(firstMessage()).toContain(DOM_NOTE);
+  });
+
+  test("a private note stays out of a run for another person", async () => {
+    managed = buildManaged(BASE, {
+      library: memoryLibrary({
+        [`${MEMORY}/private/user_dom.md`]: privateFile,
+      }),
+    });
+
+    const { runId } = await start(sam, "go", PERSONAL);
+    await drive(runId);
+
+    expect(firstMessage()).not.toContain(DOM_NOTE);
+  });
+
+  test("a private note stays out of a Slack thread, which several people read", async () => {
+    managed = buildManaged(BASE, {
+      library: memoryLibrary({
+        [`${MEMORY}/private/user_dom.md`]: privateFile,
+      }),
+    });
+
+    await finishRun();
+
+    expect(firstMessage()).not.toContain(DOM_NOTE);
+  });
+
+  test("without a read on the library, no message has a memory section", async () => {
+    managed = buildManaged(BASE, {
+      library: {
+        mkdir: (principal, path) => library.mkdir(principal, path),
+        stat: (principal, path) => library.stat(principal, path),
+      },
+    });
+
+    await finishRun();
+
+    expect(firstMessage()).not.toContain("## Memory");
+  });
+});
 
 describe("agent home", () => {
   const home = "agents/pelican";

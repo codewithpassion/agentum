@@ -15,6 +15,7 @@ import { memoryRouter } from "./memory-router.ts";
 import { rosterRouter } from "./roster-router.ts";
 import { runtimeRouter } from "./runtime-router.ts";
 import { spendRouter } from "./spend-router.ts";
+import { teamsRouter } from "./teams-router.ts";
 
 // One router per lane, merged here. A lane edits its own file, not this one.
 export const appRouter = mergeRouters(
@@ -54,6 +55,7 @@ export const appRouter = mergeRouters(
     memory: memoryRouter,
     roster: rosterRouter,
     spend: spendRouter,
+    teams: teamsRouter,
   })
 );
 

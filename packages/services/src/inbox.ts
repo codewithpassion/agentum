@@ -14,7 +14,8 @@ import { agents } from "@repo/db/schema/agents";
 import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import type { InboxAuthorKind } from "@repo/db/shared";
+import { teams } from "@repo/db/schema/teams";
+import { EVERYONE_TEAM_SLUG, type InboxAuthorKind } from "@repo/db/shared";
 import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { monotonicFactory } from "ulidx";
 import { z } from "zod";
@@ -233,6 +234,16 @@ export const createInboxService = ({
       workspaceId: writer.workspaceId,
     });
     const created = clock.now().toISOString();
+    // A new topic starts in the workspace's Everyone team until it names one.
+    const [everyone] = await db
+      .select({ id: teams.id })
+      .from(teams)
+      .where(
+        and(
+          eq(teams.workspaceId, writer.workspaceId),
+          eq(teams.slug, EVERYONE_TEAM_SLUG)
+        )
+      );
     const row: ThreadRow = {
       attentionClearedAt: null,
       attentionClearedBy: null,
@@ -240,6 +251,8 @@ export const createInboxService = ({
       createdBy: writer.userId,
       id: nextId(clock.now().getTime()),
       lastPostAt: created,
+      openedByAgentId: null,
+      teamId: everyone?.id ?? null,
       title: input.title,
       workspaceId: writer.workspaceId,
     };
