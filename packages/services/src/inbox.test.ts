@@ -1095,3 +1095,50 @@ test("the loop guard counts per topic: a streak in one topic does not stop anoth
   expect(allRuns()).toHaveLength(6);
   expect(stops().every((stop) => stop.payload.reason === "streak")).toBe(true);
 });
+
+const discussionFixture = async () => {
+  build();
+  await addAgents("lead", "one", "two", "three");
+  const teamId = seedTeam({ lead: "lead", members: { agents: ["lead", "one", "two", "three"], users: ["u1"] } });
+  const threadId = (await inbox.createThread(user, { title: "Discussion", teamId })).id;
+  await say(threadId, "@lead coordinate");
+  const lead = runsOf("lead")[0];
+  if (!lead) throw new Error("No lead run");
+  const principal = { kind: "run" as const, agentId: lead.agentId, runId: lead.id, workspaceId: WORKSPACE };
+  return { threadId, principal };
+};
+
+test("three rounds wake three members nine times; discussion wakes get no private notes", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, { topic: threadId, question: "What should we do?", rounds: 3 });
+  for (let round = 1; round <= 3; round += 1) {
+    await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+    for (const slug of ["one", "two", "three"]) {
+      const run = runsOf(slug).at(-1);
+      if (!run) throw new Error("Missing member wake");
+      const { loadPrivateNotesUser } = await import("./library/private-notes.ts");
+      expect(await loadPrivateNotesUser(db, run)).toBeNull();
+      await inbox.gateway.deliver({ kind: "inbox", threadId }, { fileIds: [], text: "My answer @one @two @three" }, { runId: run.id, agentId: run.agentId, onBehalfOfUserId: run.onBehalfOfUserId });
+    }
+    const checkpoint = runsOf("lead").at(-1);
+    if (!checkpoint) throw new Error("Missing checkpoint");
+    await inbox.post({ ...principal, runId: checkpoint.id }, { threadId, text: "Next round" });
+  }
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+  expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(9);
+  expect((await inbox.readThread(user, { threadId })).discussion).toBeNull();
+});
+
+test("a silent member times out and a person can stop further wakes", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, { topic: threadId, question: "Discuss", rounds: 3 });
+  expect(runsOf("lead")).toHaveLength(1);
+  nowMs += 10 * 60 * 1000;
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+  expect(runsOf("lead")).toHaveLength(2);
+  await inbox.stopDiscussion(user, { threadId });
+  nowMs += HOUR;
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+  expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(3);
+  await expect(inbox.stopDiscussion(principal, { threadId })).rejects.toThrow();
+});
