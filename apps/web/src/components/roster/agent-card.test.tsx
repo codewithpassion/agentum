@@ -16,7 +16,6 @@ const router = createRouter({
 
 const baseCard: AgentCard = {
   avatar: { color: "blue", glyph: "R" },
-  costThisWeekCents: 410,
   doneAt: null,
   id: "agent_123",
   isLead: false,
@@ -32,10 +31,10 @@ const baseCard: AgentCard = {
   weeklyCapCents: null,
 };
 
-const render = (card: AgentCard) =>
+const render = (card: AgentCard, weekCents = 410) =>
   renderToStaticMarkup(
     <RouterContextProvider router={router}>
-      <AgentCardView card={card} />
+      <AgentCardView card={card} weekCents={weekCents} />
     </RouterContextProvider>
   );
 
@@ -50,6 +49,10 @@ test("the card shows name, job line, status line, owner and week cost", () => {
   expect(html).toContain("Matching invoice 88 to a purchase order");
   expect(html).toContain("Owner Dom Fretz");
   expect(html).toContain("$4.10 this week");
+});
+
+test("the card shows the week's cents it is given", () => {
+  expect(render(baseCard, 55)).toContain("$0.55 this week");
 });
 
 test("a card with a weekly limit reads spend against it", () => {

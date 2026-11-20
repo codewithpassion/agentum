@@ -210,28 +210,15 @@ export const buildSpendTable = (input: {
   };
 };
 
-/**
- * Gives each card that has a limit this week's spend counted from Monday in the
- * workspace timezone, the way the limit is counted. The roster's own figure
- * covers the last seven days, so the two could disagree about a limit.
- */
-export const withLimitWeekSpend = <
-  Card extends {
-    costThisWeekCents: number;
-    id: string;
-    weeklyCapCents: number | null;
-  },
->(
-  cards: readonly Card[],
-  weekRows: readonly SpendRow[]
-): Card[] =>
-  cards.map((card) =>
-    card.weeklyCapCents === null
-      ? card
-      : {
-          ...card,
-          costThisWeekCents: weekRows
-            .filter((row) => row.agentId === card.id)
-            .reduce((total, row) => total + row.cents, 0),
-        }
-  );
+/** Each agent's cents in `rows`, the figure the Spend page shows for the week they cover. */
+export const weekCentsByAgent = (
+  rows: readonly SpendRow[]
+): Map<string, number> => {
+  const cents = new Map<string, number>();
+  for (const row of rows) {
+    if (row.agentId !== null) {
+      cents.set(row.agentId, (cents.get(row.agentId) ?? 0) + row.cents);
+    }
+  }
+  return cents;
+};
