@@ -8,6 +8,8 @@ Browser proof round 1, at 0c1e36fa: fail. Three defects, fixed in a1e4afb7. The 
 
 Browser proof round 2, at a1e4afb7: pass at 1280x800 and 390x844, no console errors, no failed page requests. See `docs/reviews/tasks/DR.6/browser.md`. It ran against a local fixture dream service, because DR.4 is not on main (below).
 
+Round 2, commits 0c1e36fa to 98714f32 (the nit fixes, the browser-proof fixes, the merge of main): clean. No must-fix findings, 5 nits, listed below.
+
 ## What was built
 
 - `components/agent/room/knows/dream/`: the dream card with its states (none, running, skipped, failed, done, done with a question, undone), See changes with before and after text read from the library versions, Undo this night, the earlier dreams list, the schedule choice, Dream now, and `use-dream.ts` for the data. `knows-layout.tsx` and `index.tsx` mount it in the slot ME.6 left. `useMemory` gained `reload`, so a dream or an undo refreshes the notes.
@@ -26,6 +28,8 @@ Browser proof round 2, at a1e4afb7: pass at 1280x800 and 390x844, no console err
 - The dream card waits for the memory data. If the memory load fails the dream card never shows.
 - A dream started at 23:00 local is titled "Yesterday's dream", not "Last night's dream".
 - The `readVersion` comment in `dream-changes.ts` says null text means a delete tombstone. A tombstone throws, and null means binary or oversize bytes.
+
+- The round 2 nits: the schedule picker is also disabled while a dream runs, which is harmless. `canUndoRun` counts added, merged and dropped, so an edit-only night would hide Undo (DR.4 must count an edit as merged or add an edit count). The memory folder prefix in `dream-changes.ts` repeats `memoryFolderOf` and will not match `teams/<slug>/memory/` once team memory lands. The Keep button's `aria-label` has no test and carries the full note text. The prefix strip is tested only for `people.md`, not for `private/user_x.md`.
 
 ## For DR.4 and the controller
 
