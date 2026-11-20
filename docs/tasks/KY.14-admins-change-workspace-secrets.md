@@ -3,9 +3,9 @@ id: KY.14
 title: "Only admins change or delete a workspace secret"
 milestone: KY
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/KY.14-admins-change-workspace-secrets
 lane: services-secrets
 executor: claude
 ---
@@ -32,3 +32,4 @@ Controller decision (Dom's "don't wait for me", 20 Nov 2026): take the default. 
 
 ## Log
 - 2026-11-20: added from the KY gate review, round 1.
+- 2026-11-20: dispatched on task/KY.14-admins-change-workspace-secrets (v4 controller session).
