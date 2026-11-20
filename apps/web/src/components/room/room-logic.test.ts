@@ -7,6 +7,7 @@ import {
   canPostInRoom,
   guestOfPost,
   isEveryone,
+  isRoomMember,
   memberOfPost,
   requestsOfTopic,
   roomDirectory,
@@ -134,6 +135,7 @@ test("canPostInRoom refuses everyone in an archived team", () => {
   const archived = { ...ownTeam, archivedAt: "2026-11-01T00:00:00.000Z" };
   expect(canPostInRoom(archived, "u_amir")).toBe(false);
   expect(canPostInRoom({ ...everyoneTeam, ...archived }, "u_amir")).toBe(false);
+  expect(isRoomMember(archived, "u_amir")).toBe(true);
 });
 
 test("canPostInRoom ignores an agent row that shares the user id", () => {

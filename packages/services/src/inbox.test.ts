@@ -1131,7 +1131,7 @@ const discussionFixture = async () => {
     runId: lead.id,
     workspaceId: WORKSPACE,
   };
-  return { principal, threadId };
+  return { principal, teamId, threadId };
 };
 
 test("three rounds wake three members nine times; discussion wakes get no private notes", async () => {
@@ -1516,4 +1516,20 @@ test("postExternal refuses an archived team", async () => {
     })
   ).rejects.toThrow("Team not found");
   expect(db.select().from(inboxThreadRows).all()).toHaveLength(0);
+});
+
+test("a discussion running when the team is archived starts no more runs", async () => {
+  const { principal, teamId, threadId } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  const before = allRuns().length;
+  archive(teamId);
+  nowMs += 10 * 60 * 1000;
+
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+
+  expect(allRuns()).toHaveLength(before);
 });

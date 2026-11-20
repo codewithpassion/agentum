@@ -57,14 +57,11 @@ export const topicsOfTeam = (
   );
 };
 
-export const canPostInRoom = (
-  team: Pick<Team, "archivedAt" | "members" | "slug">,
+/** True when the person is in the team. An archived team keeps its members. */
+export const isRoomMember = (
+  team: Pick<Team, "members" | "slug">,
   userId: string
 ): boolean => {
-  // An archived team's room is read-only.
-  if (team.archivedAt !== null) {
-    return false;
-  }
   if (isEveryone(team)) {
     return true;
   }
@@ -72,6 +69,12 @@ export const canPostInRoom = (
     (row) => row.memberKind === "user" && row.memberId === userId
   );
 };
+
+/** An archived team's room is read-only, whoever is in it. */
+export const canPostInRoom = (
+  team: Pick<Team, "archivedAt" | "members" | "slug">,
+  userId: string
+): boolean => team.archivedAt === null && isRoomMember(team, userId);
 
 export const roomDirectory = (input: {
   agents: readonly RoomAgentInput[];

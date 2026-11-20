@@ -16,6 +16,7 @@ import type { InboxThread } from "#/integrations/trpc/types";
 import { NewTopicDialog } from "./new-topic-dialog.tsx";
 import {
   canPostInRoom,
+  isRoomMember,
   roomDirectory,
   roomMembers,
   topicsOfTeam,
@@ -160,6 +161,7 @@ export function RoomPage({
             <RoomThread
               canPost={canPost}
               directory={directory}
+              isMember={isRoomMember(team, userId)}
               key={topicId}
               members={members}
               onPosted={refreshThreads}

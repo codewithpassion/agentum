@@ -981,6 +981,18 @@ export const createInboxService = ({
     streak: boolean,
     requestId?: string
   ): Promise<WokenRun | null> => {
+    // Discussion rounds start runs through here too, so an archive stops them.
+    if (await teamArchived(thread)) {
+      await recordStop(
+        waker,
+        thread,
+        entry,
+        target.id,
+        "refused",
+        "The team is archived"
+      );
+      return null;
+    }
     let stop: StopReason | null = null;
     if (streak) {
       stop = "streak";
