@@ -18,6 +18,11 @@ Settings, Apps adds a connector only by URL. The catalogue is only on an agent's
 
 Decision (controller, 20 Nov 2026): add the catalogue picker to Settings, Apps, as the KY overview promises, through a component shared with the Keys tab.
 
+## Scope
+
+- Settings, Apps gets the same catalogue picker as the Keys tab, through one shared component. It uses `catalog.add` and is for admins only.
+- An app added there shows on every agent's Keys tab under "Already in this workspace".
+
 ## Check
 
 Browser as admin: add Linear from Settings, Apps, then see it in the Keys tab's "Already in this workspace" group.
