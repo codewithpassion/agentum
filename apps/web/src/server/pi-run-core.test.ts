@@ -8,7 +8,7 @@ import type { EntryRecord } from "@earendil-works/pi-durable";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type { RunStatus } from "@repo/db/shared";
+import type { ContextBudget, EffortLevel, RunStatus } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { createMasker } from "@repo/protocol/masker";
 import { createAgentsService } from "@repo/services/agents";
@@ -132,6 +132,8 @@ const createFakePi = (behavior: FakeOptions = {}) => {
   const aborted: string[] = [];
   const models: string[] = [];
   const instructions: string[] = [];
+  const efforts: (EffortLevel | undefined)[] = [];
+  const budgets: { budget: ContextBudget | undefined; model: string }[] = [];
   let nextId = 1;
   let failingAborts = behavior.failingAborts ?? 0;
 
@@ -210,6 +212,14 @@ const createFakePi = (behavior: FakeOptions = {}) => {
       const submission = submissions.get(operationId);
       return Promise.resolve(submission ? String(submission.entry) : undefined);
     },
+    setContextBudget: (budget, model) => {
+      budgets.push({ budget, model });
+      return Promise.resolve();
+    },
+    setEffort: (effort) => {
+      efforts.push(effort);
+      return Promise.resolve();
+    },
     setInstructions: (text) => {
       instructions.push(text);
       return Promise.resolve();
@@ -252,7 +262,9 @@ const createFakePi = (behavior: FakeOptions = {}) => {
 
   return {
     aborted,
+    budgets,
     commit,
+    efforts,
     /** Settles a run the way Pi does. */
     finish: (operationId: string, outcome: PiOutcome) => {
       const submission = submissions.get(operationId);
@@ -502,6 +514,10 @@ describe("start", () => {
       { operationId: "run-1", text: "hi there", whenBusy: "followUp" },
     ]);
     expect(h.fake.models).toEqual(["claude-test"]);
+    expect(h.fake.efforts).toEqual([undefined]);
+    expect(h.fake.budgets).toEqual([
+      { budget: undefined, model: "claude-test" },
+    ]);
     await h.fake.say("hello back");
     h.fake.finish("run-1", { status: "done", text: "hello back" });
     await settle();
@@ -515,6 +531,66 @@ describe("start", () => {
       text: "hello back",
       usage: { costUsd: 0.5, inputTokens: 10, outputTokens: 4 },
     });
+  });
+
+  test("applies the agent's effort and context budget, and stores them with the run", async () => {
+    const h = build();
+    await h.core.start(
+      withRuntimeConfig(startOf("run-1"), {
+        contextBudget: "small",
+        effort: "high",
+      })
+    );
+    expect(h.fake.efforts).toEqual(["high"]);
+    expect(h.fake.budgets).toEqual([{ budget: "small", model: "claude-test" }]);
+    expect(await h.storage.get("run:run-1")).toMatchObject({
+      contextBudget: "small",
+      effort: "high",
+    });
+  });
+
+  test("an agent with no effort or budget stores neither on the run", async () => {
+    const h = build();
+    await h.core.start(startOf("run-1"));
+    const stored = await h.storage.get("run:run-1");
+    expect(stored).not.toHaveProperty("effort");
+    expect(stored).not.toHaveProperty("contextBudget");
+  });
+
+  test("an unknown effort or budget value reaches Pi as undefined", async () => {
+    const h = build();
+    await h.core.start(
+      withRuntimeConfig(startOf("run-1"), {
+        contextBudget: "huge",
+        effort: "extreme",
+      })
+    );
+    expect(h.fake.efforts).toEqual([undefined]);
+    expect(h.fake.budgets).toEqual([
+      { budget: undefined, model: "claude-test" },
+    ]);
+  });
+
+  test("a run that joins a busy session leaves the effort and budget alone", async () => {
+    const h = build();
+    await h.core.start(
+      withRuntimeConfig(startOf("run-1", "first"), {
+        contextBudget: "large",
+        effort: "low",
+      })
+    );
+    await h.fake.say("working");
+    await h.core.start(
+      withRuntimeConfig(startOf("run-2", "change of plan"), {
+        contextBudget: "small",
+        effort: "high",
+      })
+    );
+    expect(h.fake.efforts).toEqual(["low"]);
+    expect(h.fake.budgets).toEqual([{ budget: "large", model: "claude-test" }]);
+    h.fake.finish("run-1", { status: "done" });
+    h.fake.finish("run-2", { status: "done" });
+    await settle();
   });
 
   test("a second start of the same run adds no events and no second completion", async () => {
@@ -1220,6 +1296,48 @@ describe("resume", () => {
     const h = build({ storage });
     await h.core.resume();
     expect(h.fake.instructions).toEqual(["Stored text."]);
+  });
+
+  test("submits a run again with the effort and context budget it was started with", async () => {
+    const storage = memoryStorage();
+    await storage.put("runs", ["run-1"]);
+    await storage.put("run:run-1", {
+      agentId: "agent-1",
+      contextBudget: "large",
+      effort: "medium",
+      fileIds: [],
+      instructions: "Be brief.",
+      model: "claude-test",
+      startedAt: 0,
+      state: "active",
+      text: "hello",
+      workspaceId: "workspace-1",
+    });
+    const h = build({ storage });
+    await h.core.resume();
+    expect(h.fake.efforts).toEqual(["medium"]);
+    expect(h.fake.budgets).toEqual([{ budget: "large", model: "claude-test" }]);
+  });
+
+  test("a run stored without effort or budget resumes with both cleared", async () => {
+    const storage = memoryStorage();
+    await storage.put("runs", ["run-1"]);
+    await storage.put("run:run-1", {
+      agentId: "agent-1",
+      fileIds: [],
+      instructions: "Be brief.",
+      model: "claude-test",
+      startedAt: 0,
+      state: "active",
+      text: "hello",
+      workspaceId: "workspace-1",
+    });
+    const h = build({ storage });
+    await h.core.resume();
+    expect(h.fake.efforts).toEqual([undefined]);
+    expect(h.fake.budgets).toEqual([
+      { budget: undefined, model: "claude-test" },
+    ]);
   });
 
   test("works the unfinished runs again after a wake and leaves finished ones", async () => {

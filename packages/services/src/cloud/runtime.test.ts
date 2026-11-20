@@ -521,6 +521,59 @@ describe("a dry run", () => {
   });
 });
 
+describe("the agent's thinking level and context budget", () => {
+  const setRuntimeConfig = (config: Record<string, unknown>) => {
+    db.update(agentRows)
+      .set({ runtimeConfig: JSON.stringify(config) })
+      .where(eq(agentRows.id, agentId))
+      .run();
+  };
+
+  const startedConfig = () => {
+    const [input] = runner.startCalls.slice(-1);
+    if (!input) {
+      throw new Error("The runner was not started");
+    }
+    return input.agent.runtimeConfig;
+  };
+
+  test("both settings reach the runner in the agent's runtime config", async () => {
+    setRuntimeConfig({ contextBudget: "small", effort: "high", maxTurns: 20 });
+
+    await start();
+
+    expect(startedConfig()).toEqual({
+      contextBudget: "small",
+      effort: "high",
+      maxTurns: 20,
+    });
+  });
+
+  test("an agent with no setting starts with a runtime config that has neither", async () => {
+    await start();
+
+    const config = startedConfig();
+    expect(config).not.toHaveProperty("effort");
+    expect(config).not.toHaveProperty("contextBudget");
+  });
+
+  test("a subagent keeps its own settings, so it gets neither of the agent's", async () => {
+    setRuntimeConfig({ contextBudget: "small", effort: "high", maxTurns: 20 });
+    runner.startFailure = new Error("runner unavailable");
+    const { runId } = await start();
+    db.update(runRows)
+      .set({ subagentLevel: 1 })
+      .where(eq(runRows.id, runId))
+      .run();
+
+    runner.startFailure = null;
+    nowMs += STALE_QUEUE_MS + SECOND;
+    await runs.sweepQueuedRuns(SYSTEM_PRINCIPAL);
+
+    expect(startedConfig()).toEqual({ maxTurns: 20 });
+  });
+});
+
 describe("the model a run starts on", () => {
   const startedModel = () => {
     const [input] = runner.startCalls.slice(-1);

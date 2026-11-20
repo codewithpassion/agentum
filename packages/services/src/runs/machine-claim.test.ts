@@ -867,6 +867,68 @@ test("the claim carries a subagent's override and can run it alongside its paren
   expect(status(child.runId)?.status).toBe("running");
 });
 
+test("a claim carries the agent's thinking level and context budget in its runtime config", async () => {
+  const configured = await createAgentsService({
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  }).create(user, {
+    machineId: "m1",
+    model: "m",
+    name: "Tuned",
+    runtime: "machine",
+    runtimeConfig: { contextBudget: "large", effort: "low" },
+  });
+
+  const claimed = await claim("m1", (await start(configured.id)).runId);
+
+  expect(claimed.agent.runtimeConfig).toEqual({
+    contextBudget: "large",
+    effort: "low",
+  });
+});
+
+test("a claim of an agent with no setting has neither in its runtime config", async () => {
+  const claimed = await claim("m1", (await start(agentId)).runId);
+
+  expect(claimed.agent.runtimeConfig).not.toHaveProperty("effort");
+  expect(claimed.agent.runtimeConfig).not.toHaveProperty("contextBudget");
+});
+
+test("a subagent's claim keeps its own settings and carries neither of the agent's", async () => {
+  const configured = await createAgentsService({
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  }).create(user, {
+    machineId: "m1",
+    model: "m",
+    name: "Lead",
+    runtime: "machine",
+    runtimeConfig: { contextBudget: "large", effort: "high", maxTurns: 20 },
+  });
+  const parent = await start(configured.id);
+  const child = await start(configured.id);
+  db.update(runRows)
+    .set({ parentRunId: parent.runId, subagentLevel: 1 })
+    .where(eq(runRows.id, child.runId))
+    .run();
+
+  const claimedParent = await claim("m1", parent.runId);
+  const claimedChild = await claim("m1", child.runId);
+
+  expect(claimedParent.agent.runtimeConfig).toEqual({
+    contextBudget: "large",
+    effort: "high",
+    maxTurns: 20,
+  });
+  expect(claimedChild.agent.runtimeConfig).toEqual({ maxTurns: 20 });
+});
+
 /** A memory file as the library holds it: one note, written by a person. */
 const memoryFile = (
   path: string,
