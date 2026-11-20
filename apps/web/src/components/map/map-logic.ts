@@ -9,6 +9,7 @@ import type {
   MapWireKind,
 } from "@repo/db/shared";
 import { MarkerType } from "@xyflow/react";
+import { RUNTIME_NAMES } from "#/components/agent/profile/profile-logic.ts";
 import { isDeletableWire } from "./editor-logic.ts";
 import {
   type AgentFlowNode,
@@ -58,15 +59,8 @@ export function visiblePorts<T extends { kind: string }>(
   return { hidden: ordered.length - shown.length, shown };
 }
 
-const RUNTIME_SHORT: Record<AgentRuntime, string> = {
-  cloud: "Cloud",
-  fake: "Test runner",
-  machine: "My computer",
-  managed: "Anthropic cloud",
-};
-
 export function runtimeShort(runtime: AgentRuntime): string {
-  return RUNTIME_SHORT[runtime];
+  return RUNTIME_NAMES[runtime];
 }
 
 /** Runs per agent whose `createdAt` falls in the last `days` days up to `nowMs`. */

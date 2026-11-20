@@ -3,7 +3,7 @@ id: KY.10
 title: "What a plain member can do on the Keys tab"
 milestone: KY
 size: S
-status: in_progress
+status: done
 depends_on: [KY.7]
 branch: task/KY.10-what-a-plain-member-can-do-on-the-keys-t
 lane: web-keys
@@ -31,3 +31,4 @@ Service tests for owner, admin and member on assign, mode, allowed tools, remove
 ## Log
 - 2026-11-20: added from the KY walkthrough.
 - 2026-11-20: dispatched on task/KY.10-what-a-plain-member-can-do-on-the-keys-t (v4 controller session).
+- 2026-11-20: merged as 32b252c4, review clean after 2 fix rounds. Browser proof passed for admin and a plain member at both sizes: docs/reviews/tasks/KY.10/browser.md. check, test and build passed on main. The setOwners hole became KY.13.

@@ -14,6 +14,7 @@ import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
+import { AllowedNamesList } from "./allowed-names-list.tsx";
 import {
   extraToolNames,
   matchesToolFilter,
@@ -75,6 +76,7 @@ export function AllowedToolsDialog({
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(allowedTools ?? [])
   );
+  const [names, setNames] = useState<string[]>(() => allowedTools ?? []);
   const [filter, setFilter] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -136,14 +138,18 @@ export function AllowedToolsDialog({
 
   const clearSelection = useCallback(() => setSelected(new Set()), []);
 
+  const removeName = useCallback((name: string) => {
+    setNames((previous) => previous.filter((item) => item !== name));
+  }, []);
+
   const save = useCallback(
-    async (names: string[]) => {
+    async (allowed: string[]) => {
       setPending(true);
       setError(null);
       try {
         await getTrpc().connectors.assign.mutate({
           agentId,
-          allowedTools: names,
+          allowedTools: allowed,
           connectorId: connector.id,
           credentialMode,
         });
@@ -161,9 +167,15 @@ export function AllowedToolsDialog({
     [save, selected]
   );
 
+  const saveNames = useCallback(() => save(names), [save, names]);
+  const namesUnchanged = names.length === (allowedTools ?? []).length;
+
   const clearList = useCallback(() => save([]), [save]);
 
   const hasTools = tools.length > 0;
+  const hasSavedNames = allowedTools !== null && allowedTools.length > 0;
+  const showSavedNames = !hasTools && hasSavedNames;
+  const showNoCacheNotice = !(hasTools || hasSavedNames);
   const noMatches =
     hasTools && visibleTools.length === 0 && visibleExtras.length === 0;
 
@@ -230,23 +242,48 @@ export function AllowedToolsDialog({
               ) : null}
             </div>
           </div>
-        ) : (
+        ) : null}
+        {showSavedNames ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-muted-foreground text-sm">
+              This connector&apos;s tool list has not been fetched yet. These
+              are the tools allowed for this agent. Remove any you do not want.
+            </p>
+            <AllowedNamesList
+              disabled={pending}
+              names={names}
+              onRemove={removeName}
+            />
+            {names.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No names left. Saving allows every tool.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {showNoCacheNotice ? (
           <p className="text-muted-foreground text-sm">
             This connector has no cached tool list, so tools cannot be picked
             here. Clearing the list allows every tool.
           </p>
-        )}
+        ) : null}
         {error !== null && <p className="text-destructive text-sm">{error}</p>}
         <DialogFooter>
           {hasTools ? (
             <Button disabled={pending} onClick={saveSelection}>
               Save
             </Button>
-          ) : (
+          ) : null}
+          {showSavedNames ? (
+            <Button disabled={pending || namesUnchanged} onClick={saveNames}>
+              {names.length === 0 ? "Allow every tool" : "Save"}
+            </Button>
+          ) : null}
+          {showNoCacheNotice ? (
             <Button disabled={pending} onClick={clearList}>
               Clear list
             </Button>
-          )}
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -17,7 +17,7 @@ import type {
 import { errorMessage } from "#/lib/error-message";
 import { AddApp } from "./add-app.tsx";
 import { AppRow } from "./app-row.tsx";
-import { canSetAgentCredential, isSecretBacked } from "./keys-logic.ts";
+import { canManageAgentKeys, isSecretBacked } from "./keys-logic.ts";
 
 type MySignIn = RouterOutputs["connectors"]["mine"][number];
 
@@ -43,7 +43,7 @@ export function AppsSection({
 }) {
   const { orgRole, userId } = useAuth();
   const isAdmin = orgRole === "org:admin";
-  const canSetCredential = canSetAgentCredential({ agent, isAdmin, userId });
+  const canManage = canManageAgentKeys({ agent, isAdmin, userId });
   const router = useRouter();
   const agentId = agent.id;
   const agentRef = useMemo(
@@ -155,9 +155,11 @@ export function AppsSection({
     id === null
       ? undefined
       : loaded?.connectors.find((connector) => connector.id === id);
-  // A member cannot change an app that runs on a workspace secret.
+  // Only the agent's owners and admins change its apps. A member cannot
+  // change an app that runs on a workspace secret.
   const canEdit = (connector: ConnectorRecord | undefined): boolean =>
-    isAdmin || connector === undefined || !isSecretBacked(connector);
+    canManage &&
+    (isAdmin || connector === undefined || !isSecretBacked(connector));
   const toolsApp = apps.find((app) => app.connectorId === toolsId);
   const toolsConnector = connectorOf(toolsId);
   const pasteConnector = connectorOf(paste?.connectorId ?? null);
@@ -180,7 +182,7 @@ export function AppsSection({
               agentId={agentId}
               app={app}
               canEdit={canEdit(connectorOf(app.connectorId))}
-              canSetCredential={canSetCredential}
+              canSetCredential={canManage}
               connector={connectorOf(app.connectorId)}
               isAdmin={isAdmin}
               key={app.connectorId}
@@ -199,6 +201,7 @@ export function AppsSection({
           assignedIds={assignedIds}
           catalog={loaded.catalog}
           connectors={loaded.connectors}
+          disabled={!canManage}
           isAdmin={isAdmin}
           onAdded={reload}
         />
