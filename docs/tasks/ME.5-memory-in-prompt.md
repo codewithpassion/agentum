@@ -3,9 +3,9 @@ id: ME.5
 title: "Load memory and remember rules at run start"
 milestone: ME
 size: M
-status: todo
+status: in_progress
 depends_on: [ME.2]
-branch: null
+branch: task/ME.5-memory-in-prompt
 lane: services-prompt
 executor: claude
 ---
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone ME. An agent must start each run knowing
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/ME.5-memory-in-prompt (v4 controller session).
