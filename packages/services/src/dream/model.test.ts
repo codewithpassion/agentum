@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createDreamModel, DREAM_PRICE_PER_MILLION } from "./model.ts";
+import { createDreamModel } from "./model.ts";
 import { defined } from "./test-dream.ts";
 
 const reply = (body: unknown, status = 200) =>
@@ -29,14 +29,10 @@ test("a call goes to the Messages API on the dream model with the workspace's ke
   expect(defined(seen[0]).body.system).toBe("system");
   expect(model.failedCalls()).toBe(0);
   expect(model.usage()).toEqual({
-    costUsd: DREAM_PRICE_PER_MILLION.input + DREAM_PRICE_PER_MILLION.output,
+    costUsd: 0.1 + 0.5,
     inputTokens: 1_000_000,
     outputTokens: 1_000_000,
   });
-});
-
-test("the dream is priced at the claude-haiku-5-5 rates for prompts up to 100K tokens", () => {
-  expect(DREAM_PRICE_PER_MILLION).toEqual({ input: 0.1, output: 0.5 });
 });
 
 test("a failed request, an error status and an empty reply are counted and answer null", async () => {
