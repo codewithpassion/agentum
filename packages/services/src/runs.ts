@@ -82,6 +82,7 @@ import {
 } from "./runs/guest-scope.ts";
 import { type ChildOutcome, handoffWakeText } from "./runs/handoff-wake.ts";
 import { claimForMachine } from "./runs/machine-claim.ts";
+import { HANDOFF_WAKE_PREFIX, notHeldByPause } from "./runs/pause-hold.ts";
 import { peerRootOf } from "./runs/peer-root.ts";
 import {
   findSession,
@@ -1515,6 +1516,7 @@ export const createRunsService = ({
           inArray(runs.status, STARTING),
           // A run with pending Slack files is not claimable.
           isNull(runs.pendingFiles),
+          notHeldByPause(db),
           // One running run per agent; a waiting run still holds its agent.
           notExists(
             db
@@ -2134,6 +2136,7 @@ export const createRunsService = ({
     if (run.status !== "waiting") {
       await appendRunEvent(run, "run.waiting", agentActor(run));
     }
+    await enforceCap(run.agentId);
     // The turn's own words (what it asked) reach the requester now, as a finished turn's would.
     try {
       await deliverReply(run, { fileIds, text: result.text ?? "" });
@@ -2362,7 +2365,7 @@ export const createRunsService = ({
             }),
           },
           reply: parent.reply.kind === "a2a" ? { kind: "none" } : parent.reply,
-          requestId: `handoff-wake:${child.id}`,
+          requestId: `${HANDOFF_WAKE_PREFIX}${child.id}`,
           session: {
             origin: parentSession.origin as StartRunInput["session"]["origin"],
           },

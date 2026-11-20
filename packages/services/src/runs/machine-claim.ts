@@ -35,6 +35,7 @@ import type { SecretsService } from "../secrets.ts";
 import type { Principal } from "../workspaces.ts";
 import { requireOrdinaryMachineRun } from "./guest-scope.ts";
 import { buildLaunchContext } from "./launch-context.ts";
+import { notHeldByPause } from "./pause-hold.ts";
 import { peerRootOf } from "./peer-root.ts";
 import { findSessionById, loadRun } from "./queries.ts";
 import type { MachineClaim, RunRecord } from "./types.ts";
@@ -208,6 +209,7 @@ export const claimForMachine = async (
         eq(runs.workspaceId, run.workspaceId),
         inArray(runs.status, STARTING),
         isNull(runs.pendingFiles),
+        notHeldByPause(deps.db),
         exists(
           db
             .select({ id: agents.id })

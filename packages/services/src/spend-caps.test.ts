@@ -306,3 +306,31 @@ test("caps lists each agent's cap and pause", async () => {
     workspaceCapCents: null,
   });
 });
+
+test("a run queued before the pause waits for the resume, unless it is a follow-up of work under way", async () => {
+  setCap(aId, CAP_CENTS);
+  const followUp = await start(aId, "mcp");
+  const waiting = await start(aId);
+  db.update(runRows)
+    .set({ requestId: "question-answer:parked" })
+    .where(eq(runRows.id, followUp.runId))
+    .run();
+  await spendOn(aId, 2);
+  expect(agentRow(aId)?.pausedAt).toBe(START);
+
+  await expect(
+    runs.claimRun(SYSTEM_PRINCIPAL, waiting.runId)
+  ).rejects.toMatchObject({ message: "Run cannot be claimed" });
+  expect((await runs.claimRun(SYSTEM_PRINCIPAL, followUp.runId)).status).toBe(
+    "running"
+  );
+
+  db.update(runRows)
+    .set({ status: "done" })
+    .where(eq(runRows.id, followUp.runId))
+    .run();
+  await spend.resume(owner, { agentId: aId, weeklyCapCents: 5000 });
+  expect((await runs.claimRun(SYSTEM_PRINCIPAL, waiting.runId)).status).toBe(
+    "running"
+  );
+});

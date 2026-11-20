@@ -509,7 +509,17 @@ export const createDeskService = ({
           and(
             eq(agentRows.workspaceId, member.workspaceId),
             eq(agentRows.status, "active"),
-            eq(agentRows.pausedReason, "spend_cap")
+            eq(agentRows.pausedReason, "spend_cap"),
+            // Only the owner or an org admin can resume, so only they get the card.
+            member.isAdmin === true
+              ? undefined
+              : or(
+                  eq(agentRows.ownerUserId, member.userId),
+                  and(
+                    isNull(agentRows.ownerUserId),
+                    eq(agentRows.createdBy, member.userId)
+                  )
+                )
           )
         ),
     ]);

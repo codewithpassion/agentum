@@ -1077,6 +1077,23 @@ test("an agent paused by its weekly cap is one spend_pause card until it is resu
   expect(await desk.needsYouCount(user())).toBe(1);
   expect((await get({ agentId: a2 })).needsYou).toEqual([]);
 
+  // Only the owner, or an org admin, can resume, so only they get the card.
+  const otherMember: Extract<Principal, { kind: "user" }> = {
+    kind: "user",
+    userId: "u9",
+    via: "session",
+    workspaceId: "w1",
+  };
+  const dayStart = DAY_START;
+  expect((await desk.railSources(otherMember, { dayStart })).needsYou).toEqual(
+    []
+  );
+  expect(await desk.needsYouCount(otherMember)).toBe(0);
+  expect(
+    (await desk.railSources({ ...otherMember, isAdmin: true }, { dayStart }))
+      .needsYou
+  ).toHaveLength(1);
+
   pause(a1, null);
   expect((await get()).needsYou).toEqual([]);
   expect(await desk.needsYouCount(user())).toBe(0);
