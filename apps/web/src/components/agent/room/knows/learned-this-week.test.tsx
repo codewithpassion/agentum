@@ -3,9 +3,10 @@ import type { MemoryChange } from "@repo/db/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LearnedList } from "./learned-this-week.tsx";
 
-const NOW_MS = Date.parse("2026-11-20T12:00:00.000Z");
-const TODAY_ISO = "2026-11-20T08:00:00.000Z";
-const YESTERDAY_ISO = "2026-11-19T20:00:00.000Z";
+// Built from local parts, because "today" and "yesterday" are local days.
+const NOW_MS = new Date(2026, 10, 20, 12, 0, 0).getTime();
+const TODAY_ISO = new Date(2026, 10, 20, 8, 0, 0).toISOString();
+const YESTERDAY_ISO = new Date(2026, 10, 19, 20, 0, 0).toISOString();
 
 function makeChange(overrides: Partial<MemoryChange>): MemoryChange {
   return {
