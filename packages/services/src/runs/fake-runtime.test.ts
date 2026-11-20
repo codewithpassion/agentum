@@ -371,7 +371,7 @@ test("a run whose memory cannot be read still echoes", async () => {
   }
 });
 
-test("a run that fails while loading its launch context still echoes", async () => {
+test("a run whose memory loading throws before any read still echoes", async () => {
   const log = spyOn(console, "error").mockImplementation(() => undefined);
   try {
     const brokenLibrary = {
@@ -391,4 +391,20 @@ test("a run that fails while loading its launch context still echoes", async () 
   } finally {
     log.mockRestore();
   }
+});
+
+test("a tool-mode run answers with the tool's result and lists no notes", async () => {
+  runs = buildRuns(
+    stubProxy,
+    libraryWith({
+      "work.md": serializeMemoryFile("work.md", [note("Not for a tool run")]),
+    })
+  );
+  const { summary } = await runAs(
+    user,
+    await agentWithApp("fake-tool"),
+    "workers kv"
+  );
+
+  expect(summary.resultText).toBe(`Used ${TOOL}: Workers KV is a store.`);
 });
