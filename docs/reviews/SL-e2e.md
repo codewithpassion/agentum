@@ -1,8 +1,37 @@
 # SL end-to-end: one Slack channel for a team room
 
-Task SL.5. The local walkthrough is done against a fake Slack, and a fresh verifier drove it in a browser at 1280x800 and 390x844: `docs/reviews/tasks/SL.5/browser.md`. The staging walkthrough with a real Slack workspace is written below and is waiting on Dom.
+Task SL.5. The local walkthrough runs against a fake Slack and passes, in process and in a browser (`docs/reviews/tasks/SL.5/browser.md`). The staging walkthrough with a real Slack workspace is written below and is waiting on Dom.
 
-LOCAL_RESULT_PLACEHOLDER
+## Local result
+
+The whole link runs on a local fake Slack, in both directions, with three member apps. It passes in two ways.
+
+`apps/web/src/server/slack-room-flow.test.ts` runs it in process. Slack's signed events reach the real events route, the three agents run on the fake runtime, and their posts go out through the real Slack client to the fake. It covers linking and the missing-app status, one post for a message every app hears, thread to topic, a guest, a mention, the lead hearing an unaddressed message, an agent post through its own app, a person's post through the lead's app with their name, the fallback to the lead's app, no echo of the apps' own messages, a request card in the topic's Slack thread with a signed click that answers it, `slack_history` and `slack_search`, and an unlinked channel keeping the old path.
+
+A fresh verifier then drove the real app in a browser against the same fake, at 1280x800 and 390x844, and passed all six flows at both sizes (link, Slack to room, thread and guest, mention, Agentum to Slack with the fallback, unlink). It saw no console error and no failed request. The report and 36 screenshots are in `docs/reviews/tasks/SL.5/`. The approval card and the two agent tools cannot be walked in a browser, because the fake runtime never asks for approval. The in-process test covers them.
+
+To run it again, from the repo root, in this order. The app needs `VITE_FAKE_SLACK_URL`, which only a dev build reads.
+
+1. `cd apps/web && bunx wrangler d1 migrations apply DB --local`
+2. `VITE_FAKE_SLACK_URL=http://127.0.0.1:5199 bunx vite dev --port 5191` in `apps/web`
+3. `bun scripts/dev/fake-slack.ts --app-url http://localhost:5191 --port 5199`
+4. Open `http://localhost:5191/api/dev-login` once, then `bun scripts/dev/seed-slack-room.ts`. It makes the "Launch" team, three agents with their apps, and the identity link for the dev user. It reads the dev user's Clerk id and creates no Clerk user.
+5. Open `http://localhost:5199/` to write in the channel as Dev Person or Gus Guest, invite or remove an app, and press card buttons.
+
+### The SL.2 questions
+
+SL.2 moved linked-channel messages out of `slack_messages` and stored a Slack guest as a user post with author id `slack:<teamId>:<userId>`. Two things followed.
+
+- `slack_history` still works. It reads Slack live and never used `slack_messages`. Messages that a member app sent for a person show up with the app's bot id and the person's name in bold at the start of the text.
+- `slack_search` was broken. It reads only `slack_messages`, so a linked channel returned nothing. It now also searches the room posts of a linked channel, for agents on that team, in topics open to the whole team, and only while the channel is still linked to that topic's team. A guest's name and label do not match a search word. The e2e test fails without the change.
+- Guest posts rendered as "Teammate" with `<Name> (Slack guest):` in the body. The room now shows the guest's name, a muted "Slack guest" tag and the message alone.
+
+## Fixed on this branch
+
+- `slack_search` finds the messages of a linked channel (above).
+- Guest posts read well in the team room (above).
+- A dev build can point Slack's Web API at a local fake (`apps/web/src/server/dev-slack-fetch.ts`). It needs a dev build and `VITE_FAKE_SLACK_URL`, so a deployed Worker never uses it.
+
 
 ## Waiting on Dom: staging with a real Slack workspace
 
@@ -47,4 +76,36 @@ For each step: pass, or what you saw instead. Also note how long A's answer take
 
 ## Findings and proposed tasks
 
-PROPOSED_PLACEHOLDER
+These are larger than a fix, so none is built here.
+
+### SL.6 A fake runtime that asks for approval in a room
+
+Finding. The browser walkthrough cannot show the approval card in a Slack thread, because the fake runtime only echoes. The card path is covered in process only.
+
+Scope. A fake mode chosen by a marker in the task text (for example `ask:<tool>`) that opens an approval request for the run, waits for the answer, and then replies with the decision. It registers only when `devFakeRuntime` is true.
+
+Check. A run test for the mode. Browser: post `@ada ask:send_email` in a linked room, see the card in the fake Slack thread, press Allow once there, and see the request close in Agentum and the card settle.
+
+### SL.7 A guest author kind
+
+Finding. A guest is a user post with the name inside the text, and the room and `slack_search` each parse the `(Slack guest):` prefix. That is two copies of a convention nothing enforces. A topic a guest opens also stores the guest id in `created_by`.
+
+Scope. A contract task adds a `guest` author kind or a `guest_name` column on `inbox_posts`, `postExternal` writes it, and the two readers use it. Existing rows are migrated by splitting the prefix.
+
+Check. Migration test on rows with the prefix. Room and search tests no longer parse text.
+
+### SL.8 Slack markup both ways
+
+Finding. Room text keeps raw Slack markup (`<@U123>`, `<#C123|name>`, `<https://x|label>`). Agentum text goes out as written, so `@name` is plain text and markdown is not mrkdwn.
+
+Scope. Convert Slack user, channel and link markup to readable text on the way in, and `@slug` and markdown to Slack mentions and mrkdwn on the way out.
+
+Check. Unit tests for both converters. Browser with the fake: a message with a mention and a link reads cleanly in the room, and an `@ada` in a person's post goes out as a real mention.
+
+### SL.9 A sweep for lost room work
+
+Finding. The room wake (SL.2) and the room send (SL.3) both run in `waitUntil` with no backup. A lost job loses that wake or that message, and nothing retries it.
+
+Scope. A minute-tick job that wakes the lead for room posts no wake has seen, and sends posts in a linked room that have no `out` row.
+
+Check. Tick test that drops the deferred job and sees the sweep finish the work once.
