@@ -51,12 +51,12 @@ const run = (id: string) =>
 const sessionRuns = (sessionId: string) =>
   db.select().from(runRows).where(eq(runRows.sessionId, sessionId)).all();
 
-const startRun = async (text = "hi") => {
+const startRun = async (text = "hi", externalKey?: string) => {
   nowMs += 1000;
   return await runs.startRun(user, {
     agentId,
     input: { text },
-    session: { origin: "ui" },
+    session: { origin: "ui", ...(externalKey ? { externalKey } : {}) },
   });
 };
 const claim = (runId: string) =>
@@ -400,7 +400,8 @@ test("the pending list masks the answers given so far", async () => {
 
 test("the same questions raised by a later run get a card of their own, which that run's cancel closes", async () => {
   const first = await raisedAndDone();
-  const second = await startRun();
+  const second = await startRun("again", first.started.sessionId);
+  expect(second.sessionId).toBe(first.started.sessionId);
   await claim(second.runId);
   const mine = await raise(second.runId);
   expect(mine.id).not.toBe(first.opened.id);
