@@ -1,9 +1,8 @@
 import type { TeamMemberKind } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useCallback, useId, useState } from "react";
-import { AVATAR_CLASSES } from "#/components/roster/roster-logic.ts";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import { Button } from "#/components/ui/button";
-import { cn } from "#/lib/utils.ts";
 import { AddMemberForm } from "./add-member-form.tsx";
 import {
   type MemberRow,
@@ -15,18 +14,11 @@ import {
 const UNKNOWN_GLYPH = "?";
 
 function AgentAvatar({ row }: { row: MemberRow }) {
-  const color = row.avatar === null ? "slate" : row.avatar.color;
-  const glyph = row.avatar === null ? UNKNOWN_GLYPH : row.avatar.glyph;
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-lg font-semibold text-white",
-        AVATAR_CLASSES[color]
-      )}
-    >
-      {glyph}
-    </span>
+    <AgentTile
+      avatar={row.avatar ?? { color: "slate", glyph: UNKNOWN_GLYPH }}
+      size="lg"
+    />
   );
 }
 

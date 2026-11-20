@@ -8,10 +8,7 @@ import { teamMembers, teams } from "@repo/db/schema/teams";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
-  AGENT_AVATAR_COLORS,
-  type AgentAvatar,
   type AgentCard,
-  defaultAgentAvatar,
   LIVE_RUN_STATUSES,
   type RailView,
 } from "@repo/db/shared";
@@ -27,7 +24,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { z } from "zod";
+import { avatarOf } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { readableWorkspace } from "./guards.ts";
 import { mailSubjectsOf } from "./mail-subjects.ts";
@@ -45,26 +42,6 @@ const ROSTER_READ = "roster.read";
 const ROSTER_KIND = "roster";
 const JOB_LINE_MAX_CHARS = 80;
 export const PAUSED_STATUS_LINE = "Paused. Weekly limit reached";
-
-type AgentRow = typeof agents.$inferSelect;
-
-const storedAvatarSchema = z.object({
-  color: z.enum(AGENT_AVATAR_COLORS),
-  glyph: z.string().min(1),
-});
-
-const parseJson = (raw: string): unknown => {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-};
-
-const avatarFor = (row: AgentRow): AgentAvatar => {
-  const parsed = storedAvatarSchema.safeParse(parseJson(row.avatar));
-  return parsed.success ? parsed.data : defaultAgentAvatar(row.name);
-};
 
 // A sentence ends at punctuation (and a closing quote or bracket) followed by
 // whitespace/end; collapse line breaks within it. Clip by Unicode code points so
@@ -480,7 +457,7 @@ export const createRosterService = ({
         names.get(assigneeOf(row, null) ?? "") ?? wait?.owner ?? "";
       const home = homeTeams.get(row.id);
       return {
-        avatar: avatarFor(row),
+        avatar: avatarOf(row),
         costThisWeekCents: Math.round((costs.get(row.id) ?? 0) * 100),
         id: row.id,
         isLead: home?.isLead ?? false,

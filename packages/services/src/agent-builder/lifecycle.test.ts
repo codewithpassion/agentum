@@ -81,6 +81,7 @@ const draft: AgentDraft = {
 };
 
 const agentRecord = (overrides: Partial<AgentRecord> = {}): AgentRecord => ({
+  avatar: { color: "slate", glyph: "A" },
   backupUserId: null,
   computerMachineId: null,
   createdAt: "2026-10-27T09:00:00.000Z",

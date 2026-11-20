@@ -10,6 +10,7 @@ import type { Database } from "@repo/db";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import {
+  type AgentAvatar,
   type AgentRuntime,
   type AgentStatus,
   isPendingProposal,
@@ -70,6 +71,8 @@ export interface AgentRef {
 }
 
 export interface ProfileHeader {
+  /** The agent's stored avatar, the same one its card shows. */
+  avatar: AgentAvatar;
   emailLocal: string | null;
   id: string;
   machine: { id: string; name: string; status: MachineStatus } | null;
@@ -407,6 +410,7 @@ export const createAgentProfileService = ({
         return target ? [toRef(target)] : [];
       }),
       header: {
+        avatar: agent.avatar,
         emailLocal: agent.emailLocal,
         id: agent.id,
         machine: machine

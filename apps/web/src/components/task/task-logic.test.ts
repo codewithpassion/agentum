@@ -95,7 +95,14 @@ test("an agent runs on its machine, else its runtime's name", () => {
   const agent = (
     machine: { id: string; name: string } | null,
     runtime: TaskView["agent"]["runtime"] = "cloud"
-  ) => ({ id: "a", machine, name: "A", runtime }) as TaskView["agent"];
+  ) =>
+    ({
+      avatar: { color: "slate", glyph: "A" },
+      id: "a",
+      machine,
+      name: "A",
+      runtime,
+    }) as TaskView["agent"];
   expect(runsOnText(agent({ id: "m", name: "Dom's laptop" }, "machine"))).toBe(
     "Dom's laptop"
   );

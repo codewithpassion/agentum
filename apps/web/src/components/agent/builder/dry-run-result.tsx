@@ -98,7 +98,7 @@ function Following({ initial }: { initial: TaskView }) {
         </ul>
       )}
       <Receipt
-        agentName={task.agent.name}
+        avatar={task.agent.avatar}
         events={events}
         nowMs={nowMs}
         onAnswer={noAnswer}

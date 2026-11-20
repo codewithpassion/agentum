@@ -7,6 +7,7 @@ const noop = () => undefined;
 const header = (
   overrides: Partial<AgentProfileView["header"]>
 ): AgentProfileView["header"] => ({
+  avatar: { color: "blue", glyph: "S" },
   emailLocal: null,
   id: "agent_1",
   machine: null,

@@ -57,6 +57,7 @@ test("a spend pause card names the agent and offers Resume", () => {
   const html = renderToStaticMarkup(
     <NeedsYouCard
       agentName="Builder"
+      avatar={{ color: "blue", glyph: "B" }}
       card={{ ...thread, kind: "request", needsYouKind: "spend_pause" }}
       nowMs={0}
       onAnswer={answer}

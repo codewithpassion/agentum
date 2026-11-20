@@ -31,7 +31,7 @@ import {
   signSessionToken,
 } from "@repo/services/run-tokens";
 import type { Clock } from "@repo/services/runs/types";
-import type { Principal } from "@repo/services/workspaces";
+import { type Principal, SYSTEM_PRINCIPAL } from "@repo/services/workspaces";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import {
@@ -1487,4 +1487,43 @@ test("unrelated service errors keep the proxy's unavailable response", async () 
   } finally {
     resolve.mockRestore();
   }
+});
+
+describe("holding notes after a connector answer", () => {
+  test("an answered tools/call holds the run's notes once, for the token's run", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+    const hold = spyOn(composed.services.memory, "holdAfterOutsideText");
+
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+
+    expect(hold).toHaveBeenCalledTimes(1);
+    expect(hold).toHaveBeenCalledWith(SYSTEM_PRINCIPAL, "run_1");
+  });
+
+  test("a call the connector refuses with 403 holds nothing", async () => {
+    mount({
+      fetch: () => Promise.resolve(new Response("no", { status: 403 })),
+    });
+    await seedHeaderCredential();
+    addRun("run_1");
+    const hold = spyOn(composed.services.memory, "holdAfterOutsideText");
+
+    const rpc = (await (await call(await tokenFor("run_1"))).json()) as Rpc;
+
+    expect(rpc.error?.data?.code).toBe("upstream_refused");
+    expect(hold).not.toHaveBeenCalled();
+  });
+
+  test("a hold that throws does not change the answer the agent gets", async () => {
+    startStub();
+    await seedHeaderCredential();
+    addRun("run_1");
+    const hold = spyOn(composed.services.memory, "holdAfterOutsideText");
+    hold.mockRejectedValue(new Error("hold unavailable"));
+
+    expect(await echoed(await call(await tokenFor("run_1")))).toBe("hello");
+    expect(hold).toHaveBeenCalledTimes(1);
+  });
 });

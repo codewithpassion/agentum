@@ -13,6 +13,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { skillAssignments as assignedSkillRows } from "@repo/db/schema/skills";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
+import { defaultAgentAvatar } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { and, eq } from "drizzle-orm";
 import { createAgentsService } from "./agents.ts";
@@ -124,6 +125,22 @@ beforeEach(async () => {
     }))
   );
 });
+test("an agent node carries the stored avatar, or the default for its name when the column is unreadable", async () => {
+  await db
+    .update(agents)
+    .set({ avatar: JSON.stringify({ color: "violet", glyph: "Z" }) })
+    .where(eq(agents.id, "a"));
+  await db.update(agents).set({ avatar: "not json" }).where(eq(agents.id, "b"));
+  const { nodes } = await graph();
+  const avatarOfKey = (key: string) =>
+    nodes.find((node) => node.key === key)?.avatar;
+  expect(avatarOfKey("agent:a")).toEqual({ color: "violet", glyph: "Z" });
+  expect(avatarOfKey("agent:b")).toEqual(defaultAgentAvatar("b"));
+  expect(
+    nodes.filter((node) => node.kind !== "agent").map((node) => node.avatar)
+  ).toEqual(nodes.filter((node) => node.kind !== "agent").map(() => undefined));
+});
+
 test("counts every wire kind and combines Q&A events", async () => {
   await event("trigger.fired");
   await event("trigger.fired");

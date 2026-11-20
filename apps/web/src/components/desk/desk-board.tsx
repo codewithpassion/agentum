@@ -1,4 +1,8 @@
-import type { DeskCard } from "@repo/db/shared";
+import {
+  type AgentAvatar,
+  type DeskCard,
+  defaultAgentAvatar,
+} from "@repo/db/shared";
 import { useCallback, useState } from "react";
 import type {
   AnswerPayload,
@@ -19,14 +23,23 @@ export interface ProposedVersion {
 /** How many Done cards a phone shows before "Show more". */
 const DONE_PREVIEW = 5;
 
+/** The name shown for an agent card whose agent is not in the list. */
+const UNKNOWN_AGENT_NAME = "An agent";
+
+/** The name and tile a card shows: its agent, or the person who started it. */
+interface CardIdentity {
+  avatar: AgentAvatar;
+  name: string;
+}
+
 /** The Done cards. From md up all show. On a phone the latest few show, then "Show more". */
 function DoneCards({
   cards,
-  nameOf,
+  identityOf,
   nowMs,
 }: {
   cards: readonly DeskCard[];
-  nameOf: (card: DeskCard) => string;
+  identityOf: (card: DeskCard) => CardIdentity;
   nowMs: number;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -34,16 +47,24 @@ function DoneCards({
   const hidden = expanded ? 0 : Math.max(cards.length - DONE_PREVIEW, 0);
   return (
     <>
-      {cards.map((card, index) => (
-        <div
-          className={
-            index >= DONE_PREVIEW && !expanded ? "max-md:hidden" : undefined
-          }
-          key={card.id}
-        >
-          <DeskCardView agentName={nameOf(card)} card={card} nowMs={nowMs} />
-        </div>
-      ))}
+      {cards.map((card, index) => {
+        const { avatar, name } = identityOf(card);
+        return (
+          <div
+            className={
+              index >= DONE_PREVIEW && !expanded ? "max-md:hidden" : undefined
+            }
+            key={card.id}
+          >
+            <DeskCardView
+              agentName={name}
+              avatar={avatar}
+              card={card}
+              nowMs={nowMs}
+            />
+          </div>
+        );
+      })}
       {hidden > 0 ? (
         <Button
           className="md:hidden"
@@ -60,7 +81,7 @@ function DoneCards({
 
 /** The three lanes of the desk. */
 export function DeskBoard({
-  agentNames,
+  agents,
   desk,
   nowMs,
   onAnswer,
@@ -68,7 +89,7 @@ export function DeskBoard({
   requests,
   versions,
 }: {
-  agentNames: ReadonlyMap<string, string>;
+  agents: ReadonlyMap<string, CardIdentity>;
   desk: DeskView;
   nowMs: number;
   onAnswer: (view: RequestView, payload: AnswerPayload) => Promise<void>;
@@ -76,46 +97,64 @@ export function DeskBoard({
   requests: ReadonlyMap<string, RequestView>;
   versions: ReadonlyMap<string, ProposedVersion>;
 }) {
-  const nameOf = useCallback(
-    (card: DeskCard): string =>
-      card.actorKind === "user"
-        ? card.startedBy
-        : (agentNames.get(card.agentId) ?? "An agent"),
-    [agentNames]
+  const identityOf = useCallback(
+    (card: DeskCard): CardIdentity => {
+      if (card.actorKind === "user") {
+        return {
+          avatar: defaultAgentAvatar(card.startedBy),
+          name: card.startedBy,
+        };
+      }
+      return (
+        agents.get(card.agentId) ?? {
+          avatar: defaultAgentAvatar(UNKNOWN_AGENT_NAME),
+          name: UNKNOWN_AGENT_NAME,
+        }
+      );
+    },
+    [agents]
   );
 
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] items-start gap-4">
       <DeskLaneColumn count={desk.needsYou.length} lane="needs_you">
-        {desk.needsYou.map((card) => (
-          <NeedsYouCard
-            agentName={nameOf(card)}
-            card={card}
-            key={`${card.kind}-${card.id}`}
-            nowMs={nowMs}
-            onAnswer={onAnswer}
-            onChanged={onChanged}
-            request={requests.get(card.id) ?? null}
-            version={versions.get(card.id) ?? null}
-          />
-        ))}
+        {desk.needsYou.map((card) => {
+          const { avatar, name } = identityOf(card);
+          return (
+            <NeedsYouCard
+              agentName={name}
+              avatar={avatar}
+              card={card}
+              key={`${card.kind}-${card.id}`}
+              nowMs={nowMs}
+              onAnswer={onAnswer}
+              onChanged={onChanged}
+              request={requests.get(card.id) ?? null}
+              version={versions.get(card.id) ?? null}
+            />
+          );
+        })}
       </DeskLaneColumn>
       <DeskLaneColumn count={desk.running.length} lane="running">
-        {desk.running.map((card) => (
-          <DeskCardView
-            agentName={nameOf(card)}
-            card={card}
-            key={card.id}
-            nowMs={nowMs}
-          />
-        ))}
+        {desk.running.map((card) => {
+          const { avatar, name } = identityOf(card);
+          return (
+            <DeskCardView
+              agentName={name}
+              avatar={avatar}
+              card={card}
+              key={card.id}
+              nowMs={nowMs}
+            />
+          );
+        })}
       </DeskLaneColumn>
       <DeskLaneColumn
         count={desk.done.length + desk.doneMore}
         lane="done"
         more={desk.doneMore}
       >
-        <DoneCards cards={desk.done} nameOf={nameOf} nowMs={nowMs} />
+        <DoneCards cards={desk.done} identityOf={identityOf} nowMs={nowMs} />
       </DeskLaneColumn>
     </div>
   );

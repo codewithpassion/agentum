@@ -15,6 +15,7 @@ import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import {
   APPROVAL_TTL_MS,
+  defaultAgentAvatar,
   type EventType,
   type RunStatus,
 } from "@repo/db/shared";
@@ -593,6 +594,7 @@ test("get returns the run, its agent, its session and the session's other runs, 
     },
   ]);
   expect(view.agent).toEqual({
+    avatar: defaultAgentAvatar("Alpha"),
     computerMachineId: null,
     id: a1,
     machine: null,
@@ -712,6 +714,24 @@ test("get returns the computer the agent is attached to, or null when it has non
 
   expect(attached.agent.computerMachineId).toBe("mach-desk");
   expect(unattached.agent.computerMachineId).toBeNull();
+});
+
+test("get returns the agent's stored avatar for a session, its run and a session with no run", async () => {
+  const avatar = { color: "violet", glyph: "Z" } as const;
+  await db
+    .update(agentRows)
+    .set({ avatar: JSON.stringify(avatar) })
+    .where(eq(agentRows.id, a1));
+  await seedTask("run-avatar", { agentId: a1, status: "done" });
+  await seedSession({ agentId: a1, id: "s-empty" });
+
+  const session = await tasks.get(user(), { sessionId: "s-run-avatar" });
+  const run = await tasks.get(user(), { runId: "run-avatar" });
+  const empty = await tasks.get(user(), { sessionId: "s-empty" });
+
+  expect(session.agent.avatar).toEqual(avatar);
+  expect(run.agent.avatar).toEqual(avatar);
+  expect(empty.agent.avatar).toEqual(avatar);
 });
 
 test("get returns the events of every run in the session, oldest first, with the listed types only", async () => {
