@@ -131,10 +131,10 @@ export function TopBar({
   const linksExceptHome = links.filter((link) => link.label !== "Home");
 
   return (
-    <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-2 border-border border-b bg-background/90 px-3 backdrop-blur-lg sm:px-4 md:h-(--app-header-h)">
+    <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-2 border-border border-b bg-background/90 px-3 backdrop-blur-lg sm:px-4 lg:h-(--app-header-h)">
       <nav aria-label="Main" className="flex min-w-0 flex-1 items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-2 max-md:hidden">
-          <div className="w-52 shrink-0 lg:w-60">{workspace}</div>
+        <div className="flex min-w-0 flex-1 items-center gap-2 max-lg:hidden">
+          <div className="w-48 shrink-0">{workspace}</div>
           {links.map((link) => (
             <RailLink
               className={linkClass(link.label === current)}
@@ -153,7 +153,7 @@ export function TopBar({
           >
             <Search />
             Find
-            <kbd className="rounded border border-border px-1 text-[11px] text-muted-foreground">
+            <kbd className="rounded border border-border px-1 text-[11px] text-muted-foreground max-xl:hidden">
               {findShortcut}
             </kbd>
           </Button>
@@ -168,7 +168,7 @@ export function TopBar({
           {user}
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
+        <div className="flex min-w-0 flex-1 items-center gap-2 lg:hidden">
           {homeLinks.map((link) => (
             <RailLink
               className={cn(linkClass(link.label === current), "min-h-10")}

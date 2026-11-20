@@ -10,6 +10,7 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet";
 import { RailLink } from "./rail-link.tsx";
+import { needsYouLabel } from "./rail-logic.ts";
 import { NeedsYouRow } from "./rail-needs-you.tsx";
 import { RailQuestions } from "./rail-questions.tsx";
 import { ScopeToggle } from "./rail-scope-toggle.tsx";
@@ -40,7 +41,7 @@ export function NeedsYouList({ onNavigate, pinned, state }: NeedsYouListProps) {
     view,
   } = state;
   const now = new Date();
-  const countLabel = count === null ? "" : String(count);
+  const countLabel = needsYouLabel(count);
 
   return (
     <div className="flex flex-col">
@@ -117,7 +118,7 @@ interface NeedsYouDrawerProps {
   state: NeedsYouState;
 }
 
-/** The rail's list as a left-side drawer, opened from the top bar. */
+/** The Needs you list as a left-side drawer, opened from the top bar. */
 export function NeedsYouDrawer({
   onOpenChange,
   open,

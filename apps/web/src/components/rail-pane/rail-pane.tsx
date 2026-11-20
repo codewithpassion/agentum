@@ -179,7 +179,7 @@ export function RailPane({
   item,
   onOpen,
 }: {
-  /** A phone with no item open: the list shows here, as the rail is closed. */
+  /** A phone with no item open: the list shows here, since the drawer is closed. */
   inline: boolean;
   /** The `item` search param. */
   item: string | undefined;

@@ -45,7 +45,7 @@ function AppLayout() {
     >
       <AssistantPanel />
       <AppTopBar agents={agents} pinned={pinned ?? []} />
-      <div
+      <main
         className={
           taskLayout
             ? "flex min-h-0 flex-1 flex-col"
@@ -53,7 +53,7 @@ function AppLayout() {
         }
       >
         <Outlet />
-      </div>
+      </main>
       {taskLayout ? null : <Footer shell />}
     </div>
   );

@@ -55,6 +55,7 @@ export function AppTopBar({
 
   const toggleFind = useCallback(() => {
     setDrawerOpen(false);
+    setMenuOpen(false);
     setFindOpen((was) => !was);
   }, []);
   const openFind = useCallback(() => {
