@@ -24,6 +24,7 @@ import {
   libraryVersions,
 } from "@repo/db/schema/library";
 import { runs } from "@repo/db/schema/runs";
+import { sessions } from "@repo/db/schema/sessions";
 import type { LibraryAccessGrant } from "@repo/db/shared";
 import {
   LIBRARY_FILE_MAX_BYTES,
@@ -40,6 +41,7 @@ import type { EventsService } from "./events.ts";
 import { agentGrants } from "./library/access.ts";
 import { isMemoryPath, mayReadMemoryPath } from "./library/memory-paths.ts";
 import { ancestorsOf, normalizePath, parentOf } from "./library/path.ts";
+import { privateNotesUserOf } from "./library/private-notes.ts";
 import { librarySyncScope } from "./library/sync-paths.ts";
 import {
   compareVersionBytes,
@@ -236,7 +238,7 @@ export const createLibraryService = ({
         privateUserId: member.userId,
       };
     }
-    const [[agent], [run], grants] = await Promise.all([
+    const [[agent], [row], grants] = await Promise.all([
       db
         .select({ slug: agents.slug })
         .from(agents)
@@ -248,8 +250,17 @@ export const createLibraryService = ({
         )
         .limit(1),
       db
-        .select({ onBehalfOfUserId: runs.onBehalfOfUserId })
+        .select({
+          onBehalfOfUserId: runs.onBehalfOfUserId,
+          session: {
+            actorId: sessions.actorId,
+            actorKind: sessions.actorKind,
+            origin: sessions.origin,
+            private: sessions.private,
+          },
+        })
         .from(runs)
+        .innerJoin(sessions, eq(sessions.id, runs.sessionId))
         .where(
           and(
             eq(runs.id, member.runId),
@@ -261,7 +272,7 @@ export const createLibraryService = ({
     ]);
     return {
       ...member,
-      privateUserId: run?.onBehalfOfUserId ?? null,
+      privateUserId: row ? privateNotesUserOf(row, row.session) : null,
       scope: agent ? librarySyncScope(agent.slug, grants) : [],
     };
   };

@@ -35,6 +35,7 @@ import { ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import type { EventRecord, EventsService } from "./events.ts";
 import { inboxSessionVisibleTo } from "./inbox/room-access.ts";
+import { loadPrivateNotesUser } from "./library/private-notes.ts";
 import { mailSubjectsOf } from "./mail-subjects.ts";
 import {
   conversationTitle,
@@ -256,9 +257,27 @@ const openerOf = async (
 };
 
 /**
+ * The user whose ui and private sessions the reader may see. A person sees
+ * their own. A run sees them by the private-notes rule, the same one that
+ * guards the person's private memory file, so a team room run started by that
+ * person sees none.
+ */
+const personalOwnerOf = async (
+  db: Database,
+  reader: Reader
+): Promise<string | null> => {
+  if (reader.kind === "user") {
+    return reader.userId;
+  }
+  const run = await loadRun(db, reader.runId, reader.workspaceId);
+  return run ? await loadPrivateNotesUser(db, run) : null;
+};
+
+/**
  * Sessions the reader may see. UI sessions and private ones (a Slack DM)
  * belong to the user who opened them, so only that user sees them; other
- * sessions are shared. A run sees only its own agent's sessions.
+ * sessions are shared. A run sees only its own agent's sessions, and the
+ * person's own only when `personalOwnerOf` says so.
  */
 export const visibleSessions = async (
   db: Database,
@@ -282,6 +301,7 @@ export const visibleSessions = async (
     }
   }
   const opener = await openerOf(db, reader);
+  const personalOwner = await personalOwnerOf(db, reader);
   return and(
     eq(sessions.workspaceId, reader.workspaceId),
     // The runs of a limited topic stay with its members.
@@ -320,11 +340,11 @@ export const visibleSessions = async (
     or(
       and(
         ne(sessions.origin, "artifact"),
-        opener === null
+        personalOwner === null
           ? and(ne(sessions.origin, "ui"), eq(sessions.private, false))
           : or(
               and(ne(sessions.origin, "ui"), eq(sessions.private, false)),
-              eq(sessions.actorId, opener)
+              eq(sessions.actorId, personalOwner)
             )
       ),
       and(

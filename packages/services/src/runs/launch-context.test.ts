@@ -152,6 +152,41 @@ const notesOf = (context: LaunchContext) => {
   return context.memory.notes;
 };
 
+/** Changes the run's session, which the private-notes rule reads. */
+const setSession = (patch: Partial<typeof sessionRows.$inferInsert>) => {
+  const run = db.select().from(runRows).where(eq(runRows.id, runId)).get();
+  db.update(sessionRows)
+    .set(patch)
+    .where(eq(sessionRows.id, run?.sessionId ?? ""))
+    .run();
+};
+
+/** A run for Ana in a session, as `start` makes it, and the private files a reader could load. */
+const ANA = "user_a1";
+const ANA_PRIVATE = "01HZ7KQ3M8V2X4R6T9B1C50003";
+const SHARED_NOTE = "01HZ7KQ3M8V2X4R6T9B1C50001";
+const anaFiles = memoryFiles({
+  "private/user_a1.md": serializeMemoryFile("private/user_a1.md", [
+    memoryNote(3, "Ana's private brief", ANA),
+  ]),
+  "work.md": serializeMemoryFile("work.md", [
+    memoryNote(1, "Trade show list waits on Tally", null),
+  ]),
+});
+const noteIdsFor = async (
+  session: Partial<typeof sessionRows.$inferInsert>
+): Promise<string[]> => {
+  db.update(runRows)
+    .set({ onBehalfOfUserId: ANA })
+    .where(eq(runRows.id, runId))
+    .run();
+  setSession({ actorId: ANA, actorKind: "user", ...session });
+  const context = await build({ readMemoryFile: anaFiles });
+  return notesOf(context)
+    .map((item) => item.id)
+    .sort();
+};
+
 beforeEach(async () => {
   db = migrated();
   db.insert(workspaces)
@@ -263,6 +298,7 @@ test("with a memory reader the context holds the agent's notes and the run perso
     .set({ onBehalfOfUserId: "user_a1" })
     .where(eq(runRows.id, runId))
     .run();
+  setSession({ actorId: "user_a1" });
   const read = memoryFiles({
     "private/user_a1.md": serializeMemoryFile("private/user_a1.md", [
       memoryNote(3, "Ana's private brief", "user_a1"),
@@ -284,30 +320,61 @@ test("with a memory reader the context holds the agent's notes and the run perso
   ).toEqual(["01HZ7KQ3M8V2X4R6T9B1C50001", "01HZ7KQ3M8V2X4R6T9B1C50003"]);
 });
 
-test("a session with several speakers sees no private notes", async () => {
-  db.update(runRows)
-    .set({ onBehalfOfUserId: "user_a1" })
-    .where(eq(runRows.id, runId))
-    .run();
-  const run = db.select().from(runRows).where(eq(runRows.id, runId)).get();
-  db.update(sessionRows)
-    .set({ origin: "slack" })
-    .where(eq(sessionRows.id, run?.sessionId ?? ""))
-    .run();
-  const read = memoryFiles({
-    "private/user_a1.md": serializeMemoryFile("private/user_a1.md", [
-      memoryNote(3, "Ana's private brief", "user_a1"),
-    ]),
-    "work.md": serializeMemoryFile("work.md", [
-      memoryNote(1, "Trade show list waits on Tally", null),
-    ]),
+// A team room, a Slack channel, an artifact chat, a Q&A run, mail, A2A, a routine,
+// a trigger and an MCP call are all shared: Ana's private notes stay out even
+// though she started the run.
+for (const origin of [
+  "inbox",
+  "slack",
+  "artifact",
+  "qa",
+  "mail",
+  "a2a",
+  "routine",
+  "trigger",
+  "mcp",
+]) {
+  test(`a ${origin} session Ana started carries no private notes`, async () => {
+    expect(await noteIdsFor({ origin, private: false })).toEqual([SHARED_NOTE]);
   });
+}
 
-  const context = await build({ readMemoryFile: read });
-
-  expect(notesOf(context).map((item) => item.id)).toEqual([
-    "01HZ7KQ3M8V2X4R6T9B1C50001",
+test("a Slack DM for Ana carries her private notes", async () => {
+  expect(await noteIdsFor({ origin: "slack", private: true })).toEqual([
+    SHARED_NOTE,
+    ANA_PRIVATE,
   ]);
+});
+
+test("a private ui session and a plain ui session for Ana carry her private notes", async () => {
+  expect(await noteIdsFor({ origin: "ui", private: true })).toEqual([
+    SHARED_NOTE,
+    ANA_PRIVATE,
+  ]);
+  expect(await noteIdsFor({ origin: "ui", private: false })).toEqual([
+    SHARED_NOTE,
+    ANA_PRIVATE,
+  ]);
+});
+
+test("a private session whose actor is not the run's person carries no private notes", async () => {
+  expect(
+    await noteIdsFor({ actorId: "user_b2", origin: "slack", private: true })
+  ).toEqual([SHARED_NOTE]);
+  expect(
+    await noteIdsFor({ actorId: "user_b2", origin: "ui", private: false })
+  ).toEqual([SHARED_NOTE]);
+});
+
+test("a private session with a non-user actor carries no private notes", async () => {
+  expect(
+    await noteIdsFor({
+      actorId: ANA,
+      actorKind: "peer",
+      origin: "ui",
+      private: true,
+    })
+  ).toEqual([SHARED_NOTE]);
 });
 
 test("a run with no person behind it sees no private notes", async () => {
