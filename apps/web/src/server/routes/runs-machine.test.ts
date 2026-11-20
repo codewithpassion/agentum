@@ -359,9 +359,15 @@ test("an expired lease interrupts the run, and the run then refuses every write 
   expect(
     (await call("events", started.runId, credential, ONE_EVENT)).status
   ).toBe(409);
-  expect((await call("complete", started.runId, credential, DONE)).status).toBe(
-    409
-  );
+  // A completion with usage lands as a late report (SP.13), one without is refused.
+  expect(
+    (
+      await call("complete", started.runId, credential, {
+        status: "done",
+        text: "hi",
+      })
+    ).status
+  ).toBe(409);
   expect((await call("heartbeat", started.runId, credential)).status).toBe(409);
 
   const aborted = await call("complete", started.runId, credential, {

@@ -185,6 +185,43 @@ test("an agent is paused when a finished run takes its week to the cap", async (
   expect(agentRow(bId)?.pausedAt).toBeNull();
 });
 
+test("a cancelled run keeps the usage its runtime reports afterwards", async () => {
+  setCap(aId, CAP_CENTS);
+  const started = await start(aId);
+  await runs.cancelRun(owner, started.runId);
+  await runs.completeRun(SYSTEM_PRINCIPAL, started.runId, {
+    status: "failed",
+    usage: { costUsd: 2 },
+  });
+  const row = db
+    .select()
+    .from(runRows)
+    .where(eq(runRows.id, started.runId))
+    .get();
+  expect(row?.status).toBe("cancelled");
+  expect(JSON.parse(row?.usage ?? "{}")).toEqual({ costUsd: 2 });
+  expect(agentRow(aId)?.pausedAt).not.toBeNull();
+});
+
+test("an aborted completion stores the usage it carries", async () => {
+  const started = await start(aId, "mcp");
+  db.update(runRows)
+    .set({ status: "running" })
+    .where(eq(runRows.id, started.runId))
+    .run();
+  await runs.completeRun(SYSTEM_PRINCIPAL, started.runId, {
+    status: "aborted",
+    usage: { costUsd: 3 },
+  });
+  const row = db
+    .select()
+    .from(runRows)
+    .where(eq(runRows.id, started.runId))
+    .get();
+  expect(row?.status).toBe("interrupted");
+  expect(JSON.parse(row?.usage ?? "{}")).toEqual({ costUsd: 3 });
+});
+
 test("an agent with no cap is never paused", async () => {
   await spendOn(aId, 50);
   expect(agentRow(aId)?.pausedAt).toBeNull();
