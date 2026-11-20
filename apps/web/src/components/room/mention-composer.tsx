@@ -164,6 +164,9 @@ export function MentionComposer({
         submitOnSendShortcut(event);
         return;
       }
+      if (event.nativeEvent.isComposing) {
+        return;
+      }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
@@ -179,7 +182,7 @@ export function MentionComposer({
         (event.key === "Enter" || event.key === "Tab") &&
         !event.ctrlKey &&
         !event.metaKey &&
-        !event.nativeEvent.isComposing;
+        !event.shiftKey;
       if (picksOption) {
         event.preventDefault();
         const member = options[current];
@@ -192,6 +195,8 @@ export function MentionComposer({
     },
     [current, listOpen, options, pick]
   );
+
+  const handleBlur = useCallback(() => setToken(null), []);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -250,6 +255,7 @@ export function MentionComposer({
             aria-describedby={hintId}
             aria-expanded={listOpen}
             id={textId}
+            onBlur={handleBlur}
             onChange={handleChange}
             onClick={handleSelect}
             onKeyDown={handleKeyDown}

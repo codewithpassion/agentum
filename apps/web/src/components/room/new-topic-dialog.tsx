@@ -121,7 +121,7 @@ export function NewTopicDialog({
           New topic
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New topic</DialogTitle>
         </DialogHeader>

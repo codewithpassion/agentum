@@ -6,7 +6,7 @@ import { FileChips } from "#/components/thread/file-chips.tsx";
 import { buttonVariants } from "#/components/ui/button.tsx";
 import type { FileInfo, InboxPost } from "#/integrations/trpc/types.ts";
 import { MemberAvatar } from "./member-avatar.tsx";
-import type { RoomMember } from "./room-types.ts";
+import { memberKey, type RoomMember } from "./room-types.ts";
 
 const PILL_CLASS = buttonVariants({ size: "sm", variant: "outline" });
 
@@ -15,7 +15,7 @@ function AssignedLine({ assigned }: { assigned: readonly RoomMember[] }) {
     <p className="text-muted-foreground text-xs" data-testid="assigned-to">
       Assigned to{" "}
       {assigned.map((member, index) => (
-        <span key={member.id}>
+        <span key={memberKey(member.kind, member.id)}>
           {index === 0 ? null : ", "}
           <span className="font-medium">{member.name}</span>
         </span>

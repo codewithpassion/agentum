@@ -110,7 +110,7 @@ export function RoomPage({
                 Topics
               </Button>
             </SheetTrigger>
-            <SheetContent className="gap-4 p-4" side="left">
+            <SheetContent className="gap-4 overflow-y-auto p-4" side="left">
               <SheetHeader className="p-0">
                 <SheetTitle>{`${team.name} topics`}</SheetTitle>
                 <SheetDescription className="sr-only">

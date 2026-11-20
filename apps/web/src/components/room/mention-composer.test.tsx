@@ -95,7 +95,7 @@ const pressKey = async (
   });
 };
 
-test("typing @fa lists only mentionable matches", async () => {
+test("typing @ lists the mentionable members, agents first", async () => {
   const dom = new Window();
   const container = dom.document.createElement("div");
   dom.document.body.append(container);
@@ -110,7 +110,7 @@ test("typing @fa lists only mentionable matches", async () => {
     if (textarea === null) {
       throw new Error("no textarea rendered");
     }
-    await typeText(dom, textarea, "hi @fa");
+    await typeText(dom, textarea, "hi @");
     const listbox = container.querySelector('[role="listbox"]');
     const options = Array.from(container.querySelectorAll('[role="option"]'));
     expect(listbox).not.toBeNull();
@@ -118,7 +118,7 @@ test("typing @fa lists only mentionable matches", async () => {
       options.map(
         (option) => option.querySelector("span.truncate")?.textContent
       )
-    ).toEqual(["Fake echo"]);
+    ).toEqual(["Fake echo", "Dom Fretz"]);
     expect(container.textContent).not.toContain("No Handle");
   } finally {
     await act(async () => root.unmount());
@@ -142,7 +142,7 @@ test("ArrowDown and Enter pick a mention and leave a trailing space", async () =
     if (textarea === null) {
       throw new Error("no textarea rendered");
     }
-    await typeText(dom, textarea, "@d");
+    await typeText(dom, textarea, "@");
     await pressKey(dom, textarea, "ArrowDown");
     await pressKey(dom, textarea, "Enter");
     expect(textarea.value).toBe("@dom ");
