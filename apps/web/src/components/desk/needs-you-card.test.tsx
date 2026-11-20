@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { getTrpc as realGetTrpc } from "#/integrations/trpc/client";
 import {
   NeedsYouBody,
+  NeedsYouCard,
   PersonAppGrants,
   ThreadBody,
 } from "./needs-you-card.tsx";
@@ -50,6 +51,22 @@ test("a thread card links to the thread and offers Dismiss", () => {
   const html = render();
   expect(html).toContain("Open thread");
   expect(html).toContain(">Dismiss</button>");
+});
+
+test("a spend pause card names the agent and offers Resume", () => {
+  const html = renderToStaticMarkup(
+    <NeedsYouCard
+      agentName="Builder"
+      card={{ ...thread, kind: "request", needsYouKind: "spend_pause" }}
+      nowMs={0}
+      onAnswer={answer}
+      onChanged={noop}
+      request={null}
+      version={null}
+    />
+  );
+  expect(html).toContain("Builder stopped at its weekly limit");
+  expect(html).toContain(">Resume</button>");
 });
 
 test("Needs you renders grant approval for endpoint and agent requests", () => {
