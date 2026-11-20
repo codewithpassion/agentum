@@ -240,6 +240,8 @@ export const createInboxService = ({
       createdBy: writer.userId,
       id: nextId(clock.now().getTime()),
       lastPostAt: created,
+      openedByAgentId: null,
+      teamId: null,
       title: input.title,
       workspaceId: writer.workspaceId,
     };

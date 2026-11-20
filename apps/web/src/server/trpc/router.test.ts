@@ -433,3 +433,107 @@ test("spend procedures are 401 without a workspace", async () => {
     code: "UNAUTHORIZED",
   });
 });
+
+test("teams.list is empty and teams.profiles.get is null while no team exists", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  expect(await caller.teams.list()).toEqual([]);
+  expect(await caller.teams.profiles.get({})).toBeNull();
+});
+
+test("teams changes are NOT_FOUND while the stub changes nothing", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(caller.teams.get({ teamId: "t1" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(caller.teams.create({ name: "Ops" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(
+    caller.teams.update({ name: "X", teamId: "t1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(caller.teams.archive({ teamId: "t1" })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(
+    caller.teams.addMember({
+      memberId: "a1",
+      memberKind: "agent",
+      teamId: "t1",
+    })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.teams.removeMember({
+      memberId: "a1",
+      memberKind: "agent",
+      teamId: "t1",
+    })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.teams.setLead({ agentId: null, teamId: "t1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.teams.setRules({ rules: "r", teamId: "t1" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.teams.profiles.set({ handle: "dom", name: "Dom" })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("teams inputs that are not valid are BAD_REQUEST", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  await expect(caller.teams.create({ name: "" })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(
+    caller.teams.addMember({
+      memberId: "a1",
+      memberKind: "robot" as "agent",
+      teamId: "t1",
+    })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    caller.teams.profiles.set({ handle: "Bad Handle", name: "Dom" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+});
+
+test("teams procedures are 401 without a workspace", async () => {
+  const caller = await callerFor({ orgId: null, userId: "user_1" });
+  const teamId = "t1";
+
+  await expect(caller.teams.list()).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.teams.get({ teamId })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.teams.create({ name: "Ops" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    caller.teams.update({ name: "X", teamId })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(caller.teams.archive({ teamId })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    caller.teams.addMember({ memberId: "a1", memberKind: "agent", teamId })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.teams.removeMember({ memberId: "a1", memberKind: "agent", teamId })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.teams.setLead({ agentId: null, teamId })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(
+    caller.teams.setRules({ rules: "r", teamId })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(caller.teams.profiles.get({})).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(
+    caller.teams.profiles.set({ handle: "dom", name: "Dom" })
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});

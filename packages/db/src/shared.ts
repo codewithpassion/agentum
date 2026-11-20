@@ -1562,3 +1562,55 @@ export interface SpendCaps {
   /** The workspace cap in cents, or null for none. */
   workspaceCapCents: number | null;
 }
+
+/** Who sits in a team, or in a topic limited to some members. */
+export const TEAM_MEMBER_KINDS = ["agent", "user"] as const;
+export type TeamMemberKind = (typeof TEAM_MEMBER_KINDS)[number];
+
+/** How hard an agent thinks. Stored as `effort` in the agent's `runtimeConfig`. */
+export const EFFORT_LEVELS = ["low", "medium", "high"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/** How much context an agent loads. Stored as `contextBudget` in the agent's `runtimeConfig`. */
+export const CONTEXT_BUDGETS = ["small", "standard", "large"] as const;
+export type ContextBudget = (typeof CONTEXT_BUDGETS)[number];
+
+/** One seat in a team: an agent or a person. */
+export interface TeamMember {
+  /** True when this is the member's home team. An agent has at most one. */
+  isHome: boolean;
+  /** The agent id or the Clerk user id, by `memberKind`. */
+  memberId: string;
+  memberKind: TeamMemberKind;
+  teamId: string;
+}
+
+/** A team: a lead, members and a team room. A team room is the forum inbox scoped to the team. */
+export interface Team {
+  /** When the team was archived, ISO, or null while it is live. */
+  archivedAt: string | null;
+  createdAt: string;
+  /** The library folder the team's files live in, or null before one exists. */
+  folderPath: string | null;
+  id: string;
+  /** The agent that leads the team, or null for a team with no lead. */
+  leadAgentId: string | null;
+  /** Whether a room message that names nobody goes to the lead. */
+  leadListens: boolean;
+  members: TeamMember[];
+  name: string;
+  /** Clerk user id of the person who answers for the team, or null. */
+  ownerUserId: string | null;
+  /** The team's rules, shown to every member above the untrusted block. */
+  rules: string;
+  slug: string;
+}
+
+/** How a person is named and mentioned in team rooms. */
+export interface MemberProfile {
+  /** Unique per workspace, lowercase. */
+  handle: string;
+  name: string;
+  /** Clerk user id. */
+  userId: string;
+}

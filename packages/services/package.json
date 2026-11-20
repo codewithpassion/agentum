@@ -144,6 +144,7 @@
     "./slack/threads": "./src/slack/threads.ts",
     "./spend": "./src/spend.ts",
     "./takeover": "./src/takeover.ts",
+    "./teams": "./src/teams.ts",
     "./triggers": "./src/triggers.ts",
     "./wiki/links": "./src/wiki/links.ts",
     "./wiki/service": "./src/wiki/service.ts",
