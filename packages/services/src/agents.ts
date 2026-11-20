@@ -13,8 +13,10 @@ import {
   AGENT_STATUSES,
   type AgentRuntime,
   type AgentStatus,
+  CONTEXT_BUDGETS,
   DEFAULT_REMEMBER_RULES_JSON,
   defaultAgentAvatar,
+  EFFORT_LEVELS,
   LIVE_RUN_STATUSES,
 } from "@repo/db/shared";
 import { MAX_TURNS_KEY, maxTurnsError } from "@repo/protocol/safeguards";
@@ -54,7 +56,13 @@ const instructionsSchema = z.string().max(50_000);
 const soulSchema = z.string().max(10_000);
 const modelSchema = z.string().min(1).max(100);
 const machineIdSchema = z.string().min(1).max(200);
-const runtimeConfigSchema = z.record(z.string(), z.json());
+/** Any JSON key, with the two typed keys the agent reads. Other keys (cloud environment, network, turn limit) pass through as they are. */
+const runtimeConfigSchema = z.record(z.string(), z.json()).and(
+  z.object({
+    contextBudget: z.enum(CONTEXT_BUDGETS).optional(),
+    effort: z.enum(EFFORT_LEVELS).optional(),
+  })
+);
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 const handsToSchema = z.array(z.string());
 

@@ -3,6 +3,7 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { inboxThreads as inboxThreadRows } from "@repo/db/schema/inbox";
 import { runs as runRows } from "@repo/db/schema/runs";
+import { teams as teamRows } from "@repo/db/schema/teams";
 import { workspaces as workspaceRows } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { asc, eq } from "drizzle-orm";
@@ -618,4 +619,23 @@ test("the wake input tells the agent its final answer is the reply", async () =>
     `do not call inbox_post on this thread (threadId "${threadId}")`
   );
   expect(input).toContain("inbox_post takes threadId and text");
+});
+
+test("a new thread starts in the workspace's Everyone team, and in none before it has one", async () => {
+  build();
+  const before = await newThread();
+  db.insert(teamRows)
+    .values({
+      createdAt: START,
+      id: "everyone-w1",
+      name: "Everyone",
+      slug: "everyone",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  const after = await newThread();
+
+  const rows = db.select().from(inboxThreadRows).all();
+  expect(rows.find((row) => row.id === before)?.teamId).toBeNull();
+  expect(rows.find((row) => row.id === after)?.teamId).toBe("everyone-w1");
 });

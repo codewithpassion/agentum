@@ -6,9 +6,15 @@
 import type { Database } from "@repo/db";
 import { apiKeys } from "@repo/db/schema/api-keys";
 import { machines } from "@repo/db/schema/machines";
+import { teams } from "@repo/db/schema/teams";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type { ApiKeyAccess, OAuthClientAccess } from "@repo/db/shared";
+import {
+  type ApiKeyAccess,
+  EVERYONE_TEAM_NAME,
+  EVERYONE_TEAM_SLUG,
+  type OAuthClientAccess,
+} from "@repo/db/shared";
 import {
   API_KEY,
   isPlatformToken,
@@ -243,6 +249,18 @@ export const createWorkspacesService = ({
     if (!row) {
       throw new Error(`Workspace for ${clerkOrgId} is missing after insert.`);
     }
+    // Every workspace has an "Everyone" team, where threads without a team
+    // land. Both inserts are safe to repeat, so a failed call can be retried.
+    await db
+      .insert(teams)
+      .values({
+        createdAt: new Date().toISOString(),
+        id: ulid(),
+        name: EVERYONE_TEAM_NAME,
+        slug: EVERYONE_TEAM_SLUG,
+        workspaceId: row.id,
+      })
+      .onConflictDoNothing();
     return row;
   };
 

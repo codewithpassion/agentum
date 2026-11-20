@@ -9,6 +9,7 @@ import {
 } from "@repo/db/schema/mail";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
+import { teamMembers, teams } from "@repo/db/schema/teams";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
 import type { RailView } from "@repo/db/shared";
@@ -71,6 +72,35 @@ const insertAgent = (
       status: "active",
       workspaceId: WORKSPACE,
       ...row,
+    })
+    .run();
+
+const insertTeam = (row: { id: string } & Partial<typeof teams.$inferInsert>) =>
+  db
+    .insert(teams)
+    .values({
+      createdAt: NOW,
+      name: row.id,
+      slug: row.id,
+      workspaceId: WORKSPACE,
+      ...row,
+    })
+    .run();
+
+const addAgentMember = (
+  teamId: string,
+  agentId: string,
+  isHome: boolean,
+  workspaceId = WORKSPACE
+) =>
+  db
+    .insert(teamMembers)
+    .values({
+      isHome,
+      memberId: agentId,
+      memberKind: "agent",
+      teamId,
+      workspaceId,
     })
     .run();
 
@@ -556,4 +586,62 @@ test("authorization fails before executing a database query", async () => {
   queries = 0;
   await expect(service.list(system)).rejects.toBeInstanceOf(ForbiddenError);
   expect(queries).toBe(0);
+});
+
+test("an agent with no team rows has no team and is not a lead", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  expect(await service.list(user)).toMatchObject([
+    { id: "a1", isLead: false, teamId: null },
+  ]);
+});
+
+test("an agent that is a home member of a team reports that team, not as lead", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  insertTeam({ id: "t1" });
+  addAgentMember("t1", "a1", true);
+  expect(await service.list(user)).toMatchObject([
+    { id: "a1", isLead: false, teamId: "t1" },
+  ]);
+});
+
+test("the lead of its home team is a lead", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  insertTeam({ id: "t1", leadAgentId: "a1" });
+  addAgentMember("t1", "a1", true);
+  expect(await service.list(user)).toMatchObject([
+    { id: "a1", isLead: true, teamId: "t1" },
+  ]);
+});
+
+test("a non-home membership does not replace the home team", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  insertTeam({ id: "t-second" });
+  insertTeam({ id: "t-home" });
+  addAgentMember("t-second", "a1", false);
+  addAgentMember("t-home", "a1", true);
+  expect(await service.list(user)).toMatchObject([
+    { id: "a1", teamId: "t-home" },
+  ]);
+});
+
+test("an agent whose home team is archived has no team and is not a lead", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  insertTeam({ archivedAt: NOW, id: "t1", leadAgentId: "a1" });
+  addAgentMember("t1", "a1", true);
+  expect(await service.list(user)).toMatchObject([
+    { id: "a1", isLead: false, teamId: null },
+  ]);
+});
+
+test("a home team in another workspace does not leak into this roster", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  insertTeam({
+    id: "t-other",
+    leadAgentId: "a1",
+    workspaceId: OTHER_WORKSPACE,
+  });
+  addAgentMember("t-other", "a1", true, OTHER_WORKSPACE);
+  expect(await service.list(user)).toMatchObject([
+    { id: "a1", isLead: false, teamId: null },
+  ]);
 });
