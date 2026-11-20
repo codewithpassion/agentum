@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone RH. Global actions sit in a top bar and 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/RH.6-shell-top-bar (v4 controller session).
+- 2026-11-20: from the KY walkthrough: after this merges, open /threads/<id> at 390x844; it measured 424 px wide (header right group in the task layout). Fix it here if it still overflows.

@@ -9,6 +9,7 @@ import {
   profileSetInputSchema,
   setLeadInputSchema,
   setRulesInputSchema,
+  slackLinkInputSchema,
   teamCreateInputSchema,
   teamMemberInputSchema,
 } from "./teams.ts";
@@ -197,4 +198,38 @@ test("stub profiles.set rejects with not_found for a user", async () => {
 
 test("stub list throws ForbiddenError for the system principal", () => {
   expect(() => makeService().list(system)).toThrow(ForbiddenError);
+});
+
+test("slack link parses a team, a Slack workspace and a channel", () => {
+  const input = { channelId: "C1", slackTeamId: "T1", teamId: "t1" };
+  expect(slackLinkInputSchema.parse(input)).toStrictEqual(input);
+  expect(
+    slackLinkInputSchema.safeParse({ channelId: "C1", teamId: "t1" }).success
+  ).toBe(false);
+  expect(slackLinkInputSchema.safeParse({ ...input, extra: 1 }).success).toBe(
+    false
+  );
+});
+
+test("stub slack.link, slack.unlink and slack.status reject with not_found for a user", async () => {
+  const service = makeService();
+  await expect(
+    service.slack.link(user, {
+      channelId: "C1",
+      slackTeamId: "T1",
+      teamId: "t1",
+    })
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(service.slack.unlink(user, "t1")).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(service.slack.status(user, "t1")).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+
+test("stub slack calls throw ForbiddenError for the system principal", () => {
+  const service = makeService();
+  expect(() => service.slack.status(system, "t1")).toThrow(ForbiddenError);
+  expect(() => service.slack.unlink(system, "t1")).toThrow(ForbiddenError);
 });

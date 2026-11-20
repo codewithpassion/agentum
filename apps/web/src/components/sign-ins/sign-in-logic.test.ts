@@ -45,8 +45,8 @@ test("An app with no sign-in needs nothing", () => {
   });
 });
 
-test("OAuth without a credential connects when a client is set or can be registered", () => {
-  for (const oauth of [CLIENT_READY, CAN_REGISTER]) {
+test("OAuth without a credential connects when a client is set, can be registered or is not known yet", () => {
+  for (const oauth of [CLIENT_READY, CAN_REGISTER, null]) {
     expect(signInView(input({ authKind: "oauth", oauth }))).toEqual({
       action: "connect",
       actionLabel: "Connect",
@@ -57,15 +57,8 @@ test("OAuth without a credential connects when a client is set or can be registe
   }
 });
 
-test("OAuth without a credential and no client asks an admin to set up the app", () => {
+test("OAuth without a credential and a server that cannot register a client asks an admin to set up the app", () => {
   expect(signInView(input({ authKind: "oauth", oauth: NO_CLIENT }))).toEqual({
-    action: null,
-    actionLabel: null,
-    canDisconnect: false,
-    note: "An admin has to set this app up first.",
-    status: "Not signed in",
-  });
-  expect(signInView(input({ authKind: "oauth", oauth: null }))).toEqual({
     action: null,
     actionLabel: null,
     canDisconnect: false,

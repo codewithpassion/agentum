@@ -53,7 +53,7 @@ function ModelProvidersPage() {
       <h1 className="font-heading text-3xl text-foreground">{PAGE_HEADING}</h1>
       <div className="flex flex-col gap-6">
         <ProviderKeyForm
-          description="Cloudflare agents and Managed Agents both run on your workspace's own Anthropic API key. The key is stored encrypted and is never shown again; only its last four characters are."
+          description="Cloud agents and Anthropic cloud agents both run on your workspace's own Anthropic API key. The key is stored encrypted and is never shown again; only its last four characters are."
           inputId="managed-api-key"
           onRemove={removeAnthropic}
           onSave={saveAnthropic}

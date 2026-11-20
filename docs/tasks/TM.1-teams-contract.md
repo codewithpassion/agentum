@@ -31,3 +31,4 @@ From `docs/v4/build-plan.md`, milestone TM. Contract task for TM. It alone chang
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/TM.1-teams-contract (v4 controller session).
 - 2026-11-20: merged as 29e2f89f, review clean after 1 fix round. check and build passed on main; tests passed except guest-execution.test.ts, which fails the same way on main before this merge (FX.1). Still open: apply 0057 to a copy of staging D1 and confirm no thread has a NULL team_id and each workspace has one Everyone team, before the next remote migration.
+- 2026-11-20: 0057 checked on a scratch copy of staging (11 workspaces, 11 Everyone teams, 0 threads without a team), then applied to staging and production with 0058 and deployed at c0a839ce (staging 1e4f8c26, production 522ccadf).

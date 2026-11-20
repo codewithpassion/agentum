@@ -209,12 +209,12 @@ describe("dryRunRuntime", () => {
     skills: [],
   });
 
-  test("says the dry run is on Cloudflare when that is the chosen runtime", () => {
+  test("says the dry run is on Cloud when that is the chosen runtime", () => {
     expect(
       dryRunRuntime(catalog(["managed", "cloud"]), { runtime: "cloud" })
     ).toEqual({
       blocker: null,
-      note: "The dry run runs on Cloudflare, the runtime you chose.",
+      note: "The dry run runs on Cloud, where you chose to run it.",
     });
   });
 

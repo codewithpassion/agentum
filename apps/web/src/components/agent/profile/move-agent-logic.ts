@@ -12,7 +12,7 @@ export const MOVE_TARGETS: readonly { id: MoveTarget; title: string }[] = [
 
 /** What a move costs, shown before the person confirms. */
 export const MOVE_COST =
-  "Open conversations start fresh, because the new runtime does not have their context. Files in the agent's sandbox do not move.";
+  "Open conversations start fresh, because the agent will run somewhere that does not have their context. Files in the agent's sandbox do not move.";
 
 /** Extra to say for one target. A Cloud conversation is stored by Cloudflare and a move does not erase it. */
 export const moveNote = (target: MoveTarget): string | null => {

@@ -4,6 +4,7 @@ import type {
   BuilderCatalog,
 } from "@repo/services/agent-builder/draft";
 import type { EventRecord } from "@repo/services/events";
+import { RUNTIME_NAMES } from "#/components/agent/profile/profile-logic.ts";
 
 export type SampleChip = AgentDraft["sampleInput"][number];
 
@@ -72,7 +73,7 @@ export const wouldLines = (
 };
 
 /**
- * Where the dry run runs and whether it can. It always runs on Cloudflare, so
+ * Where the dry run runs and whether it can. It always runs on Cloud, so
  * it needs an Anthropic key there (it runs the default Anthropic model), and a machine or Anthropic cloud agent is told
  * its own runtime is not the one tried.
  */
@@ -84,7 +85,7 @@ export const dryRunRuntime = (
     return {
       blocker:
         "A dry run needs an Anthropic API key in Settings. You can still create the agent without one.",
-      note: "The dry run runs on Cloudflare and needs an Anthropic key.",
+      note: `The dry run runs on ${RUNTIME_NAMES.cloud} and needs an Anthropic key.`,
     };
   }
   if (runsOn === null || runsOn.runtime === "cloud") {
@@ -92,17 +93,17 @@ export const dryRunRuntime = (
       blocker: null,
       note:
         runsOn === null
-          ? "The dry run runs on Cloudflare."
-          : "The dry run runs on Cloudflare, the runtime you chose.",
+          ? `The dry run runs on ${RUNTIME_NAMES.cloud}.`
+          : `The dry run runs on ${RUNTIME_NAMES.cloud}, where you chose to run it.`,
     };
   }
   const label =
     runsOn.runtime === "machine"
       ? (catalog.machines.find((machine) => machine.id === runsOn.machineId)
           ?.name ?? "That machine")
-      : "Anthropic cloud";
+      : RUNTIME_NAMES.managed;
   return {
     blocker: null,
-    note: `The dry run runs on Cloudflare. ${label} cannot run a dry run yet, so the real agent runs there.`,
+    note: `The dry run runs on ${RUNTIME_NAMES.cloud}. ${label} cannot run a dry run yet, so the real agent runs there.`,
   };
 };
