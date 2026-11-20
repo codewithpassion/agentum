@@ -25,7 +25,7 @@ import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
 import { hashToken } from "./crypto.ts";
-import { ServiceError } from "./errors.ts";
+import { ERROR_REASON, ServiceError } from "./errors.ts";
 import {
   type Blobs,
   createEventsService,
@@ -3641,6 +3641,26 @@ describe("guest artifact starts", () => {
     });
     expect(next.sessionId).toBe(started.sessionId);
     expect(runRow(next.runId)?.scopeArtifactId).toBe(artifactId);
+  });
+  test("a guest start is refused while the workspace is at its weekly cap", async () => {
+    await setupArtifact();
+    const overCap = {
+      enforceCap: () => Promise.resolve(),
+      workspaceOver: () => Promise.resolve(true),
+    };
+    const service = guestRuns({ spend: overCap });
+
+    await expect(queuedGuest(service)).rejects.toMatchObject({
+      code: "conflict",
+      reason: ERROR_REASON.agentPaused,
+    });
+    await expect(
+      service.guestReadiness(grant, spyAgentId)
+    ).rejects.toMatchObject({ reason: ERROR_REASON.agentPaused });
+    const underCap = guestRuns({
+      spend: { ...overCap, workspaceOver: () => Promise.resolve(false) },
+    });
+    expect((await queuedGuest(underCap)).runId).toBeTruthy();
   });
   test("fails closed without verifier or scoped runtime and rejects expired/viewer/mismatched grants", async () => {
     for (const service of [

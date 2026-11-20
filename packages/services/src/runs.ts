@@ -53,7 +53,12 @@ import { assertModelForRuntime, findAgent } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { cloudEnvironmentOf } from "./cloud/environment.ts";
 import { CLOUD_LEASE_MS } from "./cloud/lease.ts";
-import { agentPaused, isUniqueViolation, ServiceError } from "./errors.ts";
+import {
+  agentPaused,
+  isUniqueViolation,
+  ServiceError,
+  workspaceLimitReached,
+} from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import {
   type Blobs,
@@ -189,6 +194,10 @@ const HANDOFF_ORIGIN = "mcp";
 /** A subagent or a parent's wake queues and nobody waits on it, so it skips the busy-ancestor refusal. */
 const startsUnawaited = (options: StartRunOptions): boolean =>
   options.subagent !== undefined || options.wakesParent === true;
+
+/** A parked run's continuation, a parent's wake or a subagent: the follow-up of work already under way, which a spend limit lets through. */
+const startsWorkUnderWay = (options: StartRunOptions): boolean =>
+  Boolean(options.continuationOf || options.wakesParent || options.subagent);
 
 /** How a child run that ended reads in the wake its parent gets. */
 const childOutcome = (child: RunRecord): ChildOutcome => {
@@ -409,10 +418,11 @@ export interface RunsServiceOptions {
     "announceDelivery" | "maskerFor" | "resolveForAgent"
   >;
   /**
-   * Checks the weekly caps when a run finishes. Without it, nothing pauses.
-   * A failure is logged and never changes how the run ended.
+   * Checks the weekly caps when a run finishes, and holds a start while the
+   * workspace is over its cap. Without it, nothing pauses and nothing is held.
+   * A failure at a run's end is logged and never changes how the run ended.
    */
-  spend?: Pick<SpendService, "enforceCap">;
+  spend?: Pick<SpendService, "enforceCap" | "workspaceOver">;
 }
 
 type ParsedInput = ReturnType<typeof startRunInputSchema.parse>;
@@ -799,10 +809,26 @@ export const createRunsService = ({
     agent: { name: string; pausedAt: string | null },
     options: StartRunOptions
   ) => {
-    const underWay =
-      options.continuationOf || options.wakesParent || options.subagent;
-    if (agent.pausedAt !== null && !underWay) {
+    if (agent.pausedAt !== null && !startsWorkUnderWay(options)) {
       throw agentPaused(agent.name);
+    }
+  };
+
+  /**
+   * A workspace at its weekly limit starts nothing new, for every agent in it,
+   * paused or not: a resume, a new agent or a restored one would otherwise get
+   * past the pause. The same follow-ups as `refuseIfPaused` go on. With no
+   * workspace cap it reads one row and sums nothing.
+   */
+  const refuseIfWorkspaceOver = async (
+    agent: { name: string; workspaceId: string },
+    options: StartRunOptions
+  ) => {
+    if (
+      !startsWorkUnderWay(options) &&
+      (await spend?.workspaceOver(agent.workspaceId))
+    ) {
+      throw workspaceLimitReached(agent.name);
     }
   };
 
@@ -836,6 +862,7 @@ export const createRunsService = ({
       workspaceId: agent.workspaceId,
     });
     refuseIfPaused(agent, options);
+    await refuseIfWorkspaceOver(agent, options);
     const adapter = adapterByKind.get(options.dryRun ? "cloud" : agent.runtime);
     if (!adapter) {
       throw new ServiceError(
@@ -1345,6 +1372,7 @@ export const createRunsService = ({
       throw guestUnavailable();
     }
     refuseIfPaused(agent, {});
+    await refuseIfWorkspaceOver(agent, {});
     try {
       await authorizeGuestGrant(grant, {
         agentId: agent.id,

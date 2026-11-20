@@ -23,6 +23,7 @@ const DISABLED_RAISE = /<button[^>]*disabled[^>]*>Raise the limit<\/button>/;
 const baseProps: SpendPauseViewProps = {
   busy: false,
   error: null,
+  isAdmin: true,
   limitText: "The limit is $20 a week.",
   onRaiseChange: noop,
   onRaiseOpen: noop,
@@ -77,4 +78,14 @@ test("a pause from the workspace limit sends Raise to the workspace setting", ()
   expect(html).toContain("Raise the workspace limit");
   expect(html).toContain('href="/settings/spend"');
   expect(html).not.toContain(">Raise the limit</button>");
+});
+
+test("a non-admin paused by the workspace limit gets no Resume, only the workspace link", () => {
+  const html = render({
+    isAdmin: false,
+    workspaceLimitText: "The workspace limit of $50 a week is reached.",
+  });
+  expect(html).toContain("The workspace limit of $50 a week is reached.");
+  expect(html).not.toContain(">Resume</button>");
+  expect(html).toContain("Raise the workspace limit");
 });
