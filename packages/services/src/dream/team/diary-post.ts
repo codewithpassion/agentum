@@ -11,6 +11,7 @@ import { and, asc, eq, gte, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import type { InboxService } from "../../inbox.ts";
 import { isValidTimeZone, nextFireTime } from "../../routines/cron.ts";
 import type { Clock } from "../../runs/types.ts";
+import { inBatches } from "../../tasks/reads.ts";
 import { TEAM_DIARY_TOPIC } from "./collect.ts";
 
 const DIARY_CRON = "0 8 * * *";
@@ -68,7 +69,7 @@ const readCandidates = async (
     )
     .orderBy(asc(dreamRuns.finishedAt));
   return rows.flatMap((row) =>
-    row.teamId && row.finishedAt
+    row.teamId && row.finishedAt && row.diary.trim() !== ""
       ? [
           {
             diary: row.diary,
@@ -112,24 +113,26 @@ const postedRunIds = async (
   const earliest = runs
     .map((run) => run.finishedAt)
     .reduce((a, b) => (b < a ? b : a));
-  const posts = await db
-    .select({
-      createdAt: inboxPosts.createdAt,
-      teamId: inboxThreads.teamId,
-      text: inboxPosts.text,
-    })
-    .from(inboxPosts)
-    .innerJoin(inboxThreads, eq(inboxThreads.id, inboxPosts.threadId))
-    .where(
-      and(
-        eq(inboxThreads.title, TEAM_DIARY_TOPIC),
-        inArray(
-          inboxThreads.teamId,
-          runs.map((run) => run.teamId)
-        ),
-        gte(inboxPosts.createdAt, earliest)
-      )
-    );
+  // D1 binds at most 100 values per query, so the teams are read in batches.
+  const posts = await inBatches(
+    runs.map((run) => run.teamId),
+    (teamIds) =>
+      db
+        .select({
+          createdAt: inboxPosts.createdAt,
+          teamId: inboxThreads.teamId,
+          text: inboxPosts.text,
+        })
+        .from(inboxPosts)
+        .innerJoin(inboxThreads, eq(inboxThreads.id, inboxPosts.threadId))
+        .where(
+          and(
+            eq(inboxThreads.title, TEAM_DIARY_TOPIC),
+            inArray(inboxThreads.teamId, teamIds),
+            gte(inboxPosts.createdAt, earliest)
+          )
+        )
+  );
   return new Set(
     runs
       .filter((run) =>
@@ -153,7 +156,7 @@ export const createTeamDiaryPoster = (deps: TeamDiaryPosterDeps) => {
     const due = dueRuns(await readCandidates(db, now), now.getTime());
     const done = await postedRunIds(db, due);
     const posted: string[] = [];
-    // The posted text is trimmed, like the check above; one team never gets the same text twice in a tick.
+    // The posted text is trimmed, as `postedRunIds` does; one team never gets the same text twice in a tick.
     const sent = new Set<string>();
     for (const run of due) {
       const key = `${run.teamId}\n${run.diary.trim()}`;
