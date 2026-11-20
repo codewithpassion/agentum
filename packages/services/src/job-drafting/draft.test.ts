@@ -149,6 +149,7 @@ test.each(cases)(
         name: "draft_job",
       }),
     ]);
+    expect(JSON.stringify(call.body.tools)).not.toContain("anyOf");
     expect(call.body.tool_choice).toEqual({ type: "auto" });
     const message = JSON.stringify(call.body.messages);
     for (const context of [
@@ -163,7 +164,7 @@ test.each(cases)(
 );
 
 test("no time or event asks the person for one without retrying", async () => {
-  const { service, calls } = setup([{ needsWhen: true }]);
+  const { service, calls } = setup([{ source: "needs_when" }]);
   await expect(
     draft(service, "Summarise support tickets")
   ).rejects.toMatchObject({
@@ -219,19 +220,11 @@ test("an agent in another workspace is not found before any model call", async (
   expect(calls).toHaveLength(0);
 });
 
-test("explicit when I ask drafts an app job", async () => {
-  const { service } = setup([
-    {
-      ...routine,
-      cron: null,
-      source: "app",
-      timezone: null,
-      when: "When I ask",
-    },
-  ]);
-  expect(
-    (await draft(service, "When I ask, summarise support tickets")).source
-  ).toBe("app");
+test("when I ask names no event, so it asks for one", async () => {
+  const { service } = setup([{ source: "needs_when" }]);
+  await expect(
+    draft(service, "When I ask, summarise support tickets")
+  ).rejects.toMatchObject({ code: "invalid" });
 });
 
 test("network errors are retried without exposing request text or credentials", async () => {

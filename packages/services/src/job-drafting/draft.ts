@@ -20,26 +20,26 @@ const FAILED_MESSAGE =
 const NEEDS_WHEN_MESSAGE =
   "Say when it should run, for example every Friday at 9:00, or what should start it, like mail arriving.";
 
-const replySchema = z.union([
-  z.strictObject({ needsWhen: z.literal(true) }),
-  z.strictObject({
-    asksBefore: z.string().nullable(),
-    cron: z.string().nullable(),
-    deliversTo: z.string().nullable(),
-    does: z.string().trim().min(1),
-    source: z.enum(["routine", "http", "mail", "app"]),
-    timezone: z.string().nullable(),
-    when: z.string().trim().min(1),
-  }),
-]);
+// One flat object: the Messages API refuses a union at the root of a tool schema.
+const replySchema = z.strictObject({
+  asksBefore: z.string().nullish(),
+  cron: z.string().nullish(),
+  deliversTo: z.string().nullish(),
+  does: z.string().trim().nullish(),
+  source: z.enum(["routine", "http", "mail", "needs_when"]),
+  timezone: z.string().nullish(),
+  when: z.string().trim().nullish(),
+});
+type Reply = z.output<typeof replySchema>;
 
 // A weekday without an hour is still a schedule: propose 09:00 for review.
-// Explicit "when I ask" is an app event; missing timing must never imply app.
+// The spec drafts a routine, a mail or an http trigger. Text with no time or event,
+// "when I ask" included, comes back as needs_when and is rejected.
 const SYSTEM_PROMPT = `You draft a job for an existing agent from a person's description.
 Call the ${TOOL_NAME} tool exactly once and write nothing else.
-If the description names no time or starting event, return needsWhen: true.
-Use routine for schedules, http for web calls or webhooks, mail for arriving mail,
-and app only for an explicit request such as "when I ask". Slack is not supported here.
+If the description names no time or starting event, return source needs_when and leave the other fields null.
+Use routine for schedules, http for web calls or webhooks, and mail for arriving mail.
+Slack and "when I ask" are not supported here, so those also get needs_when.
 For a routine write a five-field numeric cron. Use 09:00 if a day is given without an hour.
 Interpret wall-clock times in the supplied workspace timezone unless the person names another IANA zone.
 For other sources set cron and timezone to null.
@@ -48,17 +48,31 @@ Use asksBefore and deliversTo only when the person specifies them, otherwise nul
 This is a draft for review; do not claim to have saved or run anything.`;
 
 const reconcile = (
-  result: ProposedTrigger,
+  reply: Reply,
   workspaceTimezone: string
 ): ProposedTrigger => {
-  if (result.source !== "routine") {
-    return { ...result, cron: null, timezone: null };
+  const { source } = reply;
+  if (source === "needs_when") {
+    throw invalid(NEEDS_WHEN_MESSAGE);
   }
-  const timezone =
-    result.timezone && isValidTimeZone(result.timezone)
-      ? result.timezone
-      : workspaceTimezone;
-  return { ...result, timezone };
+  const base = {
+    asksBefore: reply.asksBefore ?? null,
+    deliversTo: reply.deliversTo ?? null,
+    does: reply.does ?? "",
+    source,
+    when: reply.when ?? "",
+  };
+  if (source !== "routine") {
+    return { ...base, cron: null, timezone: null };
+  }
+  return {
+    ...base,
+    cron: reply.cron ?? null,
+    timezone:
+      reply.timezone && isValidTimeZone(reply.timezone)
+        ? reply.timezone
+        : workspaceTimezone,
+  };
 };
 
 interface DraftingDeps {
@@ -155,17 +169,17 @@ export const createJobDrafter = ({
         timezone: workspace.timezone,
       }
     )}`;
-    const attempt = async () => {
+    const attempt = async (): Promise<Reply | null> => {
       try {
         const reply = replySchema.parse(await ask(key.apiKey, message));
-        if (
-          !("needsWhen" in reply) &&
-          reply.source === "routine" &&
-          (reply.cron === null || validateCron(reply.cron))
-        ) {
-          return null;
+        if (reply.source === "needs_when") {
+          return reply;
         }
-        return reply;
+        const complete = Boolean(reply.does && reply.when);
+        const cronFails =
+          reply.source === "routine" &&
+          (!reply.cron || validateCron(reply.cron) !== null);
+        return complete && !cronFails ? reply : null;
       } catch {
         // Model and network errors may quote the key or personal text.
         return null;
@@ -174,9 +188,6 @@ export const createJobDrafter = ({
     const result = (await attempt()) ?? (await attempt());
     if (!result) {
       throw invalid(FAILED_MESSAGE);
-    }
-    if ("needsWhen" in result) {
-      throw invalid(NEEDS_WHEN_MESSAGE);
     }
     return reconcile(result, workspace.timezone);
   };
