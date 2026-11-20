@@ -56,7 +56,7 @@ export const TeamGroup = ({
         <div className="min-w-0">
           <h2 className="min-w-0" id={headingId}>
             <button
-              aria-controls={regionId}
+              aria-controls={collapsed ? undefined : regionId}
               aria-expanded={!collapsed}
               className="flex min-w-0 items-center gap-2 text-left font-semibold text-lg"
               onClick={handleToggle}
