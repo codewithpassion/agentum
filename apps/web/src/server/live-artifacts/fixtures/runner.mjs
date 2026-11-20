@@ -19,6 +19,20 @@ const directory = await mkdtemp(join(tmpdir(), "artifact-room-"));
 let runtime;
 let passed = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// A fixed pause guesses how fast the host is: a busy machine answers late and
+// the check then reads state that has not arrived yet. Wait for the state
+// itself instead. The deadline is only ever reached by a room that is stuck.
+const SETTLE_MS = 15_000;
+async function eventually(condition) {
+  const deadline = Date.now() + SETTLE_MS;
+  while (!(await condition())) {
+    if (Date.now() > deadline) {
+      return false;
+    }
+    await pause(10);
+  }
+  return true;
+}
 const check = (condition, message) => {
   assert.ok(condition, message);
   passed += 1;
@@ -56,6 +70,9 @@ async function fails(path, input = {}, room = "test") {
     { body: JSON.stringify(input), method: "POST" }
   );
   check(!r.ok, `${path} should fail`);
+  // Read the body to its end: undici cancels an unread body once the Response
+  // is garbage collected, which destroys the pooled socket a later call uses.
+  await r.arrayBuffer();
 }
 const ticket = (claims = {}, room = "test") => call("/ticket", claims, room);
 async function connect(token, room = "test") {
@@ -93,6 +110,22 @@ async function connect(token, room = "test") {
 
 const controls = (name, value, room = "test") =>
   call("/control", { name, value }, room);
+// Park authorization lookups after they read their answer, so a test can land
+// a change while a lookup is in flight without racing a timer.
+const hold = (room = "test") => call("/hold", {}, room);
+const release = (room = "test") => call("/release", {}, room);
+const parkedAtLeast = (count, room = "test") =>
+  eventually(async () => (await call("/held", {}, room)) >= count);
+const settledFrames = async (room) => (await call("/stats", {}, room)).settled;
+const frameSettled = (before, room) =>
+  eventually(async () => (await settledFrames(room)) > before);
+// Send a frame and wait until the room has finished delivering it, so the next
+// HTTP read sees its effect (or, for a refused frame, its absence).
+async function sendSettled(client, frame, room = "test") {
+  const before = await settledFrames(room);
+  client.ws.send(frame);
+  check(await frameSettled(before, room), "frame delivery finished");
+}
 function update(bytes, kind = 2) {
   const e = encoding.createEncoder();
   encoding.writeVarUint(e, 0);
@@ -126,28 +159,39 @@ function presences(client) {
       return [{ clock, id, state: JSON.parse(decoding.readVarString(a)) }];
     });
 }
-async function syncReplica(client) {
-  const doc = new Y.Doc();
-  doc.getXmlFragment("content");
+const syncUpdates = (client) =>
+  client.messages.flatMap((message) => {
+    if (typeof message === "string") {
+      return [];
+    }
+    const d = decoding.createDecoder(new Uint8Array(message));
+    if (decoding.readVarUint(d) !== 0) {
+      return [];
+    }
+    const kind = decoding.readVarUint(d);
+    return kind === 1 || kind === 2 ? [decoding.readVarUint8Array(d)] : [];
+  });
+// Send a sync step 1 for `doc` and apply what the room has sent once its
+// answer has arrived.
+async function syncInto(client, doc) {
+  const known = syncUpdates(client).length;
   const e = encoding.createEncoder();
   encoding.writeVarUint(e, 0);
   encoding.writeVarUint(e, 0);
   encoding.writeVarUint8Array(e, Y.encodeStateVector(doc));
   client.ws.send(encoding.toUint8Array(e));
-  await pause(50);
-  for (const message of client.messages) {
-    if (typeof message === "string") {
-      continue;
-    }
-    const d = decoding.createDecoder(new Uint8Array(message));
-    if (decoding.readVarUint(d) !== 0) {
-      continue;
-    }
-    const kind = decoding.readVarUint(d);
-    if (kind === 1 || kind === 2) {
-      Y.applyUpdate(doc, decoding.readVarUint8Array(d));
-    }
+  check(
+    await eventually(() => syncUpdates(client).length > known),
+    "room answered the sync request"
+  );
+  for (const bytes of syncUpdates(client)) {
+    Y.applyUpdate(doc, bytes);
   }
+}
+async function syncReplica(client) {
+  const doc = new Y.Doc();
+  doc.getXmlFragment("content");
+  await syncInto(client, doc);
   return doc;
 }
 function origin(changeId) {
@@ -226,8 +270,10 @@ try {
     (await connect(deletedTicket)).status === 403,
     "old unexpired ticket after deletion"
   );
-  await pause(50);
-  check(owner.closed, "deletion refresh closes already attached socket");
+  check(
+    await eventually(() => owner.closed),
+    "deletion refresh closes already attached socket"
+  );
   await call("/refresh");
   await controls("deleted", false);
   const observer = await connect(await ticket());
@@ -238,8 +284,10 @@ try {
       user: { color: "#ffffff", id: "victim", name: "Forged" },
     })
   );
-  await pause(30);
-  const entry = presences(observer).find((p) => p.state?.user?.id === "alice");
+  const alicePresence = () =>
+    presences(observer).find((p) => p.state?.user?.id === "alice");
+  await eventually(alicePresence);
+  const entry = alicePresence();
   check(
     entry?.state.user.name === "Trusted alice" &&
       entry.state.user.color === "#123456",
@@ -250,14 +298,18 @@ try {
     `server owns awareness ID and lifecycle clock: ${JSON.stringify(entry)}`
   );
   alice.ws.close();
-  await pause(50);
-  const cleared = presences(observer).find(
-    (p) => p.id === entry.id && p.state === null
-  );
+  const clearedPresence = () =>
+    presences(observer).find((p) => p.id === entry.id && p.state === null);
+  await eventually(clearedPresence);
+  const cleared = clearedPresence();
   check(cleared?.clock > entry.clock, "monotonic close removal");
   const reconnected = await connect(await ticket({ participantId: "alice" }));
   reconnected.ws.send(awareness(42, 1, { user: { name: "again" } }));
-  await pause(30);
+  await eventually(() =>
+    presences(observer).some(
+      (p) => p.state?.user?.id === "alice" && p.id !== entry.id
+    )
+  );
   const again = presences(observer)
     .filter((p) => p.state?.user?.id === "alice")
     .at(-1);
@@ -294,9 +346,10 @@ try {
   );
   observer.messages.length = 0;
   observer.ws.send(new Uint8Array([3]));
-  await pause(40);
   check(
-    presences(observer).some((p) => p.state?.user?.id === "agent"),
+    await eventually(() =>
+      presences(observer).some((p) => p.state?.user?.id === "agent")
+    ),
     "awareness query includes active agent"
   );
   await call("/agent", { entry: null });
@@ -305,41 +358,27 @@ try {
     !(await call("/presence")).some((p) => p.id === "agent"),
     "explicit agent clear"
   );
+  const agentFrames = () =>
+    presences(observer).filter((p) => p.state?.user?.id === "agent");
+  const agentFramesBefore = agentFrames().length;
   await call("/agent", { entry: agent });
-  const agentId = presences(observer)
-    .filter((p) => p.state?.user?.id === "agent")
-    .at(-1)?.id;
+  await eventually(() => agentFrames().length > agentFramesBefore);
+  const agentId = agentFrames().at(-1)?.id;
   await pause(5100);
   check(
     !(await call("/presence")).some((p) => p.id === "agent"),
     "agent expires within five seconds"
   );
   check(
-    presences(observer).some((p) => p.id === agentId && p.state === null),
+    await eventually(() =>
+      presences(observer).some((p) => p.id === agentId && p.state === null)
+    ),
     "agent expiry broadcasts removal"
   );
   // A real Yjs replica syncs and emits a rich content edit through validation.
   const replica = new Y.Doc();
   replica.getXmlFragment("content");
-  const e = encoding.createEncoder();
-  encoding.writeVarUint(e, 0);
-  encoding.writeVarUint(e, 0);
-  encoding.writeVarUint8Array(e, Y.encodeStateVector(replica));
-  observer.ws.send(encoding.toUint8Array(e));
-  await pause(40);
-  for (const m of observer.messages) {
-    if (typeof m === "string") {
-      continue;
-    }
-    const d = decoding.createDecoder(new Uint8Array(m));
-    if (decoding.readVarUint(d) !== 0) {
-      continue;
-    }
-    const k = decoding.readVarUint(d);
-    if (k === 1 || k === 2) {
-      Y.applyUpdate(replica, decoding.readVarUint8Array(d));
-    }
-  }
+  await syncInto(observer, replica);
   const paragraph = replica
     .getXmlFragment("content")
     .toArray()
@@ -347,8 +386,7 @@ try {
   const text = paragraph.toArray().find((n) => n instanceof Y.XmlText);
   const vector = Y.encodeStateVector(replica);
   text.insert(0, "Human ");
-  observer.ws.send(update(Y.encodeStateAsUpdate(replica, vector)));
-  await pause(50);
+  await sendSettled(observer, update(Y.encodeStateAsUpdate(replica, vector)));
   check(
     (await call("/read")).content.includes("Human Hello"),
     "valid Yjs rich update accepted"
@@ -359,19 +397,17 @@ try {
   const fragment = invalid.getXmlFragment("content");
   const evil = new Y.XmlElement("script");
   fragment.insert(0, [evil]);
-  hostile.ws.send(update(Y.encodeStateAsUpdate(invalid)));
-  await pause(50);
+  await sendSettled(hostile, update(Y.encodeStateAsUpdate(invalid)));
   check(
     (await call("/read")).content === goodContent,
     "invalid candidate cannot mutate authoritative document"
   );
-  check(hostile.closed, "invalid update rejected");
+  check(await eventually(() => hostile.closed), "invalid update rejected");
   for (const role of ["viewer", "commenter"]) {
     await controls(`role:${role}`, role);
     const reader = await connect(await ticket({ participantId: role, role }));
     check(reader.status === 101, `${role} admitted`);
-    reader.ws.send(update(Y.encodeStateAsUpdate(replica)));
-    await pause(30);
+    await sendSettled(reader, update(Y.encodeStateAsUpdate(replica)));
     check(
       !reader.closed && (await call("/read")).content === goodContent,
       `${role} cannot write`
@@ -380,41 +416,45 @@ try {
   const active = await connect(await ticket({ participantId: "active" }));
   await controls("role:active", "viewer");
   await call("/refresh", { id: "active" });
-  active.ws.send(update(Y.encodeStateAsUpdate(replica)));
-  await pause(50);
+  await sendSettled(active, update(Y.encodeStateAsUpdate(replica)));
   check(
     !active.closed && (await call("/read")).content === goodContent,
     "refresh downgrades attached writer and refuses writes"
   );
   await controls("role:active", null);
   await call("/refresh", { id: "active" });
-  await pause(50);
-  check(active.closed, "targeted refresh closes revoked attached socket");
+  check(
+    await eventually(() => active.closed),
+    "targeted refresh closes revoked attached socket"
+  );
   const stale = await ticket({ participantId: "renew" });
   const renewer = await connect(stale);
   const renewal = await ticket({ participantId: "renew" });
   await controls("role:renew", "viewer");
   renewer.ws.send(JSON.stringify({ ticket: renewal, type: "renew" }));
-  await pause(30);
-  check(renewer.closed, "renewal reauthorizes and refuses stale role");
+  check(
+    await eventually(() => renewer.closed),
+    "renewal reauthorizes and refuses stale role"
+  );
   const validRenewal = await ticket();
   observer.ws.send(JSON.stringify({ ticket: validRenewal, type: "renew" }));
-  await pause(30);
   check(
-    observer.messages.some(
-      (m) => typeof m === "string" && JSON.parse(m).type === "renewed"
+    await eventually(() =>
+      observer.messages.some(
+        (m) => typeof m === "string" && JSON.parse(m).type === "renewed"
+      )
     ),
     "valid renewal"
   );
   observer.ws.send(JSON.stringify({ ticket: validRenewal, type: "renew" }));
-  await pause(30);
-  check(observer.closed, "renewal ticket single use");
+  check(await eventually(() => observer.closed), "renewal ticket single use");
   const expiring = await connect(await ticket());
   await call("/expire");
   await call("/alarm");
-  await pause(150);
   check(
-    expiring.closed && (await call("/stats")).sockets === 0,
+    await eventually(
+      async () => expiring.closed && (await call("/stats")).sockets === 0
+    ),
     "connection expiration alarm removes server sockets"
   );
   // LR.14: one authorize per participant window, not per frame.
@@ -439,9 +479,10 @@ try {
   for (const word of ["a", "b", "c", "d", "e"]) {
     cacheWriter.ws.send(edit(word));
   }
-  await pause(100);
   check(
-    (await call("/read")).content.includes("edcba"),
+    await eventually(async () =>
+      (await call("/read")).content.includes("edcba")
+    ),
     "frames inside the grant window apply"
   );
   check(
@@ -454,42 +495,49 @@ try {
   for (const word of ["f", "g", "h"]) {
     cacheWriter.ws.send(edit(word));
   }
-  await pause(500);
   check(
-    (await call("/read")).content.includes("hgfedcba") &&
-      (await authCalls()) === cold + 1,
+    (await eventually(async () =>
+      (await call("/read")).content.includes("hgfedcba")
+    )) && (await authCalls()) === cold + 1,
     "an expired grant is re-read once for a burst of frames"
   );
+  await controls("authDelay", 0);
   // An invalidation lands while frames wait on a lookup: both frames still
   // apply in order and the socket survives.
-  await controls("authDelay", 300);
   await pause(2100);
+  await hold();
   cacheWriter.ws.send(edit("p"));
   cacheWriter.ws.send(edit("q"));
-  await pause(100);
+  check(await parkedAtLeast(1), "the frames wait on a lookup");
   await call("/refresh", { id: "nobody" });
-  await pause(1500);
+  await release();
   check(
-    (await call("/read")).content.includes("qphgfedcba") && !cacheWriter.closed,
+    (await eventually(async () =>
+      (await call("/read")).content.includes("qphgfedcba")
+    )) && !cacheWriter.closed,
     "frames keep their order when an invalidation lands during the lookup"
   );
   // A downgrade lands while a frame waits on a lookup that still answers
   // editor: the stale answer is discarded and the write is refused.
   await pause(2100);
+  const beforeDowngrade = await settledFrames("test");
+  await hold();
   cacheWriter.ws.send(edit("SXQ"));
-  await pause(100);
+  check(await parkedAtLeast(1), "the frame waits on a lookup");
   await controls("role:cache-writer", "viewer");
-  await call("/refresh", { id: "cache-writer" });
-  await pause(800);
+  // The refresh runs its own lookup, which parks behind the first one.
+  const refreshing = call("/refresh", { id: "cache-writer" });
+  check(await parkedAtLeast(2), "the refresh looks access up again");
+  await release();
+  await refreshing;
+  check(await frameSettled(beforeDowngrade, "test"), "the frame is decided");
   check(
     !((await call("/read")).content.includes("SXQ") || cacheWriter.closed),
     "a downgrade during the lookup refuses the in-flight write"
   );
-  await controls("authDelay", 0);
   await controls("role:cache-writer", "viewer");
   await pause(2100);
-  cacheWriter.ws.send(edit("Z"));
-  await pause(60);
+  await sendSettled(cacheWriter, edit("Z"));
   check(
     !(await call("/read")).content.includes("Z"),
     "role downgrade without a refresh still lands after the grant window"
@@ -498,7 +546,7 @@ try {
   const fenced = await connect(await ticket({ participantId: "cache-fence" }));
   const fenceBranch = new Y.Doc();
   Y.applyUpdate(fenceBranch, Y.encodeStateAsUpdate(replica));
-  fenced.ws.send(update(Y.encodeStateAsUpdate(fenceBranch)));
+  await sendSettled(fenced, update(Y.encodeStateAsUpdate(fenceBranch)));
   await controls("fence", true);
   await call("/refresh");
   const fenceText = fenceBranch
@@ -510,39 +558,39 @@ try {
   const fenceVector = Y.encodeStateVector(fenceBranch);
   fenceText.insert(0, "FENCED");
   fenced.ws.send(update(Y.encodeStateAsUpdate(fenceBranch, fenceVector)));
-  await pause(60);
+  const fenceClosed = await eventually(() => fenced.closed);
   check(
-    !(await call("/read")).content.includes("FENCED") && fenced.closed,
+    fenceClosed && !(await call("/read")).content.includes("FENCED"),
     "an access fence blocks the next frame despite a warm grant"
   );
   await controls("fence", false);
   // Admission lookups run in parallel, and a lookup that straddles a
   // revocation never admits.
-  await controls("authDelay", 300);
-  const admitStart = Date.now();
-  const admitted = await Promise.all(
-    Array.from({ length: 8 }, async (_, index) =>
-      connect(await ticket({ participantId: `burst-${index}` }))
-    )
+  await hold();
+  const admissions = Array.from({ length: 8 }, async (_, index) =>
+    connect(await ticket({ participantId: `burst-${index}` }))
   );
-  const admitMs = Date.now() - admitStart;
+  const inParallel = await parkedAtLeast(8);
+  await release();
+  const admitted = await Promise.all(admissions);
   check(
-    admitted.every((c) => c.status === 101) && admitMs < 1200,
-    `eight concurrent admissions do not serialize lookups (${admitMs} ms)`
+    inParallel && admitted.every((c) => c.status === 101),
+    "eight concurrent admissions do not serialize lookups"
   );
   for (const client of admitted) {
     client.ws.close();
   }
   const straddle = await ticket({ participantId: "straddle" });
+  await hold();
   const straddling = connect(straddle);
-  await pause(100);
+  check(await parkedAtLeast(1), "the admission lookup is in flight");
   await controls("role:straddle", null);
   await call("/refresh", { id: "straddle" });
+  await release();
   check(
     (await straddling).status === 403,
     "an admission lookup that straddles a revocation is refused"
   );
-  await controls("authDelay", 0);
   cacheWriter.ws.close();
   fenced.ws.close();
   // Restart-safe captured agent edits and monotonic authoritative revisions.
@@ -740,8 +788,11 @@ try {
     .find((n) => n.nodeName === "image");
   const imageVector = Y.encodeStateVector(imageDoc);
   image.setAttribute("src", "/files/foreign-image.png");
-  imageClient.ws.send(update(Y.encodeStateAsUpdate(imageDoc, imageVector)));
-  await pause(50);
+  await sendSettled(
+    imageClient,
+    update(Y.encodeStateAsUpdate(imageDoc, imageVector)),
+    "images"
+  );
   check(
     !(await call("/read", {}, "images")).content.includes("foreign-image"),
     "binary update cannot grant itself ownership of an image"
@@ -856,8 +907,11 @@ try {
     .find((n) => n instanceof Y.XmlText);
   const sleepyVector = Y.encodeStateVector(sleepyDoc);
   sleepyText.insert(0, "Wake ");
-  sleeper.ws.send(update(Y.encodeStateAsUpdate(sleepyDoc, sleepyVector)));
-  await pause(50);
+  await sendSettled(
+    sleeper,
+    update(Y.encodeStateAsUpdate(sleepyDoc, sleepyVector)),
+    "hibernate"
+  );
   check(
     (await call("/read", {}, "hibernate")).content.includes("Wake Hello"),
     "rich Yjs edits continue after socket hibernation"
@@ -874,10 +928,12 @@ try {
     "last"
   );
   last.ws.close();
-  await pause(100);
   check(
-    (await call("/stats", {}, "last")).fixture.saved?.origins[0].changeId ===
-      "leave",
+    await eventually(
+      async () =>
+        (await call("/stats", {}, "last")).fixture.saved?.origins[0]
+          .changeId === "leave"
+    ),
     "last participant checkpoints with agent provenance"
   );
 
@@ -982,8 +1038,11 @@ try {
     .find((n) => n instanceof Y.XmlText);
   const humanVector = Y.encodeStateVector(humanDoc);
   humanText.insert(0, "Intervening human ");
-  human.ws.send(update(Y.encodeStateAsUpdate(humanDoc, humanVector)));
-  await pause(50);
+  await sendSettled(
+    human,
+    update(Y.encodeStateAsUpdate(humanDoc, humanVector)),
+    reviewRoom
+  );
   await decide("guarded-conflict", "accept");
   check(
     (await call("/suggestions", {}, reviewRoom)).items.find(
@@ -1000,8 +1059,11 @@ try {
   ]);
   const v2 = Y.encodeStateVector(humanDoc);
   humanText.insert(0, "More human ");
-  human.ws.send(update(Y.encodeStateAsUpdate(humanDoc, v2)));
-  await pause(50);
+  await sendSettled(
+    human,
+    update(Y.encodeStateAsUpdate(humanDoc, v2)),
+    reviewRoom
+  );
   await decide("merge-insert", "accept");
   check(
     (await call("/read", {}, reviewRoom)).content.includes("More human"),
@@ -1108,8 +1170,11 @@ try {
   );
   const dv = Y.encodeStateVector(deckDoc);
   deckDoc.getMap("meta").set("title", "Human deck title");
-  deckHuman.ws.send(update(Y.encodeStateAsUpdate(deckDoc, dv)));
-  await pause(50);
+  await sendSettled(
+    deckHuman,
+    update(Y.encodeStateAsUpdate(deckDoc, dv)),
+    deckReview
+  );
   await call(
     "/suggestion-decision",
     { decision: "accept", suggestionId: "deck-conflict" },

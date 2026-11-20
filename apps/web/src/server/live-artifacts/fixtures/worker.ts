@@ -42,8 +42,15 @@ function initial(): RoomSnapshot {
   live.doc.destroy();
   return snapshot;
 }
+interface AuthGate {
+  open: (() => void) | undefined;
+  parked: number;
+  wait: Promise<void> | undefined;
+}
 export class TestArtifactRoom extends ArtifactRoom {
   private readonly fixture: DurableObjectState;
+  private readonly gate: AuthGate;
+  private settled = 0;
   constructor(ctx: DurableObjectState, env: ArtifactRoomEnv) {
     ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS fixture (key TEXT PRIMARY KEY,value TEXT)"
@@ -60,6 +67,10 @@ export class TestArtifactRoom extends ArtifactRoom {
         name,
         JSON.stringify(value)
       );
+    // While held, every lookup reads its answer, then parks until released.
+    // A test that must land a change "during" a lookup parks it instead of
+    // racing a timer, which a loaded host wins or loses at random.
+    const gate: AuthGate = { open: undefined, parked: 0, wait: undefined };
     const service: ArtifactRoomService = {
       admit: async (roomScope, token) => {
         const claims = await verifyRoomTicket(token, key, {
@@ -73,7 +84,11 @@ export class TestArtifactRoom extends ArtifactRoom {
         // The answer is read first and delivered late, like a slow Clerk call.
         const delay = get<number>("authDelay") ?? 0;
         const late = async <T>(answer: T) => {
-          if (delay > 0) {
+          if (gate.wait) {
+            gate.parked += 1;
+            await gate.wait;
+            gate.parked -= 1;
+          } else if (delay > 0) {
             await new Promise((resolve) => setTimeout(resolve, delay));
           }
           return answer;
@@ -159,7 +174,33 @@ export class TestArtifactRoom extends ArtifactRoom {
       ARTIFACT_ROOM_TICKET_KEY: key,
     });
     this.fixture = ctx;
+    this.gate = gate;
     put("starts", (get<number>("starts") ?? 0) + 1);
+  }
+  /** Counts a frame once its whole delivery, retries included, has finished. */
+  override async webSocketMessage(
+    socket: WebSocket,
+    message: string | ArrayBuffer
+  ): Promise<void> {
+    try {
+      await super.webSocketMessage(socket, message);
+    } finally {
+      this.settled += 1;
+    }
+  }
+  holdAuth() {
+    this.gate.wait = new Promise<void>((resolve) => {
+      this.gate.open = resolve;
+    });
+  }
+  releaseAuth() {
+    const { open } = this.gate;
+    this.gate.wait = undefined;
+    this.gate.open = undefined;
+    open?.();
+  }
+  parkedAuth() {
+    return this.gate.parked;
   }
   fixtureValue(name: string): unknown {
     const [row] = this.fixture.storage.sql
@@ -229,6 +270,7 @@ export class TestArtifactRoom extends ArtifactRoom {
       ),
       meta: new RoomStorage(this.fixture.storage).get("state"),
       pending: new RoomStorage(this.fixture.storage).get("pending"),
+      settled: this.settled,
       socketStates: this.fixture.getWebSockets().map((s) => ({
         ready: s.readyState,
         state: s.deserializeAttachment(),
@@ -491,6 +533,15 @@ export default {
           break;
         case "/stats":
           result = await stub.stats();
+          break;
+        case "/hold":
+          result = await stub.holdAuth();
+          break;
+        case "/release":
+          result = await stub.releaseAuth();
+          break;
+        case "/held":
+          result = await stub.parkedAuth();
           break;
         case "/control":
           result = await stub.control(input.name as string, input.value);

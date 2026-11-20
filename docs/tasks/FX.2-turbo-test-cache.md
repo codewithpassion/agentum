@@ -3,7 +3,7 @@ id: FX.2
 title: "Turbo caches test results per package"
 milestone: FX
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/FX.2-turbo-test-cache
 lane: ops-turbo
@@ -29,3 +29,4 @@ Dom asked on 20 Nov 2026. `turbo.json` has `"test": { "cache": false }`, so ever
 ## Log
 - 2026-11-20: added on Dom's request, from the controller's timing analysis.
 - 2026-11-20: dispatched on task/FX.2-turbo-test-cache (v4 controller session).
+- 2026-11-20: merged as de8b3482, review clean after 1 fix round. check and build passed on main; tests passed except guest-execution (fixed by FX.1, merging next). A no-change re-run is 14 of 14 cache hits in about 5 s.
