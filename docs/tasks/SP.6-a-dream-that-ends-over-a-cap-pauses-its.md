@@ -3,9 +3,9 @@ id: SP.6
 title: "A dream that ends over a cap pauses its agent"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: [SP.5]
-branch: null
+branch: task/SP.6-a-dream-that-ends-over-a-cap-pauses-its
 lane: services-dream
 executor: claude
 ---
@@ -24,3 +24,4 @@ a service test with the fake model. An agent at $0.99 of a $1.00 cap runs a drea
 
 ## Log
 - 2026-11-21: added from the spend walkthrough.
+- 2026-11-21: dispatched.
