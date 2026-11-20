@@ -3,9 +3,9 @@ id: DR.10
 title: "Extract keeps a disagreement for reconcile"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [DR.7]
-branch: null
+branch: task/DR.10-extract-keeps-a-disagreement-for-reconci
 lane: services-dream-inputs
 executor: claude
 ---
@@ -18,8 +18,10 @@ change the extract prompt in `extract.ts` so two pieces of evidence that disagre
 
 ## Check
 
-extract tests with a fake model for both shapes. A real-model run of two people disagreeing in two conversations ends with a question in Needs you. The cost of that run is in the diary's usage row.
+extract tests with a fake model for both shapes. A real-model run of two disagreeing conversations ends with two candidates, not one merged note. The question in Needs you moved to DR.16.
 - `bun run check && bun run test && bun run build` pass.
 
 ## Log
 - 2026-11-20: added from the dream walkthrough.
+- 2026-11-21: dispatched.
+- 2026-11-21: scope fixed by controller. The dispatcher found reconcile only questions notes that already exist and skips groups written only by a dream, so a prompt change alone can't raise a question. DR.10 keeps the prompt change. The Needs you question moves to DR.16 (services-dream lane, after DR.9).

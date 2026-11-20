@@ -50,9 +50,9 @@ const sharedNotes = (world: World) =>
 
 test("only the owner or an admin can undo an applied shared change", async () => {
   const world = makeWorld();
-  const refused = await world.service.add(run(RUN.ui), note());
-  const undoneByOwner = await world.service.add(run(RUN.ui), note());
-  const undoneByAdmin = await world.service.add(run(RUN.ui), note());
+  const refused = await world.service.add(run(RUN.room), note());
+  const undoneByOwner = await world.service.add(run(RUN.room), note());
+  const undoneByAdmin = await world.service.add(run(RUN.room), note());
 
   expect(
     await errorOf(world.service.undo(person(USER_A), refused.id))
@@ -77,7 +77,7 @@ test("only the owner or an admin can undo an applied shared change", async () =>
 
 test("only the owner or an admin can edit a shared note", async () => {
   const world = makeWorld();
-  const added = await world.service.add(run(RUN.ui), note());
+  const added = await world.service.add(run(RUN.room), note());
   const rowsBefore = changeRows(world).length;
 
   expect(
@@ -115,9 +115,9 @@ test("only the owner or an admin can edit a shared note", async () => {
 
 test("only the owner or an admin can forget a shared note", async () => {
   const world = makeWorld();
-  const kept = await world.service.add(run(RUN.ui), note());
-  const forgottenByOwner = await world.service.add(run(RUN.ui), note());
-  const forgottenByAdmin = await world.service.add(run(RUN.ui), note());
+  const kept = await world.service.add(run(RUN.room), note());
+  const forgottenByOwner = await world.service.add(run(RUN.room), note());
+  const forgottenByAdmin = await world.service.add(run(RUN.room), note());
   const rowsBefore = changeRows(world).length;
 
   expect(
@@ -153,10 +153,10 @@ test("only the owner or an admin can forget a shared note", async () => {
 test("only the owner or an admin can approve or reject a held shared change", async () => {
   const world = makeWorld();
   await setLevel(world, "ask_first");
-  const approvedByOwner = await world.service.add(run(RUN.ui), note());
-  const rejectedByAdmin = await world.service.add(run(RUN.ui), note());
-  const refusedApprove = await world.service.add(run(RUN.ui), note());
-  const refusedReject = await world.service.add(run(RUN.ui), note());
+  const approvedByOwner = await world.service.add(run(RUN.room), note());
+  const rejectedByAdmin = await world.service.add(run(RUN.room), note());
+  const refusedApprove = await world.service.add(run(RUN.room), note());
+  const refusedReject = await world.service.add(run(RUN.room), note());
 
   expect(
     await errorOf(
@@ -205,9 +205,9 @@ test("the backup owner decides a held shared change but still cannot edit, forge
     .where(eq(agents.id, AGENT))
     .run();
   await setLevel(world, "ask_first");
-  const approved = await world.service.add(run(RUN.ui), note());
-  const rejected = await world.service.add(run(RUN.ui), note());
-  const refused = await world.service.add(run(RUN.ui), note());
+  const approved = await world.service.add(run(RUN.room), note());
+  const rejected = await world.service.add(run(RUN.room), note());
+  const refused = await world.service.add(run(RUN.room), note());
 
   expect(
     await errorOf(
@@ -307,9 +307,9 @@ test("a person decides a held private change of their own", async () => {
 test("a run still edits a shared note at tell_after", async () => {
   const world = makeWorld();
   await setLevel(world, "tell_after");
-  const added = await world.service.add(run(RUN.ui), note());
+  const added = await world.service.add(run(RUN.room), note());
 
-  const edit = await world.service.edit(run(RUN.ui), {
+  const edit = await world.service.edit(run(RUN.room), {
     agentId: AGENT,
     noteId: added.noteId,
     text: "Changed by the agent",
