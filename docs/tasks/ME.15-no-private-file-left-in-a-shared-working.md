@@ -3,7 +3,7 @@ id: ME.15
 title: "No private file left in a shared working copy"
 milestone: ME
 size: M
-status: in_progress
+status: done
 depends_on: []
 branch: task/ME.15-no-private-file-left-in-a-shared-working
 lane: runtimes
@@ -23,3 +23,4 @@ A VM test with one VM and one working copy: sync in for a run for A, then for a 
 ## Log
 - 2026-11-20: added from the ME gate review, round 1.
 - 2026-11-20: dispatched on task/ME.15-no-private-file-left-in-a-shared-working (v4 controller session).
+- 2026-11-20: merged as be159e07, review clean after 1 fix round. check, test (Rust included) and build passed on main.
