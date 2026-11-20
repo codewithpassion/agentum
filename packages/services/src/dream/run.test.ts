@@ -661,6 +661,115 @@ test("undo lists a note a person wrote in another file after the dream", async (
   expect(files["places.md"]).toContain("Invoices live in the Sales sheet");
 });
 
+test("undo keeps a note a person writes between its two reads and reports the conflict", async () => {
+  const w = makeDreamWorld(keepsOne("Mia wants Google Docs"));
+  w.say("Mia wants drafts as Google Docs");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  // The person's write lands after undo's first read and before its second.
+  // Loading the files starts by listing the private folder, which the version
+  // check never does, so that call marks the gap whichever read comes first.
+  const list = w.library.list.bind(w.library);
+  let armed = true;
+  w.library.list = async (...args: Parameters<typeof list>) => {
+    if (armed) {
+      armed = false;
+      await addNote(w, "people", "Written while undo was running");
+    }
+    return await list(...args);
+  };
+  await expect(w.dream.undo(w.owner, run.id)).rejects.toMatchObject({
+    code: "conflict",
+  });
+  w.library.list = list;
+  expect(
+    (await w.service.list(w.owner, { agentId: AGENT })).map((item) => item.text)
+  ).toContain("Written while undo was running");
+  expect((await w.dream.changes(w.owner, run.id))[0]?.status).toBe("applied");
+});
+
+/** A model that keeps one new note and reports a conflict between each pair of notes it is given. */
+const asksAbout =
+  (text: string, pairs: readonly (readonly [string, string])[]): Script =>
+  (call) => {
+    if (call.kind === "reconcile") {
+      const pair = pairs.find(([first]) => call.prompt.includes(first));
+      return JSON.stringify({
+        conflicts: pair
+          ? [{ confidence: 0.9, ids: pair, question: `Which of ${pair[0]}?` }]
+          : [],
+      });
+    }
+    return keepsOne(text)(call);
+  };
+
+const questionStatuses = async (w: ReturnType<typeof makeDreamWorld>) =>
+  (await w.db.select().from(dreamQuestions)).map((row) => row.status);
+
+test("undo closes the questions the dream opened", async () => {
+  const w = makeDreamWorld();
+  const coffee = await addNote(w, "places", "The coffee machine is on level 2");
+  const coffeeNow = await addNote(
+    w,
+    "places",
+    "The coffee machine is on level 3"
+  );
+  w.setScript(asksAbout("Mia wants Google Docs", [[coffee, coffeeNow]]));
+  w.say("Mia wants drafts as Google Docs");
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(await questionStatuses(w)).toEqual(["open"]);
+
+  await w.dream.undo(w.owner, run.id);
+
+  const [question] = await w.db.select().from(dreamQuestions);
+  expect(question?.status).toBe("answered");
+  expect(question?.answeredBy).toBe(OWNER);
+  expect(question?.answeredNoteId).toBeNull();
+});
+
+test("rejecting a held batch closes the questions that name its held notes and leaves the others open", async () => {
+  const w = makeDreamWorld();
+  const tom = await addNote(w, "people", "Tom reads reports on his phone");
+  const tomAgain = await addNote(w, "people", "Tom likes reports to be short");
+  const tomElse = await addNote(w, "people", "Tom reads nothing on Fridays");
+  const coffee = await addNote(w, "places", "The coffee machine is on level 2");
+  const coffeeNow = await addNote(
+    w,
+    "places",
+    "The coffee machine is on level 3"
+  );
+  w.setRules({ learnLevel: "ask_first" });
+  w.say("Mia wants drafts as Google Docs");
+  w.setScript((call) => {
+    if (call.kind === "merge") {
+      return JSON.stringify({
+        groups: [
+          {
+            confidence: 0.9,
+            ids: [tom, tomAgain],
+            rationale: "same person",
+            text: "Tom reads reports on his phone, so keep them short",
+          },
+        ],
+      });
+    }
+    return asksAbout("Mia wants Google Docs", [
+      [tom, tomElse],
+      [coffee, coffeeNow],
+    ])(call);
+  });
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.heldChanges).toBeGreaterThan(0);
+  expect(await questionStatuses(w)).toEqual(["open", "open"]);
+
+  await w.dream.decide(w.owner, { decision: "reject", dreamRunId: run.id });
+
+  const rows = await w.db.select().from(dreamQuestions);
+  const statusOf = (noteId: string) =>
+    rows.find((row) => row.options.includes(noteId))?.status;
+  expect(statusOf(tom)).toBe("answered");
+  expect(statusOf(coffee)).toBe("open");
+});
+
 test("approving a held batch is refused when a note it touches changed after the dream", async () => {
   const w = makeDreamWorld(keepsOne("Mia wants Google Docs"));
   w.setRules({ learnLevel: "ask_first" });
