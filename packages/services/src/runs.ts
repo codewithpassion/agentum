@@ -356,6 +356,8 @@ const assertArtifactReply = (input: z.output<typeof startRunInputSchema>) => {
 
 export interface RunsServiceOptions {
   adapters: readonly RuntimeAdapter[];
+  /** Called after a batch holding a `tool.call` is stored, with the run's id. The memory service uses it to hold notes the run applied before the outside text showed up. A throw is logged and never fails the ingest. */
+  afterToolEvents?: (runId: string) => Promise<unknown>;
   atomic: Atomic;
   /** Trusted selected-agent policy. Session/grant checks and atomic cap are enforced internally.
    * Must not charge: retries call this policy again. */
@@ -499,6 +501,7 @@ const continuationSubjectOf = (
 
 export const createRunsService = ({
   adapters,
+  afterToolEvents,
   authorizeGuestGrant,
   guestAdapter,
   guestRuntimeReady,
@@ -1732,6 +1735,24 @@ export const createRunsService = ({
     await adapter?.resume?.(run, request);
   };
 
+  const holdAfterToolCall = async (
+    runId: string,
+    batch: readonly { type: string }[]
+  ): Promise<void> => {
+    if (
+      !(afterToolEvents && batch.some((event) => event.type === "tool.call"))
+    ) {
+      return;
+    }
+    try {
+      await afterToolEvents(runId);
+    } catch (error) {
+      console.error(
+        `Holding notes after tool events of run ${runId} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
+
   const ingestRunEvents = async (
     principal: Principal,
     runId: string,
@@ -1778,6 +1799,7 @@ export const createRunsService = ({
       );
       lastSeq = event.seq;
     }
+    await holdAfterToolCall(run.id, fresh);
     if (
       fresh.some(
         (event) => event.type === "tool.result" && event.payload.ok === false

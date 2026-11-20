@@ -17,7 +17,16 @@ import {
   type MemoryRules,
   type RememberRules,
 } from "@repo/db/shared";
-import { and, desc, eq, gte, isNull, or } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+} from "drizzle-orm";
 import { ulid } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "../authz.ts";
@@ -30,7 +39,9 @@ import {
   requireAgentOwnerOrAdmin,
   requireSession,
 } from "../guards.ts";
+import { loadRun } from "../runs/queries.ts";
 import type { Clock } from "../runs/types.ts";
+import { inBatches } from "../tasks/reads.ts";
 import type { Principal } from "../workspaces.ts";
 import { type MemoryFileChange, parseMemoryFile } from "./codec.ts";
 import {
@@ -886,6 +897,106 @@ export const createMemoryService = ({
     return await reread(person.workspaceId, row.id);
   };
 
+  /**
+   * Puts one applied agent note back to held: the file goes back to how it was
+   * before the change, as `undo` does, and the row says `held` with no library
+   * version and no decision, so the Needs you card lists it and a person can
+   * still approve it. The note is read and written as the run that wrote it.
+   */
+  const holdApplied = async (row: ChangeRow, runId: string): Promise<void> => {
+    const agent = await loadAgent(row.workspaceId, agentOf(row));
+    const actor: MemoryActor = {
+      principal: {
+        agentId: agent.id,
+        kind: "run",
+        runId,
+        workspaceId: row.workspaceId,
+      },
+      userId: row.userScope,
+      workspaceId: row.workspaceId,
+      writer: "agent",
+    };
+    const prior =
+      row.action === "add" ? null : await priorNote(actor, agent, row);
+    await writeWithRetry(actor, agent, (loaded) => ({
+      change: inverseOf(row, prior, loaded),
+      notePath: pathOfNote(row),
+      statements: () => [
+        db
+          .update(memoryChanges)
+          .set({ libraryVersionId: null, status: "held" })
+          .where(
+            and(
+              eq(memoryChanges.id, row.id),
+              eq(memoryChanges.workspaceId, row.workspaceId),
+              eq(memoryChanges.status, "applied")
+            )
+          ),
+      ],
+    }));
+  };
+
+  /**
+   * Outside text can reach a run after one of its notes was applied: a tool
+   * event of a machine or managed run is stored after the call, and a run can
+   * remember something and then fetch a page. Called after such an event is
+   * stored. When the run's family has used outside text, each note an agent of
+   * the family applied moves back to held, newest first so an edit is put back
+   * before the note it edited. A note a person changed since cannot be put back
+   * safely and stays applied. Returns how many notes it held.
+   */
+  const holdAfterOutsideText = async (
+    principal: Principal,
+    runId: string
+  ): Promise<number> => {
+    if (principal.kind !== "system") {
+      throw new ForbiddenError("memory.hold_outside");
+    }
+    const run = await loadRun(db, runId);
+    if (!(run && (await actors.usedWeb(run, run.workspaceId)))) {
+      return 0;
+    }
+    const family = await actors.runFamily(run, run.workspaceId);
+    const rows = await inBatches(family, (batch) =>
+      db
+        .select()
+        .from(memoryChanges)
+        .where(
+          and(
+            eq(memoryChanges.workspaceId, run.workspaceId),
+            eq(memoryChanges.status, "applied"),
+            eq(memoryChanges.writtenBy, "agent"),
+            // A note a person approved was decided, so it is not held again.
+            isNull(memoryChanges.decidedAt),
+            isNull(memoryChanges.dreamRunId),
+            isNull(memoryChanges.groupId),
+            isNotNull(memoryChanges.agentId),
+            eq(memoryChanges.sourceKind, "run"),
+            inArray(memoryChanges.sourceId, batch)
+          )
+        )
+    );
+    rows.sort((a, b) =>
+      a.createdAt === b.createdAt
+        ? b.id.localeCompare(a.id)
+        : b.createdAt.localeCompare(a.createdAt)
+    );
+    let held = 0;
+    for (const row of rows) {
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: each note is put back against the files the last one wrote
+        await holdApplied(row, row.sourceId ?? run.id);
+        held += 1;
+      } catch (error) {
+        // A note that changed since, or whose earlier version is gone, stays applied.
+        if (!isServiceError(error)) {
+          throw error;
+        }
+      }
+    }
+    return held;
+  };
+
   const changes = async (
     principal: Principal,
     input: ChangesInput
@@ -972,7 +1083,18 @@ export const createMemoryService = ({
     },
   };
 
-  return { add, changes, decide, edit, forget, list, listTeam, rules, undo };
+  return {
+    add,
+    changes,
+    decide,
+    edit,
+    forget,
+    holdAfterOutsideText,
+    list,
+    listTeam,
+    rules,
+    undo,
+  };
 };
 
 export type MemoryService = ReturnType<typeof createMemoryService>;
