@@ -131,10 +131,11 @@ export function TopBar({
   const linksExceptHome = links.filter((link) => link.label !== "Home");
 
   return (
-    <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-2 border-border border-b bg-background/90 px-3 backdrop-blur-lg sm:px-4 lg:h-(--app-header-h)">
+    <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-2 border-border border-b bg-background/90 px-3 backdrop-blur-lg sm:px-4 md:h-(--app-header-h)">
       <nav aria-label="Main" className="flex min-w-0 flex-1 items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-2 max-lg:hidden">
-          <div className="w-48 shrink-0">{workspace}</div>
+        {/* Below xl the Assistant and New agent buttons keep their icon only, so Spend fits at 1024px. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 max-lg:hidden max-xl:[&_[data-label]]:hidden">
+          <div className="w-56 shrink-0">{workspace}</div>
           {links.map((link) => (
             <RailLink
               className={linkClass(link.label === current)}
@@ -160,9 +161,13 @@ export function TopBar({
           <span aria-hidden className="ml-auto" />
           {assistant}
           <NeedsYouButton count={count} onClick={onOpenNeedsYou} showLabel />
-          <RailLink className={newAgentClass} href={NEW_AGENT_HREF}>
+          <RailLink
+            className={newAgentClass}
+            href={NEW_AGENT_HREF}
+            label="New agent"
+          >
             <Plus />
-            New agent
+            <span data-label>New agent</span>
           </RailLink>
           {theme}
           {user}

@@ -19,7 +19,7 @@ export function AssistantButton({ onToggle }: { onToggle?: () => void }) {
       variant="outline"
     >
       <Sparkles />
-      Assistant
+      <span data-label>Assistant</span>
     </Button>
   );
 }
