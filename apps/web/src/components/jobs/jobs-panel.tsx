@@ -12,7 +12,9 @@ import { DescribeJob } from "./describe-job.tsx";
 import { DraftReview } from "./draft-review.tsx";
 import { EditJobDialog } from "./edit-job-dialog.tsx";
 import {
+  approvalTarget,
   draftName,
+  draftPrompt,
   draftRoutineInput,
   draftSaveKind,
   pauseTarget,
@@ -28,10 +30,29 @@ interface SecretShown extends CreatedTrigger {
   title: string;
 }
 
+const needsRoutinePrompts = (jobs: readonly JobSentence[]): boolean =>
+  jobs.some((job) => job.awaitingApproval && job.source === "routine");
+
+/** Routine id to prompt. A failed read leaves the map empty, and the rows still show. */
+const loadRoutinePrompts = async (
+  fixedAgentId: string | undefined
+): Promise<Record<string, string>> => {
+  try {
+    const routines = await getTrpc().routines.list.query(
+      fixedAgentId === undefined ? {} : { agentId: fixedAgentId }
+    );
+    return Object.fromEntries(
+      routines.map((routine) => [routine.id, routine.prompt])
+    );
+  } catch {
+    return {};
+  }
+};
+
 /**
- * Jobs as sentences with pause, edit, run now and a box to describe a new
- * one. With `fixedAgentId` it lists that agent's jobs, without it every
- * agent's.
+ * Jobs as sentences with pause, edit, run now, approve and reject for jobs an
+ * agent proposed, and a box to describe a new one. With `fixedAgentId` it
+ * lists that agent's jobs, without it every agent's.
  */
 export function JobsPanel({
   agents,
@@ -48,6 +69,7 @@ export function JobsPanel({
 }) {
   const router = useRouter();
   const [jobs, setJobs] = useState<JobSentence[] | undefined>();
+  const [prompts, setPrompts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | undefined>();
   const [nowMs, setNowMs] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -63,10 +85,15 @@ export function JobsPanel({
   const load = useCallback(async () => {
     try {
       const trpc = getTrpc();
-      setJobs(
+      const listed =
         fixedAgentId === undefined
           ? await trpc.jobs.list.query()
-          : await trpc.jobs.forAgent.query({ agentId: fixedAgentId })
+          : await trpc.jobs.forAgent.query({ agentId: fixedAgentId });
+      setJobs(listed);
+      setPrompts(
+        needsRoutinePrompts(listed)
+          ? await loadRoutinePrompts(fixedAgentId)
+          : {}
       );
       setNowMs(Date.now());
     } catch (cause) {
@@ -77,6 +104,56 @@ export function JobsPanel({
   useEffect(() => {
     load();
   }, [load]);
+
+  const approve = useCallback(
+    async (job: JobSentence) => {
+      setBusyId(job.id);
+      setError(undefined);
+      try {
+        const trpc = getTrpc();
+        if (approvalTarget(job) === "routine") {
+          await trpc.routines.approve.mutate({ routineId: job.id });
+        } else {
+          const result = await trpc.triggers.approve.mutate({
+            triggerId: job.id,
+          });
+          // Approving a proposed web trigger issues its secret, which is shown once.
+          if (result.secret !== null) {
+            setSecret({
+              secret: result.secret,
+              title: "Trigger approved",
+              trigger: result.trigger,
+            });
+          }
+        }
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+      setBusyId(null);
+      await load();
+    },
+    [load]
+  );
+
+  const reject = useCallback(
+    async (job: JobSentence) => {
+      setBusyId(job.id);
+      setError(undefined);
+      try {
+        const trpc = getTrpc();
+        if (approvalTarget(job) === "routine") {
+          await trpc.routines.reject.mutate({ routineId: job.id });
+        } else {
+          await trpc.triggers.reject.mutate({ triggerId: job.id });
+        }
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+      setBusyId(null);
+      await load();
+    },
+    [load]
+  );
 
   const pause = useCallback(
     async (job: JobSentence) => {
@@ -263,9 +340,12 @@ export function JobsPanel({
               job={job}
               key={job.id}
               nowMs={nowMs}
+              onApprove={approve}
               onEdit={edit}
               onPause={pause}
+              onReject={reject}
               onRunNow={runNow}
+              prompt={prompts[job.id] ?? null}
               readOnly={readOnly || !isChangeable(job.agent.id)}
               showAgent={fixedAgentId === undefined}
             />
@@ -316,7 +396,7 @@ export function JobsPanel({
           initial={{
             cron: pending.draft.cron ?? "",
             name: draftName(pending.draft.does),
-            prompt: pending.draft.does.trim() || pending.draft.when.trim(),
+            prompt: draftPrompt(pending.draft),
             timezone: pending.draft.timezone ?? "",
           }}
           onClose={closeReview}

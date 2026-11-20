@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone DR. Port the judging steps from The Brai
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/DR.2-dream-judge-steps (v4 controller session).
+- 2026-11-20: controller decision on prune by age (Dom's "don't wait for me"): there is no last-used date, so the note's date stands in for use, but notes written by a person are never pruned by age. Only agent-written notes older than 60 days go. A fourth round is allowed for this and the groups.ts fix.

@@ -481,15 +481,20 @@ test("teams.list is empty and teams.profiles.get is null while no team exists", 
   expect(await caller.teams.profiles.get({})).toBeNull();
 });
 
-test("teams changes are NOT_FOUND while the stub changes nothing", async () => {
+test("teams missing ids are NOT_FOUND and writes persist real teams and profiles", async () => {
   const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
 
   await expect(caller.teams.get({ teamId: "t1" })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
-  await expect(caller.teams.create({ name: "Ops" })).rejects.toMatchObject({
-    code: "NOT_FOUND",
+  const team = await caller.teams.create({ name: "Ops" });
+  expect(team).toMatchObject({
+    folderPath: "teams/ops",
+    name: "Ops",
+    ownerUserId: "user_1",
   });
+  expect(await caller.teams.get({ teamId: team.id })).toEqual(team);
+  expect(await caller.teams.list()).toContainEqual(team);
   await expect(
     caller.teams.update({ name: "X", teamId: "t1" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -516,9 +521,14 @@ test("teams changes are NOT_FOUND while the stub changes nothing", async () => {
   await expect(
     caller.teams.setRules({ rules: "r", teamId: "t1" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(
-    caller.teams.profiles.set({ handle: "dom", name: "Dom" })
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  expect(
+    await caller.teams.profiles.set({ handle: "dom", name: "Dom" })
+  ).toEqual({
+    handle: "dom",
+    name: "Dom",
+    userId: "user_1",
+  });
+  expect(await caller.teams.profiles.get({})).toMatchObject({ handle: "dom" });
 });
 
 test("teams inputs that are not valid are BAD_REQUEST", async () => {
