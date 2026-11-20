@@ -28,6 +28,7 @@ const catalog: BuilderCatalog = {
 };
 let db: ReturnType<typeof migrated>;
 let calls: number;
+let beforeWrite: (() => void) | undefined;
 let builder: ReturnType<typeof createTeamStarterLifecycle>;
 beforeEach(() => {
   db = migrated();
@@ -41,9 +42,11 @@ beforeEach(() => {
     })
     .run();
   calls = 0;
+  beforeWrite = undefined;
   builder = createTeamStarterLifecycle({
     atomic: async (statements) => {
       calls += 1;
+      beforeWrite?.();
       await sqliteAtomic(db)(statements);
     },
     catalog: async () => catalog,
@@ -54,6 +57,18 @@ beforeEach(() => {
     db,
   });
 });
+
+const insertTeam = () => {
+  db.insert(teams)
+    .values({
+      createdAt: "2026-11-20T00:00:00Z",
+      id: "existing",
+      name: "Sales",
+      slug: "sales",
+      workspaceId: "w1",
+    })
+    .run();
+};
 
 const expectEmpty = () => {
   for (const table of [
@@ -157,24 +172,31 @@ test("unresolved runtime and stale choices reject before writing", async () => {
   expectEmpty();
 });
 
-test("a database failure rolls back agents as well as the team", async () => {
+test("a team slug taken before the write is a conflict and creates nothing", async () => {
   const { draft } = await builder.teamFromStarter(user, "sales");
   for (const member of draft.members) {
     member.runsOn = { runtime: "cloud" };
   }
-  db.insert(teams)
-    .values({
-      createdAt: "2026-11-20T00:00:00Z",
-      id: "existing",
-      name: "Sales",
-      slug: "sales",
-      workspaceId: "w1",
-    })
-    .run();
+  insertTeam();
   await expect(builder.createTeam(user, { draft })).rejects.toMatchObject({
     code: "conflict",
     message: "Team slug is already used",
   });
+  expect(calls).toBe(0);
+  expect(db.select().from(agents).all()).toEqual([]);
+  expect(db.select().from(teams).all()).toHaveLength(1);
+});
+
+test("a slug taken during the write rolls back agents as well as the team", async () => {
+  const { draft } = await builder.teamFromStarter(user, "sales");
+  for (const member of draft.members) {
+    member.runsOn = { runtime: "cloud" };
+  }
+  beforeWrite = insertTeam;
+  await expect(builder.createTeam(user, { draft })).rejects.toMatchObject({
+    code: "conflict",
+  });
+  expect(calls).toBe(1);
   expect(db.select().from(agents).all()).toEqual([]);
   expect(db.select().from(teams).all()).toHaveLength(1);
 });
