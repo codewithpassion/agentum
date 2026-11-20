@@ -696,8 +696,11 @@ test("a write key or a connected app assigns only as the agent's owner, and an a
     workspaceId: WORKSPACE,
   });
   const adminKey: Principal = {
-    ...writeKey("user_lee"),
     apiKey: { access: "admin", id: "k2" },
+    kind: "user",
+    userId: "user_lee",
+    via: "api_key",
+    workspaceId: WORKSPACE,
   };
 
   await expect(
