@@ -145,6 +145,7 @@ const sentence = (
 ): JobSentence => ({
   agent: { id: "a1", name: "Alpha" },
   asksBefore: "Acting outside its workspace",
+  awaitingApproval: false,
   deliversTo: null,
   does: "Keep the harbour tidy.",
   enabled: true,
@@ -261,6 +262,7 @@ test("revoked, pending and paused starts; missing slot and timezone labels", asy
   expect(await service.list(user)).toEqual([
     {
       ...sentence("routine", "routine", "Every Tuesday at 9:00 (Sydney time)"),
+      awaitingApproval: true,
       does: "Send the digest",
       enabled: false,
     },
@@ -269,6 +271,10 @@ test("revoked, pending and paused starts; missing slot and timezone labels", asy
     .set({ approvedAt: NOW, disabledAt: NOW })
     .where(eq(triggers.id, "routine"))
     .run();
+  expect((await service.list(user))[0]).toMatchObject({
+    awaitingApproval: false,
+    enabled: false,
+  });
   expect((await service.list(user))[0]?.nextRunAt).toBeNull();
 });
 test("job line cap, ask levels and mail address fallback", async () => {
