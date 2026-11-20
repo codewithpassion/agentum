@@ -1,12 +1,14 @@
-import type {
-  AgentRuntime,
-  MapGraph,
-  MapNode,
-  MapNodeKind,
-  MapOutputKind,
-  MapTriggerKind,
-  MapWire,
-  MapWireKind,
+import {
+  type AgentAvatar,
+  type AgentRuntime,
+  defaultAgentAvatar,
+  type MapGraph,
+  type MapNode,
+  type MapNodeKind,
+  type MapOutputKind,
+  type MapTriggerKind,
+  type MapWire,
+  type MapWireKind,
 } from "@repo/db/shared";
 import { MarkerType } from "@xyflow/react";
 import { RUNTIME_NAMES } from "#/components/agent/profile/profile-logic.ts";
@@ -25,7 +27,6 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HASH_MODULUS = 2 ** 32;
 const TONES = 4;
-const WHITESPACE = /\s+/;
 
 export const NODE_SIZE: Record<MapNodeKind, { height: number; width: number }> =
   {
@@ -111,20 +112,12 @@ export function toneOf(key: string): TileTone {
   return ((hashOf(key) % TONES) + 1) as TileTone;
 }
 
-/** Up to two uppercase letters: the first letters of two words, or the start of one word. */
-export function initialsOf(label: string): string {
-  const words = label
-    .trim()
-    .split(WHITESPACE)
-    .filter((word) => word.length > 0);
-  const letters =
-    words.length > 1
-      ? words
-          .slice(0, 2)
-          .map((word) => word.charAt(0))
-          .join("")
-      : (words[0] ?? "").slice(0, 2);
-  return letters.length > 0 ? letters.toUpperCase() : "?";
+/** The avatar an agent node draws: the stored one, or the default for its name when the node carries none. */
+export function avatarOfNode(node: {
+  avatar?: AgentAvatar;
+  label: string;
+}): AgentAvatar {
+  return node.avatar ?? defaultAgentAvatar(node.label);
 }
 
 /**
@@ -235,7 +228,7 @@ function agentNode(
     ...NODE_SIZE.agent,
     connectable: ctx.editor === true,
     data: {
-      initials: initialsOf(node.label),
+      avatar: avatarOfNode(node),
       label: node.label,
       ports: node.ports.map((port) => ({
         id: port.id,
@@ -244,7 +237,6 @@ function agentNode(
       })),
       status,
       statusText: agentStatusText(node, ctx, status),
-      tone: toneOf(node.key),
     },
     deletable: false,
     draggable: ctx.editor === true,

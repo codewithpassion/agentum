@@ -110,6 +110,29 @@ test("create returns an active record and writes an agent.created event", async 
   });
 });
 
+test("the record carries the stored avatar, or the default for the name when the column is unreadable", async () => {
+  const agent = await service.create(user, {
+    model: "claude-haiku-5-5",
+    name: "Lunch planner",
+    runtime: "fake",
+  });
+  expect(agent.avatar).toEqual({ color: "green", glyph: "L" });
+  const stored = { color: "violet", glyph: "Z" } as const;
+  await db
+    .update(agents)
+    .set({ avatar: JSON.stringify(stored) })
+    .where(eq(agents.id, agent.id));
+  expect((await service.get(user, agent.id)).avatar).toEqual(stored);
+  await db
+    .update(agents)
+    .set({ avatar: "not json" })
+    .where(eq(agents.id, agent.id));
+  expect((await service.get(user, agent.id)).avatar).toEqual({
+    color: "green",
+    glyph: "L",
+  });
+});
+
 test("the slug is derived from the name", async () => {
   const agent = await service.create(user, {
     model: "m",

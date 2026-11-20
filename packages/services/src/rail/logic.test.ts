@@ -348,6 +348,7 @@ const item = (id: string, at: string, dueAt: string | null): RailItem => ({
   assigneeUserId: null,
   cards: [
     {
+      agentAvatar: { color: "slate", glyph: "?" },
       agentId: "agent-1",
       agentName: "Ada",
       at,

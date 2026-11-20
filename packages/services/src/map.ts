@@ -11,7 +11,7 @@ import {
 } from "@repo/db/map";
 import type { MapGraph, MapNode, MapWire } from "@repo/db/shared";
 import { z } from "zod";
-import type { AgentsService } from "./agents.ts";
+import { type AgentsService, avatarOf } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { requireApprover } from "./automation-access.ts";
 import type { ConnectorsService } from "./connectors.ts";
@@ -332,6 +332,7 @@ const agentNode = (
     (r) => waitingRuns.includes(r.runId) && r.expiresAt > now
   );
   return {
+    avatar: avatarOf(agent),
     key: `agent:${agent.id}`,
     kind: "agent",
     label: agent.name,

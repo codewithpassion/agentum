@@ -1314,9 +1314,27 @@ export const composeWith = ({
     members,
     people: infra.people,
   });
+  const teams = createTeamsService({
+    atomic: infra.atomic,
+    clock: infra.clock,
+    db,
+    slackChannels: createRoomChannels({
+      db,
+      fetch: connectorFetch,
+      secretsKey: infra.secretsKey,
+    }),
+    slackStatus: createRoomStatus({
+      db,
+      fetch: connectorFetch,
+      secretsKey: infra.secretsKey,
+    }),
+  });
   const agentBuilder = createAgentBuilderService({
     agents,
+    atomic: infra.atomic,
+    clock: infra.clock,
     connectors,
+    db,
     fetch: connectorFetch,
     libraryAccess,
     machines,
@@ -1325,6 +1343,7 @@ export const composeWith = ({
     routines,
     runs,
     skillsStore,
+    teams,
   });
   const agentProfile = createAgentProfileService({
     agents,
@@ -1529,21 +1548,7 @@ export const composeWith = ({
       takeover,
       tasks,
       teamLead: createLeadService({ agents, db, events, inbox, requests }),
-      teams: createTeamsService({
-        atomic: infra.atomic,
-        clock: infra.clock,
-        db,
-        slackChannels: createRoomChannels({
-          db,
-          fetch: connectorFetch,
-          secretsKey: infra.secretsKey,
-        }),
-        slackStatus: createRoomStatus({
-          db,
-          fetch: connectorFetch,
-          secretsKey: infra.secretsKey,
-        }),
-      }),
+      teams,
       triggers,
       wiki,
       wikiSuggestions,

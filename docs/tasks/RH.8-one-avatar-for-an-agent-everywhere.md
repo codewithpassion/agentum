@@ -3,7 +3,7 @@ id: RH.8
 title: "One avatar for an agent everywhere"
 milestone: RH
 size: S
-status: in_progress
+status: done
 depends_on: [RH.7]
 branch: task/RH.8-one-avatar-for-an-agent-everywhere
 lane: web-agent
@@ -26,3 +26,4 @@ Component tests for the shared tile. Browser: create an agent, compare its card,
 ## Log
 - 2026-11-20: added from the RH walkthrough.
 - 2026-11-21: dispatched on task/RH.8-one-avatar-for-an-agent-everywhere (v4 controller session).
+- 2026-11-21: merged as e0786bbc, review clean after 1 fix round (Map node added). Browser proof passed at both sizes: docs/reviews/tasks/RH.8/browser.md. check, test and build passed on main.

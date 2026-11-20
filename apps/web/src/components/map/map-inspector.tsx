@@ -8,6 +8,7 @@ import {
   type RequestView,
   viewFromRecord,
 } from "#/components/requests/request-card-logic.ts";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import type {
   AgentProfileView,
@@ -33,7 +34,7 @@ import {
   type TouchActions,
   TriggerWireControls,
 } from "./map-inspector-touch.tsx";
-import { agentIdOf, initialsOf } from "./map-logic.ts";
+import { agentIdOf, avatarOfNode } from "./map-logic.ts";
 
 const CHIP = "rounded-full border border-border px-2 py-0.5 text-xs";
 const WARN_CHIP =
@@ -42,13 +43,20 @@ const WARN_CHIP =
 type MapGraphView = RouterOutputs["map"]["graph"];
 type MapNodeView = MapGraphView["nodes"][number];
 
-function Tile({ label }: { label: string }) {
+const UNKNOWN_GLYPH = "?";
+
+/** An agent node shows the agent's tile. Any other node shows the first letter of its name. */
+function Tile({ node }: { node: MapNodeView }) {
+  if (node.kind === "agent") {
+    return <AgentTile avatar={avatarOfNode(node)} />;
+  }
+  const [initial = UNKNOWN_GLYPH] = Array.from(node.label);
   return (
     <span
       aria-hidden="true"
-      className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-muted font-semibold text-foreground text-xs"
+      className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted font-semibold text-foreground text-xs"
     >
-      {initialsOf(label)}
+      {initial.toUpperCase()}
     </span>
   );
 }
@@ -475,7 +483,7 @@ export function MapInspector({
       className="min-w-0 rounded-lg border border-border bg-card"
     >
       <div className="flex items-center gap-2.5 p-4">
-        <Tile label={node.label} />
+        <Tile node={node} />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold text-sm">{node.label}</h2>
           <p className="truncate text-muted-foreground text-xs">

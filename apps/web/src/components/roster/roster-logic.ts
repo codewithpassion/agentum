@@ -1,6 +1,5 @@
 import {
   AGENT_CARD_STATES,
-  type AgentAvatarColor,
   type AgentCard,
   type AgentCardState,
   DONE_STATUS_PREFIX,
@@ -39,18 +38,6 @@ export const STATE_DOT_CLASSES: Readonly<Record<AgentCardState, string>> = {
   needs_you: "bg-amber-500",
   stopped: "bg-destructive",
   working: "bg-emerald-500",
-};
-
-/** Whole class names, so Tailwind finds them. */
-export const AVATAR_CLASSES: Readonly<Record<AgentAvatarColor, string>> = {
-  amber: "bg-amber-600",
-  blue: "bg-blue-600",
-  green: "bg-emerald-600",
-  orange: "bg-orange-600",
-  red: "bg-rose-600",
-  slate: "bg-slate-600",
-  teal: "bg-teal-600",
-  violet: "bg-violet-600",
 };
 
 /** A week of spend in dollars. Under a cent reads as "<$0.01", none as "$0". */

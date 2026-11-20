@@ -13,7 +13,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { teamMembers, teams } from "@repo/db/schema/teams";
 import { triggers } from "@repo/db/schema/triggers";
 import { workspaces } from "@repo/db/schema/workspaces";
-import type { RailView } from "@repo/db/shared";
+import type { RailCard, RailView } from "@repo/db/shared";
 import { defaultAgentAvatar } from "@repo/db/shared";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -370,7 +370,8 @@ test("a revoked (archived) machine stops an agent even with a running run", asyn
 test("Needs you beats stopped and working; problems remain stopped", async () => {
   insertAgent({ id: "a1", name: "Alpha" });
   seedRun("r1", { status: "failed" });
-  const card = {
+  const card: RailCard = {
+    agentAvatar: { color: "slate", glyph: "?" },
     agentId: "a1",
     agentName: "Alpha",
     at: NOW,
@@ -689,6 +690,7 @@ test("a waiting run finished minutes ago still shows as needing you", async () =
       assigneeUserId: "u1",
       cards: [
         {
+          agentAvatar: { color: "slate", glyph: "?" },
           agentId: "a1",
           agentName: "Alpha",
           at: NOW,
@@ -738,6 +740,7 @@ test("a bounced-mail problem is a Needs you item", async () => {
       assigneeUserId: "u1",
       cards: [
         {
+          agentAvatar: { color: "slate", glyph: "?" },
           agentId: "a1",
           agentName: "Alpha",
           at: NOW,
@@ -1023,6 +1026,7 @@ test("a paused agent with a pending approval is stopped, and still counts it", a
       assigneeUserId: "u1",
       cards: [
         {
+          agentAvatar: { color: "slate", glyph: "?" },
           agentId: "a1",
           agentName: "Alpha",
           at: NOW,

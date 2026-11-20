@@ -12,7 +12,7 @@ import { createTeamPorts } from "./team-ports.ts";
 
 type LeadFake = Pick<
   LeadService,
-  "members" | "openTopic" | "post" | "proposeChange"
+  "discussion" | "members" | "openTopic" | "post" | "proposeChange"
 >;
 interface Call {
   args: unknown[];
@@ -60,6 +60,10 @@ const recordingLead = (
   calls: Call[],
   results: { members: LeadMember[] }
 ): LeadFake => ({
+  discussion: (...args) => {
+    calls.push({ args, method: "discussion" });
+    return Promise.resolve({ id: "discussion_1", round: 1, rounds: 3 });
+  },
   members: (...args) => {
     calls.push({ args, method: "members" });
     return Promise.resolve(results.members);
@@ -82,6 +86,7 @@ const recordingLead = (
 const refusingLead = (): LeadFake => {
   const refuse = () => Promise.reject(new ForbiddenError("teams.lead"));
   return {
+    discussion: refuse,
     members: refuse,
     openTopic: refuse,
     post: refuse,
@@ -230,4 +235,28 @@ test("a refusal from the service reaches the agent as a forbidden ToolError on e
     expect(error).toBeInstanceOf(ToolError);
     expect(error).toMatchObject({ code: "forbidden" });
   }
+});
+
+test("discussion forwards the authenticated principal and bounded round input", async () => {
+  const calls: Call[] = [];
+  const ports = createTeamPorts({
+    principal: lead,
+    services: { teamLead: recordingLead(calls, { members: [] }) },
+  });
+  const input = {
+    question: "What should we do?",
+    rounds: 3,
+    topic: "thread_1",
+  };
+  expect(await ports.discussion(input)).toEqual({
+    id: "discussion_1",
+    round: 1,
+    rounds: 3,
+  });
+  expect(calls).toEqual([{ args: [lead, input], method: "discussion" }]);
+  const refused = createTeamPorts({
+    principal: lead,
+    services: { teamLead: refusingLead() },
+  });
+  await expect(refused.discussion(input)).rejects.toBeInstanceOf(ToolError);
 });

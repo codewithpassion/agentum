@@ -1,10 +1,10 @@
 import type { AgentCard } from "@repo/db/shared";
 import { Link } from "@tanstack/react-router";
+import { AgentTile } from "#/components/shell/agent-tile.tsx";
 import { capLine } from "#/components/spend/spend-logic.ts";
 import { useViewer } from "#/hooks/use-viewer.ts";
 import { cn } from "#/lib/utils";
 import {
-  AVATAR_CLASSES,
   cardStatusLine,
   STATE_DOT_CLASSES,
   STATE_LABELS,
@@ -28,15 +28,7 @@ export const AgentCardView = ({ card }: { card: AgentCard }) => {
       params={{ agentId: card.id }}
       to="/agents/$agentId"
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "flex size-10 shrink-0 items-center justify-center rounded-lg font-semibold text-white",
-          AVATAR_CLASSES[card.avatar.color]
-        )}
-      >
-        {card.avatar.glyph}
-      </span>
+      <AgentTile avatar={card.avatar} size="lg" />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{card.name}</span>
