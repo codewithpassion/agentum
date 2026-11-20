@@ -33,6 +33,7 @@ const SECRETS_KEY = Buffer.from(new Uint8Array(32).fill(3)).toString("base64");
 const TOKEN = "stub-token-1234567890";
 
 const principalOf = (userId: string, workspaceId = WORKSPACE): Principal => ({
+  isAdmin: userId === "user_dom",
   kind: "user",
   userId,
   via: "session",
@@ -89,11 +90,11 @@ const build = () => {
   });
   agents = createAgentsService({ db, events });
   service = createConnectorsService({
-    atomic: (statements) => {
+    atomic: (statements, onResults) => {
       const hook = beforeBatch;
       beforeBatch = undefined;
       hook?.();
-      return plain(statements);
+      return plain(statements, onResults);
     },
     clock,
     db,
@@ -983,5 +984,141 @@ test("OAuth write assigns connectors while read sees only assignment metadata an
   );
   await expect(service.unassign(oauth("write"), input)).rejects.toBeInstanceOf(
     ForbiddenError
+  );
+});
+
+test("members manage only their own sign-in and receive only member fields", async () => {
+  const connector = await addHeaderConnector();
+  const theirs = await service.setCredential(dom, {
+    connectorId: connector.id,
+    value: `Bearer ${TOKEN}`,
+  });
+  const agentOwned = await service.setCredential(dom, {
+    agentId: agent.id,
+    connectorId: connector.id,
+    value: `Bearer ${TOKEN}`,
+  });
+  expect(await service.list(sam)).toHaveLength(1);
+  expect(only(await service.mine(sam))).toEqual({
+    authKind: "header",
+    id: connector.id,
+    myCredential: null,
+    name: connector.name,
+    oauth: null,
+    shared: false,
+    status: "ok",
+    url: connector.url,
+  });
+  expect(
+    await service.removeCredential(sam, { connectorId: connector.id })
+  ).toEqual({ removed: false });
+  const own = await service.setCredential(sam, {
+    connectorId: connector.id,
+    value: `Bearer ${TOKEN}`,
+  });
+  expect(only(await service.mine(sam)).myCredential).toEqual(own);
+  await service.assign(dom, { agentId: agent.id, connectorId: connector.id });
+  seedRun("running");
+  expect(
+    await service.removeCredential(sam, { connectorId: connector.id })
+  ).toEqual({ removed: true });
+  expect(only(await service.mine(sam)).myCredential).toBeNull();
+  expect(
+    (await db.select().from(credentials)).map((row) => row.id).sort()
+  ).toEqual([theirs.id, agentOwned.id].sort());
+  expect(
+    await service.removeCredential(sam, { connectorId: connector.id })
+  ).toEqual({ removed: false });
+  const logged = await events.query({ kind: "system" }, WORKSPACE, {
+    types: ["credential.revoked"],
+  });
+  expect(logged).toHaveLength(1);
+  expect(logged[0]).toMatchObject({
+    actor: { id: "user_sam", kind: "user" },
+    payload: {
+      connectorId: connector.id,
+      ownerId: "user_sam",
+      ownerKind: "user",
+    },
+  });
+});
+
+test("members cannot change the connector registry", async () => {
+  const connector = await addHeaderConnector();
+  await Promise.all(
+    [
+      service.create(sam, { name: "Denied", url: `${PUBLIC_ORIGIN}/mcp` }),
+      service.setAuthMode(sam, { authMode: "none", connectorId: connector.id }),
+      service.setCallTimeout(sam, { connectorId: connector.id, seconds: 30 }),
+      service.remove(sam, { connectorId: connector.id }),
+    ].map((attempt) => expect(attempt).rejects.toBeInstanceOf(ForbiddenError))
+  );
+  expect(await service.list(sam)).toHaveLength(1);
+});
+
+test("own sign-ins require a session and stay inside its workspace", async () => {
+  const connector = await addHeaderConnector();
+  const callers: Principal[] = [
+    { agentId: agent.id, kind: "run", runId: "r", workspaceId: WORKSPACE },
+    {
+      kind: "user",
+      userId: "user_sam",
+      via: "api_key",
+      workspaceId: WORKSPACE,
+    },
+  ];
+  await Promise.all(
+    callers
+      .flatMap((caller) => [
+        service.mine(caller),
+        service.removeCredential(caller, { connectorId: connector.id }),
+      ])
+      .map((attempt) => expect(attempt).rejects.toBeInstanceOf(ForbiddenError))
+  );
+  expect(await service.mine(outsider)).toEqual([]);
+  await expect(
+    service.removeCredential(outsider, { connectorId: connector.id })
+  ).rejects.toMatchObject({ code: "not_found" });
+});
+
+test("disconnect cancels only the caller's pending user OAuth grants", async () => {
+  const connector = await addHeaderConnector();
+  seedOauthState(connector.id);
+  expect(
+    await service.removeCredential(sam, { connectorId: connector.id })
+  ).toEqual({ removed: false });
+  expect(await db.select().from(oauthStates)).toHaveLength(1);
+  expect(
+    await service.removeCredential(dom, { connectorId: connector.id })
+  ).toEqual({ removed: false });
+  expect(await db.select().from(oauthStates)).toEqual([]);
+});
+
+test("mine marks workspace-secret connectors without exposing their configuration", async () => {
+  const connector = await addHeaderConnector();
+  // A header template also marks a shared connector whose linked secret was removed.
+  await db
+    .update(connectors)
+    .set({ headerTemplate: "Bearer {value}" })
+    .where(eq(connectors.id, connector.id));
+  const summary = only(await service.mine(sam));
+  expect(summary.shared).toBe(true);
+  expect(Object.keys(summary).sort()).toEqual([
+    "authKind",
+    "id",
+    "myCredential",
+    "name",
+    "oauth",
+    "shared",
+    "status",
+    "url",
+  ]);
+});
+
+test("disconnect input cannot name another owner", async () => {
+  const connector = await addHeaderConnector();
+  const input = { agentId: agent.id, connectorId: connector.id };
+  await expect(service.removeCredential(sam, input)).rejects.toBeInstanceOf(
+    ZodError
   );
 });

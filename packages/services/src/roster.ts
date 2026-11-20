@@ -55,7 +55,7 @@ const avatarFor = (row: AgentRow): AgentAvatar => {
 const SENTENCE_END = /(?<=[.!?])(?:\s|$)/u;
 const WHITESPACE = /\s+/g;
 const WEEK_MS = 7 * 24 * 60 * 60_000;
-const jobLineFor = (instructions: string): string =>
+export const jobLineFor = (instructions: string): string =>
   Array.from(
     instructions.trim().split(SENTENCE_END)[0]?.replace(WHITESPACE, " ") ?? ""
   )

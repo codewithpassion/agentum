@@ -95,7 +95,17 @@ const reduceThread = (state: ThreadState, action: ThreadAction): ThreadState =>
     : resetThread(state, action.events);
 
 /** One run in the header and tabs, with the session conversation filling the pane. */
-export function TaskPage({ initial }: { initial: TaskView }) {
+export function TaskPage({
+  embedded = false,
+  initial,
+  onSent,
+}: {
+  /** In the agent room's Chat tab: the tab stays out of the URL and the breadcrumb goes. */
+  embedded?: boolean;
+  initial: TaskView;
+  /** Passed to the thread: what a send does in place of opening the thread's URL. */
+  onSent?: () => Promise<void>;
+}) {
   const keyboardInset = useKeyboardInset();
   const runId = initial.run.id;
   const sessionId = initial.session.id;
@@ -234,24 +244,30 @@ export function TaskPage({ initial }: { initial: TaskView }) {
     (request) => request.settled === null
   );
   const navigate = useNavigate();
-  const search = useSearch({ from: "/_app/threads/$sessionId" });
+  const search = useSearch({
+    from: "/_app/threads/$sessionId",
+    shouldThrow: false,
+  });
   // The tab lives in the URL, so a reload or a shared link opens the same one.
   const selectTab = useCallback(
     (tab: TaskTab) => {
       setSelected(tab);
+      if (embedded) {
+        return;
+      }
       navigate({
         hash: undefined,
         params: { sessionId },
         replace: true,
         resetScroll: false,
         search: {
-          ...(search.run === undefined ? {} : { run: search.run }),
+          ...(search?.run === undefined ? {} : { run: search.run }),
           ...(tab === "conversation" ? {} : { tab }),
         },
         to: "/threads/$sessionId",
       });
     },
-    [navigate, search.run, sessionId]
+    [embedded, navigate, search?.run, sessionId]
   );
   const {
     split,
@@ -286,6 +302,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
       style={{ paddingBottom: keyboardInset }}
     >
       <TaskHeader
+        embedded={embedded}
         error={error}
         inControl={inControl}
         keyboardOpen={keyboardInset > 80}
@@ -365,10 +382,11 @@ export function TaskPage({ initial }: { initial: TaskView }) {
               onComputer={openComputer}
               onConflicts={onConflicts}
               onFiles={onFiles}
+              onSent={onSent}
               requests={requests}
               routingHref={
                 mailThread
-                  ? `/agents/${task.agent.id}?mail=${encodeURIComponent(mailThread.id)}`
+                  ? `/agents/${task.agent.id}?tab=keys&mail=${encodeURIComponent(mailThread.id)}`
                   : undefined
               }
               stop={stop}
@@ -447,6 +465,7 @@ export function TaskPage({ initial }: { initial: TaskView }) {
 }
 
 function TaskHeader({
+  embedded,
   task,
   runStatus,
   onComputer,
@@ -459,6 +478,7 @@ function TaskHeader({
   keyboardOpen,
   onError,
 }: {
+  embedded: boolean;
   onError: (message: string) => void;
   keyboardOpen: boolean;
   inControl: boolean;
@@ -475,13 +495,15 @@ function TaskHeader({
   const pill = taskStatus(runStatus, pending, inControl);
   return (
     <header className="shrink-0 border-b px-4 py-2.5 md:px-6 md:py-3">
-      <nav
-        aria-label="Breadcrumb"
-        className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
-      >
-        <SidebarTrigger className="hidden size-6 md:inline-flex" />
-        <Link to="/desk">Desk</Link> › Conversation
-      </nav>
+      {embedded ? null : (
+        <nav
+          aria-label="Breadcrumb"
+          className="mb-1 hidden items-center gap-2 text-muted-foreground text-sm md:flex"
+        >
+          <SidebarTrigger className="hidden size-6 md:inline-flex" />
+          <Link to="/desk">Desk</Link> › Conversation
+        </nav>
+      )}
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
         <ThreadTitle
           keyboardOpen={keyboardOpen}

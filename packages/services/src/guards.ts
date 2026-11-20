@@ -26,6 +26,18 @@ export const requireSession = (
   return principal;
 };
 
+/** An org admin on a signed-in browser session. */
+export const requireAdminSession = (
+  principal: Principal,
+  action: string
+): UserPrincipal => {
+  const user = requireSession(principal, action);
+  if (user.isAdmin !== true) {
+    throw new ForbiddenError(action);
+  }
+  return user;
+};
+
 /** The workspace a non-system principal reads from. */
 export const readableWorkspace = (
   principal: Principal,
