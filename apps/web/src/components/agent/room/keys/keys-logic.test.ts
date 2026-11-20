@@ -140,9 +140,23 @@ test("connect option: nothing to offer", () => {
   expect(connectOption(undefined)).toBeNull();
   expect(connectOption(connectMine({ authKind: "none" }))).toBeNull();
   expect(connectOption(connectMine({ shared: true }))).toBeNull();
+});
+
+test("connect option: a working sign-in can still be replaced", () => {
   expect(
     connectOption(connectMine({ myCredential: { status: "ok" } }))
+  ).toEqual({ kind: "oauth", label: "Reconnect my account" });
+});
+
+test("sign-in status: an app on a workspace secret has no personal sign-in to be missing", () => {
+  expect(
+    signInStatusWords(
+      app({ credentialMode: "agent", signIn: null }),
+      "header",
+      true
+    )
   ).toBeNull();
+  expect(signInStatusWords(app({ signIn: null }), "header", true)).toBeNull();
 });
 
 test("connect option: oauth labels and client handling", () => {

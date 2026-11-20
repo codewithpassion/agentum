@@ -34,10 +34,14 @@ test("an archived agent shows one note and the asks, not the sections", () => {
   expect(html).not.toContain("Apps it can use");
 });
 
-test("when the keys could not load, Keys says so and still shows the asks", () => {
+test("when the keys could not load, Keys says so and keeps the unrelated controls", () => {
   const html = renderInRoom(
     <KeysTab {...fixtureTabProps()} room={{ ...fixtureRoom(), keys: null }} />
   );
   expect(html).toContain("Keys could not be loaded");
   expect(html).toContain("Ask me before it");
+  // The controls that do not need the read model stay.
+  expect(html).toContain("Passwords and keys");
+  expect(html).toContain("Other agents");
+  expect(html).not.toContain("Granted:");
 });

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { CatalogEntry } from "@repo/db/shared";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderInRoom } from "../test-fixtures.tsx";
 import { AddApp } from "./add-app.tsx";
 
 const noop = (): void => undefined;
@@ -15,7 +15,7 @@ const entry = {
 } satisfies CatalogEntry;
 
 test("the menu lists catalogue apps for an admin and says when there is nothing to add", () => {
-  const withEntry = renderToStaticMarkup(
+  const withEntry = renderInRoom(
     <AddApp
       agentId="agent_1"
       assignedIds={new Set()}
@@ -28,7 +28,7 @@ test("the menu lists catalogue apps for an admin and says when there is nothing 
   expect(withEntry).toContain("Add an app");
   expect(withEntry).toContain("From the catalogue");
   expect(withEntry).toContain("Gmail");
-  const empty = renderToStaticMarkup(
+  const empty = renderInRoom(
     <AddApp
       agentId="agent_1"
       assignedIds={new Set()}
@@ -38,11 +38,11 @@ test("the menu lists catalogue apps for an admin and says when there is nothing 
       onAdded={noop}
     />
   );
-  expect(empty).toContain("already added");
+  expect(empty).toContain("There is no other app to add.");
 });
 
 test("a member sees catalogue apps as admin only", () => {
-  const html = renderToStaticMarkup(
+  const html = renderInRoom(
     <AddApp
       agentId="agent_1"
       assignedIds={new Set()}

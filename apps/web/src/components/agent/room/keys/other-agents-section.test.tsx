@@ -34,5 +34,5 @@ test("Other agents says when it hands work to no one and is not connected", () =
     />
   );
   expect(html).toContain("Hands work to no one.");
-  expect(html).toContain("Not connected to any agent outside this workspace.");
+  expect(html).toContain("Not connected to any other agent.");
 });

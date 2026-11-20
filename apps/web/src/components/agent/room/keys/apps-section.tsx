@@ -17,6 +17,7 @@ import type {
 import { errorMessage } from "#/lib/error-message";
 import { AddApp } from "./add-app.tsx";
 import { AppRow } from "./app-row.tsx";
+import { isSecretBacked } from "./keys-logic.ts";
 
 type MySignIn = RouterOutputs["connectors"]["mine"][number];
 
@@ -25,10 +26,6 @@ interface Loaded {
   connectors: ConnectorRecord[];
   mine: MySignIn[];
 }
-
-const isSecretBacked = (connector: ConnectorRecord | undefined): boolean =>
-  connector !== undefined &&
-  Boolean(connector.secretId || connector.headerTemplate);
 
 /**
  * "Apps it can use": each app the agent may call, whose sign-in it uses, and
@@ -155,6 +152,9 @@ export function AppsSection({
     id === null
       ? undefined
       : loaded?.connectors.find((connector) => connector.id === id);
+  // A member cannot change an app that runs on a workspace secret.
+  const canEdit = (connector: ConnectorRecord | undefined): boolean =>
+    isAdmin || connector === undefined || !isSecretBacked(connector);
   const toolsApp = apps.find((app) => app.connectorId === toolsId);
   const toolsConnector = connectorOf(toolsId);
   const pasteConnector = connectorOf(paste?.connectorId ?? null);
@@ -176,7 +176,9 @@ export function AppsSection({
             <AppRow
               agentId={agentId}
               app={app}
-              canEdit={isAdmin || !isSecretBacked(connectorOf(app.connectorId))}
+              canEdit={canEdit(connectorOf(app.connectorId))}
+              connector={connectorOf(app.connectorId)}
+              isAdmin={isAdmin}
               key={app.connectorId}
               mine={loaded?.mine.find((item) => item.id === app.connectorId)}
               onChangeMode={changeMode}

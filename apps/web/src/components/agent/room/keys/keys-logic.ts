@@ -9,6 +9,7 @@ import type {
   SlackAppStatus,
 } from "@repo/db/shared";
 import { statusWords } from "#/components/connections/connections-logic.ts";
+import type { ConnectorRecord } from "#/integrations/trpc/types";
 
 export const CREDENTIAL_MODE_LABELS: Record<CredentialMode, string> = {
   agent: "Its own",
@@ -25,12 +26,22 @@ const WHOSE_SIGN_IN: Record<CredentialMode, string> = {
 export const whoseSignIn = (mode: CredentialMode): string =>
   WHOSE_SIGN_IN[mode];
 
-/** One line on whether the app can act for this agent. Null while the auth kind is not loaded. */
+/** Whether the app runs on a key from a workspace secret, which no person signs in for. */
+export const isSecretBacked = (
+  connector: Pick<ConnectorRecord, "headerTemplate" | "secretId">
+): boolean => Boolean(connector.secretId || connector.headerTemplate);
+
+/**
+ * One line on whether the app can act for this agent. Null while the auth kind
+ * is not loaded, and for an app on a workspace secret (the row says which
+ * secret instead): neither has a personal sign-in to be missing.
+ */
 export const signInStatusWords = (
   app: AgentKeyApp,
-  authKind: ConnectorAuthKind | undefined
+  authKind: ConnectorAuthKind | undefined,
+  secretBacked = false
 ): string | null => {
-  if (authKind === undefined) {
+  if (authKind === undefined || secretBacked) {
     return null;
   }
   if (authKind === "none") {
@@ -66,7 +77,7 @@ export const toolAccessWords = (allowedTools: string[] | null): string => {
   return `${allowedTools.length} tools`;
 };
 
-const OTHER_SIGN_IN_WORDS: Record<CredentialStatus, string> = {
+export const CREDENTIAL_STATUS_WORDS: Record<CredentialStatus, string> = {
   needs_auth: "needs attention",
   ok: "signed in",
   revoked: "revoked",
@@ -75,7 +86,7 @@ const OTHER_SIGN_IN_WORDS: Record<CredentialStatus, string> = {
 export const otherSignInWords = (item: {
   ownerName: string;
   status: CredentialStatus;
-}): string => `${item.ownerName}: ${OTHER_SIGN_IN_WORDS[item.status]}`;
+}): string => `${item.ownerName}: ${CREDENTIAL_STATUS_WORDS[item.status]}`;
 
 export type ConnectOption =
   | { kind: "oauth" | "paste"; label: string }
@@ -99,9 +110,7 @@ export const connectOption = (
   if (mine.authKind === "none" || mine.shared) {
     return null;
   }
-  if (mine.myCredential?.status === "ok") {
-    return null;
-  }
+  // A working sign-in can still be replaced, so Reconnect stays.
   const label =
     mine.myCredential === null ? "Connect my account" : "Reconnect my account";
   if (mine.authKind === "header") {

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
@@ -76,10 +77,18 @@ export function AddApp({
     }
   }, [agentId, choices, onAdded, value]);
 
+  const connectorsLink = isAdmin ? (
+    <>
+      {" "}
+      Add one that is not listed on the{" "}
+      <Link to="/settings/connectors">Connectors page</Link>.
+    </>
+  ) : null;
+
   if (choices.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        Every app in the catalogue and in this workspace is already added.
+        There is no other app to add.{connectorsLink}
       </p>
     );
   }
@@ -104,6 +113,9 @@ export function AddApp({
           Add app
         </Button>
       </div>
+      {connectorsLink === null ? null : (
+        <p className="text-muted-foreground text-xs">{connectorsLink}</p>
+      )}
       {error === undefined ? null : (
         <p className="text-destructive text-sm" role="alert">
           {error}

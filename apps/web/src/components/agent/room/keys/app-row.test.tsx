@@ -12,6 +12,8 @@ const CONNECT_LINK_PATTERN =
   /<a\b[^>]*href="\/connect\/conn_gmail\?[^"]*agents%2Fagent_1%3Ftab%3Dkeys[^"]*"[^>]*>Connect my account<\/a>/;
 const ALLOWED_TOOLS_DISABLED_PATTERN =
   /<button\b[^>]*disabled=""[^>]*>Allowed tools<\/button>/;
+const REMOVE_DISABLED_PATTERN =
+  /<button\b[^>]*disabled=""[^>]*>Remove<\/button>/;
 const SELECT_DISABLED_PATTERN = /<select\b[^>]*disabled=""/;
 const CONNECT_BUTTON_PATTERN = /<button\b[^>]*>Connect my account<\/button>/;
 
@@ -47,10 +49,14 @@ const signedInCredential = {
   version: 1,
 } as const;
 
+type ConnectorRecord = RouterOutputs["connectors"]["list"][number];
+
 const renderRow = (
   app: AgentKeyApp,
   mine: MySignIn | undefined,
-  canEdit = true
+  canEdit = true,
+  connector?: ConnectorRecord,
+  isAdmin = true
 ): string =>
   renderInRoom(
     <ul>
@@ -58,6 +64,8 @@ const renderRow = (
         agentId="agent_1"
         app={app}
         canEdit={canEdit}
+        connector={connector}
+        isAdmin={isAdmin}
         mine={mine}
         onChangeMode={noop}
         onChooseTools={noop}
@@ -74,7 +82,61 @@ test("A signed-in app says whose sign-in it uses and that the member is signed i
   );
   expect(html).toContain("Uses the sign-in of the person asking, or its own.");
   expect(html).toContain("You are signed in.");
+  expect(html).not.toContain(">Connect my account<");
+  // A working sign-in can still be replaced.
+  expect(html).toContain("Reconnect my account");
+});
+
+test("An app on a workspace secret names the secret and never claims a sign-in is missing", () => {
+  const html = renderRow(
+    { ...appNamed("conn_docs"), credentialMode: "user", signIn: null },
+    mineWith({ authKind: "header", shared: true }),
+    true,
+    {
+      headerTemplate: "Bearer {value}",
+      id: "conn_docs",
+      secretId: "secret_1",
+      secretName: "Docs key",
+      status: "ok",
+    } as ConnectorRecord
+  );
+  expect(html).toContain("Key from secret Docs key");
+  expect(html).not.toContain("not signed in");
+  expect(html).not.toContain("signed in yet");
+  expect(html).not.toContain("no sign-in yet");
   expect(html).not.toContain("Connect my account");
+});
+
+test("a failing connector shows its own status badge", () => {
+  const html = renderRow(appNamed("conn_gmail"), mineWith({}), true, {
+    headerTemplate: "Bearer {value}",
+    id: "conn_gmail",
+    secretId: null,
+    status: "ok",
+  } as ConnectorRecord);
+  expect(html).toContain("needs secret");
+});
+
+test("Remove is disabled when the member cannot edit the app", () => {
+  const html = renderRow(appNamed("conn_gmail"), mineWith({}), false);
+  expect(html).toMatch(REMOVE_DISABLED_PATTERN);
+});
+
+test("an OAuth app with no client sends an admin to the Connectors page", () => {
+  const needsClient = mineWith({
+    oauth: { canRegister: false, clientConfigured: false },
+  });
+  const admin = renderRow(appNamed("conn_gmail"), needsClient);
+  expect(admin).toContain("/settings/connectors");
+  const member = renderRow(
+    appNamed("conn_gmail"),
+    needsClient,
+    true,
+    undefined,
+    false
+  );
+  expect(member).toContain("needs an admin to set up its client");
+  expect(member).not.toContain("/settings/connectors");
 });
 
 test("An app the member has not connected offers Connect my account as a link", () => {

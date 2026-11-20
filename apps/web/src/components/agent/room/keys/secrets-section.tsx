@@ -14,17 +14,20 @@ export function SecretsSection({
   secrets,
 }: {
   agent: AgentRecord;
-  secrets: AgentKeySecret[];
+  /** Null when the read model did not load: the summary line is left out. */
+  secrets: AgentKeySecret[] | null;
 }) {
   const router = useRouter();
   const refresh = useCallback(() => router.invalidate(), [router]);
   return (
     <RoomSection title="Passwords and keys">
-      <p className="text-sm">
-        {secrets.length === 0
-          ? "No secrets are granted to this agent yet."
-          : `Granted: ${secrets.map(secretWords).join(", ")}`}
-      </p>
+      {secrets === null ? null : (
+        <p className="text-sm">
+          {secrets.length === 0
+            ? "No secrets are granted to this agent yet."
+            : `Granted: ${secrets.map(secretWords).join(", ")}`}
+        </p>
+      )}
       <SecretsPanel agent={agent} onChanged={refresh} />
     </RoomSection>
   );

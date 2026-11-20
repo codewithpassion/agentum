@@ -1,5 +1,6 @@
 import type { CatalogEntry } from "@repo/db/shared";
 import type { ConnectorRecord } from "#/integrations/trpc/types";
+import { isSecretBacked } from "./keys-logic.ts";
 
 /** One thing the "Add an app" menu can add: an app from the catalogue or a connector the workspace already has. */
 export type AddChoice =
@@ -27,9 +28,6 @@ export const catalogAllowedTools = (
   entry: CatalogEntry
 ): string[] | undefined =>
   entry.defaultAllowedTools.length > 0 ? entry.defaultAllowedTools : undefined;
-
-const isSecretBacked = (connector: ConnectorRecord): boolean =>
-  Boolean(connector.secretId || connector.headerTemplate);
 
 /**
  * What the menu offers. Connectors the agent already has are left out. A

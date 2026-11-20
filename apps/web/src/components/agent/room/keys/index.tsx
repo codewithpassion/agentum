@@ -38,16 +38,6 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       </TabBody>
     );
   }
-  if (keys === null) {
-    return (
-      <TabBody>
-        <p className="text-destructive text-sm" role="alert">
-          Keys could not be loaded. Reload the page to try again.
-        </p>
-        {asksBefore}
-      </TabBody>
-    );
-  }
   const provisionLabel =
     room.mailbox === null
       ? mailProvisionLabel(
@@ -58,20 +48,28 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       : null;
   return (
     <TabBody>
+      {keys === null ? (
+        <p className="text-destructive text-sm" role="alert">
+          Keys could not be loaded. Reload the page to try again.
+        </p>
+      ) : null}
       <RoomSection title="Apps it can use">
         <BrowserSwitch agent={agent} />
-        <AppsSection agent={agent} apps={keys.apps} />
+        {keys === null ? null : <AppsSection agent={agent} apps={keys.apps} />}
       </RoomSection>
       <IdentitySection
         agent={agent}
-        identity={keys.identity}
+        identity={keys === null ? null : keys.identity}
         provisionLabel={provisionLabel}
       />
-      <SecretsSection agent={agent} secrets={keys.secrets} />
+      <SecretsSection
+        agent={agent}
+        secrets={keys === null ? null : keys.secrets}
+      />
       <OtherAgentsSection
         agent={agent}
         connections={room.connections}
-        otherAgents={keys.otherAgents}
+        otherAgents={keys === null ? null : keys.otherAgents}
         published={room.published}
       />
       {asksBefore}
