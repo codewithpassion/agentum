@@ -18,8 +18,15 @@ const SPEND_WRITE = "spend.write";
 const SPEND_KIND = "spend";
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const isRealDay = (day: string): boolean =>
-  DAY.test(day) && new Date(`${day}T00:00:00Z`).toISOString().startsWith(day);
+const isRealDay = (day: string): boolean => {
+  if (!DAY.test(day)) {
+    return false;
+  }
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(day)
+  );
+};
 const daySchema = z.string().refine(isRealDay, "Not a day, use YYYY-MM-DD");
 const agentIdSchema = z.string().min(1);
 const capSchema = z.number().int().positive().nullable();
@@ -67,10 +74,10 @@ const spendResource = (workspaceId: string, id?: string) => ({
 
 /**
  * Stub: nothing is spent, no cap is set, and a cap or a resume finds nothing
- * to change. Who may set a cap or resume an agent is for the enforcement task. The
- * spend service task fills these from run usage and the cap and pause columns.
- * It takes the dependencies it will need, so wiring it in `compose.ts` is
- * already final.
+ * to change. The spend service task fills the reads from run usage and the cap
+ * and pause columns, and the enforcement task decides who may set a cap or
+ * resume an agent. It takes the dependencies it will need, so wiring it in
+ * `compose.ts` is already final.
  */
 export const createSpendService = (_deps: SpendDeps) => {
   const workspace = (
