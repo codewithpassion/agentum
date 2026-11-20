@@ -23,3 +23,4 @@ a runs service test where a run is cancelled and then gets `completeRun` with `{
 ## Log
 - 2026-11-21: added from the SP gate review, round 1.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at f1e64fb8 after one fix round, review clean. Scope note: a machine cancel stays uncounted. A machine whose lease expired and then sends done with usage now gets a 200, and its usage counts. Queued for merge.

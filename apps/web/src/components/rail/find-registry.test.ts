@@ -7,10 +7,12 @@ import {
   findEntries,
   pathOf,
   teamFindEntries,
+  teamRoomFindEntries,
 } from "./find-registry.ts";
 
 const EXCLUDED: Readonly<Record<string, string>> = {
   "/agents/$agentId": "needs an agent id, reached from the agent list",
+  "/inbox": "redirects to the Everyone team's room",
   "/qa/$questionId": "needs a question id, reached from the Q&A list",
   "/routines": "redirects to Jobs",
   "/settings": "layout wrapper, Settings pages are listed one by one",
@@ -144,6 +146,26 @@ test("teamFindEntries links each team by id", () => {
     { id: "t1", label: "Sales", to: "/teams/t1" },
     { id: "t2", label: "Back office", to: "/teams/t2" },
   ]);
+});
+
+test("teamRoomFindEntries links each team's room", () => {
+  expect(
+    teamRoomFindEntries([
+      { id: "t1", name: "Sales" },
+      { id: "t2", name: "Back office" },
+    ])
+  ).toEqual([
+    { id: "t1", label: "Sales room", to: "/teams/t1/room" },
+    { id: "t2", label: "Back office room", to: "/teams/t2/room" },
+  ]);
+});
+
+test("Find no longer lists the Inbox", () => {
+  expect(
+    findEntries.some(
+      (entry) => entry.label === "Inbox" || entry.to.startsWith("/inbox")
+    )
+  ).toBe(false);
 });
 
 test("pathOf drops the query string", () => {

@@ -33,6 +33,7 @@ export const SESSION = {
   peer: "s_peer",
   privateA: "s_private_a",
   privateB: "s_private_b",
+  room: "s_room",
   ui: "s_ui",
 } as const;
 export const RUN = {
@@ -53,6 +54,7 @@ export const RUN = {
   peer: "r_peer",
   privateA: "r_private_a",
   privateB: "r_private_b",
+  room: "r_room",
   script: "r_script",
   shell: "r_shell",
   skillScript: "r_skill_script",
@@ -250,9 +252,11 @@ export const makeWorld = (
     private: true,
   });
   seedSession({ id: SESSION.mail, origin: "mail" });
+  // A team room A started. The runs below that write shared notes sit in it, because a run in A's own `ui` session writes to A's private file.
+  seedSession({ id: SESSION.room, origin: "inbox" });
   seedSession({ id: SESSION.peer, origin: "a2a" });
   seedRun({ id: RUN.ui, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
-  seedRun({ id: RUN.web, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
+  seedRun({ id: RUN.web, onBehalfOfUserId: USER_A, sessionId: SESSION.room });
   // Runs that each used the web once, through one tool, and a run that used none.
   for (const id of [
     RUN.curl,
@@ -272,20 +276,20 @@ export const makeWorld = (
     RUN.connectorResource,
     RUN.connectorIdle,
   ]) {
-    seedRun({ id, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
+    seedRun({ id, onBehalfOfUserId: USER_A, sessionId: SESSION.room });
   }
   // A subagent of a run that used the web, and a parent whose subagent did.
   seedRun({
     id: RUN.webChild,
     onBehalfOfUserId: USER_A,
     parentRunId: RUN.web,
-    sessionId: SESSION.ui,
+    sessionId: SESSION.room,
   });
   seedRun({
     id: RUN.familyChild,
     onBehalfOfUserId: USER_A,
     parentRunId: RUN.familyParent,
-    sessionId: SESSION.ui,
+    sessionId: SESSION.room,
   });
   seedRun({
     id: RUN.privateA,
@@ -299,6 +303,11 @@ export const makeWorld = (
     sessionId: SESSION.privateB,
   });
   seedRun({ id: RUN.mail, onBehalfOfUserId: null, sessionId: SESSION.mail });
+  seedRun({
+    id: RUN.room,
+    onBehalfOfUserId: USER_A,
+    sessionId: SESSION.room,
+  });
   seedRun({
     actor: { id: "conn_1", kind: "peer" },
     id: RUN.peer,
@@ -449,6 +458,7 @@ export const makeWorld = (
     library,
     seedEvent,
     seedRun,
+    seedSession,
     service,
   };
 };
