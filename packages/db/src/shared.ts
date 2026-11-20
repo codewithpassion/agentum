@@ -746,7 +746,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   question: (name) => `${name} asks`,
   routine_proposal: (name) => `${name} proposed a routine`,
   skill_proposal: (name) => `${name} proposed a skill change`,
-  spend_pause: (name) => `${name} paused at its weekly cap`,
+  spend_pause: (name) => `${name} stopped at its weekly limit`,
   takeover: (name) => `${name} needs you to take over a computer`,
   trigger_proposal: (name) => `${name} proposed a trigger`,
   wiki_suggestion: (name) => `${name} suggested a wiki edit`,
@@ -1536,12 +1536,6 @@ export interface SpendRow {
   tasks: number;
 }
 
-/** The days a spend read covers, as `YYYY-MM-DD`, both ends included. */
-export interface SpendRange {
-  from: string;
-  to: string;
-}
-
 /** An agent's pause state. Both fields are null while it runs. */
 export interface SpendPause {
   pausedAt: string | null;
@@ -1552,4 +1546,22 @@ export interface SpendPause {
 export interface SpendCap {
   agentId: string | null;
   weeklyCapCents: number | null;
+}
+
+/** An agent's pause and cap after `resume`. */
+export interface SpendResume extends SpendPause {
+  weeklyCapCents: number | null;
+}
+
+/** One agent's cap and pause, on the spend page. */
+export interface AgentSpendCap extends SpendPause {
+  agentId: string;
+  weeklyCapCents: number | null;
+}
+
+/** Every cap and pause in the workspace: its own cap and one entry per agent. */
+export interface SpendCaps {
+  agents: AgentSpendCap[];
+  /** The workspace cap in cents, or null for none. */
+  workspaceCapCents: number | null;
 }

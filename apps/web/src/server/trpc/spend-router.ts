@@ -15,10 +15,13 @@ export const spendRouter = router({
         to: input.to,
       })
     ),
+  caps: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.spend.caps(ctx.principal)
+  ),
   resume: workspaceProcedure
     .input(resumeInputSchema)
     .mutation(({ ctx, input }) =>
-      ctx.services.spend.resume(ctx.principal, input.agentId)
+      ctx.services.spend.resume(ctx.principal, input)
     ),
   setCap: workspaceProcedure
     .input(setCapInputSchema)

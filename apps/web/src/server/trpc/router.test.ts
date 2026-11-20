@@ -375,6 +375,18 @@ test("spend.setCap and spend.resume are NOT_FOUND while the stub changes nothing
   await expect(
     caller.spend.resume({ agentId: agent.id })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    caller.spend.resume({ agentId: agent.id, weeklyCapCents: 8000 })
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("spend.caps has no workspace cap and no agent entries yet", async () => {
+  const caller = await callerFor({ orgId: "org_a", userId: "user_1" });
+
+  expect(await caller.spend.caps()).toEqual({
+    agents: [],
+    workspaceCapCents: null,
+  });
 });
 
 test("spend inputs that are not days or positive cents are BAD_REQUEST", async () => {
@@ -385,7 +397,23 @@ test("spend inputs that are not days or positive cents are BAD_REQUEST", async (
     caller.spend.workspace({ from: "yesterday", to: "2026-11-22" })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(
+    caller.spend.workspace({ from: "2026-13-45", to: "2026-11-22" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    caller.spend.workspace({ from: "2026-11-22", to: "2026-11-16" })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    caller.spend.byAgent({
+      agentId: agent.id,
+      from: "2026-11-22",
+      to: "2026-11-16",
+    })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
     caller.spend.setCap({ agentId: agent.id, weeklyCapCents: 0 })
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    caller.spend.resume({ agentId: agent.id, weeklyCapCents: 0 })
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
@@ -403,6 +431,9 @@ test("spend procedures are 401 without a workspace", async () => {
     caller.spend.setCap({ agentId: "any", weeklyCapCents: 5000 })
   ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(caller.spend.resume({ agentId: "any" })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+  await expect(caller.spend.caps()).rejects.toMatchObject({
     code: "UNAUTHORIZED",
   });
 });
