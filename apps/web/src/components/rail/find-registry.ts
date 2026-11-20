@@ -15,6 +15,7 @@ import {
   Server,
   Settings,
   Sparkles,
+  Users,
   Wallet,
 } from "lucide-react";
 import { ENROLL_BUTTON_LABEL } from "#/components/machines/machine-logic.ts";
@@ -126,6 +127,7 @@ export const findEntries: readonly FindEntry[] = [
     label: ENROLL_BUTTON_LABEL,
     to: "/settings/machines",
   },
+  { group: "Teams", icon: Users, label: "Teams", to: "/teams" },
   { group: "Agents", icon: Bot, label: "Agents", to: "/agents" },
   { group: "Agents", icon: Plus, label: "New agent", to: "/agents/new" },
   ...settingsEntries,
@@ -138,6 +140,17 @@ export function agentFindEntries(
     id: agent.id,
     label: agent.name,
     to: `/agents/${agent.id}`,
+  }));
+}
+
+/** One Find entry per team, opening the team's page. */
+export function teamFindEntries(
+  teams: readonly { id: string; name: string }[]
+): { id: string; label: string; to: string }[] {
+  return teams.map((team) => ({
+    id: team.id,
+    label: team.name,
+    to: `/teams/${team.id}`,
   }));
 }
 

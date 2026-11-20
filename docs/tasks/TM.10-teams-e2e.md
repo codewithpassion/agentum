@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone TM. End-to-end check for TM.
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: from TM.5: the context budget does nothing on machine runs yet; the client passes only --effort because --autocompact isn't verified for Claude Code 2.1.300. Check whether a current Claude Code supports a compaction setting and record it. Controller decisions: keep the guessed compaction sizes (100k, 200k, 500k tokens); subagents keep their own setting and don't inherit the parent's.

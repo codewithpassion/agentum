@@ -409,23 +409,29 @@ const PROXY_VALUE = "proxy-secret-value-0123";
 
 /** An env secret and a proxy secret, both granted to `agent`. */
 const grantBoth = async (agent: string) => {
-  const env = await secrets.create(user, {
-    mode: "env",
-    name: "PLAIN_KEY",
-    value: ENV_VALUE,
-  });
-  const proxied = await secrets.create(user, {
-    mode: "proxy",
-    name: "OPENAI_API_KEY",
-    rules: [
-      {
-        header: "Authorization",
-        host: "api.openai.com",
-        template: "Bearer {value}",
-      },
-    ],
-    value: PROXY_VALUE,
-  });
+  const env = await secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "env",
+      name: "PLAIN_KEY",
+      value: ENV_VALUE,
+    }
+  );
+  const proxied = await secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "proxy",
+      name: "OPENAI_API_KEY",
+      rules: [
+        {
+          header: "Authorization",
+          host: "api.openai.com",
+          template: "Bearer {value}",
+        },
+      ],
+      value: PROXY_VALUE,
+    }
+  );
   await secrets.setGrants(user, agent, [env.id, proxied.id]);
 };
 
@@ -469,14 +475,17 @@ test("a claim announces the delivery with names and hosts only", async () => {
 });
 
 test("an agent with a proxy secret only gets the relay token, and one with no grant gets nothing", async () => {
-  const proxied = await secrets.create(user, {
-    mode: "proxy",
-    name: "OPENAI_API_KEY",
-    rules: [
-      { header: "x-api-key", host: "api.openai.com", template: "{value}" },
-    ],
-    value: PROXY_VALUE,
-  });
+  const proxied = await secrets.create(
+    { ...user, isAdmin: true },
+    {
+      mode: "proxy",
+      name: "OPENAI_API_KEY",
+      rules: [
+        { header: "x-api-key", host: "api.openai.com", template: "{value}" },
+      ],
+      value: PROXY_VALUE,
+    }
+  );
   await secrets.setGrants(user, agentId, [proxied.id]);
 
   const granted = await claim("m1", (await start(agentId)).runId);
@@ -865,6 +874,68 @@ test("the claim carries a subagent's override and can run it alongside its paren
   expect(claimedChild.session.id).not.toBe(claimedParent.session.id);
   expect(status(parent.runId)?.status).toBe("running");
   expect(status(child.runId)?.status).toBe("running");
+});
+
+test("a claim carries the agent's thinking level and context budget in its runtime config", async () => {
+  const configured = await createAgentsService({
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  }).create(user, {
+    machineId: "m1",
+    model: "m",
+    name: "Tuned",
+    runtime: "machine",
+    runtimeConfig: { contextBudget: "large", effort: "low" },
+  });
+
+  const claimed = await claim("m1", (await start(configured.id)).runId);
+
+  expect(claimed.agent.runtimeConfig).toEqual({
+    contextBudget: "large",
+    effort: "low",
+  });
+});
+
+test("a claim of an agent with no setting has neither in its runtime config", async () => {
+  const claimed = await claim("m1", (await start(agentId)).runId);
+
+  expect(claimed.agent.runtimeConfig).not.toHaveProperty("effort");
+  expect(claimed.agent.runtimeConfig).not.toHaveProperty("contextBudget");
+});
+
+test("a subagent's claim keeps its own settings and carries neither of the agent's", async () => {
+  const configured = await createAgentsService({
+    db,
+    events: createEventsService({
+      blobs: { get: () => Promise.resolve(null), put: () => Promise.resolve() },
+      db,
+    }),
+  }).create(user, {
+    machineId: "m1",
+    model: "m",
+    name: "Lead",
+    runtime: "machine",
+    runtimeConfig: { contextBudget: "large", effort: "high", maxTurns: 20 },
+  });
+  const parent = await start(configured.id);
+  const child = await start(configured.id);
+  db.update(runRows)
+    .set({ parentRunId: parent.runId, subagentLevel: 1 })
+    .where(eq(runRows.id, child.runId))
+    .run();
+
+  const claimedParent = await claim("m1", parent.runId);
+  const claimedChild = await claim("m1", child.runId);
+
+  expect(claimedParent.agent.runtimeConfig).toEqual({
+    contextBudget: "large",
+    effort: "high",
+    maxTurns: 20,
+  });
+  expect(claimedChild.agent.runtimeConfig).toEqual({ maxTurns: 20 });
 });
 
 /** A memory file as the library holds it: one note, written by a person. */

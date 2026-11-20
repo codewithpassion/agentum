@@ -1772,6 +1772,45 @@ export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 export const CONTEXT_BUDGETS = ["small", "standard", "large"] as const;
 export type ContextBudget = (typeof CONTEXT_BUDGETS)[number];
 
+/**
+ * The context an agent may fill, in tokens, before a runtime compacts its
+ * history. The one place the three budgets become numbers. An agent with no
+ * `contextBudget` keeps the runtime's own default and is not in this table.
+ */
+export const CONTEXT_BUDGET_COMPACTION_TOKENS: Record<ContextBudget, number> = {
+  large: 500_000,
+  small: 100_000,
+  standard: 200_000,
+};
+
+/**
+ * The agent's `runtimeConfig` for a run at this subagent level. A subagent
+ * keeps its own settings (docs/v3/subagents.md), so it takes neither the
+ * agent's thinking level nor its context budget.
+ */
+export const runtimeConfigForRun = (
+  runtimeConfig: Record<string, unknown>,
+  subagentLevel: number
+): Record<string, unknown> => {
+  if (subagentLevel <= 0) {
+    return runtimeConfig;
+  }
+  const { contextBudget: _budget, effort: _effort, ...rest } = runtimeConfig;
+  return rest;
+};
+
+/** The agent's thinking level, or undefined when it has none or holds a value that is not one. */
+export const effortOf = (
+  runtimeConfig: Record<string, unknown>
+): EffortLevel | undefined =>
+  EFFORT_LEVELS.find((level) => level === runtimeConfig.effort);
+
+/** The agent's context budget, or undefined when it has none or holds a value that is not one. */
+export const contextBudgetOf = (
+  runtimeConfig: Record<string, unknown>
+): ContextBudget | undefined =>
+  CONTEXT_BUDGETS.find((budget) => budget === runtimeConfig.contextBudget);
+
 /** One seat in a team: an agent or a person. */
 export interface TeamMember {
   /** True when this is the member's home team. An agent has at most one. */

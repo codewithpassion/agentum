@@ -21,14 +21,22 @@ export const Route = createFileRoute("/_app")({
     assistant: z.string().min(1).max(200).optional().catch(undefined),
   }),
   search: { middlewares: [retainSearchParams(["assistant"])] },
-  // Find lists the active agents. `agents.list` skips archived ones.
+  // Find lists the active agents and the teams. `agents.list` skips archived
+  // ones. A failed teams read leaves the teams out of Find and nothing else.
   loader: async () =>
-    loadOrLogin(async () => await getTrpc().agents.list.query({})),
+    loadOrLogin(async () => {
+      const trpc = getTrpc();
+      const [agents, teams] = await Promise.all([
+        trpc.agents.list.query({}),
+        trpc.teams.list.query().catch(() => []),
+      ]);
+      return { agents, teams };
+    }),
   component: AppLayout,
 });
 
 function AppLayout() {
-  const agents = Route.useLoaderData();
+  const { agents, teams } = Route.useLoaderData();
   const taskLayout = useTaskLayout();
   const { data: pinned } = usePolledQuery(
     () => getTrpc().artifacts.pins.query({ surface: "sidebar" }),
@@ -44,7 +52,7 @@ function AppLayout() {
       )}
     >
       <AssistantPanel />
-      <AppTopBar agents={agents} pinned={pinned ?? []} />
+      <AppTopBar agents={agents} pinned={pinned ?? []} teams={teams} />
       <main
         className={
           taskLayout

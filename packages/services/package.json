@@ -146,6 +146,7 @@
     "./spend": "./src/spend.ts",
     "./takeover": "./src/takeover.ts",
     "./teams": "./src/teams.ts",
+    "./teams/lead": "./src/teams/lead.ts",
     "./triggers": "./src/triggers.ts",
     "./wiki/links": "./src/wiki/links.ts",
     "./wiki/service": "./src/wiki/service.ts",

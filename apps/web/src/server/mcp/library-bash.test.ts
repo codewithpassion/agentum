@@ -30,6 +30,14 @@ const userOf = (workspaceId: string, userId = "u1"): Principal => ({
   workspaceId,
 });
 
+const adminOf = (workspaceId: string): Principal => ({
+  isAdmin: true,
+  kind: "user",
+  userId: "u1",
+  via: "session",
+  workspaceId,
+});
+
 const portsFor = (principal: Principal): McpPorts =>
   createMcpPorts({ principal, services: composed.services });
 
@@ -501,7 +509,7 @@ const storeEnvSecret = async (
   }: { grant?: boolean; name?: string } = {}
 ) => {
   const user = userOf(workspaceId);
-  const created = await composed.services.secrets.create(user, {
+  const created = await composed.services.secrets.create(adminOf(workspaceId), {
     allowedHosts: ["api.supadata.ai"],
     mode: "env",
     name,
@@ -584,7 +592,7 @@ test("a Linux VM agent gets no variable", async () => {
 test("a proxy-mode secret is not a variable", async () => {
   const run = await cloudRunOf(workspaceA);
   const user = userOf(workspaceA);
-  const created = await composed.services.secrets.create(user, {
+  const created = await composed.services.secrets.create(adminOf(workspaceA), {
     mode: "proxy",
     name: "SUPADATA_KEY",
     rules: [
