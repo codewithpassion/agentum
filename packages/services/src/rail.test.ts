@@ -1387,3 +1387,22 @@ test("held memory uses creator fallback and excludes decided, rejected, foreign,
     .where(eq(memoryChanges.id, "held"));
   expect((await view("everyone")).needsYou).toHaveLength(0);
 });
+
+test("a private held note goes to its person alone, with no backup step", async () => {
+  await setOwners(a1, "u1", "u3");
+  await heldNote("private", { userScope: "u2" });
+
+  expect((await view("mine", user("u1"))).needsYou).toHaveLength(0);
+  const [item] = (await view("mine", user("u2"))).needsYou;
+  expect(item).toMatchObject({
+    assigneeUserId: "u2",
+    escalatedToMe: false,
+    mine: true,
+  });
+  expect(item?.cards[0]).toMatchObject({ id: "private", kind: "memory_note" });
+  expect(await desk.needsYouCount(user("u2"))).toBe(1);
+
+  now += RAIL_ESCALATE_AFTER_MS;
+  expect((await view("mine", user("u3"))).needsYou).toHaveLength(0);
+  expect((await view("mine", user("u1"))).needsYou).toHaveLength(0);
+});

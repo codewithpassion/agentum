@@ -935,6 +935,8 @@ export interface DeskCard {
   artifactId?: string;
   at: string;
   band: StatusBand;
+  /** Set on a `memory_note` card of a private note: the person it belongs to, who alone can decide it. */
+  forUserId?: string;
   id: string;
   kind: DeskCardKind;
   lane: DeskLane;

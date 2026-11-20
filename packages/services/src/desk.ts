@@ -747,6 +747,7 @@ export const createDeskService = ({
           agentId: note.agentId,
           at: note.createdAt,
           band: { text: clip(note.text), tone: "waiting" },
+          ...(note.userScope ? { forUserId: note.userScope } : {}),
           id: note.id,
           kind: "proposal",
           lane: "needs_you",
