@@ -508,7 +508,7 @@ try {
   await hold();
   cacheWriter.ws.send(edit("p"));
   cacheWriter.ws.send(edit("q"));
-  check(await parkedAtLeast(1), "the frames wait on one lookup");
+  check(await parkedAtLeast(1), "the frames wait on a lookup");
   await call("/refresh", { id: "nobody" });
   await release();
   check(
