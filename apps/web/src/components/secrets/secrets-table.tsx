@@ -110,7 +110,7 @@ export function SecretsTable({
   if (secrets.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        No secrets yet. Add one, then grant it on an agent's Secrets tab.
+        No secrets yet. Add one, then grant it on an agent's Keys tab.
       </p>
     );
   }

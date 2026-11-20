@@ -191,7 +191,7 @@ export function MoveAgentDialog({
               ))}
             </NativeSelect>
             <p className="text-muted-foreground text-xs">
-              This runtime runs Anthropic models only, and the current model is
+              This option runs Anthropic models only, and the current model is
               not one.
             </p>
           </div>

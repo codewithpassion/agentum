@@ -24,7 +24,21 @@
       "persistent": true
     },
     "test": {
-      "cache": false
+      "dependsOn": ["^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/.turbo/**",
+        "!**/.wrangler/**",
+        "!**/node_modules/**",
+        "!**/target/**",
+        "!**/dist/**",
+        "!**/.output/**",
+        "!**/coverage/**",
+        "!**/*.log",
+        "!**/*.tsbuildinfo",
+        "!**/worker-configuration.d.ts"
+      ],
+      "outputs": []
     },
     "typecheck": {
       "dependsOn": ["cf-typegen"]

@@ -34,7 +34,7 @@ export const graphNodes = async (db: Database, workspaceId: string) => {
       select t.id, t.agent_id as agentId, t.kind,
         case when t.kind = 'mail' then coalesce(m.address, t.name) else t.name end as label
       from triggers t left join agent_mailboxes m on m.agent_id = t.agent_id and m.workspace_id = t.workspace_id
-      where t.workspace_id = ${workspaceId} and t.revoked_at is null
+      where t.workspace_id = ${workspaceId} and t.revoked_at is null and t.kind <> 'dream'
       union all select 'slack:' || s.id, s.agent_id, 'slack', 'Slack'
       from slack_apps s where s.workspace_id = ${workspaceId} and s.status <> 'revoked' order by 1`),
     // The spec's connector_assignments is named agent_connectors in this schema.

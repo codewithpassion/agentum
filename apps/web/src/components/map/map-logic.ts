@@ -59,9 +59,9 @@ export function visiblePorts<T extends { kind: string }>(
 }
 
 const RUNTIME_SHORT: Record<AgentRuntime, string> = {
-  cloud: "Cloudflare",
+  cloud: "Cloud",
   fake: "Test runner",
-  machine: "Our machine",
+  machine: "My computer",
   managed: "Anthropic cloud",
 };
 

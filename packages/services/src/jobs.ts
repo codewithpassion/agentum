@@ -7,9 +7,11 @@ import { workspaces } from "@repo/db/schema/workspaces";
 import {
   isPendingProposal,
   type JobSentence,
+  type JobSource,
   LIVE_RUN_STATUSES,
   type ProposedTrigger,
   type RunStatus,
+  type TriggerKind,
 } from "@repo/db/shared";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -126,6 +128,15 @@ const whenFor = (
   }
 };
 
+interface TriggerJoinRow {
+  trigger: { kind: TriggerKind };
+}
+
+const isJobRow = <Row extends TriggerJoinRow>(
+  row: Row
+): row is Row & { trigger: { kind: JobSource } } =>
+  row.trigger.kind !== "dream";
+
 export const createJobsService = ({
   db,
   clock,
@@ -145,7 +156,7 @@ export const createJobsService = ({
     workspaceId: string,
     agentId?: string
   ): Promise<JobSentence[]> => {
-    const rows = await db
+    const triggerRows = await db
       .select({
         agent: agents,
         trigger: triggers,
@@ -167,6 +178,9 @@ export const createJobsService = ({
           agentId === undefined ? undefined : eq(triggers.agentId, agentId)
         )
       );
+    // The dream trigger is the system's, set from the agent's dream schedule.
+    // It shows on the Knows tab, never as a job.
+    const rows = triggerRows.filter(isJobRow);
     const sentences = await Promise.all(
       rows.map(
         async ({ trigger, agent, workspaceTimezone }): Promise<JobSentence> => {
@@ -349,6 +363,15 @@ export const createJobsService = ({
         input: { text: row.prompt ?? "" },
         requestId,
         session: { origin: "trigger" },
+      },
+      {
+        // A manual run counts as the job firing. The schedule stays as it is.
+        alongside: () => [
+          db
+            .update(triggers)
+            .set({ lastFiredAt: clock.now().toISOString() })
+            .where(eq(triggers.id, row.id)),
+        ],
       }
     );
     await events.append({

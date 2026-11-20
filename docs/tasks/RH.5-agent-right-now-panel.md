@@ -3,9 +3,9 @@ id: RH.5
 title: "Agent room: the Right now panel"
 milestone: RH
 size: M
-status: todo
+status: in_progress
 depends_on: [RH.4]
-branch: null
+branch: task/RH.5-agent-right-now-panel
 lane: web-agent
 executor: claude
 ---
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone RH. The right side of the agent room sho
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: from ME.6: put Learned this week in the Right now panel by reusing LearnedList and learnedThisWeek from the Knows tab (components/agent/room/knows).
+- 2026-11-20: dispatched on task/RH.5-agent-right-now-panel (v4 controller session).

@@ -44,18 +44,18 @@ test("shows the runtime as a read-only line, with no runtime select", () => {
   const html = render("managed");
   expect(html).not.toContain('id="agent-runtime"');
   expect(html).not.toContain('<option value="cloud">');
-  expect(html).toContain("Runs on Anthropic cloud");
+  expect(html).toContain(">Anthropic cloud<");
 });
 
 test("names the cloud runtime in the read-only line", () => {
-  expect(render("cloud")).toContain("Runs on Cloud");
+  expect(render("cloud")).toContain(">Cloud<");
 });
 
 test("names each runtime in the read-only line, without the old names", () => {
   const lines = {
-    cloud: "Runs on Cloud",
-    machine: "Runs on My computer",
-    managed: "Runs on Anthropic cloud",
+    cloud: ">Cloud<",
+    machine: ">My computer<",
+    managed: ">Anthropic cloud<",
   } as const;
   for (const [runtime, line] of Object.entries(lines)) {
     const html = render(runtime as AgentFormValues["runtime"]);
@@ -81,4 +81,11 @@ test("keeps the labelled model select visible for the cloud runtime", () => {
   const html = render("cloud");
   expect(html).toContain('id="agent-model"');
   expect(html).toContain("Name");
+});
+
+test("labels the runtime field 'Runs on' and speaks of conversations in the managed spend note", () => {
+  const html = render("managed");
+  expect(html).toContain(">Runs on<");
+  expect(html).toContain("A conversation stops at $10 of spend");
+  expect(html).not.toContain("session stops");
 });
