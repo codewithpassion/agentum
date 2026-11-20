@@ -73,8 +73,8 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     run.diary === "" ? line : `${run.diary}\n${line}`;
 
   /**
-   * Closes questions of this run without an answer: the notes they ask about
-   * are gone or were never written. `noteIds` limits it to the questions that
+   * Closes questions of this run without an answer, because the change they
+   * belong to was undone or rejected. `noteIds` limits it to the questions that
    * name one of those notes. A statement only when something is open.
    */
   const closeQuestions = async (
