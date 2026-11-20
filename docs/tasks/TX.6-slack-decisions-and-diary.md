@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone TX. The Slack side of the two team extra
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-21: from TX.4: until this task ships, a decision queue raised in a Slack-linked workspace logs "Slack request card failed".
