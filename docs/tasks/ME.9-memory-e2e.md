@@ -3,9 +3,9 @@ id: ME.9
 title: "Memory walkthrough on all three runtimes"
 milestone: ME
 size: M
-status: todo
+status: in_progress
 depends_on: [ME.3, ME.4, ME.5, ME.6, ME.7, ME.8]
-branch: null
+branch: task/ME.9-memory-e2e
 lane: e2e
 executor: claude
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone ME. End-to-end check for ME.
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/ME.9-memory-e2e (v4 controller session).
