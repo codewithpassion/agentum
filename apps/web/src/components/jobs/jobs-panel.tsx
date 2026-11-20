@@ -14,6 +14,7 @@ import { EditJobDialog } from "./edit-job-dialog.tsx";
 import {
   approvalTarget,
   draftName,
+  draftPrompt,
   draftRoutineInput,
   draftSaveKind,
   pauseTarget,
@@ -395,7 +396,7 @@ export function JobsPanel({
           initial={{
             cron: pending.draft.cron ?? "",
             name: draftName(pending.draft.does),
-            prompt: pending.draft.does.trim() || pending.draft.when.trim(),
+            prompt: draftPrompt(pending.draft),
             timezone: pending.draft.timezone ?? "",
           }}
           onClose={closeReview}
