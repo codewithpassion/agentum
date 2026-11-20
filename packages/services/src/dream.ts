@@ -311,7 +311,7 @@ export const createDreamService = (deps: DreamDeps) => {
     return { keep: stored.options.map((option) => option.noteId), row };
   };
 
-  /** Keeps the chosen note, forgets the others as the person who answered, and closes the question. A person who is not the owner or an admin is refused for shared notes by `memory.forget`. */
+  /** Keeps the chosen note, forgets the others as the person who answered, and closes the question. The owner, the backup owner or an org admin may answer. Anyone else is refused for shared notes by `memory.forget`. */
   const answer = async (
     principal: Principal,
     input: DreamAnswerInput
@@ -339,7 +339,11 @@ export const createDreamService = (deps: DreamDeps) => {
     for (const noteId of keep.filter((id) => id !== input.noteId)) {
       try {
         // biome-ignore lint/performance/noAwaitInLoops: one note at a time, so a failure leaves the question open
-        await deps.memory.forget(principal, { agentId: row.agentId, noteId });
+        await deps.memory.forget(
+          principal,
+          { agentId: row.agentId, noteId },
+          { asDecision: true }
+        );
       } catch (error) {
         // Forgotten already, by an earlier try of this same answer.
         if (!(isServiceError(error) && error.code === "not_found")) {
