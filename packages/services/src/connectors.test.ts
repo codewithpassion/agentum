@@ -153,6 +153,15 @@ test("a stored tool list reads back readOnly, and a row written before the field
   ]);
 });
 
+test("a connector added from the catalogue reports its catalogue key", async () => {
+  const connector = await addHeaderConnector();
+  await db
+    .update(connectors)
+    .set({ catalogKey: "gmail" })
+    .where(eq(connectors.id, connector.id));
+  expect(only(await service.list(dom)).catalogKey).toBe("gmail");
+});
+
 test("a server that wants a bearer is a header connector, waiting for a credential", async () => {
   const connector = await addHeaderConnector();
 
