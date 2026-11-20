@@ -101,6 +101,7 @@ test("An app on a workspace secret names the secret and never claims a sign-in i
     } as ConnectorRecord
   );
   expect(html).toContain("Key from secret Docs key");
+  expect(html).not.toContain("Uses the sign-in of the person asking");
   expect(html).not.toContain("not signed in");
   expect(html).not.toContain("signed in yet");
   expect(html).not.toContain("no sign-in yet");
@@ -114,7 +115,7 @@ test("a connector with a header template and no secret shows the needs secret ba
     secretId: null,
     status: "ok",
   } as ConnectorRecord);
-  expect(html).toContain("needs secret");
+  expect(html).toContain("Needs a secret");
 });
 
 test("Remove is disabled when the member cannot edit the app", () => {
@@ -147,6 +148,7 @@ test("An app the member has not connected offers Connect my account as a link", 
 test("An app that needs no sign-in says so and offers no connect action", () => {
   const html = renderRow(appNamed("conn_docs"), mineWith({ authKind: "none" }));
   expect(html).toContain("No sign-in needed.");
+  expect(html).not.toContain("Uses the sign-in of the person asking");
   expect(html).not.toContain("Connect my account");
   expect(html).not.toContain("not signed in");
   expect(html).not.toContain("no sign-in yet");
@@ -171,4 +173,15 @@ test("A header app offers Connect my account as a button", () => {
     mineWith({ authKind: "header" })
   );
   expect(html).toMatch(CONNECT_BUTTON_PATTERN);
+});
+
+test("the connector status reads in plain words", () => {
+  const html = renderRow(appNamed("conn_gmail"), mineWith({}), true, {
+    headerTemplate: null,
+    id: "conn_gmail",
+    secretId: null,
+    status: "needs_auth",
+  } as ConnectorRecord);
+  expect(html).toContain("Needs sign-in");
+  expect(html).not.toContain("needs_auth");
 });

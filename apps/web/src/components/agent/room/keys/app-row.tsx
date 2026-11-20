@@ -46,11 +46,16 @@ const canConnectAsAgent = (
   return !mine.shared;
 };
 
-/** What the connector's own state says, as the old Connectors panel did. */
+const CONNECTOR_STATUS_WORDS: Record<ConnectorRecord["status"], string> = {
+  needs_auth: "Needs sign-in",
+  ok: "Ready",
+};
+
+/** What the connector's own state says, in words. */
 const connectorStatus = (connector: ConnectorRecord): string =>
   connector.headerTemplate && !connector.secretId
-    ? "needs secret"
-    : connector.status;
+    ? "Needs a secret"
+    : CONNECTOR_STATUS_WORDS[connector.status];
 
 /** An OAuth app with no client and no way to register one cannot be connected as the agent. */
 const oauthCanRun = (mine: MySignIn): boolean =>
@@ -229,7 +234,10 @@ export function AppRow({
           )}
         </div>
         <div className="flex flex-col gap-0.5">
-          <p className="text-sm">{whoseSignIn(app.credentialMode)}</p>
+          {/* An app with no sign-in, or on a workspace secret, has no person's sign-in to describe. */}
+          {mine?.authKind === "none" || mine?.shared === true ? null : (
+            <p className="text-sm">{whoseSignIn(app.credentialMode)}</p>
+          )}
           {signInLine === null ? null : (
             <p className={mutedText}>{signInLine}</p>
           )}
