@@ -25,6 +25,7 @@ import { ForbiddenError } from "./authz.ts";
 import { hashToken } from "./crypto.ts";
 import { isAgentPaused, isServiceError, isUniqueViolation } from "./errors.ts";
 import type { EventsService, PeopleLookup } from "./events.ts";
+import type { InboxService } from "./inbox.ts";
 import type { Clock, StartRunInput } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import {
@@ -48,6 +49,7 @@ import {
   updateMessageText,
 } from "./slack/messages.ts";
 import { withRetry } from "./slack/post.ts";
+import { createRoomIntake } from "./slack/room.ts";
 import { verifySlackRequest } from "./slack/signature.ts";
 import { slackSpeakerText } from "./slack/speaker.ts";
 import type { SlackStatus } from "./slack/status.ts";
@@ -107,6 +109,7 @@ export const createSlackService = ({
   people,
   events,
   fetch: slackFetch,
+  inbox,
   runs,
   secretsKey,
   status,
@@ -118,6 +121,8 @@ export const createSlackService = ({
   people?: PeopleLookup;
   events: EventsService;
   fetch: SlackFetch;
+  /** Records the messages of a channel linked to a team room. */
+  inbox: Pick<InboxService, "postExternal">;
   runs: Pick<RunsService, "fetchPendingFiles" | "offerQueuedRun" | "startRun">;
   /** Shows the working status in the thread of a Slack-started run. */
   status: Pick<SlackStatus, "begin">;
@@ -214,6 +219,15 @@ export const createSlackService = ({
       .limit(1);
     return link ?? null;
   };
+
+  const room = createRoomIntake({
+    clock,
+    db,
+    fetch: slackFetch,
+    findLink,
+    inbox,
+    secretsKey,
+  });
 
   /** Posts in the thread the message arrived in, as the app's bot. */
   const replyInThread = async (
@@ -673,6 +687,14 @@ export const createSlackService = ({
     }
     if (event.kind !== "message" || event.userId === app.botUserId) {
       return accepted;
+    }
+    // A channel linked to a team room is the room's: it records each message
+    // once and wakes agents through the room, not through this app's sessions.
+    if (event.trigger !== "dm") {
+      const recorded = await room.receive(app, event);
+      if (recorded) {
+        return recorded;
+      }
     }
     // A channel message, or a thread reply in a thread the app does not know,
     // is not for the app to answer. In "all" mode it is stored for its batch.
