@@ -18,9 +18,16 @@ const ZERO: SessionUsage = {
   outputTokens: 0,
 };
 
-const isTotals = (value: unknown): value is SessionUsage =>
+/** What an Anthropic session had used in all, as a run stored it. */
+interface SessionTotals extends SessionUsage {
+  anthropicSessionId: string;
+}
+
+const isTotals = (value: unknown): value is SessionTotals =>
   typeof value === "object" &&
   value !== null &&
+  "anthropicSessionId" in value &&
+  typeof value.anthropicSessionId === "string" &&
   "inputTokens" in value &&
   typeof value.inputTokens === "number" &&
   "outputTokens" in value &&
@@ -33,13 +40,16 @@ const isTotals = (value: unknown): value is SessionUsage =>
   (value.costUsd === null || typeof value.costUsd === "number");
 
 /**
- * What the session had used when the session's previous run was recorded, or
- * nothing used when it has no such run. A session serves its runs one at a
- * time and reports its use in all, so a run's own use is the difference.
+ * What the Anthropic session had used when its previous run was recorded, or
+ * nothing used when no recorded run served it. A session serves its runs one
+ * at a time and reports its use in all, so a run's own use is the difference.
+ * A Harbourmaster session gets a new Anthropic session when it is closed, and
+ * totals of the old one do not count against the new.
  */
 const totalsBefore = async (
   db: Database,
-  run: RunRecord
+  run: RunRecord,
+  anthropicSessionId: string
 ): Promise<SessionUsage> => {
   const rows = await db
     .select({ usage: runs.usage })
@@ -62,7 +72,10 @@ const totalsBefore = async (
         "sessionTotals" in parsed
           ? parsed.sessionTotals
           : null;
-      if (isTotals(totals)) {
+      if (
+        isTotals(totals) &&
+        totals.anthropicSessionId === anthropicSessionId
+      ) {
         return totals;
       }
     } catch {
@@ -119,7 +132,7 @@ export const managedRunUsage = async ({
     .where(eq(agents.id, run.agentId))
     .limit(1);
   const model = modelFor(run.model ?? agent?.model ?? "");
-  const before = await totalsBefore(db, run);
+  const before = await totalsBefore(db, run, sessionId);
   const tokens = {
     cacheReadTokens: Math.max(0, now.cacheReadTokens - before.cacheReadTokens),
     cacheWriteTokens: Math.max(
@@ -135,6 +148,6 @@ export const managedRunUsage = async ({
     ...(costUsd === undefined ? {} : { costUsd }),
     model,
     provider: "anthropic",
-    sessionTotals: now,
+    sessionTotals: { ...now, anthropicSessionId: sessionId },
   };
 };

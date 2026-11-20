@@ -393,7 +393,8 @@ export const sessionUsageOf = (
   if (!usage) {
     return null;
   }
-  const cents = Number(usage.list_cost?.amount);
+  const amount = usage.list_cost?.amount;
+  const cents = amount ? Number(amount) : Number.NaN;
   const costUsd = Number.isFinite(cents) ? cents / CENTS_PER_DOLLAR : null;
   const reported =
     costUsd !== null ||

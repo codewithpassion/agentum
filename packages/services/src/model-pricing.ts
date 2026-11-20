@@ -3,6 +3,11 @@
  * tokens when its provider reports no cost. A runtime that is told its cost
  * uses that instead; this only fills the gap. Ids match by family, so a dated
  * or newer id of the same family prices the same.
+ *
+ * Haiku's rates are Anthropic's first-party rates for claude-haiku-5-5 as of
+ * 3 Nov 2026, for a prompt of up to 100K tokens (above that it charges $0.50 in
+ * and $2.50 out, which this does not model, so a long prompt is undercounted).
+ * The opus and sonnet rates are estimates that have not been checked.
  */
 
 export interface TokenCounts {
@@ -22,7 +27,7 @@ interface Rates {
 const FAMILY_RATES: readonly (readonly [string, Rates])[] = [
   ["opus", { input: 5, output: 25 }],
   ["sonnet", { input: 3, output: 15 }],
-  ["haiku", { input: 1, output: 5 }],
+  ["haiku", { input: 0.1, output: 0.5 }],
 ];
 
 const TOKENS_PER_RATE = 1_000_000;

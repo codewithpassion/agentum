@@ -2985,6 +2985,38 @@ describe("a run's usage", () => {
     expect(usageOfRun(runId)?.costUsd).toBe(0.5);
   });
 
+  test("a run whose polls keep failing records what its session used", async () => {
+    const { runId } = await start(dom);
+    gateway.turns = [[gateway.running()]];
+    await managed.step(runId);
+    gateway.usage = SESSION_USAGE;
+    gateway.pollFailure = new Error("down");
+
+    let answer = await managed.step(runId);
+    for (let count = 1; answer.next !== null && count < 10; count += 1) {
+      nowMs += 10 * SECOND;
+      // biome-ignore lint/performance/noAwaitInLoops: each failure builds on the last
+      answer = await managed.step(runId);
+    }
+
+    expect(runRow(runId)?.status).toBe("failed");
+    expect(usageOfRun(runId)?.costUsd).toBe(0.5);
+  });
+
+  test("a new Anthropic session is not measured against the closed one's totals", async () => {
+    const first = await start(dom);
+    gateway.turns = [[gateway.event("session.status_terminated")]];
+    gateway.usage = SESSION_USAGE;
+    await drive(first.runId);
+    const second = await start(dom);
+    gateway.usage = { ...SESSION_USAGE, costUsd: 0.1 };
+
+    await drive(second.runId);
+
+    expect(gateway.sessions.size).toBe(2);
+    expect(usageOfRun(second.runId)?.costUsd).toBe(0.1);
+  });
+
   test("a run in a session that reports no usage records none", async () => {
     const { runId } = await start(dom);
 

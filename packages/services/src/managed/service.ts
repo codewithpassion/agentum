@@ -1683,6 +1683,29 @@ export const createManagedService = ({
       : { answer: DONE };
   };
 
+  /** What the run's session used, read from scratch. Undefined when there is no session or key, or the read fails. */
+  const usageOfSessionOf = async (
+    run: RunRecord
+  ): Promise<Usage | undefined> => {
+    try {
+      const [[session], key] = await Promise.all([
+        db
+          .select()
+          .from(managedSessions)
+          .where(eq(managedSessions.sessionId, run.sessionId))
+          .limit(1),
+        keys.resolve(run.workspaceId),
+      ]);
+      return session && key
+        ? await usageOf(run, session, gatewayOf(run.workspaceId, key))
+        : undefined;
+    } catch (error) {
+      console.error(
+        `Reading the usage of managed run ${run.id} failed: ${describeError(error)}`
+      );
+    }
+  };
+
   const step = async (runId: string): Promise<ManagedStepResult> => {
     const ready = await prepare(runId);
     if ("answer" in ready) {
@@ -1704,10 +1727,13 @@ export const createManagedService = ({
       );
       const result = await countFailure(run);
       if (result.next === null) {
+        // Read before `abandon` closes the session. Best effort: Anthropic may be down.
+        const usage = await usageOfSessionOf(run);
         await abandon(run);
         await failRun(
           run,
-          `Anthropic could not be reached: ${describeError(error)}`
+          `Anthropic could not be reached: ${describeError(error)}`,
+          usage
         );
         await offerNext(run);
       }
