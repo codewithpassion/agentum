@@ -10,6 +10,7 @@ import { NewTeamButton } from "./new-team-button.tsx";
 import { ProfileForm } from "./profile-form.tsx";
 import { RoomLink } from "./room-link.tsx";
 import { RulesEditor } from "./rules-editor.tsx";
+import { SlackLink } from "./slack-link.tsx";
 import { TeamJobs } from "./team-jobs.tsx";
 import {
   addableAgents,
@@ -199,6 +200,12 @@ export function TeamPage({
               leadId={team.leadAgentId}
               onChange={changes.setLead}
             />
+          </TeamSection>
+          <TeamSection
+            description="Link the team's room to one Slack channel."
+            title="Slack"
+          >
+            <SlackLink agents={agents} canEdit={canEdit} teamId={team.id} />
           </TeamSection>
           <TeamSection title="Shared folder">
             <FolderLink folderPath={team.folderPath} />

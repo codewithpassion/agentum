@@ -287,6 +287,7 @@ import {
   createSlackRequests,
   type SlackRequests,
 } from "@repo/services/slack/requests";
+import { createRoomChannels } from "@repo/services/slack/room-channels";
 import { createRoomOutbound } from "@repo/services/slack/room-out";
 import { createRoomStatus } from "@repo/services/slack/room-status";
 import {
@@ -1525,6 +1526,11 @@ export const composeWith = ({
         atomic: infra.atomic,
         clock: infra.clock,
         db,
+        slackChannels: createRoomChannels({
+          db,
+          fetch: connectorFetch,
+          secretsKey: infra.secretsKey,
+        }),
         slackStatus: createRoomStatus({
           db,
           fetch: connectorFetch,

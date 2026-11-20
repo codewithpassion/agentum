@@ -64,6 +64,11 @@ export const teamsRouter = router({
       ctx.services.teams.setRules(ctx.principal, input)
     ),
   slack: router({
+    channels: workspaceProcedure
+      .input(teamIdInputSchema)
+      .query(({ ctx, input }) =>
+        ctx.services.teams.slack.channels(ctx.principal, input.teamId)
+      ),
     link: workspaceProcedure
       .input(slackLinkInputSchema)
       .mutation(({ ctx, input }) =>
