@@ -27,9 +27,8 @@ Round 1, commit d3382608: clean. No must-fix. The reviewer judged the `users.con
 
 ## Browser proof
 
-`docs/reviews/tasks/SL.11/browser.md`. The admin path passes at 1280x800 and 390x844 with no console error or failed request. The non-admin path could not be shown: the dev user is a Clerk `org:admin` and nothing local changes that. It is covered by `teams.test.ts` and `slack-room-flow.test.ts`.
+`docs/reviews/tasks/SL.11/browser.md`. Round 1 (admin) passes at 1280x800 and 390x844. Round 2 signs in as the plain `org:member` dev+member user and passes at both sizes: the picker lists only #sl5-room, the private-channel sentence shows, linking a channel the member is not in and a private channel are refused, and a member with no Slack link sees the "not linked" message. The only console errors are those deliberate 400 refusals.
 
 ## Steps for Dom
 
 - Decide whether the private-channel rule (admin only) stays. It is an assumption: a private channel's messages land in a room every workspace member can read.
-- To see the non-admin picker once in a browser, sign in as an `org:member` of the Dev Workspace in Clerk (a second dev user) and open a team you own.
