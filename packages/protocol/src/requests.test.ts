@@ -609,6 +609,7 @@ describe("decisions", () => {
     expect(parse(Array.from({ length: 9 }, (_, i) => decision(`q${i}`)))).toBe(
       false
     );
+    expect(parse([decision("a"), decision("a")])).toBe(false);
     expect(parse([decision("a", ["Only"])])).toBe(false);
     expect(parse([decision("a", ["1", "2", "3", "4", "5"])])).toBe(false);
     expect(parse([{ id: "a", options: ["Yes", "No"] }])).toBe(false);

@@ -1,5 +1,5 @@
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { createdAt, id, workspaceId } from "../columns.ts";
+import { check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createdAt, id, ownerCheck, workspaceId } from "../columns.ts";
 import {
   DEFAULT_DREAM_COUNTS_JSON,
   DREAM_QUESTION_STATUSES,
@@ -45,6 +45,7 @@ export const dreamRuns = sqliteTable(
   (t) => [
     index("dream_runs_agent_idx").on(t.workspaceId, t.agentId, t.startedAt),
     index("dream_runs_team_idx").on(t.workspaceId, t.teamId, t.startedAt),
+    check("dream_runs_owner", ownerCheck(t.agentId, t.teamId)),
   ]
 );
 
@@ -56,9 +57,8 @@ export const dreamRuns = sqliteTable(
 export const dreamQuestions = sqliteTable(
   "dream_questions",
   {
-    agentId: text("agent_id")
-      .notNull()
-      .references(() => agents.id),
+    // The agent the question is about. Null on a team dream's question (`team_id`). A row has an agent or a team.
+    agentId: text("agent_id").references(() => agents.id),
     // ISO 8601 UTC. Set with `answered_by` and `answered_note_id` when a person answers.
     answeredAt: text("answered_at"),
     // Clerk user id.
@@ -74,10 +74,13 @@ export const dreamQuestions = sqliteTable(
     options: text("options").notNull(),
     question: text("question").notNull(),
     status: text("status", { enum: DREAM_QUESTION_STATUSES }).notNull(),
+    // The team the question is about, asked of its owner. Null on an agent's question.
+    teamId: text("team_id").references(() => teams.id),
     workspaceId: workspaceId().references(() => workspaces.id),
   },
   (t) => [
     index("dream_questions_status_idx").on(t.workspaceId, t.status),
     index("dream_questions_run_idx").on(t.dreamRunId),
+    check("dream_questions_owner", ownerCheck(t.agentId, t.teamId)),
   ]
 );

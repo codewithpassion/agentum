@@ -870,6 +870,13 @@ test("a decisions request is listed as pending and the answer stubs refuse it", 
     requests.answerDecisions(user, { decisions: { q1: "Yes" }, requestId: id })
   ).rejects.toMatchObject({ code: "not_found" });
   await expect(
+    requests.answer(user, {
+      answer: { decisions: { q1: "Yes" } },
+      requestId: id,
+      via: "web",
+    })
+  ).rejects.toMatchObject({ code: "invalid" });
+  await expect(
     requests.dismissDecisions(user, { requestId: id })
   ).rejects.toMatchObject({ code: "not_found" });
   await expect(

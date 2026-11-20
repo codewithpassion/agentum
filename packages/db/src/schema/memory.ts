@@ -1,5 +1,5 @@
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { createdAt, id, workspaceId } from "../columns.ts";
+import { check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createdAt, id, ownerCheck, workspaceId } from "../columns.ts";
 import {
   MEMORY_CHANGE_ACTIONS,
   MEMORY_CHANGE_STATUSES,
@@ -58,5 +58,6 @@ export const memoryChanges = sqliteTable(
     index("memory_changes_status_idx").on(t.workspaceId, t.status),
     index("memory_changes_note_idx").on(t.workspaceId, t.noteId),
     index("memory_changes_team_idx").on(t.workspaceId, t.teamId, t.createdAt),
+    check("memory_changes_owner", ownerCheck(t.agentId, t.teamId)),
   ]
 );

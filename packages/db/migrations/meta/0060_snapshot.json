@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "592bfe42-9a5c-4709-8e28-38f917505e85",
+  "id": "37084cf4-b1e5-43df-82b4-84857d2901e3",
   "prevId": "0a776a88-9edb-467a-b769-eeb804351bc8",
   "tables": {
     "a2a_agent_cards": {
@@ -3458,7 +3458,7 @@
           "name": "agent_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "answered_at": {
@@ -3524,6 +3524,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "workspace_id": {
           "name": "workspace_id",
           "type": "text",
@@ -3563,6 +3570,15 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+        "dream_questions_team_id_teams_id_fk": {
+          "name": "dream_questions_team_id_teams_id_fk",
+          "tableFrom": "dream_questions",
+          "tableTo": "teams",
+          "columnsFrom": ["team_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "dream_questions_workspace_id_workspaces_id_fk": {
           "name": "dream_questions_workspace_id_workspaces_id_fk",
           "tableFrom": "dream_questions",
@@ -3575,7 +3591,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "dream_questions_owner": {
+          "name": "dream_questions_owner",
+          "value": "(\"dream_questions\".\"agent_id\" is null) <> (\"dream_questions\".\"team_id\" is null)"
+        }
+      }
     },
     "dream_runs": {
       "name": "dream_runs",
@@ -3725,7 +3746,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "dream_runs_owner": {
+          "name": "dream_runs_owner",
+          "value": "(\"dream_runs\".\"agent_id\" is null) <> (\"dream_runs\".\"team_id\" is null)"
+        }
+      }
     },
     "events": {
       "name": "events",
@@ -7885,7 +7911,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "memory_changes_owner": {
+          "name": "memory_changes_owner",
+          "value": "(\"memory_changes\".\"agent_id\" is null) <> (\"memory_changes\".\"team_id\" is null)"
+        }
+      }
     },
     "workspace_model_keys": {
       "name": "workspace_model_keys",

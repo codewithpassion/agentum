@@ -67,9 +67,9 @@ test("rows in dream_runs, dream_questions and memory_changes survive the nullabl
   expect(
     client.query("SELECT id, agent_id, team_id FROM memory_changes").all()
   ).toEqual([{ agent_id: "a1", id: "c1", team_id: null }]);
-  expect(client.query("SELECT id FROM dream_questions").all()).toEqual([
-    { id: "q1" },
-  ]);
+  expect(
+    client.query("SELECT id, agent_id, team_id FROM dream_questions").all()
+  ).toEqual([{ agent_id: "a1", id: "q1", team_id: null }]);
   expect(client.query("PRAGMA foreign_key_check").all()).toEqual([]);
 });
 
@@ -92,6 +92,11 @@ test("a team row has no agent", () => {
   client.run(
     `INSERT INTO dream_runs (id, started_at, status, team_id, workspace_id)
      VALUES ('d1', ?, 'running', 't1', 'w1')`,
+    [NOW]
+  );
+  client.run(
+    `INSERT INTO dream_questions (created_at, dream_run_id, id, options, question, status, team_id, workspace_id)
+     VALUES (?, 'd1', 'q1', '[]', 'which?', 'open', 't1', 'w1')`,
     [NOW]
   );
   client.run(

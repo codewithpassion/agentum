@@ -98,7 +98,15 @@ export const decisionSchema = z.strictObject({
 export type Decision = z.infer<typeof decisionSchema>;
 
 export const decisionsDisplaySchema = z.strictObject({
-  questions: z.array(decisionSchema).min(1).max(DECISIONS_MAX),
+  questions: z
+    .array(decisionSchema)
+    .min(1)
+    .max(DECISIONS_MAX)
+    .refine(
+      (questions) =>
+        new Set(questions.map(({ id }) => id)).size === questions.length,
+      { message: "question ids must be unique" }
+    ),
 });
 export type DecisionsDisplay = z.infer<typeof decisionsDisplaySchema>;
 

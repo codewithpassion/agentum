@@ -1670,7 +1670,8 @@ export interface DreamQuestionOption {
 
 /** A contradiction a dream could not settle. The answer keeps one option's note and drops the others. */
 export interface DreamQuestion {
-  agentId: string;
+  /** The agent the question is about. Null on a team dream's question, which has a `teamId` instead. */
+  agentId: string | null;
   /** When a person answered. Null while open. */
   answeredAt: string | null;
   /** Clerk user id of that person. */
@@ -1684,6 +1685,8 @@ export interface DreamQuestion {
   options: DreamQuestionOption[];
   question: string;
   status: DreamQuestionStatus;
+  /** The team the question is about, asked of its owner. Null on an agent's question. */
+  teamId: string | null;
 }
 
 /** What a `dream_question` Needs you card holds: the question and one button per option. */

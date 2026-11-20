@@ -110,6 +110,16 @@ export const answerDecisionsInputSchema = decisionsAnswerSchema.extend({
 });
 export const dismissDecisionsInputSchema = z.strictObject({ requestId: id });
 
+/** A decision queue takes partial answers, so it has its own procedure. */
+const refuseDecisions = (row: RequestRow) => {
+  if (row.kind === "decisions") {
+    throw new ServiceError(
+      "invalid",
+      "A decision queue is answered with answerDecisions"
+    );
+  }
+};
+
 const TTL = {
   approval: APPROVAL_TTL_MS,
   decisions: DECISIONS_TTL_MS,
@@ -920,6 +930,7 @@ export const createRequestsService = ({
     if (isPromoteApproval(row) && principal.via !== "session") {
       throw new ForbiddenError("artifacts.decide_grant");
     }
+    refuseDecisions(row);
     const parsed = answerSchemas[row.kind].parse(input.answer);
     if ("decision" in parsed && parsed.decision === "always_allow") {
       const run = await loadRun(db, row.runId, row.workspaceId);

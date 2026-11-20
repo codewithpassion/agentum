@@ -727,6 +727,7 @@ export const createMemoryService = ({
     if (row.status !== "held") {
       throw new ServiceError("conflict", "That change is already decided");
     }
+    agentOf(row);
     if (input.decision === "reject") {
       await atomic([
         db
