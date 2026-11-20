@@ -1,5 +1,5 @@
 // The one Slack workspace that `fake-slack.ts` plays and `seed-slack-room.ts`
-// seeds: three agents with their own Slack apps, one channel, and two people.
+// seeds: three agents with their own Slack apps, three channels (the room, one Dev Person is not in, one private), and two people.
 // The seed stores each app's token and signing secret, and the fake answers to
 // the same ones, so the app and the fake agree without a config file.
 import type {
