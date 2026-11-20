@@ -95,11 +95,18 @@ export const lastResultText = (
   return `Last run ${outcome}, ${distance}`;
 };
 
-export const canRunNow = (job: Pick<JobSentence, "source">): boolean =>
-  job.source === "routine";
+export const canRunNow = (
+  job: Pick<JobSentence, "awaitingApproval" | "source">
+): boolean => job.source === "routine" && !job.awaitingApproval;
 
-export const canPause = (job: Pick<JobSentence, "source">): boolean =>
-  job.source !== "slack";
+export const canPause = (
+  job: Pick<JobSentence, "awaitingApproval" | "source">
+): boolean => job.source !== "slack" && !job.awaitingApproval;
+
+/** Which procedure approves a proposed job: a routine, or a web, mail or app trigger. */
+export const approvalTarget = (
+  job: Pick<JobSentence, "source">
+): "routine" | "trigger" => (job.source === "routine" ? "routine" : "trigger");
 
 /** Which procedure pauses a job: routines and web triggers have their own, mail is the agent's mailbox. */
 export const pauseTarget = (

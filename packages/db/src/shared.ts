@@ -1385,6 +1385,8 @@ export interface JobSentence {
   agent: { id: string; name: string };
   /** Who the agent asks before it acts, in words. Null when it asks no one. */
   asksBefore: string | null;
+  /** True for a start an agent's run proposed that no person has approved yet. It is never enabled. */
+  awaitingApproval: boolean;
   /** Where the result goes, in words. Null when nowhere in particular. */
   deliversTo: string | null;
   /** What the agent does, in words. */

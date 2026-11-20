@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { JobSentence, ProposedTrigger } from "@repo/db/shared";
 import {
+  approvalTarget,
   canPause,
   canRunNow,
   draftChips,
@@ -18,10 +19,11 @@ const TWO_HOURS_AGO = "2026-11-20T10:00:00Z";
 
 const job: Pick<
   JobSentence,
-  "agent" | "asksBefore" | "deliversTo" | "does" | "when"
+  "agent" | "asksBefore" | "awaitingApproval" | "deliversTo" | "does" | "when"
 > = {
   agent: { id: "agt_1", name: "Digest" },
   asksBefore: "Dom",
+  awaitingApproval: false,
   deliversTo: "#news",
   does: "Summarise the week",
   when: "Every Friday at 9:00",
@@ -144,19 +146,39 @@ describe("lastResultText", () => {
 
 describe("canRunNow and canPause", () => {
   test("only routines run now", () => {
-    expect(canRunNow({ source: "routine" })).toBe(true);
-    expect(canRunNow({ source: "http" })).toBe(false);
-    expect(canRunNow({ source: "mail" })).toBe(false);
-    expect(canRunNow({ source: "app" })).toBe(false);
-    expect(canRunNow({ source: "slack" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "routine" })).toBe(
+      true
+    );
+    expect(canRunNow({ awaitingApproval: false, source: "http" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "mail" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "app" })).toBe(false);
+    expect(canRunNow({ awaitingApproval: false, source: "slack" })).toBe(false);
   });
 
   test("every source but slack can pause", () => {
-    expect(canPause({ source: "routine" })).toBe(true);
-    expect(canPause({ source: "http" })).toBe(true);
-    expect(canPause({ source: "mail" })).toBe(true);
-    expect(canPause({ source: "app" })).toBe(true);
-    expect(canPause({ source: "slack" })).toBe(false);
+    expect(canPause({ awaitingApproval: false, source: "routine" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "http" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "mail" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "app" })).toBe(true);
+    expect(canPause({ awaitingApproval: false, source: "slack" })).toBe(false);
+  });
+
+  test("a job awaiting approval can neither run now nor pause", () => {
+    expect(canRunNow({ awaitingApproval: true, source: "routine" })).toBe(
+      false
+    );
+    expect(canPause({ awaitingApproval: true, source: "routine" })).toBe(false);
+    expect(canPause({ awaitingApproval: true, source: "http" })).toBe(false);
+  });
+});
+
+describe("approvalTarget", () => {
+  test("a routine is approved as a routine, every other source as a trigger", () => {
+    expect(approvalTarget({ source: "routine" })).toBe("routine");
+    expect(approvalTarget({ source: "http" })).toBe("trigger");
+    expect(approvalTarget({ source: "mail" })).toBe("trigger");
+    expect(approvalTarget({ source: "app" })).toBe("trigger");
+    expect(approvalTarget({ source: "slack" })).toBe("trigger");
   });
 });
 
