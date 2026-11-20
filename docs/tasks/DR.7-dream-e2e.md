@@ -3,9 +3,9 @@ id: DR.7
 title: "Dream walkthrough"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [DR.5, DR.6]
-branch: null
+branch: task/DR.7-dream-e2e
 lane: e2e
 executor: claude
 ---
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone DR. End-to-end check for DR.
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/DR.7-dream-e2e (v4 controller session).

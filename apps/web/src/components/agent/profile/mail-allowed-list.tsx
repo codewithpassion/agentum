@@ -8,9 +8,11 @@ import { errorMessage } from "#/lib/error-message";
 function MailAllowedRow({
   address,
   agentId,
+  disabled,
 }: {
   address: string;
   agentId: string;
+  disabled: boolean;
 }) {
   const router = useRouter();
   const [removing, setRemoving] = useState(false);
@@ -38,7 +40,7 @@ function MailAllowedRow({
         <span className="min-w-0 truncate font-mono text-xs">{address}</span>
         <Button
           aria-label={`Remove ${address}`}
-          disabled={removing}
+          disabled={removing || disabled}
           onClick={remove}
           size="sm"
           variant="ghost"
@@ -59,16 +61,23 @@ function MailAllowedRow({
 export function MailAllowedList({
   addresses,
   agentId,
+  disabled,
 }: {
   addresses: string[];
   agentId: string;
+  disabled: boolean;
 }) {
   return (
     <div className="mt-3">
       <h3 className="text-muted-foreground text-xs">Always allowed</h3>
       <ul>
         {addresses.map((address) => (
-          <MailAllowedRow address={address} agentId={agentId} key={address} />
+          <MailAllowedRow
+            address={address}
+            agentId={agentId}
+            disabled={disabled}
+            key={address}
+          />
         ))}
       </ul>
     </div>

@@ -84,7 +84,7 @@ export const createMailOutbound = ({
   atomic: Atomic;
   clock: Clock;
   events: EventsService;
-  requests: Pick<RequestsService, "open" | "setRule">;
+  requests: Pick<RequestsService, "open" | "recordAlwaysAllow">;
   mailbox?: MailboxPort;
   memberDirectory?: MemberDirectory;
 }) => {
@@ -462,9 +462,8 @@ export const createMailOutbound = ({
       outside
         .filter((recipient) => mailToolKey(recipient) !== request.toolKey)
         .map((recipient) =>
-          requests.setRule(user, {
+          requests.recordAlwaysAllow(user, {
             agentId: request.agentId,
-            mode: "allow",
             toolKey: mailToolKey(recipient),
           })
         )

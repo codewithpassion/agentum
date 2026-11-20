@@ -1072,3 +1072,88 @@ test("an agent with no computer, a computer without apps or an unreadable hello 
     .where(eq(machines.id, "m-desk"));
   expect(await askKeysOf(db, { id: a1, workspaceId: "w1" })).toEqual([]);
 });
+
+const adminOf = (workspaceId = "w1"): Principal => ({
+  isAdmin: true,
+  kind: "user",
+  userId: "u9",
+  via: "session",
+  workspaceId,
+});
+const memberOf = (workspaceId = "w1"): Principal => ({
+  kind: "user",
+  userId: "u2",
+  via: "session",
+  workspaceId,
+});
+const keyOf = (userId: string, access: "admin" | "write"): Principal => ({
+  apiKey: { access, id: `k-${userId}`, name: `${access} key` },
+  kind: "user",
+  userId,
+  via: "api_key",
+  workspaceId: "w1",
+});
+
+test("the agent's owner and an admin change its ask switches, a plain member may not", async () => {
+  await service.setAskBefore(adminOf(), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+  expect(await asking()).toContain("bash");
+  await service.setAskBefore(user(), {
+    action: "bash",
+    agentId: a1,
+    ask: false,
+  });
+  expect(await asking()).not.toContain("bash");
+
+  for (const principal of [memberOf(), keyOf("u2", "write")]) {
+    // biome-ignore lint/performance/noAwaitInLoops: each refusal is checked before the next
+    await expect(
+      service.setAskBefore(principal, {
+        action: "bash",
+        agentId: a1,
+        ask: true,
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  }
+  expect(await asking()).not.toContain("bash");
+  expect(await requests.listRules(user(), { agentId: a1 })).toEqual([]);
+});
+
+test("an admin key changes the ask switches, a write key of another member may not", async () => {
+  await service.setAskBefore(keyOf("u9", "admin"), {
+    action: "bash",
+    agentId: a1,
+    ask: true,
+  });
+  expect(await asking()).toContain("bash");
+  await expect(
+    service.setAskBefore(keyOf("u2", "write"), {
+      action: "bash",
+      agentId: a1,
+      ask: false,
+    })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await asking()).toContain("bash");
+});
+
+test("the agent's owner and an admin change its ask level, a plain member may not", async () => {
+  await service.setAskLevel(adminOf(), { agentId: a1, level: "outside" });
+  expect(await requests.askLevel(user(), { agentId: a1 })).toBe("outside");
+  await service.setAskLevel(user(), { agentId: a1, level: "rarely" });
+  expect(await requests.askLevel(user(), { agentId: a1 })).toBe("rarely");
+
+  await expect(
+    service.setAskLevel(memberOf(), { agentId: a1, level: "outside" })
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(await requests.askLevel(user(), { agentId: a1 })).toBe("rarely");
+});
+
+test("a plain member still reads the ask switches and the level", async () => {
+  expect(
+    (await service.askBefore(memberOf(), { agentId: a1 })).length
+  ).toBeGreaterThan(0);
+  expect(await service.askLevel(memberOf(), { agentId: a1 })).toBe("rarely");
+});
