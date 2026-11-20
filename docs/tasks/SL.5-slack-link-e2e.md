@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone SL. End-to-end check for SL. It needs a 
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: from SL.2: in a linked channel a Slack guest is stored as a user post with author id slack:<teamId>:<userId>, and linked-channel messages no longer go into slack_messages. Check that slack_history and slack_search still find linked-channel messages, and check guest posts render well.
 - 2026-11-21: dispatched on task/SL.5-slack-link-e2e (v4 controller session).
+- 2026-11-21: ready at 10d72646 after one fix round, review clean, browser pass at both sizes on a fake Slack. Proposes SL.6 to SL.9. Queued for merge.
