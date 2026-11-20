@@ -12,6 +12,18 @@
  * agents through the room (`@slug` for an app they mention, else the lead when
  * the team's `lead_listens` is on). Anyone else posts as a named guest, and a
  * guest's post wakes nobody.
+ *
+ * Only the team's own apps feed its room: a copy is dropped unless the app
+ * belongs to an active agent that is a member of the linked team (the lead is
+ * always a member), by the same rule as `memberSenderApps`. A dropped copy
+ * writes nothing and wakes nobody, and never falls through to the per-agent
+ * path.
+ *
+ * What is left: the owner of a member agent still holds a signing secret that
+ * can sign an event naming any Slack user, as on the per-agent path. That is
+ * accepted as an assumption. A check against Slack, such as reading the
+ * message back with `conversations.history` before a person's post wakes
+ * anyone, would close it.
  */
 import type { Database } from "@repo/db";
 import { slackRoomMessages } from "@repo/db/schema/slack";
@@ -31,6 +43,7 @@ import {
 } from "./apps.ts";
 import { createSlackClient, type SlackFetch } from "./client.ts";
 import type { SlackEvent } from "./event-parse.ts";
+import { memberSenderApps } from "./room-out-store.ts";
 import {
   findRoomLink,
   findRoomTopic,
@@ -170,6 +183,19 @@ export const createRoomIntake = ({
     );
   };
 
+  /** True when the app belongs to an active agent on the team. */
+  const isTeamApp = async (
+    app: SlackAppRow,
+    teamId: string
+  ): Promise<boolean> => {
+    const senders = await memberSenderApps(db, {
+      slackTeamId: app.teamId,
+      teamId,
+      workspaceId: app.workspaceId,
+    });
+    return senders.some((sender) => sender.app.id === app.id);
+  };
+
   /** The topic the message goes in: the one its Slack thread belongs to, else a new one. */
   const topicFor = async (
     app: SlackAppRow,
@@ -243,7 +269,10 @@ export const createRoomIntake = ({
     if (!link) {
       return null;
     }
-    if (await isDropped(app, message)) {
+    if (
+      !(await isTeamApp(app, link.teamId)) ||
+      (await isDropped(app, message))
+    ) {
       return accepted;
     }
     try {
