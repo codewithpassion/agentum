@@ -455,7 +455,7 @@ export const createRosterService = ({
           wait,
         }),
         teamId: home?.teamId ?? null,
-        weeklyCapCents: null,
+        weeklyCapCents: row.weeklyCapCents,
       };
     });
   };
