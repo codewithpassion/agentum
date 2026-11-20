@@ -104,3 +104,13 @@ test("notesAfterMerge leaves a keeper whose text does not change as it was", () 
     keeper,
   ]);
 });
+
+test("mergeChange keeps the keeper's own text when the new text differs only in case, spacing or a full stop", () => {
+  const keeper = note("a", { text: "Mia wants docs", writtenBy: "person" });
+  expect(mergeChange(keeper, [note("b")], "mia  wants DOCS.").text).toBe(
+    "Mia wants docs"
+  );
+  expect(mergeChange(keeper, [note("b")], "Mia wants PDFs").text).toBe(
+    "Mia wants PDFs"
+  );
+});

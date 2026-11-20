@@ -121,7 +121,9 @@ export const mergeChange = (
   absorbedNoteIds: absorbed.map((note) => note.id),
   action: "merge",
   keepNoteId: keeper.id,
-  text,
+  // Text that differs from the keeper's only in case, spacing or a closing
+  // full stop is the keeper's text, so the plan and notesAfterMerge agree.
+  text: normalizeText(text) === normalizeText(keeper.text) ? keeper.text : text,
 });
 
 /**
