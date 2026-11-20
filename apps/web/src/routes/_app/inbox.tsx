@@ -8,10 +8,10 @@ const searchSchema = z.object({
   thread: z.string().min(1).optional().catch(undefined),
 });
 
-/** The topic's team, or null when the topic can't be read: the link then lands in Everyone. */
+/** The topic's team (null for a topic from before teams), or undefined when there is no topic to open or it can't be read. */
 const teamOfThread = async (threadId: string | undefined) => {
   if (threadId === undefined) {
-    return null;
+    return;
   }
   try {
     const view = await getTrpc().inbox.readThread.query({ threadId });
@@ -20,20 +20,23 @@ const teamOfThread = async (threadId: string | undefined) => {
     if (hasTrpcCode(error, "UNAUTHORIZED")) {
       throw error;
     }
-    return null;
   }
 };
 
-/** The inbox became team rooms: this sends the old URL to the topic's room, or to Everyone's. */
+/** The inbox became team rooms: this sends the old URL to the topic's room, or to Everyone's. A topic that can't be read goes to Everyone with no topic open. */
 export const Route = createFileRoute("/_app/inbox")({
   validateSearch: (search) => searchSchema.parse(search),
   beforeLoad: async ({ search }) => {
-    const teamId = await loadOrLogin(async () => {
+    const { teamId, topic } = await loadOrLogin(async () => {
       const [teams, threadTeamId] = await Promise.all([
         getTrpc().teams.list.query(),
         teamOfThread(search.thread),
       ]);
-      return roomForInboxLink(teams, threadTeamId);
+      return {
+        teamId: roomForInboxLink(teams, threadTeamId ?? null),
+        // A topic that can't be read opens the room's topic list, not a dead panel.
+        topic: threadTeamId === undefined ? undefined : search.thread,
+      };
     });
     if (teamId === null) {
       throw redirect({ replace: true, to: "/home" });
@@ -41,7 +44,7 @@ export const Route = createFileRoute("/_app/inbox")({
     throw redirect({
       params: { teamId },
       replace: true,
-      search: { topic: search.thread },
+      search: { topic },
       to: "/teams/$teamId/room",
     });
   },
