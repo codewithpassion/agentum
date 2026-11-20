@@ -3,9 +3,9 @@ id: TM.22
 title: "A room run never gets private notes"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/TM.22-a-room-run-never-gets-private-notes
 lane: services-runs
 executor: claude
 ---
@@ -30,3 +30,4 @@ From the TM gate review, round 1 (`docs/reviews/TM-1.md`, must-fix 4).
 
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: dispatched.
