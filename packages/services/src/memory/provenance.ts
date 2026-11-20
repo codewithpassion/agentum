@@ -12,6 +12,10 @@ import { authorize, ForbiddenError } from "../authz.ts";
 import { isReadOnly } from "../automation-access.ts";
 import { invalid, notFound } from "../errors.ts";
 import { readableWorkspace } from "../guards.ts";
+import {
+  type PrivateNotesSession,
+  privateNotesUserOf,
+} from "../library/private-notes.ts";
 import { peerRootOf } from "../runs/peer-root.ts";
 import { loadRun } from "../runs/queries.ts";
 import { MAX_RUN_DEPTH } from "../runs/subject.ts";
@@ -286,19 +290,7 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
     return rows.length > 0;
   };
 
-  /** A private conversation keeps its notes in the file of the person it belongs to. */
-  const scopeOf = (
-    session: { actorId: string; actorKind: string; private: boolean },
-    // A run's note goes to the person the run works for, because the library
-    // lets a run see only that person's private file. A person's own note goes
-    // to the person who opened the conversation.
-    owner: { runUserId: string | null } | "session-actor"
-  ): string | null => {
-    if (!session.private) {
-      return null;
-    }
-    const sessionActor = session.actorKind === "user" ? session.actorId : null;
-    const userId = owner === "session-actor" ? sessionActor : owner.runUserId;
+  const requireUser = (userId: string | null): string => {
     if (!isUserId(userId)) {
       throw invalid(
         "This conversation is private and has no person to keep the note for"
@@ -306,6 +298,37 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
     }
     return userId;
   };
+
+  /**
+   * A run's note goes where the run reads: the person's private file when
+   * `privateNotesUserOf` gives it one (its session is private or `ui`, and the
+   * session's actor is the person it works for), shared otherwise. A private
+   * session the rule gives to nobody still never goes to the shared files: its
+   * note stays with the person the run works for.
+   */
+  const scopeOfRun = (
+    session: PrivateNotesSession,
+    run: { onBehalfOfUserId: string | null }
+  ): string | null => {
+    const reader = privateNotesUserOf(run, session);
+    if (reader !== null) {
+      return requireUser(reader);
+    }
+    return session.private ? requireUser(run.onBehalfOfUserId) : null;
+  };
+
+  /**
+   * A person's own note from a conversation goes to their private file only when
+   * the conversation is private. Remembering from a `ui` chat is their choice.
+   */
+  const scopeOfSession = (session: {
+    actorId: string;
+    actorKind: string;
+    private: boolean;
+  }): string | null =>
+    session.private
+      ? requireUser(session.actorKind === "user" ? session.actorId : null)
+      : null;
 
   const sessionIdOfRequest = async (
     workspaceId: string,
@@ -342,7 +365,7 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
           web: await usedWeb(run, workspaceId),
         }),
         source,
-        userScope: scopeOf(session, { runUserId: run.onBehalfOfUserId }),
+        userScope: scopeOfRun(session, run),
       };
     }
     const sessionId =
@@ -357,7 +380,7 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
         web: false,
       }),
       source,
-      userScope: scopeOf(session, "session-actor"),
+      userScope: scopeOfSession(session),
     };
   };
 

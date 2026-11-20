@@ -3,7 +3,6 @@ import {
   CalendarClock,
   Component,
   FolderOpen,
-  Inbox,
   Kanban,
   LayoutGrid,
   ListChecks,
@@ -89,7 +88,6 @@ export const findEntries: readonly FindEntry[] = [
     label: "Q&A",
     to: "/qa",
   },
-  { group: "Work", hint: "Threads", icon: Inbox, label: "Inbox", to: "/inbox" },
   { group: "How things start", icon: MapIcon, label: "Map", to: "/map" },
   {
     group: "How things start",
@@ -151,6 +149,17 @@ export function teamFindEntries(
     id: team.id,
     label: team.name,
     to: `/teams/${team.id}`,
+  }));
+}
+
+/** One Find entry per team room. */
+export function teamRoomFindEntries(
+  teams: readonly { id: string; name: string }[]
+): { id: string; label: string; to: string }[] {
+  return teams.map((team) => ({
+    id: team.id,
+    label: `${team.name} room`,
+    to: `/teams/${team.id}/room`,
   }));
 }
 

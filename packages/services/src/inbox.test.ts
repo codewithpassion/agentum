@@ -378,6 +378,19 @@ test("a wake the run tree refuses is recorded and does not lose the reply", asyn
   ]);
 });
 
+test("topicTeam names the topic's team and answers null where readThread refuses", async () => {
+  build({ script: { alpha: "hi" } });
+  await addAgents("alpha");
+  const threadId = await newThread();
+
+  const { thread } = await inbox.readThread(user, { threadId });
+  expect(await inbox.topicTeam(user, { threadId })).toEqual({
+    teamId: thread.teamId,
+  });
+  expect(await inbox.topicTeam(user, { threadId: "missing" })).toBeNull();
+  expect(await inbox.topicTeam(outsider, { threadId })).toBeNull();
+});
+
 test("threads belong to a workspace, and read-only keys only read", async () => {
   build({ script: { alpha: "hi" } });
   await addAgents("alpha");

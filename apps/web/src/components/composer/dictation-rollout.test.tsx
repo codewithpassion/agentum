@@ -66,7 +66,6 @@ const { DescribePanel } = await import(
 const { DraftCard } = await import("#/components/agent/builder/draft-card");
 const { VoiceField } = await import("#/components/agent/profile/voice-field");
 const { DesktopScreen } = await import("#/components/computer/desktop-screen");
-const { PostComposer } = await import("#/components/inbox/post-composer");
 const { AgentComposer } = await import(
   "#/components/live-artifacts/agent-thread"
 );
@@ -283,11 +282,6 @@ const cases: {
   {
     name: "answer",
     node: <AnswerForm onAnswered={noop} questionId="question" />,
-    selector: "textarea",
-  },
-  {
-    name: "inbox message",
-    node: <PostComposer onSent={noop} threadId="thread" />,
     selector: "textarea",
   },
   {
