@@ -15,7 +15,7 @@ test("prices input and output at the family's rates", () => {
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
     })
-  ).toBe(18);
+  ).toBe(12);
 });
 
 test("prices cache reads at a tenth and cache writes at 1.25 times the input rate", () => {
@@ -25,7 +25,7 @@ test("prices cache reads at a tenth and cache writes at 1.25 times the input rat
       cacheReadTokens: 1_000_000,
       cacheWriteTokens: 1_000_000,
     })
-  ).toBeCloseTo(0.5 + 6.25);
+  ).toBeCloseTo(0.4 + 5);
 });
 
 test("a model without rates has no price", () => {

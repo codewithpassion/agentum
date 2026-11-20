@@ -24,4 +24,4 @@ Cost for cancelled runs. A real long-context price tier. Move `sessionTotals` ou
 
 ## Dom
 
-Check the opus ($5 in, $25 out) and sonnet ($3 in, $15 out) rates in `packages/services/src/model-pricing.ts`. They are unverified estimates used only when the API gives no cost. Haiku's rates are the dream's checked ones.
+The opus and sonnet rates were checked against Anthropic's docs by the controller (opus $4/$20, sonnet $2/$10). Nothing for Dom.

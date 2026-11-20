@@ -7,7 +7,9 @@
  * Haiku's rates are Anthropic's first-party rates for claude-haiku-5-5 as of
  * 3 Nov 2026, for a prompt of up to 100K tokens (above that it charges $0.50 in
  * and $2.50 out, which this does not model, so a long prompt is undercounted).
- * The opus and sonnet rates are estimates that have not been checked.
+ * The opus and sonnet rates are the first-party rates for claude-opus-5-5 and
+ * claude-sonnet-5-5 as of 21 Nov 2026. Older ids of the same family (Opus 5 at
+ * $5/$25, for one) are priced at the current rate.
  */
 
 export interface TokenCounts {
@@ -25,8 +27,8 @@ interface Rates {
 }
 
 const FAMILY_RATES: readonly (readonly [string, Rates])[] = [
-  ["opus", { input: 5, output: 25 }],
-  ["sonnet", { input: 3, output: 15 }],
+  ["opus", { input: 4, output: 20 }],
+  ["sonnet", { input: 2, output: 10 }],
   ["haiku", { input: 0.1, output: 0.5 }],
 ];
 

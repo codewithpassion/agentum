@@ -2970,8 +2970,8 @@ describe("a run's usage", () => {
 
     await drive(runId);
 
-    // The agent runs on sonnet: $3 in and $15 out per million tokens.
-    expect(usageOfRun(runId)?.costUsd).toBe(18);
+    // The agent runs on sonnet: $2 in and $10 out per million tokens.
+    expect(usageOfRun(runId)?.costUsd).toBe(12);
   });
 
   test("a run that fails still records what it used", async () => {
