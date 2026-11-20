@@ -1736,7 +1736,7 @@ export type SpendPauseReason = (typeof SPEND_PAUSE_REASONS)[number];
 export interface SpendRow {
   /** The agent that spent. Null on a team's row, which has no agent. */
   agentId: string | null;
-  /** Cents spent on the day, rounded for the bars. Sum `micros` for a week, never this. */
+  /** Cents spent on the day, rounded. Sum `micros` for a week, never this. */
   cents: number;
   /** The day as `YYYY-MM-DD`. */
   day: string;

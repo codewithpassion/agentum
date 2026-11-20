@@ -235,12 +235,9 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     );
   };
 
-  // The week's unrounded spend, rounded once, so cap enforcement agrees with the spend page.
-  const totalCents = sumSpendCents;
-
   const weekToDate = async (agentId: string): Promise<number> => {
     const context = await agentContext(agentId);
-    return totalCents(await weekRows(context.workspace, agentId));
+    return sumSpendCents(await weekRows(context.workspace, agentId));
   };
 
   /** Whether the agent's week has reached its own cap, and the workspace's week its cap. */
@@ -258,9 +255,11 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     return {
       agentOver:
         agentCap !== null &&
-        totalCents(rows.filter((row) => row.agentId === agentId)) >= agentCap,
+        sumSpendCents(rows.filter((row) => row.agentId === agentId)) >=
+          agentCap,
       context,
-      workspaceOver: workspaceCap !== null && totalCents(rows) >= workspaceCap,
+      workspaceOver:
+        workspaceCap !== null && sumSpendCents(rows) >= workspaceCap,
     };
   };
 
@@ -313,7 +312,7 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
       throw new ServiceError("not_found", `No workspace "${workspaceId}"`);
     }
     const cap = workspace.weeklyCapCents;
-    return cap !== null && totalCents(await weekRows(workspace)) >= cap;
+    return cap !== null && sumSpendCents(await weekRows(workspace)) >= cap;
   };
 
   /** Pauses every active agent in the workspace once it is over its cap. Same pause as `enforceCap`. */

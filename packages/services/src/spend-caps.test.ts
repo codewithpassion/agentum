@@ -595,12 +595,17 @@ test("a resumed agent starts once an admin raises the workspace cap above the we
 
 test("agent dreams too small to show as a cent alone pause the agent once they add up", async () => {
   setCap(aId, 1);
-  for (const id of ["d1", "d2", "d3"]) {
+  // Three different days, so rounding each day would give 0 cents.
+  for (const [id, startedAt] of [
+    ["d1", "2026-10-13T10:00:00.000Z"],
+    ["d2", "2026-10-14T10:00:00.000Z"],
+    ["d3", "2026-10-15T10:00:00.000Z"],
+  ] as const) {
     db.insert(dreamRuns)
       .values({
         agentId: aId,
         id,
-        startedAt: START,
+        startedAt,
         status: "done",
         usage: JSON.stringify({ costUsd: 0.004 }),
         workspaceId: WORKSPACE,
