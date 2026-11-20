@@ -45,6 +45,7 @@ import {
   createMemoryActors,
   isUserId,
   MEMORY_KIND,
+  MEMORY_READ,
   MEMORY_WRITE,
   type MemoryActor,
   type Provenance,
@@ -86,6 +87,11 @@ export const rememberRulesSchema = z.strictObject({
 export const listInputSchema = z.strictObject({
   agentId: agentIdSchema,
   kind: noteKindSchema.optional(),
+});
+
+export const listTeamInputSchema = z.strictObject({
+  kind: noteKindSchema.optional(),
+  teamId: z.string().min(1),
 });
 
 /** The writer is the principal: a user adds as `person`, a run as `agent`. */
@@ -139,6 +145,7 @@ export type ForgetNoteInput = z.infer<typeof forgetInputSchema>;
 export type DecideChangeInput = z.infer<typeof decideInputSchema>;
 export type ChangesInput = z.infer<typeof changesInputSchema>;
 export type ListNotesInput = z.infer<typeof listInputSchema>;
+export type ListTeamInput = z.infer<typeof listTeamInputSchema>;
 export type SetRulesInput = z.infer<typeof rulesSetInputSchema>;
 
 type ChangeRow = typeof memoryChanges.$inferSelect;
@@ -172,6 +179,17 @@ const neverFrom = (raw: string): string[] => {
   return parsed.success ? parsed.data : [...DEFAULT_NEVER_REMEMBER];
 };
 
+/** The agent a change belongs to. A team change has none: the team dream (TX.2) decides and undoes those. */
+const agentOf = (row: ChangeRow): string => {
+  if (row.agentId === null) {
+    throw new ServiceError(
+      "invalid",
+      "A team memory change is not decided here"
+    );
+  }
+  return row.agentId;
+};
+
 const toChange = (row: ChangeRow): MemoryChange => ({
   action: row.action,
   agentId: row.agentId,
@@ -189,6 +207,7 @@ const toChange = (row: ChangeRow): MemoryChange => ({
       ? { id: row.sourceId, kind: row.sourceKind }
       : null,
   status: row.status,
+  teamId: row.teamId,
   text: row.text,
   userScope: row.userScope,
   writtenBy: row.writtenBy,
@@ -438,6 +457,7 @@ export const createMemoryService = ({
     sourceId: plan.source?.id ?? null,
     sourceKind: plan.source?.kind ?? null,
     status,
+    teamId: null,
     text: plan.text,
     userScope: plan.userScope,
     workspaceId: actor.workspaceId,
@@ -529,6 +549,23 @@ export const createMemoryService = ({
     return input.kind
       ? notes.filter((note) => note.kind === input.kind)
       : notes;
+  };
+
+  /**
+   * Stub: no team note is listed. The team memory service task (TX.2) reads the
+   * team's notes from `teams/<slug>/memory/`.
+   */
+  const listTeam = (
+    principal: Principal,
+    input: ListTeamInput
+  ): Promise<MemoryNote[]> => {
+    const workspaceId = readableWorkspace(principal, MEMORY_READ);
+    authorize(principal, MEMORY_READ, {
+      id: input.teamId,
+      kind: MEMORY_KIND,
+      workspaceId,
+    });
+    return Promise.resolve([]);
   };
 
   const add = async (
@@ -708,7 +745,7 @@ export const createMemoryService = ({
           ),
       ]);
     } else {
-      const agent = await loadAgent(person.workspaceId, row.agentId);
+      const agent = await loadAgent(person.workspaceId, agentOf(row));
       await approve(deciderOf(principal, person), agent, row);
     }
     return await reread(person.workspaceId, row.id);
@@ -795,7 +832,7 @@ export const createMemoryService = ({
       );
     }
     const actor = deciderOf(principal, person);
-    const agent = await loadAgent(person.workspaceId, row.agentId);
+    const agent = await loadAgent(person.workspaceId, agentOf(row));
     const prior =
       row.action === "add" ? null : await priorNote(actor, agent, row);
     await writeWithRetry(actor, agent, (loaded) => ({
@@ -900,7 +937,7 @@ export const createMemoryService = ({
     },
   };
 
-  return { add, changes, decide, edit, forget, list, rules, undo };
+  return { add, changes, decide, edit, forget, list, listTeam, rules, undo };
 };
 
 export type MemoryService = ReturnType<typeof createMemoryService>;

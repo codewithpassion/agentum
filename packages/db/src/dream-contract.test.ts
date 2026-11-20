@@ -21,7 +21,6 @@ interface Column {
 }
 
 const DREAM_RUNS_NOT_NULL = [
-  "agent_id",
   "base_version",
   "counts",
   "diary",
@@ -43,6 +42,7 @@ const DREAM_RUNS_COLUMNS = [
   "since",
   "started_at",
   "status",
+  "team_id",
   "usage",
   "workspace_id",
 ];

@@ -6,8 +6,11 @@ import {
   approvalDisplaySchema,
   approvalSummary,
   askUserQuestionAnswers,
+  decisionsAnswerSchema,
+  decisionsDisplaySchema,
   effectiveAskKeys,
   isAskUserCall,
+  isDecisionsDisplay,
   outcomeText,
   questionAnswerSchema,
   questionDisplaySchema,
@@ -584,5 +587,62 @@ describe("effectiveAskKeys", () => {
     expect(effectiveAskKeys([{ mode: "ask", toolKey: "constructor" }])).toEqual(
       ["constructor"]
     );
+  });
+});
+
+describe("decisions", () => {
+  const decision = (id: string, options = ["Yes", "No"]) => ({
+    id,
+    options,
+    text: `Question ${id}?`,
+  });
+
+  test("a display holds one to eight questions of two to four options", () => {
+    const parse = (questions: unknown[]) =>
+      decisionsDisplaySchema.safeParse({ questions }).success;
+    expect(parse([decision("a")])).toBe(true);
+    expect(parse([{ ...decision("a"), freeText: true }])).toBe(true);
+    expect(parse([])).toBe(false);
+    expect(parse(Array.from({ length: 8 }, (_, i) => decision(`q${i}`)))).toBe(
+      true
+    );
+    expect(parse(Array.from({ length: 9 }, (_, i) => decision(`q${i}`)))).toBe(
+      false
+    );
+    expect(parse([decision("a", ["Only"])])).toBe(false);
+    expect(parse([decision("a", ["1", "2", "3", "4", "5"])])).toBe(false);
+    expect(parse([{ id: "a", options: ["Yes", "No"] }])).toBe(false);
+  });
+
+  test("an answer maps a question id to an option and may be partial", () => {
+    expect(decisionsAnswerSchema.safeParse({ decisions: {} }).success).toBe(
+      true
+    );
+    expect(
+      decisionsAnswerSchema.safeParse({ decisions: { a: "Yes" } }).success
+    ).toBe(true);
+    expect(
+      decisionsAnswerSchema.safeParse({ decisions: { a: "" } }).success
+    ).toBe(false);
+    expect(decisionsAnswerSchema.safeParse({ answers: {} }).success).toBe(
+      false
+    );
+  });
+
+  test("an outcome carries a decisions answer, and the text is one line per question", () => {
+    const outcome = requestOutcomeSchema.parse({
+      answer: { decisions: { a: "Yes", b: "Later" } },
+      status: "answered",
+    });
+    expect(outcome).toEqual({
+      answer: { decisions: { a: "Yes", b: "Later" } },
+      status: "answered",
+    });
+    expect(outcomeText("decisions", outcome)).toBe("a: Yes\nb: Later");
+  });
+
+  test("a question display is not taken for a decisions display", () => {
+    expect(isDecisionsDisplay({ questions: [decision("a")] })).toBe(true);
+    expect(isDecisionsDisplay({ questions: [question] })).toBe(false);
   });
 });
