@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { libraryEntries } from "@repo/db/schema/library";
 import { memoryChanges } from "@repo/db/schema/memory";
+import { workspaces } from "@repo/db/schema/workspaces";
 import type { LearnLevel } from "@repo/db/shared";
 import { eq } from "drizzle-orm";
 import { ForbiddenError } from "../authz.ts";
@@ -18,19 +19,24 @@ import {
   text,
   USER_A,
   USER_B,
+  WORKSPACE,
   type World,
 } from "./test-world.ts";
 
 const note = (kind: "people" | "corrections" | "work" | "places" = "people") =>
   ({ agentId: AGENT, kind, text: "Mia wants drafts as Google Docs" }) as const;
 
-const setLevel = async (world: World, learnLevel: LearnLevel) => {
+const setLevel = async (
+  world: World,
+  learnLevel: LearnLevel,
+  never: string[] = []
+) => {
   await world.service.rules.set(person(OWNER), {
     agentId: AGENT,
     rules: {
       dreamSchedule: "nightly",
       learnLevel,
-      never: [],
+      never,
       remember: [],
       shareWithTeam: true,
     },
@@ -340,6 +346,155 @@ test("a run writes as itself and cannot name another source", async () => {
       })
     )
   ).toMatchObject({ code: "invalid" });
+});
+
+// Never list.
+
+const SALARY_NOTE = "Tom asked about his salary review";
+
+test("a note that mentions an entry of the agent's never list is refused and recorded", async () => {
+  const world = makeWorld();
+  await setLevel(world, "tell_after", ["Salary"]);
+
+  const error = await errorOf(
+    world.service.add(run(RUN.ui), { ...note(), text: SALARY_NOTE })
+  );
+
+  expect(error).toMatchObject({ code: "invalid" });
+  expect(String(error)).toContain('"Salary"');
+  expect(String(error)).toContain("never-remember list");
+  expect(String(error)).toContain("this agent's");
+  const rows = changeRows(world);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    action: "add",
+    decidedBy: null,
+    kind: "people",
+    libraryVersionId: null,
+    status: "rejected",
+    writtenBy: "agent",
+  });
+  expect(rows[0]?.decidedAt).not.toBeNull();
+  expect(rows[0]?.text).toContain("Salary");
+  expect(rows[0]?.text).not.toContain("review");
+  expect(await readError(world, "people.md")).toMatchObject(NOT_FOUND);
+  expect(await world.service.list(person(USER_A), { agentId: AGENT })).toEqual(
+    []
+  );
+});
+
+test("the workspace never list refuses too", async () => {
+  const world = makeWorld();
+  world.db
+    .update(workspaces)
+    .set({ neverRemember: JSON.stringify(["Health details"]) })
+    .where(eq(workspaces.id, WORKSPACE))
+    .run();
+
+  const error = await errorOf(
+    world.service.add(run(RUN.ui), {
+      ...note(),
+      text: "Mia shared her health details",
+    })
+  );
+
+  expect(error).toMatchObject({ code: "invalid" });
+  expect(String(error)).toContain("the workspace's");
+  expect(changeRows(world).map((row) => row.status)).toEqual(["rejected"]);
+  const clean = await world.service.add(run(RUN.ui), note());
+  expect(clean.status).toBe("applied");
+});
+
+test("a person's add and edit are refused too, and an edit keeps the note as it was", async () => {
+  const world = makeWorld();
+  const added = await world.service.add(run(RUN.ui), note());
+  await setLevel(world, "tell_after", ["Salary"]);
+
+  const edit = await errorOf(
+    world.service.edit(person(USER_A), {
+      agentId: AGENT,
+      noteId: added.noteId,
+      text: "Tom's salary",
+    })
+  );
+  const create = await errorOf(
+    world.service.add(person(USER_A), { ...note(), text: "Tom's salary" })
+  );
+
+  expect(edit).toMatchObject({ code: "invalid" });
+  expect(create).toMatchObject({ code: "invalid" });
+  expect(await readFile(world)).toContain("Mia wants drafts as Google Docs");
+  expect(
+    changeRows(world).filter((row) => row.status === "rejected")
+  ).toMatchObject([
+    { action: "edit", noteId: added.noteId },
+    { action: "add", writtenBy: "person" },
+  ]);
+});
+
+test("a forget of a note that mentions a never list entry still works", async () => {
+  const world = makeWorld();
+  const added = await world.service.add(run(RUN.ui), {
+    ...note(),
+    text: SALARY_NOTE,
+  });
+  await setLevel(world, "tell_after", ["Salary"]);
+
+  const forgotten = await world.service.forget(run(RUN.ui), {
+    agentId: AGENT,
+    noteId: added.noteId,
+  });
+
+  expect(forgotten).toMatchObject({ action: "forget", status: "applied" });
+  expect(await world.service.list(person(USER_A), { agentId: AGENT })).toEqual(
+    []
+  );
+});
+
+test("ask_first does not hold a note the never list refuses", async () => {
+  const world = makeWorld();
+  await setLevel(world, "ask_first", ["Salary"]);
+
+  expect(
+    await errorOf(
+      world.service.add(run(RUN.ui), { ...note(), text: SALARY_NOTE })
+    )
+  ).toMatchObject({ code: "invalid" });
+  expect(changeRows(world).map((row) => row.status)).toEqual(["rejected"]);
+});
+
+test("a private note refused by the never list stays private", async () => {
+  const world = makeWorld();
+  await setLevel(world, "tell_after", ["Salary"]);
+
+  expect(
+    await errorOf(
+      world.service.add(run(RUN.privateA), { ...note(), text: SALARY_NOTE })
+    )
+  ).toMatchObject({ code: "invalid" });
+  const rows = changeRows(world);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ status: "rejected", userScope: USER_A });
+  expect(
+    await world.service.changes(person(USER_B), { agentId: AGENT })
+  ).toEqual([]);
+  expect(
+    (await world.service.changes(person(USER_A), { agentId: AGENT })).map(
+      (change) => change.id
+    )
+  ).toEqual(rows.map((row) => row.id));
+});
+
+test("a note that only shares part of a never list entry is kept", async () => {
+  const world = makeWorld();
+  await setLevel(world, "tell_after", ["Health details"]);
+
+  const change = await world.service.add(run(RUN.ui), {
+    ...note(),
+    text: "Mia keeps health records in the Sales sheet",
+  });
+
+  expect(change.status).toBe("applied");
 });
 
 // Private scope.

@@ -96,6 +96,56 @@ export const findSecret = (text: string): string | null => {
   return hasCardNumber(text) ? "card number" : null;
 };
 
+const NEVER_TERM_SEPARATOR = /[,;/\r\n]+/;
+// Combining marks stay in the word, so scripts that use them are not split.
+const NON_WORD_RUN = /[^\p{L}\p{M}\p{N}]+/gu;
+
+const wordsOf = (text: string): string[] =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(NON_WORD_RUN, " ")
+    .trim()
+    .split(" ")
+    .filter((word) => word.length > 0);
+
+const sameWord = (word: string, other: string | undefined): boolean =>
+  other !== undefined &&
+  (word === other || word === `${other}s` || other === `${word}s`);
+
+const containsRun = (
+  words: readonly string[],
+  term: readonly string[]
+): boolean => {
+  for (let start = 0; start + term.length <= words.length; start += 1) {
+    const run = words.slice(start, start + term.length);
+    if (run.every((word, offset) => sameWord(word, term[offset]))) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const termsOf = (entry: string): string[][] =>
+  entry
+    .split(NEVER_TERM_SEPARATOR)
+    .map((part) => wordsOf(part))
+    .filter((words) => words.length > 0);
+
+/** The first `never` entry that `text` mentions, trimmed, or null. */
+export const neverEntryIn = (
+  text: string,
+  never: readonly string[]
+): string | null => {
+  const noteWords = wordsOf(text);
+  for (const entry of never) {
+    if (termsOf(entry).some((term) => containsRun(noteWords, term))) {
+      return entry.trim();
+    }
+  }
+  return null;
+};
+
 export type OutsideSource = "mail" | "web" | "peer";
 
 /** Why a note's only source is outside text, or null for internal origins. */

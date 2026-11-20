@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents as agentRows } from "@repo/db/schema/agents";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import {
   agentMailboxes,
   mailMessages,
   mailThreads,
 } from "@repo/db/schema/mail";
+import { memoryChanges } from "@repo/db/schema/memory";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skillVersions } from "@repo/db/schema/skills";
@@ -1303,4 +1305,107 @@ test("roster with the real rail keeps 50 agents within a fixed query budget", as
   rosterQueries = 0;
   expect(await rosterList()).toHaveLength(50);
   expect(rosterQueries).toBeLessThanOrEqual(45);
+});
+
+const heldNote = (
+  id: string,
+  overrides: Partial<typeof memoryChanges.$inferInsert> = {}
+) =>
+  db.insert(memoryChanges).values({
+    action: "add",
+    agentId: a1,
+    createdAt: new Date(now).toISOString(),
+    id,
+    kind: "work",
+    noteId: id,
+    status: "held",
+    text: "Send the weekly report on Mondays",
+    workspaceId: "w1",
+    writtenBy: "agent",
+    ...overrides,
+  });
+
+test("held memory reaches the owner, then the backup, with its kind and no expiry", async () => {
+  await setOwners(a1, "u2", "u3");
+  await heldNote("held");
+
+  expect((await view("mine", user("u1"))).needsYou).toHaveLength(0);
+  expect((await view("mine", user("u3"))).needsYou).toHaveLength(0);
+  const [item] = (await view("mine", user("u2"))).needsYou;
+  expect(item).toMatchObject({ assigneeUserId: "u2", escalatedToMe: false });
+  expect(item?.cards[0]).toMatchObject({
+    agentId: a1,
+    detail: "Send the weekly report on Mondays",
+    expiresAt: null,
+    id: "held",
+    kind: "memory_note",
+    runId: null,
+    status: "Alpha wants to remember something",
+    title: "Alpha wants to remember something",
+  });
+  expect((await rosterList(user("u2")))[0]).toMatchObject({
+    needsYouCount: 1,
+    state: "needs_you",
+    statusLine: "Alpha wants to remember something",
+  });
+  now += RAIL_ESCALATE_AFTER_MS;
+  expect((await view("mine", user("u3"))).needsYou[0]).toMatchObject({
+    assigneeUserId: "u2",
+    escalatedToMe: true,
+  });
+});
+
+test("held memory uses creator fallback and excludes decided, rejected, foreign, draft and private changes", async () => {
+  await heldNote("held");
+  await heldNote("decided", { decidedAt: new Date(now).toISOString() });
+  await heldNote("rejected", { status: "rejected" });
+  await heldNote("applied", { status: "applied" });
+  await heldNote("undone", { status: "undone" });
+  await heldNote("foreign", { workspaceId: "w3" });
+  await heldNote("private", { userScope: "u2" });
+  const draft = await agents.create(user(), {
+    model: "m",
+    name: "Draft",
+    runtime: "cloud",
+  });
+  await db
+    .update(agentRows)
+    .set({ status: "draft" })
+    .where(eq(agentRows.id, draft.id));
+  await heldNote("draft", { agentId: draft.id });
+
+  const sources = await desk.railSources(user(), { dayStart: DAY_START });
+  expect(sources.needsYou.map((card) => card.id)).toEqual(["held"]);
+  expect(await desk.needsYouCount(user())).toBe(1);
+  expect((await view("mine")).needsYou[0]?.assigneeUserId).toBe("u1");
+  expect(
+    (await view("everyone", user("u2"))).needsYou.map((item) => item.id).sort()
+  ).toEqual(["held", "private"]);
+  await db
+    .update(memoryChanges)
+    .set({ status: "rejected" })
+    .where(eq(memoryChanges.id, "held"));
+  expect((await view("everyone")).needsYou).toHaveLength(0);
+});
+
+test("a private held note goes to its person alone, with no backup step", async () => {
+  await setOwners(a1, "u1", "u3");
+  await heldNote("private", { userScope: "u2" });
+
+  expect((await view("mine", user("u1"))).needsYou).toHaveLength(0);
+  const [item] = (await view("mine", user("u2"))).needsYou;
+  expect(item).toMatchObject({
+    assigneeUserId: "u2",
+    escalatedToMe: false,
+    mine: true,
+  });
+  expect(item?.cards[0]).toMatchObject({ id: "private", kind: "memory_note" });
+  expect(await desk.needsYouCount(user("u2"))).toBe(1);
+
+  now += RAIL_ESCALATE_AFTER_MS;
+  expect((await view("mine", user("u2"))).needsYou[0]).toMatchObject({
+    assigneeUserId: "u2",
+    escalatedToMe: false,
+    mine: true,
+  });
 });

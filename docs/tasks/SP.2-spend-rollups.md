@@ -25,3 +25,4 @@ From `docs/v4/build-plan.md`, milestone SP. Cost shows per run and per agent wee
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: from the DR.1 review: spend rollups also count `dream_runs.usage`.

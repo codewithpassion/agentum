@@ -3,7 +3,7 @@ id: JB.5
 title: "Jobs walkthrough"
 milestone: JB
 size: S
-status: in_progress
+status: done
 depends_on: [JB.2, JB.3, JB.4]
 branch: task/JB.5-jobs-e2e
 lane: e2e
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone JB. End-to-end check for JB.
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/JB.5-jobs-e2e (v4 controller session).
+- 2026-11-20: merged as 573364e9, review clean after 0 fix rounds. Walkthrough and browser proof passed at both sizes: docs/reviews/JB-e2e.md, docs/reviews/tasks/JB.5/browser.md. check and build passed on main; tests passed except guest-execution (FX.1). Follow-ups JB.6 and JB.7 added.

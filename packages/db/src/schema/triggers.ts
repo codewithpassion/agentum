@@ -19,8 +19,10 @@ import { workspaces } from "./workspaces.ts";
  * and the next slot to fire (`next_run_at`, an ISO instant). The tick fires it
  * and moves `next_run_at` in one atomic write with the run. A routine switches
  * itself off (`disabled_at`) after 5 errors in a row. An `app` trigger belongs
- * to an artifact and has no token or schedule. A revoked row stays, so
- * the log can still name it.
+ * to an artifact and has no token or schedule. A `dream` trigger has no token
+ * or prompt. The system makes it from the agent's dream schedule, one per
+ * agent, and it fires on a cron like a routine, so it uses `cron`, `timezone`
+ * and `next_run_at`. A revoked row stays, so the log can still name it.
  */
 export const triggers = sqliteTable(
   "triggers",
@@ -37,7 +39,7 @@ export const triggers = sqliteTable(
     createdAt: createdAt(),
     // Clerk user id who made the trigger, or the run id when a run proposed it.
     createdBy: text("created_by").notNull(),
-    // Routine only. Five-field cron, read in `timezone`.
+    // Routine and dream. Five-field cron, read in `timezone`.
     cron: text("cron"),
     // Set when the trigger is paused, switched off by errors (routine) or still
     // waiting for approval. A disabled trigger never fires.
@@ -47,7 +49,7 @@ export const triggers = sqliteTable(
     lastError: text("last_error"),
     lastFiredAt: text("last_fired_at"),
     name: text("name").notNull(),
-    // Routine only. The slot the tick fires next.
+    // Routine and dream. The slot the tick fires next.
     nextRunAt: text("next_run_at"),
     // Routine only. The run's input text.
     prompt: text("prompt"),
@@ -58,9 +60,9 @@ export const triggers = sqliteTable(
     // Routine only. The last run counted into `consecutive_errors`. Run ids
     // sort by time, so the runs after it are the ones still to judge.
     settledRunId: text("settled_run_id"),
-    // Routine only. IANA zone, copied from the workspace when not given.
+    // Routine and dream. IANA zone, copied from the workspace when not given.
     timezone: text("timezone"),
-    // Null for app and routine triggers, and for an unapproved `http` proposal.
+    // Null for app, routine and dream triggers, and for an unapproved `http` proposal.
     tokenHash: text("token_hash"),
     // The start of the token, so triggers can be told apart in a list.
     tokenPrefix: text("token_prefix"),
@@ -75,5 +77,9 @@ export const triggers = sqliteTable(
       .on(t.artifactId, t.agentId)
       .where(sql`${t.artifactId} is not null`),
     index("triggers_due_idx").on(t.nextRunAt),
+    // One dream trigger per agent, not counting a revoked one.
+    uniqueIndex("triggers_dream_agent_unique")
+      .on(t.agentId)
+      .where(sql`${t.kind} = 'dream' and ${t.revokedAt} is null`),
   ]
 );
