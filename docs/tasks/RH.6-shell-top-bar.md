@@ -3,9 +3,9 @@ id: RH.6
 title: "Shell: home first, one top bar"
 milestone: RH
 size: M
-status: todo
+status: in_progress
 depends_on: [RH.3, NV.1]
-branch: null
+branch: task/RH.6-shell-top-bar
 lane: web-shell
 executor: claude
 ---
@@ -28,3 +28,4 @@ From `docs/v4/build-plan.md`, milestone RH. Global actions sit in a top bar and 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/RH.6-shell-top-bar (v4 controller session).
