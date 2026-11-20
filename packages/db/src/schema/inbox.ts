@@ -23,7 +23,7 @@ export const inboxThreads = sqliteTable(
     lastPostAt: text("last_post_at").notNull(),
     // The agent that opened the topic, or NULL when a person did.
     openedByAgentId: text("opened_by_agent_id").references(() => agents.id),
-    // The team room the topic belongs to. NULL only for a thread made before teams.
+    // The team room the topic belongs to. A new topic starts in the workspace's "Everyone" team.
     teamId: text("team_id").references(() => teams.id),
     title: text("title").notNull(),
     workspaceId: workspaceId().references(() => workspaces.id, {

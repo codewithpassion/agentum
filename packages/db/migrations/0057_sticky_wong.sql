@@ -30,6 +30,7 @@ CREATE TABLE `team_members` (
 );
 --> statement-breakpoint
 CREATE INDEX `team_members_member_idx` ON `team_members` (`member_kind`,`member_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `team_members_home_unique` ON `team_members` (`member_kind`,`member_id`) WHERE "team_members"."is_home" = 1;--> statement-breakpoint
 CREATE TABLE `teams` (
 	`archived_at` text,
 	`created_at` text NOT NULL,
@@ -50,5 +51,5 @@ CREATE UNIQUE INDEX `teams_slug_unique` ON `teams` (`workspace_id`,`slug`);--> s
 ALTER TABLE `inbox_threads` ADD `opened_by_agent_id` text REFERENCES agents(id);--> statement-breakpoint
 ALTER TABLE `inbox_threads` ADD `team_id` text REFERENCES teams(id);--> statement-breakpoint
 CREATE INDEX `inbox_threads_team_idx` ON `inbox_threads` (`team_id`,`last_post_at`);--> statement-breakpoint
-INSERT INTO `teams` (`id`, `workspace_id`, `name`, `slug`, `lead_agent_id`, `owner_user_id`, `rules`, `lead_listens`, `folder_path`, `created_at`, `archived_at`) SELECT 'team_' || lower(hex(randomblob(10))), `id`, 'Everyone', 'everyone', NULL, NULL, '', 1, NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL FROM `workspaces`;--> statement-breakpoint
+INSERT INTO `teams` (`id`, `workspace_id`, `name`, `slug`, `lead_agent_id`, `owner_user_id`, `rules`, `lead_listens`, `folder_path`, `created_at`, `archived_at`) SELECT 'team_' || lower(hex(randomblob(10))), `workspaces`.`id`, 'Everyone', 'everyone', NULL, NULL, '', 1, NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL FROM `workspaces` WHERE NOT EXISTS (SELECT 1 FROM `teams` WHERE `teams`.`workspace_id` = `workspaces`.`id` AND `teams`.`slug` = 'everyone');--> statement-breakpoint
 UPDATE `inbox_threads` SET `team_id` = (SELECT `teams`.`id` FROM `teams` WHERE `teams`.`workspace_id` = `inbox_threads`.`workspace_id` AND `teams`.`slug` = 'everyone');

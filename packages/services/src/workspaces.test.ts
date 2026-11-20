@@ -1,4 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
+import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq } from "drizzle-orm";
@@ -452,4 +453,22 @@ test("inviteFromSession says so when the deployment has no base URL", async () =
     message: "Invitations are not set up on this deployment.",
   });
   expect(state.invited).toEqual([]);
+});
+
+test("create gives each workspace one Everyone team, however often it runs", async () => {
+  const svc = service();
+  const a = await svc.create({ clerkOrgId: "org_a", name: "Acme" });
+  await svc.create({ clerkOrgId: "org_a", name: "Acme" });
+  const b = await svc.create({ clerkOrgId: "org_b", name: "Beta" });
+
+  const rows = db.select().from(teams).all();
+  expect(
+    rows.map((row) => [row.workspaceId, row.name, row.slug]).sort()
+  ).toEqual(
+    [
+      [a.id, "Everyone", "everyone"],
+      [b.id, "Everyone", "everyone"],
+    ].sort()
+  );
+  expect(rows.every((row) => row.leadAgentId === null)).toBe(true);
 });

@@ -43,6 +43,8 @@ export const teamCreateInputSchema = z.strictObject({
   leadAgentId: idString.nullable().default(null),
   leadListens: z.boolean().default(true),
   name: nameSchema,
+  /** Defaults to the person who creates the team. */
+  ownerUserId: idString.nullable().optional(),
   rules: rulesSchema.default(""),
   slug: slugSchema.optional(),
 });

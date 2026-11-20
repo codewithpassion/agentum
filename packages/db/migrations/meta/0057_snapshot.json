@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a02fa601-3d98-4755-9c7d-d16f81eb8c29",
+  "id": "faef6140-7b45-4a02-8f30-ee54cd143436",
   "prevId": "089eb118-0a93-4d13-8f2b-4b01281528fd",
   "tables": {
     "a2a_agent_cards": {
@@ -9880,6 +9880,12 @@
           "name": "team_members_member_idx",
           "columns": ["member_kind", "member_id"],
           "isUnique": false
+        },
+        "team_members_home_unique": {
+          "name": "team_members_home_unique",
+          "columns": ["member_kind", "member_id"],
+          "isUnique": true,
+          "where": "\"team_members\".\"is_home\" = 1"
         }
       },
       "foreignKeys": {

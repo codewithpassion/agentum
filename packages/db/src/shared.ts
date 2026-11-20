@@ -1614,3 +1614,7 @@ export interface MemberProfile {
   /** Clerk user id. */
   userId: string;
 }
+
+/** The team every workspace has. It holds the threads made before teams existed and the ones made with no team named. */
+export const EVERYONE_TEAM_NAME = "Everyone";
+export const EVERYONE_TEAM_SLUG = "everyone";

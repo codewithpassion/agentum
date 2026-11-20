@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -58,6 +59,10 @@ export const teamMembers = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.teamId, t.memberKind, t.memberId] }),
     index("team_members_member_idx").on(t.memberKind, t.memberId),
+    // A member has at most one home team.
+    uniqueIndex("team_members_home_unique")
+      .on(t.memberKind, t.memberId)
+      .where(sql`${t.isHome} = 1`),
   ]
 );
 

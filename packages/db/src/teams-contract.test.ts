@@ -11,7 +11,7 @@ import { migrated } from "./test-db.ts";
 
 const MIGRATIONS_FOLDER = resolve(import.meta.dir, "../migrations");
 const BREAKPOINT = "--> statement-breakpoint";
-const TARGET = "0057_famous_nocturne.sql";
+const TARGET = "0057_sticky_wong.sql";
 const NOW = "2026-01-01T00:00:00.000Z";
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -328,4 +328,23 @@ test("the team member kinds, effort levels and context budgets are the documente
   expect([...TEAM_MEMBER_KINDS]).toEqual(["agent", "user"]);
   expect([...EFFORT_LEVELS]).toEqual(["low", "medium", "high"]);
   expect([...CONTEXT_BUDGETS]).toEqual(["small", "standard", "large"]);
+});
+
+test("a member has at most one home team, and any number of other teams", () => {
+  const { client } = migrated();
+  seedWorkspace(client, "w1");
+  seedTeam(client, "t1", "w1", "sales");
+  seedTeam(client, "t2", "w1", "ops");
+  seedTeam(client, "t3", "w1", "support");
+  seedTeam(client, "t4", "w1", "legal");
+  const add = (team: string, isHome: number) =>
+    client.run(
+      `INSERT INTO team_members (member_id, member_kind, team_id, workspace_id, is_home)
+       VALUES ('a1', 'agent', ?, 'w1', ?)`,
+      [team, isHome]
+    );
+  add("t1", 1);
+  add("t2", 0);
+  add("t3", 0);
+  expect(() => add("t4", 1)).toThrow("UNIQUE constraint failed");
 });
