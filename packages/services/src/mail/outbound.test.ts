@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
+import { agents } from "@repo/db/schema/agents";
 import { events as eventRows } from "@repo/db/schema/events";
 import {
   agentMailboxes,
@@ -337,6 +338,35 @@ test("deny discards and closes without waking the run", async () => {
   expect(message()?.status).toBe("rejected");
   expect(calls).toEqual(["hold", "discard:external-1"]);
   expect(resumed).toBe(0);
+});
+
+test("an admin who does not own the agent always allows a mail to several outside recipients and it is sent", async () => {
+  await mail.send(
+    principal,
+    draft(["first@example.com"], ["second@example.com"])
+  );
+  // The session's opener answers, so the agent's owner becomes someone else.
+  await db
+    .update(agents)
+    .set({ ownerUserId: "someone_else" })
+    .where(eq(agents.id, principal.agentId));
+  await requests.answer(
+    { ...user, isAdmin: true },
+    {
+      answer: { decision: "always_allow" },
+      requestId: request()?.id ?? "missing",
+      via: "web",
+    }
+  );
+  expect(message()?.status).toBe("sent");
+  expect(
+    (await requests.listRules(user, { agentId: principal.agentId })).map(
+      (r) => r.toolKey
+    )
+  ).toEqual([
+    mailToolKey("first@example.com"),
+    mailToolKey("second@example.com"),
+  ]);
 });
 
 test("an allowed mail that fails to send is marked failed instead of staying held", async () => {

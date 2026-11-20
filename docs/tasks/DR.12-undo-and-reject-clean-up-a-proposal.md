@@ -3,7 +3,7 @@ id: DR.12
 title: "Undo and Reject clean up a proposal"
 milestone: DR
 size: S
-status: in_progress
+status: done
 depends_on: [DR.7]
 branch: task/DR.12-undo-and-reject-clean-up-a-proposal
 lane: services-skills
@@ -28,3 +28,5 @@ service tests for both, and the Knows tab no longer lists a skill with no approv
 ## Log
 - 2026-11-20: added from the dream walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at db49d2a0 after one fix round, review clean. Queued for merge.
+- 2026-11-21: merged e94fe831, batch merge check with DR.16, DR.12 and SL.12 passed. Done.

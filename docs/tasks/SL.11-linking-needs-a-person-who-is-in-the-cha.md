@@ -34,3 +34,4 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 2).
 ## Log
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
+- 2026-11-21: review clean with no fix rounds. Browser proof failed on the non-admin path (the verifier only signed in as admin). Sent back to sign in as the existing plain member with agent-login, as KY.10 did. Private channels are admin-only, as the controller decided.

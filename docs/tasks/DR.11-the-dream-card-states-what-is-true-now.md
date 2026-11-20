@@ -3,7 +3,7 @@ id: DR.11
 title: "The dream card states what is true now"
 milestone: DR
 size: S
-status: in_progress
+status: done
 depends_on: [DR.7]
 branch: task/DR.11-the-dream-card-states-what-is-true-now
 lane: web-knows
@@ -25,3 +25,4 @@ component tests for held, approved, rejected, question answered and undone, and 
 - 2026-11-20: added from the dream walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at b0d5cdd9 after one fix round, review clean, browser pass at both sizes. Scope grew by one service field (DreamRun.openQuestions in dream.ts), needed for the answered-question state.
+- 2026-11-21: merged e37e7dad, batch merge check with TX.6 and DR.11 passed. Done.
