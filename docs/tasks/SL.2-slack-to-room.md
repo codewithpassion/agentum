@@ -3,7 +3,7 @@ id: SL.2
 title: "Slack to room: one post per message"
 milestone: SL
 size: M
-status: in_progress
+status: done
 depends_on: [SL.1, TM.3]
 branch: task/SL.2-slack-to-room
 lane: slack
@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone SL. Every member app receives every mess
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/SL.2-slack-to-room (v4 controller session).
+- 2026-11-20: merged as 2a12a55c, review clean after 0 fix rounds. Tested against stubbed Slack only. check, test and build passed on main. Dom: live Slack steps in docs/reviews/tasks/SL.2.md.
