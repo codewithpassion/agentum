@@ -3,7 +3,7 @@ id: KY.15
 title: "Only owners and admins change ask-before rules and hand-to agents"
 milestone: KY
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/KY.15-owners-change-ask-before-hand-to
 lane: services-requests
@@ -31,3 +31,4 @@ Controller decision (20 Nov 2026): ask-before rules and hand-to agents are keys,
 ## Log
 - 2026-11-20: added from the KY gate review, round 1.
 - 2026-11-20: dispatched on task/KY.15-owners-change-ask-before-hand-to (v4 controller session).
+- 2026-11-20: merged as 6f33f630, review clean after 0 fix rounds. Browser proof passed at both sizes: docs/reviews/tasks/KY.15/browser.md. check, test and build passed on main.
