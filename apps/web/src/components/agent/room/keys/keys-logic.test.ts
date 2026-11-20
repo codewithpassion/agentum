@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { AgentKeyApp } from "@repo/db/shared";
 import {
   CREDENTIAL_MODE_LABELS,
-  canSetAgentCredential,
+  canManageAgentKeys,
   connectionWords,
   connectOption,
   emailWords,
@@ -254,7 +254,7 @@ const agentOwnedBy = (
 
 test("the agent's owner, by ownerUserId, may set its credential", () => {
   expect(
-    canSetAgentCredential({
+    canManageAgentKeys({
       agent: agentOwnedBy("user_owner"),
       isAdmin: false,
       userId: "user_owner",
@@ -264,7 +264,7 @@ test("the agent's owner, by ownerUserId, may set its credential", () => {
 
 test("with no ownerUserId, the creator counts as the owner", () => {
   expect(
-    canSetAgentCredential({
+    canManageAgentKeys({
       agent: agentOwnedBy(null, "user_creator"),
       isAdmin: false,
       userId: "user_creator",
@@ -274,7 +274,7 @@ test("with no ownerUserId, the creator counts as the owner", () => {
 
 test("an owner set by ownerUserId replaces the creator as the owner", () => {
   expect(
-    canSetAgentCredential({
+    canManageAgentKeys({
       agent: agentOwnedBy("user_owner", "user_creator"),
       isAdmin: false,
       userId: "user_creator",
@@ -284,7 +284,7 @@ test("an owner set by ownerUserId replaces the creator as the owner", () => {
 
 test("an org admin who is not the owner may set the credential", () => {
   expect(
-    canSetAgentCredential({
+    canManageAgentKeys({
       agent: agentOwnedBy("user_owner"),
       isAdmin: true,
       userId: "user_admin",
@@ -294,7 +294,7 @@ test("an org admin who is not the owner may set the credential", () => {
 
 test("a plain member who is neither owner nor admin may not set the credential", () => {
   expect(
-    canSetAgentCredential({
+    canManageAgentKeys({
       agent: agentOwnedBy("user_owner"),
       isAdmin: false,
       userId: "user_member",
@@ -304,16 +304,14 @@ test("a plain member who is neither owner nor admin may not set the credential",
 
 test("a missing or empty user id may not set the credential unless admin", () => {
   const agent = agentOwnedBy(null, "user_creator");
-  expect(
-    canSetAgentCredential({ agent, isAdmin: false, userId: undefined })
-  ).toBe(false);
-  expect(canSetAgentCredential({ agent, isAdmin: false, userId: null })).toBe(
+  expect(canManageAgentKeys({ agent, isAdmin: false, userId: undefined })).toBe(
     false
   );
-  expect(canSetAgentCredential({ agent, isAdmin: false, userId: "" })).toBe(
+  expect(canManageAgentKeys({ agent, isAdmin: false, userId: null })).toBe(
     false
   );
-  expect(
-    canSetAgentCredential({ agent, isAdmin: true, userId: undefined })
-  ).toBe(true);
+  expect(canManageAgentKeys({ agent, isAdmin: false, userId: "" })).toBe(false);
+  expect(canManageAgentKeys({ agent, isAdmin: true, userId: undefined })).toBe(
+    true
+  );
 });

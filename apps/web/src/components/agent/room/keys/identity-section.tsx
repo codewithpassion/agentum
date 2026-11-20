@@ -8,10 +8,13 @@ import { emailWords, slackWords } from "./keys-logic.ts";
 /** The agent's own email address and Slack app, with the controls to set them up. */
 export function IdentitySection({
   agent,
+  canManage,
   identity,
   provisionLabel,
 }: {
   agent: AgentRecord;
+  /** Whether the person may set up the Slack app: an org admin or the agent's owner. */
+  canManage: boolean;
   /** Null when the read model did not load: the lines are left out, the controls stay. */
   identity: AgentKeys["identity"] | null;
   provisionLabel: string | null;
@@ -33,7 +36,13 @@ export function IdentitySection({
           {identity === null ? null : (
             <p className="text-sm">{slackWords(identity.slackApp)}</p>
           )}
-          <SlackPanel agent={agent} />
+          {canManage ? (
+            <SlackPanel agent={agent} />
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Only the agent&apos;s owners and admins can set up its Slack app.
+            </p>
+          )}
         </div>
       </div>
     </RoomSection>

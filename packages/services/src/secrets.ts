@@ -37,7 +37,7 @@ import {
 } from "./crypto.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
-import { requireUser } from "./guards.ts";
+import { requireAgentOwnerOrAdmin, requireUser } from "./guards.ts";
 import { effectiveRunScope, scopeAllows } from "./runs/access-scope.ts";
 import type { Clock } from "./runs/types.ts";
 import type { ProxyGrant } from "./secrets/placeholders.ts";
@@ -528,6 +528,7 @@ export const createSecretsService = ({
     if (!agent) {
       throw new ServiceError("not_found", "Agent not found");
     }
+    return agent;
   };
 
   /** The ids of the secrets an agent is granted. */
@@ -563,7 +564,8 @@ export const createSecretsService = ({
     const { workspaceId } = user;
     authorize(user, WRITE_ACTION, { kind: SECRET_KIND, workspaceId });
     const ids = [...new Set(grantIdsSchema.parse(secretIds))];
-    await requireAgent(workspaceId, agentId);
+    const agent = await requireAgent(workspaceId, agentId);
+    requireAgentOwnerOrAdmin(user, agent, WRITE_ACTION);
     if (ids.length > 0) {
       const found = await db
         .select({ id: secrets.id })
@@ -614,7 +616,8 @@ export const createSecretsService = ({
       kind: SECRET_KIND,
       workspaceId,
     });
-    await requireAgent(workspaceId, agentId);
+    const agent = await requireAgent(workspaceId, agentId);
+    requireAgentOwnerOrAdmin(user, agent, WRITE_ACTION);
     await requireSecret(workspaceId, secretId);
     await db
       .insert(agentSecrets)
@@ -640,7 +643,8 @@ export const createSecretsService = ({
       kind: SECRET_KIND,
       workspaceId,
     });
-    await requireAgent(workspaceId, agentId);
+    const agent = await requireAgent(workspaceId, agentId);
+    requireAgentOwnerOrAdmin(user, agent, WRITE_ACTION);
     await requireSecret(workspaceId, secretId);
     await db
       .delete(agentSecrets)

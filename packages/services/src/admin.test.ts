@@ -233,6 +233,54 @@ describe("an admin key", () => {
     expect(adminEvents()).toHaveLength(2);
   });
 
+  test("a write key adds connectors only to an agent its person owns, and saves nothing otherwise", async () => {
+    db.insert(connectorRows)
+      .values({
+        authKind: "none",
+        createdAt: START,
+        createdBy: "u1",
+        id: "c1",
+        name: "docs",
+        status: "ok",
+        url: "https://docs.example.com/mcp",
+        workspaceId: WORKSPACE,
+      })
+      .run();
+    const agent = await admin.createAgent(writeKey, agentInput);
+    const strangerKey: Principal = {
+      apiKey: { access: "write", id: "k-stranger" },
+      kind: "user",
+      userId: "u2",
+      via: "api_key",
+      workspaceId: WORKSPACE,
+    };
+    const before = adminEvents().length;
+
+    await expect(
+      admin.updateAgent(strangerKey, {
+        agentId: agent.id,
+        connectors: ["c1"],
+        name: "Hijacked",
+      })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect((await agentsService.get(session, agent.id)).name).toBe(
+      agentInput.name
+    );
+    expect(adminEvents()).toHaveLength(before);
+    expect(
+      await connectorsService.assignments(session, { agentId: agent.id })
+    ).toEqual([]);
+
+    await admin.updateAgent(writeKey, {
+      agentId: agent.id,
+      connectors: ["c1"],
+      name: "Help",
+    });
+    expect(
+      await connectorsService.assignments(session, { agentId: agent.id })
+    ).toHaveLength(1);
+  });
+
   test("a repeat update keeps the credential mode of a connector the agent holds", async () => {
     db.insert(connectorRows)
       .values({
