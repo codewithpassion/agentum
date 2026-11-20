@@ -29,3 +29,4 @@ From `docs/v4/build-plan.md`, milestone ME. Fill `@repo/services/memory`. It is 
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: from ME.4: the remember and forget_note tools call the memory stub until this task lands. Move the peer-run refusal, now in the app port, into the memory service.
