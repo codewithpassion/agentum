@@ -404,7 +404,7 @@ export function DraftCard({
           <div className={CHIPS}>
             {runsOptions.length === 0 ? (
               <span className={MUTED}>
-                No runtime is available. Add a provider key or a machine in
+                Nowhere to run it yet. Add an Anthropic API key or a machine in
                 Settings.
               </span>
             ) : null}

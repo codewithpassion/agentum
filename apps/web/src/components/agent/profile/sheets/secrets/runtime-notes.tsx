@@ -14,8 +14,8 @@ export function RuntimeNotes() {
         works too, and it is refused anywhere else.
       </li>
       <li>
-        Machine agents receive env secrets as environment variables of Claude
-        Code.
+        Agents on My computer receive env secrets as environment variables of
+        Claude Code.
       </li>
       <li>
         Anthropic cloud agents receive env secrets as placeholders that

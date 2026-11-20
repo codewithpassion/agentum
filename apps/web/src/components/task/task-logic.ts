@@ -3,7 +3,6 @@
 
 import type {
   ActionLogKind,
-  AgentRuntime,
   BandTone,
   KeyChip,
   ReceiptStep,
@@ -12,6 +11,7 @@ import type {
   RunStatus,
 } from "@repo/db/shared";
 import type { ReceiptRun } from "@repo/services/tasks/receipt";
+import { RUNTIME_NAMES } from "#/components/agent/profile/profile-logic.ts";
 import type { RequestView } from "#/components/requests/request-card-logic.ts";
 import type { TaskView } from "#/integrations/trpc/types";
 
@@ -109,16 +109,9 @@ export const costText = (costUsd: number | null): string => {
   return `$${costUsd.toFixed(2)}`;
 };
 
-const RUNTIME_LABELS: Record<AgentRuntime, string> = {
-  cloud: "Cloud",
-  fake: "Fake runtime",
-  machine: "A machine",
-  managed: "Managed agent",
-};
-
-/** Where the agent runs: its machine by name, else its runtime. */
+/** Where the agent runs: its machine by name, else its runtime's name. */
 export const runsOnText = (agent: TaskView["agent"]): string =>
-  agent.machine?.name || RUNTIME_LABELS[agent.runtime];
+  agent.machine?.name || RUNTIME_NAMES[agent.runtime];
 
 const HANDOFF_PREFIX = "Handoff from ";
 
