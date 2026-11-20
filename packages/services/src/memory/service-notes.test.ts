@@ -376,7 +376,7 @@ test("a note from a ui run, a run with only ordinary tools, or a run whose conne
     // biome-ignore lint/performance/noAwaitInLoops: each level is set before its notes are written
     await setLevel(world, level);
     for (const runId of quietRuns) {
-      // biome-ignore lint/performance/noAwaitInLoops: three writes to one file at once can lose the file race three times
+      // biome-ignore lint/performance/noAwaitInLoops: writes to one file at once can lose the file race
       const change = await world.service.add(run(runId), note());
       statuses.push(change.status);
     }

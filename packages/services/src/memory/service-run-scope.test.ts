@@ -2,6 +2,7 @@
 // The read rule is `privateNotesUserOf` in library/private-notes.ts, and the
 // write side asks it too, so a run writes where it reads.
 import { expect, test } from "bun:test";
+import { memoryChanges } from "@repo/db/schema/memory";
 import type { LearnLevel } from "@repo/db/shared";
 import {
   AGENT,
@@ -19,7 +20,7 @@ import {
   type World,
 } from "./test-world.ts";
 
-const ADMIN = person(USER_B, { isAdmin: true });
+const ADMIN = person("user_admin", { isAdmin: true });
 const note = () =>
   ({
     agentId: AGENT,
@@ -96,6 +97,9 @@ test("B, the owner and an admin do not see it on Knows or in changes", async () 
   await setLevel(world, "tell_after");
   const applied = await world.service.add(run(RUN.ui), note());
 
+  // The desk and roster hide a held change by this column, as rail.test.ts pins.
+  const rows = world.db.select().from(memoryChanges).all();
+  expect(rows.map((row) => row.userScope)).toEqual([USER_A, USER_A]);
   expect(held.userScope).toBe(USER_A);
   expect(await knows(world, person(USER_A))).toEqual([applied.noteId]);
   expect(await changeIds(world, person(USER_A))).toEqual(
@@ -169,4 +173,23 @@ test("a person's own remember from a ui chat stays as the person chose", async (
   });
 
   expect(shared.userScope).toBeNull();
+});
+
+test("a run that sees A's private notes cannot edit a shared note", async () => {
+  const world = makeWorld();
+  const shared = await world.service.add(run(RUN.room), note());
+
+  const error = await errorOf(
+    world.service.edit(run(RUN.ui), {
+      agentId: AGENT,
+      noteId: shared.noteId,
+      text: "Text from a private chat",
+    })
+  );
+
+  expect(error).toMatchObject({ code: "invalid" });
+  expect(await knows(world, person(USER_B))).toEqual([shared.noteId]);
+  expect(
+    (await world.service.list(person(USER_B), { agentId: AGENT }))[0]?.text
+  ).toBe(note().text);
 });
