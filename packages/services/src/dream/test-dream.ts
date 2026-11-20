@@ -44,7 +44,7 @@ export interface Call {
 }
 
 /** What the fake model answers for one call. `null` is a failed request. */
-export type Script = (call: Call) => string | null;
+export type Script = (call: Call) => string | null | Promise<string | null>;
 
 const kindOf = (system: string): CallKind => {
   if (system.includes("memory of an AI agent")) {
@@ -107,15 +107,13 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
       prompt: body.messages[0].content,
     };
     calls.push(call);
-    const answer = script(call);
-    if (answer === null) {
-      return Promise.resolve(new Response("{}", { status: 500 }));
-    }
-    return Promise.resolve(
-      Response.json({
-        content: [{ text: answer, type: "text" }],
-        usage: { input_tokens: 100, output_tokens: 20 },
-      })
+    return Promise.resolve(script(call)).then((answer) =>
+      answer === null
+        ? new Response("{}", { status: 500 })
+        : Response.json({
+            content: [{ text: answer, type: "text" }],
+            usage: { input_tokens: 100, output_tokens: 20 },
+          })
     );
   };
   let key: string | null = "sk-ant-test";

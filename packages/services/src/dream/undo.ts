@@ -22,6 +22,7 @@ import {
   changedPaths,
   commitFiles,
   type DreamMemoryLibrary,
+  describeProblem,
   latestVersionIds,
   loadEveryMemoryFile,
 } from "../memory/files.ts";
@@ -140,6 +141,10 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
     await ensureUntouched(agent, rows);
     const principal = dreamPrincipal(agent);
     const loaded = await loadEveryMemoryFile(library, principal, agent.slug);
+    const [problem] = Object.entries(loaded.problems);
+    if (problem) {
+      throw new ServiceError("invalid", describeProblem(...problem));
+    }
     const paths = [
       ...new Set(
         rows.flatMap((row) =>
@@ -221,7 +226,10 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
       return;
     }
     const principal = dreamPrincipal(agent);
+    const loaded = await loadEveryMemoryFile(library, principal, agent.slug);
     // The files the dream was made against must be the files there are now.
+    // The versions are read after the files, so a write that lands in between
+    // is caught here and not written over.
     const against = new Set(toRun(run).baseVersion);
     const latest = await latestVersionIds(library, principal, agent.slug, [
       ...new Set(rows.map(pathOfRow)),
@@ -232,7 +240,6 @@ export const createDreamUndo = ({ atomic, clock, db, library }: UndoDeps) => {
         "Memory changed since this dream ran, so its changes no longer fit. Reject them."
       );
     }
-    const loaded = await loadEveryMemoryFile(library, principal, agent.slug);
     let next: MemoryFiles;
     try {
       next = applyRows(loaded.files, rows, now.slice(0, DATE_LENGTH));

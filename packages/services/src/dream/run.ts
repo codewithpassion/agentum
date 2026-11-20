@@ -25,11 +25,12 @@ import {
   commitFiles,
   type DreamMemoryLibrary,
   describeProblem,
-  latestVersionIds,
+  type LoadedMemory,
   loadEveryMemoryFile,
 } from "../memory/files.ts";
 import { MEMORY_PROMPT_MAX_CHARS } from "../memory/prompt.ts";
 import type { Clock } from "../runs/types.ts";
+import type { Principal } from "../workspaces.ts";
 import { applyRows, pathOfRow, rowsFromPlan } from "./changeset.ts";
 import { createDreamCollector } from "./collect.ts";
 
@@ -134,7 +135,10 @@ const pruneByScope = async ({
   const owners = [...new Set(notes.flatMap((note) => note.userScope ?? []))];
   const privates = await Promise.all(
     owners.map((owner) =>
-      prune(owner, MEMORY_PROMPT_MAX_CHARS - shared.chars - addedBy(owner))
+      prune(
+        owner,
+        MEMORY_PROMPT_MAX_CHARS - shared.chars - addedBy(null) - addedBy(owner)
+      )
     )
   );
   const results = [shared, ...privates];
@@ -384,25 +388,62 @@ export const createDreamRunner = (deps: RunDeps) => {
       status: held ? "held" : "applied",
       workspaceId: agent.workspaceId,
     });
+    // A held batch is not in memory yet, so its questions show the notes as they are now.
     const questions = questionStatements(
       agent,
       runId,
       plan,
-      new Map(thought.notes.map((note) => [note.id, note]))
+      held ? notes : new Map(thought.notes.map((note) => [note.id, note]))
     );
-    const summary = {
-      counts: JSON.stringify(counts),
-      diary,
-      status: "done" as const,
-      usage,
-    };
+    await store({
+      agent,
+      held,
+      loaded,
+      principal,
+      questions,
+      rows,
+      runId,
+      summary: {
+        counts: JSON.stringify(counts),
+        diary,
+        status: "done" as const,
+        usage,
+      },
+      today,
+    });
+  };
+
+  interface Store {
+    agent: DreamAgent;
+    held: boolean;
+    loaded: LoadedMemory;
+    principal: Principal;
+    questions: Statement[];
+    rows: ReturnType<typeof rowsFromPlan>;
+    runId: string;
+    summary: Partial<typeof dreamRuns.$inferInsert> & { status: "done" };
+    today: string;
+  }
+
+  /** Writes the plan: the rows and files together, or only the rows for a held batch or a plan with no note changes. */
+  const store = async ({
+    agent,
+    held,
+    loaded,
+    principal,
+    questions,
+    rows,
+    runId,
+    summary,
+    today,
+  }: Store): Promise<void> => {
     if (rows.length === 0 || held) {
       // A held batch records the files it was made against. Approving it later
       // is refused when any of them has changed since.
       const against = held
-        ? await latestVersionIds(library, principal, agent.slug, [
-            ...new Set(rows.map(pathOfRow)),
-          ])
+        ? [...new Set(rows.map(pathOfRow))].flatMap(
+            (path) => loaded.versionIds?.[path] ?? []
+          )
         : [];
       await atomic([
         ...rows.map((row) => db.insert(memoryChanges).values(row)),

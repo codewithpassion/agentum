@@ -637,3 +637,25 @@ test("each person's notes are measured against the prompt they share with the sh
   expect(run.status).toBe("done");
   expect(w.calls.some((call) => call.kind === "condense")).toBe(false);
 });
+
+test("a person's write while the dream is thinking is not written over when the held batch is approved", async () => {
+  const w = makeDreamWorld();
+  w.setRules({ learnLevel: "ask_first" });
+  w.say("Mia wants drafts as Google Docs");
+  w.setScript(async (call) => {
+    if (call.kind !== "extract") {
+      return quietAnswer(call);
+    }
+    await addNote(w, "people", "Tom reads reports on his phone");
+    return JSON.stringify({
+      notes: [
+        { evidence: ["e1"], kind: "people", text: "Mia wants Google Docs" },
+      ],
+    });
+  });
+  const run = await w.dream.runNow(w.owner, AGENT);
+  expect(run.status).toBe("done");
+  await expect(
+    w.dream.decide(w.owner, { decision: "approve", dreamRunId: run.id })
+  ).rejects.toMatchObject({ code: "conflict" });
+});

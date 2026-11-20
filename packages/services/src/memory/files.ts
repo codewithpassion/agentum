@@ -39,6 +39,12 @@ export interface LoadedMemory {
   problems: Record<string, MemoryProblem>;
   /** Text of every file that exists, `index.md` included. */
   texts: Record<string, string>;
+  /**
+   * Set by `loadEveryMemoryFile`: the latest library version of each note file
+   * that exists, read before the files, so a write that lands between the two
+   * shows up as a newer version than the one recorded here.
+   */
+  versionIds?: Record<string, string>;
 }
 
 /** The file a note lives in, relative to the memory folder. */
@@ -149,11 +155,29 @@ export const loadEveryMemoryFile = async (
       throw error;
     }
   }
-  return await loadPaths(library, principal, slug, [
+  const noteFiles = [
     ...MEMORY_NOTE_KINDS.map((kind) => `${kind}.md`),
     ...privateFiles,
+  ];
+  const folder = memoryFolderOf(slug);
+  const latest = await Promise.all(
+    noteFiles.map(
+      async (path) =>
+        (await library.versions(principal, `${folder}/${path}`))[0]?.id
+    )
+  );
+  const loaded = await loadPaths(library, principal, slug, [
+    ...noteFiles,
     INDEX,
   ]);
+  const versionIds: Record<string, string> = {};
+  for (const [index, path] of noteFiles.entries()) {
+    const id = latest[index];
+    if (id !== undefined && path in loaded.texts) {
+      versionIds[path] = id;
+    }
+  }
+  return { ...loaded, versionIds };
 };
 
 /** Why a file is refused, in words a person can act on. */
