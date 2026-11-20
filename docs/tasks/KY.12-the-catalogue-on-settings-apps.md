@@ -3,7 +3,7 @@ id: KY.12
 title: "The catalogue on Settings, Apps"
 milestone: KY
 size: S
-status: in_progress
+status: done
 depends_on: [KY.11]
 branch: task/KY.12-the-catalogue-on-settings-apps
 lane: web-settings
@@ -31,3 +31,4 @@ Browser as admin: add Linear from Settings, Apps, then see it in the Keys tab's 
 ## Log
 - 2026-11-20: added from the KY walkthrough.
 - 2026-11-20: dispatched on task/KY.12-the-catalogue-on-settings-apps (v4 controller session).
+- 2026-11-20: merged as 6a0cf982, review clean after 0 fix rounds. Browser proof passed at both sizes: docs/reviews/tasks/KY.12/browser.md. check, test and build passed on main.

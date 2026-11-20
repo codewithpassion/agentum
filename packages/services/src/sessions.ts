@@ -34,6 +34,7 @@ import { authorize, ForbiddenError } from "./authz.ts";
 import { ServiceError } from "./errors.ts";
 import { payloadSchema } from "./events/payload.ts";
 import type { EventRecord, EventsService } from "./events.ts";
+import { inboxSessionVisibleTo } from "./inbox/room-access.ts";
 import { mailSubjectsOf } from "./mail-subjects.ts";
 import {
   conversationTitle,
@@ -283,6 +284,12 @@ export const visibleSessions = async (
   const opener = await openerOf(db, reader);
   return and(
     eq(sessions.workspaceId, reader.workspaceId),
+    // The runs of a limited topic stay with its members.
+    inboxSessionVisibleTo(
+      reader.kind === "user"
+        ? { id: reader.userId, kind: "user" }
+        : { id: reader.agentId, kind: "agent" }
+    ),
     reader.kind === "run"
       ? sql`(
           not exists (select 1 from ${runs} where ${runs.sessionId} = ${sessions.id}

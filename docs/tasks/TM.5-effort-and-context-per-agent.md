@@ -3,9 +3,9 @@ id: TM.5
 title: "Thinking level and context size per agent"
 milestone: TM
 size: M
-status: todo
+status: in_progress
 depends_on: [TM.1]
-branch: null
+branch: task/TM.5-effort-and-context-per-agent
 lane: runtimes
 executor: claude
 ---
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone TM. From the IndyDevDan transcript and t
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TM.5-effort-and-context-per-agent (v4 controller session).
