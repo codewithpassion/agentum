@@ -33,6 +33,17 @@ const KIND_ORDER: Readonly<Record<RoomMember["kind"], number>> = {
 export const isEveryone = (team: Pick<Team, "slug">): boolean =>
   team.slug === EVERYONE_TEAM_SLUG;
 
+/**
+ * The team room an old inbox link lands in: the topic's own team, or the
+ * Everyone team for a topic from before teams and for a link with no topic.
+ * Null only when the workspace has no Everyone team.
+ */
+export const roomForInboxLink = (
+  teams: readonly Pick<Team, "id" | "slug">[],
+  threadTeamId: string | null
+): string | null =>
+  threadTeamId ?? teams.find((team) => isEveryone(team))?.id ?? null;
+
 export const topicsOfTeam = (
   threads: readonly InboxThread[],
   team: Pick<Team, "id" | "slug">
