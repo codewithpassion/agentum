@@ -4,6 +4,7 @@
 
 - Round 1 (b37bb3d7): clean, no must-fix. The reviewer also ran the web tests under `TZ=Pacific/Kiritimati`; they pass.
 - Fix rounds: none. After the review I deleted the unused `scheduledTime` formatter (1d86dbc0), a nit about code my own change left orphaned.
+- Merge of main (8cb421fa, after DR.15 and FR.2 conflicted in `agent-card.tsx` and `roster.ts`): a fresh reviewer checked the resolution against both parents and found it clean. `bun run check && bun run test && bun run build` pass.
 - Browser proof (`docs/reviews/tasks/RH.9/browser.md`, 0b1c9ad1): pass at 1280x800 and 390x844, in Australia/Sydney against a UTC server. Chat, task page, run picker, log rows, files list, desk pane and roster card all printed the Sydney hour. No console errors, no hydration warnings.
 
 ## The rule
