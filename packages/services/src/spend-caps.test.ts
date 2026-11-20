@@ -336,7 +336,11 @@ test("a run queued before the pause waits for the resume, unless it is a follow-
 });
 
 test("a caller cannot pick a request id that looks like a follow-up", async () => {
-  for (const requestId of ["question-answer:x", "handoff-wake:x"]) {
+  for (const requestId of [
+    "question-answer:x",
+    "handoff-wake:x",
+    "Question-Answer:x",
+  ]) {
     // biome-ignore lint/performance/noAwaitInLoops: two calls
     await expect(
       runs.startRun(owner, {

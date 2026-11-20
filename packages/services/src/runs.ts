@@ -769,6 +769,20 @@ export const createRunsService = ({
 
   type Prepared = Awaited<ReturnType<typeof prepareStart>>;
 
+  /** Only a follow-up of work under way may carry a request id that the pause hold lets through. */
+  const refuseReservedRequestId = (
+    input: ParsedInput,
+    options: Pick<StartRunOptions, "continuationOf" | "wakesParent">
+  ) => {
+    if (
+      input.requestId &&
+      isReservedRequestId(input.requestId) &&
+      !(options.continuationOf || options.wakesParent)
+    ) {
+      throw new ServiceError("invalid", "That requestId is reserved");
+    }
+  };
+
   /**
    * A paused agent starts nothing new, from any origin. The follow-ups of work
    * already under way go on: the cap never kills a task, so a parked run's
@@ -1296,13 +1310,7 @@ export const createRunsService = ({
     options: StartRunOptions = {}
   ): Promise<StartResult> => {
     const input = startRunInputSchema.parse(rawInput);
-    if (
-      input.requestId &&
-      isReservedRequestId(input.requestId) &&
-      !(options.continuationOf || options.wakesParent)
-    ) {
-      throw new ServiceError("invalid", "That requestId is reserved");
-    }
+    refuseReservedRequestId(input, options);
     const prepared = await prepareStart(principal, input, options);
     return finishStart(prepared, input, options);
   };
@@ -1354,6 +1362,7 @@ export const createRunsService = ({
   ): Promise<StartResult> => {
     const grant = guestGrantSchema.parse(rawGrant);
     const input = startRunInputSchema.parse(rawInput);
+    refuseReservedRequestId(input, {});
     if (
       !(authorizeGuestGrant && guestRuntimeReady) ||
       (guestsOff?.() ?? true) ||

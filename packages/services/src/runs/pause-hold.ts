@@ -21,11 +21,14 @@ const RESERVED_PREFIXES = [QUESTION_ANSWER_PREFIX, HANDOFF_WAKE_PREFIX];
 
 /**
  * Whether a caller-chosen request id would pass for one of those follow-ups.
- * `startRun` refuses it unless the start is one, so the exemption below
+ * Case does not matter, because the SQL `like` below ignores it. `startRun`
+ * and `startForGuest` refuse it unless the start is one, so the exemption below
  * cannot be forged.
  */
 export const isReservedRequestId = (requestId: string): boolean =>
-  RESERVED_PREFIXES.some((prefix) => requestId.startsWith(prefix));
+  RESERVED_PREFIXES.some((prefix) =>
+    requestId.toLowerCase().startsWith(prefix)
+  );
 
 /**
  * A claim's condition on `run` (the table, or an alias of it): a queued run
