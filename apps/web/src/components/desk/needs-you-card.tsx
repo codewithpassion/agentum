@@ -246,6 +246,7 @@ export function NeedsYouBody({
           view={request}
         />
       );
+    case "decisions":
     case "question":
     case "takeover":
       return request === null ? (

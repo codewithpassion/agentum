@@ -132,7 +132,7 @@ export function RequestBanner({
   selected,
   onReview,
 }: {
-  kind: "approval" | "question" | "takeover" | null;
+  kind: "approval" | "decisions" | "question" | "takeover" | null;
   selected: TaskTab;
   onReview: () => void;
 }) {
@@ -145,6 +145,7 @@ export function RequestBanner({
   }
   const action = {
     approval: "Review approval",
+    decisions: "Answer decisions",
     question: "Answer question",
     takeover: "Take over",
   }[kind];

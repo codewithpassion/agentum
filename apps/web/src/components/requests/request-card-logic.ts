@@ -15,6 +15,7 @@ import {
   approvalDisplaySchema,
   type DecisionsAnswer,
   type DecisionsDisplay,
+  decisionsDisplaySchema,
   type Question,
   type QuestionAnswer,
   type QuestionDisplay,
@@ -43,7 +44,11 @@ export type Settled =
       status: "answered";
       via: AnswerSurface | null;
     }
-  | { status: "cancelled" }
+  | {
+      /** True when a person dismissed a decision queue, and not when its run was cancelled. */
+      dismissed?: boolean;
+      status: "cancelled";
+    }
   | { status: "conflict" }
   | { status: "expired" };
 
@@ -60,6 +65,12 @@ interface RequestBase {
 /** A request the chat shows, pending or settled. */
 export type RequestView =
   | (RequestBase & { display: ApprovalDisplay; kind: "approval" })
+  | (RequestBase & {
+      display: DecisionsDisplay;
+      /** The answers saved so far, by question id. */
+      given: Readonly<Record<string, string>>;
+      kind: "decisions";
+    })
   | (RequestBase & { display: QuestionDisplay; kind: "question" })
   | (RequestBase & { display: TakeoverDisplay; kind: "takeover" });
 
@@ -71,6 +82,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const textOf = (value: unknown): string | null =>
   typeof value === "string" && value !== "" ? value : null;
+
+/** The entries of a record whose values are strings. */
+const textValues = (value: Record<string, unknown>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+
+/** The answers a decisions request has saved so far. Anything but a record of text answers reads as none. */
+const savedDecisions = (answer: unknown): Record<string, string> =>
+  isRecord(answer) && isRecord(answer.decisions)
+    ? textValues(answer.decisions)
+    : {};
 
 /** "expires in 42 min", or "expired" once the time has passed. */
 export const expiryText = (expiresAt: string, nowMs: number): string => {
@@ -98,6 +123,21 @@ const SURFACE_TEXT: Record<AnswerSurface, string> = {
   web: "the web app",
 };
 
+/** The word a card uses for an answer: questions and decisions are answered, the rest are handled. */
+const answeredVerb = (kind: RequestView["kind"]): string =>
+  kind === "question" || kind === "decisions" ? "Answered" : "Handled";
+
+/** A decision queue is dismissed by a person, or cancelled with its run. Other kinds are withdrawn when their task ends. */
+const cancelledLine = (
+  kind: RequestView["kind"],
+  dismissed: boolean
+): string => {
+  if (kind !== "decisions") {
+    return "Withdrawn, the task ended";
+  }
+  return dismissed ? "Dismissed" : "Cancelled";
+};
+
 /**
  * The line a settled card shows, such as "Allowed once by Dom in Slack".
  * `by` is the answerer's name, or null when it is not known.
@@ -111,7 +151,7 @@ export const settledLine = (
     case "expired":
       return "Expired, nobody answered";
     case "cancelled":
-      return "Withdrawn, the task ended";
+      return cancelledLine(kind, settled.dismissed === true);
     case "conflict":
       return "Already answered somewhere else";
     default: {
@@ -130,7 +170,7 @@ export const settledLine = (
           answer.decision === "deny" && answer.note ? `: ${answer.note}` : "";
         return `${DECISION_TEXT[answer.decision]}${who}${where}${note}`;
       }
-      return `${kind === "question" ? "Answered" : "Handled"}${who}${where}`;
+      return `${answeredVerb(kind)}${who}${where}`;
     }
   }
 };
@@ -308,12 +348,24 @@ export const viewFromOpened = (
       ? { ...base, display: display.data, kind: "question" }
       : null;
   }
+  if (payload.kind === "decisions") {
+    const display = decisionsDisplaySchema.safeParse(payload.display);
+    return display.success
+      ? {
+          ...base,
+          display: display.data,
+          given: savedDecisions(payload.answer),
+          kind: "decisions",
+        }
+      : null;
+  }
   return null;
 };
 
-/** A pending request from `requests.pending`. */
+/** A pending request from `requests.pending`. `answer` holds what a decisions request has saved so far. */
 export const viewFromRecord = (
   record: {
+    answer?: unknown;
     display:
       | ApprovalDisplay
       | QuestionDisplay
@@ -328,6 +380,7 @@ export const viewFromRecord = (
 ): RequestView | null =>
   viewFromOpened(
     {
+      answer: record.answer,
       display: record.display,
       expiresAt: record.expiresAt,
       kind: record.kind,
@@ -337,16 +390,19 @@ export const viewFromRecord = (
     anchorId
   );
 
-/** The outcome a `request.answered`, `request.expired` or `request.cancelled` event records. */
+/** The outcome a `request.answered`, `request.expired` or `request.cancelled` event records. `actorKind` is who wrote the event: a person cancels a decision queue by dismissing it. */
 export const settledFromEvent = (
   type: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  actorKind?: string
 ): Settled | null => {
   if (type === "request.expired") {
     return { status: "expired" };
   }
   if (type === "request.cancelled") {
-    return { status: "cancelled" };
+    return actorKind === "user"
+      ? { dismissed: true, status: "cancelled" }
+      : { status: "cancelled" };
   }
   if (type !== "request.answered") {
     return null;
@@ -379,12 +435,16 @@ export const settledFromEvent = (
       via,
     };
   }
+  if (isRecord(payload.decisions)) {
+    return {
+      answer: { decisions: textValues(payload.decisions) },
+      answeredBy,
+      status: "answered",
+      via,
+    };
+  }
   if (isRecord(payload.answers)) {
-    const answers = Object.fromEntries(
-      Object.entries(payload.answers).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string"
-      )
-    );
+    const answers = textValues(payload.answers);
     return { answer: { answers }, answeredBy, status: "answered", via };
   }
   return null;

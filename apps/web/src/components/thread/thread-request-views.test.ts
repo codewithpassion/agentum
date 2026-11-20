@@ -34,5 +34,8 @@ test("earlier request cards retain their settlement after navigating to a new ru
   ];
   const requests = threadRequestViews(events, new Map());
   expect(requests.get("req")?.runId).toBe("old");
-  expect(requests.get("req")?.settled).toEqual({ status: "cancelled" });
+  expect(requests.get("req")?.settled).toEqual({
+    dismissed: true,
+    status: "cancelled",
+  });
 });

@@ -133,6 +133,18 @@ const sendErrorsOf = (events: readonly EventRecord[]): Map<string, string> => {
 };
 
 /**
+ * A decisions card opened by its event keeps the answers the fetched record
+ * has saved since: the event is written when the queue opens and has none.
+ */
+const withSavedAnswers = (
+  opened: RequestView,
+  fetched: RequestView | undefined
+): RequestView =>
+  opened.kind === "decisions" && fetched?.kind === "decisions"
+    ? { ...opened, given: fetched.given }
+    : opened;
+
+/**
  * The requests of this run, by request id: the ones in `request.opened`
  * events and the fetched records, each settled by its `request.answered`,
  * `request.expired` or `request.cancelled` event, else by this browser's own
@@ -149,12 +161,16 @@ export const requestViews = (live: TaskLive): Map<string, RequestView> => {
   const settledBy = new Map<string, Settled>();
   for (const event of live.events) {
     if (event.type === "request.opened" && event.runId === live.runId) {
-      const view = viewFromOpened(event.payload, event.runId, null);
-      if (view !== null) {
-        views.set(view.id, view);
+      const opened = viewFromOpened(event.payload, event.runId, null);
+      if (opened !== null) {
+        views.set(opened.id, withSavedAnswers(opened, views.get(opened.id)));
       }
     } else if (event.type.startsWith("request.")) {
-      const settled = settledFromEvent(event.type, event.payload);
+      const settled = settledFromEvent(
+        event.type,
+        event.payload,
+        event.actor.kind
+      );
       if (settled !== null && typeof event.payload.requestId === "string") {
         settledBy.set(event.payload.requestId, settled);
       }
