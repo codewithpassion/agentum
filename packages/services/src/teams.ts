@@ -9,6 +9,8 @@ import {
   TEAM_MEMBER_KINDS,
   type Team,
   type TeamMember,
+  type TeamSlackLink,
+  type TeamSlackStatus,
 } from "@repo/db/shared";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -98,6 +100,14 @@ export const profileSetInputSchema = z.strictObject({
   name: nameSchema,
 });
 
+/** Links the team's room to one Slack channel. Fails when the team or the channel is already linked. */
+export const slackLinkInputSchema = z.strictObject({
+  channelId: idString,
+  slackTeamId: idString,
+  teamId: idString,
+});
+
+export type SlackLinkInput = z.input<typeof slackLinkInputSchema>;
 export type TeamCreateInput = z.input<typeof teamCreateInputSchema>;
 export type TeamUpdateInput = z.input<typeof teamUpdateInputSchema>;
 export type TeamMemberInput = z.input<typeof teamMemberInputSchema>;
@@ -118,6 +128,10 @@ const teamResource = (workspaceId: string, id?: string) => ({
   kind: TEAMS_KIND,
   workspaceId,
 });
+
+// The Slack link calls below are stubs; the Slack service task fills them.
+const noTeam = (teamId: string) =>
+  Promise.reject(new ServiceError("not_found", `No team "${teamId}"`));
 
 type TeamRow = typeof teams.$inferSelect;
 
@@ -584,6 +598,30 @@ export const createTeamsService = ({ db, atomic, clock }: TeamsDeps) => {
     return get(principal, input.teamId);
   };
 
+  const linkSlack = (
+    principal: Principal,
+    input: SlackLinkInput
+  ): Promise<TeamSlackLink> => {
+    const workspaceId = readableWorkspace(principal, TEAMS_WRITE);
+    authorize(principal, TEAMS_WRITE, teamResource(workspaceId, input.teamId));
+    return noTeam(input.teamId);
+  };
+
+  const unlinkSlack = (principal: Principal, teamId: string): Promise<void> => {
+    const workspaceId = readableWorkspace(principal, TEAMS_WRITE);
+    authorize(principal, TEAMS_WRITE, teamResource(workspaceId, teamId));
+    return noTeam(teamId);
+  };
+
+  const slackStatus = (
+    principal: Principal,
+    teamId: string
+  ): Promise<TeamSlackStatus> => {
+    const workspaceId = readableWorkspace(principal, TEAMS_READ);
+    authorize(principal, TEAMS_READ, teamResource(workspaceId, teamId));
+    return noTeam(teamId);
+  };
+
   const getProfile = async (
     principal: Principal,
     raw: ProfileGetInput
@@ -651,6 +689,7 @@ export const createTeamsService = ({ db, atomic, clock }: TeamsDeps) => {
     removeMember,
     setLead,
     setRules,
+    slack: { link: linkSlack, status: slackStatus, unlink: unlinkSlack },
     update,
   };
 };

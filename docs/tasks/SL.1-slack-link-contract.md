@@ -3,7 +3,7 @@ id: SL.1
 title: "Slack link contract: one channel per team room"
 milestone: SL
 size: S
-status: in_progress
+status: done
 depends_on: [TM.1]
 branch: task/SL.1-slack-link-contract
 lane: contract
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone SL. Contract task for SL. It alone chang
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/SL.1-slack-link-contract (v4 controller session).
+- 2026-11-20: merged as 5cfd3d00, review clean after 0 fix rounds. check, test and build passed on main.

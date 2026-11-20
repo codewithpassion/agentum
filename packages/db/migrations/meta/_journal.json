@@ -414,6 +414,13 @@
       "when": 1795146495305,
       "tag": "0058_odd_scourge",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1795150178591,
+      "tag": "0059_cooing_jean_grey",
+      "breakpoints": true
     }
   ]
 }

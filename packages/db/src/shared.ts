@@ -12,6 +12,10 @@ export type SlackAppStatus = (typeof SLACK_APP_STATUSES)[number];
 export const SLACK_LISTEN_MODES = ["mentions", "all"] as const;
 export type SlackListenMode = (typeof SLACK_LISTEN_MODES)[number];
 
+/** Which way a team room message crossed: `in` from Slack, `out` to Slack. */
+export const SLACK_ROOM_DIRECTIONS = ["in", "out"] as const;
+export type SlackRoomDirection = (typeof SLACK_ROOM_DIRECTIONS)[number];
+
 export const AGENT_RUNTIMES = ["machine", "managed", "cloud", "fake"] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
@@ -1756,6 +1760,34 @@ export interface Team {
   /** The team's rules, shown to every member above the untrusted block. */
   rules: string;
   slug: string;
+}
+
+/** The Slack channel a team room is linked to. One channel per team, one team per channel. */
+export interface TeamSlackLink {
+  channelId: string;
+  createdAt: string;
+  /** Clerk user id of the person who linked the channel. */
+  linkedBy: string;
+  /** Slack's id for the Slack workspace the channel is in. */
+  slackTeamId: string;
+  teamId: string;
+}
+
+/** One agent member of a team and its Slack app, as the linked channel sees it. */
+export interface TeamSlackMemberApp {
+  agentId: string;
+  /** Slack's bot user id for the agent's app in the linked Slack workspace, or null when the agent has no installed app there. */
+  botUserId: string | null;
+  /** Whether the agent's bot is a member of the linked channel. False when the agent has no app there. */
+  inChannel: boolean;
+}
+
+/** A team's Slack link and which of its member agents are in the channel. */
+export interface TeamSlackStatus {
+  /** The agent members of the team, each with its Slack app state. Empty while the team has no link. */
+  apps: TeamSlackMemberApp[];
+  /** The link, or null while the team's room is not linked to a channel. */
+  link: TeamSlackLink | null;
 }
 
 /** How a person is named and mentioned in team rooms. */

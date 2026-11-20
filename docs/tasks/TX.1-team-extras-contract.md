@@ -3,9 +3,9 @@ id: TX.1
 title: "Team extras contract: team memory, discussions, decision queue"
 milestone: TX
 size: S
-status: todo
+status: in_progress
 depends_on: [TM.1, DR.1]
-branch: null
+branch: task/TX.1-team-extras-contract
 lane: contract
 executor: claude
 ---
@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone TX. Contract task for TX. It alone chang
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/TX.1-team-extras-contract (v4 controller session).
