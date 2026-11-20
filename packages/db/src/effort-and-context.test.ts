@@ -5,6 +5,7 @@ import {
   contextBudgetOf,
   EFFORT_LEVELS,
   effortOf,
+  runtimeConfigForRun,
 } from "./shared.ts";
 
 test("every context budget has a compaction threshold, and a larger budget compacts later", () => {
@@ -30,4 +31,15 @@ test("contextBudgetOf reads each budget and ignores anything else", () => {
   }
   expect(contextBudgetOf({})).toBeUndefined();
   expect(contextBudgetOf({ contextBudget: "huge" })).toBeUndefined();
+});
+
+test("runtimeConfigForRun keeps the config for a top-level run and drops the tuning for a subagent", () => {
+  const config = {
+    contextBudget: "small",
+    effort: "high",
+    maxTurns: 20,
+  };
+  expect(runtimeConfigForRun(config, 0)).toEqual(config);
+  expect(runtimeConfigForRun(config, 1)).toEqual({ maxTurns: 20 });
+  expect(config.effort).toBe("high");
 });

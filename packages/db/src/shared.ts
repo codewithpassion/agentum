@@ -1770,6 +1770,22 @@ export const CONTEXT_BUDGET_COMPACTION_TOKENS: Record<ContextBudget, number> = {
   standard: 200_000,
 };
 
+/**
+ * The agent's `runtimeConfig` for a run at this subagent level. A subagent
+ * keeps its own settings (docs/v3/subagents.md), so it takes neither the
+ * agent's thinking level nor its context budget.
+ */
+export const runtimeConfigForRun = (
+  runtimeConfig: Record<string, unknown>,
+  subagentLevel: number
+): Record<string, unknown> => {
+  if (subagentLevel <= 0) {
+    return runtimeConfig;
+  }
+  const { contextBudget: _budget, effort: _effort, ...rest } = runtimeConfig;
+  return rest;
+};
+
 /** The agent's thinking level, or undefined when it has none or holds a value that is not one. */
 export const effortOf = (
   runtimeConfig: Record<string, unknown>
