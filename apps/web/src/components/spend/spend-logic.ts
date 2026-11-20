@@ -1,4 +1,8 @@
-import type { AgentSpendCap, SpendRow } from "@repo/db/shared";
+import {
+  type AgentSpendCap,
+  microsToCents,
+  type SpendRow,
+} from "@repo/db/shared";
 import { weekCostLabel } from "#/components/roster/roster-logic.ts";
 
 /** This week and the four before it. */
@@ -151,7 +155,8 @@ export const buildSpendTable = (input: {
   const names = new Map(agents.map((agent) => [agent.id, agent.name]));
   const capOf = new Map(caps.map((cap) => [cap.agentId, cap]));
   const byAgent = new Map<string, SpendTableRow>();
-  const teamCentsByWeek = weeks.map(() => 0);
+  const teamMicros = weeks.map(() => 0);
+  const agentMicros = new Map<string, number[]>();
   const current = weeks.length - 1;
   const entryFor = (agentId: string): SpendTableRow => {
     const existing = byAgent.get(agentId);
@@ -188,11 +193,18 @@ export const buildSpendTable = (input: {
     }
     // A team dream has no agent to show: it is its own line.
     if (row.agentId === null) {
-      teamCentsByWeek[index] = (teamCentsByWeek[index] ?? 0) + row.cents;
+      teamMicros[index] = (teamMicros[index] ?? 0) + row.micros;
       continue;
     }
-    const entry = entryFor(row.agentId);
-    entry.centsByWeek[index] = (entry.centsByWeek[index] ?? 0) + row.cents;
+    entryFor(row.agentId);
+    const micros = agentMicros.get(row.agentId) ?? weeks.map(() => 0);
+    micros[index] = (micros[index] ?? 0) + row.micros;
+    agentMicros.set(row.agentId, micros);
+  }
+  // Round each week once, from the unrounded sum.
+  for (const [agentId, micros] of agentMicros) {
+    const entry = entryFor(agentId);
+    entry.centsByWeek = micros.map(microsToCents);
   }
   const table = [...byAgent.values()].sort(
     (a, b) =>
@@ -201,11 +213,15 @@ export const buildSpendTable = (input: {
   );
   return {
     rows: table,
-    teamCentsByWeek,
-    totals: weeks.map(
-      (_, index) =>
-        (teamCentsByWeek[index] ?? 0) +
-        table.reduce((sum, row) => sum + (row.centsByWeek[index] ?? 0), 0)
+    teamCentsByWeek: teamMicros.map(microsToCents),
+    totals: weeks.map((_, index) =>
+      microsToCents(
+        (teamMicros[index] ?? 0) +
+          [...agentMicros.values()].reduce(
+            (sum, micros) => sum + (micros[index] ?? 0),
+            0
+          )
+      )
     ),
   };
 };
@@ -214,11 +230,11 @@ export const buildSpendTable = (input: {
 export const weekCentsByAgent = (
   rows: readonly SpendRow[]
 ): Map<string, number> => {
-  const cents = new Map<string, number>();
+  const micros = new Map<string, number>();
   for (const row of rows) {
     if (row.agentId !== null) {
-      cents.set(row.agentId, (cents.get(row.agentId) ?? 0) + row.cents);
+      micros.set(row.agentId, (micros.get(row.agentId) ?? 0) + row.micros);
     }
   }
-  return cents;
+  return new Map([...micros].map(([id, total]) => [id, microsToCents(total)]));
 };
