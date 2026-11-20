@@ -3,9 +3,9 @@ id: SP.5
 title: "Spend walkthrough"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: [SP.3, SP.4]
-branch: null
+branch: task/SP.5-spend-e2e
 lane: e2e
 executor: claude
 ---
@@ -23,3 +23,4 @@ From `docs/v4/build-plan.md`, milestone SP. End-to-end check for SP.
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-21: dispatched on task/SP.5-spend-e2e (v4 controller session).

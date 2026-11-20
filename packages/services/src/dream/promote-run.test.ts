@@ -190,3 +190,22 @@ test("a held memory batch does not hold its independent skill proposal", async (
   await w.dream.decide(w.owner, { decision: "reject", dreamRunId: run.id });
   expect(await w.skillsStore.proposals(w.owner)).toHaveLength(1);
 });
+
+test("a rejected skill proposal is not evidence for a note", async () => {
+  const w = makeDreamWorld();
+  seedRuns(w, "noise-first");
+  await w.dream.runNow(w.owner, AGENT);
+  const proposal = defined((await w.skillsStore.proposals(w.owner))[0]);
+  await w.skillsStore.reject(w.owner, {
+    skillId: proposal.skillId,
+    version: 1,
+  });
+  seedRuns(w, "noise-second");
+  await w.dream.runNow(w.owner, AGENT);
+  const extract = w.calls.filter((call) => call.kind === "extract").at(-1);
+  expect(extract?.prompt).toContain("task_result");
+  expect(extract?.prompt).not.toContain("skill_proposal");
+  expect(
+    w.calls.filter((call) => call.kind === "promote").at(-1)?.prompt
+  ).toContain("skill_proposal");
+});
