@@ -3,7 +3,7 @@ id: DR.4
 title: "The dream run: schedule, model, write, diary, undo"
 milestone: DR
 size: L
-status: in_progress
+status: done
 depends_on: [DR.2, DR.3, ME.3]
 branch: task/DR.4-dream-run
 lane: worker
@@ -36,3 +36,4 @@ From `docs/v4/build-plan.md`, milestone DR. Tie the dream together and run it on
 - 2026-11-20: dispatched on task/DR.4-dream-run (v4 controller session).
 - 2026-11-20: from SP.3: the dream run skips an agent whose pausedAt is set.
 - 2026-11-20: Haiku price: claude-haiku-5-5 is $0.10 in and $0.50 out per million tokens up to 100K prompt tokens ($0.50 / $2.50 above). DR.4 had set Haiku 4.5's $1 / $5; corrected in its review round.
+- 2026-11-20: merged as 83680eef, review clean after 2 fix rounds plus clean reviews of the paused-agent skip and the Haiku price fix. check, test and build passed on main. Held-batch approval became DR.8.
