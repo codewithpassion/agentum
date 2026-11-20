@@ -342,11 +342,17 @@ export const createInboxService = ({
     );
   };
 
-  /** The team the topic opens in, checked in the workspace, with the writer in it. */
+  /**
+   * The team the topic opens in, checked in the workspace, with the writer in
+   * it. An agent opens a topic only in a team it leads (TM.4).
+   */
   const teamForNewTopic = async (
-    writer: UserPrincipal,
+    writer: Member,
     teamId: string | undefined
   ): Promise<string | null> => {
+    if (writer.kind === "run" && teamId === undefined) {
+      throw new ForbiddenError("inbox.create");
+    }
     if (teamId === undefined) {
       // A new topic starts in the workspace's Everyone team until it names one.
       const [everyone] = await db
@@ -361,13 +367,20 @@ export const createInboxService = ({
       return everyone?.id ?? null;
     }
     const [team] = await db
-      .select({ archivedAt: teams.archivedAt, id: teams.id })
+      .select({
+        archivedAt: teams.archivedAt,
+        id: teams.id,
+        leadAgentId: teams.leadAgentId,
+      })
       .from(teams)
       .where(
         and(eq(teams.workspaceId, writer.workspaceId), eq(teams.id, teamId))
       );
     if (!team || team.archivedAt !== null) {
       throw new ServiceError("not_found", "Team not found");
+    }
+    if (writer.kind === "run" && team.leadAgentId !== writer.agentId) {
+      throw new ForbiddenError("inbox.create");
     }
     if (!(await isInTeam(db, team.id, roomerOf(writer)))) {
       throw new ForbiddenError("inbox.create");
@@ -377,7 +390,7 @@ export const createInboxService = ({
 
   /** The topic's member subset: the writer plus the named members, each one in the team. */
   const limitedMembers = async (
-    writer: UserPrincipal,
+    writer: Member,
     teamId: string | null,
     named: readonly Roomer[] | undefined
   ): Promise<Roomer[]> => {
@@ -420,9 +433,6 @@ export const createInboxService = ({
   ): Promise<ThreadRecord> => {
     const input = threadCreateInputSchema.parse(rawInput);
     const writer = requireWriter(principal);
-    if (writer.kind !== "user") {
-      throw new ForbiddenError("inbox.create");
-    }
     authorize(writer, "inbox.create", {
       kind: INBOX_KIND,
       workspaceId: writer.workspaceId,
@@ -434,10 +444,11 @@ export const createInboxService = ({
       attentionClearedAt: null,
       attentionClearedBy: null,
       createdAt: created,
-      createdBy: writer.userId,
+      // The agent's id stands in for a person when a lead opened the topic.
+      createdBy: writer.kind === "user" ? writer.userId : writer.agentId,
       id: nextId(clock.now().getTime()),
       lastPostAt: created,
-      openedByAgentId: null,
+      openedByAgentId: writer.kind === "run" ? writer.agentId : null,
       teamId,
       title: input.title,
       workspaceId: writer.workspaceId,

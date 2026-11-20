@@ -257,6 +257,14 @@ export const approvalSummary = (toolName: string, input: unknown): string => {
     if (toolName === A2A_SEND_TOOL && typeof input.peer === "string") {
       summary = `Send a message to ${input.peer}`;
     } else if (
+      // A lead's proposed change to a member (`teams/proposal.ts` in services).
+      toolName === "team_propose_change" &&
+      typeof input.agentName === "string" &&
+      typeof input.field === "string" &&
+      typeof input.leadName === "string"
+    ) {
+      summary = `${input.leadName} proposes changing ${input.agentName}'s ${input.field}`;
+    } else if (
       toolName.toLowerCase() === "bash" &&
       typeof input.command === "string"
     ) {
