@@ -3,7 +3,7 @@ id: SP.10
 title: "The Home card shows the Spend page's week"
 milestone: SP
 size: S
-status: in_progress
+status: done
 depends_on: [SP.5]
 branch: task/SP.10-the-home-card-shows-the-spend-page-s-wee
 lane: web-home
@@ -25,3 +25,5 @@ a component test where the roster says $0 and the spend rows say $0.55, and the 
 ## Log
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at e6df0220, review clean with no fix rounds, browser pass at both sizes. Queued for merge.
+- 2026-11-21: merged cf769ca5, batch merge check with FX.3, SP.10 and SP.9 passed. Done.

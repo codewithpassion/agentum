@@ -8,7 +8,7 @@ import {
   parseCapInput,
   spendRange,
   spendWeeks,
-  withLimitWeekSpend,
+  weekCentsByAgent,
 } from "./spend-logic.ts";
 
 // Friday 20 November 2026, 09:00 in Sydney, which is Thursday 22:00 UTC.
@@ -210,11 +210,7 @@ test("a team dream is its own line: no agent row, but in the weekly totals the c
   expect(table.totals[current]).toBe((plain.totals[current] ?? 0) + 500);
 });
 
-test("a card with a limit takes the Monday week's spend, one without keeps its own", () => {
-  const cards = [
-    { costThisWeekCents: 900, id: "a", weeklyCapCents: 2000 },
-    { costThisWeekCents: 900, id: "b", weeklyCapCents: null },
-  ];
+test("week cents add up each agent's rows and skip a team's", () => {
   const rows = [
     {
       agentId: "a",
@@ -225,10 +221,19 @@ test("a card with a limit takes the Monday week's spend, one without keeps its o
     },
     { agentId: "a", cents: 50, day: "2026-11-18", micros: 500_000, tasks: 1 },
     { agentId: "b", cents: 7, day: "2026-11-18", micros: 70_000, tasks: 1 },
+    {
+      agentId: null,
+      cents: 40,
+      day: "2026-11-18",
+      micros: 400_000,
+      tasks: 0,
+      teamId: "t",
+    },
   ];
-  expect(
-    withLimitWeekSpend(cards, rows).map((card) => card.costThisWeekCents)
-  ).toEqual([150, 900]);
+  expect([...weekCentsByAgent(rows)]).toEqual([
+    ["a", 150],
+    ["b", 7],
+  ]);
 });
 
 test("a week is rounded once from the unrounded day amounts", () => {

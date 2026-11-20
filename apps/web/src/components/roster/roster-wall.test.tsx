@@ -18,7 +18,6 @@ const router = createRouter({
 
 const card = (name: string, state: AgentCardState, id = name): AgentCard => ({
   avatar: { color: "slate", glyph: name.charAt(0) },
-  costThisWeekCents: 0,
   doneAt: null,
   id,
   isLead: false,
@@ -54,7 +53,8 @@ const render = (
   cards: readonly AgentCard[],
   chips: readonly NeedsYouChip[] = [],
   emptyState?: ReactNode,
-  teams: readonly Team[] = []
+  teams: readonly Team[] = [],
+  weekCents: ReadonlyMap<string, number> = new Map()
 ) =>
   renderToStaticMarkup(
     <RouterContextProvider router={router}>
@@ -65,9 +65,26 @@ const render = (
         onAddMember={addMember}
         teams={teams}
         userId="user_1"
+        weekCents={weekCents}
       />
     </RouterContextProvider>
   );
+
+test("a card reads the week's cents from the spend rows, with or without a limit", () => {
+  const spend = new Map([
+    ["Ada", 55],
+    ["Bo", 55],
+  ]);
+  const html = render(
+    [card("Ada", "idle"), { ...card("Bo", "idle"), weeklyCapCents: 2000 }],
+    [],
+    undefined,
+    [],
+    spend
+  );
+  expect(html).toContain("$0.55 this week");
+  expect(html).toContain("$0.55 of $20 this week");
+});
 
 const EMPTY_TEXT =
   "No agents yet. Describe your first job and an agent will do it.";

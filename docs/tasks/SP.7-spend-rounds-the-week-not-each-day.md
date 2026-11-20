@@ -26,3 +26,5 @@ a rollup test with three days of $0.004 gives a week of $0.01 where today's code
 - 2026-11-21: added from the spend walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at 6c8077d5 after one fix round, review clean. Queued for merge.
+- 2026-11-21: merge conflict with SP.8 in spend-pause-card.tsx. Sent back to merge main.
+- 2026-11-21: merged main with SP.8, resolution reviewed clean. Ready at 8253a2b8. Queued for merge.

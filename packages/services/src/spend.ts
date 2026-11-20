@@ -322,6 +322,36 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     }
   };
 
+  /**
+   * The minute tick. A `spend_cap` pause lasts as long as the week it was
+   * set for: once the agent and its workspace are both under their caps
+   * again, the pause is lifted. A `manual` pause stays until someone resumes.
+   */
+  const liftCapPauses = async (): Promise<void> => {
+    const paused = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.status, "active"),
+          eq(agents.pausedReason, "spend_cap"),
+          isNotNull(agents.pausedAt)
+        )
+      );
+    await Promise.all(
+      paused.map(async ({ id }) => {
+        const status = await capStatus(id);
+        if (status.agentOver || status.workspaceOver) {
+          return;
+        }
+        await db
+          .update(agents)
+          .set({ pausedAt: null, pausedReason: null })
+          .where(and(eq(agents.id, id), eq(agents.pausedReason, "spend_cap")));
+      })
+    );
+  };
+
   const workspace = (
     principal: Principal,
     range: SpendRangeInput
@@ -448,6 +478,7 @@ export const createSpendService = ({ db, clock }: SpendDeps) => {
     caps,
     enforceCap,
     enforceWorkspaceCap,
+    liftCapPauses,
     resume,
     setCap,
     weekToDate,

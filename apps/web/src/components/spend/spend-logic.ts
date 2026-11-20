@@ -2,7 +2,6 @@ import {
   type AgentSpendCap,
   microsToCents,
   type SpendRow,
-  sumSpendCents,
 } from "@repo/db/shared";
 import { weekCostLabel } from "#/components/roster/roster-logic.ts";
 
@@ -227,28 +226,15 @@ export const buildSpendTable = (input: {
   };
 };
 
-/**
- * Gives each card that has a limit this week's spend counted from Monday in the
- * workspace timezone, the way the limit is counted. The roster's own figure
- * covers the last seven days, so the two could disagree about a limit.
- */
-export const withLimitWeekSpend = <
-  Card extends {
-    costThisWeekCents: number;
-    id: string;
-    weeklyCapCents: number | null;
-  },
->(
-  cards: readonly Card[],
-  weekRows: readonly SpendRow[]
-): Card[] =>
-  cards.map((card) =>
-    card.weeklyCapCents === null
-      ? card
-      : {
-          ...card,
-          costThisWeekCents: sumSpendCents(
-            weekRows.filter((row) => row.agentId === card.id)
-          ),
-        }
-  );
+/** Each agent's cents in `rows`, the figure the Spend page shows for the week they cover. */
+export const weekCentsByAgent = (
+  rows: readonly SpendRow[]
+): Map<string, number> => {
+  const micros = new Map<string, number>();
+  for (const row of rows) {
+    if (row.agentId !== null) {
+      micros.set(row.agentId, (micros.get(row.agentId) ?? 0) + row.micros);
+    }
+  }
+  return new Map([...micros].map(([id, total]) => [id, microsToCents(total)]));
+};

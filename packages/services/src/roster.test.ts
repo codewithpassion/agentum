@@ -148,7 +148,6 @@ test("lists active agents only, ordered by name, each as an idle card", async ()
   expect(await service.list(user)).toEqual([
     {
       avatar: { color: "slate", glyph: "?" },
-      costThisWeekCents: 0,
       doneAt: null,
       id: "a-alpha",
       isLead: false,
@@ -165,7 +164,6 @@ test("lists active agents only, ordered by name, each as an idle card", async ()
     },
     {
       avatar: { color: "blue", glyph: "Z" },
-      costThisWeekCents: 0,
       doneAt: null,
       id: "a-zeta",
       isLead: false,
@@ -767,28 +765,6 @@ test("a bounced-mail problem is a Needs you item", async () => {
     state: "needs_you",
     statusLine: "Reply to Bo",
   });
-});
-
-test("cost sums the last seven days, rounds once to cents, excludes dry and hidden runs", async () => {
-  insertAgent({ id: "a1", name: "Alpha" });
-  seedRun("one", { usage: '{"costUsd":0.124}' });
-  seedRun("two", {
-    createdAt: "2025-12-25T00:00:00.000Z",
-    status: "done",
-    usage: '{"costUsd":0.124}',
-  });
-  seedRun("old", {
-    createdAt: "2025-12-24T23:59:59.999Z",
-    usage: '{"costUsd":100}',
-  });
-  seedRun("dry", { dryRun: true, usage: '{"costUsd":100}' });
-  seedRun(
-    "hidden",
-    { usage: '{"costUsd":100}' },
-    { actorId: "u2", private: true }
-  );
-  seedRun("missing", { usage: "{}" });
-  expect((await service.list(user))[0]?.costThisWeekCents).toBe(25);
 });
 
 test("a member sees exactly the same agents as agents.list", async () => {

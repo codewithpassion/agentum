@@ -1305,7 +1305,6 @@ export const DONE_STATUS_PREFIX = "Done: ";
 /** One agent on the Roster home. */
 export interface AgentCard {
   avatar: AgentAvatar;
-  costThisWeekCents: number;
   /**
    * When the agent's last run finished, while the status line reads "Done: ...".
    * The browser prints the time in the viewer's own zone, so the line holds none.

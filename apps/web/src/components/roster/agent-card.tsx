@@ -17,7 +17,14 @@ const ACCENT_CLASSES: Readonly<Partial<Record<AgentCard["state"], string>>> = {
 };
 
 /** One agent on the Roster home. The whole card opens the agent. */
-export const AgentCardView = ({ card }: { card: AgentCard }) => {
+export const AgentCardView = ({
+  card,
+  weekCents,
+}: {
+  card: AgentCard;
+  /** This week's spend, as the Spend page counts it. */
+  weekCents: number;
+}) => {
   const viewer = useViewer();
   return (
     <Link
@@ -59,8 +66,8 @@ export const AgentCardView = ({ card }: { card: AgentCard }) => {
             {card.ownerName === "" ? null : `Owner ${card.ownerName}`}
           </span>
           <span className="shrink-0">
-            {capLine(card.costThisWeekCents, card.weeklyCapCents) ??
-              `${weekCostLabel(card.costThisWeekCents)} this week`}
+            {capLine(weekCents, card.weeklyCapCents) ??
+              `${weekCostLabel(weekCents)} this week`}
           </span>
         </span>
       </span>
