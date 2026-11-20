@@ -17,6 +17,7 @@ import {
   type DictationService,
 } from "@repo/services/dictation";
 import { createDreamService, type DreamService } from "@repo/services/dream";
+import { roomDigestOf } from "@repo/services/dream/team/digest";
 import {
   type AppWorkerExports,
   appReplyInvoker,
@@ -856,6 +857,8 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    // The catch-up slot's digest is the team's last dream's, read from the library, which is built below.
+    roomDigest: (teamId) => roomDigestOf(db, library, teamId),
     runs: { startRun: (principal, input) => runs.startRun(principal, input) },
   });
   const libraryBlobs = infra.libraryBlobs ?? memoryLibraryBlobs();
@@ -1432,10 +1435,12 @@ export const composeWith = ({
         db,
         events,
         fetch: connectorFetch,
+        inbox,
         library,
         managedKeys,
         memory,
         skillsStore,
+        spend,
       }),
       events,
       files,

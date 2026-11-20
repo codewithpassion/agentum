@@ -177,6 +177,10 @@ export const buildSpendTable = (input: {
     }
   }
   for (const row of rows) {
+    // A team's row has no agent to show.
+    if (row.agentId === null) {
+      continue;
+    }
     const index = weeks.findIndex(
       (week) => row.day >= week.start && row.day <= week.end
     );

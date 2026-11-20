@@ -2,6 +2,7 @@ import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { memoryChanges } from "@repo/db/schema/memory";
+import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   DEFAULT_NEVER_REMEMBER,
@@ -51,6 +52,7 @@ import {
   type MemoryActor,
   type Provenance,
 } from "./provenance.ts";
+import { loadTeamFolder } from "./team.ts";
 
 const MEMORY_RULES_WRITE = "memory.rules.write";
 const MAX_ATTEMPTS = 3;
@@ -557,10 +559,32 @@ export const createMemoryService = ({
       : notes;
   };
 
-  /**
-   * Stub: no team note is listed. The team memory service task (TX.2) reads the
-   * team's notes from `teams/<slug>/memory/`.
-   */
+  /** The shared notes in a team's `teams/<slug>/memory/`. A team with no folder (Everyone) has none. */
+  const readTeamNotes = async (
+    principal: Principal,
+    workspaceId: string,
+    input: ListTeamInput
+  ): Promise<MemoryNote[]> => {
+    const [team] = await db
+      .select({ folderPath: teams.folderPath })
+      .from(teams)
+      .where(
+        and(eq(teams.id, input.teamId), eq(teams.workspaceId, workspaceId))
+      )
+      .limit(1);
+    if (!team) {
+      throw notFound(`No team "${input.teamId}"`);
+    }
+    if (team.folderPath === null) {
+      return [];
+    }
+    const { notes } = await loadTeamFolder(library, principal, team.folderPath);
+    const shared = notes.filter((note) => note.userScope === null);
+    return input.kind
+      ? shared.filter((note) => note.kind === input.kind)
+      : shared;
+  };
+
   const listTeam = (
     principal: Principal,
     input: ListTeamInput
@@ -571,7 +595,7 @@ export const createMemoryService = ({
       kind: MEMORY_KIND,
       workspaceId,
     });
-    return Promise.resolve([]);
+    return readTeamNotes(principal, workspaceId, input);
   };
 
   const add = async (

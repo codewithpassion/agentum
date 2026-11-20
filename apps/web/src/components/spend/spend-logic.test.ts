@@ -135,6 +135,26 @@ test("an agent with a limit shows before it spends, a removed one is flagged", (
   expect(table.rows[1]?.capCents).toBe(500);
 });
 
+test("a team row is not in the table and leaves the agent rows as they were", () => {
+  const weeks = spendWeeks(NOW, "Australia/Sydney");
+  const input = {
+    agents: [{ id: "a", name: "Ada" }],
+    caps: [],
+    weeks,
+  };
+  const agentOnly = [{ agentId: "a", cents: 100, day: "2026-11-17", tasks: 1 }];
+  const withTeam = [
+    ...agentOnly,
+    { agentId: null, cents: 500, day: "2026-11-18", tasks: 0, teamId: "t1" },
+  ];
+  expect(buildSpendTable({ ...input, rows: withTeam })).toEqual(
+    buildSpendTable({ ...input, rows: agentOnly })
+  );
+  expect(
+    buildSpendTable({ ...input, rows: withTeam }).rows.map((row) => row.name)
+  ).toEqual(["Ada"]);
+});
+
 test("a card with a limit takes the Monday week's spend, one without keeps its own", () => {
   const cards = [
     { costThisWeekCents: 900, id: "a", weeklyCapCents: 2000 },

@@ -38,6 +38,7 @@ import {
 import { isDecisionsDisplay } from "@repo/protocol/requests";
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -459,6 +460,84 @@ export const createDeskService = ({
     };
   };
 
+  /**
+   * The agent each team question is asked through, keyed by team id: the
+   * team's lead when it is active, else its active agent member with the
+   * lowest id. Only the team's owner and an org admin get its card, so a team
+   * they cannot see has no entry, and a team with no active agent has none either.
+   */
+  const teamQuestionAgents = async (
+    member: UserPrincipal,
+    questions: readonly { teamId: string | null }[]
+  ): Promise<Map<string, string>> => {
+    const teamIds = questions.flatMap(({ teamId }) =>
+      teamId === null ? [] : [teamId]
+    );
+    const ownedTeams = await inBatches(teamIds, (batch) =>
+      db
+        .select({ id: teams.id, leadAgentId: teams.leadAgentId })
+        .from(teams)
+        .where(
+          and(
+            eq(teams.workspaceId, member.workspaceId),
+            isNull(teams.archivedAt),
+            inArray(teams.id, batch),
+            member.isAdmin === true
+              ? undefined
+              : eq(teams.ownerUserId, member.userId)
+          )
+        )
+    );
+    const ownedIds = ownedTeams.map((team) => team.id);
+    const agentMembers = await inBatches(ownedIds, (batch) =>
+      db
+        .select({ memberId: teamMembers.memberId, teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .innerJoin(agentRows, eq(agentRows.id, teamMembers.memberId))
+        .where(
+          and(
+            eq(teamMembers.memberKind, "agent"),
+            inArray(teamMembers.teamId, batch),
+            eq(agentRows.workspaceId, member.workspaceId),
+            eq(agentRows.status, "active")
+          )
+        )
+        .orderBy(asc(teamMembers.memberId))
+    );
+    const leadIds = ownedTeams.flatMap((team) =>
+      team.leadAgentId === null ? [] : [team.leadAgentId]
+    );
+    const activeLeads = new Set(
+      (
+        await inBatches(leadIds, (batch) =>
+          db
+            .select({ id: agentRows.id })
+            .from(agentRows)
+            .where(
+              and(
+                eq(agentRows.workspaceId, member.workspaceId),
+                eq(agentRows.status, "active"),
+                inArray(agentRows.id, batch)
+              )
+            )
+        )
+      ).map((agent) => agent.id)
+    );
+    const chosen = new Map<string, string>();
+    for (const team of ownedTeams) {
+      const lead = team.leadAgentId;
+      if (lead !== null && activeLeads.has(lead)) {
+        chosen.set(team.id, lead);
+      }
+    }
+    for (const { memberId, teamId } of agentMembers) {
+      if (!chosen.has(teamId)) {
+        chosen.set(teamId, memberId);
+      }
+    }
+    return chosen;
+  };
+
   /** Everything in Needs you, before it becomes cards. */
   const needsYouSources = async (member: UserPrincipal) => {
     const [
@@ -526,9 +605,7 @@ export const createDeskService = ({
         .where(
           and(
             eq(dreamQuestions.workspaceId, member.workspaceId),
-            eq(dreamQuestions.status, "open"),
-            // A team's question has no agent. The team dream shows it later.
-            isNotNull(dreamQuestions.agentId)
+            eq(dreamQuestions.status, "open")
           )
         ),
       heldBatchesFor(db, member),
@@ -656,6 +733,7 @@ export const createDeskService = ({
         ? [{ post, thread }]
         : [];
     });
+    const teamAgents = await teamQuestionAgents(member, dreamRows);
     return {
       a2aConnections: a2aList.connections.filter(
         (connection) => !drafts.has(connection.agentId)
@@ -704,7 +782,11 @@ export const createDeskService = ({
         .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       dreamQuestions: dreamRows.flatMap((row) => {
-        if (row.agentId === null || drafts.has(row.agentId)) {
+        // A team's question is asked through the team's agent; see `teamQuestionAgents`.
+        const agentId =
+          row.agentId ??
+          (row.teamId === null ? null : (teamAgents.get(row.teamId) ?? null));
+        if (agentId === null || drafts.has(agentId)) {
           return [];
         }
         const { options, userScope } = readOptions(row.options);
@@ -714,7 +796,7 @@ export const createDeskService = ({
         }
         return [
           {
-            agentId: row.agentId,
+            agentId,
             createdAt: row.createdAt,
             id: row.id,
             options,

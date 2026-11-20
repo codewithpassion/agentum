@@ -7,6 +7,7 @@ import { sessions } from "@repo/db/schema/sessions";
 import { eq } from "drizzle-orm";
 import { createDreamService } from "../dream.ts";
 import { createEventsService } from "../events.ts";
+import type { InboxService } from "../inbox.ts";
 import {
   AGENT,
   RUN as BASE_RUN,
@@ -39,7 +40,10 @@ export type CallKind =
   | "finished"
   | "promote"
   | "merge"
-  | "reconcile";
+  | "reconcile"
+  | "team_digest"
+  | "team_friction"
+  | "team_notes";
 
 export interface Call {
   kind: CallKind;
@@ -50,6 +54,15 @@ export interface Call {
 export type Script = (call: Call) => string | null | Promise<string | null>;
 
 const kindOf = (system: string): CallKind => {
+  if (system.includes("team-memory judge")) {
+    return "team_notes";
+  }
+  if (system.includes("hand-off judge")) {
+    return "team_friction";
+  }
+  if (system.includes("room digest for a team")) {
+    return "team_digest";
+  }
   if (system.includes("procedure-promotion judge")) {
     return "promote";
   }
@@ -84,6 +97,15 @@ export const quiet: Script = ({ kind }) => {
   }
   if (kind === "finished") {
     return JSON.stringify({ finished: [] });
+  }
+  if (kind === "team_notes") {
+    return JSON.stringify({ conflicts: [], shared: [] });
+  }
+  if (kind === "team_friction") {
+    return JSON.stringify({ friction: [] });
+  }
+  if (kind === "team_digest") {
+    return JSON.stringify({ digest: "" });
   }
   return JSON.stringify({ groups: [] });
 };
@@ -131,12 +153,24 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
     library: world.library,
   });
   let key: string | null = "sk-ant-test";
+  /** What the team dream posted to the room, in order. */
+  const notices: Parameters<InboxService["postNotice"]>[1][] = [];
   const dream = createDreamService({
     atomic: world.atomic,
     clock: dreamClock ?? world.clock,
     db: world.db,
     events: eventsService,
     fetch,
+    inbox: {
+      postNotice: (_principal, input) => {
+        notices.push(input);
+        return Promise.resolve({
+          postId: `post_${notices.length}`,
+          runs: [],
+          threadId: "thread_diary",
+        });
+      },
+    },
     library: world.library,
     managedKeys: {
       resolve: () =>
@@ -253,6 +287,7 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
     calls,
     dream,
     files,
+    notices,
     owner,
     say,
     setKey: (next: string | null) => {
