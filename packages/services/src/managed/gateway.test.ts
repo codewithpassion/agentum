@@ -696,6 +696,49 @@ describe("interrupt", () => {
   });
 });
 
+describe("getUsage", () => {
+  const usageOf = (usage: Record<string, unknown>) =>
+    createManagedGateway(
+      client({
+        sessions: {
+          retrieve: () => Promise.resolve({ status: "idle", usage }),
+        },
+      }),
+      { cache: memoryCache(), environmentName: "harbourmaster" }
+    ).getUsage("sesn_1");
+
+  test("reads tokens and the list cost, which is in cents", async () => {
+    expect(
+      await usageOf({
+        cache_creation: {
+          ephemeral_1h_input_tokens: 3,
+          ephemeral_5m_input_tokens: 4,
+        },
+        cache_read_input_tokens: 5,
+        input_tokens: 100,
+        list_cost: { amount: "250", currency: "USD" },
+        output_tokens: 40,
+      })
+    ).toEqual({
+      cacheReadTokens: 5,
+      cacheWriteTokens: 7,
+      costUsd: 2.5,
+      inputTokens: 100,
+      outputTokens: 40,
+    });
+  });
+
+  test("has no cost when the API reports tokens only", async () => {
+    expect(
+      (await usageOf({ input_tokens: 10, output_tokens: 2 }))?.costUsd
+    ).toBeNull();
+  });
+
+  test("is null when the session reports no usage", async () => {
+    expect(await usageOf({})).toBeNull();
+  });
+});
+
 describe("pollEvents", () => {
   const eventsClient = (pages: Record<string, unknown[]>, seen: string[]) => ({
     sessions: {

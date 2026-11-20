@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsSessionEvent } from "@anthropic-ai/sdk/resources/beta/sessions/events";
+import type { BetaManagedAgentsSessionUsage } from "@anthropic-ai/sdk/resources/beta/sessions/sessions";
 import type { EffortLevel } from "@repo/db/shared";
 import { ASK_USER_TOOL, REQUEST_TAKEOVER_TOOL } from "@repo/protocol/requests";
 import {
@@ -73,6 +74,15 @@ export const DESKTOP_SCREENSHOT_TOOL = {
   name: "desktop_screenshot",
 } as const;
 
+/** What a session has used in all, across every turn. `costUsd` is null when the API reports no cost. */
+export interface SessionUsage {
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costUsd: number | null;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface PolledEvents {
   cursor: EventCursor | undefined;
   events: SessionEvent[];
@@ -138,6 +148,8 @@ export interface ManagedGateway {
   deleteVault: (vaultId: string) => Promise<void>;
   ensureEnvironment: () => Promise<string>;
   getSession: (sessionId: string) => Promise<SessionStatus>;
+  /** What the session has used so far, or null when the API reports no usage. */
+  getUsage: (sessionId: string) => Promise<SessionUsage | null>;
   /** Sends a user.interrupt event. */
   interrupt: (sessionId: string) => Promise<void>;
   pollEvents: (
@@ -370,6 +382,35 @@ const statusOf = (status: string): SessionStatus => {
     return status;
   }
   return "unknown";
+};
+
+const CENTS_PER_DOLLAR = 100;
+
+/** The session's reported usage, or null when it reports none. */
+export const sessionUsageOf = (
+  usage: BetaManagedAgentsSessionUsage | null | undefined
+): SessionUsage | null => {
+  if (!usage) {
+    return null;
+  }
+  const cents = Number(usage.list_cost?.amount);
+  const costUsd = Number.isFinite(cents) ? cents / CENTS_PER_DOLLAR : null;
+  const reported =
+    costUsd !== null ||
+    usage.input_tokens !== undefined ||
+    usage.output_tokens !== undefined;
+  if (!reported) {
+    return null;
+  }
+  return {
+    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens:
+      (usage.cache_creation?.ephemeral_5m_input_tokens ?? 0) +
+      (usage.cache_creation?.ephemeral_1h_input_tokens ?? 0),
+    costUsd,
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+  };
 };
 
 const textOf = (event: BetaManagedAgentsSessionEvent): string | undefined => {
@@ -696,6 +737,11 @@ export const createManagedGateway = (
     async getSession(sessionId) {
       const session = await client.beta.sessions.retrieve(sessionId);
       return statusOf(session.status);
+    },
+
+    async getUsage(sessionId) {
+      const session = await client.beta.sessions.retrieve(sessionId);
+      return sessionUsageOf(session.usage);
     },
 
     async interrupt(sessionId) {
