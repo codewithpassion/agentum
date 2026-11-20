@@ -216,11 +216,13 @@ pub fn with_memory_root(roots: Value, slug: &str) -> Value {
 /// starts clean. An error is returned only when even that fails: a run must not start with a
 /// private file in reach.
 pub async fn purge_private(disk: &Disk) -> Result<()> {
-    if purge_private_folders(disk).await.is_ok() {
-        return Ok(());
+    match purge_private_folders(disk).await {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            tracing::warn!(message = %error.message, "Library copy could not be walked; removing it");
+            remove_copy(disk).await
+        }
     }
-    tracing::warn!("Library copy could not be walked; removing it");
-    remove_copy(disk).await
 }
 async fn purge_private_folders(disk: &Disk) -> Result<()> {
     for (kind, slug) in disk.list("library/agents").await? {
@@ -237,6 +239,8 @@ async fn purge_private_folders(disk: &Disk) -> Result<()> {
 /// Removes `library/` whatever it is (a folder, a file or a link, which is removed and not
 /// followed) and the manifest, which would otherwise read every missing file as a local delete.
 async fn remove_copy(disk: &Disk) -> Result<()> {
+    // The manifest goes first: without the copy it would read every missing file as a local delete.
+    disk.remove("library.manifest.json", false).await?;
     if disk.user.is_some() {
         disk.remove("library", true).await?;
     } else {
@@ -248,7 +252,7 @@ async fn remove_copy(disk: &Disk) -> Result<()> {
             Err(e) => return Err(e.into()),
         }
     }
-    disk.remove("library.manifest.json", false).await
+    Ok(())
 }
 pub fn hash(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
