@@ -5,7 +5,8 @@
 // with RUN_TOKEN_KEY from apps/web/.env.local, calls `team_propose_change` and
 // puts the run back as it was. `--tool <name> --args <json>` calls any other
 // tool of the lead's room run instead, for example `team_open_topic`. The owner then approves the card in the app.
-// Run from the repo root, after the lead has answered in its team room:
+// It uses the lead's newest team room run in any topic, so the card lands in
+// that run's topic. Run from the repo root, after the lead has answered in its team room:
 // `bun scripts/dev/team-propose.ts --server http://localhost:3417 --lead <slug>
 //   --agent <memberAgentId> --field instructions --value "..." --reason "..."`.
 import { readFileSync } from "node:fs";
@@ -44,14 +45,17 @@ const main = async (): Promise<void> => {
     },
   });
   const { agent, args, field, lead, reason, server, tool, value } = values;
-  const callArgs: unknown = args
-    ? JSON.parse(args)
-    : { agentId: agent, field, reason, value };
   if (!(lead && server && (args || (agent && field && reason && value)))) {
     throw new LocalError(
       "Usage: --server <url> --lead <slug> (--agent <id> --field <field> --value <text> --reason <text> | --tool <name> --args <json>)"
     );
   }
+  if (tool && !args) {
+    throw new LocalError("--tool needs --args.");
+  }
+  const callArgs: unknown = args
+    ? JSON.parse(args)
+    : { agentId: agent, field, reason, value };
   const keySpec = KEY_LINE.exec(readFileSync(ENV_FILE, "utf8"))?.[1]?.trim();
   if (!keySpec) {
     throw new LocalError(`No RUN_TOKEN_KEY in ${ENV_FILE}.`);
