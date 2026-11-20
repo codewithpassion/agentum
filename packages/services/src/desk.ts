@@ -699,7 +699,7 @@ export const createDeskService = ({
         ),
       heldBatchesFor(db, member),
       a2aWaiting(member),
-      // A pause stays a card until someone resumes the agent, so it needs no row of its own.
+      // A pause stays a card until it is lifted (the new week, or a resume), so it needs no row of its own.
       db
         .select({
           id: agentRows.id,

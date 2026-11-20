@@ -18,7 +18,6 @@ const router = createRouter({
 
 const card = (name: string): AgentCard => ({
   avatar: { color: "slate", glyph: name.charAt(0) },
-  costThisWeekCents: 0,
   doneAt: null,
   id: name,
   isLead: false,

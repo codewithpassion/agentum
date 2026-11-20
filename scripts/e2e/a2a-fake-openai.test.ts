@@ -145,7 +145,8 @@ describe("startFakeOpenAi", () => {
     try {
       const started = performance.now();
       await chat(fake.url, user("[[SLOW 200]]"));
-      expect(performance.now() - started).toBeGreaterThanOrEqual(200);
+      // Timers can fire a few ms early under load, so allow 10 ms of jitter.
+      expect(performance.now() - started).toBeGreaterThanOrEqual(190);
     } finally {
       fake.stop();
     }

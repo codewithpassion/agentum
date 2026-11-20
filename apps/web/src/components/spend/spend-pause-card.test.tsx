@@ -21,6 +21,7 @@ const DISABLED_RESUME = /<button[^>]*disabled[^>]*>Resume<\/button>/;
 const DISABLED_RAISE = /<button[^>]*disabled[^>]*>Raise the limit<\/button>/;
 
 const baseProps: SpendPauseViewProps = {
+  atLimit: false,
   busy: false,
   error: null,
   isAdmin: true,
@@ -88,4 +89,17 @@ test("a non-admin paused by the workspace limit gets no Resume, only the workspa
   expect(html).toContain("The workspace limit of $50 a week is reached.");
   expect(html).not.toContain(">Resume</button>");
   expect(html).toContain("Raise the workspace limit");
+});
+
+test("a card with the week-to-date shows it next to the limit", () => {
+  const html = render({ limitText: "$0.40 of $1 this week" });
+  expect(html).toContain("$0.40 of $1 this week");
+  expect(html).toContain(">Resume</button>");
+});
+
+test("at or over the limit the card drops Resume and offers Raise the limit alone", () => {
+  const html = render({ atLimit: true, limitText: "$1.05 of $1 this week" });
+  expect(html).toContain("$1.05 of $1 this week");
+  expect(html).not.toContain(">Resume</button>");
+  expect(html).toContain(">Raise the limit</button>");
 });

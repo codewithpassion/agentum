@@ -3,7 +3,7 @@ id: RH.11
 title: "Cloud runs on any dev port"
 milestone: RH
 size: S
-status: in_progress
+status: done
 depends_on: [RH.7]
 branch: task/RH.11-cloud-runs-on-any-dev-port
 lane: worker
@@ -27,3 +27,4 @@ A test with a mismatched localhost URL. Browser: a Cloud agent on a non-default 
 - 2026-11-20: added from the RH walkthrough.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at abf100f0, review clean with no fix rounds. Queued for merge.
+- 2026-11-21: merged f0c8f8e8, batch merge check with RH.11, DR.10, DR.9 and SP.8 passed. Done.

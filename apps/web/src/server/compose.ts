@@ -465,6 +465,8 @@ export interface Infra {
   /** `PUBLIC_BASE_URL`. A Connect path posted to Slack becomes a link under it. */
   publicBaseUrl?: string;
   relay: MachineRelayPort;
+  /** Dev only: the origin of the request being served, so a Cloud run can tell it `publicBaseUrl` is on another port. */
+  requestOrigin?: string;
   /** `RUN_TOKEN_KEY`. Machine claims mint run tokens with it. */
   runTokenKey?: string;
   /** `SECRETS_KEY`. Storing a connector credential or a workspace secret encrypts with it. */
@@ -720,6 +722,7 @@ export const composeWith = ({
               read: (principal, path) => library.read(principal, path),
             },
             platformUrl: infra.publicBaseUrl,
+            requestOrigin: infra.requestOrigin,
             runner: infra.cloudRunner,
             runTokenKey: infra.runTokenKey,
           }),
@@ -1567,7 +1570,8 @@ export const compose = (
   env: ComposeEnv,
   devFakeRuntime: boolean,
   defer?: (work: Promise<void>) => void,
-  exports?: AppWorkerExports
+  exports?: AppWorkerExports,
+  requestOrigin?: string
 ): Composed => {
   const db = drizzle(env.DB);
   let composed: Composed;
@@ -1661,6 +1665,7 @@ export const compose = (
       proxyFetch: inProcessFetch(env as Env, defer),
       publicBaseUrl: env.PUBLIC_BASE_URL,
       relay: durableRelayPort(env.MACHINE_RELAY),
+      requestOrigin: devFakeRuntime ? requestOrigin : undefined,
       runTokenKey: keySpec(env.RUN_TOKEN_KEY, env.RUN_TOKEN_KEY_PREVIOUS),
       secretsKey: keySpec(env.SECRETS_KEY, env.SECRETS_KEY_PREVIOUS),
       // Unset secrets read as empty strings; Google's client needs both.

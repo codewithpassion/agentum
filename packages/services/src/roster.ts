@@ -36,7 +36,6 @@ import type { RailService } from "./rail.ts";
 import { nextFireTime } from "./routines/cron.ts";
 import type { Clock } from "./runs/types.ts";
 import { visibleSessions } from "./sessions.ts";
-import { costOf } from "./usage-cost.ts";
 import type { Principal } from "./workspaces.ts";
 
 const ROSTER_READ = "roster.read";
@@ -66,13 +65,7 @@ export const jobLineFor = (instructions: string): string => {
 
 type RunFact = Pick<
   typeof runs.$inferSelect,
-  | "agentId"
-  | "createdAt"
-  | "finishedAt"
-  | "id"
-  | "inputText"
-  | "status"
-  | "usage"
+  "agentId" | "createdAt" | "finishedAt" | "id" | "inputText" | "status"
 >;
 interface Wait {
   count: number;
@@ -83,12 +76,11 @@ interface Wait {
 // Which map a live run goes in: one per kind of live state, newest first.
 const STARTING_STATUSES: readonly RunFact["status"][] = ["queued", "offered"];
 
-const runFacts = (runList: RunFact[], weekStart: string) => {
+const runFacts = (runList: RunFact[]) => {
   const latest = new Map<string, RunFact>();
   const running = new Map<string, RunFact>();
   const waitingRuns = new Map<string, RunFact>();
   const starting = new Map<string, RunFact>();
-  const costs = new Map<string, number>();
   for (const run of runList) {
     if (!latest.has(run.agentId)) {
       latest.set(run.agentId, run);
@@ -102,11 +94,8 @@ const runFacts = (runList: RunFact[], weekStart: string) => {
     if (STARTING_STATUSES.includes(run.status) && !starting.has(run.agentId)) {
       starting.set(run.agentId, run);
     }
-    if (run.createdAt >= weekStart) {
-      costs.set(run.agentId, (costs.get(run.agentId) ?? 0) + costOf(run.usage));
-    }
   }
-  return { costs, latest, running, starting, waitingRuns };
+  return { latest, running, starting, waitingRuns };
 };
 
 interface HomeTeam {
@@ -304,7 +293,6 @@ export const createRosterService = ({
           "rank"
         ),
         status: runs.status,
-        usage: runs.usage,
       })
       .from(runs)
       .where(
@@ -347,11 +335,7 @@ export const createRosterService = ({
         .select()
         .from(ranked)
         .where(
-          or(
-            eq(ranked.rank, 1),
-            inArray(ranked.status, [...LIVE_RUN_STATUSES]),
-            sql`${ranked.createdAt} >= ${weekStart}`
-          )
+          or(eq(ranked.rank, 1), inArray(ranked.status, [...LIVE_RUN_STATUSES]))
         )
         .orderBy(desc(ranked.createdAt), desc(ranked.id)),
       db
@@ -420,10 +404,7 @@ export const createRosterService = ({
     const names = new Map(
       directory?.map((entry) => [entry.userId, entry.name])
     );
-    const { latest, running, starting, waitingRuns, costs } = runFacts(
-      runList,
-      weekStart
-    );
+    const { latest, running, starting, waitingRuns } = runFacts(runList);
     // A run started by mail is titled by its mail's subject, as on the desk.
     // A latest run that is still shown as done is titled the same way.
     const doneRecently = [...latest.values()].filter(
@@ -474,7 +455,6 @@ export const createRosterService = ({
       });
       return {
         avatar: avatarOf(row),
-        costThisWeekCents: Math.round((costs.get(row.id) ?? 0) * 100),
         doneAt: doneAt ?? null,
         id: row.id,
         isLead: home?.isLead ?? false,

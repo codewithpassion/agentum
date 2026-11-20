@@ -1,4 +1,4 @@
-// Helpers the three steps share. `scopeGroups` is the Brain's cluster
+// Helpers the steps share. `scopeGroups` (reconcile, prune, team) is the Brain's cluster
 // homogeneity rule (select.ts: every cluster is one kind and one tier, so a
 // merged fact has one unambiguous home; dream.canary.test.ts case (h) and
 // entity-dedup.test.ts "different kind" and "different scope partition"). A
