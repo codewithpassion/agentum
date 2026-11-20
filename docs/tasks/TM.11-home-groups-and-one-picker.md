@@ -16,6 +16,7 @@ From the TM.8 review (`docs/reviews/tasks/TM.8.md`). Every workspace has an "Eve
 
 - Home hides a team group with no agents. When "Everyone" is the only team with agents, home shows the flat card wall without group headings (controller decision, 20 Nov 2026).
 - Use one member picker: keep TM.6's in `components/team` and have home use it, deleting the copy in `components/roster`. If a shared place outside both folders fits better, put it there.
+- The team page (`components/team/`) links to its room at `/teams/<id>/room` (from TM.7: nothing links there yet).
 
 ## Check
 
@@ -25,3 +26,4 @@ From the TM.8 review (`docs/reviews/tasks/TM.8.md`). Every workspace has an "Eve
 
 ## Log
 - 2026-11-20: added from the TM.8 review.
+- 2026-11-20: scope adds the team page's Room link, from TM.7.

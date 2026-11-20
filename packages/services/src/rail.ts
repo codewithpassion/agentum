@@ -158,10 +158,11 @@ const expiryOf = (
 /** The optional fields a desk card passes on to its rail card, when it has them. */
 const optionalCardFields = (
   deskCard: DeskCard
-): Pick<RailCard, "a2a" | "artifactId" | "dream"> => ({
+): Pick<RailCard, "a2a" | "artifactId" | "dream" | "dreamHeld"> => ({
   ...(deskCard.a2a ? { a2a: deskCard.a2a } : {}),
   ...(deskCard.artifactId ? { artifactId: deskCard.artifactId } : {}),
   ...(deskCard.dream ? { dream: deskCard.dream } : {}),
+  ...(deskCard.dreamHeld ? { dreamHeld: deskCard.dreamHeld } : {}),
 });
 
 const byCardAge = (a: RailCard, b: RailCard): number =>

@@ -70,6 +70,7 @@ function notesOfKind(
     .map((entry) => entry.note);
 }
 
+/** A dream's held batch is decided as a whole in the dream diary, never note by note, so its rows are left out here. */
 function heldOfKind(
   changes: readonly MemoryChange[],
   kind: MemoryNoteKind
@@ -77,7 +78,10 @@ function heldOfKind(
   return changes
     .filter(
       (change) =>
-        change.status === "held" && change.kind === kind && !isMergeRow(change)
+        change.status === "held" &&
+        change.dreamRunId === null &&
+        change.kind === kind &&
+        !isMergeRow(change)
     )
     .sort(byCreatedAtDesc);
 }

@@ -1,5 +1,6 @@
 import type {
   DreamCounts,
+  DreamDecision,
   DreamRun,
   DreamRunStatus,
   DreamSchedule,
@@ -11,6 +12,8 @@ export type DreamCardState =
   | { kind: "skipped"; run: DreamRun }
   | { kind: "failed"; run: DreamRun }
   | { kind: "undone"; run: DreamRun }
+  | { kind: "held"; run: DreamRun }
+  | { kind: "rejected"; run: DreamRun }
   | { kind: "done"; questions: number; run: DreamRun };
 
 const DAY_MS = 86_400_000;
@@ -37,6 +40,12 @@ export function dreamCardState(runs: readonly DreamRun[]): DreamCardState {
   if (!newest) {
     return { kind: "none" };
   }
+  if (newest.status === "done" && newest.heldChanges > 0) {
+    return { kind: "held", run: newest };
+  }
+  if (wasRejected(newest)) {
+    return { kind: "rejected", run: newest };
+  }
   if (newest.status === "done") {
     return {
       kind: "done",
@@ -50,6 +59,17 @@ export function dreamCardState(runs: readonly DreamRun[]): DreamCardState {
 /** Every run but the newest, newest first. */
 export function earlierRuns(runs: readonly DreamRun[]): DreamRun[] {
   return sortRuns(runs).slice(1);
+}
+
+/** A dream whose held batch the owner rejected: it proposed changes, none are held any more, and it wrote nothing. */
+export function wasRejected(run: DreamRun): boolean {
+  const { added, dropped, merged } = run.counts;
+  return (
+    run.status === "done" &&
+    run.heldChanges === 0 &&
+    run.resultVersion === null &&
+    added + dropped + merged > 0
+  );
 }
 
 /** The diary line for what a dream changed. Questions are left out. */
@@ -105,10 +125,15 @@ export function dreamTitle(startedAt: string, nowMs: number): string {
   return `Dream from ${days} days ago`;
 }
 
-/** Only a finished dream that changed notes can be undone. */
+/** Only a finished dream that wrote its changes can be undone. A held or rejected batch wrote nothing, so there is nothing to undo. */
 export function canUndoRun(run: DreamRun): boolean {
   const { added, dropped, merged } = run.counts;
-  return run.status === "done" && added + dropped + merged > 0;
+  return (
+    run.status === "done" &&
+    run.heldChanges === 0 &&
+    run.resultVersion !== null &&
+    added + dropped + merged > 0
+  );
 }
 
 export const RUN_STATUS_LABELS: Record<DreamRunStatus, string> = {
@@ -140,3 +165,8 @@ export const SCHEDULE_OPTIONS: readonly {
     value: "off",
   },
 ];
+
+/** The decision being sent for a held batch, or null when the card waits for something else. */
+export function decisionPending(pending: string | null): DreamDecision | null {
+  return pending === "approve" || pending === "reject" ? pending : null;
+}
