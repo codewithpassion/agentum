@@ -31,3 +31,4 @@ Unit tests for the formatter. Browser: send a chat message and read its time, th
 - 2026-11-20: added from the RH walkthrough.
 - 2026-11-21: dispatched on task/RH.9-one-time-zone-rule-for-what-the-app-prin (v4 controller session).
 - 2026-11-21: merge conflict with main in agent-card.tsx and roster.ts (DR.15/FR.2 landed). Sent back to merge main.
+- 2026-11-21: merged main, conflict resolution reviewed clean. Ready at 1268e407.
