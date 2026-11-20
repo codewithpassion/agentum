@@ -36,6 +36,11 @@ export const AgentCardView = ({ card }: { card: AgentCard }) => (
     <span className="flex min-w-0 flex-1 flex-col gap-1">
       <span className="flex min-w-0 items-center gap-2">
         <span className="truncate font-medium">{card.name}</span>
+        {card.isLead ? (
+          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs">
+            Lead
+          </span>
+        ) : null}
         <span
           aria-hidden="true"
           className={cn(
