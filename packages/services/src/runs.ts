@@ -356,7 +356,7 @@ const assertArtifactReply = (input: z.output<typeof startRunInputSchema>) => {
 
 export interface RunsServiceOptions {
   adapters: readonly RuntimeAdapter[];
-  /** Called after a batch holding a `tool.call` is stored, with the run's id. The memory service uses it to hold notes the run applied before the outside text showed up. A throw is logged and never fails the ingest. */
+  /** Called after a batch holding a `tool.call` or `tool.result` is stored (a tool result follows the `network.request` and `browser.action` events the tool wrote while it ran), with the run's id. The memory service uses it to hold notes the run applied before the outside text showed up. A throw is logged and never fails the ingest. */
   afterToolEvents?: (runId: string) => Promise<unknown>;
   atomic: Atomic;
   /** Trusted selected-agent policy. Session/grant checks and atomic cap are enforced internally.
@@ -1740,7 +1740,12 @@ export const createRunsService = ({
     batch: readonly { type: string }[]
   ): Promise<void> => {
     if (
-      !(afterToolEvents && batch.some((event) => event.type === "tool.call"))
+      !(
+        afterToolEvents &&
+        batch.some(
+          (event) => event.type === "tool.call" || event.type === "tool.result"
+        )
+      )
     ) {
       return;
     }

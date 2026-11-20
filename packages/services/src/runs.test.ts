@@ -1336,6 +1336,39 @@ test("a note a run applied is held when its web tool event is ingested late", as
   ]);
 });
 
+test("a note a run applied is held when a network request the tool wrote is followed by its tool result", async () => {
+  const { hooked, note, runId } = await runWithMemory();
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { input: {}, name: "run_script", toolUseId: "t1" },
+      seq: 1,
+      type: "tool.call",
+    },
+  ]);
+  expect(db.select().from(memoryChanges).all()[0]?.status).toBe("applied");
+  await events.append({
+    actor: { id: spyAgentId, kind: "agent" },
+    agentId: spyAgentId,
+    payload: { via: "curl" },
+    runId,
+    sessionId: runRow(runId)?.sessionId ?? "",
+    type: "network.request",
+    workspaceId: WORKSPACE,
+  });
+
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { ok: true, output: "done", toolUseId: "t1" },
+      seq: 2,
+      type: "tool.result",
+    },
+  ]);
+
+  expect(db.select().from(memoryChanges).all()).toMatchObject([
+    { id: note.id, status: "held" },
+  ]);
+});
+
 test("a note a run applied stays applied when only ordinary tool events are ingested", async () => {
   const { hooked, note, runId } = await runWithMemory();
 
