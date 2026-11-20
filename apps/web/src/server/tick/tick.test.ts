@@ -208,3 +208,9 @@ test("the registered jobs append nothing to events when none has work", async ()
   expect(report.jobs.every((job) => job.ok)).toBe(true);
   expect(db.select().from(events).all()).toEqual([]);
 });
+
+test("discussion timeouts have one minute-tick job", () => {
+  expect(
+    tickJobs.filter((job) => job.name === "inbox.discussions")
+  ).toHaveLength(1);
+});

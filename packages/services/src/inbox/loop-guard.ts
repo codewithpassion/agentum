@@ -46,3 +46,11 @@ export const checkWakeRate = (
   }
   return { allowed: true, timestamps: [...recent, now] };
 };
+
+/** Member wakes have their own budget; hourly checkWakeRate still applies. */
+export const discussionBudgetAllows = (
+  round: number,
+  rounds: number,
+  members: number,
+  wakes: number
+): boolean => round >= 1 && round <= rounds && wakes < rounds * members;

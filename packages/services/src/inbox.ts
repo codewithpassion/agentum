@@ -27,7 +27,7 @@ import {
   type InboxAuthorKind,
   TEAM_MEMBER_KINDS,
 } from "@repo/db/shared";
-import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { monotonicFactory } from "ulidx";
 import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -63,7 +63,8 @@ import {
 } from "./runs/types.ts";
 import type { RunsService } from "./runs.ts";
 import { idString } from "./shared.ts";
-import type { Principal } from "./workspaces.ts";
+import { createDiscussionRounds } from "./teams/discussions.ts";
+import { type Principal, SYSTEM_PRINCIPAL } from "./workspaces.ts";
 
 const READ_ACTION = "inbox.read";
 const POST_ACTION = "inbox.post";
@@ -139,6 +140,7 @@ export interface PostRecord {
 }
 
 export interface ThreadView {
+  discussion: { id: string; round: number; rounds: number } | null;
   posts: PostRecord[];
   thread: ThreadRecord;
 }
@@ -534,7 +536,15 @@ export const createInboxService = ({
       .where(eq(inboxPosts.threadId, thread.id))
       .orderBy(desc(inboxPosts.id))
       .limit(THREAD_READ_LIMIT);
+    const discussion = await runningDiscussion(thread.id);
     return {
+      discussion: discussion
+        ? {
+            id: discussion.id,
+            round: discussion.round,
+            rounds: discussion.rounds,
+          }
+        : null,
       posts: await toPosts(member, thread.id, rows.reverse()),
       thread: toThread(thread),
     };
@@ -611,13 +621,67 @@ export const createInboxService = ({
     origin: PostOrigin | null
   ): Promise<PostRow> => {
     const row = postRow(thread, author, body, origin);
-    await atomic([
-      db.insert(inboxPosts).values(row),
-      db
-        .update(inboxThreads)
-        .set({ lastPostAt: row.createdAt })
-        .where(eq(inboxThreads.id, thread.id)),
-    ]);
+    const source = origin
+      ? await loadRun(db, origin.runId, thread.workspaceId)
+      : null;
+    const once =
+      source?.requestId?.startsWith("discussion:") === true &&
+      source.reply.kind === "inbox" &&
+      source.reply.threadId === thread.id;
+    let inserted = true;
+    await atomic(
+      [
+        once
+          ? db
+              .insert(inboxPosts)
+              .select(
+                db
+                  .select({
+                    authorId: sql<string>`${row.authorId}`.as("authorId"),
+                    authorKind: sql<InboxAuthorKind>`${row.authorKind}`.as(
+                      "authorKind"
+                    ),
+                    createdAt: sql<string>`${row.createdAt}`.as("createdAt"),
+                    fileIds: sql<string>`${row.fileIds}`.as("fileIds"),
+                    id: sql<string>`${row.id}`.as("id"),
+                    runId: sql<string>`${row.runId}`.as("runId"),
+                    text: sql<string>`${row.text}`.as("text"),
+                    threadId: sql<string>`${row.threadId}`.as("threadId"),
+                    workspaceId: sql<string>`${row.workspaceId}`.as(
+                      "workspaceId"
+                    ),
+                  })
+                  .from(sql`(select 1)`)
+                  .where(
+                    sql`not exists (select 1 from ${inboxPosts} where ${inboxPosts.runId} = ${row.runId} and ${inboxPosts.threadId} = ${thread.id})`
+                  )
+              )
+              .returning()
+          : db.insert(inboxPosts).values(row).returning(),
+        db
+          .update(inboxThreads)
+          .set({ lastPostAt: row.createdAt })
+          .where(eq(inboxThreads.id, thread.id)),
+      ],
+      (results) => {
+        inserted = (results[0] as PostRow[]).length > 0;
+      }
+    );
+    if (!inserted && origin) {
+      const [existing] = await db
+        .select()
+        .from(inboxPosts)
+        .where(
+          and(
+            eq(inboxPosts.runId, origin.runId),
+            eq(inboxPosts.threadId, thread.id)
+          )
+        )
+        .limit(1);
+      if (existing) {
+        return existing;
+      }
+    }
     await announcePost(thread, row, origin);
     return row;
   };
@@ -818,7 +882,8 @@ export const createInboxService = ({
     entry: PostRow,
     target: { id: string },
     room: Room,
-    streak: boolean
+    streak: boolean,
+    requestId?: string
   ): Promise<WokenRun | null> => {
     let stop: StopReason | null = null;
     if (streak) {
@@ -831,7 +896,10 @@ export const createInboxService = ({
       return null;
     }
     try {
-      const result = await runs.startRun(waker, {
+      // Discussion wakes are independent room runs. Persisted retry keys bound
+      // them without growing an ancestry chain across rounds.
+      const result = await runs.startRun(requestId ? SYSTEM_PRINCIPAL : waker, {
+        ...(requestId ? { requestId } : {}),
         agentId: target.id,
         input: {
           text: buildWakeInput({
@@ -873,6 +941,11 @@ export const createInboxService = ({
     thread: ThreadRow,
     entry: PostRow
   ): Promise<WokenRun[]> => {
+    const discussion = await runningDiscussion(thread.id);
+    if (discussion) {
+      await driveDiscussion(discussion);
+      return [];
+    }
     const room = await roomOf(thread);
     const mentioned = await mentionedAgents(entry, thread.workspaceId);
     const listening =
@@ -1046,6 +1119,25 @@ export const createInboxService = ({
     );
   };
 
+  const {
+    runningDiscussion,
+    driveDiscussion,
+    startDiscussion,
+    stopDiscussion,
+    sweepDiscussions,
+  } = createDiscussionRounds({
+    announcePost,
+    atomic,
+    clock,
+    db,
+    findThread,
+    postRow,
+    requireThread,
+    requireWriter,
+    roomOf,
+    wakeOne,
+  });
+
   const gateway: Gateway = { deliver, kind: "inbox" };
 
   return {
@@ -1056,6 +1148,9 @@ export const createInboxService = ({
     post,
     postExternal,
     readThread,
+    startDiscussion,
+    stopDiscussion,
+    sweepDiscussions,
   };
 };
 

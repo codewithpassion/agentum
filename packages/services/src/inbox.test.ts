@@ -18,6 +18,7 @@ import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
 import { createInboxService, type InboxService } from "./inbox.ts";
+import { loadPrivateNotesUser } from "./library/private-notes.ts";
 import type { Clock, RuntimeAdapter } from "./runs/types.ts";
 import { createRunsService, type RunsService } from "./runs.ts";
 import { visibleSessions } from "./sessions.ts";
@@ -1097,32 +1098,64 @@ test("the loop guard counts per topic: a streak in one topic does not stop anoth
 });
 
 const discussionFixture = async () => {
-  build();
+  build({ script: { lead: null, one: null, three: null, two: null } });
   await addAgents("lead", "one", "two", "three");
-  const teamId = seedTeam({ lead: "lead", members: { agents: ["lead", "one", "two", "three"], users: ["u1"] } });
-  const threadId = (await inbox.createThread(user, { title: "Discussion", teamId })).id;
+  const teamId = seedTeam({
+    lead: "lead",
+    members: { agents: ["lead", "one", "two", "three"], users: ["u1"] },
+  });
+  const threadId = (
+    await inbox.createThread(user, { teamId, title: "Discussion" })
+  ).id;
   await say(threadId, "@lead coordinate");
-  const lead = runsOf("lead")[0];
-  if (!lead) throw new Error("No lead run");
-  const principal = { kind: "run" as const, agentId: lead.agentId, runId: lead.id, workspaceId: WORKSPACE };
-  return { threadId, principal };
+  const [lead] = runsOf("lead");
+  if (!lead) {
+    throw new Error("No lead run");
+  }
+  const principal = {
+    agentId: lead.agentId,
+    kind: "run" as const,
+    runId: lead.id,
+    workspaceId: WORKSPACE,
+  };
+  return { principal, threadId };
 };
 
 test("three rounds wake three members nine times; discussion wakes get no private notes", async () => {
   const { threadId, principal } = await discussionFixture();
-  await inbox.startDiscussion(principal, { topic: threadId, question: "What should we do?", rounds: 3 });
+  await inbox.startDiscussion(principal, {
+    question: "What should we do?",
+    rounds: 3,
+    topic: threadId,
+  });
   for (let round = 1; round <= 3; round += 1) {
+    // biome-ignore lint/performance/noAwaitInLoops: rounds must run in order
     await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
     for (const slug of ["one", "two", "three"]) {
       const run = runsOf(slug).at(-1);
-      if (!run) throw new Error("Missing member wake");
-      const { loadPrivateNotesUser } = await import("./library/private-notes.ts");
+      if (!run) {
+        throw new Error("Missing member wake");
+      }
+      // biome-ignore lint/performance/noAwaitInLoops: inspect each wake in its round
       expect(await loadPrivateNotesUser(db, run)).toBeNull();
-      await inbox.gateway.deliver({ kind: "inbox", threadId }, { fileIds: [], text: "My answer @one @two @three" }, { runId: run.id, agentId: run.agentId, onBehalfOfUserId: run.onBehalfOfUserId });
+      await inbox.gateway.deliver(
+        { kind: "inbox", threadId },
+        { fileIds: [], text: "My answer @one @two @three" },
+        {
+          agentId: run.agentId,
+          onBehalfOfUserId: run.onBehalfOfUserId,
+          runId: run.id,
+        }
+      );
     }
     const checkpoint = runsOf("lead").at(-1);
-    if (!checkpoint) throw new Error("Missing checkpoint");
-    await inbox.post({ ...principal, runId: checkpoint.id }, { threadId, text: "Next round" });
+    if (!checkpoint) {
+      throw new Error("Missing checkpoint");
+    }
+    await inbox.post(
+      { ...principal, runId: checkpoint.id },
+      { text: "Next round", threadId }
+    );
   }
   await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
   expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(9);
@@ -1131,7 +1164,11 @@ test("three rounds wake three members nine times; discussion wakes get no privat
 
 test("a silent member times out and a person can stop further wakes", async () => {
   const { threadId, principal } = await discussionFixture();
-  await inbox.startDiscussion(principal, { topic: threadId, question: "Discuss", rounds: 3 });
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
   expect(runsOf("lead")).toHaveLength(1);
   nowMs += 10 * 60 * 1000;
   await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
@@ -1141,4 +1178,183 @@ test("a silent member times out and a person can stop further wakes", async () =
   await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
   expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(3);
   await expect(inbox.stopDiscussion(principal, { threadId })).rejects.toThrow();
+});
+
+test("discussion members post once and lead can close early", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  for (const slug of ["one", "two", "three"]) {
+    const [run] = runsOf(slug);
+    if (!run) {
+      throw new Error("No member run");
+    }
+    const context = {
+      agentId: run.agentId,
+      onBehalfOfUserId: run.onBehalfOfUserId,
+      runId: run.id,
+    };
+    // biome-ignore lint/performance/noAwaitInLoops: exercise a sequential duplicate delivery
+    await inbox.gateway.deliver(
+      { kind: "inbox", threadId },
+      { fileIds: [], text: "Answer" },
+      context
+    );
+    await inbox.gateway.deliver(
+      { kind: "inbox", threadId },
+      { fileIds: [], text: "Duplicate" },
+      context
+    );
+  }
+  expect(
+    (await inbox.readThread(user, { threadId })).posts.filter(
+      (post) => post.text === "Duplicate"
+    )
+  ).toHaveLength(0);
+  const checkpoint = runsOf("lead").at(-1);
+  if (!checkpoint) {
+    throw new Error("No checkpoint");
+  }
+  await inbox.post(
+    { ...principal, runId: checkpoint.id },
+    { text: "/close Enough information.", threadId }
+  );
+  await inbox.sweepDiscussions(SYSTEM_PRINCIPAL);
+  expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(3);
+  expect((await inbox.readThread(user, { threadId })).discussion).toBeNull();
+});
+
+test("discussion starts require a lead room run and serialize concurrent starts", async () => {
+  const { threadId, principal } = await discussionFixture();
+  const input = { question: "Discuss", rounds: 3, topic: threadId };
+  await expect(inbox.startDiscussion(user, input)).rejects.toThrow();
+  const results = await Promise.allSettled([
+    inbox.startDiscussion(principal, input),
+    inbox.startDiscussion(principal, input),
+  ]);
+  expect(
+    results.filter((result) => result.status === "fulfilled")
+  ).toHaveLength(1);
+  expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(3);
+});
+
+test("discussion wakes still obey the hourly agent limit", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await runs.startRun(user, {
+    agentId: agentId("one"),
+    input: { text: "Earlier wake" },
+    session: { externalKey: "earlier", origin: "inbox" },
+  });
+  const [original] = runsOf("one");
+  if (!original) {
+    throw new Error("No earlier wake");
+  }
+  for (let index = 1; index < 10; index += 1) {
+    db.insert(runRows)
+      .values({ ...original, id: `earlier-${index}` })
+      .run();
+  }
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  expect(runsOf("one")).toHaveLength(10);
+  expect(
+    stops().some(
+      (stop) =>
+        stop.agentId === agentId("one") && stop.payload.reason === "budget"
+    )
+  ).toBe(true);
+});
+
+test("the lead checkpoint includes every member's round reply", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 1,
+    topic: threadId,
+  });
+  for (const slug of ["one", "two", "three"]) {
+    const [run] = runsOf(slug);
+    if (!run) {
+      throw new Error("Missing member");
+    }
+    // biome-ignore lint/performance/noAwaitInLoops: complete each member in order
+    await inbox.gateway.deliver(
+      { kind: "inbox", threadId },
+      { fileIds: [], text: `Unique answer from ${slug}` },
+      {
+        agentId: run.agentId,
+        onBehalfOfUserId: run.onBehalfOfUserId,
+        runId: run.id,
+      }
+    );
+  }
+  const checkpoint = runsOf("lead").at(-1);
+  for (const slug of ["one", "two", "three"]) {
+    expect(checkpoint?.inputText).toContain(`Unique answer from ${slug}`);
+  }
+});
+
+test("overlapping timeout sweeps wake the lead once and silent members do not block later rounds", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 3,
+    topic: threadId,
+  });
+  nowMs += 10 * 60 * 1000;
+  await Promise.all([
+    inbox.sweepDiscussions(SYSTEM_PRINCIPAL),
+    inbox.sweepDiscussions(SYSTEM_PRINCIPAL),
+  ]);
+  expect(runsOf("lead")).toHaveLength(2);
+  const checkpoint = runsOf("lead").at(-1);
+  if (!checkpoint) {
+    throw new Error("Missing checkpoint");
+  }
+  await inbox.post(
+    { ...principal, runId: checkpoint.id },
+    { text: "Next question", threadId }
+  );
+  expect(["one", "two", "three"].flatMap(runsOf)).toHaveLength(6);
+});
+
+test("discussion reply deduplication is scoped to its own topic", async () => {
+  const { threadId, principal } = await discussionFixture();
+  await inbox.startDiscussion(principal, {
+    question: "Discuss",
+    rounds: 1,
+    topic: threadId,
+  });
+  const other = await newThread();
+  const [run] = runsOf("one");
+  if (!run) {
+    throw new Error("No member wake");
+  }
+  const member: Principal = {
+    agentId: run.agentId,
+    kind: "run",
+    runId: run.id,
+    workspaceId: WORKSPACE,
+  };
+  await inbox.post(member, { text: "A separate topic", threadId: other });
+  await inbox.gateway.deliver(
+    { kind: "inbox", threadId },
+    { fileIds: [], text: "My discussion answer" },
+    {
+      agentId: run.agentId,
+      onBehalfOfUserId: run.onBehalfOfUserId,
+      runId: run.id,
+    }
+  );
+  expect(
+    (await inbox.readThread(user, { threadId })).posts.some(
+      (post) => post.text === "My discussion answer"
+    )
+  ).toBe(true);
 });

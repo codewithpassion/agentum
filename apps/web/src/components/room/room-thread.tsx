@@ -69,6 +69,21 @@ export function RoomThread({
     onPosted();
   }, [refreshView, onPosted]);
 
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const stopDiscussion = useCallback(async () => {
+    setStopping(true);
+    setStopError(null);
+    try {
+      await getTrpc().inbox.stopDiscussion.mutate({ threadId });
+      refreshView();
+    } catch (cause) {
+      setStopError(errorMessage(cause));
+    } finally {
+      setStopping(false);
+    }
+  }, [refreshView, threadId]);
+
   const [dismissing, setDismissing] = useState(false);
   const [dismissError, setDismissError] = useState<string | null>(null);
   const dismiss = useCallback(async () => {
@@ -98,6 +113,27 @@ export function RoomThread({
       <h2 className="font-heading text-2xl text-foreground">
         {view.data.thread.title}
       </h2>
+      {canPost && view.data.discussion ? (
+        <div className="flex items-center gap-3">
+          <span>
+            Discussion round {view.data.discussion.round} of{" "}
+            {view.data.discussion.rounds}
+          </span>
+          <Button
+            disabled={stopping}
+            onClick={stopDiscussion}
+            size="sm"
+            variant="outline"
+          >
+            Stop discussion
+          </Button>
+        </div>
+      ) : null}
+      {stopError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {stopError}
+        </p>
+      ) : null}
       {canPost && threadWaits(view.data.thread, view.data.posts) ? (
         <div className="flex flex-col gap-2">
           <div>
