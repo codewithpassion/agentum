@@ -144,6 +144,86 @@ impl Remote for LibraryApi {
         Ok(())
     }
 }
+/// A person's private memory file, `agents/<slug>/memory/private/...`, or the folder itself.
+/// Private files never enter a working copy that outlives one run, because a later run for
+/// another person (or for nobody) could read them. The prompt carries the notes instead.
+pub fn is_private_memory(path: &str) -> bool {
+    let mut parts = path.trim_matches('/').split('/');
+    parts.next() == Some("agents")
+        && parts.next().is_some_and(|slug| !slug.is_empty())
+        && parts.next() == Some("memory")
+        && parts.next() == Some("private")
+}
+/// The remote without any private memory file: it lists nothing there, finds nothing and
+/// writes nothing, so a sync in either direction never moves one.
+pub struct WithoutPrivate<R: Remote>(pub R);
+#[async_trait]
+impl<R: Remote> Remote for WithoutPrivate<R> {
+    async fn stat(&self, path: &str) -> Result<Option<Entry>> {
+        if is_private_memory(path) {
+            return Ok(None);
+        }
+        self.0.stat(path).await
+    }
+    async fn list(&self, path: &str) -> Result<Vec<Entry>> {
+        if is_private_memory(path) {
+            return Ok(vec![]);
+        }
+        let mut entries = self.0.list(path).await?;
+        entries.retain(|entry| !is_private_memory(&entry.path));
+        Ok(entries)
+    }
+    async fn read(&self, path: &str) -> Result<Option<(Vec<u8>, String)>> {
+        if is_private_memory(path) {
+            return Ok(None);
+        }
+        self.0.read(path).await
+    }
+    async fn write(
+        &self,
+        path: &str,
+        bytes: Vec<u8>,
+        etag: Option<&str>,
+    ) -> Result<Option<String>> {
+        if is_private_memory(path) {
+            return Err(Failure::local("Private memory never syncs"));
+        }
+        self.0.write(path, bytes, etag).await
+    }
+    async fn remove(&self, path: &str) -> Result<()> {
+        if is_private_memory(path) {
+            return Ok(());
+        }
+        self.0.remove(path).await
+    }
+    async fn conflict(&self, path: &str, copy: &str) -> Result<()> {
+        self.0.conflict(path, copy).await
+    }
+}
+/// Adds the agent's memory folder to the roots as a read root: only the memory service
+/// writes there, so a run's copy follows the library and nothing goes back.
+pub fn with_memory_root(roots: Value, slug: &str) -> Value {
+    let mut roots = roots;
+    if let Some(list) = roots.as_array_mut() {
+        list.push(json!({"path":format!("agents/{slug}/memory"),"mode":"read"}));
+    }
+    roots
+}
+/// Removes every `agents/*/memory/private` folder from the working copy's `library/`. It reads
+/// the disk, not the manifest, so it also catches a file that was edited, made by hand or left
+/// by an older daemon. Errors are not forgiven: a run must not start with a private file in reach.
+pub async fn purge_private(disk: &Disk) -> Result<()> {
+    for (kind, slug) in disk.list("library/agents").await? {
+        if kind != "dir" {
+            continue;
+        }
+        let private = format!("library/agents/{slug}/memory/private");
+        if let Some((kind, _)) = disk.stat(&private).await? {
+            disk.remove(&private, kind == "dir").await?;
+        }
+    }
+    Ok(())
+}
 pub fn hash(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }

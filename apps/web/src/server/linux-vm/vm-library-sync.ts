@@ -4,8 +4,14 @@
  * for `PiRun`. A run copies the agent's folders (its home, the wiki and its
  * grants, each with its access mode) into the VM when it starts, pulls the
  * paths the server announces as changed, and sends the VM's changes back while
- * it runs and when it ends. Read roots are never sent back. No call throws: a
- * failed sync is logged, and the run goes on.
+ * it runs and when it ends. Read roots are never sent back. A failed sync is
+ * logged and the run goes on. The one failure that is not forgiven is removing
+ * private memory files from the copy, because the copy outlives the run.
+ *
+ * A person's private memory files (`agents/<slug>/memory/private/`) never enter
+ * the working copy. Sessions of one agent share it, so a file put there for one
+ * person could be read by the run of another. The run's prompt carries the
+ * person's private notes instead, and the memory folder is a read root.
  */
 
 import type { LibraryAccessGrant } from "@repo/db/shared";
@@ -344,12 +350,85 @@ export const libraryCopyOf = async (
 
 type SyncOps = Pick<LibraryOps, "list" | "read" | "remove" | "stat" | "write">;
 
+/**
+ * Any `agents/<slug>/memory/private` folder and what is in it, whichever agent's
+ * (a grant can cover another agent's home). The same layout as `privateMemoryOwner`
+ * in `@repo/services` `library/memory-paths.ts`, but it also takes the folder itself.
+ */
+const PRIVATE_MEMORY = /^agents\/[^/]+\/memory\/private(?:\/|$)/;
+
+const isPrivateMemory = (path: string): boolean => PRIVATE_MEMORY.test(path);
+
+/** The memory folder of an agent: the memory service writes there, so a run only reads it. */
+const memoryRootOf = (slug: string): LibraryAccessGrant => ({
+  mode: "read",
+  path: `${agentHomePath(slug)}/memory`,
+});
+
+/** The remote port without any private memory file: it lists nothing there, finds nothing and writes nothing. */
+const withoutPrivateMemory = (remote: RemotePort): RemotePort => ({
+  delete: async (path) => {
+    if (!isPrivateMemory(path)) {
+      await remote.delete(path);
+    }
+  },
+  list: async (dir) =>
+    isPrivateMemory(dir)
+      ? []
+      : (await remote.list(dir)).filter(
+          (entry) => !isPrivateMemory(entry.path)
+        ),
+  read: (path) =>
+    isPrivateMemory(path) ? Promise.resolve(null) : remote.read(path),
+  stat: (path) =>
+    isPrivateMemory(path) ? Promise.resolve(null) : remote.stat(path),
+  write: (path, bytes, options) => {
+    if (isPrivateMemory(path)) {
+      return Promise.reject(
+        new Error(`${path} is private memory, which never syncs`)
+      );
+    }
+    return remote.write(path, bytes, options);
+  },
+});
+
 const librarySyncOf = (vm: LinuxVm, ops: SyncOps) =>
   createLibrarySync({
     local: vmLocalPort(vm),
     manifest: vmManifestStore(vm),
-    remote: libraryRemotePort(ops),
+    remote: withoutPrivateMemory(libraryRemotePort(ops)),
   });
+
+/**
+ * Removes every private memory folder from the working copy. It reads the disk,
+ * not the manifest, so it also catches a file that was edited, made by hand or
+ * left by a sync from before private files stayed out. Nothing syncs a file
+ * into those folders, so it needs no lock. Throws when a folder cannot be removed.
+ */
+export const purgePrivateMemory = async (
+  vm: LinuxVm,
+  root = VM_LIBRARY_DIR
+): Promise<void> => {
+  let agents: Awaited<ReturnType<LinuxVm["list"]>>;
+  try {
+    agents = await vm.list(`${root}/agents`);
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return;
+    }
+    throw error;
+  }
+  await Promise.all(
+    agents
+      .filter((entry) => entry.kind === "directory")
+      .map((entry) =>
+        vm.remove(`${root}/agents/${entry.name}/memory/private`, {
+          force: true,
+          recursive: true,
+        })
+      )
+  );
+};
 
 const warnFailed = (
   failed: readonly { path: string }[],
@@ -365,7 +444,11 @@ const warnFailed = (
 /**
  * Copies the agent's library roots into the VM, with the run's task folder
  * made ready in the copy. A root with the `read` mode is pulled and never sent
- * back. Never throws.
+ * back, and the agent's memory folder is one. Private memory files are removed
+ * from the copy first, so a sync that fails or times out still leaves none.
+ * Throws only when that removal fails, so no run starts with another person's
+ * file in reach. A failed sync is logged. `waitMs` is how long to wait for the
+ * lock.
  */
 export const syncLibraryIn = async (input: {
   ops: SyncOps;
@@ -374,9 +457,11 @@ export const syncLibraryIn = async (input: {
   storage: Pick<RunStorage, "get" | "put">;
   taskFolder?: string;
   vm: LinuxVm;
+  waitMs?: number;
 }): Promise<void> => {
+  await purgePrivateMemory(input.vm);
   try {
-    const roots = [...input.roots];
+    const roots = [...input.roots, memoryRootOf(input.slug)];
     const previous = await libraryStateOf(input.storage);
     const conflicts = previous ? previous.conflicts : [];
     const { taskFolder } = input;
@@ -388,17 +473,21 @@ export const syncLibraryIn = async (input: {
       });
     // Saved first, so the end of the run can sync out even when this fails.
     await saved({ conflicts, ready: false });
-    const result = await withLibraryLock(input.vm, async () => {
-      await input.vm.mkdir(`${VM_LIBRARY_DIR}/${agentHomePath(input.slug)}`, {
-        recursive: true,
-      });
-      if (taskFolder !== undefined) {
-        await input.vm.mkdir(`${VM_LIBRARY_DIR}/${taskFolder}`, {
+    const result = await withLibraryLock(
+      input.vm,
+      async () => {
+        await input.vm.mkdir(`${VM_LIBRARY_DIR}/${agentHomePath(input.slug)}`, {
           recursive: true,
         });
-      }
-      return await librarySyncOf(input.vm, input.ops).syncIn({ roots });
-    });
+        if (taskFolder !== undefined) {
+          await input.vm.mkdir(`${VM_LIBRARY_DIR}/${taskFolder}`, {
+            recursive: true,
+          });
+        }
+        return await librarySyncOf(input.vm, input.ops).syncIn({ roots });
+      },
+      input.waitMs === undefined ? {} : { waitMs: input.waitMs }
+    );
     await saved({ conflicts: result.conflicts, ready: true });
     warnFailed(result.failed, "into");
   } catch (error) {

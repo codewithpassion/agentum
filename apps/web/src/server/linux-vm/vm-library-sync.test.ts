@@ -19,7 +19,7 @@ import { librarySyncScope } from "@repo/services/library/sync-paths";
 import { systemClock } from "@repo/services/runs/types";
 import type { Principal } from "@repo/services/workspaces";
 import { asc, eq } from "drizzle-orm";
-import { bytesOf, createFakeVm, textOf } from "./fake-vm.ts";
+import { bytesOf, createFakeVm, type FakeVm, textOf } from "./fake-vm.ts";
 import {
   libraryCopyOf,
   libraryStateOf,
@@ -40,6 +40,8 @@ const START = "2026-10-16T10:00:00.000Z";
 const LIBRARY_VM = "/workspace/library";
 const AGENT_HOME = { mode: "write", path: "agents/ada" } as const;
 const WIKI = { mode: "read", path: "wiki" } as const;
+/** The memory folder every sync in adds last, as a read root. */
+const MEMORY = { mode: "read", path: "agents/ada/memory" } as const;
 
 /** The roots a run starts with: the home, the wiki and the grants. */
 const scope = (grants: LibraryAccessGrant[] = []) =>
@@ -237,7 +239,7 @@ test("sync in copies the agent folder and a named library path, and keeps the re
   expect(await libraryStateOf(storage)).toEqual({
     conflicts: [],
     ready: true,
-    roots: [AGENT_HOME, WIKI, { mode: "read", path: "shared/brand" }],
+    roots: [AGENT_HOME, WIKI, { mode: "read", path: "shared/brand" }, MEMORY],
   });
 });
 
@@ -418,7 +420,7 @@ test("the next run sees the conflict copy, and a second sync out records no new 
   expect(await libraryStateOf(storage)).toEqual({
     conflicts: ["agents/ada/notes.md.conflict-r1"],
     ready: true,
-    roots: [AGENT_HOME, WIKI],
+    roots: [AGENT_HOME, WIKI, MEMORY],
   });
 
   const recordConflict = mock(() => Promise.resolve());
@@ -527,7 +529,11 @@ test("the prompt says nothing about a synced copy until a sync in has finished",
 
   expect(await libraryCopyOf(storage)).toBeUndefined();
   // The roots are kept, so the end of the run can still send the agent's files.
-  expect((await libraryStateOf(storage))?.roots).toEqual([AGENT_HOME, WIKI]);
+  expect((await libraryStateOf(storage))?.roots).toEqual([
+    AGENT_HOME,
+    WIKI,
+    MEMORY,
+  ]);
 });
 
 test("sync out warns and does not throw when the library fails", async () => {
@@ -951,16 +957,11 @@ const writeMemory = async () => {
   await writeMemoryAs("user_b", PRIVATE_B, "b notes");
 };
 
-test("sync in copies only the private memory file of the person the run acts for", async () => {
+test("private memory files never enter the copy, whichever person the run acts for", async () => {
   await writeMemory();
-  const cases = [
-    { absent: [PRIVATE_B], present: [PRIVATE_A], runId: "r-a" },
-    { absent: [PRIVATE_A], present: [PRIVATE_B], runId: "r-b" },
-    { absent: [PRIVATE_A, PRIVATE_B], present: [], runId: "r1" },
-  ];
 
   await Promise.all(
-    cases.map(async ({ absent, present, runId }) => {
+    ["r1", "r-a", "r-b"].map(async (runId) => {
       const vm = createFakeVm();
       await syncLibraryIn({
         ops: opsFor(runAs(runId)),
@@ -973,17 +974,199 @@ test("sync in copies only the private memory file of the person the run acts for
       expect(textOf(vm.files.get(`${LIBRARY_VM}/${PEOPLE_FILE}`))).toBe(
         "people notes"
       );
-      for (const path of present) {
-        expect(vm.files.has(`${LIBRARY_VM}/${path}`)).toBe(true);
-      }
-      for (const path of absent) {
-        expect(vm.files.has(`${LIBRARY_VM}/${path}`)).toBe(false);
-      }
+      expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+      expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_B}`)).toBe(false);
     })
   );
 });
 
-test("a pull of announced paths never copies another person's private file", async () => {
+test("a pull of announced paths never copies a private memory file, whichever person the run acts for", async () => {
+  await writeMemory();
+
+  await Promise.all(
+    ["r1", "r-a", "r-b"].map(async (runId) => {
+      const vm = createFakeVm();
+      const storage = memoryStorage();
+      await syncLibraryIn({
+        ops: opsFor(runAs(runId)),
+        roots: scope(),
+        slug: "ada",
+        storage,
+        vm,
+      });
+      await writeMemoryAs("user_a", PEOPLE_FILE, "people notes v2");
+      await writeMemoryAs("user_a", PRIVATE_A, "a notes v2");
+      await writeMemoryAs("user_b", PRIVATE_B, "b notes v2");
+
+      await syncLibraryPaths({
+        ops: opsFor(runAs(runId)),
+        paths: [PEOPLE_FILE, PRIVATE_A, PRIVATE_B],
+        storage,
+        vm,
+      });
+
+      expect(textOf(vm.files.get(`${LIBRARY_VM}/${PEOPLE_FILE}`))).toBe(
+        "people notes v2"
+      );
+      expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+      expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_B}`)).toBe(false);
+    })
+  );
+});
+
+/** Puts a file in the VM's copy as an earlier sync or a person's edit left it, with its folders. */
+const leftoverIn = async (vm: FakeVm, path: string, text: string) => {
+  const target = `${LIBRARY_VM}/${path}`;
+  await vm.mkdir(target.slice(0, target.lastIndexOf("/")), {
+    recursive: true,
+  });
+  vm.files.set(target, bytes(text));
+};
+
+test("a sync in for one run and then another leaves no private memory file in the shared copy", async () => {
+  await writeMemory();
+  const vm = createFakeVm();
+
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-a")),
+    roots: scope(),
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_B}`)).toBe(false);
+
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-b")),
+    roots: scope(),
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_B}`)).toBe(false);
+});
+
+test("a sync in removes a leftover private memory file that has no manifest entry", async () => {
+  await writeMemory();
+  const vm = createFakeVm();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-a")),
+    roots: scope(),
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+  await leftoverIn(vm, PRIVATE_A, "a edited locally");
+
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-b")),
+    roots: scope(),
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+});
+
+test("a sync in removes a leftover private memory file that was edited locally, manifest entry or not", async () => {
+  await writeMemory();
+  const vm = createFakeVm();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-a")),
+    roots: scope(),
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+  await leftoverIn(vm, PRIVATE_A, "a edited locally");
+  // The manifest knows the file, with a hash the local bytes do not have.
+  await vm.writeFile(
+    VM_LIBRARY_MANIFEST,
+    bytes(
+      JSON.stringify([{ etag: "e1", path: PRIVATE_A, sha256: "0".repeat(64) }])
+    )
+  );
+
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-b")),
+    roots: scope(),
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+});
+
+test("a sync in that times out waiting for the lock still removes a leftover private memory file", async () => {
+  await writeMemory();
+  spyOn(console, "warn").mockImplementation(() => undefined);
+  const vm = createFakeVm();
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-a")),
+    roots: scope(),
+    slug: "ada",
+    storage: memoryStorage(),
+    vm,
+  });
+  await leftoverIn(vm, PRIVATE_A, "a edited locally");
+  await vm.lockLibrary("another-sync", 60_000);
+  const storage = memoryStorage();
+
+  await syncLibraryIn({
+    ops: opsFor(runAs("r-b")),
+    roots: scope(),
+    slug: "ada",
+    storage,
+    vm,
+    waitMs: 0,
+  });
+
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+  expect((await libraryStateOf(storage))?.ready).toBe(false);
+});
+
+test("a sync in that fails at the library still removes a leftover private memory file", async () => {
+  spyOn(console, "warn").mockImplementation(() => undefined);
+  const vm = createFakeVm();
+  await leftoverIn(vm, PRIVATE_A, "a edited locally");
+
+  await expect(
+    syncLibraryIn({
+      ops: {
+        ...opsFor(runAs("r-b")),
+        list: () => Promise.reject(new Error("down")),
+      },
+      roots: scope(),
+      slug: "ada",
+      storage: memoryStorage(),
+      vm,
+    })
+  ).resolves.toBeUndefined();
+
+  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_A}`)).toBe(false);
+});
+
+test("a sync in rejects when a private memory folder cannot be removed", async () => {
+  const vm = createFakeVm();
+  await leftoverIn(vm, PRIVATE_A, "a edited locally");
+  vm.remove = () => Promise.reject(new Error("disk"));
+
+  await expect(
+    syncLibraryIn({
+      ops: opsFor(runAs("r-b")),
+      roots: scope(),
+      slug: "ada",
+      storage: memoryStorage(),
+      vm,
+    })
+  ).rejects.toThrow();
+});
+
+test("the memory folder is a read root: a local edit to a people file is replaced and never sent back", async () => {
   await writeMemory();
   const vm = createFakeVm();
   const storage = memoryStorage();
@@ -994,16 +1177,31 @@ test("a pull of announced paths never copies another person's private file", asy
     storage,
     vm,
   });
-  await writeMemoryAs("user_a", PRIVATE_A, "a notes v2");
-  await writeMemoryAs("user_b", PRIVATE_B, "b notes v2");
+  expect((await libraryStateOf(storage))?.roots).toEqual([
+    AGENT_HOME,
+    WIKI,
+    MEMORY,
+  ]);
 
-  await syncLibraryPaths({
+  vm.files.set(`${LIBRARY_VM}/${PEOPLE_FILE}`, bytes("local edit"));
+  await syncLibraryIn({
     ops: opsFor(runAs("r-a")),
-    paths: [PRIVATE_A, PRIVATE_B],
+    roots: scope(),
+    slug: "ada",
     storage,
     vm,
   });
+  expect(textOf(vm.files.get(`${LIBRARY_VM}/${PEOPLE_FILE}`))).toBe(
+    "people notes"
+  );
 
-  expect(textOf(vm.files.get(`${LIBRARY_VM}/${PRIVATE_A}`))).toBe("a notes v2");
-  expect(vm.files.has(`${LIBRARY_VM}/${PRIVATE_B}`)).toBe(false);
+  vm.files.set(`${LIBRARY_VM}/${PEOPLE_FILE}`, bytes("local edit"));
+  await syncLibraryOut({
+    ops: opsFor(runAs("r-a")),
+    recordConflict: () => Promise.resolve(),
+    runId: "r-a",
+    storage,
+    vm,
+  });
+  expect(await readText(PEOPLE_FILE)).toBe("people notes");
 });
