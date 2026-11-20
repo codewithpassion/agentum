@@ -36,3 +36,4 @@ From the SL gate review, round 1 (`docs/reviews/SL-1.md`, must-fix 2).
 - 2026-11-21: dispatched.
 - 2026-11-21: review clean with no fix rounds. Browser proof failed on the non-admin path (the verifier only signed in as admin). Sent back to sign in as the existing plain member with agent-login, as KY.10 did. Private channels are admin-only, as the controller decided.
 - 2026-11-21: browser re-run as the plain member passed at both sizes, admin path too. Ready at 2e23a52a.
+- 2026-11-21: merge conflict with SL.12 in slack-room-flow.test.ts. Sent back to merge main.
