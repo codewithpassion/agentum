@@ -493,12 +493,21 @@ test("tags a mail reply inside a person's session, and a run a peer started down
     actorKind: "trigger",
     runId: "r_mail_reply",
   });
+  w.message("assistant in mail run", 2, SESSION.privateA, {
+    actorId: AGENT,
+    actorKind: "agent",
+    runId: "r_mail_reply",
+    type: "message.assistant",
+  });
   w.db
     .update(runs)
     .set({ finishedAt: at(4), resultText: "child result", status: "done" })
     .where(eq(runs.id, "r_peer_child"))
     .run();
   const { items } = await w.collectSince(AGENT, SINCE);
+  expect(
+    items.find((item) => item.text === "assistant in mail run")?.scope
+  ).toBe("outside");
   const scopes = Object.fromEntries(
     items.map((item) => [item.sourceId, item.scope])
   );

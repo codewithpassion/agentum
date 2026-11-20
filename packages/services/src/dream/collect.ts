@@ -292,7 +292,10 @@ const collectResend = async (
   }
   const prior = await priorUserMessage(c, event);
   const priorRun = prior?.runId ? c.runById.get(prior.runId) : undefined;
-  if (!(prior && priorRun && isResend(prior, priorRun, event))) {
+  if (
+    !(prior && priorRun && isResend(prior, priorRun, event)) ||
+    priorRun.dryRun
+  ) {
     return;
   }
   c.add({
@@ -324,11 +327,18 @@ const collectMessages = async (c: Collection) => {
     // biome-ignore lint/performance/noAwaitInLoops: one payload read per message, in order
     const text = await textOf(c, event);
     const run = event.runId ? c.runById.get(event.runId) : undefined;
-    const tags = tagsFor(
+    const own = tagsFor(
       c.sessionById.get(sessionId),
       event.actor,
       await isPeerRooted(c, run)
     );
+    // The run's own actor counts too: an assistant message of a mail-reply
+    // run has the agent as its actor, but the run was started by outside mail.
+    const tags: Tags =
+      own.scope !== "outside" &&
+      (await runTags(c, event.runId)).scope === "outside"
+        ? { ...own, scope: "outside" }
+        : own;
     c.add({
       ...tags,
       createdAt: event.createdAt,
@@ -447,6 +457,12 @@ const collectRejections = async (c: Collection) => {
     }
   }
   for (const { version, event } of newest.values()) {
+    const authorRun = version.authorRunId
+      ? c.runById.get(version.authorRunId)
+      : undefined;
+    if (authorRun?.dryRun) {
+      continue;
+    }
     // biome-ignore lint/performance/noAwaitInLoops: tags are cached per run
     const tags = await runTags(c, version.authorRunId);
     c.add({
