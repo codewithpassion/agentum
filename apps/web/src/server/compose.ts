@@ -1251,9 +1251,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     desk,
-    managedKeys,
     members,
-    modelKeys,
     people: infra.people,
   });
   const agentBuilder = createAgentBuilderService({

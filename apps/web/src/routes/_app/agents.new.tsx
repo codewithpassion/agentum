@@ -1,4 +1,9 @@
-import type { AgentTemplateId, ProfileGap, VoicePreset } from "@repo/db/shared";
+import {
+  AGENT_TEMPLATE_IDS,
+  type AgentTemplateId,
+  type ProfileGap,
+  type VoicePreset,
+} from "@repo/db/shared";
 import type {
   AgentDraft,
   BuilderCatalog,
@@ -10,7 +15,8 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import {
   addressSuggestion,
   applyEdit,
@@ -45,7 +51,13 @@ import { errorMessage } from "#/lib/error-message";
 
 export const PAGE_HEADING = "New agent";
 
+// `template` is a template the Home first-run guide picked: it loads straight into the review screen.
+const searchSchema = z.object({
+  template: z.enum(AGENT_TEMPLATE_IDS).optional().catch(undefined),
+});
+
 export const Route = createFileRoute("/_app/agents/new")({
+  validateSearch: (search) => searchSchema.parse(search),
   loader: async () =>
     loadOrLogin(async () => ({
       catalog: await getTrpc().agentBuilder.catalog.query(),
@@ -102,7 +114,13 @@ function BlankAgent({ catalog }: { catalog: BuilderCatalog }) {
   );
 }
 
-function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
+function DescribeAgent({
+  catalog,
+  initialTemplate,
+}: {
+  catalog: BuilderCatalog;
+  initialTemplate: AgentTemplateId | undefined;
+}) {
   const [description, setDescription] = useState("");
   // Storage is read after mount, so the first render matches the server.
   const [restored, setRestored] = useState(false);
@@ -163,6 +181,16 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
     },
     [dictating, busy, pending]
   );
+
+  // A template named in the URL loads once, as a click on its card would.
+  const pickedFromUrl = useRef(false);
+  useEffect(() => {
+    if (initialTemplate === undefined || pickedFromUrl.current) {
+      return;
+    }
+    pickedFromUrl.current = true;
+    pickTemplate(initialTemplate);
+  }, [initialTemplate, pickTemplate]);
 
   const edit = useCallback(
     (patch: Partial<AgentDraft>) => {
@@ -397,6 +425,7 @@ function DescribeAgent({ catalog }: { catalog: BuilderCatalog }) {
 
 function NewAgent() {
   const { catalog } = Route.useLoaderData();
+  const { template } = Route.useSearch();
   const [blank, setBlank] = useState(false);
   const showBlank = useCallback(() => setBlank(true), []);
   const showDescribe = useCallback(() => setBlank(false), []);
@@ -435,7 +464,7 @@ function NewAgent() {
       </div>
       {/* Both sides stay mounted, so neither loses its input when you switch. */}
       <div hidden={blank}>
-        <DescribeAgent catalog={catalog} />
+        <DescribeAgent catalog={catalog} initialTemplate={template} />
       </div>
     </section>
   );

@@ -21,7 +21,7 @@ import { FindDialog } from "./find-dialog.tsx";
 import { RailFooter } from "./rail-footer.tsx";
 import { RailHeaderActions } from "./rail-header-actions.tsx";
 import { RailLink } from "./rail-link.tsx";
-import { NeedsYouRow, SetupRow } from "./rail-needs-you.tsx";
+import { NeedsYouRow } from "./rail-needs-you.tsx";
 import { RailQuestions } from "./rail-questions.tsx";
 import { ScopeToggle } from "./rail-scope-toggle.tsx";
 import { WorkingList } from "./rail-working.tsx";
@@ -110,13 +110,12 @@ export function Rail({ agents, pinned = [] }: RailProps) {
   const now = new Date();
   // A failed member lookup keeps the toggle: hiding it would hide Everyone.
   const showToggle = members === null || members.length > 1;
-  const setup = view?.setup ?? [];
   const working = view?.working ?? [];
   const control = useTaskControl();
   const actionable = needsYou.filter(
     (item) => !item.cards.some((card) => card.id === control?.requestId)
   );
-  const waiting = actionable.length + setup.length;
+  const waiting = actionable.length;
   const waitingLabel = view === null ? "" : String(waiting);
 
   return (
@@ -148,9 +147,6 @@ export function Rail({ agents, pinned = [] }: RailProps) {
             <span>{waitingLabel}</span>
           </h2>
           <div className="flex flex-col gap-1.5">
-            {setup.map((step) => (
-              <SetupRow key={step} onNavigate={closeMobileNav} step={step} />
-            ))}
             {actionable.map((item) => (
               <NeedsYouRow
                 fresh={fresh.has(item.id)}
