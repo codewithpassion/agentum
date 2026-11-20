@@ -455,3 +455,73 @@ test("a failed commit rolls every memory file back and removes the new ones", as
   expect(entryPaths()).not.toContain(INDEX);
   expect(versionsOf(PEOPLE)).toHaveLength(1);
 });
+
+test("a routine run and a run for another person see no private memory file", async () => {
+  await service.writeMemoryFiles(
+    user("user_a"),
+    [{ bytes: bytes("a notes"), path: PRIVATE_A }],
+    () => []
+  );
+  const [version] = await service.versions(user("user_a"), PRIVATE_A);
+  expect(version).toBeDefined();
+  const versionId = version?.id ?? "";
+
+  const expectHidden = async (principal: Principal) => {
+    expect(await service.list(principal, `${MEMORY}/private`)).toEqual([]);
+    expect(await errorOf(service.stat(principal, PRIVATE_A))).toMatchObject({
+      code: "not_found",
+    });
+    expect(await errorOf(service.versions(principal, PRIVATE_A))).toMatchObject(
+      { code: "not_found" }
+    );
+    expect(
+      await errorOf(service.readVersion(principal, versionId))
+    ).toMatchObject({ code: "not_found" });
+    expect(
+      (await service.list(principal, MEMORY)).map((entry) => entry.path)
+    ).toEqual([`${MEMORY}/private`]);
+  };
+
+  await expectHidden(runAs(RUN));
+  await expectHidden(runAs(RUN_FOR_B));
+});
+
+test("a run for the person reads their private file's history", async () => {
+  await service.writeMemoryFiles(
+    user("user_a"),
+    [{ bytes: bytes("a notes"), path: PRIVATE_A }],
+    () => []
+  );
+  const history = await service.versions(runAs(RUN_FOR_A), PRIVATE_A);
+  const [latest] = history;
+
+  expect(history.length).toBeGreaterThanOrEqual(1);
+  expect(latest).toBeDefined();
+  expect(
+    decode(
+      (await service.readVersion(runAs(RUN_FOR_A), latest?.id ?? "")).bytes
+    )
+  ).toBe("a notes");
+  expect((await service.stat(runAs(RUN_FOR_A), PRIVATE_A)).path).toBe(
+    PRIVATE_A
+  );
+});
+
+test("a run for another person cannot list a private file through the agent home", async () => {
+  await service.writeMemoryFiles(
+    user("user_a"),
+    [{ bytes: bytes("a notes"), path: PRIVATE_A }],
+    () => []
+  );
+
+  expect(
+    (await service.list(runAs(RUN_FOR_B), "agents/scout")).map(
+      (entry) => entry.path
+    )
+  ).not.toContain(PRIVATE_A);
+  expect(
+    await errorOf(service.read(runAs(RUN_FOR_B), PRIVATE_A))
+  ).toMatchObject({
+    code: "not_found",
+  });
+});

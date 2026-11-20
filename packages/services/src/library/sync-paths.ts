@@ -1,5 +1,8 @@
 // The library folders an agent syncs into its working copy: its home, the wiki
-// and its grants (`librarySyncScope`).
+// and its grants (`librarySyncScope`). The roots are whole folders. A person's
+// private memory file inside them is hidden per run by the library service
+// (`mayReadMemoryPath`), so every sync, which reads through the service, leaves
+// out the files of other people and a run with no person gets none.
 import type { LibraryAccessGrant } from "@repo/db/shared";
 import { agentHomePath } from "./home.ts";
 import { normalizePath } from "./path.ts";
