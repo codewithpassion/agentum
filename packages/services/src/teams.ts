@@ -5,6 +5,8 @@ import {
   TEAM_MEMBER_KINDS,
   type Team,
   type TeamMember,
+  type TeamSlackLink,
+  type TeamSlackStatus,
 } from "@repo/db/shared";
 import { z } from "zod";
 import { slugSchema } from "./agents.ts";
@@ -92,6 +94,14 @@ export const profileSetInputSchema = z.strictObject({
   name: nameSchema,
 });
 
+/** Links the team's room to one Slack channel. Fails when the team or the channel is already linked. */
+export const slackLinkInputSchema = z.strictObject({
+  channelId: idString,
+  slackTeamId: idString,
+  teamId: idString,
+});
+
+export type SlackLinkInput = z.input<typeof slackLinkInputSchema>;
 export type TeamCreateInput = z.input<typeof teamCreateInputSchema>;
 export type TeamUpdateInput = z.input<typeof teamUpdateInputSchema>;
 export type TeamMemberInput = z.input<typeof teamMemberInputSchema>;
@@ -117,7 +127,7 @@ const noTeam = (teamId: string) =>
   Promise.reject(new ServiceError("not_found", `No team "${teamId}"`));
 
 /**
- * Stub: no team is listed, and a read or a change finds no team. The teams
+ * Stub: the Slack link calls (`slack.link`, `slack.unlink`, `slack.status`) are stubs too, and the Slack service task fills them. No team is listed, and a read or a change finds no team. The teams
  * service task fills these from the `teams`, `team_members` and
  * `member_profiles` tables. It takes the dependencies it will need, so wiring
  * it in `compose.ts` is already final.
@@ -195,6 +205,30 @@ export const createTeamsService = (_deps: TeamsDeps) => {
     return noTeam(input.teamId);
   };
 
+  const linkSlack = (
+    principal: Principal,
+    input: SlackLinkInput
+  ): Promise<TeamSlackLink> => {
+    const workspaceId = readableWorkspace(principal, TEAMS_WRITE);
+    authorize(principal, TEAMS_WRITE, teamResource(workspaceId, input.teamId));
+    return noTeam(input.teamId);
+  };
+
+  const unlinkSlack = (principal: Principal, teamId: string): Promise<void> => {
+    const workspaceId = readableWorkspace(principal, TEAMS_WRITE);
+    authorize(principal, TEAMS_WRITE, teamResource(workspaceId, teamId));
+    return noTeam(teamId);
+  };
+
+  const slackStatus = (
+    principal: Principal,
+    teamId: string
+  ): Promise<TeamSlackStatus> => {
+    const workspaceId = readableWorkspace(principal, TEAMS_READ);
+    authorize(principal, TEAMS_READ, teamResource(workspaceId, teamId));
+    return noTeam(teamId);
+  };
+
   const getProfile = (
     principal: Principal,
     _input: ProfileGetInput
@@ -223,6 +257,7 @@ export const createTeamsService = (_deps: TeamsDeps) => {
     removeMember,
     setLead,
     setRules,
+    slack: { link: linkSlack, status: slackStatus, unlink: unlinkSlack },
     update,
   };
 };
