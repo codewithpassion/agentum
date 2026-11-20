@@ -3,7 +3,7 @@ id: FR.3
 title: "First run: add your AI account on the home page"
 milestone: FR
 size: S
-status: in_progress
+status: done
 depends_on: [RH.3]
 branch: task/FR.3-first-run-guide
 lane: web-home
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone FR. A new workspace needs a model key be
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/FR.3-first-run-guide (v4 controller session).
+- 2026-11-20: merged as 25330de3, review clean after 0 fix rounds. Browser proof passed at both sizes: docs/reviews/tasks/FR.3/browser.md. check, test and build passed on main. It removed the unused RailView.setup from packages/db/src/shared.ts, a contract file.
