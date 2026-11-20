@@ -5,7 +5,7 @@ import {
 } from "#/components/shell/agent-tile.ts";
 import { cn } from "#/lib/utils";
 import { RailLink } from "./rail-link.tsx";
-import { dueLabel, extraCardsLabel } from "./rail-logic.ts";
+import { dueLabel, extraCardsLabel, rowDetail } from "./rail-logic.ts";
 
 const ROW_CLASS =
   "block min-h-10 rounded-lg border border-border border-l-[3px] bg-card px-2.5 py-2 text-sm no-underline hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-foreground focus-visible:outline-offset-2";
@@ -66,7 +66,7 @@ export function NeedsYouRow({
         {due === null ? null : (
           <span className="font-medium text-primary">{due}</span>
         )}
-        <span>{first.status}</span>
+        <span>{rowDetail(first)}</span>
         {first.passedOnBy === null ? null : (
           <span>passed on by {first.passedOnBy}</span>
         )}
