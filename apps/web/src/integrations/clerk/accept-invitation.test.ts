@@ -11,7 +11,7 @@ test("a signed-in session activates the inviting organisation", () => {
     invitationStep({ search: { org: "org_a", ticket: "t" }, signedIn: true })
   ).toEqual({ kind: "activate", org: "org_a" });
   expect(invitationStep({ search: {}, signedIn: true })).toEqual({
-    kind: "desk",
+    kind: "home",
   });
 });
 
