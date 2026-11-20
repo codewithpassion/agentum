@@ -23,6 +23,7 @@ import {
 import { invalid, notFound, ServiceError } from "./errors.ts";
 import type { EventsService } from "./events.ts";
 import { readableWorkspace } from "./guards.ts";
+import type { JobDrafter } from "./job-drafting/draft.ts";
 import { jobLineFor } from "./roster.ts";
 import { nextFireTime } from "./routines/cron.ts";
 import { cronToWords } from "./routines/cron-to-words.ts";
@@ -128,12 +129,14 @@ const whenFor = (
 export const createJobsService = ({
   db,
   clock,
+  drafter,
   events,
   runs: runsService,
   mailDomain,
 }: {
   db: Database;
   clock: Clock;
+  drafter: JobDrafter;
   events: EventsService;
   runs: RunsService;
   mailDomain?: string;
@@ -300,15 +303,7 @@ export const createJobsService = ({
       kind: JOBS_KIND,
       workspaceId,
     });
-    return Promise.resolve({
-      asksBefore: null,
-      cron: null,
-      deliversTo: null,
-      does: text,
-      source: "app",
-      timezone: null,
-      when: "",
-    });
+    return drafter.draft(principal, agentId, text);
   };
 
   const runNow = async (
