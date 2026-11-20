@@ -27,9 +27,12 @@ const NO_BACKUP = "__no_backup__";
 
 export function AsksRow({
   agent,
+  canChange,
   members,
 }: {
   agent: AgentRecord;
+  /** Whether the person may change the owners: the agent's owner or an org admin. */
+  canChange: boolean;
   members: WorkspaceMember[] | null;
 }) {
   if (members === null) {
@@ -38,14 +41,16 @@ export function AsksRow({
   if (!canPick(members)) {
     return <p>{members[0]?.name ?? "Nobody"}</p>;
   }
-  return <AsksSelects agent={agent} members={members} />;
+  return <AsksSelects agent={agent} canChange={canChange} members={members} />;
 }
 
 function AsksSelects({
   agent,
+  canChange,
   members,
 }: {
   agent: AgentRecord;
+  canChange: boolean;
   members: WorkspaceMember[];
 }) {
   const router = useRouter();
@@ -113,7 +118,7 @@ function AsksSelects({
         <div className="grid gap-1">
           <Label htmlFor={ownerSelectId}>Owner</Label>
           <Select
-            disabled={saving}
+            disabled={saving || !canChange}
             onValueChange={changeOwner}
             value={ownerKnown ? owner : NOBODY}
           >
@@ -137,7 +142,7 @@ function AsksSelects({
         <div className="grid gap-1">
           <Label htmlFor={backupSelectId}>Backup</Label>
           <Select
-            disabled={saving}
+            disabled={saving || !canChange}
             onValueChange={changeBackup}
             value={backupValue}
           >
