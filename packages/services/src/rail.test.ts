@@ -1499,3 +1499,52 @@ test("a dream question card keeps its options on the rail card", async () => {
     title: "Alpha has a question from its dream",
   });
 });
+
+test("a held dream card keeps its dream run on the rail card", async () => {
+  const heldCard: DeskCard = {
+    agentId: a1,
+    at: new Date(now).toISOString(),
+    band: { text: "Wants to add 2 notes.", tone: "waiting" },
+    dreamHeld: { dreamRunId: "dream-1" },
+    id: "dream-1",
+    kind: "proposal",
+    lane: "needs_you",
+    needsYouKind: "dream_held",
+    startedBy: "u1",
+    title: "Dream changes wait for your approval",
+  };
+  const withHeld: typeof desk = {
+    ...desk,
+    railSources: async (principal, input) => {
+      const sources = await desk.railSources(principal, input);
+      return { ...sources, needsYou: [heldCard, ...sources.needsYou] };
+    },
+  };
+  const heldRail = createRailService({
+    agents,
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    desk: withHeld,
+    members: createMembersService({
+      db,
+      lister: () =>
+        memberList === null
+          ? Promise.reject(new Error("Clerk is down"))
+          : Promise.resolve(memberList),
+    }),
+    people: (ids) => (people ? people(ids) : Promise.resolve(new Map())),
+  });
+
+  const result = await heldRail.get(user(), {
+    dayStart: DAY_START,
+    scope: "mine",
+  });
+  const cards = result.needsYou.flatMap((item) => item.cards);
+  expect(cards.find(({ id }) => id === "dream-1")).toMatchObject({
+    dreamHeld: { dreamRunId: "dream-1" },
+    kind: "dream_held",
+    status: "Waiting for your approval",
+    title: "Alpha has dream changes waiting for your approval",
+  });
+});

@@ -10,6 +10,7 @@ import {
   RUN_STATUS_LABELS,
   SCHEDULE_OPTIONS,
   sortRuns,
+  wasRejected,
 } from "./dream-logic.ts";
 
 // Built from local parts, because "today", "yesterday" and the 6 o'clock cut-off are local.
@@ -30,6 +31,7 @@ function makeRun(overrides: Partial<DreamRun>): DreamRun {
     diary: "",
     error: null,
     finishedAt: null,
+    heldChanges: 0,
     id: "run-1",
     resultVersion: null,
     since: null,
@@ -107,11 +109,35 @@ test("dreamCardState maps running, skipped, failed and undone to their own kind"
 test("dreamCardState of a done run carries its question count", () => {
   const run = makeRun({
     counts: { added: 1, dropped: 0, merged: 0, questions: 3 },
+    resultVersion: "v1",
     status: "done",
   });
   expect(dreamCardState([run])).toEqual({
     kind: "done",
     questions: 3,
+    run,
+  });
+});
+
+test("dreamCardState of a done run with held changes is held", () => {
+  const run = makeRun({
+    counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+    heldChanges: 2,
+    status: "done",
+  });
+  expect(dreamCardState([run])).toEqual({ kind: "held", run });
+});
+
+test("dreamCardState of a done run with no held changes is done", () => {
+  const run = makeRun({
+    counts: { added: 1, dropped: 0, merged: 0, questions: 0 },
+    heldChanges: 0,
+    resultVersion: "v1",
+    status: "done",
+  });
+  expect(dreamCardState([run])).toEqual({
+    kind: "done",
+    questions: 0,
     run,
   });
 });
@@ -259,17 +285,44 @@ test("dreamTitle gives the day count for older dreams", () => {
 test("canUndoRun is true only for a done run that changed notes", () => {
   const changed = { added: 1, dropped: 0, merged: 0, questions: 0 };
   for (const status of ALL_STATUSES) {
-    expect(canUndoRun(makeRun({ counts: changed, status }))).toBe(
-      status === "done"
-    );
+    expect(
+      canUndoRun(
+        makeRun({ counts: changed, resultVersion: "version-1", status })
+      )
+    ).toBe(status === "done");
   }
-  expect(canUndoRun(makeRun({ status: "done" }))).toBe(false);
+  expect(
+    canUndoRun(makeRun({ resultVersion: "version-1", status: "done" }))
+  ).toBe(false);
   expect(
     canUndoRun(
       makeRun({
         counts: { added: 0, dropped: 0, merged: 0, questions: 3 },
         status: "done",
       })
+    )
+  ).toBe(false);
+});
+
+test("canUndoRun is false for a held run, whose changes were never written", () => {
+  const changed = { added: 1, dropped: 0, merged: 0, questions: 0 };
+  expect(
+    canUndoRun(
+      makeRun({
+        counts: changed,
+        heldChanges: 2,
+        resultVersion: "version-1",
+        status: "done",
+      })
+    )
+  ).toBe(false);
+});
+
+test("canUndoRun is false for a run with no result version", () => {
+  const changed = { added: 1, dropped: 0, merged: 0, questions: 0 };
+  expect(
+    canUndoRun(
+      makeRun({ counts: changed, resultVersion: null, status: "done" })
     )
   ).toBe(false);
 });
@@ -302,4 +355,25 @@ test("SCHEDULE_OPTIONS lists nightly, weekly and off in that order", () => {
       value: "off",
     },
   ]);
+});
+
+test("a dream that proposed changes, holds none and wrote nothing was rejected", () => {
+  const rejected = makeRun({
+    counts: { ...ZERO_COUNTS, added: 1 },
+    status: "done",
+  });
+  expect(wasRejected(rejected)).toBe(true);
+  expect(dreamCardState([rejected]).kind).toBe("rejected");
+  expect(canUndoRun(rejected)).toBe(false);
+});
+
+test("an applied, held or empty dream was not rejected", () => {
+  const added = { ...ZERO_COUNTS, added: 1 };
+  expect(
+    wasRejected(makeRun({ counts: added, resultVersion: "v1", status: "done" }))
+  ).toBe(false);
+  expect(
+    wasRejected(makeRun({ counts: added, heldChanges: 1, status: "done" }))
+  ).toBe(false);
+  expect(wasRejected(makeRun({ status: "done" }))).toBe(false);
 });

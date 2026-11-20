@@ -1626,7 +1626,7 @@ test("a dream question about a private note shows only to its person", async () 
   expect(await desk.needsYouCount(user("u2"))).toBe(0);
 });
 
-test("a held memory change from a dream waits as the dream's question, not as a note card", async () => {
+test("a held memory change from a dream waits as the dream's batch, not as a note card", async () => {
   await insertDreamRun();
   const createdAt = new Date(NOW).toISOString();
   await db.insert(memoryChanges).values([
@@ -1660,6 +1660,91 @@ test("a held memory change from a dream waits as the dream's question, not as a 
 
   const cards = (await get()).needsYou;
 
-  expect(ids(cards)).toEqual(["agent-note"]);
-  expect(cards[0]).toMatchObject({ needsYouKind: "memory_note" });
+  expect(ids(cards).sort()).toEqual(["agent-note", DREAM_RUN]);
+  expect(cards.find((card) => card.id === "agent-note")).toMatchObject({
+    needsYouKind: "memory_note",
+  });
+});
+
+const heldRow = (
+  row: Partial<typeof memoryChanges.$inferInsert> = {}
+): typeof memoryChanges.$inferInsert => ({
+  action: "add",
+  agentId: a1,
+  createdAt: new Date(NOW).toISOString(),
+  dreamRunId: DREAM_RUN,
+  id: "held1",
+  kind: "work",
+  noteId: "note-held",
+  status: "held",
+  text: "Held note",
+  workspaceId: "w1",
+  writtenBy: "dream",
+  ...row,
+});
+
+test("a held dream batch is one Needs you card that opens the dream", async () => {
+  await insertDreamRun();
+  await db
+    .insert(memoryChanges)
+    .values([heldRow(), heldRow({ id: "held2", noteId: "note-held2" })]);
+
+  const cards = (await get()).needsYou;
+
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toMatchObject({
+    agentId: a1,
+    dreamHeld: { dreamRunId: DREAM_RUN },
+    id: DREAM_RUN,
+    kind: "proposal",
+    needsYouKind: "dream_held",
+  });
+  expect(await desk.needsYouCount(user())).toBe(1);
+});
+
+test("a held dream batch shows to the agent's owner and to an admin, not to another member", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(heldRow());
+
+  expect((await get({}, user("u2"))).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(0);
+  const admin = { ...user("u2"), isAdmin: true };
+  expect(ids((await get({}, admin)).needsYou)).toEqual([DREAM_RUN]);
+});
+
+test("a decided dream batch leaves Needs you", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(
+    heldRow({
+      decidedAt: new Date(NOW).toISOString(),
+      decidedBy: "u1",
+      status: "rejected",
+    })
+  );
+
+  expect((await get()).needsYou).toEqual([]);
+});
+
+test("a held dream batch of an agent with no owner shows to its creator only", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(heldRow());
+  await db
+    .update(agentRows)
+    .set({ ownerUserId: null })
+    .where(eq(agentRows.id, a1));
+
+  expect(ids((await get()).needsYou)).toEqual([DREAM_RUN]);
+  expect((await get({}, user("u2"))).needsYou).toEqual([]);
+});
+
+test("a held dream batch of an archived agent, or of another workspace's agent, is not in Needs you", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(heldRow());
+  await db
+    .update(agentRows)
+    .set({ status: "archived" })
+    .where(eq(agentRows.id, a1));
+
+  expect((await get()).needsYou).toEqual([]);
+  expect((await get({}, user("u1", "w2"))).needsYou).toEqual([]);
 });

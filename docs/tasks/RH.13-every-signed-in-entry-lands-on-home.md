@@ -3,9 +3,9 @@ id: RH.13
 title: "Every signed-in entry lands on home"
 milestone: RH
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/RH.13-every-signed-in-entry-lands-on-home
 lane: web-shell
 executor: claude
 ---
@@ -24,3 +24,4 @@ From the RH gate review, round 1 (`docs/reviews/RH-1.md`, must-fix 2).
 
 ## Log
 - 2026-11-20: added from the RH gate review, round 1.
+- 2026-11-20: dispatched on task/RH.13-every-signed-in-entry-lands-on-home (v4 controller session).

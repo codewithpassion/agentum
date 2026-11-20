@@ -759,6 +759,7 @@ export const NEEDS_YOU_KINDS = [
   "memory_note",
   "spend_pause",
   "dream_question",
+  "dream_held",
   "decisions",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
@@ -774,6 +775,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   artifact_grant: (name) => `${name} asks for app permissions`,
   connector_secret: (name) => `${name} needs a connector secret`,
   decisions: (name) => `${name} has decisions waiting`,
+  dream_held: (name) => `${name} has dream changes waiting for your approval`,
   dream_question: (name) => `${name} has a question from its dream`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
@@ -825,6 +827,8 @@ export interface RailCard {
   detail: string;
   /** Set on `dream_question`: the question and the notes to choose between. */
   dream?: DreamNeedsYou;
+  /** Set on `dream_held`: the dream whose changes wait for approval. */
+  dreamHeld?: DreamHeldNeedsYou;
   expiresAt: string | null;
   /** The source card's id, so request ids stay answerable. */
   id: string;
@@ -974,6 +978,8 @@ export interface DeskCard {
   band: StatusBand;
   /** Set on a `dream_question` card. */
   dream?: DreamNeedsYou;
+  /** Set on a `dream_held` card. */
+  dreamHeld?: DreamHeldNeedsYou;
   /** Set on a `memory_note` card of a private note: the person it belongs to, who alone can decide it. */
   forUserId?: string;
   id: string;
@@ -1649,6 +1655,8 @@ export interface DreamRun {
   /** Why the run `failed`. Null otherwise. */
   error: string | null;
   finishedAt: string | null;
+  /** How many of its changes still wait for the owner's approval. Zero once decided, and on a dream that held nothing. */
+  heldChanges: number;
   id: string;
   /** The library version id the dream wrote last, or null when it wrote nothing. A dream may write several files; every version it wrote is on a `memory_changes` row that names it. */
   resultVersion: string | null;
@@ -1696,6 +1704,11 @@ export interface DreamNeedsYou {
   options: DreamQuestionOption[];
   question: string;
   questionId: string;
+}
+
+/** What a `dream_held` Needs you card holds: the dream whose batch waits for its owner. */
+export interface DreamHeldNeedsYou {
+  dreamRunId: string;
 }
 
 /** What a person decides on a dream held by the `ask_first` learn level: all of its changes, or none. */

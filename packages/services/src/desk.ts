@@ -56,6 +56,7 @@ import { z } from "zod";
 import type { A2aNeedsYouSource } from "./a2a/needs-you.ts";
 import { replacementVersions } from "./artifacts/replacements.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
+import { heldBatchesFor } from "./dream/held.ts";
 import { readOptions } from "./dream/question-options.ts";
 import { personLabel } from "./events/summary.ts";
 import type { PeopleLookup } from "./events.ts";
@@ -208,6 +209,9 @@ type Draft = Omit<DeskCard, "startedBy"> & { starter: Starter };
 
 /** What a `spend_pause` card says under its heading. */
 const SPEND_PAUSE_BAND = "Paused at its weekly limit";
+
+/** What a `dream_held` card says when the dream wrote no diary line. */
+const HELD_DREAM_BAND = "Dream changes wait for your approval";
 
 /** The title of a card for a GitHub update that a person proposed. */
 const GITHUB_UPDATE_TITLE = "Update from GitHub to review";
@@ -469,6 +473,7 @@ export const createDeskService = ({
       suggestions,
       heldNotes,
       dreamRows,
+      heldDreams,
       a2aList,
       spendPauses,
     ] = await Promise.all([
@@ -526,6 +531,7 @@ export const createDeskService = ({
             isNotNull(dreamQuestions.agentId)
           )
         ),
+      heldBatchesFor(db, member),
       a2aWaiting(member),
       // A pause stays a card until someone resumes the agent, so it needs no row of its own.
       db
@@ -717,6 +723,7 @@ export const createDeskService = ({
           },
         ];
       }),
+      heldDreams: heldDreams.filter((batch) => !drafts.has(batch.agentId)),
       heldNotes: heldNotes.flatMap((row) =>
         row.agentId === null || drafts.has(row.agentId)
           ? []
@@ -903,6 +910,20 @@ export const createDeskService = ({
           needsYouKind: "dream_question",
           starter: { id: question.agentId, kind: "agent" },
           title: clip(question.question, TITLE_MAX),
+        })
+      ),
+      ...sources.heldDreams.map(
+        (batch): Draft => ({
+          agentId: batch.agentId,
+          at: batch.at,
+          band: { text: clip(batch.diary) || HELD_DREAM_BAND, tone: "waiting" },
+          dreamHeld: { dreamRunId: batch.dreamRunId },
+          id: batch.dreamRunId,
+          kind: "proposal",
+          lane: "needs_you",
+          needsYouKind: "dream_held",
+          starter: { id: batch.agentId, kind: "agent" },
+          title: HELD_DREAM_BAND,
         })
       ),
       ...sources.spendPauses.map(
@@ -1405,6 +1426,7 @@ export const createDeskService = ({
       sources.suggestions.length +
       sources.heldNotes.length +
       sources.dreamQuestions.length +
+      sources.heldDreams.length +
       sources.spendPauses.length +
       sources.pending.length +
       sources.versions.length +
