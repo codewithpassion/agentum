@@ -76,13 +76,43 @@ test("every entry has a label and a group", () => {
 });
 
 test("Apps is in What agents use and opens the app artifacts list", () => {
-  expect(findEntries.filter((entry) => entry.label === "Apps")).toEqual([
+  expect(
+    findEntries.filter(
+      (entry) => entry.label === "Apps" && entry.group === "What agents use"
+    )
+  ).toEqual([
     expect.objectContaining({
       group: "What agents use",
       hint: "Artifacts",
       to: "/artifacts?kind=app",
     }),
   ]);
+});
+
+test("Settings lists sign-ins, connectors as Apps and secrets as passwords and keys", () => {
+  const settings = findEntries.filter((entry) => entry.group === "Settings");
+  expect(settings).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        group: "Settings",
+        hint: "Your logins",
+        label: "Your sign-ins",
+        to: "/settings/sign-ins",
+      }),
+      expect.objectContaining({
+        group: "Settings",
+        hint: "Connectors",
+        label: "Apps",
+        to: "/settings/connectors",
+      }),
+      expect.objectContaining({
+        group: "Settings",
+        hint: "Secrets",
+        label: "Passwords and keys",
+        to: "/settings/secrets",
+      }),
+    ])
+  );
 });
 
 test("agentFindEntries links each agent by id", () => {
