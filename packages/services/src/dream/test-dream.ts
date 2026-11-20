@@ -18,6 +18,8 @@ import {
   WORKSPACE,
   type World,
 } from "../memory/test-world.ts";
+import { createSkillsStoreService } from "../skills-store.ts";
+import { memorySkillBlobs } from "../skills-store/memory.ts";
 import type { Clock } from "../runs/types.ts";
 
 export const SESSION = { ...BASE_SESSION, shared: "s_shared" } as const;
@@ -35,6 +37,7 @@ export type CallKind =
   | "condense"
   | "extract"
   | "finished"
+  | "promote"
   | "merge"
   | "reconcile";
 
@@ -47,6 +50,9 @@ export interface Call {
 export type Script = (call: Call) => string | null | Promise<string | null>;
 
 const kindOf = (system: string): CallKind => {
+  if (system.includes("procedure-promotion judge")) {
+    return "promote";
+  }
   if (system.includes("memory of an AI agent")) {
     return "extract";
   }
@@ -116,6 +122,7 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
           })
     );
   };
+  const skillsStore = createSkillsStoreService({ atomic: world.atomic, blobs: memorySkillBlobs(), clock: world.clock, db: world.db, events: eventsService, library: world.library });
   let key: string | null = "sk-ant-test";
   const dream = createDreamService({
     atomic: world.atomic,
@@ -129,6 +136,7 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
         Promise.resolve(key ? { apiKey: key, environmentId: null } : null),
     },
     memory: world.service,
+    skillsStore,
   });
 
   // A conversation that is nobody's private one: a UI session is tagged to its person, a trigger's is not.
@@ -240,6 +248,7 @@ export const makeDreamWorld = (initial: Script = quiet, dreamClock?: Clock) => {
     files,
     owner,
     say,
+    skillsStore,
     setKey: (next: string | null) => {
       key = next;
     },
