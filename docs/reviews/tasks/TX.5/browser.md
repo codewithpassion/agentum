@@ -35,3 +35,13 @@ D. /threads/<second chat>: card in the conversation (phone-9, phone-10 scrolled 
 E. Posted "@fake-echo phone round" in the room, seeded, reloaded: "Fake echo needs you" card (phone-14, phone-15 are mid-scroll captures taken before the scroll settled, so the card looks cut off; phone-16 shows it whole). Hold a week sent: "1 of 3"; reload kept it pressed; Both and Dom sent: card gone, count 2 to 1, database answered with {"q1":"Hold a week","q2":"Both","q3":"Dom"} (phone-17).
 
 Console and network: clean for every flow at both sizes except the unrelated dev-login 400.
+
+## Round 2: saved free-text answer after reload (ea82a6fa)
+
+Verdict: pass. At both sizes the typed free-text answer shows in the input after reload, with the right progress and Send answers disabled, and picking an option empties the input. Checked at head 8f03ceb2, in the /desk Needs you pane (item opened from the drawer row "3 decisions"), fresh queues from seed-decisions.ts, session tx5-reverify.
+
+Desktop 1280x800. Opened the item (0 of 3, Send disabled). Typed "Priya from legal" in the input "Your own answer to Who signs it off?": progress "1 of 3 answered", Send answers enabled (round2-desktop-1.png). Clicked Send answers: card stayed, Send disabled again, "1 of 3". Reloaded the item URL: input value "Priya from legal", "1 of 3 answered", Send answers disabled (round2-desktop-2.png). Clicked Sam: input value "", Sam pressed, progress "1 of 3" (round2-desktop-3.png).
+
+Phone 390x844. Same steps on a second fresh queue. Typed text: input "Priya from legal", "1 of 3", Send enabled (round2-phone-1.png). Sent: Send disabled, "1 of 3". Reload: input "Priya from legal", "1 of 3 answered", Send disabled (round2-phone-2.png). Clicked Sam: input "", Sam pressed (round2-phone-3.png). scrollWidth 390, no horizontal scroll.
+
+Console and network: console showed only vite, React DevTools and the Clerk development-keys warning. No resource entries with status 400 or above after the flow (the known dev-login 400 was not captured in this check). No page errors.
