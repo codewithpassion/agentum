@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone TX. From the transcript: the lead queues
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/TX.4-decision-queue-service (v4 controller session).
+- 2026-11-21: blocked after two rounds on one test defect (second run in a new session); a third round allowed for the one-line test fix.

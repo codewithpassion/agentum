@@ -10,13 +10,16 @@ import { addressText } from "./profile-logic.ts";
 export const CHIP_CLASS =
   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs";
 
-/** The agent's address, or a way to reserve one. */
+/** The agent's address, or a way to reserve one when the viewer may. */
 export function AddressChip({
   agentId,
+  canReserve,
   emailLocal,
   suggestion,
 }: {
   agentId: string;
+  /** Whether the viewer may reserve an address (an owner or an org admin). */
+  canReserve: boolean;
   emailLocal: string | null;
   /** The address to start from, usually the agent's slug. */
   suggestion: string;
@@ -78,6 +81,13 @@ export function AddressChip({
         className={`${CHIP_CLASS} border-primary bg-primary/10 font-mono text-primary`}
       >
         {addressText(emailLocal, "")}
+      </span>
+    );
+  }
+  if (!canReserve) {
+    return (
+      <span className={`${CHIP_CLASS} border-dashed text-muted-foreground`}>
+        No address yet
       </span>
     );
   }
