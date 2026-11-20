@@ -1,0 +1,31 @@
+---
+id: ME.13
+title: "A way to start a private conversation"
+milestone: ME
+size: S
+status: todo
+depends_on: [ME.9]
+branch: null
+lane: web-thread
+executor: claude
+---
+
+From the ME walkthrough (`docs/reviews/ME-e2e.md`).
+
+A note is private only when its session has `private = 1`, and only Slack DMs set that. In the app a person cannot start a private conversation, so a private note cannot come from the browser. The walkthrough set the flag with one `UPDATE` on the local database.
+
+## Decision
+
+Decision (controller, under Dom's "don't wait for me", 20 Nov 2026): add a "Private" switch when starting a conversation in the app, and show a private marker on the person's own notes on the Knows tab.
+
+## Scope
+
+Add a "Private" switch when starting a conversation in the app (sets the session's `private` flag), and a private marker on the person's own private notes on the Knows tab. Other members never see them.
+
+## Check
+
+If built: browser, start a private conversation, remember a message, see the marker on Knows, and the second member sees nothing in the Library or on Knows.
+- `bun run check && bun run test && bun run build` pass.
+
+## Log
+- 2026-11-20: added from the ME walkthrough.
