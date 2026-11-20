@@ -7,6 +7,7 @@ import {
   pickDecision,
   pressedOption,
   progressText,
+  shownText,
   stagedDecisions,
   typeDecision,
 } from "./decisions-logic.ts";
@@ -117,4 +118,31 @@ test("pressedOption shows a pick, then a saved answer, and no option while text 
 test("progressText reads n of total answered", () => {
   expect(progressText(1, 3)).toBe("1 of 3 answered");
   expect(progressText(0, 2)).toBe("0 of 2 answered");
+});
+
+test("a saved typed answer shows in its input until something else is picked or typed", () => {
+  const [, region] = display.questions;
+  if (region === undefined) {
+    throw new Error("fixture has a region question");
+  }
+  const given = { region: "Antarctica" };
+  expect(shownText(region, given, EMPTY_DECISION_INPUTS)).toBe("Antarctica");
+  expect(shownText(region, { region: "EU" }, EMPTY_DECISION_INPUTS)).toBe("");
+  expect(
+    shownText(
+      region,
+      given,
+      pickDecision(EMPTY_DECISION_INPUTS, "region", "US")
+    )
+  ).toBe("");
+  expect(
+    shownText(region, given, typeDecision(EMPTY_DECISION_INPUTS, "region", ""))
+  ).toBe("");
+  expect(
+    shownText(
+      region,
+      given,
+      typeDecision(EMPTY_DECISION_INPUTS, "region", "Mars")
+    )
+  ).toBe("Mars");
 });

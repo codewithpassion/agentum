@@ -18,6 +18,7 @@ import {
   pickDecision,
   pressedOption,
   progressText,
+  shownText,
   stagedDecisions,
   typeDecision,
 } from "./decisions-logic.ts";
@@ -244,7 +245,7 @@ export function DecisionsCard({
           onType={type}
           pressed={pressedOption(given[question.id], inputs, question.id)}
           question={question}
-          typed={inputs.typed[question.id] ?? ""}
+          typed={shownText(question, given, inputs)}
         />
       ))}
       <div className="flex flex-wrap gap-2">

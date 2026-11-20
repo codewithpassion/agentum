@@ -67,6 +67,25 @@ export const pressedOption = (
   return typed === "" ? saved : undefined;
 };
 
+/**
+ * The text a question's input shows: what was typed, else a saved answer that
+ * is not one of the options (a typed answer), unless an option is picked.
+ */
+export const shownText = (
+  question: Decision,
+  given: Readonly<Record<string, string>>,
+  inputs: DecisionInputs
+): string => {
+  const typed = inputs.typed[question.id];
+  if (typed !== undefined) {
+    return typed;
+  }
+  const saved = given[question.id] ?? "";
+  const isTyped =
+    question.freeText === true && !question.options.includes(saved);
+  return isTyped && inputs.picked[question.id] === undefined ? saved : "";
+};
+
 /** The answers to send: staged answers that are not empty and differ from the saved ones. */
 export const stagedDecisions = (
   display: DecisionsDisplay,
