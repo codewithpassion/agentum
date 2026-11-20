@@ -98,7 +98,8 @@ export function AdvancedPanel({ agent }: AgentPanelProps) {
           networkAccess: networkAccessOf(agent.runtimeConfig),
           runtime: agent.runtime,
         }}
-        key={agent.id}
+        // The model is part of the key: the Capability choice on the Settings tab can change it, and the form keeps its own copy.
+        key={`${agent.id}:${agent.model}`}
         machines={data.machines}
         onSubmit={save}
         providerKeys={data.providerKeys}

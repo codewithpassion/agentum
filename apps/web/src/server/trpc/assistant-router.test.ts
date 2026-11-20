@@ -66,12 +66,15 @@ test("a session assistant creates an agent through the real MCP ports, services 
   await composed.services.managedKeys.set(principal, {
     apiKey: "sk-ant-test-key",
   });
-  await composed.services.secrets.create(principal, {
-    allowedHosts: [],
-    mode: "env",
-    name: "TEST_TOKEN",
-    value: "private-value-123",
-  });
+  await composed.services.secrets.create(
+    { ...principal, isAdmin: true },
+    {
+      allowedHosts: [],
+      mode: "env",
+      name: "TEST_TOKEN",
+      value: "private-value-123",
+    }
+  );
   const caller = appRouter.createCaller(
     await buildContext({
       composed,

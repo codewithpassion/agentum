@@ -65,7 +65,7 @@ test("a signed-out caller is refused", async () => {
 
 test("create, list, replace and delete never show the value", async () => {
   const caller = await callerFor(
-    { orgId: "org_a", userId: "user_1" },
+    { orgId: "org_a", orgRole: "org:admin", userId: "user_1" },
     composed()
   );
   const created = await caller.secrets.create({
@@ -88,7 +88,7 @@ test("create, list, replace and delete never show the value", async () => {
   expect(await caller.secrets.list()).toEqual([]);
 });
 
-test("an admin switches a secret between proxy and env, a member is refused, and nothing shows the value", async () => {
+test("an admin switches a secret between proxy and env, a member is refused on create, update and remove, and nothing shows the value", async () => {
   const services = composed();
   const admin = await callerFor(
     { orgId: "org_a", orgRole: "org:admin", userId: "user_1" },
@@ -119,6 +119,18 @@ test("an admin switches a secret between proxy and env, a member is refused, and
       patch: { mode: "proxy", rules: [rule] },
     })
   ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(
+    member.secrets.update({
+      id: created.id,
+      patch: { allowedHosts: ["api.example.com"] },
+    })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(
+    member.secrets.create({ mode: "env", name: "MEMBER_KEY", value: VALUE })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(member.secrets.remove({ id: created.id })).rejects.toMatchObject(
+    { code: "FORBIDDEN" }
+  );
   const toProxy = await admin.secrets.update({
     id: created.id,
     patch: { mode: "proxy", rules: [rule] },
@@ -129,7 +141,7 @@ test("an admin switches a secret between proxy and env, a member is refused, and
 
 test("a reserved name or a bad rule is a BAD_REQUEST", async () => {
   const caller = await callerFor(
-    { orgId: "org_a", userId: "user_1" },
+    { orgId: "org_a", orgRole: "org:admin", userId: "user_1" },
     composed()
   );
   await expect(
@@ -147,7 +159,10 @@ test("a reserved name or a bad rule is a BAD_REQUEST", async () => {
 
 test("another workspace sees none of it, and a duplicate name conflicts", async () => {
   const services = composed();
-  const first = await callerFor({ orgId: "org_a", userId: "user_1" }, services);
+  const first = await callerFor(
+    { orgId: "org_a", orgRole: "org:admin", userId: "user_1" },
+    services
+  );
   const other = await callerFor({ orgId: "org_b", userId: "user_2" }, services);
   await first.secrets.create({ mode: "env", name: "PLAIN_KEY", value: VALUE });
   expect(await other.secrets.list()).toEqual([]);
@@ -158,7 +173,7 @@ test("another workspace sees none of it, and a duplicate name conflicts", async 
 
 test("grants are set and read per agent", async () => {
   const caller = await callerFor(
-    { orgId: "org_a", userId: "user_1" },
+    { orgId: "org_a", orgRole: "org:admin", userId: "user_1" },
     composed()
   );
   const agent = await caller.agents.create({
@@ -197,7 +212,7 @@ test("an invalid name answers the UI with the validation message", async () => {
     createContext: () =>
       buildContext({
         composed: services,
-        session: { orgId: "org_a", userId: "user_1" },
+        session: { orgId: "org_a", orgRole: "org:admin", userId: "user_1" },
       }),
     endpoint: "/api/trpc",
     req: new Request("http://test/api/trpc/secrets.create", {

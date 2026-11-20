@@ -303,12 +303,15 @@ describe("runWebFetcher with env secrets, over real services", () => {
   });
 
   test("a granted placeholder goes out as the real value to an allowed host", async () => {
-    const created = await secrets.create(user, {
-      allowedHosts: ["api.supadata.ai"],
-      mode: "env",
-      name: SECRET_NAME,
-      value: SECRET_VALUE,
-    });
+    const created = await secrets.create(
+      { ...user, isAdmin: true },
+      {
+        allowedHosts: ["api.supadata.ai"],
+        mode: "env",
+        name: SECRET_NAME,
+        value: SECRET_VALUE,
+      }
+    );
     await secrets.setGrants(user, agentA, [created.id]);
     const sent: Request[] = [];
 
@@ -326,12 +329,15 @@ describe("runWebFetcher with env secrets, over real services", () => {
   });
 
   test("the same placeholder to another host is refused and never sent", async () => {
-    const created = await secrets.create(user, {
-      allowedHosts: ["api.supadata.ai"],
-      mode: "env",
-      name: SECRET_NAME,
-      value: SECRET_VALUE,
-    });
+    const created = await secrets.create(
+      { ...user, isAdmin: true },
+      {
+        allowedHosts: ["api.supadata.ai"],
+        mode: "env",
+        name: SECRET_NAME,
+        value: SECRET_VALUE,
+      }
+    );
     await secrets.setGrants(user, agentA, [created.id]);
     const sent: Request[] = [];
 
@@ -363,12 +369,15 @@ describe("runWebFetcher with env secrets, over real services", () => {
   });
 
   test("a secret granted only to another agent is refused for this agent", async () => {
-    const created = await secrets.create(user, {
-      allowedHosts: ["api.supadata.ai"],
-      mode: "env",
-      name: SECRET_NAME,
-      value: SECRET_VALUE,
-    });
+    const created = await secrets.create(
+      { ...user, isAdmin: true },
+      {
+        allowedHosts: ["api.supadata.ai"],
+        mode: "env",
+        name: SECRET_NAME,
+        value: SECRET_VALUE,
+      }
+    );
     await secrets.setGrants(user, agentB, [created.id]);
     const sent: Request[] = [];
 
@@ -389,11 +398,14 @@ describe("runWebFetcher with env secrets, over real services", () => {
   });
 
   test("an env secret with no allowed hosts is refused with the Settings message", async () => {
-    const created = await secrets.create(user, {
-      mode: "env",
-      name: SECRET_NAME,
-      value: SECRET_VALUE,
-    });
+    const created = await secrets.create(
+      { ...user, isAdmin: true },
+      {
+        mode: "env",
+        name: SECRET_NAME,
+        value: SECRET_VALUE,
+      }
+    );
     await secrets.setGrants(user, agentA, [created.id]);
     const sent: Request[] = [];
 
@@ -414,12 +426,15 @@ describe("runWebFetcher with env secrets, over real services", () => {
   });
 
   test("the injection event names the secret, the host and via, and no event of the run holds the value", async () => {
-    const created = await secrets.create(user, {
-      allowedHosts: ["api.supadata.ai"],
-      mode: "env",
-      name: SECRET_NAME,
-      value: SECRET_VALUE,
-    });
+    const created = await secrets.create(
+      { ...user, isAdmin: true },
+      {
+        allowedHosts: ["api.supadata.ai"],
+        mode: "env",
+        name: SECRET_NAME,
+        value: SECRET_VALUE,
+      }
+    );
     await secrets.setGrants(user, agentA, [created.id]);
     const sent: Request[] = [];
 
@@ -450,12 +465,15 @@ describe("runWebFetcher with env secrets, over real services", () => {
     const RULE_VALUE = `Bearer ${SECRET_VALUE}`;
 
     const grantProxy = async (template = "{value}", header = "x-api-key") => {
-      const created = await secrets.create(user, {
-        mode: "proxy",
-        name: SECRET_NAME,
-        rules: [{ header, host: "api.supadata.ai", template }],
-        value: SECRET_VALUE,
-      });
+      const created = await secrets.create(
+        { ...user, isAdmin: true },
+        {
+          mode: "proxy",
+          name: SECRET_NAME,
+          rules: [{ header, host: "api.supadata.ai", template }],
+          value: SECRET_VALUE,
+        }
+      );
       await secrets.setGrants(user, agentA, [created.id]);
     };
 

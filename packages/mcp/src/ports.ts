@@ -848,6 +848,57 @@ export interface AdminPort {
   }) => Promise<AdminAgentInfo>;
 }
 
+/** The fields a lead may propose to change on a member agent. */
+export const TEAM_PROPOSAL_FIELDS = [
+  "instructions",
+  "model",
+  "effort",
+  "contextBudget",
+] as const;
+export type TeamProposalField = (typeof TEAM_PROPOSAL_FIELDS)[number];
+
+/** A member of the lead's team. Agents carry their settings; a person's `handle` is their `@handle`, an agent's is its slug. */
+export interface TeamMemberInfo {
+  contextBudget?: string;
+  effort?: string;
+  handle?: string;
+  id: string;
+  /** The agent's full current instructions. Agents only. */
+  instructions?: string;
+  isLead: boolean;
+  kind: "agent" | "user";
+  model?: string;
+  name: string;
+}
+
+/** A proposal that now waits for the member's owner. */
+export interface TeamProposalInfo {
+  agentId: string;
+  field: TeamProposalField;
+  /** The approval request the owner answers in Needs you. */
+  requestId: string;
+  status: "pending";
+}
+
+/**
+ * Bound to a lead's run in its team room. The service refuses any other caller,
+ * so a port for a non-lead throws `ToolError` on every call.
+ */
+export interface TeamPort {
+  members: () => Promise<TeamMemberInfo[]>;
+  openTopic: (input: {
+    members?: { id: string; kind: "agent" | "user" }[];
+    title: string;
+  }) => Promise<ThreadInfo>;
+  post: (input: { text: string; topic: string }) => Promise<PostedInfo>;
+  proposeChange: (input: {
+    agentId: string;
+    field: TeamProposalField;
+    reason: string;
+    value: string;
+  }) => Promise<TeamProposalInfo>;
+}
+
 export interface SubagentsPort {
   list: () => Promise<(RunInfo & { model: string; summary: string })[]>;
   message: (input: { id: string; text: string }) => Promise<RunInfo>;
@@ -1039,6 +1090,8 @@ export interface McpPorts {
     to: string;
   }) => Promise<SlackSendResult>;
   subagents?: SubagentsPort;
+  /** Set for a run; the server offers the team tools only to a lead in its team room. */
+  team?: TeamPort;
   unassignSkill: (input: { agent: string; skillId: string }) => Promise<void>;
   wikiRead: (input: { path: string }) => Promise<WikiPageInfo>;
   wikiSuggestEdit: (input: {

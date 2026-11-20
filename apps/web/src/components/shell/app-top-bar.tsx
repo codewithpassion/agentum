@@ -38,9 +38,11 @@ function useFindShortcut(toggle: () => void) {
 export function AppTopBar({
   agents,
   pinned,
+  teams,
 }: {
   agents: readonly { id: string; name: string }[];
   pinned: readonly PinnedArtifact[];
+  teams: readonly { id: string; name: string }[];
 }) {
   const router = useRouter();
   const pathname = useRouterState({
@@ -96,7 +98,12 @@ export function AppTopBar({
         pinned={pinned}
         state={needsYou}
       />
-      <FindDialog agents={agents} onOpenChange={setFindOpen} open={findOpen} />
+      <FindDialog
+        agents={agents}
+        onOpenChange={setFindOpen}
+        open={findOpen}
+        teams={teams}
+      />
     </>
   );
 }

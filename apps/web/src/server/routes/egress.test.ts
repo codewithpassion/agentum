@@ -160,14 +160,17 @@ const eventsOf = async (runId: string) =>
   );
 
 const grantedAgent = async (owner = agentId) => {
-  const created = await composed.services.secrets.create(dom, {
-    mode: "proxy",
-    name: SECRET_NAME,
-    rules: [
-      { header: "Authorization", host: HOST, template: "Bearer {value}" },
-    ],
-    value: SECRET_VALUE,
-  });
+  const created = await composed.services.secrets.create(
+    { ...dom, isAdmin: true },
+    {
+      mode: "proxy",
+      name: SECRET_NAME,
+      rules: [
+        { header: "Authorization", host: HOST, template: "Bearer {value}" },
+      ],
+      value: SECRET_VALUE,
+    }
+  );
   await composed.services.secrets.setGrants(dom, owner, [created.id]);
   return created;
 };
@@ -370,14 +373,17 @@ describe("forwarding", () => {
   });
 
   test("a wildcard rule serves a subdomain and refuses the bare domain", async () => {
-    const created = await composed.services.secrets.create(dom, {
-      mode: "proxy",
-      name: "WILD_KEY",
-      rules: [
-        { header: "X-Api-Key", host: "*.example.com", template: "{value}" },
-      ],
-      value: SECRET_VALUE,
-    });
+    const created = await composed.services.secrets.create(
+      { ...dom, isAdmin: true },
+      {
+        mode: "proxy",
+        name: "WILD_KEY",
+        rules: [
+          { header: "X-Api-Key", host: "*.example.com", template: "{value}" },
+        ],
+        value: SECRET_VALUE,
+      }
+    );
     await composed.services.secrets.setGrants(dom, agentId, [created.id]);
     addRun("run_1", agentId);
     const token = await tokenFor("run_1");
@@ -395,14 +401,17 @@ describe("forwarding", () => {
   });
 
   test("a host segment that parses to another host is refused, and nothing is sent", async () => {
-    const created = await composed.services.secrets.create(dom, {
-      mode: "proxy",
-      name: "WILD_KEY",
-      rules: [
-        { header: "X-Api-Key", host: "*.example.com", template: "{value}" },
-      ],
-      value: SECRET_VALUE,
-    });
+    const created = await composed.services.secrets.create(
+      { ...dom, isAdmin: true },
+      {
+        mode: "proxy",
+        name: "WILD_KEY",
+        rules: [
+          { header: "X-Api-Key", host: "*.example.com", template: "{value}" },
+        ],
+        value: SECRET_VALUE,
+      }
+    );
     await composed.services.secrets.setGrants(dom, agentId, [created.id]);
     addRun("run_1", agentId);
     const token = await tokenFor("run_1");
@@ -416,12 +425,15 @@ describe("forwarding", () => {
   });
 
   test("a granted address the SSRF guard refuses gets 403 host_not_allowed and no upstream call", async () => {
-    const created = await composed.services.secrets.create(dom, {
-      mode: "proxy",
-      name: "PRIVATE_KEY",
-      rules: [{ header: "X-Api-Key", host: "10.0.0.5", template: "{value}" }],
-      value: SECRET_VALUE,
-    });
+    const created = await composed.services.secrets.create(
+      { ...dom, isAdmin: true },
+      {
+        mode: "proxy",
+        name: "PRIVATE_KEY",
+        rules: [{ header: "X-Api-Key", host: "10.0.0.5", template: "{value}" }],
+        value: SECRET_VALUE,
+      }
+    );
     await composed.services.secrets.setGrants(dom, agentId, [created.id]);
     addRun("run_1", agentId);
 

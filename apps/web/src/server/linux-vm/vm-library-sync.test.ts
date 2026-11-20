@@ -35,7 +35,6 @@ import { linuxVmToolsExtension } from "./vm-tools.ts";
 
 const WORKSPACE = "w1";
 const AGENT = "a1";
-const SESSION = "s1";
 const START = "2026-10-16T10:00:00.000Z";
 const LIBRARY_VM = "/workspace/library";
 const AGENT_HOME = { mode: "write", path: "agents/ada" } as const;
@@ -165,18 +164,19 @@ beforeEach(() => {
       workspaceId: WORKSPACE,
     })
     .run();
-  db.insert(sessionRows)
-    .values({
-      actorId: "u1",
-      actorKind: "user",
-      agentId: AGENT,
-      createdAt: START,
-      id: SESSION,
-      origin: "ui",
-      workspaceId: WORKSPACE,
-    })
-    .run();
+  // Each run has a ui session of its own, opened by the person it acts for.
   for (const run of RUNS) {
+    db.insert(sessionRows)
+      .values({
+        actorId: run.onBehalfOfUserId ?? "u1",
+        actorKind: "user",
+        agentId: AGENT,
+        createdAt: START,
+        id: `s_${run.id}`,
+        origin: "ui",
+        workspaceId: WORKSPACE,
+      })
+      .run();
     db.insert(runRows)
       .values({
         actorId: "u1",
@@ -188,7 +188,7 @@ beforeEach(() => {
         inputText: "hi",
         onBehalfOfUserId: run.onBehalfOfUserId,
         outputFileIds: "[]",
-        sessionId: SESSION,
+        sessionId: `s_${run.id}`,
         status: "running",
         workspaceId: WORKSPACE,
       })
