@@ -59,14 +59,17 @@ export const jobChips = (
     when: job.when,
   });
 
-export const draftChips = (draft: ProposedTrigger): JobChip[] =>
-  buildChips({
+/** Asks and delivers show only for routines, which save them in the prompt. */
+export const draftChips = (draft: ProposedTrigger): JobChip[] => {
+  const keepsExtras = draftSaveKind(draft) === "routine";
+  return buildChips({
     agentName: null,
-    asksBefore: draft.asksBefore,
-    deliversTo: draft.deliversTo,
+    asksBefore: keepsExtras ? draft.asksBefore : null,
+    deliversTo: keepsExtras ? draft.deliversTo : null,
     does: draft.does,
     when: draft.when,
   });
+};
 
 const outcomeWord = (lastRunOk: boolean | null): string => {
   if (lastRunOk === null) {
@@ -92,11 +95,18 @@ export const lastResultText = (
   return `Last run ${outcome}, ${distance}`;
 };
 
-export const canRunNow = (job: Pick<JobSentence, "source">): boolean =>
-  job.source === "routine";
+export const canRunNow = (
+  job: Pick<JobSentence, "awaitingApproval" | "source">
+): boolean => job.source === "routine" && !job.awaitingApproval;
 
-export const canPause = (job: Pick<JobSentence, "source">): boolean =>
-  job.source !== "slack";
+export const canPause = (
+  job: Pick<JobSentence, "awaitingApproval" | "source">
+): boolean => job.source !== "slack" && !job.awaitingApproval;
+
+/** Which procedure approves a proposed job: a routine, or a web, mail or app trigger. */
+export const approvalTarget = (
+  job: Pick<JobSentence, "source">
+): "routine" | "trigger" => (job.source === "routine" ? "routine" : "trigger");
 
 /** Which procedure pauses a job: routines and web triggers have their own, mail is the agent's mailbox. */
 export const pauseTarget = (
@@ -136,6 +146,19 @@ export const draftName = (does: string): string => {
   return characters.slice(0, DRAFT_NAME_MAX_CHARS).join("").trimEnd();
 };
 
+/** The saved prompt: what the job does, then its ask-first and delivery lines, one per line. */
+export const draftPrompt = (draft: ProposedTrigger): string => {
+  const does = draft.does.trim();
+  const lines = [does === "" ? draft.when.trim() : does];
+  if (isPresent(draft.asksBefore)) {
+    lines.push(`Ask first: ${draft.asksBefore.trim()}`);
+  }
+  if (isPresent(draft.deliversTo)) {
+    lines.push(`Send the result to ${draft.deliversTo.trim()}`);
+  }
+  return lines.filter((line) => line !== "").join("\n");
+};
+
 export const draftRoutineInput = (
   agentId: string,
   draft: ProposedTrigger
@@ -149,12 +172,11 @@ export const draftRoutineInput = (
   if (!isPresent(draft.cron)) {
     throw new Error("A routine needs a cron schedule to be saved.");
   }
-  const does = draft.does.trim();
   const input = {
     agentId,
     cron: draft.cron,
     name: draftName(draft.does),
-    prompt: does === "" ? draft.when.trim() : does,
+    prompt: draftPrompt(draft),
   };
   if (isPresent(draft.timezone)) {
     return { ...input, timezone: draft.timezone };

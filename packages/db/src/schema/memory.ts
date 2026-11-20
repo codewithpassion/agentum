@@ -1,5 +1,5 @@
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { createdAt, id, workspaceId } from "../columns.ts";
+import { check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createdAt, id, ownerCheck, workspaceId } from "../columns.ts";
 import {
   MEMORY_CHANGE_ACTIONS,
   MEMORY_CHANGE_STATUSES,
@@ -9,6 +9,7 @@ import {
 } from "../shared.ts";
 import { agents } from "./agents.ts";
 import { libraryVersions } from "./library.ts";
+import { teams } from "./teams.ts";
 import { workspaces } from "./workspaces.ts";
 
 /**
@@ -21,9 +22,8 @@ export const memoryChanges = sqliteTable(
   "memory_changes",
   {
     action: text("action", { enum: MEMORY_CHANGE_ACTIONS }).notNull(),
-    agentId: text("agent_id")
-      .notNull()
-      .references(() => agents.id),
+    // The agent whose memory changed. Null on a team memory change (`team_id`). A row has an agent or a team.
+    agentId: text("agent_id").references(() => agents.id),
     createdAt: createdAt(),
     // ISO 8601 UTC. Set when a person decides a held change or undoes an applied one.
     decidedAt: text("decided_at"),
@@ -44,6 +44,8 @@ export const memoryChanges = sqliteTable(
     sourceId: text("source_id"),
     sourceKind: text("source_kind", { enum: MEMORY_SOURCE_KINDS }),
     status: text("status", { enum: MEMORY_CHANGE_STATUSES }).notNull(),
+    // The team whose memory changed. Null on an agent's memory change.
+    teamId: text("team_id").references(() => teams.id),
     // The note's text after the change; for a forget, the text that was forgotten.
     text: text("text").notNull(),
     // Clerk user id of the person a private note belongs to. Null for a shared note.
@@ -55,5 +57,7 @@ export const memoryChanges = sqliteTable(
     index("memory_changes_agent_idx").on(t.workspaceId, t.agentId, t.createdAt),
     index("memory_changes_status_idx").on(t.workspaceId, t.status),
     index("memory_changes_note_idx").on(t.workspaceId, t.noteId),
+    index("memory_changes_team_idx").on(t.workspaceId, t.teamId, t.createdAt),
+    check("memory_changes_owner", ownerCheck(t.agentId, t.teamId)),
   ]
 );

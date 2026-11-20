@@ -184,8 +184,8 @@ export const createJobsService = ({
     const sentences = await Promise.all(
       rows.map(
         async ({ trigger, agent, workspaceTimezone }): Promise<JobSentence> => {
-          const enabled =
-            trigger.disabledAt === null && !isPendingProposal(trigger);
+          const awaitingApproval = isPendingProposal(trigger);
+          const enabled = trigger.disabledAt === null && !awaitingApproval;
           const [last] = await db
             .select({
               createdAt: runs.createdAt,
@@ -215,6 +215,7 @@ export const createJobsService = ({
           return {
             agent: { id: agent.id, name: agent.name },
             asksBefore: ASK_WORDS[agent.askLevel],
+            awaitingApproval,
             deliversTo: null,
             does:
               trigger.kind === "routine"
@@ -262,6 +263,7 @@ export const createJobsService = ({
       sentences.push({
         agent: { id: row.agent.id, name: row.agent.name },
         asksBefore: ASK_WORDS[row.agent.askLevel],
+        awaitingApproval: false,
         deliversTo: null,
         does: jobLineFor(row.agent.instructions),
         enabled: row.status === "installed",

@@ -39,6 +39,7 @@ function change(
     noteId: `note-${overrides.id}`,
     source: null,
     status: "held",
+    teamId: null,
     text: `change ${overrides.id}`,
     userScope: null,
     writtenBy: "agent",

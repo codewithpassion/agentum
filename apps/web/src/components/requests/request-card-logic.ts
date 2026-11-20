@@ -7,11 +7,14 @@ import {
   type AnswerSurface,
   type ApprovalDecision,
   MAIL_SEND_TOOL,
+  type RequestKind,
 } from "@repo/db/shared";
 import {
   type ApprovalAnswer,
   type ApprovalDisplay,
   approvalDisplaySchema,
+  type DecisionsAnswer,
+  type DecisionsDisplay,
   type Question,
   type QuestionAnswer,
   type QuestionDisplay,
@@ -27,7 +30,11 @@ const MINUTES_PER_HOUR = 60;
 /** How a request ended, as far as the chat knows. `conflict` means someone else answered first. */
 export type Settled =
   | {
-      answer: ApprovalAnswer | QuestionAnswer | TakeoverAnswer;
+      answer:
+        | ApprovalAnswer
+        | QuestionAnswer
+        | TakeoverAnswer
+        | DecisionsAnswer;
       /** The Clerk user id of whoever answered. */
       answeredBy: string | null;
       /** Set when a held mail failed to send after the answer allowed it. */
@@ -306,10 +313,14 @@ export const viewFromOpened = (
 /** A pending request from `requests.pending`. */
 export const viewFromRecord = (
   record: {
-    display: ApprovalDisplay | QuestionDisplay | TakeoverDisplay;
+    display:
+      | ApprovalDisplay
+      | QuestionDisplay
+      | TakeoverDisplay
+      | DecisionsDisplay;
     expiresAt: string;
     id: string;
-    kind: "approval" | "question" | "takeover";
+    kind: RequestKind;
     runId: string;
   },
   anchorId: string | null

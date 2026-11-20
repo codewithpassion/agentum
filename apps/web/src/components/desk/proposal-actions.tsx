@@ -73,20 +73,10 @@ function SeeChanges({
       </Link>
     );
   }
-  if (card.needsYouKind === "trigger_proposal") {
-    return (
-      <Link
-        className={buttonVariants({ size: "sm", variant: "outline" })}
-        to="/triggers"
-      >
-        See changes
-      </Link>
-    );
-  }
   return (
     <Link
       className={buttonVariants({ size: "sm", variant: "outline" })}
-      to="/routines"
+      to="/jobs"
     >
       See changes
     </Link>

@@ -3,9 +3,9 @@ id: DR.4
 title: "The dream run: schedule, model, write, diary, undo"
 milestone: DR
 size: L
-status: todo
+status: in_progress
 depends_on: [DR.2, DR.3, ME.3]
-branch: null
+branch: task/DR.4-dream-run
 lane: worker
 executor: claude
 ---
@@ -32,3 +32,5 @@ From `docs/v4/build-plan.md`, milestone DR. Tie the dream together and run it on
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: from the DR.1 review: also create the dream trigger from `dreamSchedule`, pass `DeskCard.dream` through `rail.ts`, and refuse dream rows in `memory.decide`. Details in docs/reviews/tasks/DR.1.md.
+- 2026-11-20: notes from DR.2 for the dream run: an empty-absorbed merge is an edit in place; a merge whose text matches the keeper's leaves the keeper's writer and date alone; a question's scope comes from its noteIds; prune's maxChars is the budget less the text of the adds; pass the reconcile held ids to prune.
+- 2026-11-20: dispatched on task/DR.4-dream-run (v4 controller session).

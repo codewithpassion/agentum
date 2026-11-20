@@ -1,4 +1,6 @@
 import {
+  answerDecisionsInputSchema,
+  dismissDecisionsInputSchema,
   pendingInputSchema,
   ruleKeyInputSchema,
   ruleSetInputSchema,
@@ -16,6 +18,16 @@ export const requestsRouter = router({
         requestId,
         via: "web",
       })
+    ),
+  answerDecisions: workspaceProcedure
+    .input(answerDecisionsInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.requests.answerDecisions(ctx.principal, input)
+    ),
+  dismissDecisions: workspaceProcedure
+    .input(dismissDecisionsInputSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.services.requests.dismissDecisions(ctx.principal, input)
     ),
   pending: workspaceProcedure
     .input(pendingInputSchema)

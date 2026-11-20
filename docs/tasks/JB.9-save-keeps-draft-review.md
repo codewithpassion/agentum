@@ -3,7 +3,7 @@ id: JB.9
 title: "Save keeps what the draft review shows"
 milestone: JB
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: task/JB.9-save-keeps-draft-review
 lane: builder
@@ -30,3 +30,4 @@ Controller decision, 20 Nov 2026: take path (a). Save keeps `asksBefore` and `de
 ## Log
 - 2026-11-20: added from the JB gate review, round 1.
 - 2026-11-20: dispatched on task/JB.9-save-keeps-draft-review (v4 controller session).
+- 2026-11-20: merged as 64074267, review clean after 0 fix rounds. check, test and build passed on main.
