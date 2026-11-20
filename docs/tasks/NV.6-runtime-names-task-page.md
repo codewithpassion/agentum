@@ -4,7 +4,7 @@ title: "Runtime names on the task page and in the builder"
 milestone: NV
 size: S
 status: todo
-depends_on: []
+depends_on: [RH.5]
 branch: null
 lane: web-thread
 executor: claude
@@ -30,3 +30,4 @@ From the NV gate review, round 2 (`docs/reviews/NV-2.md`, finding 1 with finding
 
 ## Log
 - 2026-11-20: added from the NV gate review, round 2 (one must-fix).
+- 2026-11-20: waits for RH.5, which holds the web-agent lane these notes live in.
