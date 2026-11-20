@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { artifacts } from "@repo/db/schema/artifacts";
@@ -10,6 +10,7 @@ import {
   guestSessions,
 } from "@repo/db/schema/live-artifacts";
 import { machines } from "@repo/db/schema/machines";
+import { memoryChanges } from "@repo/db/schema/memory";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
 import { slackEventsSeen } from "@repo/db/schema/slack";
@@ -35,6 +36,7 @@ import { memoryLibraryBlobs } from "./library/memory.ts";
 import { createLibraryService } from "./library.ts";
 import { createGuestAccessReader } from "./live-guests/access.ts";
 import { createGuestRunStarter } from "./live-guests/runs.ts";
+import { createMemoryService } from "./memory/service.ts";
 import { createRequestsService } from "./requests.ts";
 import type {
   Clock,
@@ -1213,6 +1215,174 @@ test("ingestRunEvents stores a batch once", async () => {
     ])
   );
   expect(error).toBeInstanceOf(ForbiddenError);
+});
+
+test("ingestRunEvents calls afterToolEvents once for a batch with a tool call", async () => {
+  const hook = mock((_runId: string) => Promise.resolve(0));
+  const hooked = buildRuns({ afterToolEvents: hook });
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    { payload: { text: "one" }, seq: 1, type: "message.assistant" },
+    {
+      payload: { input: {}, name: "bash", toolUseId: "t1" },
+      seq: 2,
+      type: "tool.call",
+    },
+  ]);
+  expect(hook.mock.calls).toEqual([[runId]]);
+});
+
+test("ingestRunEvents skips afterToolEvents for a batch without a tool call", async () => {
+  const hook = mock((_runId: string) => Promise.resolve(0));
+  const hooked = buildRuns({ afterToolEvents: hook });
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    { payload: { text: "one" }, seq: 1, type: "message.assistant" },
+  ]);
+  expect(hook).not.toHaveBeenCalled();
+});
+
+test("ingestRunEvents skips afterToolEvents when every event was already stored", async () => {
+  const hook = mock((_runId: string) => Promise.resolve(0));
+  const hooked = buildRuns({ afterToolEvents: hook });
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  const batch = [
+    {
+      payload: { input: {}, name: "bash", toolUseId: "t1" },
+      seq: 1,
+      type: "tool.call" as const,
+    },
+  ];
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, batch);
+  expect(hook).toHaveBeenCalledTimes(1);
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, batch);
+  expect(hook).toHaveBeenCalledTimes(1);
+});
+
+test("ingestRunEvents stores the batch and logs when afterToolEvents rejects", async () => {
+  const logged = spyOn(console, "error").mockImplementation(() => undefined);
+  const hooked = buildRuns({
+    afterToolEvents: (_runId: string) =>
+      Promise.reject(new Error("hold failed")),
+  });
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  expect(
+    await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+      {
+        payload: { input: {}, name: "bash", toolUseId: "t1" },
+        seq: 1,
+        type: "tool.call",
+      },
+    ])
+  ).toEqual({ lastSeq: 1 });
+  expect(runEvents(runId).map((event) => event.type)).toContain("tool.call");
+  expect(logged.mock.calls[0]?.[0]).toContain(runId);
+  expect(logged.mock.calls[0]?.[0]).toContain("hold failed");
+  logged.mockRestore();
+});
+
+/** A run, a memory service over the same database, and a runs service that holds notes after tool events as the app wires it. */
+const runWithMemory = async () => {
+  const atomic = sqliteAtomic(db);
+  const memory = createMemoryService({
+    atomic,
+    clock,
+    db,
+    events,
+    library: createLibraryService({
+      atomic,
+      blobs: memoryLibraryBlobs(),
+      clock,
+      db,
+      events,
+    }),
+  });
+  const hooked = buildRuns({
+    afterToolEvents: (heldRunId) =>
+      memory.holdAfterOutsideText(SYSTEM_PRINCIPAL, heldRunId),
+  });
+  const { runId } = await start(user, spyAgentId);
+  await runs.claimRun(SYSTEM_PRINCIPAL, runId);
+  const note = await memory.add(
+    {
+      agentId: spyAgentId,
+      kind: "run",
+      runId,
+      workspaceId: WORKSPACE,
+    },
+    { agentId: spyAgentId, kind: "people", text: "Mia wants Docs" }
+  );
+  return { hooked, note, runId };
+};
+
+test("a note a run applied is held when its web tool event is ingested late", async () => {
+  const { hooked, note, runId } = await runWithMemory();
+  expect(note.status).toBe("applied");
+
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { input: {}, name: "WebFetch", toolUseId: "t1" },
+      seq: 1,
+      type: "tool.call",
+    },
+  ]);
+
+  expect(db.select().from(memoryChanges).all()).toMatchObject([
+    { decidedAt: null, id: note.id, libraryVersionId: null, status: "held" },
+  ]);
+});
+
+test("a note a run applied is held when a network request the tool wrote is followed by its tool result", async () => {
+  const { hooked, note, runId } = await runWithMemory();
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { input: {}, name: "run_script", toolUseId: "t1" },
+      seq: 1,
+      type: "tool.call",
+    },
+  ]);
+  expect(db.select().from(memoryChanges).all()[0]?.status).toBe("applied");
+  await events.append({
+    actor: { id: spyAgentId, kind: "agent" },
+    agentId: spyAgentId,
+    payload: { via: "curl" },
+    runId,
+    sessionId: runRow(runId)?.sessionId ?? "",
+    type: "network.request",
+    workspaceId: WORKSPACE,
+  });
+
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { ok: true, output: "done", toolUseId: "t1" },
+      seq: 2,
+      type: "tool.result",
+    },
+  ]);
+
+  expect(db.select().from(memoryChanges).all()).toMatchObject([
+    { id: note.id, status: "held" },
+  ]);
+});
+
+test("a note a run applied stays applied when only ordinary tool events are ingested", async () => {
+  const { hooked, note, runId } = await runWithMemory();
+
+  await hooked.ingestRunEvents(SYSTEM_PRINCIPAL, runId, [
+    {
+      payload: { input: {}, name: "Read", toolUseId: "t1" },
+      seq: 1,
+      type: "tool.call",
+    },
+  ]);
+
+  expect(db.select().from(memoryChanges).all()).toMatchObject([
+    { id: note.id, status: "applied" },
+  ]);
 });
 
 test("ingestRunEvents stores the protocol fixture once", async () => {
