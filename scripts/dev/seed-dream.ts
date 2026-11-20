@@ -114,7 +114,7 @@ const VOCAB: Record<string, Vocab> = {
     reportDay: "Wednesday",
     spare: [
       "Couriers deliver to the loading dock on Pine Street.",
-      "The bike room code changes on the first of the month.",
+      "The bike room is next to the loading dock.",
     ],
   },
 };
