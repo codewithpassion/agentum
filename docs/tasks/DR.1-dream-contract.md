@@ -3,9 +3,9 @@ id: DR.1
 title: "Dream contract: trigger kind, dream runs, router"
 milestone: DR
 size: S
-status: todo
+status: in_progress
 depends_on: [ME.1]
-branch: null
+branch: task/DR.1-dream-contract
 lane: contract
 executor: claude
 ---
@@ -27,3 +27,4 @@ From `docs/v4/build-plan.md`, milestone DR. Contract task for DR. It alone chang
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/DR.1-dream-contract (v4 controller session).

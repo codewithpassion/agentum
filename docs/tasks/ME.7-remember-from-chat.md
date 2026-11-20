@@ -3,9 +3,9 @@ id: ME.7
 title: "Remember button on a message"
 milestone: ME
 size: S
-status: todo
+status: in_progress
 depends_on: [ME.1]
-branch: null
+branch: task/ME.7-remember-from-chat
 lane: web-thread
 executor: claude
 ---
@@ -24,3 +24,4 @@ From `docs/v4/build-plan.md`, milestone ME. A person can save something from a c
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/ME.7-remember-from-chat (v4 controller session).

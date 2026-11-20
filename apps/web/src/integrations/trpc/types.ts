@@ -14,6 +14,7 @@ export type OAuthClientRecord = RouterOutputs["oauthClients"]["list"][number];
 export type FileInfo = RouterOutputs["files"]["describe"][number];
 export type ConnectorRecord = RouterOutputs["connectors"]["list"][number];
 export type CredentialRecord = ConnectorRecord["agentCredentials"][number];
+export type MySignInRecord = RouterOutputs["connectors"]["mine"][number];
 export type AssignmentRecord =
   RouterOutputs["connectors"]["assignments"][number];
 export type TriggerRecord = RouterOutputs["triggers"]["list"][number];

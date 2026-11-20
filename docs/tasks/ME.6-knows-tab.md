@@ -3,9 +3,9 @@ id: ME.6
 title: "Knows tab: notes, rules, learned this week"
 milestone: ME
 size: M
-status: todo
+status: in_progress
 depends_on: [ME.1, RH.4]
-branch: null
+branch: task/ME.6-knows-tab
 lane: web-knows
 executor: claude
 ---
@@ -28,3 +28,5 @@ From `docs/v4/build-plan.md`, milestone ME. Mockup: section "Memory and dreaming
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/ME.6-knows-tab (v4 controller session).
+- 2026-11-20: from ME.7: after this and ME.7 merge, remember a message in a conversation and find it on Knows with its source link (check in the ME e2e).

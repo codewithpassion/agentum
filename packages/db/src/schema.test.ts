@@ -76,6 +76,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "guest_sessions",
     "identity_links",
     "inbox_posts",
+    "inbox_thread_members",
     "inbox_threads",
     "library_conflicts",
     "library_entries",
@@ -92,6 +93,7 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "managed_skill_versions",
     "managed_skills",
     "map_positions",
+    "member_profiles",
     "memory_changes",
     "oauth_clients",
     "oauth_states",
@@ -111,6 +113,8 @@ test("the foundation, connector and OAuth client tables exist", () => {
     "slack_events_seen",
     "slack_messages",
     "slack_threads",
+    "team_members",
+    "teams",
     "triggers",
     "wiki_suggestions",
     "workspace_anthropic_keys",
@@ -128,7 +132,7 @@ test("every table except workspaces has workspace_id NOT NULL with no default", 
     .all()
     .map((row) => row.name)
     .filter((name) => !NO_WORKSPACE_ID.has(name));
-  expect(tables.length).toBe(87);
+  expect(tables.length).toBe(91);
 
   for (const table of tables) {
     const column = client

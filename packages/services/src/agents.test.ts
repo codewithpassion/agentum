@@ -4,6 +4,7 @@ import { machines } from "@repo/db/schema/machines";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { migrated } from "@repo/db/test-db";
 import { eq, sql } from "drizzle-orm";
+import { ZodError } from "zod";
 import { createAgentsService, findAgent, handsToNames } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
 import { createEventsService } from "./events.ts";
@@ -1249,4 +1250,103 @@ test("subagents default off and only an owner or admin session may change them",
       })
     ).subagents
   ).toBe(false);
+});
+
+test("create keeps the effort and context budget and reads them back", async () => {
+  const agent = await service.create(user, {
+    model: "sonnet",
+    name: "Tuned agent",
+    runtime: "cloud",
+    runtimeConfig: { contextBudget: "large", effort: "high" },
+  });
+  expect(agent.runtimeConfig).toEqual({
+    contextBudget: "large",
+    effort: "high",
+  });
+  const fetched = await service.get(user, agent.id);
+  expect(fetched.runtimeConfig).toEqual({
+    contextBudget: "large",
+    effort: "high",
+  });
+});
+
+test("create keeps keys the typed schema does not name next to effort", async () => {
+  const agent = await service.create(user, {
+    model: "sonnet",
+    name: "Vm effort",
+    runtime: "cloud",
+    runtimeConfig: { effort: "high", environment: "linux-vm" },
+  });
+  expect(agent.runtimeConfig).toEqual({
+    effort: "high",
+    environment: "linux-vm",
+  });
+});
+
+test("create and update refuse an effort or context budget outside its list", async () => {
+  // JSON.parse stands in for a request body, which is untyped until zod reads it.
+  await expect(
+    service.create(user, {
+      model: "sonnet",
+      name: "Extreme",
+      runtime: "cloud",
+      runtimeConfig: JSON.parse('{"effort":"extreme"}'),
+    })
+  ).rejects.toThrow(ZodError);
+  await expect(
+    service.create(user, {
+      model: "sonnet",
+      name: "Huge",
+      runtime: "cloud",
+      runtimeConfig: JSON.parse('{"contextBudget":"huge"}'),
+    })
+  ).rejects.toThrow(ZodError);
+  const plain = await service.create(user, {
+    model: "sonnet",
+    name: "Plain",
+    runtime: "cloud",
+  });
+  await expect(
+    service.update(user, plain.id, {
+      runtimeConfig: JSON.parse('{"contextBudget":"huge"}'),
+    })
+  ).rejects.toThrow(ZodError);
+});
+
+test("update with an effort patch keeps the other keys", async () => {
+  const agent = await service.create(user, {
+    model: "sonnet",
+    name: "Patched",
+    runtime: "cloud",
+    runtimeConfig: {
+      contextBudget: "small",
+      effort: "high",
+      environment: "linux-vm",
+    },
+  });
+  const updated = await service.update(
+    user,
+    agent.id,
+    {},
+    { runtimeConfigPatch: { effort: "low" } }
+  );
+  expect(updated.runtimeConfig).toEqual({
+    contextBudget: "small",
+    effort: "low",
+    environment: "linux-vm",
+  });
+});
+
+test("an agent created without effort or context budget reads back without them", async () => {
+  const agent = await service.create(user, {
+    model: "sonnet",
+    name: "Bare",
+    runtime: "cloud",
+    runtimeConfig: { environment: "linux-vm" },
+  });
+  expect(agent.runtimeConfig).toEqual({ environment: "linux-vm" });
+  expect(agent.runtimeConfig).not.toHaveProperty("effort");
+  expect(agent.runtimeConfig).not.toHaveProperty("contextBudget");
+  const fetched = await service.get(user, agent.id);
+  expect(fetched.runtimeConfig).toEqual({ environment: "linux-vm" });
 });

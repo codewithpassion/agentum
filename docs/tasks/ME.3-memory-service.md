@@ -3,7 +3,7 @@ id: ME.3
 title: "Memory service: notes, levels, scopes, guard rules"
 milestone: ME
 size: L
-status: in_progress
+status: done
 depends_on: [ME.2]
 branch: task/ME.3-memory-service
 lane: services-memory
@@ -31,3 +31,4 @@ From `docs/v4/build-plan.md`, milestone ME. Fill `@repo/services/memory`. It is 
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: from ME.4: the remember and forget_note tools call the memory stub until this task lands. Move the peer-run refusal, now in the app port, into the memory service.
 - 2026-11-20: dispatched on task/ME.3-memory-service (v4 controller session).
+- 2026-11-20: merged as 4a99a96d, review clean after 1 fix round. check and build passed on main. bun run test passed except guest-execution.test.ts, which failed alone the same way on the pre-merge commit in two side-by-side rounds (FX.1 is fixing it).

@@ -28,7 +28,10 @@ interface SecretsState {
   secrets: SecretRecord[];
 }
 
-export function SecretsPanel({ agent }: AgentPanelProps) {
+export function SecretsPanel({
+  agent,
+  onChanged,
+}: AgentPanelProps & { onChanged?: () => void }) {
   const agentId = agent.id;
   const [state, setState] = useState<SecretsState | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -69,13 +72,14 @@ export function SecretsPanel({ agent }: AgentPanelProps) {
         });
         setState({ grantedIds, secrets: state.secrets });
         setError(undefined);
+        onChanged?.();
       } catch (cause) {
         setError(errorMessage(cause));
       } finally {
         setSaving(false);
       }
     },
-    [agentId, state]
+    [agentId, onChanged, state]
   );
 
   if (state === undefined) {
@@ -97,7 +101,7 @@ export function SecretsPanel({ agent }: AgentPanelProps) {
         variable for machine and Linux VM agents. An isolate agent gets a
         placeholder instead, which is filled in only for the secret&apos;s
         allowed hosts. Secrets are managed under{" "}
-        <Link to="/settings/secrets">Settings, Secrets</Link>.
+        <Link to="/settings/secrets">Settings, Passwords and keys</Link>.
       </p>
       {error !== undefined && (
         <p className="text-destructive text-sm" role="alert">
@@ -109,12 +113,13 @@ export function SecretsPanel({ agent }: AgentPanelProps) {
           <EmptyHeader>
             <EmptyTitle>No secrets yet</EmptyTitle>
             <EmptyDescription>
-              Add a secret under Settings, Secrets, then grant it to this agent.
+              Add a secret under Settings, Passwords and keys, then grant it to
+              this agent.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button asChild variant="outline">
-              <Link to="/settings/secrets">Open Secrets</Link>
+              <Link to="/settings/secrets">Open Passwords and keys</Link>
             </Button>
           </EmptyContent>
         </Empty>

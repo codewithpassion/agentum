@@ -62,6 +62,11 @@ import type { EventsService } from "../events.ts";
 import { agentHomePath, ensureAgentHome } from "../library/home.ts";
 import type { LibraryService } from "../library.ts";
 import { notDetachedApproval } from "../mail/approval.ts";
+import {
+  libraryMemoryReader,
+  memorySection,
+  type PromptMemory,
+} from "../memory/prompt.ts";
 import { askKeysOf as askKeysOfAgent } from "../requests/ask-keys.ts";
 import { outcomeOf } from "../requests/records.ts";
 import type { RequestsService } from "../requests.ts";
@@ -161,7 +166,8 @@ export interface ManagedServiceOptions {
   gatewayFor: (key: { apiKey: string; environment: IdCache }) => ManagedGateway;
   keys: Pick<ManagedKeysService, "rememberEnvironment" | "resolve">;
   /** The workspace library. A run's agent keeps its home folder there. */
-  library: Pick<LibraryService, "mkdir" | "stat">;
+  library: Pick<LibraryService, "mkdir" | "stat"> &
+    Partial<Pick<LibraryService, "read">>;
   /**
    * The helper script (`library.js`) that moves files between the sandbox
    * disk and the library. With it, each session gets a library token in its
@@ -237,6 +243,12 @@ const computerFingerprint = (computer: AgentComputer | null) =>
   computer ? { computer } : {};
 
 /** The Anthropic agent's system text: its instructions, its files, then what it is told about skills, Slack, secrets and moving files. */
+/** A new session's first message, led by the agent's notes when it has any. */
+const withMemory = (text: string, memory: PromptMemory | null): string =>
+  [memory ? memorySection(memory) : "", text]
+    .filter((part) => part !== "")
+    .join("\n\n");
+
 const systemOf = (
   agent: AgentRecord,
   handoffNames: string[],
@@ -852,6 +864,18 @@ export const createManagedService = ({
       ? libraryTransferGuidance({ base, slug: agent.slug })
       : "";
 
+  /** Reads the agent's memory files as the run, when the library can read files. */
+  const memoryReaderOf = (run: RunRecord, agent: AgentRecord) => {
+    const readLibrary = library.read;
+    return readLibrary
+      ? libraryMemoryReader(
+          { read: (principal, path) => readLibrary(principal, path) },
+          run,
+          agent.slug
+        )
+      : undefined;
+  };
+
   /** Sends the run's input to Anthropic. Returns false when the run was failed instead. */
   const launch = async (
     run: RunRecord,
@@ -883,7 +907,9 @@ export const createManagedService = ({
       },
       agent.slug
     );
-    const context = await buildLaunchContext(db, run, agent);
+    const context = await buildLaunchContext(db, run, agent, {
+      readMemoryFile: memoryReaderOf(run, agent),
+    });
     const servers = mcpServerUrls({
       connectors: context.connectors,
       platformUrl: publicBaseUrl,
@@ -984,7 +1010,11 @@ export const createManagedService = ({
         relayHost: grants.relayHost,
         run,
         servers,
-        text,
+        // The notes ride in a new session's first message. In the registered
+        // agent's system text they would enter the fingerprint, dropping a live
+        // session whenever a note changes or another person speaks, and they
+        // would be stored in the agent's shared configuration.
+        text: withMemory(text, context.memory),
       });
     }
     await db
