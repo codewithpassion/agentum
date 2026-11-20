@@ -15,6 +15,7 @@ import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
 import { getTrpc } from "#/integrations/trpc/client";
 import { errorMessage } from "#/lib/error-message";
+import { LiveDecisionsCard } from "./decisions-card.tsx";
 import {
   type A2aSendFields,
   type AnswerPayload,
@@ -567,7 +568,8 @@ export function TakeoverCard({
 
 /**
  * `title` replaces an approval's raw "Use <tool>" line when the caller has a
- * plainer one. `onClosed` runs once a takeover request is cancelled here.
+ * plainer one. `onClosed` runs once a takeover request is cancelled here, or a
+ * decisions request is fully answered or dismissed.
  */
 export function RequestCard({
   view,
@@ -631,6 +633,9 @@ export function RequestCard({
         view={view}
       />
     );
+  }
+  if (view.kind === "decisions") {
+    return <LiveDecisionsCard nowMs={nowMs} onClosed={onClosed} view={view} />;
   }
   return <QuestionCard nowMs={nowMs} onAnswer={onAnswer} view={view} />;
 }
