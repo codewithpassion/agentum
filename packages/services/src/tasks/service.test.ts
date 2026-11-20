@@ -1077,6 +1077,24 @@ test("task links subagents with their override model and names their parent", as
   });
 });
 
+test("list marks a subagent run as a helper and a handoff as a task of its own", async () => {
+  await seedTask("run-01", { status: "running" });
+  await seedTask("run-02", {
+    parentRunId: "run-01",
+    status: "running",
+    subagentLevel: 1,
+  });
+  await seedTask("run-03", { parentRunId: "run-01", status: "running" });
+
+  const items = await tasks.list(user(), { limit: 10 });
+
+  expect(items.map((item) => [item.id, item.helper])).toEqual([
+    ["run-03", false],
+    ["run-02", true],
+    ["run-01", false],
+  ]);
+});
+
 test("get by sessionId returns a visible session with no runs, without a run", async () => {
   await seedSession({ agentId: a1, id: "s-empty", origin: "ui" });
   await seedSession({
