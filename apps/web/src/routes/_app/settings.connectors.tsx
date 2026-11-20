@@ -3,6 +3,7 @@ import type { CatalogEntry } from "@repo/db/shared";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { AddConnectorDialog } from "#/components/connectors/add-connector-dialog";
+import { AddFromCatalogue } from "#/components/connectors/add-from-catalogue";
 import { AuthModeDialog } from "#/components/connectors/auth-mode-dialog";
 import { CallTimeoutDialog } from "#/components/connectors/call-timeout-dialog";
 import { connectHref } from "#/components/connectors/connect-link";
@@ -292,6 +293,14 @@ function ConnectorsPage() {
 
   const openAdd = useCallback(() => setAdding(true), []);
 
+  const handleCatalogueAdded = useCallback(
+    async (entry: CatalogEntry) => {
+      setNotice(`Added ${entry.name}.`);
+      await router.invalidate();
+    },
+    [router]
+  );
+
   const closeAdd = useCallback(() => setAdding(false), []);
 
   const handleCreated = useCallback(
@@ -398,6 +407,13 @@ function ConnectorsPage() {
       {notice !== null && (
         <p className="mb-4 text-muted-foreground text-sm">{notice}</p>
       )}
+      {orgRole === "org:admin" ? (
+        <AddFromCatalogue
+          catalog={catalog}
+          connectors={connectors}
+          onAdded={handleCatalogueAdded}
+        />
+      ) : null}
       {connectors.length === 0 ? (
         <p className="text-muted-foreground text-sm">
           No connectors yet. Add one by URL.

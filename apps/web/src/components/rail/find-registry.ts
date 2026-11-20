@@ -15,6 +15,7 @@ import {
   Server,
   Settings,
   Sparkles,
+  Wallet,
 } from "lucide-react";
 import { ENROLL_BUTTON_LABEL } from "#/components/machines/machine-logic.ts";
 import { settingsNav } from "#/components/settings/settings-nav.ts";
@@ -73,6 +74,13 @@ export const findEntries: readonly FindEntry[] = [
     to: "/sessions",
   },
   { group: "Work", icon: ScrollText, label: "Log", to: "/log" },
+  {
+    group: "Work",
+    hint: "Cost and weekly limits",
+    icon: Wallet,
+    label: "Spend",
+    to: "/spend",
+  },
   {
     group: "Work",
     hint: "Questions",

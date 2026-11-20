@@ -3,9 +3,9 @@ id: ME.13
 title: "A way to start a private conversation"
 milestone: ME
 size: S
-status: todo
+status: in_progress
 depends_on: [ME.9]
-branch: null
+branch: task/ME.13-a-way-to-start-a-private-conversation
 lane: web-thread
 executor: claude
 ---
@@ -29,3 +29,4 @@ If built: browser, start a private conversation, remember a message, see the mar
 
 ## Log
 - 2026-11-20: added from the ME walkthrough.
+- 2026-11-20: dispatched on task/ME.13-a-way-to-start-a-private-conversation (v4 controller session).

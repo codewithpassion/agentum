@@ -3,9 +3,9 @@ id: RH.7
 title: "Roster walkthrough on local and staging"
 milestone: RH
 size: S
-status: todo
+status: in_progress
 depends_on: [RH.2, RH.5, RH.6]
-branch: null
+branch: task/RH.7-roster-e2e
 lane: e2e
 executor: claude
 ---
@@ -23,3 +23,4 @@ From `docs/v4/build-plan.md`, milestone RH. End-to-end check for RH against real
 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
+- 2026-11-20: dispatched on task/RH.7-roster-e2e (v4 controller session).

@@ -1,4 +1,5 @@
 import type { CatalogEntry } from "@repo/db/shared";
+import { catalogEntriesToAdd } from "#/components/connectors/catalog-logic";
 import type { ConnectorRecord } from "#/integrations/trpc/types";
 import { isSecretBacked } from "./keys-logic.ts";
 
@@ -13,9 +14,6 @@ export type AddChoice =
       kind: "connector";
       label: string;
     };
-
-const sameName = (a: string, b: string): boolean =>
-  a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /** The select value of a choice. Catalogue keys and connector ids never clash, the prefix says which is which. */
 export const choiceValue = (choice: AddChoice): string =>
@@ -48,21 +46,14 @@ export const addChoices = ({
   isAdmin: boolean;
 }): AddChoice[] => {
   const free = connectors.filter((connector) => !assignedIds.has(connector.id));
-  const fromCatalog: AddChoice[] = (catalog ?? [])
-    .filter(
-      (entry) =>
-        !connectors.some(
-          (connector) =>
-            connector.catalogKey === entry.key ||
-            sameName(connector.name, entry.name)
-        )
-    )
-    .map((entry) => ({
+  const fromCatalog: AddChoice[] = catalogEntriesToAdd(catalog, connectors).map(
+    (entry) => ({
       disabled: !isAdmin,
       entry,
       kind: "catalog",
       label: isAdmin ? entry.name : `${entry.name} (admin only)`,
-    }));
+    })
+  );
   const fromWorkspace: AddChoice[] = free.map((connector) => {
     const source = catalog?.find((item) => item.key === connector.catalogKey);
     // Without the catalogue, a catalogue connector would get every tool, not its defaults.
