@@ -23,3 +23,4 @@ Make the assertion allow a few milliseconds of timer jitter, for example `toBeGr
 
 ## Log
 - 2026-11-21: added by controller from the SP.8 report. Dispatched.
+- 2026-11-21: ready at 296074e1, review clean with no fix rounds. Queued for merge.
