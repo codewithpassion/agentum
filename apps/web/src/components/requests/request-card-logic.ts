@@ -43,7 +43,11 @@ export type Settled =
       status: "answered";
       via: AnswerSurface | null;
     }
-  | { status: "cancelled" }
+  | {
+      /** True when a person dismissed a decision queue, and not when its run was cancelled. */
+      dismissed?: boolean;
+      status: "cancelled";
+    }
   | { status: "conflict" }
   | { status: "expired" };
 
@@ -122,6 +126,17 @@ const SURFACE_TEXT: Record<AnswerSurface, string> = {
 const answeredVerb = (kind: RequestView["kind"]): string =>
   kind === "question" || kind === "decisions" ? "Answered" : "Handled";
 
+/** A decision queue is dismissed by a person, or cancelled with its run. Other kinds are withdrawn when their task ends. */
+const cancelledLine = (
+  kind: RequestView["kind"],
+  dismissed: boolean
+): string => {
+  if (kind !== "decisions") {
+    return "Withdrawn, the task ended";
+  }
+  return dismissed ? "Dismissed" : "Cancelled";
+};
+
 /**
  * The line a settled card shows, such as "Allowed once by Dom in Slack".
  * `by` is the answerer's name, or null when it is not known.
@@ -135,7 +150,7 @@ export const settledLine = (
     case "expired":
       return "Expired, nobody answered";
     case "cancelled":
-      return kind === "decisions" ? "Dismissed" : "Withdrawn, the task ended";
+      return cancelledLine(kind, settled.dismissed === true);
     case "conflict":
       return "Already answered somewhere else";
     default: {
@@ -374,16 +389,19 @@ export const viewFromRecord = (
     anchorId
   );
 
-/** The outcome a `request.answered`, `request.expired` or `request.cancelled` event records. */
+/** The outcome a `request.answered`, `request.expired` or `request.cancelled` event records. `actorKind` is who wrote the event: a person cancels a decision queue by dismissing it. */
 export const settledFromEvent = (
   type: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  actorKind?: string
 ): Settled | null => {
   if (type === "request.expired") {
     return { status: "expired" };
   }
   if (type === "request.cancelled") {
-    return { status: "cancelled" };
+    return actorKind === "user"
+      ? { dismissed: true, status: "cancelled" }
+      : { status: "cancelled" };
   }
   if (type !== "request.answered") {
     return null;

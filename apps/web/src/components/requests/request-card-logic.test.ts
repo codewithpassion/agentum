@@ -367,6 +367,10 @@ describe("settledFromEvent", () => {
     expect(settledFromEvent("request.cancelled", {})).toEqual({
       status: "cancelled",
     });
+    expect(settledFromEvent("request.cancelled", {}, "user")).toEqual({
+      dismissed: true,
+      status: "cancelled",
+    });
     expect(settledFromEvent("request.opened", {})).toBeNull();
     expect(settledFromEvent("request.answered", { via: "web" })).toBeNull();
   });
@@ -676,8 +680,11 @@ describe("decisions requests", () => {
     expect(settledLine("decisions", decided, "Dom")).toBe(
       "Answered by Dom in the web app"
     );
+    expect(
+      settledLine("decisions", { dismissed: true, status: "cancelled" }, "Dom")
+    ).toBe("Dismissed");
     expect(settledLine("decisions", { status: "cancelled" }, "Dom")).toBe(
-      "Dismissed"
+      "Cancelled"
     );
   });
 });

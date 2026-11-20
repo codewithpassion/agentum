@@ -334,3 +334,94 @@ test("a live card drawn from an event alone shows the answers the pending list h
     await harness.close();
   }
 });
+
+test("a sent change of answer survives a rebuild of the view with the same saved answers", async () => {
+  const harness = await mount();
+  const onSend = () =>
+    Promise.resolve({ complete: false, given: { deploy: "No" } });
+  const card = (given: Record<string, string>) => (
+    <DecisionsCard
+      nowMs={0}
+      onDismiss={noopAsync}
+      onSend={onSend}
+      view={viewWith(given)}
+    />
+  );
+  try {
+    await harness.render(card({ deploy: "Yes" }));
+    await click(harness, "No");
+    await click(harness, "Send answers");
+    expect(buttonNamed(harness, "No")?.getAttribute("aria-pressed")).toBe(
+      "true"
+    );
+    // The thread rebuilds its views on every event, with the answers it knew.
+    await harness.render(card({ deploy: "Yes" }));
+    expect(buttonNamed(harness, "No")?.getAttribute("aria-pressed")).toBe(
+      "true"
+    );
+    expect(buttonNamed(harness, "Yes")?.getAttribute("aria-pressed")).toBe(
+      "false"
+    );
+    // A view that carries a different saved answer does change the card.
+    await harness.render(card({ deploy: "Yes", tone: "Casual" }));
+    expect(progress(harness)).toBe("2 of 3 answered");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("a live card's mount snapshot does not override a newer answer in the view", async () => {
+  mock.module("#/integrations/trpc/client", () => ({
+    getTrpc: () => ({
+      requests: {
+        pending: {
+          query: () =>
+            Promise.resolve([
+              {
+                answer: { decisions: { deploy: "Yes", tone: "Formal" } },
+                id: "req",
+              },
+            ]),
+        },
+      },
+    }),
+  }));
+  const harness = await mount();
+  try {
+    await harness.render(
+      <LiveDecisionsCard nowMs={0} view={viewWith({ deploy: "No" })} />
+    );
+    expect(buttonNamed(harness, "No")?.getAttribute("aria-pressed")).toBe(
+      "true"
+    );
+    expect(buttonNamed(harness, "Formal")?.getAttribute("aria-pressed")).toBe(
+      "true"
+    );
+  } finally {
+    mock.module("#/integrations/trpc/client", () => ({
+      getTrpc: realGetTrpc,
+    }));
+    await harness.close();
+  }
+});
+
+test("a live card says so when the saved answers cannot be loaded", async () => {
+  mock.module("#/integrations/trpc/client", () => ({
+    getTrpc: () => ({
+      requests: { pending: { query: () => Promise.reject(new Error("down")) } },
+    }),
+  }));
+  const harness = await mount();
+  try {
+    await harness.render(<LiveDecisionsCard nowMs={0} view={viewWith({})} />);
+    expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not load the answers saved so far."
+    );
+    expect(progress(harness)).toBeUndefined();
+  } finally {
+    mock.module("#/integrations/trpc/client", () => ({
+      getTrpc: realGetTrpc,
+    }));
+    await harness.close();
+  }
+});

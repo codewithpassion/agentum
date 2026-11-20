@@ -166,7 +166,11 @@ export const requestViews = (live: TaskLive): Map<string, RequestView> => {
         views.set(opened.id, withSavedAnswers(opened, views.get(opened.id)));
       }
     } else if (event.type.startsWith("request.")) {
-      const settled = settledFromEvent(event.type, event.payload);
+      const settled = settledFromEvent(
+        event.type,
+        event.payload,
+        event.actor.kind
+      );
       if (settled !== null && typeof event.payload.requestId === "string") {
         settledBy.set(event.payload.requestId, settled);
       }

@@ -120,9 +120,12 @@ export function DecisionsCard({
   onSend,
   onDismiss,
   onClosed,
+  loadFailed = false,
 }: {
   view: DecisionsView;
   nowMs: number;
+  /** True when the answers saved so far could not be loaded, so the progress is not shown. */
+  loadFailed?: boolean;
   onSend: (
     decisions: Record<string, string>
   ) => Promise<{ complete: boolean; given: Record<string, string> }>;
@@ -132,10 +135,17 @@ export function DecisionsCard({
   const [given, setGiven] = useState<Readonly<Record<string, string>>>(
     view.given
   );
-  // Answers saved by someone else, or learned after the card opened, join those already known.
-  useEffect(() => {
+  // Answers saved by someone else, or learned after the card opened, join those
+  // already known. The key is the content of `view.given`, so a parent that
+  // rebuilds the view with the same answers does not undo a change sent here.
+  const givenKey = JSON.stringify(
+    Object.entries(view.given).sort(([a], [b]) => a.localeCompare(b))
+  );
+  const [seenKey, setSeenKey] = useState(givenKey);
+  if (seenKey !== givenKey) {
+    setSeenKey(givenKey);
     setGiven((prev) => ({ ...prev, ...view.given }));
-  }, [view.given]);
+  }
   const [inputs, setInputs] = useState<DecisionInputs>(EMPTY_DECISION_INPUTS);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,12 +224,18 @@ export function DecisionsCard({
       <p className="text-muted-foreground text-xs">
         {expiryText(view.expiresAt, nowMs)}
       </p>
-      <p className="text-muted-foreground text-xs" role="status">
-        {progressText(
-          answeredCount(display, given, inputs),
-          display.questions.length
-        )}
-      </p>
+      {loadFailed ? (
+        <p className="text-destructive text-xs" role="alert">
+          Could not load the answers saved so far.
+        </p>
+      ) : (
+        <p className="text-muted-foreground text-xs" role="status">
+          {progressText(
+            answeredCount(display, given, inputs),
+            display.questions.length
+          )}
+        </p>
+      )}
       {display.questions.map((question) => (
         <DecisionBlock
           disabled={pending}
@@ -284,6 +300,7 @@ export function LiveDecisionsCard({
   }, [view.id]);
   // A card drawn from an event alone has no saved answers. The pending list has them.
   const [saved, setSaved] = useState<Readonly<Record<string, string>>>({});
+  const [loadFailed, setLoadFailed] = useState(false);
   useEffect(() => {
     let active = true;
     getTrpc()
@@ -294,13 +311,17 @@ export function LiveDecisionsCard({
           setSaved(record.answer.decisions);
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) {
+          setLoadFailed(true);
+        }
+      });
     return () => {
       active = false;
     };
   }, [view.id]);
   const current = useMemo(
-    () => ({ ...view, given: { ...view.given, ...saved } }),
+    () => ({ ...view, given: { ...saved, ...view.given } }),
     [saved, view]
   );
   const closed = useCallback(() => {
@@ -309,6 +330,7 @@ export function LiveDecisionsCard({
   }, [onClosed]);
   return (
     <DecisionsCard
+      loadFailed={loadFailed}
       nowMs={nowMs}
       onClosed={closed}
       onDismiss={onDismiss}
