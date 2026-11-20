@@ -104,10 +104,13 @@ beforeEach(async () => {
     throw new Error("org_a and org_b must be allowed");
   }
   const owner = await principalOf(USER_A);
-  const connector = await composed.services.connectors.create(owner, {
-    name: "Stub",
-    url: `${PUBLIC_ORIGIN}/mcp`,
-  });
+  const connector = await composed.services.connectors.create(
+    { ...owner, isAdmin: true },
+    {
+      name: "Stub",
+      url: `${PUBLIC_ORIGIN}/mcp`,
+    }
+  );
   connectorId = connector.id;
   agentId = (
     await composed.services.agents.create(owner, {
