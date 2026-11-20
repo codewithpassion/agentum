@@ -9,6 +9,7 @@ import {
   draftSaveKind,
   jobChips,
   lastResultText,
+  pauseTarget,
 } from "./job-logic";
 
 const NOW_MS = Date.parse("2026-11-20T12:00:00Z");
@@ -237,4 +238,11 @@ describe("draftRoutineInput", () => {
       "A routine needs a cron schedule to be saved."
     );
   });
+});
+
+test("pauseTarget sends mail to the mailbox and routines to routines", () => {
+  expect(pauseTarget({ source: "routine" })).toBe("routine");
+  expect(pauseTarget({ source: "mail" })).toBe("mail");
+  expect(pauseTarget({ source: "http" })).toBe("trigger");
+  expect(pauseTarget({ source: "app" })).toBe("trigger");
 });

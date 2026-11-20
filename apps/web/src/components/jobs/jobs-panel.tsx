@@ -1,24 +1,21 @@
 import type { JobSentence, ProposedTrigger } from "@repo/db/shared";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { RoutinesPanel } from "#/components/agent/profile/sheets/routines.tsx";
-import { TriggersPanel } from "#/components/agent/profile/sheets/triggers.tsx";
 import { CreateRoutineDialog } from "#/components/routines/create-routine-dialog.tsx";
 import type { CreatedTrigger } from "#/components/triggers/create-trigger-dialog.tsx";
 import { TriggerSecretDialog } from "#/components/triggers/trigger-secret-dialog.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "#/components/ui/dialog.tsx";
 import { getTrpc } from "#/integrations/trpc/client.ts";
 import type { AgentRecord } from "#/integrations/trpc/types.ts";
 import { errorMessage } from "#/lib/error-message.ts";
 import { DescribeJob } from "./describe-job.tsx";
 import { DraftReview } from "./draft-review.tsx";
-import { draftName, draftRoutineInput, draftSaveKind } from "./job-logic.ts";
+import { EditJobDialog } from "./edit-job-dialog.tsx";
+import {
+  draftName,
+  draftRoutineInput,
+  draftSaveKind,
+  pauseTarget,
+} from "./job-logic.ts";
 import { JobRow } from "./job-row.tsx";
 
 interface PendingDraft {
@@ -70,7 +67,6 @@ export function JobsPanel({
           : await trpc.jobs.forAgent.query({ agentId: fixedAgentId })
       );
       setNowMs(Date.now());
-      setError(undefined);
     } catch (cause) {
       setError(errorMessage(cause));
     }
@@ -87,11 +83,15 @@ export function JobsPanel({
       setError(undefined);
       try {
         const trpc = getTrpc();
-        if (job.source === "routine") {
+        const target = pauseTarget(job);
+        if (target === "routine") {
           await trpc.routines.setEnabled.mutate({
             enabled,
             routineId: job.id,
           });
+        } else if (target === "mail") {
+          // Mail starts are the agent's mailbox trigger, which the mail router owns.
+          await trpc.setTrigger.mutate({ agentId: job.agent.id, on: enabled });
         } else {
           const result = await trpc.triggers.setEnabled.mutate({
             enabled,
@@ -121,7 +121,7 @@ export function JobsPanel({
       setError(undefined);
       try {
         await getTrpc().jobs.runNow.mutate({ jobId: job.id });
-        toast.success("Started. Follow it under Work.");
+        toast.success("Started. Its run shows under Work in the agent's room.");
       } catch (cause) {
         setError(errorMessage(cause));
       }
@@ -231,6 +231,10 @@ export function JobsPanel({
     load();
   }, [load]);
 
+  const isChangeable = (id: string): boolean => {
+    const agent = agents.find((candidate) => candidate.id === id);
+    return agent !== undefined && agent.status !== "archived";
+  };
   const agentName = (id: string): string | undefined =>
     agents.find((agent) => agent.id === id)?.name;
   const editingAgent =
@@ -258,7 +262,7 @@ export function JobsPanel({
               onEdit={edit}
               onPause={pause}
               onRunNow={runNow}
-              readOnly={readOnly}
+              readOnly={readOnly || !isChangeable(job.agent.id)}
               showAgent={fixedAgentId === undefined}
             />
           ))}
@@ -296,23 +300,11 @@ export function JobsPanel({
       )}
       {body}
       {editing === null || editingAgent === undefined ? null : (
-        <Dialog onOpenChange={handleEditOpenChange} open>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>Edit job</DialogTitle>
-              <DialogDescription>
-                {editing.source === "routine"
-                  ? `The routines of ${editingAgent.name}. Pause, remove or create one here.`
-                  : `The web triggers of ${editingAgent.name}. Pause, revoke or create one here.`}
-              </DialogDescription>
-            </DialogHeader>
-            {editing.source === "routine" ? (
-              <RoutinesPanel agent={editingAgent} />
-            ) : (
-              <TriggersPanel agent={editingAgent} />
-            )}
-          </DialogContent>
-        </Dialog>
+        <EditJobDialog
+          agent={editingAgent}
+          job={editing}
+          onOpenChange={handleEditOpenChange}
+        />
       )}
       {reviewing && pending !== null ? (
         <CreateRoutineDialog
@@ -320,7 +312,7 @@ export function JobsPanel({
           initial={{
             cron: pending.draft.cron ?? "",
             name: draftName(pending.draft.does),
-            prompt: pending.draft.does,
+            prompt: pending.draft.does.trim() || pending.draft.when.trim(),
             timezone: pending.draft.timezone ?? "",
           }}
           onClose={closeReview}

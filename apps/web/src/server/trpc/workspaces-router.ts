@@ -1,6 +1,5 @@
 // Workspace procedures: the ones a person can switch to, and a new one.
 import { INVITE_ROLES } from "@repo/services/workspaces";
-import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, signedInProcedure, workspaceProcedure } from "./init.ts";
 
@@ -38,16 +37,7 @@ export const workspacesRouter = router({
       ctx.services.workspaces.setTimezone(ctx.principal, input.timezone)
     ),
   /** The timezone the workspace's routines read their schedules in. Any member may read it. */
-  timezone: workspaceProcedure.query(async ({ ctx }) => {
-    const workspace = await ctx.services.workspaces.byId(
-      ctx.principal.workspaceId
-    );
-    if (!workspace) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Workspace not found.",
-      });
-    }
-    return { timezone: workspace.timezone };
-  }),
+  timezone: workspaceProcedure.query(({ ctx }) =>
+    ctx.services.workspaces.timezoneOf(ctx.principal)
+  ),
 });

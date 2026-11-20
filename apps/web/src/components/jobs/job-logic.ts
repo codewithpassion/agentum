@@ -98,6 +98,16 @@ export const canRunNow = (job: Pick<JobSentence, "source">): boolean =>
 export const canPause = (job: Pick<JobSentence, "source">): boolean =>
   job.source !== "slack";
 
+/** Which procedure pauses a job: routines and web triggers have their own, mail is the agent's mailbox. */
+export const pauseTarget = (
+  job: Pick<JobSentence, "source">
+): "mail" | "routine" | "trigger" => {
+  if (job.source === "routine") {
+    return "routine";
+  }
+  return job.source === "mail" ? "mail" : "trigger";
+};
+
 export const draftSaveKind = (draft: ProposedTrigger): DraftSaveKind => {
   if (draft.source === "routine") {
     return isPresent(draft.cron) ? "routine" : "unsupported";
