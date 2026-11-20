@@ -40,6 +40,9 @@ export const RUN = {
   browser: "r_browser",
   computerShell: "r_computer_shell",
   curl: "r_curl",
+  desktop: "r_desktop",
+  familyChild: "r_family_child",
+  familyParent: "r_family_parent",
   machineSearch: "r_machine_search",
   machineWeb: "r_machine_web",
   mail: "r_mail",
@@ -49,9 +52,11 @@ export const RUN = {
   privateB: "r_private_b",
   script: "r_script",
   shell: "r_shell",
+  skillScript: "r_skill_script",
   tools: "r_tools",
   ui: "r_ui",
   web: "r_web",
+  webChild: "r_web_child",
 } as const;
 
 export const person = (
@@ -236,10 +241,26 @@ export const makeWorld = (
     RUN.computerShell,
     RUN.browser,
     RUN.bigCall,
+    RUN.desktop,
+    RUN.skillScript,
     RUN.tools,
+    RUN.familyParent,
   ]) {
     seedRun({ id, onBehalfOfUserId: USER_A, sessionId: SESSION.ui });
   }
+  // A subagent of a run that used the web, and a parent whose subagent did.
+  seedRun({
+    id: RUN.webChild,
+    onBehalfOfUserId: USER_A,
+    parentRunId: RUN.web,
+    sessionId: SESSION.ui,
+  });
+  seedRun({
+    id: RUN.familyChild,
+    onBehalfOfUserId: USER_A,
+    parentRunId: RUN.familyParent,
+    sessionId: SESSION.ui,
+  });
   seedRun({
     id: RUN.privateA,
     onBehalfOfUserId: USER_A,
@@ -334,6 +355,24 @@ export const makeWorld = (
     type: "tool.call",
   });
   seedEvent({ id: "ev_browser_1", runId: RUN.browser, type: "browser.action" });
+  seedEvent({
+    id: "ev_desktop_1",
+    payload: toolCall("harbourmaster_desktop_snapshot"),
+    runId: RUN.desktop,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_skill_script_1",
+    payload: toolCall("run_skill_script"),
+    runId: RUN.skillScript,
+    type: "tool.call",
+  });
+  seedEvent({
+    id: "ev_family_child_1",
+    payload: toolCall("web_fetch"),
+    runId: RUN.familyChild,
+    type: "tool.call",
+  });
   seedEvent({
     id: "ev_big_call_1",
     payload: {},

@@ -299,6 +299,11 @@ const WEB_RUNS = [
   RUN.computerShell,
   RUN.browser,
   RUN.bigCall,
+  RUN.desktop,
+  RUN.skillScript,
+  // A subagent of a run that used the web, and the parent of a subagent that did.
+  RUN.webChild,
+  RUN.familyParent,
 ];
 
 test("a note from a run that used the web through any tool is held at quiet and tell_after", async () => {

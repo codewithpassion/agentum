@@ -4,6 +4,7 @@
 import type { Database } from "@repo/db";
 import { events } from "@repo/db/schema/events";
 import { runRequests } from "@repo/db/schema/requests";
+import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import type { MemorySource } from "@repo/db/shared";
 import { and, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
@@ -13,6 +14,7 @@ import { invalid, notFound } from "../errors.ts";
 import { readableWorkspace } from "../guards.ts";
 import { peerRootOf } from "../runs/peer-root.ts";
 import { loadRun } from "../runs/queries.ts";
+import { MAX_RUN_DEPTH } from "../runs/subject.ts";
 import type { Principal } from "../workspaces.ts";
 import { type OutsideSource, outsideSourceOf } from "./guards.ts";
 
@@ -24,16 +26,27 @@ export const MEMORY_KIND = "memory";
 const USER_ID = /^user_[A-Za-z0-9]+$/;
 
 // Tool calls that bring outside text into a run, by lower-cased name. Claude Code
-// on a machine records `WebFetch` and `WebSearch`, Managed Agents and Pi record
-// `web_fetch` and `web_search`. Every runtime stores a call as a `tool.call`
+// on a machine records `WebFetch` and `WebSearch`, Managed Agents `web_fetch` and
+// `web_search`, and Pi `web_fetch`. Every runtime stores a call as a `tool.call`
 // event whose payload has the tool's `name`.
 const WEB_TOOLS = ["webfetch", "websearch", "web_fetch", "web_search"];
-// A real shell can run `curl` with nothing in the log: Claude Code's `Bash`, the
-// `bash` of Managed Agents and of a cloud Linux VM, and the computer's shell
-// (`computer_exec`, named `mcp__<server>__computer_exec` on a machine). A run
-// that called one is treated as having used the web. See docs/v4/memory-format.md.
+// Real shells, and tools that run code with network access, can fetch a page with
+// nothing in the log: Claude Code's `Bash`, the `bash` of Managed Agents and of a
+// cloud Linux VM, a skill's script (`run_skill_script`), and the computer's shell
+// and desktop (`computer_exec`, `desktop_*`). A run that called one is treated as
+// having used the web. See docs/v4/memory-format.md.
 const SHELL_TOOLS = ["bash"];
-const COMPUTER_SHELL_NAME = "%computer_exec";
+// MCP tools carry a prefix, `mcp__<server>__` on a machine and `<server>_` in Pi,
+// so these match as the end of the name.
+const UNSEEN_NETWORK_TOOLS = [
+  "computer_exec",
+  "desktop_act",
+  "desktop_act_headed",
+  "desktop_input",
+  "desktop_screenshot",
+  "desktop_snapshot",
+  "run_skill_script",
+];
 const toolName = sql`lower(json_extract(${events.payload}, '$.name'))`;
 
 export const isUserId = (value: string | null): value is string =>
@@ -164,25 +177,80 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
   };
 
   /**
-   * True when the run could have read outside text. Any `network.request` counts,
-   * whatever its `via` (`curl`, `run_script` or `web_fetch`), and so does a
-   * `browser.action`, a web tool call, and a shell call. A tool call whose
-   * payload went to the blob store keeps no name in the row, so it counts too.
+   * Every run that could have handed outside text to this one: the run, the runs
+   * it descends from (a subagent's prompt may hold what its parent fetched), and
+   * everything below them (a parent may remember what its subagent fetched).
    */
-  const usedWeb = async (runId: string): Promise<boolean> => {
+  const runFamily = async (
+    run: { id: string; parentRunId: string | null },
+    workspaceId: string
+  ): Promise<string[]> => {
+    let root = run;
+    for (
+      let depth = 0;
+      depth <= MAX_RUN_DEPTH + 1 && root.parentRunId;
+      depth += 1
+    ) {
+      // biome-ignore lint/performance/noAwaitInLoops: the chain is at most MAX_RUN_DEPTH long and each step needs the last
+      const parent = await loadRun(db, root.parentRunId, workspaceId);
+      if (!parent) {
+        break;
+      }
+      root = parent;
+    }
+    const family = new Set([root.id]);
+    let frontier = [root.id];
+    for (
+      let depth = 0;
+      depth <= MAX_RUN_DEPTH + 1 && frontier.length > 0;
+      depth += 1
+    ) {
+      // biome-ignore lint/performance/noAwaitInLoops: each level needs the ids of the one above
+      const children = await db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          and(
+            eq(runs.workspaceId, workspaceId),
+            inArray(runs.parentRunId, frontier)
+          )
+        );
+      frontier = children
+        .map((child) => child.id)
+        .filter((id) => !family.has(id));
+      for (const id of frontier) {
+        family.add(id);
+      }
+    }
+    return [...family];
+  };
+
+  /**
+   * True when the run, or a run it is chained to, could have read outside text.
+   * Any `network.request` counts, whatever its `via` (`curl`, `run_script` or
+   * `web_fetch`), and so does a `browser.action`, a web tool call, and a call to
+   * a tool that can reach the network unseen. A tool call whose payload went to
+   * the blob store keeps no name in the row, so it counts too.
+   */
+  const usedWeb = async (
+    run: { id: string; parentRunId: string | null },
+    workspaceId: string
+  ): Promise<boolean> => {
     const [row] = await db
       .select({ id: events.id })
       .from(events)
       .where(
         and(
-          eq(events.runId, runId),
+          inArray(events.runId, await runFamily(run, workspaceId)),
           or(
             inArray(events.type, ["browser.action", "network.request"]),
             and(
               eq(events.type, "tool.call"),
               or(
                 inArray(toolName, [...WEB_TOOLS, ...SHELL_TOOLS]),
-                like(toolName, COMPUTER_SHELL_NAME),
+                ...UNSEEN_NETWORK_TOOLS.map((name) =>
+                  like(toolName, `%${name}`)
+                ),
                 isNotNull(events.payloadRef)
               )
             )
@@ -246,7 +314,7 @@ export const createMemoryActors = ({ db }: { db: Database }) => {
         outside: outsideSourceOf({
           origin: session.origin,
           peer: (await peerRootOf(db, run)) !== null,
-          web: await usedWeb(run.id),
+          web: await usedWeb(run, workspaceId),
         }),
         source,
         userScope: scopeOf(session, { runUserId: run.onBehalfOfUserId }),
