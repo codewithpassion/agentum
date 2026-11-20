@@ -34,20 +34,28 @@ const memoryNotesOf = async (
   agent: AgentRecord,
   library: FakeRuntimeOptions["library"]
 ): Promise<string> => {
-  if (!library?.read) {
+  try {
+    if (!library?.read) {
+      return "";
+    }
+    const { memory } = await buildLaunchContext(db, run, agent, {
+      readMemoryFile: libraryMemoryReader(
+        { read: library.read },
+        run,
+        agent.slug
+      ),
+    });
+    const notes = memory ? memory.notes : [];
+    return notes.length === 0
+      ? ""
+      : `\n\nI remember:\n${notes.map((note) => `- ${note.text}`).join("\n")}`;
+  } catch (error) {
+    // Memory is a nicety here: a run that cannot read it still echoes.
+    console.error(
+      `Loading memory for fake run ${run.id} failed: ${error instanceof Error ? error.name : "unknown error"}`
+    );
     return "";
   }
-  const { memory } = await buildLaunchContext(db, run, agent, {
-    readMemoryFile: libraryMemoryReader(
-      { read: library.read },
-      run,
-      agent.slug
-    ),
-  });
-  const notes = memory ? memory.notes : [];
-  return notes.length === 0
-    ? ""
-    : `\n\nI remember:\n${notes.map((note) => `- ${note.text}`).join("\n")}`;
 };
 
 const NEEDS_PROXY =
@@ -73,12 +81,16 @@ export const createFakeRuntime = ({
   dispatch: async (db, run, agent, deps) => {
     const claimed = await deps.claimRun(SYSTEM_PRINCIPAL, run.id);
     const input = claimed.inputText;
-    const notes = await memoryNotesOf(db, claimed, agent, library);
+    const toolMode = wantsTool(modelOfRun(claimed, agent), input);
+    // A tool run answers with the tool's result, so it does not list notes.
+    const notes = toolMode
+      ? ""
+      : await memoryNotesOf(db, claimed, agent, library);
     let result: ToolRunResult = {
       events: [],
       text: `Echo: ${input}${notes}`,
     };
-    if (wantsTool(modelOfRun(claimed, agent), input)) {
+    if (toolMode) {
       try {
         if (!(proxy && signToken)) {
           throw new Error(NEEDS_PROXY);

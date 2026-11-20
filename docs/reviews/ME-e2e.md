@@ -11,7 +11,7 @@ Who did what is marked on each line: "verifier" means a fresh browser verifier (
 | Fake | Agent `mem-fake`. A note remembered from a message shows on Knows with its source link, and a new conversation's run input carries it. | verifier, both sizes |
 | Cloud, scripted model | Agent `mem-cloud` on the dev-only `faux` model. A prompt `call harbourmaster_remember {...}` makes the cloud run call the real `remember` tool through `/mcp`. | verifier, both sizes, and dispatcher |
 | Cloud, real model | Agent `mem-claude` on `claude-haiku-5-5`. A real Anthropic key was in the local workspace. It called `remember`, and a new conversation used the note ("Kestrel"). | verifier, both sizes |
-| Machine | The real Rust daemon (a debug build copied from the main checkout's `apps/agentum/target`, newer than the last change to `apps/agentum/src`), enrolled as machine `me9` with its own config and state folders, and the real Claude CLI (2.1.327). The note arrived in the daemon's working copy and the agent answered with it. | verifier, both sizes |
+| Machine | The real Rust daemon (a debug build copied from the main checkout's `apps/agentum/target`, newer than the last change to `apps/agentum/src`), enrolled as machine `me9` with its own config and state folders, and the real Claude CLI (2.1.327). The note arrived in the daemon's working copy and the agent answered with it. | verifier, both sizes. The binary's origin and the CLI version are the dispatcher's setup notes, not in browser.md. |
 | Managed Agents | Not run. | Dom, see below |
 
 The Anthropic key for the local workspace came from `apps/web/.env.local`. The dispatcher put it into the key field on the Home page of the local app from a shell variable. It was not written into any file or doc, and it is stored only in the local D1 database (`workspace_anthropic_keys`).
@@ -32,18 +32,20 @@ Not exercised: a machine agent calling `remember` itself (the machine runs only 
 
 ## Fixed on this branch
 
-- The fake runtime ignored memory. `createFakeRuntime` now takes the library and, when the run's prompt carries notes, appends them to the echo ("Echo: hello", then "I remember:" and one bullet per note). An empty memory leaves the reply byte for byte as before. Test in `fake-runtime.test.ts`.
+- The fake runtime ignored memory. `createFakeRuntime` now takes the library and, when the run's prompt carries notes, appends them to the echo ("Echo: hello", then "I remember:" and one bullet per note). An empty memory leaves the reply byte for byte as before. A tool-mode run answers with the tool's result and lists no notes, and a failed memory load is logged and the run still echoes. Tests in `fake-runtime.test.ts`, including a private note that reaches only its person's run.
 - A held memory note in the Needs you card had no Approve or Reject, because `memory_note` fell through to the default summary. Approval was possible only on the Knows tab. The card now shows the note and offers Approve and Reject, which call `memory.decide` (new `memory-note-actions.tsx`, test in `needs-you-card.test.tsx`). Round 1 showed the first version printed the card's heading instead of the note text. Round 2 confirmed the note text shows at both sizes.
 
 ## Console and network
 
-Round 2's literal verdict is FAIL for one thing: the browser console shows a Clerk `POST /v1/client/sign_ins` 400 when `/api/dev-login` is opened in a browser that is already signed in. It is the sign-in tool, not a memory page, and no memory page at either size returned a 4xx. Round 1 also counted the deliberate 404 on the plain member's direct private-file URL (the proof of the denial), and two forwarded server messages "tRPC desk.rail failed" with `SQLITE_BUSY`. Those server lines appeared only while a second process (a seed script, or the verifier's `sqlite3` reads) touched the local D1 file during a run. Round 2 saw none, with its reads kept to quiet moments. Treat both as artefacts of the local setup.
+Round 2's literal verdict is FAIL for one thing: the browser console shows a Clerk `POST /v1/client/sign_ins` 400 when `/api/dev-login` is opened in a browser that is already signed in (reproduced twice, and seen on a first sign-in too; a clean scratch Playwright context did not show it). It is the sign-in tool, not a memory page, and no memory page at either size returned a 4xx.
+
+Round 1 also counted the deliberate 404 on the plain member's direct private-file URL (the proof of the denial, kept in round 2 as one labelled probe per size), and it saw "tRPC desk.rail failed" lines in the dev server log. Two, at 18:36 and 18:37 before the verifier started, carried `SQLITE_BUSY`, when the dispatcher's own seed scripts were writing to the same D1 file. Six more at 18:51:11 gave no cause and coincided with a finishing run and the verifier's `sqlite3` reads, so the verifier could not tell whether its reads caused them. Round 1 also left unexplained why the member session's console held 98 accumulated 404 lines when its per-page tests accounted for far fewer. Round 2 kept its reads to quiet moments and saw no `desk.rail` failures and no `[error]` forwards. So the lock lines look like contention on the local D1 file, but that is an inference, not something shown.
 
 ## Proposed tasks
 
 ### ME.11 Fix the cloud follow-up message for the scripted model
 
-Finding. A second message in the same cloud conversation comes back as an empty echo ("echo:") on the `faux` model. `bun scripts/e2e/cloud.ts --server http://localhost:<port>` fails at its second run ("expected \"echo: second message\", got \"echo: \""). It happens on a branch that only changes the fake runtime and a Needs you component, so it is on `main`. A real model follows up correctly (a follow-up in a `mem-claude` conversation answered "Pineapple"), and the fake runtime echoes follow-ups correctly. So it is probably in the scripted model's path or the Durable Object's handling of a second run in a session, but the cause was not found and it was not bisected.
+Finding. A second message in the same cloud conversation comes back as an empty echo ("echo:") on the `faux` model. `bun scripts/e2e/cloud.ts --server http://localhost:<port>` fails at its second run ("expected \"echo: second message\", got \"echo: \""). The dispatcher ran this script, and a verifier saw the same empty echo in the browser (round 1). It happens on a branch that only changes the fake runtime and a Needs you component, so it should be on `main` too, but it was not run on `main` itself. A real model follows up correctly (a follow-up in a `mem-claude` conversation answered "Pineapple"), and the fake runtime echoes follow-ups correctly. So it is probably in the scripted model's path or the Durable Object's handling of a second run in a session, but the cause was not found and it was not bisected.
 
 Scope. Find the cause and fix it, or fix the faux model if it is only there. Check the run input the second run carries into `pi.submit`.
 
@@ -62,6 +64,8 @@ Check. A rail test for the card fields, and a browser look at the drawer at both
 Finding. A note is private only when its session has `private = 1`, and only Slack DMs set that. In the app a person cannot start a private conversation, so a private note cannot come from the browser. The walkthrough set the flag with one `UPDATE` on the local database.
 
 Decision first. Either leave private notes to Slack DMs and say so on the Knows tab, or add a "private" switch when starting a conversation and show a private marker on the person's own Knows list (today Dev User's private notes appear next to the shared ones with no marker).
+
+Scope. Whichever option is chosen: the Slack-only note in the Knows tab copy, or the start-conversation switch plus the marker.
 
 Check. If built: browser, start a private conversation, remember a message, see the marker on Knows, and the second member sees nothing in the Library or on Knows.
 

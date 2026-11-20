@@ -151,3 +151,103 @@ FAIL under the stated strict rule (any console error or failed request fails it)
 Desktop (1280x800): 1 Remember dialog on my own message (mem-fake, Kind Work). 2 toast "Remembered / Open Knows" over the conversation with the Echo and "I remember:" reply. 3 mem-fake Knows tab after Open Knows (A1, A2 notes). 4 new conversation reply (Desktop-A3) listing notes under "I remember:". 5 mem-cloud Knows, "Ask me first" checked. 6 Needs you drawer empty (baseline). 7 mem-cloud conversation Done with "held for approval" and badge 1. 8 Needs you drawer with the entry. 9 desk item page (no note text). 10 mem-cloud Knows with the held note and inline Approve and Reject. 11 desk after Approve ("Nothing needs you"). 12 Knows scrolled down, "Learned this week" with the approved note. 13 conversation opened from the "a task" source link. 14 Knows after Reject (rejected note absent). 15 Remember dialog on the private conversation. 16 toast after Remember on the private conversation. 17 admin Library, folder memory. 18 admin Library, private file open. 19 admin conversation reply including the private note. 20 member Library, folder memory. 21 member Library, private folder empty. 22 member direct private file URL, "Not found". 23 member Knows tab of mem-fake (no private note). 24 member conversation reply (no private note). 25 mem-machine Knows after the hand-added note. 26 mem-machine reply "4471". 27 mem-claude Kestrel run with the remember tool call. 28 mem-claude answer "Kestrel". 29 mem-claude Knows with "Ask me first" selected. 30 desk item for the mem-claude Quill note.
 
 Phone (390x844): 1 mem-fake agent page. 2 New conversation dialog. 3 Remember dialog. 4 toast with Open Knows over the composer. 5 Knows tab with Phone-A1. 6 reply to Phone-A2 listing notes. 7 mem-cloud conversation, held, bell badge 1. 8 Needs you drawer. 9 desk item page. 10 Knows with inline Approve and Reject. 11 desk after Approve. 12 Knows after the phone Reject. 13 admin Library folder memory. 14 admin private file open. 15 member private folder empty. 16 member direct file path "Not found". 17 member Knows (no private note). 18 member conversation reply (no private note). 19 mem-machine Knows after the phone note. 20 mem-machine reply "8832". 21 mem-claude Knows "Tell me after" selected. 22 mem-claude Knows after the Heron note. 23 desk item for the mem-claude Quill note. 24 mem-cloud second message, reply "echo:" (faux finding).
+
+## Round 2
+
+Independent re-verification by a second verifier, 2026-11-20 about 19:06 to 19:17 AEDT. No source edits, no git commands, dev server and daemon untouched, no Clerk users created. Scope: the fix to the Needs you item page for a held memory note, plus a strict console, network and server-log pass on the memory flows.
+
+### What ran and how
+
+- Same dev server (http://localhost:3917, ME.9 worktree) and the same `agent-browser` headless Chromium. Sessions `me9-verify2` (admin, Dev User, `/api/dev-login`) and `me9-member2` (Member Tester, `agent-login` with `--base-url http://localhost:3917`). Desktop 1280x800, then phone 390x844 with a fresh `open` after the resize. `document.documentElement.scrollWidth` was 1280 on desktop and 390 on every phone page I read (agent page, Knows, desk item, thread, Library folder, file, member pages).
+- Agents: mem-fake (fake runtime) and mem-cloud (cloud, scripted `faux` model, learn level "Ask me first", confirmed on its Knows tab as the checked radio).
+- Console and network: `agent-browser console` per session, cleared before each flow so every line is attributable. Chromium prints every 4xx/5xx fetch as a console error, so that is the failed-request detector. `agent-browser network requests` lists URLs without status, so for the one console 400 I reproduced the sign-in in a scratch Playwright script (outside the repo, read-only against the app) that logs response statuses. Server side: `dev.log` lines 509 to 600 (everything written during this round).
+- sqlite3: used twice in total, both times after I had navigated both browsers to about:blank so nothing was polling (19:17:26, one query on `memory_changes`, one count of held rows). No other database reads.
+- Baseline note: the Needs you badge already showed "1 waiting" when I started. It is a leftover held note from the fixer's own check ("Fix check: the post box is by the lift", item 01M7VZTMP1K1DDSFW69RC9NRAE, created 19:05, before my first command). I did not decide it. "Badge gone" below therefore means the count went back to the baseline of 1, and the drawer showed only that leftover. This is why, after each Approve or Reject, the page moved on to `/desk?item=01M7VZTMP1K1DDSFW69RC9NRAE` instead of `/desk` (round 1 landed on `/desk` because nothing else was waiting). That advance-to-next-item behaviour is fine and consistent.
+- Markers: "R2-Desktop" and "R2-Phone".
+
+### Results table
+
+| Flow | Desktop | Phone |
+|---|---|---|
+| B2 mem-cloud held note, approve and reject from the item page | PASS | PASS |
+| A2 mem-fake Remember from message menu, Knows, new conversation | PASS | PASS |
+| C2 member through the UI only | PASS | PASS |
+
+### B2. mem-cloud, held note, item page shows the text (the fix)
+
+Desktop
+1. New conversation on mem-cloud: `call harbourmaster_remember {"kind":"work","text":"R2-Desktop the loading ramp key is under the mat"}`. Done after about 8 seconds. Page showed "harbourmaster_remember, 1 tool call" and "tool said: Change 01M7VZYRC857W9MJ18DMET8HGA for note 01M7VZYQXWHAFCDNJ60DT4HF1F held for approval." Badge went from 1 to 2 without a reload.
+2. Needs you drawer: tabs "Mine 2 / Everyone 2", two rows, both reading "mem-cloud wants to remember something" (the title is still shown twice per row, with an "M" avatar between, as in round 1). One row was the leftover, one mine (item 01M7VZYRC857W9MJ18DMET8HGA, found from the row hrefs because both rows read the same). Footer "35 done today" (desktop-31).
+3. Clicked my row. URL `/desk?item=01M7VZYRC857W9MJ18DMET8HGA`. The page shows, in order: heading "mem-cloud wants to remember something", "mem-cloud", then the note text in bold, exactly "R2-Desktop the loading ramp key is under the mat", then "Held until you approve it. Approving adds it to what the agent knows.", then Approve and Reject buttons, then a "How it got here" fold-out ("mem-cloud started this Nov 20, 7:07 PM. Now: mem-cloud wants to remember something."). The note text is visible together with Approve and Reject. The round 1 finding is fixed (desktop-32).
+4. Approve. Badge went from 2 to 1 (the leftover) and the page advanced to the leftover item, which also shows its own text, "Fix check: the post box is by the lift" (desktop-33). Knows tab of mem-cloud (`?tab=knows`): "R2-Desktop the loading ramp key is under the mat / Noticed in a task, 20 Nov" with Edit and Forget; "Learned this week" first row "Remembered: R2-Desktop the loading ramp key is under the mat, today" with Undo (desktop-34, desktop-35). sqlite3: applied, written_by agent, source_kind run, decided_by set.
+5. Second held note `call harbourmaster_remember {"kind":"work","text":"R2-Desktop reject me"}`, held, badge 2, drawer row, item page showed "R2-Desktop reject me" with Approve and Reject (desktop-36). Reject. Badge back to 1, page advanced to the leftover. Knows notes list and Learned this week do not contain it: a text count for "reject me" on the Knows page was 0 (desktop-37). sqlite3: rejected, decided_by set.
+
+Phone
+1. Conversation `call harbourmaster_remember {"kind":"work","text":"R2-Phone the dock gate code is under the pot"}`, held, bell badge 1 to 2 (phone-25). Drawer is a full-width sheet with the same two rows (phone-26). Clicked mine (`/desk?item=01M7W087KXEHX0Z3YMEFE4MCKA`).
+2. Item page at 390 wide: heading wraps over three lines, then "mem-cloud", then "R2-Phone the dock gate code is under the pot" (bold), the "Held until you approve it..." line wrapping to two lines, Approve (x 16 to 86) and Reject (x 94 to 152) side by side on one row at y 305 to 333, fully inside the viewport and not covered by anything but the floating dev badge in the bottom right corner, which sits well below them. scrollWidth 390 (phone-27).
+3. Approve: badge 2 to 1, advanced to the leftover item (phone-28). Knows lists "R2-Phone the dock gate code is under the pot" and Learned this week has "Remembered: R2-Phone the dock gate code is under the pot, today"; scrollWidth 390 (phone-29, phone-30).
+4. "R2-Phone reject me": held, drawer row, item page showed the text (phone-31), Reject, badge back to 1, text count on Knows 0 (phone-32). sqlite3: rejected, decided_by set.
+Result: PASS at both sizes.
+
+### A2. mem-fake, Remember from the message menu
+
+Desktop
+1. New conversation, sent "R2-Desktop the bike shed is out back". Reply "Echo: R2-Desktop the bike shed is out back / I remember: ..." listing the older notes.
+2. Message actions menu, Remember (menu has one item "Remember"). Dialog: Note pre-filled with the message, Kind combobox with People, Corrections, Work (selected), Places, buttons Remember, Cancel, Close (desktop-38). Clicked Remember. Toast text: "Remembered" and an "Open Knows" button (desktop-39).
+3. Clicked Open Knows in the same command: `/agents/01M7VXDCXFWQ4EMJQSJPBNNZHH?tab=knows`. Knows lists "R2-Desktop the bike shed is out back / Saved from a conversation, 20 Nov" with Edit and Forget. The "a conversation" link for it goes to `/threads/01M7W0454EBBRG74DRZDKXZJVA`, the thread I sent the message in (desktop-40).
+4. NEW conversation "R2-Desktop what do you know?" Reply: "Echo: R2-Desktop what do you know? / I remember: Phone-private..., Desktop-private..., Private..., R2-Desktop the bike shed is out back, Phone-A1..., Desktop-A2..., Desktop-A1..., My favourite colour is teal". The new note is under "I remember:" (desktop-41). sqlite3: applied, written_by person, source_kind session, decided_by empty.
+
+Phone
+1. Same steps with "R2-Phone the bike shed key is on the hook": Remember dialog fits the screen (phone-33, phone-34), toast "Remembered / Open Knows" over the page (phone-35), Open Knows landed on `?tab=knows`, scrollWidth 390, note listed with "Saved from a conversation, 20 Nov", source link `/threads/01M7W0CFQKG2JYES7P8P3297P9` (the sending thread) (phone-36).
+2. New conversation "R2-Phone what do you know?": "I remember:" lists R2-Phone the bike shed key is on the hook and R2-Desktop the bike shed is out back among the others (phone-37). sqlite3: applied, person, session.
+Result: PASS at both sizes.
+
+### C2. Member, UI only (Member Tester, session me9-member2)
+
+Desktop
+1. Header Files link goes to `/library`, which lists the folder "agents". Browsing agents, then mem-fake lists "memory" and "tasks". The `memory` folder lists index.md (374 B), private (folder) and work.md (797 B) (desktop-42).
+2. work.md opens and shows "# Work" and five entries: My favourite colour is teal, Desktop-A1, Desktop-A2, Phone-A1 and R2-Desktop the bike shed is out back. A text count for "locker", "passport" and "safe is behind" is 0. index.md shows the same notes by id and none of the private ones (desktop-43).
+3. The `private` folder: "This folder is empty." The member cannot see or open the private file by browsing (desktop-44).
+4. mem-fake Knows tab as the member lists only R2-Desktop the bike shed is out back, Phone-A1, Desktop-A2, Desktop-A1, My favourite colour is teal. Counts on the page: "passport" 0, "locker" 0, "safe is behind" 0, "Private:" 0, "Desktop-private" 0, "Phone-private" 0 (desktop-45).
+5. EXPECTED-DENIAL PROBE (one only, desktop): direct URL `/library?dir=agents%2Fmem-fake%2Fmemory%2Fprivate&file=agents%2Fmem-fake%2Fmemory%2Fprivate%2Fuser_<Dev User id>.md`. Page shows the empty private folder and a panel "Not found" with Close. Console: exactly one "Failed to load resource: the server responded with a status of 404 (Not Found)" (round 1 counted two per load). Same denial as before (desktop-46).
+
+Phone
+1. Reached Library through Menu then Files. Same walk: agents, mem-fake, memory lists index.md (446 B), private, work.md (958 B) (phone-38). work.md opens and shows R2-Phone the bike shed key is on the hook, no private text (count 0), scrollWidth 390 (phone-39). private: "This folder is empty." (phone-40). Knows: same six zero counts as desktop, shows the R2-Phone and R2-Desktop notes and their Learned this week rows (phone-41).
+2. EXPECTED-DENIAL PROBE (one only, phone): the same direct URL, "Not found" panel, one 404 console line (phone-42).
+Result: PASS at both sizes. The member cannot see or open a private file and does not see the private notes on Knows.
+
+### Console, network and server log (strict pass)
+
+Per session, per size. Warnings I ignored as not errors: Clerk "development keys" warning on every load. No "[error]" lines forwarding server console output (the "[Server] LOG ... __tsd/open-source" kind seen in round 1) appeared in the error level this round; the `[log]`-level "[Server]" lines I saw were `mcp.request` records with status 200 or 202 only.
+
+| Session and phase | Console errors | Failed requests |
+|---|---|---|
+| Admin, desktop, B2 (from first sign-in) | 1: "Failed to load resource: the server responded with a status of 400 ()", seen once, right after the first `/api/dev-login`, before any memory page | see below |
+| Admin, desktop, A2 | 0 | 0 |
+| Admin, phone, B2 | 0 | 0 |
+| Admin, phone, A2 | 0 | 0 |
+| Member, desktop, C2 browsing | 0 | 0 |
+| Member, desktop, expected-denial probe | 1 x 404 (the labelled probe) | 1 x 404 (the probe) |
+| Member, phone, C2 browsing | 0 | 0 |
+| Member, phone, expected-denial probe | 1 x 404 (the labelled probe) | 1 x 404 (the probe) |
+
+The 400: I traced it. It is the Clerk call `POST https://<dev instance>.clerk.accounts.dev/v1/client/sign_ins` made by `/dev-login` when the browser already holds a signed-in session. I reproduced it in a scratch Playwright run: first `/api/dev-login` in a clean context gave no 4xx at all; a second `/api/dev-login` in the same context gave exactly this one 400 and the same console line, and still landed on `/home`. I did the same re-login once more in `me9-verify2` (at about 19:09, console cleared first) and got the same single 400. For the very first sign-in of `me9-verify2` at 19:06 I cannot say whether the session profile was already signed in, so I cannot tell if it was this same cause; I did not record the member sign-in console (it happened before I started capturing). It is not a request made by any memory page: nothing with a 4xx came from `/agents`, `/desk`, `/threads` or `/library` in any of the memory flows at either size. It does not correlate with sqlite3 (no sqlite3 call had been made yet).
+
+Server log (`dev.log`, lines 509 to 600, 19:06 to 19:17): 12 `mcp.request` lines with status 200 and 4 with status 202 (initialize, notifications/initialized, tools/list, tools/call "remember"), plus Clerk development-keys client warnings. Zero lines matching tRPC, failed, SQLITE or locked. In particular there were no "tRPC desk.rail failed" lines this round. I called sqlite3 only at 19:17:26 with the browsers parked on about:blank; nothing was written to the log after that. The round 1 `desk.rail` failures remain at older lines (370 to 372), outside this round, so I have no new evidence on whether my sqlite3 reads caused those. This round both the log and the sqlite3 use were clean, which is consistent with the lock theory but does not prove it.
+
+### Other observations (not failures)
+
+- Needs you drawer row still shows "mem-cloud wants to remember something" twice, with an "M" between. Same as round 1.
+- Member Library shows Rename, Move and Delete buttons on mem-fake folders and files, and on work.md Save, Download, Delete and history Restore buttons. I did not click any of them. Same class as the round 1 Edit and Forget finding on Knows.
+- The leftover held note ("Fix check: the post box is by the lift", mem-cloud) was still held at the end (1 held row in `memory_changes`). It belongs to the fixer, not this round.
+- Round 2 test data left behind: applied notes "R2-Desktop the loading ramp key is under the mat", "R2-Desktop the bike shed is out back", "R2-Phone the dock gate code is under the pot", "R2-Phone the bike shed key is on the hook"; rejected "R2-Desktop reject me", "R2-Phone reject me".
+
+### Verdict (round 2)
+
+FAIL under the literal strict rule, for one reason only: the admin session logged one console "Failed to load resource ... 400" from the Clerk sign-in call that `/api/dev-login` makes when the browser is already signed in. All three flows (B2, A2, C2) worked at both desktop and phone size, the item-page fix is confirmed (the note text is shown together with Approve and Reject at both sizes, nothing overflows, scrollWidth 390), the only other console errors were the two labelled expected-denial 404s, and the server log and network were otherwise clean with no tRPC or SQLite errors. If the dev-login sign-in 400 is accepted as outside the memory flows, this round is a PASS.
+
+### Round 2 screenshot index
+
+Desktop (1280x800): 31 Needs you drawer with two rows (leftover plus mine). 32 item page for "R2-Desktop the loading ramp key is under the mat" with Approve and Reject. 33 page after Approve (advanced to the leftover item). 34 mem-cloud Knows with the approved note. 35 Knows scrolled to Learned this week. 36 item page for "R2-Desktop reject me". 37 Knows after Reject (note absent). 38 mem-fake Remember dialog. 39 toast "Remembered / Open Knows". 40 mem-fake Knows with the R2-Desktop note and source link. 41 new conversation reply listing the note under "I remember:". 42 member Library, memory folder. 43 member work.md open. 44 member private folder empty. 45 member mem-fake Knows. 46 expected-denial probe, "Not found".
+
+Phone (390x844): 25 mem-cloud conversation held, bell badge 2. 26 Needs you drawer with two rows. 27 item page for "R2-Phone the dock gate code is under the pot". 28 page after Approve. 29 Knows with the approved note. 30 Knows scrolled to Learned this week. 31 item page for "R2-Phone reject me". 32 Knows after Reject. 33 message actions menu on mem-fake. 34 Remember dialog. 35 toast "Remembered / Open Knows". 36 Knows with the R2-Phone note and source link. 37 new conversation reply listing the note. 38 member Library, memory folder. 39 member work.md open. 40 member private folder empty. 41 member mem-fake Knows. 42 expected-denial probe, "Not found".

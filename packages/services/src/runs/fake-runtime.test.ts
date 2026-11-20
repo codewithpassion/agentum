@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { sqliteAtomic } from "@repo/db/atomic";
 import { events as eventRows } from "@repo/db/schema/events";
 import { runs as runRows } from "@repo/db/schema/runs";
@@ -286,17 +286,25 @@ const note = (text: string): MemoryNote => ({
   writtenBy: "person",
 });
 
-/** A library holding the given files under the agent's memory folder, keyed by the path after `memory/`. */
-const libraryWith = (files: Record<string, string>) => ({
-  mkdir: () => Promise.resolve(),
-  pendingConflicts: () => Promise.resolve([]),
-  read: (_principal: Principal, path: string) => {
-    const text = files[path.replace(MEMORY_PREFIX, "")];
-    return text === undefined
-      ? Promise.reject(notFound("File"))
-      : Promise.resolve({ bytes: new TextEncoder().encode(text) });
-  },
-});
+/**
+ * A library holding the given files under the agent's memory folder, keyed by
+ * the path after `memory/`. It stubs only what the fake runtime reads, so the
+ * one cast stands in for the rest of the library service.
+ */
+const libraryWith = (files: Record<string, string>) =>
+  ({
+    mkdir: () => Promise.resolve(),
+    pendingConflicts: () => Promise.resolve([]),
+    read: (_principal: Principal, path: string) => {
+      const text = files[path.replace(MEMORY_PREFIX, "")];
+      return text === undefined
+        ? Promise.reject(notFound("File"))
+        : Promise.resolve({ bytes: new TextEncoder().encode(text) });
+    },
+  }) as unknown as Parameters<typeof buildRuns>[1];
+
+const ana: Principal = { ...user, userId: "user_ana" };
+const ben: Principal = { ...user, userId: "user_ben" };
 
 test("a fake run lists the notes its prompt carried, so a person can see memory reached it", async () => {
   runs = buildRuns(
@@ -305,7 +313,7 @@ test("a fake run lists the notes its prompt carried, so a person can see memory 
       "work.md": serializeMemoryFile("work.md", [
         note("Invoices go to Finance"),
       ]),
-    }) as never
+    })
   );
   const { summary } = await runAs(user, await agentWithApp("m"), "hello");
 
@@ -315,8 +323,72 @@ test("a fake run lists the notes its prompt carried, so a person can see memory 
 });
 
 test("a fake run with a library but no notes still echoes alone", async () => {
-  runs = buildRuns(undefined, libraryWith({}) as never);
+  runs = buildRuns(undefined, libraryWith({}));
   const { summary } = await runAs(user, await agentWithApp("m"), "hello");
 
   expect(summary.resultText).toBe("Echo: hello");
+});
+
+test("a private note reaches the run of its person and no one else's", async () => {
+  const privateNote: MemoryNote = {
+    ...note("Ana's locker is 12"),
+    userScope: "user_ana",
+  };
+  runs = buildRuns(
+    undefined,
+    libraryWith({
+      "private/user_ana.md": serializeMemoryFile("private/user_ana.md", [
+        privateNote,
+      ]),
+    })
+  );
+  const agentId = await agentWithApp("m");
+
+  const forAna = await runAs(ana, agentId, "hello");
+  const forBen = await runAs(ben, agentId, "hello");
+
+  expect(forAna.summary.resultText).toContain("Ana's locker is 12");
+  expect(forBen.summary.resultText).toBe("Echo: hello");
+});
+
+test("a run whose memory cannot be read still echoes", async () => {
+  const log = spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const failingRead = {
+      mkdir: () => Promise.resolve(),
+      pendingConflicts: () => Promise.resolve([]),
+      read: () => Promise.reject(new Error("storage down")),
+    } as unknown as Parameters<typeof buildRuns>[1];
+    runs = buildRuns(undefined, failingRead);
+    const { summary } = await runAs(user, await agentWithApp("m"), "hello");
+
+    expect(summary).toMatchObject({
+      resultText: "Echo: hello",
+      status: "done",
+    });
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("a run that fails while loading its launch context still echoes", async () => {
+  const log = spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const brokenLibrary = {
+      mkdir: () => Promise.resolve(),
+      pendingConflicts: () => Promise.resolve([]),
+      get read(): never {
+        throw new Error("launch context down");
+      },
+    } as unknown as Parameters<typeof buildRuns>[1];
+    runs = buildRuns(undefined, brokenLibrary);
+    const { summary } = await runAs(user, await agentWithApp("m"), "hello");
+
+    expect(summary).toMatchObject({
+      resultText: "Echo: hello",
+      status: "done",
+    });
+  } finally {
+    log.mockRestore();
+  }
 });

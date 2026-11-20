@@ -234,7 +234,8 @@ test("person grant card reviews its own version, links the app and decides pendi
   }
 });
 
-test("a held memory note shows its text and Approve and Reject decide that change", async () => {
+/** Renders a held memory note's body, clicks the button with `label`, and returns what the page did. */
+const decideHeldNote = async (label: "Approve" | "Reject") => {
   const container = document.createElement("div");
   const root = createRoot(container as unknown as Element);
   let changed = 0;
@@ -262,20 +263,38 @@ test("a held memory note shows its text and Approve and Reject decide that chang
         />
       )
     );
-    expect(container.textContent).toContain("The office is in Fremantle");
     const buttons = [...container.querySelectorAll("button")];
-    expect(buttons.map((button) => button.textContent)).toEqual([
-      "Approve",
-      "Reject",
-    ]);
-    await act(async () => buttons[0]?.click());
-    await act(async () => buttons[1]?.click());
-    expect(memoryDecisions).toEqual([
-      { changeId: "change_1", decision: "approve" },
-      { changeId: "change_1", decision: "reject" },
-    ]);
-    expect(changed).toBe(2);
+    await act(async () =>
+      buttons.find((button) => button.textContent === label)?.click()
+    );
+    return {
+      buttons: buttons.map((button) => button.textContent),
+      changed,
+      text: container.textContent,
+    };
   } finally {
     await act(async () => root.unmount());
   }
+};
+
+test("a held memory note shows its text, and Approve decides that change", async () => {
+  memoryDecisions.length = 0;
+  const page = await decideHeldNote("Approve");
+
+  expect(page.text).toContain("The office is in Fremantle");
+  expect(page.buttons).toEqual(["Approve", "Reject"]);
+  expect(memoryDecisions).toEqual([
+    { changeId: "change_1", decision: "approve" },
+  ]);
+  expect(page.changed).toBe(1);
+});
+
+test("Reject on a held memory note rejects that change", async () => {
+  memoryDecisions.length = 0;
+  const page = await decideHeldNote("Reject");
+
+  expect(memoryDecisions).toEqual([
+    { changeId: "change_1", decision: "reject" },
+  ]);
+  expect(page.changed).toBe(1);
 });
