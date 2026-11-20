@@ -35,6 +35,10 @@ test("a call goes to the Messages API on the dream model with the workspace's ke
   });
 });
 
+test("the dream is priced at the claude-haiku-5-5 rates for prompts up to 100K tokens", () => {
+  expect(DREAM_PRICE_PER_MILLION).toEqual({ input: 0.1, output: 0.5 });
+});
+
 test("a failed request, an error status and an empty reply are counted and answer null", async () => {
   let call = 0;
   const model = createDreamModel({

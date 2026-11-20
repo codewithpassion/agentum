@@ -15,10 +15,13 @@ const CALL_TIMEOUT_MS = 90_000;
 const MILLION = 1_000_000;
 
 /**
- * USD per million tokens of `DREAM_MODEL`, for the cost a dream reports to the
- * spend rollups. These are the Haiku list prices; change them with the model.
+ * USD per million tokens of `DREAM_MODEL` (claude-haiku-5-5), for the cost a
+ * dream reports to the spend rollups. These are the rates for a prompt of up
+ * to 100K tokens. Above 100K tokens Anthropic charges $0.50 in and $2.50 out
+ * (first-party rates as of 3 Nov 2026). A dream's prompt is capped at about
+ * 100K characters of evidence, far under that, so the lower rates apply.
  */
-export const DREAM_PRICE_PER_MILLION = { input: 1, output: 5 } as const;
+export const DREAM_PRICE_PER_MILLION = { input: 0.1, output: 0.5 } as const;
 
 interface MessagesResponse {
   content?: { text?: string; type: string }[];

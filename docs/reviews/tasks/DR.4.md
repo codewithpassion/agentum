@@ -7,6 +7,8 @@ Task: schedule, model, write, diary, undo (`packages/services/src/dream.ts` and 
 - Round 1 at `5502a985`: not clean, four must-fix. Undo reset `index.md` to empty when the dream left it unchanged or made it. Undo restored old index bytes over a later write to another file. Approving a held batch overwrote notes a person edited after the dream. A held batch has no Needs you card (left to the controller, see below). The reviewer also asked for one extract call per person and a per-person prune budget.
 - Fix round 1 at `381a4956`: not clean, two must-fix. The held batch recorded its file versions after the model calls, and the person budget in prune left out the shared notes the plan adds.
 - Fix round 2 at `86ee56d9`: clean.
+- Round 3 at `515bb9fd` (merge of main with SP.3, and the paused-agent skip): clean. Nits: a pause that lands between `fireDue` reading the due slots and `run()` loading the agent still costs that night's dream, because `fireOne` has moved the slot; a finished dream never calls `spend.enforceCap`, so a dream that crosses the weekly cap pauses the agent only after its next ordinary run.
+- Round 4 (the claude-haiku-5-5 price correction): see below.
 
 ## Decisions made
 
@@ -22,10 +24,10 @@ Task: schedule, model, write, diary, undo (`packages/services/src/dream.ts` and 
 - Answering forgets the other options as the person who answered (`memory.forget`), so those are ordinary memory changes the person can undo.
 - Scheduling. `syncDreamTriggers` (`dream/trigger.ts`) makes one live `dream` trigger per active agent whose schedule is not off, at `0 2 * * *` (nightly) or `0 2 * * 0` (weekly, Sunday), in the workspace's timezone. `memory.rules.set` calls it for its agent. The minute tick's `dream.sync` job repairs the rest: new agents, agents from before dreams, a changed workspace timezone. No agent creation path needed a change. The `dream.fire` job claims each due slot with a compare-and-swap on `next_run_at`, moves it to the next 02:00, and starts up to 5 dreams a tick.
 - `dream.runNow`, `undo` and `decide` need the agent's owner or an org admin on a browser session. `list`, `get` and `changes` are open to any workspace user, and a person's private change rows are shown only to that person.
-- A paused agent (`agents.paused_at`, from SP.3) does not dream. `fireDue` leaves its slot due, so it dreams on the first tick after it resumes, and `dream.runNow` is refused with `conflict` and records no run, so the next dream still reads everything since the last one.
+- A paused agent (`agents.paused_at`, from SP.3) does not dream. `fireDue` leaves its slot due, so it dreams on the first tick after it resumes, and `run()` (so `dream.runNow` and the tick alike) refuses with `conflict` and records no run, so the next dream still reads everything since the last one.
 - The held-batch rows are left off the `memory_note` Needs you cards, because `memory.decide` refuses them.
 - DR.2 notes done: an empty-absorbed merge is applied as an edit; a merge whose text equals the keeper's leaves the keeper's writer and date; a question's scope comes from its notes; prune's budget is the prompt budget less the text the plan adds; reconcile's held ids go to prune; triggers refuse `reassign`, `setEnabled` and `revoke` on a dream trigger; `DeskCard.dream` reaches `RailCard.dream` through a helper that keeps `rail.ts` under the complexity limit.
-- The model's cost is `DREAM_PRICE_PER_MILLION` in `dream/model.ts`, set to Haiku list prices ($1 and $5 per million tokens). The spend rollup already reads `costUsd` from `dream_runs.usage`.
+- The model's cost is `DREAM_PRICE_PER_MILLION` in `dream/model.ts`, set to the claude-haiku-5-5 rates for prompts up to 100K tokens ($0.10 in and $0.50 out per million; $0.50 and $2.50 above 100K, first-party rates of 3 Nov 2026). The spend rollup already reads `costUsd` from `dream_runs.usage`.
 
 ## Nits left
 
@@ -53,5 +55,4 @@ Task: schedule, model, write, diary, undo (`packages/services/src/dream.ts` and 
 ## Steps for Dom
 
 - None for the migration: DR.4 adds no migration.
-- Confirm the price per million tokens of `claude-haiku-5-5` and edit `DREAM_PRICE_PER_MILLION` in `packages/services/src/dream/model.ts` if it differs from $1 in and $5 out.
 - A dream needs the workspace's Anthropic API key (Settings, Anthropic API key). Without one it records a failed run that says so.
