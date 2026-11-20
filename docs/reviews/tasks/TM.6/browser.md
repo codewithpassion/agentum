@@ -76,3 +76,16 @@ Network: agent-browser lists requests without status codes. The dev server log h
 ## Verdict
 
 PASS. All nine flows work at 1280x800 and 390x844, there is no horizontal scroll or overlap, and no console error comes from the team, agent or library pages. The only logged errors are the Clerk dev-login 400 (out of scope) and the 409 from the deliberate duplicate-handle test. Finding 1 is a minor race the developer may want to fix.
+
+## Re-check after the Settings race fix (02235f72)
+
+Vite dev on port 5400, dev login, agent-browser session tm6-verify2, agent "Fake echo" from `seed-fake-agent.ts`. Each pair of picks was two back-to-back `select` commands chained with `&&` (no pause), then a 3 second wait and a full reload. Screenshots: `recheck-desktop-1/2/3.png`, `recheck-phone-1/2/3.png` (1 = after pair, 2 = capability pair, 3 = after Edit agent save).
+
+Steps and results (Capability / Thinking / Context read from the selects after reload):
+1. Thinking Quick then Context Small (start Fast and cheap / Thorough / Standard): desktop Fast and cheap / Quick / Small, both persisted. Context Large then Thinking Thorough: desktop Fast and cheap / Thorough / Large, both persisted. Phone: Thinking Balanced then Context Small gave Balanced / Balanced / Small; Context Large then Thinking Thorough gave Balanced / Thorough / Large. Both persisted.
+2. Capability then Thinking straight after: desktop Balanced + Quick gave Balanced / Quick / Large; phone Most capable + Quick gave Most capable / Quick / Large. Both persisted after reload.
+3. Edit agent, name changed (desktop "Fake echo renamed d", phone "Fake echo phone"), Save changes: Capability, Thinking and Context unchanged straight after the save and after a reload; new name shown.
+
+Console: no error entries at either size, only the Clerk development-keys warning, React DevTools hint, vite debug lines and a software WebGL warning. Dev log: no error or 4xx/5xx line (only docker build output from wrangler containers).
+
+Verdict: PASS. The race no longer reproduces at 1280x800 or 390x844. Phone note: the select refs differ from desktop, which only mattered for the test script.
