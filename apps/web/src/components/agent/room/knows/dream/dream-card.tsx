@@ -6,11 +6,12 @@ import { Button } from "#/components/ui/button.tsx";
 import {
   canUndoRun,
   countsSentence,
+  currentDiary,
   type DreamCardState,
   decisionPending,
   dreamCardState,
   dreamTitle,
-  questionsSentence,
+  questionsLine,
 } from "./dream-logic.ts";
 import { DreamSchedulePicker } from "./dream-schedule.tsx";
 import { HeldBatch } from "./held-batch.tsx";
@@ -52,6 +53,26 @@ function UndoNight({
     >
       {pending === "undo" ? "Undoing…" : "Undo this night"}
     </Button>
+  );
+}
+
+function QuestionsLine({ run }: { run: DreamRun }): ReactElement | null {
+  const line = questionsLine(run);
+  if (line === null) {
+    return null;
+  }
+  return (
+    <p className="text-sm">
+      {line.text}
+      {line.open ? (
+        <>
+          {" "}
+          <Link className="underline underline-offset-4" to="/desk">
+            Open Needs you
+          </Link>
+        </>
+      ) : null}
+    </p>
   );
 }
 
@@ -107,8 +128,9 @@ function DreamBody({
     return (
       <>
         <p className="whitespace-pre-line [overflow-wrap:anywhere]">
-          {state.run.diary}
+          {currentDiary(state.run)}
         </p>
+        <QuestionsLine run={state.run} />
         <HeldBatch
           canDecide={canChange}
           disabled={
@@ -125,8 +147,9 @@ function DreamBody({
     return (
       <>
         <p className="whitespace-pre-line [overflow-wrap:anywhere]">
-          {state.run.diary}
+          {currentDiary(state.run)}
         </p>
+        <QuestionsLine run={state.run} />
         <SeeChanges runId={state.run.id} />
       </>
     );
@@ -136,29 +159,21 @@ function DreamBody({
       <>
         <p>You undid this night. The notes are back as they were.</p>
         <p className="whitespace-pre-line text-muted-foreground [overflow-wrap:anywhere]">
-          {state.run.diary}
+          {currentDiary(state.run)}
         </p>
         <SeeChanges runId={state.run.id} />
       </>
     );
   }
-  const questionLine = questionsSentence(state.questions);
   return (
     <>
       <p className="whitespace-pre-line [overflow-wrap:anywhere]">
-        {state.run.diary}
+        {currentDiary(state.run)}
       </p>
       <p className="text-muted-foreground text-sm">
         {countsSentence(state.run.counts)}
       </p>
-      {questionLine === null ? null : (
-        <p className="text-sm">
-          {questionLine}{" "}
-          <Link className="underline underline-offset-4" to="/desk">
-            Open Needs you
-          </Link>
-        </p>
-      )}
+      <QuestionsLine run={state.run} />
       <div className="flex flex-col items-start gap-2">
         {canChange && canUndoRun(state.run) && !disabled ? (
           <UndoNight

@@ -3,10 +3,11 @@ import type { DreamCounts, DreamRun, DreamRunStatus } from "@repo/db/shared";
 import {
   canUndoRun,
   countsSentence,
+  currentDiary,
   dreamCardState,
   dreamTitle,
   earlierRuns,
-  questionsSentence,
+  questionsLine,
   RUN_STATUS_LABELS,
   SCHEDULE_OPTIONS,
   sortRuns,
@@ -33,6 +34,7 @@ function makeRun(overrides: Partial<DreamRun>): DreamRun {
     finishedAt: null,
     heldChanges: 0,
     id: "run-1",
+    openQuestions: 0,
     resultVersion: null,
     since: null,
     startedAt: new Date(2026, 10, 19, 3, 0, 0).toISOString(),
@@ -223,17 +225,130 @@ test("countsSentence never mentions questions", () => {
   ).toBe("Added 1 note.");
 });
 
-test("questionsSentence is null for no questions", () => {
-  expect(questionsSentence(0)).toBeNull();
+const HELD_DIARY = [
+  "These changes wait for your approval. Wants to add 2 notes and drop 1. 1 question is waiting for you.",
+  "Would add: Ships on Fridays.",
+  "Would add a private note.",
+  "Would drop: Ships on Thursdays. Newer.",
+  "Proposed a skill: Month-end close",
+].join("\n");
+const HELD_COUNTS = { added: 2, dropped: 1, merged: 0, questions: 1 };
+
+test("currentDiary keeps a held dream's diary as it was written, minus the question sentence", () => {
+  const held = makeRun({
+    counts: HELD_COUNTS,
+    diary: HELD_DIARY,
+    heldChanges: 3,
+    openQuestions: 1,
+  });
+  expect(currentDiary(held).split("\n")).toEqual([
+    "These changes wait for your approval. Wants to add 2 notes and drop 1.",
+    "Would add: Ships on Fridays.",
+    "Would add a private note.",
+    "Would drop: Ships on Thursdays. Newer.",
+    "Proposed a skill: Month-end close",
+  ]);
 });
 
-test("questionsSentence says One question for one", () => {
-  expect(questionsSentence(1)).toBe("It asked you one question.");
+test("currentDiary words an approved dream's changes in the past tense and drops the held sentence", () => {
+  const approved = makeRun({
+    counts: HELD_COUNTS,
+    diary: `${HELD_DIARY}\nYou approved these changes.`,
+    openQuestions: 1,
+    resultVersion: "version_1",
+  });
+  expect(currentDiary(approved).split("\n")).toEqual([
+    "Added 2 notes, dropped 1.",
+    "Added: Ships on Fridays.",
+    "Added a private note.",
+    "Dropped: Ships on Thursdays. Newer.",
+    "Proposed a skill: Month-end close",
+    "You approved these changes.",
+  ]);
 });
 
-test("questionsSentence counts more than one", () => {
-  expect(questionsSentence(2)).toBe("It asked you 2 questions.");
-  expect(questionsSentence(10)).toBe("It asked you 10 questions.");
+test("currentDiary keeps a rejected dream's lines as proposals, because nothing was added", () => {
+  const rejected = makeRun({
+    counts: HELD_COUNTS,
+    diary: `${HELD_DIARY}\nYou rejected these changes. Nothing was changed.`,
+  });
+  expect(currentDiary(rejected).split("\n")).toEqual([
+    "Wanted to add 2 notes and drop 1.",
+    "Would add: Ships on Fridays.",
+    "Would add a private note.",
+    "Would drop: Ships on Thursdays. Newer.",
+    "Proposed a skill: Month-end close",
+    "You rejected these changes. Nothing was changed.",
+  ]);
+});
+
+test("currentDiary words the lines of an undone approved dream in the past tense", () => {
+  const undone = makeRun({
+    counts: HELD_COUNTS,
+    diary: `${HELD_DIARY}\nYou approved these changes.\nYou undid this dream.`,
+    resultVersion: "version_1",
+    status: "undone",
+  });
+  const lines = currentDiary(undone).split("\n");
+  expect(lines[0]).toBe("Added 2 notes, dropped 1.");
+  expect(lines[1]).toBe("Added: Ships on Fridays.");
+});
+
+test("currentDiary leaves a dream that was never held alone, and drops only a stale question sentence", () => {
+  const plain = makeRun({
+    counts: { added: 1, dropped: 0, merged: 0, questions: 1 },
+    diary:
+      "Added 1 note. 1 question is waiting for you.\nAdded: Ships on Fridays.",
+    resultVersion: "version_1",
+  });
+  expect(currentDiary(plain)).toBe("Added 1 note.\nAdded: Ships on Fridays.");
+  const onlyQuestion = makeRun({
+    counts: { added: 0, dropped: 0, merged: 0, questions: 2 },
+    diary: "2 questions are waiting for you.\nAsked: Which one?",
+  });
+  expect(currentDiary(onlyQuestion)).toBe("Asked: Which one?");
+});
+
+test("questionsLine is null when the dream asked nothing", () => {
+  expect(questionsLine(makeRun({}))).toBeNull();
+});
+
+test("questionsLine says the question waits while it is open, and offers Needs you", () => {
+  const counts = { ...ZERO_COUNTS, questions: 1 };
+  expect(questionsLine(makeRun({ counts, openQuestions: 1 }))).toEqual({
+    open: true,
+    text: "One question is waiting for you.",
+  });
+  const two = { ...ZERO_COUNTS, questions: 2 };
+  expect(questionsLine(makeRun({ counts: two, openQuestions: 2 }))?.text).toBe(
+    "2 questions are waiting for you."
+  );
+  expect(questionsLine(makeRun({ counts: two, openQuestions: 1 }))).toEqual({
+    open: true,
+    text: "1 of 2 questions is still waiting for you.",
+  });
+});
+
+test("questionsLine says the question was answered once none is open", () => {
+  const one = { ...ZERO_COUNTS, questions: 1 };
+  expect(questionsLine(makeRun({ counts: one }))).toEqual({
+    open: false,
+    text: "You answered the question.",
+  });
+  const two = { ...ZERO_COUNTS, questions: 2 };
+  expect(questionsLine(makeRun({ counts: two }))?.text).toBe(
+    "You answered both questions."
+  );
+  const three = { ...ZERO_COUNTS, questions: 3 };
+  expect(questionsLine(makeRun({ counts: three }))?.text).toBe(
+    "You answered all 3 questions."
+  );
+});
+
+test("questionsLine says nothing about answers after an undo or a reject closed the questions", () => {
+  const counts = { added: 1, dropped: 0, merged: 0, questions: 1 };
+  expect(questionsLine(makeRun({ counts, status: "undone" }))).toBeNull();
+  expect(questionsLine(makeRun({ counts }))).toBeNull();
 });
 
 test("dreamTitle is Last night's dream for a start before 6 on the same day", () => {

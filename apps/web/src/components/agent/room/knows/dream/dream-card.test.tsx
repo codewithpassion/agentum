@@ -27,6 +27,7 @@ const run = (overrides: Partial<DreamRun> = {}): DreamRun => ({
   finishedAt: null,
   heldChanges: 0,
   id: "run_1",
+  openQuestions: 0,
   resultVersion: null,
   since: null,
   startedAt: new Date(NOW - HOUR_MS).toISOString(),
@@ -208,11 +209,14 @@ test("a done dream with a question shows the question and links to Needs you", (
       run({
         counts: { added: 0, dropped: 0, merged: 0, questions: 2 },
         diary: "Two things I was unsure of.",
+        openQuestions: 2,
         status: "done",
       }),
     ],
   });
-  expect(card(document)?.textContent).toContain("It asked you 2 questions.");
+  expect(card(document)?.textContent).toContain(
+    "2 questions are waiting for you."
+  );
   const link = card(document)?.querySelector("a");
   expect(link?.textContent).toBe("Open Needs you");
   expect(link?.getAttribute("href")).toBe("/desk");
@@ -438,4 +442,120 @@ test("a rejected dream shows its diary and no applied counts, Undo or buttons", 
   expect(text).toContain("You rejected these changes.");
   expect(text).not.toContain("Added 1 note");
   expect(buttonNamed(document, "Undo this night")).toBeUndefined();
+});
+
+const HELD_DIARY = [
+  "These changes wait for your approval. Wants to add 3 notes.",
+  "Would add: Ships on Fridays.",
+].join("\n");
+const HELD_COUNTS = { added: 3, dropped: 0, merged: 0, questions: 0 };
+
+test("a held dream still says its changes wait for approval, in the future tense", () => {
+  const document = render({
+    runs: [run({ counts: HELD_COUNTS, diary: HELD_DIARY, heldChanges: 3 })],
+  });
+  const text = card(document)?.textContent ?? "";
+  expect(card(document)?.getAttribute("data-state")).toBe("held");
+  expect(text).toContain(
+    "These changes wait for your approval. Wants to add 3 notes."
+  );
+  expect(text).toContain("Would add: Ships on Fridays.");
+  expect(buttonNamed(document, "Approve")).toBeDefined();
+});
+
+test("an approved dream drops the held sentence and words its changes in the past tense", () => {
+  const document = render({
+    runs: [
+      run({
+        counts: HELD_COUNTS,
+        diary: `${HELD_DIARY}\nYou approved these changes.`,
+        resultVersion: "version_1",
+      }),
+    ],
+  });
+  const text = card(document)?.textContent ?? "";
+  expect(card(document)?.getAttribute("data-state")).toBe("done");
+  expect(text).not.toContain("wait for your approval");
+  expect(text).not.toContain("Wants to");
+  expect(text).not.toContain("Would add");
+  expect(text).toContain("Added 3 notes.");
+  expect(text).toContain("Added: Ships on Fridays.");
+  expect(text).toContain("You approved these changes.");
+  expect(buttonNamed(document, "Approve")).toBeUndefined();
+});
+
+test("a rejected dream drops the held sentence but keeps its lines as proposals", () => {
+  const document = render({
+    runs: [
+      run({
+        counts: HELD_COUNTS,
+        diary: `${HELD_DIARY}\nYou rejected these changes. Nothing was changed.`,
+      }),
+    ],
+  });
+  const text = card(document)?.textContent ?? "";
+  expect(card(document)?.getAttribute("data-state")).toBe("rejected");
+  expect(text).not.toContain("wait for your approval");
+  expect(text).toContain("Wanted to add 3 notes.");
+  expect(text).toContain("Would add: Ships on Fridays.");
+  expect(text).toContain("You rejected these changes.");
+});
+
+test("an answered question says so in place of the waiting sentence, with no Needs you link", () => {
+  const document = render({
+    runs: [
+      run({
+        counts: { added: 1, dropped: 0, merged: 0, questions: 1 },
+        diary:
+          "Added 1 note. 1 question is waiting for you.\nAdded: Ships on Fridays.",
+        openQuestions: 0,
+        resultVersion: "version_1",
+      }),
+    ],
+  });
+  const text = card(document)?.textContent ?? "";
+  expect(text).not.toContain("waiting for you");
+  expect(text).toContain("You answered the question.");
+  expect(card(document)?.querySelector("a")).toBeNull();
+});
+
+test("a question that is still open stays waiting and links to Needs you", () => {
+  const document = render({
+    runs: [
+      run({
+        counts: { added: 1, dropped: 0, merged: 0, questions: 1 },
+        diary: "Added 1 note. 1 question is waiting for you.",
+        openQuestions: 1,
+        resultVersion: "version_1",
+      }),
+    ],
+  });
+  const text = card(document)?.textContent ?? "";
+  expect(text).toContain("One question is waiting for you.");
+  expect(text).not.toContain("You answered");
+  expect(card(document)?.querySelector("a")?.textContent).toBe(
+    "Open Needs you"
+  );
+});
+
+test("an undone dream states the undo and no longer says a question waits", () => {
+  const document = render({
+    runs: [
+      run({
+        counts: { added: 1, dropped: 0, merged: 0, questions: 1 },
+        diary:
+          "Added 1 note. 1 question is waiting for you.\nYou undid this dream.",
+        openQuestions: 0,
+        resultVersion: "version_1",
+        status: "undone",
+      }),
+    ],
+  });
+  const text = card(document)?.textContent ?? "";
+  expect(card(document)?.getAttribute("data-state")).toBe("undone");
+  expect(text).toContain(
+    "You undid this night. The notes are back as they were."
+  );
+  expect(text).not.toContain("waiting for you");
+  expect(text).not.toContain("You answered");
 });

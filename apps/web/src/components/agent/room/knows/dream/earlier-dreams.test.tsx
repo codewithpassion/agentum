@@ -17,6 +17,7 @@ const run = (overrides: Partial<DreamRun> = {}): DreamRun => ({
   finishedAt: null,
   heldChanges: 0,
   id: "run_1",
+  openQuestions: 0,
   resultVersion: null,
   since: null,
   startedAt: new Date(NOW - 3_600_000).toISOString(),

@@ -29,7 +29,7 @@ import { z } from "zod";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isReadOnly } from "./automation-access.ts";
 import type { Fetcher } from "./connectors/mcp.ts";
-import { heldCounts } from "./dream/held.ts";
+import { heldCounts, openQuestionCounts } from "./dream/held.ts";
 import { readOptions } from "./dream/question-options.ts";
 import {
   loadDreamAgent,
@@ -167,13 +167,16 @@ export const createDreamService = (deps: DreamDeps) => {
     return row;
   };
 
-  /** The dreams as the contract type, each with the changes it still holds. */
+  /** The dreams as the contract type, each with the changes it still holds and the questions still open. */
   const withHeld = async (rows: readonly RunRow[]): Promise<DreamRun[]> => {
-    const held = await heldCounts(
-      db,
-      rows.map((row) => row.id)
+    const ids = rows.map((row) => row.id);
+    const [held, open] = await Promise.all([
+      heldCounts(db, ids),
+      openQuestionCounts(db, ids),
+    ]);
+    return rows.map((row) =>
+      toRun(row, held.get(row.id) ?? 0, open.get(row.id) ?? 0)
     );
-    return rows.map((row) => toRun(row, held.get(row.id) ?? 0));
   };
 
   const oneWithHeld = async (row: RunRow): Promise<DreamRun> => {
