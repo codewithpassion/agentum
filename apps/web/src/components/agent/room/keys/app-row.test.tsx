@@ -107,7 +107,7 @@ test("An app on a workspace secret names the secret and never claims a sign-in i
   expect(html).not.toContain("Connect my account");
 });
 
-test("a failing connector shows its own status badge", () => {
+test("a connector with a header template and no secret shows the needs secret badge", () => {
   const html = renderRow(appNamed("conn_gmail"), mineWith({}), true, {
     headerTemplate: "Bearer {value}",
     id: "conn_gmail",

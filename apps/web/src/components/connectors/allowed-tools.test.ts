@@ -1,31 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import {
-  extraToolNames,
-  matchesToolFilter,
-  toolAccessLabel,
-} from "./allowed-tools.ts";
+import { extraToolNames, matchesToolFilter } from "./allowed-tools.ts";
 
 const search = { description: "Search the docs", name: "search" };
 const echo = { description: null, name: "echo" };
 const write = { description: "Write a file", name: "write" };
 const tools = [search, echo, write];
-
-describe("toolAccessLabel", () => {
-  test("null allowlist means all tools", () => {
-    expect(toolAccessLabel(null, tools)).toBe("All tools");
-  });
-
-  test("counts only allowed names that are cached", () => {
-    expect(toolAccessLabel(["echo", "search"], tools)).toBe(
-      "2 of 3 tools allowed"
-    );
-    expect(toolAccessLabel(["gone"], tools)).toBe("0 of 3 tools allowed");
-  });
-
-  test("without a cached list, counts the stored names", () => {
-    expect(toolAccessLabel(["echo"], [])).toBe("1 tools allowed");
-  });
-});
 
 describe("extraToolNames", () => {
   test("returns allowlisted names missing from the cache", () => {

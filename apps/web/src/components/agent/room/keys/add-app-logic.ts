@@ -42,12 +42,13 @@ export const addChoices = ({
   isAdmin,
 }: {
   assignedIds: ReadonlySet<string>;
-  catalog: CatalogEntry[];
+  /** Null when the catalogue could not be read: its defaults are unknown, so a catalogue connector cannot be added safely. */
+  catalog: CatalogEntry[] | null;
   connectors: ConnectorRecord[];
   isAdmin: boolean;
 }): AddChoice[] => {
   const free = connectors.filter((connector) => !assignedIds.has(connector.id));
-  const fromCatalog: AddChoice[] = catalog
+  const fromCatalog: AddChoice[] = (catalog ?? [])
     .filter(
       (entry) =>
         !connectors.some(
@@ -63,15 +64,23 @@ export const addChoices = ({
       label: isAdmin ? entry.name : `${entry.name} (admin only)`,
     }));
   const fromWorkspace: AddChoice[] = free.map((connector) => {
+    const source = catalog?.find((item) => item.key === connector.catalogKey);
+    // Without the catalogue, a catalogue connector would get every tool, not its defaults.
+    const unknownDefaults = catalog === null && connector.catalogKey !== null;
     const blocked = isSecretBacked(connector) && !isAdmin;
-    const source = catalog.find((item) => item.key === connector.catalogKey);
+    let note = "";
+    if (blocked) {
+      note = " (admin only)";
+    } else if (unknownDefaults) {
+      note = " (catalogue unavailable, try again later)";
+    }
     return {
       allowedTools:
         source === undefined ? undefined : catalogAllowedTools(source),
       connector,
-      disabled: blocked,
+      disabled: blocked || unknownDefaults,
       kind: "connector",
-      label: blocked ? `${connector.name} (admin only)` : connector.name,
+      label: `${connector.name}${note}`,
     };
   });
   return [...fromCatalog, ...fromWorkspace];

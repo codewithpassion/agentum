@@ -22,7 +22,8 @@ import { isSecretBacked } from "./keys-logic.ts";
 type MySignIn = RouterOutputs["connectors"]["mine"][number];
 
 interface Loaded {
-  catalog: CatalogEntry[];
+  /** Null when the catalogue could not be read. */
+  catalog: CatalogEntry[] | null;
   connectors: ConnectorRecord[];
   mine: MySignIn[];
 }
@@ -60,10 +61,11 @@ export function AppsSection({
     const [mine, connectors, catalog] = await Promise.all([
       getTrpc().connectors.mine.query(),
       getTrpc().connectors.list.query(),
-      // A failed catalogue read only hides the catalogue, not the rows.
+      // A failed catalogue read hides the catalogue and blocks adding catalogue
+      // connectors (their default tools are unknown), but not the rows.
       getTrpc()
         .catalog.list.query()
-        .catch((): CatalogEntry[] => []),
+        .catch((): CatalogEntry[] | null => null),
     ]);
     return { catalog, connectors, mine };
   }, []);

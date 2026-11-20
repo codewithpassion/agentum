@@ -87,3 +87,17 @@ test("a custom connector is added with every tool", () => {
     choice?.kind === "connector" ? choice.allowedTools : null
   ).toBeUndefined();
 });
+
+test("without the catalogue, a catalogue connector cannot be added but a custom one can", () => {
+  const choices = addChoices({
+    assignedIds: none,
+    catalog: null,
+    connectors: [
+      connector("c1", "Mail", null, "gmail"),
+      connector("c2", "Docs"),
+    ],
+    isAdmin: true,
+  });
+  expect(choices.map((choice) => choice.disabled)).toEqual([true, false]);
+  expect(choices[0]?.label).toContain("catalogue unavailable");
+});
