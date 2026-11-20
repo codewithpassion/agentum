@@ -7,6 +7,7 @@ import {
   mailMessages,
   mailThreads,
 } from "@repo/db/schema/mail";
+import { memoryChanges } from "@repo/db/schema/memory";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { teamMembers, teams } from "@repo/db/schema/teams";
@@ -644,4 +645,43 @@ test("a home team in another workspace does not leak into this roster", async ()
   expect(await service.list(user)).toMatchObject([
     { id: "a1", isLead: false, teamId: null },
   ]);
+});
+
+test("learnedCount counts applied changes per agent in the rolling seven days, respecting workspace and private scope", async () => {
+  insertAgent({ id: "a1", name: "Alpha" });
+  insertAgent({ id: "a2", name: "Beta" });
+  insertAgent({ id: "a3", name: "Gamma" });
+  insertAgent({ id: "foreign", name: "Foreign", workspaceId: OTHER_WORKSPACE });
+  const changes: ({ id: string } & Partial<typeof memoryChanges.$inferInsert>)[] = [
+    { id: "recent" },
+    { id: "boundary", createdAt: "2025-12-25T00:00:00.000Z" },
+    { id: "old", createdAt: "2025-12-24T23:59:59.999Z" },
+    { id: "held", status: "held" },
+    { id: "rejected", status: "rejected" },
+    { id: "undone", status: "undone" },
+    { id: "foreign", agentId: "foreign", workspaceId: OTHER_WORKSPACE },
+    { id: "private", userScope: "u2" },
+    { id: "own-private", userScope: "u1" },
+    { id: "beta", agentId: "a2", action: "edit", decidedAt: NOW },
+    // Approval does not change the history's creation time.
+    { id: "old-approved", createdAt: "2025-12-24T00:00:00.000Z", decidedAt: NOW },
+  ];
+  await db.insert(memoryChanges).values(changes.map((change) => ({
+    action: "add" as const,
+    agentId: "a1",
+    createdAt: NOW,
+    kind: "work" as const,
+    noteId: change.id,
+    status: "applied" as const,
+    text: "A learned note",
+    workspaceId: WORKSPACE,
+    writtenBy: "agent" as const,
+    ...change,
+  })));
+
+  expect((await service.list(user)).map((card) => [card.id, card.learnedCount])).toEqual([
+    ["a1", 3], ["a2", 1], ["a3", 0],
+  ]);
+  expect((await service.list({ ...user, userId: "u2" })).map((card) => card.learnedCount))
+    .toEqual([3, 1, 0]);
 });
