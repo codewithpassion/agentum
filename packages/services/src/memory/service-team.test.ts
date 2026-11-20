@@ -20,9 +20,15 @@ test("team list input rejects an empty team id and an unknown key", () => {
   ).toBe(false);
 });
 
-test("stub listTeam resolves to no notes for a user", async () => {
-  const { service } = makeWorld();
+test("listTeam of a team with no folder has no notes, and of an unknown team is not found", async () => {
+  const { db, service } = makeWorld();
+  db.client.run(
+    "INSERT INTO teams (created_at, id, name, rules, slug, workspace_id) VALUES ('2026-01-01T00:00:00.000Z', 't1', 't1', '', 't1', 'w1')"
+  );
   expect(await service.listTeam(person(USER_A), { teamId: "t1" })).toEqual([]);
+  await expect(
+    service.listTeam(person(USER_A), { teamId: "nope" })
+  ).rejects.toMatchObject({ code: "not_found" });
 });
 
 test("listTeam throws ForbiddenError for the system principal", () => {

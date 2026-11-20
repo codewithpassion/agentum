@@ -101,7 +101,7 @@ test("a person who is neither the owner nor an admin cannot start a dream", asyn
   ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
-test("the team dream is a stub until TX.2", async () => {
+test("a team dream of a team that does not exist is not found", async () => {
   await expect(makeService().runTeamNow(member, "t1")).rejects.toMatchObject({
     code: "not_found",
   });

@@ -1728,15 +1728,18 @@ export type DreamDecision = (typeof DREAM_DECISIONS)[number];
 export const SPEND_PAUSE_REASONS = ["spend_cap", "manual"] as const;
 export type SpendPauseReason = (typeof SPEND_PAUSE_REASONS)[number];
 
-/** What one agent spent on one day, from its runs' usage. */
+/** What one agent, or one team's dreams, spent on one day, from usage. */
 export interface SpendRow {
-  agentId: string;
+  /** The agent that spent. Null on a team's row, which has no agent. */
+  agentId: string | null;
   /** Cents spent on the day. */
   cents: number;
   /** The day as `YYYY-MM-DD`. */
   day: string;
   /** How many runs that day counts. */
   tasks: number;
+  /** The team whose dreams spent it. Set only on a team's row, where `agentId` is null. */
+  teamId?: string;
 }
 
 /** An agent's pause state. Both fields are null while it runs. */

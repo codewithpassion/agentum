@@ -8,6 +8,8 @@ import { z } from "zod";
 
 const storedSchema = z.array(
   z.object({
+    // The member agent that holds the note. Only a team dream's question names one.
+    agentId: z.string().nullable().default(null),
     noteId: z.string(),
     text: z.string(),
     userScope: z.string().nullable().default(null),
@@ -27,6 +29,35 @@ export const storeOptions = (
   JSON.stringify(
     options.map(({ noteId, text }) => ({ noteId, text, userScope }))
   );
+
+/** A team dream's options: shared notes, each with the member that holds it. */
+export const storeTeamOptions = (
+  options: readonly (DreamQuestionOption & { agentId: string })[]
+): string =>
+  JSON.stringify(
+    options.map(({ agentId, noteId, text }) => ({
+      agentId,
+      noteId,
+      text,
+      userScope: null,
+    }))
+  );
+
+/** The member agent that holds each note of a team question, by note id. Empty for an agent's question. */
+export const readHolders = (raw: string): Map<string, string> => {
+  try {
+    const parsed = storedSchema.safeParse(JSON.parse(raw));
+    return new Map(
+      (parsed.success ? parsed.data : []).flatMap((option) =>
+        option.agentId === null
+          ? []
+          : [[option.noteId, option.agentId] as const]
+      )
+    );
+  } catch {
+    return new Map();
+  }
+};
 
 /** The options and scope of a stored question. A value that does not parse reads as no options, shared. */
 export const readOptions = (raw: string): QuestionOptions => {
