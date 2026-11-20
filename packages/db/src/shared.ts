@@ -655,7 +655,12 @@ export const QA_OPEN_PER_AGENT_MAX = 5;
 export const SKILL_SOURCE_PROVIDERS = ["github"] as const;
 export type SkillSourceProvider = (typeof SKILL_SOURCE_PROVIDERS)[number];
 
-export const REQUEST_KINDS = ["approval", "question", "takeover"] as const;
+export const REQUEST_KINDS = [
+  "approval",
+  "question",
+  "takeover",
+  "decisions",
+] as const;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
 
 export const REQUEST_STATUSES = [
@@ -712,6 +717,16 @@ export const QUESTIONS_MAX = 4;
 /** Most choices on one question. */
 export const CHOICES_MAX = 6;
 
+/** Most questions in one decision queue (`decisions` request). */
+export const DECISIONS_MAX = 8;
+
+/** Fewest and most options on one decision. A person may also type their own answer. */
+export const DECISION_OPTIONS_MIN = 2;
+export const DECISION_OPTIONS_MAX = 4;
+
+/** How long a decision queue stays open: as long as a question. */
+export const DECISIONS_TTL_MS = QUESTION_TTL_MS;
+
 /** The kinds of line in a task's action log. */
 export const ACTION_LOG_KINDS = [
   "thought",
@@ -744,6 +759,7 @@ export const NEEDS_YOU_KINDS = [
   "memory_note",
   "spend_pause",
   "dream_question",
+  "decisions",
 ] as const;
 export type NeedsYouKind = (typeof NEEDS_YOU_KINDS)[number];
 
@@ -757,6 +773,7 @@ export const NEEDS_YOU_HEADINGS: Record<
   approval: (name) => `${name} asks for approval`,
   artifact_grant: (name) => `${name} asks for app permissions`,
   connector_secret: (name) => `${name} needs a connector secret`,
+  decisions: (name) => `${name} has decisions waiting`,
   dream_question: (name) => `${name} has a question from its dream`,
   inbox_reply: (name) => `${name} replied`,
   library_conflict: (name) => `${name} left a library conflict`,
@@ -1484,7 +1501,8 @@ export interface MemoryNote {
 /** One row of the memory log: a change made, held for a person, rejected or undone. */
 export interface MemoryChange {
   action: MemoryChangeAction;
-  agentId: string;
+  /** The agent whose memory changed. Null on a team memory change, which has a `teamId` instead. */
+  agentId: string | null;
   createdAt: string;
   /** When a person approved or rejected a held change, or undid an applied one. */
   decidedAt: string | null;
@@ -1501,6 +1519,8 @@ export interface MemoryChange {
   noteId: string;
   source: MemorySource | null;
   status: MemoryChangeStatus;
+  /** The team whose memory changed. Null on an agent's memory change. A row has an agent or a team, never both. */
+  teamId: string | null;
   /** The note's text after the change. For `forget`, the text that was forgotten. */
   text: string;
   userScope: string | null;
@@ -1613,9 +1633,10 @@ export type DreamPlanChange =
 /** What a dream proposes before anything is written, in the order it applies. */
 export type DreamPlan = DreamPlanChange[];
 
-/** One dream of one agent. Its note changes are the `memory_changes` rows that name it in `dreamRunId`. */
+/** One dream of one agent or one team. Its note changes are the `memory_changes` rows that name it in `dreamRunId`. */
 export interface DreamRun {
-  agentId: string;
+  /** The agent that dreamed. Null on a team dream, which has a `teamId` instead. */
+  agentId: string | null;
   /**
    * The latest library version id of each memory file that existed before the
    * dream wrote anything. Undo restores them. A file the dream created has no
@@ -1635,6 +1656,8 @@ export interface DreamRun {
   since: string | null;
   startedAt: string;
   status: DreamRunStatus;
+  /** The team that dreamed. Null on an agent's dream. A row has an agent or a team, never both. */
+  teamId: string | null;
   usage: DreamUsage | null;
 }
 
@@ -1649,7 +1672,8 @@ export interface DreamQuestionOption {
 
 /** A contradiction a dream could not settle. The answer keeps one option's note and drops the others. */
 export interface DreamQuestion {
-  agentId: string;
+  /** The agent the question is about. Null on a team dream's question, which has a `teamId` instead. */
+  agentId: string | null;
   /** When a person answered. Null while open. */
   answeredAt: string | null;
   /** Clerk user id of that person. */
@@ -1663,6 +1687,8 @@ export interface DreamQuestion {
   options: DreamQuestionOption[];
   question: string;
   status: DreamQuestionStatus;
+  /** The team the question is about, asked of its owner. Null on an agent's question. */
+  teamId: string | null;
 }
 
 /** What a `dream_question` Needs you card holds: the question and one button per option. */
@@ -1799,6 +1825,27 @@ export interface MemberProfile {
   name: string;
   /** Clerk user id. */
   userId: string;
+}
+
+export const DISCUSSION_STATUSES = ["running", "done", "stopped"] as const;
+export type DiscussionStatus = (typeof DISCUSSION_STATUSES)[number];
+
+/** Most rounds a lead may ask for in one discussion. */
+export const DISCUSSION_ROUNDS_MAX = 5;
+
+/** A lead-run discussion in a team room topic: bounded rounds in which every topic member posts once. */
+export interface Discussion {
+  createdAt: string;
+  id: string;
+  /** The round now open, from 1. Equals `rounds` on the last. */
+  round: number;
+  /** How many rounds the lead asked for, 1 to `DISCUSSION_ROUNDS_MAX`. */
+  rounds: number;
+  /** The lead that started it. */
+  startedByAgentId: string;
+  status: DiscussionStatus;
+  /** The inbox thread (the topic) it runs in. */
+  threadId: string;
 }
 
 /** The team every workspace has. It holds the threads made before teams existed and the ones made with no team named. */

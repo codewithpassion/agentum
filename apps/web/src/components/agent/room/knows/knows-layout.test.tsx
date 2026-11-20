@@ -39,6 +39,7 @@ const change = (over: Partial<MemoryChange>): MemoryChange => ({
   noteId: "n9",
   source: null,
   status: "applied",
+  teamId: null,
   text: "Tom reads reports on his phone",
   userScope: null,
   writtenBy: "agent",

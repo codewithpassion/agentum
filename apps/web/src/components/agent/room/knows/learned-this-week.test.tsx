@@ -23,6 +23,7 @@ function makeChange(overrides: Partial<MemoryChange>): MemoryChange {
     noteId: "n1",
     source: null,
     status: "applied",
+    teamId: null,
     text: "Likes short emails",
     userScope: null,
     writtenBy: "person",
