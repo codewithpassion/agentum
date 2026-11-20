@@ -1012,7 +1012,11 @@ test("the agents overview counts waiting, working and this week's tasks per agen
   const costly = await seed({ agentId: a1, status: "running" });
   const cheap = await seed({ agentId: a1, status: "running" });
   await seed({ agentId: a2, status: "running" });
-  await seed({ agentId: a2, status: "done" });
+  const malformed = await seed({ agentId: a2, status: "done" });
+  await db
+    .update(runRows)
+    .set({ usage: "{not json" })
+    .where(eq(runRows.id, malformed));
   const dry = await seed({ agentId: a2, status: "done" });
   await db
     .update(runRows)

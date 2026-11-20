@@ -1,10 +1,10 @@
-/** Reported USD only; missing, malformed and non-finite costs contribute zero. */
-export const costOf = (raw: string | null): number => {
+/** Reported USD, or null when usage is missing, malformed or has no finite `costUsd`. */
+export const reportedCostOf = (raw: string | null): number | null => {
   let usage: unknown = null;
   try {
     usage = raw ? JSON.parse(raw) : null;
   } catch {
-    return 0;
+    return null;
   }
   if (
     usage &&
@@ -15,5 +15,8 @@ export const costOf = (raw: string | null): number => {
   ) {
     return usage.costUsd;
   }
-  return 0;
+  return null;
 };
+
+/** Reported USD only; missing, malformed and non-finite costs contribute zero. */
+export const costOf = (raw: string | null): number => reportedCostOf(raw) ?? 0;
