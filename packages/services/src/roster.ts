@@ -78,7 +78,10 @@ export const jobLineFor = (instructions: string): string => {
     instructions.trim().split(SENTENCE_END)[0]?.replace(WHITESPACE, " ") ?? ""
   );
   return chars.length > JOB_LINE_MAX_CHARS
-    ? `${chars.slice(0, JOB_LINE_MAX_CHARS - 1).join("")}…`
+    ? `${chars
+        .slice(0, JOB_LINE_MAX_CHARS - 1)
+        .join("")
+        .trimEnd()}…`
     : chars.join("");
 };
 

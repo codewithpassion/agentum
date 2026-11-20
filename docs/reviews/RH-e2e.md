@@ -30,7 +30,7 @@ At 390 px no page scrolled sideways, including `/home`, the agent room with all 
 
 ## Fixed on this branch
 
-- A card's job line was cut at 80 characters in the middle of a word with no ellipsis, and a first sentence that ended in `?"` was not found. A clipped line now ends in an ellipsis (still 80 characters at most) and a sentence end may be followed by a closing quote or bracket. `jobLineFor` in `packages/services/src/roster.ts`, with tests in `roster.test.ts`.
+- A card's job line was cut at 80 characters in the middle of a word with no ellipsis, and a first sentence that ended in `?"` was not found. A clipped line now ends in an ellipsis (still 80 characters at most) and a sentence end may be followed by a closing quote or bracket. `jobLineFor` in `packages/services/src/roster.ts`, with tests in `roster.test.ts`. The Jobs tab shares the function, so its "does" text gets the ellipsis too (`jobs.test.ts` changed to match).
 - A card whose owner is not a member printed "Owner" with nothing after it. The label is now hidden when there is no name. `agent-card.tsx`, with a test.
 
 ## Proposed tasks
@@ -47,7 +47,7 @@ Check. Component tests for the shared tile. Browser: create an agent, compare it
 
 Finding. Chat and task times print the UTC `HH:MM` of the ISO string (`slice(11, 16)` in `components/thread/task-thread.tsx`, `components/task/thread-runs.tsx`, `components/task/task-page.tsx` and `components/requests/request-card-logic.ts`). At 20:13 in Sydney the chat said 09:13. The desk pane's "How it got here" uses the browser's zone. The card status line uses the workspace zone (UTC by default). Three zones on one screen.
 
-Decision first. Which zone the app shows: the browser's, or the workspace's. Then one formatter, used by all of them.
+Scope. Decide first which zone the app shows, the browser's or the workspace's. Then add one formatter and use it in all of those files plus `components/task/files-logic.ts` and `components/task/action-log.tsx`, which slice the ISO string the same way.
 
 Check. Unit tests for the formatter. Browser: send a chat message and read its time, the desk pane's time and the card's status line, all the same hour.
 
@@ -63,9 +63,9 @@ Check. A component test that the heading is absent while closed. Browser: no "Fi
 
 Finding. `apps/web/.env.local` sets `PUBLIC_BASE_URL=http://localhost:3917` for the Pi durability e2e. On any other port a Cloud run never starts: the MCP server URL fixed into the run points at 3917, the log repeats "PiRun: MCP server harbourmaster did not list its tools Network connection lost", and the run shows "Working" with an empty log until the two-minute start timeout. Worktrees must run on their own port (workflow.md), so every walkthrough that uses a Cloud agent hits this.
 
-Scope. In dev, derive the base URL from the request's origin when `PUBLIC_BASE_URL` is a localhost address that does not match it, or fail the run fast with a message that names the port mismatch. Failing fast is the smaller change.
+Scope. In dev, fail the run fast with a message that names the port mismatch when `PUBLIC_BASE_URL` is a localhost address that does not match the request's origin.
 
-Check. A test with a mismatched localhost URL. Browser: Cloud agent on a non-default port either runs or fails within seconds with the message.
+Check. A test with a mismatched localhost URL. Browser: a Cloud agent on a non-default port fails within seconds with the message.
 
 ## Nits left alone
 
