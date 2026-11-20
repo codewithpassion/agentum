@@ -3,9 +3,9 @@ id: SP.8
 title: "Resume says what it will do"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: [SP.5]
-branch: null
+branch: task/SP.8-resume-says-what-it-will-do
 lane: web-spend
 executor: claude
 ---
@@ -24,3 +24,4 @@ component tests for both card states. A mail service test that the notice carrie
 
 ## Log
 - 2026-11-21: added from the spend walkthrough.
+- 2026-11-21: dispatched.
