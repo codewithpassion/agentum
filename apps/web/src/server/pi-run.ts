@@ -640,7 +640,9 @@ export class PiRun extends DurableObject<Env> {
   /**
    * Copies the agent's library roots (home, wiki and grants, each with its
    * mode) into the VM's working copy when a run starts. A failed sync is
-   * logged and the run goes on: the agent still has the library tools.
+   * logged and the run goes on: the agent still has the library tools. The one
+   * exception is removing private memory files from the copy: when that fails
+   * this throws and the run does not start.
    */
   async #syncLibraryIn(input: CloudStart) {
     if (!this.#vm) {

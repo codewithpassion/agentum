@@ -46,6 +46,13 @@ const user = (userId = "u1", workspaceId = "w1"): Principal => ({
   via: "session",
   workspaceId,
 });
+const dreamUser: Principal = {
+  dream: true,
+  kind: "user",
+  userId: "dream:a1",
+  via: "session",
+  workspaceId: "w1",
+};
 const DAY_START = "2026-10-26T00:00:00.000Z";
 const NOW = Date.parse("2026-10-26T09:00:00Z");
 
@@ -1747,4 +1754,29 @@ test("a held dream batch of an archived agent, or of another workspace's agent, 
 
   expect((await get()).needsYou).toEqual([]);
   expect((await get({}, user("u1", "w2"))).needsYou).toEqual([]);
+});
+
+test("a dream skill proposal without a run reaches Needs you and can be rejected", async () => {
+  const { skill, version } = await skillsStore.proposeForAgent(dreamUser, {
+    agentId: a1,
+    files: [
+      {
+        content:
+          "---\nname: dream-tidy\ndescription: Tidies up.\n---\n\nRead, then tidy.\n",
+        path: "SKILL.md",
+      },
+    ],
+    message: "Tidy the workspace",
+    name: "dream-tidy",
+  });
+  const card = (await get()).needsYou.find((item) => item.id === version.id);
+  expect(card).toMatchObject({
+    agentId: a1,
+    needsYouKind: "skill_proposal",
+    startedBy: "Alpha",
+    title: "dream-tidy",
+  });
+  expect(await desk.needsYouCount(user())).toBe(1);
+  await skillsStore.reject(user(), { skillId: skill.id, version: 1 });
+  expect(await desk.needsYouCount(user())).toBe(0);
 });

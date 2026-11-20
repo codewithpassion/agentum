@@ -7,7 +7,7 @@ use crate::{
     approvals::Gate,
     claude::{self, Driver},
     files::{self, Disk},
-    library::{self, LibraryApi, Sync},
+    library::{self, LibraryApi, Sync, WithoutPrivate},
 };
 use serde_json::{Value, json};
 use std::{collections::VecDeque, sync::Arc, time::Duration};
@@ -126,15 +126,20 @@ pub async fn execute(
             disk.mkdir(path).await?;
         }
         disk.remove(".mcp.json", false).await?;
+        // The copy outlives runs, and a run for another person (or none) can read it.
+        library::purge_private(&disk).await?;
         if let Err(e) = files::skills(&http, run, &disk).await {
             tracing::warn!(status = e.status, "Skills did not sync; run continues");
         }
         let (watch_send, mut watch_receive) = mpsc::unbounded_channel();
         if claim["library"].is_object() {
             let mut library = Sync::new(
-                LibraryApi::new(http.clone(), run),
+                WithoutPrivate(LibraryApi::new(http.clone(), run)),
                 disk.clone(),
-                library::roots(&claim["library"]),
+                library::with_memory_root(
+                    library::roots(&claim["library"]),
+                    text(&claim["agent"]["slug"]),
+                ),
                 run.into(),
             )
             .await;

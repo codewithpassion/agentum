@@ -11,6 +11,8 @@ The memory folder holds these files:
 - `private/<userId>.md`, notes from that person's private conversations, of any kind. `userId` is a Clerk user id.
   A run sees this file only when its session is private or has origin `ui` and the session's actor is that person. One rule, `library/private-notes.ts`, serves the prompt, the library tools, the VM sync, the audience and the session reads. Team rooms, Q&A, Slack channels, mail, artifact chats, A2A, routines and triggers never get it, even when that person started the run.
 
+Working copies of the library, on a Linux VM or on a machine, outlive a run and are shared by every session of the agent. So `private/` never syncs into them, in either direction, and each run starts by removing any `agents/*/memory/private` folder from the copy. A run gets its person's private notes from its prompt. The rest of the memory folder syncs as a read root, because a run never writes there.
+
 Only the memory service (`@repo/services/memory`) writes these files for agents, dreams and the Knows tab. Each write is one library version, so history and rollback come from the library. A person may also fix a file by hand in the library editor. A file that does not parse is reported with its line number, left untouched, and never overwritten. While a file does not parse, the service refuses new notes of its kind and says why.
 
 ## Kinds

@@ -30,3 +30,4 @@ From `docs/v4/build-plan.md`, milestone RH. The home page shows what each agent 
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/RH.2-roster-service (v4 controller session).
 - 2026-11-20: merged as 306a6511, review clean after 1 fix round. check, test and build passed on main.
+- 2026-11-20: RH.12 settled that `needs_you` follows this file (an open request naming the owner or backup), not the viewer's own Needs you list.
