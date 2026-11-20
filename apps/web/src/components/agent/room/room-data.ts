@@ -10,6 +10,16 @@ import type {
 } from "#/integrations/trpc/types";
 import type { RoomTab } from "./tabs.ts";
 
+/** What the agent has spent this week and its weekly limit. */
+export interface RoomSpend {
+  /** The weekly limit in cents, or null for none. */
+  capCents: number | null;
+  /** True while the agent is stopped at a weekly limit. */
+  paused: boolean;
+  /** Cents spent this week. Null when the read failed. */
+  weekCents: number | null;
+}
+
 /** Everything the room route loads. Each tab reads the parts it needs. */
 export interface RoomData {
   agent: AgentRecord;
@@ -25,6 +35,7 @@ export interface RoomData {
   profile: AgentProfileView;
   published: RouterOutputs["a2a"]["published"] | null;
   rules: MailToolRule[];
+  spend: RoomSpend;
   tasks: RouterOutputs["tasks"]["list"];
   threads: SessionListItem[];
 }
