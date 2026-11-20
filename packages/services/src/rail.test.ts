@@ -29,13 +29,17 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { WaitingMessage } from "./a2a/needs-you.ts";
 import { type AgentsService, createAgentsService } from "./agents.ts";
 import { ForbiddenError } from "./authz.ts";
-import { createDeskService } from "./desk.ts";
+import { createDeskService, type RoomProblem } from "./desk.ts";
 import { createEventsService, type PeopleLookup } from "./events.ts";
 import { createInboxService } from "./inbox.ts";
 import { memoryLibraryBlobs } from "./library/memory.ts";
 import { createLibraryService } from "./library.ts";
 import { createMembersService } from "./members.ts";
-import { createRailService } from "./rail.ts";
+import {
+  createRailService,
+  ROOM_PROBLEM_STATUS,
+  roomProblemTitle,
+} from "./rail.ts";
 import { createRequestsService } from "./requests.ts";
 import { createRosterService } from "./roster.ts";
 import { createRoutinesService } from "./routines.ts";
@@ -1520,4 +1524,57 @@ test("a held dream card keeps its dream run on the rail card", async () => {
     status: "Waiting for your approval",
     title: "Alpha has dream changes waiting for your approval",
   });
+});
+
+test("a linked Slack room that gets no messages is a problem on its owner's Needs you", async () => {
+  const roomProblem: RoomProblem = {
+    at: new Date(now).toISOString(),
+    error: "not_in_channel",
+    id: "room-alpha",
+    teamId: "t1",
+    teamName: "Alpha",
+    threadId: "thread-1",
+  };
+  const withRoom: typeof desk = {
+    ...desk,
+    railSources: async (principal, input) => ({
+      ...(await desk.railSources(principal, input)),
+      roomProblems: [roomProblem],
+    }),
+  };
+  const roomRail = createRailService({
+    agents,
+    atomic: sqliteAtomic(db),
+    clock: { now: () => new Date(now), sleep: () => Promise.resolve() },
+    db,
+    desk: withRoom,
+    members: createMembersService({
+      db,
+      lister: () => Promise.resolve(memberList ?? []),
+    }),
+    people: (ids) => (people ? people(ids) : Promise.resolve(new Map())),
+  });
+
+  const mine = await roomRail.get(user("u1"), {
+    dayStart: DAY_START,
+    scope: "mine",
+  });
+
+  expect(mine.needsYou).toHaveLength(1);
+  expect(mine.needsYou[0]).toMatchObject({
+    assigneeName: "Ann",
+    assigneeUserId: "u1",
+    escalatedToMe: false,
+    mine: true,
+  });
+  expect(mine.needsYou[0]?.cards[0]).toMatchObject({
+    agentName: "Alpha",
+    id: "room-alpha",
+    kind: "problem",
+    runId: null,
+    status: ROOM_PROBLEM_STATUS,
+    threadId: "thread-1",
+    title: roomProblemTitle("Alpha"),
+  });
+  expect(mine.counts).toEqual({ everyone: 1, mine: 1 });
 });

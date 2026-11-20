@@ -165,6 +165,13 @@ const optionalCardFields = (
   ...(deskCard.dreamHeld ? { dreamHeld: deskCard.dreamHeld } : {}),
 });
 
+/** The status of a problem card for a linked Slack room that gets no messages. */
+export const ROOM_PROBLEM_STATUS = "Not reaching Slack";
+
+/** The title of a problem card for a linked Slack room that gets no messages. */
+export const roomProblemTitle = (teamName: string): string =>
+  `Slack is missing ${teamName} messages`;
+
 const byCardAge = (a: RailCard, b: RailCard): number =>
   a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at);
 
@@ -571,6 +578,28 @@ export const createRailService = ({
           null
         );
       }),
+      // The sources hold only the rooms of teams the viewer owns, so each one is theirs alone.
+      ...sources.roomProblems.map((problem) =>
+        candidate(
+          {
+            agentId: "",
+            agentName: problem.teamName,
+            at: problem.at,
+            detail: `Slack did not take a message from the ${problem.teamName} room (${problem.error}). Check that the team's agents are in the channel.`,
+            expiresAt: null,
+            id: problem.id,
+            kind: "problem",
+            mail: null,
+            passedOnBy: null,
+            runId: null,
+            status: ROOM_PROBLEM_STATUS,
+            threadId: problem.threadId,
+            title: roomProblemTitle(problem.teamName),
+          },
+          null,
+          member.userId
+        )
+      ),
     ];
 
     // Rule 7: two or more mail approvals to one outside domain, for one person, become one row.
