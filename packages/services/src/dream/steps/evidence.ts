@@ -5,7 +5,8 @@
 // split, with `written_by: dream` as the marker:
 //
 // - merge and reconcile act only when a group holds fresh evidence, and a
-//   dream-written note never wins a conflict or anchors a merge;
+//   dream-written note never wins a conflict, never makes a group worth
+//   judging on its own, and is the last choice for the note a merge keeps;
 // - prune can still age out or condense a dream-written note, because that
 //   uses no other note as a reason.
 import type { MemoryNote } from "@repo/db/shared";

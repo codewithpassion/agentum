@@ -75,8 +75,8 @@ test("prune by age", async () => {
     today: TODAY,
   });
   expect(result.changes).toEqual([
-    { action: "drop", noteId: "n61", reason: "Not used for 60 days" },
-    { action: "drop", noteId: "n200", reason: "Not used for 60 days" },
+    { action: "drop", noteId: "n61", reason: "Not changed for 60 days" },
+    { action: "drop", noteId: "n200", reason: "Not changed for 60 days" },
   ]);
   expect(result.notes.map((n) => n.id)).toEqual(["n59", "n60", "bad"]);
   expect(calls).toHaveLength(0);
@@ -91,7 +91,7 @@ test("prune by age drops dream-written notes too", async () => {
     today: TODAY,
   });
   expect(result.changes).toEqual([
-    { action: "drop", noteId: "d1", reason: "Not used for 60 days" },
+    { action: "drop", noteId: "d1", reason: "Not changed for 60 days" },
   ]);
 });
 
@@ -352,7 +352,7 @@ test("a dream-written note can be aged out and merged, and the keeper prefers a 
   ];
   const result = await pruneNotes({ judge, maxChars: 60, notes, today: TODAY });
   expect(result.changes).toEqual([
-    { action: "drop", noteId: "old", reason: "Not used for 60 days" },
+    { action: "drop", noteId: "old", reason: "Not changed for 60 days" },
     {
       absorbedNoteIds: ["dream"],
       action: "merge",
@@ -381,7 +381,7 @@ test("a note is never named twice: a stale or finished note is not offered to a 
   ];
   const result = await pruneNotes({ judge, maxChars: 60, notes, today: TODAY });
   expect(result.changes).toEqual([
-    { action: "drop", noteId: "s1", reason: "Not used for 60 days" },
+    { action: "drop", noteId: "s1", reason: "Not changed for 60 days" },
     { action: "drop", noteId: "w1", reason: "Work finished" },
     {
       absorbedNoteIds: ["p2"],
@@ -404,7 +404,7 @@ test("a null, garbage or thrown answer changes nothing in the passes that call t
     note("p2", { text: "q".repeat(50) }),
   ];
   const expected: DreamPlan = [
-    { action: "drop", noteId: "s1", reason: "Not used for 60 days" },
+    { action: "drop", noteId: "s1", reason: "Not changed for 60 days" },
   ];
 
   const answers: Judge[] = [

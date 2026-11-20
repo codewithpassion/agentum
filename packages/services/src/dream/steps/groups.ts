@@ -9,7 +9,7 @@ import type {
   MemoryNote,
   MemoryNoteKind,
 } from "@repo/db/shared";
-import { clampConfidence, idsFrom, oneLine } from "./judge.ts";
+import { clampConfidence, idsFrom, normalizeText, oneLine } from "./judge.ts";
 
 /** What a step returns: the changes it proposes, and the notes as they stand once they apply. */
 export interface StepResult {
@@ -106,6 +106,12 @@ export const parseMergeGroups = (
  * `absorbed` may be empty: the keeper then only takes new text, an edit in
  * place. `DreamPlan` has no edit action and `codec.apply` rejects a merge with
  * nothing absorbed, so DR.4 applies an empty-absorbed merge as an `edit`.
+ *
+ * Writer and date rule for DR.4: a merge whose `text` equals the keeper's text
+ * (an exact duplicate folded in) leaves the keeper's `written_by` and `date`
+ * as they were. Only a merge that changes the text writes the keeper as
+ * `dream` with the day of the dream. `notesAfterMerge` assumes the same, and
+ * the next steps rely on it for who counts as fresh evidence.
  */
 export const mergeChange = (
   keeper: MemoryNote,
@@ -134,7 +140,8 @@ export const notesAfterMerge = (
   return notes
     .filter((note) => !gone.has(note.id))
     .map((note) =>
-      note.id === merge.keepNoteId && note.text !== merge.text
+      note.id === merge.keepNoteId &&
+      normalizeText(note.text) !== normalizeText(merge.text)
         ? { ...note, date: today, text: merge.text, writtenBy: "dream" }
         : note
     );

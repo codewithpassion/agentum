@@ -224,6 +224,28 @@ test("a note a question waits on is never dropped or merged by prune", async () 
   expect(result.notes).toEqual([stale, fresh]);
 });
 
+test("prune merges only the free notes when some are held", async () => {
+  const held = note("h", { text: "Tom reads reports on his phone" });
+  const one = note("f1", { text: "Mia wants docs" });
+  const two = note("f2", { text: "Mia wants docs, not PDFs" });
+  const { calls, judge } = fakeJudge([
+    {
+      groups: [{ confidence: 0.9, ids: ["f1", "f2"], text: "Mia wants docs" }],
+    },
+  ]);
+  const result = await pruneNotes({
+    held: ["h"],
+    judge,
+    maxChars: 30,
+    notes: [held, one, two],
+    today: "2026-11-20",
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).not.toContain("Tom reads");
+  expect(result.changes).toHaveLength(1);
+  expect(result.notes.map((n) => n.id)).toContain("h");
+});
+
 test("reconcile reports the notes a question holds", async () => {
   const { judge } = fakeJudge([
     { conflicts: [{ confidence: 0.9, ids: ["a", "b"], question: "Which?" }] },

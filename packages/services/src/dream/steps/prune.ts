@@ -57,7 +57,7 @@ interface Budget {
 
 const DAY_MS = 86_400_000;
 const DAY_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
-const STALE_REASON = `Not used for ${STALE_DAYS} days`;
+const STALE_REASON = `Not changed for ${STALE_DAYS} days`;
 const FINISHED_REASON = "Work finished";
 
 const FINISHED_SYSTEM = [
