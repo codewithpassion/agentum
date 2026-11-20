@@ -5,6 +5,7 @@ const allItems = settingsNav.flatMap((group) => group.items);
 
 test("groups appear in order", () => {
   expect(settingsNav.map((group) => group.label)).toEqual([
+    "You",
     "Agents run on",
     "Agents can use",
     "Access to Agentum",
@@ -13,6 +14,7 @@ test("groups appear in order", () => {
 
 test("paths appear in order", () => {
   expect(allItems.map((item) => item.to)).toEqual([
+    "/settings/sign-ins",
     "/settings/model-providers",
     "/settings/machines",
     "/settings/connectors",

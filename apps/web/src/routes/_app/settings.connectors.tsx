@@ -30,7 +30,7 @@ import type {
   CredentialRecord,
 } from "#/integrations/trpc/types";
 
-export const PAGE_HEADING = "Connectors";
+export const PAGE_HEADING = "Apps";
 
 export const Route = createFileRoute("/_app/settings/connectors")({
   validateSearch: (search) => connectSearchSchema.parse(search),

@@ -44,6 +44,7 @@ import { Route as AppSettingsConnectorsRouteImport } from './routes/_app/setting
 import { Route as AppSettingsMachinesRouteImport } from './routes/_app/settings.machines'
 import { Route as AppSettingsModelProvidersRouteImport } from './routes/_app/settings.model-providers'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings.secrets'
+import { Route as AppSettingsSignInsRouteImport } from './routes/_app/settings.sign-ins'
 import { Route as AppSkillsIndexRouteImport } from './routes/_app/skills.index'
 import { Route as AppSkillsSkillIdRouteImport } from './routes/_app/skills.$skillId'
 import { Route as AppTasksRunIdRouteImport } from './routes/_app/tasks.$runId'
@@ -227,6 +228,11 @@ const AppSettingsSecretsRoute = AppSettingsSecretsRouteImport.update({
   path: '/secrets',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsSignInsRoute = AppSettingsSignInsRouteImport.update({
+  id: '/sign-ins',
+  path: '/sign-ins',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSkillsIndexRoute = AppSkillsIndexRouteImport.update({
   id: '/skills/',
   path: '/skills/',
@@ -292,6 +298,7 @@ export interface FileRoutesByFullPath {
   '/settings/machines': typeof AppSettingsMachinesRoute
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/settings/sign-ins': typeof AppSettingsSignInsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
   '/threads/$sessionId': typeof AppThreadsSessionIdRoute
@@ -333,6 +340,7 @@ export interface FileRoutesByTo {
   '/settings/machines': typeof AppSettingsMachinesRoute
   '/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/settings/sign-ins': typeof AppSettingsSignInsRoute
   '/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/tasks/$runId': typeof AppTasksRunIdRoute
   '/threads/$sessionId': typeof AppThreadsSessionIdRoute
@@ -377,6 +385,7 @@ export interface FileRoutesById {
   '/_app/settings/machines': typeof AppSettingsMachinesRoute
   '/_app/settings/model-providers': typeof AppSettingsModelProvidersRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
+  '/_app/settings/sign-ins': typeof AppSettingsSignInsRoute
   '/_app/skills/$skillId': typeof AppSkillsSkillIdRoute
   '/_app/tasks/$runId': typeof AppTasksRunIdRoute
   '/_app/threads/$sessionId': typeof AppThreadsSessionIdRoute
@@ -421,6 +430,7 @@ export interface FileRouteTypes {
     | '/settings/machines'
     | '/settings/model-providers'
     | '/settings/secrets'
+    | '/settings/sign-ins'
     | '/skills/$skillId'
     | '/tasks/$runId'
     | '/threads/$sessionId'
@@ -462,6 +472,7 @@ export interface FileRouteTypes {
     | '/settings/machines'
     | '/settings/model-providers'
     | '/settings/secrets'
+    | '/settings/sign-ins'
     | '/skills/$skillId'
     | '/tasks/$runId'
     | '/threads/$sessionId'
@@ -505,6 +516,7 @@ export interface FileRouteTypes {
     | '/_app/settings/machines'
     | '/_app/settings/model-providers'
     | '/_app/settings/secrets'
+    | '/_app/settings/sign-ins'
     | '/_app/skills/$skillId'
     | '/_app/tasks/$runId'
     | '/_app/threads/$sessionId'
@@ -776,6 +788,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsSecretsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/sign-ins': {
+      id: '/_app/settings/sign-ins'
+      path: '/sign-ins'
+      fullPath: '/settings/sign-ins'
+      preLoaderRoute: typeof AppSettingsSignInsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/skills/': {
       id: '/_app/skills/'
       path: '/skills'
@@ -829,6 +848,7 @@ interface AppSettingsRouteChildren {
   AppSettingsMachinesRoute: typeof AppSettingsMachinesRoute
   AppSettingsModelProvidersRoute: typeof AppSettingsModelProvidersRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
+  AppSettingsSignInsRoute: typeof AppSettingsSignInsRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSettingsAgentConnectionsConnectionIdRoute: typeof AppSettingsAgentConnectionsConnectionIdRoute
   AppSettingsAgentConnectionsIndexRoute: typeof AppSettingsAgentConnectionsIndexRoute
@@ -842,6 +862,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsMachinesRoute: AppSettingsMachinesRoute,
   AppSettingsModelProvidersRoute: AppSettingsModelProvidersRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
+  AppSettingsSignInsRoute: AppSettingsSignInsRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSettingsAgentConnectionsConnectionIdRoute:
     AppSettingsAgentConnectionsConnectionIdRoute,
