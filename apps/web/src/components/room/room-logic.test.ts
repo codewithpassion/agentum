@@ -9,6 +9,7 @@ import {
   memberOfPost,
   requestsOfTopic,
   roomDirectory,
+  roomForInboxLink,
   roomMembers,
   topicSessionIds,
   topicsOfTeam,
@@ -369,4 +370,14 @@ test("withoutPerson drops the person, not an agent with the same id", () => {
   };
   expect(withoutPerson([agent, person], "x1")).toEqual([agent]);
   expect(withoutPerson([agent, person], "other")).toEqual([agent, person]);
+});
+
+test("an old inbox link lands in the topic's team, else in Everyone", () => {
+  const teams = [
+    { id: "sales", slug: "sales" },
+    { id: "all", slug: "everyone" },
+  ];
+  expect(roomForInboxLink(teams, "sales")).toBe("sales");
+  expect(roomForInboxLink(teams, null)).toBe("all");
+  expect(roomForInboxLink([{ id: "sales", slug: "sales" }], null)).toBeNull();
 });

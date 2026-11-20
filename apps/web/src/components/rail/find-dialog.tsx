@@ -16,6 +16,7 @@ import {
   type FindEntry,
   findEntries,
   teamFindEntries,
+  teamRoomFindEntries,
 } from "./find-registry.ts";
 import { useGo } from "./rail-link.tsx";
 
@@ -106,6 +107,15 @@ export function FindDialog({
                     <FindItem
                       entry={{ ...team, icon: Users }}
                       key={team.id}
+                      onPick={handlePick}
+                    />
+                  ))
+                : null}
+              {group === "Teams"
+                ? teamRoomFindEntries(teams).map((room) => (
+                    <FindItem
+                      entry={{ ...room, icon: Users }}
+                      key={`room-${room.id}`}
                       onPick={handlePick}
                     />
                   ))

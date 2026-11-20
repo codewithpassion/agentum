@@ -367,6 +367,10 @@ describe("settledFromEvent", () => {
     expect(settledFromEvent("request.cancelled", {})).toEqual({
       status: "cancelled",
     });
+    expect(settledFromEvent("request.cancelled", {}, "user")).toEqual({
+      dismissed: true,
+      status: "cancelled",
+    });
     expect(settledFromEvent("request.opened", {})).toBeNull();
     expect(settledFromEvent("request.answered", { via: "web" })).toBeNull();
   });
@@ -537,5 +541,150 @@ describe("offersAlwaysAllow", () => {
         toolName: "a2a_send",
       })
     ).toBe(false);
+  });
+});
+
+describe("decisions requests", () => {
+  const decisions = {
+    questions: [
+      { id: "q1", options: ["yes", "no"], text: "Ship it?" },
+      {
+        freeText: true,
+        id: "q2",
+        options: ["eu", "us"],
+        text: "Which region?",
+      },
+    ],
+  };
+
+  test("builds a pending decisions view with nothing given yet", () => {
+    expect(
+      viewFromOpened(
+        {
+          display: decisions,
+          expiresAt: at(MIN),
+          kind: "decisions",
+          requestId: "req-3",
+        },
+        "run-1",
+        "entry-4"
+      )
+    ).toEqual({
+      anchorId: "entry-4",
+      display: decisions,
+      expiresAt: at(MIN),
+      given: {},
+      id: "req-3",
+      kind: "decisions",
+      runId: "run-1",
+      settled: null,
+    });
+  });
+
+  test("carries the answers saved so far from the payload", () => {
+    expect(
+      viewFromOpened(
+        {
+          answer: { decisions: { q1: "yes" } },
+          display: decisions,
+          expiresAt: at(MIN),
+          kind: "decisions",
+          requestId: "req-3",
+        },
+        "run-1",
+        null
+      )
+    ).toMatchObject({ given: { q1: "yes" }, kind: "decisions" });
+  });
+
+  test("reads a saved answer that is not a record of text as none", () => {
+    for (const answer of [
+      "yes",
+      null,
+      { decisions: "yes" },
+      { decisions: ["yes"] },
+    ]) {
+      expect(
+        viewFromOpened(
+          {
+            answer,
+            display: decisions,
+            expiresAt: at(MIN),
+            kind: "decisions",
+            requestId: "req-3",
+          },
+          "run-1",
+          null
+        )
+      ).toMatchObject({ given: {} });
+    }
+  });
+
+  test("a pending record with a partial answer gives only the saved ids", () => {
+    const view = viewFromRecord(
+      {
+        answer: { decisions: { q1: "no", q9: 4 } },
+        display: decisions,
+        expiresAt: at(MIN),
+        id: "req-4",
+        kind: "decisions",
+        runId: "run-1",
+      },
+      null
+    );
+    expect(view).toMatchObject({ given: { q1: "no" }, kind: "decisions" });
+    expect(view?.settled).toBeNull();
+  });
+
+  test("a display that does not parse gives no view", () => {
+    const invalid = {
+      questions: [{ id: "q1", options: ["only"], text: "Ship it?" }],
+    };
+    expect(
+      viewFromOpened(
+        {
+          display: invalid,
+          expiresAt: at(MIN),
+          kind: "decisions",
+          requestId: "req-5",
+        },
+        "run-1",
+        null
+      )
+    ).toBeNull();
+  });
+
+  test("a decisions answer settles as answered, with its text values", () => {
+    expect(
+      settledFromEvent("request.answered", {
+        answeredBy: "user-1",
+        decisions: { q1: "yes", q2: 2 },
+        kind: "decisions",
+        via: "slack",
+      })
+    ).toEqual({
+      answer: { decisions: { q1: "yes" } },
+      answeredBy: "user-1",
+      status: "answered",
+      via: "slack",
+    });
+  });
+
+  test("settled lines read Answered, and Dismissed when cancelled", () => {
+    const decided: Settled = {
+      answer: { decisions: { q1: "yes" } },
+      answeredBy: "user-1",
+      status: "answered",
+      via: "web",
+    };
+    expect(settledLine("decisions", decided, "Dom")).toBe(
+      "Answered by Dom in the web app"
+    );
+    expect(
+      settledLine("decisions", { dismissed: true, status: "cancelled" }, "Dom")
+    ).toBe("Dismissed");
+    expect(settledLine("decisions", { status: "cancelled" }, "Dom")).toBe(
+      "Cancelled"
+    );
   });
 });

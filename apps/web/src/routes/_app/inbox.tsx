@@ -1,97 +1,45 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { z } from "zod";
-import { agentNameMap } from "#/components/inbox/inbox-logic";
-import { NewThreadForm } from "#/components/inbox/new-thread-form";
-import { ThreadList } from "#/components/inbox/thread-list";
-import { ThreadPanel } from "#/components/inbox/thread-panel";
-import { usePolledQuery } from "#/components/inbox/use-polled-query";
+import { roomForInboxLink } from "#/components/room/room-logic.ts";
 import { getTrpc } from "#/integrations/trpc/client";
 import { loadOrLogin } from "#/integrations/trpc/load-or-login";
-import type { InboxThread } from "#/integrations/trpc/types";
-import { cn } from "#/lib/utils.ts";
 
 const searchSchema = z.object({
   thread: z.string().min(1).optional().catch(undefined),
 });
 
-export const PAGE_HEADING = "Inbox";
+/** The topic's team (null for a topic from before teams), or undefined when there is no topic to open or it can't be read. */
+const teamOfThread = async (threadId: string | undefined) => {
+  if (threadId === undefined) {
+    return;
+  }
+  const found = await getTrpc().inbox.topicTeam.query({ threadId });
+  return found?.teamId;
+};
 
+/** The inbox became team rooms: this sends the old URL to the topic's room, or to Everyone's. A topic that can't be read goes to Everyone with no topic open. */
 export const Route = createFileRoute("/_app/inbox")({
   validateSearch: (search) => searchSchema.parse(search),
-  loader: async () =>
-    loadOrLogin(async () => {
-      const [threads, agents, me] = await Promise.all([
-        getTrpc().inbox.listThreads.query(),
-        getTrpc().agents.list.query({}),
-        getTrpc().me.query(),
+  beforeLoad: async ({ search }) => {
+    const { teamId, topic } = await loadOrLogin(async () => {
+      const [teams, threadTeamId] = await Promise.all([
+        getTrpc().teams.list.query(),
+        teamOfThread(search.thread),
       ]);
-      return { agents, threads, userId: me.userId };
-    }),
-  component: InboxPage,
+      return {
+        teamId: roomForInboxLink(teams, threadTeamId ?? null),
+        // A topic that can't be read opens the room's topic list, not a dead panel.
+        topic: threadTeamId === undefined ? undefined : search.thread,
+      };
+    });
+    if (teamId === null) {
+      throw redirect({ replace: true, to: "/home" });
+    }
+    throw redirect({
+      params: { teamId },
+      replace: true,
+      search: { topic },
+      to: "/teams/$teamId/room",
+    });
+  },
 });
-
-function InboxPage() {
-  const { agents, threads: initialThreads, userId } = Route.useLoaderData();
-  const { thread: threadId } = Route.useSearch();
-  const navigate = Route.useNavigate();
-  const agentNames = useMemo(() => agentNameMap(agents), [agents]);
-  const list = usePolledQuery(
-    () => getTrpc().inbox.listThreads.query(),
-    initialThreads
-  );
-  const threads = list.data ?? initialThreads;
-  const { refresh: refreshThreads } = list;
-
-  const openThread = useCallback(
-    (thread: InboxThread) => {
-      refreshThreads();
-      navigate({ search: { thread: thread.id } });
-    },
-    [refreshThreads, navigate]
-  );
-
-  return (
-    <section className="mx-auto grid max-w-5xl gap-8 md:grid-cols-[16rem_1fr]">
-      <aside
-        className={cn(
-          "flex flex-col gap-6",
-          // Phones show the list or the open thread, not both.
-          threadId !== undefined && "max-md:hidden"
-        )}
-      >
-        <h1 className="font-heading text-3xl text-foreground">
-          {PAGE_HEADING}
-        </h1>
-        <NewThreadForm onCreated={openThread} />
-        {list.error === null ? null : (
-          <p className="text-destructive text-sm">{list.error}</p>
-        )}
-        <ThreadList activeId={threadId} threads={threads} />
-      </aside>
-      <div className={cn("min-w-0", threadId === undefined && "max-md:hidden")}>
-        {threadId === undefined ? (
-          <p className="text-muted-foreground text-sm">
-            Pick a thread, or start a new one.
-          </p>
-        ) : (
-          <>
-            <Link
-              className="mb-3 inline-flex min-h-10 items-center text-muted-foreground text-sm md:hidden"
-              to="/inbox"
-            >
-              ‹ All threads
-            </Link>
-            <ThreadPanel
-              agentNames={agentNames}
-              key={threadId}
-              onPosted={list.refresh}
-              threadId={threadId}
-              userId={userId}
-            />
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
