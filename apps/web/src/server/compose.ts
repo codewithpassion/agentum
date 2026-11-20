@@ -1375,7 +1375,7 @@ export const composeWith = ({
       artifacts: liveArtifactMutations(artifacts, liveArtifacts),
       assistant,
       browser,
-      catalog: createCatalogService(),
+      catalog: createCatalogService({ clock: infra.clock, db }),
       connections,
       connectorOAuth,
       connectors,

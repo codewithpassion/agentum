@@ -9,6 +9,7 @@ import type { Clock } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
 import { entries } from "./entries.ts";
 
+const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const START = "2026-11-20T00:00:00.000Z";
 const clock: Clock = {
   now: () => new Date(START),
@@ -28,44 +29,48 @@ let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 beforeEach(() => {
   db = migrated(["org_a", "org_b"]);
   service = createCatalogService({ clock, db });
-  fetchSpy = spyOn(globalThis, "fetch").mockImplementation(() => {
-    throw new Error("catalogue must never fetch");
-  });
+  fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(
+    new Error("catalogue must never fetch")
+  );
 });
 
 afterEach(() => {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: every add test must prove it made no network calls
   expect(fetchSpy).not.toHaveBeenCalled();
   fetchSpy.mockRestore();
   db.client.close();
 });
 
 // Exercise every real entry so both authenticated and public apps are covered.
-test.each(entries)("add creates $key directly from its entry", async (entry) => {
-  const { connectorId } = await service.add(admin, entry.key);
-  expect(connectorId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
-  expect(db.select().from(connectors).all()).toEqual([
-    {
-      authKind: entry.authKind,
-      authMode: entry.authKind,
-      callTimeoutSeconds: CONNECTOR_CALL_TIMEOUT_SECONDS.default,
-      catalogKey: entry.key,
-      createdAt: START,
-      createdBy: admin.userId,
-      headerName: entry.authKind === "header" ? "Authorization" : null,
-      headerTemplate: null,
-      id: connectorId,
-      name: entry.name,
-      oauth: null,
-      secretId: null,
-      status: entry.authKind === "none" ? "ok" : "needs_auth",
-      tools: "[]",
-      toolsFetchedAt: null,
-      url: entry.url,
-      workspaceId: admin.workspaceId,
-    },
-  ]);
-  expect(db.select().from(credentials).all()).toEqual([]);
-});
+test.each(entries)(
+  "add creates $key directly from its entry",
+  async (entry) => {
+    const { connectorId } = await service.add(admin, entry.key);
+    expect(connectorId).toMatch(ULID_PATTERN);
+    expect(db.select().from(connectors).all()).toEqual([
+      {
+        authKind: entry.authKind,
+        authMode: entry.authKind,
+        callTimeoutSeconds: CONNECTOR_CALL_TIMEOUT_SECONDS.default,
+        catalogKey: entry.key,
+        createdAt: START,
+        createdBy: admin.userId,
+        headerName: entry.authKind === "header" ? "Authorization" : null,
+        headerTemplate: null,
+        id: connectorId,
+        name: entry.name,
+        oauth: null,
+        secretId: null,
+        status: entry.authKind === "none" ? "ok" : "needs_auth",
+        tools: "[]",
+        toolsFetchedAt: null,
+        url: entry.url,
+        workspaceId: admin.workspaceId,
+      },
+    ]);
+    expect(db.select().from(credentials).all()).toEqual([]);
+  }
+);
 
 test("add is idempotent within its workspace", async () => {
   const first = await service.add(admin, "gmail");
@@ -106,7 +111,7 @@ test("an unknown key is not_found", async () => {
 });
 
 test("list returns all entries in catalogue order with default allow-lists", () => {
-  expect(service.list()).toEqual(entries);
+  expect(service.list()).toEqual([...entries]);
   expect(service.list().length).toBeGreaterThan(0);
   for (const entry of service.list()) {
     expect(entry.defaultAllowedTools.length).toBeGreaterThan(0);

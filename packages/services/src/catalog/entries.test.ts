@@ -2,9 +2,11 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { entries } from "./entries.ts";
 
-const DOCUMENTED_ENTRY = /\/\/[^\n]*https:\/\/[^\s]+[^\n]*\n\s*\{\s*key: "([^"]+)"/g;
+const DOCUMENTED_ENTRY =
+  /\/\/[^\n]*https:\/\/[^\s]+[^\n]*\n\s*\{[^{}]*?\bkey: "([^"]+)"/g;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const READ_ONLY_TOOL = /^(?:get_|list_|search_|notion-search$|notion-fetch$|slack_read_|slack_search_)/;
+const READ_ONLY_TOOL =
+  /^(?:get_|list_|search_|notion-search$|notion-fetch$|slack_read_|slack_search_)/;
 
 test("entries have unique keys, https endpoints, icons and explicit read-only defaults", () => {
   expect(entries.length).toBeGreaterThan(0);
