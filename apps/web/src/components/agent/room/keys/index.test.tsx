@@ -48,6 +48,22 @@ test("a plain member sees no passwords and keys and no Slack setup", () => {
   }
 });
 
+const ASKS_NOTE =
+  "Only the agent&#x27;s owners and admins can change what it asks first.";
+
+test("a plain member sees the asks note, while the owner and an admin do not", () => {
+  signedIn = { orgRole: "org:member", userId: "user_other" };
+  expect(renderInRoom(<KeysTab {...fixtureTabProps()} />)).toContain(ASKS_NOTE);
+  signedIn = { orgRole: "org:member", userId: "user_1" };
+  expect(renderInRoom(<KeysTab {...fixtureTabProps()} />)).not.toContain(
+    ASKS_NOTE
+  );
+  signedIn = { orgRole: "org:admin", userId: "user_other" };
+  expect(renderInRoom(<KeysTab {...fixtureTabProps()} />)).not.toContain(
+    ASKS_NOTE
+  );
+});
+
 test("an archived agent shows one note and the asks, not the sections", () => {
   const room = fixtureRoom();
   room.agent = { ...room.agent, status: "archived" };

@@ -11,11 +11,14 @@ import { connectionWords, handsToWords } from "./keys-logic.ts";
 /** The Keys tab's other agents: who this agent hands work to, who it is connected to, and the controls for both. */
 export function OtherAgentsSection({
   agent,
+  canManage,
   connections,
   otherAgents,
   published,
 }: {
   agent: AgentRecord;
+  /** Whether the person may change who the agent hands work to: an org admin or the agent's owner. */
+  canManage: boolean;
   connections: RouterOutputs["a2a"]["list"];
   /** Null when the read model did not load: the summary lines are left out. */
   otherAgents: AgentKeys["otherAgents"] | null;
@@ -25,7 +28,7 @@ export function OtherAgentsSection({
     <RoomSection title="Other agents">
       {otherAgents === null ? null : <Summary otherAgents={otherAgents} />}
       <WorksWith
-        handsTo={<HandsToPanel agent={agent} />}
+        handsTo={<HandsToPanel agent={agent} canManage={canManage} />}
         peers={
           <div className="[&>section]:border-0 [&>section]:bg-transparent [&_h2]:sr-only">
             <ConnectionsCard

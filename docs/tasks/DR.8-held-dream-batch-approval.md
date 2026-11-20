@@ -3,7 +3,7 @@ id: DR.8
 title: "Approve or reject a held dream batch"
 milestone: DR
 size: S
-status: in_progress
+status: done
 depends_on: [DR.4, DR.6]
 branch: task/DR.8-held-dream-batch-approval
 lane: web-knows
@@ -27,3 +27,4 @@ From the DR.4 review (`docs/reviews/tasks/DR.4.md`). When a dream is held (the a
 ## Log
 - 2026-11-20: added from the DR.4 review.
 - 2026-11-20: dispatched on task/DR.8-held-dream-batch-approval (v4 controller session).
+- 2026-11-20: merged as a8219cdc, review clean after 1 fix round. Browser proof passed at both sizes: docs/reviews/tasks/DR.8/browser.md. check, test and build passed on main. The per-note Undo seen by a plain member became ME.17.
