@@ -1,6 +1,6 @@
 # KY end-to-end walkthrough
 
-Task KY.7. Verdict: the Keys flow works on local at 1280x800 and 390x844 up to the point where an agent calls a tool. Admin, member, catalogue, Keys tab and "Your sign-ins" all pass. The last step, "the agent uses the tool in a task with the fake runtime", cannot be walked, because the fake runtime never calls a tool. The tool path was proven by hand instead. So the task's check, "the walkthrough passes on local", is met for every step but that one, and `browser.md` records the verdict as FAIL for that reason. KY.9 below is what lets it pass. Four small defects were fixed on the branch. Five things are proposed as tasks below.
+Task KY.7. Verdict: the Keys flow works on local at 1280x800 and 390x844 up to the point where an agent calls a tool. Admin, member, catalogue, Keys tab and "Your sign-ins" all pass. The last step, "the agent uses the tool in a task with the fake runtime", cannot be walked, because the fake runtime never calls a tool. The tool path was proven by hand instead. So the task's check, "the walkthrough passes on local", is met for every step but that one, and `browser.md` records the verdict as FAIL for that reason and for the phone overflow on the task page. KY.9 and the last proposed task below are what let it pass. Four small defects were fixed on the branch. Five things are proposed as tasks below.
 
 The browser proof, step by step with screenshots, is `docs/reviews/tasks/KY.7/browser.md`. A fresh verifier ran it.
 
