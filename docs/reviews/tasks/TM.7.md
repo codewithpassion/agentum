@@ -33,7 +33,7 @@ Built with Haiku workers for five disjoint units (mention logic, room logic, pos
 - Mention rows and the member checkboxes are under 44 px tall on a phone (the checkbox is shadcn output).
 - Safari sends the Enter that ends an IME composition with `isComposing` false, so it can pick a mention. Adding `keyCode === 229` to the guard would cover it. No test covers blur-close, Shift+Enter or the IME guard.
 - The loader reads one profile per person on every navigation inside the room.
-- Nothing links to the room yet. Until the team page links to it, open it by URL.
+- Nothing links to the room, and TM.6 merged without a link. The team page (or the Teams list) needs a "Room" link to `/teams/$teamId/room`, in `components/team/`, outside this task's lane. Until then, open it by URL.
 
 ## Ideas beyond the scope
 
