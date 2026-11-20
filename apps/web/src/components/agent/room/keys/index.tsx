@@ -34,6 +34,7 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       actions={room.askBefore}
       agentId={agent.id}
       archived={archived}
+      canManage={canManage}
       level={room.askLevel}
       mailAllowed={allowedMailAddresses(room.rules)}
       onEditSettings={openSettings}
@@ -81,6 +82,7 @@ export function KeysTab({ onOpenTab, room }: RoomTabProps) {
       ) : null}
       <OtherAgentsSection
         agent={agent}
+        canManage={canManage}
         connections={room.connections}
         otherAgents={keys === null ? null : keys.otherAgents}
         published={room.published}

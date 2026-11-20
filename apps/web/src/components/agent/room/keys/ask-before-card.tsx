@@ -184,6 +184,7 @@ export function OutsideEmailRow() {
 
 function AskBeforeBody({
   agentId,
+  canManage,
   initialActions,
   initialLevel,
   mailAllowed,
@@ -192,6 +193,8 @@ function AskBeforeBody({
 }: {
   agentId: string;
   archived: boolean;
+  /** Whether the person may change the ask switches: an org admin or the agent's owner. */
+  canManage: boolean;
   initialActions: AskBeforeAction[];
   initialLevel: string;
   mailAllowed: string[];
@@ -201,6 +204,7 @@ function AskBeforeBody({
   const [level, setLevel] = useState(initialLevel);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const locked = saving || !canManage;
 
   const save = useCallback(
     async (write: () => Promise<unknown>) => {
@@ -273,7 +277,13 @@ function AskBeforeBody({
           The agent stops and asks you before it does what its level covers, and
           tools it gets later follow the level.
         </p>
-        <LevelPicker disabled={saving} level={level} onChange={changeLevel} />
+        <LevelPicker disabled={locked} level={level} onChange={changeLevel} />
+        {canManage ? null : (
+          <p className="mt-2 text-muted-foreground text-xs">
+            Only the agent&apos;s owners and admins can change what it asks
+            first.
+          </p>
+        )}
         <p className="mt-2 text-muted-foreground text-xs">
           {level === "custom"
             ? "This agent uses its own switches. Pick a level to start from one, and your switches stay as they are."
@@ -312,7 +322,7 @@ function AskBeforeBody({
               </p>
               {groups.map((group) => (
                 <AskGroupSection
-                  disabled={saving}
+                  disabled={locked}
                   group={group}
                   key={group.name}
                   onGroup={toggleGroup}
@@ -321,7 +331,11 @@ function AskBeforeBody({
               ))}
               <OutsideEmailRow />
               {mailAllowed.length === 0 ? null : (
-                <MailAllowedList addresses={mailAllowed} agentId={agentId} />
+                <MailAllowedList
+                  addresses={mailAllowed}
+                  agentId={agentId}
+                  disabled={locked}
+                />
               )}
             </div>
           </div>
@@ -339,6 +353,7 @@ export function AskBeforeCard({
   actions,
   agentId,
   archived,
+  canManage,
   level,
   mailAllowed,
   onEditSettings,
@@ -347,6 +362,8 @@ export function AskBeforeCard({
   actions: AskBeforeAction[];
   /** Archived agents start Advanced open, because their disabled page cannot open it. */
   archived: boolean;
+  /** Whether the person may change the ask switches: an org admin or the agent's owner. */
+  canManage: boolean;
   /** The agent's ask level: a preset, or custom for one with its own rules. */
   level: string;
   /** Bare email addresses the agent may always email without asking. */
@@ -358,6 +375,7 @@ export function AskBeforeCard({
     <AskBeforeBody
       agentId={agentId}
       archived={archived}
+      canManage={canManage}
       initialActions={actions}
       initialLevel={level}
       key={agentId}
