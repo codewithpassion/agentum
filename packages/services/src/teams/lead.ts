@@ -90,7 +90,7 @@ export interface LeadServiceDeps {
   agents: Pick<AgentsService, "update">;
   db: Database;
   events: Pick<EventsService, "onAppend">;
-  inbox: Pick<InboxService, "createThread" | "post">;
+  inbox: Pick<InboxService, "createThread" | "post" | "startDiscussion">;
   requests: Pick<RequestsService, "open">;
 }
 
@@ -429,7 +429,14 @@ export const createLeadService = ({
     }
   });
 
-  return { members, openTopic, post, proposeChange, roomRun };
+  return {
+    discussion: inbox.startDiscussion,
+    members,
+    openTopic,
+    post,
+    proposeChange,
+    roomRun,
+  };
 };
 
 export type LeadService = ReturnType<typeof createLeadService>;

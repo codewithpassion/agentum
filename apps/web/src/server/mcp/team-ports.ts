@@ -66,12 +66,13 @@ export const createTeamPorts = ({
   services: {
     teamLead: Pick<
       LeadService,
-      "members" | "openTopic" | "post" | "proposeChange"
+      "discussion" | "members" | "openTopic" | "post" | "proposeChange"
     >;
   };
 }): TeamPort => {
   const { teamLead } = services;
   return {
+    discussion: (input) => guarded(() => teamLead.discussion(principal, input)),
     members: () =>
       guarded(async () =>
         (await teamLead.members(principal)).map(toMemberInfo)

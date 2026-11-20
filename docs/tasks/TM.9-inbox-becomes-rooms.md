@@ -26,3 +26,4 @@ From `docs/v4/build-plan.md`, milestone TM. The forum inbox page is replaced by 
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-21: dispatched on task/TM.9-inbox-becomes-rooms (v4 controller session).
+- 2026-11-21: ready at a9d0a286 after fix round (review clean, 404 gone, browser re-verified). Queued for merge.

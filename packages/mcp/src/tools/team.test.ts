@@ -15,6 +15,7 @@ import { READ_ONLY, WRITE_CREATE } from "./define";
 import { callTool, fakePorts } from "./library-wiki.test-helpers";
 
 const TEAM_NAMES = [
+  "team_discussion",
   "team_members",
   "team_post",
   "team_open_topic",
@@ -40,6 +41,7 @@ const fail = (): Promise<never> =>
   Promise.reject(new Error("Unexpected port call"));
 
 const teamPort = (overrides: Partial<TeamPort> = {}): TeamPort => ({
+  discussion: fail,
   members: fail,
   openTopic: fail,
   post: fail,
@@ -373,4 +375,33 @@ describe("team tool validation", () => {
     expect(result.isError).toBe(true);
     expect(calls).toBe(0);
   });
+});
+
+test("team_discussion passes topic, trimmed question and rounds", async () => {
+  const received: unknown[] = [];
+  const result = await callTool(
+    fakePorts({
+      team: teamPort({
+        discussion: (input) => {
+          received.push(input);
+          return Promise.resolve({ id: "discussion-1", round: 1, rounds: 3 });
+        },
+      }),
+    }),
+    "team_discussion",
+    { question: "  Why?  ", rounds: 3, topic: "topic-1" },
+    { teamRoom: true }
+  );
+  expect(result.isError).toBeFalsy();
+  expect(received).toEqual([{ question: "Why?", rounds: 3, topic: "topic-1" }]);
+});
+
+test.each([0, 6, 1.5])("team_discussion refuses rounds %s", async (rounds) => {
+  const result = await callTool(
+    fakePorts({ team: teamPort() }),
+    "team_discussion",
+    { question: "Why?", rounds, topic: "topic-1" },
+    { teamRoom: true }
+  );
+  expect(result.isError).toBe(true);
 });
