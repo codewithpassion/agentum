@@ -863,6 +863,25 @@ export interface SubagentsPort {
   stop: (input: { id: string }) => Promise<RunInfo>;
 }
 
+/** Bound to one run's agent. The app enforces peer provenance and session visibility. */
+export interface MemoryPort {
+  forget: (input: { id: string }) => Promise<MemoryChangeInfo>;
+  remember: (input: {
+    kind: "people" | "corrections" | "work" | "places";
+    text: string;
+  }) => Promise<MemoryChangeInfo>;
+  searchHistory: (input: {
+    query: string;
+    limit: number;
+  }) => Promise<SearchHit[]>;
+}
+
+export interface MemoryChangeInfo {
+  changeId: string;
+  noteId: string;
+  status: "applied" | "held" | "rejected" | "undone";
+}
+
 export interface McpPorts {
   /** Set for user principals; the server offers only the tools their access allows. */
   admin?: AdminPort;
@@ -948,6 +967,8 @@ export interface McpPorts {
     reply: (input: MailDraft & { threadId: string }) => Promise<MailSendResult>;
     send: (input: MailDraft) => Promise<MailSendResult>;
   };
+  /** Offered only for runs, once the app supplies the bound memory port. */
+  memory?: MemoryPort;
   pinSkill: (input: {
     agent: string;
     skillId: string;

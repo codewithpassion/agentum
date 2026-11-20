@@ -1199,19 +1199,22 @@ test("default runtime catalog includes every live document tool", () => {
   }
 });
 
-
 describe("memory tools", () => {
-  const memory = (status: "applied" | "held"): NonNullable<McpPorts["memory"]> => ({
+  const memory = (
+    status: "applied" | "held"
+  ): NonNullable<McpPorts["memory"]> => ({
     forget: async () => ({ changeId: "change", noteId: "note", status }),
     remember: async () => ({ changeId: "change", noteId: "note", status }),
     searchHistory: async () => HITS,
   });
 
-  test("offered only with the memory port; read-only keeps history", async () => {
+  test("offered only with the memory port; read-only keeps history", () => {
     const names = (ports: McpPorts, readOnly = false) =>
       agentumTools(ports, { readOnly }).map((tool) => tool.name);
     expect(names(fakePorts({}))).not.toContain("remember");
-    expect(names(fakePorts({ memory: memory("applied") }))).toContain("forget_note");
+    expect(names(fakePorts({ memory: memory("applied") }))).toContain(
+      "forget_note"
+    );
     const reads = names(fakePorts({ memory: memory("applied") }), true);
     expect(reads).toContain("search_history");
     expect(reads).not.toContain("remember");
@@ -1225,10 +1228,16 @@ describe("memory tools", () => {
         ["remember", { kind: "people", text: "Mia prefers Docs" }],
         ["forget_note", { id: "note" }],
       ] as const) {
+        // biome-ignore lint/performance/noAwaitInLoops: exercise each tool independently.
         const result = await callTool(ports, name, args);
         expect(result.isError).not.toBe(true);
-        expect(result.structuredContent).toMatchObject({ noteId: "note", status });
-        expect(textOf(result)).toContain(status === "held" ? "approval" : "applied");
+        expect(result.structuredContent).toMatchObject({
+          noteId: "note",
+          status,
+        });
+        expect(textOf(result)).toContain(
+          status === "held" ? "approval" : "applied"
+        );
       }
     });
   }
@@ -1239,9 +1248,18 @@ describe("memory tools", () => {
       expect(input).toEqual({ limit: 10, query: "deploy" });
       return Promise.resolve(HITS);
     };
-    const result = await callTool(fakePorts({ memory: port }), "search_history", { query: "deploy" });
+    const result = await callTool(
+      fakePorts({ memory: port }),
+      "search_history",
+      { query: "deploy" }
+    );
     expect(result.structuredContent).toMatchObject({ results: HITS });
-    for (const text of [UNTRUSTED, SESSION.id, SESSION.createdAt, "deploy failed"]) {
+    for (const text of [
+      UNTRUSTED,
+      SESSION.id,
+      SESSION.createdAt,
+      "deploy failed",
+    ]) {
       expect(textOf(result)).toContain(text);
     }
   });
@@ -1255,11 +1273,13 @@ describe("memory tools", () => {
       ["remember", { kind: "work", text: "  " }],
       ["remember", { kind: "work", text: "x".repeat(501) }],
       ["remember", { agent: "other", kind: "work", text: "x" }],
-      ["search_history", { query: "x", limit: 0 }],
-      ["search_history", { query: "x", limit: 21 }],
-      ["search_history", { query: "x", agent: "other" }],
+      ["search_history", { limit: 0, query: "x" }],
+      ["search_history", { limit: 21, query: "x" }],
+      ["search_history", { agent: "other", query: "x" }],
     ] as const) {
-      expect((await callTool(fakePorts({ memory: port }), name, args)).isError).toBe(true);
+      // biome-ignore lint/performance/noAwaitInLoops: exercise each validation failure independently.
+      const result = await callTool(fakePorts({ memory: port }), name, args);
+      expect(result.isError).toBe(true);
     }
   });
 });
