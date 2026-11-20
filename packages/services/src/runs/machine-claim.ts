@@ -2,7 +2,7 @@ import type { Database } from "@repo/db";
 import { agents } from "@repo/db/schema/agents";
 import { runs } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
-import { taskFolderPath } from "@repo/db/shared";
+import { runtimeConfigForRun, taskFolderPath } from "@repo/db/shared";
 import {
   and,
   eq,
@@ -335,7 +335,10 @@ export const claimForMachine = async (
       id: agent.id,
       model: context.model,
       name: agent.name,
-      runtimeConfig: agent.runtimeConfig,
+      runtimeConfig: runtimeConfigForRun(
+        agent.runtimeConfig,
+        claimedRun.subagentLevel
+      ),
       slug: agent.slug,
     },
     ...(Object.keys(env).length > 0 ? { env } : {}),

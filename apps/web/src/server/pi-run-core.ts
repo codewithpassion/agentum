@@ -6,7 +6,13 @@
 // HEARTBEAT_MS: it heartbeats the active runs and works again any run the
 // object is not following.
 import type { EntryRecord } from "@earendil-works/pi-durable";
-import type { RunStatus } from "@repo/db/shared";
+import {
+  type ContextBudget,
+  contextBudgetOf,
+  type EffortLevel,
+  effortOf,
+  type RunStatus,
+} from "@repo/db/shared";
 import {
   MAX_TURNS_DEFAULT,
   maxTurnsOf,
@@ -59,6 +65,13 @@ export interface PiPort {
   entriesFrom: (start: string) => Promise<readonly EntryRecord[]>;
   /** The id of the user entry an operation's input was placed as (as a string), once it is placed. */
   entryOf: (operationId: string) => Promise<string | undefined>;
+  /** Sets how much context the session fills before Pi compacts it, from the next request. `model` is the agent's model string. undefined restores Pi's default. */
+  setContextBudget: (
+    budget: ContextBudget | undefined,
+    model: string
+  ) => Promise<void>;
+  /** Sets the session's thinking level from the next request. undefined clears it back to Pi's default. */
+  setEffort: (effort: EffortLevel | undefined) => Promise<void>;
   /** Sets the session's system prompt section for the agent's instructions; applies from the next request. */
   setInstructions: (instructions: string) => Promise<void>;
   setModel: (model: string) => Promise<void>;
@@ -121,6 +134,10 @@ export interface RunCoreDeps {
 
 interface StoredRun {
   agentId: string;
+  /** The agent's context budget, so a run submitted again after a wake uses it. Absent when the agent has none. */
+  contextBudget?: ContextBudget;
+  /** The agent's thinking level, so a run submitted again after a wake uses it. Absent when the agent has none. */
+  effort?: EffortLevel;
   /** The user entry Pi placed the input as. Known once placed. */
   entry?: string;
   /** The input files, so a run submitted again after a wake sends them again. */
@@ -507,6 +524,8 @@ export const createRunCore = ({
    */
   const startOnce = async (input: CloudStart): Promise<string | undefined> => {
     const { run } = input;
+    const effort = effortOf(input.agent.runtimeConfig);
+    const contextBudget = contextBudgetOf(input.agent.runtimeConfig);
     const existing = await load(run.id);
     if (existing?.state === "finished") {
       return;
@@ -526,6 +545,8 @@ export const createRunCore = ({
       });
       await save(run.id, {
         agentId: run.agentId,
+        ...(contextBudget ? { contextBudget } : {}),
+        ...(effort ? { effort } : {}),
         fileIds: input.inputFileIds,
         instructions: input.agent.instructions,
         maxTurns: maxTurnsOf(input.agent.runtimeConfig),
@@ -542,6 +563,8 @@ export const createRunCore = ({
     const busy = await pi.busy();
     if (!busy) {
       await pi.setModel(input.agent.model);
+      await pi.setEffort(effort);
+      await pi.setContextBudget(contextBudget, input.agent.model);
       await pi.setInstructions(input.agent.instructions);
     }
     await pi.submit(
@@ -586,6 +609,8 @@ export const createRunCore = ({
   const resumeRun = async (runId: string, run: StoredRun): Promise<void> => {
     if (!(await pi.busy())) {
       await pi.setModel(run.model);
+      await pi.setEffort(run.effort);
+      await pi.setContextBudget(run.contextBudget, run.model);
       await pi.setInstructions(run.instructions);
     }
     await pi.submit(

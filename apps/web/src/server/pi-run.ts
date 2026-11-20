@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, MutableModels } from "@earendil-works/pi-ai";
 import {
+  type CompactionPolicy,
   type Cursor,
   createRegistry,
   type EntryRecord,
@@ -89,6 +90,7 @@ import {
 } from "./pi-run-skills.ts";
 import { createStartQueue } from "./pi-run-start.ts";
 import { RunStartAlarm } from "./pi-run-start-alarm.ts";
+import { compactionPolicyFor } from "./pi-run-tuning.ts";
 import { streamPublisher } from "./session-stream-port.ts";
 import { dynamicWorkerSandbox } from "./skill-scripts/dynamic-worker-sandbox.ts";
 import type { RunScriptDeps } from "./skill-scripts/run-script.ts";
@@ -123,6 +125,8 @@ const VM_KEY = "linux-vm";
 const COMPUTER_KEY = "computer";
 /** Whether the isolate's agent may reach the network, so the wake path installs the same `web_fetch` the run did. Absent means true. */
 const NETWORK_KEY = "network-access";
+/** The compaction policy the newest run's context budget set, so a wake keeps it until the next run sets it again. */
+const COMPACTION_KEY = "compaction";
 /** The run an input file belongs to, so `read_input_file` reads it as that run. */
 const inputFileKey = (fileId: string) => `input-file:${fileId}`;
 const ENTRY_PAGE = 500;
@@ -178,6 +182,10 @@ export class PiRun extends DurableObject<Env> {
   #core: ReturnType<typeof createRunCore> | undefined;
   /** The tool lists now in the registry, by server key. */
   #installed: ServerTools = {};
+  /** The compaction policy for the context budget of the newest run. Pi reads it for every request. */
+  #compaction: Partial<CompactionPolicy> = {};
+  /** The model registry of the open harness, to read a model's context window. */
+  #models: MutableModels | undefined;
   /** The server and tool name of each installed MCP tool, by Pi's name: the gate keys its rules on them. */
   #origins = new Map<string, ToolOrigin>();
   /** The MCP sessions this object holds, by server URL. Listing and tool calls share them. */
@@ -217,6 +225,11 @@ export class PiRun extends DurableObject<Env> {
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const models = createCloudModels(this.#credentials);
+      this.#models = models;
+      this.#compaction =
+        (await this.ctx.storage.get<Partial<CompactionPolicy>>(
+          COMPACTION_KEY
+        )) ?? {};
       if (import.meta.env.DEV) {
         const { createFaux } = await import("./pi-run-faux.ts");
         // The import sits here, in the branch itself, so a production build drops the module.
@@ -244,6 +257,7 @@ export class PiRun extends DurableObject<Env> {
       if (skills) {
         this.#applySkills(skills);
       }
+      const compaction = () => this.#compaction;
       return Harness.open(
         storage,
         {
@@ -255,8 +269,14 @@ export class PiRun extends DurableObject<Env> {
               error instanceof Error ? error.message : String(error)
             ),
           registry: this.registry,
-          // The scripted model fails on purpose, and a retry would only slow that check down.
-          settings: { retry: { ...RETRY, enabled: !this.#faux } },
+          settings: {
+            // Pi resolves the settings for every use, so a getter carries each run's context budget without reopening the harness.
+            get compaction() {
+              return compaction();
+            },
+            // The scripted model fails on purpose, and a retry would only slow that check down.
+            retry: { ...RETRY, enabled: !this.#faux },
+          },
         },
         context
       );
@@ -967,6 +987,24 @@ export class PiRun extends DurableObject<Env> {
         return record?.type === "input" && record.entry !== undefined
           ? String(record.entry)
           : undefined;
+      },
+      setContextBudget: async (budget, model) => {
+        // The harness registers its models when it opens.
+        await this.harness.pi();
+        const ref = this.#modelRef(model);
+        this.#compaction = compactionPolicyFor(
+          budget,
+          this.#models?.getModel(ref.provider, ref.id)?.contextWindow
+        );
+        await this.ctx.storage.put(COMPACTION_KEY, this.#compaction);
+      },
+      setEffort: async (effort) => {
+        // `null` clears the stored level, which Pi reads as no thinking, as before an agent had a setting.
+        const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT);
+        await root.configure(
+          { thinkingLevel: effort ?? null },
+          BACKGROUND_CONTEXT
+        );
       },
       setInstructions: async (instructions) => {
         // `configure` follows the same rule as `setModel`: a change applies from the next request.

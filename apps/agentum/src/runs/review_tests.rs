@@ -226,7 +226,8 @@ async fn argv_env_cwd_budget_turns_resume_and_secrets_match_daemon() {
         let mut c = claim("r");
         let configured = same.is_some();
         if configured {
-            c["agent"]["runtimeConfig"] = json!({"maxTurns":12,"maxBudgetUsd":1.25});
+            c["agent"]["runtimeConfig"] =
+                json!({"maxTurns":12,"maxBudgetUsd":1.25,"effort":"high"});
         }
         if let Some(same) = same {
             c["session"] = json!({"runtimeMachineId":if same {"machine"} else {"elsewhere"},"runtimeRef":"resume-me"});
@@ -256,7 +257,7 @@ async fn argv_env_cwd_budget_turns_resume_and_secrets_match_daemon() {
             "stdio",
         ];
         if configured {
-            argv.extend(["--max-budget-usd", "1.25"]);
+            argv.extend(["--max-budget-usd", "1.25", "--effort", "high"]);
         }
         if same == Some(true) {
             argv.extend(["--resume", "resume-me"]);
@@ -285,6 +286,57 @@ async fn argv_env_cwd_budget_turns_resume_and_secrets_match_daemon() {
         }
         task.abort();
     }
+}
+
+#[tokio::test]
+async fn unknown_effort_passes_no_effort_flag() {
+    let (url, server, task) = server().await;
+    let temp = tempfile::tempdir().unwrap();
+    let host = host(&url, temp.path());
+    let cwd = host.root.join("WS/A/work");
+    let mut c = claim("r");
+    c["agent"]["runtimeConfig"] = json!({"effort":"extreme"});
+    let secrets = json!({"API_KEY":"agent-key-unique", "XDG_SECRET":"agent-secret-unique", "PASSWORD":"agent-password-unique"});
+    c["env"] = secrets.clone();
+    let argv = [
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--input-format",
+        "stream-json",
+        "--thinking",
+        "adaptive",
+        "--thinking-display",
+        "summarized",
+        "--max-turns",
+        "100",
+        "--model",
+        "fake",
+        "--setting-sources=project",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "bypassPermissions",
+        "--allow-dangerously-skip-permissions",
+        "--permission-prompt-tool",
+        "stdio",
+    ];
+    let mut env = helpers::agent_env(std::env::vars())
+        .into_iter()
+        .map(|(k, v)| (k, json!(v)))
+        .collect::<serde_json::Map<String, Value>>();
+    env.insert("CLAUDE_CODE_ENTRYPOINT".into(), json!("sdk-ts"));
+    for (k, v) in secrets.as_object().unwrap() {
+        env.insert(k.clone(), v.clone());
+    }
+    expected(
+        temp.path(),
+        &json!({"argv":argv,"env":env,"cwd":cwd,"mode":"secrets","secrets":secrets}),
+    );
+    *server.claim_override.lock().unwrap() = Some(c);
+    host.offer("A".into(), "r".into());
+    wait_calls(&server, "complete", 1).await;
+    assert_eq!(complete(&server)["status"], "done", "{}", complete(&server));
+    task.abort();
 }
 
 #[tokio::test]

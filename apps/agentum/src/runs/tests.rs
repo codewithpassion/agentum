@@ -462,6 +462,16 @@ async fn replacement_cancels_claimed_runs_and_clears_queue() {
 }
 
 #[test]
+fn effort_accepts_only_the_three_levels() {
+    for level in ["low", "medium", "high"] {
+        assert_eq!(helpers::effort(&json!({"effort":level})), Some(level));
+    }
+    assert_eq!(helpers::effort(&json!({"effort":"extreme"})), None);
+    assert_eq!(helpers::effort(&json!({"effort":3})), None);
+    assert_eq!(helpers::effort(&json!({})), None);
+}
+
+#[test]
 fn typescript_helper_parity() {
     use crate::approvals::*;
     let fixture: Value = serde_json::from_str(include_str!("parity.json")).unwrap();
