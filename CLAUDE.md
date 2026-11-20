@@ -93,7 +93,7 @@ One top bar replaced the sidebar rail and the site header on signed-in pages. `a
 - The Needs you button opens `rail/needs-you-drawer.tsx` on every page. `useNeedsYou` (`rail/use-needs-you.ts`) feeds both the count and the drawer, and it runs in `AppTopBar`, never inside the drawer: a closed drawer unmounts its content, and the count and Ctrl+K must stay live. Nothing in the shell may call `useSidebar` or render `SidebarTrigger`, because there is no `SidebarProvider` any more.
 - A new page goes in `rail/find-registry.ts`, or `find-registry.test.ts` fails. Find is the way to reach most pages. A page the top bar links to must be in Find too (`top-bar-logic.test.ts` checks it). Spend is the one exception, and it shows in the top bar only once a `/spend` route exists (`AppTopBar` asks the router), so the Spend task adds the route and its Find entry and edits nothing in the bar.
 - Desk (`/desk`, with its item pane and `?view=board` Board) is reached from Find and from the drawer's "done today" link. New conversation lives on the Desk and in the agent room, not in the bar.
-- An agent asks `agents.owner_user_id`, falling back to `created_by`. That is visibility only: any member can still answer any request.
+- An agent asks `agents.owner_user_id`, falling back to `created_by`. That is visibility only: any member can still answer any request, except Always allow, which is for the owner or an admin (Slack counts only the owner).
 - Anything a person must act on should reach `desk.railSources`, or it won't show in Needs you.
 
 ## Agent connections
