@@ -172,9 +172,26 @@ test("wallIsFlat is false when Everyone sits beside another team", () => {
   expect(wallIsFlat(groups)).toBe(false);
 });
 
-test("wallIsFlat is false for a lone No team group", () => {
+test("wallIsFlat is true for a lone No team group", () => {
   const groups = groupCards([onTeam(card("Ann", "idle"), null)], []);
   expect(groups.map((g) => g.key)).toEqual([NO_TEAM_KEY]);
+  expect(wallIsFlat(groups)).toBe(true);
+});
+
+test("wallIsFlat is true for Everyone beside No team", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "everyone"), onTeam(card("Bo", "idle"), null)],
+    [team("everyone", "Everyone")]
+  );
+  expect(groups.map((g) => g.key)).toEqual(["everyone", NO_TEAM_KEY]);
+  expect(wallIsFlat(groups)).toBe(true);
+});
+
+test("wallIsFlat is false for another team beside No team", () => {
+  const groups = groupCards(
+    [onTeam(card("Ann", "idle"), "a"), onTeam(card("Bo", "idle"), null)],
+    [team("a", "Alpha")]
+  );
   expect(wallIsFlat(groups)).toBe(false);
 });
 

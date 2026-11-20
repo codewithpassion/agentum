@@ -141,16 +141,15 @@ export const groupCards = (
 };
 
 /**
- * True when there are no groups, or the only group is the workspace's
- * Everyone team. The wall then shows its cards without group headings.
+ * True when every group is the workspace's Everyone team or "No team": the
+ * groups carry no information, so the wall shows its cards without headings.
+ * Agents do not join a team when they are created, so on a fresh workspace
+ * all cards sit in "No team".
  */
-export const wallIsFlat = (groups: readonly RosterGroup[]): boolean => {
-  const [only] = groups;
-  return (
-    groups.length === 0 ||
-    (groups.length === 1 && only?.team?.slug === EVERYONE_TEAM_SLUG)
+export const wallIsFlat = (groups: readonly RosterGroup[]): boolean =>
+  groups.every(
+    (group) => group.team === null || group.team.slug === EVERYONE_TEAM_SLUG
   );
-};
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 

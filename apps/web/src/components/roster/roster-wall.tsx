@@ -99,8 +99,8 @@ const useCollapsedGroups = (userId: string) => {
 
 /**
  * The Roster home: agents grouped by home team, with agents in no team last.
- * A team with no agents has no group. When no team exists, or "Everyone" is
- * the only team with agents, the cards stay in one flat wall with no
+ * A team with no agents has no group. When no team exists, or every agent is
+ * in "Everyone" or in no team, the cards stay in one flat wall with no
  * headings. A group collapses, and the person's choice is kept in local
  * storage. With no agents, `emptyState` replaces the "No agents yet" line and
  * the add cards.

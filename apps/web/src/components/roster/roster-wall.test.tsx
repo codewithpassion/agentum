@@ -176,7 +176,7 @@ test("with teams, cards group under their team heading and agents in no team com
   expect(html.split('href="/agents/new"').length - 1).toBe(2);
 });
 
-test("a team with no agents gets no group, and No team still shows", () => {
+test("a team with no agents gets no group, and No team still shows beside a real team", () => {
   const html = render(
     [card("Loner", "idle"), inTeam(card("Ruby", "idle", "a_ruby"), "t_ops")],
     [],
@@ -206,6 +206,20 @@ test("with Everyone the only team holding agents, the wall is flat with no headi
   expect(html).not.toContain("Add to team");
   expect(html).not.toContain("Open room");
   expect(html.split('href="/agents/new"').length - 1).toBe(2);
+});
+
+test("a fresh workspace with agents in no team shows the flat wall, not a lone No team group", () => {
+  const html = render(
+    [card("Loner", "idle"), card("Other", "working")],
+    [],
+    undefined,
+    [team("t_all", "Everyone", null)]
+  );
+  expect(html).toContain("Loner");
+  expect(html).toContain("Other");
+  expect(html).not.toContain("<h2");
+  expect(html).not.toContain("No team");
+  expect(html).not.toContain("Add to team");
 });
 
 test("a fresh workspace with only an empty Everyone team shows the empty state, no group", () => {
