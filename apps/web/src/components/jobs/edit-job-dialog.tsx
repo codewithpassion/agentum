@@ -26,7 +26,7 @@ export function EditJobDialog({
   const isRoutine = job.source === "routine";
   return (
     <Dialog onOpenChange={onOpenChange} open>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[90vh] overflow-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Edit job</DialogTitle>
           <DialogDescription>
