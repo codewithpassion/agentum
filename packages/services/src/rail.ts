@@ -21,7 +21,7 @@ import {
   type RailView,
   type RailWorking,
 } from "@repo/db/shared";
-import { and, count, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRecord, AgentsService } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
@@ -46,6 +46,7 @@ import type { RequestRecord } from "./requests.ts";
 import type { Clock } from "./runs/types.ts";
 import { visibleSessions } from "./sessions.ts";
 import { inBatches } from "./tasks/reads.ts";
+import { reportedCostOf } from "./usage-cost.ts";
 import type { Principal } from "./workspaces.ts";
 
 /** The longest reply a mail card carries. */
@@ -705,10 +706,7 @@ export const createRailService = ({
         db
           .select({
             agentId: runRows.agentId,
-            cost: sql<
-              number | null
-            >`sum(json_extract(${runRows.usage}, '$.costUsd'))`,
-            total: count(),
+            usage: runRows.usage,
           })
           .from(runRows)
           .where(
@@ -722,7 +720,6 @@ export const createRailService = ({
               )
             )
           )
-          .groupBy(runRows.agentId)
       ),
     ]);
     const tally = (ids: readonly string[]) => {
@@ -739,7 +736,17 @@ export const createRailService = ({
         .filter((card) => !waitingRuns.has(card.id))
         .map((card) => card.agentId)
     );
-    const week = new Map(weekRows.map((row) => [row.agentId, row]));
+    // Cost goes through the one shared usage reader. Null means no run reported one.
+    const week = new Map<string, { cost: number | null; total: number }>();
+    for (const row of weekRows) {
+      const entry = week.get(row.agentId) ?? { cost: null, total: 0 };
+      const cost = reportedCostOf(row.usage);
+      entry.total += 1;
+      if (cost !== null) {
+        entry.cost = (entry.cost ?? 0) + cost;
+      }
+      week.set(row.agentId, entry);
+    }
     return agentList.map((agent) => ({
       agentId: agent.id,
       costUsdThisWeek: week.get(agent.id)?.cost ?? null,
