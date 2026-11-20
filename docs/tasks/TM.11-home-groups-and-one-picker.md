@@ -3,9 +3,9 @@ id: TM.11
 title: "Home hides empty team groups; one member picker"
 milestone: TM
 size: S
-status: todo
+status: in_progress
 depends_on: [TM.6, TM.8]
-branch: null
+branch: task/TM.11-home-groups-and-one-picker
 lane: web-home
 executor: claude
 ---
@@ -27,3 +27,4 @@ From the TM.8 review (`docs/reviews/tasks/TM.8.md`). Every workspace has an "Eve
 ## Log
 - 2026-11-20: added from the TM.8 review.
 - 2026-11-20: scope adds the team page's Room link, from TM.7.
+- 2026-11-20: dispatched on task/TM.11-home-groups-and-one-picker (v4 controller session).
