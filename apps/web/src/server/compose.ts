@@ -17,6 +17,7 @@ import {
   type DictationService,
 } from "@repo/services/dictation";
 import { createDreamService, type DreamService } from "@repo/services/dream";
+import { roomDigestOf } from "@repo/services/dream/team/digest";
 import {
   type AppWorkerExports,
   appReplyInvoker,
@@ -287,6 +288,9 @@ import {
   createSlackRequests,
   type SlackRequests,
 } from "@repo/services/slack/requests";
+import { createRoomChannels } from "@repo/services/slack/room-channels";
+import { createRoomOutbound } from "@repo/services/slack/room-out";
+import { createRoomStatus } from "@repo/services/slack/room-status";
 import {
   createDbStatusPorts,
   createSlackStatus,
@@ -856,6 +860,8 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     events,
+    // The catch-up slot's digest is the team's last dream's, read from the library, which is built below.
+    roomDigest: (teamId) => roomDigestOf(db, library, teamId),
     runs: { startRun: (principal, input) => runs.startRun(principal, input) },
   });
   const libraryBlobs = infra.libraryBlobs ?? memoryLibraryBlobs();
@@ -990,6 +996,7 @@ export const composeWith = ({
     clock: infra.clock,
     db,
     defer: infra.defer,
+    events,
     fetch: connectorFetch,
     publicBaseUrl: infra.publicBaseUrl,
     requests: {
@@ -1000,6 +1007,18 @@ export const composeWith = ({
     secretsKey: infra.secretsKey,
   });
   events.onAppend(slackRequests.onEvent);
+  // A post in a team room whose team is linked to a Slack channel goes out to the channel.
+  events.onAppend(
+    createRoomOutbound({
+      clock: infra.clock,
+      db,
+      defer: infra.defer,
+      events,
+      fetch: connectorFetch,
+      people: infra.people,
+      secretsKey: infra.secretsKey,
+    }).onEvent
+  );
   // Catches `slack.delivered`, which the gateway writes through this instance.
   events.onAppend(slackStatus.onEvent);
   const artifactErrors = createArtifactErrorsService({
@@ -1432,10 +1451,12 @@ export const composeWith = ({
         db,
         events,
         fetch: connectorFetch,
+        inbox,
         library,
         managedKeys,
         memory,
         skillsStore,
+        spend,
       }),
       events,
       files,
@@ -1510,6 +1531,16 @@ export const composeWith = ({
         atomic: infra.atomic,
         clock: infra.clock,
         db,
+        slackChannels: createRoomChannels({
+          db,
+          fetch: connectorFetch,
+          secretsKey: infra.secretsKey,
+        }),
+        slackStatus: createRoomStatus({
+          db,
+          fetch: connectorFetch,
+          secretsKey: infra.secretsKey,
+        }),
       }),
       triggers,
       wiki,

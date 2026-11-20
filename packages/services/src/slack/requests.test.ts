@@ -1,9 +1,15 @@
 import { beforeEach, expect, test } from "bun:test";
 import { agents as agentRows } from "@repo/db/schema/agents";
+import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions as sessionRows } from "@repo/db/schema/sessions";
-import { slackApps } from "@repo/db/schema/slack";
+import {
+  slackApps,
+  slackRoomMessages,
+  teamSlackLinks,
+} from "@repo/db/schema/slack";
+import { teams } from "@repo/db/schema/teams";
 import {
   identityLinks,
   workspaces as workspaceRows,
@@ -13,7 +19,7 @@ import type { RequestOutcome } from "@repo/protocol/requests";
 import { eq } from "drizzle-orm";
 import { encryptSecret, importSecretsKey } from "../crypto.ts";
 import { ServiceError } from "../errors.ts";
-import type { EventRecord } from "../events.ts";
+import type { EventInput, EventRecord } from "../events.ts";
 import type { RequestsService } from "../requests.ts";
 import type { Clock, ReplyTarget } from "../runs/types.ts";
 import type { Principal } from "../workspaces.ts";
@@ -91,6 +97,7 @@ let cancelCalls: { principal: Principal; requestId: string }[];
 let answerImpl: (call: AnswerCall) => Promise<void>;
 let outcomeImpl: () => Promise<RequestOutcome | null>;
 let gateway: ReturnType<typeof createSlackRequests>;
+let appended: EventInput[];
 
 const json = (body: unknown): Response => Response.json(body);
 
@@ -327,6 +334,7 @@ beforeEach(async () => {
   calls = [];
   respond = defaultResponder;
   answerCalls = [];
+  appended = [];
   cancelCalls = [];
   answerImpl = () => Promise.resolve();
   outcomeImpl = () => Promise.resolve(null);
@@ -382,6 +390,12 @@ beforeEach(async () => {
   gateway = createSlackRequests({
     clock,
     db,
+    events: {
+      append: (input: EventInput) => {
+        appended.push(input);
+        return Promise.resolve({} as EventRecord);
+      },
+    },
     fetch: slackFetch,
     publicBaseUrl: "https://hm.test",
     requests,
@@ -950,4 +964,191 @@ test("takeover cancellation elsewhere updates its card without actions", async (
     '"type":"actions"'
   );
   expect(cancelCalls).toHaveLength(0);
+});
+
+const TEAM_ROOM = "team-room";
+const TOPIC = "topic-1";
+const ROOT_TS = "1700000000.000050";
+const ROOM_POST = "post-1";
+const roomReply: ReplyTarget = { kind: "inbox", threadId: TOPIC };
+
+/** A team room linked to `CHANNEL` with one topic. `rooted` puts the topic's first message in Slack. */
+const seedRoom = ({ rooted = true }: { rooted?: boolean } = {}) => {
+  db.insert(teams)
+    .values({
+      createdAt: START,
+      id: TEAM_ROOM,
+      name: "Launch",
+      ownerUserId: CLERK_USER,
+      slug: "launch",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(teamSlackLinks)
+    .values({
+      channelId: CHANNEL,
+      createdAt: START,
+      id: "link-1",
+      linkedBy: CLERK_USER,
+      slackTeamId: TEAM,
+      teamId: TEAM_ROOM,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(inboxThreads)
+    .values({
+      createdAt: START,
+      createdBy: CLERK_USER,
+      id: TOPIC,
+      lastPostAt: START,
+      teamId: TEAM_ROOM,
+      title: "Plan",
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  db.insert(inboxPosts)
+    .values({
+      authorId: CLERK_USER,
+      authorKind: "user",
+      createdAt: START,
+      fileIds: "[]",
+      id: ROOM_POST,
+      text: "start",
+      threadId: TOPIC,
+      workspaceId: WORKSPACE,
+    })
+    .run();
+  if (rooted) {
+    db.insert(slackRoomMessages)
+      .values({
+        channelId: CHANNEL,
+        createdAt: START,
+        direction: "out",
+        id: "rm-1",
+        postId: ROOM_POST,
+        slackTeamId: TEAM,
+        threadTs: null,
+        ts: ROOT_TS,
+        workspaceId: WORKSPACE,
+      })
+      .run();
+  }
+};
+
+test("a card for a run started in a linked room goes into the topic's Slack thread", async () => {
+  seedRoom();
+  seedRun(roomReply);
+  seedRequest();
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  const posts = callsTo("chat.postMessage");
+  expect(posts).toHaveLength(1);
+  expect(field(posts[0] as Recorded, "channel")).toBe(CHANNEL);
+  expect(field(posts[0] as Recorded, "thread_ts")).toBe(ROOT_TS);
+  expect(posts[0]?.authorization).toBe(`Bearer ${BOT_TOKEN}`);
+  expect(callsTo("conversations.open")).toHaveLength(0);
+  expect(readRequest()?.slackMessage).toBe(storedSlackMessage);
+});
+
+test("a click on a room card answers the request as the linked person", async () => {
+  seedRoom();
+  seedRun(roomReply);
+  seedRequest({ slackMessage: storedSlackMessage });
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  const result = await gateway.interact(await signedClick(clickPayload()));
+  await runAfter(result);
+
+  expect(answerCalls).toHaveLength(1);
+  expect(answerCalls[0]?.input.via).toBe("slack");
+  expect(answerCalls[0]?.principal).toMatchObject({
+    kind: "user",
+    userId: CLERK_USER,
+  });
+});
+
+test("a room whose topic is not in Slack yet falls back to the person's DM", async () => {
+  seedRoom({ rooted: false });
+  seedRun(roomReply);
+  seedRequest();
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  const posts = callsTo("chat.postMessage");
+  expect(posts).toHaveLength(1);
+  expect(field(posts[0] as Recorded, "channel")).toBe(DM_CHANNEL);
+});
+
+test("a topic of an unlinked team keeps the DM path", async () => {
+  seedRoom();
+  db.delete(slackRoomMessages).run();
+  db.delete(teamSlackLinks).run();
+  seedRun(roomReply);
+  seedRequest();
+  linkSlackUser(LINKED_SLACK_ID, CLERK_USER);
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  const posts = callsTo("chat.postMessage");
+  expect(field(posts[0] as Recorded, "channel")).toBe(DM_CHANNEL);
+  expect(appended).toHaveLength(0);
+});
+
+test("a card that Slack fails twice is posted on the third try", async () => {
+  seedRoom();
+  seedRun(roomReply);
+  seedRequest();
+  let failures = 2;
+  respond = (call) => {
+    if (call.url === `${SLACK_API}chat.postMessage` && failures > 0) {
+      failures -= 1;
+      return new Response("", { status: 503 });
+    }
+    return defaultResponder(call);
+  };
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  expect(callsTo("chat.postMessage")).toHaveLength(3);
+  expect(readRequest()?.slackMessage).toBe(storedSlackMessage);
+  expect(appended).toHaveLength(0);
+});
+
+test("a room card that fails three times tells the team owner and leaves the request open", async () => {
+  seedRoom();
+  seedRun(roomReply);
+  seedRequest();
+  respond = () => new Response("", { status: 503 });
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  expect(callsTo("chat.postMessage")).toHaveLength(3);
+  expect(readRequest()?.slackMessage).toBeNull();
+  expect(readRequest()?.status).toBe("pending");
+  expect(appended).toHaveLength(1);
+  expect(appended[0]).toMatchObject({
+    payload: {
+      channelId: CHANNEL,
+      error: "http_503",
+      requestId: REQUEST,
+      slackTeamId: TEAM,
+      teamId: TEAM_ROOM,
+      threadId: TOPIC,
+    },
+    type: "slack.room_send_failed",
+    workspaceId: WORKSPACE,
+  });
+});
+
+test("a Slack run's failed card is not a team room problem", async () => {
+  seedRun(slackReply);
+  seedRequest();
+  respond = () => new Response("", { status: 503 });
+
+  await gateway.onEvent(eventOf("request.opened", REQUEST));
+
+  expect(appended).toHaveLength(0);
 });

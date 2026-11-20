@@ -3,7 +3,7 @@ id: TX.4
 title: "Decision queue: several questions in one request"
 milestone: TX
 size: M
-status: in_progress
+status: done
 depends_on: [TX.1]
 branch: task/TX.4-decision-queue-service
 lane: services-requests
@@ -27,3 +27,5 @@ From `docs/v4/build-plan.md`, milestone TX. From the transcript: the lead queues
 ## Log
 - 2026-11-19: written from the 19 Nov UI rethink and Dom's decisions of that day.
 - 2026-11-20: dispatched on task/TX.4-decision-queue-service (v4 controller session).
+- 2026-11-21: blocked after two rounds on one test defect (second run in a new session); a third round allowed for the one-line test fix.
+- 2026-11-21: merged as d70ce0b1, review clean after 3 fix rounds. check, test and build passed on main.

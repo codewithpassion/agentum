@@ -11,6 +11,7 @@ import { agentTools, agentWriteTools, subagentTools } from "./tools/agents";
 import { artifactTools } from "./tools/artifacts";
 import { browserTools } from "./tools/browser";
 import { computerTools } from "./tools/computer";
+import { decisionsTools } from "./tools/decisions";
 import { deckTools } from "./tools/deck";
 import type { ToolDefinition } from "./tools/define";
 import { inboxTools } from "./tools/inbox";
@@ -52,11 +53,16 @@ export interface ServerOptions {
   teamRoom?: boolean;
 }
 
-/** The tools a team lead keeps in its team room: reads and send_message. */
+/**
+ * The tools a team lead keeps in its team room: reads, send_message and
+ * ask_decisions, because a lead raises decisions from its team room.
+ */
 const isRoomTool = (tool: ToolDefinition): boolean =>
-  tool.annotations.readOnlyHint === true || tool.name === "send_message";
+  tool.annotations.readOnlyHint === true ||
+  tool.name === "send_message" ||
+  tool.name === "ask_decisions";
 
-/** A room run gets the team tools and only the reads and send_message of the rest. */
+/** A room run gets the team tools and only the reads, send_message and ask_decisions of the rest. */
 const scopeToTeamRoom = (
   ports: McpPorts,
   tools: ToolDefinition[],
@@ -74,6 +80,10 @@ const automationTools = (
     ? tools.filter((tool) => tool.annotations.readOnlyHint === true)
     : tools;
 };
+
+/** The tool that raises decisions; a read-only caller never gets it. */
+const decisionTools = (ports: McpPorts, readOnly: boolean): ToolDefinition[] =>
+  readOnly ? [] : decisionsTools(ports);
 
 /** The tools that read and change skills; a read-only caller gets the read ones. */
 const skillTools = (ports: McpPorts, readOnly: boolean): ToolDefinition[] =>
@@ -109,6 +119,7 @@ export const agentumTools = (
     ...memoryTools(ports).filter(
       (tool) => !readOnly || tool.annotations.readOnlyHint === true
     ),
+    ...decisionTools(ports, readOnly),
     ...inboxTools(ports),
     // Offered once the app wires the port; a read-only caller keeps the read tools.
     ...(ports.artifacts
@@ -157,7 +168,7 @@ export const agentumTools = (
       ? adminSetupTools(ports.admin)
       : []),
   ];
-  // A lead woken in its team room gets the team tools and only the reads and send_message of the rest.
+  // A lead woken in its team room gets the team tools and only the reads, send_message and ask_decisions of the rest.
   return scopeToTeamRoom(ports, tools, teamRoom);
 };
 

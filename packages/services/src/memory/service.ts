@@ -2,6 +2,7 @@ import type { Database } from "@repo/db";
 import type { Atomic, Statement } from "@repo/db/atomic";
 import { agents } from "@repo/db/schema/agents";
 import { memoryChanges } from "@repo/db/schema/memory";
+import { teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import {
   DEFAULT_NEVER_REMEMBER,
@@ -27,6 +28,7 @@ import type { EventsService } from "../events.ts";
 import {
   effectiveOwner,
   readableWorkspace,
+  requireAgentDecider,
   requireAgentOwnerOrAdmin,
   requireSession,
 } from "../guards.ts";
@@ -52,6 +54,7 @@ import {
   type MemoryActor,
   type Provenance,
 } from "./provenance.ts";
+import { loadTeamFolder } from "./team.ts";
 
 const MEMORY_RULES_WRITE = "memory.rules.write";
 const MAX_ATTEMPTS = 3;
@@ -152,6 +155,7 @@ export type SetRulesInput = z.infer<typeof rulesSetInputSchema>;
 
 export type ChangeRow = typeof memoryChanges.$inferSelect;
 interface AgentInfo {
+  backupUserId: string | null;
   id: string;
   ownerUserId: string;
   rules: RememberRules;
@@ -325,6 +329,7 @@ export const createMemoryService = ({
   ): Promise<AgentInfo> => {
     const [row] = await db
       .select({
+        backupUserId: agents.backupUserId,
         createdBy: agents.createdBy,
         id: agents.id,
         ownerUserId: agents.ownerUserId,
@@ -343,6 +348,7 @@ export const createMemoryService = ({
       .where(eq(workspaces.id, workspaceId))
       .limit(1);
     return {
+      backupUserId: row.backupUserId,
       id: row.id,
       ownerUserId: effectiveOwner(row),
       rules: rulesFrom(row.remember),
@@ -369,6 +375,29 @@ export const createMemoryService = ({
     requireAgentOwnerOrAdmin(
       actor.principal,
       { createdBy: agent.ownerUserId, ownerUserId: agent.ownerUserId },
+      MEMORY_WRITE
+    );
+  };
+
+  /**
+   * Deciding a held shared change is open to the backup owner too. Editing,
+   * forgetting and undoing a shared note stay with the owner and admins.
+   */
+  const requireMayDecideShared = (
+    actor: MemoryActor,
+    agent: AgentInfo,
+    userScope: string | null
+  ): void => {
+    if (userScope !== null || actor.principal.kind !== "user") {
+      return;
+    }
+    requireAgentDecider(
+      actor.principal,
+      {
+        backupUserId: agent.backupUserId,
+        createdBy: agent.ownerUserId,
+        ownerUserId: agent.ownerUserId,
+      },
       MEMORY_WRITE
     );
   };
@@ -578,10 +607,32 @@ export const createMemoryService = ({
       : notes;
   };
 
-  /**
-   * Stub: no team note is listed. The team memory service task (TX.2) reads the
-   * team's notes from `teams/<slug>/memory/`.
-   */
+  /** The shared notes in a team's `teams/<slug>/memory/`. A team with no folder (Everyone) has none. */
+  const readTeamNotes = async (
+    principal: Principal,
+    workspaceId: string,
+    input: ListTeamInput
+  ): Promise<MemoryNote[]> => {
+    const [team] = await db
+      .select({ folderPath: teams.folderPath })
+      .from(teams)
+      .where(
+        and(eq(teams.id, input.teamId), eq(teams.workspaceId, workspaceId))
+      )
+      .limit(1);
+    if (!team) {
+      throw notFound(`No team "${input.teamId}"`);
+    }
+    if (team.folderPath === null) {
+      return [];
+    }
+    const { notes } = await loadTeamFolder(library, principal, team.folderPath);
+    const shared = notes.filter((note) => note.userScope === null);
+    return input.kind
+      ? shared.filter((note) => note.kind === input.kind)
+      : shared;
+  };
+
   const listTeam = (
     principal: Principal,
     input: ListTeamInput
@@ -592,7 +643,7 @@ export const createMemoryService = ({
       kind: MEMORY_KIND,
       workspaceId,
     });
-    return Promise.resolve([]);
+    return readTeamNotes(principal, workspaceId, input);
   };
 
   const add = async (
@@ -668,9 +719,11 @@ export const createMemoryService = ({
     });
   };
 
+  /** `asDecision` is set when a person's answer to a dream question forgets the notes it did not keep. */
   const forget = async (
     principal: Principal,
-    input: ForgetNoteInput
+    input: ForgetNoteInput,
+    options: { asDecision?: boolean } = {}
   ): Promise<MemoryChange> => {
     const actor = await actors.actorFor(principal, "write", input.agentId);
     const agent = await loadAgent(actor.workspaceId, input.agentId);
@@ -680,7 +733,11 @@ export const createMemoryService = ({
       if (!note) {
         throw missingNote(loaded, input.noteId);
       }
-      requireMayChangeShared(actor, agent, note.userScope);
+      if (options.asDecision) {
+        requireMayDecideShared(actor, agent, note.userScope);
+      } else {
+        requireMayChangeShared(actor, agent, note.userScope);
+      }
       return {
         action: "forget",
         change: { action: "forget", noteId: note.id },
@@ -755,7 +812,7 @@ export const createMemoryService = ({
     );
     const agent = await loadAgent(person.workspaceId, agentOf(row));
     const decider = deciderOf(principal, person);
-    requireMayChangeShared(decider, agent, row.userScope);
+    requireMayDecideShared(decider, agent, row.userScope);
     if (row.status !== "held") {
       throw new ServiceError("conflict", "That change is already decided");
     }

@@ -41,6 +41,7 @@ const table: SpendTable = {
       removed: false,
     },
   ],
+  teamCentsByWeek: [0, 0, 0, 0, 0],
   totals: [100, 0, 0, 250, 410],
 };
 
@@ -86,7 +87,33 @@ test("the total row sums each week", () => {
 });
 
 test("no rows renders the empty message and no table", () => {
-  const html = render({ rows: [], totals: [0, 0, 0, 0, 0] });
+  const html = render({
+    rows: [],
+    teamCentsByWeek: [0, 0, 0, 0, 0],
+    totals: [0, 0, 0, 0, 0],
+  });
   expect(html).toContain("No spend in the last five weeks.");
   expect(html).not.toContain("<table");
+});
+
+test("team dream spend shows as its own line and in the total", () => {
+  const html = render({
+    ...table,
+    teamCentsByWeek: [0, 0, 0, 0, 300],
+    totals: [100, 0, 0, 250, 710],
+  });
+  expect(html).toContain("Team dreams");
+  expect(html).toContain("$3.00");
+  expect(html).toContain("$7.10");
+  expect(render(table)).not.toContain("Team dreams");
+});
+
+test("team dream spend alone still shows the table", () => {
+  const html = render({
+    rows: [],
+    teamCentsByWeek: [0, 0, 0, 0, 300],
+    totals: [0, 0, 0, 0, 300],
+  });
+  expect(html).toContain("Team dreams");
+  expect(html).not.toContain("No spend in the last five weeks.");
 });

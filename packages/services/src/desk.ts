@@ -19,6 +19,7 @@ import {
 } from "@repo/db/schema/artifacts";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { dreamQuestions } from "@repo/db/schema/dreams";
+import { events } from "@repo/db/schema/events";
 import { inboxPosts } from "@repo/db/schema/inbox";
 import { libraryConflicts, wikiSuggestions } from "@repo/db/schema/library";
 import { mailMessages } from "@repo/db/schema/mail";
@@ -26,6 +27,7 @@ import { memoryChanges } from "@repo/db/schema/memory";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skills } from "@repo/db/schema/skills";
+import { slackRoomMessages, teamSlackLinks } from "@repo/db/schema/slack";
 import { teamMembers, teams } from "@repo/db/schema/teams";
 import { triggers as triggerRows } from "@repo/db/schema/triggers";
 import {
@@ -38,6 +40,7 @@ import {
 import { isDecisionsDisplay } from "@repo/protocol/requests";
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -88,6 +91,37 @@ const DONE_CAP = 20;
 /** How far back a failed or bounced run still needs a person (rail rule 9). */
 const STUCK_WINDOW_MS = 7 * 24 * 60 * 60_000;
 
+/** Most `slack.room_send_failed` events one rail read looks at. */
+const ROOM_FAILURE_LIMIT = 200;
+
+const ROOM_SEND_FAILED = "slack.room_send_failed";
+
+/** The payload of a `slack.room_send_failed` event. */
+const roomSendFailedPayload = z.object({
+  channelId: z.string(),
+  error: z.string(),
+  slackTeamId: z.string(),
+  teamId: z.string(),
+  threadId: z.string().optional(),
+});
+
+type RoomSendFailure = z.infer<typeof roomSendFailedPayload>;
+
+/** The failure an event's payload text holds, or null when it is not one. */
+const parseRoomSendFailure = (raw: string | null): RoomSendFailure | null => {
+  if (raw === null) {
+    return null;
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const parsed = roomSendFailedPayload.safeParse(json);
+  return parsed.success ? parsed.data : null;
+};
+
 const READ_ACTION = "desk.read";
 const DESK_KIND = "desk";
 
@@ -130,6 +164,24 @@ export interface StuckRun {
   problem: "bounced" | "failed" | "interrupted";
 }
 
+/**
+ * A team's Slack channel that is not getting the room's messages, for the
+ * team's owner. It comes from the newest `slack.room_send_failed` event of the
+ * team and goes away when a later message of the room reaches the channel.
+ */
+export interface RoomProblem {
+  /** When the send failed. */
+  at: string;
+  /** The Slack error, such as `not_in_channel`. */
+  error: string;
+  /** The id of the failure event. */
+  id: string;
+  teamId: string;
+  teamName: string;
+  /** The topic whose message did not go out, when the failure was about one. */
+  threadId: string | null;
+}
+
 /** What the rail reads from the desk. See `railSources`. */
 export interface RailSources {
   /** Each run that finished since the viewer's midnight, with its agent. */
@@ -142,6 +194,8 @@ export interface RailSources {
   ownRunIds: string[];
   /** The open, unexpired requests behind the approval, question and takeover cards. */
   pending: RequestRecord[];
+  /** Linked Slack channels that are not getting a team's messages, for the viewer as the team's owner. */
+  roomProblems: RoomProblem[];
   running: DeskCard[];
   stuck: StuckRun[];
   /** The live runs that wait on a person; the rail lists them under Needs you only. */
@@ -237,6 +291,37 @@ const byAge = (a: DeskCard, b: DeskCard): number =>
  */
 const titleOf = (inputText: string, mailSubject?: string): string =>
   clip(runTitleText(text(inputText), mailSubject), TITLE_MAX);
+
+/**
+ * The agents whose shared held notes and dream questions a member may decide: the owner
+ * (the creator when no owner is set) and the backup, or every agent for an org admin
+ * (`null`). Services refuse anyone else, so their Needs you cards would lead nowhere.
+ */
+const decidableAgentIds = async (
+  db: Database,
+  member: UserPrincipal
+): Promise<Set<string> | null> => {
+  if (member.isAdmin === true) {
+    return null;
+  }
+  const rows = await db
+    .select({ id: agentRows.id })
+    .from(agentRows)
+    .where(
+      and(
+        eq(agentRows.workspaceId, member.workspaceId),
+        or(
+          eq(agentRows.ownerUserId, member.userId),
+          and(
+            isNull(agentRows.ownerUserId),
+            eq(agentRows.createdBy, member.userId)
+          ),
+          eq(agentRows.backupUserId, member.userId)
+        )
+      )
+    );
+  return new Set(rows.map((row) => row.id));
+};
 
 export const createDeskService = ({
   a2a,
@@ -459,6 +544,84 @@ export const createDeskService = ({
     };
   };
 
+  /**
+   * The agent each team question is asked through, keyed by team id: the
+   * team's lead when it is active, else its active agent member with the
+   * lowest id. Only the team's owner and an org admin get its card, so a team
+   * they cannot see has no entry, and a team with no active agent has none either.
+   */
+  const teamQuestionAgents = async (
+    member: UserPrincipal,
+    questions: readonly { teamId: string | null }[]
+  ): Promise<Map<string, string>> => {
+    const teamIds = questions.flatMap(({ teamId }) =>
+      teamId === null ? [] : [teamId]
+    );
+    const ownedTeams = await inBatches(teamIds, (batch) =>
+      db
+        .select({ id: teams.id, leadAgentId: teams.leadAgentId })
+        .from(teams)
+        .where(
+          and(
+            eq(teams.workspaceId, member.workspaceId),
+            isNull(teams.archivedAt),
+            inArray(teams.id, batch),
+            member.isAdmin === true
+              ? undefined
+              : eq(teams.ownerUserId, member.userId)
+          )
+        )
+    );
+    const ownedIds = ownedTeams.map((team) => team.id);
+    const agentMembers = await inBatches(ownedIds, (batch) =>
+      db
+        .select({ memberId: teamMembers.memberId, teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .innerJoin(agentRows, eq(agentRows.id, teamMembers.memberId))
+        .where(
+          and(
+            eq(teamMembers.memberKind, "agent"),
+            inArray(teamMembers.teamId, batch),
+            eq(agentRows.workspaceId, member.workspaceId),
+            eq(agentRows.status, "active")
+          )
+        )
+        .orderBy(asc(teamMembers.memberId))
+    );
+    const leadIds = ownedTeams.flatMap((team) =>
+      team.leadAgentId === null ? [] : [team.leadAgentId]
+    );
+    const activeLeads = new Set(
+      (
+        await inBatches(leadIds, (batch) =>
+          db
+            .select({ id: agentRows.id })
+            .from(agentRows)
+            .where(
+              and(
+                eq(agentRows.workspaceId, member.workspaceId),
+                eq(agentRows.status, "active"),
+                inArray(agentRows.id, batch)
+              )
+            )
+        )
+      ).map((agent) => agent.id)
+    );
+    const chosen = new Map<string, string>();
+    for (const team of ownedTeams) {
+      const lead = team.leadAgentId;
+      if (lead !== null && activeLeads.has(lead)) {
+        chosen.set(team.id, lead);
+      }
+    }
+    for (const { memberId, teamId } of agentMembers) {
+      if (!chosen.has(teamId)) {
+        chosen.set(teamId, memberId);
+      }
+    }
+    return chosen;
+  };
+
   /** Everything in Needs you, before it becomes cards. */
   const needsYouSources = async (member: UserPrincipal) => {
     const [
@@ -476,6 +639,7 @@ export const createDeskService = ({
       heldDreams,
       a2aList,
       spendPauses,
+      decidable,
     ] = await Promise.all([
       pendingRecords(member),
       skillsStore.proposals(member),
@@ -514,21 +678,23 @@ export const createDeskService = ({
             // A dream's held batch is decided as a whole in `dream.decide`, not note by note.
             isNull(memoryChanges.dreamRunId),
             // Private memory keeps its person's visibility, including on the rail.
+            // A shared note reaches only the agent's owner, backup and org admins
+            // (`decidable`, filtered below), and a private one only its person.
             or(
               isNull(memoryChanges.userScope),
               eq(memoryChanges.userScope, member.userId)
             )
           )
         ),
+      // A shared question reaches only the agent's owner, backup and org admins
+      // (`decidable`, filtered below). A private one goes to its person alone.
       db
         .select()
         .from(dreamQuestions)
         .where(
           and(
             eq(dreamQuestions.workspaceId, member.workspaceId),
-            eq(dreamQuestions.status, "open"),
-            // A team's question has no agent. The team dream shows it later.
-            isNotNull(dreamQuestions.agentId)
+            eq(dreamQuestions.status, "open")
           )
         ),
       heldBatchesFor(db, member),
@@ -557,7 +723,11 @@ export const createDeskService = ({
                 )
           )
         ),
+      decidableAgentIds(db, member),
     ]);
+    /** Whether the member may decide a shared note or question of this agent. */
+    const mayDecide = (agentId: string): boolean =>
+      decidable === null || decidable.has(agentId);
     // `list` keeps a rejected trigger, which stays unapproved but is revoked.
     const proposedTriggers = triggerList.filter(
       (trigger) =>
@@ -656,6 +826,7 @@ export const createDeskService = ({
         ? [{ post, thread }]
         : [];
     });
+    const teamAgents = await teamQuestionAgents(member, dreamRows);
     return {
       a2aConnections: a2aList.connections.filter(
         (connection) => !drafts.has(connection.agentId)
@@ -704,7 +875,11 @@ export const createDeskService = ({
         .groupBy(artifactVersions.id),
       conflicts: conflicts.filter((row) => !drafts.has(row.agentId)),
       dreamQuestions: dreamRows.flatMap((row) => {
-        if (row.agentId === null || drafts.has(row.agentId)) {
+        // A team's question is asked through the team's agent; see `teamQuestionAgents`.
+        const agentId =
+          row.agentId ??
+          (row.teamId === null ? null : (teamAgents.get(row.teamId) ?? null));
+        if (agentId === null || drafts.has(agentId)) {
           return [];
         }
         const { options, userScope } = readOptions(row.options);
@@ -712,9 +887,17 @@ export const createDeskService = ({
         if (userScope !== null && userScope !== member.userId) {
           return [];
         }
+        // A team's question was limited to its owner and org admins by `teamQuestionAgents`.
+        if (
+          userScope === null &&
+          row.agentId !== null &&
+          !mayDecide(row.agentId)
+        ) {
+          return [];
+        }
         return [
           {
-            agentId: row.agentId,
+            agentId,
             createdAt: row.createdAt,
             id: row.id,
             options,
@@ -725,7 +908,9 @@ export const createDeskService = ({
       }),
       heldDreams: heldDreams.filter((batch) => !drafts.has(batch.agentId)),
       heldNotes: heldNotes.flatMap((row) =>
-        row.agentId === null || drafts.has(row.agentId)
+        row.agentId === null ||
+        drafts.has(row.agentId) ||
+        (row.userScope === null && !mayDecide(row.agentId))
           ? []
           : [{ ...row, agentId: row.agentId }]
       ),
@@ -1294,10 +1479,135 @@ export const createDeskService = ({
   };
 
   /**
+   * The team rooms the viewer owns whose linked Slack channel is not getting
+   * their messages. Each team keeps only its newest failed send, and drops out
+   * once it is unlinked or relinked, or a room message has since reached the
+   * channel.
+   */
+  const roomProblemsFor = async (
+    member: UserPrincipal,
+    stuckSince: string
+  ): Promise<RoomProblem[]> => {
+    const failures = await db
+      .select({
+        createdAt: events.createdAt,
+        id: events.id,
+        payload: events.payload,
+      })
+      .from(events)
+      .where(
+        and(
+          eq(events.workspaceId, member.workspaceId),
+          eq(events.type, ROOM_SEND_FAILED),
+          gte(events.createdAt, stuckSince)
+        )
+      )
+      .orderBy(desc(events.createdAt), desc(events.id))
+      .limit(ROOM_FAILURE_LIMIT);
+    const newestByTeam = new Map<
+      string,
+      { event: (typeof failures)[number]; payload: RoomSendFailure }
+    >();
+    for (const event of failures) {
+      const payload = parseRoomSendFailure(event.payload);
+      if (payload !== null && !newestByTeam.has(payload.teamId)) {
+        newestByTeam.set(payload.teamId, { event, payload });
+      }
+    }
+    const candidates = [...newestByTeam.values()];
+    if (candidates.length === 0) {
+      return [];
+    }
+    const teamIds = candidates.map((candidate) => candidate.payload.teamId);
+    const channelIds = candidates.map(
+      (candidate) => candidate.payload.channelId
+    );
+    const [ownedTeams, links, latestOut] = await Promise.all([
+      inBatches(teamIds, (batch) =>
+        db
+          .select({ id: teams.id, name: teams.name })
+          .from(teams)
+          .where(
+            and(
+              eq(teams.workspaceId, member.workspaceId),
+              isNull(teams.archivedAt),
+              eq(teams.ownerUserId, member.userId),
+              inArray(teams.id, batch)
+            )
+          )
+      ),
+      inBatches(teamIds, (batch) =>
+        db
+          .select({
+            channelId: teamSlackLinks.channelId,
+            slackTeamId: teamSlackLinks.slackTeamId,
+            teamId: teamSlackLinks.teamId,
+          })
+          .from(teamSlackLinks)
+          .where(
+            and(
+              eq(teamSlackLinks.workspaceId, member.workspaceId),
+              inArray(teamSlackLinks.teamId, batch)
+            )
+          )
+      ),
+      // The newest outbound room message per channel. A failure is newer than
+      // stuckSince, so a message that cleared it is too.
+      inBatches(channelIds, (batch) =>
+        db
+          .select({
+            channelId: slackRoomMessages.channelId,
+            createdAt: max(slackRoomMessages.createdAt),
+            slackTeamId: slackRoomMessages.slackTeamId,
+          })
+          .from(slackRoomMessages)
+          .where(
+            and(
+              eq(slackRoomMessages.workspaceId, member.workspaceId),
+              eq(slackRoomMessages.direction, "out"),
+              gte(slackRoomMessages.createdAt, stuckSince),
+              inArray(slackRoomMessages.channelId, batch)
+            )
+          )
+          .groupBy(slackRoomMessages.slackTeamId, slackRoomMessages.channelId)
+      ),
+    ]);
+    const teamNames = new Map(ownedTeams.map((team) => [team.id, team.name]));
+    const problems: RoomProblem[] = [];
+    for (const { event, payload } of candidates) {
+      const teamName = teamNames.get(payload.teamId);
+      const link = links.find((row) => row.teamId === payload.teamId);
+      const isLinked =
+        link?.slackTeamId === payload.slackTeamId &&
+        link?.channelId === payload.channelId;
+      const lastOut = latestOut.find(
+        (row) =>
+          row.slackTeamId === payload.slackTeamId &&
+          row.channelId === payload.channelId
+      )?.createdAt;
+      const cleared =
+        lastOut !== null && lastOut !== undefined && lastOut > event.createdAt;
+      if (teamName === undefined || !isLinked || cleared) {
+        continue;
+      }
+      problems.push({
+        at: event.createdAt,
+        error: payload.error,
+        id: event.id,
+        teamId: payload.teamId,
+        teamName,
+        threadId: payload.threadId ?? null,
+      });
+    }
+    return problems;
+  };
+
+  /**
    * What the rail needs from the desk, under the desk's own visibility rules:
    * the Needs you cards with the open requests behind them, the live runs, the
-   * runs that finished since `dayStart`, and runs that failed or bounced mail
-   * in the last 7 days and have not been dismissed. `ownRunIds` marks the runs
+   * runs that finished since `dayStart`, runs that failed or bounced mail
+   * in the last 7 days and have not been dismissed, and the team rooms whose
+   * Slack channel is not getting their messages. `ownRunIds` marks the runs
    * among them, and behind open requests, that only the viewer can see.
    */
   const railSources = async (
@@ -1371,36 +1681,39 @@ export const createDeskService = ({
       bouncedRuns,
     ]);
     const bounced = new Set(bouncedIds.map((row) => row.id));
-    const [needsYou, running, stuckCards, ownRunIds] = await Promise.all([
-      needsYouCards(member, sources),
-      runCards(member, "running", liveRows, sources.pending),
-      runCards(member, "done", stuckRows, []),
-      inBatches(
-        [
-          ...liveRows.map((row) => row.id),
-          ...doneRows.map((row) => row.runId),
-          ...stuckRows.map((row) => row.id),
-          // A held mail outlives its run, so an open request can name a run
-          // that is neither live nor just finished.
-          ...sources.pending.map((record) => record.runId),
-        ],
-        (batch) =>
-          db
-            .select({ id: runRows.id })
-            .from(runRows)
-            .where(
-              and(
-                inArray(runRows.id, batch),
-                inArray(runRows.sessionId, ownSessions)
+    const [needsYou, running, stuckCards, ownRunIds, roomProblems] =
+      await Promise.all([
+        needsYouCards(member, sources),
+        runCards(member, "running", liveRows, sources.pending),
+        runCards(member, "done", stuckRows, []),
+        inBatches(
+          [
+            ...liveRows.map((row) => row.id),
+            ...doneRows.map((row) => row.runId),
+            ...stuckRows.map((row) => row.id),
+            // A held mail outlives its run, so an open request can name a run
+            // that is neither live nor just finished.
+            ...sources.pending.map((record) => record.runId),
+          ],
+          (batch) =>
+            db
+              .select({ id: runRows.id })
+              .from(runRows)
+              .where(
+                and(
+                  inArray(runRows.id, batch),
+                  inArray(runRows.sessionId, ownSessions)
+                )
               )
-            )
-      ).then((rows) => [...new Set(rows.map((row) => row.id))]),
-    ]);
+        ).then((rows) => [...new Set(rows.map((row) => row.id))]),
+        roomProblemsFor(member, stuckSince),
+      ]);
     return {
       done: doneRows,
       needsYou,
       ownRunIds,
       pending: sources.pending,
+      roomProblems,
       running,
       stuck: stuckCards.map((card) => ({
         card,

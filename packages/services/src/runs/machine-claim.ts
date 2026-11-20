@@ -27,6 +27,10 @@ import {
   libraryMemoryReader,
   type MemoryFileReader,
 } from "../memory/prompt.ts";
+import {
+  libraryTeamMemoryReader,
+  type TeamMemoryReader,
+} from "../memory/team.ts";
 import { askKeysOf } from "../requests/ask-keys.ts";
 import type { RunTokenClaims } from "../run-tokens.ts";
 import { secretsGuidance } from "../secrets/guidance.ts";
@@ -70,6 +74,15 @@ const memoryReaderFor = (
 ): MemoryFileReader | undefined =>
   library?.read
     ? libraryMemoryReader({ read: library.read }, run, slug)
+    : undefined;
+
+/** Reads the team memory files of the run's teams, when the daemon's library can read files. */
+const teamMemoryReaderFor = (
+  library: MachineClaimDeps["library"],
+  run: RunRecord
+): TeamMemoryReader | undefined =>
+  library?.read
+    ? libraryTeamMemoryReader({ read: library.read }, run)
     : undefined;
 
 /** The library part of a claim, for a daemon that syncs the library. */
@@ -299,6 +312,7 @@ export const claimForMachine = async (
   }
   const context = await buildLaunchContext(db, claimedRun, agent, {
     readMemoryFile: memoryReaderFor(deps.library, claimedRun, agent.slug),
+    readTeamMemoryFile: teamMemoryReaderFor(deps.library, claimedRun),
   });
   const guidance = granted
     ? secretsGuidance({

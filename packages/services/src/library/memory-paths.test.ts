@@ -4,6 +4,7 @@ import {
   mayReadMemoryPath,
   memoryFolderOf,
   privateMemoryOwner,
+  teamMemoryFolderOf,
 } from "./memory-paths.ts";
 
 test("isMemoryPath matches the memory folder and everything under it", () => {
@@ -42,6 +43,18 @@ test("mayReadMemoryPath lets only the owner read a private file", () => {
   expect(mayReadMemoryPath("agents/scout/memory/people.md", null)).toBe(true);
   expect(mayReadMemoryPath("agents/scout/memory/private", null)).toBe(true);
   expect(mayReadMemoryPath("agents/scout/memory/private/x.txt", "")).toBe(
+    false
+  );
+});
+
+test("a team's memory folder is a memory folder, and its private path still belongs to nobody else", () => {
+  expect(teamMemoryFolderOf("teams/sales")).toBe("teams/sales/memory");
+  expect(isMemoryPath("teams/sales/memory")).toBe(true);
+  expect(isMemoryPath("teams/sales/memory/work.md")).toBe(true);
+  expect(isMemoryPath("teams/sales")).toBe(false);
+  expect(isMemoryPath("teams/sales/files/memory/work.md")).toBe(false);
+  expect(mayReadMemoryPath("teams/sales/memory/work.md", null)).toBe(true);
+  expect(mayReadMemoryPath("teams/sales/memory/private/user_1.md", null)).toBe(
     false
   );
 });

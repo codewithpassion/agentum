@@ -3,7 +3,8 @@ import { sqliteAtomic } from "@repo/db/atomic";
 import { agents as agentRows } from "@repo/db/schema/agents";
 import { agentConnectors, connectors } from "@repo/db/schema/connectors";
 import { dreamQuestions, dreamRuns } from "@repo/db/schema/dreams";
-import { inboxPosts } from "@repo/db/schema/inbox";
+import { events as eventRows } from "@repo/db/schema/events";
+import { inboxPosts, inboxThreads } from "@repo/db/schema/inbox";
 import { libraryConflicts } from "@repo/db/schema/library";
 import {
   agentMailboxes,
@@ -15,6 +16,7 @@ import { runRequests } from "@repo/db/schema/requests";
 import { runs as runRows } from "@repo/db/schema/runs";
 import { sessions } from "@repo/db/schema/sessions";
 import { skillVersions } from "@repo/db/schema/skills";
+import { slackRoomMessages, teamSlackLinks } from "@repo/db/schema/slack";
 import { teamMembers, teams } from "@repo/db/schema/teams";
 import { workspaces } from "@repo/db/schema/workspaces";
 import { type RunStatus, SKILL_CHANGE_TTL_MS } from "@repo/db/shared";
@@ -1779,4 +1781,336 @@ test("a dream skill proposal without a run reaches Needs you and can be rejected
   expect(await desk.needsYouCount(user())).toBe(1);
   await skillsStore.reject(user(), { skillId: skill.id, version: 1 });
   expect(await desk.needsYouCount(user())).toBe(0);
+});
+
+/** A shared held note and a shared dream question, both about agent a1. */
+const seedSharedNeedsYou = async () => {
+  await insertDreamRun();
+  await db
+    .insert(memoryChanges)
+    .values(
+      heldRow({ dreamRunId: null, id: "shared-note", writtenBy: "agent" })
+    );
+  await db.insert(dreamQuestions).values(questionRow({ id: "shared-q" }));
+};
+
+const setOwnerAndBackup = (
+  ownerUserId: string | null,
+  backupUserId: string | null
+) =>
+  db
+    .update(agentRows)
+    .set({ backupUserId, ownerUserId })
+    .where(eq(agentRows.id, a1));
+
+test("a plain member gets no held note or dream question, and no count", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u3", null);
+
+  expect((await get({}, user("u2"))).needsYou).toEqual([]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(0);
+});
+
+test("the backup gets a held note and a dream question at once", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u3", "u2");
+
+  const sources = await desk.railSources(user("u2"), { dayStart: DAY_START });
+  expect(ids(sources.needsYou).sort()).toEqual(["shared-note", "shared-q"]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(2);
+});
+
+test("an org admin gets a held note and a dream question of any agent", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u3", null);
+  const admin = { ...user("u2"), isAdmin: true };
+
+  expect(ids((await get({}, admin)).needsYou).sort()).toEqual([
+    "shared-note",
+    "shared-q",
+  ]);
+  expect(await desk.needsYouCount(admin)).toBe(2);
+});
+
+test("the owner gets a held note and a dream question", async () => {
+  await seedSharedNeedsYou();
+  await setOwnerAndBackup("u1", null);
+
+  expect(ids((await get()).needsYou).sort()).toEqual([
+    "shared-note",
+    "shared-q",
+  ]);
+  expect(await desk.needsYouCount(user())).toBe(2);
+});
+
+test("a plain member still sees their own private held note and private question", async () => {
+  await insertDreamRun();
+  await db.insert(memoryChanges).values(
+    heldRow({
+      dreamRunId: null,
+      id: "private-note",
+      userScope: "u2",
+      writtenBy: "agent",
+    })
+  );
+  await db.insert(dreamQuestions).values(
+    questionRow({
+      id: "private-q",
+      options: storeOptions(DREAM_OPTIONS, "u2"),
+    })
+  );
+  await setOwnerAndBackup("u3", null);
+
+  expect(ids((await get({}, user("u2"))).needsYou).sort()).toEqual([
+    "private-note",
+    "private-q",
+  ]);
+  expect(await desk.needsYouCount(user("u2"))).toBe(2);
+});
+
+const minutesAgo = (minutes: number) =>
+  new Date(NOW - minutes * 60_000).toISOString();
+
+/** A team in w1 owned by `ownerUserId`, linked to its own channel `C-<id>`. */
+const seedRoomTeam = async (
+  id: string,
+  overrides: {
+    archivedAt?: string | null;
+    name?: string;
+    ownerUserId?: string | null;
+  } = {}
+) => {
+  const createdAt = new Date(now).toISOString();
+  await db.insert(teams).values({
+    archivedAt: overrides.archivedAt ?? null,
+    createdAt,
+    id,
+    name: overrides.name ?? "Crew",
+    ownerUserId:
+      overrides.ownerUserId === undefined ? "u1" : overrides.ownerUserId,
+    slug: id,
+    workspaceId: "w1",
+  });
+  await db.insert(teamSlackLinks).values({
+    channelId: `C-${id}`,
+    createdAt,
+    id: `link-${id}`,
+    linkedBy: "u1",
+    slackTeamId: "T1",
+    teamId: id,
+    workspaceId: "w1",
+  });
+};
+
+/** The payload a failed send records. `threadId` is left out when undefined. */
+const failure = (
+  teamId: string,
+  extra: { error?: string; threadId?: string } = {}
+) => ({
+  channelId: `C-${teamId}`,
+  error: extra.error ?? "not_in_channel",
+  slackTeamId: "T1",
+  teamId,
+  threadId: extra.threadId,
+});
+
+/** A `slack.room_send_failed` event. `payload` is an object or raw text. */
+const seedFailure = async (
+  payload: object | string,
+  createdAt: string
+): Promise<string> => {
+  counter += 1;
+  const id = `ev${String(counter).padStart(3, "0")}`;
+  await db.insert(eventRows).values({
+    actorId: "slack",
+    actorKind: "system",
+    createdAt,
+    id,
+    payload: typeof payload === "string" ? payload : JSON.stringify(payload),
+    type: "slack.room_send_failed",
+    workspaceId: "w1",
+  });
+  return id;
+};
+
+/** A room thread and post for the Slack messages to hang off. */
+const seedRoomPost = async () => {
+  const createdAt = new Date(now).toISOString();
+  await db.insert(inboxThreads).values({
+    createdAt,
+    createdBy: "u1",
+    id: "room-thread",
+    lastPostAt: createdAt,
+    title: "Crew plans",
+    workspaceId: "w1",
+  });
+  await db.insert(inboxPosts).values({
+    authorId: a2,
+    authorKind: "agent",
+    createdAt,
+    id: "room-post",
+    text: "Done",
+    threadId: "room-thread",
+    workspaceId: "w1",
+  });
+};
+
+const seedSlackMessage = async (
+  direction: "in" | "out",
+  createdAt: string,
+  channelId: string
+) => {
+  counter += 1;
+  await db.insert(slackRoomMessages).values({
+    channelId,
+    createdAt,
+    direction,
+    id: `sm${String(counter).padStart(3, "0")}`,
+    postId: "room-post",
+    slackTeamId: "T1",
+    ts: `${counter}.000100`,
+    workspaceId: "w1",
+  });
+};
+
+const roomProblemsOf = async (principal = user()) =>
+  (await desk.railSources(principal, { dayStart: DAY_START })).roomProblems;
+
+test("the owner of a team sees its newest room send failure with every field, newest first", async () => {
+  await seedRoomTeam("team-1", { name: "Crew" });
+  await seedRoomTeam("team-2", { name: "Ops" });
+  await seedFailure(
+    failure("team-1", { error: "channel_not_found" }),
+    minutesAgo(5)
+  );
+  const newer = await seedFailure(
+    failure("team-1", { error: "not_in_channel", threadId: "thread-9" }),
+    minutesAgo(2)
+  );
+  const other = await seedFailure(
+    failure("team-2", { error: "is_archived" }),
+    minutesAgo(1)
+  );
+
+  expect(await roomProblemsOf()).toEqual([
+    {
+      at: minutesAgo(1),
+      error: "is_archived",
+      id: other,
+      teamId: "team-2",
+      teamName: "Ops",
+      threadId: null,
+    },
+    {
+      at: minutesAgo(2),
+      error: "not_in_channel",
+      id: newer,
+      teamId: "team-1",
+      teamName: "Crew",
+      threadId: "thread-9",
+    },
+  ]);
+});
+
+test("a viewer who does not own the team sees none of its room problems", async () => {
+  await seedRoomTeam("team-1", { ownerUserId: "u1" });
+  await seedFailure(failure("team-1"), minutesAgo(1));
+
+  expect(await roomProblemsOf()).toHaveLength(1);
+  expect(await roomProblemsOf(user("u2"))).toEqual([]);
+});
+
+test("a team with no owner, or an archived team, gives no room problem", async () => {
+  await seedRoomTeam("team-1", { ownerUserId: null });
+  await seedRoomTeam("team-2", { archivedAt: minutesAgo(10) });
+  await seedFailure(failure("team-1"), minutesAgo(1));
+  await seedFailure(failure("team-2"), minutesAgo(1));
+
+  expect(await roomProblemsOf()).toEqual([]);
+});
+
+test("two failures for one team give one problem, the newest", async () => {
+  await seedRoomTeam("team-1");
+  await seedFailure(failure("team-1", { error: "old" }), minutesAgo(5));
+  const newest = await seedFailure(
+    failure("team-1", { error: "new" }),
+    minutesAgo(1)
+  );
+
+  expect(await roomProblemsOf()).toMatchObject([{ error: "new", id: newest }]);
+});
+
+test("a failure older than the stuck window gives none, and one inside it still shows", async () => {
+  await seedRoomTeam("team-1");
+  await seedRoomTeam("team-2");
+  await seedFailure(failure("team-1"), minutesAgo(8 * 24 * 60));
+  const inside = await seedFailure(failure("team-2"), minutesAgo(6 * 24 * 60));
+
+  expect(await roomProblemsOf()).toMatchObject([
+    { id: inside, teamId: "team-2" },
+  ]);
+});
+
+test("only an outbound room message later than the failure clears the problem", async () => {
+  await seedRoomTeam("team-1");
+  const id = await seedFailure(failure("team-1"), minutesAgo(1));
+  await seedRoomPost();
+  await seedSlackMessage("out", minutesAgo(3), "C-team-1");
+
+  expect(await roomProblemsOf()).toMatchObject([{ id }]);
+
+  await seedSlackMessage("out", minutesAgo(0), "C-team-1");
+  expect(await roomProblemsOf()).toEqual([]);
+});
+
+test("an inbound Slack message does not clear the problem", async () => {
+  await seedRoomTeam("team-1");
+  const id = await seedFailure(failure("team-1"), minutesAgo(1));
+  await seedRoomPost();
+  await seedSlackMessage("in", minutesAgo(0), "C-team-1");
+
+  expect(await roomProblemsOf()).toMatchObject([{ id }]);
+});
+
+test("a team that is unlinked or linked to another channel gives none", async () => {
+  await seedRoomTeam("team-1");
+  await seedFailure(failure("team-1"), minutesAgo(1));
+  expect(await roomProblemsOf()).toHaveLength(1);
+
+  await db
+    .update(teamSlackLinks)
+    .set({ channelId: "C-elsewhere" })
+    .where(eq(teamSlackLinks.teamId, "team-1"));
+  expect(await roomProblemsOf()).toEqual([]);
+
+  await db.delete(teamSlackLinks).where(eq(teamSlackLinks.teamId, "team-1"));
+  expect(await roomProblemsOf()).toEqual([]);
+});
+
+test("a payload that is not JSON or not the failure shape is skipped", async () => {
+  await seedRoomTeam("team-1");
+  const valid = await seedFailure(
+    failure("team-1", { error: "valid" }),
+    minutesAgo(5)
+  );
+  await seedFailure("{not json", minutesAgo(3));
+  await seedFailure(
+    { channelId: "C-team-1", slackTeamId: "T1", teamId: "team-1" },
+    minutesAgo(2)
+  );
+
+  expect(await roomProblemsOf()).toMatchObject([{ error: "valid", id: valid }]);
+});
+
+test("problems for more teams than one batch read all of them", async () => {
+  const teamIds = Array.from({ length: 60 }, (_, index) => `team-${index}`);
+  await Promise.all(
+    teamIds.map(async (teamId, index) => {
+      await seedRoomTeam(teamId);
+      await seedFailure(failure(teamId), minutesAgo(1 + index));
+    })
+  );
+
+  const problems = await roomProblemsOf();
+  expect(problems.map((problem) => problem.teamId)).toEqual(teamIds);
 });
