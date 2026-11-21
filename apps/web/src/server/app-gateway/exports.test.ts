@@ -31,55 +31,62 @@ const readOnlyServerCall = (node: ts.CallExpression, source: ts.SourceFile) => {
   );
 };
 
-test("every source compose caller that can finish a run passes exports and defer", async () => {
-  let checked = 0;
-  let readOnly = 0;
-  for await (const path of new Glob("**/*.{ts,tsx}").scan(root.pathname)) {
-    if (path.endsWith(".test.ts") || path.endsWith(".test.tsx")) {
-      continue;
-    }
-    const text = await file(new URL(path, root)).text();
-    const source = ts.createSourceFile(
-      path,
-      text,
-      ts.ScriptTarget.Latest,
-      true
-    );
-    const visit = (node: ts.Node) => {
-      if (
-        ts.isCallExpression(node) &&
-        node.expression.getText(source) === "compose"
-      ) {
-        if (path === "server.ts" && readOnlyServerCall(node, source)) {
-          readOnly += 1;
-        } else if (path === "server/secrets-outbound.ts") {
-          // SecretsOutbound only fills approved outbound headers and announces
-          // secret injection; it cannot complete a run or deliver a reply.
-          expect(node.getText(source)).toBe(
-            "compose(this.env, import.meta.env.DEV)"
-          );
-        } else {
-          checked += 1;
-          const [, , defer] = node.arguments;
-          expect(
-            defer &&
-              (ts.isArrowFunction(defer) ||
-                defer.getText(source) === "waitUntil"),
-            `${path}: missing defer: ${node.getText(source)}`
-          ).toBe(true);
-          expect(
-            node.arguments[3]?.getText(source),
-            `${path}: ${node.getText(source)}`
-          ).toMatch(EXPORTS_ARGUMENT);
-        }
+// Parses every source file, which outlasts bun's 5s default on a loaded machine.
+const SOURCE_SCAN_TIMEOUT_MS = 60_000;
+
+test(
+  "every source compose caller that can finish a run passes exports and defer",
+  async () => {
+    let checked = 0;
+    let readOnly = 0;
+    for await (const path of new Glob("**/*.{ts,tsx}").scan(root.pathname)) {
+      if (path.endsWith(".test.ts") || path.endsWith(".test.tsx")) {
+        continue;
       }
-      ts.forEachChild(node, visit);
-    };
-    visit(source);
-  }
-  expect(checked).toBeGreaterThan(0);
-  expect(readOnly).toBe(3);
-});
+      const text = await file(new URL(path, root)).text();
+      const source = ts.createSourceFile(
+        path,
+        text,
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const visit = (node: ts.Node) => {
+        if (
+          ts.isCallExpression(node) &&
+          node.expression.getText(source) === "compose"
+        ) {
+          if (path === "server.ts" && readOnlyServerCall(node, source)) {
+            readOnly += 1;
+          } else if (path === "server/secrets-outbound.ts") {
+            // SecretsOutbound only fills approved outbound headers and announces
+            // secret injection; it cannot complete a run or deliver a reply.
+            expect(node.getText(source)).toBe(
+              "compose(this.env, import.meta.env.DEV)"
+            );
+          } else {
+            checked += 1;
+            const [, , defer] = node.arguments;
+            expect(
+              defer &&
+                (ts.isArrowFunction(defer) ||
+                  defer.getText(source) === "waitUntil"),
+              `${path}: missing defer: ${node.getText(source)}`
+            ).toBe(true);
+            expect(
+              node.arguments[3]?.getText(source),
+              `${path}: ${node.getText(source)}`
+            ).toMatch(EXPORTS_ARGUMENT);
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(readOnly).toBe(3);
+  },
+  SOURCE_SCAN_TIMEOUT_MS
+);
 
 test("AppHost composition receives the Worker's exports and waitUntil", async () => {
   const entry = await file(

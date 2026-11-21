@@ -80,11 +80,18 @@ const crossFolderImports = (): { edge: string; label: string }[] => {
   return found;
 };
 
-test("no room tab imports from another tab's folder", () => {
-  const imports = crossFolderImports();
-  // The scan sees the imports it is meant to allow, so an empty result is not a parse failure.
-  expect(new Set(imports.map(({ edge }) => edge))).toEqual(ALLOWED);
-  expect(
-    imports.filter(({ edge }) => !ALLOWED.has(edge)).map(({ label }) => label)
-  ).toEqual([]);
-});
+// Reads every room source file, which outlasts bun's 5s default on a loaded machine.
+const SOURCE_SCAN_TIMEOUT_MS = 60_000;
+
+test(
+  "no room tab imports from another tab's folder",
+  () => {
+    const imports = crossFolderImports();
+    // The scan sees the imports it is meant to allow, so an empty result is not a parse failure.
+    expect(new Set(imports.map(({ edge }) => edge))).toEqual(ALLOWED);
+    expect(
+      imports.filter(({ edge }) => !ALLOWED.has(edge)).map(({ label }) => label)
+    ).toEqual([]);
+  },
+  SOURCE_SCAN_TIMEOUT_MS
+);
