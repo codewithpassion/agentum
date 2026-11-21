@@ -3,7 +3,7 @@ id: TM.13
 title: "'Assigned to' names only people who can see the topic"
 milestone: TM
 size: S
-status: ready
+status: done
 depends_on: []
 branch: task/TM.13-assigned-to-names-only-people-who-can-se
 lane: web-room
@@ -22,3 +22,4 @@ Check. `room-logic.test.ts`: a mention of a non-member is not listed.
 - 2026-11-21: added by controller.
 - 2026-11-21: dispatched.
 - 2026-11-21: ready at adfd7621, review clean, browser proof passed.
+- 2026-11-21: merged e423dd85, merge check passed. Done.
