@@ -35,3 +35,4 @@ From the TX gate review, round 1 (nits):
 - A team dream refused at the workspace cap retries every minute.
 
 From the end-of-v4 browser pass: `@ada` stays plain text going out to Slack because Ada is an agent, so the SL.8 task wording does not match the code.
+- The room's topic title and topic list rows still show a labelled Slack link as raw `[label](url)` text (end-of-v4 browser re-check). SL.14 fixed only the post body.
