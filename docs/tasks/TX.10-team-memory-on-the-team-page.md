@@ -3,7 +3,7 @@ id: TX.10
 title: "Team memory on the team page"
 milestone: TX
 size: S
-status: in_progress
+status: done
 depends_on: [TX.11]
 branch: null
 lane: web-team
@@ -24,3 +24,4 @@ Check. A service test for the list and the notes read, component tests, then the
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
 - 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
 - 2026-11-22: dispatched.
+- 2026-11-22: merged at 8abfedd4, review clean after 0 fix rounds.
