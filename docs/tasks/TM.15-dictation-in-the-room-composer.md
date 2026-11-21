@@ -3,7 +3,7 @@ id: TM.15
 title: "Dictation in the room composer"
 milestone: TM
 size: S
-status: in_progress
+status: done
 depends_on: [TM.13]
 branch: null
 lane: web-room
@@ -23,3 +23,4 @@ Check. A test that the button shows, and the browser at both sizes.
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
 - 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
 - 2026-11-22: dispatched.
+- 2026-11-22: merged at c0333858, review clean after 0 fix rounds. Browser check moved to the end pass.

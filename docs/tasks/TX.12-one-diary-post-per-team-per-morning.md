@@ -3,7 +3,7 @@ id: TX.12
 title: "One diary post per team per morning"
 milestone: TX
 size: S
-status: in_progress
+status: done
 depends_on: []
 branch: null
 lane: services-dream
@@ -25,3 +25,4 @@ Check. A tick test with two finished dreams for one team and one slot: one post.
 - 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
 - 2026-11-22: back in scope on Dom's call (all deferred tasks except the flaky-test fixes).
 - 2026-11-22: dispatched.
+- 2026-11-22: merged at 0201d5a4, review clean after 0 fix rounds.
