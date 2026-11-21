@@ -198,7 +198,7 @@ export const createDreamService = (deps: DreamDeps) => {
     return run as DreamRun;
   };
 
-  /** The owner or an org admin, on a browser session: who may start, undo or decide a dream. */
+  /** The owner or an org admin, on a browser session: who may start or undo a dream. */
   const ownerSession = async (
     principal: Principal,
     workspaceId: string,
