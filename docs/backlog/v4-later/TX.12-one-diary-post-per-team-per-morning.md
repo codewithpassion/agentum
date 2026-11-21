@@ -22,3 +22,4 @@ Check. A tick test with two finished dreams for one team and one slot: one post.
 ## Log
 - 2026-11-21: added by controller from the TX walkthrough.
 - 2026-11-21: controller decision: at the 08:00 slot post only the newest dream's diary.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).

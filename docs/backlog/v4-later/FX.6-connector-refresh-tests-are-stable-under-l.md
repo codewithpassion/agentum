@@ -24,3 +24,4 @@ The FX.4 merge check failed on two tests in `apps/web/src/server/routes/proxy.te
 
 ## Log
 - 2026-11-21: added by controller after the FX.4 merge check failed on these two tests.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).

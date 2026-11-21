@@ -19,3 +19,4 @@ Scope. A minute-tick job that wakes the lead for room posts no wake has seen, an
 Check. Tick test that drops the deferred job and sees the sweep finish the work once.
 ## Log
 - 2026-11-21: added by controller.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).

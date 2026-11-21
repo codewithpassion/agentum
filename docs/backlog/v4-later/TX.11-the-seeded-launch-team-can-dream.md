@@ -21,3 +21,4 @@ Check. A seed test that `runTeamNow` on the seeded team does not refuse.
 
 ## Log
 - 2026-11-21: added by controller from the TX walkthrough.
+- 2026-11-21: deferred to the backlog on Dom's scope freeze (only must-fix bugs stay in v4).
