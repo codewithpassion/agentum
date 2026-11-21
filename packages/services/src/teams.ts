@@ -22,7 +22,12 @@ import { z } from "zod";
 import { slugify, slugSchema } from "./agents.ts";
 import { authorize, ForbiddenError } from "./authz.ts";
 import { isUniqueViolation, ServiceError } from "./errors.ts";
-import { readableWorkspace, requireUser } from "./guards.ts";
+import {
+  isAgentOwnerOrAdmin,
+  readableWorkspace,
+  requireAgentOwnerOrAdmin,
+  requireUser,
+} from "./guards.ts";
 import type { Clock } from "./runs/types.ts";
 import { idString } from "./shared.ts";
 import type { Principal } from "./workspaces.ts";
@@ -291,7 +296,11 @@ export const createTeamsService = ({
 
   const activeAgent = async (workspaceId: string, agentId: string) => {
     const [agent] = await db
-      .select({ id: agents.id })
+      .select({
+        createdBy: agents.createdBy,
+        id: agents.id,
+        ownerUserId: agents.ownerUserId,
+      })
       .from(agents)
       .where(
         and(
@@ -306,6 +315,7 @@ export const createTeamsService = ({
         "Agent must be active in this workspace"
       );
     }
+    return agent;
   };
 
   const memberRef = (input: TeamMemberRefInput) =>
@@ -444,7 +454,8 @@ export const createTeamsService = ({
       throw new ServiceError("conflict", "Team slug is already used");
     }
     if (input.leadAgentId) {
-      await activeAgent(user.workspaceId, input.leadAgentId);
+      const lead = await activeAgent(user.workspaceId, input.leadAgentId);
+      requireAgentOwnerOrAdmin(user, lead, "teams.add_agent");
     }
     const row: TeamRow = {
       ...input,
@@ -510,7 +521,13 @@ export const createTeamsService = ({
     const input = teamMemberInputSchema.parse(raw);
     const row = await writableTeam(principal, input.teamId);
     if (input.memberKind === "agent") {
-      await activeAgent(row.workspaceId, input.memberId);
+      const agent = await activeAgent(row.workspaceId, input.memberId);
+      // Only the agent's owner or an admin may add it, so only they can set its home.
+      requireAgentOwnerOrAdmin(
+        person(principal, true),
+        agent,
+        "teams.add_agent"
+      );
     }
     await atomic(membershipStatements(row, input));
     const [member] = await db
@@ -543,13 +560,39 @@ export const createTeamsService = ({
         )
       );
 
+  /** The team owner may remove anyone; an agent's owner may take it out of any team. */
+  const removableFrom = async (
+    principal: Principal,
+    input: TeamMemberRefInput
+  ) => {
+    if (input.memberKind === "agent") {
+      const user = person(principal, true);
+      const [agent] = await db
+        .select({
+          createdBy: agents.createdBy,
+          ownerUserId: agents.ownerUserId,
+        })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, user.workspaceId),
+            eq(agents.id, input.memberId)
+          )
+        );
+      if (agent && isAgentOwnerOrAdmin(user, agent)) {
+        return teamRow(user.workspaceId, input.teamId);
+      }
+    }
+    return writableTeam(principal, input.teamId, true);
+  };
+
   const removeMember = async (
     principal: Principal,
     raw: TeamMemberRefInput
   ): Promise<Team> => {
     const input = teamMemberRefInputSchema.parse(raw);
     // An archived team still lets its members go, so their folder grants can be revoked.
-    const row = await writableTeam(principal, input.teamId, true);
+    const row = await removableFrom(principal, input);
     const [member] = await db
       .select()
       .from(teamMembers)

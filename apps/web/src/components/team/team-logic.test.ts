@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { JobSentence, TeamMember, TeamMemberKind } from "@repo/db/shared";
+import { ForbiddenError } from "@repo/services/authz";
 import {
   profileSetInputSchema,
   teamCreateInputSchema,
@@ -429,6 +430,25 @@ test("createTeamWithMembers creates the team with the lead and trimmed name", as
     failed: [],
     team: { id: "team-new", name: "Ops" },
   });
+});
+
+test("createTeamWithMembers reports the Forbidden message for another owner's agent", async () => {
+  const api: TeamsWriteApi = {
+    addMember: (input) =>
+      input.memberKind === "agent"
+        ? Promise.reject(new ForbiddenError("teams.add_agent"))
+        : Promise.resolve({}),
+    create: (input) => Promise.resolve({ id: "team-new", name: input.name }),
+  };
+  const result = await createTeamWithMembers(api, {
+    agentIds: ["agent-theirs"],
+    leadAgentId: null,
+    name: "Ops",
+    personIds: ["user-bo"],
+  });
+  expect(result.failed).toEqual([
+    { id: "agent-theirs", reason: "Not allowed: teams.add_agent" },
+  ]);
 });
 
 test("createTeamWithMembers does not add the lead a second time", async () => {
