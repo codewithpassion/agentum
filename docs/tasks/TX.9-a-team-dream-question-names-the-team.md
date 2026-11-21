@@ -3,7 +3,7 @@ id: TX.9
 title: "A team dream question names the team"
 milestone: TX
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: services-desk
@@ -21,3 +21,4 @@ Check. A desk test with a team question, and the Needs you pane in the browser.
 
 ## Log
 - 2026-11-21: added by controller from the TX walkthrough.
+- 2026-11-21: dispatched.
