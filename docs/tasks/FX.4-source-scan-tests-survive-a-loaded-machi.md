@@ -3,7 +3,7 @@ id: FX.4
 title: "Source-scan tests survive a loaded machine"
 milestone: FX
 size: S
-status: todo
+status: in_progress
 depends_on: []
 branch: null
 lane: e2e-scripts
@@ -25,3 +25,4 @@ The SL.13 merge check failed once on `apps/web/src/server/app-gateway/exports.te
 
 ## Log
 - 2026-11-21: added by controller after the SL.13 merge check timed out on this test.
+- 2026-11-21: dispatched.
