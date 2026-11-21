@@ -7,8 +7,6 @@ import {
 import { errorMessage } from "#/lib/error-message.ts";
 import { UNKNOWN_AGENT } from "./team-logic.ts";
 
-const LEAD_HELP =
-  "The lead hears room messages that name nobody, and hands the work out.";
 const NO_AGENTS_HELP = "Add an agent to the team to choose a lead.";
 const NO_LEAD = "No lead.";
 
@@ -53,14 +51,13 @@ export function LeadPicker({
   }
 
   const noChoices = choices.length === 0;
-  const helpText = noChoices ? NO_AGENTS_HELP : LEAD_HELP;
 
   return (
     <div className="flex flex-col gap-3">
       <Field>
         <FieldLabel htmlFor="team-lead">Lead</FieldLabel>
         <NativeSelect
-          aria-describedby="team-lead-help"
+          aria-describedby={noChoices ? "team-lead-help" : undefined}
           disabled={saving || noChoices}
           id="team-lead"
           onChange={change}
@@ -73,7 +70,11 @@ export function LeadPicker({
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        <FieldDescription id="team-lead-help">{helpText}</FieldDescription>
+        {noChoices ? (
+          <FieldDescription id="team-lead-help">
+            {NO_AGENTS_HELP}
+          </FieldDescription>
+        ) : null}
       </Field>
       {error === null ? null : (
         <p className="text-destructive text-sm" role="alert">

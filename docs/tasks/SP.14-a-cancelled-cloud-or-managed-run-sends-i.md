@@ -3,9 +3,9 @@ id: SP.14
 title: "A cancelled cloud or managed run sends its cost"
 milestone: SP
 size: S
-status: todo
+status: in_progress
 depends_on: []
-branch: null
+branch: task/SP.14-a-cancelled-cloud-or-managed-run-sends-i
 lane: runtimes
 executor: claude
 ---
@@ -28,3 +28,4 @@ SP.13 taught `completeRun` to accept a late usage report on a cancelled run. The
 
 ## Log
 - 2026-11-21: added by controller from the SP gate round 2.
+- 2026-11-21: dispatched.
