@@ -3,9 +3,9 @@ id: FR.6
 title: "Team starters in the New team dialog"
 milestone: FR
 size: S
-status: in_progress
+status: ready
 depends_on: []
-branch: null
+branch: task/FR.6-team-starters-in-the-new-team-dialog
 lane: web-team
 executor: claude
 ---
@@ -27,3 +27,4 @@ From the FR.5 walkthrough (`docs/reviews/FR-e2e.md`, must-fix). FR.2 shipped `bu
 ## Log
 - 2026-11-21: added by controller from the FR.5 walkthrough.
 - 2026-11-21: dispatched.
+- 2026-11-21: ready at 7fe58df6, review clean. Controller decision: there is no workspace default runtime, so a starter team's members get the Cloud runtime when the workspace has an Anthropic or OpenRouter key. With no key, Create is disabled and the dialog links to Settings.
